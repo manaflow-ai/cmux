@@ -176,6 +176,17 @@ import CmuxNextWakeupsTestSupport
         #expect(h.socket?.closed == true)
     }
 
+    @Test func aBuildActedOnInOneFeedDoesNotHideTheOther() async throws {
+        let h = Harness()
+        defer { h.listener.stop() }
+        let nightly = try await connected(h)
+        try await settle(h, nightly, marker: 300)
+        let tip = try await connected(h, feed: Self.tipFeed)
+        #expect(nightly.closed, "the nightly socket stayed open after the feed changed")
+        tip.deliver(Self.frame(200, feed: "tip"))
+        #expect(await eventually { h.checks == [300, 200] }, "the nightly build acted on hid the tip feed's newer build")
+    }
+
     @Test func anUnknownFeedNeverConnects() async throws {
         for feed in ["https://files.cmux.com/appcast.xml", "https://files-next.cmux.com/nightly-next/next/appcast-x86_64.xml",
                      "https://example.com/nightly-next/next/appcast-arm64.xml", nil] {
@@ -259,7 +270,9 @@ import CmuxNextWakeupsTestSupport
         h.clock.advance(by: ReleasePushListener.pingInterval)
         try #require(await eventually { socket.sent == ["ping", "ping"] }, "no second ping")
         #expect(!socket.closed, "an answered ping closed the socket")
-        // No answer within the next minute: the socket is closed and replaced.
+        // A release frame is not an answer to the ping.
+        try await settle(h, socket, marker: 201)
+        // No pong within the next minute: the socket is closed and replaced.
         try await h.clock.waitForSleeper()
         h.clock.advance(by: ReleasePushListener.pingInterval)
         try #require(await eventually { socket.closed }, "an unanswered ping left the socket open")

@@ -74,8 +74,9 @@ final class ReleasePushListener {
     var onNewerBuild: ((Int64) -> Void)?
     /// The feed connected to, or nil.
     private(set) var feed: String?
-    /// The newest build a frame acted on.
+    /// The newest build a frame acted on, and the feed it came from.
     private(set) var lastActed: Int64?
+    private var lastActedFeed: String?
     private(set) var task: Task<Void, Never>?
     private(set) var socket: (any ReleasePushSocket)?
     /// Connections in a row that heard nothing (the backoff's exponent).
@@ -100,6 +101,9 @@ final class ReleasePushListener {
         guard next != feed || (next != nil && task == nil) else { return }
         stop()
         guard let next, let url = Self.socketURL(feed: next) else { return }
+        // The last build acted on belongs to the feed it came from.
+        if lastActedFeed != next { lastActed = nil }
+        lastActedFeed = next
         feed = next
         log("release push: listening on \(next)")
         task = Task { [weak self] in await self?.run(url: url, feed: next) }
@@ -158,7 +162,8 @@ final class ReleasePushListener {
             // A frame that arrives after stop() (or after this socket was replaced) is not read.
             guard !Task.isCancelled, self.socket === socket else { return heard }
             heard = true
-            awaitingPong = false
+            // Only the Worker's answer to the ping proves the ping got through.
+            if text == "pong" { awaitingPong = false }
             if let text { handle(text, feed: feed) }
         }
         return heard
