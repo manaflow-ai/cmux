@@ -282,14 +282,19 @@ pub(super) fn start(worker: SnapshotWorker, commit: AttachCommit) -> anyhow::Res
         return commit_client_attach_and_start_pump(&mux, client, surface, stream.id, commit, pump);
     }
     let (worker_start, worker_committed) = std::sync::mpsc::sync_channel(1);
-    let spawned =
-        std::thread::Builder::new().name("mux-snapshot-attach-out".into()).spawn(move || {
+    // A control stream, not an echo-path thread: it waits for the attach to
+    // commit, and echo-path threads disallow blocking.
+    let spawned = cmux_threads::spawn(
+        "mux-snapshot-attach-out",
+        crate::thread_qos::ThreadType::Interactive.qos(),
+        move || {
             if waits::recv(&worker_committed).is_ok() {
                 worker.run();
             } else {
                 worker.unregister();
             }
-        });
+        },
+    );
     let AttachCommit { lifecycle, changed, size_rollback } = commit;
     if let Err(error) = spawned {
         lifecycle.cancel();

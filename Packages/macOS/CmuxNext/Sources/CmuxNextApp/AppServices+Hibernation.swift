@@ -39,6 +39,7 @@ extension AppServices {
         hibernation.discardsGrowingFrozenPages = features.isEnabled(.frozenGrowthDiscard)
         hibernation.discardsAppPages = features.isEnabled(.memoryDiscardPageTabs)
         hibernation.discardsStreamedPages = features.isEnabled(.memoryDiscardRemoteTabs)
+        hibernation.discardsCrashedSubframes = features.isEnabled(.memoryDiscardCrashedSubframes)
         hibernation.openerLinks = { [weak self] in self?.scriptOpenerLinks() ?? [:] }
         hibernation.ranksUrgentDiscards = features.isEnabled(.memoryUrgentDiscardRanking)
         hibernation.snapshots.keepsCompressed = features.isEnabled(.compressedSnapshots)
