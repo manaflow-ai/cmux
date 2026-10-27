@@ -61,9 +61,7 @@ export type InspectorPullRequestStatus = {
 };
 
 /// The header's pull request (the chat folder's, read live by the App) as a status.
-export function headerStatus(
-  pr: HeaderPullRequest | undefined,
-): Record<string, InspectorPullRequestStatus> {
+export function headerStatus(pr: HeaderPullRequest | undefined): Record<string, InspectorPullRequestStatus> {
   if (!pr) return {};
   const failing = pr.checkList.filter((check) => check.state === "failed").length;
   return {
@@ -104,10 +102,7 @@ export function rowState(pr: SummaryPullRequest, live: InspectorPullRequestStatu
 }
 
 /// The glyph a row draws: its state, and an open one GitHub can't merge for conflicts is red.
-export function glyphState(
-  pr: SummaryPullRequest,
-  live: InspectorPullRequestStatus,
-): PullRequestGlyphState {
+export function glyphState(pr: SummaryPullRequest, live: InspectorPullRequestStatus): PullRequestGlyphState {
   const state = rowState(pr, live);
   if (state === "merged" || state === "closed" || state === "draft") return state;
   return live.mergeable === "conflicting" ? "conflicting" : "open";
@@ -239,9 +234,7 @@ function PullRequestRow({
             <span className="acpmux-chat-inspector-pr__title">{title || `#${pr.number}`}</span>
             {live.owner && (
               <span className="acpmux-chat-inspector-pr__owner">
-                <span className="acpmux-chat-inspector-sr-only">
-                  {t("chatInspector.changes.ownerLabel")}{" "}
-                </span>
+                <span className="acpmux-chat-inspector-sr-only">{t("chatInspector.changes.ownerLabel")} </span>
                 {live.owner}
               </span>
             )}
@@ -249,11 +242,7 @@ function PullRequestRow({
           <span className="acpmux-chat-inspector-pr__line">
             <span className="acpmux-chat-inspector-pr__ref">{`${repoName} #${pr.number}`}</span>
             {live.additions !== undefined && live.deletions !== undefined && (
-              <LineTotals
-                additions={live.additions}
-                deletions={live.deletions}
-                breakdown={live.breakdown}
-              />
+              <LineTotals additions={live.additions} deletions={live.deletions} breakdown={live.breakdown} />
             )}
             {comments > 0 && (
               <span className="acpmux-chat-inspector-pr__comments">
@@ -266,9 +255,7 @@ function PullRequestRow({
             )}
             {failing !== 0 ? (
               <span className="acpmux-chat-inspector-pr__checks" data-checks="failing">
-                {failing > 0
-                  ? t("chatInspector.changes.failing", { count: failing })
-                  : t("rail.checksFailing")}
+                {failing > 0 ? t("chatInspector.changes.failing", { count: failing }) : t("rail.checksFailing")}
                 {onBase > 0 && (
                   <span className="acpmux-chat-inspector-pr__base">
                     {" "}
@@ -278,11 +265,7 @@ function PullRequestRow({
               </span>
             ) : checks && CHECK_LABELS[checks] ? (
               // tooltip-allow: the checks mark shows no text; its label is for screen readers only
-              <span
-                className="acpmux-chat-inspector-pr__checks"
-                data-checks={checks}
-                title={t(CHECK_LABELS[checks]!)}
-              >
+              <span className="acpmux-chat-inspector-pr__checks" data-checks={checks} title={t(CHECK_LABELS[checks]!)}>
                 <span className="acpmux-chat-inspector-sr-only">{t(CHECK_LABELS[checks]!)}</span>
               </span>
             ) : null}
@@ -313,30 +296,18 @@ function PullRequestRow({
           align="end"
         >
           {onOpenBeside && (
-            <MenuItem
-              className="acpmux-chat-inspector-menu__item"
-              onSelect={() => onOpenBeside(pr.url)}
-            >
+            <MenuItem className="acpmux-chat-inspector-menu__item" onSelect={() => onOpenBeside(pr.url)}>
               {t("chatInspector.changes.openBeside")}
             </MenuItem>
           )}
-          <MenuItem
-            className="acpmux-chat-inspector-menu__item"
-            onSelect={() => void copyText(pr.url)}
-          >
+          <MenuItem className="acpmux-chat-inspector-menu__item" onSelect={() => void copyText(pr.url)}>
             {t("chatInspector.changes.copyLink")}
           </MenuItem>
-          <MenuItem
-            className="acpmux-chat-inspector-menu__item"
-            onSelect={() => void copyText(reference)}
-          >
+          <MenuItem className="acpmux-chat-inspector-menu__item" onSelect={() => void copyText(reference)}>
             {t("chatInspector.changes.copyReference")}
           </MenuItem>
           {onDismiss && (
-            <MenuItem
-              className="acpmux-chat-inspector-menu__item"
-              onSelect={() => onDismiss(pr.url)}
-            >
+            <MenuItem className="acpmux-chat-inspector-menu__item" onSelect={() => onDismiss(pr.url)}>
               {t("prDock.dismiss", { number: pr.number })}
             </MenuItem>
           )}
@@ -368,10 +339,7 @@ function LineTotals({
           {kinds.map((kind) => (
             <span key={kind} className="acpmux-chat-inspector-breakdown__row">
               <span>{t(KIND_LABELS[kind])}</span>
-              <Counts
-                additions={breakdown![kind]!.additions}
-                deletions={breakdown![kind]!.deletions}
-              />
+              <Counts additions={breakdown![kind]!.additions} deletions={breakdown![kind]!.deletions} />
             </span>
           ))}
         </span>
