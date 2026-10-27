@@ -28,6 +28,9 @@ command -v "$R" >/dev/null || { echo "error: rcodesign not found ($R)" >&2; exit
 : "${ASC_API_KEY_ID:?}" "${ASC_API_ISSUER_ID:?}" "${ASC_API_KEY_P8_BASE64:?}"
 export APPLE_CERTIFICATE_PASSWORD
 
+# rcodesign reads every RCODESIGN_* variable as configuration, so none reaches it.
+while IFS= read -r name; do unset "$name"; done < <(compgen -e | grep "^RCODESIGN_" || true)
+
 secrets=""
 trap 'rm -rf ${secrets:+"$secrets"}' EXIT
 trap 'exit 129' HUP; trap 'exit 130' INT; trap 'exit 143' TERM
