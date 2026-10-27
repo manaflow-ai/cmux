@@ -142,7 +142,8 @@
     {"owner": "ErrorJournalService.harvest", "period_s": 300, "why": "harvests crash and error reports written by other processes; task 064 moves it to NSBackgroundActivityScheduler"},
     {"owner": "GitHubFeedSource.refresh", "period_s": 120, "why": "GitHub has no push for the feed; task 066 stops it while no feed surface shows"},
     {"owner": "DeviceHubSocket.ping", "period_s": 30, "why": "PROTOCOL.md keepalive of the device hub; task 066 sends it only after silence"},
-    {"owner": "ControlEventBus.heartbeat", "period_s": 15, "why": "events.stream include_heartbeats keepalive, only while a client asked for it and stays connected"}
+    {"owner": "ControlEventBus.heartbeat", "period_s": 15, "why": "events.stream include_heartbeats keepalive, only while a client asked for it and stays connected"},
+    {"owner": "IrxConnection.keepalive", "period_s": 15, "why": "the dialing client's application probe (CmuxIrxTransport IrxPeerEngine), only after 15 s with no bytes from the peer and only while the app is active; Chromium's QUIC ping timeout"}
   ],
   "assertions_allowed_when": ["sessions.keepAwake", "phone.keepAwake"]
 }
