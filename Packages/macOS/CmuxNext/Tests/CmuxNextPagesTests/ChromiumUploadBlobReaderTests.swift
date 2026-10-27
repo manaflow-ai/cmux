@@ -62,7 +62,7 @@ struct ChromiumUploadBlobReaderTests {
         _ = await request.value
         await reader.close()
         let released: Bool? = await PageTestWait.value("release late Blob", seconds: 2) { done in
-            func check() { if page.calls.contains(where: { $0.method == "Runtime.releaseObject" }) { done(true) } }
+            @MainActor func check() { if page.calls.contains(where: { $0.method == "Runtime.releaseObject" }) { done(true) } }
             page.onCall = check
             check()
         }
