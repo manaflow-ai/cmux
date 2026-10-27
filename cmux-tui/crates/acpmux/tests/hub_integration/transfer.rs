@@ -129,6 +129,9 @@ async fn a_moved_chat_keeps_its_history_queue_and_draft_and_each_queued_prompt_r
     assert_eq!(draft["draft"], "unsent words", "{draft}");
     let left = src.request(method::MUX_INFO, json!({"sessionId": id})).await.unwrap();
     assert_eq!(left["status"], "closed", "{left}");
+    assert_eq!(left["transferBlocked"], true, "{left}");
+    let arrived = dst.request(method::MUX_INFO, json!({"sessionId": id})).await.unwrap();
+    assert_eq!(arrived["transferBlocked"], false, "import clears the source move: {arrived}");
     let draft = src.request(method::MUX_DRAFT_GET, json!({"sessionId": id})).await.unwrap();
     assert!(draft["draft"].is_null(), "the source keeps no draft: {draft}");
 }
@@ -146,6 +149,8 @@ async fn a_chat_being_moved_takes_no_prompt_and_an_aborted_move_gives_it_back() 
         .request("_acpmux/transfer_begin", json!({"sessionId": id, "interrupt": true}))
         .await
         .unwrap();
+    let info = src.request(method::MUX_INFO, json!({"sessionId": id})).await.unwrap();
+    assert_eq!(info["transferBlocked"], true, "begin revokes authority: {info}");
     let refused = src.request(method::SESSION_PROMPT, prompt(&id, "p-late", "late")).await;
     assert!(refused.as_ref().is_err_and(|e| e.contains("transfer.moving")), "{refused:?}");
     // Its queue and draft move as they are.
@@ -163,6 +168,8 @@ async fn a_chat_being_moved_takes_no_prompt_and_an_aborted_move_gives_it_back() 
     )
     .await
     .unwrap();
+    let info = src.request(method::MUX_INFO, json!({"sessionId": id})).await.unwrap();
+    assert_eq!(info["transferBlocked"], false, "explicit abort restores authority: {info}");
     // Given back: its queue runs, and it takes prompts again.
     src.wait_for(method::SESSION_UPDATE, |p| p["update"]["content"]["text"] == "echo: a").await;
     src.request(method::SESSION_PROMPT, prompt(&id, "p-again", "again")).await.unwrap();
@@ -227,6 +234,8 @@ async fn a_move_whose_client_goes_away_before_the_bundle_is_read_gives_the_chat_
     let aborted = records(&mut src, &id, "transfer_aborted").await;
     assert_eq!(aborted.len(), 1, "{aborted:?}");
     assert_eq!(aborted[0]["reason"], "stalled", "{aborted:?}");
+    let info = src.request(method::MUX_INFO, json!({"sessionId": id})).await.unwrap();
+    assert_eq!(info["transferBlocked"], false, "watchdog abort restores authority: {info}");
 }
 
 #[tokio::test]

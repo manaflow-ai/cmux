@@ -1538,6 +1538,7 @@ async fn dispatch_request(
             let mut detail = hub.session_detail(&s);
             if let Some(obj) = detail.as_object_mut() {
                 obj.insert("logsLoading".into(), json!(!hub.session_log_loaded(&s)));
+                obj.insert("transferBlocked".into(), json!(s.transfer_blocked()));
             }
             // The session env reaches the unix socket only: no summary or
             // event carries it, so a key added to the allowlist later never

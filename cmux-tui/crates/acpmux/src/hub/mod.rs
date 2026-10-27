@@ -154,6 +154,7 @@ pub(crate) mod outbox;
 pub mod rules;
 mod transcript;
 mod transfer;
+mod transfer_authority;
 mod transfer_guard;
 mod transfer_in;
 mod transfer_out;
@@ -764,6 +765,7 @@ impl Hub {
             }
             let session = self.make_session(meta);
             session.caught_up.store(false, Ordering::SeqCst);
+            *session.transfer_authority.lock().unwrap_or_else(|e| e.into_inner()) = None;
             // Its log is read after the ready line (`log_load.rs`).
             *session.log_load.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = false;
             session.log_loaded.store(false, Ordering::SeqCst);
@@ -853,6 +855,7 @@ impl Hub {
             queue: StdMutex::new(Vec::new()),
             queue_moved: Notify::new(),
             moving: StdMutex::new(None),
+            transfer_authority: StdMutex::new(Some((0, false))),
             restored: StdMutex::new(Vec::new()),
             stream: StdMutex::new(StreamState::default()),
             permissions: StdMutex::new(permission_groups::PermissionState::default()),
@@ -1027,6 +1030,9 @@ impl Hub {
                 false
             }
         };
+        if stored {
+            session.note_transfer_event(&record);
+        }
         // A closed session's log is not held open: its last records (`status`,
         // then the agent's `stopped`) each close it again (`store.rs` Writers).
         if session.status() == SessionStatus::Closed {

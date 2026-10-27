@@ -1979,10 +1979,12 @@ async fn info_answers_while_the_chat_logs_load() {
     .expect("_acpmux/info {waitLogs: false} answered within 2 s while the logs load");
     assert_eq!(early["sessionId"], session.as_str(), "{early:#}");
     assert_eq!(early["logsLoading"], true, "info did not say the logs are loading: {early:#}");
+    assert!(early["transferBlocked"].is_null(), "unread history grants no authority: {early:#}");
 
     let waited = rpc.call("_acpmux/info", json!({"sessionId": session})).await;
     assert!(started.elapsed() < HOLD, "info waited for the whole log load: {waited:#}");
     assert_eq!(waited["logsLoading"], false, "info answered before its log was read: {waited:#}");
+    assert_eq!(waited["transferBlocked"], false, "{waited:#}");
 }
 
 /// Review 31 of #23322: a switch into full access that MDM's off overtook stops the agent within a
@@ -2878,4 +2880,37 @@ async fn an_auto_answered_asks_logged_display_line_is_never_read_back() {
     let display =
         &group["msg"]["group"]["items"][0]["request"]["toolCall"]["_meta"]["acpmux"]["display"];
     assert_eq!(display["target"], "a12", "{display}");
+}
+
+/// Both uncommitted and committed moves survive an actual daemon restart; the latter is
+/// closed and therefore skipped by queue restoration.
+#[tokio::test]
+async fn transfer_authority_survives_restart_and_abort_restores_the_live_root() {
+    let mut daemon = Daemon::new("transfer-auth", "approve-all");
+    let session = new_session(&daemon).await;
+    let mut rpc = daemon.rpc().await;
+    let fresh = rpc.call("_acpmux/info", json!({"sessionId": session})).await;
+    assert_eq!(fresh["transferBlocked"], false, "{fresh}");
+    let begin = rpc.call("_acpmux/transfer_begin", json!({"sessionId": session})).await;
+    let transfer = begin["transferId"].as_str().expect("began transfer").to_owned();
+    daemon.sigterm();
+    drop(rpc);
+    daemon.start();
+    let mut rpc = daemon.rpc().await;
+    let begun = rpc.call("_acpmux/info", json!({"sessionId": session})).await;
+    assert_eq!(begun["transferBlocked"], true, "restart forgot pending move: {begun}");
+    rpc.call("_acpmux/transfer_abort", json!({"sessionId": session, "transferId": transfer})).await;
+    let aborted = rpc.call("_acpmux/info", json!({"sessionId": session})).await;
+    assert_eq!(aborted["transferBlocked"], false, "abort did not restore authority: {aborted}");
+    let begin = rpc.call("_acpmux/transfer_begin", json!({"sessionId": session})).await;
+    let committed = rpc.call("_acpmux/transfer_commit",
+        json!({"sessionId": session, "transferId": begin["transferId"], "to": {"sessionId": session}})).await;
+    assert_eq!(committed["committed"], true, "{committed}");
+    daemon.sigterm();
+    drop(rpc);
+    daemon.start();
+    let mut rpc = daemon.rpc().await;
+    let closed = rpc.call("_acpmux/info", json!({"sessionId": session})).await;
+    assert_eq!(closed["status"], "closed", "{closed}");
+    assert_eq!(closed["transferBlocked"], true, "restart forgot committed move: {closed}");
 }

@@ -148,6 +148,7 @@ impl Hub {
             panic!("ACPMUX_TEST_PANIC_IN_LOAD_LOGS");
         }
         self.catch_up(session);
+        self.restore_transfer_authority(session);
         let (hosted, waiting) = {
             let plan = self.load_plan.lock().unwrap_or_else(|e| e.into_inner());
             (plan.hosted.contains(&session.id), plan.waiting.contains(&session.id))
