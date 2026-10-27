@@ -57,6 +57,14 @@ pub(super) fn subscribe_command(
             .subscribe_surface_session(surface)
             .ok_or_else(|| anyhow::anyhow!("unknown surface {surface}"))?,
         (None, Some(kinds)) => mux.subscribe_kinds(kinds),
+        (None, None)
+            if matches!(
+                super::origin_gate::connection_actor(mux, client),
+                crate::workspace_registry::Actor::Frontend { .. }
+            ) =>
+        {
+            mux.subscribe_frontend()
+        }
         (None, None) => mux.subscribe(),
     };
     #[cfg(test)]
@@ -100,21 +108,23 @@ pub(super) fn subscribe_command(
         outbound_stream.register_interrupt(&interrupt);
         events.wake_on(&interrupt);
         while writer.is_open() && outbound_stream.is_open() {
-            let (event, cause) = match events.recv_caused_until_interrupted(&interrupt) {
+            let (shared, cause) = match events.recv_caused_until_interrupted(&interrupt) {
                 Ok(caused) => caused,
                 Err(std::sync::mpsc::RecvTimeoutError::Timeout) => continue,
                 Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
             };
+            // Rendered from the event every subscriber shares, never copied.
+            let event: &MuxEvent = &shared;
             #[cfg(test)]
-            probe.received.note(&event);
+            probe.received.note(event);
             // A surface stream is not filtered on the bus: drop an unwanted
             // kind before any JSON is built.
-            if interest.is_some_and(|kinds| !kinds.accepts(&event)) {
+            if interest.is_some_and(|kinds| !kinds.accepts(event)) {
                 continue;
             }
             #[cfg(test)]
-            probe.rendered.note(&event);
-            let mut value = match &event {
+            probe.rendered.note(event);
+            let mut value = match event {
                 MuxEvent::PairingRequested(_) | MuxEvent::PairingResolved { .. }
                     if !trusted_pairing_client =>
                 {
@@ -296,7 +306,7 @@ pub(super) fn subscribe_command(
                         SizeStateReader { client, open, scheme: event_mux.participant_scheme() };
                     size_state_event_json(*surface, *runtime, state, Some(reader))
                 }
-                _ => subscribed_event_json(&event),
+                _ => subscribed_event_json(event),
             };
             if let Some(events) = page_events
                 && !value

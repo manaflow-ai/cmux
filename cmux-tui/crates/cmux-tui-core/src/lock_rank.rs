@@ -125,6 +125,15 @@ mod held {
         );
     }
 
+    /// `work` must not run while this thread holds `rank`.
+    #[track_caller]
+    pub(super) fn assert_not_held(rank: LockRank, work: &'static str) {
+        let held_name = HELD.with(|held| {
+            held.borrow().iter().find(|entry| entry.rank == rank).map(|entry| entry.name)
+        });
+        debug_assert!(held_name.is_none(), "{work} ran while this thread holds {held_name:?}");
+    }
+
     pub(super) fn pop(id: u64) {
         // Guards may drop out of order, and during thread teardown.
         let _ = HELD.try_with(|held| {
@@ -134,6 +143,18 @@ mod held {
             }
         });
     }
+}
+
+/// Debug and test builds: panic when this thread holds `rank` (`work` names
+/// what must run outside it, as the mux event fan-out runs outside
+/// `Mux::state`). Release builds compile it out.
+#[track_caller]
+#[inline]
+pub(crate) fn debug_assert_rank_not_held(rank: LockRank, work: &'static str) {
+    #[cfg(debug_assertions)]
+    held::assert_not_held(rank, work);
+    #[cfg(not(debug_assertions))]
+    let _ = (rank, work);
 }
 
 /// The last rank whose holds are counted in every build: lock admission

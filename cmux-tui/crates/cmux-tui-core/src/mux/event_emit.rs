@@ -8,6 +8,12 @@ impl Mux {
         self.subscribers.subscribe()
     }
 
+    /// The verified app's subscription: every event, delivered before any
+    /// other subscriber's.
+    pub(crate) fn subscribe_frontend(&self) -> MuxEventReceiver {
+        self.subscribers.subscribe_frontend()
+    }
+
     /// A subscription that receives only events of `kinds` (a page relay's
     /// interest set): the bus never queues the others for it.
     pub(crate) fn subscribe_kinds(
@@ -83,7 +89,9 @@ impl Mux {
 
     /// Publish `event` to every subscriber, stamped with this thread's
     /// [`EventCause`]: the cause of the request being handled, or `Program`
-    /// outside one (PTY output, OSC titles, hooks, reaps).
+    /// outside one (PTY output, OSC titles, hooks, reaps). Under the state
+    /// lock the event is only queued: subscribers get it, in order, when
+    /// this thread releases the lock.
     pub fn emit(&self, event: MuxEvent) {
         let cause = EventCause::current();
         self.activity.observe(&event);
