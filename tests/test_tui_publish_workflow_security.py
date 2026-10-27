@@ -2339,88 +2339,20 @@ def test_cmux_tui_artifacts_never_drops_a_feat_cmux_next_push() -> None:
     assert dispatched != evaluate("push", feat, "c" * 40)
     assert "c" * 40 in dispatched
 
-def test_cmux_next_daemon_tests_take_the_owned_side_lane_like_the_build_legs() -> None:
-    # 2026-10-11: the daemon tests named MACOS_RUNNER_PR directly while the
-    # build legs beside them take the owned side lane on attempt 1. Once every
-    # same-repo branch push ran this workflow (#19169), 16 daemon-test jobs sat
-    # queued on Blacksmith macOS at its cap while the minis had room. The first
-    # attempt uses the same route as the build legs. 2026-10-14: a rerun stays
-    # on the minis too; it fell through to MACOS_RUNNER_PR, the nightly build's
-    # 12 vCPU macOS 26 label (tests/test_ci_tui_routes_avoid_nightly_label.py).
+def test_cmux_next_daemon_tests_take_blacksmith_linux_and_the_mac_shadow_never_the_promote_pool() -> None:
+    # 2026-10-26 (Leo: "I THOUGHT THESE COULD JUST GO ON LINUX"): the
+    # promotion gate runs on Blacksmith Linux on every event and attempt; the
+    # macOS-only tests run in a shadow that gates nothing and never takes the
+    # promote pool or the nightly label (tests/test_cmux_tui_daemon_tests_linux.py).
     document = yaml.load(workflow("cmux-tui-artifacts.yml"), Loader=yaml.BaseLoader)
     jobs = document["jobs"]
-    build_route = jobs["build"]["with"]["macos_runner"]
-    retry_route = jobs["build"]["with"]["macos_retry_runner"]
     daemon = jobs["cmux-next-daemon-tests"]["runs-on"]
-    assert "vars.CI_SIDE_LANE_RUNNER" in build_route
-    # cx-km8nz: the daemon tests gate the nightly-next promotion, so attempt 1
-    # of a feat-cmux-next push takes the reserved promote runners, after the
-    # fork gate; otherwise the build legs' route.
-    fork_gate = "github.repository_owner != 'manaflow-ai' && 'macos-26' || "
-    # 2026-10-15: the daemon tests' own pool, when set, comes first in that
-    # slot; one mini serves the promote pool and the Release compile.
-    # 2026-10-26: cmux-next-daemon-tests-runner's pick (a free owned Mac, else
-    # Blacksmith macOS 15) comes before the declared pools, which only catch a
-    # failed pick (run 40397154574 sat queued on the side lane from 22:19Z).
-    picked = (
-        "github.repository_owner == 'manaflow-ai' && github.event_name == 'push' && "
-        "github.ref == 'refs/heads/feat-cmux-next' && github.run_attempt == 1 && "
-        "needs.cmux-next-daemon-tests-runner.outputs.label || "
-    )
-    promote = picked + (
-        "vars.CI_NEXT_DAEMON_POOL != '' && github.repository_owner == 'manaflow-ai' && "
-        "github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && "
-        "github.run_attempt == 1 && vars.CI_NEXT_DAEMON_POOL || "
-        "vars.CI_NEXT_PROMOTE_POOL != '' && github.repository_owner == 'manaflow-ai' && "
-        "github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && "
-        "github.run_attempt == 1 && vars.CI_NEXT_PROMOTE_POOL || "
-    )
-    # 2026-10-21: a cmux-tui-pin-* push takes CI_PIN_DAEMON_POOL, else
-    # Blacksmith Linux, on every attempt, and never the side lane; a pin pool
-    # never names the promotion's daemon pool
-    # (tests/test_ci_tui_routes_avoid_nightly_label.py,
-    # tests/test_cmux_tui_daemon_tests_linux.py).
-    promotion_pool = "(vars.CI_NEXT_DAEMON_POOL || vars.CI_NEXT_PROMOTE_POOL)"
-    pin = (
-        "github.repository_owner == 'manaflow-ai' && github.event_name == 'push' && "
-        "startsWith(github.ref, 'refs/heads/cmux-tui-pin-') && ("
-        "vars.CI_PIN_DAEMON_POOL != vars.CI_SIDE_LANE_RUNNER && "
-        f"vars.CI_PIN_DAEMON_POOL != {promotion_pool} && vars.CI_PIN_DAEMON_POOL || "
-        "'blacksmith-16vcpu-ubuntu-2404') || "
-    )
-    assert fork_gate in build_route
-    side_attempt_one = "github.run_attempt == 1 && vars.CI_SIDE_LANE_RUNNER"
-    assert side_attempt_one in build_route
-    # cx-urd.50: through the bot's attempt 3; its attempt 4 is the rescue's
-    # last resort and goes to Blacksmith macOS 15, never the nightly label.
-    every_attempt = build_route.replace(
-        side_attempt_one,
-        "(github.run_attempt <= 3 || github.triggering_actor != 'github-actions[bot]') && "
-        "vars.CI_SIDE_LANE_RUNNER",
-        1,
-    )
-    assert daemon == every_attempt.replace(fork_gate, fork_gate + promote + pin, 1), daemon
-    assert "MACOS_RUNNER_PR" not in daemon
-    assert retry_route.split("|| ", 1)[1] in daemon  # owned pools off: Blacksmith macOS 15
-    runner = jobs["cmux-next-daemon-tests-runner"]
-    # The pick runs whenever the tests do, so they are never skipped for want of it.
-    assert runner["if"] == jobs["cmux-next-daemon-tests"]["if"]
-    assert runner["needs"] == ["tree-preflight", "tree-owner-wait"]
-    assert runner["continue-on-error"] == "true"
-    assert "cmux-next-daemon-tests-runner" in jobs["cmux-next-daemon-tests"]["needs"]
-    pick = next(step for step in runner["steps"] if step.get("id") == "pool")["run"]
-    assert "e2e_runner_pool.py" in pick and "--requested auto" in pick
-    # Only an owned label passes through; anything else is Blacksmith macOS 15,
-    # never the nightly's macOS 26 labels.
-    assert "glaeda-*)" in pick and 'label="$FALLBACK_LABEL"' in pick
-    # ROUTE_TOKEN replaces GH_TOKEN in the picker, which also reads the
-    # janitor's queue snapshot artifact, so both mints carry Actions read.
-    for step_id in ("route-token", "route-token-repo"):
-        mint = next(step for step in runner["steps"] if step.get("id") == step_id)["with"]
-        assert mint["permission-actions"] == "read", step_id
-    fallback = next(step for step in runner["steps"] if step.get("id") == "pool")["env"]["FALLBACK_LABEL"]
-    assert fallback.endswith("|| 'blacksmith-6vcpu-macos-15' }}"), fallback
-
+    assert daemon == "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-32vcpu-ubuntu-2404' }}", daemon
+    assert "cmux-next-daemon-macos-shadow" not in jobs
+    shadow_doc = yaml.load(workflow("cmux-next-daemon-macos-shadow.yml"), Loader=yaml.BaseLoader)
+    shadow = shadow_doc["jobs"]["cmux-next-daemon-macos-shadow"]["runs-on"]
+    assert "MACOS_RUNNER_PR" not in shadow and "inputs.macos_runner" not in shadow
+    assert "vars." not in shadow, shadow
 
 if __name__ == "__main__":
     unittest.main()

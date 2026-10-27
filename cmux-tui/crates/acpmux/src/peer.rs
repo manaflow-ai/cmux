@@ -105,6 +105,8 @@ pub struct Peer {
     send_attach: AtomicBool,
     /// The peer lists `promptUploads` (`prompt_uploads.rs`).
     prompt_uploads: AtomicBool,
+    /// The peer lists `uploadResume` (`hub/file_uploads.rs`).
+    upload_resume: AtomicBool,
     /// The peer token was held back: the transport is plain `ws://` to a
     /// host that is not loopback (`carries_peer_token`). Logged once.
     withheld: AtomicBool,
@@ -171,6 +173,7 @@ impl Peer {
             subagent_transcript: AtomicBool::new(false),
             send_attach: AtomicBool::new(false),
             prompt_uploads: AtomicBool::new(false),
+            upload_resume: AtomicBool::new(false),
             withheld: AtomicBool::new(false),
             presented: StdMutex::new(None),
             admitting: AtomicBool::new(false),
@@ -444,6 +447,12 @@ impl Peer {
     /// Whether the peer said at its last handshake that it reads uploaded files a message names.
     pub fn supports_prompt_uploads(&self) -> bool {
         self.prompt_uploads.load(Ordering::SeqCst)
+    }
+
+    /// Whether the peer said at its last handshake that it answers upload status and checks a
+    /// finish's `sha256` (`hub/file_uploads.rs`).
+    pub fn supports_upload_resume(&self) -> bool {
+        self.upload_resume.load(Ordering::SeqCst)
     }
 
     pub fn summary(&self) -> Value {
@@ -760,6 +769,8 @@ impl Peer {
                 .store(lists(crate::hub::SUBAGENT_TRANSCRIPT_FEATURE), Ordering::SeqCst);
             me.send_attach.store(lists(crate::attach::FEATURE), Ordering::SeqCst);
             me.prompt_uploads.store(lists(crate::prompt_uploads::FEATURE), Ordering::SeqCst);
+            let resume = lists(crate::hub::file_uploads::RESUME_FEATURE);
+            me.upload_resume.store(resume, Ordering::SeqCst);
             // The reader published the reply's list (`watch_key`), so Connected follows it.
             me.request(method::MUX_WATCH, json!({"enabled": true})).await?;
             me.with_link(|l| l.ready(crate::store::now_ms()));
