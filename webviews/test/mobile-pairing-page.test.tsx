@@ -241,7 +241,9 @@ test("the page names the missing step, then the host's status, requests and phon
   });
   await act(async () => fake.emit());
   await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
-  expect(host.querySelector<HTMLImageElement>("img.pairing-qr")?.getAttribute("src")).toBe("data:image/png;base64,AAAA");
+  expect(host.querySelector<HTMLImageElement>("img.pairing-qr")?.getAttribute("src")).toBe(
+    "data:image/png;base64,AAAA",
+  );
   expect(host.querySelector(".pairing-how")).toBeNull();
 
   fake.set({ ...BASE, state: "failed", allowed: true, account: "me@example.com", failure: "relay refused" });
