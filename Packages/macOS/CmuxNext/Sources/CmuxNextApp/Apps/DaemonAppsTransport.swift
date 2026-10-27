@@ -50,7 +50,7 @@ final class DaemonAppsTransport: AppsTransport {
          inventoryRoutes: @escaping @MainActor @Sendable () -> [AgentInventoryWatchRoute] = { [] }) {
         self.daemon = daemon
         self.mainWork = mainWork
-        let inventory = AgentInventoryProviderBridge(routes: inventoryRoutes)
+        let inventory = AgentInventoryProviderBridge(on: mainWork, routes: inventoryRoutes)
         self.inventory = inventory
         provider = AppsProviderChannel(link: .daemon(daemon, inventory: inventory))
     }

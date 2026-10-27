@@ -1713,6 +1713,10 @@
         "id": 50178,
         "priority": "control"
       },
+      "input-failed": {
+        "id": 49165,
+        "priority": "control"
+      },
       "keybindings-changed": {
         "id": 49670,
         "priority": "control"
