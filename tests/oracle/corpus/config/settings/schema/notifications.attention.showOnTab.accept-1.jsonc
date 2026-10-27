@@ -1,0 +1,7 @@
+{
+  "notifications": {
+    "attention": {
+      "showOnTab": false
+    }
+  }
+}

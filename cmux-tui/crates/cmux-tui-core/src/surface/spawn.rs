@@ -125,7 +125,7 @@ impl Surface {
         let callbacks = Callbacks {
             on_pty_write: Some(Box::new({
                 let pending = pending_responses.clone();
-                move |bytes| pending.lock().unwrap().extend_from_slice(bytes)
+                move |bytes| pending.lock().recover_poison().extend_from_slice(bytes)
             })),
             on_title_changed: Some(Box::new({
                 let flag = title_changed.clone();
@@ -167,7 +167,7 @@ impl Surface {
         )));
         #[cfg(unix)]
         let shared_output = read_fd.map(|_| output.clone());
-        let surface = Arc::new(Surface::Pty(PtySurface {
+        let pty = PtySurface {
             meta: SurfaceMeta {
                 id,
                 resource_identity,
@@ -287,7 +287,11 @@ impl Surface {
                 frame_producer_before_upgrade,
             }),
             viewport: Mutex::new(TerminalViewportState::default()),
-        }));
+        };
+        // The reader and reaper slots, held apart from the surface so they
+        // need no `as_pty` lookup.
+        let threads = pty.terminal.clone();
+        let surface = Arc::new(Surface::Pty(pty));
 
         if let Some(reservation) = kitty_reservation
             && let Err(error) = reservation.commit(&surface, initial_kitty_limits)
@@ -299,29 +303,30 @@ impl Surface {
 
         // PTY reader: pty bytes -> terminal state -> SurfaceOutput events,
         // on the owner's read loop for a direct PTY (local_reader.rs).
-        let local_reader = local_reader::LocalReader::new(surface.clone(), output, reader);
+        let local_reader = local_reader::LocalReader::new(
+            surface.clone(),
+            output,
+            reader,
+            threads.reader_completion.clone(),
+        );
         let local_reader = local_reader.start(id)?;
-        *surface
-            .as_pty()
-            .expect("local PTY surface owns its reader")
-            .reader_thread
-            .lock()
-            .unwrap() = Some(local_reader);
+        *threads.reader_thread.lock().recover_poison() = Some(local_reader);
 
+        // Child reaper: retain the native status and rendezvous with PTY EOF
+        // so final output is visible before the mux observes completion.
+        let reaper_completion = threads.reaper_completion.clone();
+        reaper_completion.reset();
         let reaper = match end {
-            LocalEnd::Wait(wait) => LocalReaper::Thread(spawn_end_wait(&surface, wait)?),
+            LocalEnd::Wait(wait) => {
+                LocalReaper::Thread(spawn_end_wait(&surface, reaper_completion, wait)?)
+            }
             #[cfg(unix)]
             LocalEnd::Child(child) => {
-                watch_child_end(&surface, child)?;
+                watch_child_end(&surface, reaper_completion, child)?;
                 LocalReaper::Watched
             }
         };
-        *surface
-            .as_pty()
-            .expect("local PTY surface owns its reaper")
-            .reaper_thread
-            .lock()
-            .unwrap() = Some(reaper);
+        *threads.reaper_thread.lock().recover_poison() = Some(reaper);
 
         Ok(surface)
     }
@@ -335,7 +340,7 @@ impl Surface {
 fn record_local_end(surface: &Arc<Surface>, end: TerminalEnd, completion: ReaderCompletionGuard) {
     let ending = EndingTerminal::enter(&completion.0);
     if let Some(pty) = surface.as_pty() {
-        *pty.exit.lock().unwrap() = Some(end);
+        *pty.exit.lock().recover_poison() = Some(end);
     }
     close_local_terminal_master_after_exit(surface);
     publish_local_exit_if_ready(surface);
@@ -343,21 +348,15 @@ fn record_local_end(surface: &Arc<Surface>, end: TerminalEnd, completion: Reader
     drop(completion);
 }
 
-fn reset_reaper_completion(surface: &Surface) -> Arc<ReaderCompletion> {
-    let completion =
-        surface.as_pty().expect("local PTY surface owns its reaper").reaper_completion.clone();
-    completion.reset();
-    completion
-}
-
 /// Runs `wait` on thread `surface-<id>-wait`. The thread keeps the surface
 /// alive until the wait returns, so a deadline timeout in teardown never
 /// detaches a live wait when the last external surface reference drops.
+/// `completion` is the surface's reset `reaper_completion`.
 fn spawn_end_wait(
     surface: &Arc<Surface>,
+    completion: Arc<ReaderCompletion>,
     wait: Box<dyn FnOnce() -> TerminalEnd + Send>,
 ) -> anyhow::Result<std::thread::JoinHandle<()>> {
-    let completion = reset_reaper_completion(surface);
     let waited = surface.clone();
     cmux_tui_platform::qos::spawn_outside_request(
         format!("surface-{}-wait", surface.id),
@@ -378,14 +377,18 @@ fn spawn_end_wait(
 /// surface alive until the child ends, as a wait thread would. Without a
 /// mux (it is being dropped), or when nothing can wait for the child, the
 /// launch fails and dropping `child` kills and reaps it.
+/// `completion` is the surface's reset `reaper_completion`.
 #[cfg(unix)]
-fn watch_child_end(surface: &Arc<Surface>, mut child: PtyChildStartupGuard) -> anyhow::Result<()> {
+fn watch_child_end(
+    surface: &Arc<Surface>,
+    completion: Arc<ReaderCompletion>,
+    mut child: PtyChildStartupGuard,
+) -> anyhow::Result<()> {
     let owner = surface.as_pty().and_then(|pty| pty.mux.upgrade());
     let (Some(owner), Some(pid)) = (owner, child.process_id()) else {
         close_local_terminal_master_after_exit(surface);
         anyhow::bail!("the terminal's child has no reaper: its mux is gone");
     };
-    let completion = reset_reaper_completion(surface);
     let watched = surface.clone();
     let on_exit: cmux_threads::reaper::OnExit = Box::new(move |status| {
         let completion = ReaderCompletionGuard(completion);
