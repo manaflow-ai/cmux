@@ -85,6 +85,19 @@ fn prefix(name: &str) -> String {
         .collect()
 }
 
+/// The rules the model gets for server `name`: cmux's own rules for its
+/// computer use server ([`acpmux::agent_tools::CUA_RULES`]) first, then the
+/// server's `initialize` instructions.
+fn rules(name: &str, own: Option<&str>) -> Option<String> {
+    let own = own.filter(|text| !text.trim().is_empty());
+    let cmux = (name == acpmux::cua_v2::SERVER_NAME).then_some(acpmux::agent_tools::CUA_RULES);
+    match (cmux, own) {
+        (Some(cmux), Some(own)) => Some(format!("{cmux}\n\n{own}")),
+        (Some(cmux), None) => Some(cmux.to_owned()),
+        (None, own) => own.map(str::to_owned),
+    }
+}
+
 /// One server: started on first use, again after it dies or times out.
 pub(super) struct Upstream {
     spec: Spec,
@@ -261,7 +274,7 @@ impl Upstream {
                 START_TIMEOUT,
             )
             .map_err(Failure::message)?;
-        self.instructions = init["instructions"].as_str().map(str::to_owned);
+        self.instructions = rules(&self.spec.name, init["instructions"].as_str());
         self.notify("notifications/initialized")?;
         let mut tools = Vec::new();
         let mut cursor = None::<String>;

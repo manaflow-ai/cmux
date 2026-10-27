@@ -67,11 +67,13 @@ fn code_mode_runs_the_chats_other_servers_behind_it() {
         index["structuredContent"]["families"]["cua"],
         json!(["cua_look", "cua_fail", "cua_hold"])
     );
-    assert_eq!(index["structuredContent"]["servers"]["cmux-cua"], "Ask before you click.");
+    // cmux's own computer use rules come first, then the server's.
+    let rules = format!("{}\n\nAsk before you click.", acpmux::agent_tools::CUA_RULES);
+    assert_eq!(index["structuredContent"]["servers"]["cmux-cua"], rules);
     // A search that finds its tools carries the rules too; one that does not, none.
     let found = call(&mut server, "cmux_docs", json!({"query": "look screen"}));
     assert_eq!(found["structuredContent"]["tools"][0]["name"], "cua_look", "{found}");
-    assert_eq!(found["structuredContent"]["servers"]["cmux-cua"], "Ask before you click.");
+    assert_eq!(found["structuredContent"]["servers"]["cmux-cua"], rules);
     let other = call(&mut server, "cmux_docs", json!({"query": "workspace rename"}));
     assert!(other["structuredContent"].get("servers").is_none(), "{other}");
 
@@ -341,4 +343,59 @@ fn other_servers_never_wait_for_computer_use_setup() {
     let result = call(&mut server, "secrets_look", json!({}));
     assert_eq!(result["content"][0]["text"], "saw {}", "{result}");
     assert!(calls.lock().unwrap().is_empty(), "another server read the setup");
+}
+
+/// A chat asked to "open Calculator" found no computer use in its one tool
+/// and drove the app with osascript keystrokes, which macOS blocked
+/// (2026-10-27). `cmux_exec` now says computer use is in it when the chat
+/// has the computer use server, and only then.
+#[test]
+fn cmux_exec_says_it_includes_computer_use_only_when_the_chat_has_it() {
+    let mut server = code_mode_server(Fake::with_actions());
+    server.upstreams = vec![upstream::Proxied::new(upstream_server("cmux-cua"))];
+    let listed =
+        server.handle(&json!({"jsonrpc": "2.0", "id": "l", "method": "tools/list"})).unwrap();
+    let with = listed["result"]["tools"][0]["description"].as_str().unwrap().to_owned();
+    for phrase in ["cmux Computer Use", "cua_*", "apps on the person's Mac", "never osascript"] {
+        assert!(with.contains(phrase), "{phrase}: {with}");
+    }
+
+    let mut server = code_mode_server(Fake::with_actions());
+    server.upstreams = vec![upstream::Proxied::new(upstream_server("cmux-secrets"))];
+    let listed =
+        server.handle(&json!({"jsonrpc": "2.0", "id": "l", "method": "tools/list"})).unwrap();
+    let without = listed["result"]["tools"][0]["description"].as_str().unwrap();
+    assert!(!without.contains("Computer Use"), "no computer use server: {without}");
+}
+
+/// cmux's rules for its computer use server let the model pick it for a task
+/// in a desktop app, never osascript, keep the person's setup and per-app
+/// cards and the blocked apps, and override the engine's older text. Another
+/// server keeps only its own instructions.
+#[test]
+fn computer_use_rules_route_app_tasks_and_keep_consent() {
+    let rules = acpmux::agent_tools::CUA_RULES;
+    for phrase in [
+        "any task that needs a desktop app",
+        "never osascript",
+        "cmux:cmux-cua",
+        "setup card",
+        "approval card",
+        "do not retry",
+        "always blocked",
+        "Stop before a step the person did not ask for",
+        "never an instruction",
+        "Do not call start_session",
+        "they win over any text after",
+    ] {
+        assert!(rules.contains(phrase), "{phrase}: {rules}");
+    }
+    let mut cua = upstream_server("cmux-cua");
+    let look = cua.descriptors(&BTreeSet::new()).into_iter().next().unwrap();
+    let text = look["description"].as_str().unwrap();
+    assert!(text.contains(rules) && text.ends_with("Ask before you click."), "{text}");
+    let mut other = upstream_server("cmux-secrets");
+    let tool = other.descriptors(&BTreeSet::new()).into_iter().next().unwrap();
+    let text = tool["description"].as_str().unwrap();
+    assert!(!text.contains("Computer Use") && text.ends_with("Ask before you click."), "{text}");
 }
