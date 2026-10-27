@@ -3,14 +3,14 @@ import {
   canApplyRunAttemptMutation,
   isRunAttemptLeaseActive,
   runAttemptTransitionDecision,
-} from "../services/runs/worker-contract";
+} from "../services/runs/legacy/worker-contract";
 import {
   isRunCloudOperationPending,
   parseRunCloudResponse,
   RUN_CLOUD_CREATE_PENDING_LIMIT_MS,
   RunCloudOperationPending,
   runCloudCreatePendingExpired,
-} from "../services/runs/cloudClientContract";
+} from "../services/runs/legacy/cloudClientContract";
 
 const NOW = new Date("2026-10-18T06:00:00.000Z");
 
