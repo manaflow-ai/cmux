@@ -60,6 +60,7 @@ extension TraceRuntime {
             UnsafeRawPointer(bitPattern: ringBits).map { Unmanaged<TraceRing>.fromOpaque($0) }?
                 ._withUnsafeGuaranteedRef { $0.mirrorCategories(mask) }
             mirrorBlockingCalls(mask)
+            mirrorConcurrencyHook()
             if requestedFlags.load(ordering: .sequentiallyConsistent) == requested,
                keyTimingHoldBits.load(ordering: .sequentiallyConsistent) == holds {
                 return

@@ -577,10 +577,14 @@ what a person sees gets the frame priority, hidden producers get utility and dra
 ## Swift global-enqueue hook (p09-observability-123, owner Performance Lead)
 
 `CmuxNextTrace/ConcurrencyHook.swift` installs `swift_task_enqueueGlobal_hook` once, at the app's black-box start. Every
-job the Swift runtime puts on the cooperative pool passes through it. Phase 1 only measures: while the trace's
-`task` category is on, the hook writes one `task.post` flow-out (arg0: no post site, the job priority in bits
-48-55; arg1: the job address with bits 62 and 63 set, the flow id), then calls the runtime's own enqueue. The
-records are the job count, by priority. Off, it costs the category-flag load and a tail call. It adds no thread,
+job the Swift runtime puts on the cooperative pool passes through it. Phase 1 only measures. The word holds one
+of two static hooks, and `TraceRuntime.shared`'s category writer picks which one when the `task` bit changes
+(Chrome's `TraceLog::EnabledStateObserver`, base/trace_event/trace_log.h). While `task` records, the recording
+hook writes one `task.post` instant (arg0: no post site, the job priority in bits 48-55; arg1: the job address,
+no flow id, since addresses are reused), then calls the runtime's own enqueue. Otherwise the pass-through hook
+only tail-calls the runtime's enqueue: off, cmux adds no load to the runtime's own load of its hook word. The
+word never goes back to 0, because the runtime may load it twice between its null check and its call. The
+records are the job count, by priority. It adds no thread,
 no queue and no lock, and it never replaces a hook that another library installed: in a launch that arms the
 debug job census (`GlobalJobCensus`, `CMUX_NEXT_GLOBAL_JOB_CENSUS=1`) the census holds the word and the hook is
 not installed. The runtime does not promise this symbol: when `dlsym` does not find it, the app logs once and

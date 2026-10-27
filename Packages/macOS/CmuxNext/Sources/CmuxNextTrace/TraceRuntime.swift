@@ -62,6 +62,9 @@ public final class TraceRuntime: Sendable {
     /// and never released) when it routes the process's checked blocking calls (``shared`` does), else 0. Set
     /// once, in `init`, before any other thread sees the runtime.
     let blockingSinkAddress = Atomic<UInt64>(0)
+    /// The address of the Swift global-enqueue hook word whose hook this runtime's `task` bit picks
+    /// (``ConcurrencyHook/install()``), 0 when none.
+    let concurrencyHookWord = Atomic<UInt64>(0)
     /// The address of the histogram store ``attachMetrics(_:)`` attached (retained once and never released, as
     /// the ring), 0 until its owner attaches one.
     let metricsAddress = Atomic<UInt64>(0)
