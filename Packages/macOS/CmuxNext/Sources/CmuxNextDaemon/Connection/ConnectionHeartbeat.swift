@@ -7,9 +7,10 @@ import CmuxNextCompat
 /// over a bridge, a lost server the overlay keeps for 10 minutes for a
 /// closed lid), so no EOF ever ends the connection and the app kept showing
 /// it connected (cx-jniyz.4). After `interval` with nothing from the daemon
-/// the connection asks it `identify`, and `misses` unanswered asks in a row
-/// close the transport, which emits `.disconnected` (the not-connected state)
-/// and reconnects once the daemon answers again. The ask is a plain daemon
+/// the connection asks it `identify`, and `misses` unanswered asks in a row,
+/// with nothing from the daemon between them, close the transport, which
+/// emits `.disconnected` (the not-connected state) and reconnects once the
+/// daemon answers again. The ask is a plain daemon
 /// request on a `DemandTimer`: it counts as no user activity, takes no power
 /// assertion and does not wake a sleeping Mac, so it never keeps a laptop awake.
 ///
@@ -58,7 +59,10 @@ public final class ConnectionHeartbeat: Sendable {
     }
 
     private struct State {
+        /// Unanswered asks with nothing heard from the daemon since: a frame after a miss ends the run of misses.
         var misses = 0
+        /// When the last ask missed, on `elapsed`.
+        var missedAt: Duration = .zero
         /// Bumped by every start, stop and pause: an ask of an older run changes nothing.
         var run: UInt64 = 0
         /// The current run's daemon; nil when stopped.
@@ -223,6 +227,7 @@ public final class ConnectionHeartbeat: Sendable {
         }
         let step = state.withLock { state -> Step? in
             guard state.run == run, let probe = state.probe, !state.asking else { return nil }
+            if state.misses > 0, probe.silence() < elapsed() - state.missedAt { state.misses = 0 }
             if !forced {
                 guard let cadence = state.cadence else { return nil }
                 if silence(state, probe) < cadence { return .wait }
@@ -240,7 +245,7 @@ public final class ConnectionHeartbeat: Sendable {
             guard state.run == run else { return nil }
             state.asking = false
             state.misses = answered ? 0 : state.misses + 1
-            if answered { state.heard = now }
+            if answered { state.heard = now } else { state.missedAt = now }
             return state.misses >= probe.misses
         }
         guard let close else { return }

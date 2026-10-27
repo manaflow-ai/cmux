@@ -186,6 +186,80 @@ struct ConnectionHeartbeatSilenceTests {
         heartbeat.stop()
     }
 
+    /// A daemon whose identify never answers: each ask times out on the clock after its timeout,
+    /// while its other frames (events, late replies) still arrive when the test sends them.
+    final class SlowDaemon: Sendable {
+        enum Event: Equatable {
+            case asked
+            case closed
+        }
+
+        private let clock: ManualClock
+        private let lastInbound = Mutex(Duration.zero)
+        let events: AsyncStream<Event>
+        private let emit: AsyncStream<Event>.Continuation
+
+        init(clock: ManualClock) {
+            self.clock = clock
+            (events, emit) = AsyncStream.makeStream(of: Event.self)
+        }
+
+        /// The daemon sends a frame now (an event, a late reply).
+        func sends() {
+            let now = clock.now.offset
+            lastInbound.withLock { $0 = now }
+        }
+
+        func probe(misses: Int) -> ConnectionHeartbeat.Probe {
+            ConnectionHeartbeat.Probe(ask: { [self] timeout in
+                emit.yield(.asked)
+                try? await clock.sleep(for: timeout)
+                return false
+            }, close: { [self] in
+                emit.yield(.closed)
+            },
+            silence: { [self] in clock.now.offset - lastInbound.withLock { $0 } },
+            interval: .seconds(15), misses: misses)
+        }
+    }
+
+    @Test func aMissFollowedByTrafficIsForgotten() async throws {
+        let clock = ManualClock()
+        let heartbeat = ConnectionHeartbeat(clock: clock)
+        let daemon = SlowDaemon(clock: clock)
+        var events = daemon.events.makeAsyncIterator()
+        heartbeat.start(daemon.probe(misses: 2))
+        try await clock.waitForSleeper()
+
+        // 15 s of silence: the first ask goes out and times out at 30 s; an event arrives at 20 s.
+        clock.advance(by: .seconds(15))
+        let first = await events.next()
+        #expect(first == .asked)
+        try await clock.waitForSleeper()
+        clock.advance(by: .seconds(5))
+        daemon.sends()
+        clock.advance(by: .seconds(10))
+        try await clock.waitForSleeper()
+
+        // A minute of traffic: fires find the daemon heard after the miss and ask nothing.
+        for _ in 0..<12 {
+            daemon.sends()
+            clock.advance(by: .seconds(5))
+            try await clock.waitForSleeper()
+        }
+
+        // Quiet again: one more miss is the first of a new run, so the next ask goes at once
+        // instead of a close.
+        clock.advance(by: .seconds(10))
+        let second = await events.next()
+        #expect(second == .asked)
+        try await clock.waitForSleeper()
+        clock.advance(by: .seconds(15))
+        let afterSecondMiss = await events.next()
+        #expect(afterSecondMiss == .asked, "a miss, a minute of traffic and one more miss closed a live daemon")
+        heartbeat.stop()
+    }
+
     @Test func aPresenceObservationEndsWithAReplacement() {
         let first = ConnectionPresence()
         let second = ConnectionPresence()
