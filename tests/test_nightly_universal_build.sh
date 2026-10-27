@@ -266,15 +266,16 @@ if ! awk '
   exit 1
 fi
 
-if ! awk -v helper_runner="runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'macos-15' || inputs.nightly_next_unsigned_run != '' && 'ubuntu-24.04' || 'blacksmith-6vcpu-macos-15' }}" \
+if ! awk -v helper_runner="runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || inputs.nightly_next_unsigned_run != '' && 'ubuntu-24.04' || needs.resolve-nightly-ghostty-cli-helper.outputs.hit == 'true' && (vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404') || github.repository == 'manaflow-ai/cmux' && github.run_attempt == 1 && (github.event_name == 'push' || github.event_name == 'schedule') && vars.CI_PR_POOL_OWNED == '1' && (github.ref == 'refs/heads/main' && vars.CI_SEED_TRUSTED_POOL || github.ref == 'refs/heads/nightly-next' && vars.CI_SIDE_LANE_RUNNER) || 'blacksmith-6vcpu-macos-26' }}" \
        '
   /^  build-nightly-ghostty-cli-helper:/ { job="helper"; next }
   /^  build-nightly-app:/ { job="app"; next }
   /^  prepare-nightly-variant-primary:/ { job="publish"; next }
   /^  build-sign-notarize-nightly:/ { job="publish"; next }
   /^  [a-zA-Z0-9_-]+:/ { job="" }
-  # Every nightly helper build takes the hosted macOS 15 image (its SDK 15
-  # Xcode); nightlies never use Blacksmith. Match the whole expression.
+  # A reused helper leaves this job on Linux; a fresh one builds on owned
+  # macOS 26 (Zig 0.16.0, SDK 26), then Blacksmith macOS 26; never macOS 15
+  # or a GitHub-hosted Mac. Match the whole expression.
   job == "helper" && index($0, helper_runner) { saw_helper_runner=1 }
   job == "helper" && /build-ghostty-cli-helper\.sh --universal/ { saw_build=1 }
   job == "helper" && /lipo .* -verify_arch arm64 x86_64/ { saw_arch_assert=1 }
@@ -294,7 +295,7 @@ if ! awk -v helper_runner="runs-on: \${{ github.repository_owner != 'manaflow-ai
   job == "publish" && /^      - name: Upload dSYMs to Sentry/ { saw_publish_dsym_upload=1 }
   END { exit !(saw_helper_runner && saw_build && saw_arch_assert && saw_helper_artifact && saw_app_xcode && saw_app_selection && saw_app_artifact && saw_app_only_archive && saw_app_dsym_upload && saw_publish_needs_helper && saw_publish_needs_app && saw_publish_xcode && saw_publish_selection && saw_app_download && saw_app_download_path && saw_app_restore && !saw_publish_dsym_upload) }
 ' "$WORKFLOW_FILE"; then
-  echo "FAIL: nightly must build and hand off the macOS 15 helper and Xcode 26.5 app before publishing"
+  echo "FAIL: nightly must build and hand off the macOS 26 helper and Xcode 26.5 app before publishing"
   exit 1
 fi
 
