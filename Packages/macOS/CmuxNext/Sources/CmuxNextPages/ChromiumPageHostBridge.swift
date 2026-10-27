@@ -59,7 +59,7 @@ public final class ChromiumPageHostBridge: PageHostBridge {
 
     /// The DevTools calls that set the page up, in order: run them before the first document loads
     /// (``ChromiumPageSetup``), then again for every committed document (``rebind()``).
-    public static func setupCalls(handlers: [String], documentScripts: [String]) -> [(String, [String: any Sendable])] {
+    public static func setupCalls(handlers: [String], documentScripts: [String], supportsUploads: Bool = false) -> [(String, [String: any Sendable])] {
         var calls: [(String, [String: any Sendable])] = [
             // New-document scripts run only while the Page domain is on, and bindings reach worlds
             // made later only while the Runtime domain is on.
@@ -68,6 +68,9 @@ public final class ChromiumPageHostBridge: PageHostBridge {
             ("Runtime.addBinding", ["name": bindingName]),
             ("Page.addScriptToEvaluateOnNewDocument", ["source": pageScript(handlers: handlers), "runImmediately": true]),
         ]
+        if supportsUploads {
+            calls.append(("Page.addScriptToEvaluateOnNewDocument", ["source": "globalThis.__cmuxNativePromptUploads = true;", "runImmediately": true]))
+        }
         for source in documentScripts {
             calls.append(("Page.addScriptToEvaluateOnNewDocument", ["source": source, "runImmediately": true]))
         }
