@@ -12,8 +12,9 @@ checks:
   - its tags `process` and `crash_source`, and at least one `crash_key.<name>` tag (tasks 079, 097, 098);
   - the black box: app kinds need `blackbox.txt` with >= 256 events; any `blackbox.txt` has 0 key records
     (TraceBlackBoxUpload's rule: no `key.*`, no `pty` name part, no per-input event);
-  - the top cmux frame's image UUID is a UUID of a dSYM of the build (`dwarfdump --uuid`);
-  - its stability counter (`metrics.snapshot`, task 109's `stability.*` enumerations) rose by exactly 1;
+  - the top cmux frame's image UUID is a UUID of a dSYM of the build (`dwarfdump --uuid`), by the kind's rule below;
+  - its stability counter (`metrics.snapshot`, task 109's `stability.*` enumerations) rose by exactly 1, for a kind
+    that ends a process;
   - for every kind that is not an app kind, the app pid did not change.
 
 The matrix is Chromium's own: crash each process type on purpose (chrome://crash, chrome://gpucrash and
@@ -25,16 +26,22 @@ terminal-host-segv, acpmux-panic, agent-host-panic, app-host-panic, browser-host
 utility-kill, webkit-content-kill, mcp-serve-panic; plus chromium-host-abort with `--host` (the cefHelperHost flag is
 off by default; the run turns it on for that kind only, through the Debug tunables file as child-crash-e2e.py does).
 
-Injectors (task 101's `debug-panic {kind: panic|abort|segv}`, DEBUG and bench builds only):
-  - the daemon: `{"cmd": "debug-panic", "kind": K}` on its socket; a crash in a process the daemon spawned adds
-    `"target": "host" | "app_host" | "browser_host"` (the stability ProcessKind names);
-  - acpmux: JSON-RPC `debug-panic {"kind": K}` on its socket, with `"target": "agent_host"` for an agent host;
-  - `cmux mcp serve`: JSON-RPC `debug-panic {"kind": K}` on the stdin of the server this script starts.
-A build that lacks an injector, or a process that does not run in the launch, makes the kind NOT-MEASURABLE.
+Injectors are task 101's only (DEBUG and bench builds; a field other than `kind` is refused):
+  - the daemon: `{"cmd": "debug-panic", "kind": K}` on its socket;
+  - acpmux: JSON-RPC `_acpmux/debug_panic {"kind": K}` on its socket.
+A `panic` ends only the injector's thread (the panic log records it); `abort` and `segv` end the process. So the
+daemon-panic and acpmux-panic kinds count no child exit. No task specifies a panic injector for the terminal host,
+the agent host, the app host, the browser host or `cmux mcp serve`: their `*-panic` kinds send SIGABRT to a process
+this run proved it owns, and the report names the missing injector. A build that lacks an injector, or a process that
+does not run in the launch, makes the kind NOT-MEASURABLE.
+
+The image UUID rule follows what the report can carry: a kind whose report has no stack by design (a Rust panic-log
+event, a helper-exit event, a SIGKILL) reports that check SKIP with the reason; Chromium kinds accept the Chromium
+framework and helper images; every other kind needs a crashing stack whose top cmux frame has a dSYM UUID.
 
 Signals go only to processes this run started: a process of the tag (tag_teardown.TagTeardown's rules) whose start
 is at or after this launch, or a pid child-crash-e2e's Ownership proves is the launched app's (its process tree, a
-WebContent the app reports). Anything else is never signalled.
+WebContent the app reports), or the `cmux mcp serve` this script started. Anything else is never signalled.
 
 Exit 0 when every selected kind passes every check; 1 when one fails or is not measurable; 2 on bad arguments.
 
@@ -43,7 +50,7 @@ Exit 0 when every selected kind passes every check; 1 when one fails or is not m
   crash-matrix.py --self-test
   crash-matrix.py --list
 """
-import argparse, dataclasses, glob, hashlib, json, math, os, re, select, shutil, signal, socket, subprocess, sys
+import argparse, ctypes, dataclasses, glob, hashlib, json, math, os, re, select, shutil, signal, socket, subprocess, sys
 import tempfile, time, unittest
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -72,8 +79,10 @@ DWARFDUMP_UUID = re.compile(r"UUID:\s+([0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]
 class Kind:
     """One process kind of done check 8. `trigger` names a Run method and `arg` its argument; `report` is
     "relaunch" (Sentry sends the crash at the app's next launch) or "live"; `counter` is the stability enumeration
-    (histogram, value) the crash adds 1 to, or None when task 109 lists none; `processes` are the accepted `process`
-    tag values (empty: any non-empty value)."""
+    (histogram, value) the crash adds 1 to, or None with `counter_why`; `processes` are the accepted `process` tag
+    values (empty: any non-empty value). `stand_in` names the injector no task specifies, when a signal takes its
+    place. `no_stack` is the reason an event with no crashing stack is SKIP for the UUID check (empty: FAIL);
+    `images` is the IMAGE_RULES key of the images the top frame may be in."""
     name: str
     trigger: str
     arg: object
@@ -81,6 +90,10 @@ class Kind:
     counter: object
     processes: tuple = ()
     host_flag: bool = False
+    counter_why: str = ""
+    stand_in: str = ""
+    no_stack: str = ""
+    images: str = "cmux"
 
     @property
     def app_kind(self):
@@ -91,32 +104,51 @@ def child(kind, value):
     return (f"stability.child_exit.{kind}", value)
 
 
+def no_injector(process):
+    return (f"SIGABRT stands in for a panic: no task specifies a panic injector for {process} "
+            "(task 101 covers only the daemon and acpmux)")
+
+
+THREAD_PANIC = ("a `panic` ends only the injector's thread (task 101); the process keeps running, so no child exit "
+                "is counted")
+PANIC_LOG = ("a Rust panic-log event has no stack or debug images (OwnerPanicForwarder.event puts the backtrace in "
+             "`extra`); a UUID needs the forwarder to add debug_meta")
+HELPER_EXIT = "a helper-exit event (task 083) has no stack; only a macOS crash report of the helper carries one"
+KILLED = "SIGKILL ends the process with no crash handler, so no stack exists"
+
 KINDS = (
     Kind("app-signal", "app_rpc", ("debug.crash.app", {"signal": "segv"}), "relaunch", ("stability.unclean_exit", UNCLEAN_CRASH)),
     Kind("app-nsexception", "app_rpc", ("debug.crash.exception", {}), "relaunch", ("stability.unclean_exit", UNCLEAN_CRASH)),
-    Kind("daemon-panic", "daemon_inject", ("panic", None), "live", child("daemon", CHILD_PANIC), ("cmux-tui",)),
-    Kind("daemon-segv", "daemon_inject", ("segv", None), "live", child("daemon", CHILD_SIGNAL), ("cmux-tui",)),
+    Kind("daemon-panic", "daemon_inject", "panic", "live", None, ("cmux-tui",), counter_why=THREAD_PANIC,
+         no_stack=PANIC_LOG),
+    Kind("daemon-segv", "daemon_inject", "segv", "live", child("daemon", CHILD_SIGNAL), ("cmux-tui",)),
     Kind("holder-abort", "signal_holder", signal.SIGABRT, "live", child("holder", CHILD_SIGNAL), ("cmux-holder",)),
-    Kind("terminal-host-panic", "daemon_inject", ("panic", "host"), "live", child("host", CHILD_PANIC),
-         ("cmux-tui-host", "cmux-tui")),
+    Kind("terminal-host-panic", "signal_host", signal.SIGABRT, "live", child("host", CHILD_SIGNAL),
+         ("cmux-tui-host", "cmux-tui"), stand_in=no_injector("the terminal host")),
     Kind("terminal-host-segv", "signal_host", signal.SIGSEGV, "live", child("host", CHILD_SIGNAL),
          ("cmux-tui-host", "cmux-tui")),
-    Kind("acpmux-panic", "acpmux_inject", ("panic", None), "live", child("acpmux", CHILD_PANIC), ("acpmux",)),
-    Kind("agent-host-panic", "acpmux_inject", ("panic", "agent_host"), "live", child("agent_host", CHILD_PANIC)),
-    Kind("app-host-panic", "daemon_inject", ("panic", "app_host"), "live", child("app_host", CHILD_PANIC)),
-    Kind("browser-host-panic", "daemon_inject", ("panic", "browser_host"), "live", child("browser_host", CHILD_PANIC)),
-    Kind("renderer-crash", "omnibar", "chrome://crash", "live", child("renderer", CHILD_SIGNAL)),
-    Kind("gpu-crash", "omnibar", "chrome://gpucrash", "live", child("gpu", CHILD_SIGNAL)),
-    Kind("utility-kill", "kill_utility", signal.SIGKILL, "live", child("utility", CHILD_SIGNAL)),
-    Kind("webkit-content-kill", "kill_webcontent", signal.SIGKILL, "live", child("webkit", CHILD_SIGNAL)),
-    # `cmux mcp serve` is not a child of the app: task 109 names no counter for it.
-    Kind("mcp-serve-panic", "mcp_inject", "panic", "live", None),
+    Kind("acpmux-panic", "acpmux_inject", "panic", "live", None, ("acpmux",), counter_why=THREAD_PANIC,
+         no_stack=PANIC_LOG),
+    Kind("agent-host-panic", "signal_agent_host", signal.SIGABRT, "live", child("agent_host", CHILD_SIGNAL),
+         stand_in=no_injector("the agent host")),
+    Kind("app-host-panic", "signal_bundle_binary", ("cmux-app-host", signal.SIGABRT), "live",
+         child("app_host", CHILD_SIGNAL), stand_in=no_injector("cmux-app-host")),
+    Kind("browser-host-panic", "signal_bundle_binary", ("cmux-browser-host", signal.SIGABRT), "live",
+         child("browser_host", CHILD_SIGNAL), stand_in=no_injector("cmux-browser-host")),
+    Kind("renderer-crash", "omnibar", "chrome://crash", "live", child("renderer", CHILD_SIGNAL),
+         no_stack=HELPER_EXIT, images="chromium"),
+    Kind("gpu-crash", "omnibar", "chrome://gpucrash", "live", child("gpu", CHILD_SIGNAL),
+         no_stack=HELPER_EXIT, images="chromium"),
+    Kind("utility-kill", "kill_utility", signal.SIGKILL, "live", child("utility", CHILD_SIGNAL), no_stack=KILLED),
+    Kind("webkit-content-kill", "kill_webcontent", signal.SIGKILL, "live", child("webkit", CHILD_SIGNAL),
+         no_stack=KILLED),
+    Kind("mcp-serve-panic", "mcp_signal", signal.SIGABRT, "live", None,
+         counter_why="`cmux mcp serve` is not a child of the app: task 109 names no counter for it",
+         stand_in=no_injector("`cmux mcp serve`")),
     Kind("chromium-host-abort", "host_check", "chrome://inducebrowsercrashforrealz", "live",
-         child("chromium_host", CHILD_SIGNAL), host_flag=True),
+         child("chromium_host", CHILD_SIGNAL), host_flag=True, no_stack=HELPER_EXIT, images="chromium"),
 )
 KINDS_BY_NAME = {kind.name: kind for kind in KINDS}
-# The processes the daemon and acpmux injectors reach by `target`, and how each is found among the tag's processes.
-TARGET_BINARIES = {"app_host": "cmux-app-host", "browser_host": "cmux-browser-host"}
 
 
 def selected_kinds(only, host):
@@ -285,6 +317,15 @@ def is_cmux_image(path):
             or "/cmux.app/" in path or "/cmux NIGHTLY.app/" in path)
 
 
+def is_build_image(path):
+    """A binary of the build a Chromium crash may stop in: a cmux image (its helper apps included) or the Chromium
+    Embedded Framework it ships."""
+    return bool(path) and (is_cmux_image(path) or "Chromium Embedded Framework" in path)
+
+
+IMAGE_RULES = {"cmux": is_cmux_image, "chromium": is_build_image}
+
+
 def frame_image(frame, images):
     """The debug image a frame's address falls in, else the one with its package path."""
     base = parse_address(frame.get("image_addr"))
@@ -302,8 +343,8 @@ def frame_image(frame, images):
     return next((i for i in images if package and i.get("code_file") == package), None)
 
 
-def top_cmux_frame_uuid(event):
-    """(uuid, code_file, "") of the innermost crashing frame in a cmux image, or (None, None, why)."""
+def top_frame_uuid(event, accept=is_cmux_image):
+    """(uuid, code_file, "") of the innermost crashing frame in an image `accept` takes, or (None, None, why)."""
     images = ((event or {}).get("debug_meta") or {}).get("images") or []
     frames = crash_frames(event)
     if not frames:
@@ -311,13 +352,13 @@ def top_cmux_frame_uuid(event):
     for frame in frames:
         image = frame_image(frame, images)
         path = (image or {}).get("code_file") or frame.get("package")
-        if not is_cmux_image(path):
+        if not accept(path):
             continue
         uuid = normalize_uuid((image or {}).get("debug_id") or (image or {}).get("uuid"))
         if uuid is None:
-            return None, path, f"the top cmux frame ({os.path.basename(path)}) has no debug image with a UUID"
+            return None, path, f"the top build frame ({os.path.basename(path)}) has no debug image with a UUID"
         return uuid, path, ""
-    return None, None, f"no frame of {len(frames)} is in a cmux image"
+    return None, None, f"no frame of {len(frames)} is in a build image"
 
 
 def parse_dwarfdump_uuids(text):
@@ -382,22 +423,26 @@ def started_by_run(pid, rows, tag_pids, launched_at, exclude):
     return True, "a process of the tag started by this launch"
 
 
-def holder_executable(command, argv0=None):
-    """The holder's executable path: exact argv0 when read (procargs), else the `ps` command up to the binary name
-    (a host-exe path has a space in `Application Support`)."""
-    if argv0:
-        return argv0
-    match = re.match(r"^(.*?/(?:cmux-holder|cmux-tui-host|cmux-tui))(?:\s|$)", command)
-    return match.group(1) if match else (command.split() or [""])[0]
+def executable_path(pid):
+    """The file `pid` runs (proc_pidpath, libproc.h), or None. Not the `ps` command: the daemon starts holders and
+    hosts with a bare argv0 (`cmux-holder`, service.rs; `cmux-tui`, host_exe.rs)."""
+    try:
+        libc = ctypes.CDLL(None, use_errno=True)
+        buffer = ctypes.create_string_buffer(4096)  # PROC_PIDPATHINFO_MAXSIZE
+        length = libc.proc_pidpath(int(pid), buffer, ctypes.sizeof(buffer))
+    except (OSError, AttributeError):
+        return None
+    return os.fsdecode(buffer.raw[:length]) if length > 0 else None
 
 
-def holder_build_check(command, bundle_bin, argv0=None, digest=None):
-    """(ok, detail): the running holder is this build's: its executable has the SHA-256 of the bundle's binary it
-    was copied from (`cmux-holder`, or the host binary for the built-in `__holder`), and a host-exe copy's folder is
-    named by that hash (host_exe.rs)."""
+def holder_build_check(exe, bundle_bin, digest=None):
+    """(ok, detail): the running holder's executable `exe` (executable_path) is this build's: it has the SHA-256 of
+    the bundle binary it was copied from (a host-exe copy keeps its source's name: `cmux-holder`, or the host binary
+    for the built-in `__holder`), and a host-exe copy's folder is named by that hash (host_exe.rs)."""
+    if not exe:
+        return False, "the holder's executable path cannot be read"
     digest = digest or file_sha256
-    exe = holder_executable(command, argv0)
-    source = os.path.join(bundle_bin, HOLDER_BIN if os.path.basename(exe) == HOLDER_BIN else os.path.basename(exe))
+    source = os.path.join(bundle_bin, os.path.basename(exe))
     try:
         want, have = digest(source), digest(exe)
     except OSError as error:
@@ -419,8 +464,9 @@ def file_sha256(path):
 
 
 def is_holder(command):
+    """A terminal holder (tag_teardown.TagTeardown._is_holder): argv0 `cmux-holder` or the built-in `__holder`."""
     words = command.split()
-    return bool(words) and (os.path.basename(holder_executable(command)) == HOLDER_BIN or " __holder " in f" {command} ")
+    return bool(words) and (os.path.basename(words[0]) == HOLDER_BIN or " __holder " in f" {command} ")
 
 
 def is_terminal_host(command):
@@ -431,14 +477,34 @@ def is_agent_host(command):
     return " __agent-host " in f" {command} "
 
 
-def binary_named(command, name):
-    return os.path.basename(holder_executable(command)) == name
+def runs_bundle_binary(command, app, name, args=""):
+    """True when the `ps` command runs `<app>/Contents/Resources/bin/<name>` (then `args`, when given): matched by the
+    whole path, since a tagged bundle path has spaces (`cmux DEV <tag>.app`). A /var or /tmp spelling matches its
+    /private realpath (tag_teardown.TagTeardown._relative)."""
+    resolved = "/private" + command if command.startswith(("/var/", "/tmp/")) else command
+    start = os.path.join(app.rstrip("/"), "Contents/Resources/bin", name) + (f" {args}" if args else "")
+    return resolved == start or resolved.startswith(start + " ")
 
 
-# ---------------------------------------------------------------- injector replies (pure)
+# ---------------------------------------------------------------- injectors (pure)
+ACPMUX_DEBUG_PANIC = "_acpmux/debug_panic"
+
+
+def daemon_debug_panic(kind):
+    """Task 101's daemon line: `debug-panic` takes `kind` and no other field."""
+    return {"id": 1, "cmd": "debug-panic", "kind": kind}
+
+
+def acpmux_debug_panic(kind):
+    """Task 101's acpmux requests: `initialize`, then `_acpmux/debug_panic` with `kind` and no other field."""
+    return [{"jsonrpc": "2.0", "id": 1, "method": "initialize",
+             "params": {"protocolVersion": 1, "clientInfo": {"name": "crash-matrix"}}},
+            {"jsonrpc": "2.0", "id": 2, "method": ACPMUX_DEBUG_PANIC, "params": {"kind": kind}}]
+
+
 def injector_refusal(reply):
     """None when the injector took the request (an ok reply, or the connection ended because the process died);
-    else the refusal text (the build lacks it, a remote client, a target that does not run)."""
+    else the refusal text (the build lacks it, a remote client, a field other than `kind`)."""
     if reply is None or reply.get("closed"):
         return None
     if reply.get("ok") is True or ("result" in reply and "error" not in reply):
@@ -510,21 +576,24 @@ def check_envelopes(report, kind, envelopes, uuids, uuid_source):
         if kind.app_kind:
             report.check(f"blackbox.txt has >= {MIN_APP_BLACKBOX_EVENTS} events", box["events"] >= MIN_APP_BLACKBOX_EVENTS, box)
         report.check("blackbox.txt has 0 key records", box["key_records"] == 0 and box["malformed"] == 0, box)
-    uuid, path, why = top_cmux_frame_uuid(event)
+    name = f"top {kind.images} frame UUID matches a dSYM"
+    if not crash_frames(event) and kind.no_stack:
+        report.add(name, SKIP, kind.no_stack)
+        return
+    uuid, path, why = top_frame_uuid(event, IMAGE_RULES[kind.images])
     if uuid is None:
-        report.check("top cmux frame UUID matches a dSYM", False, why)
+        report.check(name, False, why)
     elif not uuids:
-        report.add("top cmux frame UUID matches a dSYM", NOT_MEASURABLE,
+        report.add(name, NOT_MEASURABLE,
                    "no dSYM of the build found: pass --dsyms DIR (or --uuids-from-binaries for a DEV build)")
     else:
-        report.check("top cmux frame UUID matches a dSYM", uuid in uuids,
-                     f"{os.path.basename(path)} {uuid} ({uuid_source}: {len(uuids)} UUIDs)")
+        report.check(name, uuid in uuids, f"{os.path.basename(path)} {uuid} ({uuid_source}: {len(uuids)} UUIDs)")
 
 
 def check_counter(report, kind, before, after):
     """Its stability counter rose by exactly 1; the other changes are printed."""
     if kind.counter is None:
-        report.add("stability counter", SKIP, "task 109 names no counter for this process")
+        report.add("stability counter", SKIP, kind.counter_why)
         return
     if before is None or after is None:
         report.add("stability counter", NOT_MEASURABLE, "metrics.snapshot gave no histograms (metricsView off?)")
@@ -662,24 +731,27 @@ class Run:
             return max(found, key=lambda pid: lstart_epoch(rows[pid][1]) or 0) if found else None
         return self.e2e.wait(newest, seconds, 0.5)
 
+    def bundle(self):
+        return os.path.realpath(self.app.app).rstrip("/")
+
     def fresh_holder(self):
         """A holder of this build started by this launch (done check 8's first step)."""
         pid = self.find(is_holder)
         if not self.report.check("a fresh holder runs", bool(pid), f"pid {pid}" if pid else "no holder started within 30 s"):
             return None
-        rows, _ = self.tag_table()
-        found = self.teardown_mod.procargs(pid)
-        argv0 = found[0][0] if found and found[0] else None
-        ok, detail = holder_build_check(rows[pid][2], os.path.join(self.app.app, "Contents/Resources/bin"), argv0)
+        ok, detail = holder_build_check(executable_path(pid), os.path.join(self.bundle(), "Contents/Resources/bin"))
         self.report.check("the holder's build id is this build's", ok, detail)
         return pid
 
     def signal(self, pid, sig, reported_by_app=False):
         """Sends `sig` to `pid` once it is proved this run's; True when sent."""
-        rows, tag = self.tag_table()
-        owned, why = started_by_run(pid, rows, tag, self.launched_at, self.exclude(rows))
-        if not owned:
-            owned, why = self.e2e.Ownership(self.app_pid).proof(pid, reported_by_app)
+        if self.mcp is not None and self.mcp.pid == pid and self.mcp.poll() is None:
+            owned, why = True, "the `cmux mcp serve` this script started"
+        else:
+            rows, tag = self.tag_table()
+            owned, why = started_by_run(pid, rows, tag, self.launched_at, self.exclude(rows))
+            if not owned:
+                owned, why = self.e2e.Ownership(self.app_pid).proof(pid, reported_by_app)
         if not owned:
             self.report.add("trigger", NOT_MEASURABLE, f"refused to signal {pid}: {why}")
             return False
@@ -712,74 +784,23 @@ class Run:
             self.app.rpc("debug.key", {"key": "abcdefghijklmnopqrstuvwxyz"[index % 26], "timestamp": self.e2e.uptime()},
                          timeout=10)
 
-    def daemon_inject(self, arg):
-        kind, target = arg
-        if target and not self.target_runs(target):
+    def daemon_inject(self, kind):
+        try:
+            path = self.tagged.daemon_socket(self.app.tag)
+        except SystemExit as error:  # bench_tagged.daemon_socket ends a bench this way; here it ends one kind
+            self.report.add("trigger", NOT_MEASURABLE, f"no daemon socket: {error}")
             return False
-        body = {"id": 1, "cmd": "debug-panic", "kind": kind, **({"target": target} if target else {})}
-        reply = line_request(self.tagged.daemon_socket(self.app.tag), body)
-        return self.injected(f"daemon debug-panic {kind}{' ' + target if target else ''}", reply)
+        return self.injected(f"daemon debug-panic {kind}", line_request(path, daemon_debug_panic(kind)))
 
-    def target_runs(self, target):
-        match = is_terminal_host if target == "host" else (lambda c: binary_named(c, TARGET_BINARIES[target]))
-        if target == "agent_host":
-            match = is_agent_host
-            self.app.rpc("action.run", {"action": "palette.newAgentChat", "args": {}, "focus": True, "origin": "script"})
-        pid = self.find(match)
-        if not pid:
-            self.report.add("trigger", NOT_MEASURABLE, f"no {target} process runs in this launch")
-        return bool(pid)
-
-    def acpmux_inject(self, arg):
-        kind, target = arg
-        if target and not self.target_runs(target):
-            return False
-        pid = self.find(lambda c: binary_named(c, "acpmux") and " daemon run" in c)
+    def acpmux_inject(self, kind):
+        pid = self.find(lambda c: runs_bundle_binary(c, self.bundle(), "acpmux", "daemon run"))
         found = self.teardown_mod.procargs(pid) if pid else None
         env = found[1] if found else {}
         path = env.get("ACPMUX_SOCKET") or (os.path.join(env["ACPMUX_HOME"], "acpmux.sock") if env.get("ACPMUX_HOME") else None)
         if not path:
             self.report.add("trigger", NOT_MEASURABLE, "no acpmux daemon of this launch (or its socket cannot be read)")
             return False
-        params = {"kind": kind, **({"target": target} if target else {})}
-        reply = line_request(path, [
-            {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"client": {"name": "crash-matrix"}}},
-            {"jsonrpc": "2.0", "id": 2, "method": "debug-panic", "params": params}])
-        return self.injected(f"acpmux debug-panic {params}", reply)
-
-    def mcp_inject(self, kind):
-        env = {k: v for k, v in (self.app.launched_env or {}).items()}
-        self.mcp = subprocess.Popen([self.app.cli, "--app-socket", self.app.socket, "mcp", "serve"], env=env,
-                                    stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
-        requests = [{"jsonrpc": "2.0", "id": 1, "method": "initialize",
-                     "params": {"protocolVersion": "2025-06-18", "capabilities": {},
-                                "clientInfo": {"name": "crash-matrix", "version": "1"}}},
-                    {"jsonrpc": "2.0", "id": 2, "method": "debug-panic", "params": {"kind": kind}}]
-        try:
-            for request in requests:
-                self.mcp.stdin.write((json.dumps(request) + "\n").encode())
-            self.mcp.stdin.flush()
-        except OSError as error:
-            return self.report.check("trigger", False, f"cmux mcp serve: {error}")
-        reply, buffer, deadline = None, b"", time.monotonic() + 15
-        while reply is None and time.monotonic() < deadline:
-            ready, _, _ = select.select([self.mcp.stdout], [], [], 0.5)
-            if not ready:
-                continue
-            chunk = os.read(self.mcp.stdout.fileno(), 1 << 16)
-            if not chunk:
-                reply = {"closed": True}
-                break
-            buffer += chunk
-            for raw in buffer.split(b"\n")[:-1]:
-                try:
-                    message = json.loads(raw)
-                except ValueError:
-                    continue
-                if isinstance(message, dict) and message.get("id") == 2:
-                    reply = message
-            buffer = buffer.rsplit(b"\n", 1)[-1]
-        return self.injected(f"cmux mcp serve debug-panic {kind}", reply or {"closed": True, "timeout": True})
+        return self.injected(f"acpmux {ACPMUX_DEBUG_PANIC} {kind}", line_request(path, acpmux_debug_panic(kind)))
 
     def injected(self, what, reply):
         refused = injector_refusal(reply)
@@ -789,15 +810,62 @@ class Run:
         self.report.add("trigger", PASS, what)
         return True
 
+    def signal_found(self, what, match, sig):
+        pid = self.find(match)
+        if not pid:
+            self.report.add("trigger", NOT_MEASURABLE, f"no {what} of this launch runs")
+            return False
+        return self.signal(pid, sig)
+
     def signal_holder(self, sig):
         return bool(self.holder) and self.signal(self.holder, sig)
 
     def signal_host(self, sig):
-        pid = self.find(is_terminal_host)
-        if not pid:
-            self.report.add("trigger", NOT_MEASURABLE, "no terminal host of this launch runs")
+        return self.signal_found("terminal host", is_terminal_host, sig)
+
+    def signal_agent_host(self, sig):
+        self.app.rpc("action.run", {"action": "palette.newAgentChat", "args": {}, "focus": True, "origin": "script"})
+        return self.signal_found("agent host", is_agent_host, sig)
+
+    def signal_bundle_binary(self, arg):
+        name, sig = arg
+        return self.signal_found(name, lambda c: runs_bundle_binary(c, self.bundle(), name), sig)
+
+    def mcp_signal(self, sig):
+        """Starts `cmux mcp serve`, waits for its `initialize` reply (it serves), then signals it."""
+        self.mcp = subprocess.Popen([self.app.cli, "--app-socket", self.app.socket, "mcp", "serve"],
+                                    env=dict(self.app.launched_env or {}), stdin=subprocess.PIPE,
+                                    stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+        initialize = {"jsonrpc": "2.0", "id": 1, "method": "initialize",
+                      "params": {"protocolVersion": "2025-06-18", "capabilities": {},
+                                 "clientInfo": {"name": "crash-matrix", "version": "1"}}}
+        try:
+            self.mcp.stdin.write((json.dumps(initialize) + "\n").encode())
+            self.mcp.stdin.flush()
+        except OSError as error:
+            self.report.add("trigger", NOT_MEASURABLE, f"cmux mcp serve: {error}")
             return False
-        return self.signal(pid, sig)
+        reply, buffer, deadline = None, b"", time.monotonic() + 15
+        while reply is None and time.monotonic() < deadline:
+            ready, _, _ = select.select([self.mcp.stdout], [], [], 0.5)
+            if not ready:
+                continue
+            chunk = os.read(self.mcp.stdout.fileno(), 1 << 16)
+            if not chunk:
+                break
+            buffer += chunk
+            for raw in buffer.split(b"\n")[:-1]:
+                try:
+                    message = json.loads(raw)
+                except ValueError:
+                    continue
+                if isinstance(message, dict) and message.get("id") == 1 and "result" in message:
+                    reply = message
+            buffer = buffer.rsplit(b"\n", 1)[-1]
+        if reply is None:
+            self.report.add("trigger", NOT_MEASURABLE, "cmux mcp serve gave no initialize reply in 15 s")
+            return False
+        return self.signal(self.mcp.pid, sig)
 
     def omnibar(self, url):
         if not self.chromium_tab("chromium"):
@@ -872,6 +940,8 @@ class Run:
             self.holder = self.fresh_holder()
             before = None if self.kind.app_kind else self.counters()
             seen = recorder.files()
+            if self.kind.stand_in:
+                self.report.add("injector", SKIP, self.kind.stand_in)
             sent = getattr(self, self.kind.trigger)(self.kind.arg)
             if not sent:
                 return
@@ -1002,8 +1072,8 @@ class SelfTest(unittest.TestCase):
         self.assertFalse(is_key_record("daemon.request"))
         self.assertFalse(is_key_record("empty.state"))  # "pty" only as a whole name part
 
-    def test_top_cmux_frame_uuid(self):
-        uuid, path, why = top_cmux_frame_uuid(self.crash_event())
+    def test_top_frame_uuid(self):
+        uuid, path, why = top_frame_uuid(self.crash_event())
         self.assertEqual((uuid, why), (normalize_uuid(UUID), ""))
         self.assertTrue(path.endswith("cmux-holder"))
 
@@ -1014,11 +1084,11 @@ class SelfTest(unittest.TestCase):
                                             {"instruction_addr": "0x9000", "package": "/System/Library/Frameworks/AppKit"}]}}]},
                  "debug_meta": {"images": [{"image_addr": "0x5000", "image_size": "0x100", "uuid": UUID,
                                             "code_file": "/x/cmux DEV t.app/Contents/MacOS/cmux DEV t.debug.dylib"}]}}
-        self.assertEqual(top_cmux_frame_uuid(event)[0], normalize_uuid(UUID))
+        self.assertEqual(top_frame_uuid(event)[0], normalize_uuid(UUID))
 
     def test_no_cmux_frame(self):
         event = {"exception": {"values": [{"stacktrace": {"frames": [{"package": "/usr/lib/dyld"}]}}]}}
-        self.assertIsNone(top_cmux_frame_uuid(event)[0])
+        self.assertIsNone(top_frame_uuid(event)[0])
         self.assertFalse(is_cmux_image("/x/Chromium Embedded Framework.framework/Chromium Embedded Framework"))
 
     def test_dwarfdump_parse(self):
@@ -1081,18 +1151,86 @@ class SelfTest(unittest.TestCase):
     def test_holder_build_check(self):
         bundle = "/b/cmux DEV t.app/Contents/Resources/bin"
         sha = "a" * 64
-        copy = f"/Users/x/Library/Application Support/cmux-tui/host-exe/{sha}/cmux-holder"
-        digest = lambda path: sha  # noqa: E731
-        command = f"{copy} --socket /tmp/cmux-hd-501/1.sock --owner b:t@4"
-        self.assertEqual(holder_executable(command), copy)
-        self.assertTrue(holder_build_check(command, bundle, digest=digest)[0])
+        # What `ps` shows: the daemon sets argv0 to the bare name (service.rs); the file comes from proc_pidpath.
+        command = "cmux-holder --socket /tmp/cmux-hd-501/1.sock --owner b:t@4"
+        exe = f"/Users/x/Library/Application Support/cmux-tui/host-exe/{sha}/cmux-holder"
+        hashed = []
+        digest = lambda path: hashed.append(path) or sha  # noqa: E731
+        self.assertTrue(holder_build_check(exe, bundle, digest=digest)[0])
+        self.assertEqual(hashed, [f"{bundle}/cmux-holder", exe])
         other = lambda path: sha if path.startswith(bundle) else "b" * 64  # noqa: E731
-        self.assertFalse(holder_build_check(command, bundle, digest=other)[0])
-        renamed = command.replace(sha, "c" * 64)
-        self.assertFalse(holder_build_check(renamed, bundle, digest=digest)[0])
+        self.assertFalse(holder_build_check(exe, bundle, digest=other)[0])
+        self.assertFalse(holder_build_check(exe.replace(sha, "c" * 64), bundle, digest=lambda path: sha)[0])
+        self.assertEqual(holder_build_check(None, bundle, digest=digest),
+                         (False, "the holder's executable path cannot be read"))
+        builtin = f"/Users/x/Library/Application Support/cmux-tui/host-exe/{sha}/cmux-tui-host"
+        hashed.clear()
+        self.assertTrue(holder_build_check(builtin, bundle, digest=digest)[0])
+        self.assertEqual(hashed[0], f"{bundle}/cmux-tui-host")
         self.assertTrue(is_holder(command))
-        self.assertTrue(is_holder("/x/host-exe/ab/cmux-tui-host __holder --socket s"))
+        self.assertTrue(is_holder("cmux-tui __holder --socket s"))
         self.assertFalse(is_holder("/bin/zsh -f"))
+        self.assertIsNone(executable_path(2 ** 22 + 7))  # no such pid (and no proc_pidpath off macOS)
+
+    def test_runs_bundle_binary(self):
+        app = "/Users/x/cmux DEV t.app"
+        bin_dir = f"{app}/Contents/Resources/bin"
+        self.assertTrue(runs_bundle_binary(f"{bin_dir}/acpmux daemon run", app, "acpmux", "daemon run"))
+        self.assertTrue(runs_bundle_binary(f"{bin_dir}/acpmux daemon run --foreground", app, "acpmux", "daemon run"))
+        self.assertFalse(runs_bundle_binary(f"{bin_dir}/acpmux __agent-host x", app, "acpmux", "daemon run"))
+        self.assertTrue(runs_bundle_binary(f"{bin_dir}/cmux-app-host serve --socket s", app, "cmux-app-host"))
+        self.assertTrue(runs_bundle_binary(f"{bin_dir}/cmux-browser-host", app, "cmux-browser-host"))
+        self.assertFalse(runs_bundle_binary(f"{bin_dir}/cmux-browser-host-x serve", app, "cmux-browser-host"))
+        self.assertFalse(runs_bundle_binary("/Users/x/cmux DEV u.app/Contents/Resources/bin/cmux-app-host serve",
+                                            app, "cmux-app-host"))
+        self.assertTrue(runs_bundle_binary("/var/f/cmux DEV t.app/Contents/Resources/bin/cmux-app-host serve",
+                                           "/private/var/f/cmux DEV t.app", "cmux-app-host"))
+
+    def test_uuid_rule_per_kind(self):
+        panic = {"level": "error", "tags": {"process": "cmux-tui", "crash_source": "owner_panic_log",
+                                            "crash_key.daemon_epoch": "1"},
+                 "exception": {"values": [{"type": "RustPanic", "value": "injected"}]},
+                 "threads": {"values": [{"crashed": False, "stacktrace": {"frames": [{"package": "/x/cmux DEV t"}]}}]},
+                 "extra": {"backtrace": "0: main"}}
+        envelope = parse_envelope(envelope_bytes(panic))
+        for name in ("daemon-panic", "acpmux-panic", "utility-kill", "webkit-content-kill", "renderer-crash"):
+            report = KindReport(KINDS_BY_NAME[name])
+            event = dict(panic, tags={**panic["tags"], "process": "acpmux" if name == "acpmux-panic" else "cmux-tui"})
+            check_envelopes(report, report.kind, [parse_envelope(envelope_bytes(event))], {normalize_uuid(UUID)}, "t")
+            uuid = [c for c in report.checks if "UUID" in c.name]
+            self.assertEqual([c.status for c in uuid], [SKIP], (name, [dataclasses.asdict(c) for c in report.checks]))
+            self.assertEqual(uuid[0].detail, report.kind.no_stack[:500])
+        stack = KindReport(KINDS_BY_NAME["daemon-segv"])
+        check_envelopes(stack, stack.kind, [envelope], {normalize_uuid(UUID)}, "t")
+        self.assertEqual([c.status for c in stack.checks if "UUID" in c.name], [FAIL])
+        cef = "/b/cmux DEV t.app/Contents/Frameworks/Chromium Embedded Framework.framework/Chromium Embedded Framework"
+        renderer = {"level": "fatal", "tags": {"process": "cmux DEV t Helper (Renderer)", "crash_source": "macos_crash_report",
+                                               "crash_key.url_chunk": "1"},
+                    "exception": {"values": [{"stacktrace": {"frames": [
+                        {"instruction_addr": "0x7008", "package": cef}, {"instruction_addr": "0x9000", "package": "/usr/lib/dyld"}]}}]},
+                    "debug_meta": {"images": [{"image_addr": "0x7000", "image_size": 4096, "debug_id": UUID, "code_file": cef}]}}
+        report = KindReport(KINDS_BY_NAME["renderer-crash"])
+        check_envelopes(report, report.kind, [parse_envelope(envelope_bytes(renderer))], {normalize_uuid(UUID)}, "t")
+        self.assertEqual([c.status for c in report.checks if "UUID" in c.name], [PASS])
+        self.assertIsNone(top_frame_uuid(renderer)[0])  # the cmux rule never accepts the Chromium framework
+
+    def test_daemon_inject_without_socket_reports_the_kind(self):
+        class Tagged:
+            @staticmethod
+            def daemon_socket(tag):
+                raise SystemExit(f"bench: no daemon socket for tag {tag} after 30 s")
+        report = KindReport(KINDS_BY_NAME["daemon-segv"])
+        run = Run(None, report.kind, report, (None, Tagged, None, None))
+        run.app = type("App", (), {"tag": "t"})()
+        self.assertFalse(run.daemon_inject("segv"))
+        self.assertEqual(report.status, NOT_MEASURABLE)
+        self.assertIn("no daemon socket", report.checks[0].detail)
+
+    def test_injector_requests_carry_only_kind(self):
+        self.assertEqual(daemon_debug_panic("segv"), {"id": 1, "cmd": "debug-panic", "kind": "segv"})
+        requests = acpmux_debug_panic("panic")
+        self.assertEqual(requests[-1]["method"], "_acpmux/debug_panic")
+        self.assertEqual(requests[-1]["params"], {"kind": "panic"})
 
     def test_injector_refusal(self):
         self.assertIsNone(injector_refusal({"id": 1, "ok": True}))
@@ -1111,6 +1249,16 @@ class SelfTest(unittest.TestCase):
         for kind in KINDS:
             self.assertIn(kind.report, ("relaunch", "live"))
             self.assertTrue(hasattr(Run, kind.trigger), kind.trigger)
+            self.assertIn(kind.images, IMAGE_RULES)
+            # Task 101's injectors take only a kind name; no injector takes a target.
+            if kind.trigger in ("daemon_inject", "acpmux_inject"):
+                self.assertIn(kind.arg, ("panic", "abort", "segv"), kind.name)
+            if kind.trigger in ("daemon_inject", "acpmux_inject") and kind.arg == "panic":
+                self.assertIsNone(kind.counter, f"{kind.name}: a thread panic ends no process")
+            if kind.counter is None:
+                self.assertTrue(kind.counter_why, kind.name)
+            if kind.stand_in:
+                self.assertTrue(kind.name.endswith("-panic") and kind.trigger not in ("daemon_inject", "acpmux_inject"))
             if kind.counter:
                 name, value = kind.counter
                 self.assertTrue(name == "stability.unclean_exit"
@@ -1161,7 +1309,8 @@ def main(argv=None):
     if opts.list:
         for kind in KINDS:
             counter = f"{kind.counter[0]}[{kind.counter[1]}]" if kind.counter else "-"
-            print(f"{kind.name:<22} {kind.trigger:<16} {kind.report:<9} {counter}{'  (--host)' if kind.host_flag else ''}")
+            print(f"{kind.name:<22} {kind.trigger:<20} {kind.report:<9} {counter}{'  (--host)' if kind.host_flag else ''}"
+              f"{'  (SIGABRT stands in for a panic)' if kind.stand_in else ''}")
         return 0
     opts.app = opts.app or os.environ.get("NX_APP")
     if not opts.app:
