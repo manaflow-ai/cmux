@@ -7,7 +7,17 @@
 // transcript's layout (`tops`), so nothing here measures a transcript row; the rail reads only its
 // own list (during a scrub) and the card's height. Motion is transform only (threadMinimap.css);
 // the numbers are in model.ts.
-import React, { memo, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
+import React, {
+  memo,
+  useCallback,
+  useEffect,
+  useId,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react";
 import { transcriptColumn, type AcpmuxRow, type ConversationLayout } from "../model";
 import { useT } from "../i18n";
 import { MinimapTick } from "../../../ui/MinimapTick";
@@ -23,6 +33,7 @@ import { MARK_OPACITY, threadMinimapMark } from "./mark.experiment";
 import { experimentArm } from "../../../experiments/experiment";
 import { tickRanges } from "./tickWindow";
 import { useThreadMinimapArm } from "../chatDisplay";
+import type { EarlierPromptsStore } from "./earlierPrompts";
 import {
   CARD_DELAY,
   cardOffset,
@@ -63,6 +74,11 @@ const SCRUB_SLOP = 3;
 const gutter = (width: number) => transcriptColumn(width).inset;
 
 type Jump = "click" | "step" | "scrub" | "bookmark";
+const EMPTY_EARLIER_ROWS: readonly AcpmuxRow[] = [];
+const EMPTY_EARLIER: EarlierPromptsStore = {
+  subscribe: () => () => {},
+  get: () => EMPTY_EARLIER_ROWS,
+};
 
 /// A row the rail's state names: the index the state holds for it, and its prompt's key.
 type KeyedRow = { index: number; key: string };
@@ -104,6 +120,8 @@ const bubbleOf = (row: HTMLElement | undefined) => row?.querySelector<HTMLElemen
 
 export function ThreadMinimap({
   rows,
+  earlier = EMPTY_EARLIER,
+  loadThrough,
   sessionId,
   layout,
   scroller,
@@ -116,6 +134,8 @@ export function ThreadMinimap({
   change,
 }: {
   rows: AcpmuxRow[];
+  earlier?: EarlierPromptsStore;
+  loadThrough?: (seq: number) => Promise<void>;
   sessionId?: string;
   layout: ConversationLayout;
   scroller: React.RefObject<HTMLElement | null>;
@@ -135,6 +155,7 @@ export function ThreadMinimap({
   change?: RowsChange;
 }) {
   const t = useT();
+  const earlierRows = useSyncExternalStore(earlier.subscribe, earlier.get, earlier.get);
   /// The full-height map (ScrollMap.tsx), the compact Codex rail below, or none (`off`: the turn
   /// steps below still run), read once per pane. The Chat Minimap setting
   /// (`agentPane.display.minimap`) wins when set, live.
@@ -151,11 +172,16 @@ export function ThreadMinimap({
   const lastTurns = useRef<MinimapTurns | undefined>(undefined);
   // Every streamed token is a new `rows`: `turns` then changes with the live reply (the card reads
   // it), while `ticks` stays as long as the prompts do, so the tick list below renders nothing.
-  const read = useMemo(() => minimapTurns(rows, sessionId, lastTurns.current, change), [rows, sessionId, change]);
+  const read = useMemo(
+    () => minimapTurns(rows, sessionId, lastTurns.current, change, earlierRows),
+    [rows, sessionId, change, earlierRows],
+  );
   useLayoutEffect(() => {
     lastTurns.current = read;
   }, [read]);
   const { turns, ticks } = read;
+  const loadedTurns = read.loadedTurns ?? turns.filter((turn) => turn.index >= 0);
+  const loadedStart = read.loadedStart ?? 0;
   /// The row under the pointer, or the one a scrub is on.
   const [hovered, setHovered] = useState<number | undefined>(undefined);
   /// The row keyboard focus is on.
@@ -215,7 +241,7 @@ export function ThreadMinimap({
     restoring.current = { from: seen, by: (layout.tops[anchored.index] ?? 0) - anchor.current!.layoutTop };
   const shift = restoring.current && restoring.current.from === seen ? restoring.current.by : 0;
   const top = (seen ?? scrollTop) + shift;
-  const onScreen = visibleTurns(turns, layout.tops, layout.totalHeight, top, viewportHeight);
+  const onScreen = visibleTurns(turns, layout.tops, layout.totalHeight, top, viewportHeight, loadedStart);
   /// Never shorter than the prompts on screen, so the band always draws whole (model.ts railHeight).
   const height = railHeight(turns.length, windowHeight, viewportHeight, foot, onScreen.last - onScreen.first + 1);
   // A view with no room for a single row (the transcript is at least 96 px tall) draws no rail. A
@@ -236,6 +262,7 @@ export function ThreadMinimap({
     sessionId,
     shown,
     hovered,
+    loadedStart,
   });
   useLayoutEffect(() => {
     live.current = {
@@ -249,6 +276,7 @@ export function ThreadMinimap({
       sessionId,
       shown,
       hovered,
+      loadedStart,
     };
   });
 
@@ -263,7 +291,7 @@ export function ThreadMinimap({
       restoring.current = undefined;
       // The full-height map moves its own bar; no band to draw here.
       if (!live.current.shown) return;
-      const next = visibleTurns(all, tops, total, node.scrollTop, height);
+      const next = visibleTurns(all, tops, total, node.scrollTop, height, live.current.loadedStart);
       if (next.first !== drawn.first || next.last !== drawn.last) setBandMoves((count) => count + 1);
     };
     // Captured, so it runs before the transcript's own scroll handler and that one's render finds the
@@ -284,7 +312,7 @@ export function ThreadMinimap({
       domTop.current = { sessionId: session, top: node.scrollTop };
       restoring.current = undefined;
       if (!live.current.shown) return;
-      const next = visibleTurns(all, tops, total, node.scrollTop, height);
+      const next = visibleTurns(all, tops, total, node.scrollTop, height, live.current.loadedStart);
       if (next.first !== drawn.first || next.last !== drawn.last) setBandMoves((count) => count + 1);
     };
     return () => {
@@ -305,10 +333,18 @@ export function ThreadMinimap({
   /// at once when it is not (or under Reduce Motion, or while scrubbing). It lands the top of the
   /// prompt's row (its sent images, else its bubble) LANDING_OFFSET down. A click or a bookmark jump
   /// flashes the prompt's bubble where it lands. Returns where the scroll goes.
+  const waiting = useRef<{ id: string; how: Jump } | undefined>(undefined);
   const [jump] = useState(() => (index: number, how: Jump): number | undefined => {
     const node = scroller.current;
     const turn = live.current.turns[index];
     if (!node || !turn) return undefined;
+    if (turn.index < 0) {
+      const seq = Number(turn.id.slice(turn.id.indexOf("-") + 1));
+      if (!Number.isFinite(seq) || !loadThrough) return undefined;
+      waiting.current = { id: turn.id, how };
+      void loadThrough(seq).catch(() => undefined);
+      return undefined;
+    }
     const target = () =>
       Math.min(turnScrollTop(turn, live.current.tops), Math.max(0, live.current.total - node.clientHeight));
     const row = mountedRow(node, turn.id);
@@ -345,6 +381,14 @@ export function ThreadMinimap({
     }
     return to;
   });
+  useLayoutEffect(() => {
+    const pending = waiting.current;
+    if (!pending) return;
+    const index = turns.findIndex((turn) => turn.id === pending.id && turn.index >= 0);
+    if (index < 0) return;
+    waiting.current = undefined;
+    jump(index, pending.how);
+  }, [turns, jump]);
 
   // Previous Turn and Next Turn (the app's Ctrl-Opt-Up and Ctrl-Opt-Down) and Previous and Next
   // Bookmarked Prompt (palette actions) are bridge commands that raise these events. They work
@@ -671,7 +715,7 @@ export function ThreadMinimap({
     return (
       <ScrollMap
         rows={rows}
-        turns={turns}
+        turns={loadedTurns}
         layout={layout}
         scroller={scroller}
         viewportHeight={viewportHeight}

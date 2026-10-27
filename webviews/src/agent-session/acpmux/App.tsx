@@ -1996,6 +1996,8 @@ function TranscriptContext({
 
 export function VirtualTranscript({
   rows,
+  earlier,
+  loadThrough,
   sessionId,
   onToggleActivity,
   onOpenDiff,
@@ -2028,6 +2030,8 @@ export function VirtualTranscript({
   showMinimap = true,
 }: {
   rows: AcpmuxRow[];
+  earlier?: import("./threadMinimap/earlierPrompts").EarlierPromptsStore;
+  loadThrough?: (seq: number) => Promise<void>;
   sessionId?: string;
   /// Where the transcript opens instead of the latest message, when that row is loaded.
   openAt?: ScrollAnchor;
@@ -3966,6 +3970,8 @@ export function VirtualTranscript({
         {showMinimap && (
           <ThreadMinimap
             rows={rows}
+            earlier={earlier}
+            loadThrough={loadThrough}
             sessionId={sessionId}
             layout={layout}
             scroller={ref}
@@ -8547,6 +8553,13 @@ function AcpmuxPane() {
                                               {(find) => (
                                                 <VirtualTranscript
                                                   rows={transcriptRows}
+                                                  earlier={!childRows ? directClient.current?.earlier : undefined}
+                                                  loadThrough={
+                                                    !childRows
+                                                      ? (seq) =>
+                                                          directClient.current?.loadThrough(seq) ?? Promise.resolve()
+                                                      : undefined
+                                                  }
                                                   sourceRows={childRows ? undefined : sourceRows}
                                                   working={snapshot.isWorking}
                                                   // Its stage positions Jump to latest; the Quick Composer's panel has no room for it.
