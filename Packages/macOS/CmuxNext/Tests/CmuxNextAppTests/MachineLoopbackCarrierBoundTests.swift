@@ -114,17 +114,20 @@ private nonisolated final class CarrierEventLog: Sendable {
         (stream, continuation) = AsyncStream.makeStream(of: Kind.self, bufferingPolicy: .bufferingOldest(64))
     }
 
+    /// Holds the log strongly (its `Mutex` is noncopyable, so the closure captures the log, not it).
     var record: @Sendable (RemoteRdCarrierEvent) -> Void {
-        { [continuation, log] event in
-            let kind: Kind = switch event {
-            case .ready: .ready
-            case .data: .data
-            case .writable: .writable
-            case .closed: .closed
-            }
-            log.withLock { $0.append(kind) }
-            continuation.yield(kind)
+        { [self] event in append(event) }
+    }
+
+    private func append(_ event: RemoteRdCarrierEvent) {
+        let kind: Kind = switch event {
+        case .ready: .ready
+        case .data: .data
+        case .writable: .writable
+        case .closed: .closed
         }
+        log.withLock { $0.append(kind) }
+        continuation.yield(kind)
     }
 
     var seen: [Kind] { log.withLock { $0 } }
