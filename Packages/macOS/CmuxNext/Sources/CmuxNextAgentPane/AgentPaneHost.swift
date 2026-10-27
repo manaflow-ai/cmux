@@ -215,26 +215,18 @@ public actor AcpmuxHost: AgentPaneHostProviding {
         for task in inFlight.values { task.cancel() }
     }
 
+    private let launchWarm = AcpmuxLaunchWarm()
+    /// Whether this host participated in launch warming (used to end legacy Chief daemons at quit).
+    public private(set) var hasWarmedSessions = false
+
     private func warmSessions(_ sessionIds: [String]) async throws {
         try Task.checkCancellation()
         guard !sessionIds.isEmpty else { return }
-        _ = try await endpoint(startsDaemon: true)
+        hasWarmedSessions = true
+        let ready = try await endpoint(startsDaemon: true)
         try Task.checkCancellation()
         guard let socket = environment?.socketPath else { throw AgentPaneHostError.acpmuxNotFound }
-        var failedSessions: [String] = []
-        for session in sessionIds {
-            try Task.checkCancellation()
-            let params: [String: any Sendable] = ["sessionIds": [session], "limit": 1]
-            do {
-                let result = try await AcpmuxStatusClient.call(socketPath: socket, method: "_acpmux/warm", params: params, deadline: .seconds(60))
-                if let failed = result["failed"] as? [[String: Any]],
-                   failed.contains(where: { $0["retryable"] as? Bool == true }) { failedSessions.append(session) }
-            } catch {
-                try Task.checkCancellation()
-                failedSessions.append(session)
-            }
-        }
-        if !failedSessions.isEmpty { throw AgentPaneWarmFailure(sessionIds: failedSessions) }
+        try await launchWarm.warm(sessionIds, socket: socket, epoch: ready.token)
     }
 
     public func sessionFolder(sessionId: String) async throws -> AgentPaneSessionFolder? {

@@ -55,4 +55,18 @@ struct ChiefSubagentTabsAfterAppAcpmuxMoveTests {
         #expect(await reached(chief.localRouter(NamedHost(name: "app")), session: old) == "chief-own")
         #expect(await reached(chief.localRouter(NamedHost(name: "app")), session: "new-chat") == "app")
     }
+    @Test func launchTracksTheLegacyDaemonAfterTheChiefMovesToTheApp() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("legacy-warm-\(UUID().uuidString)/chief/default")
+        defer { try? FileManager.default.removeItem(at: root.deletingLastPathComponent().deletingLastPathComponent()) }
+        let home = ChiefHome(root: root, isolated: false, buildID: ChiefHome.nightlyBundleID)
+        try #require(home.usesAppAcpmux)
+        let id = "old-session"
+        try FileManager.default.createDirectory(at: home.acpmuxHome.appendingPathComponent("sessions/\(id)"), withIntermediateDirectories: true)
+        let legacy = ChiefSubagentWarmHost()
+        let chief = ChiefHomeAcpmux(home: home, local: NamedHost(name: "app"), ensureHost: {}, ownHost: { _ in legacy })
+        #expect(await chief.legacyPaneHost?.hasWarmedSessions == false)
+        try await chief.localRouter(NamedHost(name: "app")).warm(sessionIds: [id])
+        #expect(await chief.legacyPaneHost?.hasWarmedSessions == true)
+    }
+
 }

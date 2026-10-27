@@ -210,7 +210,13 @@ final class QuitCoordinator {
                 }
                 await services.home.chief.shutdownForEndSessions()
                 let keep = ChiefHostStop.appAcpmuxEndKeep(chiefUsesAppAcpmux: services.home.chief.home.usesAppAcpmux)
-                return olderHomes.flatMap(QuitAgents.failures) + (await QuitAgents.end(acpmux, keep: keep, waitForShutdown: retry))
+                var failures = olderHomes.flatMap(QuitAgents.failures)
+                if await services.agentTabs.legacyChiefWarmHost?.hasWarmedSessions == true,
+                   !QuitAgents.isAttached(acpmux, to: services.home.chief.home.acpmuxHome) {
+                    let legacy = ChiefHomeAcpmux.environment(home: services.home.chief.home)
+                    failures += await QuitAgents.end(legacy, keep: .nothing, waitForShutdown: retry)
+                }
+                return failures + (await QuitAgents.end(acpmux, keep: keep, waitForShutdown: retry))
             },
             stopBrowserEngines: { [weak self, deadline = self.deadline] in
                 // Drafts typed after the save step (while "Some sessions did not end" waited) reach disk

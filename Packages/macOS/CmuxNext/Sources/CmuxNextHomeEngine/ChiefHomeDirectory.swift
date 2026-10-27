@@ -33,14 +33,12 @@ public actor ChiefHomeDirectory {
     /// as NIGHTLY's own acpmux does after its move to the app's.
     private let ownHost: @Sendable (_ environment: AcpmuxEnvironment?, _ startsDaemons: Bool) -> any AgentPaneHostProviding
     private var launchHomes: Set<String> = []
-    private let endAgents: @Sendable (AcpmuxEnvironment?, Bool) async -> AcpmuxQuit.EndResult
     private var roots: [String: URL] = [:]
     private var lastScan: ContinuousClock.Instant?
     private var lookups: [String: Task<OwnAcpmux?, Never>] = [:]
 
     public init(parents: [URL], work: BackgroundWork, rescanInterval: Duration = .seconds(10),
                 environment: @escaping @Sendable (ChiefHome) -> AcpmuxEnvironment?,
-                endAgents: (@Sendable (AcpmuxEnvironment?, Bool) async -> AcpmuxQuit.EndResult)? = nil,
                 ownHost: @escaping @Sendable (_ environment: AcpmuxEnvironment?, _ startsDaemons: Bool) -> any AgentPaneHostProviding = {
                     AcpmuxHost(environment: $0, startsDaemons: $1)
                 }) {
@@ -49,7 +47,6 @@ public actor ChiefHomeDirectory {
         self.rescanInterval = rescanInterval
         self.environment = environment
         self.ownHost = ownHost
-        self.endAgents = endAgents ?? { await AcpmuxQuit.endAgents($0, keep: .nothing, waitForShutdown: $1) }
     }
 
     /// The directories that hold the Chief homes beside `home`: its parent, the Chief root and
@@ -87,7 +84,11 @@ public actor ChiefHomeDirectory {
 
     /// Ends only older homes warmed by this launch, and only while no other build owns the home.
     /// Called after launch cancellation/drain. Failed ends stay recorded so Quit's Retry can try again.
-    public func endLaunchSessions(waitForShutdown: Bool) async -> [AcpmuxQuit.EndResult] {
+    public func endLaunchSessions(waitForShutdown: Bool,
+                                  end: (@Sendable (AcpmuxEnvironment?, Bool) async -> AcpmuxQuit.EndResult)? = nil) async -> [AcpmuxQuit.EndResult] {
+        let endAgents: @Sendable (AcpmuxEnvironment?, Bool) async -> AcpmuxQuit.EndResult = end ?? {
+            await AcpmuxQuit.endAgents($0, keep: .nothing, waitForShutdown: $1)
+        }
         var results: [AcpmuxQuit.EndResult] = []
         for host in launchHomes.sorted() {
             guard let own = await ownAcpmux(of: host) else { continue }

@@ -17,7 +17,7 @@ impl Hub {
         web: bool,
         owner: bool,
     ) -> Vec<Value> {
-        self.warm_sessions_report(requested, limit, web).await.0
+        self.warm_sessions_report(requested, limit, web, owner).await.0
     }
 
     /// The same warm operation with explicit agent-start failures. Intentional trust/protected
@@ -27,6 +27,19 @@ impl Hub {
         requested: &[String],
         limit: usize,
         web: bool,
+        owner: bool,
+    ) -> (Vec<Value>, Vec<Value>) {
+        self.warm_sessions_guarded(requested, limit, web, owner, &std::collections::BTreeMap::new()).await
+    }
+
+    /// A retry keeps the original stop generation; a later explicit Stop wins over that retry.
+    pub async fn warm_sessions_guarded(
+        self: &Arc<Self>,
+        requested: &[String],
+        limit: usize,
+        web: bool,
+        owner: bool,
+        expected_stops: &std::collections::BTreeMap<String, u64>,
     ) -> (Vec<Value>, Vec<Value>) {
         // `sessions()` is newest first already; filtering keeps that order.
         let candidates: Vec<_> = self
@@ -38,6 +51,10 @@ impl Hub {
         let mut warmed = Vec::new();
         let mut failed = Vec::new();
         for session in candidates {
+            let stops = session.stops.load(Ordering::SeqCst);
+            if expected_stops.get(&session.id).is_some_and(|expected| *expected != stops) {
+                continue;
+            }
             // Watched transcripts intentionally start no harness until Take Over.
             if session.meta().watching.is_some() {
                 continue;
@@ -61,12 +78,12 @@ impl Hub {
                 tracing::info!(session = %session.id, "not warmed: the folder has no Trust answer");
                 continue;
             }
-            match self.child_for(&session).await {
+            match self.child_for_since(&session, stops).await {
                 Ok(_) => warmed.push(json!({"sessionId": session.id, "cwd": cwd})),
                 // Invalid params includes an explicit stop during startup. It must not be
                 // retried with a new stop generation, which would reopen the stopped session.
                 Err(error) => failed.push(json!({
-                    "sessionId": session.id, "retryable": error.code != -32602, "error": error
+                    "sessionId": session.id, "retryable": error.code != -32602, "stops": stops, "error": error
                 })),
             }
         }

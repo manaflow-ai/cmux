@@ -17,6 +17,8 @@ public nonisolated protocol AgentPaneHostProviding: Sendable {
     /// relaunch resumes every chat tab, not only the ones shown. A session whose agent runs
     /// already, or whose folder has no Trust answer, is left as it is.
     func warm(sessionIds: [String]) async throws
+    /// Whether launch warming used this host; quit uses it for legacy Chief-daemon cleanup.
+    var hasWarmedSessions: Bool { get async }
     /// Saves a file the person dropped into session `sessionId` on the machine that runs it (an
     /// ssh peer's chat: on that peer) and answers its path there. Throws
     /// ``AgentPaneFilePutFailure``. Never starts a daemon.
@@ -47,6 +49,9 @@ extension AgentPaneHostProviding {
 
     /// Hosts without a daemon run no agents.
     public func warm(sessionIds: [String]) async throws {}
+
+    /// Hosts without launch work have nothing additional for Quit to end.
+    public var hasWarmedSessions: Bool { get async { false } }
 
     /// Hosts without a daemon have none to restart.
     public func restartAcpmux(owner: AcpmuxSocketOwner) async -> Bool { false }

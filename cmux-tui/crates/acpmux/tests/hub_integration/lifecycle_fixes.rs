@@ -529,9 +529,8 @@ async fn an_agent_that_never_answers_its_start_fails_with_a_deadline() {
 
 /// A launch warmer must distinguish a failed harness load from an intentional trust skip.
 #[tokio::test]
-async fn launch_warm_reports_a_failed_agent_load() {
-    let env = BTreeMap::from([("FAKE_LOAD_ERROR".to_owned(), "thread held by another agent".to_owned())]);
-    let (hub, mut client) = setup_env(PermissionPolicy::ApproveAll, env).await;
+async fn launch_warm_reports_a_failed_agent_start() {
+    let (hub, mut client) = setup(PermissionPolicy::ApproveAll).await;
     let made = client
         .request(method::SESSION_NEW, json!({"cwd": cwd(), "mcpServers": []}))
         .await
@@ -539,6 +538,7 @@ async fn launch_warm_reports_a_failed_agent_load() {
     let id = made["sessionId"].as_str().unwrap().to_owned();
     let session = hub.resolve(&id).unwrap();
     hub.detach_child(&session).await;
+    hub.config.write().await.harnesses.get_mut("fake").unwrap().argv = vec!["/nonexistent-cmux-warm-fixture".into()];
     let result = client.request(method::MUX_WARM, json!({"sessionIds": [id]})).await.unwrap();
     assert_eq!(result["warmed"], json!([]), "{result}");
     assert_eq!(result["failed"][0]["sessionId"], made["sessionId"], "{result}");
@@ -578,7 +578,7 @@ async fn launch_warm_does_not_retry_an_explicit_stop() {
     let warmer = {
         let hub = hub.clone();
         let id = id.clone();
-        tokio::spawn(async move { hub.warm_sessions_report(&[id], 1, false).await })
+        tokio::spawn(async move { hub.warm_sessions_report(&[id], 1, false, true).await })
     };
     let deadline = std::time::Instant::now() + Duration::from_secs(20);
     while !hub.events(&id, 0, 10_000).unwrap().iter().any(|e| e.dir == "out" && e.kind == method::SESSION_LOAD) {
@@ -586,10 +586,39 @@ async fn launch_warm_does_not_retry_an_explicit_stop() {
         tokio::time::sleep(Duration::from_millis(10)).await;
     }
     hub.kill(&session, false).await.unwrap();
+    std::fs::write(&gate, "ready").unwrap();
     let (warmed, failed) = warmer.await.unwrap();
     assert!(warmed.is_empty());
     assert_eq!(failed.len(), 1);
     assert_eq!(failed[0]["retryable"], false, "{failed:?}");
     let _ = std::fs::remove_file(gate);
+    hub.shutdown_all().await;
+}
+
+/// A failed launch remains fenced if the person stops it during retry backoff.
+#[tokio::test]
+async fn launch_warm_preserves_a_stop_between_retry_attempts() {
+    let (hub, mut client) = setup(PermissionPolicy::ApproveAll).await;
+    let made = client
+        .request(method::SESSION_NEW, json!({"cwd": cwd(), "mcpServers": []}))
+        .await
+        .unwrap();
+    let id = made["sessionId"].as_str().unwrap().to_owned();
+    let session = hub.resolve(&id).unwrap();
+    hub.detach_child(&session).await;
+    let original = {
+        let mut config = hub.config.write().await;
+        std::mem::replace(&mut config.harnesses.get_mut("fake").unwrap().argv, vec!["/nonexistent-cmux-warm-fixture".into()])
+    };
+    let failed = client.request(method::MUX_WARM, json!({"sessionIds": [id]})).await.unwrap();
+    let stops = failed["failed"][0]["stops"].as_u64().unwrap();
+    hub.kill(&session, false).await.unwrap();
+    hub.config.write().await.harnesses.get_mut("fake").unwrap().argv = original;
+    let result = client
+        .request(method::MUX_WARM, json!({"sessionIds": [id], "expectedStopCounts": {id: stops}}))
+        .await
+        .unwrap();
+    assert_eq!(result["warmed"], json!([]), "{result}");
+    assert_eq!(result["failed"], json!([]), "a later Stop is an intentional skip: {result}");
     hub.shutdown_all().await;
 }

@@ -1405,8 +1405,14 @@ async fn dispatch_request(
                 super::remote_guard::control_of(conn.origin, conn.auth, &params),
                 &params,
             );
-            let _ = owner;
-            let (warmed, failed) = hub.warm_sessions_report(&requested, limit, web).await;
+            let expected_stops = params
+                .get("expectedStopCounts")
+                .and_then(Value::as_object)
+                .into_iter()
+                .flatten()
+                .filter_map(|(id, count)| count.as_u64().map(|count| (id.clone(), count)))
+                .collect();
+            let (warmed, failed) = hub.warm_sessions_guarded(&requested, limit, web, owner, &expected_stops).await;
             Ok(json!({"warmed": warmed, "failed": failed}))
         }
         method::MUX_PREWARM => {

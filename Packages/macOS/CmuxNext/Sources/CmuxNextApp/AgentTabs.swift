@@ -198,6 +198,7 @@ final class AgentTabStore {
     /// Async install-id loader used only by launch; tests can supply an isolated identity.
     var loadLocalHostForLaunch: (@MainActor () async throws -> String)?
     var launchResumeTask: Task<Void, Never>?
+    var legacyChiefWarmHost: (any AgentPaneHostProviding)?
     nonisolated deinit { launchResumeTask?.cancel() }
     /// The git link of tab `key`: the session host of the tab's own machine (AgentPaneGitReads.swift),
     /// so a Cloud or SSH chat reads its folder there; nil answers the page `native.not_connected`. Move to Floating Chat puts a session in Start Agent's panel.
