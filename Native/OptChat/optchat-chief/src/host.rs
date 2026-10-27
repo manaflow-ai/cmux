@@ -962,6 +962,12 @@ fn start(
     // channel until the brain runs.
     let (tx, rx) = channel();
     let _ = STOP_TX.set(tx.clone());
+    // An app update replaces this binary while this process keeps the old code,
+    // and the relaunched app keeps a host that holds the lock: hand off once no
+    // turn runs (update_watch.rs). OPTCHAT_BINARY_WATCH=0 turns it off.
+    if env("OPTCHAT_BINARY_WATCH").as_deref() != Some("0") {
+        watch_binary(&exe, tx.clone());
+    }
     // Turn sessions get their own Claude Code configuration (section 7: a
     // fresh call with nothing carried over). OPTCHAT_CHIEF_ISOLATE=0 turns it
     // off, for a harness that needs the user's configuration to sign in. On
@@ -1884,6 +1890,31 @@ fn stop_started_acpmux() {
             Err(e) => log(format!("acpmux: its users unknown ({e}); the daemon keeps running")),
         }
     });
+}
+
+/// Looks at this host's binary every `CHECK_EVERY`; the first time another file
+/// is at its path, asks the brain to hand off once no turn runs.
+fn watch_binary(exe: &Path, tx: std::sync::mpsc::Sender<Input>) {
+    let watch = crate::update_watch::ExeWatch::new(exe);
+    let shown = exe.display().to_string();
+    let spawned = std::thread::Builder::new()
+        .name("binary-watch".into())
+        .spawn(move || {
+            loop {
+                // A fixed check interval for a file on disk (no change event to wait on).
+                std::thread::sleep(crate::update_watch::CHECK_EVERY);
+                if watch.replaced() {
+                    log(format!("{shown} was replaced on disk (an update)"));
+                    let _ = tx.send(Input::BinaryReplaced);
+                    return;
+                }
+            }
+        });
+    if let Err(e) = spawned {
+        log(format!(
+            "binary watch: no thread ({e}); an update waits for the next restart"
+        ));
+    }
 }
 
 /// This host's `MUX_HOME` (`--mux-home`), for the stop path.

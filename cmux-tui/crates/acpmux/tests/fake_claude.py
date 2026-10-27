@@ -608,6 +608,9 @@ while True:
             send(init())
         content = (msg.get("message") or {}).get("content") or []
         said = "".join(b.get("text", "") for b in content if isinstance(b, dict))
+        # FAKE_CLAUDE_ECHO=1: each prompt line echoed back first, as `--replay-user-messages` does.
+        if os.environ.get("FAKE_CLAUDE_ECHO") == "1":
+            send({"type": "user", "isReplay": True, "uuid": msg.get("uuid"), "message": msg.get("message")})
         if STORE and LAYOUT:
             # Claude Code stamps each line with its UTC time to the millisecond.
             import datetime

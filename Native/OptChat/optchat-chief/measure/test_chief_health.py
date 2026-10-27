@@ -62,6 +62,7 @@ TRACE = [
     {"ev": "turn.end", "status": "ok", "ms": 30000, "ttft_ms": 4000},
     {"ev": "turn.end", "status": "error", "ms": 500},
     {"ev": "turn.end", "status": "cancelled", "ms": 800},
+    {"ev": "turn.end", "status": "stopped", "ms": 900},
     {"ev": "tool", "name": "bash", "ok": True},
     {"ev": "tool", "name": "spawn", "ok": False,
      "error": {"prefix": "<tool_use_error>Error: No such tool avai…"}},
@@ -136,9 +137,10 @@ class ChiefHealth(unittest.TestCase):
         self.assertEqual(self.w["subagents_without_workspace"], 1)
 
     def test_trace_turns_and_missing_tools(self):
-        self.assertEqual(self.w["turns"], 4)
-        self.assertEqual(self.w["turn_error_rate"], 0.25)
-        self.assertEqual(self.w["turn_cancelled_rate"], 0.25)
+        self.assertEqual(self.w["turns"], 5)
+        self.assertEqual(self.w["turn_error_rate"], 0.2)
+        self.assertEqual(self.w["turn_cancelled_rate"], 0.2)
+        self.assertEqual(self.w["turn_stopped_by_chief_rate"], 0.2)
         self.assertEqual(self.w["turn_s_p50"], 30.0)
         self.assertEqual(self.w["no_such_tool"], 1)
         self.assertEqual(self.w["no_such_tool_names"], {"spawn": 1})
