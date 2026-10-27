@@ -300,6 +300,9 @@ impl Owner {
         match request.get("method").and_then(Value::as_str) {
             Some("login") => {
                 ensure!(self.account.is_none(), "sign out before changing the broker account");
+                // Access polling must not return a previous process's cache
+                // before this explicitly requested browser sign-in finishes.
+                self.call("account/logout", json!({})).await?;
                 let response =
                     self.call("account/login/start", json!({"type": "chatgptDeviceCode"})).await?;
                 let code = response
