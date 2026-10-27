@@ -16,8 +16,9 @@ nonisolated enum FeedSecretScrubber {
     /// Patterns whose whole match is a secret.
     private static let whole: [NSRegularExpression] = [
         #"-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----[\s\S]*?(-----END [A-Z0-9 ]*PRIVATE KEY-----|$)"#,
-        // The header is capped: `-` breaks `\b`, so `eyJ-eyJ-…` starts a scan at every `eyJ`.
-        #"\beyJ[A-Za-z0-9_-]{8,256}+\.[A-Za-z0-9_-]{8,}+\.[A-Za-z0-9_-]{8,}"#,
+        // `-` breaks `\b`, so `eyJ-eyJ-…` starts a scan at every `eyJ`: the header ends at the next
+        // `-eyJ`, with no length cap (an x5c JWS header runs to kilobytes).
+        #"\beyJ(?:[A-Za-z0-9_]|-(?!eyJ)){8,}+\.[A-Za-z0-9_-]{8,}+\.[A-Za-z0-9_-]{8,}"#,
         #"\b(sk|pk|rk)-[A-Za-z0-9_-]{16,}"#,
         #"\b(ghp|gho|ghs|ghu|ghr)_[A-Za-z0-9]{20,}"#,
         #"\bgithub_pat_[A-Za-z0-9_]{20,}"#,
@@ -26,8 +27,9 @@ nonisolated enum FeedSecretScrubber {
         #"\b(AKIA|ASIA)[0-9A-Z]{16}\b"#,
         #"\bAIza[0-9A-Za-z_-]{30,}"#,
         #"\bnpm_[A-Za-z0-9]{30,}"#,
-        // The scheme is capped at 32: `.` and `-` break `\b`, so `a.a.a…` starts a scan at every `a`.
-        #"(?i)\b[a-z][a-z0-9+.-]{0,31}+://[^\s/:@]++:[^\s/@]++@"#,
+        // No `\b`: a scheme glued to a longer word (`<hash>https://u:p@`) is still found. Each start
+        // reads at most 32 scheme characters, so a long word is not rescanned to its end.
+        #"(?i)[a-z][a-z0-9+.-]{0,31}+://[^\s/:@]++:[^\s/@]++@"#,
     ].compactMap { try? NSRegularExpression(pattern: $0) }
 
     /// `Bearer value`: the value is the secret (before `name: value`, which would stop at "Bearer").

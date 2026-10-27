@@ -18,9 +18,26 @@ import Testing
         #expect(FeedSecretScrubber.scrub("x-\(jwt) y") == "x-[redacted] y")
     }
 
+    @Test func aJWSWithAKilobyteHeaderIsRedactedWhole() {
+        // An x5c header runs to kilobytes: the header has no length cap.
+        let header = "eyJ" + String(repeating: "MIIBx5c_", count: 160) + "-tail"
+        let jws = header + ".eyJzdWIiOiIxMjM0In0.dozjgNryP4J3jVmNHl0w5N_XgL0n3I9PlFUP0THsR8U"
+        #expect(header.count > 1024)
+        #expect(FeedSecretScrubber.scrub("receipt \(jws) ok") == "receipt [redacted] ok")
+    }
+
     @Test func urlCredentialsAreRedacted() {
         #expect(FeedSecretScrubber.scrub("git clone https://u:p4ss@github.com/x") == "git clone [redacted]github.com/x")
         #expect(FeedSecretScrubber.scrub("a.b.c+ssh://u:p4ss@host") == "[redacted]host")
+    }
+
+    @Test func urlCredentialsAfterALongAlphanumericRunAreRedacted() {
+        // No separator before the scheme: a start at the run's start is 40 characters short of `://`.
+        let run = "commit" + String(repeating: "a", count: 40)
+        let output = FeedSecretScrubber.scrub("\(run)https://user:hunter2@example.com")
+        #expect(output.hasSuffix("[redacted]example.com"))
+        #expect(!output.contains("hunter2"))
+        #expect(output.hasPrefix("commit"))
     }
 
     @Test func runsWithNothingToRedactStayAsWritten() {
@@ -40,7 +57,7 @@ struct FeedSecretScrubberBudgetTests {
     @Test func theScrubberIsLinear() throws {
         let bytes = 64 << 10
         let budget = FuzzBudget(perUnit: .milliseconds(50), unitBytes: bytes)
-        for piece in ["tokentoken", "token= ", "eyJ-", "eyJabcdefgh.", "a.", "a", "Bearer ", "-----BEGIN A PRIVATE KEY-----"] {
+        for piece in ["tokentoken", "token= ", "eyJ-", "eyJabcdefgh.", "eyJabcdefgh-", "a.", "a", "Bearer ", "-----BEGIN A PRIVATE KEY-----"] {
             let text = FuzzText.truncated(String(repeating: piece, count: bytes / piece.utf8.count + 1), toBytes: bytes)
             try budget.check("FeedSecretScrubber.scrub of \(piece.debugDescription) repeated", bytes: text.utf8.count) { _ in
                 _ = FeedSecretScrubber.scrub(text)

@@ -79,11 +79,53 @@ import Testing
         #expect(redactor.redact("password=a\(spaces)b") == "password=<redacted>")
     }
 
-    @Test func aTextPastTheCapIsCutAtWhiteSpace() {
+    @Test func aJWSWithAKilobyteHeaderIsRedactedWhole() {
+        // An x5c header runs to kilobytes: the header has no length cap.
+        let header = "eyJ" + String(repeating: "MIIBx5c_", count: 160) + "-tail"
+        let jws = header + ".eyJzdWIiOiIxMjM0In0.dozjgNryP4J3jVmNHl0w5N_XgL0n3I9PlFUP0THsR8U"
+        #expect(header.count > 1024)
+        #expect(redactor.redact("receipt \(jws) ok") == "receipt <jwt> ok")
+    }
+
+    @Test func aTextPastTheCapIsCutHardAtTheCap() {
         let head = String(repeating: "abcd ", count: ErrorRedactor.maxInputScalars / 5)
-        let output = redactor.redact(head + String(repeating: "z", count: 100))
-        #expect(output == head.dropLast() + "…")
+        let output = redactor.redact(head + String(repeating: "zy ", count: 40))
+        // 16384 = 5 * 3276 + 4: the cut is hard, not back to the space before it.
+        #expect(output == head + "zy z…")
         #expect(redactor.redact("short text") == "short text")
+    }
+
+    @Test func aSecretTheCapSplitsIsRedactedWhole() {
+        // The cap falls inside the password: cutting the text there first left `user:hun` with no `@`.
+        let filler = String(repeating: "x ", count: (ErrorRedactor.maxInputScalars - 16) / 2)
+        let output = redactor.redact(filler + "https://user:hunter2@host/x tail")
+        #expect(output.hasPrefix(filler + "https://<"))
+        #expect(!output.contains("hun"))
+    }
+
+    @Test func aSecretCutShortWhereTheReadEndsNeverReachesTheOutput() {
+        // Each 60-character run shrinks to `<blob>`, so what is read is shorter than the cap after the
+        // rules: the URL the read cuts before its `@` must still not be kept.
+        let blobs = String(repeating: String(repeating: "b", count: 60) + " ", count: 200)
+        let readEnd = ErrorRedactor.maxInputScalars + ErrorRedactor.capOverscanScalars
+        let pad = String(repeating: "w", count: readEnd - blobs.unicodeScalars.count - 16) + " "
+        let text = blobs + pad + "https://user:hunter2@host/x" + String(repeating: " more", count: 100)
+        #expect(blobs.unicodeScalars.count + pad.unicodeScalars.count + 15 == readEnd)
+        let output = redactor.redact(text)
+        #expect(output.hasSuffix("…"))
+        #expect(!output.contains("user:hu"), "cut-short credential leaked: \(output.suffix(40))")
+    }
+
+    @Test func aLongMinifiedJSONMessageKeepsItsHeadAndItsOwnTemplate() {
+        let json = "{" + (0..<3000).map { #""k\#($0)":\#($0)"# }.joined(separator: ",") + "}"
+        #expect(json.unicodeScalars.count > ErrorRedactor.maxInputScalars + ErrorRedactor.capOverscanScalars)
+        let upload = redactor.redact("upload failed: " + json)
+        #expect(upload.hasPrefix(#"upload failed: {"k0":0,"k1":1,"#))
+        #expect(upload.unicodeScalars.count == ErrorRedactor.maxInputScalars + 1)
+        let normalizer = ErrorNormalizer()
+        let uploadTemplate = normalizer.template(upload)
+        #expect(uploadTemplate.hasPrefix("upload failed: {"))
+        #expect(uploadTemplate != normalizer.template(redactor.redact("parse failed: " + json)))
     }
 
     // MARK: - Templates
@@ -143,7 +185,7 @@ struct RegexInputBudgetTests {
         FuzzText.truncated(String(repeating: piece, count: bytes / piece.utf8.count + 1), toBytes: bytes)
     }
 
-    static let redactorPieces = ["a-", "a", "(", " ", "token= ", "eyJ-", "https", "\\\"", "sk-", "key=a ", "x(apikey"]
+    static let redactorPieces = ["a-", "a", "(", " ", "token= ", "eyJ-", "eyJabcdef-", "https", "\\\"", "sk-", "key=a ", "x(apikey"]
     static let normalizerPieces = ["a", "1a", "0", "\"", "/Users/", "~", "\u{1b}[1", "a_"]
 
     @Test func theRedactorIsLinear() throws {

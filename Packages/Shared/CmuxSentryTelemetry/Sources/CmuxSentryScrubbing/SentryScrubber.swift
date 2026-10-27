@@ -53,6 +53,11 @@ public struct SentryScrubber: Sendable {
     /// truncated (components/crash/core/common/crash_key.h).
     public static let maxScrubbedScalars = 8192
 
+    /// Scalars past ``maxScrubbedScalars`` that ``scrub(_:)`` still reads, so a secret the cap
+    /// splits is whole when the rules run: longer than the longest fixed-length secret a rule
+    /// matches (a spaced card number is 31).
+    static let capOverscanScalars = 256
+
     /// Appended where ``scrub(_:)`` dropped the tail of a longer string.
     public static let truncatedMarker = "<truncated>"
 
@@ -174,33 +179,37 @@ public struct SentryScrubber: Sendable {
     /// Do not try to make this free-text path exhaustive by widening its regexes;
     /// route structured data through the structured methods instead.
     ///
-    /// A string longer than ``maxScrubbedScalars`` is cut there first, back to
-    /// the white space before the cut (a secret the cut splits might no longer
-    /// match its rule), and ends with ``truncatedMarker``.
+    /// A longer string is scrubbed on its first ``maxScrubbedScalars`` plus
+    /// ``capOverscanScalars`` scalars, so a secret the cap splits is still whole
+    /// when the rules run; the result is cut at ``maxScrubbedScalars`` scalars
+    /// and ends with ``truncatedMarker``.
     ///
     /// - Parameter text: The string to scrub.
     /// - Returns: The scrubbed string.
     public func scrub(_ text: String) -> String {
         guard !text.isEmpty else { return text }
-        var result = Self.bounded(text)
+        let scalars = text.unicodeScalars
+        let readEnd = scalars.index(scalars.startIndex, offsetBy: Self.maxScrubbedScalars + Self.capOverscanScalars,
+                                    limitedBy: scalars.endIndex) ?? scalars.endIndex
+        let readsAll = readEnd == scalars.endIndex
+        var result = readsAll ? text : String(String.UnicodeScalarView(scalars[..<readEnd]))
         result = redactPEMBlocks(in: result)
         result = redactURLCredentials(in: result)
         result = redactSecrets(in: result)
         result = redactEmails(in: result)
         result = redactPaths(in: result)
-        return result
+        return Self.capped(result, readsAll: readsAll)
     }
 
-    /// `text` cut to ``maxScrubbedScalars`` scalars as ``scrub(_:)`` reads it, or `text` when it is not longer.
-    static func bounded(_ text: String) -> String {
-        let scalars = text.unicodeScalars
-        guard let cut = scalars.index(scalars.startIndex, offsetBy: maxScrubbedScalars, limitedBy: scalars.endIndex),
-              cut < scalars.endIndex else { return text }
-        let head = scalars[..<cut]
-        let end = scalars[cut].properties.isWhitespace
-            ? cut
-            : head.lastIndex(where: { $0.properties.isWhitespace }) ?? head.startIndex
-        return String(String.UnicodeScalarView(scalars[..<end])) + truncatedMarker
+    /// `scrubbed` cut hard at ``maxScrubbedScalars`` scalars, then ``truncatedMarker``;
+    /// itself when it read the whole string and is not longer. When the string was
+    /// cut before the rules ran, its last ``capOverscanScalars`` scalars go first:
+    /// a secret cut short there might match no rule.
+    static func capped(_ scrubbed: String, readsAll: Bool) -> String {
+        let scalars = scrubbed.unicodeScalars
+        let kept = readsAll ? scalars[...] : scalars.dropLast(capOverscanScalars)
+        guard !readsAll || scalars.count > maxScrubbedScalars else { return scrubbed }
+        return String(String.UnicodeScalarView(kept.prefix(maxScrubbedScalars))) + truncatedMarker
     }
 
     /// Replaces each PEM key block, header through footer, with ``redactedSecret``;

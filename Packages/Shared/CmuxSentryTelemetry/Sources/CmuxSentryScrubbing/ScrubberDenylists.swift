@@ -218,12 +218,13 @@ public struct ScrubberDenylists: Sendable {
         SentryRegexPattern(#"\b(?:sk|pk|rk|ghp|gho|ghu|ghs|ghr|xox[baprs])[_\-][A-Za-z0-9_\-]{16,}"#),
         // JSON Web Tokens: three base64url segments separated by dots. No relay
         // equivalent. Case-sensitive (`eyJ` header is fixed-case base64). The
-        // header segment is capped at 256 characters and the first two segments
-        // are possessive (no segment character is a `.`): `-` breaks `\b`, so
-        // on `eyJ-eyJ-…` every `eyJ` starts a scan, and an uncapped header made
-        // each scan run to the end of the text (p10-stability-191).
+        // header has no length cap (an x5c JWS header runs to kilobytes) and
+        // ends at the next `-eyJ`, the place the next scan starts (`-` breaks
+        // `\b`); the first two segments are possessive (no segment character
+        // is a `.`). On `eyJ-eyJ-…` each scan so stops at the next `eyJ`, not
+        // at the end of the text (p10-stability-191).
         SentryRegexPattern(
-            #"\beyJ[A-Za-z0-9_\-]{1,256}+\.[A-Za-z0-9_\-]++\.[A-Za-z0-9_\-]+"#,
+            #"\beyJ(?:[A-Za-z0-9_]|-(?!eyJ))++\.[A-Za-z0-9_\-]++\.[A-Za-z0-9_\-]+"#,
             options: []
         ),
         // AWS access key IDs. No relay equivalent. Case-sensitive (AKIA/ASIA + uppercase).

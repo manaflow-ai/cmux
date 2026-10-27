@@ -7,7 +7,7 @@ import Foundation
 /// each run a backtracking matcher could rescan from many starts, and `key=` / `key:` anchors
 /// and query keys are found by scanners, not by regexes. Chromium runs untrusted text through
 /// RE2, which is linear by construction (third_party/re2); Foundation has none, so the bound is
-/// here. Text past ``maxInputScalars`` is dropped first.
+/// here. Text past ``maxInputScalars`` (and ``capOverscanScalars``) is not read.
 ///
 /// ```swift
 /// ErrorRedactor().redact("Authorization: Bearer abc.def") // "Authorization=<redacted>"
@@ -16,6 +16,9 @@ public struct ErrorRedactor {
     /// The most Unicode scalars of one text ``redact(_:)`` reads: the journal keeps at most
     /// 1 KiB of a message, and the cap bounds the passes over a huge log line.
     public static let maxInputScalars = 16_384
+    /// Scalars past ``maxInputScalars`` ``redact(_:)`` still reads, so a secret the cap splits is
+    /// whole when the rules run: longer than the longest fixed-length secret a rule matches.
+    static let capOverscanScalars = 256
 
     private let rules: [(NSRegularExpression, String)]
     /// False when a built-in pattern failed to compile: ``redact(_:)`` then keeps no text at all.
@@ -44,8 +47,9 @@ public struct ErrorRedactor {
             // later fields are just as sensitive as the first one.
             (#"(?i)\b((?:proxy-)?authorization|(?:set-)?cookie)(\s*[:=]\s*)[^\r\n]+"#, "$1$2<redacted>"),
             (#"(?i)\bbearer\s+[A-Za-z0-9._~+/=-]+"#, "Bearer <redacted>"),
-            // The header is capped: `eyJ-eyJ-…` starts a scan at every `eyJ`.
-            (#"\beyJ[A-Za-z0-9_-]{6,256}+\.[A-Za-z0-9_-]{6,}+\.[A-Za-z0-9_-]{6,}"#, "<jwt>"),
+            // `eyJ-eyJ-…` starts a scan at every `eyJ`: the header ends at the next `-eyJ`, with no
+            // length cap (an x5c JWS header runs to kilobytes).
+            (#"\beyJ(?:[A-Za-z0-9_]|-(?!eyJ)){6,}+\.[A-Za-z0-9_-]{6,}+\.[A-Za-z0-9_-]{6,}"#, "<jwt>"),
             (#"\b(?:sk|pk|rk|ghp|gho|ghu|ghs|ghr|github_pat|xox[abprs]|AKIA|ASIA)[-_]?[A-Za-z0-9_-]{12,}"#, "<redacted>"),
             // Long opaque runs (keys, hashes, base64 payloads).
             (#"[A-Za-z0-9+/_=-]{48,}"#, "<blob>"),
@@ -60,26 +64,31 @@ public struct ErrorRedactor {
     }
 
     /// Returns `text` with every secret replaced by a placeholder.
+    ///
+    /// A longer text is redacted on its first ``maxInputScalars`` plus ``capOverscanScalars``
+    /// scalars, and the result is cut at ``maxInputScalars`` scalars and ends with "…".
     public func redact(_ text: String) -> String {
         guard complete else { return "<redacted>" }
-        var text = Self.bounded(text)
+        let scalars = text.unicodeScalars
+        let readEnd = scalars.index(scalars.startIndex, offsetBy: Self.maxInputScalars + Self.capOverscanScalars,
+                                    limitedBy: scalars.endIndex) ?? scalars.endIndex
+        let readsAll = readEnd == scalars.endIndex
+        var text = readsAll ? text : String(String.UnicodeScalarView(scalars[..<readEnd]))
         for (rule, replacement) in rules {
             text = rule.stringByReplacingMatches(in: text, range: NSRange(text.startIndex..., in: text),
                                                  withTemplate: replacement)
         }
-        return redactQueryAssignments(in: redactAssignments(in: text))
+        return Self.capped(redactQueryAssignments(in: redactAssignments(in: text)), readsAll: readsAll)
     }
 
-    /// `text` cut to ``maxInputScalars`` scalars, back to the white space before the cut (a secret
-    /// the cut splits might match no rule), then "…"; `text` itself when it is not longer.
-    static func bounded(_ text: String) -> String {
-        let scalars = text.unicodeScalars
-        guard let cut = scalars.index(scalars.startIndex, offsetBy: maxInputScalars, limitedBy: scalars.endIndex),
-              cut < scalars.endIndex else { return text }
-        let end = scalars[cut].properties.isWhitespace
-            ? cut
-            : scalars[..<cut].lastIndex(where: { $0.properties.isWhitespace }) ?? scalars.startIndex
-        return String(String.UnicodeScalarView(scalars[..<end])) + "…"
+    /// `redacted` cut hard at ``maxInputScalars`` scalars, then "…"; itself when it read the whole
+    /// text and is not longer. When the text was cut before the rules ran, its last
+    /// ``capOverscanScalars`` scalars go first: a secret cut short there might match no rule.
+    static func capped(_ redacted: String, readsAll: Bool) -> String {
+        let scalars = redacted.unicodeScalars
+        let kept = readsAll ? scalars[...] : scalars.dropLast(capOverscanScalars)
+        guard !readsAll || scalars.count > maxInputScalars else { return redacted }
+        return String(String.UnicodeScalarView(kept.prefix(maxInputScalars))) + "…"
     }
 
     private func redactAssignments(in text: String) -> String {

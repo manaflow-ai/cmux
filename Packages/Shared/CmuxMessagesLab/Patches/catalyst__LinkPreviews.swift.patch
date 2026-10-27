@@ -74,9 +74,9 @@
          var out: [String: String] = [:]
          // no try! ; a pattern that fails to compile reads no tags.
 -        guard let re = try? NSRegularExpression(pattern: "<meta\\s+[^>]*>", options: [.caseInsensitive]),
-+        // cmux: a tag ends at the next `<` too, read possessively: `[^>]*` scanned from every `<meta ` of a
-+        // page with no `>` after it to the end (quadratic in the 400 000 characters read, p10-stability-191).
-+        guard let re = try? NSRegularExpression(pattern: "<meta\\s[^<>]*+>", options: [.caseInsensitive]),
++        // cmux: a tag ends at a `<` or `>` outside a quoted value, read possessively: `[^>]*` scanned from every
++        // `<meta ` of a page with no `>` after it to the end (quadratic in the 400 000 characters read, p10-stability-191).
++        guard let re = try? NSRegularExpression(pattern: "<meta\\s(?:[^<>\"']|\"[^\"]*+\"|'[^']*+')*+>", options: [.caseInsensitive]),
                let key = try? NSRegularExpression(pattern: "(?:property|name)\\s*=\\s*[\"']([^\"']+)[\"']", options: [.caseInsensitive]),
                let val = try? NSRegularExpression(pattern: "content\\s*=\\s*(\"([^\"]*)\"|'([^']*)')", options: [.caseInsensitive])
          else { return out }
@@ -96,8 +96,8 @@
 -    static func titleTag(_ html: String) -> String? {
 -        guard let re = try? NSRegularExpression(pattern: "<title[^>]*>([^<]*)</title>", options: [.caseInsensitive]),
 +    nonisolated static func titleTag(_ html: String) -> String? {
-+        // cmux: the tag ends at the next `<` too, possessively (as metaTags, p10-stability-191).
-+        guard let re = try? NSRegularExpression(pattern: "<title[^<>]*+>([^<]*+)</title>", options: [.caseInsensitive]),
++        // cmux: the tag ends at a `<` or `>` outside a quoted value, possessively (as metaTags, p10-stability-191).
++        guard let re = try? NSRegularExpression(pattern: "<title(?:[^<>\"']|\"[^\"]*+\"|'[^']*+')*+>([^<]*+)</title>", options: [.caseInsensitive]),
                let m = re.firstMatch(in: html, range: NSRange(location: 0, length: min((html as NSString).length, 400_000))) else { return nil }
          let t = decode((html as NSString).substring(with: m.range(at: 1))).trimmingCharacters(in: .whitespacesAndNewlines)
          return t.isEmpty ? nil : t

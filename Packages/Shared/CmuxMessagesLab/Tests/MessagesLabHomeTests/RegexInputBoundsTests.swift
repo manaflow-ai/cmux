@@ -37,6 +37,13 @@ import Testing
         #expect(LinkPreviews.titleTag(html) == "T")
     }
 
+    @Test func aQuotedValueMayHoldAnAngleBracket() {
+        let html = #"<meta property="og:title" content="if a < b then"><meta name='og:description' content='a<3 > b'>"#
+            + #"<title data-x="a<b">Hi</title>"#
+        #expect(LinkPreviews.metaTags(html) == ["og:title": "if a < b then", "og:description": "a<3 > b"])
+        #expect(LinkPreviews.titleTag(html) == "Hi")
+    }
+
     @Test func openTagsBeforeAGoodOneAreSkipped() {
         let junk = String(repeating: "<meta x ", count: 2000) + String(repeating: "<title ", count: 2000)
         let html = junk + #"<meta property="og:title" content="Kept"><title>Also</title>"#
@@ -77,7 +84,7 @@ struct RegexInputBudgetTests {
     }
 
     @Test func linkPreviewTagsAreLinear() throws {
-        for piece in ["<meta x ", "<meta \t ", "<title "] {
+        for piece in ["<meta x ", "<meta \t ", "<title ", "<meta \"", "<meta '", "\"<meta ", "<meta \"<meta '", "<title \""] {
             let html = Self.repeated(piece)
             try Self.budget.check("LinkPreviews tags of \(piece.debugDescription) repeated", bytes: html.utf8.count) { _ in
                 _ = LinkPreviews.metaTags(html)
