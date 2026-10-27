@@ -5,9 +5,17 @@
 //
 // decide() checks, in order:
 //   G1  the SHA is on feat-cmux-next (not a fork-network or dropped commit);
-//   G2  a cmux-next.yml push run of this repository on feat-cmux-next for that
+//   G2  only with requireReleaseCompile (off by default since 2026-10-26): a
+//       cmux-next.yml push run of this repository on feat-cmux-next for that
 //       exact SHA has a successful "cmux-next Release compile (Xcode 26)" job;
-//       the gate workflow is itself on the release surface;
+//       the gate workflow is itself on the release surface. Off, the nightly
+//       build of the promoted commit is the compile gate: nightly.yml compiles
+//       the app itself and a failed compile publishes nothing, so the feed
+//       keeps its last good build. Leo, 2026-10-26: "SKIP THE OLD FUCKING
+//       NIGHTLY BUILDS THEN WE'RE JSUT BUILDING FROM THE TIP OR FUKCING / JUST
+//       FUCKING USE MORE LINUX FIX THE FUCKING BUILDS". The cost: a tip that
+//       does not compile is promoted and its nightly fails, where G2 refused it
+//       up front;
 //   G3  the files changed from the current nightly-next to the SHA. If none
 //       matches the release surface the promotion goes ahead ("promote");
 //       otherwise it needs a release approver ("needs-ack");
@@ -436,7 +444,7 @@ async function landersOf(github, owner, repo, commit, actors) {
 export async function decide({
   github, owner, repo, sha, surfaceText, core, sleep = (ms) => new Promise((r) => setTimeout(r, ms)),
   debounce = false, minIntervalHours = 0, admissionAttempts = 6, admissionDelayMs = 5000, now = () => Date.now(),
-  verifyTrain = null,
+  verifyTrain = null, requireReleaseCompile = false,
 }) {
   if (!/^[0-9a-f]{40}$/.test(sha)) return refuse(`promote_nightly_next_sha must be 40 lowercase hex characters, got ${sha}`);
 
@@ -480,9 +488,11 @@ export async function decide({
       return refuse(`${sha} is not on ${SOURCE} (compare status ${onSource})`);
     }
 
-    // G2: the trusted gate. If the requested tip is still compiling, use the
-    // newest earlier source commit whose exact Release compile is already green.
-    if (!(await admitted(github, owner, repo, sha, { attempts: admissionAttempts, delayMs: admissionDelayMs, sleep, core }))) {
+    // G2 (requireReleaseCompile only): the trusted gate. If the requested tip
+    // is still compiling, use the newest earlier source commit whose exact
+    // Release compile is already green. Off, the tip goes to its own nightly
+    // build, which compiles it and publishes nothing when that fails.
+    if (requireReleaseCompile && !(await admitted(github, owner, repo, sha, { attempts: admissionAttempts, delayMs: admissionDelayMs, sleep, core }))) {
       const fallback = await newestGreenSourceCommit(github, owner, repo, sha, sha);
       if (!fallback) {
         return refuse(`${sha} has no ${GATE_WORKFLOW} push run on ${SOURCE} in ${owner}/${repo} with a successful "${GATE_JOB}" job, and no earlier green source commit was found`);

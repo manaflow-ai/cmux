@@ -6,9 +6,12 @@ in-memory GitHub API (runs, jobs, refs, commits, pull requests, repository
 activity, deployment approvals) and checks the decision the workflow acts on:
 
 - G1: a SHA that is not on feat-cmux-next is refused.
-- G2: only a cmux-next.yml push run of this repository proves the Release
-  compile; a same-named job in another workflow does not. The lookup retries
-  while GitHub's index lags.
+- G2 (requireReleaseCompile, off by default since 2026-10-26): only a
+  cmux-next.yml push run of this repository proves the Release compile; a
+  same-named job in another workflow does not. The lookup retries while
+  GitHub's index lags. Off, the promoted commit's own nightly build is the
+  compile gate and a tip with no green Release compile is promoted itself.
+  The G2 cases set scenario requireReleaseCompile.
 - G3: a range that changes no release surface file is promoted; a range that
   changes one needs an approval.
 - G4: the approval must come from someone who did not land the surface
@@ -194,10 +197,12 @@ const decision = scenario.newest
   ? (newest = await guard.decideNewest({
       github, core, owner: 'manaflow-ai', repo: 'cmux', sha: scenario.sha, runId: 1,
       surfaceText: scenario.surface, sleep: async () => {},
+      ...(scenario.requireReleaseCompile === undefined ? {} : { requireReleaseCompile: scenario.requireReleaseCompile }),
     })).decision
   : await guard.decide({
       github, core, owner: 'manaflow-ai', repo: 'cmux', sha: scenario.sha,
       surfaceText: scenario.surface, sleep: async () => {},
+      ...(scenario.requireReleaseCompile === undefined ? {} : { requireReleaseCompile: scenario.requireReleaseCompile }),
       // G1' tree check: scenario.trainVerify is its answer, 'throw' a crash.
       verifyTrain: scenario.trainVerify === undefined ? null : async () => {
         if (scenario.trainVerify === 'throw') throw new Error('merge-tree crashed');
@@ -342,14 +347,14 @@ def test_sha_not_on_feat_cmux_next_is_refused() -> None:
 
 
 def test_same_named_job_in_another_workflow_does_not_admit() -> None:
-    out = run(scenario(runs=[gate_run(path=".github/workflows/other.yml")]))
+    out = run(scenario(runs=[gate_run(path=".github/workflows/other.yml")], requireReleaseCompile=True))
     assert out["decision"]["action"] == "refuse"
-    out = run(scenario(runs=[gate_run(head_repository={"full_name": "someone/cmux"})]))
+    out = run(scenario(runs=[gate_run(head_repository={"full_name": "someone/cmux"})], requireReleaseCompile=True))
     assert out["decision"]["action"] == "refuse"
 
 
 def test_tip_without_release_compile_promotes_newest_earlier_green_commit() -> None:
-    case = scenario(runs=[gate_run(id=8, head_sha=MID)], jobs={"8": GREEN})
+    case = scenario(runs=[gate_run(id=8, head_sha=MID)], jobs={"8": GREEN}, requireReleaseCompile=True)
     out = run(case)
     assert out["decision"]["action"] == "promote", out
     assert out["decision"]["sha"] == MID, out
@@ -366,7 +371,7 @@ def test_fallback_ranks_green_commits_by_ancestry_not_run_time() -> None:
     ]
     case = scenario(sha=tip, sourceHead=tip, onSource={tip: "identical"}, commits=commits,
                     runs=[gate_run(id=8, head_sha=older, created_at="2026-10-24T01:00:00Z"), gate_run(id=9, head_sha=newer, created_at="2026-10-24T00:59:00Z")],
-                    jobs={"8": GREEN, "9": GREEN})
+                    jobs={"8": GREEN, "9": GREEN}, requireReleaseCompile=True)
     out = run(case)
     assert out["decision"]["action"] == "promote", out
     assert out["decision"]["sha"] == newer, out
@@ -380,21 +385,21 @@ def test_fallback_never_promotes_a_descendant_of_an_older_requested_sha() -> Non
         {"sha": CURRENT, "parents": [], "author": {"login": "lawrencecchen"}, "committer": {"login": "lawrencecchen"}, "files": []},
     ]
     case = scenario(sha=requested, sourceHead=later, onSource={requested: "ahead"}, commits=commits,
-                    runs=[gate_run(id=8, head_sha=later)], jobs={"8": GREEN})
+                    runs=[gate_run(id=8, head_sha=later)], jobs={"8": GREEN}, requireReleaseCompile=True)
     out = run(case)
     assert out["decision"]["action"] == "refuse", out
     assert "no earlier green source commit" in out["decision"]["reason"], out
 
 
 def test_admission_retries_while_the_index_lags() -> None:
-    out = run(scenario(emptyRuns=2))
+    out = run(scenario(emptyRuns=2, requireReleaseCompile=True))
     assert out["decision"]["action"] == "promote"
     assert out["calls"]["runs"] == 3
     assert any("retry" in notice for notice in out["notices"])
 
 
 def test_in_progress_success_is_not_admission() -> None:
-    out = run(scenario(jobs={7: [dict(GREEN[0], status="in_progress")]}))
+    out = run(scenario(jobs={7: [dict(GREEN[0], status="in_progress")]}, requireReleaseCompile=True))
     assert out["decision"]["action"] == "refuse"
 
 
@@ -731,6 +736,8 @@ def with_waiter(waiter_sha: str, waiter_current: str, green: bool = True, status
                           900: [{"name": f"nightly-next promotion {waiter_sha} from {waiter_current}", "status": status}]},
                     dispatchRuns=[{"id": 900, "status": "waiting" if status == "waiting" else "in_progress"}])
     case["commits"].insert(0, commit(NEWER, [SHA], ["Sources/Newer.swift"]))
+    if not green:
+        case["requireReleaseCompile"] = True
     return case
 
 
@@ -829,6 +836,8 @@ def with_evicted(evicted_sha: str, *, message: str = EVICTED, age_hours: float =
                                    "display_title": title or f"Promote nightly-next to {evicted_sha}"}],
                     annotations={"9500": [{"annotation_level": "failure", "message": message}]})
     case["commits"].insert(0, commit(NEWER, [SHA], ["Sources/Newer.swift"]))
+    if not green:
+        case["requireReleaseCompile"] = True
     return case
 
 
@@ -1039,6 +1048,35 @@ console.log(JSON.stringify({ ok, bad, crashed }));
 def test_both_promote_decisions_pass_the_train_verifier() -> None:
     assert WORKFLOW.count("verifyTrain: guard.trainVerifier(") == 2
     assert WORKFLOW.count("scripts/ci/nightly_next_train.py\n") >= 2
+
+
+def test_by_default_a_tip_without_a_release_compile_is_promoted_itself() -> None:
+    # 2026-10-26: the nightly build compiles the promoted commit and publishes
+    # nothing when that fails, so promotion no longer waits for G2.
+    case = scenario(runs=[gate_run(id=8, head_sha=MID)], jobs={"8": GREEN})
+    out = run(case)
+    assert out["decision"]["action"] == "promote", out
+    assert out["decision"]["sha"] == SHA, out
+    assert out["calls"]["runs"] == 0, out["calls"]
+    out = run(scenario(runs=[], jobs={}))
+    assert out["decision"]["action"] == "promote" and out["decision"]["sha"] == SHA, out
+
+
+def test_by_default_g1_still_refuses_a_commit_off_feat_cmux_next() -> None:
+    out = run(scenario(onSource={SHA: "diverged"}, sourceHead="e" * 40, runs=[], jobs={}))
+    assert out["decision"]["action"] == "refuse"
+    assert "is not on feat-cmux-next" in out["decision"]["reason"]
+
+
+def test_by_default_a_newer_waiter_without_a_compile_is_decided() -> None:
+    case = with_waiter(NEWER, "9" * 40)
+    case["jobs"]["8"] = []
+    out = run(case)
+    assert out["decision"]["action"] == "promote" and out["decision"]["sha"] == NEWER, out["decision"]
+
+
+def test_the_workflow_leaves_g2_off() -> None:
+    assert "requireReleaseCompile" not in WORKFLOW
 
 
 def main() -> None:
