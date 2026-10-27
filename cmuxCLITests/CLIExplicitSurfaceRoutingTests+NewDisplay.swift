@@ -11,7 +11,7 @@ extension CLIExplicitSurfaceRoutingTests {
         ["--workspace", "  --token=synthetic-secret"],
     ])
     func surfaceNewDisplayRejectsMissingWorkspaceValues(arguments: [String]) throws {
-        let execution = try Self.runMockCommand(
+        let execution = try runMockCommand(
             arguments: ["surface", "new-display", "--machine", "vivid-newt"] + arguments,
             socketName: "display-invalid-workspace"
         ) { line in
@@ -27,7 +27,7 @@ extension CLIExplicitSurfaceRoutingTests {
 
     /// Omitting `--no-open` must send the API's default `open: true` request.
     @Test func surfaceNewDisplayDefaultsToOpen() throws {
-        let execution = try Self.runMockCommand(
+        let execution = try runMockCommand(
             arguments: [
                 "surface", "new-display",
                 "--machine", "vivid-newt",
@@ -73,7 +73,7 @@ extension CLIExplicitSurfaceRoutingTests {
 
     /// Explicit display flags still reach the socket unchanged when opening is disabled.
     @Test func surfaceNewDisplaySendsCloudMachineAndProjectionOptions() throws {
-        let execution = try Self.runMockCommand(
+        let execution = try runMockCommand(
             arguments: [
                 "surface", "new-display",
                 "--machine", "vivid-newt",
