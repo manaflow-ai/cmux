@@ -17,6 +17,7 @@ import { LivePresenceStack, LiveTypingLine } from "./multiplayer/LivePresence";
 import { flushSync } from "react-dom";
 import { CONNECT_ACTIONS, savedEnvironmentHost, type ConnectKind, type OffloadKind } from "./environments";
 import { chiefEnvelope } from "./conversation/chiefEnvelope";
+import { restoreForkSource } from "./handoff/restoreForkSource";
 import { rowPresence } from "./conversation/rowPresence";
 import { QueryClientProvider, useIsFetching, useQueryClient } from "@tanstack/react-query";
 import { applyAgentTheme } from "../shared/theme";
@@ -7592,21 +7593,15 @@ function AcpmuxPane() {
               } else await persistSession(startedTarget);
               return receipt;
             } catch (error) {
-              // The user may have switched chats while Start was in flight. Only clean up the
-              // handoff we captured, while its target is still selected; a late failure must never
-              // discard another chat's draft or move that chat to this fork's source.
-              const sameHandoff =
-                !!handoffId &&
-                client.handoff.state.record?.handoffId === handoffId &&
-                !!target &&
-                client.selectedSession === target;
-              if (source && sameHandoff && client.selectedSession !== source) {
-                // A draft target has never received a prompt, so discard it and select the
-                // source. If delivery was uncertain, discard refuses and the source is still
-                // selected explicitly; the target remains recoverable by its handoff record.
-                await client.discardHandoff().catch(() => client.select(source));
-                await persistSession(source);
-              }
+              await restoreForkSource({
+                source,
+                target,
+                handoffId,
+                currentHandoffId: () => client.handoff.state.record?.handoffId,
+                selectedSession: () => client.selectedSession,
+                select: (id) => client.select(id),
+                persist: (id) => persistSession(id),
+              }).catch(() => undefined);
               throw error;
             }
           },
