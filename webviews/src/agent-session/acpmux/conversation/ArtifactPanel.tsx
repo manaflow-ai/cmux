@@ -255,7 +255,11 @@ function ArtifactFrame({ html, title, jsx }: { html: string; title: string; jsx:
         </button>
       </div>
     );
-  return jsx ? <JsxFrame code={html} title={title} /> : <RunningFrame html={html} title={title} />;
+  return jsx ? (
+    <JsxFrame key={html} code={html} title={title} />
+  ) : (
+    <RunningFrame key={html} html={html} title={title} />
+  );
 }
 
 function PassiveFrame({ html, title }: { html: string; title: string }) {
