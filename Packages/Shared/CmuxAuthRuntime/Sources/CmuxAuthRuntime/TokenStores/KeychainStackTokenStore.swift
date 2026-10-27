@@ -324,7 +324,9 @@ public actor KeychainStackTokenStore: StackAuthTokenStoreProtocol {
 }
 
 #if canImport(Security)
-/// The system Keychain through `SecItem`: the same direct calls the store made before the seam.
+/// The system Keychain through `SecItem`: the same direct calls the store made before the seam. They run on
+/// the ``KeychainStackTokenStore`` actor, never on the main thread, and wait for securityd as the base store
+/// did. Moving them off the cooperative pool (an injected MayBlockRunner) is its own change, not the Linux port's.
 struct SecItemKeychain: KeychainItemStoring {
     /// The accessibility every item the store writes or hardens gets.
     static let accessibility = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly as String
@@ -334,6 +336,7 @@ struct SecItemKeychain: KeychainItemStoring {
         query[kSecReturnData as String] = true
         query[kSecMatchLimit as String] = kSecMatchLimitOne
         var result: CFTypeRef?
+        // blocking-allow: on the store actor, never main; the base store's raw call (see SecItemKeychain)
         let status = Self.status(SecItemCopyMatching(query as CFDictionary, &result))
         guard status == .success, let data = result as? Data else {
             return (status == .success ? .itemNotFound : status, nil)
@@ -347,6 +350,7 @@ struct SecItemKeychain: KeychainItemStoring {
             attributes[kSecValueData as String] = data
         }
         let query = Self.query(item)
+        // blocking-allow: on the store actor, never main; the base store's raw call (see SecItemKeychain)
         return Self.status(SecItemUpdate(query as CFDictionary, attributes as CFDictionary))
     }
 
@@ -354,11 +358,13 @@ struct SecItemKeychain: KeychainItemStoring {
         var insert = Self.query(item)
         insert[kSecValueData as String] = data
         insert[kSecAttrAccessible as String] = Self.accessibility
+        // blocking-allow: on the store actor, never main; the base store's raw call (see SecItemKeychain)
         return Self.status(SecItemAdd(insert as CFDictionary, nil))
     }
 
     func delete(_ item: KeychainItemAddress) -> KeychainItemStatus {
         let query = Self.query(item)
+        // blocking-allow: on the store actor, never main; the base store's raw call (see SecItemKeychain)
         return Self.status(SecItemDelete(query as CFDictionary))
     }
 
