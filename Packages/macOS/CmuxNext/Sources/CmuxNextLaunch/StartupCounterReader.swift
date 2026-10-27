@@ -5,7 +5,8 @@ import Darwin
 public nonisolated protocol LaunchCounterSource: Sendable {
     /// This process's page-ins since it started; nil when unreadable.
     func pageIns() -> UInt64?
-    /// The main thread's CPU time (user plus system) in nanoseconds, from any thread; nil when unreadable.
+    /// The main thread's CPU time (user plus system) in nanoseconds, read on the main thread (the first frame's
+    /// commit completion runs there); nil when unreadable or when called on any other thread.
     func mainThreadCPUNanos() -> UInt64?
 }
 
@@ -60,6 +61,10 @@ public nonisolated struct StartupCounterReader: Sendable {
     /// The kernel's counters: the page-ins ``LaunchClock`` reads for the temperature
     /// (`task_info(TASK_EVENTS_INFO).pageins`, so the first frame's count compares with the run loop's), and the
     /// main thread's `THREAD_BASIC_INFO`. Each read is one syscall and allocates nothing.
+    ///
+    /// The SDK has no public call that names the main thread from another thread, so the CPU read is the calling
+    /// thread's own, and only on the main thread: `first_window_frame_committed` is marked in a
+    /// `CATransaction` main completion, so the first frame's read is there.
     public nonisolated struct SystemCounters: LaunchCounterSource {
         private let clock = LaunchClock()
 
@@ -70,8 +75,10 @@ public nonisolated struct StartupCounterReader: Sendable {
         }
 
         public func mainThreadCPUNanos() -> UInt64? {
-            // pthread_mach_thread_np returns the thread's own port: no reference to release.
-            let thread = pthread_mach_thread_np(pthread_main_thread_np())
+            // Only the main thread reads its own time; any other caller would read the wrong thread.
+            guard pthread_main_np() != 0 else { return nil }
+            // pthread_mach_thread_np returns the thread's own port: no reference to release, unlike mach_thread_self().
+            let thread = pthread_mach_thread_np(pthread_self())
             var info = thread_basic_info()
             var count = mach_msg_type_number_t(MemoryLayout<thread_basic_info>.size / MemoryLayout<natural_t>.size)
             let result = withUnsafeMutablePointer(to: &info) {

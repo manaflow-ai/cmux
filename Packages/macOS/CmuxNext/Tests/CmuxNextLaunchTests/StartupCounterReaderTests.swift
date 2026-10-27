@@ -46,11 +46,17 @@ struct StartupCounterReaderTests {
     }
 
     #if os(macOS)
-    /// The kernel seam answers in this process (it has run, so it has CPU time).
-    @Test func theSystemCountersReadThisProcess() {
+    /// The kernel seam answers in this process on the main thread (it has run, so it has CPU time).
+    @MainActor @Test func theSystemCountersReadThisProcess() {
         let counters = StartupCounterReader.SystemCounters()
         #expect(counters.pageIns() != nil)
         #expect((counters.mainThreadCPUNanos() ?? 0) > 0)
+    }
+
+    /// Off the main thread the seam reads no thread rather than the caller's own.
+    @Test func theSystemCountersReadNoCPUOffTheMainThread() async {
+        let cpu = await Task.detached { StartupCounterReader.SystemCounters().mainThreadCPUNanos() }.value
+        #expect(cpu == nil)
     }
     #endif
 }
