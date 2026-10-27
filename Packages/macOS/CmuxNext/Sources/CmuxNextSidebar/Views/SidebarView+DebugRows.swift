@@ -158,12 +158,14 @@ extension SidebarViewComponents {
     /// The drag's last drop probe (debug): nil while nothing is dragged.
     public func debugDropProbe() -> SidebarDropProbe? { list.drag?.probe }
 
+    #if DEBUG || CMUX_BENCH_HOOKS
     /// Starts (`start` true) or stops the per-display-frame motion samples; stop returns them.
     public func debugMotion(start: Bool) -> [SidebarMotionFrame] {
         guard start else { return list.motionProbe.stop() }
         list.motionProbe.start()
         return []
     }
+    #endif
 
     public func debugRows() -> (rows: [SidebarDebugRow], selection: [String], dragging: [String]) {
         // One lookup table: a per-row `model.workspace` scan is O(rows²) (seconds at 1,000 rows, a watchdog trip).

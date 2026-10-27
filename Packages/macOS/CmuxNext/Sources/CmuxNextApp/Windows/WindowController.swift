@@ -74,7 +74,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
     /// Its view, made the first time it shows.
     var rightSidebarView: RightSidebarView?
     /// This window's top pages (TOP-SECTION-ITEMS-ARE-PAGES), one view per route.
-    private(set) lazy var topPages = TopPageHost(services: services)
+    private(set) lazy var topPages = TopPageHost(services: services, windowNode: visibility)
 
     /// - Parameter premade: The window to take instead of making one: the launch window that showed its saved
     ///   picture before this controller existed (`LaunchSnapshotWindow`, p08-startup-059).
