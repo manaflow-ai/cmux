@@ -2773,6 +2773,33 @@
         }
       }
     },
+    "edit.button": {
+      "comment": "Toolbar button that switches a writable markdown page to source editing",
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Edit" } },
+        "ar": { "stringUnit": { "state": "needs_review", "value": "تحرير" } },
+        "bs": { "stringUnit": { "state": "needs_review", "value": "Uredi" } },
+        "da": { "stringUnit": { "state": "needs_review", "value": "Rediger" } },
+        "de": { "stringUnit": { "state": "needs_review", "value": "Bearbeiten" } },
+        "es": { "stringUnit": { "state": "needs_review", "value": "Editar" } },
+        "fr": { "stringUnit": { "state": "needs_review", "value": "Modifier" } },
+        "it": { "stringUnit": { "state": "needs_review", "value": "Modifica" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "編集" } },
+        "km": { "stringUnit": { "state": "needs_review", "value": "កែសម្រួល" } },
+        "ko": { "stringUnit": { "state": "needs_review", "value": "편집" } },
+        "nb": { "stringUnit": { "state": "needs_review", "value": "Rediger" } },
+        "pl": { "stringUnit": { "state": "needs_review", "value": "Edytuj" } },
+        "pt-BR": { "stringUnit": { "state": "needs_review", "value": "Editar" } },
+        "ru": { "stringUnit": { "state": "needs_review", "value": "Редактировать" } },
+        "th": { "stringUnit": { "state": "needs_review", "value": "แก้ไข" } },
+        "tr": { "stringUnit": { "state": "needs_review", "value": "Düzenle" } },
+        "uk": { "stringUnit": { "state": "needs_review", "value": "Редагувати" } },
+        "vi": { "stringUnit": { "state": "needs_review", "value": "Chỉnh sửa" } },
+        "zh-Hans": { "stringUnit": { "state": "needs_review", "value": "编辑" } },
+        "zh-Hant": { "stringUnit": { "state": "needs_review", "value": "編輯" } }
+      }
+    },
     "mode.label": {
       "comment": "Accessibility label of the editing mode switch",
       "extractionState": "manual",

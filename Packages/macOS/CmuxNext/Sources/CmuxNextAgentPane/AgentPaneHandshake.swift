@@ -25,7 +25,7 @@ public nonisolated struct AgentPaneHandshake: Codable, Sendable, Equatable {
     private enum CodingKeys: String, CodingKey {
         case protocolVersion, transport, sessionId, newSession, newTab, cwd, draft, prompt, promptTicket, harness, adopt, surface,
              linkScheme, sessionMustExist, revealTurn, chooseFolder, startKind, folderNeeded, pastTurns, machineName, githubRepository, harnesses, wake,
-             workspaceContext
+             workspaceContext, sandboxState, cloudMachineID, cloudCredentialRecoveryAvailable
     }
 
     public var protocolVersion: Int
@@ -104,6 +104,10 @@ public nonisolated struct AgentPaneHandshake: Codable, Sendable, Equatable {
     /// The past turns of the device-wide chat a new chat opened for (cx-khns1): the page shows
     /// them read-only until the chat has a session. Pages that predate it ignore it.
     public var pastTurns: [AgentPanePastTurn]?
+    /// Provider VM ID resolved by the native tab host, never a daemon registry UUID.
+    public var cloudMachineID: String?
+    /// True only when this Cloud backend supports credential delivery.
+    public var cloudCredentialRecoveryAvailable: Bool?
     /// This Mac's name (System Settings > General > Sharing), for the composer's location row.
     /// Pages that predate it ignore it.
     public var machineName: String?
@@ -112,6 +116,9 @@ public nonisolated struct AgentPaneHandshake: Codable, Sendable, Equatable {
     /// What a hidden chat's released page held that acpmux does not (``AgentPaneWakeState``): the
     /// page built when it shows again puts it back. Handed out once. Pages that predate it ignore it.
     public var wake: AgentPaneWakeState?
+    /// This app answers `sandbox.state` (``AgentPaneSandboxRuns``, hq#3367): the page reads the tab's
+    /// Sandboxed send only when it is set. Pages that predate it ignore it.
+    public var sandboxState: Bool? = true
 
     public init(transport: Transport, connection: AcpmuxConnection? = nil, sessionId: String? = nil, newSession: Bool? = nil) {
         protocolVersion = Self.currentVersion

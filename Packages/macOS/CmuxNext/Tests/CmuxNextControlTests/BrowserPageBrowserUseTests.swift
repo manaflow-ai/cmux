@@ -31,7 +31,7 @@ import Testing
     static let at: JSONValue = ["x": 10, "y": 20, "w": 200, "h": 30, "secret": false]
 
     func install(_ answer: JSONValue) -> (ControlRouter, RecordingEngine) {
-        let router = ControlRouter(identity: testIdentity(), executor: RecordingExecutor())
+        let router = ControlRouter(identity: testIdentity(), executor: RecordingExecutor(), configuration: .loadTolerant)
         let engine = RecordingEngine(answer)
         BrowserPageService(engine: engine).install(on: router)
         var snapshot = ControlSnapshot.sample()

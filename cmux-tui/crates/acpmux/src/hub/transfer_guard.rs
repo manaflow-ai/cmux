@@ -290,6 +290,8 @@ impl Hub {
             .map_err(|e| RpcError::invalid_params(format!("read session.json: {e}")))?;
         let mut meta: SessionMeta = serde_json::from_slice(&raw)
             .map_err(|e| RpcError::invalid_params(format!("parse session.json: {e}")))?;
+        // An approve-all an older daemon or a vmHost machine gave asks here (`policy_source.rs`).
+        super::policy_source::settle_imported_grant(&mut meta);
         let wanted = cwd.map_or_else(|| meta.cwd.to_string_lossy().into_owned(), str::to_owned);
         meta.cwd = guard.folder(&wanted).await.ok_or_else(|| {
             guard_error("cwd", format!("{wanted:?} is not a folder under the move's roots"))
@@ -336,6 +338,7 @@ impl Hub {
         meta.workspace_id = None;
         meta.harness_roots.clear();
         meta.harness_argv.clear();
+        meta.spawn_argv = None;
         meta.tags.clear();
         meta.remote_origin = true;
         if let Some(sid) = meta.agent_session_id.as_deref()

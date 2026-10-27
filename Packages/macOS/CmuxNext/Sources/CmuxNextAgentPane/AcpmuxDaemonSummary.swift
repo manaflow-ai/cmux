@@ -103,8 +103,13 @@ public nonisolated struct AcpmuxDaemonSummary: Sendable, Equatable {
     /// `_acpmux/status` call (2 s), so the card waits at most about 4 s. A nil `environment` (no
     /// acpmux) is not running.
     @concurrent public static func current(_ environment: AcpmuxEnvironment?) async -> Self {
+        await current(environment, versionClock: ContinuousClock())
+    }
+
+    /// ``current(_:)`` with the `--version` bound on `versionClock` (tests pass a manual one).
+    @concurrent static func current(_ environment: AcpmuxEnvironment?, versionClock: any Clock<Duration>) async -> Self {
         guard let environment else { return Self(build: nil, state: .notRunning) }
-        let bundled = await DaemonUpdatePolicy.bundledBuild(of: environment.executable, within: versionBound)
+        let bundled = await DaemonUpdatePolicy.bundledBuild(of: environment.executable, within: versionBound, clock: versionClock)
         let status = try? await AcpmuxStatusClient.status(socketPath: environment.socketPath)
         guard let status, status.serves(home: environment.home) else {
             return Self(answered: false, running: nil, bundled: bundled, restarting: isRestarting(home: environment.home))

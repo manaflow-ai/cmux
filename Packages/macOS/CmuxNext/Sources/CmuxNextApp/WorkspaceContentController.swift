@@ -392,6 +392,12 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
         return controller.view
     }
 
+    func holdsContentInMotion(for pane: LayoutPaneID) -> Bool {
+        guard let content = panes[pane]?.currentContent else { return false }
+        if case .agent = content { return true }
+        return false
+    }
+
     func releaseContentView(_ view: NSView, for pane: LayoutPaneID) {
         panes.removeValue(forKey: pane)?.teardown()
         services.paneMounts.changed()

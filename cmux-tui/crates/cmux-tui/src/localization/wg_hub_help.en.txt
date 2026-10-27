@@ -9,7 +9,8 @@ shares this hub instead of handshaking on its own.
                   `-` reads it from stdin, so the private key needs no file
   --client-token-stdin  read a client token as stdin's first line (before a `-` config)
                   and serve only clients that present it (sidecars take it with
-                  `remote connect --wireguard-hub-token-stdin`)
+                  `remote connect --wireguard-hub-token-stdin`); a client without it
+                  reaches only port 22 (`wg dial`: ssh authenticates both ends itself)
   --socket PATH   Unix socket to serve; parent directory is created 0700, socket 0600
   --control PATH  also serve a control socket (newline-delimited JSON): `path.get`,
                   `path.subscribe` (`path.changed` events), `datagram.bind` (an overlay
@@ -25,3 +26,8 @@ Prints one JSON line `{"event":"hub-ready","socket":...,"routes":[...]}` when
 listening (it also names `"control"` with --control). Only literal IP targets
 inside AllowedIPs are dialed; other targets get SOCKS reply 0x02, names 0x08.
 Exits on SIGTERM or SIGINT and removes its sockets.
+
+       cmux wg dial --hub PATH HOST PORT
+
+`wg dial` carries one TCP stream to HOST:PORT through a running hub on stdin and
+stdout, for an ssh ProxyCommand. HOST must be an address inside the hub's AllowedIPs.
