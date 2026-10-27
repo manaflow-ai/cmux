@@ -30,14 +30,16 @@ function installWriter(): { landed: Write[]; release: () => void } {
         }),
     },
   };
-  return (currentWriter = {
+  const writer = {
     landed,
     release: () => {
       const now = waiting;
       waiting = [];
       for (const run of now) run();
     },
-  });
+  };
+  currentWriter = writer;
+  return writer;
 }
 
 afterEach(async () => {
