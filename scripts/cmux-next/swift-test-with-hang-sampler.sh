@@ -158,13 +158,9 @@ names_awk='
 # deliberately skips, and a test skipped before it ran prints a "➜ ... skipped." with no start at
 # all. Banked, either could have closed a later, real run of the same name.
 #
-# A skip closes nothing at all. swift-testing skips a test INSTEAD of starting it, so a skip is
-# never the end of a start, and two suites in one process can hold the same bare test name: suite
-# A's exportIsFresh() started and lost, then suite B's exportIsFresh() skipped, would otherwise
-# close A's start and a lost test would read as finished. (Measured on a real job log: one such
-# cross-suite skip in 220.) A skip still counts as progress for the watchdog, which counts finish
-# lines, not this bookkeeping. If a started test ever ended in a skip, it would read as
-# unfinished and fail the job by name: the loud side, not a silent pass.
+# A skip closes nothing: swift-testing skips a test INSTEAD of starting it, and two suites can
+# share a bare name, so suite B's skip of exportIsFresh() would close suite A's lost start (seen
+# once in 220 skips on a real log). It still counts as watchdog progress.
 count_awk='
   /^◇ Test run started\.$/ { count_block++; block_starts[count_block] = 0 }
   is_start($0) {
@@ -369,12 +365,8 @@ report() {
       summary_tests += counted + 0
       if (count_block && !(count_block in block_summary)) block_summary[count_block] = counted + 0
     }
-    # Each test process prints its own "Test run started." and, on a whole run, its own summary,
-    # and one log can hold many (a priority pass, a broad pass, one process per isolated suite).
-    # The totals above can hide one truncated process behind the others: a later process cut
-    # off before its summary, after its own starts had all finished, leaves nothing open, and an
-    # earlier summary that ran ahead of its starts (skipped tests print no start) covers the
-    # count. So each run is also held to its own summary and its own starts.
+    # Totals can hide one truncated test process behind another, so each run block (one
+    # "Test run started." per process) is also held to its own summary and its own starts.
     END {
       if (red_count > 0) {
         printf "::error title=cmux-next swift test reds::%d red tests: %s\n", red_count, join(reds, red_count)

@@ -3184,10 +3184,8 @@ jobs:
         run: |
           set -euo pipefail
           echo "Test targets: $SWIFT_TARGETS"
-          # One deadline for both passes, 2 minutes inside the step timeout so the
-          # sampler still names, samples and reports a pass that reaches it: a
-          # pass that hangs before any test starts has nothing for the stall rule
-          # to see and runs to its whole-run limit.
+          # One deadline for both passes, 2 min inside the step timeout, so a pass
+          # hung before any test starts is still sampled and reported.
           deadline=$(( $(date +%s) + 1680 ))
           filter=()
           [[ -z "$SWIFT_FILTER" ]] || filter=(--filter "$SWIFT_FILTER")
