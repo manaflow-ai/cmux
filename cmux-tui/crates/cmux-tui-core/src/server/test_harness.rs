@@ -68,6 +68,9 @@ pub const HOST_EFFECTS: &[(&str, &str)] = &[
     ("loopback-open", "dials a local TCP port"),
     ("machine-listening-tcp", "runs a child process to list ports"),
     ("terminal-ports", "runs a child process to list ports"),
+    // Its time is the machine's process count, not the input's: 1.9 s under
+    // ASan on a VM with 24,000 processes (a libFuzzer timeout).
+    ("terminal-resources", "scans every process on the machine"),
     ("script-run", "runs script code"),
     ("script-repl-open", "starts a script runtime"),
     ("script-repl-eval", "runs script code"),
