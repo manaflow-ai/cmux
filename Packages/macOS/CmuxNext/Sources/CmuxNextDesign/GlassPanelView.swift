@@ -360,17 +360,26 @@ enum ActiveLookScope {
     @available(macOS 26.0, *)
     static func scopeUpdates(of hostClass: AnyClass) {
         guard scopedHostClasses.insert(ObjectIdentifier(hostClass)).inserted else { return }
-        for name in ["layout", "updateConstraints", "viewWillDraw", "viewDidChangeEffectiveAppearance"] {
+        for name in ["layout", "updateConstraints", "viewWillDraw", "viewDidChangeEffectiveAppearance", "_windowChangedKeyState"] {
             scope(hostClass, NSSelectorFromString(name))
         }
         scopeSize(hostClass, NSSelectorFromString("_layoutSubtreeWithOldSize:"))
         scopePointer(hostClass, NSSelectorFromString("_updateConstraintsForSubtreeIfNeededCollectingViewsWithInvalidBaselines:"))
     }
 
-    /// Marks `window` as one whose backdrop glass keeps its key look.
+    /// Marks `window` as one whose backdrop glass keeps its key look, and scopes the updates every
+    /// plain `NSGlassEffectView` makes itself (its key change, its appearance change) in such a
+    /// window: AppKit and the theme repaint call them directly, and the window's glass draws together.
     static func markKeepsActiveLook(_ window: NSWindow) {
         objc_setAssociatedObject(window, &keepsActiveLookKey, true, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
+        guard #available(macOS 26.0, *), !scopedPlainGlass else { return }
+        scopedPlainGlass = true
+        for name in ["_windowChangedKeyState", "viewDidChangeEffectiveAppearance"] {
+            scope(NSGlassEffectView.self, NSSelectorFromString(name))
+        }
     }
+
+    private static var scopedPlainGlass = false
 
     /// Whether an ``ActiveLookGlassEffectView`` backdrop was ever in `window`.
     static func keepsActiveLook(_ window: NSWindow) -> Bool {
@@ -379,8 +388,8 @@ enum ActiveLookScope {
 
     nonisolated(unsafe) private static var keepsActiveLookKey: UInt8 = 0
 
-    /// The window to scope `view`'s update to, else nil: its window when `view` is a glass's own
-    /// view (not in that glass's content view) and the glass is an `ActiveLookGlassEffectView` or
+    /// The window to scope `view`'s update to, else nil: its window when `view` is a glass or a
+    /// glass's own view (not in that glass's content view) and the glass is an `ActiveLookGlassEffectView` or
     /// shares a window with one. Liquid Glass draws one window's glass together: on a fleet mini the
     /// composer's and header's plain glass re-rendering inactive frosted the window background
     /// even when the backdrop glass had kept its key look. Glass in other windows (popups, the
@@ -388,6 +397,8 @@ enum ActiveLookScope {
     @available(macOS 26.0, *)
     static func glassWindow(of view: NSView) -> NSWindow? {
         guard let window = view.window else { return nil }
+        // A glass itself: its own updates, in an active-look window.
+        if view is NSGlassEffectView { return view is ActiveLookGlassEffectView || keepsActiveLook(window) ? window : nil }
         var child = view
         while let parent = child.superview {
             if let glass = parent as? NSGlassEffectView {

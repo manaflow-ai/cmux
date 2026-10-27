@@ -81,6 +81,7 @@ import CmuxNextDesignTokens
         let inLonePlain = NSView()
         lonePlain.addSubview(inLonePlain)
         #expect(ActiveLookScope.glassWindow(of: inLonePlain) == nil, "a plain glass alone follows the key state")
+        #expect(ActiveLookScope.glassWindow(of: lonePlain) == nil)
 
         let shell = window()
         let root = shell.contentView!
@@ -98,6 +99,8 @@ import CmuxNextDesignTokens
         plainContent.addSubview(inPlainContent)
         #expect(ActiveLookScope.glassWindow(of: host) === shell)
         #expect(ActiveLookScope.glassWindow(of: inPlain) === shell, "the same window's glass draws together")
+        #expect(ActiveLookScope.glassWindow(of: plain) === shell)
+        #expect(ActiveLookScope.glassWindow(of: glass) === shell)
         #expect(ActiveLookScope.glassWindow(of: inContent) == nil, "the content view is the app's")
         #expect(ActiveLookScope.glassWindow(of: inPlainContent) == nil)
         #expect(ActiveLookScope.glassWindow(of: root) == nil)
