@@ -72,6 +72,8 @@ final class TabDragGhostPanel {
     private(set) var flight = TabDragGhostFlight()
     /// ``close()`` ran: nothing shows the ghost again (a late preview or daemon echo).
     private(set) var isClosed = false
+    /// The scheduler whose drag sequence the ghost holds open, from ``show()`` to ``close()``.
+    private weak var dragFrames: FrameScheduler?
 
     /// - Parameters:
     ///   - onGlass: The image was rendered without a card (`WindowBackdrop.dragCardFill`)
@@ -179,14 +181,20 @@ final class TabDragGhostPanel {
         CATransaction.commit()
     }
 
-    /// Shows the panel (CPU path; on the render server `present` places the ghost).
+    /// Shows the panel (CPU path; on the render server `present` places the ghost). The drag's refreshes from here to
+    /// ``close()`` are a `smoothness.dropped_pct.drag` sequence (``FrameSequenceTracker/Interaction/drag``) of the
+    /// scheduler the ghost ticks on: the panel's, or on the render server the source window's.
     func show() {
-        guard !rendersOnServer else { return }
-        if !panel.isVisible { panel.orderFrontRegardless() }
+        if !rendersOnServer, !panel.isVisible { panel.orderFrontRegardless() }
+        guard dragFrames == nil, !isClosed else { return }
+        dragFrames = FrameScheduler.forWindow(rendersOnServer ? sourceWindow ?? panel : panel)
+        dragFrames?.beginSequence(.drag)
     }
 
     func close() {
         isClosed = true
+        dragFrames?.endSequence(.drag)
+        dragFrames = nil
         onRest = nil
         leaveHost()
         panel.orderOut(nil)

@@ -1,8 +1,11 @@
 import AppKit
+import CmuxNextAgentPane
 import CmuxNextBrowser
 import CmuxNextControl
 import CmuxNextCrashReporting
 import CmuxNextDesign
+import CmuxNextLayout
+import CmuxNextSidebar
 import CmuxNextWakeups
 import CmuxNextTerminal
 import CmuxNextSettings
@@ -10,6 +13,7 @@ import CmuxNextSignposts
 import CmuxNextFocusUI
 import CmuxNextInput
 import os
+import WebKit
 
 /// Chromium's application protocols (base/message_loop/message_pump_apple.h,
 /// include/cef_application_mac.h), declared under their Objective-C names.
@@ -304,6 +308,16 @@ final class CmuxApplication: NSApplication, CEFAppProtocol {
 }
 
 extension CmuxApplication {
+    /// The surfaces, most specific first. A Chromium page in either process: an in-process page window (`CefNSWindow`, an agent
+    /// chat's being the agent pane's) or a host-mode page view, which takes text input, so it precedes that rule (p04-input-066).
+    static func inputTargets(agentPaneOwnsPage: @escaping @MainActor (NSWindow) -> Bool) -> InputTargetClassifier {
+        InputTargetClassifier(rules: [
+            .view(TerminalSurfaceView.self, is: .terminal), .view(AgentPaneView.self, is: .agentPane),
+            .windowClassNamed("CefNSWindow", is: .chromiumPage, owner: { agentPaneOwnsPage($0) ? .agentPane : nil }),
+            .view(ChromiumHostPageView.self, is: .chromiumPage), .view(WKWebView.self, is: .webkitPage), .textInputClient(is: .textView),
+            .view(SidebarContainerView.self, is: .sidebar), .view(LayoutRootView.self, is: .layout)])
+    }
+
     /// The gate follows `debug.mainJobGate` once the settings load (nil before: nothing installs).
     func followMainJobGate(_ settings: SettingsController, on mainWork: MainWorkScheduler) {
         jobGate?.follow(on: mainWork) { [weak settings] in

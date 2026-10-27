@@ -33,13 +33,15 @@ public struct FrameSequenceReport: Sendable, Equatable {
 /// expected frames and the tick as one committed frame, so a main thread that misses refreshes shows as dropped
 /// frames.
 ///
-/// Two kinds open it:
-/// - ``Kind/motion``, for the span of a layout `motion.run` (``FrameScheduler/beginMotionSequence()`` to
-///   ``FrameScheduler/endMotionSequence()``), on the CPU or the render server, as Chrome starts and stops a
-///   tracker for each animation sequence (`FrameSequenceTrackerCollection::StartSequence`). Other animation
-///   clients (drags, autoscroll) are not layout motion. It records `smoothness.dropped_pct.motion`; a run shorter
-///   than ``minimumReportedFrames`` carries into the next one, as Chrome merges a short sequence into the next of
-///   its type (`kMinFramesForThroughputMetric`, cc/metrics/frame_sequence_metrics.cc).
+/// Two families open it:
+/// - An ``Interaction``, from ``FrameScheduler/beginSequence(_:)`` to ``FrameScheduler/endSequence(_:)``, as
+///   Chrome starts and stops one tracker per sequence type (`FrameSequenceTrackerCollection::StartSequence`):
+///   ``Interaction/motion`` for a layout `motion.run` (on the CPU or the render server; other animation clients,
+///   such as autoscroll, are not layout motion), ``Interaction/scroll`` for a terminal or page scroll gesture and
+///   its momentum (``ScrollFrameSequences``), ``Interaction/resize`` for a live window resize and
+///   ``Interaction/drag`` for a tab drag and its landing. Each records `smoothness.dropped_pct.<type>`; a run
+///   shorter than ``minimumReportedFrames`` carries into the next one of its type, as Chrome merges a short
+///   sequence into the next of its type (`kMinFramesForThroughputMetric`, cc/metrics/frame_sequence_metrics.cc).
 /// - ``Kind/commitWindow``, for ``commitWindowFrames`` refreshes after an action's commit
 ///   (``FrameScheduler/noteCommit()``), the missed frames of Cmd-T, Cmd-N or Cmd-W (``onSequenceEnd``).
 ///
@@ -48,16 +50,58 @@ public struct FrameSequenceReport: Sendable, Equatable {
 /// between vsyncs) counts nothing; while the window's link still runs for someone who sees it, the vsyncs go on
 /// and the next link tick counts all it missed as drops (a main-thread stall that the stall deadline reached main
 /// before the link did), as Chrome counts every BeginFrame a stalled main thread missed. When the window is
-/// hidden or its link stops or changes, a commit window ends with what it counted and the motion's next link tick
-/// starts afresh. While nothing is open, a tick costs one branch (``frameBegan(_:vsyncsGoOn:)``).
+/// hidden or its link stops or changes, a commit window ends with what it counted and each open interaction's
+/// next link tick starts afresh. While nothing is open, a tick costs one branch (``frameBegan(_:vsyncsGoOn:)``).
 @MainActor
 public final class FrameSequenceTracker {
     /// What opened a sequence.
     public enum Kind: Sendable, Equatable {
         /// A layout `motion.run`.
         case motion
+        /// A scroll gesture or its momentum.
+        case scroll
+        /// A live window resize.
+        case resize
+        /// A tab drag, its landing included.
+        case drag
         /// The refreshes right after an action's commit.
         case commitWindow
+    }
+
+    /// A span of a person's interaction that `smoothness.dropped_pct.<type>` measures (Chrome's
+    /// `FrameSequenceTrackerType`, cc/metrics/frame_sequence_metrics.h).
+    public enum Interaction: Int, Sendable, CaseIterable {
+        /// A layout `motion.run` (`LayoutMotionTrace`).
+        case motion
+        /// A terminal or page scroll gesture, or its momentum (``ScrollFrameSequences``).
+        case scroll
+        /// A live window resize (`LiveResizeWindows`, from will-start to did-end).
+        case resize
+        /// A tab drag and its landing (`TabDragGhostPanel`, from its show to its close).
+        case drag
+
+        /// The kind its sequences end as (``onSequenceEnd``).
+        public var kind: Kind {
+            switch self {
+            case .motion: .motion
+            case .scroll: .scroll
+            case .resize: .resize
+            case .drag: .drag
+            }
+        }
+
+        /// Its `smoothness.dropped_pct` histogram's type.
+        var smoothness: HistogramID.FrameSequence {
+            switch self {
+            case .motion: .motion
+            case .scroll: .scroll
+            case .resize: .resize
+            case .drag: .drag
+            }
+        }
+
+        /// Its bit of the open mask.
+        var bit: UInt8 { 1 << UInt8(rawValue) }
     }
 
     /// A display-link tick: its vsync time and the display's refresh period, in seconds.
@@ -66,8 +110,8 @@ public final class FrameSequenceTracker {
     /// Refreshes a commit window spans (Chrome reads an action's first frames the same way: the
     /// `EventLatency` of its first frame and the drops right after it).
     public static let commitWindowFrames: UInt32 = 3
-    /// Expected frames a `smoothness.dropped_pct.motion` sample needs; shorter runs add up until they reach it
-    /// (Chrome's `kMinFramesForThroughputMetric`).
+    /// Expected frames a `smoothness.dropped_pct.<type>` sample needs; shorter runs of the type add up until they
+    /// reach it (Chrome's `kMinFramesForThroughputMetric`).
     public static let minimumReportedFrames: UInt32 = 100
     /// How far into a refresh a commit's first tick may come and still be that refresh's frame (link timestamps
     /// jitter around the vsync).
@@ -79,26 +123,21 @@ public final class FrameSequenceTracker {
 
     private let trace: TraceRuntime
     private let metrics: Metrics
-    /// Bit 0: a motion sequence is open; bit 1: a commit window is.
+    /// One bit per open ``Interaction`` (``Interaction/bit``) and ``commitBit`` for an open commit window.
     private var openMask: UInt8 = 0
-    private var motion = Counter()
+    /// Each interaction's sequence, indexed by ``Interaction/rawValue``.
+    private var interactions = Array(repeating: InteractionSequence(), count: Interaction.allCases.count)
     private var commit = Counter()
     /// A commit window closes once it expects this many frames (a commit inside one extends it).
     private var commitTarget: UInt32 = 0
-    /// The `motion.run` spans open in the window (two layout roots of one window may run at once): the motion
-    /// sequence closes when the last ends.
-    private var motionRuns = 0
     /// The timestamp of the last link tick an open sequence counted (`frame.interval`'s start); nil whenever
     /// nothing is open, so an idle gap is never an interval.
     private var lastFrame: CFTimeInterval?
-    /// Motion frames not yet in a `smoothness.dropped_pct.motion` sample (runs under ``minimumReportedFrames``).
-    private(set) var unreportedMotion = FrameSequenceReport()
     /// Keeps the scheduler ticking while a sequence is open (made on the first one that holds a scheduler); it
-    /// goes idle in the tick that closes the last one, or when the last motion run ends.
+    /// goes idle in the tick that closes the last one, or when the last interaction run ends.
     private var hold: FrameClient?
 
-    private static let motionBit: UInt8 = 1
-    private static let commitBit: UInt8 = 2
+    private static let commitBit: UInt8 = 1 << 4
 
     /// - Parameter trace: The runtime whose ring takes `frame.sequence` and whose metrics file takes the
     ///   histograms (the app's by default; tests pass their own).
@@ -110,8 +149,8 @@ public final class FrameSequenceTracker {
     /// A sequence is open.
     public var isOpen: Bool { openMask != 0 }
 
-    /// A motion sequence is open.
-    public var isMotionOpen: Bool { openMask & Self.motionBit != 0 }
+    /// A sequence of `interaction` is open.
+    public func isOpen(_ interaction: Interaction) -> Bool { openMask & interaction.bit != 0 }
 
     /// A commit window is open.
     public var isCommitWindowOpen: Bool { openMask & Self.commitBit != 0 }
@@ -141,7 +180,9 @@ public final class FrameSequenceTracker {
             metrics.record(.frameInterval, Int64(((frame.timestamp - lastFrame) * 1_000_000).rounded()))
         }
         lastFrame = frame.timestamp
-        if openMask & Self.motionBit != 0 { motion.count(frame.timestamp, refreshInterval: frame.refreshInterval) }
+        for index in interactions.indices where openMask & (1 << UInt8(index)) != 0 {
+            interactions[index].counter.count(frame.timestamp, refreshInterval: frame.refreshInterval)
+        }
         if openMask & Self.commitBit != 0 {
             commit.count(frame.timestamp, refreshInterval: frame.refreshInterval)
             if commit.report.expected >= commitTarget { closeCommitWindow() }
@@ -149,38 +190,44 @@ public final class FrameSequenceTracker {
     }
 
     /// No vsync to count from (nobody sees the window, or its link stopped): a commit window ends with what it
-    /// counted, and the motion's next link tick starts a new interval.
+    /// counted, and each open interaction's next link tick starts a new interval.
     private func restart() {
         if openMask & Self.commitBit != 0 { closeCommitWindow() }
-        motion.anchor = nil
+        for index in interactions.indices { interactions[index].counter.anchor = nil }
         lastFrame = nil
     }
 
-    // MARK: Motion
+    // MARK: Interactions
 
-    /// A `motion.run` began in the window: the motion sequence opens unless a run holds it open already; its
-    /// first link tick is its first frame.
-    func beginMotion() {
-        motionRuns += 1
-        guard openMask & Self.motionBit == 0 else { return }
-        openMask |= Self.motionBit
-        motion = Counter()
+    /// A run of `interaction` began in the window: its sequence opens unless a run holds it open already (two
+    /// layout roots of one window may run motion at once); its first link tick is its first frame.
+    func begin(_ interaction: Interaction) {
+        interactions[interaction.rawValue].runs += 1
+        guard openMask & interaction.bit == 0 else { return }
+        openMask |= interaction.bit
+        interactions[interaction.rawValue].counter = Counter()
     }
 
-    /// Opens the motion sequence and keeps `scheduler` ticking until it closes.
-    func beginMotion(holding scheduler: FrameScheduler) {
-        beginMotion()
+    /// Opens `interaction`'s sequence and keeps `scheduler` ticking until it closes.
+    func begin(_ interaction: Interaction, holding scheduler: FrameScheduler) {
+        begin(interaction)
         keepTicking(scheduler)
     }
 
-    /// A `motion.run` of the window ended: the last one closes the motion sequence (and lets the scheduler go
-    /// idle when no commit window is open).
-    func endMotion() {
-        guard motionRuns > 0 else { return }
-        motionRuns -= 1
-        guard motionRuns == 0, openMask & Self.motionBit != 0 else { return }
-        closeMotion()
+    /// A run of `interaction` ended: the last one closes its sequence (and lets the scheduler go idle when
+    /// nothing else is open).
+    func end(_ interaction: Interaction) {
+        let index = interaction.rawValue
+        guard interactions[index].runs > 0 else { return }
+        interactions[index].runs -= 1
+        guard interactions[index].runs == 0, openMask & interaction.bit != 0 else { return }
+        close(interaction)
         if openMask == 0 { hold?.deactivate() }
+    }
+
+    /// `interaction`'s frames not yet in a `smoothness.dropped_pct` sample (runs under ``minimumReportedFrames``).
+    func unreported(_ interaction: Interaction) -> FrameSequenceReport {
+        interactions[interaction.rawValue].unreported
     }
 
     // MARK: Commits
@@ -216,31 +263,36 @@ public final class FrameSequenceTracker {
     /// The scheduler left its display (no client left) or went away: every open sequence ends with what it
     /// counted, and the runs it was open for are forgotten.
     func closeAll() {
-        motionRuns = 0
-        if openMask & Self.motionBit != 0 { closeMotion() }
+        for interaction in Interaction.allCases {
+            interactions[interaction.rawValue].runs = 0
+            if openMask & interaction.bit != 0 { close(interaction) }
+        }
         if openMask & Self.commitBit != 0 { closeCommitWindow() }
     }
 
-    private func closeMotion() {
-        close(Self.motionBit)
-        let report = motion.report
+    private func close(_ interaction: Interaction) {
+        clear(interaction.bit)
+        let index = interaction.rawValue
+        let report = interactions[index].counter.report
         guard report.expected > 0 else { return }
-        unreportedMotion.expected &+= report.expected
-        unreportedMotion.produced &+= report.produced
-        if unreportedMotion.expected >= Self.minimumReportedFrames {
-            metrics.record(.smoothnessDroppedPercent(.motion), unreportedMotion.droppedPercent)
-            unreportedMotion = FrameSequenceReport()
+        var unreported = interactions[index].unreported
+        unreported.expected &+= report.expected
+        unreported.produced &+= report.produced
+        if unreported.expected >= Self.minimumReportedFrames {
+            metrics.record(.smoothnessDroppedPercent(interaction.smoothness), unreported.droppedPercent)
+            unreported = FrameSequenceReport()
         }
-        end(.motion, report)
+        interactions[index].unreported = unreported
+        end(interaction.kind, report)
     }
 
     private func closeCommitWindow() {
-        close(Self.commitBit)
+        clear(Self.commitBit)
         end(.commitWindow, commit.report)
     }
 
     /// Clears `bit`; with nothing left open the next sequence's first tick starts a new `frame.interval`.
-    private func close(_ bit: UInt8) {
+    private func clear(_ bit: UInt8) {
         openMask &= ~bit
         if openMask == 0 { lastFrame = nil }
     }
@@ -250,6 +302,14 @@ public final class FrameSequenceTracker {
         guard report.expected > 0 else { return }
         trace.event(.frameSequence, arg0: UInt64(report.expected), arg1: UInt64(report.produced))
         onSequenceEnd?(kind, report)
+    }
+
+    /// One interaction's open sequence, its runs, and its frames not yet sampled.
+    private struct InteractionSequence {
+        var counter = Counter()
+        /// The runs open in the window: the sequence closes when the last ends.
+        var runs = 0
+        var unreported = FrameSequenceReport()
     }
 
     /// One open sequence's counts and where its next interval starts.
@@ -287,15 +347,26 @@ extension FrameScheduler {
         sequences.commitDidLand(at: displayClock.now(), holding: self)
     }
 
-    /// A layout `motion.run` began in this scheduler's window (`LayoutMotionTrace`): its refreshes are a motion
-    /// sequence, and this scheduler ticks through it, also while the render server runs the springs. Each call
-    /// has one ``endMotionSequence()``.
+    /// A run of `interaction` began in this scheduler's window: its refreshes are a sequence of that type, and this
+    /// scheduler ticks through it (also while the render server runs a motion's springs). Each call has one
+    /// ``endSequence(_:)`` on the same scheduler.
+    public func beginSequence(_ interaction: FrameSequenceTracker.Interaction) {
+        sequences.begin(interaction, holding: self)
+    }
+
+    /// The run of `interaction` that ``beginSequence(_:)`` began ended.
+    public func endSequence(_ interaction: FrameSequenceTracker.Interaction) {
+        sequences.end(interaction)
+    }
+
+    /// A layout `motion.run` began in this scheduler's window (`LayoutMotionTrace`): ``beginSequence(_:)`` of
+    /// ``FrameSequenceTracker/Interaction/motion``.
     public func beginMotionSequence() {
-        sequences.beginMotion(holding: self)
+        beginSequence(.motion)
     }
 
     /// The `motion.run` that ``beginMotionSequence()`` began ended.
     public func endMotionSequence() {
-        sequences.endMotion()
+        endSequence(.motion)
     }
 }

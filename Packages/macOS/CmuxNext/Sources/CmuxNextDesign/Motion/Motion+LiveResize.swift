@@ -1,4 +1,5 @@
 public import AppKit
+import CmuxNextWakeups
 
 extension Motion {
     /// Some window is in a live resize (the user drags its edge or corner):
@@ -87,10 +88,13 @@ extension Motion {
 /// `didEnterFullScreen`, and the exit pair; a failed one ends through
 /// ``Motion/fullScreenTransitionFailed(_:)``, AppKit posts nothing for it).
 /// Observes every window from the first read of `Motion.basePolicy`, long before
-/// a person can drag an edge.
+/// a person can drag an edge. A window's live resize is also its scheduler's resize
+/// frame sequence (`smoothness.dropped_pct.resize`, ``FrameSequenceTracker/Interaction/resize``).
 final class LiveResizeWindows {
     static let shared = LiveResizeWindows()
     private var resizing: Set<ObjectIdentifier> = []
+    /// The frame scheduler of a window, by its identifier, nil for a window that has none.
+    private let frames: @MainActor (ObjectIdentifier) -> FrameScheduler?
     private var transitioning: Set<ObjectIdentifier> = [] {
         didSet { resumeTransitionWaiters() }
     }
@@ -124,6 +128,16 @@ final class LiveResizeWindows {
     /// ``transitionsEnded()`` callers parked now (tests).
     var transitionWaiterCount: Int { transitionWaiters.count }
 
+    private func resizeBegan(_ id: ObjectIdentifier) {
+        guard resizing.insert(id).inserted else { return }
+        frames(id)?.beginSequence(.resize)
+    }
+
+    private func resizeEnded(_ id: ObjectIdentifier) {
+        guard resizing.remove(id) != nil else { return }
+        frames(id)?.endSequence(.resize)
+    }
+
     private func resumeTransitionWaiters() {
         guard transitioning.isEmpty, !transitionWaiters.isEmpty else { return }
         let waiters = transitionWaiters
@@ -134,7 +148,11 @@ final class LiveResizeWindows {
         }
     }
 
-    init(center: NotificationCenter = .default) {
+    /// - Parameters:
+    ///   - center: Where windows post (tests pass their own).
+    ///   - frames: A window's frame scheduler (the app's window schedulers; tests pass their own).
+    init(center: NotificationCenter = .default, frames: @escaping @MainActor (ObjectIdentifier) -> FrameScheduler? = { FrameScheduler.existing(window: $0) }) {
+        self.frames = frames
         // (name, starts a resize, closes the window).
         // raw-observer-allow: the sets need each notice's sender window; an AppEvents call carries none
         let changes: [(Notification.Name, Bool, Bool)] = [(NSWindow.willStartLiveResizeNotification, true, false), (NSWindow.didEndLiveResizeNotification, false, false), (NSWindow.willCloseNotification, false, true)]
@@ -145,7 +163,7 @@ final class LiveResizeWindows {
                 guard let window = note.object as? NSWindow else { return }
                 let id = ObjectIdentifier(window)
                 MainActor.assumeIsolated { // main-proof: AppKit posts window notifications on the main thread
-                    if resizing { self?.resizing.insert(id) } else { self?.resizing.remove(id) }
+                    if resizing { self?.resizeBegan(id) } else { self?.resizeEnded(id) }
                     if closes { self?.transitioning.remove(id) }
                 }
             }

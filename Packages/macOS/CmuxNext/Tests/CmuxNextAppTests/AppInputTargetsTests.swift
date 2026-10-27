@@ -50,7 +50,7 @@ struct AppInputTargetsTests {
 
     @Test("A host-mode page view is a Chromium page for its keys and for a pointer over it, not a text view")
     func hostPageViewIsAChromiumPage() throws {
-        let classifier = AppServices.inputTargets(agentPaneOwnsPage: { _ in false })
+        let classifier = CmuxApplication.inputTargets(agentPaneOwnsPage: { _ in false })
         let (window, page) = pageWindow()
         defer { window.close() }
         #expect(window.makeFirstResponder(page))
@@ -76,7 +76,7 @@ struct AppInputTargetsTests {
                                           emit: { emitted.append($0) }, batchSink: nil, now: { now })
         tracker.pagesReportPresentation = true  // the host's ready announced its reports
         let dispatch = InputLatencyDispatch(tracker: tracker,
-                                            classifier: AppServices.inputTargets(agentPaneOwnsPage: { _ in false }),
+                                            classifier: CmuxApplication.inputTargets(agentPaneOwnsPage: { _ in false }),
                                             windowChanged: { _ in false })
         let (window, page) = pageWindow()
         defer { window.close() }

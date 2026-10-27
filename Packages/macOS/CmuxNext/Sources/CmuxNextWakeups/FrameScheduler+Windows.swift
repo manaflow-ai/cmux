@@ -35,6 +35,11 @@ extension FrameScheduler {
         view.window.map(forWindow) ?? app
     }
 
+    /// The scheduler of the live window whose `ObjectIdentifier` is `window`, nil when it has none (none is made).
+    public static func existing(window: ObjectIdentifier) -> FrameScheduler? {
+        windows[window]?.value.flatMap { $0.window.map(ObjectIdentifier.init) == window ? $0 : nil }
+    }
+
     /// Every live scheduler (debug.wakeups).
     public static var all: [FrameScheduler] {
         [app] + windows.values.compactMap(\.value)

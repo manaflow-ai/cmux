@@ -6,6 +6,7 @@ import CmuxNextDaemon
 @testable import CmuxNextLayout
 @testable import CmuxNextTabs
 import CmuxNextWakeups
+import CmuxNextWakeupsTestSupport
 import Testing
 
 /// cx-sqj3h (Leo 2026-10-13): during a window live resize the content must follow the edge every
@@ -117,4 +118,36 @@ import Testing
         center.post(name: NSWindow.willCloseNotification, object: window)
         #expect(!windows.isActive, "a window closed mid-drag still holds every spring")
     }
+
+    /// A live resize is its window's resize frame sequence (p09-observability-113, `smoothness.dropped_pct.resize`):
+    /// it opens at the start notice and closes at the end or the close, once per drag, and keeps the scheduler
+    /// ticking only meanwhile. Another window's resize opens nothing on this one.
+    @Test func aLiveResizeIsOneResizeFrameSequence() {
+        let center = NotificationCenter()
+        let window = Self.window(width: 800, height: 600)
+        let other = Self.window(width: 400, height: 300)
+        let scheduler = FrameScheduler.testing(clock: ManualClock(), ledger: WakeupLedger(), mediaTime: { 1000 }) { _ in
+            LiveResizeTestLink()
+        }
+        let windows = LiveResizeWindows(center: center) { $0 == ObjectIdentifier(window) ? scheduler : nil }
+        center.post(name: NSWindow.willStartLiveResizeNotification, object: other)
+        #expect(!scheduler.sequences.isOpen(.resize), "another window's resize opened this one's sequence")
+        center.post(name: NSWindow.willStartLiveResizeNotification, object: window)
+        center.post(name: NSWindow.willStartLiveResizeNotification, object: window)
+        #expect(scheduler.sequences.isOpen(.resize) && scheduler.hasLink)
+        center.post(name: NSWindow.didEndLiveResizeNotification, object: window)
+        #expect(!scheduler.sequences.isOpen(.resize), "a repeated start notice held the sequence past the drag's end")
+        #expect(!scheduler.hasLink, "the scheduler kept ticking after the resize ended")
+        center.post(name: NSWindow.willStartLiveResizeNotification, object: window)
+        center.post(name: NSWindow.willCloseNotification, object: window)
+        #expect(!scheduler.sequences.isOpen(.resize), "a window closed mid-drag kept its resize sequence open")
+        center.post(name: NSWindow.didEndLiveResizeNotification, object: other)
+        withExtendedLifetime(windows) {}
+    }
+}
+
+@MainActor
+private final class LiveResizeTestLink: FrameLink {
+    var isPaused = false
+    func invalidate() {}
 }
