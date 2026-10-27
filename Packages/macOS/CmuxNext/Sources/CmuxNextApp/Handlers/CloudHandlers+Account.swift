@@ -83,8 +83,10 @@ extension CloudHandlers {
             for await (readiness, currentUser, currentTeam) in ObservationStream({
                 (workspaceSetupReadiness(creation, in: cloud.creations), cloud.auth.user?.id, cloud.auth.teamID)
             }) {
-                try checkCreationScope(creation, in: cloud.creations, expectedUserID: userID, expectedTeamID: teamID,
-                                       currentUserID: currentUser, currentTeamID: currentTeam)
+                do {
+                    try checkCreationScope(creation, in: cloud.creations, expectedUserID: userID, expectedTeamID: teamID,
+                                           currentUserID: currentUser, currentTeamID: currentTeam)
+                } catch is CancellationError { return }
                 guard readiness != .ended else { return }
                 if readiness == .ready { break }
             }
@@ -96,8 +98,10 @@ extension CloudHandlers {
                 for await (progress, currentUser, currentTeam) in ObservationStream({
                     (workspaceSetupCompletion(creation), cloud.auth.user?.id, cloud.auth.teamID)
                 }) {
-                    try checkCreationScope(creation, in: cloud.creations, expectedUserID: userID, expectedTeamID: teamID,
-                                           currentUserID: currentUser, currentTeamID: currentTeam)
+                    do {
+                        try checkCreationScope(creation, in: cloud.creations, expectedUserID: userID, expectedTeamID: teamID,
+                                               currentUserID: currentUser, currentTeamID: currentTeam)
+                    } catch is CancellationError { return }
                     guard !progress.ended else { return }
                     guard let completion = progress.completion else { continue }
                     try Task.checkCancellation()
