@@ -167,7 +167,7 @@ pub(super) fn prune(directory: &Path, now: SystemTime) {
     });
     if entries.len() > MAX_ENTRIES {
         entries.sort();
-        for (_, path) in &entries[..entries.len() - MAX_ENTRIES] {
+        for (_, path) in entries.iter().take(entries.len() - MAX_ENTRIES) {
             let _ = files::remove_file(path);
         }
     }

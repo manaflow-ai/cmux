@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextCompat
 import CmuxNextDesign
 import CmuxNextInput
+import CmuxNextSignposts
 import CmuxNextWakeups
 import Foundation
 import os
@@ -147,13 +148,12 @@ final class CEFRuntime {
     var shutdownTimeout: AlignedWakeups.Ticket?  // quit's bound on the wait for Chromium's windows, on `wakeUps`
     let crashLog = BrowserCrashLog()  // recent renderer and helper process failures (`debug.crashes`)
     var helperExits = CEFHelperExitMetric()  // where `cef.helper_exit` samples go (a test sets its own store)
+    var rendererStability = RendererStability()  // where pages' hangs go as stability events (the App sets its reporting one)
     /// Watches helper exits (GPU, utility, extension renderers) from start.
     var childMonitor: CEFChildProcessMonitor?
-    /// Runs once CEF is initialized (the App re-installs its crash signal
-    /// handlers, which Chromium resets to the default action).
+    /// Runs once CEF is initialized (the App re-installs its crash signal handlers, which Chromium resets to the default action).
     var onReady: (() -> Void)?
-    /// Runs when a start fails. `CefInitialize` resets the signal actions
-    /// before it can fail, so the App re-installs its handlers here too.
+    /// Runs when a start fails. `CefInitialize` resets the signal actions before it can fail, so the App re-installs its handlers here too.
     var onStartFailed: (() -> Void)?
     /// Hides or closes top-level Chromium windows that slip through (`ChromiumWindowGuard`).
     private(set) lazy var windowGuard = ChromiumWindowGuard(logger: logger) { [weak self] window in
@@ -435,7 +435,7 @@ final class CEFRuntime {
         try finishStart(loadInProcess(candidate).map(CEFRuntimeBoot.inProcess), inputs: CEFStartInputs.prepare(startInputsRequest), environment: environment, trigger: "debugWindow")
     }
 
-    private func startError() -> BrowserEngineError? {
+    func startError() -> BrowserEngineError? {
         switch state {
         case .failed(let reason): .engineUnavailable(.cef, reason: reason)
         case .shutDown: .engineUnavailable(.cef, reason: Strings.cefUnavailable)
@@ -443,7 +443,7 @@ final class CEFRuntime {
         }
     }
 
-    private func finishStart(
+    func finishStart(
         _ loaded: Result<CEFRuntimeBoot, BootError>,
         inputs: CEFStartInputs,
         environment: [String: String],

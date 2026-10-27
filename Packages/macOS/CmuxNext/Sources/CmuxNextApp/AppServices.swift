@@ -134,7 +134,7 @@ final class AppServices {
     /// The app's one fan-out of `NSWorkspace.shared.notificationCenter` notices; ``appearance``
     /// observes the display options through it (`observeGlass`) and ``appVisibility`` the display sleeps.
     // raw-observer-allow: the AppEvents fan-out itself, one observer per workspace notice for the whole app
-    let workspaceEvents = AppEvents(center: NSWorkspace.shared.notificationCenter)
+    let workspaceEvents = AppEvents(center: NSWorkspace.shared.notificationCenter, observerLedger: .shared)
     /// The app's node in the visibility tree (hidden app, sleeping displays), every window's
     /// node's parent (`WindowVisibilitySource`, p06-scheduler-022). Made in init, before the
     /// updater, whose feed checks align to its hidden wakes.
@@ -176,7 +176,17 @@ final class AppServices {
         ? .afterFirstUse(overlayPageDiscards.terms(releaseAfter: Feature.memoryOpenPanelOnFirstUse.durationParam("releaseAfter") ?? .seconds(300)))
         : .ahead)
     /// The agent page WebKit warm-up.
-    private(set) lazy var agentPageWarmup = AgentPageWarmup(chromiumChat: agentChromiumChat)
+    private(set) lazy var agentPageWarmup = AgentPageWarmup(chromiumChat: agentChromiumChat, stability: rendererStability)
+    /// WebKit content-process ends and Chromium page hangs as stability events (p09-observability-108): one for the
+    /// app, so its rate limit sees every surface; its reports go to crash reporting on that module's own lane.
+    private(set) lazy var rendererStability: RendererStability = {
+        let sentry = RendererStabilityReporter(reporter: crashReporting.reporter)
+        return RendererStability { report in
+            sentry.send(RendererStabilityEvent(kind: report.kind.rawValue, engine: report.engine.rawValue, surface: report.surface.name,
+                                               count: report.count, unresponsiveMilliseconds: report.unresponsiveMilliseconds,
+                                               ending: report.ending?.rawValue))
+        }
+    }()
     /// Whether a new agent page may show in Chromium: feature `agentChromium`, its Debug tunable `agent.chromium` (the
     /// tunable's only reader) as the local override, read at each page; the warm-up and every agent pane share it.
     private(set) lazy var agentChromiumChat: @MainActor () -> Bool = { [features = self.features] in
@@ -349,10 +359,11 @@ final class AppServices {
     /// Chromium has one input queue per frame widget. It is the application's own `frameInput`, the one `sendEvent`
     /// flushes before discrete input (a test's app has none: its own). Read only while a feature below uses it.
     private lazy var pointerFrames: FrameInputCoalescers = (NSApp as? CmuxApplication)?.frameInput ?? FrameInputCoalescers()
-    /// Resize drags (feature `pointerFrameDrags`): pane dividers, column and row edges, both sidebars' resize edges
-    /// and the DevTools divider move on a frame interval's first drag event and once more at its frame. Nil while it
-    /// is off: each drag event moves them.
-    private(set) lazy var dragFrameInput: FrameInputCoalescers? = features.isEnabled(.pointerFrameDrags) ? pointerFrames : nil
+    /// Drags (feature `pointerFrameDrags`): pane dividers, column and row edges, both sidebars' resize edges and the
+    /// DevTools divider move, and tab, workspace, pane-swap, link and screen-tab drags hit-test, on a frame interval's
+    /// first drag event and once more at its frame (p04-input-030, 031, 032). Nil while it is off: each drag event
+    /// moves or hit-tests them. Tests set their own before the first read.
+    lazy var dragFrameInput: FrameInputCoalescers? = features.isEnabled(.pointerFrameDrags) ? pointerFrames : nil
     /// A drag's resampler, made on its start (feature `resampledDrags`, p04-input-040): a pane divider, a tab ghost or a
     /// pane-swap preview is drawn at the pointer resampled at each frame while `input.resampleDrags` is on. Nil without
     /// `pointerFrameDrags`, with the feature or the setting off; the layout and ``dragSession`` add Reduce Motion.
@@ -440,7 +451,7 @@ final class AppServices {
     /// Samples the footprints into `memoryHistograms` once an hour (startHibernationMeasurements starts it).
     private(set) lazy var memoryFootprints = MemoryFootprintEmitter(
         histograms: memoryHistograms, webContentPIDs: { [weak self] in if let self { AppMemoryModel.liveWebContentPIDs(self) } else { [] } },
-        sample: { await AppMemoryModel.processes(webContentPIDs: $0) })
+        sample: { await AppMemoryModel.processes(webContentPIDs: $0) }, deadlines: mainDeadlines)
     /// The New Tab page on the app's one preload slot, which it installs on `webUI` (instant open, p13-webui-044).
     private(set) lazy var newTabSpares = NewTabPreload.app(self)
     /// The app's one preload slot (p13-webui.md 3.D), made here only and installed on `webUI`: New Tab and
@@ -476,6 +487,7 @@ final class AppServices {
             processGroups: makeWebProcessGroups(), startsPagesAtFirstShow: features.isEnabled(.pageRendererAtFirstShow),
             hoverFrameInput: hoverFrameInput, retirer: PageRetirer(deadlines: mainDeadlines))
         host.scriptFrames = pageScriptFrame
+        host.rendererStability = rendererStability
         return host
     }()
     /// The frame cmux pages deliver their router envelopes on, one board task per page per frame
@@ -728,8 +740,8 @@ final class AppServices {
     /// - Parameter hangWatch: the hang watch of every watched lane (``work``'s lanes; through ``daemon``, its
     ///   connection readers, terminal attachments and terminal output lanes): the process's
     ///   (`TraceRuntime.shared`) by default, a test's fake, or nil to watch nothing.
-    /// - Parameter energyMonitor: The app's power inputs: the system's by default (nothing reads IOKit
-    ///   until `startEnergy`, which only `AppDelegate` calls), or a test's over fixed inputs.
+    /// - Parameter energyMonitor: The app's power inputs: nil makes the system's on `mainWork` (nothing reads
+    ///   IOKit until `startEnergy`, which only `AppDelegate` calls), or a test's over fixed inputs.
     /// - Parameter appearance: The appearance signals (the app's design settings'; a test's own).
     /// - Parameter launchStartup: The launch's scheduler (`AppDelegate` passes `LaunchOrder.startup`); nil (tests)
     ///   makes the right sidebar's icons on main when its first panel is built.
@@ -738,7 +750,7 @@ final class AppServices {
          launchImages: AgentPaneLaunchImages = AgentPaneLaunchImages(directory: nil), terminalLaunchFrames: TerminalLaunchFrames? = nil,
          relaunchWake: AgentPaneRelaunchWake = AgentPaneRelaunchWake(file: nil),
          wireStats: DaemonWireStats? = nil, hangWatch: (any HangWatchScoping)? = TraceRuntime.shared.hangWatch,
-         energyMonitor: EnergyMonitor = EnergyMonitor(), inputTap: InputEventTap = InputEventTap(),
+         energyMonitor: EnergyMonitor? = nil, inputTap: InputEventTap = InputEventTap(),
          launchImageHold: LaunchImageHold = LaunchImageHold(), launchStartup: StartupScheduler? = nil,
          crashKeys: CrashKeySlots? = nil, watchdog: MainThreadWatchdog? = nil,
          appearance: AppearanceSignals = DesignSettings.shared.signals, features: FeatureList? = nil) {
@@ -747,7 +759,7 @@ final class AppServices {
         self.work = work
         linkHints = LinkHintController(work: work)
         builtInAdBlockerFolder = AppServices.preloadBuiltInAdBlockerFolder(on: work)
-        self.energyMonitor = energyMonitor
+        self.energyMonitor = energyMonitor ?? EnergyMonitor(mainWork: mainWork)
         // First: the black-box ring is attached to TraceRuntime.shared, so every trace point records from here
         // on; the ring file opens on `.files`, never on main.
         traceBlackBox = environment.marksRun ? TraceBlackBoxFileSteps.startApp(bundleID: environment.launch.bundleID, work: work) : nil
@@ -811,6 +823,7 @@ final class AppServices {
             InputJournal.shared.append(window: nil, .content(tab: tab, event: event))
         }
         _ = cache  // built here, as before
+        cache.webKit.rendererStability = rendererStability
         pages.createTabs = cache.createTabs  // a page tab's close ends its create.tab wait
         pages.findWindow = { [weak self] key in self.flatMap { $0.pages.window(showing: key, among: $0.windows.controllers) } }  // a page tab whose window closed
         pages.showsStandIns = self.features.isEnabled(.pageStandIn)
