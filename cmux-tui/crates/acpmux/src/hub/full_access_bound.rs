@@ -1660,6 +1660,82 @@ mod tests {
         assert!(!reasked, "a question a stop cancelled was asked again");
     }
 
+    /// Review 88 of #23322, round 7: the agent withdraws its question while an ancestor's answer
+    /// to it waits in the writer, and an off push then cuts that answer. The withdrawal is heard:
+    /// the question is not asked again.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn a_question_withdrawn_while_its_cut_answer_was_queued_is_not_asked_again() {
+        let (hub, parent, child) = approve_all_parent().await;
+        let (id, asking) = ask_pick(&hub, &child).await;
+        let (request, incarnation) = {
+            let state = child.permissions.lock().unwrap();
+            let p = &state.pending[&id];
+            (
+                p.agent_request.clone().expect("the agent's request"),
+                p.agent_host_incarnation.clone(),
+            )
+        };
+        let (arrived, release) = pause_input(&hub, &child, "outcome").await;
+        let answer = {
+            let (hub, parent, child) = (hub.clone(), parent.clone(), child.clone());
+            tokio::spawn(async move {
+                hub.ancestor_answer(&parent, &child, &id, json!({"Pick?": "A"})).await
+            })
+        };
+        tokio::time::timeout(WAIT, arrived).await.expect("the answer is queued").unwrap();
+        tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+        hub.withdraw_permission(&child, incarnation.as_deref(), &request);
+        tokio::time::timeout(WAIT, push_off(&hub)).await.expect("the push returns").unwrap();
+        let _ = release.send(());
+        let answered = answer.await.unwrap();
+        tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+        let reasked = child.permissions.lock().unwrap().pending.len();
+        asking.abort();
+        assert!(answered.is_ok(), "{answered:?}");
+        assert_eq!(reasked, 0, "a question its agent withdrew was asked again");
+    }
+
+    /// Review 88 of #23322, round 7: the same after a restart (`reregister_permission`): a
+    /// withdrawal while the cut answer was queued is heard, and the question is not asked again.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn a_restarts_question_withdrawn_while_its_cut_answer_was_queued_is_not_asked_again() {
+        let (hub, parent, child) = approve_all_parent().await;
+        let (id, asking) = ask_pick(&hub, &child).await;
+        let request = child.permissions.lock().unwrap().pending[&id].request.clone();
+        let agent = hub.child_for(&child).await.expect("a running agent");
+        let again = "asked-again".to_owned();
+        // Open as a restart's recovery leaves it (`recovery_work`).
+        hub.register_agent_request(&child, &json!(9999), Some("test"));
+        hub.reregister_permission(
+            &child,
+            &agent,
+            json!(9999),
+            again.clone(),
+            request,
+            "test",
+            None,
+        )
+        .await;
+        let (arrived, release) = pause_input(&hub, &child, "\"id\":9999").await;
+        let answer = {
+            let (hub, parent, child, again) =
+                (hub.clone(), parent.clone(), child.clone(), again.clone());
+            tokio::spawn(async move {
+                hub.ancestor_answer(&parent, &child, &again, json!({"Pick?": "A"})).await
+            })
+        };
+        tokio::time::timeout(WAIT, arrived).await.expect("the answer is queued").unwrap();
+        tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+        hub.withdraw_permission(&child, Some("test"), &json!(9999));
+        tokio::time::timeout(WAIT, push_off(&hub)).await.expect("the push returns").unwrap();
+        let _ = release.send(());
+        let _ = answer.await;
+        tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+        let reasked = child.permissions.lock().unwrap().pending.contains_key(&again);
+        asking.abort();
+        assert!(!reasked, "a question its agent withdrew was asked again after a restart");
+    }
+
     /// Review 86 of #23322: a family check ranks both sessions under the one bound its operation
     /// read at its entry, never a newer push in between.
     #[tokio::test]
