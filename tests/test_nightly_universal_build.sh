@@ -3,7 +3,10 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-WORKFLOW_FILE="$ROOT_DIR/.github/workflows/nightly.yml"
+# nightly.yml with its scripts/ci/nightly-steps/ step scripts inline (tests/nightly_workflow_text.py).
+WORKFLOW_FILE="$(mktemp "${TMPDIR:-/tmp}/nightly-expanded.XXXXXX")"
+python3 "$ROOT_DIR/tests/nightly_workflow_text.py" > "$WORKFLOW_FILE"
+trap 'rm -f "$WORKFLOW_FILE"' EXIT
 
 if ! awk '
   /^      - name: Build nightly app \(Release\)/ { in_build=1; next }
@@ -175,7 +178,7 @@ if grep -Fq 'github.rest.repos.getBranch' "$WORKFLOW_FILE"; then
   exit 1
 fi
 
-if ! awk -v refresh_runner="runs-on: macos-26" '
+if ! awk -v refresh_runner="runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-6vcpu-macos-26' }}" '
   /^  refresh-compilation-cache:/ { in_refresh=1; next }
   in_refresh && /^  [a-zA-Z0-9_-]+:/ { in_refresh=0 }
   in_refresh && /timeout-minutes: 90/ { saw_cold_build_timeout=1 }
@@ -263,7 +266,7 @@ if ! awk '
   exit 1
 fi
 
-if ! awk -v helper_runner="runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'macos-15' || inputs.nightly_next_unsigned_run != '' && 'ubuntu-24.04' || 'macos-15' }}" \
+if ! awk -v helper_runner="runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'macos-15' || inputs.nightly_next_unsigned_run != '' && 'ubuntu-24.04' || 'blacksmith-6vcpu-macos-15' }}" \
        '
   /^  build-nightly-ghostty-cli-helper:/ { job="helper"; next }
   /^  build-nightly-app:/ { job="app"; next }
@@ -994,7 +997,7 @@ done
 # already has. A cmux NIGHTLY-identity submission still in Apple's queue is
 # continued (never resubmitted) until it is resolved or 6 hours old.
 legacy_dir="$(mktemp -d)"
-trap 'rm -rf "$legacy_dir"' EXIT
+trap 'rm -rf "$legacy_dir" "$WORKFLOW_FILE"' EXIT
 legacy_feed() {  # <file> <build>...
   local file="$1"; shift
   {

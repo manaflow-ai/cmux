@@ -1134,6 +1134,9 @@ class SupersededCommitIsNotRed(unittest.TestCase):
             name: job for name, job in self.jobs().items()
             if any("pin-cmux-tui.sh fetch" in step.get("run", "") for step in job.get("steps", []))
         }
+        # The landing compile's placement probes the tree itself (dev-landing-place).
+        landing = fetching.pop("dev-landing-compile")
+        self.assertIn("needs.dev-landing-place.outputs.tree_state == 'ready'", " ".join(landing["if"].split()))
         self.assertEqual(sorted(fetching), sorted(TREE_JOBS))
         for name, job in fetching.items():
             with self.subTest(job=name):

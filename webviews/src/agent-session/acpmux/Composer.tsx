@@ -67,7 +67,7 @@ import { remoteComposer } from "./remoteEditing";
 import { useComposerChrome } from "./composerChrome";
 import { useQueueing } from "./queueing";
 import { useMenuPressGuard } from "./menuPressGuard";
-import { useComposerSettings } from "./composerSettings";
+import { setScrollToBottomOnSend, useComposerSettings } from "./composerSettings";
 import { useComposerLook, useQuietRow } from "./composerLook";
 import { LookSwitch } from "./LookSwitch";
 import { useEscapeStop } from "./escapeStop";
@@ -162,6 +162,7 @@ export const COMPOSER_LABELS = {
   selectAll: "composer.menu.selectAll",
   attachFiles: "composer.menu.attachFiles",
   insertMention: "composer.menu.insertMention",
+  scrollToBottomOnSend: "composer.menu.scrollToBottomOnSend",
 } as const satisfies Record<string, StringKey>;
 
 /// What the pane can do to the composer from outside it.
@@ -491,7 +492,7 @@ export function Composer({
   const locationSlotWasShown = useRef(false);
   const sendButton = useRef<HTMLButtonElement>(null);
   // Whether Esc stops a turn on a double press (escapeStop.ts).
-  const { showContextUsage, spellChecking, escapeDoublePress } = useComposerSettings();
+  const { showContextUsage, spellChecking, escapeDoublePress, scrollToBottomOnSend } = useComposerSettings();
   // The composer's look (composerLook.ts): with Claude's, the default, and the plain footer the mode,
   // model and effort sit in the quiet row and Send waits for a draft; Codex's keeps the box's one row.
   const look = useComposerLook();
@@ -1528,6 +1529,13 @@ export function Composer({
       label: t(COMPOSER_LABELS.insertMention),
       disabled: shell,
       onSelect: () => mention(),
+    },
+    {
+      id: "scrollToBottomOnSend",
+      label: t(COMPOSER_LABELS.scrollToBottomOnSend),
+      checked: scrollToBottomOnSend,
+      separatorBefore: true,
+      onSelect: () => setScrollToBottomOnSend(!scrollToBottomOnSend),
     },
   ];
 
