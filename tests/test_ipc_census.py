@@ -424,6 +424,22 @@ class SchemaQueueTests(Fixture):
         self.assertEqual(result.groups(), {"CmuxNextDaemon/Requests/Tabs": 2, "CmuxNextTasks/Views": 1})
         self.assertEqual([hit.key for hit in self.census().result("Q5").hits], ["apps-list"])
 
+    def test_q1_counts_a_daemon_request_command_name(self):
+        # Every DaemonRequest declares `commandName: DaemonCommandName`; the first Q1 query saw none.
+        self.write(f"{APP}/CmuxNextDaemon/Requests/TerminalIO/Input.swift", """
+            public struct SendKeyRequest: DaemonRequest {
+                public static let commandName: DaemonCommandName = "send-key"
+            }
+        """)
+        self.write(f"{APP}/CmuxNextDaemon/Terminal/Attachment.swift", """
+            func press() { send(SendKeyRequest()) }
+        """)
+        self.assertIn(("Input.swift", 2, "send-key"), self.sites("Q1"))
+        self.assertEqual(
+            [(hit.file.rsplit("/", 1)[-1], hit.key) for hit in self.census().callers("CmuxNextDaemon/Requests/TerminalIO")],
+            [("Attachment.swift", "SendKeyRequest")],
+        )
+
     def test_q12_reads_a_delegated_name_set(self):
         schema = json.loads((self.root / "cmux-tui/spec/sdk-schema.json").read_text(encoding="utf-8"))
         schema["events"].update({"cloud-inbox-changed": {}, "cloud-mux-wake": {}})

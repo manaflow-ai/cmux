@@ -164,7 +164,7 @@ impl LocalReader {
             pty.publish_final_frame();
             pty.local_pty_drained.store(true, Ordering::Release);
         }
-        publish_local_exit_if_ready(&self.surface);
+        post_local_exit_if_ready(&self.surface);
     }
 }
 

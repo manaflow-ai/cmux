@@ -2,6 +2,7 @@ public import CmuxNextControl
 import CmuxNextPages
 import CmuxNextSettings
 import CmuxNextUpdater
+import CmuxNextWakeups
 import Foundation
 
 // Web updates (plans/cmux-next/web-ota.md). `updates.web.status`: the channel, the update served
@@ -19,15 +20,15 @@ extension WebUpdates {
         return [
             .mainActor("updates.web.status") { _ in .value(Self.json(web)) },
             .mainActor("updates.web.check") { call in
-                guard let updater = web.updater else { return .value(Self.json(web)) }
+                guard let updater = web.updater, let mainWork = web.inputs?.deadlines.work else { return .value(Self.json(web)) }
                 // Answer inside the control deadline. A slower check (a download) keeps running:
-                // `pending: true`, then read `updates.web.status`.
-                // task-owner: one check; it ends by itself
-                let check = Task { await updater.check() }
+                // `pending: true`, then read `updates.web.status`. The answer is read as one
+                // `automation` task: the CLI asked.
+                let check = updater.startCheck(.userVisible)
                 let answerBy = call.deadline - .milliseconds(150)
                 return .followUp {
-                    let done = (try? await ControlDeadline.shared.run(method: call.method, deadline: answerBy) { await check.value }) != nil
-                    return await MainActor.run {
+                    let done = (try? await ControlDeadline.shared.run(method: call.method, deadline: answerBy) { _ = try? await check.value }) != nil
+                    return await mainWork.apply(.automation, owner: "updates.web.check") {
                         guard case .object(var fields) = Self.json(web) else { return .null }
                         fields["pending"] = .bool(!done || updater.phase == .checking || updater.phase == .downloading)
                         return .object(fields)
@@ -35,7 +36,7 @@ extension WebUpdates {
                 }
             },
             .mainActor("updates.web.rollback") { _ in
-                guard let updater = web.updater else {
+                guard let updater = web.updater, let mainWork = web.inputs?.deadlines.work else {
                     throw ControlError(code: "web_updates_unavailable", message: "web updates run on NIGHTLY builds only")
                 }
                 guard updater.state.active != nil else {
@@ -43,7 +44,7 @@ extension WebUpdates {
                 }
                 return .followUp {
                     try await updater.rollBack()
-                    return await MainActor.run { Self.json(web) }
+                    return await mainWork.apply(.automation, owner: "updates.web.rollback") { Self.json(web) }
                 }
             },
             .mainActor("updates.web.apply") { _ in

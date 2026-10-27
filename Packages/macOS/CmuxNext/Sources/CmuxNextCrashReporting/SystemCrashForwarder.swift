@@ -1,6 +1,7 @@
 public import Foundation
 public import Sentry
 import CmuxNextCompat
+import CmuxNextWakeups
 import os
 
 /// Sends the crash reports macOS writes for this app's helper processes
@@ -89,6 +90,8 @@ public final class SystemCrashForwarder: Sendable {
     private let queue = DispatchQueue(label: "com.cmuxterm.app.next.crash-forwarder", qos: .utility)
     private let watcher = Mutex<(any DispatchSourceFileSystemObject)?>(nil)
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "crash")
+    /// The folder watch's record in the launch's arm census (Debug and bench builds, p08-startup-085).
+    private let census: ArmCensusWatch
 
     /// - Parameters:
     ///   - hostExeRoot: The root of the daemon's host and holder copies
@@ -102,13 +105,14 @@ public final class SystemCrashForwarder: Sendable {
     ///   - artifacts: Where the Rust processes' black boxes and crash-key pages are, with the hang-reports
     ///     opt-in that lets a black box leave; nil attaches none.
     ///   - capture: Sends an event with its attachments.
+    ///   - file: With `line`, names the line that made it in the arm census (leave the defaults).
     public init(directory: URL = SystemCrashForwarder.standardDirectory, stateFile: URL, bundlePath: String,
                 mainExecutable: String?,
                 hostExeRoot: String?,
                 ownRustBinaries: [URL],
                 release: String? = nil,
                 artifacts: RustCrashArtifacts?,
-                sends: Bool = true,
+                sends: Bool = true, file: StaticString = #fileID, line: UInt = #line,
                 capture: @escaping @Sendable (Event, [Attachment]) -> Void = { SystemCrashForwarder.sendToSentry($0, attachments: $1) }) {
         self.directory = directory
         self.stateFile = stateFile
@@ -118,6 +122,7 @@ public final class SystemCrashForwarder: Sendable {
         self.artifacts = artifacts
         self.sends = sends
         self.capture = capture
+        census = ArmCensusWatch(.watcher, owner: "SystemCrashForwarder", file: file, line: line)
     }
 
     /// The binaries in `directories` the daemon copies under the host-exe root
@@ -257,10 +262,14 @@ public final class SystemCrashForwarder: Sendable {
         guard descriptor >= 0 else { return }
         let source = DispatchSource.makeFileSystemObjectSource(fileDescriptor: descriptor, eventMask: [.write, .rename],
                                                                queue: queue)
-        source.setEventHandler { [weak self] in self?.forwardNew(now: Date()) }
+        source.setEventHandler { [weak self] in
+            self?.census.fired()
+            self?.forwardNew(now: Date())
+        }
         source.setCancelHandler { close(descriptor) }
         watcher.withLock { $0 = source }
         source.resume()
+        census.armed()
     }
 
     private func loadState() -> State? {
