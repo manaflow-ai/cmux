@@ -1,4 +1,5 @@
 import Foundation
+import CmuxNextCompat
 import Testing
 @testable import CmuxNextAgentPane
 
@@ -82,5 +83,30 @@ struct AcpmuxUploadFrameTests {
         #expect((block["uri"] as? String) == "acpmux-upload:u")
         let upload = try #require(((block["_meta"] as? [String: Any])?["acpmux"] as? [String: Any])?["upload"] as? [String: Any])
         #expect(upload["uploadId"] as? String == "u")
+    }
+    @Test @MainActor func socketCloseAnswersPendingHostUpload() async throws {
+        let transport = AgentPaneTransport()
+        let socket = AcpmuxPaneSocket(
+            request: URLRequest(url: URL(string: "ws://127.0.0.1")!),
+            wire: ClosingUploadWire(), limits: transport.limits,
+            options: transport.permissionOptions, sessions: transport.sessions,
+            ids: AcpmuxRequestIds(), signal: {})
+        try await socket.start(timeout: 1)
+        await #expect(throws: AgentPaneUploadError.rpc("upload connection closed")) {
+            try await socket.callHost("_acpmux/file_put_begin", params: ["sessionId": "s", "fileName": "x", "size": 1])
+        }
+    }
+
+    final class ClosingUploadWire: AcpmuxPaneWire, Sendable {
+        private let closed = Mutex<(@Sendable (Int, String) -> Void)?>(nil)
+        func open(onFrame: @escaping @Sendable (String) -> Void,
+                  onClose: @escaping @Sendable (Int, String) -> Void) async throws {
+            closed.withLock { $0 = onClose }
+        }
+        func send(_ text: String, completion: @escaping @Sendable (Bool) -> Void) {
+            completion(true)
+            closed.withLock { $0 }?(1006, "")
+        }
+        func cancel(code: Int, reason: String) {}
     }
 }
