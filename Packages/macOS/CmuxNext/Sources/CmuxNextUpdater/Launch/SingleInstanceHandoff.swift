@@ -71,17 +71,28 @@ import os
     }
 
     private var finished = false
+    /// How many of ``urls`` a helper already carries; nil before the first helper.
+    private var handed: Int?
 
-    /// Starts the helper, then exits. The helper waits on this pid, so LaunchServices never routes back here.
+    /// Starts a helper for the URLs no helper carries yet (a bare launch: one with none), then exits. The exit is
+    /// decided on the main actor, where open events arrive, so one that came in while a helper started gets its
+    /// own helper first. Each helper waits on this pid, so LaunchServices never routes back here.
     private func finish() {
         guard !finished else { return }
         finished = true
-        let command = Self.reopenCommand(pid: getpid(), bundleIdentifier: Bundle.main.bundleIdentifier ?? "", urls: urls)
-        let count = urls.count
-        Task.detached(priority: .userInitiated) {
+        handOn()
+    }
+
+    private func handOn() {
+        let batch = Array(urls[(handed ?? 0)...])
+        // The first helper always starts (a bare launch reopens the running copy); a later one only for new URLs.
+        guard handed == nil || !batch.isEmpty else { exit(0) }
+        handed = urls.count
+        let command = Self.reopenCommand(pid: getpid(), bundleIdentifier: Bundle.main.bundleIdentifier ?? "", urls: batch)
+        Task.detached(priority: .userInitiated) { [weak self] in
             Self.spawn(command)
-            Self.logger.notice("launch: \(count, privacy: .public) URL(s) go to the running copy once this one exits")
-            exit(0)
+            Self.logger.notice("launch: \(batch.count, privacy: .public) URL(s) go to the running copy once this one exits")
+            await self?.handOn()
         }
     }
 
