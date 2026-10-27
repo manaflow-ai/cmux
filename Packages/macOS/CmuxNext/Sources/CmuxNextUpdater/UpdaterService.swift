@@ -72,6 +72,8 @@ public final class UpdaterService {
     @ObservationIgnored let stagedRefresh: StagedUpdateRefresh
     /// The tip app's 5-minute feed read while nothing waits (``TipUpdateCheck``).
     @ObservationIgnored let tipCheck: TipUpdateCheck
+    /// The release push's socket (``ReleasePushListener``), run by ``refreshReleasePush()``.
+    @ObservationIgnored let releasePush: ReleasePushListener
     /// Opens the changelog page (set by the App; the What's New page's link).
     @ObservationIgnored public var openChangelog: (() -> Bool)?
     /// Opens the changelog page for the releases after `from` up to `to`
@@ -241,6 +243,7 @@ public final class UpdaterService {
                                   sources: Self.whatsNewSources(identity: identity), lastUpdates: lastUpdates)
         let log = UpdateLogBuffer()
         self.log = log
+        releasePush = ReleasePushListener(runningBuild: identity.build, clock: clock, log: { [log] in log.append($0) })
         // The managed policy is re-read by the driver on every start and check,
         // so it is not a reason to skip building it.
         if enableSparkle, identity.sparkleDisabledReason(managedPolicyDisablesUpdates: false) == nil {
@@ -278,6 +281,7 @@ public final class UpdaterService {
         }
         restorePinnedTestFeed()
         restoreRollbackSkip()
+        releasePush.onNewerBuild = { [weak self] in self?.releasePushed($0) }
         tipState = TipState(defaults: defaults)
         updateSnooze = UpdateSnooze(defaults: defaults)
     }
@@ -299,6 +303,7 @@ public final class UpdaterService {
         refreshTip()
         refreshUpdateSnooze()
         tipCheck.refresh(self)
+        refreshReleasePush()
         guard let controller else {
             log.append("sparkle not started (\(disabledReason?.rawValue ?? "no driver"), track=\(identity.track.rawValue))")
             return

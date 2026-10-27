@@ -225,6 +225,7 @@ extension UpdaterService {
         if let controller, controller.installsUpdatesWhenIdle != downloadAutomatically { controller.installsUpdatesWhenIdle = downloadAutomatically }
         stagedRefresh.reschedule(automatic: checkAutomatically, interval: checkInterval, updater: self)
         tipCheck.reschedule(automatic: checkAutomatically, updater: self)
+        refreshReleasePush()
         if automaticUpdates != downloadAutomatically { automaticUpdates = downloadAutomatically }
         guard let controller else { return }
         controller.setSchedule(automaticChecks: checkAutomatically, interval: checkInterval)
@@ -267,6 +268,7 @@ extension UpdaterService {
         defer {
             tipCheck.refresh(self)
             stagedRefresh.policyChanged(updater: self)
+            refreshReleasePush()
         }
         let resumed = downloads && !downloadsFoundUpdates
         downloadsFoundUpdates = downloads
