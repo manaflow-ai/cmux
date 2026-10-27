@@ -36,6 +36,14 @@ final class SettingsWindowService: InternalPageProvider {
         services.pages.window(showing: .settings, windows: services.windows.controllers)?.window
     }
 
+    #if DEBUG || CMUX_BENCH_HOOKS
+    /// The Settings page a window shows now, if any: the `settings-energy` capture waits on it.
+    var shownPage: PageWebView? {
+        // visibility-walk-allow: the capture waits for what AppKit shows before it snapshots the window; a node would mirror it a turn late
+        tabPages.values.lazy.map(\.view).first { $0.window != nil && !$0.isHiddenOrHasHiddenAncestor }
+    }
+    #endif
+
     /// One Settings page and the forms it reports unsaved.
     private struct Page {
         let view: PageWebView
@@ -67,7 +75,8 @@ final class SettingsWindowService: InternalPageProvider {
         services.work.task(.userVisible) { [devices = services.devices] in await devices.refresh() }
         var anchor: SettingsAnchor?
         if let setting {
-            guard let found = SettingsAnchor(key: setting) else {
+            // A row the page leaves out now (its feature off) is refused like an unknown one.
+            guard let found = SettingsAnchor(key: setting, availability: services.settingsAvailability) else {
                 throw ActionFailure.invalidTarget(RefusalStrings.noSuchSettingsEntry(setting))
             }
             anchor = found
