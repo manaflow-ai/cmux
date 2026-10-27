@@ -1,3 +1,4 @@
+import CmuxNextDesign
 import GhosttyNextKit
 
 // What one terminal surface costs in memory, for the resource hover card and `debug.memory`.
@@ -22,6 +23,10 @@ extension TerminalSession {
         // SAFETY: the view's live surface (TerminalSurfaceView.surface).
         return Self.drawableBytes(unsafe ghostty_surface_size(surface), buffers: Self.swapChainBuffers - 1)
     }
+
+    /// Whether the surface is shown in a window that is off screen (minimized, another Space, covered):
+    /// hidden from the person though not away from its pane (``TerminalOffScreenRelease``).
+    public var isInOffScreenWindow: Bool { surfaceView.isShown && surfaceView.pause == .windowOccluded }
 
     /// Ghostty's swap chain: three BGRA buffers per surface.
     static let swapChainBuffers: UInt64 = 3

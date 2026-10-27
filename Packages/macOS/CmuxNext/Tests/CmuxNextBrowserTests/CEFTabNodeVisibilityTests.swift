@@ -59,6 +59,22 @@ import Testing
         #expect(VisibilitySpy.calls == ["visibility 7 1 0", "visibility 7 2 0", "visibility 7 1 0"])
     }
 
+    /// p07-memory-097: the shown tab of a window that is minimized is hidden to Chromium in the window node's own
+    /// turn, with no delay and no DevTools session (the lifecycle call the fork needed before API 37, since
+    /// `WasHidden` does nothing for a windowed browser); deminiaturized, it is shown again.
+    @Test func aMinimizedWindowHidesItsShownTabAtOnce() throws {
+        let rig = try VisibilityRig()
+        defer { rig.close() }
+        let tab = try rig.attachedTab()
+        let window = VisibilityNode(root: "window", own: .visible)
+        let node = VisibilityNode("tab", own: .visible, parent: window)
+        tab.followVisibility(of: node, capture: BrowserPageCapture.votes(on:))
+        window.set(.hidden)
+        #expect(VisibilitySpy.calls == ["visibility 7 1 0", "visibility 7 3 0"])
+        window.set(.visible)
+        #expect(VisibilitySpy.calls == ["visibility 7 1 0", "visibility 7 3 0", "visibility 7 1 0"])
+    }
+
     /// A capture vote that does not stay hidden keeps a hidden tab painting (Chrome's visible capturer); its release
     /// gives the hidden page back. A captured page is not frozen.
     @Test func aCaptureVoteKeepsAHiddenTabPaintingAndAwake() throws {

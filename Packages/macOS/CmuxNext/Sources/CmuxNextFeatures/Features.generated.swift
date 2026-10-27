@@ -1653,12 +1653,12 @@ nonisolated extension Feature {
         runtimeMutable: false
     )
 
-    /// A terminal hidden outside the keep-alive band lets its Ghostty GPU memory and renderer thread go while paused and gets them back before it draws; the warm set then grows. Needs a GhosttyNextKit pin with ghostty_surface_set_gpu_resident.
+    /// A terminal hidden outside the keep-alive band, or shown in a window off screen for 30 s, lets its Ghostty GPU memory and renderer thread go while paused and gets them back before it draws; the warm set then grows. Needs a GhosttyNextKit pin with ghostty_surface_set_gpu_resident.
     public static let terminalGPURelease = Feature(
         index: 95,
         name: "terminalGPURelease",
         owner: "PL-memory",
-        description: "A terminal hidden outside the keep-alive band lets its Ghostty GPU memory and renderer thread go while paused and gets them back before it draws; the warm set then grows. Needs a GhosttyNextKit pin with ghostty_surface_set_gpu_resident.",
+        description: "A terminal hidden outside the keep-alive band, or shown in a window off screen for 30 s, lets its Ghostty GPU memory and renderer thread go while paused and gets them back before it draws; the warm set then grows. Needs a GhosttyNextKit pin with ghostty_surface_set_gpu_resident.",
         kind: .labs,
         process: .app,
         chromiumFeature: nil,
