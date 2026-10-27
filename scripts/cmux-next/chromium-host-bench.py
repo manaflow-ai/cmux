@@ -109,7 +109,7 @@ Per mode:
            with a second display (cmux20-bench has an external one), frames until both are the new display's after
            the window moves there and back, counted from the move (pass: rate within 2 frames, scale within 1, the
            1x to 2x move reported as `scale_up`) (chromium_host_display.py).
-  tcc      opt-in (`--modes inproc,tcc`; it runs before helper, so the host starts inside its window): a host page
+  tcc      opt-in (`--modes inproc,tcc`; it runs before helper and closes its host after): a host page
            asks for camera, mic, location, Local Network, Screen Recording and Bluetooth, and each row passes when
            macOS charges the request to cmux, not to the host or a helper; the keychain row passes when the host
            read "Chromium Safe Storage" with no prompt (chromium_host_tcc.py has the evidence and the rules).
@@ -1178,13 +1178,15 @@ def run_tcc(rpc):
         rpc("action.run", {"action": "splitRight", "focus": True, "origin": "script"}, timeout=60)
         rows = tcc.TccRows(
             tcc.Bundle.read(opts.app),
-            open_host=lambda page: rpc("debug.chromium_host", {"op": "open", "url": page}) or {},
+            open_host=lambda page: rpc("debug.chromium_host", {"op": "open", "url": page, "focus": True}) or {},
             title=lambda: (rpc("debug.chromium_host") or {}).get("title"),
             press=lambda key: rpc("debug.key", {"key": key}),
             allow=lambda: rpc("action.run", {"action": "browser.prompt.allow", "origin": "script"}),
             seams=tcc.Seams(log=log), keychain_service=opts.keychain_service)
         result = rows.run(url)
     finally:
+        # The helper rows start their own host: its start, pixels and lifetime rows measure a fresh one.
+        rpc("debug.chromium_host", {"op": "close"})
         log.stop()
         pages.stop()
     result.update({"lan_address": lan, "lan_hits": pages.lan_hits, "log_error": log.error})

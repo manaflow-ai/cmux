@@ -83,7 +83,7 @@ def page(rows=ROWS, lan_url=""):
     """The probe page: each row's key starts its request and the title carries every row's outcome."""
     table = ",\n".join(f"  {json.dumps(row.key)}: [{json.dumps(row.name)}, () => {row.script}]" for row in rows)
     return f"""<!doctype html><meta charset=utf-8><title>tcc probe</title>
-<style>html,body{{margin:0;height:100%;background:#204080;color:#fff;font:16px system-ui}}</style>
+<style>html,body{{margin:0;height:100%;background:#303030;color:#fff;font:16px system-ui}}</style>
 <p>TCC attribution probe</p>
 <script>
 const LAN = {json.dumps(lan_url)};

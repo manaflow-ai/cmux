@@ -9,7 +9,10 @@ redacted evidence. Drives TccRows with a stand-in host page, log, window list an
 """
 from __future__ import annotations
 
+import ast
+import importlib.util
 import json
+import re
 import sys
 import unittest
 import urllib.request
@@ -17,6 +20,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import chromium_host_tcc as tcc  # noqa: E402
+
+BENCH = Path(__file__).resolve().parent.parent / "chromium-host-bench.py"
 
 APP = "/Applications/cmux DEV t89.app"
 BUNDLE = tcc.Bundle(path=APP, identifier="com.cmuxterm.app.debug.t89", display_name="cmux DEV t89",
@@ -309,6 +314,33 @@ class PageTests(unittest.TestCase):
                 self.assertEqual(pages.lan_hits, 1)
         finally:
             pages.stop()
+
+    def test_page_background_is_not_the_helper_pixel_probes(self):
+        # The helper's pixels row counts the probe's background on screen before its host page opens.
+        spec = importlib.util.spec_from_file_location("chromium_host_bench_089", BENCH)
+        bench = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(bench)
+        background = re.search(r"background:#([0-9a-f]{6})", tcc.page()).group(1)
+        rgb = tuple(int(background[i:i + 2], 16) for i in (0, 2, 4))
+        self.assertTrue(any(abs(c - p) > bench.PROBE_TOLERANCE for c, p in zip(rgb, bench.PROBE_RGB)), background)
+
+
+class BenchWiringTests(unittest.TestCase):
+    """run_tcc's debug.chromium_host calls, read from chromium-host-bench.py's source."""
+
+    def setUp(self):
+        tree = ast.parse(BENCH.read_text())
+        run_tcc = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == "run_tcc")
+        self.params = [{k.value: v.value for k, v in zip(n.keys, n.values) if isinstance(v, ast.Constant)}
+                       for n in ast.walk(run_tcc) if isinstance(n, ast.Dict) and "op" in
+                       [k.value for k in n.keys if isinstance(k, ast.Constant)]]
+
+    def test_the_host_page_opens_focused(self):
+        # The rows' keys are the page's user activation: without focus they go to another responder.
+        self.assertEqual([p.get("focus") for p in self.params if p.get("op") == "open"], [True])
+
+    def test_the_host_closes_before_the_helper_rows(self):
+        self.assertIn({"op": "close"}, self.params)
 
 
 if __name__ == "__main__":
