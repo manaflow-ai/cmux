@@ -73,11 +73,9 @@ export type Subagent = {
   isolated?: boolean;
   cwd?: string;
   worktree?: { path: string; branch?: string };
-  /// A shell call that started an agent of another family (`codex exec`, `acpmux run`;
-  /// agentRuns.ts) is that agent: its harness (its mark), its model and effort ("gpt-6-astra
-  /// xhigh"), the command as the call ran it, the acpmux session it made and the other machine it
-  /// runs on, and what it finally said (``runReply``) once it ended. `kind` is "Codex · gpt-6-astra
-  /// xhigh". It has no `prompt`: Restart and Stop are a Claude subagent's.
+  /// An acpmux child session explicitly recorded for a shell call: the protocol supplies its
+  /// harness, model and effort. Command text and stdout never establish session identity.
+  /// It has no `prompt`: Restart and Stop are a Claude subagent's.
   harness?: string;
   model?: string;
   command?: string;
@@ -152,8 +150,8 @@ export class SubagentFold {
   /// that read one: what such a read shows is the run's reply.
   private readonly runOutputs = new Map<string, string>();
   private readonly outputReads = new Map<string, string>();
-  /// A call started another family's agent while the chat's harness was not known: once it is,
-  /// the pane folds the records again (direct.ts ``learnChatThread``).
+  /// A parent-session call arrived while the chat's harness was unknown: once known, replay
+  /// can associate the call with an explicit child-session record.
   deferredRun = false;
   /// `acpmux run --parent` calls whose sub-session acpmux has not said started (``reduceChild``):
   /// what each runs, its first update and its newest. The oldest go past PENDING_CHILDREN.
@@ -249,10 +247,8 @@ export class SubagentFold {
     return this.runs.has(call);
   }
 
-  /// A shell call of the chat's own that starts an agent of another family (agentRuns.ts), as that
-  /// agent: its start, its output (its reply, or that it went to the background) and how a
-  /// background one ended. True when the update was the agent's and draws no row. Its updates are
-  /// its own view, so opening it shows the command and all it printed.
+  /// A call becomes a session card only after `reduceChild` receives its explicit child-session
+  /// record. Parsing a command only locates a possible parent call; ordinary Bash stays a tool.
   private reduceRun(event: Event, update: any): boolean {
     const kind = update?.sessionUpdate;
     const call = typeof update?.toolCallId === "string" ? update.toolCallId : undefined;
@@ -304,16 +300,9 @@ export class SubagentFold {
       }
       return false;
     }
-    // Only another family's: both harnesses known and different (a chat whose harness is not known
-    // yet keeps its calls).
-    if (!run?.harness || !this.harness || harnessFamily(run.harness) === harnessFamily(this.harness)) {
-      // The pane folds again once it knows the chat's harness (direct.ts ``learnChatThread``).
-      if (run?.harness && !this.harness) this.deferredRun = true;
-      this.notRuns.add(call);
-      return false;
-    }
-    this.startRun(call, { event, update }, run, line);
-    return true;
+    if (run?.parent !== undefined && !this.harness) this.deferredRun = true;
+    this.notRuns.add(call);
+    return false;
   }
 
   /// The agent shell call `call` started, from its first update.
@@ -395,7 +384,7 @@ export class SubagentFold {
     const pending = call !== undefined ? this.parentCalls.get(call) : undefined;
     if (call === undefined || !pending) return undefined;
     this.parentCalls.delete(call);
-    const harness = text(record.harness) ?? pending.run.harness;
+    const harness = text(record.harness);
     if (!harness || !this.harness || harnessFamily(harness) === harnessFamily(this.harness)) {
       this.notRuns.add(call);
       return undefined;
@@ -403,12 +392,15 @@ export class SubagentFold {
     const model = text(record.model);
     const effort = text(record.effort);
     const prompt = pending.run.prompt ?? text(record.prompt);
-    const run = {
-      ...pending.run,
+    // Identity comes entirely from the session record, including absent metadata. CLI flags
+    // describe a requested run and cannot fill gaps in what the protocol actually observed.
+    const run: AgentRun = {
       harness,
       ...(model && { model }),
       ...(effort && { effort }),
       ...(prompt && { prompt }),
+      ...(name && { session: name }),
+      ...(text(record.host) && { host: text(record.host) }),
     };
     const agent = this.startRun(call, pending.first, run, pending.command);
     agent.child = child;
