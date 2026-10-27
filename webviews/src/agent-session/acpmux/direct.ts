@@ -2588,20 +2588,29 @@ export class AcpmuxDirectClient {
       const current = known?.maxRunningSource === "session" ? known : await this.readRunningLimit(sessionId);
       if (current && current.maxRunning !== from) value = clampRunning(current.maxRunning + (value - from));
     }
+    const seen = this.limitsSeq;
     const result = await this.request("_acpmux/subsession/limits", { sessionId, maxRunning: value }, 10_000);
-    this.takeRunningLimit(sessionId, result?.subsessionLimits);
+    this.takeRunningLimit(sessionId, result?.subsessionLimits, seen);
   }
 
   /// Chat `sessionId`'s limits as acpmux holds them now (`_acpmux/subsession/limits` naming no
   /// field only reads them).
   private async readRunningLimit(sessionId: string) {
+    const seen = this.limitsSeq;
     const result = await this.request("_acpmux/subsession/limits", { sessionId }, 10_000);
-    this.takeRunningLimit(sessionId, result?.subsessionLimits);
+    this.takeRunningLimit(sessionId, result?.subsessionLimits, seen);
+    // A record newer than the read came in while it was in flight: step from that one.
+    if (sessionId === this.selectedSessionId && this.limitsSeq !== seen)
+      return subsessionLimits(this.summary?.subsessionLimits);
     return subsessionLimits(result?.subsessionLimits);
   }
 
-  private takeRunningLimit(sessionId: string, limits: unknown) {
+  /// A reply carries no seq, so it is current only as of the request: a `limits` record (or a new
+  /// attach) that moved `limitsSeq` while it was in flight is newer, and the reply never takes the
+  /// limit back from it (a streamed 20 then the older reply's 9 would make the next + send 10).
+  private takeRunningLimit(sessionId: string, limits: unknown, seen: number) {
     if (sessionId !== this.selectedSessionId || !limits || typeof limits !== "object") return;
+    if (this.limitsSeq !== seen) return;
     this.summary = { ...this.summary, subsessionLimits: limits };
     this.emit("subsession limits");
   }

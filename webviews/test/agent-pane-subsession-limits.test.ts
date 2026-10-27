@@ -25,12 +25,16 @@ const changed = (maxRunning: number): Step => ["mux", "subsession", { event: "li
 
 /// A daemon over a fake socket: attach answers with `history` and the detail's limit of 8 (the
 /// chat's own unless `inherited`); `push` sends live events; `asked` keeps each request's params by
-/// method, `limitAsks` each `_acpmux/subsession/limits` request's; `held` is the limit acpmux holds.
+/// method, `limitAsks` each `_acpmux/subsession/limits` request's; `held` is the limit acpmux holds,
+/// and `beforeReply` runs between a limits answer and its reply.
 function fakeDaemon(history: Recorded[], inherited = false) {
   let socket: any;
   const asked = new Map<string, any>();
   const limitAsks: any[] = [];
-  const state = { held: 8, source: inherited ? "inherited" : "session" };
+  const state: { held: number; source: string; beforeReply?: () => void } = {
+    held: 8,
+    source: inherited ? "inherited" : "session",
+  };
   const session = { sessionId: CHAT, cwd: "/Users/dev/app", title: "x", harness: "claude", status: "idle" };
   const lastSeq = () => history.at(-1)?.seq ?? 0;
   const answer = (method: string) => {
@@ -73,11 +77,12 @@ function fakeDaemon(history: Recorded[], inherited = false) {
         if (message.method) asked.set(message.method, message.params);
         if (message.method === "_acpmux/subsession/limits") limitAsks.push(message.params);
         if (message.id !== undefined)
-          queueMicrotask(() =>
-            socket.onmessage?.({
-              data: JSON.stringify({ jsonrpc: "2.0", id: message.id, result: answer(message.method) }),
-            }),
-          );
+          queueMicrotask(() => {
+            const result = answer(message.method);
+            // What the daemon streams after it answered and before the reply reaches the pane.
+            if (message.method === "_acpmux/subsession/limits") state.beforeReply?.();
+            socket.onmessage?.({ data: JSON.stringify({ jsonrpc: "2.0", id: message.id, result }) });
+          });
       },
       close() {},
     };
@@ -191,6 +196,37 @@ test("a limit change a lag dropped reaches the summary when the pane catches up"
     await until(() => snapshot.summary.subsessionLimits?.maxRunning === 12, "the missed limit");
     await new Promise((resolve) => setTimeout(resolve, 10));
     expect(snapshot.summary.subsessionLimits.maxRunning).toBe(12);
+  } finally {
+    client.close();
+  }
+});
+
+test("a reply older than a limit streamed while it was in flight never takes the limit back", async () => {
+  const daemon = fakeDaemon(record([["mux", "user_message", { text: "start the agents" }]]));
+  let snapshot: any;
+  const client = await AcpmuxDirectClient.connect(
+    { protocolVersion: 1, transport: "acpmux-websocket", endpoint: "ws://127.0.0.1:1/", token: "t", sessionId: CHAT },
+    (next: any) => (snapshot = next),
+    undefined,
+    daemon.open,
+  );
+  try {
+    await until(() => snapshot?.connection === "connected", "the attach");
+    expect(snapshot.summary.subsessionLimits.maxRunning).toBe(8);
+    // The pane sets 9; acpmux answers 9, then another client sets 20, whose record reaches the pane
+    // before the reply does.
+    daemon.state.beforeReply = () => {
+      daemon.state.beforeReply = undefined;
+      daemon.state.held = 20;
+      daemon.push(record([changed(20)], 2));
+    };
+    await client.setRunningLimit(CHAT, 9, 8);
+    expect(daemon.limitAsks).toEqual([{ sessionId: CHAT, maxRunning: 9 }]);
+    expect(snapshot.summary.subsessionLimits.maxRunning).toBe(20);
+    // So the next + steps from 20.
+    await client.setRunningLimit(CHAT, 21, 20);
+    expect(daemon.limitAsks.at(-1)).toEqual({ sessionId: CHAT, maxRunning: 21 });
+    expect(snapshot.summary.subsessionLimits.maxRunning).toBe(21);
   } finally {
     client.close();
   }
