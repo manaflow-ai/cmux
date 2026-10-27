@@ -104,6 +104,9 @@ extension TraceRing {
         case acpmux = 5
         case chromiumHost = 6
         case cli = 7
+        case agentHost = 8
+        case appHost = 9
+        case browserHost = 10
 
         /// The stem of this role's ring files (`app`, `terminal-host`, ...).
         public var fileStem: String {
@@ -115,6 +118,9 @@ extension TraceRing {
             case .acpmux: "acpmux"
             case .chromiumHost: "chromium-host"
             case .cli: "cli"
+            case .agentHost: "agent-host"
+            case .appHost: "app-host"
+            case .browserHost: "browser-host"
             }
         }
     }

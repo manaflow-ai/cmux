@@ -108,6 +108,9 @@ impl WeakMuxEventReceiver {
 struct MuxEventMailbox {
     state: Mutex<MuxEventMailboxState>,
     changed: Condvar,
+    /// The subscriber's drain task when it runs on a sequence instead of
+    /// blocking on `changed` (attach streams, p05-ipc-079).
+    ready_hook: crate::stream_interrupt::ReadyHook,
 }
 
 #[derive(Default)]
@@ -325,6 +328,7 @@ pub(crate) enum MuxEventKind {
     PairingRequested,
     PairingResolved,
     MachineUsageChanged,
+    DiagnosticSite,
     Empty,
 }
 
@@ -374,6 +378,7 @@ impl MuxEventKind {
             MuxEvent::PairingRequested(_) => Self::PairingRequested,
             MuxEvent::PairingResolved { .. } => Self::PairingResolved,
             MuxEvent::MachineUsageChanged(_) => Self::MachineUsageChanged,
+            MuxEvent::DiagnosticSite(_) => Self::DiagnosticSite,
             MuxEvent::Empty => Self::Empty,
         }
     }
@@ -467,7 +472,9 @@ impl SurfaceSessionScope {
             | MuxEvent::ClientDetached(_)
             | MuxEvent::ClientListInvalidated
             | MuxEvent::TreeChanged
-            | MuxEvent::TreeSelectionChanged => false,
+            | MuxEvent::TreeSelectionChanged
+            // The daemon's sites go to the app's control connection only.
+            | MuxEvent::DiagnosticSite(_) => false,
             MuxEvent::GraphicsStatus(_)
             | MuxEvent::Status(_)
             | MuxEvent::ConfigReloadRequested
@@ -615,13 +622,16 @@ impl MuxEventMailbox {
             }
             event => state.push_event(sequence, event, cause),
         };
+        drop(state);
         match pushed {
             Pushed::Rejected => {
                 self.changed.notify_all();
+                self.ready_hook.wake();
                 false
             }
             Pushed::Ready => {
                 self.changed.notify_one();
+                self.ready_hook.wake();
                 true
             }
             Pushed::Held => true,
@@ -644,6 +654,7 @@ impl MuxEventMailbox {
     fn close(&self) {
         self.state.lock().recover_poison().closed = true;
         self.changed.notify_all();
+        self.ready_hook.wake();
     }
 }
 
@@ -734,6 +745,13 @@ impl MuxEventMailboxState {
 }
 
 impl MuxEventReceiver {
+    /// Runs `hook` after each event and when the mailbox closes, for a
+    /// subscriber whose drain polls `try_recv` on a sequence instead of
+    /// blocking. False when a hook is set already.
+    pub(crate) fn on_ready(&self, hook: impl Fn() + Send + Sync + 'static) -> bool {
+        self.mailbox.ready_hook.set(hook)
+    }
+
     pub fn close(&self) {
         self.mailbox.close();
     }
@@ -751,6 +769,7 @@ impl MuxEventReceiver {
         let released = self.mailbox.state.lock().recover_poison().set_visible(visible, flush);
         if released > 0 {
             self.mailbox.changed.notify_all();
+            self.mailbox.ready_hook.wake();
         }
         released
     }

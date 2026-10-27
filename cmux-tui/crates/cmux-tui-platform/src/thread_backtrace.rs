@@ -700,8 +700,9 @@ mod imp {
         // claim only that generation: a late signal from an earlier capture,
         // on another thread, leaves the request alone for its target.
         let request = REQUEST.state.load(Ordering::Acquire);
-        // SAFETY: gettid is a system call.
         if request & PHASE != REQUESTED
+            // SAFETY: gettid takes no arguments, cannot fail, touches no memory, and is
+            // async-signal-safe, so a signal handler may call it.
             || REQUEST.target.load(Ordering::Relaxed) != unsafe { libc::gettid() }
         {
             return true;

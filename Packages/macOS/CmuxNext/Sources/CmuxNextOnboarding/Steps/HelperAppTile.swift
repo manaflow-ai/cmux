@@ -62,6 +62,8 @@ final class HelperAppTile: NSView, NSDraggingSource {
         hover.state.pressed = true
     }
 
+    // input-coalesce: native (the first drag event starts an AppKit dragging session, which must start from that event and then tracks the pointer itself)
+    // local-monitor-allow: begins a drag session, which AppKit starts only from a mouseDragged event; no hover work runs here
     override func mouseDragged(with event: NSEvent) {
         hover.state.pressed = false
         let item = NSDraggingItem(pasteboardWriter: appURL as NSURL)
@@ -75,6 +77,7 @@ final class HelperAppTile: NSView, NSDraggingSource {
         context == .outsideApplication ? [.copy, .link, .generic] : []
     }
 
+    // visibility-walk-allow: repaints its hover fill (ChromeHover) only, no layout
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         hover.refresh(animated: false)

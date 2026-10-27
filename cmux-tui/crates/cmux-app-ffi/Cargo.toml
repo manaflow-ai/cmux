@@ -16,6 +16,8 @@ description = "The one Rust static library the cmux macOS app links: the C ABIs 
 crate-type = ["staticlib"]
 
 [dependencies]
+# The panic boundary of every export and the ring cmux_ffi_take_panic reads.
+cmux-ffi-guard = { path = "../cmux-ffi-guard" }
 cmux-rd-ffi = { path = "../cmux-rd-ffi" }
 cmux-layout-reducer-ffi = { path = "../cmux-layout-reducer-ffi" }
 cmux-palette-ranker = { path = "../cmux-palette-ranker" }
@@ -23,11 +25,18 @@ cmux-palette-ranker = { path = "../cmux-palette-ranker" }
 # passes its own settings per call, so no AppKit or env reading here.
 cmux-motion = { path = "../cmux-motion", default-features = false }
 
+[dev-dependencies]
+cmux-ffi-guard = { path = "../cmux-ffi-guard", features = ["testing"] }
+
 [profile.release]
 opt-level = 3
 codegen-units = 1
-debug = false
-strip = "debuginfo"
+# Line tables, not full debug info: Rust frames of an app crash symbolicate
+# to file and line from the app's dSYM (p10-stability-152), for a fraction of
+# full DWARF's size. Nothing strips them here; the app's own strip step
+# removes them from the shipped binary after dsymutil copied them.
+debug = "line-tables-only"
+strip = "none"
 lto = "off"
 
 [lints.clippy]
