@@ -1,3 +1,4 @@
+import struct CmuxSafeConcurrency.OwnerReference
 import AppKit
 import CmuxNextActions
 import CmuxNextBookmarks
@@ -9,7 +10,7 @@ import UniformTypeIdentifiers
 /// Opens `cmux://bookmarks` and keeps open manager pages current.
 @MainActor
 final class BookmarkPageService {
-    private let servicesReference: AppServicesReference
+    private let servicesReference: OwnerReference<AppServices>
     /// The app's services, which own this; nil (reported) only once they are gone.
     private var services: AppServices? { servicesReference.resolve() }
     /// Live manager pages (weak), reloaded when their profile changes.
@@ -21,7 +22,7 @@ final class BookmarkPageService {
     }
 
     init(services: AppServices) {
-        servicesReference = AppServicesReference(services)
+        servicesReference = OwnerReference(services: services)
     }
 
     /// Selects the active window's manager tab, else opens one beside the
@@ -83,18 +84,18 @@ final class BookmarkPageService {
 /// One manager page's source: the tab's browser profile.
 @MainActor
 final class BookmarkManagerSourceAdapter: BookmarkManagerSource {
-    private let servicesReference: AppServicesReference
+    private let servicesReference: OwnerReference<AppServices>
     /// The app's services, which own this; nil (reported) only once they are gone.
     private var services: AppServices? { servicesReference.resolve() }
     let tabKey: String
 
     init(services: AppServices, tabKey: String) {
-        servicesReference = AppServicesReference(services)
+        servicesReference = OwnerReference(services: services)
         self.tabKey = tabKey
     }
 
     /// A source of the page service's pages, which share its reference to the services.
-    init(services: AppServicesReference, tabKey: String) {
+    init(services: OwnerReference<AppServices>, tabKey: String) {
         servicesReference = services
         self.tabKey = tabKey
     }

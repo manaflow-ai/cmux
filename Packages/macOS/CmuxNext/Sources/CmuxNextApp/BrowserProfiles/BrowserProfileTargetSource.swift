@@ -1,3 +1,4 @@
+import struct CmuxSafeConcurrency.OwnerReference
 import CmuxNextActions
 import CmuxNextBrowser
 import CmuxNextPalette
@@ -6,13 +7,13 @@ import CmuxNextPalette
 /// Browser Profile…, Move Tab to Browser Profile…): every profile in
 /// order, each with its icon or first letter. Other kinds fall through.
 final class BrowserProfileTargetSource: PaletteTargetSource {
-    private let servicesReference: AppServicesReference
+    private let servicesReference: OwnerReference<AppServices>
     /// The app's services, which own this; nil (reported) only once they are gone.
     private var services: AppServices? { servicesReference.resolve() }
     private let next: any PaletteTargetSource
 
     init(services: AppServices, next: any PaletteTargetSource) {
-        servicesReference = AppServicesReference(services)
+        servicesReference = OwnerReference(services: services)
         self.next = next
     }
 

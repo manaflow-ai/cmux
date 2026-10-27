@@ -1,3 +1,4 @@
+import struct CmuxSafeConcurrency.OwnerReference
 import AppKit
 import CmuxNextActions
 import CmuxNextHibernation
@@ -18,7 +19,7 @@ extension InternalPageID {
 /// The layout follows the user setting `tasks.layout` live.
 @MainActor
 final class TasksPageService: InternalPageProvider {
-    private let servicesReference: AppServicesReference
+    private let servicesReference: OwnerReference<AppServices>
     /// The app's services, which own this; nil (reported) only once they are gone.
     private var services: AppServices? { servicesReference.resolve() }
     private var sharedModel: TasksModel?
@@ -27,7 +28,7 @@ final class TasksPageService: InternalPageProvider {
     private var pendingViewState: (scope: TasksScope?, newTask: Bool)?
 
     init(services: AppServices) {
-        servicesReference = AppServicesReference(services)
+        servicesReference = OwnerReference(services: services)
     }
 
     /// The open model (debug and tests).
@@ -39,7 +40,7 @@ final class TasksPageService: InternalPageProvider {
     /// automation opens the tab and leaves the view as it is. A tab whose view is not made yet
     /// gets them when it first shows.
     func show(scope: TasksScope?, newTask: Bool = false, focus: Bool) throws {
-        guard let services else { throw AppServicesReference.closing }
+        guard let services else { throw ActionFailure.appClosing }
         guard let window = services.windows.active else { throw ActionFailure(message: RefusalStrings.noWindowOpen) }
         guard services.pages.show(.tasks, in: window, focus: focus) != nil else {
             throw ActionFailure(message: RefusalStrings.noWindowOpen)

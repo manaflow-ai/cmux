@@ -1,3 +1,4 @@
+import struct CmuxSafeConcurrency.OwnerReference
 import AppKit
 import CmuxNextActions
 import CmuxNextDaemon
@@ -21,7 +22,7 @@ import Foundation
 /// `WorkspaceContentController`).
 @MainActor
 final class SettingsWindowService: InternalPageProvider {
-    private let servicesReference: AppServicesReference
+    private let servicesReference: OwnerReference<AppServices>
     /// The app's services, which own this; nil (reported) only once they are gone.
     var services: AppServices? { servicesReference.resolve() }
 
@@ -30,7 +31,7 @@ final class SettingsWindowService: InternalPageProvider {
     private let work: BackgroundWork
 
     init(services: AppServices) {
-        servicesReference = AppServicesReference(services)
+        servicesReference = OwnerReference(services: services)
         mainWork = services.mainWork
         work = services.work
     }

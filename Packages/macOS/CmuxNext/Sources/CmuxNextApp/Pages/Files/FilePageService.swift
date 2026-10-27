@@ -1,3 +1,4 @@
+import struct CmuxSafeConcurrency.OwnerReference
 import AppKit
 import CmuxNextActions
 import CmuxNextBridge
@@ -48,7 +49,7 @@ final class FilePageService: InternalPageProvider {
     }
 
     let kind: FilePageKind
-    private let servicesReference: AppServicesReference
+    private let servicesReference: OwnerReference<AppServices>
     /// The app's services, which own this; nil (reported) only once they are gone.
     var services: AppServices? { servicesReference.resolve() }
     let clock: any Clock<Duration>
@@ -78,7 +79,7 @@ final class FilePageService: InternalPageProvider {
     init(services: AppServices, kind: FilePageKind, clock: any Clock<Duration> = ContinuousClock(),
          images: (any RemoteImageFetching)? = nil, documents: FileQuitDocuments? = nil,
          tableWidths: (any MarkdownTableWidthStoring)? = nil) {
-        servicesReference = AppServicesReference(services)
+        servicesReference = OwnerReference(services: services)
         work = services.work
         self.tableWidths = kind == .markdown
             ? tableWidths ?? MarkdownTableWidthRepository(fallback: MarkdownTableWidthRepository.defaultFallbackDirectory())

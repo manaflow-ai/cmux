@@ -1,3 +1,4 @@
+import struct CmuxSafeConcurrency.OwnerReference
 import CmuxNextActions
 import CmuxNextCompat
 import CmuxNextPalette
@@ -14,7 +15,7 @@ import CmuxNextWakeups
 /// change goes through the owner's existing path (Close Tab, Reopen, the
 /// closed-items log).
 final class AppTabSearchSource: TabSearchSource {
-    private let servicesReference: AppServicesReference
+    private let servicesReference: OwnerReference<AppServices>
     /// The app's services, which own this; nil (reported) only once they are gone.
     private var services: AppServices? { servicesReference.resolve() }
 
@@ -24,7 +25,7 @@ final class AppTabSearchSource: TabSearchSource {
     }
 
     init(services: AppServices) {
-        servicesReference = AppServicesReference(services)
+        servicesReference = OwnerReference(services: services)
     }
 
     func tabSearchEntries() -> [TabSearchEntry] {

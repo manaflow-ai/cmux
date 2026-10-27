@@ -1,3 +1,4 @@
+import struct CmuxSafeConcurrency.OwnerReference
 import AppKit
 import CmuxNextAccounts
 import CmuxNextActions
@@ -56,7 +57,7 @@ enum TunableCatalog {
 /// file is read.
 @MainActor
 final class DebugSettingsService: InternalPageProvider {
-    private let servicesReference: AppServicesReference
+    private let servicesReference: OwnerReference<AppServices>
     /// The app's services, which own this; nil (reported) only once they are gone.
     private var services: AppServices? { servicesReference.resolve() }
     private var controller: DebugSettingsWindowController?
@@ -74,7 +75,7 @@ final class DebugSettingsService: InternalPageProvider {
     nonisolated static let fileOverrideKey = "CMUX_NEXT_DEBUG_TUNABLES_FILE"
 
     init(services: AppServices) {
-        servicesReference = AppServicesReference(services)
+        servicesReference = OwnerReference(services: services)
     }
 
     var isAvailable: Bool { DevTools.isEnabled }
@@ -161,7 +162,7 @@ final class DebugSettingsService: InternalPageProvider {
     /// developer tools.
     func show(query: String? = nil, selection: DebugSettingsSelection? = nil, focus: Bool = true) throws {
         guard isAvailable else { throw ActionFailure(message: RefusalStrings.debugSettingsUnavailable) }
-        guard let services else { throw AppServicesReference.closing }
+        guard let services else { throw ActionFailure.appClosing }
         let model = sharedModel ?? DebugSettingsModel(store: TunableStore.shared, descriptors: TunableCatalog.all)
         sharedModel = model
         if SettingsPresentation.tunable.value == .pane, let window = services.windows.active {

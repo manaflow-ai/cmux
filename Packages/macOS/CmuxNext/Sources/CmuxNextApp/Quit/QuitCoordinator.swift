@@ -1,3 +1,4 @@
+import struct CmuxSafeConcurrency.OwnerReference
 import AppKit
 import CmuxNextCompat
 import CmuxNextControl
@@ -34,7 +35,7 @@ final class QuitCoordinator {
     /// The browser tabs that held Secure Input as this quit began, before any dialog took the keyboard: they leave
     /// no launch picture (`TabContentCache.secureInputPages`).
     private var secureInputPages: Set<String> = []
-    private let servicesReference: AppServicesReference
+    private let servicesReference: OwnerReference<AppServices>
     /// The app's services, which own this; nil (reported) only once they are gone.
     private var services: AppServices? { servicesReference.resolve() }
     /// The quit hook's participants (`AppServices.quitUnsaved`; tests replace it).
@@ -52,7 +53,7 @@ final class QuitCoordinator {
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.quit")
 
     init(services: AppServices) {
-        servicesReference = AppServicesReference(services)
+        servicesReference = OwnerReference(services: services)
         unsaved = services.quitUnsaved
         origins = QuitOriginTracker(workspaceEvents: services.workspaceEvents)
     }

@@ -1,3 +1,4 @@
+import struct CmuxSafeConcurrency.OwnerReference
 import CmuxNextBrowser
 import CmuxNextDaemon
 import CmuxNextHistory
@@ -10,7 +11,7 @@ import Foundation
 /// `history.list`. Owns the per-profile visit logs; never a second copy of
 /// a fact another owner keeps.
 final class HistoryService {
-    private let servicesReference: AppServicesReference
+    private let servicesReference: OwnerReference<AppServices>
     /// The app's services, which own this; nil (reported) only once they are gone.
     var services: AppServices? { servicesReference.resolve() }
     /// `<Application Support>/<bundle id>`, set at launch; nil keeps page
@@ -30,7 +31,7 @@ final class HistoryService {
     var onChange: (() -> Void)?
 
     init(services: AppServices) {
-        servicesReference = AppServicesReference(services)
+        servicesReference = OwnerReference(services: services)
         hidden = HiddenHistoryStore(services: services)
         agents = AgentHistory(services: services, hidden: hidden)
         commands = CommandHistory(services: services)

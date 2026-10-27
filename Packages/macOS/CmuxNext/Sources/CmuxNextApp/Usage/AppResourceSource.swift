@@ -1,3 +1,4 @@
+import struct CmuxSafeConcurrency.OwnerReference
 import CmuxNextAgentPane
 import CmuxNextBrowser
 import CmuxNextDaemon
@@ -24,12 +25,12 @@ import Foundation
 /// the main actor; daemon requests are async with a 1 s deadline.
 @MainActor
 final class AppResourceSource: ResourceSampleSource {
-    private let servicesReference: AppServicesReference
+    private let servicesReference: OwnerReference<AppServices>
     /// The app's services, which own this; nil (reported) only once they are gone.
     private var services: AppServices? { servicesReference.resolve() }
 
     init(services: AppServices) {
-        servicesReference = AppServicesReference(services)
+        servicesReference = OwnerReference(services: services)
     }
 
     /// A terminal whose numbers come from its daemon.

@@ -1,3 +1,4 @@
+import struct CmuxSafeConcurrency.OwnerReference
 import AppKit
 public import CmuxNextAccounts
 import CmuxNextCloud
@@ -15,7 +16,7 @@ import CmuxNextWakeups
 /// act through this one model (plans/cmux-next/coderouter.md).
 @MainActor
 final class AccountsService: AccountsServices {
-    private let servicesReference: AppServicesReference
+    private let servicesReference: OwnerReference<AppServices>
     /// The app's services, which own this; nil (reported) only once they are gone.
     var services: AppServices? { servicesReference.resolve() }
     private(set) lazy var model = AccountsModel(services: self)
@@ -39,7 +40,7 @@ final class AccountsService: AccountsServices {
     static let fixtureHomeKey = "CMUX_NEXT_ACCOUNTS_HOME"
 
     init(services: AppServices) {
-        servicesReference = AppServicesReference(services)
+        servicesReference = OwnerReference(services: services)
         let environment = ProcessInfo.processInfo.environment
         #if DEBUG
         showcaseMock = services.environment.showcase ? MockAccountsServices() : nil

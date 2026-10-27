@@ -1,3 +1,4 @@
+import struct CmuxSafeConcurrency.OwnerReference
 import AppKit
 import CmuxNextActions
 import CmuxNextAgentActivity
@@ -22,7 +23,7 @@ import CmuxNextRemoteBrowser
 /// 5.1). The page is a browser tab whose record URL is `cmux://history`, so
 /// it survives relaunch like any tab.
 final class HistoryPageService: HistoryPageSource {
-    private let servicesReference: AppServicesReference
+    private let servicesReference: OwnerReference<AppServices>
     /// The app's services, which own this; nil (reported) only once they are gone.
     private var services: AppServices? { servicesReference.resolve() }
     /// The Stashed page's stashes (stash-v1), History's sibling page.
@@ -30,7 +31,7 @@ final class HistoryPageService: HistoryPageSource {
     let stashHost: StashAppHost
 
     init(services: AppServices) {
-        servicesReference = AppServicesReference(services)
+        servicesReference = OwnerReference(services: services)
         stashHost = StashAppHost(services)
     }
 

@@ -1,3 +1,4 @@
+import struct CmuxSafeConcurrency.OwnerReference
 import AppKit
 import CmuxNextActions
 import CmuxNextPages
@@ -16,7 +17,7 @@ import func CmuxSafeConcurrency.withOnceContinuation
 /// through the home daemon (`KeybindingPageWrites`).
 @MainActor
 final class KeybindingsPageProvider: PageProvider {
-    private let servicesReference: AppServicesReference
+    private let servicesReference: OwnerReference<AppServices>
     /// The app's services, which own this; nil (reported) only once they are gone.
     private var services: AppServices? { servicesReference.resolve() }
     /// The page's window: only its key-downs are recorded.
@@ -29,11 +30,11 @@ final class KeybindingsPageProvider: PageProvider {
     private var fileListener: UUID?
 
     init(services: AppServices) {
-        servicesReference = AppServicesReference(services)
+        servicesReference = OwnerReference(services: services)
     }
 
     func call(_ op: String, params: JSONValue, context: PageCallContext) async throws -> JSONValue {
-        guard let services else { throw PageError.unavailable(AppServicesReference.closingReason) }
+        guard let services else { throw PageError.unavailable(RefusalStrings.appClosing) }
         switch op {
         case "cmux.keybindings.list":
             return KeybindingReports.pageList(params.objectValue ?? [:], registry: services.registry,

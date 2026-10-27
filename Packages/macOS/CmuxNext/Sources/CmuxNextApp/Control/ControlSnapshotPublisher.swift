@@ -1,3 +1,4 @@
+import struct CmuxSafeConcurrency.OwnerReference
 import AppKit
 import CmuxNextControl
 import CmuxNextCompat
@@ -29,7 +30,7 @@ import os
 @MainActor
 final class ControlSnapshotPublisher {
     private let router: ControlRouter
-    private let servicesReference: AppServicesReference
+    private let servicesReference: OwnerReference<AppServices>
     /// The app's services, which own this through the control service; nil (reported) only once they are gone.
     private var services: AppServices? { servicesReference.resolve() }
     /// The app's main-thread scheduler (``AppServices/mainWork``), which runs every publish.
@@ -62,7 +63,7 @@ final class ControlSnapshotPublisher {
     ///     their own center.
     init(router: ControlRouter, services: AppServices, appEvents: AppEvents? = nil) {
         self.router = router
-        servicesReference = AppServicesReference(services)
+        servicesReference = OwnerReference(services: services)
         mainWork = services.mainWork
         self.appEvents = appEvents ?? services.appEvents
         publishOwner = services.mainWork.board.owner("control.snapshot.publish")

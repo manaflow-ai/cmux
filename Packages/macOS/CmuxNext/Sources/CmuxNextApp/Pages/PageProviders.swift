@@ -1,3 +1,4 @@
+import struct CmuxSafeConcurrency.OwnerReference
 import AppKit
 import CmuxNextActions
 import CmuxNextCompat
@@ -13,7 +14,7 @@ import Foundation
 /// ask), and `cmux.app.clipboard.write` writes the pasteboard, only on the person's own gesture.
 @MainActor
 final class AppPageNativeProvider: PageProvider {
-    private let servicesReference: AppServicesReference
+    private let servicesReference: OwnerReference<AppServices>
     /// The app's services, which own this; nil (reported) only once they are gone.
     private var services: AppServices? { servicesReference.resolve() }
     private let page: PageDescriptor
@@ -31,7 +32,7 @@ final class AppPageNativeProvider: PageProvider {
     }
 
     init(services: AppServices, page: PageDescriptor) {
-        servicesReference = AppServicesReference(services)
+        servicesReference = OwnerReference(services: services)
         self.page = page
     }
 
@@ -41,7 +42,7 @@ final class AppPageNativeProvider: PageProvider {
             if let name = params["action"]?.stringValue, let kind = page.confirmedOps[name] {
                 return try await runConfirmed(name, kind: kind, args: params["args"] ?? .object([:]), context: context)
             }
-            guard let services else { throw PageError.unavailable(AppServicesReference.closingReason) }
+            guard let services else { throw PageError.unavailable(RefusalStrings.appClosing) }
             if params["action"]?.stringValue == BrowserTabOpen.action {
                 return try await BrowserTabOpen.run(args: params["args"] ?? .object([:]), page: context.page, services: services)
             }

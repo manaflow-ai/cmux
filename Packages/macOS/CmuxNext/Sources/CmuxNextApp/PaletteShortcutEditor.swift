@@ -1,3 +1,4 @@
+import struct CmuxSafeConcurrency.OwnerReference
 import AppKit
 import CmuxNextActions
 import CmuxNextPalette
@@ -11,14 +12,14 @@ import os
 /// reloads the file, so the optimistic registry change never outlives it.
 @MainActor
 final class PaletteShortcutEditor: PaletteShortcutEditing {
-    private let servicesReference: AppServicesReference
+    private let servicesReference: OwnerReference<AppServices>
     /// The app's services, which own this; nil (reported) only once they are gone.
     private var services: AppServices? { servicesReference.resolve() }
     private let settings: SettingsController
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "shortcuts")
 
     init(services: AppServices, settings: SettingsController) {
-        servicesReference = AppServicesReference(services)
+        servicesReference = OwnerReference(services: services)
         self.settings = settings
     }
 

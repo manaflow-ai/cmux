@@ -1,3 +1,4 @@
+import struct CmuxSafeConcurrency.OwnerReference
 import AppKit
 import CmuxNextActions
 import CmuxNextAgentActivity
@@ -14,7 +15,7 @@ import Foundation
 /// with `CMUX_NEXT_AGENT_ACTIVITY_MOCK=1`.
 @MainActor
 final class AgentActivityPageService {
-    private let servicesReference: AppServicesReference
+    private let servicesReference: OwnerReference<AppServices>
     /// The app's services, which own this; nil (reported) only once they are gone.
     private var services: AppServices? { servicesReference.resolve() }
     /// A jump waiting for its workspace's first pane (`open(_:in:)`); the next jump cancels it.
@@ -23,7 +24,7 @@ final class AgentActivityPageService {
     private var jumps = 0
 
     init(services: AppServices) {
-        servicesReference = AppServicesReference(services)
+        servicesReference = OwnerReference(services: services)
     }
 
     /// Selects the active window's Agent activity tab, else opens one beside

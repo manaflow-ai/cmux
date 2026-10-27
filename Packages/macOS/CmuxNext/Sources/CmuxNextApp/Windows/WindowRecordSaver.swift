@@ -158,7 +158,7 @@ final class WindowRecordSaver {
     /// Writes the records; returns why they were not stored, or nil.
     @discardableResult
     func saveNow() async -> (any Error)? {
-        guard let manager else { return AppServicesReference.closing }
+        guard let manager else { return ActionFailure.appClosing }
         let services = manager.services
         guard let windowState = services.daemon.windowState else { return DaemonError.notConnected }
         DebugPaneFocus.noteMainWork("record_saves")

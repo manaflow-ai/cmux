@@ -1,3 +1,4 @@
+import struct CmuxSafeConcurrency.OwnerReference
 import CmuxNextActions
 import CmuxNextPalette
 import CmuxNextSidebar
@@ -5,13 +6,13 @@ import CmuxNextSidebar
 /// Palette target lists for sidebar section actions: every section and
 /// item of the layout. Other kinds fall through to `next`.
 final class SidebarSectionTargetSource: PaletteTargetSource {
-    private let servicesReference: AppServicesReference
+    private let servicesReference: OwnerReference<AppServices>
     /// The app's services, which own this; nil (reported) only once they are gone.
     private var services: AppServices? { servicesReference.resolve() }
     private let next: any PaletteTargetSource
 
     init(services: AppServices, next: any PaletteTargetSource) {
-        servicesReference = AppServicesReference(services)
+        servicesReference = OwnerReference(services: services)
         self.next = next
     }
 

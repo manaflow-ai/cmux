@@ -1,3 +1,4 @@
+import struct CmuxSafeConcurrency.OwnerReference
 import CmuxNextBrowser
 import CmuxNextBrowserImport
 import CmuxNextCompat
@@ -24,7 +25,7 @@ final class BrowserProfileService {
     private(set) var book = BrowserProfileBook()
     /// False until the file was read (a launch reads it off the main thread).
     private(set) var isLoaded = false
-    @ObservationIgnored private let servicesReference: AppServicesReference
+    @ObservationIgnored private let servicesReference: OwnerReference<AppServices>
     /// The app's services, which own this; nil (reported) only once they are gone.
     var services: AppServices? { servicesReference.resolve() }
     /// Nil until `load` (tests and a service that never loaded write nothing).
@@ -43,7 +44,7 @@ final class BrowserProfileService {
     @ObservationIgnored let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "browser-profiles")
 
     init(services: AppServices) {
-        servicesReference = AppServicesReference(services)
+        servicesReference = OwnerReference(services: services)
     }
 
     /// `<Application Support>/<bundle id>/BrowserProfiles`.

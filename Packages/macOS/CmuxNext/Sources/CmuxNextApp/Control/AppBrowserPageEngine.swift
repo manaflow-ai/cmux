@@ -1,22 +1,23 @@
+import struct CmuxSafeConcurrency.OwnerReference
 import CmuxNextControl
 import CmuxNextSettings
 import CmuxNextWakeups
 
 /// `browser.page.*` (CmuxNextControl/Browser) for the app's browser tabs.
 nonisolated struct AppBrowserPageEngine: BrowserPageEngine {
-    private let servicesReference: AppServicesReference
+    private let servicesReference: OwnerReference<AppServices>
     /// The app's services, which own this; nil (reported) only once they are gone.
     var services: AppServices? { servicesReference.resolve() }
     /// The app's main-thread scheduler: the agent cursor is posted on it.
     private let mainWork: MainWorkScheduler
 
     @MainActor init(services: AppServices) {
-        servicesReference = AppServicesReference(services)
+        servicesReference = OwnerReference(services: services)
         mainWork = services.mainWork
     }
 
     func run(_ operation: BrowserPageOperation, tabID: String, url: String?) async throws -> JSONValue {
-        guard let services else { throw AppServicesReference.closing }
+        guard let services else { throw ActionFailure.appClosing }
         return try await AppBrowserPage.run(operation, tabID: tabID, services: services)
     }
 

@@ -1,3 +1,4 @@
+import struct CmuxSafeConcurrency.OwnerReference
 import AppKit
 import CmuxNextActions
 import CmuxNextHibernation
@@ -23,18 +24,18 @@ extension InternalPageID {
 /// (`KeybindingsPageProvider`). One tab per window (`services.pages`).
 @MainActor
 final class KeybindingsPageService: InternalPageProvider {
-    private let servicesReference: AppServicesReference
+    private let servicesReference: OwnerReference<AppServices>
     /// The app's services, which own this; nil (reported) only once they are gone.
     private var services: AppServices? { servicesReference.resolve() }
 
     init(services: AppServices) {
-        servicesReference = AppServicesReference(services)
+        servicesReference = OwnerReference(services: services)
     }
 
     /// Opens the page in the active window; automation (`focus` false)
     /// opens it without moving focus.
     func open(focus: Bool) throws {
-        guard let services else { throw AppServicesReference.closing }
+        guard let services else { throw ActionFailure.appClosing }
         guard let window = services.windows.active, services.pages.show(.keybindings, in: window, focus: focus) != nil else {
             throw ActionFailure(message: RefusalStrings.noWindowOpen)
         }

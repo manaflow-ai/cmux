@@ -1,3 +1,4 @@
+import struct CmuxSafeConcurrency.OwnerReference
 import AppKit
 import CmuxNextActions
 import CmuxNextAgentPane
@@ -51,7 +52,7 @@ final class DiffPageService: InternalPageProvider {
         var viewState: JSONValue?
     }
 
-    private let servicesReference: AppServicesReference
+    private let servicesReference: OwnerReference<AppServices>
     /// The app's services, which own this; nil (reported) only once they are gone.
     private var services: AppServices? { servicesReference.resolve() }
     /// This Mac's agent git link (``AppServices/agentGit``) and the launch's identity, read when the service is made.
@@ -78,7 +79,7 @@ final class DiffPageService: InternalPageProvider {
 
     init(services: AppServices, runtime: DiffPageRuntime? = nil, recents: DiffRecents? = nil, stores: DiffPageStores? = nil,
          clock: any Clock<Duration> = ContinuousClock()) {
-        servicesReference = AppServicesReference(services)
+        servicesReference = OwnerReference(services: services)
         localGit = services.agentGit.local
         launch = services.environment.launch
         self.clock = clock

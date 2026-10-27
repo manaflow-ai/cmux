@@ -1,3 +1,4 @@
+import struct CmuxSafeConcurrency.OwnerReference
 import CmuxNextBookmarks
 import CmuxNextBrowser
 import CmuxNextBrowserImport
@@ -23,7 +24,7 @@ final class BookmarkService {
     var trees: [String: BookmarkTree] = [:]
     /// Bumped on every change, so views that read many profiles can observe one value.
     private(set) var generation = 0
-    @ObservationIgnored private let servicesReference: AppServicesReference
+    @ObservationIgnored private let servicesReference: OwnerReference<AppServices>
     /// The app's services, which own this; nil (reported) only once they are gone.
     var services: AppServices? { servicesReference.resolve() }
     /// The app's machines (``AppServices/machines``): bookmarks live in the home daemon, `machines.local`.
@@ -86,7 +87,7 @@ final class BookmarkService {
     }
 
     init(services: AppServices) {
-        servicesReference = AppServicesReference(services)
+        servicesReference = OwnerReference(services: services)
         machines = services.machines
         mainWork = services.mainWork
         mainDeadlines = services.mainDeadlines

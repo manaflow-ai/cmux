@@ -1,3 +1,4 @@
+import struct CmuxSafeConcurrency.OwnerReference
 import AppKit
 import CmuxNextActions
 import CmuxNextOnboarding
@@ -10,14 +11,14 @@ import CmuxNextOnboarding
 /// launch by a link) wait and run when the first window shows its workspace.
 @MainActor
 final class ExternalOpenController {
-    private let servicesReference: AppServicesReference
+    private let servicesReference: OwnerReference<AppServices>
     /// The app's services, which own this; nil (reported) only once they are gone, and then nothing opens.
     private var services: AppServices? { servicesReference.resolve() }
     let router: ExternalOpenRouter
     private(set) var pending: [ExternalOpenRoute] = []
 
     init(services: AppServices) {
-        servicesReference = AppServicesReference(services)
+        servicesReference = OwnerReference(services: services)
         // Cloud auth's own matcher, so every callback form it accepts
         // (host or path) reaches sign-in, never `link.open`.
         let auth = services.cloud.auth

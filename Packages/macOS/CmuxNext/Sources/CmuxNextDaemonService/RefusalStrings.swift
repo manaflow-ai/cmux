@@ -1,3 +1,4 @@
+import struct CmuxSafeConcurrency.OwnerReference
 import CmuxNextDaemon
 public import CmuxNextLayout
 public import Foundation
@@ -38,7 +39,7 @@ public nonisolated enum RefusalStrings {
     }
     public static var chromiumUnavailable: String { text("handlers.refusal.chromiumUnavailable", "Chromium is not available in this build.") }
     public static var homeNotReady: String { text("handlers.refusal.homeNotReady", "Home is not ready yet.") }
-    /// An action that reached a service after the app's services were gone (``AppServicesReference``).
+    /// An action that reached a service after the app's services were gone (``ActionFailure/appClosing``).
     public static var appClosing: String { text("handlers.refusal.appClosing", "cmux is closing.") }
     /// A promote (new workspace, new window) of a Home tab (`TabPromotion`).
     public static var homeKeepsItsTabs: String { text("handlers.refusal.homeKeepsItsTabs", "Home's tabs stay in Home.") }

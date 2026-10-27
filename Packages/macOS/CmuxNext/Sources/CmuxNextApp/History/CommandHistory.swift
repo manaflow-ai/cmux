@@ -1,3 +1,4 @@
+import struct CmuxSafeConcurrency.OwnerReference
 import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextHistory
@@ -15,7 +16,7 @@ import os
 /// and deletes rows in the daemon when the user removes or clears them.
 /// Turning recording off offers to delete what was already recorded.
 final class CommandHistory {
-    private let servicesReference: AppServicesReference
+    private let servicesReference: OwnerReference<AppServices>
     /// The app's services, which own this; nil (reported) only once they are gone.
     private var services: AppServices? { servicesReference.resolve() }
     private var mirrors: [String: TerminalCommandMirror] = [:]
@@ -35,7 +36,7 @@ final class CommandHistory {
     }
 
     init(services: AppServices) {
-        servicesReference = AppServicesReference(services)
+        servicesReference = OwnerReference(services: services)
     }
 
     /// Starts keeping the daemons' switch and retention in step with the settings. Releasing the

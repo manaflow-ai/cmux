@@ -1,3 +1,4 @@
+import struct CmuxSafeConcurrency.OwnerReference
 import AppKit
 import CmuxNextActions
 import CmuxNextBrowser
@@ -26,7 +27,7 @@ final class ThemeCoordinator {
     let terminalThemes: TerminalThemeStore
     /// Every Ghostty theme, for pickers and validation.
     let catalog: ThemeCatalog
-    private let servicesReference: AppServicesReference
+    private let servicesReference: OwnerReference<AppServices>
     /// The app's services, which own this; nil (reported) only once they are gone.
     var services: AppServices? { servicesReference.resolve() }
     /// The app's machines (``AppServices/machines``), which hold no reference back to the services.
@@ -68,7 +69,7 @@ final class ThemeCoordinator {
     init(services: AppServices, terminalThemes: TerminalThemeStore, workspaceBackgrounds: WorkspaceBackgroundStore? = nil,
          workspaceOpacities: WorkspaceBackgroundStore? = nil,
          appearanceScopes: WorkspaceBackgroundStore? = nil) {
-        servicesReference = AppServicesReference(services)
+        servicesReference = OwnerReference(services: services)
         machines = services.machines
         appEvents = services.appEvents
         self.terminalThemes = terminalThemes

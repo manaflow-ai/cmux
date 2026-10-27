@@ -1,3 +1,4 @@
+import struct CmuxSafeConcurrency.OwnerReference
 import CmuxNextActions
 import CmuxNextDesign
 import CmuxNextPalette
@@ -7,12 +8,12 @@ import CmuxNextPalette
 /// workspace it shows, the active window last so another window is the
 /// first choice.
 final class WindowTargetSource: PaletteTargetSource {
-    private let servicesReference: AppServicesReference
+    private let servicesReference: OwnerReference<AppServices>
     /// The app's services, which own this; nil (reported) only once they are gone.
     private var services: AppServices? { servicesReference.resolve() }
 
     init(services: AppServices) {
-        servicesReference = AppServicesReference(services)
+        servicesReference = OwnerReference(services: services)
     }
 
     func targets(of kind: ActionTargetKind) -> [PaletteTargetOption] {

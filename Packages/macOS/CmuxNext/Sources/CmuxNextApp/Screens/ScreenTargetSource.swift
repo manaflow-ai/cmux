@@ -1,3 +1,4 @@
+import struct CmuxSafeConcurrency.OwnerReference
 import CmuxNextActions
 import CmuxNextPalette
 import CmuxNextLayout
@@ -6,13 +7,13 @@ import CmuxNextLayout
 /// groups (Add Screen to Group…) and every workspace (Move Screen to
 /// Workspace…). Other kinds fall through to `next`.
 final class ScreenTargetSource: PaletteTargetSource {
-    private let servicesReference: AppServicesReference
+    private let servicesReference: OwnerReference<AppServices>
     /// The app's services, which own this; nil (reported) only once they are gone.
     private var services: AppServices? { servicesReference.resolve() }
     private let next: any PaletteTargetSource
 
     init(services: AppServices, next: any PaletteTargetSource) {
-        servicesReference = AppServicesReference(services)
+        servicesReference = OwnerReference(services: services)
         self.next = next
     }
 

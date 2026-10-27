@@ -1,3 +1,4 @@
+import struct CmuxSafeConcurrency.OwnerReference
 import CmuxNextActions
 import CmuxNextAgentLanes
 import CmuxNextBridge
@@ -95,10 +96,10 @@ enum PaletteSourcesBridge {
     }
 
     final class WorkspaceSource: PaletteWorkspaceSource {
-        private let servicesReference: AppServicesReference
+        private let servicesReference: OwnerReference<AppServices>
         /// The app's services, which own the palette; nil (reported) only once they are gone.
         private var services: AppServices? { servicesReference.resolve() }
-        init(services: AppServices) { servicesReference = AppServicesReference(services) }
+        init(services: AppServices) { servicesReference = OwnerReference(services: services) }
 
         var workspaces: [PaletteWorkspace] {
             guard let services else { return [] }
@@ -156,10 +157,10 @@ enum PaletteSourcesBridge {
     }
 
     final class TabSource: PaletteTabSource {
-        private let servicesReference: AppServicesReference
+        private let servicesReference: OwnerReference<AppServices>
         /// The app's services, which own the palette; nil (reported) only once they are gone.
         private var services: AppServices? { servicesReference.resolve() }
-        init(services: AppServices) { servicesReference = AppServicesReference(services) }
+        init(services: AppServices) { servicesReference = OwnerReference(services: services) }
 
         var tabs: [PaletteTab] {
             guard let services else { return [] }

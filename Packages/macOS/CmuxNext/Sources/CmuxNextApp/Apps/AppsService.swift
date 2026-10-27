@@ -1,3 +1,4 @@
+import struct CmuxSafeConcurrency.OwnerReference
 import AppKit
 import CmuxNextActions
 import CmuxNextApps
@@ -18,7 +19,7 @@ import Foundation
 /// Store's and the app pages' tabs. Nothing here runs app code.
 @MainActor
 final class AppsService {
-    private let servicesReference: AppServicesReference
+    private let servicesReference: OwnerReference<AppServices>
     /// The app's services, which own this; nil (reported) only once they are gone.
     var services: AppServices? { servicesReference.resolve() }
     let transport: DaemonAppsTransport
@@ -48,7 +49,7 @@ final class AppsService {
     private let makeStorePage: ((String) -> PageWebView?)?
 
     init(services: AppServices, makeStorePage: ((String) -> PageWebView?)? = nil) {
-        servicesReference = AppServicesReference(services)
+        servicesReference = OwnerReference(services: services)
         self.makeStorePage = makeStorePage
         transport = DaemonAppsTransport(daemon: services.daemon, mainWork: services.mainWork, inventoryRoutes: { [weak machines = services.machines] in
             machines?.agentInventoryWatchRoutes() ?? []

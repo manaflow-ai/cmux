@@ -99,7 +99,7 @@ extension RemoteTerminalService {
     /// else created in one of the machine's workspaces (a scratch one when
     /// it has none) and that tab closed.
     func openTerminal(on machine: DaemonService, in pane: PaneModel, home: DaemonService, cwd: String?) -> ActionWorkFailure? {
-        guard let services else { return ActionWorkFailure(AppServicesReference.closingReason) }
+        guard let services else { return ActionWorkFailure(RefusalStrings.appClosing) }
         // Only the tab's session stores the reference; the terminal's session
         // needs no new capability.
         guard home.supports(DaemonCapability.remoteTerminalTabs.rawValue) else {

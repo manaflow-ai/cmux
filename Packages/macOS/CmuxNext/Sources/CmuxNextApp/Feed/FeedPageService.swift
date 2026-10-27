@@ -1,3 +1,4 @@
+import struct CmuxSafeConcurrency.OwnerReference
 import AppKit
 import CmuxNextActions
 import CmuxNextAgentPane
@@ -16,7 +17,7 @@ extension InternalPageID {
 /// menu-bar feed panel.
 @MainActor
 final class FeedPageService: InternalPageProvider {
-    private let servicesReference: AppServicesReference
+    private let servicesReference: OwnerReference<AppServices>
     /// The app's services, which own this; nil (reported) only once they are gone.
     private var services: AppServices? { servicesReference.resolve() }
     /// Sends report replies off the main thread.
@@ -25,14 +26,14 @@ final class FeedPageService: InternalPageProvider {
     private var hosts: [String: FeedHostView] = [:]
 
     init(services: AppServices, replies: AcpmuxReplySender = AcpmuxReplySender()) {
-        servicesReference = AppServicesReference(services)
+        servicesReference = OwnerReference(services: services)
         self.replies = replies
     }
 
     /// Opens the Inbox in the active window without activating it for agent
     /// or socket callers when `focus` is false.
     func open(focus: Bool) throws {
-        guard let services else { throw AppServicesReference.closing }
+        guard let services else { throw ActionFailure.appClosing }
         guard let window = services.windows.active else { throw ActionFailure(message: RefusalStrings.noWindowOpen) }
         services.feed.startIfSignedIn()
         guard services.pages.show(.inbox, in: window, focus: focus) != nil else {

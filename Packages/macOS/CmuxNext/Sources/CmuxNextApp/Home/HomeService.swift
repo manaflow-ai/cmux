@@ -1,3 +1,4 @@
+import struct CmuxSafeConcurrency.OwnerReference
 import CmuxHomeCore
 import CmuxNextActions
 import CmuxNextCompat
@@ -60,7 +61,7 @@ final class HomeService {
         },
         mint: { connection in try await ConversationClient(connection).agentToken(for: HomeService.mux.id) })
     @ObservationIgnored private(set) var sessions: [String: HomeConversationSession] = [:]
-    @ObservationIgnored private let servicesReference: AppServicesReference
+    @ObservationIgnored private let servicesReference: OwnerReference<AppServices>
     /// The app's services, which own this; nil (reported) only once they are gone.
     var services: AppServices? { servicesReference.resolve() }
     /// The transcript and list caches' memory consumer (`memoryHomeLabCaches`, p07-memory-081); Home views track it.
@@ -180,7 +181,7 @@ final class HomeService {
     let actor = ConversationParticipant.localUserID
 
     init(services: AppServices, chiefHome: ChiefHome? = nil) {
-        servicesReference = AppServicesReference(services)
+        servicesReference = OwnerReference(services: services)
         homeSource = DaemonHomeSource(me: HomeCoreMapping.participant(HomeService.localUser), work: services.work)
         cloudSource = CloudHomeSource(me: HomeCoreMapping.participant(HomeService.localUser), work: services.work)
         chief = ChiefConversationOwner(home: chiefHome ?? ChiefHome.resolve(tag: services.environment.tag))

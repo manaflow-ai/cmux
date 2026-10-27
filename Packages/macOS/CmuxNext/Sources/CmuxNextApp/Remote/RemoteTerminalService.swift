@@ -1,3 +1,4 @@
+import struct CmuxSafeConcurrency.OwnerReference
 import AppKit
 import CmuxNextCloud
 import CmuxNextCompat
@@ -20,7 +21,7 @@ import Observation
 /// - Title: the live terminal's title is saved on the tab when it changes.
 @MainActor
 final class RemoteTerminalService {
-    private let servicesReference: AppServicesReference
+    private let servicesReference: OwnerReference<AppServices>
     /// The app's services, which own this; nil (reported) only once they are gone.
     var services: AppServices? { servicesReference.resolve() }
     /// `term_` ids of terminals by `<session>#<terminal>`, learned from a
@@ -41,7 +42,7 @@ final class RemoteTerminalService {
     private var observation: ServiceObservation<[String: String]>?
 
     init(services: AppServices) {
-        servicesReference = AppServicesReference(services)
+        servicesReference = OwnerReference(services: services)
     }
 
     /// The app's service (`AppServices.remoteTerminals`), made on first use, never in init
