@@ -137,6 +137,10 @@ jobs:
   tree-preflight:
     name: cmux-tui tree preflight
     if: ${{ !startsWith(github.ref, 'refs/heads/cmux-tui-pin-') }}
+    # The glaeda read token's key is an external credential: a dispatchable
+    # job holding one runs in an environment (tests/test_supplychain_security.py).
+    # ci-routing-agent is the one the other glaeda-route readers use.
+    environment: ci-routing-agent
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     # The feat-cmux-next election fetches each active run's commit.
     timeout-minutes: 6
@@ -166,6 +170,24 @@ jobs:
           ref: ${{ github.sha }}
           fetch-depth: 1
 
+      # The reads of the superseded check, the owner election and the
+      # publisher lookups go out as the manaflow-glaeda-route App, on its
+      # own budget, not the GITHUB_TOKEN core budget every workflow shares
+      # (it ran out every hour on 2026-10-26; Leo approved the move that day).
+      # No key (a fork) or a failed mint leaves it empty: GITHUB_TOKEN reads.
+      - name: Mint the glaeda read token
+        id: read-token
+        if: vars.GLAEDA_ROUTE_APP_ID != ''
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          permission-actions: read
+          permission-contents: read
+          permission-pull-requests: read
+
       # A queued run can be superseded before it gets a runner: on 2026-10-14
       # 37% of the queued runs of this workflow were cmux-tui-pin-* merge trees
       # of pull requests that had moved on, or lane-branch pushes whose branch
@@ -182,7 +204,7 @@ jobs:
           EVENT_NAME: ${{ github.event_name }}
           REF: ${{ github.ref }}
           SHA: ${{ github.sha }}
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ steps.read-token.outputs.token || github.token }}
           # Branch heads are read over git, which spends no REST budget.
           CMUX_TUI_REF_REMOTE: ${{ github.server_url }}/${{ github.repository }}.git
         run: python3 scripts/ci/cmux_tui_superseded_push.py --event "$EVENT_NAME" --ref "$REF" --sha "$SHA"
@@ -246,7 +268,7 @@ jobs:
           # silent curls took for "no other run" (cmuxterm-hq#1279).
           API_URL: ${{ github.api_url }}
           RUN_ID: ${{ github.run_id }}
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ steps.read-token.outputs.token || github.token }}
           STALE: ${{ steps.stale.outputs.stale }}
           # The pool a feat-cmux-next push's daemon tests take now
           # (cmux-next-daemon-tests): a publisher whose test job waits on
@@ -561,6 +583,10 @@ jobs:
     # nothing, so it has no publisher to wait for and spends no API calls here.
     if: needs.tree-preflight.result == 'success' && needs.tree-preflight.outputs.stale != 'true'
     needs: tree-preflight
+    # The glaeda read token's key is an external credential: a dispatchable
+    # job holding one runs in an environment (tests/test_supplychain_security.py).
+    # ci-routing-agent is the one the other glaeda-route readers use.
+    environment: ci-routing-agent
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 10
     outputs:
@@ -572,6 +598,23 @@ jobs:
       contents: read
       id-token: write
     steps:
+      # Reads of the owner's run, jobs and builder artifacts (the wait step and
+      # the re-check, which also runs for a published-unmarked deferral) go out as the manaflow-glaeda-route App, on its
+      # own budget, not the GITHUB_TOKEN core budget every workflow shares
+      # (it ran out every hour on 2026-10-26; Leo approved the move that day).
+      # No key (a fork) or a failed mint leaves it empty: GITHUB_TOKEN reads.
+      - name: Mint the glaeda read token
+        id: read-token
+        if: vars.GLAEDA_ROUTE_APP_ID != ''
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          permission-actions: read
+          permission-contents: read
+
       # Only the claim script, from this run's commit, for a takeover through
       # the tree-claim authority.
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -598,7 +641,7 @@ jobs:
           # silent curls took for "no other run" (cmuxterm-hq#1279).
           API_URL: ${{ github.api_url }}
           REPOSITORY: ${{ github.repository }}
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ steps.read-token.outputs.token || github.token }}
           TREE_READY: ${{ needs.tree-preflight.outputs.tree_ready }}
           DAEMON_TESTED: ${{ needs.tree-preflight.outputs.daemon_tested }}
           # The pool a feat-cmux-next push's daemon tests take now
@@ -833,7 +876,7 @@ jobs:
           OWNER_RUN_ID: ${{ steps.wait.outputs.owner }}
           API_URL: ${{ github.api_url }}
           REPOSITORY: ${{ github.repository }}
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ steps.read-token.outputs.token || github.token }}
         run: |
           set -euo pipefail
           takeover=false
@@ -1008,6 +1051,10 @@ jobs:
     name: plan the macOS fallback build
     if: ${{ !cancelled() && needs.build.result == 'failure' && needs.tree-preflight.outputs.darwin_builder == 'linux' }}
     needs: [tree-preflight, build]
+    # The glaeda read token's key is an external credential: a dispatchable
+    # job holding one runs in an environment (tests/test_supplychain_security.py).
+    # ci-routing-agent is the one the other glaeda-route readers use.
+    environment: ci-routing-agent
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["ubuntu-24.04","blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
     permissions:
@@ -1016,10 +1063,25 @@ jobs:
       target_set: ${{ steps.plan.outputs.target_set }}
       recovered: ${{ steps.plan.outputs.recovered }}
     steps:
+      # The artifact listing goes out as the manaflow-glaeda-route App, on its
+      # own budget, not the GITHUB_TOKEN core budget every workflow shares
+      # (it ran out every hour on 2026-10-26; Leo approved the move that day).
+      # No key (a fork) or a failed mint leaves it empty: GITHUB_TOKEN reads.
+      - name: Mint the glaeda read token
+        id: read-token
+        if: vars.GLAEDA_ROUTE_APP_ID != ''
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          permission-actions: read
+
       - name: Find the macOS targets the build left without artifacts
         id: plan
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ steps.read-token.outputs.token || github.token }}
           REPOSITORY: ${{ github.repository }}
           RUN_ID: ${{ github.run_id }}
         run: |
@@ -1090,6 +1152,105 @@ jobs:
           echo "build: $BUILD, macOS fallback: $FALLBACK, recovered by an earlier attempt: ${RECOVERED:-false}"
           [[ "$BUILD" == success || "$FALLBACK" == success || "$RECOVERED" == true ]]
 
+  # Where a feat-cmux-next push's daemon tests run: the promotion gate, so it
+  # never waits on one saturated label (2026-10-26: run 40397154574's tests sat
+  # queued on the owned side lane from 22:19Z and nightly-next stopped
+  # promoting). simple_pool_picker (through e2e_runner_pool.py --requested auto,
+  # as cmux-next-dev-daily.yml's runner job) names an owned Mac only when one is
+  # free now; anything else takes Blacksmith macOS 15, this job's Blacksmith
+  # route, never the nightly's macOS 26 labels
+  # (tests/test_ci_tui_routes_avoid_nightly_label.py). Same condition as the
+  # tests, so they are never skipped for want of it; a failed pick leaves the
+  # label empty and the tests take the declared pools' route below.
+  cmux-next-daemon-tests-runner:
+    if: >-
+      ${{ ((needs.tree-preflight.outputs.run_macos == 'true' &&
+          needs.tree-owner-wait.outputs.takeover == 'true' && needs.tree-preflight.outputs.daemon_tests == 'true' &&
+          needs.tree-preflight.outputs.daemon_marker != 'true') ||
+          (github.ref != 'refs/heads/main' && needs.tree-preflight.outputs.daemon_tests == 'true' &&
+          ((needs.tree-preflight.outputs.tree_ready == 'true' && needs.tree-preflight.outputs.daemon_tested == 'false') ||
+          needs.tree-owner-wait.outputs.unmarked == 'true'))) }}
+    needs: [tree-preflight, tree-owner-wait]
+    continue-on-error: true
+    environment: ci-routing-agent
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-2vcpu-ubuntu-2404' }}
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      label: ${{ steps.pool.outputs.label }}
+    steps:
+      - name: Checkout pool helper
+        if: github.repository_owner == 'manaflow-ai' && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && github.run_attempt == 1
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+          sparse-checkout: |
+            scripts/ci/e2e_runner_pool.py
+            scripts/ci/pr_runner_pool.py
+            scripts/ci/simple_pool_picker.py
+          sparse-checkout-cone-mode: false
+
+      - name: Mint the owned-pool routing token
+        id: route-token
+        if: github.repository_owner == 'manaflow-ai' && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && github.run_attempt == 1 && vars.CI_PR_POOL_OWNED == '1' && vars.GLAEDA_ROUTE_APP_ID != ''
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          permission-administration: read
+          permission-organization-self-hosted-runners: read
+          # The picker reads the janitor's queue snapshot (an Actions artifact) with it too.
+          permission-actions: read
+
+      - name: Mint the routing token without the org permission
+        id: route-token-repo
+        if: steps.route-token.outcome == 'failure'
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          permission-administration: read
+          permission-actions: read
+
+      - name: Pick a free owned Mac, else Blacksmith macOS 15
+        id: pool
+        if: github.repository_owner == 'manaflow-ai' && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && github.run_attempt == 1
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ROUTE_TOKEN: ${{ steps.route-token.outputs.token || steps.route-token-repo.outputs.token }}
+          GH_REPO: ${{ github.repository }}
+          POOL_ORDER: ${{ vars.CI_PR_POOL_ORDER }}
+          POOL_MAX_QUEUED: ${{ vars.CI_PR_POOL_MAX_QUEUED }}
+          POOL_OWNED: ${{ vars.CI_PR_POOL_OWNED }}
+          OWNED_SLOTS: ${{ vars.CI_OWNED_POOL_SLOTS }}
+          PR_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_PR }}
+          FALLBACK_LABEL: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-6vcpu-macos-15' }}
+        run: |
+          set -uo pipefail
+          label=""
+          if [ "$POOL_OWNED" = 1 ]; then
+            label="$(timeout 120 python3 scripts/ci/e2e_runner_pool.py \
+              --requested auto \
+              --order "$POOL_ORDER" \
+              --max-queued "$POOL_MAX_QUEUED" \
+              --owned "$POOL_OWNED" \
+              --owned-slots "$OWNED_SLOTS" \
+              --pr-xcode-app "$PR_XCODE_APP")" || label=""
+          fi
+          case "$label" in
+            glaeda-*) echo "An owned Mac is free now: $label" ;;
+            *) echo "No owned Mac free now (picker said '${label:-nothing}'); Blacksmith macOS 15 takes the daemon tests."
+               label="$FALLBACK_LABEL" ;;
+          esac
+          echo "label=$label" >> "$GITHUB_OUTPUT"
+
   # The daemon tests the cmux-next app relies on (Rust tests named
   # cmux_next_), on the exact commit. No publisher waits for them (cx-y0nf2);
   # publish-tree-tested writes the tree's daemon-tests marker when they pass.
@@ -1101,7 +1262,7 @@ jobs:
           (github.ref != 'refs/heads/main' && needs.tree-preflight.outputs.daemon_tests == 'true' &&
           ((needs.tree-preflight.outputs.tree_ready == 'true' && needs.tree-preflight.outputs.daemon_tested == 'false') ||
           needs.tree-owner-wait.outputs.unmarked == 'true'))) }}
-    needs: [tree-preflight, tree-owner-wait]
+    needs: [tree-preflight, tree-owner-wait, cmux-next-daemon-tests-runner]
     # The marker path (a published tree with no daemon-tests marker) holds one
     # group per key: one run tests, the newest push waits, older waiting ones
     # are replaced; the first pass writes the marker for all of them.
@@ -1120,7 +1281,11 @@ jobs:
     # 12 vCPU macOS 26 label the nightly app build needs. Blacksmith macOS 15
     # only when the owned pools are off or the event is not trusted
     # (tests/test_ci_tui_routes_avoid_nightly_label.py).
-    # Attempt 1 of a feat-cmux-next push takes vars.CI_NEXT_PROMOTE_POOL, the
+    # Attempt 1 of a feat-cmux-next push takes cmux-next-daemon-tests-runner's
+    # pick (a free owned Mac, else Blacksmith macOS 15), so the promotion gate
+    # never queues behind one label; the pools below are its fallback when the
+    # pick failed.
+    # Before that pick, attempt 1 took vars.CI_NEXT_PROMOTE_POOL, the
     # reserved promote runners that also run cmux-next.yml's Release compile:
     # these tests gate the nightly-next promotion, so they never wait for the
     # shared side pool. Clearing the variable rolls it back. The fork gate
@@ -1143,7 +1308,11 @@ jobs:
     # the same tree still tests it on its Mac pool before promotion
     # (tests/test_cmux_tui_daemon_tests_linux.py). The name keeps "(macOS)":
     # cmux_tui_publisher_testing.py and the routing tests find the job by it.
-    runs-on: ${{ inputs.macos_runner || github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_NEXT_DAEMON_POOL != '' && github.repository_owner == 'manaflow-ai' && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && github.run_attempt == 1 && vars.CI_NEXT_DAEMON_POOL || vars.CI_NEXT_PROMOTE_POOL != '' && github.repository_owner == 'manaflow-ai' && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && github.run_attempt == 1 && vars.CI_NEXT_PROMOTE_POOL || github.repository_owner == 'manaflow-ai' && github.event_name == 'push' && startsWith(github.ref, 'refs/heads/cmux-tui-pin-') && (vars.CI_PIN_DAEMON_POOL != vars.CI_SIDE_LANE_RUNNER && vars.CI_PIN_DAEMON_POOL != (vars.CI_NEXT_DAEMON_POOL || vars.CI_NEXT_PROMOTE_POOL) && vars.CI_PIN_DAEMON_POOL || 'blacksmith-16vcpu-ubuntu-2404') || vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('["pull_request","push","schedule","workflow_dispatch"]'), github.event_name) && (github.run_attempt <= 3 || github.triggering_actor != 'github-actions[bot]') && vars.CI_SIDE_LANE_RUNNER || 'blacksmith-6vcpu-macos-15' }}
+    # The glaeda read token's key is an external credential: a dispatchable
+    # job holding one runs in an environment (tests/test_supplychain_security.py).
+    # ci-routing-agent is the one the other glaeda-route readers use.
+    environment: ci-routing-agent
+    runs-on: ${{ inputs.macos_runner || github.repository_owner != 'manaflow-ai' && 'macos-26' || github.repository_owner == 'manaflow-ai' && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && github.run_attempt == 1 && needs.cmux-next-daemon-tests-runner.outputs.label || vars.CI_NEXT_DAEMON_POOL != '' && github.repository_owner == 'manaflow-ai' && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && github.run_attempt == 1 && vars.CI_NEXT_DAEMON_POOL || vars.CI_NEXT_PROMOTE_POOL != '' && github.repository_owner == 'manaflow-ai' && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && github.run_attempt == 1 && vars.CI_NEXT_PROMOTE_POOL || github.repository_owner == 'manaflow-ai' && github.event_name == 'push' && startsWith(github.ref, 'refs/heads/cmux-tui-pin-') && (vars.CI_PIN_DAEMON_POOL != vars.CI_SIDE_LANE_RUNNER && vars.CI_PIN_DAEMON_POOL != (vars.CI_NEXT_DAEMON_POOL || vars.CI_NEXT_PROMOTE_POOL) && vars.CI_PIN_DAEMON_POOL || 'blacksmith-16vcpu-ubuntu-2404') || vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('["pull_request","push","schedule","workflow_dispatch"]'), github.event_name) && (github.run_attempt <= 3 || github.triggering_actor != 'github-actions[bot]') && vars.CI_SIDE_LANE_RUNNER || 'blacksmith-6vcpu-macos-15' }}
     timeout-minutes: 60
     env:
       # Cargo's default registry retry is too small for a transient index DNS
@@ -1172,6 +1341,24 @@ jobs:
           persist-credentials: false
           ref: ${{ github.sha }}
 
+      # The superseded re-check's reads go out as the manaflow-glaeda-route
+      # App, on its own budget, not the GITHUB_TOKEN core budget every
+      # workflow shares (it ran out every hour on 2026-10-26; Leo approved
+      # the move that day).
+      # No key (a fork) or a failed mint leaves it empty: GITHUB_TOKEN reads.
+      - name: Mint the glaeda read token
+        id: read-token
+        if: github.event_name == 'push' && vars.GLAEDA_ROUTE_APP_ID != ''
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          permission-actions: read
+          permission-contents: read
+          permission-pull-requests: read
+
       # This job can queue for an hour on the owned Macs, and the push can be
       # superseded meanwhile: it asks again now that it has a Mac (tree-
       # preflight's stale step) and skips the tests if so, unless another run
@@ -1187,7 +1374,7 @@ jobs:
           SHA: ${{ github.sha }}
           KEY: ${{ needs.tree-preflight.outputs.key }}
           RUN_ID: ${{ github.run_id }}
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ steps.read-token.outputs.token || github.token }}
           # Branch heads are read over git, which spends no REST budget.
           CMUX_TUI_REF_REMOTE: ${{ github.server_url }}/${{ github.repository }}.git
           RUN_ATTEMPT: ${{ github.run_attempt }}
@@ -1385,7 +1572,8 @@ jobs:
     if: ${{ !cancelled() && needs.build-ok.result == 'success' && github.event_name != 'pull_request' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feat-cmux-next' || (github.event_name == 'push' && !startsWith(github.ref, 'refs/heads/cmux-tui-pin-'))) }}
     needs: build-ok
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
-    timeout-minutes: 15
+    # 15 minutes of work, plus the hour the attestation retry may wait for the API budget.
+    timeout-minutes: 75
     permissions:
       contents: read
       id-token: write
@@ -1736,9 +1924,22 @@ jobs:
             --machine-manifest \
             --artifact-directory assets/chatmux-relay
 
+      # The attestation is the only GitHub API write on the publish path, and it
+      # fails when GitHub refuses it for the rate limit ("API rate limit exceeded
+      # for installation": runs 40376958903 and 40380418761 on 2026-10-26 left
+      # their trees unpublished, and nightly-next promotion waited an hour). One
+      # retry 4 s later was not enough: run 40422130372's core budget had calls
+      # left, so the refusal was GitHub's secondary limit, and the retry hit it
+      # again. So it is tried four times. Each failed try waits through
+      # scripts/ci/gh_budget_wait.sh --backoff: until the reset when /rate_limit
+      # reads a budget exhausted, else 60, 120 and 240 s for the secondary limit,
+      # at most 15 minutes in all. The last try is not continue-on-error, so no
+      # binary is published without provenance.
       - name: Attest raw binary subjects
+        id: attest_subjects
+        continue-on-error: true
         uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4.1.0
-        with:
+        with: &attest-subjects
           subject-path: |
             assets/cmux-tui/cmux-tui-*
             assets/cmux-tui/manifest.json
@@ -1752,6 +1953,42 @@ jobs:
           # These are file subjects, not OCI images. No artifact-metadata
           # storage records are created for this R2 publication.
           push-to-registry: false
+
+      - name: Back off before the second attestation try
+        if: steps.attest_subjects.outcome == 'failure'
+        env: &attest-backoff-env
+          GH_TOKEN: ${{ github.token }}
+          GH_BUDGET_WAIT_MAX_SECONDS: "900"
+        run: bash scripts/ci/gh_budget_wait.sh --backoff 1 "the attestation"
+
+      - name: Attest raw binary subjects (try 2)
+        id: attest_subjects_2
+        if: steps.attest_subjects.outcome == 'failure'
+        continue-on-error: true
+        uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4.1.0
+        with: *attest-subjects
+
+      - name: Back off before the third attestation try
+        if: steps.attest_subjects_2.outcome == 'failure'
+        env: *attest-backoff-env
+        run: bash scripts/ci/gh_budget_wait.sh --backoff 2 "the attestation"
+
+      - name: Attest raw binary subjects (try 3)
+        id: attest_subjects_3
+        if: steps.attest_subjects_2.outcome == 'failure'
+        continue-on-error: true
+        uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4.1.0
+        with: *attest-subjects
+
+      - name: Back off before the last attestation try
+        if: steps.attest_subjects_3.outcome == 'failure'
+        env: *attest-backoff-env
+        run: bash scripts/ci/gh_budget_wait.sh --backoff 3 "the attestation"
+
+      - name: Attest raw binary subjects (last try)
+        if: steps.attest_subjects_3.outcome == 'failure'
+        uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4.1.0
+        with: *attest-subjects
 
       - name: Upload to R2
         env:
@@ -2155,7 +2392,8 @@ jobs:
     if: ${{ !cancelled() && needs.publish.result == 'success' && needs.build-windows.outputs.windows_built == 'true' }}
     needs: [publish, build-windows]
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
-    timeout-minutes: 15
+    # As publish: the shared steps' attestation retry may wait up to an hour.
+    timeout-minutes: 75
     permissions:
       contents: read
       id-token: write
@@ -2380,7 +2618,8 @@ jobs:
     # (tests/test_cmux_tui_feat_publish_order.py).
     needs: [tree-preflight, build-ok, publish]
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
-    timeout-minutes: 15
+    # A slow companion fetch may take its retries (fetch below).
+    timeout-minutes: 30
     # Ownership is elected before expensive work; publication stays per run
     # and the write-once uploader makes a rare election race safe.
     concurrency:
@@ -2479,7 +2718,10 @@ jobs:
           rm -rf tree assets/tree
           cp -R assets/run assets/tree
           base="https://files.cmux.com/cmux-tui/tree/$KEY"
-          fetch() { curl -fsSL --proto '=https' --connect-timeout 20 --max-time 120 "$1?verify=$GITHUB_RUN_ID" -o "$2"; }
+          # A companion is up to ~100 MB: 120 s with no retry timed out at 37 of
+          # 40 MB (run 40376958903). curl retries timeouts and 5xx, never a 404,
+          # so the source.json absence check below still fails at once.
+          fetch() { curl -fsSL --proto '=https' --connect-timeout 20 --max-time 300 --retry 3 --retry-delay 10 "$1?verify=$GITHUB_RUN_ID" -o "$2"; }
           fetch "https://files.cmux.com/cmux-tui/$GITHUB_SHA/manifest.json" manifest.json
           mkdir -p tree
           if fetch "$base/source.json" tree/source.json 2>/dev/null; then
@@ -2685,7 +2927,8 @@ jobs:
     if: ${{ !cancelled() && needs.publish-tree.result == 'success' && needs.publish-windows.result == 'success' }}
     needs: [tree-preflight, publish-tree, publish-windows]
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
-    timeout-minutes: 15
+    # As publish-tree, whose steps it runs: a slow companion fetch may take its retries.
+    timeout-minutes: 30
     concurrency:
       group: cmux-tui-tree-windows-${{ needs.tree-preflight.outputs.key }}-${{ github.sha }}
       cancel-in-progress: false

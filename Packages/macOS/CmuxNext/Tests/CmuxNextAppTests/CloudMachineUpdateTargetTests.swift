@@ -101,6 +101,35 @@ struct CloudMachineUpdateTargetTests {
         #expect(machine.updates == 2, "the app's next build tries once more")
     }
 
+    /// Leo's screen: "lofty-lemon-stoat runs a cmux too old to update in place. Use a new Cloud
+    /// machine instead." as a toast on every nightly, for any machine that answers
+    /// `machine_update_unsupported`. Now no toast and no failure: the machine's line says what
+    /// still works, and it is not asked again on a later build while it runs the same build. Once
+    /// it serves everything this app uses (repaired), its line goes, in the same run.
+    @Test func aMachineTooOldToUpdateHasNoToastIsNotAskedEachBuildAndClearsOnceRepaired() async throws {
+        let unsupported = CloudMoveCLI.Answer(ok: false, errorCode: "machine_update_unsupported", error: "too old to update in place")
+        let machine = FakeCloudMachine(build: Self.older, level: .limited, answers: [unsupported])
+        let fixture = try CloudUpdateFixture()
+        defer { fixture.remove() }
+        let id = CloudMachineUpdateTarget.id("vm-1")
+        await fixture.run(machine)
+        await fixture.run(machine, bundled: "fedcba987654")
+
+        #expect(machine.updates == 1, "asked again on a later build")
+        #expect(fixture.notices.isEmpty, "a toast for a machine too old to update in place")
+        #expect(fixture.board.targets[id]?.state == .cannotUpdate(reason: CloudMachineUpdateStrings.unsupported("Leo VM")))
+        #expect(fixture.board.otherMachines?.lines == [CloudMachineUpdateStrings.unsupported("Leo VM")])
+
+        // Repaired: it serves everything this app uses, and its line goes at its next offer.
+        let policy = fixture.policy(machine, bundled: "fedcba987654")
+        machine.repair(build: "fedcba987654")
+        await policy.offer(fixture.target(machine))
+        await policy.drained()
+        #expect(fixture.board.targets[id] == nil, "a repaired machine still says it cannot update")
+        #expect(fixture.board.otherMachines == nil)
+        #expect(machine.updates == 1)
+    }
+
     /// `cloud.updateMachines` off: the machine reports no build and is not urgent, so the policy runs
     /// nothing, also for a machine it queued before. The shared store is set back before any await,
     /// so another suite's target never reads it off.
@@ -138,14 +167,18 @@ struct CloudMachineUpdateTargetTests {
         #expect(outcome("machine_unreachable") == .busy)
         #expect(outcome("machine_update_unavailable") == .needsBinary(target: CloudMachineUpdateTarget.cloudTarget))
         #expect(outcome("machine_update_download_failed") == .needsBinary(target: CloudMachineUpdateTarget.cloudTarget))
-        #expect(outcome("machine_update_unsupported") == .failed(reason: CloudMachineUpdateStrings.unsupported("Leo VM")))
+        // Too old to update in place: no failure (no toast), and its words say what still works,
+        // never "use a new Cloud machine".
+        #expect(outcome("machine_update_unsupported") == .unsupported(reason: CloudMachineUpdateStrings.unsupported("Leo VM")))
+        #expect(CloudMachineUpdateStrings.unsupported("Leo VM").contains("keep working"))
+        #expect(!CloudMachineUpdateStrings.unsupported("Leo VM").contains("new Cloud machine"))
         #expect(outcome("machine_update_rolled_back") == .rolledBack(reason: "why"))
         #expect(outcome("machine_update_pending") == .failed(reason: "why"))
         #expect(outcome("machine_update_unresolved") == .busy, "the CLI lost the machine before the outcome: asked again")
         #expect(outcome(CloudMoveCLI.badAnswer, error: nil) == .failed(reason: CloudMoveCLI.badAnswer))
         // Not final: nothing recorded, so a later connect or launch asks again.
         #expect(DaemonUpdatePolicy.recorded(outcome("machine_update_unavailable")) == nil)
-        #expect(DaemonUpdatePolicy.recorded(outcome("machine_update_unsupported")) == "failed")
+        #expect(DaemonUpdatePolicy.recorded(outcome("machine_update_unsupported")) == "unsupported")
     }
 
     /// A machine that serves every capability this app uses is never moved automatically, whatever
@@ -236,6 +269,9 @@ struct CloudMachineUpdateTargetTests {
         let failed = DaemonUpdateEvent.State.failed(reason: "disk full", rolledBack: false)
         #expect(CloudCreationRows.withUpdate(limited, event(failed), compatibility: nil) == limited + "\n" + DaemonUpdateBoard.line(failed))
         #expect(CloudCreationRows.withUpdate(nil, event(.updated(build: Self.bundled)), compatibility: nil) == DaemonUpdateBoard.line(.updated(build: Self.bundled)))
+        // One that cannot update in place: what still works, instead of "Update it".
+        let cannot = DaemonUpdateEvent.State.cannotUpdate(reason: CloudMachineUpdateStrings.unsupported("Leo VM"))
+        #expect(CloudCreationRows.withUpdate(limited, event(cannot), compatibility: nil) == CloudMachineUpdateStrings.unsupported("Leo VM"))
 
         // A failure stays while the machine runs another build than the update's, also one that
         // serves every capability; it goes once the machine runs that build.
@@ -259,18 +295,33 @@ nonisolated final class FakeCloudMachine: @unchecked Sendable {
     private var answers: [CloudMoveCLI.Answer]
     /// The first this many updates run past the CLI's deadline.
     private var timeouts: Int
-    private var counts = (updates: 0, reconnects: 0)
+    /// What each update through the Cloud API's exec answers (``CloudLegacyMachineUpdate``); nil:
+    /// the machine has no exec, so it has none.
+    private var legacyAnswers: [CloudMoveCLI.Answer]?
+    private var counts = (updates: 0, reconnects: 0, legacy: 0)
+    private var restarts: [Bool] = []
 
-    init(build: String?, level: DaemonCompatibility.Level, timeouts: Int = 0, answers: [CloudMoveCLI.Answer] = []) {
+    init(build: String?, level: DaemonCompatibility.Level, timeouts: Int = 0, answers: [CloudMoveCLI.Answer] = [],
+         legacy: [CloudMoveCLI.Answer]? = nil) {
         daemon = CloudMachineUpdateTarget.Daemon(build: build, level: level)
         self.timeouts = timeouts
         self.answers = answers
+        legacyAnswers = legacy
     }
 
     var updates: Int { lock.withLock { counts.updates } }
     var reconnects: Int { lock.withLock { counts.reconnects } }
+    var legacyUpdates: Int { lock.withLock { counts.legacy } }
+    /// Each reconnect's `restarted`.
+    var reconnectRestarts: [Bool] { lock.withLock { restarts } }
 
     func disconnect() { lock.withLock { daemon = nil } }
+
+    /// The machine gets the Cloud API's exec (or this app a pinned build): updates through it answer `answers`.
+    func allowLegacy(_ answers: [CloudMoveCLI.Answer]) { lock.withLock { legacyAnswers = answers } }
+
+    /// The machine was reinstalled by hand: it now serves everything this app uses.
+    func repair(build: String) { lock.withLock { daemon = CloudMachineUpdateTarget.Daemon(build: build, level: .current) } }
 
     struct NoAnswer: Error {}
 
@@ -290,7 +341,23 @@ nonisolated final class FakeCloudMachine: @unchecked Sendable {
                     return answer
                 }
             },
-            reconnect: { _ in self.lock.withLock { self.counts.reconnects += 1 } })
+            reconnect: { restarted in
+                self.lock.withLock {
+                    self.counts.reconnects += 1
+                    self.restarts.append(restarted)
+                }
+            },
+            legacy: { _ in
+                self.lock.withLock {
+                    guard var answers = self.legacyAnswers else { return nil }
+                    self.counts.legacy += 1
+                    guard !answers.isEmpty else { return CloudMoveCLI.Answer(ok: false, errorCode: "machine_update_unresolved") }
+                    let answer = answers.removeFirst()
+                    self.legacyAnswers = answers
+                    if answer.ok, let build = answer.build { self.daemon = CloudMachineUpdateTarget.Daemon(build: build, level: .current) }
+                    return answer
+                }
+            })
     }
 }
 
@@ -307,7 +374,7 @@ final class CloudUpdateFixture {
     init() throws {
         root = FileManager.default.temporaryDirectory.appendingPathComponent("cloud-update-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
-        board.showNotice = { [weak self] in self?.notices.append($0.message) }
+        board.showNotice = { [weak self] in self?.notices.append($0.toast.message); return nil }
     }
 
     var directory: URL { root }
@@ -322,11 +389,17 @@ final class CloudUpdateFixture {
     /// The production policy's defaults, over `machine` only.
     func run(_ machine: FakeCloudMachine, bundled: String = CloudMachineUpdateTargetTests.bundled,
              enabled: @escaping @Sendable () -> Bool = { true }) async {
+        await policy(machine, bundled: bundled, enabled: enabled).run()
+    }
+
+    /// A policy over `machine` only, to run or to offer the machine to.
+    func policy(_ machine: FakeCloudMachine, bundled: String = CloudMachineUpdateTargetTests.bundled,
+                enabled: @escaping @Sendable () -> Bool = { true }) -> DaemonUpdatePolicy {
         let target = target(machine, enabled: enabled)
         let dependencies = DaemonUpdatePolicy.Dependencies(
             bundledBuild: { bundled }, targets: { [target] }, enabled: { true },
             report: { [weak self] event in await self?.record(event) }, directory: directory, clock: clock)
-        await DaemonUpdatePolicy(dependencies).run()
+        return DaemonUpdatePolicy(dependencies)
     }
 
     private func record(_ event: DaemonUpdateEvent) {

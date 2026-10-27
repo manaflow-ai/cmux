@@ -6,9 +6,7 @@
 
 use crate::cli::errors::{AppError, Code};
 use crate::cli::host_peering::{self, PeerTarget};
-use crate::cli::host_steps::{
-    REASON_NOT_THIS_PROGRAM, REASON_WRONG_PLATFORM, Report, Step, StepResult, StepState,
-};
+use crate::cli::host_steps::{REASON_NOT_THIS_PROGRAM, Report, Step, StepResult, StepState};
 use crate::cli::hosts::{self, DAEMON_BIN, Remote, SshRemote};
 use crate::client::Client;
 use crate::harness_health::channel::quote as shell_quote;
@@ -374,22 +372,32 @@ fn build_of(line: &str) -> Option<&str> {
 /// Lists each acpmux the host has, in the order it would use them (its
 /// PATH, the standalone install, the cmux apps, then a cmux-tui: the app's
 /// SSH install at ~/.local/bin, `cmux remote install`'s ~/.cmux/bin, PATH),
-/// with its version line and what `daemon status` (which never starts a
+/// with its version line, the file it resolves to (`readlink -f`, so a
+/// link such as `~/.local/bin/acpmux` compares with the daemon's own resolved
+/// `exe`), and what `daemon status` (which never starts a
 /// daemon) says through it (a cmux-tui as `cmux-tui acp …`); then a NUL and
 /// the daemon config. An app name may hold spaces: the glob's words stay
 /// whole and a pattern that matched nothing fails `-f`.
-const PROBE_BINS: &str = r#"seen=; for b in "$(command -v acpmux 2>/dev/null)" ~/.local/bin/acpmux /Applications/cmux*.app/Contents/Resources/bin/acpmux ~/.local/bin/cmux-tui ~/.cmux/bin/cmux-tui "$(command -v cmux-tui 2>/dev/null)"; do [ -n "$b" ] && [ -f "$b" ] && [ -x "$b" ] || continue; case "$seen" in *"|$b|"*) continue ;; esac; seen="$seen|$b|"; case "$b" in */acpmux) set -- "$b" ;; *) set -- "$b" acp ;; esac; printf 'bin\t%s\t%s\n' "$b" "$("$@" --version 2>/dev/null | head -n 1)"; printf 'status\t%s\t%s\n' "$b" "$("$@" --json daemon status 2>/dev/null | tr -d '\n')"; done; printf '\0'; "#;
+const PROBE_BINS: &str = r#"seen=; for b in "$(command -v acpmux 2>/dev/null)" ~/.local/bin/acpmux /Applications/cmux*.app/Contents/Resources/bin/acpmux ~/.local/bin/cmux-tui ~/.cmux/bin/cmux-tui "$(command -v cmux-tui 2>/dev/null)"; do [ -n "$b" ] && [ -f "$b" ] && [ -x "$b" ] || continue; case "$seen" in *"|$b|"*) continue ;; esac; seen="$seen|$b|"; case "$b" in */acpmux) set -- "$b" ;; *) set -- "$b" acp ;; esac; printf 'bin\t%s\t%s\n' "$b" "$("$@" --version 2>/dev/null | head -n 1)"; printf 'real\t%s\t%s\n' "$b" "$(readlink -f "$b" 2>/dev/null)"; printf 'status\t%s\t%s\n' "$b" "$("$@" --json daemon status 2>/dev/null | tr -d '\n')"; done; printf '\0'; "#;
 
 /// [`PROBE_BINS`], then the remote daemon config.
 fn probe_script() -> String {
-    format!("{PROBE_BINS}cat {}/config.json 2>/dev/null", hosts::REMOTE_HOME)
+    format!(
+        "printf 'uname\\t%s\\n' \"$(uname -sm)\"; {PROBE_BINS}cat {}/config.json 2>/dev/null",
+        hosts::REMOTE_HOME
+    )
 }
 
 /// What [`probe_script`] found.
 #[derive(Debug, Default, PartialEq, Eq)]
 struct Probe {
+    /// The remote kernel and machine from `uname -sm`.
+    uname: String,
     /// Each acpmux on the host and its build, in [`probe_script`] order.
     bins: Vec<(String, Option<String>)>,
+    /// Each binary's resolved file (`readlink -f`), by its probed path, when
+    /// the host could resolve it.
+    real: std::collections::BTreeMap<String, String>,
     /// The first daemon that answered.
     running: Option<Running>,
     /// The running daemon's executable, when its `daemon status` names it
@@ -438,6 +446,10 @@ fn parse_probe(stdout: &str) -> Probe {
     let (list, config) = stdout.split_once('\0').unwrap_or((stdout, ""));
     let mut probe = Probe { config: config.to_owned(), ..Probe::default() };
     for line in list.lines() {
+        if let Some(uname) = line.strip_prefix("uname\t") {
+            probe.uname = uname.trim().to_owned();
+            continue;
+        }
         let mut parts = line.splitn(3, '\t');
         let (Some(kind), Some(path), rest) = (parts.next(), parts.next(), parts.next()) else {
             continue;
@@ -445,6 +457,9 @@ fn parse_probe(stdout: &str) -> Probe {
         let rest = rest.unwrap_or("");
         match kind {
             "bin" => probe.bins.push((path.to_owned(), build_of(rest).map(str::to_owned))),
+            "real" if rest.trim().starts_with('/') => {
+                probe.real.insert(path.to_owned(), rest.trim().to_owned());
+            }
             "status" if probe.running.is_none() => {
                 let v: Value = serde_json::from_str(rest.trim()).unwrap_or(Value::Null);
                 if let Some(pid) = v.get("pid").and_then(Value::as_u64) {
@@ -490,6 +505,11 @@ fn cmux_session_daemon(acp: bool, exe: Option<&str>, daemon_bin: &str) -> bool {
 }
 
 impl Probe {
+    /// The file `path` resolves to on the host, else `path` itself.
+    fn resolved<'a>(&'a self, path: &'a str) -> &'a str {
+        self.real.get(path).map(String::as_str).unwrap_or(path)
+    }
+
     fn in_use(&self) -> Option<InUse> {
         if let Some(run) = &self.running {
             let app_bin = self.bins.iter().any(|(path, _)| app_owned(path));
@@ -603,6 +623,49 @@ fn same_platform(uname: &str, os: &str, arch: &str) -> bool {
     kernel == os && machine == arch
 }
 
+/// A stale peer on another platform needs a target-specific update bundle or a
+/// rebuild there; plain `host update` cannot use this machine's binary.
+pub(super) fn platform_skew(
+    step: Step,
+    host: &str,
+    name: &str,
+    uname: &str,
+    fix: bool,
+) -> Option<StepResult> {
+    if uname.is_empty() || same_platform(uname, std::env::consts::OS, std::env::consts::ARCH) {
+        return None;
+    }
+    let target = crate::cli::peer_status::target_from_uname(uname);
+    let local_target =
+        crate::cli::peer_status::target_triple(std::env::consts::OS, std::env::consts::ARCH);
+    let fix_text = target
+        .filter(|target| Some(*target) != local_target)
+        .map(|target| {
+            format!(
+                "Run `acpmux host update {name} --binary-dir DIR` (DIR/acpmux-{target}), or rebuild acpmux on {host} for its OS and architecture (see docs/remote-agents-and-cloud.md)."
+            )
+        })
+        .unwrap_or_else(|| {
+            format!(
+                "Rebuild acpmux on {host} for its OS and architecture (see docs/remote-agents-and-cloud.md)."
+            )
+        });
+    let state = if fix { StepState::Fail } else { StepState::Warn };
+    Some(
+        StepResult::new(
+            step,
+            state,
+            format!(
+                "{host} is {uname}, this build is {} {}",
+                std::env::consts::OS,
+                std::env::consts::ARCH
+            ),
+        )
+        .with_fix(fix_text)
+        .with_reason("peer_version_skew"),
+    )
+}
+
 /// The step for a host whose acpmux is cmux's own: its build is the app's
 /// business, so another build only warns, and nothing is pushed.
 fn app_build(step: Step, host: &str, used: &InUse, ok: &str) -> StepResult {
@@ -656,7 +719,7 @@ fn install(r: &dyn Remote, name: &str, bin: &str, fix: bool) -> StepResult {
     };
     // No standalone acpmux, but a cmux-tui of this build (the app installs
     // one over ssh before it runs enroll again): only the link is missing.
-    let tui = (bin == DAEMON_BIN && found.0.is_none())
+    let tui = (bin == DAEMON_BIN && found.0.as_deref() != Some(want))
         .then(|| probed.current_cmux_tui(want))
         .flatten()
         .map(str::to_owned);
@@ -684,6 +747,17 @@ fn install(r: &dyn Remote, name: &str, bin: &str, fix: bool) -> StepResult {
         // Another build still serves the peer link (`host ls` says it
         // differs); a missing one does not.
         if found.0.is_some() && found.1.is_some() {
+            let uname = if probed.uname.is_empty() {
+                match hosts::run(r, "uname -sm") {
+                    Ok(u) => u,
+                    Err(e) => return fail(Step::Install, format!("{e:#}"), from_app),
+                }
+            } else {
+                probed.uname.clone()
+            };
+            if let Some(step) = platform_skew(Step::Install, host, name, &uname, false) {
+                return step;
+            }
             return StepResult::new(Step::Install, StepState::Warn, why)
                 .with_fix(format!("Run `acpmux host update {name}`."))
                 .with_reason("peer_version_skew")
@@ -695,8 +769,23 @@ fn install(r: &dyn Remote, name: &str, bin: &str, fix: bool) -> StepResult {
             format!("Run the check with --fix to install this build on {host}."),
         );
     }
-    // Every change below holds the host's update lock, so the host's
-    // self-update timer never finds its binary replaced under it.
+    let uname = if probed.uname.is_empty() {
+        match hosts::run(r, "uname -sm") {
+            Ok(u) => u,
+            Err(e) => return fail(Step::Install, format!("{e:#}"), from_app),
+        }
+    } else {
+        probed.uname.clone()
+    };
+    // A matching cmux-tui only needs the daemon symlink repaired; that is a
+    // safe remote-only operation even when this invoking binary is for a
+    // different platform. Any binary push must stop on platform skew.
+    let link_only = bin != DAEMON_BIN && found.0.as_deref() == Some(want);
+    if !link_only && let Some(step) = platform_skew(Step::Install, host, name, &uname, true) {
+        return step;
+    }
+    // Every change below holds the host's update lock, so neither another
+    // update nor the host's self-update timer finds its binary replaced under it.
     let lock = match hosts::lock_to_install(r) {
         Ok(lock) => lock,
         Err(e) => {
@@ -719,19 +808,6 @@ fn install(r: &dyn Remote, name: &str, bin: &str, fix: bool) -> StepResult {
             }
             Err(e) => fail(Step::Install, format!("{why}; linking failed: {e:#}"), from_app),
         };
-    }
-    let uname = match hosts::run(r, "uname -sm") {
-        Ok(u) => u,
-        Err(e) => return fail(Step::Install, format!("{why}; {e:#}"), from_app),
-    };
-    let (os, arch) = (std::env::consts::OS, std::env::consts::ARCH);
-    if !same_platform(&uname, os, arch) {
-        return fail(
-            Step::Install,
-            format!("{why}; {host} is {uname}, this build is {os} {arch}"),
-            from_app,
-        )
-        .with_reason(REASON_WRONG_PLATFORM);
     }
     // cmux-tui runs as acpmux under that name; a standalone acpmux cannot
     // stand in for the app's cmux-tui.

@@ -6,9 +6,10 @@
   - over the limit it warns with a split hint, a `Size:` line overrides it, and
     allowlisted generated files never push a pull request over;
   - it exits 0 for any size;
-  - .github/workflows/pr-size-advisory.yml stays advisory: pull_request only
-    (never pull_request_target), a read-only token, no secrets or environment,
-    Linux, not a required check, draft-skipping and CI_QUOTA_HOLD-gated.
+  - its job (`size` in .github/workflows/pr-checks.yml) stays advisory:
+    pull_request only (never pull_request_target), a read-only token, no secrets
+    or environment, Linux, not a required check, draft-skipping and
+    CI_QUOTA_HOLD-gated.
 """
 
 from __future__ import annotations
@@ -31,7 +32,8 @@ from test_ci_required_checks_are_bounded import context_of, load  # noqa: E402
 from test_ci_required_checks_have_no_path_filters import REQUIRED_CHECKS  # noqa: E402
 
 SCRIPT = ROOT / "scripts/ci/pr_size.py"
-WORKFLOW = ROOT / ".github/workflows/pr-size-advisory.yml"
+WORKFLOW = ROOT / ".github/workflows/pr-checks.yml"
+JOB = "size"
 
 spec = importlib.util.spec_from_file_location("pr_size", SCRIPT)
 assert spec and spec.loader
@@ -80,7 +82,7 @@ class ExclusionAllowlistTests(unittest.TestCase):
             "cmux-tui/crates/acpmux/src/hub/lane_reports.rs",
             "Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/CloudStartSessionTests.swift",
             "docs/mdm/vendors.md",
-            ".github/workflows/pr-size-advisory.yml",
+            ".github/workflows/pr-checks.yml",
         ):
             self.assertIsNone(pr_size.excluded_by(path, GLOBS), path)
         for path in (
@@ -185,6 +187,7 @@ class WorkflowShapeTests(unittest.TestCase):
     def setUp(self) -> None:
         self.text = WORKFLOW.read_text(encoding="utf-8")
         self.workflow = load(WORKFLOW)
+        self.job = self.workflow["jobs"][JOB]
 
     def test_pull_request_only_into_feat_cmux_next(self) -> None:
         on = self.workflow.get("on", self.workflow.get(True))
@@ -194,25 +197,27 @@ class WorkflowShapeTests(unittest.TestCase):
         self.assertNotIn("pull_request_target", self.text)
 
     def test_read_only_token_no_secrets_no_environment(self) -> None:
-        self.assertEqual(self.workflow["permissions"], {"contents": "read"})
-        for job in self.workflow["jobs"].values():
-            self.assertEqual(job["permissions"], {"contents": "read", "pull-requests": "read"})
-            self.assertNotIn("environment", job)
-            self.assertNotIn("macos", str(job["runs-on"]).lower())
-            self.assertNotIn("self-hosted", str(job["runs-on"]).lower())
+        self.assertEqual(self.workflow["permissions"], {})
+        job = self.job
+        self.assertEqual(job["permissions"], {"contents": "read", "pull-requests": "read"})
+        self.assertNotIn("environment", job)
+        self.assertNotIn("macos", str(job["runs-on"]).lower())
+        self.assertNotIn("self-hosted", str(job["runs-on"]).lower())
         self.assertNotIn("secrets.", self.text)
 
     def test_advisory_not_required_gated_and_draft_skipping(self) -> None:
-        for job_id, job in self.workflow["jobs"].items():
-            self.assertNotIn(context_of(job_id, job, WORKFLOW, self.workflow), REQUIRED_CHECKS)
-            self.assertNotIn("continue-on-error", job)
-            self.assertIn(GATE, str(job["if"]))
-            self.assertIn(DRAFT, str(job["if"]))
-        self.assertIn(WORKFLOW.name, HOLD_GATED)
-        self.assertIn(WORKFLOW.name, DRAFT_SKIPPED)
+        job = self.job
+        self.assertEqual(job["name"], "PR size (advisory)")
+        self.assertNotIn(context_of(JOB, job, WORKFLOW, self.workflow), REQUIRED_CHECKS)
+        self.assertNotIn("continue-on-error", job)
+        self.assertIn(GATE, str(job["if"]))
+        self.assertIn(DRAFT, str(job["if"]))
+        self.assertIn(JOB, HOLD_GATED[WORKFLOW.name])
+        self.assertIn(JOB, DRAFT_SKIPPED[WORKFLOW.name])
 
     def test_script_comes_from_the_base_commit(self) -> None:
-        self.assertIn("ref: ${{ github.event.pull_request.base.sha }}", self.text)
+        checkout = self.job["steps"][0]
+        self.assertEqual(checkout["with"]["ref"], "${{ github.event.pull_request.base.sha }}")
         self.assertIn("scripts/ci/pr_size.py", self.text)
         self.assertIn("scripts/ci/pr_size_exclusions.json", self.text)
 

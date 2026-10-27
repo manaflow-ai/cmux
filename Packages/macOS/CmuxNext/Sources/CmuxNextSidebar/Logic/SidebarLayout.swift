@@ -166,13 +166,26 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
         var chats = SidebarChatHistoryPlacement(filtering ? nil : o.chatHistory, metrics: m)
         let lastMachine = sections.lastIndex { $0.machine != nil }
 
-        var firstSection = true, statusShown = false
+        var firstSection = true, statusShown = false, statusListed = false
         for (sectionIndex, section) in sections.enumerated() {
-            if let lastMachine, sectionIndex > lastMachine { chats.placeEarlier(&y) }
+            if let lastMachine, sectionIndex > lastMachine {
+                let before = y
+                chats.placeEarlier(&y)
+                // History drawn above: the sections after it no longer start the list.
+                if y != before { firstSection = false }
+            }
             // Group by Status lays every computer's rows out once, in place of their sections (`SidebarLayout+Status`).
             if o.grouping.byStatus && !filtering && section.machine != nil {
-                if !statusShown { rows += statusRows(sections, spacing: firstSection ? 0 : afterBlock ?? m.sectionSpacing, chats: &chats, options: o, metrics: m, y: &y) }
-                (statusShown, firstSection, previousWasMachine, afterBlock) = (true, false, false, nil)
+                if !statusShown {
+                    statusShown = true
+                    let (start, pinnedChatsY) = (y, chats.pinnedY)
+                    let status = statusRows(sections, spacing: firstSection ? 0 : afterBlock ?? m.sectionSpacing, chats: &chats, options: o, metrics: m, y: &y)
+                    // Nothing listed (no visible workspace, no pinned chat): no spacing, and the sections around it
+                    // lay out as if the computers were not there.
+                    statusListed = !status.isEmpty || chats.pinnedY != pinnedChatsY
+                    if statusListed { rows += status } else { y = start }
+                }
+                if statusListed { (firstSection, previousWasMachine, afterBlock) = (false, false, nil) }
                 continue
             }
             // Nodes that remain, with their visible children.

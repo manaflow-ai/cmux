@@ -215,6 +215,29 @@ class WrapperTests(unittest.TestCase):
         self.assertIn("12 calls left, under 200", result.stderr)
         self.assertEqual(h.waited(), 1)
 
+    def test_backoff_waits_by_try_and_never_fails(self) -> None:
+        # An action's call (the attestation) is refused outside gh; --backoff TRY waits as a refused gh call's try would.
+        h = self.harness(GH_BUDGET_WAIT_MAX_SECONDS="900")
+        fake_sleep = Path(h.env["PATH"].split(":")[0]) / "sleep"
+        fake_sleep.write_text('#!/bin/bash\necho "$1" >> "$FAKE_STATE/slept"\n')
+        fake_sleep.chmod(0o755)
+        for try_number in ("1", "2", "3"):
+            result = subprocess.run([str(h.shim), "--backoff", try_number, "the attestation"], env=h.env,
+                                    capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result)
+            self.assertIn(f"the attestation failed (try {try_number})", result.stderr)
+        self.assertEqual((h.state / "slept").read_text().split(), ["60", "120", "240"])
+        self.assertEqual(h.waited(), 420)
+        # The job total bounds it, and a spent total still exits 0 (the next try decides).
+        result = subprocess.run([str(h.shim), "--backoff", "4"], env={**h.env, "GH_BUDGET_WAIT_MAX_SECONDS": "500"},
+                                capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result)
+        self.assertEqual((h.state / "slept").read_text().split(), ["60", "120", "240", "80"])
+        result = subprocess.run([str(h.shim), "--backoff", "5"], env={**h.env, "GH_BUDGET_WAIT_MAX_SECONDS": "500"},
+                                capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result)
+        self.assertEqual(h.waited(), 500)
+
     def test_install_without_gh_is_a_warning(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             env = {"PATH": "/nonexistent", "RUNNER_TEMP": tmp, "GITHUB_PATH": f"{tmp}/p"}
@@ -227,7 +250,7 @@ class WrapperTests(unittest.TestCase):
 # Jobs on the nightly publish path whose gh calls go through the wrapper.
 PUBLISH_PATH = (
     "resolve-nightly-cmux-tui-client", "prepare-nightly-variant-primary", "prepare-nightly-variant-fallback",
-    "find-nightly-next-recovery", "recover-nightly-next-notarization", "publish-nightly", "keep-published-dsyms",
+    "find-nightly-next-recovery", "recover-nightly-next-notarization", "publish-nightly", "publish-nightly-next-github", "publish-nightly-next-github-names", "keep-published-dsyms",
     "legacy-identity-target", "sign-nightly-identity-legacy", "publish-nightly-identity-legacy",
     "generate-nightly-deltas", "republish-nightly-deltas", "published-in", "sign-release-notes",
     "publish-release-notes", "publish-nightly-reel", "build-nightly-app",

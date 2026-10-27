@@ -5342,6 +5342,34 @@
     },
     {
       "cli" : "offered",
+      "cli_name" : "space clear-defaults",
+      "context_menu" : "minimalMenu",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "space.clearDefaults",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.workspace",
+        "order" : 101,
+        "title" : "Workspace",
+        "title_key" : "category.workspace",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Clear Space Terminal Defaults…",
+      "title_key" : "action.space.clearDefaults",
+      "title_table" : "ProfileActions"
+    },
+    {
+      "cli" : "offered",
       "cli_name" : "space new-group",
       "context_menu" : "offered",
       "context_menus" : [
@@ -9897,6 +9925,132 @@
       "palette_suggested" : null,
       "title" : "Reply to Selection",
       "title_key" : "action.home.replyToSelection",
+      "title_table" : "HomeActions"
+    },
+    {
+      "cli" : "stepAdjust",
+      "cli_name" : "action home-zoom-in",
+      "context_menu" : "stepAdjust",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+        {
+          "keys" : [
+            {
+              "key" : "=",
+              "modifiers" : [
+                "cmd"
+              ]
+            }
+          ],
+          "when" : "topPage == home || surfaceKind == home || surfaceKind == home-dock"
+        },
+        {
+          "keys" : [
+            {
+              "key" : "=",
+              "modifiers" : [
+                "shift",
+                "cmd"
+              ]
+            }
+          ],
+          "when" : "topPage == home || surfaceKind == home || surfaceKind == home-dock"
+        }
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "home.zoomIn",
+      "main_menu" : null,
+      "mcp" : "stepAdjust",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.window",
+        "order" : 100,
+        "title" : "Window",
+        "title_key" : "category.window",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Chief: Zoom In",
+      "title_key" : "action.home.zoomIn",
+      "title_table" : "HomeActions"
+    },
+    {
+      "cli" : "stepAdjust",
+      "cli_name" : "action home-zoom-out",
+      "context_menu" : "stepAdjust",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+        {
+          "keys" : [
+            {
+              "key" : "-",
+              "modifiers" : [
+                "cmd"
+              ]
+            }
+          ],
+          "when" : "topPage == home || surfaceKind == home || surfaceKind == home-dock"
+        }
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "home.zoomOut",
+      "main_menu" : null,
+      "mcp" : "stepAdjust",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.window",
+        "order" : 100,
+        "title" : "Window",
+        "title_key" : "category.window",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Chief: Zoom Out",
+      "title_key" : "action.home.zoomOut",
+      "title_table" : "HomeActions"
+    },
+    {
+      "cli" : "stepAdjust",
+      "cli_name" : "action home-zoom-reset",
+      "context_menu" : "stepAdjust",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+        {
+          "keys" : [
+            {
+              "key" : "0",
+              "modifiers" : [
+                "cmd"
+              ]
+            }
+          ],
+          "when" : "topPage == home || surfaceKind == home || surfaceKind == home-dock"
+        }
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "home.zoomReset",
+      "main_menu" : null,
+      "mcp" : "stepAdjust",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.window",
+        "order" : 100,
+        "title" : "Window",
+        "title_key" : "category.window",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Chief: Actual Size",
+      "title_key" : "action.home.zoomReset",
       "title_table" : "HomeActions"
     },
     {
