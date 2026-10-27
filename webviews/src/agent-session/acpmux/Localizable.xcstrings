@@ -136392,6 +136392,138 @@
         }
       }
     },
+    "turn.failure.contextFull": {
+      "comment": "Agent pane: a failed turn's error card (the cause in one line) when the conversation outgrew the model's context window; its button is Compact; {harness} is the agent's name",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "هذه المحادثة أطول من نافذة سياق {harness}. اضغطها ثم أعد المحاولة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ovaj razgovor je predug za kontekstni prozor modela {harness}. Sažmite ga, pa pokušajte ponovo."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Denne chat er for lang til {harness}s kontekstvindue. Komprimer den, og prøv igen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dieser Chat ist zu lang für das Kontextfenster von {harness}. Komprimiere ihn und versuche es dann erneut."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This chat is too long for {harness}’s context window. Compact it, then retry."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Este chat es demasiado largo para la ventana de contexto de {harness}. Compáctalo y vuelve a intentarlo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cette conversation est trop longue pour la fenêtre de contexte de {harness}. Compactez-la, puis réessayez."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Questa chat è troppo lunga per la finestra di contesto di {harness}. Compattala, poi riprova."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "このチャットは {harness} のコンテキストウィンドウに収まりません。圧縮してから再試行してください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ការជជែកនេះវែងពេកសម្រាប់បង្អួចបរិបទរបស់ {harness}។ សូមបង្រួមវា រួចព្យាយាមម្តងទៀត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 채팅은 {harness}의 컨텍스트 창에 비해 너무 깁니다. 압축한 뒤 다시 시도하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Denne chatten er for lang for kontekstvinduet til {harness}. Komprimer den, og prøv igjen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ten czat jest za długi dla okna kontekstu {harness}. Skompaktuj go, a potem spróbuj ponownie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Esta conversa é longa demais para a janela de contexto de {harness}. Compacte-a e tente de novo."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Этот чат слишком длинный для контекстного окна {harness}. Сожмите его и повторите попытку."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "แชทนี้ยาวเกินหน้าต่างบริบทของ {harness} บีบอัดแชทแล้วลองอีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bu sohbet {harness} bağlam penceresi için çok uzun. Sıkıştırın, sonra yeniden deneyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Цей чат задовгий для контекстного вікна {harness}. Стисніть його й повторіть спробу."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cuộc trò chuyện này quá dài so với cửa sổ ngữ cảnh của {harness}. Hãy thu gọn rồi thử lại."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此对话超出了 {harness} 的上下文窗口。请先压缩，再重试。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此對話超出了 {harness} 的上下文視窗。請先壓縮，再重試。"
+          }
+        }
+      }
+    },
     "turn.failure.tailscale": {
       "comment": "Agent pane: a failed turn's error card (the cause in one line); {harness} is the agent's name",
       "extractionState": "manual",

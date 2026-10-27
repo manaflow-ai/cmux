@@ -263,7 +263,14 @@ import {
   type SessionEdits,
 } from "./turnChanges/sessionRows";
 import { repositoryRoot, viewChangesBeside, viewChangesTurn } from "./turnChanges/viewChanges";
-import { TurnActionsContext, chatLoginCommand, resumeThrough, type TurnActions } from "./conversation/turnActions";
+import {
+  TurnActionsContext,
+  chatLoginCommand,
+  compactThrough,
+  offersCompact,
+  resumeThrough,
+  type TurnActions,
+} from "./conversation/turnActions";
 import {
   RunInBackgroundContext,
   backgroundsWork,
@@ -5515,6 +5522,17 @@ function AcpmuxPane() {
               : Promise.resolve()
         )(restartChat),
       }),
+      // A context-full failure's Compact sends the agent's own /compact as Continue sends its prompt,
+      // with the same reach: never to a View Only chat or a read-only pane, never the next chat.
+      ...(restartChat &&
+        offersCompact(snapshot.commands) && {
+          compact: (
+            (owner: string) => () =>
+              restartReaches(owner, sessionIdRef.current, directClient.current?.selectedSession)
+                ? compactThrough(callNative)()
+                : Promise.resolve()
+          )(restartChat),
+        }),
       // Restart sends a prompt as the composer would (restart.ts `restartOwner`, `restartReaches`):
       // never to a View Only chat, from a subagent's read-only pane or where the composer cannot send,
       // and only to the chat whose row was clicked, never to the next chat during a switch's hold.
@@ -5591,6 +5609,7 @@ function AcpmuxPane() {
       retryTop,
       catalog,
       restartChat,
+      snapshot.commands,
     ],
   );
   // Streaming text changes rows on every chunk; only the turn's tool calls change its files.

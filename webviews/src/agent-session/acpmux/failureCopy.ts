@@ -14,6 +14,7 @@ export type FailureKind =
   | "proxy-auth"
   | "auth"
   | "disk-full"
+  | "context-full"
   | "tailscale"
   | "agent-exited"
   | "spawn-failed"
@@ -29,6 +30,12 @@ export type FailureRoute = { name?: string; harness?: string };
 /// way out is an account added for the team, with the `cr add <agent>` the refusal names.
 const NO_TEAM_ACCOUNT = /needs a team account on this machine|account is shared with this Cloud machine's team/i;
 const ADD_COMMAND = /\bcr add (?:codex|claude|opencode)\b/;
+/// The conversation outgrew the model's context window: Claude's "Prompt is too long", OpenAI's
+/// `context_length_exceeded` and "maximum context length", Codex's "exceeds the context window".
+/// Sending the same prompt into the same history fails the same way, so its way out is Compact
+/// (Leo's sustained chats hit it by definition). Not "too many tokens", which is a per-minute limit.
+const CONTEXT_FULL =
+  /prompt is too long|input is too long|context[ _-]?length[ _-]?exceeded|maximum context length|exceeds? (?:the )?(?:model's )?(?:maximum )?context(?: window| length| limit)?|context (?:window|limit) (?:is )?(?:full|exceeded)/i;
 const RATE =
   /\b(?:429|529)\b|rate.?limit|too many requests|overloaded|at capacity|no non-exhausted|usage limit|quota|\b503\b|service unavailable/i;
 const UNREACHABLE =
@@ -65,6 +72,7 @@ const SPAWN_FAILED =
 /// acpmux's typed reasons (`errorCode`), by the words in them: the kind its text would give, when
 /// the text says less.
 const TYPED: readonly [RegExp, FailureKind][] = [
+  [/context|too[_.-]?long/i, "context-full"],
   [/disk|no[_.-]?space|enospc/i, "disk-full"],
   [/tailscale|tailnet/i, "tailscale"],
   [/peer|unreachable|connect|network/i, "unreachable"],
@@ -102,6 +110,8 @@ export function failureKind(message: string | undefined, route?: FailureRoute, c
   // Before capacity and sign-in: neither waiting, another model nor a sign-in fixes it.
   if (NO_TEAM_ACCOUNT.test(message) && ADD_COMMAND.test(message)) return "no-team-account";
   if (DISK_FULL.test(message)) return "disk-full";
+  // Before capacity: a refused request's body can name the quota it was measured against.
+  if (CONTEXT_FULL.test(message)) return "context-full";
   // Capacity and network first: their messages often mention authentication or keys in passing.
   if (RATE.test(message)) return "rate-limited";
   // Connection words count only outside addresses: a URL's path or query (`…/oauth/token`,
@@ -126,8 +136,8 @@ export function failureKind(message: string | undefined, route?: FailureRoute, c
   return "other";
 }
 
-/// The way out a failure's card offers first: send the prompt again, or move to another model (with
-/// Retry after it). Signing in is the footer's (TurnRows.tsx); a trust answer is its card's.
+/// The way out a failure's card offers first: send the prompt again, move to another model (with
+/// Retry after it), or compact a chat that outgrew its context window (with Retry after it). Signing in is the footer's (TurnRows.tsx); a trust answer is its card's.
 /// Whether a failed turn offers cmux's own route, CodeRouter, beside Switch model (Lawrence
 /// 2026-10-23: "good opportunity for upsell here"): a key, sign-in or capacity failure that another
 /// route fixes. Never on a chat CodeRouter already serves (sending it there again does nothing), and
@@ -137,8 +147,10 @@ export function offersOwnRoute(kind: FailureKind, route?: FailureRoute): boolean
   return kind === "invalid-key" || kind === "subscription-login" || kind === "auth" || kind === "rate-limited";
 }
 
-export function failureRecovery(kind: FailureKind): "retry" | "switch-model" | undefined {
+export function failureRecovery(kind: FailureKind): "retry" | "switch-model" | "compact" | undefined {
   switch (kind) {
+    case "context-full":
+      return "compact";
     case "rate-limited":
     case "invalid-key":
     case "proxy-auth":
@@ -184,6 +196,8 @@ export function failureCopy(t: Translate, message: string | undefined, route?: F
       return t("turn.failure.auth", { harness, status: status ?? "401" });
     case "disk-full":
       return t("turn.failure.diskFull", { harness });
+    case "context-full":
+      return t("turn.failure.contextFull", { harness });
     case "tailscale":
       return t("turn.failure.tailscale", { harness });
     case "agent-exited":
