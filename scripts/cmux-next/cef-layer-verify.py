@@ -15,12 +15,14 @@ in a Chromium tab and checks:
 Both tunables are features' local overrides (p12-perf-process-100): the app reads them from its debug-tunables.json
 once, at launch, before its features resolve, so a mode is set in the file before the app starts, never live. The
 environment lists (`CMUX_ENABLE_FEATURES`) do not reach the app: its launch strips inherited `CMUX_*` variables.
+Every mode also sets `browserHost.helper` (feature `cefHelperHost`, on by default in DEV) off: it checks an in-process page.
 
 Input is real HID events (CGEventPost: the pointer moves on the fleet host), because the point is that the
 WindowServer still routes the mouse and keys to the transparent page window; debug.mouse would post into the cmux
 window and skip that. The python process needs the host's event-posting permission (a FAIL row says so).
 
-  arm         features.list resolves both layer hosting features as the mode sets them (source `local` where set)
+  arm         features.list resolves both layer hosting features as the mode sets them, and cefHelperHost off (source
+              `local` where set)
   valid       the page is Chromium: debug.cef shows no `unavailable` and no `fallback`, and windows.fork_api >= 26
               in mode on (below 26 the app never hosts, so an "on" number would be an "off" number); in mode default
               debug.cef tracker.hosting_without_track_a == 0 (the app makes every Track A call for this fork)
@@ -90,10 +92,13 @@ open(CONFIG, "w").write("{}\n")
 TUNABLES = os.path.join(SCRATCH, "debug-tunables.json")
 KEY = "browserResize.layerHosting"  # feature cefLayerHosting's local override
 EVERY_PAGE_KEY = "browserResize.layerHostingEveryPage"  # bench-only feature cefLayerHostingEveryPage's
-FEATURES = {KEY: "cefLayerHosting", EVERY_PAGE_KEY: "cefLayerHostingEveryPage"}
-# Each mode's tunables: written before the app starts (the features resolve once, at launch).
-ARMS = {"on": {KEY: False, EVERY_PAGE_KEY: True}, "off": {KEY: False, EVERY_PAGE_KEY: False},
-        "default": {KEY: True, EVERY_PAGE_KEY: False}}
+HOST_KEY = "browserHost.helper"  # feature cefHelperHost's local override (on by default in DEV, p01-process-100)
+FEATURES = {KEY: "cefLayerHosting", EVERY_PAGE_KEY: "cefLayerHostingEveryPage", HOST_KEY: "cefHelperHost"}
+# Each mode's tunables: written before the app starts (the features resolve once, at launch). Every mode checks
+# layer hosting of an in-process page, so every mode turns the Chromium Host off.
+ARMS = {"on": {KEY: False, EVERY_PAGE_KEY: True, HOST_KEY: False},
+        "off": {KEY: False, EVERY_PAGE_KEY: False, HOST_KEY: False},
+        "default": {KEY: True, EVERY_PAGE_KEY: False, HOST_KEY: False}}
 ARM = ARMS[opts.mode]
 json.dump({"version": 1, "values": ARM}, open(TUNABLES, "w"))
 HOSTED = opts.mode != "off"
@@ -321,7 +326,8 @@ def write_build_tunables(path, values):
 
 
 def check_arm():
-    """arm: the launch resolved both layer hosting features as this mode's tunables set them (features.list)."""
+    """arm: the launch resolved both layer hosting features and cefHelperHost as this mode's tunables set them
+    (features.list)."""
     listed = rpc("features.list") or {}
     rows = {f.get("name"): f for f in listed.get("features") or [] if isinstance(f, dict)}
     got = {name: {"state": (rows.get(name) or {}).get("state"), "source": (rows.get(name) or {}).get("source")}

@@ -21,10 +21,13 @@ checks with debug.layers that the fork really moved the page's pixels, `hosted.f
           Animation fence until the host's page joins it, one display frame at most from the commit. Rows add
           fence_resizes (fenced resizes), fence_joined, fence_late and fence_cut (`debug.cef` host_resize);
           acceptance: commit p95 within one display frame and no more missed frames than `host`
+cefHelperHost is on by default in DEV (p01-process-100), so every mode sets its local override `browserHost.helper`
+in the build's tunables file: off in off, on and on0 (cef-layer-verify.py's arms set it off too), on in the host modes.
 The host modes are not checked with cef-layer-verify.py (it checks in-process layer hosting). They start with the
 layer hosting and deadline tunables removed, and a bench of one counts as valid only when the app reported
 `debug.cef` host_resize at its end (null: Chromium ran in process), for `hostfence` with at least one fenced resize.
-summary.json records the features, the tunables file reset and each bench's host_resize.
+summary.json records the features, the tunables file reset, each mode's `host_toggle` (null: a host mode before any
+in-process mode, with no tunables file known: the DEV default applies) and each bench's host_resize.
 
 The shipping feature `cefLayerHosting` hosts a pane's page only where the app makes every Track A call (resize fence,
 embedder visibility); cef-layer-verify.py --mode default checks it. The modes here measure the hosted resize itself.
@@ -59,6 +62,8 @@ from sidebar_drag_bench_report import measured_build  # noqa: E402
 # The hosting tunables cef-layer-verify.py sets per mode (features' local overrides), removed at the end.
 HOSTING_KEYS = ("browserResize.layerHosting", "browserResize.layerHostingEveryPage")
 DEADLINE_KEY = "browserResize.syncDeadline"
+# Feature cefHelperHost's local override (on by default in DEV, p01-process-100): every mode sets it, off in process.
+HOST_KEY = "browserHost.helper"
 MODES = {"off": ("off", None), "on": ("on", None), "on0": ("on", 0.0), "host": ("host", None), "hostfence": ("host", None)}
 # The features each host mode starts the app with (pane-perf-terminal.py --enable-features).
 HOST_FEATURES = {"host": "cefHelperHost", "hostfence": "cefHelperHost,chromiumHostResizeFence"}
@@ -95,14 +100,16 @@ def load(path):
         return None
 
 
-def set_deadline(path, value):
-    """syncDeadline in the build's own tunables file (the app has quit: no writer races this); None removes it."""
+def set_arm(path, deadline, host):
+    """syncDeadline (None removes it) and the Chromium Host toggle in the build's own tunables file (the app has quit:
+    no writer races this)."""
     data = load(path) or {"version": 1, "values": {}}
     values = data.setdefault("values", {})
-    if value is None:
+    if deadline is None:
         values.pop(DEADLINE_KEY, None)
     else:
-        values[DEADLINE_KEY] = value
+        values[DEADLINE_KEY] = deadline
+    values[HOST_KEY] = host
     with open(path, "w") as f:
         json.dump(data, f, indent=2, sort_keys=True)
 
@@ -148,9 +155,10 @@ KEYS = ("commit_p95_ms", "commit_max_ms", "missed", "frames_p95_ms", "frames_p99
 
 
 def clear_tunables(path):
-    """Removes the layer hosting and deadline tunables from the build's tunables file (the app has quit)."""
+    """Removes the layer hosting, deadline and Chromium Host tunables from the build's tunables file (the app has
+    quit)."""
     data = load(path) or {}
-    for key in (*HOSTING_KEYS, DEADLINE_KEY):
+    for key in (*HOSTING_KEYS, DEADLINE_KEY, HOST_KEY):
         data.setdefault("values", {}).pop(key, None)
     try:
         with open(path, "w") as f:
@@ -194,11 +202,12 @@ def main(argv=None):
         hosting, deadline = MODES[mode]
         summary["modes"][mode] = {}
         if mode in HOST_FEATURES:
-            # The tunables an in-process mode left would change what the host mode measures.
+            # The tunables an in-process mode left would change what the host mode measures (its host toggle off).
             if tunables_file:
                 clear_tunables(tunables_file)
+                set_arm(tunables_file, None, True)
             summary["validity"][mode] = {"ok": True, "features": HOST_FEATURES[mode], "tunables_reset": tunables_file,
-                                         "benches": {}}
+                                         "host_toggle": True if tunables_file else None, "benches": {}}
         else:
             ok, facts = check_mode(mode, hosting)
             summary["validity"][mode] = {"ok": ok, **facts}
@@ -209,7 +218,10 @@ def main(argv=None):
                 for bench in opts.benches.split(","):
                     series += results.cef_resize_series(mode, bench, [], valid=False)
                 continue
-            set_deadline(facts["tunables_file"], deadline)
+            # cef-layer-verify.py's arms already turn the host off; set it here too, so no in-process bench measures
+            # the host whatever that file held.
+            set_arm(facts["tunables_file"], deadline, False)
+            summary["validity"][mode]["host_toggle"] = False
         for bench in opts.benches.split(","):
             out = os.path.join(opts.out, mode, bench)
             os.makedirs(out, exist_ok=True)

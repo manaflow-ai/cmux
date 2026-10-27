@@ -36,8 +36,9 @@ launch failure or a crash exits 1 too, so the exit code alone does not tell a bu
 import argparse, json, os, subprocess, sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-# The tunables cef-layer-verify.py sets per mode (features' local overrides), removed from the build's file at the end.
-KEYS = ("browserResize.layerHosting", "browserResize.layerHostingEveryPage")
+# The tunables cef-layer-verify.py sets per mode (features' local overrides; every mode turns the Chromium Host off),
+# removed from the build's file at the end.
+KEYS = ("browserResize.layerHosting", "browserResize.layerHostingEveryPage", "browserHost.helper")
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--app", required=True)
