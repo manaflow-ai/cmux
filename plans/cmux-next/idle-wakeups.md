@@ -240,6 +240,7 @@ of these owners (9.6). The list now:
 | `GitHubFeedSource.refresh` | 120 s | GitHub has no push for the feed; p14-energy-032 (landed) stops it while no cmux window shows, 066b moves it to `NSBackgroundActivityScheduler` |
 | `DeviceHubSocket.ping` | 30 s | The device hub keepalive (PROTOCOL.md); p14-energy-066c sends it only after silence |
 | `ControlEventBus.heartbeat` | 15 s | The `events.stream` `include_heartbeats` keepalive, only while a client asks for it and stays connected |
+| `AcpmuxPeerBridge.token_check` | 60 s | The Cloud link's acpmux peer bridge (off by default) checks its leased peer only while a lease holds: nothing reports a VM daemon restart, which changes the peer token; the end of the lease is an event (p14-energy-075) |
 
 ### 9.2 Delay policy and leeway
 

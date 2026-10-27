@@ -143,7 +143,8 @@
     {"owner": "GitHubFeedSource.refresh", "period_s": 120, "why": "GitHub has no push for the feed; task 066 stops it while no feed surface shows"},
     {"owner": "DeviceHubSocket.ping", "period_s": 30, "why": "PROTOCOL.md keepalive of the device hub, only on a socket silent both ways for the interval (any frame re-arms it), 10% leeway; a socket with traffic sends none"},
     {"owner": "ModelRouterLease.renewal", "period_s": 510, "why": "the local model relay's bearer expires with the Stack access token (10 min); one flexible prefer-early DemandTimer 90 s before exp, only while signed in with acpmux"},
-    {"owner": "ControlEventBus.heartbeat", "period_s": 15, "why": "events.stream include_heartbeats keepalive, only while a client asked for it and stays connected"}
+    {"owner": "ControlEventBus.heartbeat", "period_s": 15, "why": "events.stream include_heartbeats keepalive, only while a client asked for it and stays connected"},
+    {"owner": "AcpmuxPeerBridge.token_check", "period_s": 60, "why": "the Cloud link's acpmux peer bridge (CMUX_ACPMUX_CLOUD_PEER=1, off by default) asks this Mac's acpmux for its leased peer only while a lease holds: a VM daemon restart changes the peer token and nothing reports it; the lease's end is an event (the unix connection closing)"}
   ],
   "assertions_allowed_when": ["sessions.keepAwake", "phone.keepAwake"]
 }
