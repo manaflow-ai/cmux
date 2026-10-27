@@ -2050,6 +2050,21 @@ class ServerStatsConnections:
 
 
 @dataclass(frozen=True)
+class ServerStatsHangRecord:
+    __cmux_schema_path__: ClassVar[str] = 'types/ServerStatsHangRecord'
+    duration_ms: int
+    sequence: int
+    span: str
+
+
+@dataclass(frozen=True)
+class ServerStatsHangs:
+    __cmux_schema_path__: ClassVar[str] = 'types/ServerStatsHangs'
+    over_250ms: int
+    records: List[ServerStatsHangRecord]
+
+
+@dataclass(frozen=True)
 class ServerStatsHistogram:
     __cmux_schema_path__: ClassVar[str] = 'types/ServerStatsHistogram'
     count: int
@@ -2302,6 +2317,7 @@ class ServerStatsResult:
     schema: int
     uptime_ms: int
     dispatch_queue_us: Union[ServerStatsHistogram, MissingType] = field(default=MISSING)
+    hangs: Union[ServerStatsHangs, MissingType] = field(default=MISSING)
     ipc: Union[ServerStatsIpc, MissingType] = field(default=MISSING)
     ipc_methods: Union[List[ServerStatsMethodLatency], MissingType] = field(default=MISSING)
     lock_classes: Union[ServerStatsLockClasses, MissingType] = field(default=MISSING)
@@ -7869,6 +7885,8 @@ __all__ = [
     'Screen',
     'SendExpectAgent',
     'ServerStatsConnections',
+    'ServerStatsHangRecord',
+    'ServerStatsHangs',
     'ServerStatsHistogram',
     'ServerStatsIpc',
     'ServerStatsIpcKind',
