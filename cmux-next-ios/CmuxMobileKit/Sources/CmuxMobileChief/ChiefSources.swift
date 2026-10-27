@@ -218,6 +218,14 @@ public final class ChiefSources {
         }
     }
 
+    /// Home shows again: reads `chief.list` again unless a look runs, so a
+    /// Cloud Chief archived or deleted on another device leaves Home here too
+    /// (a ready one is kept until the list says otherwise).
+    public func recheck() {
+        if case .looking = cloudState { return }
+        refresh()
+    }
+
     /// Reads `chief.list` (and the chief's brain state) and points the
     /// Cloud session at the preferred chief's main conversation.
     public func refresh() {

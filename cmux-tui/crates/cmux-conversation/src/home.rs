@@ -68,6 +68,10 @@ pub struct HomeInboxInput<'a> {
     pub typing: HashMap<String, Vec<String>>,
     /// Authors of agent runs that run now (not stale), by conversation id.
     pub running: HashMap<String, Vec<String>>,
+    /// Deleted Chiefs (the registry's tombstones): a conversation with only
+    /// them leaves the list, on every device that reads it, as Delete Chief
+    /// promises.
+    pub deleted_chiefs: BTreeSet<String>,
 }
 
 /// One row of the Home list.
@@ -116,6 +120,13 @@ fn is_chief(summary: &Summary, id: &str, input: &HomeInboxInput<'_>) -> bool {
             && (participant.agent_class == Some(AgentClass::Mux)
                 || input.chief_names.contains_key(id))
     })
+}
+
+/// A conversation whose other participants are all deleted Chiefs (a deleted
+/// Chief's direct conversation, or a channel with it alone): not in the list.
+fn with_deleted_chiefs_only(summary: &Summary, input: &HomeInboxInput<'_>) -> bool {
+    let others = others(summary, input.me);
+    !others.is_empty() && others.iter().all(|id| input.deleted_chiefs.contains(*id))
 }
 
 /// The ids of the participants other than the person.
@@ -190,6 +201,7 @@ pub fn home_inbox(summaries: &[Summary], input: &HomeInboxInput<'_>) -> Vec<Home
     }
     let mut rows: Vec<HomeRow> = summaries
         .iter()
+        .filter(|summary| !with_deleted_chiefs_only(summary, input))
         .map(|summary| {
             let others = others(summary, me);
             let direct = others.len() == 1 && !channels.contains(summary.id.as_str());
