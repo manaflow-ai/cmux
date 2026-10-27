@@ -1945,16 +1945,15 @@ jobs:
           # From where the check widened to the whole sidebar package (Views/ only before; that range swept clean).
           sidebar_from=342462ca6ee97db1d23f013ad0d58dc942673c82
           sweep=0
-          # Deepen only until <base>..HEAD is whole: <base> is here and no shallow boundary commit lies
-          # inside the range (a merged side branch can still be cut off after <base> arrives; a boundary
-          # commit reads as a root, so git log would invent or hide its changes). Steps of 64, 128 ...
-          # up to 2032 generations in all, about the old fixed --deepen=2000, which took 2-7 min of the
-          # job's 10 for a range of ~300 commits.
-          shallow_file="$(git rev-parse --git-path shallow)"
-          whole() { # <base>: the range <base>..HEAD has every commit and every parent it reads
+          # Deepen only until <base>..HEAD is whole: <base> is here and no commit in the range is
+          # parentless. A shallow boundary reads as parentless, so this catches a merged side branch
+          # still cut off after <base> arrived, and a side path that reaches the root because <base>'s
+          # own history is cut (its old ancestors would count as new). Steps of 64, 128 ... up to 2032
+          # generations in all, about the old fixed --deepen=2000, which took 2-7 min of the job's 10
+          # for a range of ~300 commits.
+          whole() { # <base>
             git cat-file -e "$1^{commit}" 2>/dev/null || return 1
-            [[ -s "$shallow_file" ]] || return 0
-            ! git rev-list "$1..HEAD" | grep -qxFf "$shallow_file"
+            [[ -z "$(git rev-list --max-parents=0 "$1..HEAD" 2>/dev/null | head -n 1)" ]]
           }
           for step in 64 128 256 512 1072; do
             whole "$sidebar_from" && break
