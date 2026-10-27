@@ -17,6 +17,7 @@
 //!    browsers use the unix socket. Peer daemons, ssh tunnels and relays
 //!    send none, so they stay remote-origin even with the token.
 
+use cmux_blocking::{BlockingKind, scoped_blocking_call};
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 
@@ -95,7 +96,7 @@ pub(crate) fn create_secret(path: &Path) -> anyhow::Result<String> {
     if let Some(dir) = path.parent() {
         crate::agent_host::ensure_private_dir(dir)?;
     }
-    match std::fs::remove_file(path) {
+    match cmux_blocking::fs::remove_file(path) {
         Ok(()) => {}
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
         Err(e) => return Err(anyhow::anyhow!("remove stale {}: {e}", path.display())),
@@ -104,15 +105,19 @@ pub(crate) fn create_secret(path: &Path) -> anyhow::Result<String> {
     getrandom::fill(&mut bytes)
         .map_err(|e| anyhow::anyhow!("the OS random generator for {}: {e}", path.display()))?;
     let token: String = bytes.iter().map(|b| format!("{b:02x}")).collect();
-    let mut f = std::fs::OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .mode(0o600)
-        .custom_flags(libc::O_NOFOLLOW)
-        .open(path)
-        .map_err(|e| anyhow::anyhow!("create {}: {e}", path.display()))?;
+    #[allow(clippy::disallowed_methods, reason = "inside scoped_blocking_call")]
+    let mut f = scoped_blocking_call("fs::open_with", BlockingKind::Fs, || {
+        std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(0o600)
+            .custom_flags(libc::O_NOFOLLOW)
+            .open(path)
+    })
+    .map_err(|e| anyhow::anyhow!("create {}: {e}", path.display()))?;
     f.write_all(token.as_bytes())?;
-    f.sync_all()?;
+    #[allow(clippy::disallowed_methods, reason = "inside scoped_blocking_call")]
+    scoped_blocking_call("fs::sync_all", BlockingKind::Fs, || f.sync_all())?;
     Ok(token)
 }
 /// Windows: as on Unix, with an owner-only access list for the private
@@ -123,7 +128,7 @@ pub(crate) fn create_secret(path: &Path) -> anyhow::Result<String> {
     if let Some(dir) = path.parent() {
         crate::agent_host::ensure_private_dir(dir)?;
     }
-    match std::fs::remove_file(path) {
+    match cmux_blocking::fs::remove_file(path) {
         Ok(()) => {}
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
         Err(e) => return Err(anyhow::anyhow!("remove stale {}: {e}", path.display())),
@@ -135,7 +140,8 @@ pub(crate) fn create_secret(path: &Path) -> anyhow::Result<String> {
     let mut f = crate::owner_only::create_new(path)
         .map_err(|e| anyhow::anyhow!("create {}: {e}", path.display()))?;
     f.write_all(token.as_bytes())?;
-    f.sync_all()?;
+    #[allow(clippy::disallowed_methods, reason = "inside scoped_blocking_call")]
+    scoped_blocking_call("fs::sync_all", BlockingKind::Fs, || f.sync_all())?;
     Ok(token)
 }
 

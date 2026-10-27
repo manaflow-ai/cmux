@@ -8,7 +8,8 @@ import Testing
 /// user-initiated job on the Swift cooperative pool, moved it into the inbox, so the echo of a
 /// person's action waited behind any pool work. Now the store takes the events on the reader
 /// thread (``DaemonConnection/consumeEvents(_:)``): reader -> inbox -> one main run loop hop, and
-/// only the events buffered before the store took the connection pass through the pump.
+/// only the events the route's backlog held before the store took the connection pass through the
+/// pump, when it attaches.
 ///
 /// The probe records the thread and dispatch queue of every hop; a hop on the pool runs on a queue
 /// whose label ends in `.cooperative` (`com.apple.root.user-initiated-qos.cooperative`).
@@ -51,35 +52,29 @@ import Testing
         }
     }
 
-    private static func envelope(_ sequence: UInt64) -> DaemonEventEnvelope {
-        DaemonEventEnvelope(sequence: sequence, event: .titleChanged(surface: 1, title: "t\(sequence)"))
+    /// A title of `surface`; the backlog keeps only the newest title of each surface it holds.
+    private static func envelope(_ sequence: UInt64, surface: UInt64 = 1) -> DaemonEventEnvelope {
+        DaemonEventEnvelope(sequence: sequence, event: .titleChanged(surface: SurfaceID(rawValue: surface), title: "t\(sequence)"))
     }
 
-    /// Events the stream already holds when a consumer takes over reach it first, in order; later
-    /// ones skip the stream; an event after the end is dropped, as a finished stream drops it.
-    @Test func theRouteHandsTheStreamsBacklogOnBeforeAnyDirectEvent() async throws {
-        let (events, continuation) = AsyncThrowingStream.makeStream(of: DaemonEventEnvelope.self)
-        let route = DaemonEventRoute(continuation)
+    /// Events the route's backlog holds when a consumer takes over reach it first, in order, on the
+    /// attaching task; later ones go straight to it; an event after the end is dropped.
+    @Test func theRouteHandsItsBacklogOnBeforeAnyDirectEvent() async throws {
+        let route = DaemonEventRoute()
         let probe = HopProbe()
-        route.emit(Self.envelope(1))
-        route.emit(Self.envelope(2))
+        route.emit(Self.envelope(1, surface: 1))
+        route.emit(Self.envelope(2, surface: 2))
+        #expect(route.streamBacklog == 2)
         route.attach { probe.record($0) }
-        // The stream still holds 1 and 2: 3 must queue behind them, not jump ahead.
-        route.emit(Self.envelope(3))
-        var stream = events.makeAsyncIterator()
-        for _ in 0..<3 {
-            let queued = try #require(try await stream.next())
-            route.deliverQueued(queued)
-        }
-        // Nothing queued: straight to the consumer.
-        route.emit(Self.envelope(4))
+        #expect(route.streamBacklog == 0, "the attach left events in the backlog")
+        route.emit(Self.envelope(3, surface: 3))
         route.finish()
-        route.emit(Self.envelope(5))
+        route.emit(Self.envelope(4, surface: 4))
         probe.end()
         var delivered: [UInt64] = []
         for await hop in probe.hops { delivered.append(hop.sequence ?? 0) }
-        #expect(delivered == [1, 2, 3, 4])
-        #expect(try await stream.next() == nil, "an event after the end reached the stream")
+        #expect(delivered == [1, 2, 3])
+        #expect(route.streamBacklog == 0, "an event after the end reached the backlog")
     }
 
     /// The echo of a person's divider drag (a daemon event, before its reply) reaches the consumer

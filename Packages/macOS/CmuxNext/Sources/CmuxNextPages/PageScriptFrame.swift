@@ -1,8 +1,8 @@
 package import CmuxNextWakeups
 
 /// The next display frame a page's batched envelopes wait for (``PageScriptPipeline/deliverOnFrames(_:)``,
-/// the `pageScriptFrames` feature), as tasks of the main-thread board. ``WebUIHost/scriptFrames`` and
-/// ``PageHostPool/scriptFrames`` hand it to their pages.
+/// the `pageScriptFrames` feature), as tasks of the main-thread board. ``WebUIHost/scriptFrames`` hands it
+/// to its pages, the preloads it opens among them.
 ///
 /// The pipeline asks for a flush with the cause of the send that asked (``currentCause``), and asks
 /// again when a later send of the same frame has a cause that runs sooner (a person's or the

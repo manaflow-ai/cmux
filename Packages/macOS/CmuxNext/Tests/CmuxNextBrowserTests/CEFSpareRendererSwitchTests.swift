@@ -29,6 +29,19 @@ import Testing
         #expect(!arguments.contains { $0.hasPrefix("cmux-spare-renderer") }, "\(arguments)")
     }
 
+    /// p01-process-086: the Chromium Host builds no spare window and relies on content's spare
+    /// RenderProcessHost, which Chrome desktop keeps at all times only under site-per-process
+    /// (`RenderProcessHostImpl::IsSpareProcessKeptAtAllTimes`): no switch cmux passes turns site
+    /// isolation or the spare off, with the spare policy on or off.
+    @Test(arguments: [false, true])
+    func noSwitchTurnsContentsSpareRendererOff(spareAfterFirstTab: Bool) {
+        let arguments = switches(forkAPIVersion: 29, spareAfterFirstTab: spareAfterFirstTab)
+        let off: Set = ["single-process", "process-per-tab", "disable-site-isolation-trials", "disable-site-isolation-for-policy"]
+        #expect(arguments.allSatisfy { argument in !off.contains(String(argument.prefix { $0 != "=" })) }, "\(arguments)")
+        let disabled = arguments.filter { $0.hasPrefix("disable-features=") }.flatMap { $0.dropFirst("disable-features=".count).split(separator: ",") }
+        #expect(!disabled.contains("SpareRendererForSitePerProcess") && !disabled.contains("SitePerProcess"), "\(arguments)")
+    }
+
     @Test func theFeatureIsOffByDefault() {
         let arguments = CEFSwitches.current(forkAPIVersion: 29, bundleIdentifier: "com.cmuxterm.app.next", environment: [:]).arguments
         #expect(!arguments.contains(CEFSwitches.spareRendererAfterFirstTab), "\(arguments)")
