@@ -1,4 +1,5 @@
 import CmuxNextAgentPane
+import CmuxNextBridge
 import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextFloating
@@ -183,7 +184,7 @@ extension AgentTabStore {
         tabs.openInMainPane = { [weak services] chat, focus, open, created, finished in
             guard let services, let (_, pane) = services.locateTab(chat), let controller = services.paneController(for: pane) else { return nil }
             let existing = services.subagentSidePane(of: chat)?.pane
-            guard let side = existing.map({ ChatColumnPlacement.tab(LayoutPaneID($0.id)) }) ?? MainPaneLayout.side(from: controller, services: services) else { return nil }
+            guard let side = existing.map({ ChatColumnPlacement.tab(in: LayoutPaneID($0.id)) }) ?? MainPaneLayout.side(from: controller, services: services) else { return nil }
             return MainPaneLayout.openAgentTab(from: controller, side: side, focus: focus, services: services, open: open,
                                          created: created, finished: finished)
         }

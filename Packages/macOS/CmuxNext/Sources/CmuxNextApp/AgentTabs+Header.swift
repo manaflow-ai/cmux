@@ -1,4 +1,4 @@
-import CmuxNextLayout
+import struct CmuxNextLayout.MainPaneLayout
 import CmuxNextActions
 import CmuxNextAgentPane
 import CmuxNextBridge
