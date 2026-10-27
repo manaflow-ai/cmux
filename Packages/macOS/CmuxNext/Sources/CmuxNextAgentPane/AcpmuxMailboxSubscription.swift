@@ -1,4 +1,4 @@
-import CmuxNextWakeups
+public import CmuxNextWakeups
 
 /// Runs one ``AcpmuxMailboxReader`` at a time for a main-actor owner and gives
 /// it only the pages of the reader that is current.
