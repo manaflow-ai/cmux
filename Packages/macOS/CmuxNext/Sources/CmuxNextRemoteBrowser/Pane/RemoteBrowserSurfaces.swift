@@ -2,7 +2,7 @@ public import AppKit
 public import CmuxNextRemoteView
 import CmuxNextInputCore
 import CmuxNextCompat
-import CmuxNextWakeups
+public import CmuxNextWakeups
 
 #if DEBUG || CMUX_BENCH_HOOKS
 /// The popup surfaces of one remote tab (`rb.surface.show/update/hide`,
