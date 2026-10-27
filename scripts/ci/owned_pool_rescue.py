@@ -1644,8 +1644,10 @@ class GitHub:
     def branch_head(self, branch: str) -> str:
         return str(((self.request("GET", f"/branches/{branch}") or {}).get("commit") or {}).get("sha") or "")
 
-    def cancel(self, run_id: int) -> None:
-        self.request("POST", f"/actions/runs/{run_id}/cancel")
+    def cancel(self, run_id: int, before_retry: Callable[[], None] | None = None) -> None:
+        """`before_retry` runs before the cancel is sent again after a rate-limit wait or a token refresh, and
+        raises to drop it (rescue(before_cancel=...))."""
+        self.request("POST", f"/actions/runs/{run_id}/cancel", before_retry=before_retry)
 
     def force_cancel(self, run_id: int) -> None:
         self.request("POST", f"/actions/runs/{run_id}/force-cancel")
@@ -2151,8 +2153,12 @@ def pull_moved(api: GitHub, target: Target, sleep: Callable[[float], None],
 
 def rescue(api: GitHub, target: Target, *, now: Callable[[], dt.datetime], sleep: Callable[[float], None],
            log: Callable[[str], None], failed_only: bool = False,
-           deadline: dt.datetime | None = None, refused: bool | None = None, refusal: bool = False) -> str:
+           deadline: dt.datetime | None = None, refused: bool | None = None, refusal: bool = False,
+           before_cancel: Callable[[], None] | None = None) -> str:
     """Cancel and re-run, unless the pull request has moved on. Returns what happened.
+
+    `before_cancel` runs right before the cancel and before every retry of it, and raises to leave the run
+    alone (rescue_stalled_signing()).
 
     `failed_only` (a refused job) re-runs only the failed and cancelled jobs,
     keeping what passed, and needs no cancel when the run already finished.
@@ -2221,7 +2227,11 @@ def rescue(api: GitHub, target: Target, *, now: Callable[[], dt.datetime], sleep
         slot = started_dev_compile(jobs)
         if slot:
             return f"not rescued: a DEV feed compile started on {slot}; a started dev build is never cancelled"
-    api.cancel(target.run_id)
+    if before_cancel is not None:
+        before_cancel()
+        api.cancel(target.run_id, before_retry=before_cancel)
+    else:
+        api.cancel(target.run_id)
     log(f"cancelled run {target.run_id}")
     started = now()
     # Time spent waiting through rate limits (GitHub.request) is not the run's settling time:
@@ -2270,6 +2280,10 @@ def rescue(api: GitHub, target: Target, *, now: Callable[[], dt.datetime], sleep
 SIGN_NOT_YET = "not rescued yet: "
 
 
+class SignStallChanged(Aborted):
+    """A signing stall no longer holds at the look right before its cancel (rescue_stalled_signing())."""
+
+
 def rescue_stalled_signing(api: GitHub, target: Target, *, now: Callable[[], dt.datetime],
                            sleep: Callable[[float], None], log: Callable[[str], None],
                            deadline: dt.datetime | None, sign_seen: Mapping[Any, dt.datetime] | None = None,
@@ -2279,16 +2293,29 @@ def rescue_stalled_signing(api: GitHub, target: Target, *, now: Callable[[], dt.
 
     The jobs are read again first, with the watch's first-seen times and the gate (gated_signing_stall()), so
     a job that started, a sibling that came back or a job without the alternate leaves the run alone, and
-    rescue() reads the run's attempt and status before it cancels. A runner can still take a stalled job in
-    the few requests between that read and the cancel; that job is cancelled in its setup, having done no
-    work, and re-run on the alternate label. A cancel whose re-run fails leaves the run cancelled, which
-    gave_up() annotates and nightly-next-tick.yml re-runs (scripts/ci/nightly_next_cancelled_tip.sh).
+    rescue() reads the run's attempt and status before it cancels. The same look runs again right before
+    the cancel and before every retry of it (a rate-limit wait can last minutes), so a job that started
+    in the meantime leaves the run alone; only the one request between that look and GitHub acting on
+    the cancel remains, in which a job a runner just took has done no work. A cancel whose re-run fails
+    leaves the run cancelled, which gave_up() annotates and nightly-next-tick.yml re-runs
+    (scripts/ci/nightly_next_cancelled_tip.sh).
     """
-    jobs = read(lambda: api.jobs(target.run_id, target.attempt), sleep, log)
-    look = gated_signing_stall(jobs, now(), sign_seen or {}, workflow_text)
-    if look is None or look.action != "stalled":
-        return f"{SIGN_NOT_YET}{look.reason if look else 'no signing job is stalled any more'}"
-    result = rescue(api, target, now=now, sleep=sleep, log=log, failed_only=True, deadline=deadline, refused=False)
+    def look() -> Look | None:
+        jobs = read(lambda: api.jobs(target.run_id, target.attempt), sleep, log)
+        return gated_signing_stall(jobs, now(), sign_seen or {}, workflow_text)
+
+    def still_stalled() -> None:
+        found = look()
+        if found is None or found.action != "stalled":
+            raise SignStallChanged(found.reason if found else "no signing job is stalled any more")
+
+    try:
+        still_stalled()
+        result = rescue(api, target, now=now, sleep=sleep, log=log, failed_only=True, deadline=deadline,
+                        refused=False, before_cancel=still_stalled)
+    except SignStallChanged as changed:
+        # Raised before the cancel was sent (or re-sent): the run is as GitHub has it.
+        return f"{SIGN_NOT_YET}{changed}"
     if result.startswith("re-ran the failed jobs"):
         result += "; its signing jobs take their alternate macOS label on that attempt"
     return result

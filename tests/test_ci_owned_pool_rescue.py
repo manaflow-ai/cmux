@@ -121,7 +121,7 @@ class FakeAPI:
         self.calls.append(f"branch:{branch}")
         return self.head
 
-    def cancel(self, run_id):
+    def cancel(self, run_id, before_retry=None):
         self.calls.append("cancel")
         self.cancelled_at, self.cancel_attempt = self.clock.seconds, self.attempt
 
@@ -3145,9 +3145,9 @@ def cancel_times(api):
     """When each cancel was sent (FakeAPI forgets cancelled_at once the re-run starts)."""
     times, cancel = [], api.cancel
 
-    def recorded(run_id):
+    def recorded(run_id, before_retry=None):
         times.append(api.clock.seconds)
-        cancel(run_id)
+        cancel(run_id, before_retry)
     api.cancel = recorded
     return times
 
@@ -3244,6 +3244,33 @@ class NightlySigningStall(unittest.TestCase):
                                                sign_seen={4: clock.now(), 5: clock.now()}, workflow_text=SIGN_WORKFLOW)
         self.assertTrue(result.startswith(rescue.SIGN_NOT_YET), result)
         self.assertEqual(mutations(api), [])
+
+    def test_a_job_that_starts_after_the_last_look_is_seen_before_the_cancel(self):
+        # rescue() reads the run (which can wait out a rate limit) between the last look and the cancel: the
+        # arm64 signing job gets a runner then, so the look right before the cancel leaves the run alone.
+        clock = Clock()
+        state = {"started": False}
+        stalled, started = signing_run(), signing_run(started_at=0)
+        api = NightlyAPI(clock, lambda seconds: started(seconds) if state["started"] else stalled(seconds),
+                         workflow=SIGN_WORKFLOW)
+        read_run = api.run
+
+        def run(run_id):
+            if "jobs" in api.calls and any("workflow:" in call for call in api.calls):
+                state["started"] = True
+            return read_run(run_id)
+        api.run = run
+        _, summary = run_main(api, clock, payload=nightly_event(head_branch="nightly-next"))
+        self.assertIn("not rescued yet: ", summary)
+        self.assertIn("build-sign-notarize-nightly (arm64) not finished", summary)
+        self.assertEqual(mutations(api), [])
+
+    def test_the_cancel_is_never_re_sent_after_a_wait_once_the_stall_is_over(self):
+        api = rescue.GitHub("token", "manaflow-ai/cmux")
+        guard = unittest.mock.Mock()
+        with unittest.mock.patch.object(api, "request") as request:
+            api.cancel(RUN_ID, before_retry=guard)
+        request.assert_called_once_with("POST", f"/actions/runs/{RUN_ID}/cancel", before_retry=guard)
 
     def test_a_change_at_the_last_look_resumes_the_watch(self):
         # The final look finds a sibling running again; the watch goes on and rescues once it finishes.
