@@ -208,7 +208,8 @@ class ReportSections(unittest.TestCase):
         self.assertEqual(summary["sections"]["daemon_input_wait"]["by_kind"], {"input-wait": 4})
 
     def test_old_fields_are_unchanged(self):
-        # by_kind is the only new summary field; every old field keeps its name and value.
+        # by_kind is the only new summary field; every old field keeps its name and value. Rows gain only
+        # cmux_frame and pairs (the filing's inputs, p02-threads-301).
         report, markdown = self.run_report([APP_DUMP, DAEMON_DUMP])
         self.assertEqual(set(report["summary"]), {"launches", "dumps", "bad_lines", "calls_timed", "dropped",
                                                   "probe_overhead_ms_estimate", "sections"})
@@ -218,7 +219,7 @@ class ReportSections(unittest.TestCase):
         self.assertEqual(main["by_kind"], {"file-io": 2})
         (site,) = report["sections"]["app_main"]
         self.assertEqual(set(site), {"site", "symbol", "module", "owner", "count", "total_ms", "max_ms", "kinds",
-                                     "threads", "via", "stack"})
+                                     "threads", "via", "stack", "cmux_frame", "pairs"})
         self.assertIn("| # | total ms | max ms | calls | kinds | threads | site | via | module | owner |", markdown)
 
     def test_empty_sections_still_present_and_legacy_rows_read(self):
