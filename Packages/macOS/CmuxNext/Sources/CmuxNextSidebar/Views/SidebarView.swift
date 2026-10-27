@@ -40,7 +40,7 @@ public final class SidebarView: NSView {
     private(set) lazy var spacePaging = SidebarSpacePaging(host: self)
     /// Hosts the list's scroll view and fades rows out at its top or bottom
     /// while more are hidden there.
-    private lazy var edgeFade = ScrollEdgeFadeView(scrollView: scrollView)  // built in setup (no IUO)
+    lazy var edgeFade = ScrollEdgeFadeView(scrollView: scrollView)  // built in setup (no IUO)
     /// No rubber band while every row fits.
     private var scrollFit: ScrollFitElasticity?
     let profileBar: ProfileBarView
@@ -303,8 +303,13 @@ public final class SidebarView: NSView {
         // profile control (Leo 2026-10-11: its mark and the History dot beside
         // it read as a duplicate switcher). Two or more spaces show the strip.
         // `sidebar.showSpaces` off (cx-wab7m) shows no strip, wherever it would sit.
-        let showsProfiles = ProfileBarLogic.isVisible(profileCount: model.profiles.count) && design.sidebarSections.showSpaces
+        // `sidebar.noFade` (Lawrence 2026-10-26) hides the bottom profile and search bar and every edge fade.
+        let noFade = design.sidebarSections.noFade
+        let showsProfiles = ProfileBarLogic.isVisible(profileCount: model.profiles.count) && design.sidebarSections.showSpaces && !noFade
         profileBar.isHidden = !showsProfiles
+        footerRegion.isHidden = noFade
+        searchButton.isHidden = noFade
+        for fade in [edgeFade, aboveFade, belowFade] { fade.fades = !noFade }
         // R109: the dots under the titlebar row, or in the footer.
         let spacesHeight: CGFloat = spacesPosition == .top && showsProfiles ? SidebarStyle.footerHeight : 0
         // Amendment 3: at the bottom the dots share the footer band's row
@@ -314,7 +319,8 @@ public final class SidebarView: NSView {
             (bandsDirty, bandsSize) = (false, b.size)
             updateBands()
         }
-        let footerHeight: CGFloat = spacesPosition == .bottom && footerBand.dotsShareBandRow ? 0 : SidebarStyle.footerHeight
+        // `sidebar.noFade` hides the footer row, so the list takes its height.
+        let footerHeight: CGFloat = noFade ? 0 : spacesPosition == .bottom && footerBand.dotsShareBandRow ? 0 : SidebarStyle.footerHeight
         // The list makes room for a card (and takes it back) on a spring; the card sits at its place.
         let cardsHeight = attachFooterCards(), slotHeight = cardSlot.height
         let updateHeight = cardSlotMotion.height(toward: slotHeight, in: self)

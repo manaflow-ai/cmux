@@ -204,6 +204,39 @@ test("shared combobox ignores non-primary and disabled presses, while keyboard c
   expect(calls).toEqual(["open", "open", "open", "open"]);
 });
 
+test("a pointer click still submits when pointerdown suppresses compatibility mousedown", async () => {
+  const { createRoot } = await import("react-dom/client");
+  const { Combobox } = await import("../src/ui/Combobox");
+  const calls: string[] = [];
+  root = createRoot(host);
+  await act(async () =>
+    root!.render(
+      <Combobox
+        inline
+        label="Folder"
+        suggestions={["open"]}
+        onQuery={() => {}}
+        onSubmit={(value) => calls.push(value)}
+        onCancel={() => {}}
+      />,
+    ),
+  );
+  const row = document.querySelector('[role="option"]')!;
+  await act(async () => {
+    // Base UI prevents pointerdown, so browsers omit mousedown but still deliver click.
+    row.dispatchEvent(new dom.window.MouseEvent("pointerdown", { bubbles: true, cancelable: true }));
+    row.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true, detail: 1, button: 0 }));
+  });
+  expect(calls).toEqual(["open"]);
+  // A prior press released outside has no click. A later pointer gesture is independent.
+  await act(async () => row.dispatchEvent(new dom.window.MouseEvent("mousedown", { bubbles: true, button: 0 })));
+  await act(async () => {
+    row.dispatchEvent(new dom.window.MouseEvent("pointerdown", { bubbles: true, cancelable: true }));
+    row.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true, detail: 1, button: 0 }));
+  });
+  expect(calls).toEqual(["open", "open", "open"]);
+});
+
 test("Tab skips disabled suggestions and submits the enabled destination", async () => {
   const { createRoot } = await import("react-dom/client");
   const { Combobox } = await import("../src/ui/Combobox");

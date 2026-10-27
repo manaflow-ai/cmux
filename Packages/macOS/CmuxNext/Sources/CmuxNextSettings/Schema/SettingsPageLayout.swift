@@ -23,6 +23,8 @@ public nonisolated struct SettingsPageLayout: Sendable {
         case webUpdates
         /// Settings > Chief's Voice input row: the Debug toggle home.voiceInput, only where it exists.
         case voiceInput
+        /// Settings > Chief's Notices row: it opens Notifications, which holds the Chief's notices.
+        case notices
         /// Settings > Server: each server's status, version line, Restart Recommended, socket and tailnet
         /// address (plans/cmux-next/server-updates-DESIGN.md section 10).
         case server
@@ -185,6 +187,8 @@ public nonisolated struct SettingsPageLayout: Sendable {
         // its editor (name, picture, backend; u2586); the Chief Pet card (ChatGPT's Mini & Pets)
         // draws the preview, Show/Hide and the characters from its group's two rows; then the
         // chat's look. Voice input (the message box's mic) shows only in builds with Debug Settings.
+        // Notices last: a row that opens Notifications (the Chief's notices are the app's
+        // notifications; their rows keep their one home there).
         CategorySpec(
             id: "chief", title: SettingsText.keyed("settings.category.chief", "Chief"), symbol: "crown",
             groups: [
@@ -197,7 +201,7 @@ public nonisolated struct SettingsPageLayout: Sendable {
                 // Whether a tapback on a Chief message can start a turn, and the classifier that decides (a416).
                 group("settings.group.chiefReactions"),
             ],
-            lead: [.chiefs, .chiefPet, .voiceInput]),
+            lead: [.chiefs, .chiefPet, .voiceInput], trail: [.notices]),
         // A core cmux feature: banners, sounds, the attention ring and the
         // feed for agents, terminal programs and `cmux notify`.
         CategorySpec(
@@ -257,10 +261,12 @@ public nonisolated struct SettingsPageLayout: Sendable {
             id: "server", title: SettingsText.keyed("settings.category.server", "Server"), symbol: "server.rack",
             groups: [], lead: [.server]),
         // This Mac and the person's other devices on the device hub: names, fingerprints, Mac
-        // Screen access, relays and the access history (docs/device-hub). DEV builds only for now.
+        // Screen access, relays and the access history (docs/device-hub). Every build: NIGHTLY and
+        // Release use the built-in hub (DeviceHubSettings.resolvedBaseURL), and Mac Screen's
+        // sharing switch, permissions and relays live only here.
         CategorySpec(
             id: "devices", title: SettingsText.keyed("settings.category.devices", "Devices"), symbol: "laptopcomputer",
-            groups: [], lead: [.devices], devOnly: true),
+            groups: [], lead: [.devices]),
         CategorySpec(
             id: "advanced", title: section(.advanced), symbol: "curlybraces", groups: [],
             lead: [.advancedInfo], trail: [.advancedActions], actions: [.advanced], aliases: [.advanced]),
