@@ -40,12 +40,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         AppProcessRoot.shared.hangReports?.applicationWillTerminate()
         self?.services?.home.applicationWillTerminate()
     }, save: { [weak self] in
-        // The lanes' blockShutdown saves (unsent drafts, scroll places) drain beside Home's last batch, under
-        // the same bound.
-        let work = self?.services?.work
-        async let lanes: Void? = work?.shutdown()
         await self?.services?.home.flushCacheForQuit()
-        _ = await lanes
+        // Then the lanes' blockShutdown saves (unsent drafts, scroll places), under the same bound.
+        await self?.services?.work.shutdown()
     })
     private var settings: SettingsController?
     /// The app's one main-thread scheduler for budgeted work: its per-frame budget, with the
