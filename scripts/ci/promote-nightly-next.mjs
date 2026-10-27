@@ -121,14 +121,24 @@ export const TREE_BACKFILL = 'gh workflow run cmux-tui-artifacts.yml -R manaflow
 export const TREE_REQUEST_AGAIN = 'gh workflow run nightly-next-tick.yml -R manaflow-ai/cmux --ref main';
 
 // Reads one marker: { url, status, body } or { url, status, error }. The query
-// string bypasses a cached 404 at the CDN edge. Status 0 is no response.
+// string bypasses a cached 404 at the CDN edge. Status 0 is no complete
+// response. Redirects are not followed (a 3xx is a read failure, as in the
+// shell check), and a 404 counts only once its body has been read in full.
 export async function fetchTreeMarker(sha, { fetchImpl = globalThis.fetch, now = () => Date.now(), timeoutMs = 30_000 } = {}) {
   const url = `${TREE_MARKER_BASE}/${sha}.json`;
   let response;
   try {
-    response = await fetchImpl(`${url}?t=${now()}`, { signal: AbortSignal.timeout(timeoutMs) });
+    response = await fetchImpl(`${url}?t=${now()}`, { signal: AbortSignal.timeout(timeoutMs), redirect: 'manual' });
   } catch (error) {
     return { url, status: 0, error: error.message };
+  }
+  if (response.status === 404) {
+    try {
+      await response.text();
+    } catch (error) {
+      return { url, status: 0, error: `the 404 was cut off (${error.message})` };
+    }
+    return { url, status: 404 };
   }
   if (response.status !== 200) return { url, status: response.status };
   try {

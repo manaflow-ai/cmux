@@ -1173,7 +1173,7 @@ def test_g5_a_commit_without_a_tree_marker_is_refused_with_the_backfill() -> Non
 
 
 def test_g5_a_marker_read_failure_is_not_a_missing_tree() -> None:
-    for marker in ({"status": 503}, {"status": 0, "error": "timeout"}, "throw",
+    for marker in ({"status": 503}, {"status": 302}, {"status": 0, "error": "timeout"}, "throw",
                    {"status": 200, "error": "the body does not parse"},
                    {"status": 200, "body": {"commit": NEWER, "key": "f" * 40}},
                    {"status": 200, "body": {"commit": SHA}},
@@ -1212,10 +1212,13 @@ const guard = await import(process.env.GUARD);
 const seen = [];
 const ok = await guard.fetchTreeMarker('a'.repeat(40), { now: () => 42, fetchImpl: async (url) => {
   seen.push(url); return { status: 200, json: async () => ({ commit: 'a'.repeat(40), key: 'f'.repeat(40) }) }; } });
-const missing = await guard.fetchTreeMarker('a'.repeat(40), { fetchImpl: async () => ({ status: 404 }) });
+const opts = [];
+const missing = await guard.fetchTreeMarker('a'.repeat(40), { fetchImpl: async (url, o) => { opts.push(o); return { status: 404, text: async () => 'Not Found' }; } });
+const cut = await guard.fetchTreeMarker('a'.repeat(40), { fetchImpl: async () => ({ status: 404, text: async () => { throw new Error('terminated'); } }) });
+const moved = await guard.fetchTreeMarker('a'.repeat(40), { fetchImpl: async () => ({ status: 302, json: async () => ({ commit: 'a'.repeat(40) }) }) });
 const down = await guard.fetchTreeMarker('a'.repeat(40), { fetchImpl: async () => { throw new Error('ECONNRESET'); } });
 const garbled = await guard.fetchTreeMarker('a'.repeat(40), { fetchImpl: async () => ({ status: 200, json: async () => { throw new Error('Unexpected token'); } }) });
-console.log(JSON.stringify({ seen, ok, missing, down, garbled }));
+console.log(JSON.stringify({ seen, ok, missing, down, garbled, cut, moved, redirect: opts[0].redirect }));
 """
     result = subprocess.run(["node", "--input-type=module", "-e", script], cwd=ROOT,
                             env={**os.environ, "GUARD": str(GUARD)}, capture_output=True, text=True, check=True)
@@ -1225,6 +1228,10 @@ console.log(JSON.stringify({ seen, ok, missing, down, garbled }));
     assert out["missing"] == {"url": f"https://files.cmux.com/cmux-tui/tree-commits/{'a' * 40}.json", "status": 404}, out
     assert out["down"]["status"] == 0 and "ECONNRESET" in out["down"]["error"], out
     assert out["garbled"]["status"] == 200 and "does not parse" in out["garbled"]["error"], out
+    # A 404 cut off mid-body is a read failure, and a redirect is never followed.
+    assert out["cut"]["status"] == 0 and "cut off" in out["cut"]["error"], out
+    assert out["moved"] == {"url": f"https://files.cmux.com/cmux-tui/tree-commits/{'a' * 40}.json", "status": 302}, out
+    assert out["redirect"] == "manual", out
 
 
 def main() -> None:
