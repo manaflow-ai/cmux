@@ -66,7 +66,15 @@ await requireBrowserLane("thread-minimap-flash.test.ts", async () => {
           return box.height > 0 && box.bottom > view.top && box.top < view.bottom;
         })
         .map((node) => node.dataset.rowId!);
-      const stats = { adds: 0, removes: 0, missingFrames: 0, fadingFrames: 0, domFrames: 0 };
+      // Moving windows lack an independent expected-ID set; don't report DOM completeness as zero.
+      const stats = {
+        adds: 0,
+        removes: 0,
+        missingFrames: stationary ? 0 : null,
+        emptyViewportFrames: 0,
+        fadingFrames: 0,
+        domFrames: 0,
+      };
       const count = (nodes: NodeList) =>
         [...nodes].reduce(
           (total, node) =>
@@ -92,19 +100,21 @@ await requireBrowserLane("thread-minimap-flash.test.ts", async () => {
               const box = node.getBoundingClientRect();
               return box.bottom > current.top && box.top < current.bottom;
             });
+        if (!nodes.length) stats.emptyViewportFrames++;
         if (
-          !nodes.length ||
-          nodes.some((node) => {
-            const box = node?.getBoundingClientRect();
-            return (
-              !node ||
-              !box ||
-              box.width <= 0 ||
-              box.height <= 0 ||
-              box.bottom <= current.top ||
-              box.top >= current.bottom
-            );
-          })
+          stats.missingFrames !== null &&
+          (!nodes.length ||
+            nodes.some((node) => {
+              const box = node?.getBoundingClientRect();
+              return (
+                !node ||
+                !box ||
+                box.width <= 0 ||
+                box.height <= 0 ||
+                box.bottom <= current.top ||
+                box.top >= current.bottom
+              );
+            }))
         )
           stats.missingFrames++;
         if (nodes.some((node) => node && getComputedStyle(node).opacity !== "1")) stats.fadingFrames++;
@@ -144,9 +154,28 @@ await requireBrowserLane("thread-minimap-flash.test.ts", async () => {
   });
   const paragraph = "The streamed answer keeps enough spacing to exercise the transcript layout.";
   const rows = Array.from({ length: 30 }, (_, i) => [
-    { id: `t${i}-user`, kind: "user", text: `Prompt ${i + 1}: inspect the thread rail redraw.`, at: 1, version: 1 },
-    { id: `t${i}-answer`, kind: "assistant", text: `${paragraph}\n\n${paragraph}`, at: 1, version: 1 },
-    { id: `t${i}-end`, kind: "turnSummary", status: "completed", durationMs: 1_000, at: 1, version: 1 },
+    {
+      id: `t${i}-user`,
+      kind: "user",
+      text: `Prompt ${i + 1}: inspect the thread rail redraw.`,
+      at: 1,
+      version: 1,
+    },
+    {
+      id: `t${i}-answer`,
+      kind: "assistant",
+      text: `${paragraph}\n\n${paragraph}`,
+      at: 1,
+      version: 1,
+    },
+    {
+      id: `t${i}-end`,
+      kind: "turnSummary",
+      status: "completed",
+      durationMs: 1_000,
+      at: 1,
+      version: 1,
+    },
   ]).flat();
   async function open() {
     const { port } = vite.httpServer!.address() as { port: number };
@@ -192,6 +221,8 @@ await requireBrowserLane("thread-minimap-flash.test.ts", async () => {
     console.log(name, "pixels", JSON.stringify({ ...output, samples: undefined }));
     expect(output.frames).toBeGreaterThan(2);
     expect(output.blankFrames).toEqual([]);
+    expect(output.stableLossFrames).toEqual([]);
+    expect(dom?.emptyViewportFrames).toBe(0);
     // Scrolling can empty a strip legitimately; its partial-loss candidates stay in the report.
     if (stationary) {
       expect(output.transientFrames).toEqual([]);
@@ -258,7 +289,11 @@ await requireBrowserLane("thread-minimap-flash.test.ts", async () => {
       const start = await page.locator(".acpmux-scroll").evaluate((node) => node.scrollTop);
       await measure(page, "live-stream", false, async (mark) => {
         mark("stream");
-        chat.record("user_message", { text: "Stream the latest reply", promptId: "flash-live", turnId: "flash-live" });
+        chat.record("user_message", {
+          text: "Stream the latest reply",
+          promptId: "flash-live",
+          turnId: "flash-live",
+        });
         chat.record("turn_started", {});
         for (let index = 1; index <= 12; index++) {
           chat.record(
@@ -305,7 +340,19 @@ await requireBrowserLane("thread-minimap-flash.test.ts", async () => {
     const pixels = await transcriptPixels(page);
     try {
       const before = await page.locator(".acpmux-row").first().boundingBox();
-      const style = await page.addStyleTag({ content: ".acpmux-thread { visibility: hidden !important; }" });
+      const partial = await page.addStyleTag({
+        content: ".acpmux-row.acpmux-assistant { visibility: hidden !important; }",
+      });
+      try {
+        await pixels.checkpoint("injected-partial");
+        expect(await page.locator(".acpmux-row").first().boundingBox()).toEqual(before);
+      } finally {
+        await partial.evaluate((node) => node.parentNode?.removeChild(node));
+      }
+      await pixels.checkpoint("restored-partial");
+      const style = await page.addStyleTag({
+        content: ".acpmux-thread { visibility: hidden !important; }",
+      });
       try {
         await page.evaluate(() => window.cmuxPaintFrame());
         await pixels.checkpoint("injected-blank");
@@ -323,8 +370,19 @@ await requireBrowserLane("thread-minimap-flash.test.ts", async () => {
     } finally {
       try {
         const result = await pixels.stop("positive-control");
-        console.log("positive-control", JSON.stringify({ frames: result.frames, blankFrames: result.blankFrames }));
+        console.log(
+          "positive-control",
+          JSON.stringify({
+            frames: result.frames,
+            blankFrames: result.blankFrames,
+            stableLossFrames: result.stableLossFrames,
+          }),
+        );
         expect(result.blankFrames.length).toBeGreaterThan(0);
+        expect(result.stableLossFrames.some((index) => result.samples[index]!.phase === "injected-partial")).toBe(true);
+        expect(
+          result.samples.find((sample) => sample.phase === "injected-partial" && sample.source === "screenshot")!.ink,
+        ).toBeGreaterThan(30);
       } finally {
         await page.close();
       }
