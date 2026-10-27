@@ -457,13 +457,40 @@ test("Cloud recovery maps named harness profiles to the provider sent to native"
     resendPrompt: async (_row: string, input: string) => ({ input, attachments: [] }),
     send: async () => undefined,
   };
-  for (const id of ["claude", "claude-sr2", "Claude_work", "providers/claude-personal", "codex", "codex-work", "Codex_personal", "providers/codex-team"]) {
-    const recover = cloudCredentialRecovery(true, "vm", "chat-1", id, call, () => true, () => client);
+  for (const id of [
+    "claude",
+    "claude-sr2",
+    "Claude_work",
+    "providers/claude-personal",
+    "codex",
+    "codex-work",
+    "Codex_personal",
+    "providers/codex-team",
+  ]) {
+    const recover = cloudCredentialRecovery(
+      true,
+      "vm",
+      "chat-1",
+      id,
+      call,
+      () => true,
+      () => client,
+    );
     expect(recover).toBeDefined();
     await recover!("row-1", "retry");
   }
   expect(providers).toEqual(["claude", "claude", "claude", "claude", "codex", "codex", "codex", "codex"]);
   for (const id of [undefined, "", "opencode", "claudelike", "my-claude", "codex/"]) {
-    expect(cloudCredentialRecovery(true, "vm", "chat-1", id, call, () => true, () => client)).toBeUndefined();
+    expect(
+      cloudCredentialRecovery(
+        true,
+        "vm",
+        "chat-1",
+        id,
+        call,
+        () => true,
+        () => client,
+      ),
+    ).toBeUndefined();
   }
 });
