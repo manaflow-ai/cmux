@@ -781,6 +781,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_next_macos_cascade.py
 
+      - name: Validate that no job runs on a GitHub-hosted Mac
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_no_github_hosted_macos.py
+
       - name: Validate agent pane frame pacing summary
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_frame_pacing_summary.py

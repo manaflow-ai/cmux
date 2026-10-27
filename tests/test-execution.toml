@@ -326,6 +326,10 @@ path = "tests/test_ci_next_macos_cascade.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_no_github_hosted_macos.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_pull_request_caches_are_read_only.py"
 lane = "linux-guard"
 
@@ -1807,6 +1811,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_nightly_next_ring.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_nightly_next_dev_ring.py"
 lane = "linux-guard"
 
 [[test]]
