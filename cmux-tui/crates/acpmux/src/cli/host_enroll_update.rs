@@ -23,12 +23,16 @@ const MARK: &str = "ACPMUX_AU=";
 /// manager lists, and a `NAME.d` or `acpmux-.TYPE.d` directory in any user
 /// unit path (`systemd-analyze --user unit-paths`, and the defaults when it
 /// cannot say). A drop-in for every service or timer (`service.d`) counts
-/// too, except from the system's own paths (`/usr`, `/lib`, `/etc`,
-/// `/run/systemd`), where distributions ship them (Fedora's
-/// `10-timeout-abort.conf`), on disk or in the manager's `DropInPaths`. They are
+/// too, on disk or in the manager's `DropInPaths`, unless this user can
+/// change neither it, its directory nor the directory above: then the
+/// system's administrator put it there (a distribution ships them: Fedora's
+/// `10-timeout-abort.conf`), whatever the path says. They are
 /// acpmux's own only when each file there holds acpmux's own text, each unit
 /// the manager knows loads from there, and no drop-in exists for either;
-/// any other is someone else's (`foreign`), which runs what it likes. acpmux's own timer is
+/// any other is someone else's (`foreign`), which runs what it likes. An
+/// `XDG_CONFIG_HOME` other than `~/.config`, in this shell or the manager,
+/// is `xdg`: systemd reads user units from there, and acpmux writes them only
+/// in `~/.config/systemd/user`. acpmux's own timer is
 /// `timer` when enabled and running, `stopped` otherwise (a missing file
 /// too: `--fix` writes it).
 pub(super) fn probe_script() -> String {
@@ -40,6 +44,9 @@ pub(super) fn probe_script() -> String {
     format!(
         r#"echo "{MARK}os=$(uname -s)"; [ ! -e {cloud} ] || echo {MARK}cloud; [ ! -e {home}/{off} ] || echo {MARK}off
 if systemctl --user show-environment >/dev/null 2>&1; then echo {MARK}systemd
+au_m=$(systemctl --user show-environment 2>/dev/null | sed -n 's/^XDG_CONFIG_HOME=//p')
+for au_v in "${{XDG_CONFIG_HOME:-}}" "$au_m"; do [ -z "$au_v" ] || [ "$au_v" = "$HOME/.config" ] || echo {MARK}xdg; done
+au_mine() {{ [ -w "$1" ] || [ -w "${{1%/*}}" ]; }}
 au_d=$HOME/.config/systemd/user; au_there=; au_own=1; au_all=1
 au_c=${{XDG_CONFIG_HOME:-$HOME/.config}}; au_r=${{XDG_RUNTIME_DIR:-/run/user/$(id -u)}}; au_l=${{XDG_DATA_HOME:-$HOME/.local/share}}
 au_paths="$(systemd-analyze --user unit-paths 2>/dev/null)
@@ -66,11 +73,12 @@ if [ -e "$au_d/$au_f" ]; then au_there=1; else au_all=; fi
 case "$au_s" in not-found) ;; *) au_there=1
 [ "$au_s" = loaded ] && [ "$(systemctl --user show "$au_f" -p FragmentPath --value 2>/dev/null)" = "$au_d/$au_f" ] || au_own= ;; esac
 au_x=$(systemctl --user show "$au_f" -p DropInPaths --value 2>/dev/null) || au_x=error
-for au_y in $au_x; do case "$au_y" in /usr/*/"${{au_f##*.}}".d/*|/lib/*/"${{au_f##*.}}".d/*|/etc/*/"${{au_f##*.}}".d/*|/run/systemd/*/"${{au_f##*.}}".d/*) ;; *) au_there=1; au_own= ;; esac; done
+for au_y in $au_x; do case "$au_y" in */"${{au_f##*.}}".d/*) ! au_mine "$au_y" && ! au_mine "${{au_y%/*}}" ;; *) false ;; esac || {{ au_there=1; au_own=; }}; done
 au_i=$IFS; IFS='
-'; for au_p in $au_paths; do au_w=; case "$au_p" in /usr/*|/lib/*|/etc/*|/run/systemd/*) ;; *) au_w="${{au_f##*.}}.d" ;; esac
-for au_n in "$au_f.d" "acpmux-.${{au_f##*.}}.d" $au_w; do
-[ -z "$au_p" ] || [ ! -d "$au_p/$au_n" ] || {{ au_there=1; au_own=; }}; done; done; IFS=$au_i
+'; for au_p in $au_paths; do [ -n "$au_p" ] || continue
+for au_n in "$au_f.d" "acpmux-.${{au_f##*.}}.d"; do [ ! -d "$au_p/$au_n" ] || {{ au_there=1; au_own=; }}; done
+au_w="$au_p/${{au_f##*.}}.d"; [ ! -d "$au_w" ] || ! au_mine "$au_w" || {{ au_there=1; au_own=; }}
+for au_z in "$au_w"/*; do [ ! -e "$au_z" ] || ! au_mine "$au_z" || {{ au_there=1; au_own=; }}; done; done; IFS=$au_i
 done
 if [ -n "$au_there" ]; then
 [ ! -e "$au_d/acpmux-update.service" ] || cmp -s - "$au_d/acpmux-update.service" <<'ACPMUX_UPDATE_SERVICE' || au_own=
@@ -109,6 +117,8 @@ pub(super) struct Found {
     pub stopped: bool,
     /// An enabled `acpmux-update.timer` that acpmux did not write.
     pub foreign: bool,
+    /// systemd reads user units from another `XDG_CONFIG_HOME`.
+    pub xdg: bool,
 }
 
 pub(super) fn parse(stdout: &str) -> Found {
@@ -121,6 +131,7 @@ pub(super) fn parse(stdout: &str) -> Found {
             "timer" => found.timer = true,
             "stopped" => found.stopped = true,
             "foreign" => found.foreign = true,
+            "xdg" => found.xdg = true,
             other => {
                 if let Some(os) = other.strip_prefix("os=") {
                     os.clone_into(&mut found.os);
@@ -187,6 +198,12 @@ pub(super) fn update(r: &dyn Remote, fix: bool, cmux_own: Option<&str>) -> StepR
     if !found.systemd {
         return warn(
             "no user systemd here, so it cannot update itself; cmux moves it to your Mac's build each time it connects",
+            None,
+        );
+    }
+    if found.xdg {
+        return warn(
+            "this host sets XDG_CONFIG_HOME, so systemd reads user units from there, and acpmux writes acpmux-update.timer only in ~/.config/systemd/user; cmux moves it to your Mac's build each time it connects",
             None,
         );
     }

@@ -179,6 +179,17 @@ fn a_drop_in_found_under_the_lock_stops_the_install() {
 }
 
 #[test]
+fn another_xdg_config_home_is_said_and_nothing_is_written() {
+    for fix in [false, true] {
+        let host = Host::new(&["os=Linux", "systemd", "xdg"]);
+        let r = update(&host, fix, None);
+        assert_eq!(r.state, StepState::Warn, "{r:?}");
+        assert!(r.detail.starts_with("this host sets XDG_CONFIG_HOME"), "{r:?}");
+        assert!(host.fenced.borrow().is_empty());
+    }
+}
+
+#[test]
 fn an_enabled_timer_acpmux_did_not_write_is_not_counted_or_replaced() {
     for fix in [false, true] {
         let host = Host::new(&["os=Linux", "systemd", "foreign"]);
@@ -238,9 +249,15 @@ mod probe_in_a_shell {
         /// The unit that has a drop-in, if one does.
         drop_in: Option<&'static str>,
         /// The manager lists a drop-in for every unit of the type (Fedora's
-        /// `service.d/10-timeout-abort.conf`) on both units, from this
-        /// directory.
+        /// `service.d/10-timeout-abort.conf`) on both units: `system` (a
+        /// path this user cannot change), `home` (one in
+        /// ~/.config/systemd/user), `dotdot` (that one, spelled from /usr).
         type_drop_in: Option<&'static str>,
+        /// The `analyzed_drop_in_dir`, its files and its unit path are
+        /// read-only to this user.
+        read_only: bool,
+        /// `XDG_CONFIG_HOME` in the probe's shell (`home`: ~/.config).
+        xdg: Option<&'static str>,
         /// The files in ~/.config/systemd/user: acpmux's text, another's, or none.
         service: Option<&'static str>,
         timer: Option<&'static str>,
@@ -257,6 +274,8 @@ mod probe_in_a_shell {
         frag: "own",
         drop_in: None,
         type_drop_in: None,
+        read_only: false,
+        xdg: None,
         service: Some(hosts::UPDATE_SERVICE),
         timer: Some(hosts::UPDATE_TIMER),
         drop_in_dir: None,
@@ -269,6 +288,8 @@ mod probe_in_a_shell {
         frag: "",
         drop_in: None,
         type_drop_in: None,
+        read_only: false,
+        xdg: None,
         service: None,
         timer: None,
         drop_in_dir: None,
@@ -304,6 +325,27 @@ mod probe_in_a_shell {
                 fs::write(dir.join(name).join("o.conf"), OTHER_TEXT).unwrap();
             }
         }
+        let type_dir = match u.type_drop_in {
+            Some("system") => "/usr/lib/systemd/user".to_owned(),
+            Some(how) => {
+                for kind in ["service.d", "timer.d"] {
+                    fs::create_dir_all(units.join(kind)).unwrap();
+                    fs::write(units.join(kind).join("10-timeout-abort.conf"), OTHER_TEXT).unwrap();
+                }
+                let path = units.display().to_string();
+                if how == "dotdot" { format!("/usr/..{path}") } else { path }
+            }
+            None => String::new(),
+        };
+        let mode = |path: &Path, mode| fs::set_permissions(path, fs::Permissions::from_mode(mode));
+        let read_only = |m: u32, d: u32| {
+            if let (true, Some(name)) = (u.read_only, u.analyzed_drop_in_dir) {
+                mode(&extra.join(name).join("o.conf"), m).unwrap();
+                mode(&extra.join(name), d).unwrap();
+                mode(&extra, d).unwrap();
+            }
+        };
+        read_only(0o444, 0o555);
         let analyze = bin.join("systemd-analyze");
         fs::write(&analyze, format!("#!/bin/sh\necho {}\n", extra.display())).unwrap();
         fs::set_permissions(&analyze, fs::Permissions::from_mode(0o755)).unwrap();
@@ -328,19 +370,21 @@ esac
             active = if u.active { 0 } else { 3 },
             load = if u.loaded { "loaded" } else { "not-found" },
             drop_in = u.drop_in.unwrap_or("-"),
-            type_dir = u.type_drop_in.unwrap_or(""),
+            type_dir = type_dir,
         );
         let systemctl = bin.join("systemctl");
         fs::write(&systemctl, fake).unwrap();
         fs::set_permissions(&systemctl, fs::Permissions::from_mode(0o755)).unwrap();
         let path = format!("{}:{}", bin.display(), std::env::var("PATH").unwrap_or_default());
-        let out = Command::new("sh")
-            .arg("-c")
-            .arg(script)
-            .env("HOME", &home)
-            .env("PATH", path)
-            .output()
-            .unwrap();
+        let mut sh = Command::new("sh");
+        sh.arg("-c").arg(script).env("HOME", &home).env("PATH", path).env_remove("XDG_CONFIG_HOME");
+        match u.xdg {
+            Some("home") => sh.env("XDG_CONFIG_HOME", home.join(".config")),
+            Some(other) => sh.env("XDG_CONFIG_HOME", other),
+            None => &mut sh,
+        };
+        let out = sh.output().unwrap();
+        read_only(0o644, 0o755);
         let written = units.join("acpmux-update.service").exists() && u.service.is_none();
         fs::remove_dir_all(&root).unwrap();
         assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
@@ -377,26 +421,36 @@ esac
     fn a_drop_in_for_every_service_counts_unless_the_system_ships_it() {
         // The distribution's, as the manager lists it: still acpmux's own,
         // running or stopped (so --fix starts it).
-        let system = Some("/usr/lib/systemd/user");
+        let system = Some("system");
         assert_eq!(kind(&probe(Units { type_drop_in: system, ..OWN })), "timer");
         assert_eq!(kind(&probe(Units { type_drop_in: system, active: false, ..OWN })), "stopped");
-        assert_eq!(kind(&probe(Units { type_drop_in: Some("/etc/systemd/user"), ..OWN })), "timer");
+        // On disk, in a unit path this user cannot change.
+        let ro = Units { analyzed_drop_in_dir: Some("timer.d"), read_only: true, ..OWN };
+        assert_eq!(kind(&probe(ro)), "timer");
         // Beside one for this unit, that one still makes it foreign.
         let both = Units { type_drop_in: system, drop_in: Some("acpmux-update.timer"), ..OWN };
         assert_eq!(kind(&probe(both)), "foreign");
-        // One the user's own paths hold (the person, or anything running as
-        // them, wrote it) would run with acpmux's service: foreign, listed
-        // by the manager or only on disk, with or without the units.
+        // One this user can change (the person, or anything running as them,
+        // wrote it) would run with acpmux's service: foreign, listed by the
+        // manager (also by a path that looks like the system's) or only on
+        // disk, with or without the units.
         for u in [OWN, NONE] {
             for found in [
-                Units { type_drop_in: Some("/home/leo/.config/systemd/user"), ..u },
-                Units { type_drop_in: Some("/run/user/1000/systemd/user"), ..u },
+                Units { type_drop_in: Some("home"), ..u },
+                Units { type_drop_in: Some("dotdot"), ..u },
                 Units { drop_in_dir: Some("service.d"), ..u },
                 Units { analyzed_drop_in_dir: Some("timer.d"), ..u },
             ] {
                 assert_eq!(kind(&probe(found)), "foreign");
             }
         }
+    }
+
+    #[test]
+    fn another_xdg_config_home_is_read_from_the_shell() {
+        assert!(probe(Units { xdg: Some("/srv/leo-config"), ..NONE }).xdg);
+        assert!(!probe(Units { xdg: Some("home"), ..NONE }).xdg);
+        assert!(!probe(NONE).xdg);
     }
 
     /// The install runs the probe again under the lock: a drop-in there
