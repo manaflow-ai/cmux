@@ -37,6 +37,7 @@ use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
 
+mod refresh_task;
 mod watch;
 pub use watch::start as watch_startup_files;
 
@@ -287,25 +288,12 @@ fn refresh(throttled: bool) {
     if !changed || REFRESHING.swap(true, Ordering::SeqCst) {
         return;
     }
-    let Ok(rt) = tokio::runtime::Handle::try_current() else {
+    if tokio::runtime::Handle::try_current().is_err() {
         REFRESHING.store(false, Ordering::SeqCst);
         return;
-    };
+    }
     STATE.write().unwrap_or_else(|e| e.into_inner()).fingerprint = Some(now);
-    rt.spawn(async {
-        tracing::info!("shell startup files changed; reading the login environment again");
-        import().await;
-        let failed = outcome() == Outcome::Failed;
-        if failed {
-            // Try again at a later spawn or edit.
-            STATE.write().unwrap_or_else(|e| e.into_inner()).fingerprint = None;
-        }
-        REFRESHING.store(false, Ordering::SeqCst);
-        if !failed {
-            // An edit after the read's last check found REFRESHING set.
-            refresh(false);
-        }
-    });
+    refresh_task::spawn();
 }
 
 /// `$SHELL -l -i -c` printing the marker and `env -0`: no terminal, stdin

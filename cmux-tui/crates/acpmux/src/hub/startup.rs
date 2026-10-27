@@ -43,7 +43,7 @@ impl Hub {
                 .await
                 .unwrap_or(crate::login_env::Plan { run_shell: true, wait: true });
             // An edit to a startup file reads the shell again (D26).
-            crate::login_env::watch_startup_files();
+            crate::login_env::watch_startup_files(&self.supervisor);
             let cached = crate::login_env::outcome() == crate::login_env::Outcome::Cached;
             if cached {
                 reloaded = self.after_login_env().await;

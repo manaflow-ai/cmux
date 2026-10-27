@@ -106,12 +106,18 @@ where
                 // connects anew, so a restarted daemon serves the next one.
                 let (tx, session, params, call) =
                     (tx.clone(), session.clone(), message["params"].clone(), call.clone());
-                tokio::spawn(async move {
+                let (failed_tx, failed_id) = (tx.clone(), id.clone());
+                let request = async move {
                     let result = match crate::daemon::connect(false).await {
                         Ok(daemon) => call(daemon, session, params).await,
                         Err(e) => error_result(format!("{e:#}")),
                     };
                     let _ = tx.send(response(&id, result)).await;
+                };
+                // A panic ends this call with an error result, not the server.
+                crate::supervised::spawn_request(request, async move {
+                    let failed = error_result("the call failed".to_owned());
+                    let _ = failed_tx.send(response(&failed_id, failed)).await;
                 });
                 continue;
             }

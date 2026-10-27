@@ -34,7 +34,7 @@ impl Hub {
         shutdown: ShutdownBehavior,
         work: impl Future<Output = ()> + Send + 'static,
     ) {
-        crate::supervised::task(&self.supervisor, name, policy, shutdown, work);
+        crate::supervised::task_boxed(&self.supervisor, name, policy, shutdown, Box::pin(work));
     }
 
     /// Starts `session`'s inbound loop: its agent's requests and notifications, in order.

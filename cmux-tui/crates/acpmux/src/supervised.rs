@@ -26,6 +26,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use futures::FutureExt;
+use futures::future::BoxFuture;
 
 pub use cmux_panic_log::{
     ExitProcess, Fatal, Fields, ShutdownBehavior, StopToken, SuperviseError, Supervisor,
@@ -61,6 +62,19 @@ pub fn task<F>(
 ) where
     F: Future<Output = ()> + Send + 'static,
 {
+    task_boxed(supervisor, name, policy, shutdown, Box::pin(work));
+}
+
+/// [`task`] for work already on the heap. The daemon's futures are large in
+/// debug builds; boxed before they pass through the supervisor's frames, a
+/// worker's stack holds only a pointer to each.
+pub fn task_boxed(
+    supervisor: &Supervisor,
+    name: &str,
+    policy: Fatal,
+    shutdown: ShutdownBehavior,
+    work: BoxFuture<'static, ()>,
+) {
     if let Err(error) = supervisor.supervise_task(name, policy, shutdown, move |_stop| work) {
         tracing::warn!(task = name, "not started: {error}");
     }
@@ -140,6 +154,7 @@ pub fn spawn_scoped<F>(work: F)
 where
     F: Future<Output = ()> + Send + 'static,
 {
+    let work: BoxFuture<'static, ()> = Box::pin(work);
     // supervise-allow: scoped: the task owns only its scope's state; a panic drops it and ends that scope.
     tokio::spawn(work);
 }
@@ -152,6 +167,8 @@ where
     F: Future<Output = ()> + Send + 'static,
     E: Future<Output = ()> + Send + 'static,
 {
+    let (work, ended): (BoxFuture<'static, ()>, BoxFuture<'static, ()>) =
+        (Box::pin(work), Box::pin(ended));
     // supervise-allow: scoped: the task catches its own panic and answers its request with `ended`, so its handle carries nothing.
     tokio::spawn(async move {
         // AssertUnwindSafe: the scope's own state is dropped with it, and `ended` reads only

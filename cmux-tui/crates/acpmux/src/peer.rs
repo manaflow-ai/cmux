@@ -885,9 +885,9 @@ impl Drop for ForgetPending {
         let Some(key) = self.key.take() else { return };
         if let Ok(mut map) = self.pending.try_lock() {
             map.remove(&key);
-        } else if let Ok(rt) = tokio::runtime::Handle::try_current() {
+        } else if tokio::runtime::Handle::try_current().is_ok() {
             let pending = self.pending.clone();
-            rt.spawn(async move {
+            crate::supervised::spawn_scoped(async move {
                 pending.lock().await.remove(&key);
             });
         }
