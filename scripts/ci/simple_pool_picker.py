@@ -22,7 +22,7 @@ free slot for the run (in flight + queued + reserved below its capacity) and
 its queue is moving (stalled(), the cmux-next cascade's rule). With no owned
 pool free and no free, moving Blacksmith slot, a same-repository run (not the
 bot's re-run; State.wait_on_owned) waits on the online owned pool with the
-shortest queue for its size instead of a Blacksmith queue (2026-10-20:
+shortest expected wait (expected_wait_minutes()) instead of a Blacksmith queue (2026-10-20:
 blacksmith-12vcpu-macos-26 queued 5+ hours, about 95 PRs behind 318 queued
 runs). Only a run with no owned pool to wait on (a fork, owned pools off, an
 unread runner list) still takes the least-loaded Blacksmith label. An owned
@@ -60,6 +60,13 @@ STALL_MINUTES = BLACKSMITH_STALL_MINUTES
 FRESH_STALL_MINUTES = BLACKSMITH_STALL_MINUTES
 # A label the snapshot saw wait this long with nothing running is stalled too.
 IDLE_STALL_MINUTES = 5
+# The measured runner minutes one job holds an owned runner, by class (expected_wait_minutes()): every
+# completed job with a duration on the pool's machines, 2026-10-20 to 2026-10-26, from the build-fleet job
+# log (cmuxterm-hq build-fleet/data, aggregated in tests/fixtures/owned-pool-turnover/2026-10-20-to-26.json,
+# which test_ci_simple_pool_picker re-derives these from). std (M4 Pro, 48 GB): 20003 jobs, 150199.5 min.
+# light (M4, 16 GB): 1360 jobs, 15751.3 min; the same job runs up to 3.5x longer there (release-compile p50
+# 26.1 min against 7.7, fast-tier 19.3 against 6.6). A class with no figure takes the slowest measured one.
+TURNOVER_MINUTES = {"std": 7.51, "light": 11.58}
 # Owned classes in preference order, as pr_runner_pool.RUN_CLASSES.
 RUN_CLASSES = ("std", "light", "xl")
 # glaeda-[root-|side-|gui-]<class>-xcode-<version>: one family of labels on the same machines.
@@ -223,12 +230,31 @@ def pick(state: State | Mapping[str, Any]) -> Choice:
                               pool.xcode_app, True, retry_label=retry)
     if eligible and state.wait_on_owned and state.overflow_enabled and _free_blacksmith(state) is None:
         # Never a Blacksmith queue: wait behind the fleet, which the rescue watches, on the owned
-        # pool with the shortest queue for its size (owned order on a tie).
-        pool = min(eligible, key=lambda pool: (pool.queued / pool.capacity, owned_order(pool.label)))
+        # pool where the run is expected to start soonest (owned order on a tie).
+        pool = min(eligible, key=lambda pool: (expected_wait_minutes(pool, state.jobs), owned_order(pool.label)))
         return Choice(pool.label, "no owned pool and no Blacksmith label has a free, moving slot now; "
                       "waits on the owned label rather than a Blacksmith queue",
                       pool.xcode_app, True, retry_label=_retry_label(state, pool))
     return _borrow_large_for_admission(state, blacksmith)
+
+
+def expected_wait_minutes(pool: Pool, jobs: int) -> float:
+    """Minutes until the last of a run's `jobs` starts on owned `pool`, from its measured turnover.
+
+    Its idle runners take the first of the queued jobs and then the run's own at once; the rest start
+    in waves of `capacity` (its online runners), one TURNOVER_MINUTES of its class apart. queued / capacity
+    alone read a busy 4-runner light pool with 12 queued (3 a runner) as shorter than a busy 30-runner std
+    pool with 108 (3.6 a runner), though light's run starts after four turnovers of 11.58 min (46.3) and
+    std's after four of 7.51 (30.0); and it ranked a pool with fewer runners than the run has jobs as if
+    every job started at once.
+    """
+    match = OWNED_FAMILY.fullmatch(pool.label or "")
+    turnover = TURNOVER_MINUTES.get(match.group("class") if match else "", max(TURNOVER_MINUTES.values()))
+    if pool.free:  # state_from(): idle runners left once the family's queue took its share
+        waiting = max(0, max(1, jobs) - pool.free)
+    else:
+        waiting = max(0, pool.queued + max(1, jobs) - max(0, pool.capacity - pool.running))
+    return -(-waiting // max(1, pool.capacity)) * turnover
 
 
 def _borrow_large_for_admission(state: State, choice: Choice) -> Choice:
