@@ -199,6 +199,8 @@ on:
       - tests/test_run_checks_concurrently.py
       - tests/test_cmux_next_release_build_retention.py
       - tests/test_cmux_next_dev_release_host_root.py
+      - tests/test_cmux_next_hybrid_ref_capture.py
+      - scripts/cmux-next/hybrid_ref_capture.py
       - tests/test_cmux_next_dev_release_import_out.py
       - tests/test_xcode_build_timeline.py
       - scripts/ci/xcode_build_timeline.py
@@ -439,6 +441,8 @@ on:
       - tests/test_run_checks_concurrently.py
       - tests/test_cmux_next_release_build_retention.py
       - tests/test_cmux_next_dev_release_host_root.py
+      - tests/test_cmux_next_hybrid_ref_capture.py
+      - scripts/cmux-next/hybrid_ref_capture.py
       - tests/test_cmux_next_dev_release_import_out.py
       - tests/test_xcode_build_timeline.py
       - scripts/ci/xcode_build_timeline.py
@@ -1721,6 +1725,7 @@ jobs:
           python3 tests/test_run_checks_concurrently.py
           python3 tests/test_cmux_next_release_build_retention.py
           python3 tests/test_cmux_next_dev_release_host_root.py
+          python3 tests/test_cmux_next_hybrid_ref_capture.py
           python3 tests/test_cmux_next_dev_release_import_out.py
           python3 tests/test_xcode_build_timeline.py
           python3 tests/test_cmux_next_dev_daily_tree_wait.py
@@ -4503,6 +4508,43 @@ jobs:
           retention-days: 3
 
       # A current feat-cmux-next push also produces the Release app consumed by
+      # The Linux whole-app build plans from the rules of one real Mac build of the same shape
+      # (its REF). With CMUX_NEXT_HYBRID_REF_CAPTURE=1 this compile records them, on a mini only,
+      # when the inputs that change build lines (scripts/cmux-next/hybrid_ref_capture.py key)
+      # have no complete capture yet; most landings share a key and skip it.
+      # tests/test_cmux_next_hybrid_ref_capture.py keeps HYBRID_REF_SETTINGS equal to the compile's.
+      - name: Decide the Linux build's REF capture
+        id: hybrid-ref
+        # A reused product compiles nothing, so its capture step finds no build mode and skips.
+        if: vars.CMUX_NEXT_HYBRID_REF_CAPTURE == '1' && steps.dev-product.outcome == 'success'
+        continue-on-error: true
+        timeout-minutes: 1
+        env:
+          GH_TOKEN: ${{ github.token }}
+          # The compile step's build-line settings, one NAME=VALUE a line (not as env: only the
+          # compile step may carry them).
+          HYBRID_REF_SETTINGS: |
+            CMUX_NEXT_CONFIGURATION=Release
+            CMUX_NEXT_PRODUCT_NAME=cmux NEXT DEV
+            CMUX_NEXT_BUNDLE_ID=com.cmuxterm.app.debug.next
+            CMUX_NEXT_CODE_SIGN_ENTITLEMENTS=cmux.next-dev.entitlements
+            CMUX_NEXT_AUTH_CALLBACK_SCHEME=cmux-next-dev
+            CMUX_NEXT_TUI_MODE=tree
+            CMUX_NEXT_BROWSER_DATA_IMPORT=compiled-out
+            CMUX_NEXT_SWIFT_COMPILATION_MODE=${{ vars.CMUX_NEXT_DEV_SWIFT_COMPILATION_MODE || 'singlefile' }}
+        run: |
+          set -euo pipefail
+          if [[ "$CMUX_NEXT_RUNNER" != glaeda-* ]]; then echo "capture=false" >> "$GITHUB_OUTPUT"; exit 0; fi
+          key="$(python3 -I scripts/cmux-next/hybrid_ref_capture.py key .)"
+          # A complete capture counts while its packs are still readable in the store (14 days from
+          # their upload; the manifest artifact keeps the same 14 days).
+          since="$(date -u -v-13d +%Y-%m-%dT%H:%M:%SZ)"
+          have="$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts?name=hybrid-ref-capture-$key&per_page=100" \
+            --jq "[.artifacts[] | select(.expired == false and .created_at >= \"$since\")] | length")"
+          capture=false
+          [[ "$have" == 0 ]] && capture=true
+          echo "REF key $key: readable complete captures $have, capture $capture"
+          printf 'key=%s\ncapture=%s\n' "$key" "$capture" >> "$GITHUB_OUTPUT"
       # cmux-next-dev-daily.yml. Keep this separate from the Debug dogfood
       # product: the daily channel has its own stable identity and must never
       # replace the existing PR artifact.
@@ -4535,6 +4577,7 @@ jobs:
           CMUX_BUILD_METRICS_SUMMARY: ${{ runner.temp }}/cmux-next-build-metrics/dev-daily/summary.md
           DEV_DAILY_SHA: ${{ inputs.dev_daily_sha || github.sha }}
           REUSED_ARCHIVE: ${{ steps.dev-product.outputs.hit == 'true' && steps.dev-product.outputs.archive || '' }}
+          CMUX_NEXT_EMIT_FRONTEND_COMMAND_LINES: ${{ steps.hybrid-ref.outputs.capture == 'true' && '1' || '' }}
         run: |
           set -euo pipefail
           if [[ -n "$REUSED_ARCHIVE" && -f "$REUSED_ARCHIVE" ]]; then
@@ -4670,6 +4713,63 @@ jobs:
           if-no-files-found: error
           retention-days: 2
           compression-level: 0
+      # Last, so nothing in this job waits for it; bounded so it cannot reach the job's limit or hold
+      # the push compile slot long (a capture is a few minutes, about once a day). Only a host-mode build (one tree and DerivedData
+      # per host, the paths every mini shares) is captured, from the snapshot compile-dev-release.sh
+      # cloned while it held the host lock (another build may own the host tree by now). The packs go to the build fleet's
+      # private store; the manifest artifact names their sizes and sha256 only.
+      - name: Capture the Linux build's REF
+        id: hybrid-ref-capture
+        if: ${{ !cancelled() && steps.hybrid-ref.outputs.capture == 'true' && steps.compile-cmux-next-dev-release.outcome == 'success' && steps.compile-cmux-next-dev-release.outputs.build_mode == 'host' && steps.compile-cmux-next-dev-release.outputs.snapshot != '' }}
+        continue-on-error: true
+        timeout-minutes: 8
+        env:
+          GH_TOKEN: ${{ github.token }}
+          # The compile step's build-line settings, one NAME=VALUE a line (not as env: only the
+          # compile step may carry them).
+          HYBRID_REF_SETTINGS: |
+            CMUX_NEXT_CONFIGURATION=Release
+            CMUX_NEXT_PRODUCT_NAME=cmux NEXT DEV
+            CMUX_NEXT_BUNDLE_ID=com.cmuxterm.app.debug.next
+            CMUX_NEXT_CODE_SIGN_ENTITLEMENTS=cmux.next-dev.entitlements
+            CMUX_NEXT_AUTH_CALLBACK_SCHEME=cmux-next-dev
+            CMUX_NEXT_TUI_MODE=tree
+            CMUX_NEXT_BROWSER_DATA_IMPORT=compiled-out
+            CMUX_NEXT_SWIFT_COMPILATION_MODE=${{ vars.CMUX_NEXT_DEV_SWIFT_COMPILATION_MODE || 'singlefile' }}
+          CMUX_BUILD_METRICS_DIR: ${{ runner.temp }}/cmux-next-build-metrics/dev-daily
+          BUILD_ROOT: ${{ steps.compile-cmux-next-dev-release.outputs.build_root }}
+          DERIVED_DATA: ${{ steps.compile-cmux-next-dev-release.outputs.derived_data }}
+          DEV_DAILY_SHA: ${{ inputs.dev_daily_sha || github.sha }}
+          KEY: ${{ steps.hybrid-ref.outputs.key }}
+          SNAPSHOT: ${{ steps.compile-cmux-next-dev-release.outputs.snapshot }}
+        run: |
+          set -euo pipefail
+          trap 'rm -rf -- "$SNAPSHOT"' EXIT
+          # This job holds the push compile slot and has a 60 minute limit. The capture (8 minutes at
+          # most) and its manifest upload (2) start only while the job, timed from its own start, is
+          # under 40 minutes; an unknown start skips it. A skipped capture is taken by the next landing.
+          started="$(gh api --paginate "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/attempts/$GITHUB_RUN_ATTEMPT/jobs?per_page=100" \
+            --jq '.jobs[] | select(.runner_name == env.RUNNER_NAME and .status == "in_progress") | .started_at' | head -1)" || started=""
+          started="$(date -j -u -f %Y-%m-%dT%H:%M:%SZ "$started" +%s 2>/dev/null)" || started=""
+          if [[ -z "$started" ]] || (( $(date +%s) - started > 40 * 60 )); then
+            echo "::notice::REF capture skipped: the job started ${started:+$(( ($(date +%s) - started) / 60 )) minutes ago}${started:-at an unknown time}"
+            exit 0
+          fi
+          log="$(find "$CMUX_BUILD_METRICS_DIR" -maxdepth 1 -name 'xcodebuild-attempt-*.log' | sort -V | tail -1)"
+          python3 -I scripts/cmux-next/hybrid_ref_capture.py capture --log "$log" --workspace "$BUILD_ROOT" \
+            --derived-data "$DERIVED_DATA" --read-workspace "$SNAPSHOT/src" --read-derived-data "$SNAPSHOT/dd" \
+            --sha "$DEV_DAILY_SHA" --key "$KEY" --run-id "$GITHUB_RUN_ID" \
+            --out "$RUNNER_TEMP/hybrid-ref-capture" --upload
+      - name: Upload the REF capture manifest
+        if: ${{ !cancelled() && steps.hybrid-ref-capture.outputs.manifest != '' }}
+        continue-on-error: true
+        timeout-minutes: 2
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: hybrid-ref-capture-${{ steps.hybrid-ref.outputs.key }}${{ steps.hybrid-ref-capture.outputs.complete != 'true' && format('-incomplete-{0}', github.run_id) || '' }}
+          path: ${{ steps.hybrid-ref-capture.outputs.manifest }}
+          if-no-files-found: error
+          retention-days: 14
 
   # The crash gate runs in cmux-scheme-compile on the app that job built. This
   # job is its check: red when a crash froze the app instead of ending it.
