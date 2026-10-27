@@ -31,6 +31,7 @@ actor AcpmuxLaunchWarm {
 
     func warm(_ sessions: [String], socket: String) async throws {
         var failed: [String] = []
+        var accepted = false
         for session in sessions {
             try Task.checkCancellation()
             var params: [String: any Sendable] = ["sessionIds": [session], "limit": 1]
@@ -40,6 +41,7 @@ actor AcpmuxLaunchWarm {
             }
             do {
                 fences[session] = try await call(socket, params)
+                accepted = true
                 if fences[session] != nil { failed.append(session) }
             } catch {
                 try Task.checkCancellation()
@@ -52,6 +54,6 @@ actor AcpmuxLaunchWarm {
                 }
             }
         }
-        if !failed.isEmpty { throw AgentPaneWarmFailure(sessionIds: failed) }
+        if !failed.isEmpty { throw AgentPaneWarmFailure(sessionIds: failed, accepted: accepted) }
     }
 }

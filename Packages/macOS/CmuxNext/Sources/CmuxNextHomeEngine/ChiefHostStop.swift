@@ -77,7 +77,7 @@ public nonisolated enum ChiefHostStop {
     /// through the RPC and daemon exit so a replacement Chief cannot appear between the check
     /// and shutdown.
     @concurrent public static func endLegacyAcpmuxIfOwned(home: ChiefHome, bundledBin: URL?, waitForShutdown: Bool = false) async -> AcpmuxQuit.EndResult? {
-        guard !home.usesAppAcpmux,
+        guard home.usesAppAcpmux,
               let ownership = ChiefMigration.HostLock(path: home.root.appendingPathComponent("state/host.lock")) else { return nil }
         defer { ownership.release() }
         let environment = AcpmuxEnvironment.resolve(build: nil, bundledBinDirectory: bundledBin,

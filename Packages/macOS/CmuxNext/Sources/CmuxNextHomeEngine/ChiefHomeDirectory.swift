@@ -90,7 +90,12 @@ public actor ChiefHomeDirectory {
         let router = AcpmuxChiefSessionRouter(local: fallback, chief: owned ? own.attaching : own.starting,
                                               chiefEnvironment: own.environment, sessionsHome: home.acpmuxHome, parentTag: tag)
         defer { ownership?.release() }
-        try await router.warm(sessionIds: sessionIds)
+        do {
+            try await router.warm(sessionIds: sessionIds)
+        } catch {
+            if !owned, await own.starting.hasWarmedSessions { launchHomes.insert(host) }
+            throw error
+        }
         if !owned, await own.starting.hasWarmedSessions { launchHomes.insert(host) }
     }
 
