@@ -41,10 +41,12 @@ env:
 jobs:
   cmux-next-daemon-macos-shadow:
     name: cmux_next_ macOS-only daemon tests (shadow)
-    # vars.CI_NEXT_DAEMON_POOL, the Mac pool the gate used to hold, unless
-    # that names the promote pool the Release compile needs; else Blacksmith
-    # macOS. No dispatch runner override: it could name the promote pool.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_NEXT_DAEMON_POOL != '' && vars.CI_NEXT_DAEMON_POOL != vars.CI_NEXT_PROMOTE_POOL && vars.CI_NEXT_DAEMON_POOL || 'blacksmith-6vcpu-macos-15' }}
+    # Blacksmith macOS 15, never an owned pool: main's owned-pool rescue does
+    # not watch this workflow (tests/test_ci_owned_pool_sources.py), and a
+    # shadow that gates nothing takes no owned Mac from the promotion path.
+    # One running and one waiting per ref (concurrency above) bounds its use.
+    # No dispatch runner override: it could name the promote pool.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-6vcpu-macos-15' }}
     timeout-minutes: 60
     env:
       CARGO_NET_RETRY: "10"

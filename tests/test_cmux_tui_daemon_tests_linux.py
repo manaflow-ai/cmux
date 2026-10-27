@@ -120,20 +120,15 @@ class DaemonTestsLinuxTests(unittest.TestCase):
         for test in MAC_ONLY_TESTS:
             self.assertIn(f"--test {test}", run)
 
-    def test_the_shadow_stays_off_the_promote_pool(self) -> None:
+    def test_the_shadow_never_takes_an_owned_pool(self) -> None:
         runs_on = shadow_workflow()["jobs"][SHADOW]["runs-on"]
+        self.assertNotIn("vars.", runs_on)
+        self.assertNotIn("inputs.", runs_on)
         for daemon in ("", DAEMON_LABEL, PROMOTE_LABEL, LIGHT_LABEL, SIDE_LABEL):
             for context in contexts(CI_NEXT_DAEMON_POOL=daemon):
                 label = route(runs_on, context)
-                if context["github.repository_owner"] != "manaflow-ai":
-                    self.assertEqual(label, "macos-26")
-                    continue
-                self.assertNotEqual(label, PROMOTE_LABEL, (daemon, context))
-                if daemon and daemon != PROMOTE_LABEL:
-                    self.assertEqual(label, daemon)
-                else:
-                    self.assertEqual(label, "blacksmith-6vcpu-macos-15")
-
+                expected = "blacksmith-6vcpu-macos-15" if context["github.repository_owner"] == "manaflow-ai" else "macos-26"
+                self.assertEqual(label, expected, (daemon, context))
 
 if __name__ == "__main__":
     unittest.main()
