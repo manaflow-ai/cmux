@@ -751,11 +751,13 @@ mod tests {
         tr.background().request(&json!({"id":"inflight", "method":TERMINATE,
             "params":{"threadId":"thread", "processId":"process"}}));
         assert!(
-            tr.from_client_read(&json!({"id":"queued", "method":"session/new"}), || Ok(Some(file)))
-                .is_empty()
+            tr.handle_client_read(&json!({"id":"queued", "method":"session/new"}), || Ok(Some(
+                file
+            )))
+            .is_empty()
         );
         let out =
-            tr.from_client_read(&json!({"id":"current", "method":"session/new"}), || Ok(None));
+            tr.handle_client_read(&json!({"id":"current", "method":"session/new"}), || Ok(None));
         for id in ["queued", "current", "inflight"] {
             assert!(
                 out.iter().any(|out| matches!(out, Out::Client(v)
@@ -799,7 +801,7 @@ mod tests {
         };
         *tr.auth.lock().unwrap() = AuthGate::from_read(Ok(Some(file.clone())));
         tr.auth.lock().unwrap().login_id = Some(json!("login"));
-        let out = tr.from_client_read(
+        let out = tr.handle_client_read(
             &json!({"method":"session/cancel","params":{"sessionId":"thread"}}),
             || Ok(Some(file)),
         );
