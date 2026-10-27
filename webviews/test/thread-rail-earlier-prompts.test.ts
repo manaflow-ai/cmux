@@ -340,3 +340,82 @@ test("an addressed message whose sender is listed late shows as its message, und
   // Every key holds, so a jump waiting for that turn by key still finds it.
   expect(after.map((tick) => tick.key)).toEqual(before.map((tick) => tick.key));
 });
+
+test("a continuation split by maxBytes pages does not become another turn", async () => {
+  const idle = manualIdle();
+  const pages: PromptPage[] = [
+    {
+      events: [
+        { seq: 7, kind: "queue_order", dir: "mux", msg: { promptId: "p-cont", next: true } },
+        { seq: 8, kind: "turn_result", dir: "mux", msg: { promptId: "p-root", status: "cancelled" } },
+        { seq: 9, kind: "user_message", dir: "mux", msg: { promptId: "p-cont", text: "a".repeat(100 * 1024) } },
+      ],
+      hasMore: true,
+    },
+    {
+      events: [
+        { seq: 4, kind: "queue_order", dir: "mux", msg: { promptId: "p-cont", next: true } },
+        { seq: 5, kind: "turn_result", dir: "mux", msg: { promptId: "p-root", status: "cancelled" } },
+      ],
+      hasMore: true,
+    },
+    {
+      events: [{ seq: 1, kind: "user_message", dir: "mux", msg: { promptId: "p-root", text: "root" } }],
+      hasMore: false,
+    },
+  ];
+  const earlier = new EarlierPrompts(
+    async () => pages.shift() ?? { events: [], hasMore: false },
+    (record) => ({
+      id: `user-${record.seq}`,
+      version: 1,
+      at: record.seq,
+      kind: "user",
+      text: record.msg?.text,
+      promptId: record.msg?.promptId,
+    }),
+    () => {},
+    idle,
+  );
+  earlier.start("s", 10);
+  while (idle.queue.length) {
+    idle.queue.shift()!();
+    await flush();
+  }
+  expect(earlier.shown(10).map((row) => row.promptId)).toEqual(["p-root"]);
+});
+
+test("a failed page publishes rows accumulated since the last notification", async () => {
+  const idle = manualIdle();
+  let reads = 0;
+  let changes = 0;
+  const earlier = new EarlierPrompts(
+    async () => {
+      reads++;
+      if (reads > 4) throw new Error("stop");
+      const first = (5 - reads) * 400 + 1;
+      return {
+        events: Array.from({ length: 400 }, (_, index) => ({
+          seq: first + index,
+          kind: "user_message",
+          dir: "mux",
+          msg: { promptId: `p-${first + index}`, text: `Question ${first + index}` },
+        })),
+        hasMore: true,
+      };
+    },
+    toRow,
+    () => {
+      changes++;
+    },
+    idle,
+  );
+  earlier.start("s", 10_000);
+  while (idle.queue.length) {
+    idle.queue.shift()!();
+    await flush();
+  }
+  expect(earlier.loading).toBe(false);
+  expect(earlier.shown(10_000)).toHaveLength(1_600);
+  expect(changes).toBe(4);
+});

@@ -57,12 +57,19 @@ const idle: Idle = {
 /// `user_message` and `turn_result` cases): a steer never does (`msg.steer`); nor does a prompt sent
 /// now (`queue_order` with `next` while a turn ran) once the turn it stopped ended without failing
 /// before it ran (`continues`, turnStart.ts). A prompt removed or refused meanwhile, or another one
-/// opening a turn first, ends that. Fed whole turns from an opener on, so each page starts clean;
-/// what a page leaves open (`continued`) names the first prompt of the page read before it.
+/// opening a turn first, ends that. A page may start inside a turn because its opener is in an
+/// older page; `continued` then names the first prompt of the page read before it.
 export class TurnStarts {
-  private open = false;
+  // A page can begin in the middle of a turn: the opener is in an older page, while this page
+  // carries its queue cancellation and continuation. Treat that omitted prefix as open until the
+  // page proves otherwise, so the continuation state survives a maxBytes boundary.
+  private open: boolean;
   private interrupting?: string;
   continued?: string;
+
+  constructor(open = false) {
+    this.open = open;
+  }
 
   /// Whether `record` is a prompt that opens a turn.
   opens(record: PromptRecord): boolean {
@@ -203,19 +210,24 @@ export class EarlierPrompts {
     try {
       page = await this.read(sessionId, this.before);
     } catch {
-      if (run === this.run) this.done = true;
+      if (run === this.run) {
+        this.done = true;
+        // A failed page is a terminal stop too: publish rows accumulated since the last batch.
+        if (this.count !== this.told) {
+          this.told = this.count;
+          this.changed();
+        }
+      }
       return;
     }
     if (run !== this.run) return;
     this.pages += 1;
     let records = page.events.filter((event) => event.seq < this.before).sort((a, b) => a.seq - b.seq);
     const more = page.hasMore && records.length > 0;
-    // Whole turns only: records before the page's first prompt belong to a turn the next page reads.
-    const starts = new TurnStarts();
-    if (more) {
-      const first = records.findIndex((record) => record.kind === "user_message" && record.msg?.steer !== true);
-      if (first > 0) records = records.slice(first);
-    }
+    // Whole turns only: a page can begin with records belonging to a turn whose opener the next
+    // older page reads. Do not discard that prefix: it can be the queue cancellation that proves the
+    // first prompt in this page is a continuation, and the opener may be in the next older page.
+    const starts = new TurnStarts(true);
     const opening: PromptRecord[] = [];
     for (const record of records) if (starts.opens(record)) opening.push(record);
     let changed = false;
