@@ -1,7 +1,7 @@
 import AppKit
 import CmuxNextActions
 import CmuxNextBrowser
-import CmuxNextCompat
+import CmuxNextCompatAppKit
 import CmuxNextWakeups
 
 extension BrowserHitHandlers {

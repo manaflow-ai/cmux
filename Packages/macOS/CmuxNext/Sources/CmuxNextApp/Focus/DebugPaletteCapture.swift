@@ -1,6 +1,6 @@
 #if DEBUG || CMUX_BENCH_HOOKS
 import AppKit
-import CmuxNextCompat
+import CmuxNextCompatAppKit
 import CmuxNextDesign
 import CmuxNextSettings
 import CmuxNextWakeups

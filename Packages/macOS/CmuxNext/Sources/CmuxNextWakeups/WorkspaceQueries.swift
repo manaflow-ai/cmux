@@ -1,5 +1,5 @@
 public import AppKit
-public import CmuxNextCompat
+public import CmuxNextCompatAppKit
 public import UniformTypeIdentifiers
 
 /// One Launch Services or icon question ``WorkspaceQueries`` answers and keeps: its key, whether a kept answer goes

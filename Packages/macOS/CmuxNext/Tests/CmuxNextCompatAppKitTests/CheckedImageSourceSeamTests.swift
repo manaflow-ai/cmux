@@ -1,5 +1,6 @@
 import AppKit
 @testable import CmuxNextCompat
+import CmuxNextCompatAppKit
 import CoreGraphics
 import Foundation
 import ImageIO

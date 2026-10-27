@@ -1,6 +1,6 @@
 import AppKit
 import GhosttyNextKit
-import CmuxNextCompat
+import CmuxNextCompatAppKit
 
 /// Routes decoded actions on the main actor.
 enum GhosttyActionDispatcher {

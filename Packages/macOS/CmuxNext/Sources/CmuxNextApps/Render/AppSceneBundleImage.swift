@@ -1,5 +1,5 @@
 import AppKit
-public import CmuxNextCompat
+public import CmuxNextCompatAppKit
 import SwiftUI
 
 /// `Image(src)`: a file inside the app bundle (never the network).

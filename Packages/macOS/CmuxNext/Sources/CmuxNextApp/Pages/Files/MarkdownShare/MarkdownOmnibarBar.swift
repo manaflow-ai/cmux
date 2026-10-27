@@ -1,6 +1,6 @@
 import AppKit
 import CmuxNextBrowser
-import CmuxNextCompat
+import CmuxNextCompatAppKit
 import CmuxNextWakeups
 
 /// What the Markdown omnibar asks of its tab's owner (``FilePageService``).

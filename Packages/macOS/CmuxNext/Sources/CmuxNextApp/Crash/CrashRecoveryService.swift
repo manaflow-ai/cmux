@@ -2,7 +2,7 @@ import AppKit
 import CmuxNextBrowser
 import Foundation
 import os
-import CmuxNextCompat
+import CmuxNextCompatAppKit
 import CmuxNextCrashReporting
 import CmuxNextDesign
 import CmuxNextWakeups

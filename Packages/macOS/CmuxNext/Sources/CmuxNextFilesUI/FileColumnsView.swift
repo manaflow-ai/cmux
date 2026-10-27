@@ -1,5 +1,5 @@
 import AppKit
-import CmuxNextCompat
+import CmuxNextCompatAppKit
 import CmuxNextFiles
 
 /// The column layout: Miller columns over `NSBrowser`, one column per folder

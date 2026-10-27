@@ -1906,7 +1906,7 @@ RULES = (
          "`item(atRow:`, `selectedRow(inColumn:`)",
          "they are -1 when a click lands off the rows or nothing is selected, and past the end after a reload; "
          "AppKit raises NSRangeException for such an index and the app ends (#24776, NSBrowser itemAtRow:inColumn:)",
-         "CmuxNextCompat's checked accessors: `table.clickedRowIfValid` / `selectedRowIfValid`, "
+         "CmuxNextCompatAppKit's checked accessors: `table.clickedRowIfValid` / `selectedRowIfValid`, "
          "`browser.clickedItemIfValid` / `selectedItemIfValid` / `item(ifValidRow:inColumn:)`; still check the row "
          "against the model array you index",
          "// index-allow: <why the index is valid here>",
@@ -3167,7 +3167,8 @@ PACKAGE_MANIFEST = "Packages/macOS/CmuxNext/Package.swift"
 # The seams themselves (and Mutex, which reports contended waits) wrap the raw primitives on purpose, as does
 # CmuxThreading, the leaf that gives the linked Shared/iOS packages their `blockingCall` seam and Mutex.
 THREADING_LEAF = "Packages/Shared/CmuxThreading/"
-BLOCKING_SEAMS = (SOURCES + "CmuxNextCompat/Threading/", SOURCES + "CmuxNextCompat/Mutex.swift", THREADING_LEAF)
+BLOCKING_SEAMS = (SOURCES + "CmuxNextCompat/Threading/", SOURCES + "CmuxNextCompatAppKit/Threading/",
+                  SOURCES + "CmuxNextCompat/Mutex.swift", THREADING_LEAF)
 BLOCKING_ALLOW = re.compile(r"//\s*blocking-allow:\s*\S")
 FILE_OPS = (r"fileExists|isReadableFile|isWritableFile|isExecutableFile|createDirectory|removeItem|contentsOfDirectory|"
             r"subpathsOfDirectory|enumerator|createFile|contents|contentsEqual|attributesOfItem|attributesOfFileSystem|"

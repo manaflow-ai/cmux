@@ -1,7 +1,7 @@
 import AppKit
 import CmuxNextAgentActivity
 import CmuxNextBrowser
-import CmuxNextCompat
+import CmuxNextCompatAppKit
 import CmuxNextIcons
 import CmuxNextControl
 import CmuxNextPages

@@ -1,4 +1,5 @@
 public import AppKit
+import CmuxNextCompat
 
 /// The app's one observer of `NSMenu`'s begin and end of tracking (the menu bar, a context or a
 /// pop-up menu): whether a menu tracks now, which one, and a fan-out of the ends to its subscribers.

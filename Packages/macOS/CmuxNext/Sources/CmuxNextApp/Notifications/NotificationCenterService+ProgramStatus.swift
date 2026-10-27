@@ -1,6 +1,6 @@
 import AppKit
 import CmuxNextBridge
-import CmuxNextCompat
+import CmuxNextCompatAppKit
 import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextSettings

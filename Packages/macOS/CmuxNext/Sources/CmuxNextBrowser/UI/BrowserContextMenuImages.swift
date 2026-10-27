@@ -1,5 +1,5 @@
 import AppKit
-import CmuxNextCompat
+import CmuxNextCompatAppKit
 import CmuxNextDesign
 
 // memory: fixed: one entry per menu icon: the SF Symbol names of the page menu (a fixed catalog;

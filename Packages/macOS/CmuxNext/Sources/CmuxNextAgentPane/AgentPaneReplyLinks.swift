@@ -1,7 +1,7 @@
 public import AppKit
 public import CmuxNextSettings
 public import Foundation
-import CmuxNextCompat
+import CmuxNextCompatAppKit
 public import CmuxNextRemoteFetch
 public import CmuxNextWakeups
 import class CmuxSafeConcurrency.OnceContinuation

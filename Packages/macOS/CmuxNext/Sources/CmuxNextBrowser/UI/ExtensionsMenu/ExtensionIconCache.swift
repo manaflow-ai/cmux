@@ -1,5 +1,5 @@
 import AppKit
-import CmuxNextCompat
+import CmuxNextCompatAppKit
 import CmuxNextIcons
 
 // memory: fixed: one entry per installed extension listed in the bubble (its icon path; an update

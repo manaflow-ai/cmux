@@ -1,6 +1,6 @@
 import AppKit
 import CmuxNextAgentPane
-import CmuxNextCompat
+import CmuxNextCompatAppKit
 import CmuxNextControl
 import CmuxNextHibernation
 import CmuxNextWakeups

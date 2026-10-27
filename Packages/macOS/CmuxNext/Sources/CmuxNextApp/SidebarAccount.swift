@@ -1,7 +1,7 @@
 import AppKit
 import CmuxNextActions
 import CmuxNextCloud
-import CmuxNextCompat
+import CmuxNextCompatAppKit
 import CmuxNextSidebar
 import CmuxNextWakeups
 import Foundation

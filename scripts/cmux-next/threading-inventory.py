@@ -1194,7 +1194,8 @@ QUEUE_RULES = {  # p02-threads.md section 6: the inventory rule behind each mach
     "MQ-5": "task-priority", "MQ-8": "sync-inversion", "MQ-9": "thread-doc", "MQ-16": "raw-blocking-ext",
     "MQ-18": "cpu-intensive", "MQ-19": "awaited-low-priority", "MQ-22": "once-blocking",
 }
-MQ7_EXCLUDE = ("*/CmuxNextCompat/Threading/*", "*/CmuxNextCompat/NSWorkspace+Background.swift")
+MQ7_EXCLUDE = ("*/CmuxNextCompat/Threading/*", "*/CmuxNextCompatAppKit/Threading/*",
+               "*/CmuxNextCompatAppKit/NSWorkspace+Background.swift")
 
 
 @dataclass(frozen=True)

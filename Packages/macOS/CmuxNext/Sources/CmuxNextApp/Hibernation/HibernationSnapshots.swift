@@ -1,4 +1,4 @@
-import CmuxNextCompat
+import CmuxNextCompatAppKit
 import CmuxNextMemory
 import CoreGraphics
 import Foundation

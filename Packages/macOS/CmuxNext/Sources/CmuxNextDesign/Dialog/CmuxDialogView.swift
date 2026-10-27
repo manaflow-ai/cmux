@@ -1,5 +1,5 @@
 public import AppKit
-import CmuxNextCompat
+import CmuxNextCompatAppKit
 public import CmuxNextDesignTokens
 
 /// The one cmux dialog view: an overlay panel (Liquid Glass, opaque under

@@ -1,6 +1,6 @@
 import AppKit
 @testable import CmuxNextApp
-import CmuxNextCompat
+import CmuxNextCompatAppKit
 import Darwin
 import Foundation
 import Testing

@@ -1,4 +1,4 @@
-import CmuxNextCompat
+import CmuxNextCompatAppKit
 import CoreGraphics
 
 /// Hover card thumbnails of browser pages (R131): a page snapshot is the

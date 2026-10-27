@@ -165,7 +165,7 @@ extension PropertyListSerialization {
 ///   - encoded: The encoded image's size in bytes.
 /// - Returns: The larger of the decoded and the encoded size, `Int.max` when the product overflows.
 @usableFromInline
-func decodedImageBytes(_ source: CGImageSource, at index: Int, encoded: Int) -> Int {
+package func decodedImageBytes(_ source: CGImageSource, at index: Int, encoded: Int) -> Int {
     guard let properties = CGImageSourceCopyPropertiesAtIndex(source, index, nil) as? [CFString: Any],
           let width = properties[kCGImagePropertyPixelWidth] as? Int,
           let height = properties[kCGImagePropertyPixelHeight] as? Int else { return encoded }

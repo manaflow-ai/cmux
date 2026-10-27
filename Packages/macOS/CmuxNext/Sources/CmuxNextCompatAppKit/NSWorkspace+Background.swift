@@ -30,6 +30,7 @@ extension NSWorkspace {
     /// Opens `urls` with the app at `app`, bringing it to the front.
     public func openInBackground(_ urls: [URL], withApplicationAt app: URL) {
         inBackground { workspace in
+            // concurrency-allow: inBackground runs this body on the com.cmuxterm.next.workspace-open queue, never on the main thread.
             workspace.open(urls, withApplicationAt: app, configuration: NSWorkspace.OpenConfiguration())
         }
     }
@@ -39,6 +40,7 @@ extension NSWorkspace {
     public func openedInBackground(_ urls: [URL], withApplicationAt app: URL) async -> Bool {
         (try? await withOnceContinuation { (continuation: OnceContinuation<Bool, OnceContinuationError>) in
             inBackground { workspace in
+                // concurrency-allow: inBackground runs this body on the com.cmuxterm.next.workspace-open queue, never on the main thread.
                 workspace.open(urls, withApplicationAt: app, configuration: NSWorkspace.OpenConfiguration()) { _, error in
                     continuation.resume(returning: error == nil)
                 }
@@ -49,6 +51,7 @@ extension NSWorkspace {
     /// Selects `urls` in a Finder window.
     public func revealInBackground(_ urls: [URL]) {
         inBackground { workspace in
+            // concurrency-allow: inBackground runs this body on the com.cmuxterm.next.workspace-open queue, never on the main thread.
             workspace.activateFileViewerSelecting(urls)
         }
     }

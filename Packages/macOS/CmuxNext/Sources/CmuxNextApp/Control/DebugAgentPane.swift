@@ -2,7 +2,7 @@
 import AppKit
 import CmuxNextActions
 import CmuxNextAgentPane
-import CmuxNextCompat
+import CmuxNextCompatAppKit
 import CmuxNextPages
 import CmuxNextResources
 import CmuxNextSettings

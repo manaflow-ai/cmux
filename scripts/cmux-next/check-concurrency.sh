@@ -63,7 +63,7 @@
 #               crash-class-gate.sh --pr counts a PR that changes that file.
 #   workspace opens: `NSWorkspace.shared.open(url)` and the Finder reveal
 #               calls block the main thread in LaunchServices (cx-050n); only
-#               CmuxNextCompat/NSWorkspace+Background.swift makes them.
+#               CmuxNextCompatAppKit/NSWorkspace+Background.swift makes them.
 #   CHECK_CONCURRENCY_ONLY=crash-class runs only the isolated-deinit,
 #               generic-class deinit, task-local and workspace-open rules; CI
 #               blocks on it.
@@ -213,7 +213,7 @@ WORKSPACE_SYNC = re.compile(
     r"|\.open\([^\n]*\bwithApplicationAt:[^\n]*\bconfiguration:"
     r"|\.open\([^\n]*NSWorkspace\.OpenConfiguration\("
     r"|\b\w*[Ww]orkspace[?!]?\.open\([^\n]*\bconfiguration:")
-WORKSPACE_HELPER = "CmuxNextCompat/NSWorkspace+Background.swift"
+WORKSPACE_HELPER = "CmuxNextCompatAppKit/NSWorkspace+Background.swift"
 ALLOW = re.compile(r"//\s*concurrency-allow:\s*\S")
 COMMENT_ONLY = re.compile(r"^\s*(//|\*|/\*)")
 

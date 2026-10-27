@@ -1,5 +1,5 @@
 import AppKit
-import CmuxNextCompat
+import CmuxNextCompatAppKit
 import Observation
 
 // memory: fixed keys are the import cards' apps: the browsers of `ImportBrowser` and the five

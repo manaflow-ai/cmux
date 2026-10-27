@@ -6,6 +6,7 @@ import CmuxNextActions
 #else
 import CmuxNextCompat
 #endif
+import CmuxNextCompatAppKit
 import CmuxNextFiles
 import CmuxNextFilesUI
 import CmuxNextPages

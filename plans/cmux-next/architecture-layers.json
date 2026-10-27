@@ -4,6 +4,7 @@
   "targets": {
     "CCmuxAppFFI": {"layer": "core"},
     "CmuxNextCompat": {"layer": "core"},
+    "CmuxNextCompatAppKit": {"layer": "core", "note": "Compat's AppKit and QuartzCore helpers (p15-oracle-121): background opens and reveals, checked NSWorkspace queries, checked table and browser rows, CATransaction completion, menu tracking, the commit display hook, terminate; it keeps CmuxNextCompat free of UI frameworks for the Linux tier"},
     "CmuxNextWakeups": {"layer": "core"},
     "CmuxNextWakeupsTestSupport": {"layer": "core"},
     "CmuxNextInputCoreTestSupport": {"layer": "core", "note": "FakeInputTap, the one test InputObserving; test targets only"},

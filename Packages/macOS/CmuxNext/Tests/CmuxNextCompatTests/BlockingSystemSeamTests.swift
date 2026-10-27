@@ -1,4 +1,3 @@
-import AppKit
 import ApplicationServices
 @testable import CmuxNextCompat
 import Darwin
@@ -6,11 +5,11 @@ import Foundation
 import Security
 import ServiceManagement
 import Testing
-import UniformTypeIdentifiers
 
 /// The checked seams over synchronous system calls (Security, Accessibility, host resolution, window
-/// lists and captures, NSWorkspace queries, SMAppService): on the main thread each one records exactly one
-/// site at its caller's line with its kind; on a named serial queue none records. Each test binds its own
+/// lists and captures, SMAppService): on the main thread each one records exactly one site at its caller's
+/// line with its kind; on a named serial queue none records. The NSWorkspace queries are in
+/// CmuxNextCompatAppKitTests (WorkspaceBlockingSeamTests). Each test binds its own
 /// table (``BlockingViolationTable/scoped``). The calls are chosen to change nothing on the host: the
 /// keychain calls name an access group no test runner is entitled to, so securityd refuses the add
 /// (`errSecMissingEntitlement`) and nothing is written; the AX calls go to this process's own element, with
@@ -34,7 +33,7 @@ struct BlockingSystemSeamTests {
         let expected = try BlockingViolationTable.$scoped.withValue(table) { try callEachSystemSeam() }
         await table.flush()
 
-        #expect(expected.count == 28)
+        #expect(expected.count == 21)
         #expect(Set(expected.map(\.location)).count == expected.count)
         #expect(BlockingDetector(table: table).sites == expected)
     }
@@ -45,7 +44,7 @@ struct BlockingSystemSeamTests {
         await table.flush()
 
         #expect(!onMain)
-        #expect(called == 28)
+        #expect(called == 21)
         #expect(BlockingDetector(table: table).sites.isEmpty)
     }
     #endif
@@ -122,16 +121,6 @@ private nonisolated func callEachSystemSeam() throws -> [BlockingSite] {
     seam(.systemCall) { _ = blockingWindowListCopyWindowInfo(.optionOnScreenOnly, kCGNullWindowID) }
     seam(.systemCall) { _ = blockingWindowListCreateImage(.null, .optionIncludingWindow, kCGNullWindowID, []) }
     seam(.systemCall) { _ = blockingWindowListCreateImageFromArray(.null, [], []) }
-
-    let workspace = NSWorkspace.shared
-    let hosts = URL(fileURLWithPath: "/etc/hosts")
-    seam(.systemCall) { _ = workspace.blockingURLForApplication(withBundleIdentifier: "com.apple.finder") }
-    seam(.systemCall) { _ = workspace.blockingURLForApplication(toOpen: hosts) }
-    seam(.systemCall) { _ = workspace.blockingURLForApplication(toOpen: UTType.plainText) }
-    seam(.systemCall) { _ = workspace.blockingURLsForApplications(toOpen: hosts) }
-    seam(.systemCall) { _ = workspace.blockingURLsForApplications(toOpen: UTType.plainText) }
-    seam(.systemCall) { _ = workspace.blockingIcon(forFile: hosts.path) }
-    seam(.systemCall) { _ = workspace.blockingIcon(for: UTType.plainText) }
 
     let missingAgent = SMAppService.agent(plistName: "com.cmuxterm.tests.blocking-seam.plist")
     seam(.ipcReply) { _ = blockingSMAppServiceStatus(missingAgent) }

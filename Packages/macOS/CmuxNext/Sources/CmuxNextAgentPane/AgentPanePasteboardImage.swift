@@ -1,5 +1,5 @@
 import AppKit
-import CmuxNextCompat
+import CmuxNextCompatAppKit
 import UniformTypeIdentifiers
 
 /// An image file's bytes as a Copy or a drag out of an agent chat puts them on the pasteboard: the file's own

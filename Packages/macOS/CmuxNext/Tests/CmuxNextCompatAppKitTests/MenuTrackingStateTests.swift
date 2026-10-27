@@ -1,5 +1,5 @@
 import AppKit
-import CmuxNextCompat
+import CmuxNextCompatAppKit
 import Testing
 
 /// Menu tracking comes from NSMenu's own notices (p06-scheduler-050): a window drag or a live

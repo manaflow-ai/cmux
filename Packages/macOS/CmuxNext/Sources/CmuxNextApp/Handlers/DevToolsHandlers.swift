@@ -1,7 +1,7 @@
 import AppKit
 import CmuxNextActions
 import CmuxNextBrowser
-import CmuxNextCompat
+import CmuxNextCompatAppKit
 import CmuxNextDaemonService
 import CmuxNextWakeups
 import WebKit

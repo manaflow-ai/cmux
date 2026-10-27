@@ -1,4 +1,5 @@
 public import AppKit
+public import CmuxNextCompat
 public import Foundation
 public import ImageIO
 

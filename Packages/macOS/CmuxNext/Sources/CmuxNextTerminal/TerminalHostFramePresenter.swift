@@ -1,4 +1,4 @@
-import CmuxNextCompat
+import CmuxNextCompatAppKit
 import CoreGraphics
 import GhosttyNextKit
 import QuartzCore
