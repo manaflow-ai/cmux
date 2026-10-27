@@ -759,9 +759,8 @@ with tempfile.TemporaryDirectory() as tmp:
     rc, _ = run_appcast(write_archive("102", base64.b64encode(os.urandom(32)).decode()))
     check(rc != 0, "an app that trusts another key gets no appcast")
 
-# Leo, 2026-10-24: "the linux built ones the ones we send to apple we wanna make sure it's byte
-# perfect". The DMG signer is rcodesign 0.29.0 from its pinned crate plus our patch, built
-# without secrets alongside sign; tip-dmg runs only the binary whose sha256 that job reported.
+# The DMG signer is built without secrets alongside sign; tip-dmg runs only the binary whose
+# sha256 that job reported.
 signer_job = jobs["rcodesign-dmg"]
 check("environment" not in signer_job and "secrets." not in json.dumps(signer_job)
       and signer_job["permissions"] == {"contents": "read"} and "concurrency" not in signer_job
@@ -787,14 +786,14 @@ check("CRATE_SHA256=f24e9ebdb70a2aee3ca1cea217009fb50776955f0d7678c31d22e48c1524
       "the signer builds the pinned crate with its own lock file and our patch")
 patch_text = (ROOT / "scripts/ci/rcodesign-0.29.0-dmg.patch").read_text()
 check("+++ b/src/dmg.rs" in patch_text and "team_name" in patch_text and "derive_designated_requirements" in patch_text
-      and "0x20200" in patch_text, "the patch adds the team, the 0x20200 Code Directory and the designated requirement")
+      and "0x20200" in patch_text, "the DMG signer patch is the one the build applies")
 dmg_signer = (ROOT / "scripts/ci/rcodesign-notarize-dmg-dev.sh").read_text()
 dmg_signer_code = "\n".join(line for line in dmg_signer.splitlines() if not line.lstrip().startswith("#"))
 check('[[ "$team" == 7WLXT3NR37 ]]' in dmg_signer_code and "--for-notarization" not in dmg_signer_code and "--timestamp-url http://timestamp.apple.com/ts01" in dmg_signer_code,
-      "the DMG gets codesign's flags (none) and Apple's time stamp")
+      "the DMG is signed with Apple's time stamp")
 check(all(want in dmg_signer_code for want in ("version: '0x20200'", "flags: CodeSignatureFlags(0x0)", "team_name: $team",
                                                 "(certificate leaf[subject.OU] = \\\"$team\\\")")),
-      "the DMG signature is refused unless it has codesign's version, flags, team and designated requirement")
+      "the DMG signature is checked before notarization")
 
 if failures:
     for failure in failures:

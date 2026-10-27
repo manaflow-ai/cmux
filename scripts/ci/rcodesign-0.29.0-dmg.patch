@@ -1,6 +1,4 @@
-rcodesign 0.29.0: sign a DMG the way codesign does (team identifier, 0x20200 Code
-Directory, designated requirement derived from the signing certificate).
-Upstream: https://github.com/indygreg/apple-platform-rs/issues/370
+The DMG signer patch for the apple-codesign 0.29.0 crate.
 Applied by scripts/ci/build-rcodesign-dmg.sh with patch -p1 in the crate root.
 
 --- a/src/dmg.rs

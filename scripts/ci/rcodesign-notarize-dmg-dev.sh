@@ -3,20 +3,11 @@
 #
 #   scripts/ci/rcodesign-notarize-dmg-dev.sh <dmg-path>
 #
-# The Linux half of the tip DMG (cmux-next-dev-daily.yml, job tip-dmg): a Mac
-# builds the unsigned DMG (hdiutil has no Linux equivalent for ULMO), and this
-# signs it with rcodesign 0.29.0 plus scripts/ci/rcodesign-0.29.0-dmg.patch
-# (scripts/ci/build-rcodesign-dmg.sh), makes Apple's notary service accept it,
-# and staples the ticket. It replaces codesign --force --timestamp, notarytool
-# submit/wait and stapler staple.
-#
-# The signature is codesign's (Leo, 2026-10-24: "the linux built ones the ones
-# we send to apple we wanna make sure it's byte perfect"): the patched signer
-# writes the 0x20200 Code Directory with the certificate's team and the
-# Developer ID designated requirement, with no flags (codesign sets none on a
-# DMG; --for-notarization would add the hardened runtime flag, so the time
-# stamp is asked for directly). The step after signing refuses a signature
-# whose team, requirement, version or flags differ from that.
+# Signs, notarizes and staples the DEV tip DMG on Linux (cmux-next-dev-daily.yml,
+# job tip-dmg). A Mac builds the unsigned DMG; this signs it with the DMG
+# signer from scripts/ci/build-rcodesign-dmg.sh, has Apple's notary service
+# accept it, and staples the ticket. It refuses to go on if the signature is
+# not the expected Developer ID signature.
 #
 # Env: APPLE_CERTIFICATE_BASE64 and APPLE_CERTIFICATE_PASSWORD (the PKCS#12),
 # APPLE_SIGNING_IDENTITY (the certificate must match it, as in
@@ -75,7 +66,7 @@ echo "==> signing ${DMG##*/} as $cn"
   --timestamp-url http://timestamp.apple.com/ts01 "$DMG"
 rm -f "$secrets/identity.pem"
 
-# What codesign writes for a Developer ID DMG (scripts/ci/build-rcodesign-dmg.sh).
+# The expected Developer ID signature.
 ident="$(basename "$DMG" .dmg)"
 info="$("$R" print-signature-info "$DMG")"
 want_dr="designated(3): 0: (identifier \"$ident\") and ((anchor apple generic) and ((certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */) and ((certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */) and (certificate leaf[subject.OU] = \"$team\"))));"
