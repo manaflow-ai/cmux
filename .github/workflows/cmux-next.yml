@@ -2157,6 +2157,24 @@ jobs:
           key: cmux-next-web-bundles-v1-${{ steps.web-bundle-key.outputs.key }}
           enableCrossOsArchive: true
 
+      # The minis cannot read this cache: on Blacksmith it is Blacksmith's own
+      # cache, which a self-hosted Mac never sees (2026-10-26: swift test rebuilt
+      # the bundles on 14 of 25 sampled jobs, generated files on 12 of 44, 40 s
+      # of Mac time each). So a run that does not publish them to R2 (every
+      # event but a feat-cmux-next push) also hands them to its own Mac jobs as
+      # an artifact named after the source key; a Mac job whose sources give
+      # the same key installs it instead of building.
+      - name: Hand the web bundles to this run's Mac jobs
+        if: ${{ !(github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next') }}
+        continue-on-error: true
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cmux-next-web-bundles-${{ steps.web-bundle-key.outputs.key }}
+          path: web-bundles-out
+          if-no-files-found: error
+          retention-days: 1
+          overwrite: true
+
       # The Mac jobs read the bundles from R2's CDN first: the minis download
       # them from there much faster than from the GitHub cache, and every
       # pull request whose web sources match feat-cmux-next's hits. The `any`
@@ -2911,6 +2929,7 @@ jobs:
             --extra "xcode_app=$CMUX_CI_XCODE_APP" \
             --extra "swift_targets=$SWIFT_TARGETS" \
             --extra "swift_filter=$SWIFT_FILTER" \
+            --extra "layout_reducer=${{ !(github.event_name == 'pull_request' && github.base_ref == 'feat-cmux-next') }}" \
             --extra "web_bundles=$(python3 scripts/cmux-next/web-bundle-key.py . --source)" >> "$GITHUB_OUTPUT"
 
       - name: Look for a pass on the same inputs
@@ -2939,17 +2958,21 @@ jobs:
         continue-on-error: true
         run: python3 scripts/ci/owned_spm_scratch.py link "$GITHUB_WORKSPACE"
 
+      # The sidebar layout reducer's cargo tests run in fast-tier-cargo on Linux
+      # (fast-tier.json "sidebar layout reducer") on every feat-cmux-next pull
+      # request and push, so this Mac job runs them only on the events of its own
+      # that fast-tier-cargo does not take: a dispatch or a main push (2026-10-26).
       - name: Set up pinned cmux-tui Rust (sidebar layout reducer)
-        if: ${{ steps.reuse.outputs.hit != 'true' }}
+        if: ${{ !(github.event_name == 'pull_request' && github.base_ref == 'feat-cmux-next') && steps.reuse.outputs.hit != 'true' }}
         uses: ./.github/actions/setup-cmux-tui-rust
 
       - name: Install Rust targets (sidebar layout reducer)
-        if: ${{ steps.reuse.outputs.hit != 'true' }}
+        if: ${{ !(github.event_name == 'pull_request' && github.base_ref == 'feat-cmux-next') && steps.reuse.outputs.hit != 'true' }}
         working-directory: cmux-tui
         run: rustup target add aarch64-apple-darwin x86_64-apple-darwin
 
       - name: Test sidebar layout reducer
-        if: ${{ steps.reuse.outputs.hit != 'true' }}
+        if: ${{ !(github.event_name == 'pull_request' && github.base_ref == 'feat-cmux-next') && steps.reuse.outputs.hit != 'true' }}
         working-directory: cmux-tui
         run: cargo test -p cmux-layout-reducer --locked
 
@@ -3018,12 +3041,21 @@ jobs:
           key: cmux-next-web-bundles-v1-${{ steps.web-bundle-key.outputs.key }}
           enableCrossOsArchive: true
 
+      - name: Download the web bundles this run's Linux job built
+        id: web-bundle-artifact
+        if: ${{ ((steps.web-bundle-r2.outputs.cache-hit != 'true' && steps.web-bundle-cache.outputs.cache-hit != 'true') && steps.reuse.outputs.hit != 'true') && needs.web-bundles.result == 'success' }}
+        continue-on-error: true
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: cmux-next-web-bundles-${{ steps.web-bundle-key.outputs.key }}
+          path: web-bundles-out
+
       - name: Install the restored web bundles
-        if: ${{ (steps.web-bundle-r2.outputs.cache-hit == 'true' || steps.web-bundle-cache.outputs.cache-hit == 'true') && steps.reuse.outputs.hit != 'true' }}
+        if: ${{ (steps.web-bundle-r2.outputs.cache-hit == 'true' || steps.web-bundle-cache.outputs.cache-hit == 'true' || steps.web-bundle-artifact.outcome == 'success') && steps.reuse.outputs.hit != 'true' }}
         run: scripts/cmux-next/build-web-bundles.sh --from web-bundles-out
 
       - name: Build the web bundles
-        if: ${{ (steps.web-bundle-r2.outputs.cache-hit != 'true' && steps.web-bundle-cache.outputs.cache-hit != 'true') && steps.reuse.outputs.hit != 'true' }}
+        if: ${{ (steps.web-bundle-r2.outputs.cache-hit != 'true' && steps.web-bundle-cache.outputs.cache-hit != 'true' && steps.web-bundle-artifact.outcome != 'success') && steps.reuse.outputs.hit != 'true' }}
         run: scripts/cmux-next/build-web-bundles.sh
 
       - name: Build package and tests
@@ -3350,12 +3382,21 @@ jobs:
           key: cmux-next-web-bundles-v1-${{ steps.web-bundle-key.outputs.key }}
           enableCrossOsArchive: true
 
+      - name: Download the web bundles this run's Linux job built
+        id: web-bundle-artifact
+        if: ${{ (steps.web-bundle-r2.outputs.cache-hit != 'true' && steps.web-bundle-cache.outputs.cache-hit != 'true') && needs.web-bundles.result == 'success' }}
+        continue-on-error: true
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: cmux-next-web-bundles-${{ steps.web-bundle-key.outputs.key }}
+          path: web-bundles-out
+
       - name: Install the restored web bundles
-        if: steps.web-bundle-r2.outputs.cache-hit == 'true' || steps.web-bundle-cache.outputs.cache-hit == 'true'
+        if: steps.web-bundle-r2.outputs.cache-hit == 'true' || steps.web-bundle-cache.outputs.cache-hit == 'true' || steps.web-bundle-artifact.outcome == 'success'
         run: scripts/cmux-next/build-web-bundles.sh --from web-bundles-out
 
       - name: Build the web bundles
-        if: steps.web-bundle-r2.outputs.cache-hit != 'true' && steps.web-bundle-cache.outputs.cache-hit != 'true'
+        if: steps.web-bundle-r2.outputs.cache-hit != 'true' && steps.web-bundle-cache.outputs.cache-hit != 'true' && steps.web-bundle-artifact.outcome != 'success'
         run: scripts/cmux-next/build-web-bundles.sh
 
       - name: Build package and tests
@@ -3723,12 +3764,21 @@ jobs:
           key: cmux-next-web-bundles-v1-${{ steps.web-bundle-key.outputs.key }}
           enableCrossOsArchive: true
 
+      - name: Download the web bundles this run's Linux job built
+        id: web-bundle-artifact
+        if: ${{ ((steps.web-bundle-r2.outputs.cache-hit != 'true' && steps.web-bundle-cache.outputs.cache-hit != 'true') && steps.reuse.outputs.hit != 'true') && needs.web-bundles.result == 'success' }}
+        continue-on-error: true
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: cmux-next-web-bundles-${{ steps.web-bundle-key.outputs.key }}
+          path: web-bundles-out
+
       - name: Install the restored web bundles
-        if: ${{ (steps.web-bundle-r2.outputs.cache-hit == 'true' || steps.web-bundle-cache.outputs.cache-hit == 'true') && steps.reuse.outputs.hit != 'true' }}
+        if: ${{ (steps.web-bundle-r2.outputs.cache-hit == 'true' || steps.web-bundle-cache.outputs.cache-hit == 'true' || steps.web-bundle-artifact.outcome == 'success') && steps.reuse.outputs.hit != 'true' }}
         run: scripts/cmux-next/build-web-bundles.sh --from web-bundles-out
 
       - name: Build the web bundles
-        if: ${{ (steps.web-bundle-r2.outputs.cache-hit != 'true' && steps.web-bundle-cache.outputs.cache-hit != 'true') && steps.reuse.outputs.hit != 'true' }}
+        if: ${{ (steps.web-bundle-r2.outputs.cache-hit != 'true' && steps.web-bundle-cache.outputs.cache-hit != 'true' && steps.web-bundle-artifact.outcome != 'success') && steps.reuse.outputs.hit != 'true' }}
         run: scripts/cmux-next/build-web-bundles.sh
 
       - name: Build package and tests
