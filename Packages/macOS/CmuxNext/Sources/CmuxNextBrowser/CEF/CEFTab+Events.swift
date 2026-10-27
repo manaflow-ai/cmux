@@ -1,10 +1,17 @@
 public import AppKit
+import CmuxNextCompat
 import Foundation
 import class CmuxSafeConcurrency.OnceContinuation
 import enum CmuxSafeConcurrency.OnceContinuationError
 import func CmuxSafeConcurrency.withOnceContinuation
 
 extension CEFTab {
+    /// The file URLs of a PAGE_DRAG_ENTER event's JSON array of absolute paths.
+    nonisolated static func dragPaths(_ json: String) -> [URL] {
+        guard let paths = try? JSONSerialization.blockingJSONObject(with: Data(json.utf8)) as? [String] else { return [] }
+        return paths.filter { $0.hasPrefix("/") }.map { URL(fileURLWithPath: $0) }
+    }
+
     /// Translates shim events into `BrowserNavigationEvent`s.
     ///
     /// CEF order for a navigation: OnLoadingStateChange(loading) ->
@@ -107,7 +114,10 @@ extension CEFTab {
             machine.apply(.faviconChanged(faviconURL))
             loadFavicon(faviconURL)
         case .progress(_, let value): machine.apply(.progress(value))
-        case .fullscreen(_, let entering): machine.apply(.contentFullscreenChanged(entering))
+        case .fullscreen(let browser, let entering):
+            machine.apply(.contentFullscreenChanged(entering))
+            host.hostedPageView?.exclusiveAccess.fullscreenChanged(entering, browser: browser) // Escape ends it (task 229)
+            if runtime.hostStart?.locks != nil { emit(.contentFullscreen(entering)) } // its pane fills the window
         case .findResult(_, let findID, let count, let active, let isFinal):
             findRequests.result(findID: findID, count: count, active: active, isFinal: isFinal)?.run()
         case .closeRequested: emit(.close)

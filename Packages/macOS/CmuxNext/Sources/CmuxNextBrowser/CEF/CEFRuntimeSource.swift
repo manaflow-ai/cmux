@@ -1,3 +1,4 @@
+public import CmuxNextWakeups
 import Darwin
 
 /// Where ``CEFEngine`` finds the Chromium runtime: embedded in the app
@@ -52,6 +53,13 @@ public final class CEFRuntimeSource {
     /// Whose children the Chromium helpers are, for listings on any thread (task p01-process-225): this app in
     /// process; in host mode none until the runtime that adopts this source attaches a host, then that host.
     public let helperParent: ChromiumHelperParent
+    /// Host mode: a page's pointer lock and keyboard lock are cmux's, and Escape ends them and the page's
+    /// fullscreen (feature `chromiumHostLocks`, set by the App; ``CEFHostLocks``). Read when the runtime
+    /// adopts the source; in process it changes nothing.
+    public var handlesHostLocks = false
+    /// The app's one ``AppEvents`` (`AppServices.appEvents`, set by the App): with ``handlesHostLocks``, a page's
+    /// pointer lock ends when the app resigns active. Read when the runtime adopts the source.
+    public var appEvents: AppEvents?
 
     /// Creates a source.
     ///

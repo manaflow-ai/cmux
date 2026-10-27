@@ -37,7 +37,7 @@ namespace cmux_host {
 // optional_events; CEFShimEvent.helperExit in cmux): browser 0, request the
 // pid, a the wait status, b kHelperExitExtension for an extension renderer,
 // s1 the --type, s2 the --utility-sub-type.
-inline constexpr int kEventHelperExit = 64;
+inline constexpr int kEventHelperExit = 67;
 inline constexpr int64_t kHelperExitExtension = 1;
 
 // What a helper is, from its argv. CEFHelperIdentity.parse in cmux reads the

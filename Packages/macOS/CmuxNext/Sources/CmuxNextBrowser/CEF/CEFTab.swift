@@ -79,6 +79,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserPageCover
             let phaseChanged = machine.state.phase != oldValue.state.phase
             if phaseChanged { pageWaiters.notePhase(machine.state.phase) }
             if phaseChanged || machine.state.processExit != oldValue.state.processExit, runtime.hostStart == nil { onRenderersMayChange?() }
+            runtime.rendererStability.tabStateChanged(from: oldValue.state, to: machine.state, of: self)
         }
     }
     /// Runs when the renderers that serve this page may have changed: its load phase changed (a navigation can
@@ -86,6 +87,8 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserPageCover
     /// (``publishRenderers(as:into:while:)``, p14-energy-124). In process only: with the Chromium Host on, those
     /// shim calls are wire replies (p14-energy-124a).
     @ObservationIgnored var onRenderersMayChange: (() -> Void)?
+    /// Runs each time a frame of this page outside its main frame's renderer crashes (`BrowserSubframeCrashReporting`).
+    @ObservationIgnored public var onSubframeCrash: (@MainActor () -> Void)?
     /// Shows the crash page in the turn this page's process or its host ended (``BrowserCrashPageHosting``).
     @ObservationIgnored weak var crashPagePresenter: (any BrowserCrashPagePresenter)?
     /// The page plays unmuted media (`BrowserAudibleReporting`): `state.media?.isAudible`, kept
@@ -161,11 +164,6 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserPageCover
     /// calls with it as the person's gesture); nil ignores it.
     @ObservationIgnored public var pageUserInput: (@MainActor (TimeInterval) -> Void)?
 
-    /// The file URLs of a PAGE_DRAG_ENTER event's JSON array of absolute paths.
-    nonisolated static func dragPaths(_ json: String) -> [URL] {
-        guard let paths = try? JSONSerialization.blockingJSONObject(with: Data(json.utf8)) as? [String] else { return [] }
-        return paths.filter { $0.hasPrefix("/") }.map { URL(fileURLWithPath: $0) }
-    }
     /// URL of the last main-frame load that committed (Chromium's current
     /// entry). Renderer debug URLs (chrome://crash) never commit.
     @ObservationIgnored var committedURL: URL?
@@ -203,7 +201,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserPageCover
     /// The next emulation run clears this session's metrics first (after DevTools device mode).
     @ObservationIgnored var deviceEmulationNeedsReset = false
     @ObservationIgnored var faviconTask: Task<Void, Never>?
-    @ObservationIgnored private(set) var isClosed = false
+    @ObservationIgnored private(set) var isClosed = false { didSet { runtime.rendererStability.unresponsiveEnded(ObjectIdentifier(self), .closed) } }
     /// The current document's first content frame (`CEFFirstPaintBridge`, or its load end with nothing painted).
     @ObservationIgnored let firstContentFrame = BrowserFirstContentFrame()
     @ObservationIgnored private var isOccluded = false
@@ -320,6 +318,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserPageCover
     /// the daemon and reopens at relaunch.
     func browserDidClose(closesTab: Bool = true) {
         browserID = nil
+        runtime.rendererStability.unresponsiveEnded(ObjectIdentifier(self), .closed)
         agentRelay.browserEnded()
         findRequests.cancel()
         dismissPrompts()
@@ -360,6 +359,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserPageCover
             runtime.shim?.loadURL(browserID, url.absoluteString)
         } else {
             pendingURL = url
+            hostRestoreNavigated()
         }
     }
 
@@ -379,7 +379,8 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserPageCover
         (reloadWhenShown, isDiscardedInPlace) = (false, false)
         if runtime.awaitsHostRestart { return runtime.reloadAfterHostRestart(self) }
         guard let browserID else {
-            if let url = pendingURL ?? state.url { load(url) }
+            // A page its host restore brings back loads with its saved navigation (``hostRestoreShown()``).
+            if !hasHostRestore, let url = pendingURL ?? state.url { load(url) }
             return
         }
         switch reloadPlan {
@@ -410,8 +411,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserPageCover
         return .load(url)
     }
 
-    /// Answers "Page unresponsive": wait restarts Chromium's hang timer,
-    /// terminate ends the renderer (the sad tab follows).
+    /// Answers "Page unresponsive": wait restarts Chromium's hang timer, terminate ends the renderer (the sad tab follows).
     public func answerUnresponsivePage(terminate: Bool) {
         guard state.isUnresponsive else { return }
         if let browserID { _ = runtime.shim?.unresponsiveReply(browserID, terminate ? 1 : 0) }

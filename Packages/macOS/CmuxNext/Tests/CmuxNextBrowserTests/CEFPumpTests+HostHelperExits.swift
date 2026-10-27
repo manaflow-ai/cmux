@@ -5,7 +5,7 @@ import Darwin
 import Foundation
 import Testing
 
-/// The Chromium Host's helpers (task p01-process-225): their ends come as HELPER_EXIT (kind 64, HOST/src/
+/// The Chromium Host's helpers (task p01-process-225): their ends come as HELPER_EXIT (kind 67, HOST/src/
 /// host_helper_exits.h), which decodes to the in-process child monitor's ``CEFChildProcessMonitor/Exit`` and makes
 /// the same `debug.crashes` record and `cef.helper_exit` sample, and the tabs' process list reads the host's
 /// children. Each test records into its own store.
@@ -25,7 +25,7 @@ extension CEFPumpTests {
     /// helper's `--type` and `--utility-sub-type`.
     private static func helperExit(pid: Int32, status: Int32, extension isExtension: Bool = false, type: String,
                                    subType: String = "") -> CEFShimEvent {
-        CEFShimEvent(kind: 64, browser: 0, request: pid, a: Int64(status), b: isExtension ? 1 : 0, s1: type, s2: subType)
+        CEFShimEvent(kind: 67, browser: 0, request: pid, a: Int64(status), b: isExtension ? 1 : 0, s1: type, s2: subType)
     }
 
     @Test func helperExitDecodesToTheMonitorsExit() {
@@ -38,8 +38,8 @@ extension CEFPumpTests {
         #expect(Self.helperExit(pid: 4244, status: 1 << 8, extension: true, type: "renderer")
                 == .helperExit(CEFChildProcessMonitor.Exit(pid: 4244, processType: "renderer", subType: nil,
                                                            isExtension: true, status: 1 << 8)))
-        #expect(Self.helperExit(pid: 4245, status: SIGKILL, type: "") == .unknown(kind: 64), "no type: not a helper")
-        #expect(Self.helperExit(pid: 0, status: SIGKILL, type: "renderer") == .unknown(kind: 64), "no pid")
+        #expect(Self.helperExit(pid: 4245, status: SIGKILL, type: "") == .unknown(kind: 67), "no type: not a helper")
+        #expect(Self.helperExit(pid: 0, status: SIGKILL, type: "renderer") == .unknown(kind: 67), "no pid")
         #expect(Self.helperExit(pid: 4242, status: SIGKILL, type: "gpu-process").browserID == nil, "about no tab")
     }
 

@@ -80,7 +80,7 @@ public actor DaemonConnection {
     private var pacer: RetryPacer
     private let wake: RetryWake
     private let healthy: DemandTimer
-    public nonisolated let heartbeat = ConnectionHeartbeat()
+    public nonisolated let heartbeat: ConnectionHeartbeat
 
     /// Identity of the current (or last) daemon.
     public private(set) var identity: DaemonIdentity?
@@ -114,7 +114,11 @@ public actor DaemonConnection {
         pacer = RetryPacer(configuration.retry)
         wake = configuration.retryWake ?? RetryWake(owner: "DaemonConnection.reconnect")
         healthy = DemandTimer(owner: "DaemonConnection.healthy", clock: clock)
-        handoffGate = QuietHandoffGate(observe: configuration.handoffWaits)
+        let heartbeat = ConnectionHeartbeat()
+        self.heartbeat = heartbeat
+        // The heartbeat asks on its shown cadence while a request waits for its reply (p14-energy-064).
+        handoffGate = QuietHandoffGate(observe: configuration.handoffWaits,
+                                       busyEdge: { [heartbeat] gate in heartbeat.requestsWaiting { gate.requestsInFlight > 0 } })
         // The events no consumer took yet wait in the route's bounded EventInbox backlog; past
         // DaemonEventRoute.highWater bytes of them, while a stream consumer takes them, the reader stops reading the socket.
         let route = DaemonEventRoute()
@@ -337,7 +341,10 @@ public actor DaemonConnection {
             resumeReadyWaits(serial: serial)
             wake.watch(file: endpoint.socketPath, companions: [endpoint.socketPath + ".websocket.json"])
             healthy.schedule(after: configuration.healthyAfter) { [weak self] in await self?.stayedHealthy(serial: serial) }
-            if endpoint.bridge != nil || configuration.localHeartbeat { heartbeat.start(transport, every: configuration.heartbeat, misses: configuration.heartbeatMisses) }
+            if endpoint.bridge != nil || configuration.localHeartbeat {
+                heartbeat.start(transport, every: configuration.heartbeat,
+                                hidden: endpoint.bridge != nil ? configuration.hiddenHeartbeat : nil, misses: configuration.heartbeatMisses)
+            }
             let connected = DaemonEventEnvelope(sequence: DaemonEventEnvelope.sequence(serial: serial, index: 0),
                                                 event: .connected(identity, generationChanged: generationChanged), sourceID: eventSourceID)
             gate.open(first: connected) { route.emit($0) }

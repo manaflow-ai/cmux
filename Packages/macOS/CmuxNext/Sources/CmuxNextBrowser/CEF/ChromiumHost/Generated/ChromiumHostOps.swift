@@ -57,9 +57,9 @@ nonisolated enum ChromiumHostOp: UInt16, CaseIterable, Sendable {
     case tabSendMouseMove = 201
 
     /// The SHA-256 of the cmux_cef_shim.h this table was generated from (`CEFShimABI`).
-    static let abiIdentity = "2146227a158184e9c74bde859660b918dcbebd57385bbda004f4b4363f9dbd52"
+    static let abiIdentity = "4b125dc4c385a3788962c92e29dad07d22b774bf7738e969ac7e4fdd508c6c67"
     /// This generation's op ids, classes and wire types; both HELLOs carry it.
-    static let wireIdentity = "f677863468c700146838aa4fcd206649792d07cb95e975d4208a48da288f2d5d"
+    static let wireIdentity = "b86479fddd549bcfb9333d180086c16cd92c30a5a6793cc1f3990a8a4e0abf9c"
     /// Ops of fork API symbols the header does not declare yet (`r.optional` in CEFShimLibrary).
     static let optionalOps: Set<ChromiumHostOp> = [
         .addDocumentScript, .addPageChannel, .tabEvaluate, .tabSetFrozen, .tabSendClick, .tabSetColorScheme,
@@ -506,7 +506,7 @@ nonisolated enum ChromiumHostOp: UInt16, CaseIterable, Sendable {
         Refresh(4, -1, .rendererClientIDs),  // CMUX_SHIM_ADDRESS
         Refresh(9, -1, .rendererClientIDs),  // CMUX_SHIM_LOAD_END
         Refresh(23, -1, .rendererClientIDs),  // CMUX_SHIM_RENDER_TERMINATED
-        Refresh(65, -1, .rendererClientIDs),  // CMUX_SHIM_FRAME_RENDERERS
+        Refresh(66, -1, .rendererClientIDs),  // CMUX_SHIM_FRAME_RENDERERS
         Refresh(3, -1, .rendererClientIDs),  // CMUX_SHIM_BEFORE_CLOSE
         Refresh(-1, -1, .extLoadLaterSupported),  // attach
     ]
@@ -530,8 +530,8 @@ nonisolated enum ChromiumHostEventKind: Int32, CaseIterable, Sendable {
     case permissionDismissed = 42, passwordPrompt = 43, beforeUnloadDialog = 44, beforeUnloadDismissed = 45
     case pageResource = 46, pageDragEnter = 47, fileDialog = 48, cursor = 54, dragOperation = 55, tooltip = 57
     case popupMenu = 58, popupMenuHide = 59, suggestions = 60, colorChooser = 61, deviceChooser = 62
-    case desktopMedia = 63, frameRenderers = 65, pageMessage = 49, evaluateResult = 50, createFailed = 51
-    case widgetContext = 52, widgetGone = 53, wheelAck = 56, helperExit = 64
+    case desktopMedia = 63, subframeRenderer = 64, lock = 65, frameRenderers = 66, pageMessage = 49
+    case evaluateResult = 50, createFailed = 51, widgetContext = 52, widgetGone = 53, wheelAck = 56, helperExit = 67
 
     /// The mirrors this event refreshes; the host pushes them before the event. `request` is the
     /// event's request (CMUX_SHIM_TAB_EVENT's sub-kind).

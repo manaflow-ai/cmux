@@ -11,6 +11,7 @@ mod clear_history_tests;
 mod clipboard_read;
 mod cold_scrollback;
 mod colors;
+mod directory_publication;
 #[cfg(unix)]
 mod echo_flow;
 mod hosted;
@@ -19,6 +20,7 @@ mod lifecycle;
 #[cfg(unix)]
 mod local_resize_order;
 mod lock_order;
+mod poisoned_locks;
 #[cfg(unix)]
 mod read_loop;
 mod render_geometry;

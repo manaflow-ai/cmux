@@ -248,14 +248,29 @@ typedef enum {
   CMUX_SHIM_COLOR_CHOOSER = 61,
   CMUX_SHIM_DEVICE_CHOOSER = 62,
   CMUX_SHIM_DESKTOP_MEDIA = 63,
-  // 64 is taken (plans/cmux-next/chromium-host-ops.json, optional_events).
+  // A frame other than a browser's main frame gained or lost its renderer
+  // (CefFrameHandler::OnFrameAttached and OnFrameDetached): browser_id;
+  // request = the frame's renderer client id (its render process host id, the
+  // renderer's --renderer-client-id); a = 1 attached, 0 detached; s1 = the
+  // frame's identifier (CefFrame::GetIdentifier). A renderer's
+  // death detaches its frames too (WebContentsObserver::RenderFrameDeleted),
+  // before or after the app sees the process end. The app names the pages a
+  // renderer's crash leaves a sad frame in from it (Chrome's
+  // DiscardPageWithCrashedSubframePolicy reads the dead process's frame nodes).
+  CMUX_SHIM_SUBFRAME_RENDERER = 64,
+  // Host mode only: one call of the fork's lock handler, pushed by the
+  // Chromium Host while cmux's remote shim has a lock handler
+  // (cmux_shim_set_lock_handler, task p01-process-229): request =
+  // cmux_shim_lock_event_t, a = its detail. The remote shim calls cmux's
+  // lock fn with them; cmux's event fn never sees this kind.
+  CMUX_SHIM_LOCK = 65,
   // The renderer processes that host browser_id's frames changed: a frame
   // attached to its renderer, left it or became the main frame
   // (CefFrameHandler), as an iframe added after the load, an out-of-process
   // iframe's swap or its renderer's end do. Sent once after a task's
   // changes, and only when the set of the frames' renderer client ids
   // (cmux_shim_renderer_client_ids) differs from the one it last reported.
-  CMUX_SHIM_FRAME_RENDERERS = 65,
+  CMUX_SHIM_FRAME_RENDERERS = 66,
 } cmux_shim_event_kind_t;
 
 typedef enum {
@@ -592,8 +607,11 @@ CMUX_SHIM_EXPORT int cmux_shim_desktop_media_answer(int64_t token, int source_ty
                                                     int tab_browser_id, int audio);
 // Pointer lock and keyboard lock: the app decides, hides and frees its own
 // cursor and forwards the raw movement. Escape exits with by_user 1 (Chrome's
-// 1.25 s cooldown for that page). escape_locked is 1 when a keyboard lock
-// also takes Escape (the app still exits on a long Escape, as Chrome does).
+// 1.25 s cooldown for that page). detail: for KEYBOARD_LOCK_REQUESTED 1 when
+// the lock also takes Escape (the app still exits on a held Escape, as Chrome
+// does); for POINTER_LOCK_REQUESTED 1 when the page asked for unadjusted
+// movement (requestPointerLock({unadjustedMovement: true}), the fork's next
+// train; 0 before it); 0 otherwise.
 typedef enum {
   // Answer with cmux_shim_browser_pointer_lock_answer.
   CMUX_SHIM_POINTER_LOCK_REQUESTED = 0,
@@ -604,7 +622,7 @@ typedef enum {
   // The keyboard lock ended: route reserved keys as usual again.
   CMUX_SHIM_KEYBOARD_UNLOCKED = 3,
 } cmux_shim_lock_event_t;
-CMUX_SHIM_EXPORT int cmux_shim_set_lock_handler(void (*fn)(void* context, int event, int browser_id, int escape_locked),
+CMUX_SHIM_EXPORT int cmux_shim_set_lock_handler(void (*fn)(void* context, int event, int browser_id, int detail),
                                                 void* context);
 CMUX_SHIM_EXPORT int cmux_shim_browser_pointer_lock_answer(int browser_id, int allowed);
 CMUX_SHIM_EXPORT int cmux_shim_browser_keyboard_lock_answer(int browser_id, int allowed);
