@@ -218,10 +218,11 @@ final class QuitCoordinator {
                 }
                 // And each window one picture of it (`savedWindowPicture`, `launch.savedPicture`; either off, the last quit's go).
                 if let windowPictures = services.environment.windowPictures {
+                    let pages = Dictionary(pageShots.map { ($0.key, $0.picture) }, uniquingKeysWith: { first, _ in first })
                     await windowPictures.saveAtQuit(featureOn: services.features.isEnabled(.savedWindowPicture), savedPicture: savedPicture) {
                         // Checked again after the page captures: Secure Input may have begun while they ran.
                         let secureInput = services.cache.composeSecureInputPages(quitBegan: secureInputPages)
-                        return Self.windowPictureShots(services, terminals: terminalFrames, agents: agentPages, pages: pageShots, secureInput: secureInput)
+                        return Self.windowPictureShots(services, terminals: terminalFrames, agents: agentPages, pages: pages, secureInput: secureInput)
                     }
                 }
                 // Browser tabs reopen at their recorded page (before any
@@ -289,9 +290,7 @@ final class QuitCoordinator {
     /// captured twice. Side-by-side windows show panes of other workspaces than `content`'s: they leave none. A
     /// window showing a top page or the empty state leaves one with no pane (`WindowPictureMeta.ContentArea`).
     private static func windowPictureShots(_ services: AppServices, terminals: [String: NSImage], agents: [String: NSImage],
-                                           pages pageShots: [BrowserLaunchPictures.Shot], secureInput: Set<String>) -> [WindowPictureStore.Shot] {
-        let pages = Dictionary(pageShots.map { ($0.key, $0.picture) }, uniquingKeysWith: { first, _ in first })
-        let pageProfiles = Dictionary(pageShots.map { ($0.key, $0.profile) }, uniquingKeysWith: { first, _ in first })
+                                           pages: [String: BrowserLaunchPictures.Picture], secureInput: Set<String>) -> [WindowPictureStore.Shot] {
         let input = services.themeStore.input, build = WindowPictureMeta.build(of: .main)
         let theme = WindowPictureMeta.themeFingerprint(input: input, app: services.themeStore.appTheme ?? services.themeStore.tokens.app)
         let background = WindowPictureStore.Color(red: input.background.red, green: input.background.green, blue: input.background.blue)
@@ -313,11 +312,9 @@ final class QuitCoordinator {
                 screens = content.workspace.screens.map { WindowPictureMeta.Screen(id: $0.id, tree: .init($0.layout), zoomed: $0.zoomedPane?.description) }
             }
             let layout = area.layout(workspaces: services.windows.registry.members(of: state.id), screens: screens)
-            // A window's picture shows a browser page only from this quit's page pictures: their profiles are all it shows.
             let facts = WindowPictureStore.Window(id: state.id, profile: state.profileID.rawValue, incognito: services.windows.isIncognito(window: state.id),
                                                   theme: theme, background: background, build: build, layout: layout,
-                                                  screen: window.screen.flatMap(WindowPlacementFallback.displayID(of:)),
-                                                  browserProfiles: Set(panes.compactMap { pageProfiles[$0.key] }))
+                                                  screen: window.screen.flatMap(WindowPlacementFallback.displayID(of:)))
             return WindowPictureStore.shot(of: window, root: root, backdrop: root.backdropView, sidebar: root.sidebarHidden ? nil : root.sidebar,
                                            panes: panes, facts: facts)
         }

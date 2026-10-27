@@ -36,8 +36,9 @@ struct LaunchPictureDeletionTests {
         func windowFile(_ window: String) -> String { "\(WindowPictureStore.directoryName)/default/\(window).heic" }
     }
 
-    /// Saves pages `tab_a` (personal) and `tab_b` (work), and windows `w_a` (showing `tab_a`), `w_b` (showing `tab_b`)
-    /// and `w_old` (a meta that names no browser profile, as one written before they were recorded, showing `tab_c`).
+    /// Saves pages `tab_a` (personal) and `tab_b` (work), and windows `w_a` (showing `tab_a`), `w_b` (showing `tab_b`),
+    /// `w_top` (a top page such as History, drawn by AppKit: no pane) and `w_c` (a browser pane `tab_c` the quit took
+    /// no page picture of: its tab strip still shows the page's title).
     static func saved(remove: (@Sendable (LaunchPictureStore.Deletion, LaunchPictureStore.Folders) -> Void)? = nil) async throws -> Saved {
         let root = FileManager.default.temporaryDirectory.appending(path: "launch-picture-deletion-\(UUID().uuidString)", directoryHint: .isDirectory)
         let pages = BrowserLaunchPictures(state: root, work: work)
@@ -45,8 +46,8 @@ struct LaunchPictureDeletionTests {
                                          work: work, encode: { _ in Data([1, 2, 3]) })
         let picture = BrowserLaunchPictures.Picture(image: try image(), paneSize: CGSize(width: 8, height: 6), pageFrame: CGRect(x: 0, y: 0, width: 8, height: 6))
         await pages.save([.init(key: "tab_a", profile: personal, picture: picture), .init(key: "tab_b", profile: office, picture: picture)])
-        await windows.save([try shot("w_a", tab: "tab_a", profiles: [personal]), try shot("w_b", tab: "tab_b", profiles: [office]),
-                            try shot("w_old", tab: "tab_c", profiles: nil)])
+        await windows.save([try shot("w_a", tab: "tab_a"), try shot("w_b", tab: "tab_b"), try shot("w_top", tab: nil),
+                            try shot("w_c", tab: "tab_c")])
         let store = remove.map { LaunchPictureStore(pages: pages, windows: windows, work: work, remove: $0) }
             ?? LaunchPictureStore(pages: pages, windows: windows, work: work)
         return Saved(root: root, pages: pages, windows: windows, store: store)
@@ -61,18 +62,19 @@ struct LaunchPictureDeletionTests {
         return try #require(context.makeImage())
     }
 
-    static func shot(_ window: String, tab: String, profiles: [UUID]?) throws -> WindowPictureStore.Shot {
+    /// Window `window`'s picture showing tab `tab` in a pane (nil: no pane, a top page or the empty state).
+    static func shot(_ window: String, tab: String?) throws -> WindowPictureStore.Shot {
         let meta = WindowPictureMeta(window: window, profile: "default", frame: CGRect(x: 0, y: 0, width: 8, height: 6), screen: "DISPLAY-1",
                                      scale: 1, appearance: NSAppearance.Name.darkAqua.rawValue, theme: "theme", sidebarWidth: 0,
                                      build: "1.0 (1)", layout: WindowPictureMeta.Layout(workspaces: ["ws_a"], shown: "ws_a", screens: []),
-                                     regions: [.init(kind: .pane, id: tab, frame: CGRect(x: 0, y: 0, width: 8, height: 6))],
-                                     browserProfiles: profiles)
+                                     regions: tab.map { [.init(kind: .pane, id: $0, frame: CGRect(x: 0, y: 0, width: 8, height: 6))] } ?? [])
         return WindowPictureStore.Shot(eligibility: allowed, base: try image(), size: CGSize(width: 8, height: 6), layers: [], fills: [],
                                        background: .init(red: 0, green: 0, blue: 0), meta: meta)
     }
 
-    /// Clear Browsing Data over all time: the profile's page pictures and every window picture that may show one of
-    /// its pages (one naming it, one naming no profile) go; the other profile's stay.
+    /// Clear Browsing Data over all time: the profile's page pictures and every window picture go, the ones with no
+    /// page picture placed too (a top page, a browser pane with no page picture: AppKit drew their browsing data);
+    /// the other profile's page pictures stay.
     @Test func clearingBrowsingDataDeletesTheProfilesPictures() async throws {
         let saved = try await Self.saved()
         defer { try? FileManager.default.removeItem(at: saved.root) }
@@ -80,9 +82,24 @@ struct LaunchPictureDeletionTests {
         await saved.store.flush()
         #expect(!saved.files.contains(saved.pageFile("tab_a", profile: Self.personal)), "the cleared profile's page picture stayed")
         #expect(!saved.files.contains(saved.windowFile("w_a")), "a window picture showing the cleared profile stayed")
-        #expect(!saved.files.contains(saved.windowFile("w_old")), "a window picture that may show the cleared profile stayed")
+        #expect(!saved.files.contains(saved.windowFile("w_top")), "a window picture of a top page stayed")
+        #expect(!saved.files.contains(saved.windowFile("w_c")), "a window picture of a browser pane with no page picture stayed")
+        #expect(!saved.files.contains(saved.windowFile("w_b")), "a window picture stayed: its tab strip and sidebar may show the profile")
         #expect(saved.files.contains(saved.pageFile("tab_b", profile: Self.office)), "another profile's page picture went")
-        #expect(saved.files.contains(saved.windowFile("w_b")), "a window picture of another profile went")
+    }
+
+    /// A clear marks its profile for the rest of the session: the quit's save leaves out the pictures of its open
+    /// pages (they still show what they showed before it); another profile, a close and the setting off mark none.
+    @Test func aClearWithholdsTheProfilesPicturesFromTheQuit() async throws {
+        let store = LaunchPictureStore(pages: nil, windows: nil, work: Self.work)
+        #expect(!store.withholdsPictures(ofProfile: Self.personal))
+        store.delete(.browserProfile(Self.personal, since: Date(timeIntervalSinceNow: -3600)))
+        await store.quitBegins()
+        #expect(store.withholdsPictures(ofProfile: Self.personal), "the quit after a clear may picture the cleared profile's pages")
+        #expect(!store.withholdsPictures(ofProfile: Self.office), "a clear withheld another profile's pictures")
+        store.delete(.tab("tab_b"))
+        store.delete(.all)
+        #expect(!store.withholdsPictures(ofProfile: Self.office), "a close or the setting off marked a profile cleared")
     }
 
     /// Clear Browsing Data over a range: only pictures saved in it go.
@@ -96,7 +113,8 @@ struct LaunchPictureDeletionTests {
         saved.store.delete(.browserProfile(Self.personal, since: Date(timeIntervalSinceNow: -3600)))
         await saved.store.flush()
         #expect(!saved.files.contains(saved.pageFile("tab_a", profile: Self.personal)), "a page picture saved in the range stayed")
-        #expect(!saved.files.contains(saved.windowFile("w_a")), "a window picture saved in the range stayed")
+        #expect(!saved.files.contains(saved.windowFile("w_a")) && !saved.files.contains(saved.windowFile("w_top")),
+                "a window picture saved in the range stayed")
         #expect(saved.files.contains(saved.pageFile("tab_b", profile: Self.office)))
     }
 
@@ -124,7 +142,7 @@ struct LaunchPictureDeletionTests {
         #expect(!FileManager.default.fileExists(atPath: saved.pagesFolder.appending(path: Self.personal.uuidString).path),
                 "the folder of a profile with no picture left stayed")
         #expect(!saved.files.contains(saved.windowFile("w_a")), "a window picture showing the closed tab stayed")
-        #expect(saved.files.contains(saved.windowFile("w_b")) && saved.files.contains(saved.windowFile("w_old")), "another window's picture went")
+        #expect(saved.files.contains(saved.windowFile("w_b")) && saved.files.contains(saved.windowFile("w_c")), "another window's picture went")
         let read = BrowserLaunchPictures.readAll(in: saved.pagesFolder, LaunchFileReader())
         #expect(read.keys.map(\.key) == ["tab_b"], "the launch would still read the closed tab's picture, or lost another")
     }

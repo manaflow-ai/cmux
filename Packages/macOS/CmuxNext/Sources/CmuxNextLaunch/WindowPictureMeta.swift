@@ -38,23 +38,13 @@ public nonisolated struct WindowPictureMeta: Codable, Sendable, Equatable {
     /// Where the picture's regions sit, in points from its top-left corner: the launch replaces each with live
     /// content on its own (a pane at its first frame).
     public var regions: [Region]
-    /// The browser profiles whose pages the picture shows, sorted: Clear Browsing Data and a profile's delete remove
-    /// the pictures showing that profile (`LaunchPictureStore`). Nil: not known (a meta written before it was
-    /// recorded), so any profile's clear removes the picture. Never compared at launch.
-    public var browserProfiles: [UUID]?
 
     public init(window: String, profile: String, frame: CGRect, screen: String?, scale: Double, appearance: String,
-                theme: String, sidebarWidth: Double, build: String, layout: Layout, regions: [Region],
-                browserProfiles: [UUID]? = nil) {
+                theme: String, sidebarWidth: Double, build: String, layout: Layout, regions: [Region]) {
         format = Self.currentFormat
         (self.window, self.profile, self.frame, self.screen, self.scale) = (window, profile, frame, screen, scale)
         (self.appearance, self.theme, self.sidebarWidth, self.build) = (appearance, theme, sidebarWidth, build)
-        (self.layout, self.regions, self.browserProfiles) = (layout, regions, browserProfiles)
-    }
-
-    /// Whether the picture may show a page of browser profile `profile` (``browserProfiles``; not known: yes).
-    public func mayShow(browserProfile profile: UUID) -> Bool {
-        browserProfiles?.contains(profile) ?? true
+        (self.layout, self.regions) = (layout, regions)
     }
 
     /// Whether the picture shows tab `key` in one of its panes.

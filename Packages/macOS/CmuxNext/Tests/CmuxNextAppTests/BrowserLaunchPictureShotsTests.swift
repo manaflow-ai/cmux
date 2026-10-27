@@ -64,6 +64,28 @@ import Testing
         #expect(chromium.snapshotCount == 0, "the password page's pixels were read")
     }
 
+    /// Clear Browsing Data, then a normal quit (p08-startup-100): the profile's open pages still show what they showed
+    /// before the clear (a cookie clear reloads none), so the quit takes no picture of them, and the window's picture
+    /// fills their panes; another profile's page is still pictured.
+    @Test func aQuitAfterAClearTakesNoPictureOfTheClearedProfile() async throws {
+        let rig = Rig()
+        defer { rig.tearDown() }
+        let deletions = LaunchPictureStore(pages: nil, windows: nil, work: Self.work)
+        rig.cache.launchPictureDeletions = deletions
+        let clearedProfile = BrowserProfileID(rawValue: UUID())
+        let cleared = rig.page("tab_cleared", profile: clearedProfile), kept = rig.page("tab_kept")
+        let panes = [cleared, kept].map { rig.pane(for: $0) }
+
+        deletions.delete(.browserProfile(clearedProfile.rawValue, since: Date(timeIntervalSinceNow: -3600)))
+        let shots = await rig.cache.launchPictureShots(panes, secureInput: [])
+        #expect(shots.map(\.key) == ["tab_kept"], "the quit pictured a page of the profile cleared this session")
+        #expect(cleared.snapshotCount == 0, "the cleared profile's page pixels were read")
+        let picture = try WindowPicturePrivacyTests.picture()
+        #expect(WindowPicturePrivacyTests.isFilled(rig.cache.windowPictureSource("tab_cleared", picture: picture, secureInput: [])),
+                "the cleared profile's page reached the window's picture")
+        #expect(WindowPicturePrivacyTests.isPlaced(rig.cache.windowPictureSource("tab_kept", picture: picture, secureInput: [])))
+    }
+
     /// The picture is up before the page exists; the Chromium page made after it keeps a hole over all of itself
     /// while the picture shows, and gives it up at its first content frame, when the picture goes.
     @Test func aChromiumPageDoesNotCoverThePictureBeforeItsFirstContentFrame() async throws {

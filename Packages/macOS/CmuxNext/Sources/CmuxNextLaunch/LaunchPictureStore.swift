@@ -7,7 +7,10 @@ public import Foundation
 /// these deletions only bring that forward: a crash or a force quit after the change leaves nothing of it.
 ///
 /// - Clear Browsing Data and a browser profile's delete: the pictures of that profile's pages saved in the range,
-///   and every window picture that may show one (``WindowPictureMeta/mayShow(browserProfile:)``).
+///   and every window picture saved in it. A window's picture draws its tab strips, its sidebar and any cmux or top
+///   page (History, Bookmarks) as AppKit shows them, so any window may show any profile's browsing data. The open
+///   pages of the profile keep what they showed before the clear, so the quit saves no picture of them for the rest
+///   of the session (``withholdsPictures(ofProfile:)``).
 /// - A tab closed: its page picture and every window picture showing it. A window closed: its picture. A closed
 ///   tab or window never shows its picture again (the launch shows only what it restores, and the next quit's save
 ///   leaves it out), so every close is one for good here.
@@ -33,8 +36,8 @@ public import Foundation
 public final class LaunchPictureStore {
     /// What to delete.
     public nonisolated enum Deletion: Sendable, Equatable {
-        /// The pictures of browser profile `profile`'s pages saved at or after `since` (nil: any time), and the
-        /// window pictures among them that may show one.
+        /// The pictures of browser profile `profile`'s pages saved at or after `since` (nil: any time), and every
+        /// window picture saved in that range.
         case browserProfile(UUID, since: Date?)
         /// Tab `key`'s page picture and every window picture showing it.
         case tab(String)
@@ -69,6 +72,8 @@ public final class LaunchPictureStore {
     private let remove: @Sendable (Deletion, Folders) -> Void
     /// The quit's saves began: closes delete nothing more.
     private var quitting = false
+    /// The browser profiles whose data was cleared or deleted this session.
+    private var clearedProfiles: Set<UUID> = []
 
     /// - Parameters:
     ///   - pages: The browser pages' pictures; nil keeps none.
@@ -88,6 +93,7 @@ public final class LaunchPictureStore {
     /// drop the pictures the launch read holds, so none of them is shown after it.
     public func delete(_ deletion: Deletion) {
         if deletion.isClose, quitting { return }
+        if case .browserProfile(let profile, _) = deletion { clearedProfiles.insert(profile) }
         if !deletion.isClose {
             pages?.dropUnasked()
             windows?.dropFront()
@@ -98,6 +104,12 @@ public final class LaunchPictureStore {
         deletions.post(deletion.isClose ? .bestEffort : .userVisible, shutdown: deletion.isClose ? .skipOnShutdown : .blockShutdown) {
             remove(deletion, folders)
         }
+    }
+
+    /// Whether the quit must save no picture of profile `profile`'s pages: its data was cleared or deleted this
+    /// session, and a page open since may still show what it showed before (a cookie clear reloads no page).
+    public func withholdsPictures(ofProfile profile: UUID) -> Bool {
+        clearedProfiles.contains(profile)
     }
 
     /// Returns once every deletion queued before it has run.
@@ -133,9 +145,7 @@ public final class LaunchPictureStore {
             for folder in [folders.pages, folders.windows].compactMap(\.self) { try? FileManager.checked.removeItem(at: folder) }
         case .browserProfile(let profile, let since):
             if let pages = folders.pages { removePages(of: profile, since: since, in: pages) }
-            if let windows = folders.windows {
-                removeWindows(in: windows) { meta, saved in meta.mayShow(browserProfile: profile) && since.map { saved >= $0 } ?? true }
-            }
+            if let windows = folders.windows { removeWindows(in: windows) { _, saved in since.map { saved >= $0 } ?? true } }
         case .tab(let key):
             if let pages = folders.pages { removePage(key, in: pages) }
             if let windows = folders.windows { removeWindows(in: windows) { meta, _ in meta.shows(tab: key) } }

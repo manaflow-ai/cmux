@@ -228,10 +228,12 @@ extension TabContentCache {
     }
 
     /// Whether tab `key`'s page must leave no picture on disk (p08-startup 3C): an incognito page (an off-the-record
-    /// profile or an incognito workspace), a page that holds Secure Input, a page with protected media, or a window
-    /// hidden from screen capture (`NSWindow.sharingType == .none`).
+    /// profile or an incognito workspace), a page that holds Secure Input, a page with protected media, a page of a
+    /// profile whose browsing data was cleared this session (``LaunchPictureStore/withholdsPictures(ofProfile:)``), or
+    /// a window hidden from screen capture (`NSWindow.sharingType == .none`).
     func withholdsLaunchPicture(_ key: String, page: any BrowserTab, in window: NSWindow, secureInput: Set<String>) -> Bool {
         if chromium.stores.offTheRecord.isOffTheRecord(page.profileID) || browserTabs.isIncognitoTab(key) { return true }
+        if launchPictureDeletions?.withholdsPictures(ofProfile: page.profileID.rawValue) == true { return true }
         if secureInput.contains(key) { return true }
         if let tab = tabModel(key), browserTabs.reopenedForProtectedMedia(tab) { return true }
         return window.sharingType == .none

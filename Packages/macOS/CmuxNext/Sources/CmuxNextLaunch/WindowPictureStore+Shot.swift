@@ -38,13 +38,11 @@ extension WindowPictureStore {
         public let layout: WindowPictureMeta.Layout
         /// The stable id of the display that shows it.
         public let screen: String?
-        /// The browser profiles of the pages its picture shows (``WindowPictureMeta/browserProfiles``); nil: not known.
-        public let browserProfiles: Set<UUID>?
 
         public init(id: String, profile: String, incognito: Bool, theme: String, background: Color, build: String,
-                    layout: WindowPictureMeta.Layout, screen: String?, browserProfiles: Set<UUID>? = nil) {
+                    layout: WindowPictureMeta.Layout, screen: String?) {
             (self.id, self.profile, self.incognito, self.theme, self.background) = (id, profile, incognito, theme, background)
-            (self.build, self.layout, self.screen, self.browserProfiles) = (build, layout, screen, browserProfiles)
+            (self.build, self.layout, self.screen) = (build, layout, screen)
         }
     }
 
@@ -77,8 +75,7 @@ extension WindowPictureStore {
             window: facts.id, profile: facts.profile, frame: window.frame, screen: facts.screen, scale: Double(window.backingScaleFactor),
             appearance: window.effectiveAppearance.name.rawValue, theme: facts.theme,
             sidebarWidth: sidebar.map { Double($0.frame.width) } ?? 0, build: facts.build, layout: facts.layout,
-            regions: regions.sorted { ($0.kind.rawValue, $0.id) < ($1.kind.rawValue, $1.id) },
-            browserProfiles: facts.browserProfiles.map { profiles in profiles.sorted { $0.uuidString < $1.uuidString } })
+            regions: regions.sorted { ($0.kind.rawValue, $0.id) < ($1.kind.rawValue, $1.id) })
         return Shot(eligibility: eligibility, base: base, size: root.bounds.size, layers: layers, fills: fills,
                     background: facts.background, meta: meta)
     }
