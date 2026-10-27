@@ -3015,6 +3015,17 @@ jobs:
             echo "- tip: \`$TIP_SHA\` (${BEHIND:-0} commits and ${BEHIND_HOURS:-0} h behind)"
             echo "- already published: $already_published"
           } >> "$GITHUB_STEP_SUMMARY"
+      - name: Source key of the iPhone host
+        id: mobile-host-source
+        if: needs.decide.outputs.track == 'nightly-next' && inputs.nightly_next_unsigned_run == ''
+        continue-on-error: true
+        env:
+          BUILD_SHA: ${{ steps.build.outputs.build_sha }}
+          BUILD_ARCHS: ${{ needs.decide.outputs.compile_archs }}
+        run: |
+          key="$(python3 scripts/ci/nightly_mobile_host_reuse.py source-key --revision "$BUILD_SHA" --archs "$BUILD_ARCHS")"
+          echo "key=$key" >> "$GITHUB_OUTPUT"
+
       - name: Leave the build slot to a newer nightly-next push
         id: superseded
         if: github.event_name == 'push' && github.ref == 'refs/heads/nightly-next'
@@ -3032,16 +3043,6 @@ jobs:
             echo "superseded=false" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Source key of the iPhone host
-        id: mobile-host-source
-        if: needs.decide.outputs.track == 'nightly-next' && inputs.nightly_next_unsigned_run == ''
-        continue-on-error: true
-        env:
-          BUILD_SHA: ${{ steps.build.outputs.build_sha }}
-          BUILD_ARCHS: ${{ needs.decide.outputs.compile_archs }}
-        run: |
-          key="$(python3 scripts/ci/nightly_mobile_host_reuse.py source-key --revision "$BUILD_SHA" --archs "$BUILD_ARCHS")"
-          echo "key=$key" >> "$GITHUB_OUTPUT"
 
   prepare-nightly-variant-primary:
     # No environment and no secrets: this job runs code from the bundle (the
