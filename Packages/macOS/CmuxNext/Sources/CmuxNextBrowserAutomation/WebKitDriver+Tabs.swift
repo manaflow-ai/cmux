@@ -1,5 +1,5 @@
 import CmuxNextBrowser
-import Foundation
+public import Foundation
 import WebKit
 
 extension WebKitDriver {
