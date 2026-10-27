@@ -207,6 +207,15 @@ impl Translator {
     /// One message from the hub.
     pub fn from_client(&self, msg: &Value) -> Vec<Out> {
         #[cfg(unix)]
+        { self.from_client_read(msg, codex_auth_file::read) }
+        #[cfg(not(unix))]
+        { self.from_client_read(msg) }
+    }
+
+    fn from_client_read(&self, msg: &Value,
+        #[cfg(unix)] read: impl FnOnce() -> anyhow::Result<Option<AccessFile>>,
+    ) -> Vec<Out> {
+        #[cfg(unix)]
         {
             let mut auth = self.auth.lock().unwrap_or_else(|e| e.into_inner());
             if auth.enabled() && auth.failed.is_some() {
@@ -227,7 +236,7 @@ impl Translator {
                 return Vec::new();
             }
             if auth.enabled() {
-                match codex_auth_file::read() {
+                match read() {
                     Ok(Some(file)) if auth.account_allowed(&file, None) => {
                         let changed = auth.file.as_ref().is_none_or(|old| {
                             old.access_token != file.access_token
@@ -726,4 +735,37 @@ mod tests {
         assert_eq!(reply["id"], 8);
         assert_eq!(reply["error"]["code"], -32001);
     }
+    #[cfg(unix)]
+    #[test]
+    fn failed_refresh_settles_held_requests() {
+        let mut gate = AuthGate::from_read(Err(anyhow::anyhow!("unused")));
+        gate.failed = None;
+        gate.login_id = Some(json!("login"));
+        gate.held_client.push(json!({"id":"queued", "method":"session/new"}));
+        let out = gate.handle_refresh(&json!({
+            "id":"refresh", "method":"account/chatgptAuthTokens/refresh"
+        }), || Ok(None)).unwrap();
+        assert!(out.iter().any(|out| matches!(out, Out::Client(v)
+            if v["id"] == "queued" && v["error"]["code"] == -32001)));
+        assert!(out.iter().any(|out| matches!(out, Out::Server(v)
+            if v["id"] == "refresh" && v["error"]["code"] == -32001)));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn failed_file_read_settles_current_and_held_requests() {
+        let tr = translator();
+        let file = AccessFile { access_token: "access".into(), account_id: "account".into(),
+            expires_at: 4_102_444_800, modified: std::time::SystemTime::UNIX_EPOCH };
+        *tr.auth.lock().unwrap() = AuthGate::from_read(Ok(Some(file.clone())));
+        tr.auth.lock().unwrap().login_id = Some(json!("login"));
+        assert!(tr.from_client_read(&json!({"id":"queued", "method":"session/new"}),
+            || Ok(Some(file))).is_empty());
+        let out = tr.from_client_read(&json!({"id":"current", "method":"session/new"}), || Ok(None));
+        for id in ["queued", "current"] {
+            assert!(out.iter().any(|out| matches!(out, Out::Client(v)
+                if v["id"] == id && v["error"]["code"] == -32001)), "missing reply for {id}");
+        }
+    }
+
 }
