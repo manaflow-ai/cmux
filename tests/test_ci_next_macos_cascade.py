@@ -371,10 +371,12 @@ class Place(unittest.TestCase):
         moving = cascade.Seen(waits={LARGE: 0.0, SMALL: minutes - 1}, hosted=0)
         self.assertEqual(cascade.fresh_stalled(stuck.waits), (SMALL,))
         self.assertEqual(cascade.fresh_stalled(moving.waits), ())
-        # Below STALL_MINUTES, with a runner online: every other job still takes the slot.
+        # One rule (simple_pool_picker.blacksmith_stalled): the same wait stalls the label for every job.
+        self.assertEqual(cascade.FRESH_STALL_MINUTES, cascade.STALL_MINUTES)
         live, waiting = {LARGE: 0, SMALL: 4}, {LARGE: 0, SMALL: 1}
-        self.assertEqual(cascade.stalled(live, waiting, stuck.waits), ())
-        self.assertEqual(cascade.place(env(CASCADE_RUNS=" fast-tier "), (), live, waiting, stuck).jobs,
+        self.assertEqual(cascade.stalled(live, waiting, stuck.waits), (SMALL,))
+        self.assertEqual(cascade.stalled(live, waiting, moving.waits), ())
+        self.assertEqual(cascade.place(env(CASCADE_RUNS=" fast-tier "), (), live, waiting, moving).jobs,
                          none_placed(**{SMALL: ("fast-tier",)}))
         # A DEV daily's compile and a push's Release compile both stay on the owned label, never hosted.
         dev = env(CASCADE_RUNS=" cmux-scheme-compile ", FRESH_JOBS="cmux-scheme-compile")
@@ -391,10 +393,11 @@ class Place(unittest.TestCase):
         self.assertIn("no job leaves the minis' queue", result.why)
         self.assertEqual(cascade.place(push, (), None, None, moving).jobs, none_placed(**{SMALL: ("release-compile",)}))
         self.assertEqual(cascade.place(dev, (), None, None, stuck).jobs, none_placed())
-        # The overflow of a run with a feed's compile skips the fresh-stalled label; other runs' overflow does not.
+        # The overflow skips the stalled label, a feed's compile and every other run's alike (one rule).
         free = {LARGE: 0, SMALL: 2}, {LARGE: 0, SMALL: 1}
         self.assertEqual(cascade.place(push, ("release-compile",), *free, stuck).retry_runner, "")
-        self.assertEqual(cascade.place(env(CASCADE_RUNS=" fast-tier "), ("fast-tier",), *free, stuck).retry_runner,
+        self.assertEqual(cascade.place(env(CASCADE_RUNS=" fast-tier "), ("fast-tier",), *free, stuck).retry_runner, "")
+        self.assertEqual(cascade.place(env(CASCADE_RUNS=" fast-tier "), ("fast-tier",), *free, moving).retry_runner,
                          SMALL)
         self.assertEqual(cascade.place(push, (), live, waiting, stuck).fresh_stall, (SMALL,))
         self.assertEqual(cascade.place(push, (), None, None, stuck).fresh_stall, (SMALL,))
@@ -644,11 +647,22 @@ class Stall(unittest.TestCase):
         self.assertIsNone(cascade.seen(snapshot(minutes_old=cascade.QUEUE_SNAPSHOT_MINUTES + 1), NOW))
         self.assertIsNone(cascade.seen(None, NOW))
 
+    def test_the_stall_figure_is_the_pickers_one_rule(self):
+        """pick-nightly-sign-runner, cmux-next's placement and ci.yml's pick read one stall figure."""
+        sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts/ci"))
+        import simple_pool_picker
+
+        self.assertEqual(cascade.STALL_MINUTES, simple_pool_picker.BLACKSMITH_STALL_MINUTES)
+        self.assertEqual(cascade.STALL_MINUTES, 10)
+        # 2026-10-27 06:13Z: both macOS 26 labels queued for hours with 3 running.
+        self.assertEqual(cascade.stalled({LARGE: 0, SMALL: 3}, {LARGE: 44, SMALL: 38},
+                                         {LARGE: 396.0, SMALL: 359.0}), (LARGE, SMALL))
+
     def test_a_long_wait_or_an_unserved_queue_is_a_stall(self):
         self.assertEqual(cascade.stalled(self.INCIDENT_LIVE, self.INCIDENT_QUEUED, self.incident_seen().waits),
                          (LARGE, SMALL))
         # Busy but moving: jobs start within minutes.
-        self.assertEqual(cascade.stalled({LARGE: 5, SMALL: 3}, {LARGE: 1, SMALL: 1}, {LARGE: 10.0, SMALL: 3.0}), ())
+        self.assertEqual(cascade.stalled({LARGE: 5, SMALL: 3}, {LARGE: 1, SMALL: 1}, {LARGE: cascade.STALL_MINUTES - 1.0, SMALL: 3.0}), ())
         # A queue nobody serves for IDLE_STALL_MINUTES is a stall even before STALL_MINUTES.
         idle = cascade.IDLE_STALL_MINUTES
         self.assertEqual(cascade.stalled({LARGE: 0, SMALL: 2}, {LARGE: 1, SMALL: 1},
@@ -658,7 +672,7 @@ class Stall(unittest.TestCase):
         # An idle scale set has no runner online: a job the snapshot saw queued only briefly
         # is not a stall however old the snapshot is (it may have run since).
         self.assertEqual(cascade.stalled({LARGE: 0, SMALL: 0}, {LARGE: 1, SMALL: 0},
-                                         {LARGE: 12.0, SMALL: 0.0}, age=10.0), ())
+                                         {LARGE: cascade.STALL_MINUTES - 1.0, SMALL: 0.0}, age=7.0), ())
         # A runner online does not excuse a queue that has waited STALL_MINUTES.
         self.assertEqual(cascade.stalled({LARGE: 3, SMALL: 0}, {LARGE: 1, SMALL: 0},
                                          {LARGE: float(cascade.STALL_MINUTES), SMALL: 0.0}), (LARGE,))
