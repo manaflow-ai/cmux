@@ -106,17 +106,24 @@ public struct LaunchIdentity: Sendable, Equatable {
     public static let stateRootKnobs = ["CHIEF_HOME", "CHIEF_ROOT", "CHIEF_BUILD_ID", "CHIEF_ACCOUNT",
                                         "MUX_HOME", "ACPMUX_ROOT", "SOCKET_PATH", "CONFIG_FILE"].map { "CMUX_NEXT_" + $0 }
 
+    /// The feature lists one launch may set (`open -n -b <id> --env CMUX_DISABLE_FEATURES=...`): the names of
+    /// `FeatureOverrides.enableVariable` and `.disableVariable`, which read them after the strip. Inherited from
+    /// another cmux they are that build's choice and go with the rest.
+    public static let launchFeatureLists = ["CMUX_ENABLE_FEATURES", "CMUX_DISABLE_FEATURES"]
+
     /// Keys of cmux variables this process inherited rather than received
-    /// from its own bundle: every `CMUX*` but the `CMUX_NEXT_*` launch knobs.
+    /// from its own bundle: every `CMUX*` but the `CMUX_NEXT_*` launch knobs
+    /// and the ``launchFeatureLists``.
     /// When another cmux started this process (``otherCmuxMarkers``), also
-    /// the ``stateRootKnobs``, every `MUX_*` but `MUX_HARNESS`, and every
-    /// `OPTCHAT_*`: that build's Chief, brain and acpmux roots.
+    /// the ``stateRootKnobs``, the ``launchFeatureLists``, every `MUX_*` but
+    /// `MUX_HARNESS`, and every `OPTCHAT_*`: that build's Chief, brain and acpmux roots.
     public static func inheritedKeys(processEnvironment: [String: String], bundledEnvironment: [String: String]) -> [String] {
         let inherited = { (key: String) in processEnvironment[key].map { bundledEnvironment[key] != $0 } ?? false }
         let fromOtherCmux = otherCmuxMarkers.contains(where: inherited)
         return processEnvironment.keys.filter { key in
             guard inherited(key) else { return false }
             if key.hasPrefix("CMUX_NEXT_") { return fromOtherCmux && stateRootKnobs.contains(key) }
+            if launchFeatureLists.contains(key) { return fromOtherCmux }
             if key.hasPrefix("CMUX") { return true }
             guard fromOtherCmux else { return false }
             return (key.hasPrefix("MUX_") && key != "MUX_HARNESS") || key.hasPrefix("OPTCHAT_")

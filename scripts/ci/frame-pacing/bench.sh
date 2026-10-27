@@ -13,7 +13,17 @@
 # fling_stats and perf_stats debug results. out/display.txt records the virtual
 # display's measured tick interval. The virtual display and every app this
 # script launched are gone when it exits, however it exits.
+#
+# usage: bench.sh --mode instant|golden|fling --app PATH --tag TAG --out DIR
+#   The perf lab's stories (scripts/perf-lab/stories.d/frame_pacing.*.json). PATH is
+#   a prebuilt bench app, so nothing is built, and the lab runner owns the 120 Hz
+#   display, so none is started here. lab_story.py runs the mode and writes
+#   result-v1 files into DIR.
 set -uo pipefail
+
+if [[ "${1:-}" == --* ]]; then
+  exec python3 "$(dirname "${BASH_SOURCE[0]}")/lab_story.py" "$@"
+fi
 
 work="${1:?usage: bench.sh WORK_DIR}"
 tag="${CMUX_TAG:?set CMUX_TAG to the baked tag of the app}"

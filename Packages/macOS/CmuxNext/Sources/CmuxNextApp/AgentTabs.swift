@@ -39,7 +39,7 @@ final class AgentTabStore {
     let mainThread: AgentPaneMainThread
     /// The page every agent tab loads: the bundled file (nil only when the bundled page is missing).
     private let source: AgentPaneSource?
-    /// Adaptive, or in Debug builds fixed by `CMUX_NEXT_AGENT_PANE_FULL_RATE` (`1` full, `0` capped) for measuring either rate.
+    /// Adaptive, or in Debug and bench builds fixed by `CMUX_NEXT_AGENT_PANE_FULL_RATE` (`1` full, `0` capped) for measuring either rate.
     private let renderRate: AgentPaneRenderRate
     /// `~/.config/cmux/agent-pane/` hot reload, watched while any agent tab has a view.
     let customization: AgentPaneCustomizationWatcher
@@ -257,7 +257,7 @@ final class AgentTabStore {
         // Start acpmux while the first pane is loading. The page still owns
         // the authenticated WebSocket handshake and session selection.
         Task { try? await resolvedHost.prewarm() }
-        #if DEBUG
+        #if DEBUG || CMUX_BENCH_HOOKS
         switch environment["CMUX_NEXT_AGENT_PANE_FULL_RATE"] {
         case "1": renderRate = .full
         case "0": renderRate = .capped
