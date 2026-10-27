@@ -12,22 +12,6 @@ import Testing
 struct AgentChatsStartupTests {
     private static let thisMac = "install:startup-resume-test"
 
-    private actor Host: AgentPaneHostProviding {
-        nonisolated let resumed: AsyncStream<String>
-        private let continuation: AsyncStream<String>.Continuation
-        var calls: [String] = []
-
-        init() {
-            (resumed, continuation) = AsyncStream.makeStream()
-        }
-
-        func handshake(sessionId: String?) async throws -> AgentPaneHandshake { .mock }
-        func warm(sessionIds: [String]) async throws {
-            calls.append(contentsOf: sessionIds)
-            for session in sessionIds { continuation.yield(session) }
-        }
-    }
-
     private static func tree(_ sessions: [String]) -> DaemonTree {
         let workspaces = sessions.enumerated().map { index, session in
             let id = index + 1
@@ -48,7 +32,7 @@ struct AgentChatsStartupTests {
         let store = services.daemon.store
         store.applyProvisional(snapshot: Self.tree(["stale-cached-chat"]))
         let tabs = services.agentTabs
-        let host = Host()
+        let host = AgentChatsStartupRecordingHost()
         tabs.localHost = Self.thisMac
         tabs.localSessionHost = host
         let resumed = host.resumed

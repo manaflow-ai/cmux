@@ -12,25 +12,8 @@ import Testing
 struct AgentChatsLaunchResumeTests {
     private static let thisMac = "install:launch-resume-test"
 
-    /// The sessions the store asked acpmux to warm, one call each.
-    private actor RecordingHost: AgentPaneHostProviding {
-        nonisolated let resumed: AsyncStream<String>
-        private let continuation: AsyncStream<String>.Continuation
-        var warmed: [[String]] = []
-
-        init() {
-            (resumed, continuation) = AsyncStream.makeStream()
-        }
-
-        func handshake(sessionId: String?) async throws -> AgentPaneHandshake { .mock }
-        func warm(sessionIds: [String]) async throws {
-            warmed.append(sessionIds)
-            for session in sessionIds { continuation.yield(session) }
-        }
-    }
-
-    private static func tabs(_ listed: [(key: String, record: AgentSessionRef)], host: RecordingHost,
-                             chief: RecordingHost? = nil) -> AgentTabStore {
+    private static func tabs(_ listed: [(key: String, record: AgentSessionRef)], host: AgentChatsLaunchResumeRecordingHost,
+                             chief: AgentChatsLaunchResumeRecordingHost? = nil) -> AgentTabStore {
         let environment = [AgentPaneSource.devURLVariable: "http://127.0.0.1:9"]
         let tabs = AgentTabStore(build: nil, registry: ActionRegistry(), environment: environment, showcase: true)
         tabs.localHost = thisMac
@@ -44,7 +27,7 @@ struct AgentChatsLaunchResumeTests {
     }
 
     @Test func everyWorkspacesChatsOfThisMacResumeAtLaunchOnceEach() async {
-        let host = RecordingHost(), chief = RecordingHost()
+        let host = AgentChatsLaunchResumeRecordingHost(), chief = AgentChatsLaunchResumeRecordingHost()
         let tabs = Self.tabs([
             // The workspace shown at launch.
             (key: "tab-a", record: AgentSessionRef(host: Self.thisMac, session: "s-shown", harness: "codex")),
@@ -70,7 +53,7 @@ struct AgentChatsLaunchResumeTests {
     }
 
     @Test func aSessionThePageReportedResumesOverTheStoredOne() async {
-        let host = RecordingHost()
+        let host = AgentChatsLaunchResumeRecordingHost()
         let tabs = Self.tabs([(key: "tab-a", record: AgentSessionRef(host: Self.thisMac, session: "s-old"))], host: host)
         tabs.sessions["tab-a"] = "s-new"
         await tabs.resumeChatsAtLaunch()
@@ -78,13 +61,13 @@ struct AgentChatsLaunchResumeTests {
     }
 
     @Test func noChatsWarmNothing() async {
-        let host = RecordingHost()
+        let host = AgentChatsLaunchResumeRecordingHost()
         await Self.tabs([], host: host).resumeChatsAtLaunch()
         #expect(await host.warmed.isEmpty)
     }
 
     @Test func launchResumeRetriesWhenTheInstallHostArrivesAfterTheFirstTree() async throws {
-        let host = RecordingHost()
+        let host = AgentChatsLaunchResumeRecordingHost()
         let tabs = Self.tabs([(key: "tab-a", record: AgentSessionRef(host: Self.thisMac, session: "s-late"))], host: host)
         tabs.localHost = nil
         var resolutions = 0
@@ -122,7 +105,7 @@ struct AgentChatsLaunchResumeTests {
     }
 
     @Test func releasingTabsBeforeConnectCancelsTheLaunchWait() async throws {
-        let host = RecordingHost(), store = DaemonStore()
+        let host = AgentChatsLaunchResumeRecordingHost(), store = DaemonStore()
         var tabs: AgentTabStore? = Self.tabs([], host: host)
         weak var released = tabs
         tabs?.resumeChatsWhenLoaded(store)
@@ -135,7 +118,7 @@ struct AgentChatsLaunchResumeTests {
     }
 
     @Test func theChiefRouterWarmsEachSessionInTheAcpmuxThatOwnsIt() async throws {
-        let local = RecordingHost(), chief = RecordingHost()
+        let local = AgentChatsLaunchResumeRecordingHost(), chief = AgentChatsLaunchResumeRecordingHost()
         let router = AcpmuxChiefSessionRouter(local: local, chief: chief) { $0 == "s-subagent" }
         try await router.warm(sessionIds: ["s-chat", "s-subagent"])
         #expect(await local.warmed == [["s-chat"]])

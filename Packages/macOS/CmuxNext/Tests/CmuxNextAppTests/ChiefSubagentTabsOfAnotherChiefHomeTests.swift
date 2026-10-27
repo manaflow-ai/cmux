@@ -15,30 +15,12 @@ import CmuxNextWakeups
 /// another machine's. Every `chief:<home id>` a tab of this Mac's tree names is a Chief home of
 /// this Mac: its chat opens from that home's acpmux, or from this Mac's when it runs there.
 @MainActor struct ChiefSubagentTabsOfAnotherChiefHomeTests {
-    private struct Reached: Error {
-        let host: String
-    }
-
-    /// A pane host that only says it was reached.
-    private struct NamedHost: AgentPaneHostProviding {
-        let name: String
-        func handshake(sessionId: String?) async throws -> AgentPaneHandshake { throw Reached(host: name) }
-        func sessionFolder(sessionId: String) async throws -> AgentPaneSessionFolder? { nil }
-        func putFile(sessionId: String, name: String, data: Data) async throws -> String { "" }
-    }
-
-    private actor WarmHost: AgentPaneHostProviding {
-        var warmed: [[String]] = []
-        func handshake(sessionId: String?) async throws -> AgentPaneHandshake { throw Reached(host: "warm") }
-        func warm(sessionIds: [String]) async throws { warmed.append(sessionIds) }
-    }
-
     private func reached(_ host: (any AgentPaneHostProviding)?, session: String) async -> String? {
         guard let host else { return nil }
         do {
             _ = try await host.handshake(sessionId: session)
             return nil
-        } catch let reached as Reached {
+        } catch let reached as ChiefSubagentReached {
             return reached.host
         } catch {
             return nil
@@ -74,10 +56,10 @@ import CmuxNextWakeups
 
         let tabs = AgentTabStore(build: nil, registry: ActionRegistry(), environment: [:], showcase: true)
         tabs.chiefHost = chiefHost
-        tabs.chiefPaneHost = NamedHost(name: "chief")
-        tabs.localSessionHost = NamedHost(name: "app")
+        tabs.chiefPaneHost = ChiefSubagentNamedHost(name: "chief")
+        tabs.localSessionHost = ChiefSubagentNamedHost(name: "app")
         tabs.chiefHomes = ChiefHomeDirectory(parents: [base], work: BackgroundWork(), environment: { _ in nil }) { _, starts in
-            NamedHost(name: starts ? "old-home, started" : "old-home")
+            ChiefSubagentNamedHost(name: starts ? "old-home, started" : "old-home")
         }
 
         // The old home's acpmux keeps the chat: the tab attaches there. No brain holds that home,
@@ -93,10 +75,10 @@ import CmuxNextWakeups
     @Test func aHomeMadeAfterTheFirstLookupIsFound() async throws {
         let (base, _, _) = try homes()
         defer { try? FileManager.default.removeItem(at: base.deletingLastPathComponent()) }
-        let directory = ChiefHomeDirectory(parents: [base], work: BackgroundWork(), rescanInterval: .zero, environment: { _ in nil }) { _, _ in NamedHost(name: "later-home") }
+        let directory = ChiefHomeDirectory(parents: [base], work: BackgroundWork(), rescanInterval: .zero, environment: { _ in nil }) { _, _ in ChiefSubagentNamedHost(name: "later-home") }
         let later = base.appendingPathComponent("com.cmuxterm.app.debug.25262.later", isDirectory: true)
         let laterHost = ChiefHomeAcpmux.host(muxHome: later)
-        let pane = ChiefHomeSessionHost(host: laterHost, homes: directory, fallback: NamedHost(name: "app"))
+        let pane = ChiefHomeSessionHost(host: laterHost, homes: directory, fallback: ChiefSubagentNamedHost(name: "app"))
         #expect(await reached(pane, session: kept) == "app")
         try FileManager.default.createDirectory(at: later.appendingPathComponent("acpmux/sessions/\(kept)", isDirectory: true),
                                                 withIntermediateDirectories: true)
@@ -106,10 +88,10 @@ import CmuxNextWakeups
     @Test func anOldChiefHomeWarmsItsRestoredChatThroughItsAcpmux() async throws {
         let (base, _, old) = try homes()
         defer { try? FileManager.default.removeItem(at: base.deletingLastPathComponent()) }
-        let warm = WarmHost()
+        let warm = ChiefSubagentWarmHost()
         let directory = ChiefHomeDirectory(parents: [base], work: BackgroundWork(), environment: { _ in nil }) { _, _ in warm }
         let pane = ChiefHomeSessionHost(host: ChiefHomeAcpmux.host(muxHome: old), homes: directory,
-                                        fallback: NamedHost(name: "app"))
+                                        fallback: ChiefSubagentNamedHost(name: "app"))
 
         try await pane.warm(sessionIds: [kept])
         #expect(await warm.warmed == [[kept]])
@@ -124,9 +106,9 @@ import CmuxNextWakeups
         let lockPath = old.appendingPathComponent("state/host.lock")
         try FileManager.default.createDirectory(at: lockPath.deletingLastPathComponent(), withIntermediateDirectories: true)
         let directory = ChiefHomeDirectory(parents: [base], work: BackgroundWork(), environment: { _ in nil }) { _, starts in
-            NamedHost(name: starts ? "starts" : "attaches")
+            ChiefSubagentNamedHost(name: starts ? "starts" : "attaches")
         }
-        let pane = ChiefHomeSessionHost(host: ChiefHomeAcpmux.host(muxHome: old), homes: directory, fallback: NamedHost(name: "app"))
+        let pane = ChiefHomeSessionHost(host: ChiefHomeAcpmux.host(muxHome: old), homes: directory, fallback: ChiefSubagentNamedHost(name: "app"))
         // No brain holds the home: its daemon may start for the tab.
         #expect(await reached(pane, session: kept) == "starts")
         // That build opens: the tab only attaches now.
@@ -146,8 +128,8 @@ import CmuxNextWakeups
         let record = AgentSessionRef(host: gone, session: kept, harness: "claude")
         #expect(AgentPaneHostKind(record, localHost: local, chiefHost: ChiefHomeAcpmux.host(muxHome: current.muxHome),
                                   listedHere: true) == .chief)
-        let directory = ChiefHomeDirectory(parents: [base], work: BackgroundWork(), environment: { _ in nil }) { _, _ in NamedHost(name: "home") }
-        #expect(await reached(ChiefHomeSessionHost(host: gone, homes: directory, fallback: NamedHost(name: "app")), session: kept) == "app")
+        let directory = ChiefHomeDirectory(parents: [base], work: BackgroundWork(), environment: { _ in nil }) { _, _ in ChiefSubagentNamedHost(name: "home") }
+        #expect(await reached(ChiefHomeSessionHost(host: gone, homes: directory, fallback: ChiefSubagentNamedHost(name: "app")), session: kept) == "app")
     }
 
     /// Another machine's tree is that machine's: a `chief:` host there is its Chief, so the tab
