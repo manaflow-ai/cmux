@@ -148,10 +148,11 @@ export const SubagentTray = memo(function SubagentTray({
   ];
   // A line that joins the open list rises in (ui/popupSurface.css `data-enter`); the lines it was
   // drawn with, and lines a fold or View all brings back, are simply there. With no motion (Reduce
-  // Motion, the host's switch, a hidden page) nothing arrives. A burst (more than ARRIVALS_PER_UPDATE new lines at
-  // once, a reconnect's catch-up) is simply there too, as the transcript's live rows are, so the
-  // arrivals set stays a handful (each settles in one entrance) and settling one never copies the
-  // tray's size. Counting the new lines is one pass over keys this render already builds.   const seen = useRef<ReadonlySet<string> | null>(null);
+  // Motion, the host's switch, a hidden page) nothing arrives. A burst (more than
+  // ARRIVALS_PER_UPDATE new lines at once, a reconnect's catch-up) is simply there too, as the
+  // transcript's live rows are, so the arrivals set stays a handful (each settles in one entrance) and settling one never copies the
+  // tray's size. Counting the new lines is one pass over keys this render already builds.
+  const seen = useRef<ReadonlySet<string> | null>(null);
   seen.current ??= new Set(keys);
   const known = seen.current;
   const fresh = keys.reduce((count, key) => count + (known.has(key) ? 0 : 1), 0);

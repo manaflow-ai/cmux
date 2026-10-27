@@ -60,9 +60,12 @@ export function playTrayExit(card: HTMLElement): void {
     node.removeAttribute("tabindex");
     node.removeAttribute("aria-controls");
   }
-  // A card still entering leaves from where it is drawn, not from its end.
+  // A card still entering leaves from where it is drawn, not from its end: the copy takes its drawn
+  // opacity and transform, over its laid-out box (its offsets, which no transform moves), so the
+  // transform is applied once.
   const drawn = card.ownerDocument.defaultView?.getComputedStyle(card);
-  if (card.hasAttribute(TRAY_ENTER_ATTR) && drawn) {
+  const entering = card.hasAttribute(TRAY_ENTER_ATTR) && drawn !== undefined;
+  if (entering) {
     ghost.style.opacity = drawn.opacity;
     if (drawn.translate && drawn.translate !== "none") ghost.style.translate = drawn.translate;
     if (drawn.scale && drawn.scale !== "none") ghost.style.scale = drawn.scale;
@@ -73,12 +76,25 @@ export function playTrayExit(card: HTMLElement): void {
   ghost.setAttribute("inert", "");
   // Anchored to the host's bottom edge, where the composer stays: the stack under the card does not
   // move when it goes, and the host (the floating stack) loses the card's height from its top.
+  const place = entering
+    ? {
+        left: card.offsetLeft,
+        bottom: host.clientHeight - card.offsetTop - card.offsetHeight,
+        width: card.offsetWidth,
+        height: card.offsetHeight,
+      }
+    : {
+        left: rect.left - box.left - host.clientLeft,
+        bottom: box.top + host.clientTop + host.clientHeight - rect.bottom,
+        width: rect.width,
+        height: rect.height,
+      };
   Object.assign(ghost.style, {
     position: "absolute",
-    left: `${rect.left - box.left - host.clientLeft}px`,
-    bottom: `${box.top + host.clientTop + host.clientHeight - rect.bottom}px`,
-    width: `${rect.width}px`,
-    height: `${rect.height}px`,
+    left: `${place.left}px`,
+    bottom: `${place.bottom}px`,
+    width: `${place.width}px`,
+    height: `${place.height}px`,
     maxHeight: "none",
     margin: "0",
     pointerEvents: "none",
