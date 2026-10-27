@@ -193,6 +193,8 @@ impl Mux {
                 terminals = inputs.terminals.lock().unwrap_or_else(PoisonError::into_inner);
                 continue;
             }
+            // wakeup-allow: deadline the one creation expiry set before the loop; the flush's end
+            // ends the wait first
             terminals =
                 cmux_threads::checked::sync::wait_timeout(&inputs.ended, terminals, deadline - now)
                     .unwrap_or_else(PoisonError::into_inner)

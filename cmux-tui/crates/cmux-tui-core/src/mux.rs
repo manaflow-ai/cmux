@@ -699,9 +699,10 @@ pub struct Mux {
     journal_ingress: crate::journal_ingress::JournalIngressSender,
     /// Terminal output, outside the journal (output_store.rs).
     pub(crate) output_store: crate::output_store::OutputStore,
-    /// Periodic checkpoint, segment sealing and incremental vacuum worker
-    /// (mux/journal_maintenance.rs); `None` for an in-memory session.
-    journal_maintenance: Mutex<Option<journal_maintenance::JournalMaintenance>>,
+    /// Checkpoint, segment sealing and incremental vacuum worker, armed by
+    /// registry commits (mux/journal_maintenance.rs); unset for an in-memory
+    /// session.
+    journal_maintenance: OnceLock<journal_maintenance::JournalMaintenance>,
     journal_hook_dispatcher_started: AtomicBool,
     journal_hook_runtime: Arc<crate::journal_hooks::JournalHookRuntime>,
     /// Wake-only signal for durable journal subscribers. Consumers always
@@ -1078,9 +1079,7 @@ fn sidebar_retry_delay(failures: u32) -> Duration {
 impl Drop for Mux {
     #[track_caller]
     fn drop(&mut self) {
-        if let Some(maintenance) =
-            self.journal_maintenance.get_mut().unwrap_or_else(PoisonError::into_inner).take()
-        {
+        if let Some(maintenance) = self.journal_maintenance.get() {
             maintenance.stop();
         }
         self.journal_plugin.shutdown();

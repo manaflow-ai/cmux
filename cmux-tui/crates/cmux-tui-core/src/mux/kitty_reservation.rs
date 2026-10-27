@@ -96,6 +96,8 @@ impl Mux {
                     self.kitty_image_budget_changed.notify_all();
                     break KittyGraphicsLimits::disabled();
                 }
+                // wakeup-allow: deadline the one reservation deadline; the host's quota answer ends
+                // the wait first
                 let (next, _) = cmux_threads::checked::sync::wait_timeout(
                     &self.kitty_image_budget_changed,
                     budget,

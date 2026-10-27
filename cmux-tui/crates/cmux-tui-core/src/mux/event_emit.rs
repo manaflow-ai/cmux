@@ -41,6 +41,8 @@ impl Mux {
             let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
                 return Err(ConfigReloadError::TimedOut);
             };
+            // wakeup-allow: deadline the one apply timeout set before the loop; the owner's apply
+            // ends the wait first
             let (next, timeout) = cmux_threads::checked::sync::wait_timeout(
                 &self.config_reload_changed,
                 state,

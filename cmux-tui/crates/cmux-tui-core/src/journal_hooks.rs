@@ -44,6 +44,13 @@ use crate::workspace_registry::{
 };
 use crate::{JournalHookManifest, JournalSensitivity, Mux};
 
+#[cfg(unix)]
+mod exit_event;
+mod hook_tree;
+#[cfg(unix)]
+use exit_event::{HookExit, StdinWait};
+use hook_tree::{HookTree, HookTrees};
+
 // Bound one dispatcher transaction so hook discovery cannot monopolize the
 // registry writer while producer events are waiting for durable receipts.
 const HOOK_SCAN_PAGE_SIZE: usize = 256;
@@ -55,6 +62,7 @@ pub(crate) const SHUTDOWN_WAIT: Duration = Duration::from_secs(2);
 struct JournalHookRuntimeState {
     running: bool,
     shutdown: bool,
+    trees: HookTrees,
 }
 
 /// Session-owned cancellation and completion fence for the dispatcher and all
@@ -92,11 +100,14 @@ impl JournalHookRuntime {
         self.cancelled.store(true, Ordering::Release);
         let mut state = self.state.lock().recover_poison();
         state.shutdown = true;
+        state.trees.end_all();
         while state.running {
             let remaining = deadline.saturating_duration_since(Instant::now());
             if remaining.is_zero() {
                 return false;
             }
+            // wakeup-allow: deadline the one shutdown budget; the dispatcher's finish, after each
+            // ended hook tree exits, ends the wait first
             let (next, timeout) = self.changed.wait_timeout(state, remaining).recover_poison();
             state = next;
             if timeout.timed_out() && state.running {
@@ -421,7 +432,7 @@ fn run_delivery_worker(
             Err(_) => return,
         };
         let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            execute_delivery_with_shutdown(&job.delivery, &job.attempt, &runtime.cancelled)
+            execute_delivery_with_shutdown(&job.delivery, &job.attempt, runtime)
         }))
         .unwrap_or_else(|_| (None, Some("hook worker panicked".into())));
         let result = JournalHookDeliveryResult {
@@ -885,9 +896,10 @@ impl CompiledHookRegex {
 fn execute_delivery_with_shutdown(
     delivery: &JournalHookDelivery,
     attempt: &JournalHookAttempt,
-    cancelled: &AtomicBool,
+    runtime: &JournalHookRuntime,
 ) -> (Option<i32>, Option<String>) {
-    if cancelled.load(Ordering::Acquire) {
+    let cancelled = &runtime.cancelled;
+    if runtime.is_cancelled() {
         return hook_shutdown_result();
     }
     let argv = &delivery.manifest.exec.argv;
@@ -981,6 +993,18 @@ fn execute_delivery_with_shutdown(
             return (None, Some(format!("observe hook process exit: {error}")));
         }
     };
+    // The scope made the hook the leader of its own group (process_group 0).
+    #[cfg(unix)]
+    let watch =
+        libc::pid_t::try_from(child.id()).ok().and_then(|group| runtime.watch(HookTree { group }));
+    #[cfg(unix)]
+    let Some(watch) = watch else {
+        tree.terminate();
+        let _ = child.kill();
+        child_exit.finish();
+        let _ = child.wait();
+        return hook_shutdown_result();
+    };
     #[cfg(windows)]
     let job = match WindowsHookJob::assign(&child) {
         Ok(job) => job,
@@ -994,10 +1018,17 @@ fn execute_delivery_with_shutdown(
         job.terminate_and_wait(&mut child);
         return (None, Some(format!("resume isolated hook process: {error}")));
     }
+    // Declared after `job`, so it drops first.
+    #[cfg(windows)]
+    let Some(_watch) = runtime.watch(HookTree { job: job.handle as usize }) else {
+        job.terminate_and_wait(&mut child);
+        return hook_shutdown_result();
+    };
     let process_group = child.id();
     let Some(stdin) = child.stdin.take() else {
         #[cfg(unix)]
         {
+            drop(watch);
             tree.terminate();
             let _ = child.kill();
             child_exit.finish();
@@ -1010,7 +1041,11 @@ fn execute_delivery_with_shutdown(
     let timeout = Duration::from_millis(delivery.manifest.exec.timeout_ms);
     #[cfg(unix)]
     {
-        let completion = execute_hook_child_unix(stdin, &input, timeout, cancelled, &child_exit);
+        let leader_exit = HookExit::observe(child.id()).unwrap_or(HookExit::Unobserved);
+        let completion =
+            execute_hook_child_unix(stdin, &input, timeout, cancelled, &child_exit, &leader_exit);
+        // Before the reap below: the group id must not outlive the group.
+        drop(watch);
         tree.terminate();
         if completion.is_err() {
             let _ = child.kill();
@@ -1034,7 +1069,7 @@ fn execute_delivery(
     delivery: &JournalHookDelivery,
     attempt: &JournalHookAttempt,
 ) -> (Option<i32>, Option<String>) {
-    execute_delivery_with_shutdown(delivery, attempt, &AtomicBool::new(false))
+    execute_delivery_with_shutdown(delivery, attempt, &JournalHookRuntime::default())
 }
 
 fn hook_shutdown_result() -> (Option<i32>, Option<String>) {
@@ -1048,6 +1083,7 @@ fn execute_hook_child_unix(
     timeout: Duration,
     cancelled: &AtomicBool,
     child_exit: &UnixChildExitSignal,
+    leader_exit: &HookExit,
 ) -> Result<(), (Option<i32>, Option<String>)> {
     let fd = stdin.as_raw_fd();
     // SAFETY: `fd` is owned by `stdin`, which is alive for this whole function;
@@ -1090,11 +1126,12 @@ fn execute_hook_child_unix(
             }
             Ok(written) => offset += written,
             Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
-                if let Err(error) = wait_hook_stdin_writable(fd, deadline, cancelled) {
-                    if cancelled.load(Ordering::Acquire) {
-                        return Err(hook_shutdown_result());
+                match exit_event::wait_stdin_or_exit(fd, leader_exit, deadline) {
+                    Ok(StdinWait::Ready) => {}
+                    Ok(StdinWait::LeaderExited) => {
+                        return wait_for_hook_exit(child_exit, deadline, timeout, cancelled);
                     }
-                    return Err((None, Some(format!("write hook event: {error}"))));
+                    Err(error) => return Err((None, Some(format!("write hook event: {error}")))),
                 }
             }
             Err(error) if error.kind() == std::io::ErrorKind::Interrupted => {}
@@ -1125,41 +1162,6 @@ fn hook_stdin_closed_result(
     }
 }
 
-#[cfg(unix)]
-fn wait_hook_stdin_writable(
-    fd: std::os::fd::RawFd,
-    deadline: Instant,
-    cancelled: &AtomicBool,
-) -> std::io::Result<()> {
-    loop {
-        if cancelled.load(Ordering::Acquire) {
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::Interrupted,
-                "hook canceled during daemon shutdown",
-            ));
-        }
-        let remaining = deadline.saturating_duration_since(Instant::now());
-        if remaining.is_zero() {
-            return Err(std::io::Error::new(std::io::ErrorKind::TimedOut, "hook timed out"));
-        }
-        let mut descriptor = libc::pollfd { fd, events: libc::POLLOUT, revents: 0 };
-        let poll_ms = remaining.min(Duration::from_millis(50)).as_millis().max(1) as libc::c_int;
-        // SAFETY: `descriptor` is one valid, exclusively borrowed pollfd and the
-        // count is 1, so poll writes only its `revents`.
-        let result = unsafe { libc::poll(&mut descriptor, 1, poll_ms) };
-        if result > 0 {
-            return Ok(());
-        }
-        if result == 0 {
-            return Ok(());
-        }
-        let error = std::io::Error::last_os_error();
-        if error.kind() != std::io::ErrorKind::Interrupted {
-            return Err(error);
-        }
-    }
-}
-
 #[cfg(windows)]
 fn execute_hook_child_portable(
     child: &mut cmux_process::Child,
@@ -1172,6 +1174,9 @@ fn execute_hook_child_portable(
 ) -> (Option<i32>, Option<String>) {
     let deadline = Instant::now() + timeout;
     let input = input.to_vec();
+    // A failed write (the hook closed its stdin early) ends the hook's job,
+    // so every outcome reaches the one exit wait below.
+    let job_handle = job.handle as usize;
     let (write_result_sender, write_result_receiver) = mpsc::sync_channel(1);
     let writer = match cmux_threads::spawn(
         "journal-hook-stdin",
@@ -1179,6 +1184,12 @@ fn execute_hook_child_portable(
         move || {
             let result = stdin.write_all(&input);
             drop(stdin);
+            if result.is_err() {
+                // SAFETY: the worker joins this thread before the job closes.
+                unsafe {
+                    TerminateJobObject(job_handle as HANDLE, 1);
+                }
+            }
             let _ = write_result_sender.send(result);
         },
     ) {
@@ -1189,88 +1200,25 @@ fn execute_hook_child_portable(
         }
     };
 
-    loop {
-        if cancelled.load(Ordering::Acquire) {
-            job.terminate_and_wait(child);
-            let _ = waits::join(writer);
-            return hook_shutdown_result();
-        }
-        let remaining = deadline.saturating_duration_since(Instant::now());
-        if remaining.is_zero() {
-            job.terminate_and_wait(child);
-            let _ = waits::join(writer);
-            return (None, Some(format!("hook timed out after {} ms", timeout.as_millis())));
-        }
-        match waits::recv_timeout(&write_result_receiver, remaining.min(Duration::from_millis(10)))
-        {
-            Ok(Ok(())) => {
-                let _ = waits::join(writer);
-                return wait_for_hook_exit_windows(
-                    child,
-                    process_group,
-                    deadline,
-                    timeout,
-                    job,
-                    cancelled,
-                );
-            }
-            Ok(Err(error)) => {
-                let _ = waits::join(writer);
-                job.terminate_and_wait(child);
-                return (None, Some(format!("write hook event: {error}")));
-            }
-            Err(mpsc::RecvTimeoutError::Disconnected) => {
-                job.terminate_and_wait(child);
-                let _ = waits::join(writer);
-                return (None, Some("hook stdin writer stopped without a result".into()));
-            }
-            Err(mpsc::RecvTimeoutError::Timeout) => match child.try_wait() {
-                Ok(Some(status)) => {
-                    job.terminate_descendants();
-                    let _ = waits::join(writer);
-                    return hook_exit_result(status, process_group);
-                }
-                Ok(None) => {}
-                Err(error) => {
-                    job.terminate_and_wait(child);
-                    let _ = waits::join(writer);
-                    return (None, Some(format!("wait for hook executable: {error}")));
-                }
-            },
-        }
+    // wakeup-allow: deadline the hook's one execution deadline; its exit ends the wait first, and
+    // a failed write or a shutdown ends its job, which is an exit too
+    let exited = child.wait_timeout(deadline.saturating_duration_since(Instant::now()));
+    if matches!(exited, Ok(Some(_))) {
+        job.terminate_descendants();
+    } else {
+        job.terminate_and_wait(child);
     }
-}
-
-#[cfg(windows)]
-fn wait_for_hook_exit_windows(
-    child: &mut cmux_process::Child,
-    process_group: u32,
-    deadline: Instant,
-    timeout: Duration,
-    job: &WindowsHookJob,
-    cancelled: &AtomicBool,
-) -> (Option<i32>, Option<String>) {
-    loop {
-        if cancelled.load(Ordering::Acquire) {
-            job.terminate_and_wait(child);
-            return hook_shutdown_result();
-        }
-        let remaining = deadline.saturating_duration_since(Instant::now());
-        if remaining.is_zero() {
-            job.terminate_and_wait(child);
-            return (None, Some(format!("hook timed out after {} ms", timeout.as_millis())));
-        }
-        match child.wait_timeout(remaining.min(Duration::from_millis(50))) {
-            Ok(Some(status)) => {
-                job.terminate_descendants();
-                return hook_exit_result(status, process_group);
-            }
-            Ok(None) => {}
-            Err(error) => {
-                job.terminate_and_wait(child);
-                return (None, Some(format!("wait for hook executable: {error}")));
-            }
-        }
+    // The job held every reader of the pipe, so a blocked write has ended.
+    let _ = waits::join(writer);
+    if cancelled.load(Ordering::Acquire) {
+        return hook_shutdown_result();
+    }
+    match (exited, write_result_receiver.try_recv()) {
+        (Ok(None), _) => (None, Some(format!("hook timed out after {} ms", timeout.as_millis()))),
+        (Err(error), _) => (None, Some(format!("wait for hook executable: {error}"))),
+        (Ok(Some(_)), Ok(Err(error))) => (None, Some(format!("write hook event: {error}"))),
+        (Ok(Some(status)), Ok(Ok(()))) => hook_exit_result(status, process_group),
+        (Ok(Some(_)), Err(_)) => (None, Some("hook stdin writer stopped without a result".into())),
     }
 }
 
@@ -1281,22 +1229,16 @@ fn wait_for_hook_exit(
     timeout: Duration,
     cancelled: &AtomicBool,
 ) -> Result<(), (Option<i32>, Option<String>)> {
-    loop {
-        if cancelled.load(Ordering::Acquire) {
-            return Err(hook_shutdown_result());
-        }
-        let remaining = deadline.saturating_duration_since(Instant::now());
-        if remaining.is_zero() {
-            return Err((None, Some(format!("hook timed out after {} ms", timeout.as_millis()))));
-        }
-        let wait_deadline = Instant::now() + remaining.min(Duration::from_millis(50));
-        match child_exit.wait_until(wait_deadline) {
-            Ok(true) => return Ok(()),
-            Ok(false) => {}
-            Err(error) => {
-                return Err((None, Some(format!("wait for hook executable: {error}"))));
-            }
-        }
+    if cancelled.load(Ordering::Acquire) {
+        return Err(hook_shutdown_result());
+    }
+    // One wait to the hook's deadline: the exit ends it first, and shutdown
+    // ends the hook's group (`HookTree::end`), which is an exit too.
+    match child_exit.wait_until(deadline) {
+        Ok(_) if cancelled.load(Ordering::Acquire) => Err(hook_shutdown_result()),
+        Ok(true) => Ok(()),
+        Ok(false) => Err((None, Some(format!("hook timed out after {} ms", timeout.as_millis())))),
+        Err(error) => Err((None, Some(format!("wait for hook executable: {error}")))),
     }
 }
 
@@ -1565,6 +1507,36 @@ mod tests {
         }
     }
 
+    /// Shutdown ends a 30 s hook's group; its exit wait returns at once.
+    #[cfg(unix)]
+    #[test]
+    fn shutdown_ends_a_running_hook_through_its_exit() {
+        let mut hook = manifest();
+        hook.exec.argv = vec!["/bin/sleep".into(), "30".into()];
+        hook.exec.timeout_ms = 60_000;
+        let event = document("plugin.test.shutdown", json!({})).record;
+        let delivery = JournalHookDelivery { manifest: hook, event, attempt: 0 };
+        let attempt = JournalHookAttempt { attempt: 1, causation_id: "event_started".into() };
+        let runtime = Arc::new(JournalHookRuntime::default());
+        assert!(runtime.begin());
+        let worker_runtime = runtime.clone();
+        let worker = std::thread::spawn(move || {
+            let _guard = JournalHookRuntimeGuard(worker_runtime.clone());
+            execute_delivery_with_shutdown(&delivery, &attempt, &worker_runtime)
+        });
+        let started = Instant::now() + Duration::from_secs(10);
+        while runtime.state.lock().recover_poison().trees.is_empty() {
+            assert!(Instant::now() < started, "the hook never started");
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        let shutdown = Instant::now();
+        assert!(runtime.shutdown_until(shutdown + SHUTDOWN_WAIT));
+        let (status, error) = worker.join().unwrap();
+        assert!(shutdown.elapsed() < SHUTDOWN_WAIT);
+        assert_eq!(status, None);
+        assert!(error.unwrap().contains("daemon shutdown"));
+    }
+
     #[cfg(target_os = "linux")]
     #[test]
     fn journal_hook_shutdown_cancels_an_active_detached_process_scope() {
@@ -1604,7 +1576,7 @@ mod tests {
         let worker_runtime = runtime.clone();
         let worker = std::thread::spawn(move || {
             let _guard = JournalHookRuntimeGuard(worker_runtime.clone());
-            execute_delivery_with_shutdown(&delivery, &attempt, &worker_runtime.cancelled)
+            execute_delivery_with_shutdown(&delivery, &attempt, &worker_runtime)
         });
         let (mut signal, _) = listener.accept().unwrap();
         let mut detached = [0_u8; size_of::<u32>()];

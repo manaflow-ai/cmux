@@ -344,6 +344,8 @@ impl JournalKernel {
                     let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
                         break;
                     };
+                    // wakeup-allow: deadline the caller's one deadline (`None` waits untimed); a
+                    // commit or a wake ends it first
                     state = self.changed.wait_timeout(state, remaining).recover_poison().0;
                 }
             }
@@ -356,6 +358,8 @@ impl JournalKernel {
         if state.epoch != epoch {
             return state.epoch;
         }
+        // wakeup-allow: deadline one wait of the caller's backoff or retry delay; a commit or a
+        // wake ends it first
         let (state, _) = self.changed.wait_timeout(state, timeout).recover_poison();
         state.epoch
     }
@@ -584,6 +588,8 @@ fn run_tailer(weak: Weak<JournalKernel>, reader: SessionJournalReader, mut last_
                     retry_at = None;
                     break state.requested_epoch;
                 };
+                // wakeup-allow: backoff the capped retry after a failed read; while the journal
+                // reads, the wait above is untimed
                 state = kernel.changed.wait_timeout(state, remaining).recover_poison().0;
             }
         };

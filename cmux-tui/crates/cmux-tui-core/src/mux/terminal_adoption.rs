@@ -912,6 +912,8 @@ impl Mux {
             if left.is_zero() {
                 break;
             }
+            // wakeup-allow: deadline the caller's one bound set before the loop; the adoption's
+            // end ends the wait first
             adoptions = cmux_threads::checked::sync::wait_timeout(
                 &self.terminal_adoption_ended,
                 adoptions,

@@ -10,8 +10,9 @@ use crate::workspace_registry::mutation_ledger_retention::scan_mutation_ledgers;
 /// ledger's rows drain within about an hour without one long stall.
 const LEDGER_PRUNE_BATCHES_PER_TICK: usize = 8;
 /// A scan reads every ledger page, so it runs once retention has drained the
-/// ledgers after start, then at this interval, and at once after a prune hits
-/// a corrupt page.
+/// ledgers after start, then at most this often (on a pass, which commits
+/// arm: unwritten ledgers need no scan), and at once after a prune hits a
+/// corrupt page.
 const LEDGER_SCAN_INTERVAL: Duration = Duration::from_secs(60 * 60);
 
 /// The worker's scan state; it lives on the worker thread.
@@ -22,19 +23,29 @@ pub(super) struct LedgerMaintenance {
 
 impl Mux {
     #[track_caller]
-    pub(super) fn run_ledger_maintenance(&self, state: &mut LedgerMaintenance) {
-        if let Err(error) = self.try_ledger_maintenance(state) {
+    pub(super) fn run_ledger_maintenance(
+        &self,
+        state: &mut LedgerMaintenance,
+    ) -> journal_maintenance::MaintenancePass {
+        self.try_ledger_maintenance(state).unwrap_or_else(|error| {
             eprintln!("cmux-tui: mutation ledger maintenance deferred: {error:#}");
-        }
+            journal_maintenance::MaintenancePass::WorkLeft
+        })
     }
 
+    /// `WorkLeft` while rows over a ledger's bound remain: the batch cap,
+    /// not the bound, ended this pass's pruning. A scan that is not due yet
+    /// is no work left: it runs on a later pass, which only commits arm.
     #[track_caller]
-    fn try_ledger_maintenance(&self, state: &mut LedgerMaintenance) -> anyhow::Result<()> {
+    fn try_ledger_maintenance(
+        &self,
+        state: &mut LedgerMaintenance,
+    ) -> anyhow::Result<journal_maintenance::MaintenancePass> {
         let mut drained = false;
         let mut corrupt = false;
         for _ in 0..LEDGER_PRUNE_BATCHES_PER_TICK {
             if self.journal_maintenance_paused() {
-                return Ok(());
+                return Ok(journal_maintenance::MaintenancePass::WorkLeft);
             }
             let prune = self
                 .workspace_registry
@@ -50,7 +61,14 @@ impl Mux {
         let due = corrupt
             || (drained
                 && state.last_scan.is_none_or(|scanned| scanned.elapsed() >= LEDGER_SCAN_INTERVAL));
-        if due { self.scan_and_quarantine_ledgers(state) } else { Ok(()) }
+        if due {
+            self.scan_and_quarantine_ledgers(state)?;
+        }
+        Ok(if drained || corrupt {
+            journal_maintenance::MaintenancePass::Done
+        } else {
+            journal_maintenance::MaintenancePass::WorkLeft
+        })
     }
 
     #[track_caller]

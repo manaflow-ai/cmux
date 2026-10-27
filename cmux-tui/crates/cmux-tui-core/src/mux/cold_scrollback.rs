@@ -376,6 +376,7 @@ fn run_cold_scrollback(mux: &Weak<Mux>, wakes: &Receiver<()>, policy: ColdPolicy
         drop(owner);
         let woke = match next {
             None => wakes.recv().map_err(|_| RecvTimeoutError::Disconnected),
+            // wakeup-allow: deadline the next pass's deadline; with none the wait above is untimed
             Some(next) => wakes.recv_timeout(next.saturating_duration_since(now)),
         };
         match woke {

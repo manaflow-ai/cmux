@@ -120,6 +120,7 @@ impl ExitSettleTimer {
             let state = self.state.lock().unwrap();
             // An earlier deadline scheduled meanwhile restarts the loop.
             if Self::earliest(&state) == Some(next) {
+                // wakeup-allow: deadline the earliest exit settle; with none the worker ends
                 let _ = cmux_threads::checked::sync::wait_timeout(
                     &self.changed,
                     state,

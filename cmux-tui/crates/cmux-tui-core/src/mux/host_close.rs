@@ -146,6 +146,8 @@ impl TerminalHostCloses {
             else {
                 return false;
             };
+            // wakeup-allow: deadline the stall or ceiling bound of this teardown; each finished
+            // close ends the wait first
             state =
                 cmux_threads::checked::sync::wait_timeout(&self.idle, state, remaining).unwrap().0;
         }

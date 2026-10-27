@@ -35,9 +35,6 @@ use windows_sys::Win32::System::Threading::{
     THREAD_SUSPEND_RESUME,
 };
 
-/// Child-exit re-check period where no exit waiter exists (Windows, or a
-/// unix child whose waiter thread could not start).
-const SUPERVISOR_WAIT: Duration = Duration::from_millis(500);
 const MAX_RESTART_DELAY: Duration = Duration::from_secs(30);
 const MAX_PLUGIN_COMMAND_ARGS: usize = 256;
 const MAX_PLUGIN_COMMAND_ARG_BYTES: usize = 4096;
@@ -62,6 +59,8 @@ struct JournalPluginChild {
 
 impl JournalPluginChild {
     fn try_wait(&mut self) -> std::io::Result<Option<ExitStatus>> {
+        // wakeup-allow: bounded a non-blocking exit check; the supervisor asks it only when the
+        // exit waiter or a configuration change wakes it
         self.child.try_wait()
     }
 
@@ -311,9 +310,6 @@ struct SupervisorState {
     generation: u64,
     child_generation: Option<u64>,
     exit_handler: Option<JournalPluginExitHandler>,
-    /// The running child has no exit-waiter thread (it could not start), so
-    /// the supervisor falls back to a timed `try_wait` for that child.
-    exit_waiter_missing: bool,
 }
 
 /// Owns one plugin process and restarts failed children until shutdown. The
@@ -470,11 +466,14 @@ impl Drop for JournalPluginRuntime {
 
 /// Blocks until the plugin process exits, without reaping it (WNOWAIT, so
 /// the supervisor's `try_wait` still gets the status), then wakes the
-/// supervisor. Replaces the supervisor's 500 ms `try_wait` poll.
-/// Returns false when the thread could not start.
+/// supervisor, which otherwise waits with no timeout while the child runs.
 #[cfg(unix)]
-fn spawn_exit_waiter(shared: Arc<(Mutex<SupervisorState>, Condvar)>, pid: u32) -> bool {
-    let spawned = thread::Builder::new().name("cmux-journal-plugin-wait".into()).spawn(move || {
+fn spawn_exit_waiter(
+    shared: Arc<(Mutex<SupervisorState>, Condvar)>,
+    child: &JournalPluginChild,
+) -> std::io::Result<()> {
+    let pid = child.child.id();
+    thread::Builder::new().name("cmux-journal-plugin-wait".into()).spawn(move || {
         loop {
             // SAFETY: `info` is a zeroed siginfo_t that waitid fills in.
             let mut info: libc::siginfo_t = unsafe { std::mem::zeroed() };
@@ -494,16 +493,83 @@ fn spawn_exit_waiter(shared: Arc<(Mutex<SupervisorState>, Condvar)>, pid: u32) -
                 break;
             }
         }
-        let (lock, changed) = &*shared;
-        let _state = lock.lock().unwrap_or_else(|error| error.into_inner());
-        changed.notify_all();
-    });
-    match spawned {
-        Ok(_) => true,
-        Err(error) => {
-            eprintln!("cmux-tui: journal plugin exit waiter did not start: {error}");
-            false
+        notify_supervisor(&shared);
+    })?;
+    Ok(())
+}
+
+/// Windows: waits on the process object until the plugin exits, then wakes
+/// the supervisor. The waiter opens its own synchronize handle while the
+/// supervisor's `Child` still holds the process, so the pid cannot name
+/// another process yet.
+#[cfg(windows)]
+fn spawn_exit_waiter(
+    shared: Arc<(Mutex<SupervisorState>, Condvar)>,
+    child: &JournalPluginChild,
+) -> std::io::Result<()> {
+    use windows_sys::Win32::System::Threading::{
+        INFINITE, PROCESS_SYNCHRONIZE, WaitForSingleObject,
+    };
+    // SAFETY: OpenProcess takes plain values; the handle is checked here and
+    // closed by the waiter (or below when the waiter does not start).
+    let process = unsafe { OpenProcess(PROCESS_SYNCHRONIZE, 0, child.child.id()) };
+    if process.is_null() {
+        return Err(std::io::Error::last_os_error());
+    }
+    // A kernel handle is a process-wide value; carry it as an integer
+    // because `HANDLE` is a raw pointer and not `Send`.
+    let handle = process as usize;
+    let spawned = thread::Builder::new().name("cmux-journal-plugin-wait".into()).spawn(move || {
+        let process = handle as HANDLE;
+        // SAFETY: `process` is the synchronize handle opened above, owned
+        // by this thread until the CloseHandle below.
+        unsafe {
+            WaitForSingleObject(process, INFINITE);
+            CloseHandle(process);
         }
+        notify_supervisor(&shared);
+    });
+    if let Err(error) = spawned {
+        // SAFETY: the waiter did not start, so this is the only owner.
+        unsafe {
+            CloseHandle(process);
+        }
+        return Err(error);
+    }
+    Ok(())
+}
+
+#[cfg(not(any(unix, windows)))]
+fn spawn_exit_waiter(
+    _shared: Arc<(Mutex<SupervisorState>, Condvar)>,
+    _child: &JournalPluginChild,
+) -> std::io::Result<()> {
+    Err(std::io::Error::new(
+        std::io::ErrorKind::Unsupported,
+        "no process exit event on this platform",
+    ))
+}
+
+#[cfg(any(unix, windows))]
+fn notify_supervisor(shared: &(Mutex<SupervisorState>, Condvar)) {
+    let (lock, changed) = shared;
+    let _state = lock.lock().unwrap_or_else(|error| error.into_inner());
+    changed.notify_all();
+}
+
+/// Retire the supervisor's child (terminating it first when it may still
+/// run), count the failure toward the restart backoff and tell the exit
+/// handler which generation ended.
+fn retire_child(mut state: std::sync::MutexGuard<'_, SupervisorState>, terminate_child: bool) {
+    let (exited_generation, child_started_at) = mark_child_exit(&mut state, terminate_child);
+    note_child_failure(&mut state, Instant::now(), child_started_at);
+    let exit_handler = state.exit_handler.clone();
+    let plugin_id = state.options.as_ref().map(|options| options.id.clone());
+    drop(state);
+    if let (Some(handler), Some(plugin_id), Some(generation)) =
+        (exit_handler, plugin_id, exited_generation)
+    {
+        handler(&plugin_id, generation);
     }
 }
 
@@ -521,43 +587,18 @@ fn supervise(shared: Arc<(Mutex<SupervisorState>, Condvar)>) {
             match child_status {
                 Ok(Some(status)) => {
                     eprintln!("cmux-tui: journal plugin exited with {status}");
-                    let (exited_generation, child_started_at) = mark_child_exit(&mut state, false);
-                    note_child_failure(&mut state, Instant::now(), child_started_at);
-                    let exit_handler = state.exit_handler.clone();
-                    let plugin_id = state.options.as_ref().map(|options| options.id.clone());
-                    drop(state);
-                    if let (Some(handler), Some(plugin_id), Some(generation)) =
-                        (exit_handler, plugin_id, exited_generation)
-                    {
-                        handler(&plugin_id, generation);
-                    }
+                    retire_child(state, false);
                     continue;
                 }
                 Ok(None) => {
-                    // A waiter thread notifies `changed` when the child
-                    // exits (unix), so this wait needs no period.
-                    #[cfg(unix)]
-                    if state.exit_waiter_missing {
-                        let _ = changed.wait_timeout(state, SUPERVISOR_WAIT);
-                    } else {
-                        drop(changed.wait(state));
-                    }
-                    #[cfg(not(unix))]
-                    let _ = changed.wait_timeout(state, SUPERVISOR_WAIT);
+                    // Every running child has an exit waiter, which
+                    // notifies `changed` when it exits: no period.
+                    drop(changed.wait(state));
                     continue;
                 }
                 Err(error) => {
                     eprintln!("cmux-tui: cannot inspect journal plugin: {error}");
-                    let (exited_generation, child_started_at) = mark_child_exit(&mut state, true);
-                    note_child_failure(&mut state, Instant::now(), child_started_at);
-                    let exit_handler = state.exit_handler.clone();
-                    let plugin_id = state.options.as_ref().map(|options| options.id.clone());
-                    drop(state);
-                    if let (Some(handler), Some(plugin_id), Some(generation)) =
-                        (exit_handler, plugin_id, exited_generation)
-                    {
-                        handler(&plugin_id, generation);
-                    }
+                    retire_child(state, true);
                     continue;
                 }
             }
@@ -577,7 +618,8 @@ fn supervise(shared: Arc<(Mutex<SupervisorState>, Condvar)>) {
             state.restart_at.and_then(|at| at.checked_duration_since(Instant::now()))
             && !wait.is_zero()
         {
-            // One-shot restart deadline (crash backoff), not a period.
+            // wakeup-allow: backoff the one restart deadline after a crash; a configuration change
+            // or stop ends it first
             let _ = changed.wait_timeout(state, wait);
             continue;
         }
@@ -585,15 +627,17 @@ fn supervise(shared: Arc<(Mutex<SupervisorState>, Condvar)>) {
         let generation = state.generation;
         match spawn_plugin(&options, &socket, &session, generation) {
             Ok(child) => {
-                #[cfg(unix)]
-                {
-                    state.exit_waiter_missing =
-                        !spawn_exit_waiter(Arc::clone(&shared), child.child.id());
-                }
+                let waiter = spawn_exit_waiter(Arc::clone(&shared), &child);
                 state.child = Some(child);
                 state.child_generation = Some(generation);
                 state.child_started_at = Some(Instant::now());
                 state.restart_at = None;
+                if let Err(error) = waiter {
+                    // Only an event may report this child's exit: stop it
+                    // and let the restart backoff try again.
+                    eprintln!("cmux-tui: journal plugin exit waiter did not start: {error}");
+                    retire_child(state, true);
+                }
             }
             Err(error) => {
                 eprintln!("cmux-tui: journal plugin failed to start: {error}");
@@ -856,6 +900,32 @@ mod tests {
         );
         let generation = runtime.state.0.lock().recover_poison().generation;
         assert_eq!(generation, 17);
+        runtime.shutdown();
+    }
+
+    /// The supervisor waits with no timeout while the child runs; the exit
+    /// waiter's wake is what retires an exited child.
+    #[cfg(unix)]
+    #[test]
+    fn a_plugin_exit_wakes_the_supervisor() {
+        let runtime = JournalPluginRuntime::default();
+        let (exits, exited) = std::sync::mpsc::channel();
+        runtime.set_exit_handler(Some(Arc::new(move |plugin_id: &str, generation| {
+            let _ = exits.send((plugin_id.to_owned(), generation));
+        })));
+        runtime.configure(Some(JournalPluginOptions {
+            id: "exit_probe".into(),
+            command: vec!["/bin/sh".into(), "-c".into(), "exit 3".into()],
+            cwd: None,
+            revision: None,
+        }));
+        runtime.start_with_generation_seed(
+            PathBuf::from("/tmp/cmux-tui-test.sock"),
+            "main".into(),
+            5,
+        );
+        let exit = exited.recv_timeout(Duration::from_secs(10)).expect("the exit was not seen");
+        assert_eq!(exit, ("exit_probe".to_owned(), 5));
         runtime.shutdown();
     }
 

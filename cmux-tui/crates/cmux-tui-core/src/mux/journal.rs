@@ -16,6 +16,9 @@ impl Mux {
         let mut epoch = self.journal_event_epoch.lock().unwrap();
         *epoch = epoch.wrapping_add(1);
         self.journal_event_changed.notify_all();
+        drop(epoch);
+        // Background commits (hook receipts, retention) answer no request.
+        self.note_registry_commits_for_maintenance();
     }
 
     /// Test-only: output goes to the output store, never the journal.
@@ -250,9 +253,11 @@ impl Mux {
 
     /// Flush the registry commits made so far to disk, soon, off the
     /// caller's thread: after a reply went out, or after a background batch
-    /// (`workspace_registry::wal_durability`).
+    /// (`workspace_registry::wal_durability`). A commit since the last
+    /// journal maintenance pass also arms the next one.
     pub(crate) fn request_registry_flush(&self) {
         self.registry_connection.request_flush();
+        self.note_registry_commits_for_maintenance();
     }
 
     pub fn write_path_stats(&self) -> crate::diagnostics::WritePathSnapshot {
