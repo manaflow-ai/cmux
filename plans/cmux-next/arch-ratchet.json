@@ -741,6 +741,12 @@
       "row": "global_mutable_statics",
       "allow": 1,
       "why": "p08-startup-082: GlobalJobCensus.installedBits (CmuxNextLaunch), the one word through which the launch's off-main job census reaches its recorder. swift_task_enqueueGlobal_hook is a thin function with no context argument, so the census the composition root makes is published here once (a compare-exchange from 0; a second install is refused). Debug and bench-hooks builds only, and only in a launch armed by CMUX_NEXT_GLOBAL_JOB_CENSUS=1. Chrome reaches its process-wide task observers from the posting thread the same way (base/task/common/task_annotator.cc)."
+    },
+    {
+      "date": "2026-10-27",
+      "row": "blocking_allow_escapes",
+      "allow": 1,
+      "why": "p15-oracle-129: FolderEventSource.Opened's open(O_EVTONLY) is the base RetryWake.openNearestFolder call, moved so Linux can use inotify; base had it unwrapped. Its callers run on the main actor at launch (DaemonService) and on the pool at every connect (DaemonConnection), so wrapping it in blockingCall(.fileIO) would add new recorded violations (and traps under CMUX_BLOCKING_TRAP / _POOL) and change Darwin behavior, which the task's acceptance forbids. The escape names the existing call; moving RetryWake's arm() onto its own queue so open and stat can be marked is separate work."
     }
   ],
   "observer_wrappers": [

@@ -18,6 +18,7 @@ struct FolderEventSource {
         init?(path: String) {
             #if canImport(Darwin)
             // SAFETY: open reads the NUL-terminated copy of `path` Swift makes for the call.
+            // blocking-allow: the base RetryWake open, moved; its main and pool callers would record new violations.
             let descriptor = unsafe open(path, O_EVTONLY | O_CLOEXEC)
             guard descriptor >= 0 else { return nil }
             #else
