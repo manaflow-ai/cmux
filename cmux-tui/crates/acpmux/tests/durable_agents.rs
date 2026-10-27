@@ -2785,7 +2785,12 @@ async fn a_report_of_an_agent_mdm_ended_leaves_the_next_agent_alone() {
         let again = rpc.reply("session/prompt", next).await;
         assert_eq!(again["result"]["stopReason"], "end_turn", "{answered} {again}");
     }
-    let next_pid = daemon.host_record(&session)["harness_pid"].as_i64().unwrap();
+    // No record: the next agent already ended.
+    let record = std::fs::read(daemon.home.join("hosts").join(format!("{session}.json")));
+    let record: Value = serde_json::from_slice(&record.unwrap_or_default()).unwrap_or_default();
+    let next_pid = record["harness_pid"].as_i64();
+    assert!(next_pid.is_some(), "the ended agent's late report ended the agent after it");
+    let next_pid = next_pid.unwrap();
     assert_ne!(next_pid, first_pid);
     // Past the held report.
     tokio::time::sleep(Duration::from_millis(3000)).await;
