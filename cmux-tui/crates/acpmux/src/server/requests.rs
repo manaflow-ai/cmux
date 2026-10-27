@@ -965,7 +965,7 @@ async fn dispatch_request(
                         hub.approve_all_allowed(),
                     )
                 {
-                    hub.set_policy(&s, crate::config::PermissionPolicy::ApproveAll).await;
+                    hub.grant_vm_host_approve_all(&s).await;
                 }
             } else {
                 hub.start_in_mode(conn.is_person(), conn.caller(), &params, &s, adopting).await?;

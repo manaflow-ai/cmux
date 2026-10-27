@@ -65,6 +65,7 @@ mod models_view;
 mod paging;
 mod personal_stats;
 mod policy_mode;
+mod policy_source;
 mod pool;
 pub(crate) mod prompt_images;
 mod prompt_ledger;
@@ -727,12 +728,9 @@ impl Hub {
     }
 
     pub(super) fn load_from_store(self: &Arc<Self>, deferred: bool) {
-        let metas = match self.store.list() {
-            Ok(m) => m,
-            Err(e) => {
-                tracing::warn!("store list failed: {e}");
-                return;
-            }
+        let Ok(mut metas) = self.store.list().inspect_err(|e| tracing::warn!("store list: {e}"))
+        else {
+            return;
         };
         // The small index the chat logs load by (`log_load.rs`): agent hosts still running.
         let hosted = Self::live_host_sessions();
@@ -747,6 +745,8 @@ impl Hub {
                 adopting: hosted.clone(),
                 hosted: hosted.clone(),
             };
+        // An older daemon's approve-all that could be vmHost's asks now (`policy_source.rs`).
+        self.settle_legacy_grants(&mut metas);
         let mut sessions = self.sessions.lock().unwrap();
         for mut meta in metas {
             // An agent whose host still runs keeps its saved status until adoption reaches it:

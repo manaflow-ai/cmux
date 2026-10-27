@@ -255,6 +255,7 @@ impl Hub {
                 .or_else(|| res.get("configOptions").cloned().filter(|v| !v.is_null())),
             models: parent_meta.models.clone(),
             permission_policy: parent_meta.permission_policy.clone(),
+            policy_source: parent_meta.policy_source.clone(),
             title: None,
             title_source: None,
             title_prompt: None,
