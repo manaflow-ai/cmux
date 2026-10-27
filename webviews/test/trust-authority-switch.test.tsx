@@ -37,16 +37,18 @@ function Probe({
   source,
   cwd,
   authority,
+  visit,
   local = false,
   sessionId = "migrating-chat",
 }: {
   source: { get(cwd: string): Promise<unknown>; set(cwd: string, level: string): Promise<unknown> };
   cwd: string;
-  authority: string;
+  authority: string | (() => string);
+  visit?: () => number;
   local?: boolean;
   sessionId?: string;
 }) {
-  const chat = { sessionId, cwd, family: "claude", prompts: 1, authority };
+  const chat = { sessionId, cwd, family: "claude", prompts: 1, authority, visit };
   shown = useFolderTrustAsk(source, chat, true, local);
   return null;
 }
@@ -122,4 +124,81 @@ test("a captured refusal cannot attach to another chat or a later visit to the s
   await show("chat-a");
   await act(async () => expect(lateRefusal(pending(cwd))).toBe(false));
   expect(shown.ask).toBeUndefined();
+});
+
+test("a route change fences a completed save before React renders the new authority", async () => {
+  const cwd = "/home/you/pre-render-save";
+  const saveA = deferred<unknown>();
+  const route = { current: "A" };
+  const authority = () => route.current;
+  const source = { get: async () => trusted(cwd), set: () => saveA.promise };
+  let resent = 0;
+  await act(async () => root.render(<Probe source={source} cwd={cwd} authority={authority} />));
+  await act(async () => shown.refused(pending(cwd), () => resent++));
+  await act(async () => shown.trust());
+  route.current = "B";
+  await act(async () => saveA.resolve(undefined));
+  expect(resent).toBe(0);
+  expect(shown.trusted).toBe(false);
+});
+
+test("a delayed prompt refusal is dropped after direct-client navigation", async () => {
+  const { AcpmuxDirectClient } = await import("../src/agent-session/acpmux/direct");
+  const { MockAcpmuxSocket, mockHost } = await import("../src/agent-session/acpmux/mock");
+  const entered = deferred<unknown>();
+  const reply = deferred<unknown>();
+  class RefusingHost extends MockAcpmuxSocket {
+    constructor() {
+      super(() => Promise.resolve());
+      const self = this as unknown as {
+        answer(method: string, params: Record<string, unknown>): Promise<unknown>;
+      };
+      const answer = self.answer.bind(this);
+      self.answer = (method, params) => {
+        if (method !== "session/prompt") return answer(method, params);
+        entered.resolve(undefined);
+        return reply.promise.then(() => {
+          throw Object.assign(new Error("trust.pending"), {
+            code: -32000,
+            data: { reason: "trust.pending", cwd: "/home/you/original" },
+          });
+        });
+      };
+    }
+  }
+  const client = await AcpmuxDirectClient.connect(
+    mockHost,
+    () => undefined,
+    undefined,
+    () => new RefusingHost() as unknown as WebSocket,
+  );
+  try {
+    let routed = 0;
+    client.onTrustRefused = () => routed++;
+    const sent = client.send("original prompt", [], undefined, () => undefined).catch(() => undefined);
+    await entered.promise;
+    await client.select("mock-sidebar-flicker");
+    reply.resolve(undefined);
+    await sent;
+    expect(routed).toBe(0);
+  } finally {
+    client.close();
+  }
+});
+
+test("a same-host selection change fences forced replay before React renders", async () => {
+  const cwd = "/home/you/pre-render-visit";
+  const save = deferred<unknown>();
+  let selection = 1;
+  const visit = () => selection;
+  const source = { get: async () => trusted(cwd), set: () => save.promise };
+  let resent = 0;
+  await act(async () => root.render(<Probe source={source} cwd={cwd} authority="A" visit={visit} />));
+  await act(async () => shown.refused(pending(cwd), () => resent++));
+  const lateRefusal = shown.refused;
+  await act(async () => shown.trust());
+  selection++;
+  expect(lateRefusal(pending(cwd))).toBe(false);
+  await act(async () => save.resolve(undefined));
+  expect(resent).toBe(0);
 });

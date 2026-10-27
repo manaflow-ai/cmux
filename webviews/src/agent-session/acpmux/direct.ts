@@ -3783,7 +3783,7 @@ export class AcpmuxDirectClient {
       // went, so it leaves no bubble, and the pane keeps it in (or puts it back in) the composer.
       const held = !released && accepted !== undefined;
       // The folder's trust question (the one route); the pane's sender adds the re-send.
-      this.routeTrustRefusal(error);
+      if (here) this.routeTrustRefusal(error);
       if (held) {
         this.rows.delete(rowId);
         this.optimisticPromptRows.delete(promptId);
@@ -4536,24 +4536,27 @@ export class AcpmuxDirectClient {
     this.trustRoute = route;
     const waiting = this.waitingTrust;
     this.waitingTrust = undefined;
-    if (route && waiting) route(waiting.refusal, waiting.again);
+    if (route && waiting && !this.closed && waiting.generation === this.selectionGeneration)
+      route(waiting.refusal, waiting.again);
   }
   private trustRoute?: TrustRoute;
-  private waitingTrust?: { refusal: TrustRefusal; again?: () => void };
+  private waitingTrust?: { refusal: TrustRefusal; again?: () => void; generation: number };
   /// True when `error` is a trust refusal, which then went to the route.
   routeTrustRefusal(error: unknown, again?: () => void): boolean {
     const refusal = trustRefusal(error);
     if (!refusal) return false;
+    if (this.closed) return true;
     if (this.trustRoute) this.trustRoute(refusal, again);
-    else this.waitingTrust = { refusal, again };
+    else this.waitingTrust = { refusal, again, generation: this.selectionGeneration };
     return true;
   }
   /// `session/new` for every caller: a trust refusal goes to the one route, then rejects as before.
   private async newSession(params: Record<string, unknown>, again?: () => void): Promise<any> {
+    const generation = this.selectionGeneration;
     try {
       return await this.request("session/new", params);
     } catch (error) {
-      this.routeTrustRefusal(error, again);
+      if (generation === this.selectionGeneration) this.routeTrustRefusal(error, again);
       throw error;
     }
   }
@@ -4595,6 +4598,10 @@ export class AcpmuxDirectClient {
     // The inherited cwd is the first default chat's; later ones start where acpmux defaults.
     if (result?.sessionId && !cwd) this.host = { ...this.host, cwd: undefined };
     return result?.sessionId ? String(result.sessionId) : undefined;
+  }
+  /// Fences delayed Trust answers/replays when selection changes before the next snapshot paints.
+  get trustGeneration(): number {
+    return this.selectionGeneration;
   }
   /// The shown session, for a harness switch: whether it has nothing in it yet (a pick back to
   /// its harness reuses it), its harness, and its folder when it runs on this machine (the new
@@ -4738,9 +4745,10 @@ export class AcpmuxDirectClient {
   /// awaited; a refusal (the pool is off, a failed start) is ignored.
   prewarm(harness: string, cwd?: string): void {
     if (!this.prewarmSupported) return;
+    const generation = this.selectionGeneration;
     // A prewarm in a folder without a Trust answer asks the question early (nothing to re-run).
     void this.request(PREWARM_METHOD, cwd ? { harness, cwd } : { harness }).catch((error: unknown) => {
-      this.routeTrustRefusal(error);
+      if (generation === this.selectionGeneration) this.routeTrustRefusal(error);
     });
   }
   /// The permission mode acpmux would start a new chat on `harness` in `cwd` in (cx-wx93i),
