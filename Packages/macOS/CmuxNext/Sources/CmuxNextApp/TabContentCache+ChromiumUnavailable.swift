@@ -38,7 +38,7 @@ extension TabContentCache {
     /// while Chromium still cannot start.
     private func retryChromium(_ key: String, url: URL?) {
         browsers.removeValue(forKey: key)?.close()
-        guard let tab = browserTabs.tabModel(key) else { return }
+        guard let tab = tabModel(key) else { return }  // a remote machine's tab included
         if let entry = browser(for: tab), !(entry.tab is DeferredBrowserTab), let url, url.absoluteString != tab.url { entry.tab.load(url) }
         onBrowserReady?(key)
     }

@@ -42,6 +42,7 @@ import Testing
         let cache = cache(.startFailed("CefInitialize failed"))
         let tab = restoredChromiumTab(62)
         defer { cache.release(tab.id) }
+        cache.findTab = { $0 == tab.id ? tab : nil }
         var ready: [String] = []
         cache.onBrowserReady = { ready.append($0) }
         let first = try #require(cache.browser(for: tab))
