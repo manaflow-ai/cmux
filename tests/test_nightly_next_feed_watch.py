@@ -145,6 +145,10 @@ class FeedTests(unittest.TestCase):
         # cmux NIGHTLY-identity feed is no longer written.
         self.assertEqual(watch.FEED_URL, "https://files-next.cmux.com/nightly-next/next/appcast-arm64.xml")
 
+    def test_feed_watch_runs_every_five_minutes(self):
+        workflow = (Path(__file__).resolve().parents[1] / ".github/workflows/nightly-next-feed-watch.yml").read_text()
+        self.assertIn('cron: "*/5 * * * *"', workflow)
+
 
 class StarvationGuardTests(unittest.TestCase):
     class GitHub:
@@ -175,9 +179,20 @@ class StarvationGuardTests(unittest.TestCase):
         gh = self.GitHub([{"id": 9, "status": "in_progress", "html_url": "run/9"}])
         result = watch.starvation_dispatch(
             gh, NOW, feed=NOW - dt.timedelta(minutes=26), published_sha="a" * 40,
-            branch="feat-cmux-next", workflow="nightly-next-tick.yml", ref="main")
+            branch="feat-cmux-next", workflow="nightly-next-tick.yml", ref="main",
+            active_workflows=[("nightly.yml", "nightly-next")])
         self.assertIn("running", result)
         self.assertEqual(gh.dispatched, [])
+
+    def test_older_nightly_does_not_block_new_tip(self):
+        gh = self.GitHub([{"id": 9, "status": "in_progress", "head_sha": "c" * 40,
+                           "html_url": "run/9"}])
+        result = watch.starvation_dispatch(
+            gh, NOW, feed=NOW - dt.timedelta(minutes=26), published_sha="a" * 40,
+            branch="feat-cmux-next", workflow="nightly-next-tick.yml", ref="main",
+            active_workflows=[("nightly.yml", "nightly-next")])
+        self.assertIn("dispatched", result)
+        self.assertEqual(len(gh.dispatched), 1)
 
     def test_unchanged_tip_is_not_rebuilt(self):
         gh = self.GitHub()
@@ -186,6 +201,37 @@ class StarvationGuardTests(unittest.TestCase):
             branch="feat-cmux-next", workflow="nightly-next-tick.yml", ref="main")
         self.assertEqual(result, "unchanged")
         self.assertEqual(gh.dispatched, [])
+
+    def test_same_tip_nightly_is_left_alone(self):
+        gh = self.GitHub([{"id": 9, "status": "in_progress", "head_sha": "b" * 40,
+                           "html_url": "run/9"}])
+        result = watch.starvation_dispatch(
+            gh, NOW, feed=NOW - dt.timedelta(minutes=26), published_sha="a" * 40,
+            branch="feat-cmux-next", workflow="nightly-next-tick.yml", ref="main",
+            active_workflows=[("nightly.yml", "nightly-next")])
+        self.assertIn("running", result)
+        self.assertEqual(gh.dispatched, [])
+
+    def test_active_main_promotion_is_left_alone(self):
+        gh = self.GitHub([{"id": 9, "status": "in_progress", "event": "workflow_dispatch",
+                           "display_title": "Promote nightly-next to bbbbbbbbbbbb",
+                           "html_url": "run/9"}])
+        result = watch.starvation_dispatch(
+            gh, NOW, feed=NOW - dt.timedelta(minutes=26), published_sha="a" * 40,
+            branch="feat-cmux-next", workflow="nightly-next-tick.yml", ref="main",
+            active_workflows=[("nightly.yml", "main")])
+        self.assertIn("running", result)
+        self.assertEqual(gh.dispatched, [])
+
+    def test_active_main_build_does_not_block_next_promotion(self):
+        gh = self.GitHub([{"id": 9, "status": "in_progress", "event": "workflow_dispatch",
+                           "display_title": "Nightly macOS build", "html_url": "run/9"}])
+        result = watch.starvation_dispatch(
+            gh, NOW, feed=NOW - dt.timedelta(minutes=26), published_sha="a" * 40,
+            branch="feat-cmux-next", workflow="nightly-next-tick.yml", ref="main",
+            active_workflows=[("nightly.yml", "main")])
+        self.assertIn("dispatched", result)
+        self.assertEqual(len(gh.dispatched), 1)
 
     def test_a_six_hour_cache_seed_does_not_block_classic_starvation(self):
         cache_seed = {"id": 9, "status": "in_progress", "event": "schedule",

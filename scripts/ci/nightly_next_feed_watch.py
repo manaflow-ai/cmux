@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""Alarm when feat-cmux-next work waits too long to reach the nightly-next feed.
+"""Keep feat-cmux-next work moving to the nightly-next feed.
 
 nightly-next ships feat-cmux-next: a green push is promoted to the
 `nightly-next` branch, whose nightly.yml run publishes appcast-arm64.xml. Any
 stage can stall: a red Release compile or an unpublished cmux-tui tree stops
 promotion, a red nightly stops publication. Lawrence and Leo daily-drive the
-feed, so this checks it every 30 minutes from main (schedule runs only there).
+feed, so this checks it every five minutes from main (schedule runs only there).
 
 Waiting is measured from the oldest feat-cmux-next push after the published
 commit's own push (cmux-next guards runs on every such push), so a quiet spell
@@ -201,21 +201,42 @@ def starvation_dispatch(gh: GitHub, now: dt.datetime, *, feed: dt.datetime | Non
                         ref: str, inputs: dict[str, str] | None = None,
                         active_workflows: list[tuple[str, str | None]] | None = None,
                         minutes: float = 25.0) -> str:
-    """Start one current-tip build after 25 minutes of no publication.
+    """Start one current-tip tick after 25 minutes of no publication.
 
     GitHub concurrency is deliberately not used as the starvation guard: a
     newer run may queue behind an active one, but it never cancels that run.
     The guard dispatches only when the branch moved past the published marker
-    and no build/publish run is active.
+    and no promotion request is active. A nightly for an older commit does not
+    block the newest candidate.
     """
     if feed is None or (now - feed).total_seconds() < minutes * 60:
         return "fresh"
     tip = gh.ref_sha(branch)
     if not tip or tip == published_sha:
         return "unchanged"
+    # A nightly that is already building the candidate is the only build that
+    # suppresses this recovery.  Older nightlies are allowed to finish while
+    # the newest tree-ready commit builds beside them: a newer tip never
+    # cancels or waits behind an older nightly.  Promotion/tick runs remain a
+    # blocker because dispatching another request would only create a stale
+    # queued request that can evict the current one.
+    def blocks_candidate(name: str, run_branch: str | None, run: dict) -> bool:
+        if not is_active_delivery_run(name, run_branch, run):
+            return False
+        if name == "nightly.yml" and run_branch == "nightly-next":
+            run_sha = run.get("head_sha")
+            return not run_sha or run_sha == tip
+        if name == "nightly.yml" and run_branch == "main":
+            # Main's nightly workflow also owns the promotion job. Only its
+            # explicitly named promotion dispatch blocks a new request; an
+            # ordinary main build is unrelated to the NEXT feed.
+            title = run.get("display_title") or run.get("name") or ""
+            return run.get("event") == "workflow_dispatch" and "Promote nightly-next to" in title
+        return True
+
     active = [run for name, run_branch in (active_workflows or [(workflow, branch)])
               for run in gh.workflow_runs(name, run_branch)
-              if is_active_delivery_run(name, run_branch, run)]
+              if blocks_candidate(name, run_branch, run)]
     if active:
         return f"running {active[0].get('html_url', active[0].get('id', '?'))}"
     gh.dispatch(workflow, ref, inputs)
@@ -321,7 +342,9 @@ def main(argv: list[str]) -> int:
             print(f"::warning title=nightly-next feed stale::{stage.reason}")
         print(sync_issue(gh, stage, issue_body(stage, newest, now, published_sha, args.max_lag_hours, args.run_url), args.max_lag_hours, args.run_url))
         # Explicit coalescing/starvation guards. A running build is never
-        # cancelled; each guard reads the branch tip when it dispatches.
+        # cancelled; each guard reads the branch tip when it dispatches. The
+        # tick's request job performs the shared cmux-next/tui-tree check and
+        # skips a stale or not-yet-ready candidate before promoting it.
         print("next starvation: " + starvation_dispatch(
             gh, now, feed=newest, published_sha=published_sha,
             branch="feat-cmux-next", workflow="nightly-next-tick.yml", ref="main",
