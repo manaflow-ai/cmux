@@ -21,14 +21,17 @@ public import CoreFoundation
 public nonisolated enum AfterCommitObservers {
     private static let addresses = Mutex<Set<UInt>>([])
 
-    /// Marks `observer` as one that draws and commits nothing after the commit.
-    public static func register(_ observer: CFRunLoopObserver) {
+    /// Marks `observer` as one that draws and commits nothing after the commit (nil: no effect, for the
+    /// optional `CFRunLoopObserverCreateWithHandler` returns).
+    public static func register(_ observer: CFRunLoopObserver?) {
+        guard let observer else { return }
         let address = address(of: observer)
         addresses.withLock { _ = $0.insert(address) }
     }
 
     /// Unmarks `observer`; call it before invalidating or releasing it.
-    public static func remove(_ observer: CFRunLoopObserver) {
+    public static func remove(_ observer: CFRunLoopObserver?) {
+        guard let observer else { return }
         let address = address(of: observer)
         addresses.withLock { _ = $0.remove(address) }
     }
