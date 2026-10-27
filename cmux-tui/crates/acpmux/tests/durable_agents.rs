@@ -2754,6 +2754,39 @@ async fn a_full_access_report_counts_before_it_is_applied_under_mdm_off() {
     }
 }
 
+/// Review 3 of #26052: an agent MDM's off ended before the inbound loop applied its full-access
+/// report (`ACPMUX_TEST_UPDATE_DELAY_MS` holds it there) leaves that report to no one: applied
+/// after the next agent started, it would end that agent too. The next agent runs on.
+#[tokio::test]
+async fn a_report_of_an_agent_mdm_ended_leaves_the_next_agent_alone() {
+    let delay = [("ACPMUX_TEST_UPDATE_DELAY_MS", "2000")];
+    let mut daemon = Daemon::with_env("mdmlatereport", "ask", &delay);
+    daemon.sigterm();
+    let fake = json!({"argv": ["python3", FAKE], "env": {"FAKE_FULL_ACCESS": "1"}});
+    let config =
+        json!({"harnesses": {"fake": fake}, "defaultHarness": "fake", "permissionPolicy": "ask"});
+    std::fs::write(daemon.home.join("config.json"), config.to_string()).unwrap();
+    daemon.start();
+    let session = new_session(&daemon).await;
+    let mut rpc = daemon.rpc().await;
+    let pushed = rpc.call("_acpmux/chat_settings", mdm_off_push()).await;
+    assert_eq!(pushed["applied"], true, "{pushed}");
+    let first_pid = daemon.host_record(&session)["harness_pid"].as_i64().unwrap();
+    let later = json!({"sessionId": session,
+                       "prompt": [{"type": "text", "text": "set-mode-after: 100 full-access"}]});
+    rpc.call("session/prompt", later).await;
+    tokio::time::sleep(Duration::from_millis(400)).await;
+    // The next prompt ends the agent that reported full access and starts another.
+    let next = json!({"sessionId": session, "prompt": [{"type": "text", "text": "hi"}]});
+    rpc.reply("session/prompt", next).await;
+    assert!(gone_within(first_pid, Duration::from_secs(10)), "the reporting agent ran on");
+    let next_pid = daemon.host_record(&session)["harness_pid"].as_i64().unwrap();
+    assert_ne!(next_pid, first_pid);
+    // Past the held report.
+    tokio::time::sleep(Duration::from_millis(3000)).await;
+    assert!(alive(next_pid), "the ended agent's late report ended the agent after it");
+}
+
 /// #24337 review: a prompt the next daemon adopts carries acpmux's own display line, worked out
 /// again, never one its log held (an older daemon's record, or a line the agent forged).
 #[tokio::test]

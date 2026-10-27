@@ -75,6 +75,8 @@ impl FullAccessView {
         let undeclared_mode =
             session.floor.undeclared_mode.lock().unwrap_or_else(|e| e.into_inner()).clone();
         let meta = session.meta();
+        #[cfg(test)]
+        between_view_reads(session);
         Self {
             mode: crate::web_modes::mode_of(&meta),
             undeclared_mode,
@@ -790,6 +792,19 @@ thread_local! {
 }
 
 #[cfg(test)]
+thread_local! {
+    /// Test seam (review 3 of #26052): runs between `FullAccessView::of_session`'s reads.
+    pub(super) static BETWEEN_VIEW_READS: std::cell::Cell<Option<fn(&Session)>> = const { std::cell::Cell::new(None) };
+}
+
+#[cfg(test)]
+fn between_view_reads(session: &Session) {
+    if let Some(f) = BETWEEN_VIEW_READS.take() {
+        f(session);
+    }
+}
+
+#[cfg(test)]
 fn after_off_count(hub: &Hub) {
     if let Some(f) = AFTER_OFF_COUNT.take() {
         f(hub);
@@ -997,6 +1012,21 @@ mod tests {
         assert!(!full_access_allowed_by(None, false));
         assert!(full_access_allowed_by(Some(true), true));
         assert!(!full_access_allowed_by(Some(true), false), "a forced on raises nothing");
+    }
+
+    /// Review 3 of #26052: a report the inbound loop applies while the view is read (it sets the
+    /// mode, then takes back the report's count) is seen by one of the view's reads.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn a_report_applied_while_the_view_is_read_still_counts() {
+        let (_hub, chat, _) = two_chats_on(&[], false).await;
+        chat.meta.lock().unwrap().modes = Some(json!({"currentModeId": "normal"}));
+        chat.floor.unapplied_full_access.store(1, Ordering::SeqCst);
+        BETWEEN_VIEW_READS.set(Some(|s: &Session| {
+            s.meta.lock().unwrap().modes = Some(json!({"currentModeId": "full-access"}));
+            s.floor.unapplied_full_access.store(0, Ordering::SeqCst);
+        }));
+        let view = FullAccessView::of_session(&chat);
+        assert!(runs_full_access(&view).is_some(), "a report applied between the reads was missed");
     }
 
     /// Review 1 of #26034: an off push never waits without bound on a session whose spawn lock
