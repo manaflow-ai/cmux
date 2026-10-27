@@ -82,24 +82,42 @@ impl Surface {
         slot.arm(flow);
         let reached_pty = {
             let mut runtime = pty.runtime.lock().unwrap_or_else(PoisonError::into_inner);
-            match &mut *runtime {
-                PtyRuntime::Local { writer, master, .. } => {
-                    let master = master.as_deref().map(|master| master as &dyn MasterPty);
-                    // Waits while the child does not read its input.
-                    crate::request_path::will_block(|| {
-                        crate::pty_input_room::write_input(master, writer.as_mut(), bytes)
+            // A holder terminal's `pty-writer` queue takes the bytes in the
+            // key lane: the request never waits for the child.
+            #[cfg(unix)]
+            let queued = match &*runtime {
+                PtyRuntime::Local { master, holder: Some(holder), .. } => {
+                    holder.input().map(|input| {
+                        let master = master.as_deref().map(|master| master as &dyn MasterPty);
+                        crate::pty_input_room::queue_input(master, input, bytes)
                     })
                 }
-                // The host stamps its own read of the echo.
-                #[cfg(any(unix, windows))]
-                PtyRuntime::Hosted(host) => crate::request_path::will_block(|| {
-                    host.send_flow(MessageKind::Input, bytes, flow).map(|()| false)
-                }),
-                // A keep-on-exit terminal outlives its child, so typing into the
-                // dead PTY is an expected interaction: drop the bytes silently
-                // instead of failing every keystroke on the final screen.
-                #[cfg(any(unix, windows))]
-                PtyRuntime::ExitedHosted => Ok(false),
+                _ => None,
+            };
+            #[cfg(not(unix))]
+            let queued = None;
+            if let Some(queued) = queued {
+                queued
+            } else {
+                match &mut *runtime {
+                    PtyRuntime::Local { writer, master, .. } => {
+                        let master = master.as_deref().map(|master| master as &dyn MasterPty);
+                        // Waits while the child does not read its input.
+                        crate::request_path::will_block(|| {
+                            crate::pty_input_room::write_input(master, writer.as_mut(), bytes)
+                        })
+                    }
+                    // The host stamps its own read of the echo.
+                    #[cfg(any(unix, windows))]
+                    PtyRuntime::Hosted(host) => crate::request_path::will_block(|| {
+                        host.send_flow(MessageKind::Input, bytes, flow).map(|()| false)
+                    }),
+                    // A keep-on-exit terminal outlives its child, so typing into the
+                    // dead PTY is an expected interaction: drop the bytes silently
+                    // instead of failing every keystroke on the final screen.
+                    #[cfg(any(unix, windows))]
+                    PtyRuntime::ExitedHosted => Ok(false),
+                }
             }
         };
         // Dropped, handed to a host, or failed: no echo of this write comes to this slot.
@@ -251,7 +269,14 @@ impl Surface {
             term.mode(2004, false)
         };
         let mut runtime = pty.runtime.lock().unwrap_or_else(PoisonError::into_inner);
-        let PtyRuntime::Local { writer, master, .. } = &mut *runtime else {
+        let PtyRuntime::Local {
+            writer,
+            master,
+            #[cfg(unix)]
+            holder,
+            ..
+        } = &mut *runtime
+        else {
             unreachable!("hosted paste returned above")
         };
         #[cfg(not(unix))]
@@ -263,6 +288,12 @@ impl Surface {
         payload.extend_from_slice(bytes);
         if bracketed {
             payload.extend_from_slice(b"\x1b[201~");
+        }
+        // A holder terminal's `pty-writer` queue takes the paste whole, after
+        // every key typed before it, without waiting for the child.
+        #[cfg(unix)]
+        if let Some(input) = holder.as_ref().and_then(|holder| holder.input()) {
+            return input.send(&payload, crate::pty_write::InputLane::Bulk);
         }
         // Waits while the child does not read its input.
         crate::request_path::will_block(|| {

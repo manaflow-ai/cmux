@@ -114,7 +114,14 @@ impl Surface {
                 }
                 ClearHistoryTransition::EncodedFallback(encoded) => {
                     let mut runtime = pty.runtime.lock().unwrap();
-                    let PtyRuntime::Local { writer, master, .. } = &mut *runtime else {
+                    let PtyRuntime::Local {
+                        writer,
+                        master,
+                        #[cfg(unix)]
+                        holder,
+                        ..
+                    } = &mut *runtime
+                    else {
                         unreachable!("a local PTY runtime cannot become hosted")
                     };
                     let Some(master) = master.as_deref() else {
@@ -123,6 +130,12 @@ impl Surface {
                         )));
                     };
                     drop(term);
+                    // A holder terminal's keys go through its `pty-writer`
+                    // queue, so the fallback key follows them in order.
+                    #[cfg(unix)]
+                    if let Some(input) = holder.as_ref().and_then(|holder| holder.input()) {
+                        return queue_clear_history_fallback(input, &encoded);
+                    }
                     return write_clear_history_fallback(master, writer.as_mut(), &encoded);
                 }
                 ClearHistoryTransition::Noop => return Ok(()),
@@ -229,16 +242,35 @@ fn clear_history_write_failure(error: std::io::Error, delivered: usize) -> Clear
     }
 }
 
-pub(crate) fn write_clear_history_fallback(
-    master: &dyn MasterPty,
-    writer: &mut dyn Write,
-    bytes: &[u8],
-) -> Result<(), ClearHistoryFailure> {
+fn check_clear_history_fallback_size(bytes: &[u8]) -> Result<(), ClearHistoryFailure> {
     if bytes.len() > CLEAR_HISTORY_FALLBACK_MAX_BYTES {
         return Err(ClearHistoryFailure::known_not_delivered(anyhow::anyhow!(
             "encoded clear-history fallback exceeds {CLEAR_HISTORY_FALLBACK_MAX_BYTES} bytes"
         )));
     }
+    Ok(())
+}
+
+/// [`write_clear_history_fallback`] for a holder terminal: queued in the
+/// key lane of its `pty-writer` queue. A queue that refuses it (full or
+/// closed) took none of it.
+#[cfg(unix)]
+fn queue_clear_history_fallback(
+    input: &crate::pty_write::PtyInputQueue,
+    bytes: &[u8],
+) -> Result<(), ClearHistoryFailure> {
+    check_clear_history_fallback_size(bytes)?;
+    input
+        .send(bytes, crate::pty_write::InputLane::Key)
+        .map_err(|error| ClearHistoryFailure::known_not_delivered(error.into()))
+}
+
+pub(crate) fn write_clear_history_fallback(
+    master: &dyn MasterPty,
+    writer: &mut dyn Write,
+    bytes: &[u8],
+) -> Result<(), ClearHistoryFailure> {
+    check_clear_history_fallback_size(bytes)?;
 
     #[cfg(unix)]
     if let Some(fd) = master.as_raw_fd() {
