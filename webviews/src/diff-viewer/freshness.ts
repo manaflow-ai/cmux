@@ -4,10 +4,15 @@
 // so no diff crosses the bridge); the page takes one per load and compares while it is visible.
 // Coming back to the viewer refreshes it when nothing would be lost; while the reader is in it, an
 // inline notice offers Refresh, since a refresh starts the diff from the top.
+//
+// The compare is a page poll (pages/shared/pagePoll.ts, p13-webui-069): a hidden, frozen or parked
+// viewer arms no timer and reads nothing, and its show is the one check of coming back.
 import { useEffect, useRef, useState } from "react";
 import { useSyncedRef } from "./useSyncedRef";
 import type { DiffSource } from "../diff/generated/protocol";
 import type { PageClient } from "../pages/shared/pageClient";
+import { pageIsActive, pageLifecycleFor } from "../pages/shared/pageLifecycle";
+import { type PagePollSeams, startPagePoll } from "../pages/shared/pagePoll";
 
 export const DIFF_FINGERPRINT_OP = "cmux.diff.git.fingerprint";
 /** How often a visible viewer compares, in ms. */
@@ -46,17 +51,19 @@ export function useDiffFreshness(
   generation: number,
   canRefresh: () => boolean,
   refresh: () => void,
+  seams: PagePollSeams = {},
 ): boolean {
   const [stale, setStale] = useState<number>();
   const baseline = useRef<string | undefined>(undefined);
   const latest = useSyncedRef({ canRefresh, refresh });
+  const { lifecycle = pageLifecycleFor(), timers } = seams;
   useEffect(() => {
     baseline.current = undefined;
     if (!read) return;
     let current = true;
     let busy = false;
     const check = async (returning: boolean) => {
-      if (busy || document.visibilityState === "hidden") return;
+      if (busy || !pageIsActive(lifecycle)) return;
       busy = true;
       try {
         const now = await read();
@@ -72,20 +79,15 @@ export function useDiffFreshness(
         busy = false;
       }
     };
-    void check(false);
-    const timer = setInterval(() => void check(false), FRESHNESS_INTERVAL);
+    const stop = startPagePoll(({ resumed }) => check(resumed), FRESHNESS_INTERVAL, { lifecycle, timers });
+    // The window taking focus back is coming back too (a pane focused again in a shown tab).
     const back = () => void check(true);
-    const visible = () => {
-      if (document.visibilityState === "visible") back();
-    };
     window.addEventListener("focus", back);
-    document.addEventListener("visibilitychange", visible);
     return () => {
       current = false;
-      clearInterval(timer);
+      stop();
       window.removeEventListener("focus", back);
-      document.removeEventListener("visibilitychange", visible);
     };
-  }, [read, generation, latest]);
+  }, [read, generation, latest, lifecycle, timers]);
   return stale === generation;
 }
