@@ -2553,9 +2553,14 @@ mod security_tests {
     }
 }
 
+/// What the at-work line adds: their tasks are not finished yet.
+const AT_WORK_NOT_DONE: &str = "Their tasks are not done until each reports: never say they are finished, and keep any reply about them to what is under way.";
+
 impl Brain {
-    /// `Subagents at work now: a1, a3.` when any runs (a turn's line after
-    /// the view); None when none does.
+    /// `Subagents at work now: a1, a3. ...` when any runs (a turn's line
+    /// after the view); None when none does. It also says their work is not
+    /// done yet, so a turn never reports a task finished while the subagent
+    /// doing it still runs (issue 25577).
     pub(super) fn at_work_line(&self) -> Option<String> {
         let ids: Vec<&str> = self
             .state
@@ -2565,7 +2570,12 @@ impl Brain {
             .filter(|s| s.at_work())
             .map(|s| s.id.as_str())
             .collect();
-        (!ids.is_empty()).then(|| format!("Subagents at work now: {}.", ids.join(", ")))
+        (!ids.is_empty()).then(|| {
+            format!(
+                "Subagents at work now: {}. {AT_WORK_NOT_DONE}",
+                ids.join(", ")
+            )
+        })
     }
 
     /// A running subagent spawned under the spawn floor: the floor stays

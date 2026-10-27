@@ -317,7 +317,6 @@
   border-radius: 50%;
   background: transparent;
   color: var(--agent-muted);
-  cursor: default;
 }
 .acpmux-quick-rail-tab:hover,
 .acpmux-quick-rail-tab[aria-pressed="true"] {
