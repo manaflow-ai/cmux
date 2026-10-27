@@ -272,7 +272,10 @@ impl Hub {
         // resolved path, and only that file is written (`write_approved`).
         let web_turn = Self::web_turn(session);
         if web_turn {
-            path = super::remote_floor::write_target(&path)
+            let asked = path.clone();
+            path = cmux_blocking::spawn_blocking(move || super::remote_floor::write_target(&asked))
+                .await
+                .map_err(|e| RpcError::internal(e.to_string()))?
                 .map_err(|e| RpcError::new(-32000, format!("write refused: {e}")))?;
         }
         let content = params
@@ -283,7 +286,7 @@ impl Hub {
         // Show the path relative to the session directory; the harness may
         // hand back the canonical form (/private/var vs /var on macOS).
         let cwd = session.meta().cwd;
-        let cwd_canon = cwd.canonicalize().unwrap_or_else(|_| cwd.clone());
+        let cwd_canon = tokio::fs::canonicalize(&cwd).await.unwrap_or_else(|_| cwd.clone());
         let shown = path
             .strip_prefix(&cwd)
             .or_else(|_| path.strip_prefix(&cwd_canon))
@@ -304,16 +307,9 @@ impl Hub {
                 format!("write to {shown} rejected by the acpmux permission policy"),
             ));
         }
-        if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent)
-                .map_err(|e| RpcError::internal(format!("create {}: {e}", parent.display())))?;
-        }
-        let written = if web_turn {
-            super::remote_floor::write_approved(&path, content.as_bytes())
-        } else {
-            std::fs::write(&path, content.as_bytes())
-        };
-        written.map_err(|e| RpcError::internal(format!("write {}: {e}", path.display())))?;
+        cmux_blocking::spawn_blocking(move || write_file(&path, content.as_bytes(), web_turn))
+            .await
+            .map_err(|e| RpcError::internal(e.to_string()))??;
         Ok(Value::Null)
     }
 
@@ -334,7 +330,12 @@ impl Hub {
         // The remote floor: a Web turn judges, asks about and reads the
         // resolved file; outside its folder it asks first.
         let target = if Self::web_turn(session) {
-            let t = super::remote_floor::read_target(&path, &session.meta().cwd);
+            let (asked, folder) = (path.clone(), session.meta().cwd);
+            let t = cmux_blocking::spawn_blocking(move || {
+                super::remote_floor::read_target(&asked, &folder)
+            })
+            .await
+            .map_err(|e| RpcError::internal(e.to_string()))?;
             if let Some(t) = &t {
                 path.clone_from(&t.real);
             }
@@ -369,19 +370,11 @@ impl Hub {
                 format!("read of {} rejected by the acpmux permission policy", path.display()),
             ));
         }
-        let read =
-            |e: std::io::Error| RpcError::new(-32000, format!("read {}: {e}", path.display()));
-        let text = match target {
-            Some(Some(t)) => {
-                use std::io::Read;
-                let mut text = String::new();
-                let mut file = super::remote_floor::open_read_target(&t).map_err(read)?;
-                file.read_to_string(&mut text).map_err(read)?;
-                text
-            }
-            Some(None) => return Err(read(std::io::Error::other("the path cannot be resolved"))),
-            None => std::fs::read_to_string(&path).map_err(read)?,
-        };
+        let shown = path.display().to_string();
+        let text = cmux_blocking::spawn_blocking(move || read_file(&path, target))
+            .await
+            .map_err(|e| RpcError::internal(e.to_string()))?
+            .map_err(|e| RpcError::new(-32000, format!("read {shown}: {e}")))?;
         let line = params.get("line").and_then(Value::as_u64).map(|l| l.max(1) as usize);
         let limit = params.get("limit").and_then(Value::as_u64).map(|l| l as usize);
         let content = match (line, limit) {
@@ -827,6 +820,39 @@ fn outcome_allows(outcome: &Value) -> bool {
         .and_then(Value::as_str)
         .map(|o| o.starts_with("allow"))
         .unwrap_or(false)
+}
+
+/// The approved ACP write, on a blocking thread: its folders, then the file
+/// (a Web turn's through `write_approved`, never through a symlink).
+fn write_file(path: &std::path::Path, content: &[u8], web_turn: bool) -> Result<(), RpcError> {
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)
+            .map_err(|e| RpcError::internal(format!("create {}: {e}", parent.display())))?;
+    }
+    let written = if web_turn {
+        super::remote_floor::write_approved(path, content)
+    } else {
+        std::fs::write(path, content)
+    };
+    written.map_err(|e| RpcError::internal(format!("write {}: {e}", path.display())))
+}
+
+/// The allowed ACP read, on a blocking thread: a Web turn's checked target
+/// (`Some`), one that did not resolve (`Some(None)`), or the plain path.
+fn read_file(
+    path: &std::path::Path,
+    target: Option<Option<super::remote_floor::ReadTarget>>,
+) -> std::io::Result<String> {
+    match target {
+        Some(Some(t)) => {
+            use std::io::Read;
+            let mut text = String::new();
+            super::remote_floor::open_read_target(&t)?.read_to_string(&mut text)?;
+            Ok(text)
+        }
+        Some(None) => Err(std::io::Error::other("the path cannot be resolved")),
+        None => std::fs::read_to_string(path),
+    }
 }
 
 /// `path` with `.` and `..` resolved lexically (`..` at the root stays there).

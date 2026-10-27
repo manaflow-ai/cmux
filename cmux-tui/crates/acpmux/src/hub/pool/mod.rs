@@ -786,7 +786,7 @@ impl Hub {
             )
             .await;
             if ended {
-                let _ = std::fs::remove_file(&b.path);
+                let _ = tokio::fs::remove_file(&b.path).await;
             }
         }
     }

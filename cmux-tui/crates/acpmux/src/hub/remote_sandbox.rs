@@ -547,15 +547,18 @@ echo "acpmux-canary outside=$o loopback=$l tmp=$i""#;
 /// the sandbox held: the outside write failed and left no file, the loopback
 /// connection failed and never arrived, and the temporary write worked.
 pub(super) async fn canary(exec: &Path, bound: &Bound) -> Result<(), String> {
-    let listener =
-        std::net::TcpListener::bind("127.0.0.1:0").map_err(|e| format!("listen: {e}"))?;
-    listener.set_nonblocking(true).map_err(|e| format!("listen: {e}"))?;
+    // Bound by tokio, then plain std listeners in non-blocking mode (`into_std`), so the
+    // check below asks once whether a connection is queued and never waits for one.
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .and_then(tokio::net::TcpListener::into_std)
+        .map_err(|e| format!("listen: {e}"))?;
     let port = listener.local_addr().map_err(|e| format!("listen: {e}"))?.port();
     // ::1 too, where the host has IPv6 loopback.
-    let listener6 = std::net::TcpListener::bind("[::1]:0").ok();
-    if let Some(l) = &listener6 {
-        l.set_nonblocking(true).map_err(|e| format!("listen: {e}"))?;
-    }
+    let listener6 = match tokio::net::TcpListener::bind("[::1]:0").await {
+        Ok(l) => Some(l.into_std().map_err(|e| format!("listen: {e}"))?),
+        Err(_) => None,
+    };
     let port6 = listener6.as_ref().and_then(|l| l.local_addr().ok()).map_or(0, |a| a.port());
     let outside = bound.home.join(format!(".acpmux-sandbox-canary-{}", uuid::Uuid::now_v7()));
     let mut cmd = tokio::process::Command::new(exec);
@@ -569,9 +572,9 @@ pub(super) async fn canary(exec: &Path, bound: &Bound) -> Result<(), String> {
         .stdin(std::process::Stdio::null())
         .kill_on_drop(true);
     let run = tokio::time::timeout(std::time::Duration::from_secs(20), cmd.output()).await;
-    let landed = std::fs::symlink_metadata(&outside).is_ok();
+    let landed = tokio::fs::symlink_metadata(&outside).await.is_ok();
     if landed {
-        let _ = std::fs::remove_file(&outside);
+        let _ = tokio::fs::remove_file(&outside).await;
     }
     let arrived =
         listener.accept().is_ok() || listener6.as_ref().is_some_and(|l| l.accept().is_ok());

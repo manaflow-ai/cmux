@@ -105,7 +105,10 @@ impl Hub {
                 .map_err(|e| RpcError::internal(e.to_string()))??;
         // A folder profile runs only in chats whose folder is inside its folder (H4).
         if let Some(root) = &folder_root
-            && !std::fs::canonicalize(&cwd).unwrap_or_else(|_| cwd.clone()).starts_with(root)
+            && !tokio::fs::canonicalize(&cwd)
+                .await
+                .unwrap_or_else(|_| cwd.clone())
+                .starts_with(root)
         {
             return Err(RpcError::invalid_params(format!(
                 "harness {agent} is a folder profile of {}; the chat folder must be inside it",

@@ -335,7 +335,7 @@ impl Hub {
         // Only a folder recorded as it resolves, or through links only root can change (`/tmp` on
         // macOS): through a link the agent could point elsewhere after it started, the folder it
         // runs in is not the one the link names now.
-        let Ok(own) = std::fs::canonicalize(&pm.cwd) else { return false };
+        let Ok(own) = tokio::fs::canonicalize(&pm.cwd).await else { return false };
         if (own != pm.cwd && !only_root_links(&pm.cwd, 0)) || !cwd.starts_with(&own) {
             return false;
         }

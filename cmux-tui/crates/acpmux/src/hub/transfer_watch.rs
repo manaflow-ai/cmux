@@ -162,7 +162,7 @@ impl Hub {
                 return true;
             }
         }
-        let landed = match std::fs::read_to_string(dir.join("to")) {
+        let landed = match tokio::fs::read_to_string(dir.join("to")).await {
             Ok(socket) => ask_target(Path::new(socket.trim()), &session.id, transfer_id).await,
             Err(_) => None,
         };

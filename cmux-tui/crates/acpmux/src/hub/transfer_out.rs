@@ -181,13 +181,13 @@ impl Hub {
         let files = match made {
             Ok(files) => files,
             Err(e) => {
-                let _ = std::fs::remove_dir_all(&dir);
+                let _ = tokio::fs::remove_dir_all(&dir).await;
                 self.append(session, "mux", "transfer_aborted", json!({"transferId": transfer_id}));
                 return Err(unfreeze(RpcError::internal(format!("transfer: bundle: {e}"))));
             }
         };
         if let Some(socket) = to {
-            let _ = std::fs::write(dir.join("to"), socket);
+            let _ = tokio::fs::write(dir.join("to"), socket).await;
         }
         super::transfer_watch::note_activity(&dir, None);
         self.watch_transfer(session, &transfer_id);
@@ -292,7 +292,7 @@ impl Hub {
         }
         self.append(session, "mux", "transferred", json!({"transferId": transfer_id, "to": to}));
         self.kill(session, false).await?;
-        let _ = std::fs::remove_dir_all(transfers_dir().join(transfer_id));
+        let _ = tokio::fs::remove_dir_all(transfers_dir().join(transfer_id)).await;
         Ok(json!({"sessionId": session.id, "transferId": transfer_id, "committed": true}))
     }
 

@@ -239,10 +239,18 @@ impl Hub {
             });
         let Some((nonce, host_pid)) = host else { return };
         if end_host_blocking(dir.clone(), session.id.clone(), nonce, host_pid).await {
-            if let Some(record) = record {
-                agent_host::remove_artifacts(&dir, &record);
-            } else if let Some(b) = bad.iter().find(|b| b.session_id == session.id) {
-                let _ = std::fs::remove_file(&b.path);
+            let unreadable =
+                bad.iter().find(|b| b.session_id == session.id).map(|b| b.path.clone());
+            let removed = cmux_blocking::spawn_blocking(move || {
+                if let Some(record) = record {
+                    agent_host::remove_artifacts(&dir, &record);
+                } else if let Some(path) = unreadable {
+                    let _ = std::fs::remove_file(path);
+                }
+            })
+            .await;
+            if let Err(e) = removed {
+                tracing::warn!(session = %session.id, "removing its agent host record: {e}");
             }
             self.append(session, "mux", "host_ended", json!({}));
         } else {

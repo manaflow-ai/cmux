@@ -99,7 +99,8 @@ impl Hub {
         live: bool,
         guarded: Option<super::transfer_guard::GuardedImport<'_>>,
     ) -> Result<Arc<Session>, RpcError> {
-        let meta_text = std::fs::read_to_string(bundle.join("session.json"))
+        let meta_text = tokio::fs::read_to_string(bundle.join("session.json"))
+            .await
             .map_err(|e| RpcError::invalid_params(format!("read session.json: {e}")))?;
         let mut meta: SessionMeta = serde_json::from_str(&meta_text)
             .map_err(|e| RpcError::invalid_params(format!("parse session.json: {e}")))?;

@@ -263,7 +263,7 @@ impl Hub {
         }
         self.save_meta(probe);
         let cm = probe.meta();
-        if std::fs::canonicalize(&cm.cwd).ok().as_deref() != Some(cwd) {
+        if tokio::fs::canonicalize(&cm.cwd).await.ok().as_deref() != Some(cwd) {
             return Err(refusal(
                 "subsessions.cwd_moved",
                 format!(
@@ -506,7 +506,7 @@ impl Hub {
             ));
         };
         let folder = folder.to_path_buf();
-        let mine = std::fs::canonicalize(&pm.cwd).ok();
+        let mine = tokio::fs::canonicalize(&pm.cwd).await.ok();
         let full = self.caller_access(pm) == Access::Full;
         let allowed = move || folder_allowed(&paths, &folder, mine.as_deref(), full, walk);
         tokio::task::spawn_blocking(allowed).await.map_err(|e| RpcError::internal(e.to_string()))?

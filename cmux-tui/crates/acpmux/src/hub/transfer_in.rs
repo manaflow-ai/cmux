@@ -64,6 +64,19 @@ fn receive_manifest(dir: &Path) -> Result<(Value, Vec<(String, u64)>), RpcError>
     Ok((manifest, files))
 }
 
+/// Removes every receive of move `transfer_id` (blocking: a folder walk).
+fn drop_receives(transfer_id: &str) {
+    for entry in std::fs::read_dir(transfers_dir()).into_iter().flatten().flatten() {
+        let name = entry.file_name().to_string_lossy().into_owned();
+        if name.starts_with("in-")
+            && receive_manifest(&entry.path())
+                .is_ok_and(|(manifest, _)| manifest["transferId"] == transfer_id)
+        {
+            let _ = std::fs::remove_dir_all(entry.path());
+        }
+    }
+}
+
 impl Hub {
     /// A chat that moved from here to another daemon: closed, its move committed (also before a
     /// restart, which does not rebuild a closed chat's state).
@@ -119,20 +132,21 @@ impl Hub {
         let Some(mark) = forgotten(transfer_id) else {
             return Err(RpcError::invalid_params(format!("transfer: bad move id {transfer_id:?}")));
         };
-        if mark.exists() {
+        if tokio::fs::try_exists(&mark).await.unwrap_or(false) {
             return Err(transfer_error("forgotten", format!("move {transfer_id} was given up")));
         }
         self.sweep();
         let receive_id = uuid::Uuid::now_v7().to_string();
         let dir = transfers_dir().join(format!("in-{receive_id}"));
-        let made = std::fs::create_dir_all(dir.join("bundle")).and_then(|()| {
+        let made = async {
+            tokio::fs::create_dir_all(dir.join("bundle")).await?;
             // The guard first: a receive with a manifest and no guard file is an unguarded one.
             if let Some(g) = &guard {
-                g.store(&dir)?;
+                g.store(&dir).await?;
             }
-            std::fs::write(dir.join("manifest.json"), serde_json::to_vec(&manifest)?)
-        });
-        made.map_err(|e| RpcError::internal(format!("transfer: {e}")))?;
+            tokio::fs::write(dir.join("manifest.json"), serde_json::to_vec(&manifest)?).await
+        };
+        made.await.map_err(|e| RpcError::internal(format!("transfer: {e}")))?;
         let mut answer = json!({"receiveId": receive_id, "sessionId": id});
         if guard.is_some() {
             answer["guarded"] = json!(true);
@@ -188,7 +202,7 @@ impl Hub {
         let guard = Guard::stored(&dir)?;
         let bundle = dir.join("bundle");
         for (path, size) in &files {
-            let have = std::fs::metadata(inside(&bundle, path)?).map_or(0, |m| m.len());
+            let have = tokio::fs::metadata(inside(&bundle, path)?).await.map_or(0, |m| m.len());
             if have != *size {
                 return Err(transfer_error("incomplete", format!("{path:?}: {have} of {size}")));
             }
@@ -214,12 +228,13 @@ impl Hub {
             && let Some(cwd) = text("cwd")
         {
             let path = bundle.join("session.json");
-            let edited = std::fs::read(&path).map_err(anyhow::Error::from).and_then(|raw| {
-                let mut meta: Value = serde_json::from_slice(&raw)?;
+            let edited = async {
+                let mut meta: Value = serde_json::from_slice(&tokio::fs::read(&path).await?)?;
                 meta["cwd"] = json!(cwd);
-                Ok(std::fs::write(&path, serde_json::to_vec_pretty(&meta)?)?)
-            });
-            edited.map_err(|e| RpcError::internal(format!("transfer: {e}")))?;
+                tokio::fs::write(&path, serde_json::to_vec_pretty(&meta)?).await?;
+                anyhow::Ok(())
+            };
+            edited.await.map_err(|e| RpcError::internal(format!("transfer: {e}")))?;
         }
         if let Some(old) = old {
             // A guarded move never replaces a copy from a folder outside its roots.
@@ -232,12 +247,19 @@ impl Hub {
                 ));
             }
             // Only once the chat can live here: a failed import keeps the closed copy's log.
-            let cwd = text("cwd").map(PathBuf::from).or_else(|| {
-                let raw = std::fs::read(bundle.join("session.json")).ok()?;
-                let meta: Value = serde_json::from_slice(&raw).ok()?;
-                meta["cwd"].as_str().map(PathBuf::from)
-            });
-            if !cwd.as_ref().is_some_and(|c| c.is_dir()) {
+            let cwd = match text("cwd") {
+                Some(cwd) => Some(PathBuf::from(cwd)),
+                None => tokio::fs::read(bundle.join("session.json"))
+                    .await
+                    .ok()
+                    .and_then(|raw| serde_json::from_slice::<Value>(&raw).ok())
+                    .and_then(|meta| meta["cwd"].as_str().map(PathBuf::from)),
+            };
+            let is_dir = match &cwd {
+                Some(c) => tokio::fs::metadata(c).await.is_ok_and(|m| m.is_dir()),
+                None => false,
+            };
+            if !is_dir {
                 let e = transfer_error("cwd", "the chat's folder is not here; pass cwd");
                 return Err(e.with_data(json!({"reason": "cwd_missing", "cwd": cwd})));
             }
@@ -261,7 +283,7 @@ impl Hub {
         );
         // Its queue (back since the import) runs here now; the source withdraws it on commit.
         self.resume_queues();
-        let _ = std::fs::remove_dir_all(&dir);
+        let _ = tokio::fs::remove_dir_all(&dir).await;
         Ok(self.session_summary(&session))
     }
 
@@ -276,17 +298,11 @@ impl Hub {
             return Err(RpcError::invalid_params("transfer_forget: bad transferId"));
         };
         let _receives = RECEIVES.lock().await;
-        let made = std::fs::create_dir_all(&mark);
+        let made = tokio::fs::create_dir_all(&mark).await;
         made.map_err(|e| RpcError::internal(format!("transfer: {e}")))?;
-        for entry in std::fs::read_dir(transfers_dir()).into_iter().flatten().flatten() {
-            let name = entry.file_name().to_string_lossy().into_owned();
-            if name.starts_with("in-")
-                && receive_manifest(&entry.path())
-                    .is_ok_and(|(manifest, _)| manifest["transferId"] == transfer_id)
-            {
-                let _ = std::fs::remove_dir_all(entry.path());
-            }
-        }
+        let forget = transfer_id.to_owned();
+        let dropped = cmux_blocking::spawn_blocking(move || drop_receives(&forget)).await;
+        dropped.map_err(|e| RpcError::internal(format!("transfer: {e}")))?;
         let here = self.sessions.lock().unwrap_or_else(|e| e.into_inner()).get(session_id).cloned();
         let mut landed = false;
         if let Some(session) = here {

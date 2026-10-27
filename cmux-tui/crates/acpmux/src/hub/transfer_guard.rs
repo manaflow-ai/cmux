@@ -92,8 +92,8 @@ impl Guard {
         json!({"control": self.control.as_str(), "roots": self.roots})
     }
 
-    pub(super) fn store(&self, dir: &Path) -> std::io::Result<()> {
-        std::fs::write(dir.join(GUARD_FILE), serde_json::to_vec(&self.to_value())?)
+    pub(super) async fn store(&self, dir: &Path) -> std::io::Result<()> {
+        tokio::fs::write(dir.join(GUARD_FILE), serde_json::to_vec(&self.to_value())?).await
     }
 
     /// The guard a receive stored, or None for an unguarded receive.
@@ -285,7 +285,8 @@ impl Hub {
             return Err(guard_error("from", format!("from is over {MAX_FROM} bytes")));
         }
         let path = bundle.join("session.json");
-        let raw = std::fs::read(&path)
+        let raw = tokio::fs::read(&path)
+            .await
             .map_err(|e| RpcError::invalid_params(format!("read session.json: {e}")))?;
         let mut meta: SessionMeta = serde_json::from_slice(&raw)
             .map_err(|e| RpcError::invalid_params(format!("parse session.json: {e}")))?;
@@ -355,7 +356,13 @@ impl Hub {
         // One that is here already is another chat's, or this chat's from before it moved away:
         // only the latter gives way.
         let home = dirs::home_dir().unwrap_or_default();
-        let taken = plan.iter().any(|(_, rel)| std::fs::symlink_metadata(home.join(rel)).is_ok());
+        let mut taken = false;
+        for (_, rel) in &plan {
+            if tokio::fs::symlink_metadata(home.join(rel)).await.is_ok() {
+                taken = true;
+                break;
+            }
+        }
         let own = replaceable.is_some() && replaceable == meta.agent_session_id.as_deref();
         if taken && !own {
             return Err(guard_error(
@@ -363,9 +370,10 @@ impl Hub {
                 "the chat's agent session is here already and is not this chat's",
             ));
         }
-        let written = serde_json::to_vec_pretty(&meta)
-            .map_err(anyhow::Error::from)
-            .and_then(|bytes| Ok(std::fs::write(&path, bytes)?));
+        let written = match serde_json::to_vec_pretty(&meta) {
+            Ok(bytes) => tokio::fs::write(&path, bytes).await.map_err(anyhow::Error::from),
+            Err(e) => Err(e.into()),
+        };
         written.map_err(|e| RpcError::internal(format!("transfer: {e}")))?;
         Ok((meta, taken))
     }
