@@ -155,6 +155,11 @@ signal_safe = [
     "libc::setuid", "libc::setgid", "libc::setgroups", "libc::getpid", "libc::getppid",
     "libc::kill", "libc::open", "libc::read", "libc::write", "libc::_exit", "libc::prctl",
     "libc::setrlimit", "libc::tcsetpgrp", "libc::login_tty",
+    # Raw system calls (no C library lock or allocation), the kind Chromium
+    # makes after fork in base/process/launch_posix.cc.
+    "libc::syscall", "libc::setpriority",
+    # Stack values and null pointers.
+    "std::mem::MaybeUninit::uninit", "std::mem::zeroed", "std::ptr::null", "std::ptr::null_mut",
     "std::io::Error::last_os_error", "std::io::Error::from_raw_os_error",
     "Ok", "Err", "Some",
 ]

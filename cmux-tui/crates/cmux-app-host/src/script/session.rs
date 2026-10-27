@@ -295,8 +295,30 @@ impl Session {
             n if n > 0 => n.min(65_536) as libc::c_int,
             _ => 4096,
         };
-        // SAFETY: only async-signal-safe calls between fork and exec.
-        unsafe { command.pre_exec(move || child_fds(fd, max_fd)) };
+        // In the child before exec: the channel on fd 3 without close-on-exec,
+        // and every other inherited descriptor above 2 closed.
+        // SAFETY: only async-signal-safe descriptor syscalls between fork and
+        // exec, on this (forked, single-threaded) process's own table.
+        unsafe {
+            command.pre_exec(move || {
+                if fd == 3 {
+                    if libc::fcntl(3, libc::F_SETFD, 0) != 0 {
+                        return Err(std::io::Error::last_os_error());
+                    }
+                } else if libc::dup2(fd, 3) != 3 {
+                    return Err(std::io::Error::last_os_error());
+                }
+                // Linux closes every descriptor above 3 at once, whatever the limit.
+                #[cfg(target_os = "linux")]
+                if libc::syscall(libc::SYS_close_range, 4_u32, u32::MAX, 0_u32) == 0 {
+                    return Ok(());
+                }
+                for other in 4..max_fd {
+                    libc::close(other);
+                }
+                Ok(())
+            });
+        }
         let mut child =
             command.spawn().map_err(|e| host_error("could not start the script runtime", e))?;
         drop(theirs);
@@ -440,28 +462,4 @@ impl Drop for Session {
     fn drop(&mut self) {
         self.shared.kill();
     }
-}
-
-/// In the child before exec: the channel on fd 3 without close-on-exec, and
-/// every other inherited descriptor above 2 closed.
-fn child_fds(fd: libc::c_int, max_fd: libc::c_int) -> std::io::Result<()> {
-    // SAFETY: plain descriptor syscalls on this (forked, single-threaded) process.
-    unsafe {
-        if fd == 3 {
-            if libc::fcntl(3, libc::F_SETFD, 0) != 0 {
-                return Err(std::io::Error::last_os_error());
-            }
-        } else if libc::dup2(fd, 3) != 3 {
-            return Err(std::io::Error::last_os_error());
-        }
-        // Linux closes every descriptor above 3 at once, whatever the limit.
-        #[cfg(target_os = "linux")]
-        if libc::syscall(libc::SYS_close_range, 4_u32, u32::MAX, 0_u32) == 0 {
-            return Ok(());
-        }
-        for other in 4..max_fd {
-            libc::close(other);
-        }
-    }
-    Ok(())
 }

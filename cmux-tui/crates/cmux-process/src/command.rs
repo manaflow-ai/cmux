@@ -564,6 +564,7 @@ impl Command {
                 // calls, allocates nothing, and touches only the child's own
                 // descriptors, signal dispositions and seccomp filter.
                 unsafe {
+                    // pre-exec-allow: ChildSetup::run makes only raw syscalls on prepared data
                     command.pre_exec(move || setup.run());
                 }
             }

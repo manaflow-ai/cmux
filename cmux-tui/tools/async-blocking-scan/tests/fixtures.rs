@@ -254,9 +254,17 @@ pub fn safe(cmd: &mut Command) {
     unsafe {
         cmd.pre_exec(|| {
             if libc::setsid() < 0 { return Err(std::io::Error::last_os_error()); }
+            libc::setpriority(libc::PRIO_PROCESS, 0, 19);
+            libc::syscall(libc::SYS_ioprio_set, 1, 0, 3 << 13);
+            let mut set = std::mem::MaybeUninit::<libc::sigset_t>::uninit();
+            libc::sigemptyset(set.as_mut_ptr());
+            libc::sigprocmask(libc::SIG_SETMASK, set.as_ptr(), std::ptr::null_mut());
             Ok(())
         });
     }
+}
+pub fn named_helper(cmd: &mut Command) {
+    unsafe { cmd.pre_exec(|| helper()); }
 }
 pub fn prints(cmd: &mut Command) {
     unsafe { cmd.pre_exec(|| { println!("child"); Ok(()) }); }
@@ -280,6 +288,7 @@ fn helper() -> std::io::Result<()> { Ok(()) }
     assert_eq!(
         hits(&out.head.findings),
         [
+            ("call".to_string(), "named_helper".to_string()),
             ("macro".to_string(), "prints".to_string()),
             ("method".to_string(), "allocates".to_string()),
             ("opaque".to_string(), "opaque".to_string()),

@@ -154,23 +154,6 @@ pub fn select_layout(cfg: &Config) -> io::Result<DaemonLayout> {
     Ok(layout_for(&user, kind, home, bin))
 }
 
-/// Unblocks every signal (the agent blocks SIGTERM, SIGINT and SIGCHLD for
-/// its signalfd; children must not inherit that mask).
-///
-/// # Safety
-/// Only async-signal-safe calls; runs between fork and exec.
-unsafe fn reset_signal_mask() -> io::Result<()> {
-    let mut set = std::mem::MaybeUninit::<libc::sigset_t>::uninit();
-    // SAFETY: sigemptyset initializes the set before sigprocmask reads it.
-    unsafe {
-        libc::sigemptyset(set.as_mut_ptr());
-        if libc::sigprocmask(libc::SIG_SETMASK, set.as_ptr(), std::ptr::null_mut()) < 0 {
-            return Err(io::Error::last_os_error());
-        }
-    }
-    Ok(())
-}
-
 /// Spawns the session host: own session, the spec's user, groups, cwd and
 /// environment, stdin from /dev/null, stdout and stderr to the agent's
 /// (the journal). Drops privileges only when the target differs from the
@@ -188,7 +171,13 @@ pub fn spawn_daemon(spec: &DaemonSpec) -> io::Result<Child> {
     // nothing (the group list is moved in before fork).
     unsafe {
         command.pre_exec(move || {
-            reset_signal_mask()?;
+            // Unblock every signal: the agent blocks SIGTERM, SIGINT and
+            // SIGCHLD for its signalfd, and the mask survives exec.
+            let mut set = std::mem::MaybeUninit::<libc::sigset_t>::uninit();
+            libc::sigemptyset(set.as_mut_ptr());
+            if libc::sigprocmask(libc::SIG_SETMASK, set.as_ptr(), std::ptr::null_mut()) < 0 {
+                return Err(io::Error::last_os_error());
+            }
             if libc::setsid() < 0 {
                 return Err(io::Error::last_os_error());
             }
@@ -213,7 +202,13 @@ pub fn spawn_job(program: &Path, args: &[String], low_priority: bool) -> io::Res
     // SAFETY: async-signal-safe calls only.
     unsafe {
         command.pre_exec(move || {
-            reset_signal_mask()?;
+            // Unblock every signal: the agent blocks SIGTERM, SIGINT and
+            // SIGCHLD for its signalfd, and the mask survives exec.
+            let mut set = std::mem::MaybeUninit::<libc::sigset_t>::uninit();
+            libc::sigemptyset(set.as_mut_ptr());
+            if libc::sigprocmask(libc::SIG_SETMASK, set.as_ptr(), std::ptr::null_mut()) < 0 {
+                return Err(io::Error::last_os_error());
+            }
             libc::setsid();
             if low_priority {
                 libc::setpriority(libc::PRIO_PROCESS, 0, 19);

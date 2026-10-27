@@ -138,10 +138,24 @@ impl HeadlessChromium {
         command.stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null());
         // Its own process group, so stopping it also stops renderers and the GPU process.
         command.process_group(0);
+        // Child side: move the pipe ends to fds 3 and 4. Both are first copied
+        // above fd 10 so that neither dup2 can overwrite the other's source.
         // SAFETY: the closure runs in the forked child before exec and only
-        // calls async-signal-safe functions (fcntl, dup2) on fds it owns.
+        // calls async-signal-safe functions (fcntl, dup2, close) on fds it owns.
         unsafe {
-            command.pre_exec(move || install_pipe_fds(child_read, child_write));
+            command.pre_exec(move || {
+                let high_read = libc::fcntl(child_read, libc::F_DUPFD, 10);
+                let high_write = libc::fcntl(child_write, libc::F_DUPFD, 10);
+                if high_read < 0 || high_write < 0 {
+                    return Err(io::Error::last_os_error());
+                }
+                if libc::dup2(high_read, 3) < 0 || libc::dup2(high_write, 4) < 0 {
+                    return Err(io::Error::last_os_error());
+                }
+                libc::close(high_read);
+                libc::close(high_write);
+                Ok(())
+            });
         }
         let spawned = command.spawn();
         drop(to_browser_read);
@@ -348,25 +362,6 @@ fn pipe() -> io::Result<(OwnedFd, OwnedFd)> {
         }
     }
     Ok((read, write))
-}
-
-/// Child side: move the pipe ends to fds 3 and 4. Both are first copied above
-/// fd 10 so that neither dup2 can overwrite the other's source.
-fn install_pipe_fds(read: RawFd, write: RawFd) -> io::Result<()> {
-    // SAFETY: async-signal-safe calls on fds inherited from the parent.
-    unsafe {
-        let high_read = libc::fcntl(read, libc::F_DUPFD, 10);
-        let high_write = libc::fcntl(write, libc::F_DUPFD, 10);
-        if high_read < 0 || high_write < 0 {
-            return Err(io::Error::last_os_error());
-        }
-        if libc::dup2(high_read, 3) < 0 || libc::dup2(high_write, 4) < 0 {
-            return Err(io::Error::last_os_error());
-        }
-        libc::close(high_read);
-        libc::close(high_write);
-    }
-    Ok(())
 }
 
 #[cfg(test)]
