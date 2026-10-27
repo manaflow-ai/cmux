@@ -284,7 +284,7 @@ final class SidebarUpdateCardView: NSView {
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
         if let moveTracking { removeTrackingArea(moveTracking) }
-        let area = NSTrackingArea(rect: .zero, options: [.mouseMoved, .activeAlways, .inVisibleRect], owner: self)
+        let area = NSTrackingArea(rect: .zero, options: [.mouseMoved, .activeInActiveApp, .inVisibleRect], owner: self)
         addTrackingArea(area)
         moveTracking = area
     }

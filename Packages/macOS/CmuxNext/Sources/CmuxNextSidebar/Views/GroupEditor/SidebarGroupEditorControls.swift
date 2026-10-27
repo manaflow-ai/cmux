@@ -28,7 +28,7 @@ final class SidebarGroupSwatchView: NSView {
         setAccessibilityRole(.radioButton)
         setAccessibilityLabel(GroupEditorStrings.colorName(color))
         setAccessibilityIdentifier("cmux.sidebar.groupEditor.color.\(color.rawValue)")
-        addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self, userInfo: nil))
+        addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeInActiveApp, .inVisibleRect], owner: self, userInfo: nil))
     }
 
     @available(*, unavailable)
@@ -123,7 +123,7 @@ final class SidebarGroupEditorRow: NSView {
         setAccessibilityRole(.button)
         setAccessibilityLabel(item.title)
         setAccessibilityIdentifier("cmux.sidebar.groupEditor.action.\(item.id)")
-        addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self, userInfo: nil))
+        addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeInActiveApp, .inVisibleRect], owner: self, userInfo: nil))
         updateColors()
     }
 
