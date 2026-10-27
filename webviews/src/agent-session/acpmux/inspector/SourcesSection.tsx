@@ -13,8 +13,7 @@ type RowProps = {
   cwd?: string;
 };
 
-// Tab refusal happens before the native gesture is spent. Use the Changes editor route for
-// page types and unknown extensions; the host still validates roots and file existence.
+// Native tab refusal preserves the gesture, so the validated editor route can retry.
 export async function openSourceFile(
   path: string,
   native: (method: string, params: Record<string, unknown>) => Promise<unknown>,
@@ -127,10 +126,5 @@ function SourceRow({ source, onOpenBeside, onOpenFile, cwd }: RowProps) {
         {content}
       </a>
     );
-  return (
-    <li className="acpmux-chat-inspector-source">
-      {target}
-      {failure && <span role="alert">{failure}</span>}
-    </li>
-  );
+  return <li className="acpmux-chat-inspector-source">{failure ? <span role="alert">{failure}</span> : target}</li>;
 }
