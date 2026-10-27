@@ -237,6 +237,12 @@ impl BrowserProviderRegistry {
         call_watchers(woken);
     }
 
+    /// Parked watchers.
+    #[cfg(test)]
+    pub(crate) fn watcher_count(&self) -> usize {
+        self.lock().watchers.len()
+    }
+
     fn lock(&self) -> MutexGuard<'_, BrowserProviderState> {
         self.state.lock().unwrap_or_else(PoisonError::into_inner)
     }

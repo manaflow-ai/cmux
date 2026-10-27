@@ -25,7 +25,11 @@
 //!   surfaces cost no thread past the base workers.
 //! - **Deadlines.** A turn may ask to run again at an instant. An idle worker
 //!   waits until the earliest one; there is no timer thread, as in
-//!   server/sequenced_pool.rs (Chrome's DelayedTaskManager).
+//!   server/sequenced_pool.rs (Chrome's DelayedTaskManager). While a
+//!   deadline is armed, one worker stays free to serve it: a worker that
+//!   starts a turn and leaves none free starts one more, and a temporary
+//!   worker that is the last free one is not reclaimed. So a deadline never
+//!   waits for a turn blocked on a wedged page.
 //! - **Shutdown.** [`BrowserLanes`] owns the pool: dropping it drops every
 //!   lane's task and lets the workers exit after their current turn.
 //!
@@ -127,6 +131,12 @@ impl LanePool {
     #[cfg(test)]
     pub(crate) fn live_workers(&self) -> usize {
         self.shared.lock().live
+    }
+
+    /// Workers left free once the ready lanes have theirs.
+    #[cfg(test)]
+    pub(crate) fn free_workers(&self) -> usize {
+        self.shared.lock().free_workers()
     }
 
     /// Lanes not done yet.
@@ -251,6 +261,8 @@ struct PoolState {
     idle: usize,
     /// Notified idle workers that have not woken yet.
     waking: usize,
+    /// Reserved workers whose threads have not reached their loop yet.
+    starting: usize,
     shut_down: bool,
 }
 
@@ -305,14 +317,19 @@ impl Shared {
             self.work.notify_one();
             return false;
         }
+        self.reserve_worker(state)
+    }
+
+    fn reserve_worker(&self, state: &mut PoolState) -> bool {
         if state.live < MAX_WORKERS && !state.shut_down {
             state.live += 1;
+            state.starting += 1;
             return true;
         }
         false
     }
 
-    /// Starts the worker [`Self::wake_or_reserve`] reserved. One that does
+    /// Starts the worker [`Self::reserve_worker`] reserved. One that does
     /// not start gives its slot back; the ready lane runs on a live worker
     /// when one frees.
     fn spawn_worker(self: &Arc<Self>) {
@@ -321,13 +338,17 @@ impl Shared {
             shared.run_worker();
         });
         if let Err(error) = started {
-            self.lock().live -= 1;
+            let mut state = self.lock();
+            state.live -= 1;
+            state.starting -= 1;
+            drop(state);
             eprintln!("cmux: could not start a {WORKER_NAME} worker: {error}");
         }
     }
 
     fn run_worker(self: &Arc<Self>) {
         let mut state = self.lock();
+        state.starting -= 1;
         // When this worker last found nothing ready (None while it runs
         // lanes): a temporary worker idle for RECLAIM exits.
         let mut idle_since: Option<Instant> = None;
@@ -348,16 +369,21 @@ impl Shared {
             let Some(id) = state.ready.pop_front() else {
                 let now = Instant::now();
                 let since = *idle_since.get_or_insert(now);
+                let next_due = self.next_due(&mut state);
                 // A worker past the base count exits once it found nothing
                 // ready for RECLAIM, so a burst reuses it rather than
-                // starting and ending a thread per wake.
-                let reclaim_at = (state.live > BASE_WORKERS).then(|| since + RECLAIM);
+                // starting and ending a thread per wake. The last free
+                // worker stays while a deadline is armed: every other one
+                // may be blocked in a turn.
+                let reclaimable =
+                    state.live > BASE_WORKERS && (next_due.is_none() || state.free_workers() > 0);
+                let reclaim_at = reclaimable.then(|| since + RECLAIM);
                 if reclaim_at.is_some_and(|reclaim_at| reclaim_at <= now) {
                     state.live -= 1;
                     return;
                 }
                 state.idle += 1;
-                let due = [self.next_due(&mut state), reclaim_at].into_iter().flatten().min();
+                let due = [next_due, reclaim_at].into_iter().flatten().min();
                 state = match due {
                     None => self.work.idle().wait(state).recover_poison(),
                     Some(due) => {
@@ -372,7 +398,11 @@ impl Shared {
             };
             let Some(mut task) = take_task(&mut state, id) else { continue };
             idle_since = None;
+            let spawn = self.reserve_deadline_worker(&mut state);
             drop(state);
+            if spawn {
+                self.spawn_worker();
+            }
             let turn = catch_unwind(AssertUnwindSafe(|| task.run())).unwrap_or_else(|_| {
                 eprintln!("cmux: a {WORKER_NAME} task panicked; its lane ends");
                 LaneTurn::Done
@@ -424,9 +454,23 @@ impl Shared {
         None
     }
 
-    /// Arms lane `id`'s deadline. A lane whose armed deadline is no later
-    /// keeps it: that turn re-arms the later one, so a deadline that moves
-    /// on every turn (a pointer lease) adds no heap entry per turn.
+    /// Called by a worker about to run a turn, which may block: when that
+    /// leaves no free worker while a deadline is armed, reserves one more
+    /// (true: the caller starts it after releasing the lock).
+    fn reserve_deadline_worker(&self, state: &mut PoolState) -> bool {
+        if state.free_workers() > 0 || self.next_due(state).is_none() {
+            return false;
+        }
+        self.reserve_worker(state)
+    }
+
+    /// Arms lane `id`'s deadline. Only a worker finishing a turn arms one;
+    /// it serves the deadline itself or, before its next turn, keeps a
+    /// worker free for it ([`Self::reserve_deadline_worker`]).
+    ///
+    /// A lane whose armed deadline is no later keeps it: that turn re-arms
+    /// the later one, so a deadline that moves on every turn (a pointer
+    /// lease) adds no heap entry per turn.
     fn arm(&self, state: &mut PoolState, id: u64, due: Instant) {
         let Some(lane) = state.lanes.get_mut(&id) else { return };
         if lane.armed.is_some_and(|armed| armed <= due) {
@@ -491,6 +535,14 @@ impl Shared {
         self.work.notify_all();
         // Outside the lock: tasks hold surfaces, whose drops take other locks.
         drop(lanes);
+    }
+}
+
+impl PoolState {
+    /// Workers, besides the caller, left free once each ready lane has one:
+    /// idle and starting workers, less the ready lanes they will take.
+    fn free_workers(&self) -> usize {
+        (self.idle + self.starting).saturating_sub(self.ready.len())
     }
 }
 

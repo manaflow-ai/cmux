@@ -250,3 +250,95 @@ fn a_lane_sender_wakes_on_send_and_when_its_last_clone_drops() {
     assert_eq!(seen.recv_timeout(WAIT), Ok(None));
     assert!(eventually(|| lanes.pool().lanes() == 0));
 }
+
+/// A lane that blocks in its turn until its release sender drops, and the
+/// channel that tells its turn started.
+fn blocking_lane(lanes: &BrowserLanes) -> (LaneHandle, Sender<()>, Receiver<()>) {
+    let (entered_tx, entered) = channel();
+    let (release_tx, release) = channel::<()>();
+    let (task, _turns) = recorder(move |_| {
+        let _ = entered_tx.send(());
+        let _ = release.recv();
+        LaneTurn::Idle
+    });
+    (lanes.pool().start(task), release_tx, entered)
+}
+
+/// A lane blocked in its turn until its release sender drops.
+fn blocked_lane(lanes: &BrowserLanes) -> (LaneHandle, Sender<()>) {
+    let (lane, release, entered) = blocking_lane(lanes);
+    lane.wake();
+    entered.recv_timeout(WAIT).expect("a blocked lane delayed another one");
+    (lane, release)
+}
+
+/// How long a deadline may run late before a test calls it lost.
+const DEADLINE_SLACK: Duration = Duration::from_secs(2);
+
+/// A temporary worker that is the last free one is not reclaimed while a
+/// deadline is armed: with every base worker blocked in a turn (a CDP call
+/// to a wedged page), the deadline still runs on time.
+#[test]
+fn a_deadline_runs_on_time_while_every_base_worker_is_blocked() {
+    let lanes = BrowserLanes::new();
+    let blocked = (0..BASE_WORKERS).map(|_| blocked_lane(&lanes)).collect::<Vec<_>>();
+    let due = Instant::now() + RECLAIM + Duration::from_millis(500);
+    let (task, turns) =
+        recorder(move |turn| if turn == 1 { LaneTurn::WakeAt(due) } else { LaneTurn::Idle });
+    lanes.pool().start(task).wake();
+    assert_eq!(turns.recv_timeout(WAIT), Ok(1));
+    let wait = due.saturating_duration_since(Instant::now()) + DEADLINE_SLACK;
+    assert_eq!(turns.recv_timeout(wait), Ok(2), "the deadline waited for a blocked turn");
+    assert!(Instant::now() >= due);
+    drop(blocked);
+}
+
+/// A deadline armed while no worker is free, whose worker then starts a
+/// blocking turn, still runs on time: that worker starts one more first.
+#[test]
+fn a_deadline_armed_while_no_worker_is_free_runs_on_time() {
+    let lanes = BrowserLanes::new();
+    let blocked = (0..BASE_WORKERS - 1).map(|_| blocked_lane(&lanes)).collect::<Vec<_>>();
+    let due = Instant::now() + RECLAIM + Duration::from_millis(500);
+    let (task, turns) =
+        recorder(move |turn| if turn == 1 { LaneTurn::WakeAt(due) } else { LaneTurn::Idle });
+    lanes.pool().start(task).wake();
+    assert_eq!(turns.recv_timeout(WAIT), Ok(1));
+    // The last base worker, which armed the deadline, waits for it; a lane
+    // that becomes ready now takes it into a blocking turn.
+    assert!(eventually(|| lanes.pool().free_workers() == 1));
+    assert_eq!(lanes.pool().live_workers(), BASE_WORKERS);
+    let last = blocked_lane(&lanes);
+    let wait = due.saturating_duration_since(Instant::now()) + DEADLINE_SLACK;
+    assert_eq!(turns.recv_timeout(wait), Ok(2), "the deadline waited for a blocked turn");
+    assert!(Instant::now() >= due);
+    drop((blocked, last));
+}
+
+/// A burst of lanes that each start a worker while a deadline is armed
+/// adds one worker for the deadline, not one per lane.
+#[test]
+fn a_burst_with_a_deadline_armed_adds_one_deadline_worker() {
+    let lanes = BrowserLanes::new();
+    let due = Instant::now() + Duration::from_secs(60);
+    let (task, turns) =
+        recorder(move |turn| if turn == 1 { LaneTurn::WakeAt(due) } else { LaneTurn::Idle });
+    let timed = lanes.pool().start(task);
+    timed.wake();
+    assert_eq!(turns.recv_timeout(WAIT), Ok(1));
+    let burst = 8;
+    let blocked = (0..burst).map(|_| blocking_lane(&lanes)).collect::<Vec<_>>();
+    for (lane, _, _) in &blocked {
+        lane.wake();
+    }
+    for (_, _, entered) in &blocked {
+        entered.recv_timeout(WAIT).expect("a blocked lane delayed another one");
+    }
+    assert!(eventually(|| lanes.pool().free_workers() >= 1));
+    assert!(
+        lanes.pool().live_workers() <= burst + 1,
+        "{} workers for {burst} blocked lanes",
+        lanes.pool().live_workers()
+    );
+    drop(blocked);
+}

@@ -983,6 +983,8 @@ mod frontend_browser_effect_tests;
 #[cfg(test)]
 mod partial_create_tests;
 #[cfg(test)]
+mod provider_bootstrap_lane_tests;
+#[cfg(test)]
 mod split_focus_tests;
 #[cfg(test)]
 mod tests;
