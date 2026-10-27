@@ -8,8 +8,8 @@
 //! streams, and owns services until bwrap exits. SpawnPlan and both spawn paths
 //! therefore need no additional descriptor plumbing.
 //!
-//! Linux remote chains remain refused in Bound::for_session until G2. The
-//! supervisor enforces persistence write-opens, renames and creators.
+//! Linux remote chains require the bwrap probe and session canary to pass.
+//! The supervisor enforces persistence write-opens, renames and creators.
 //! Collection loops stop at finite input exhaustion.
 //! Service loops stop on child exit, cancellation, or runtime teardown; the
 //! supervisor thread stops on its eventfd or listener hangup.
