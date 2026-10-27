@@ -47,6 +47,7 @@ use cmux_threads::checked::fs as files;
 use cmux_threads::checked::sync as waits;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::AtomicUsize;
 use std::sync::{Arc, Mutex, OnceLock, PoisonError, Weak, mpsc};
 use std::time::{Duration, Instant};
 
@@ -101,6 +102,9 @@ pub struct AppValues {
     pub acpmux_bin: Option<PathBuf>,
     /// `MUX_HARNESS`.
     pub harness: Option<String>,
+    /// The app's pid (`OPTCHAT_OWNER_APP_PID`): once it exits an idle brain
+    /// stops (optchat-chief `owner_app.rs`), as the default Chief's host does.
+    pub owner_app_pid: Option<String>,
 }
 
 static TAKEN: OnceLock<Option<String>> = OnceLock::new();
@@ -259,6 +263,7 @@ pub fn brain_environment(
         ("CMUX_BUNDLED_CLI_PATH", app.bundled_cli.as_ref().map(|p| p.display().to_string())),
         ("ACPMUX_BIN", app.acpmux_bin.as_ref().map(|p| p.display().to_string())),
         ("MUX_HARNESS", app.harness.clone()),
+        ("OPTCHAT_OWNER_APP_PID", app.owner_app_pid.clone()),
     ];
     for (key, value) in optional {
         if let Some(value) = value.filter(|v| !v.is_empty()) {
@@ -518,9 +523,18 @@ pub struct ChiefBrains {
     sender: mpsc::Sender<Signal>,
     thread: Option<std::thread::JoinHandle<()>>,
     mux: Weak<Mux>,
+    live: Arc<AtomicUsize>,
 }
 
 impl ChiefBrains {
+    /// The brains that run or wait to start again after a failure, as the
+    /// supervisor last counted them (after each signal or deadline it
+    /// handled): what keeps a Chief owner whose app quit (cmux-tui
+    /// `headless/chief_owner_exit.rs`).
+    pub fn live(&self) -> Arc<AtomicUsize> {
+        self.live.clone()
+    }
+
     /// Stops every brain (SIGTERM, up to 5 s for them to end, then SIGKILL)
     /// and the supervisor.
     pub fn stop(mut self) {
@@ -561,12 +575,14 @@ pub fn start(mux: &Arc<Mux>, socket: &Path) -> Option<ChiefBrains> {
         }
         *installed = Some(sender.clone());
     }
+    let live = Arc::new(AtomicUsize::new(0));
     let mut supervisor = Supervisor {
         mux: Arc::downgrade(mux),
         socket: socket.to_owned(),
         config,
         brains: BTreeMap::new(),
         sender: sender.clone(),
+        live: live.clone(),
     };
     let thread = std::thread::Builder::new()
         .name("chief-brains".into())
@@ -579,7 +595,7 @@ pub fn start(mux: &Arc<Mux>, socket: &Path) -> Option<ChiefBrains> {
             supervisor.run(&inbox);
         })
         .ok()?;
-    Some(ChiefBrains { sender, thread: Some(thread), mux: Arc::downgrade(mux) })
+    Some(ChiefBrains { sender, thread: Some(thread), mux: Arc::downgrade(mux), live })
 }
 
 /// The engine a Chief's record names (`cmux chief new --harness unii`, the
@@ -711,6 +727,8 @@ struct Supervisor {
     brains: BTreeMap<String, Brain>,
     #[cfg_attr(not(unix), allow(dead_code))]
     sender: mpsc::Sender<Signal>,
+    /// [`ChiefBrains::live`].
+    live: Arc<AtomicUsize>,
 }
 
 impl Supervisor {
@@ -739,7 +757,16 @@ impl Supervisor {
                 None => {}
             }
             self.on_time();
+            self.count_live();
         }
+    }
+
+    /// Publishes [`ChiefBrains::live`]: brains with a process, or a start
+    /// due after a failure.
+    fn count_live(&self) {
+        let live =
+            self.brains.values().filter(|b| b.process.is_some() || b.retry_at.is_some()).count();
+        self.live.store(live, std::sync::atomic::Ordering::Release);
     }
 
     fn next_deadline(&self) -> Option<Instant> {
