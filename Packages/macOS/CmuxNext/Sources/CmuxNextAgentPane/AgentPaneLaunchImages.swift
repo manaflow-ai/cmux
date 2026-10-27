@@ -121,6 +121,12 @@ public final class AgentPaneLaunchImages {
         return Task { _ = await read.finished() }
     }
 
+    /// The launch settled (`LaunchSettle`) and no pane draws a launch page any more: the decoded pages no pane
+    /// took go now, not at the keep deadline, and no read starts later. Held frames stay: they are not launch reads.
+    public func dropLaunchRead() {
+        dropRead()
+    }
+
     /// Drops the read's results that no pane took, and the deadline that would drop them.
     private func dropRead() {
         read = nil

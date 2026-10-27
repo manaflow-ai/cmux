@@ -75,12 +75,8 @@ public final class DaemonService {
     /// userBlocking work (``settleReply(_:)``).
     let mainWork: MainWorkScheduler
     @ObservationIgnored public let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.daemon")
-    /// The window records of the daemon's launch snapshot, drawn before the
-    /// first connection (`LaunchSnapshotWindow`); nil without one.
-    @ObservationIgnored public var launchSnapshotWindows: WindowStateDocument?
-    /// The local session whose launch snapshot path each handshake records.
-    @ObservationIgnored var launchSnapshotSession: String?
-    @ObservationIgnored var launchSnapshotLocation = LaunchSnapshotLocation()
+    /// The local daemon's launch snapshot, read off main and drawn before the first connection (``DaemonLaunchSnapshot``).
+    @ObservationIgnored public let launchSnapshot: DaemonLaunchSnapshot
     /// Callers of `endpoint()` waiting for the first connection (terminals
     /// drawn from the launch snapshot attach as soon as it exists).
     @ObservationIgnored var connectionWaiters: [OnceContinuation<Void, OnceContinuationError>] = []
@@ -111,6 +107,7 @@ public final class DaemonService {
         self.hangWatch = hangWatch
         drainScheduler = FrameBatcher(owner: "DaemonStore.drain", scheduler: mainWork.frames)
         self.mainWork = mainWork
+        launchSnapshot = DaemonLaunchSnapshot(store: store, mainWork: mainWork)
         retryWake = RetryWake(owner: "DaemonService.retry \(machineID)")
         // The local daemon's kept tabs restart at its first connect (`relaunchKeptLayoutIfNeeded`).
         keptTabRestarts = isLocal ? .expected : .none
@@ -167,12 +164,15 @@ public final class DaemonService {
     /// `terminalEnvironment` (`AppEnvironment.terminalEnvironment`), with `resolvedTerminalEnvironment` over it,
     /// goes to the daemon process and to every terminal it creates for this app. `prestart` is the first connect attempt `main` began
     /// (`DaemonService.prestart`); without one the first attempt starts here, its launcher's disk steps on
-    /// `work` (the app's one ``BackgroundWork``). `featureHello`: the app's daemon features for every hello.
+    /// `work` (the app's one ``BackgroundWork``). `launchSnapshot` is the snapshot's read `main` began; without one
+    /// the read is posted to `work` here (``DaemonLaunchSnapshot/take(_:session:stateDirectory:work:)``).
+    /// `featureHello`: the app's daemon features for every hello.
     public func start(work: BackgroundWork, launch: LaunchIdentity, terminalEnvironment: [String: String],
                resolvedTerminalEnvironment: (@Sendable () async -> [String: String])? = nil,
                terminalEnvironmentProvider: @escaping @Sendable () async -> [String: String],
                resolvesShellIntegration: Bool = false,
-               prestart: DaemonPrestart? = nil, featureHello: DaemonFeatureHello? = nil) {
+               prestart: DaemonPrestart? = nil, launchSnapshot: LaunchSnapshotPrefetch? = nil,
+               featureHello: DaemonFeatureHello? = nil) {
         guard runTask == nil else { return }
         self.featureHello = prestart?.featureHello ?? featureHello
         let launcher: DaemonLauncher
@@ -202,8 +202,7 @@ public final class DaemonService {
         }
         pageListenerHandOff = { await launcher.handOffForCapability(DaemonCapability.wsListen.rawValue, identity: $1, using: $0) }
         updateHandOff = { await launcher.handOffForUpdate(identity: $1, using: $0) }
-        launchSnapshotSession = launcher.configuration.session
-        showLaunchSnapshot(session: launcher.configuration.session, stateDirectory: launcher.configuration.stateDirectory)
+        self.launchSnapshot.take(launchSnapshot, session: launcher.configuration.session, stateDirectory: launcher.configuration.stateDirectory, work: work)
         let configuration = Self.localConfiguration(terminalEnvironment: terminalEnvironmentProvider,
                                                     resolvesShellIntegration: resolvesShellIntegration,
                                                     installKey: launcher.configuration.installKey,
@@ -383,7 +382,7 @@ public final class DaemonService {
         Self.launchMark("daemon_connected")
         connection.heartbeat.follow(KeepaliveGate(mainWork.energy))
         self.connection = connection
-        rememberLaunchSnapshot(identity)
+        launchSnapshot.remember(identity)
         resumeConnectionWaiters()
         store.noteHandshake(identity)
         startupDeadlineTimer?.cancel()
