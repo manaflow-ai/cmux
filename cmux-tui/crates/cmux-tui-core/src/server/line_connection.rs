@@ -79,6 +79,13 @@ pub(super) fn spawn_connection_reader<S: 'static>(
 ) -> std::io::Result<JoinHandle<()>> {
     cmux_threads::spawn(name, CONNECTION_READER_QOS, move || {
         let accepted = setup();
+        // Each frame it reads is one hang-watch scope (connection_frame.rs);
+        // the read itself is outside every scope.
+        let thread = std::thread::current();
+        let _hang_watch = cmux_hang_watch::register_thread(
+            cmux_hang_watch::ThreadKind::Io,
+            thread.name().unwrap_or("mux-conn"),
+        );
         cmux_threads::disallow_blocking();
         serve(accepted);
     })
@@ -223,13 +230,19 @@ pub(super) fn serve_connection(
         // Ends the connection however the writer ends, a panic included: a
         // dead writer with an open socket left its client waiting forever.
         let _end = WriterEnd { writer: writer_close, socket: writer_socket };
+        let _hang_watch =
+            cmux_hang_watch::register_thread(cmux_hang_watch::ThreadKind::Io, "mux-line-out");
         // Every ready item up to 256 KiB leaves in one writev (p05-ipc-088).
         let mut batch = Vec::new();
         // mq14-allow: the writer's idle wait for its own queue (BoundedOutbound::recv_batch).
         while writer_outbound.recv_batch(&mut batch) {
             // Each batch's write is a 100 ms hang scope; the wait above is not.
             let _batch = writer_hangs.item(WatchKind::LineOut);
+            // One scope per write, as long as the socket's write timeout:
+            // the queue wait above is outside it.
+            let write = cmux_hang_watch::watch(STREAM_WRITE_TIMEOUT);
             let written = write_counted_batch(&mut *write_half, &writer_ipc, &batch);
+            drop(write);
             // The written texts go now, not when the next item arrives.
             batch.clear();
             if written.is_err() {

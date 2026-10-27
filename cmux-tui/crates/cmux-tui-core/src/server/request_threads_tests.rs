@@ -83,13 +83,14 @@ fn a_request_thread_disallows_blocking_and_records_the_site() {
     assert!(cmux_threads::snapshot().iter().all(|row| row.name != NAME), "the row leaves");
 }
 
-/// A connection's queued requests are dequeued by `mux-control-dispatch`, a
-/// UserInitiated request thread that disallows blocking, and run on the
-/// connection's request sequence (a System-lane work item), so the registry
-/// read `list-workspaces` makes (server.rs `list_workspaces_reply`) is no
-/// blocking site on the request thread.
+/// A connection's queued requests are taken by its control sequence on the
+/// sequenced pool's `mux-seq-control` workers, UserInitiated request threads
+/// that disallow blocking, and run on the connection's request sequence (a
+/// System-lane work item), so the registry read `list-workspaces` makes
+/// (server.rs `list_workspaces_reply`) is no blocking site on a request
+/// thread.
 #[test]
-fn the_connection_dispatcher_hands_its_requests_to_the_work_lane() {
+fn the_control_sequence_hands_its_requests_to_the_work_lane() {
     let mux =
         crate::Mux::new_for_test("request-threads-dispatch", crate::SurfaceOptions::default());
     let outbound = Arc::new(BoundedOutbound::default());
@@ -100,8 +101,8 @@ fn the_connection_dispatcher_hands_its_requests_to_the_work_lane() {
     let before = site_count("src/server.rs", BlockingKind::Sqlite);
     let mut list = Some(Request { id: Some(json!(1)), cmd: Command::ListWorkspaces });
     assert_eq!(scheduler.dispatch(mux, client, &mut list, 0, writer), Some(true));
-    // The dispatcher stays up until the scheduler finishes.
-    assert_declared("mux-control-dispatch", ThreadQos::UserInitiated);
+    // The pool's workers stay up with the mux.
+    assert_declared("mux-seq-control", ThreadQos::UserInitiated);
     scheduler.finish_and_wait();
     let reply: Value = serde_json::from_str(&outbound.try_pop().expect("a reply")).unwrap();
     assert_eq!(reply["ok"], true, "{reply}");
@@ -112,42 +113,42 @@ fn the_connection_dispatcher_hands_its_requests_to_the_work_lane() {
     );
 }
 
-/// The line of `next_request`'s wait for the connection's next request in
-/// connection_scheduler.rs.
-fn next_request_wait_line() -> u32 {
-    let source = include_str!("connection_scheduler.rs");
-    let start = source.find("fn next_request(").expect("next_request");
-    let wait = start + source[start..].find(".wait(").expect("next_request waits");
+/// The line of a pool worker's wait for its next task in sequenced_pool.rs.
+fn idle_worker_wait_line() -> u32 {
+    let source = include_str!("sequenced_pool.rs");
+    let start = source.find("fn run_worker(").expect("run_worker");
+    let wait = start + source[start..].find(".wait(").expect("run_worker waits");
     u32::try_from(source[..wait].lines().count()).expect("line")
 }
 
-/// The dispatcher waits for its connection's next request while idle
-/// (Chromium's `WaitableEvent::declare_only_used_while_idle`): on a request
-/// thread, a wait far over the 2 ms lock-wait budget records no site.
+/// A control worker waits for its next task while idle (Chromium's
+/// `WaitableEvent::declare_only_used_while_idle`; the connection holds no
+/// thread of its own since p05-ipc-073): on a request thread, a wait far
+/// over the 2 ms lock-wait budget records no site.
 #[test]
-fn an_idle_dispatcher_waiting_for_its_next_request_records_no_site() {
+fn an_idle_control_worker_waiting_for_its_next_task_records_no_site() {
     const IDLE: Duration = Duration::from_millis(20);
-    let scheduler = Arc::new(ConnectionSurfaceScheduler::default());
-    let (waiting_tx, waiting_rx) = std::sync::mpsc::channel();
-    let idle = scheduler.clone();
-    let waiter = spawn_request_thread("mux-test-idle-dispatch", move || {
-        waiting_tx.send(Instant::now()).expect("waiting");
-        let next = idle.next_request();
-        next.is_none()
-    })
-    .expect("start the request thread");
-    let waiting_since = waiting_rx.recv().expect("the dispatcher waits");
+    let mux = crate::Mux::new_for_test("request-threads-idle", crate::SurfaceOptions::default());
+    let outbound = Arc::new(BoundedOutbound::default());
+    let writer = MessageWriter::new(QueuedSink { outbound, control: None });
+    let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+    let scheduler =
+        Arc::new(ConnectionSurfaceScheduler::new(mux.surface_operation_admission.clone()));
+    let mut list = Some(Request { id: Some(json!(1)), cmd: Command::ListWorkspaces });
+    assert_eq!(scheduler.dispatch(mux.clone(), client, &mut list, 0, writer), Some(true));
+    scheduler.finish_and_wait();
+    assert_declared("mux-seq-control", ThreadQos::UserInitiated);
+    let waiting_since = Instant::now();
     std::thread::sleep(IDLE);
-    scheduler.close();
-    assert!(waiter.join().expect("the request thread returns"), "a closed queue ends the wait");
     assert!(waiting_since.elapsed() >= IDLE);
-    let file = file!().replace("request_threads_tests.rs", "connection_scheduler.rs");
-    let line = next_request_wait_line();
+    let file = file!().replace("request_threads_tests.rs", "sequenced_pool.rs");
+    let line = idle_worker_wait_line();
     assert_eq!(
         cmux_threads::blocking::snapshot().site(&file, line).copied(),
         None,
         "{file}:{line}"
     );
+    mux.shutdown();
 }
 
 /// A clear-history request runs as a `Mux::work` item on the system lane, not

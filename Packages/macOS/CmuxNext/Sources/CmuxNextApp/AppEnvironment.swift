@@ -6,6 +6,7 @@ import CmuxNextFeatures
 import CmuxNextHomeEngine
 import CmuxNextLaunch
 import CmuxNextTerminal
+import CmuxNextWebUpdates
 import Foundation
 
 /// How this process was launched. Identity (bundle, tag, control socket)
@@ -69,6 +70,9 @@ struct AppEnvironment: Sendable {
     /// One picture per window from the last quit (`WindowPictureStore`, feature `savedWindowPicture`). Only the real
     /// app process makes it; without it no window picture is written (tests that build `AppServices`).
     var windowPictures: WindowPictureStore?
+    /// The kept web update (`WebUpdates`, NIGHTLY): its state and verified tree, read on a launch lane from `main`.
+    /// Nil where the bundle takes no web updates and in tests that build `AppServices`.
+    var webUpdates: LaunchRead<WebUpdates.Launch?>?
     /// The daemon's launch snapshot, read and decoded on the files lane from `main` (p08-startup-074): the local
     /// daemon's start takes it over. Without it (tests that build `AppServices`) the start posts its own read.
     var launchSnapshot: LaunchSnapshotPrefetch?
