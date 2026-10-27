@@ -55,6 +55,7 @@ import {
 import { BoltIcon } from "./BoltIcon";
 import {
   flushPendingDraftWrites,
+  forgetQueuedDraft,
   hasPendingDraftWrite,
   lastQueuedDraftText,
   readDurableDraft,
@@ -712,6 +713,8 @@ export function Composer({
     const carried = carryPrompt.current ? (field.current?.value() ?? text) : "";
     const previous = persistedSession.current;
     if (previous && hydratedSession.current === previous) writePersistedDraft(previous, field.current?.value() ?? text);
+    // This composer leaves that chat: only a quit compares its queued text, and only for the chat shown.
+    forgetQueuedDraft(previous);
     persistedSession.current = sessionId;
     // Another chat's prompt comes in: no key before it was typing for this one.
     notTyped();
@@ -729,6 +732,8 @@ export function Composer({
     setCaret(initial.length);
     pendingCaret.current = initial.length;
   }, [sessionId, text, draft]);
+  // The pane closes: what it queued for its chat still goes to acpmux, but no quit compares it again.
+  useEffect(() => () => forgetQueuedDraft(persistedSession.current), []);
   // The chat's own chips come back with its prompt; a switch carries the ones held (keptAttachments.ts).
   useKeptAttachments(sessionId, attachments, setAttachments, keptAttachments, () => carryPrompt.current);
   // WEB-SWAP: a web update reloads the page only when the prompt comes back as it is: text and

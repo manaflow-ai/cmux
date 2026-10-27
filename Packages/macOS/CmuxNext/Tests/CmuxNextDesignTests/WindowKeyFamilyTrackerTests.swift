@@ -137,8 +137,12 @@ import Testing
     /// at once; the wash then faded in over `scrim`, a second step. A settled key change now sets the
     /// wash with no animation, in the pass's own transaction, so the glass and the wash switch together.
     /// The wash eases only in a window on screen, so this needs a display (CI's GUI runners have one).
+    /// The wash is only the `appearance.inactiveWindowDim` dim now (0 by default), so this sets one.
     @Test(.enabled("needs a display: the wash eases only in a window on screen") { !NSScreen.screens.isEmpty })
     func aSettledKeyChangeSwitchesTheWashWithNoFade() throws {
+        let dim = DesignSettings.shared.inactiveWindowDim
+        DesignSettings.shared.inactiveWindowDim = 0.3
+        defer { DesignSettings.shared.inactiveWindowDim = dim }
         let (keyboard, window, family, view) = try Self.onScreenGlass()
         defer { window.orderOut(nil) }
         let wash = try #require(view.inactiveTintView.layer)
@@ -176,6 +180,9 @@ import Testing
     /// the wash eases there, so a reversal one pass later does not flash (review of #25199).
     @Test(.enabled("needs a display: the wash eases only in a window on screen") { !NSScreen.screens.isEmpty })
     func anActiveAppWithNoKeyWindowStillEasesTheWash() throws {
+        let dim = DesignSettings.shared.inactiveWindowDim
+        DesignSettings.shared.inactiveWindowDim = 0.3
+        defer { DesignSettings.shared.inactiveWindowDim = dim }
         let (keyboard, window, family, view) = try Self.onScreenGlass()
         defer { window.orderOut(nil) }
         let wash = try #require(view.inactiveTintView.layer)

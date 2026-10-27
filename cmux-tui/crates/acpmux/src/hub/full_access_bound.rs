@@ -16,7 +16,8 @@
 //!   (`RemoteFloor::undeclared_mode`); for a host a restart left, read back from its log first;
 //! - option: any config option holds a full-access value, the `mode` one included (a harness can
 //!   keep `modes.currentModeId` at an asking mode while its `mode` option says full access);
-//! - reported: its harness reported full access while nothing watched it (`StartReports`).
+//! - reported: its harness reported full access while nothing watched it (`StartReports`), or in
+//!   a report the inbound loop has not applied yet (`FloorState::unapplied_full_access`).
 //!
 //! Each form is judged by the shared rule (`start_mode::is_full_access`). A start whose profile
 //! pins full access is refused (`refuse_pinned_full_access`), and so is one that comes up in it
@@ -71,16 +72,24 @@ impl FullAccessView {
 
     /// A session's agent as acpmux records it.
     pub(crate) fn of_session(session: &Session) -> Self {
+        // One snapshot, under the meta lock: the tap counts a report under it (`session_tap`),
+        // and `write_mode_state` applies the report and takes its count back under it, so the
+        // view sees a report counted, applied, or not yet come (reviews 3 to 5 of #26052).
+        let m = session.meta.lock().unwrap_or_else(|e| e.into_inner());
+        #[cfg(test)]
+        between_view_reads(session);
+        let reported = session.floor.unapplied_full_access.load(Ordering::SeqCst) > 0;
         let undeclared_mode =
             session.floor.undeclared_mode.lock().unwrap_or_else(|e| e.into_inner()).clone();
-        let meta = session.meta();
+        let meta = m.clone();
+        drop(m);
         Self {
             mode: crate::web_modes::mode_of(&meta),
             undeclared_mode,
             options: config_options(&meta).cloned().collect(),
             // The argv its agent started with; before any start, the creation's.
             argv: meta.spawn_argv.unwrap_or(meta.harness_argv),
-            reported: false,
+            reported,
         }
     }
 }
@@ -683,6 +692,12 @@ impl Hub {
             return FullAccessEnd::StillRunning;
         };
         let child = slot.take();
+        // Under the slot's lock the inbound loop checks a mode or option report under: one it
+        // checked before this is applied before this, and one after is dropped, not applied to
+        // the agent after it (`permissions.rs`, reviews 3, 5 and 6 of #26052).
+        if let Some(child) = &child {
+            session.floor.retired_through.fetch_max(child.generation, Ordering::SeqCst);
+        }
         drop(slot);
         let ended = child.is_some() || !Self::host_record_gone(&session.id);
         if let Some(child) = &child {
@@ -717,6 +732,13 @@ impl Hub {
             }
         }
         session.floor.full_access_end_pending.store(false, Ordering::SeqCst);
+        // What its agent reported and nothing applied goes with it; a report it still sends is
+        // not counted (its tap's epoch is gone, review 4 of #26052).
+        {
+            let _m = session.meta.lock().unwrap_or_else(|e| e.into_inner());
+            session.floor.report_epoch.fetch_add(1, Ordering::SeqCst);
+            session.floor.unapplied_full_access.store(0, Ordering::SeqCst);
+        }
         // What only the ended agent said goes with it: the mode it reported without declaring
         // modes, and a full-access value of any option (the next agent reports its own, and
         // `replay_config` skips a null).
@@ -759,6 +781,16 @@ fn text_at(v: Option<&Value>, key: &str) -> Option<String> {
     v.and_then(|v| v.get(key)).and_then(Value::as_str).map(str::to_owned)
 }
 
+/// Whether `params` of a `session/update` the session's harness sent reports full access for the
+/// session itself, not one of its subagents (`on_update` skips those): counted by the tap as it
+/// is logged and taken back once the inbound loop applied it (`FloorState::unapplied_full_access`).
+pub(super) fn own_full_access_report(session: &Session, params: &Value) -> bool {
+    StartReports::reports_full_access(params)
+        && !params["sessionId"].as_str().is_some_and(|sid| {
+            session.subagents.lock().unwrap_or_else(|e| e.into_inner()).owns(sid)
+        })
+}
+
 /// What `end_if_runs_full_access` did.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum FullAccessEnd {
@@ -775,6 +807,19 @@ pub(super) enum FullAccessEnd {
 thread_local! {
     /// Test seam (review 75): runs right after a start read MDM's off.
     pub(super) static AFTER_OFF_COUNT: std::cell::Cell<Option<fn(&Hub)>> = const { std::cell::Cell::new(None) };
+}
+
+#[cfg(test)]
+thread_local! {
+    /// Test seam (review 3 of #26052): runs between `FullAccessView::of_session`'s reads.
+    pub(super) static BETWEEN_VIEW_READS: std::cell::Cell<Option<fn(&Session)>> = const { std::cell::Cell::new(None) };
+}
+
+#[cfg(test)]
+fn between_view_reads(session: &Session) {
+    if let Some(f) = BETWEEN_VIEW_READS.take() {
+        f(session);
+    }
 }
 
 #[cfg(test)]
@@ -987,6 +1032,82 @@ mod tests {
         assert!(!full_access_allowed_by(Some(true), false), "a forced on raises nothing");
     }
 
+    /// The other side of `a_report_tapped_and_applied_while_the_view_is_read_is_seen`.
+    static VIEW_READ: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+    static REPORT_DONE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+    static DONE_IN_READ: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+    /// Reviews 3 to 5 of #26052: a report the tap counts and the inbound loop applies (it sets
+    /// the mode, then takes back the count) while the view is read is in the view: a view read
+    /// while a report came and went never says the agent asks. `BETWEEN_VIEW_READS` holds the
+    /// read 300 ms; the tap and `on_update` run on another thread meanwhile, counted only, or
+    /// counted and applied.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn a_report_tapped_and_applied_while_the_view_is_read_is_seen() {
+        for applied in [false, true] {
+            let (hub, chat, _) = two_chats_on(&[], false).await;
+            chat.meta.lock().unwrap().modes =
+                Some(json!({"currentModeId": "normal", "availableModes": []}));
+            for flag in [&VIEW_READ, &REPORT_DONE, &DONE_IN_READ] {
+                flag.store(false, Ordering::SeqCst);
+            }
+            let tap = hub.session_tap(&chat);
+            let params = json!({"sessionId": "own",
+                                "update": {"sessionUpdate": "current_mode_update",
+                                           "currentModeId": "full-access"}});
+            let report = crate::rpc::Message::Notification {
+                method: crate::rpc::method::SESSION_UPDATE.to_owned(),
+                params: Some(params.clone()),
+            };
+            let (h, c) = (hub.clone(), chat.clone());
+            let reporter = tokio::task::spawn_blocking(move || {
+                while !VIEW_READ.load(Ordering::SeqCst) {
+                    std::thread::sleep(std::time::Duration::from_millis(5));
+                }
+                tap(crate::agent::Direction::In, &report, None);
+                if applied {
+                    h.on_update(&c, Some(&params), false);
+                }
+                REPORT_DONE.store(true, Ordering::SeqCst);
+            });
+            BETWEEN_VIEW_READS.set(Some(|_: &Session| {
+                VIEW_READ.store(true, Ordering::SeqCst);
+                std::thread::sleep(std::time::Duration::from_millis(300));
+                DONE_IN_READ.store(REPORT_DONE.load(Ordering::SeqCst), Ordering::SeqCst);
+            }));
+            let view = FullAccessView::of_session(&chat);
+            reporter.await.unwrap();
+            assert!(
+                !DONE_IN_READ.load(Ordering::SeqCst) || runs_full_access(&view).is_some(),
+                "a report that came and went while the view was read is missed ({applied})"
+            );
+        }
+    }
+
+    /// Review 4 of #26052: a report the off's ended agent sends after its end is not counted for
+    /// the agent after it.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn a_report_of_an_ended_agent_is_not_counted() {
+        let (hub, chat, _) = two_chats_on(&[], false).await;
+        // The ended agent's tap.
+        let tap = hub.session_tap(&chat);
+        hub.end_managed_full_access(&chat).await;
+        let report = crate::rpc::Message::Notification {
+            method: crate::rpc::method::SESSION_UPDATE.to_owned(),
+            params: Some(json!({"sessionId": "ended",
+                                "update": {"sessionUpdate": "current_mode_update",
+                                           "currentModeId": "full-access"}})),
+        };
+        // Once its exit was handled (which drops the count too): the report comes after it.
+        tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
+        tap(crate::agent::Direction::In, &report, None);
+        assert_eq!(
+            chat.floor.unapplied_full_access.load(Ordering::SeqCst),
+            0,
+            "an ended agent's late report was counted"
+        );
+    }
+
     /// Review 1 of #26034: an off push never waits without bound on a session whose spawn lock
     /// another operation holds (a start that cannot end its agent). That session's end is left
     /// pending for the next check, and the push returns.
@@ -1025,6 +1146,42 @@ mod tests {
             "the end waited on a held agent slot"
         );
         assert!(chat.floor.full_access_end_pending.load(Ordering::SeqCst));
+    }
+
+    /// Review 6 of #26052: a mode report of an agent MDM's off ended, still queued while eight
+    /// agents after it start and end, is not applied to the ninth: it is not the current agent's.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn a_report_queued_across_nine_ends_is_not_the_next_agents() {
+        let (hub, chat, _) = two_chats_on(&[], false).await;
+        let first = hub.child_for(&chat).await.expect("an agent");
+        // The first agent's report, queued: it reaches the inbound loop after all the rest.
+        let report = Inbound::Notification {
+            method: crate::rpc::method::SESSION_UPDATE.to_owned(),
+            params: Some(json!({"sessionId": "own",
+                                "update": {"sessionUpdate": "current_mode_update",
+                                           "currentModeId": "full-access"}})),
+            agent: first.generation,
+            host_seq: None,
+            host_incarnation: None,
+            persisted: None,
+        };
+        hub.end_managed_full_access(&chat).await;
+        for _ in 0..8 {
+            hub.child_for(&chat).await.expect("an agent");
+            hub.end_managed_full_access(&chat).await;
+        }
+        let last = hub.child_for(&chat).await.expect("an agent");
+        chat.inbound_tx.send(report).await.unwrap();
+        let (done, drained) = tokio::sync::oneshot::channel();
+        chat.inbound_tx.send(Inbound::Barrier(done)).await.unwrap();
+        drained.await.unwrap();
+        assert_ne!(
+            crate::web_modes::mode_of(&chat.meta()).as_deref(),
+            Some("full-access"),
+            "an ended agent's late report set the mode of the agent after it"
+        );
+        let current = chat.child.lock().await.clone().expect("the last agent");
+        assert_eq!(current.generation, last.generation);
     }
 
     /// Review 2 of #26034: under MDM's off, an agent whose end is pending is not handed out by
