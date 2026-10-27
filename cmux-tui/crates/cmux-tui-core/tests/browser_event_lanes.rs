@@ -31,7 +31,7 @@ fn process_threads() -> usize {
     #[cfg(target_os = "macos")]
     {
         let mut info: libc::proc_taskinfo = unsafe { std::mem::zeroed() };
-        let size = std::mem::size_of::<libc::proc_taskinfo>() as libc::c_int;
+        let size = size_of::<libc::proc_taskinfo>() as libc::c_int;
         // SAFETY: `info` is a writable proc_taskinfo of exactly `size` bytes.
         let written = unsafe {
             libc::proc_pidinfo(
