@@ -174,6 +174,8 @@ const enqueue = async (b: ChiefBrainDO, send: Sender, run: string, body: FireBod
   const now = Date.now()
   const known = b.sql.exec(`SELECT run FROM cc_job_runs WHERE run = ?`, run).toArray().length > 0
   if (known) return "duplicate"
+  // Old outcomes go here too, not only in `cj-send`, which runs only after a failed send.
+  b.sql.exec(`DELETE FROM cc_job_runs WHERE state != 'pending' AND created_at < ?`, now - KEEP_SENT_MS)
   b.sql.exec(`INSERT INTO cc_job_runs (run, job, body, state, attempts, next_at, created_at) VALUES (?, ?, ?, 'pending', 0, ?, ?)`, run, body.job, JSON.stringify(body), now, now)
   await sendOne(b, send, run)
   return "accepted"
@@ -199,11 +201,11 @@ const sendOne = async (b: ChiefBrainDO, send: Sender, run: string): Promise<void
   }
 }
 
-/** The `cj-send` job: send what is due, prune old rows. */
-export const jobsSendDue = async (b: ChiefBrainDO, send: Sender | null): Promise<void> => {
+/** The `cj-send:<run>` job: send that run again (each run has its own job, so two never send the same row), prune old rows. */
+export const jobsSendDue = async (b: ChiefBrainDO, send: Sender | null, run: string): Promise<void> => {
   if (!exists(b) || !send) return
   const now = Date.now()
-  for (const r of b.sql.exec<{ run: string }>(`SELECT run FROM cc_job_runs WHERE state = 'pending' AND next_at <= ?`, now).toArray()) await sendOne(b, send, r.run)
+  if (b.sql.exec(`SELECT run FROM cc_job_runs WHERE run = ? AND state = 'pending' AND next_at <= ?`, run, now).toArray().length > 0) await sendOne(b, send, run)
   b.sql.exec(`DELETE FROM cc_job_runs WHERE state != 'pending' AND created_at < ?`, now - KEEP_SENT_MS)
 }
 
@@ -211,14 +213,16 @@ export const jobsSendDue = async (b: ChiefBrainDO, send: Sender | null): Promise
 export const jobsStore = async (b: ChiefBrainDO, team: string, o: StoreOp, send: Sender | null): Promise<unknown> => {
   if (o.op === "event") {
     if (!exists(b) || !send) return { runs: 0 }
-    let runs = 0
+    const sends: Array<Promise<"accepted" | "duplicate">> = []
     for (const r of b.sql.exec<Row>(`SELECT * FROM cc_jobs WHERE paused = 0`).toArray()) {
       const job = record(r)
       if (job.trigger.type !== "event" || !eventMatches(job.trigger, job.owner, o.ev)) continue
-      const run = await runIdOf(job.id, `${o.ev.connection}:${o.ev.delivery_id}`)
-      if ((await enqueue(b, send, run, { v: 2, team, job: job.id, trigger: "event", input: eventInput(o.ev) })) === "accepted") runs++
+      // By delivery alone: two linked connections that see the same delivery start one run.
+      const run = await runIdOf(job.id, `${o.ev.provider}:${o.ev.delivery_id}`)
+      sends.push(enqueue(b, send, run, { v: 2, team, job: job.id, trigger: "event", input: eventInput(o.ev) }))
     }
-    return { runs }
+    // The provider's webhook waits on this: the sends run together, and a failed one waits in the outbox.
+    return { runs: (await Promise.all(sends)).filter((x) => x === "accepted").length }
   }
   ready(b)
   switch (o.op) {

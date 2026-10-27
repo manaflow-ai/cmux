@@ -811,7 +811,7 @@ export class ChiefBrainDO extends DurableObject<Env> {
       const next = await githubPoll(this.githubHost())
       return next === null ? undefined : { rescheduleAt: next }
     }
-    if (job.fn === "cj-send") return void (await jobsSendDue(this, upstashSender(this.env)))
+    if (job.fn === "cj-send") return void (await jobsSendDue(this, upstashSender(this.env), String(job.id).slice("cj-send:".length)))
     if (job.fn === "spawn-pump") return void (await this.pumpSlots())
     if (job.fn === "spawn-post") return void (await this.deliverReports())
     if (job.fn === "spawn-gc") return this.childGc()

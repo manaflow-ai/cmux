@@ -82,6 +82,15 @@ const unschedule = async (c: Config, id: string) => {
   }
 }
 
+/** Pause or resume a cron job's schedule; a schedule already gone is fine (its next fire would remove it anyway). */
+const flipSchedule = async (c: Config, id: string, paused: boolean) => {
+  try {
+    await (paused ? qstash(c).schedules.pause({ schedule: id }) : qstash(c).schedules.resume({ schedule: id }))
+  } catch (e) {
+    if (!(e instanceof QstashError && e.status === 404)) throw e
+  }
+}
+
 const newId = (agent: string) => `cj-${agent.replace(/[^A-Za-z0-9]/g, "").slice(0, 64)}-${crypto.randomUUID().replace(/-/g, "").slice(0, 20)}`
 
 /**
@@ -173,8 +182,9 @@ export const upstashAuto = async (
       const job = JOB.test(id) ? await store<JobRecord | null>(env, team, { op: "get", id }) : null
       if (!mine(job)) return { status: 404, json: { error: `no job ${id || "(no id)"} of yours in this chat (chief-auto ls)` } }
       if (action === "auto_rm") {
-        if (job.trigger.type === "cron") await unschedule(c, id)
+        // The record first: if the schedule delete then fails, its next fire finds no record and removes it.
         await store(env, team, { op: "remove", id })
+        if (job.trigger.type === "cron") await unschedule(c, id)
         return { status: 200, json: { removed: id } }
       }
       if (action === "auto_run") {
@@ -186,7 +196,7 @@ export const upstashAuto = async (
         return { status: 200, json: { webhook: await hookOf(env, c, team, id) } }
       }
       const paused = action === "auto_pause"
-      if (job.trigger.type === "cron") await (paused ? qstash(c).schedules.pause({ schedule: id }) : qstash(c).schedules.resume({ schedule: id }))
+      if (job.trigger.type === "cron") await flipSchedule(c, id, paused)
       const after = await store<JobRecord>(env, team, { op: "pause", id, paused })
       return { status: 200, json: { job: viewOf(c, team, after) } }
     }

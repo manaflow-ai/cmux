@@ -223,7 +223,7 @@ const replyAfterRun = async (a: { token: string; chief: { id: string; main_conve
   return (await replies(a.token, a.chief.main_conversation, a.chief.id, n)).at(-1)
 }
 const noteOf = async (a: { chief: { id: string; main_conversation: string } }, run: string) =>
-  (await inDO(brainOf(a.chief.id, a.chief.main_conversation), async (i) => i.ctx.storage.sql.exec(`SELECT text FROM cb_inbox WHERE message = ?`, `job:upstash:${run}`).toArray())) as Array<{ text: string }>
+  (await inDO(brainOf(a.chief.id, a.chief.main_conversation), async (i) => i.ctx.storage.sql.exec(`SELECT text, effect_authorized FROM cb_inbox WHERE message = ?`, `job:upstash:${run}`).toArray())) as Array<{ text: string; effect_authorized: number }>
 
 describe("Chief jobs on Upstash Workflow", { timeout: 120_000 }, () => {
   it("chief-auto makes, lists, pauses, runs and removes jobs; the records are the team's, only this Chief's in this chat", async () => {
@@ -248,6 +248,7 @@ describe("Chief jobs on Upstash Workflow", { timeout: 120_000 }, () => {
         seen.pause = await call(s, { action: "auto_pause", automation: seen.made.body.job.id })
         seen.paused = q.schedules.get(seen.made.body.job.id)?.isPaused
         seen.resume = await call(s, { action: "auto_resume", automation: seen.made.body.job.id })
+        seen.resumed = q.schedules.get(seen.made.body.job.id)?.isPaused
         seen.run = await call(s, { action: "auto_run", automation: seen.manual.body.job.id })
         seen.runOther = await call(s, { action: "auto_run", automation: "cj-agentsomeoneelse-00000000000000000000" })
         seen.hookNotWebhook = await call(s, { action: "auto_hook", automation: seen.made.body.job.id })
@@ -288,7 +289,7 @@ describe("Chief jobs on Upstash Workflow", { timeout: 120_000 }, () => {
     expect(seen.pause.body.job.enabled).toBe(false)
     expect(seen.paused).toBe(true)
     expect(seen.resume.body.job.enabled).toBe(true)
-    expect(q.schedules.get(job.id)?.isPaused).toBe(false)
+    expect(seen.resumed).toBe(false)
     // run starts one workflow run of that job with our run id.
     expect(seen.run.status, JSON.stringify(seen.run.body)).toBe(200)
     expect(q.runs()).toEqual([{ id: seen.run.body.run.id, body: { v: 2, team: a.team, job: seen.manual.body.job.id, trigger: "manual" } }])
@@ -330,6 +331,7 @@ describe("Chief jobs on Upstash Workflow", { timeout: 120_000 }, () => {
     expect(await st.cjStore(a.team, { op: "fire", body: fire, run: "wfr_test_1" })).toEqual({ ok: true })
     const rows = await noteOf(a, "wfr_test_1")
     expect(rows).toHaveLength(1)
+    expect(rows[0]!.effect_authorized).toBe(1)
     expect(rows[0]!.text).toContain(`[job ${id}] Summarize today's cmux-next PRs.`)
     expect(JSON.stringify(await replyAfterRun(a, 2))).toContain("PRs today: 4 merged, 2 open.")
     expect((await st.cjStore(a.team, { op: "get", id })).last_run).toMatchObject({ run: "wfr_test_1", state: "delivered", trigger: "cron" })
@@ -441,7 +443,10 @@ describe("Chief jobs on Upstash Workflow", { timeout: 120_000 }, () => {
     expect(started[0]!.body).toMatchObject({ v: 2, team: a.team, job: id, trigger: "event", input: { provider: "github", event: "workflow_run.completed" } })
     // Its step: the note carries the failed run, the Chief answers in the chat.
     expect(await storeOf(a.team).cjStore(a.team, { op: "fire", body: started[0]!.body, run: started[0]!.id! })).toEqual({ ok: true })
-    const note = (await noteOf(a, started[0]!.id!))[0]!.text
+    const [row] = await noteOf(a, started[0]!.id!)
+    const note = row!.text
+    // The payload is written by whoever pushed or opened the PR: that turn gets no hands or chiefs.
+    expect(row!.effect_authorized).toBe(0)
     expect(note).toContain("CI failed: find why and tell me.")
     expect(note).toContain("https://github.com/acme/web/actions/runs/777")
     expect(JSON.stringify(await replyAfterRun(a, 2))).toContain("CI failed on main")
