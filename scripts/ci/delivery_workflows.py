@@ -93,6 +93,8 @@ BUILD_JOB_NAME = re.compile(
     r"publish|promot|sign|notari[sz]|release|upload|deploy|verif|delta|dmg|archive|compile|\bapp\b",
     re.IGNORECASE)
 GATE_JOB_MAX = _dt.timedelta(minutes=10)
+KNOWN_CONCLUSIONS = frozenset({"success", "failure", "cancelled", "neutral", "timed_out", "action_required",
+                               "stale", "startup_failure"})
 
 
 def _time(value: Any) -> _dt.datetime | None:
@@ -115,6 +117,8 @@ def build_started(jobs: Iterable[Mapping[str, Any]]) -> str | None:
             return f"its job {name!r} is {status or 'in an unknown state'}"
         if job.get("conclusion") == "skipped":
             continue
+        if job.get("conclusion") not in KNOWN_CONCLUSIONS:
+            return f"its job {name!r} finished with an unknown conclusion ({job.get('conclusion')!r})"
         if any("macos" in str(label).lower() for label in job.get("labels") or ()):
             return f"its job {name!r} ran on a Mac"
         if BUILD_JOB_NAME.search(name):

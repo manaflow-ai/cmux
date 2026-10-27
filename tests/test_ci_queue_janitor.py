@@ -1385,6 +1385,23 @@ class SupersededDeliveryTests(unittest.TestCase):
         self.assertIn("open PR #9", {d.run["id"]: d.note for d in decisions}[old["id"]])
         self.assertEqual(fake.posts(), [])
 
+    def test_a_gate_with_no_conclusion_is_unread(self):
+        old, new = nightly_run("864dceb6", 60), nightly_run("ccb74c4d", 20)
+        jobs = gate_jobs(60)
+        jobs[1] = {**jobs[1], "conclusion": None}
+        ok, why = self.judge(old, jobs, [old, new])
+        self.assertFalse(ok)
+        self.assertIn("unknown conclusion", why)
+
+    def test_a_newer_run_that_skips_the_build_sends_the_sweep_to_the_branch_listing(self):
+        old, cache_only = nightly_run("864dceb6", 70), nightly_run("e3ca669f", 40)
+        done = {**nightly_run("ccb74c4d", 20, status="completed"), "conclusion": "success"}
+        skipped = gate_jobs(40, build={"status": "completed", "conclusion": "skipped", "runner_name": None})
+        built = gate_jobs(20, build={"status": "completed", "conclusion": "success", "runner_name": "mini-1"})
+        fake, decided, _ = self.sweep([old, cache_only], {old["id"]: gate_jobs(70), cache_only["id"]: skipped},
+                                      completed=[done], rejob={done["id"]: built}, extra_runs=[done])
+        self.assertEqual(decided[old["id"]].action, "cancel", decided[old["id"]].note)
+
     def test_matrix_legs_need_a_leg_each(self):
         old, new = nightly_run("864dceb6", 60), nightly_run("ccb74c4d", 20)
         two = gate_jobs(60) + [dict(gate_jobs(60)[-1])]  # two `build-nightly-app` legs

@@ -2361,7 +2361,7 @@ def skip_superseded_delivery(
     for run in candidates:
         run_id = run["id"]
         ok, why = superseded_unstarted(run, jobs_by_run.get(run_id), runs, jobs_of)
-        if not ok and why.startswith("no newer head"):
+        if not ok and (why.startswith("no newer head") or why.startswith("no newer run")):
             key = (run.get("workflow_id") or run.get("path"), str(run.get("head_branch") or ""))
             if key not in listed and len(listed) < SUPERSEDED_BRANCH_LISTINGS:
                 try:
