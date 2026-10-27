@@ -709,6 +709,42 @@ mod tests {
         );
     }
 
+    /// Review 2 of #26034: an end never waits without bound on a session whose agent slot another
+    /// operation holds (a stop ending a hosted agent whose link does not answer). Its end is left
+    /// pending for the next check.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn an_end_does_not_wait_on_a_held_agent_slot() {
+        let (hub, chat, _) = two_chats_on(&[], false).await;
+        let _held = chat.child.lock().await;
+        let ended = tokio::time::timeout(
+            std::time::Duration::from_secs(15),
+            hub.end_managed_full_access(&chat),
+        )
+        .await;
+        assert_eq!(
+            ended.ok(),
+            Some(FullAccessEnd::StillRunning),
+            "the end waited on a held agent slot"
+        );
+        assert!(chat.floor.full_access_end_pending.load(Ordering::SeqCst));
+    }
+
+    /// Review 2 of #26034: under MDM's off, an agent whose end is pending is not handed out by
+    /// `child_for`'s fast path, though what it reports no longer says full access: the start
+    /// ends it first.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn an_agent_whose_end_is_pending_is_not_handed_out() {
+        let (hub, chat, _) = two_chats_on(&[], false).await;
+        hub.apply_full_access_push(Some(false)).await;
+        let first = hub.child_for(&chat).await.expect("an agent");
+        chat.floor.full_access_end_pending.store(true, Ordering::SeqCst);
+        let next = hub.child_for(&chat).await.expect("an agent");
+        assert_ne!(
+            first.generation, next.generation,
+            "an agent whose end was pending was handed out"
+        );
+    }
+
     /// A hub with two open chats on a stand-in agent that fails over to itself with
     /// `FAKE_FALLBACK=1`; a cut turn goes on after 1 s.
     async fn two_chats() -> (Arc<Hub>, Arc<Session>, Arc<Session>) {

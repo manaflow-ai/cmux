@@ -2272,6 +2272,42 @@ async fn a_chat_whose_agent_mdm_ended_is_idle() {
     assert_eq!(entry["status"], "idle", "{entry}");
 }
 
+/// Review 2 of #26034: a turn in progress when MDM's off ends its agent ends as a stop's does: no
+/// continuation runs, and the chat is left idle, not disconnected.
+#[tokio::test]
+async fn a_turn_mdm_ended_leaves_its_chat_idle() {
+    let mut daemon = Daemon::new("mdmturnidle", "ask");
+    daemon.sigterm();
+    let config = json!({"harnesses": {"fake": {"argv": ["python3", FAKE, "--yolo"]}},
+                        "defaultHarness": "fake", "permissionPolicy": "ask"});
+    std::fs::write(daemon.home.join("config.json"), config.to_string()).unwrap();
+    daemon.start();
+    let session = new_session(&daemon).await;
+    let mut rpc = daemon.rpc().await;
+    let mut turn = daemon.rpc().await;
+    let held = json!({"sessionId": session,
+                      "prompt": [{"type": "text", "text": "set-mode-hold: 25000 default"}]});
+    let prompt = tokio::spawn(async move { turn.reply("session/prompt", held).await });
+    tokio::time::sleep(Duration::from_millis(1500)).await;
+    let harness_pid = daemon.host_record(&session)["harness_pid"].as_i64().unwrap();
+    let pushed = rpc.call("_acpmux/chat_settings", mdm_off_push()).await;
+    assert_eq!(pushed["applied"], true, "{pushed}");
+    assert!(gone_within(harness_pid, Duration::from_secs(10)), "MDM's off did not end the agent");
+    let answered = tokio::time::timeout(Duration::from_secs(15), prompt).await;
+    assert!(answered.is_ok(), "the turn waited on after MDM ended its agent");
+    // A continuation of the cut turn would have started by now.
+    tokio::time::sleep(Duration::from_millis(3000)).await;
+    let summary = rpc.call("_acpmux/sessions", json!({})).await;
+    let entry = summary["sessions"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|s| s["sessionId"] == session.as_str())
+        .cloned()
+        .expect("the chat is kept");
+    assert_eq!(entry["status"], "idle", "{entry}");
+}
+
 /// #24337 review: a prompt the next daemon adopts carries acpmux's own display line, worked out
 /// again, never one its log held (an older daemon's record, or a line the agent forged).
 #[tokio::test]
