@@ -61,6 +61,9 @@ if "--suite=pane-bench" not in sys.argv and "--suite=action-budget-bench" not in
 if "--suite=newterm" in sys.argv:
     suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "newterm-cold-warm-bench.py")
     os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a != "--suite=newterm"])
+if "--suite=first-keys" in sys.argv:
+    suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "new-terminal-first-keys.py")
+    os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a != "--suite=first-keys"])
 # `--suite=bench-smoke`: one short run of each bench that launches through bench_launch.py (bench-launch-smoke.py).
 if "--suite=bench-smoke" in sys.argv:
     suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "bench-launch-smoke.py")
