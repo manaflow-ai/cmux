@@ -30,7 +30,7 @@ import WebKit
         defer { window.close() }
         let memory = PageTestMemory()
         let pool = PageHostPool(memory: memory.coordinator, policy: PageHostPool.Policy(preloadOnMakeVisible: true),
-                                clock: PageTestClock.immediate, activity: { 0 }, isTrackingMenu: { false },
+                                deadlines: LifecycleDeadlineRig.never, activity: { 0 }, isTrackingMenu: { false },
                                 processGroups: WebProcessGroups(pagesPerProcess: 8, groupsEverySharingPage: true))
         defer { pool.dropSpare() }
         pool.follow(window)
@@ -55,7 +55,7 @@ import WebKit
         let pool = PageHostPool(memory: memory.coordinator, policy: policy, activity: { 0 }, isTrackingMenu: { false },
                                 processGroups: groups)
         defer { pool.dropSpare() }
-        let host = WebUIHost(chromium: nil, openPanel: nil, memory: QuietMemoryRegistry(), clock: PageTestClock.never,
+        let host = WebUIHost(chromium: nil, openPanel: nil, memory: QuietMemoryRegistry(), deadlines: LifecycleDeadlineRig.never,
                              processGroups: groups)
         await Self.waitForSpare(pool, in: window)
         let spare = try #require(pool.spareHost)

@@ -52,7 +52,7 @@ struct PageCrashGroupTests {
                           webKitGroups: Bool = false) -> WebUIHost {
         let host = WebUIHost(chromium: chromium, openPanel: nil,
                              memory: QuietMemoryRegistry(),
-                             clock: PageTestClock.never,
+                             deadlines: LifecycleDeadlineRig.never,
                              processGroups: WebProcessGroups(pagesPerProcess: 8, groupsEverySharingPage: webKitGroups))
         if lifecycle { host.lifecycle = PageLifecycle(deadlines: rig.scheduler) }
         host.crashGroups = PageCrashGroups(chromiumSharesByGroup: chromiumGroups) { renderers.ids[ObjectIdentifier($0)] }

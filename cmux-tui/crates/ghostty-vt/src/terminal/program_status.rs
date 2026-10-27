@@ -90,11 +90,15 @@ fn owned(text: &sys::GhosttyString) -> String {
     if text.len == 0 || text.ptr.is_null() {
         return String::new();
     }
+    // SAFETY: `text` came from a libghostty report valid for this callback;
+    // its `ptr` is non-null with `len` readable bytes.
     let bytes = unsafe { std::slice::from_raw_parts(text.ptr, text.len) };
     String::from_utf8_lossy(bytes).into_owned()
 }
 
 fn deliver(userdata: *mut c_void, event: ProgramStatusEvent) {
+    // SAFETY: callers pass libghostty's userdata, the terminal's heap-pinned
+    // Hooks (`repr(C)`, `callbacks` first), with no other reference live.
     let callbacks = unsafe { &mut *(userdata as *mut Callbacks) };
     if let Some(f) = callbacks.on_program_status.as_mut() {
         f(event);
@@ -106,6 +110,8 @@ pub(super) unsafe extern "C" fn program_status_trampoline(
     userdata: *mut c_void,
     report: *const sys::GhosttyTerminalProgramStatus,
 ) {
+    // SAFETY: libghostty passes a readable report for the call; the `size`
+    // check below guards newer fields.
     let report = unsafe { &*report };
     // Every field below has existed since the struct was introduced.
     if report.size < size_of::<sys::GhosttyTerminalProgramStatus>() {
@@ -147,6 +153,7 @@ pub(super) unsafe extern "C" fn semantic_prompt_trampoline(
     userdata: *mut c_void,
     event: *const sys::GhosttyTerminalSemanticPrompt,
 ) {
+    // SAFETY: libghostty passes a readable event for the call.
     let event = unsafe { &*event };
     if event.kind == sys::GHOSTTY_SEMANTIC_PROMPT_PROMPT_START
         && event.prompt_kind == sys::GHOSTTY_SEMANTIC_PROMPT_PROMPT_PRIMARY

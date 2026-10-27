@@ -24,7 +24,7 @@ struct WebUIHostTests {
                           everySharingPage: Bool = false) -> WebUIHost {
         WebUIHost(chromium: hosting, openPanel: openPanel,
                   memory: QuietMemoryRegistry(),
-                  clock: PageTestClock.never,
+                  deadlines: LifecycleDeadlineRig.never,
                   processGroups: WebProcessGroups(pagesPerProcess: 8, groupsEverySharingPage: everySharingPage))
     }
 
@@ -161,7 +161,7 @@ struct WebUIHostTests {
     /// A host made without groups starts a process for every WebKit page, also one that asks to share.
     @Test func aHostWithoutGroupsGroupsNoPage() throws {
         defer { try? FileManager.default.removeItem(at: root) }
-        let host = WebUIHost(chromium: nil, openPanel: nil, memory: QuietMemoryRegistry(), clock: PageTestClock.never)
+        let host = WebUIHost(chromium: nil, openPanel: nil, memory: QuietMemoryRegistry(), deadlines: LifecycleDeadlineRig.never)
         let shared = PageEngineOptions(sharesWebKitProcess: true)
         let first = try #require(host.open(PageOpenRequest(descriptor: descriptor, root: root, routes: [], options: shared)))
         let second = try #require(host.open(PageOpenRequest(descriptor: descriptor, root: root, routes: [], options: shared)))

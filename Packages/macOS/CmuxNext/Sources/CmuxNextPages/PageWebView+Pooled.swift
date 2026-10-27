@@ -3,6 +3,7 @@ public import AppKit
 public import CmuxNextDesign
 public import CmuxNextSettings
 public import WebKit
+import CmuxNextWakeups
 
 /// The configuration and input readiness object made before a pooled WebKit view exists.
 struct PooledHostRecipe {
@@ -53,11 +54,12 @@ extension PageWebView {
     /// True while the view is the pool's parked spare (hidden, not claimed by any page).
     public var isParkedSpare: Bool { superview is PageHostParking }
 
-    /// Makes a pooled page host without loading its document.
-    convenience init(recipe: PooledHostRecipe, routes: [PageRoute] = []) {
+    /// Makes a pooled page host without loading its document, on `deadlines` (the pool's; a test leaves the default).
+    convenience init(recipe: PooledHostRecipe, routes: [PageRoute] = [],
+                     deadlines: MainDeadlineScheduler = MainDeadlineScheduler(work: MainWorkScheduler(budget: MainFrameBudget()))) {
         self.init(descriptor: recipe.served, configuration: recipe.configuration,
                   inputReadiness: recipe.inputReadiness, routes: routes, route: nil,
-                  options: recipe.options, surface: nil, dynamicResources: nil, pooled: true, load: false)
+                  options: recipe.options, surface: nil, dynamicResources: nil, pooled: true, load: false, deadlines: deadlines)
         pooledOwner = recipe.owner
         recipe.owner.view = self
     }
