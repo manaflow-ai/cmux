@@ -35,6 +35,7 @@ nonisolated final class AcpmuxPaneSocket: NSObject, URLSessionWebSocketDelegate,
         var challengeRead = false
         var challenge: AcpmuxPersonChallenge?
         var challengeWaiters: [CheckedContinuation<AcpmuxPersonChallenge?, Never>] = []
+        var uploadFrames = false
         var hostReplies: [Int: @Sendable ([String: Any]) -> Void] = [:]
 
         /// A full flush waits: it goes even to a pane nobody can see (``pageWaits``).
@@ -158,8 +159,12 @@ nonisolated final class AcpmuxPaneSocket: NSObject, URLSessionWebSocketDelegate,
             var page: [String] = []
             var awaited = 0
             for text in batch {
+                if case .duplicate = AcpmuxJSONKeys.verdict(text) {
+                    state.withLock { $0.processing = false }
+                    return close(code: 1008, reason: "duplicate key", error: .duplicateKey)
+                }
                 if let object = try? JSONSerialization.jsonObject(with: Data(text.utf8)) as? [String: Any],
-                   let id = object["id"] as? Int, ids.isHost(id),
+                   object["method"] == nil, let id = object["id"] as? Int, ids.isHost(id),
                    let reply = state.withLock({ $0.hostReplies.removeValue(forKey: id) }) {
                     reply(object)
                     continue
@@ -172,7 +177,14 @@ nonisolated final class AcpmuxPaneSocket: NSObject, URLSessionWebSocketDelegate,
                     state.withLock { $0.processing = false }
                     return close(code: 1008, reason: "duplicate key", error: .duplicateKey)
                 case .page(let fresh, let object, let method):
-                    if method == AcpmuxPaneMethods.initialize { readChallenge(object) }
+                    if method == AcpmuxPaneMethods.initialize {
+                        readChallenge(object)
+                        let result = object["result"] as? [String: Any]
+                        let meta = result?["_meta"] as? [String: Any]
+                        let acpmux = meta?["acpmux"] as? [String: Any]
+                        let features = acpmux?["features"] as? [String] ?? []
+                        state.withLock { $0.uploadFrames = features.contains("uploadFrames") }
+                    }
                     // The observers read the same parse the page gets.
                     options.observe(object, replyTo: method)
                     sessions.observe(object)
@@ -389,25 +401,34 @@ nonisolated final class AcpmuxPaneSocket: NSObject, URLSessionWebSocketDelegate,
         return nil
     }
 
-    /// Sends one host-owned binary AMUP frame on this connection.
-    func sendHostData(_ data: Data) async throws {
-        try await withCheckedThrowingContinuation { continuation in
-            send(data) { success in
-                if success { continuation.resume() }
-                else { continuation.resume(throwing: AgentPaneUploadError.rpc("binary upload send failed")) }
-            }
+    /// One bounded data request, acknowledged by the daemon before the caller reads another chunk.
+    /// Binary frames require both the advertised daemon capability and a binary-capable host wire.
+    func uploadChunk(sessionId: String, uploadId: String, offset: Int, bytes: Data) async throws -> [String: Any] {
+        let params: [String: Any] = ["sessionId": sessionId, "uploadId": uploadId, "offset": offset]
+        if state.withLock({ $0.uploadFrames }), wire?.supportsUploadFrames ?? true {
+            let id = ids.hostID()
+            let frame = try AcpmuxUploadFrame(id: id, sessionId: sessionId, uploadId: uploadId,
+                                             offset: UInt64(offset), bytes: bytes).encoded()
+            return try await hostReply(id: id, text: nil, data: frame)
         }
+        return try await callHost("_acpmux/file_put_chunk", params: params.merging(["data": bytes.base64EncodedString()]) { _, new in new })
     }
 
-    /// Sends a host-owned JSON-RPC control call and returns its unfiltered daemon response.
-    /// The call never enters the page queue and its params contain metadata only.
+    /// A host-owned JSON-RPC request never enters the page queue.
     func callHost(_ method: String, params: [String: Any]) async throws -> [String: Any] {
         let id = ids.hostID()
         let request: [String: Any] = ["jsonrpc": "2.0", "id": id, "method": method, "params": params]
         guard JSONSerialization.isValidJSONObject(request),
               let data = try? JSONSerialization.data(withJSONObject: request, options: [.sortedKeys]),
-              let text = String(data: data, encoding: .utf8) else { throw AgentPaneTransportError.invalidFrame }
-        return try await withCheckedThrowingContinuation { continuation in
+              let text = String(data: data, encoding: .utf8) else {
+            _ = ids.isHost(id)
+            throw AgentPaneTransportError.invalidFrame
+        }
+        return try await hostReply(id: id, text: text, data: nil)
+    }
+
+    private func hostReply(id: Int, text: String?, data: Data?) async throws -> [String: Any] {
+        try await withCheckedThrowingContinuation { continuation in
             let callback: @Sendable ([String: Any]) -> Void = { object in
                 if let error = object["error"] as? [String: Any] {
                     continuation.resume(throwing: AgentPaneUploadError.rpc(error["message"] as? String ?? "upload refused"))
@@ -415,12 +436,26 @@ nonisolated final class AcpmuxPaneSocket: NSObject, URLSessionWebSocketDelegate,
                     continuation.resume(returning: object["result"] as? [String: Any] ?? [:])
                 }
             }
-            state.withLock { $0.hostReplies[id] = callback }
-            if send(text) != nil {
+            let registered = state.withLock { state in
+                guard state.closed == nil else { return false }
+                state.hostReplies[id] = callback
+                return true
+            }
+            let failed: @Sendable () -> Void = { [self] in
                 _ = ids.isHost(id)
                 if state.withLock({ $0.hostReplies.removeValue(forKey: id) }) != nil {
                     continuation.resume(throwing: AgentPaneTransportError.closed)
                 }
+            }
+            guard registered else {
+                _ = ids.isHost(id)
+                continuation.resume(throwing: AgentPaneTransportError.closed)
+                return
+            }
+            if let data {
+                send(data) { if !$0 { failed() } }
+            } else if let text, send(text) != nil {
+                failed()
             }
         }
     }

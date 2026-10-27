@@ -120,6 +120,7 @@ struct AcpmuxUploadFrameTests {
     }
 
     final class UploadWire: AcpmuxPaneWire, Sendable {
+        let supportsUploadFrames = true
         let sentBinary = Mutex(false)
         private let binary: Bool
         private let incoming = Mutex<(@Sendable (String) -> Void)?>(nil)

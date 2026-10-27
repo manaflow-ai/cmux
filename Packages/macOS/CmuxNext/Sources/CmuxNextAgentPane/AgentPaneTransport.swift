@@ -279,10 +279,10 @@ import CmuxNextCompat
         return try await socket.callHost(method, params: params)
     }
 
-    /// Sends an AMUP frame over the existing LocalApp socket, never through page JSON.
-    func uploadData(connection id: Int, frame: AcpmuxUploadFrame) async throws {
+    /// Sends a chunk on the owned socket, using AMUP only when the connection advertises it.
+    func uploadChunk(connection id: Int, sessionId: String, uploadId: String, offset: Int, bytes: Data) async throws -> [String: Any] {
         guard id == current, let socket else { throw AgentPaneUploadError.rpc("stale upload connection") }
-        try await socket.sendHostData(try frame.encoded())
+        return try await socket.uploadChunk(sessionId: sessionId, uploadId: uploadId, offset: offset, bytes: bytes)
     }
 
     /// The bridge's entry: the frames join the send line in arrival order (they are in line before
