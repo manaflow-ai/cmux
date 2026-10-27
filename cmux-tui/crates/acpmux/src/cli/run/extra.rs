@@ -664,7 +664,6 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             for p in peers {
                 let state = crate::peer_link::state_label(&p, crate::store::now_ms());
                 let build = p.get("remoteBuild").and_then(Value::as_str).unwrap_or("");
-                let outdated = p.get("outdated").and_then(Value::as_bool).unwrap_or(false);
                 println!(
                     "{:<16} {:<10} {:>3} sessions  {}  {:<24} {}{}{}{}",
                     p.get("name").and_then(Value::as_str).unwrap_or(""),
@@ -673,11 +672,11 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                     crate::cli::peer_status::resources(&p),
                     p.get("url").and_then(Value::as_str).unwrap_or(""),
                     if build.is_empty() { String::new() } else { format!("build {build}") },
-                    if outdated {
-                        "  (differs from this build: acpmux host update NAME)"
-                    } else {
-                        ""
-                    },
+                    crate::cli::peer_status::outdated_hint(
+                        p.get("name").and_then(Value::as_str).unwrap_or(""),
+                        &p,
+                    )
+                    .unwrap_or_default(),
                     p.get("error")
                         .and_then(Value::as_str)
                         .map(|e| format!("  ({e})"))

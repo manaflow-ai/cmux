@@ -7,7 +7,15 @@ import { componentEntry } from "../../gallery/format";
 import type { Play } from "../../gallery/play";
 import type { QuickFamily, QuickMenu } from "./QuickModelMenu";
 
-type Props = { tab?: string; expand?: boolean };
+type Props = {
+  tab?: string;
+  expand?: boolean;
+  chat?: boolean;
+  fast?: boolean;
+  many?: boolean;
+  anchorTop?: boolean;
+  anchorMiddle?: boolean;
+};
 
 const models = (family: string, names: string[]) => names.map((name) => ({ id: `${family}/${name}`, name, family }));
 
@@ -17,6 +25,11 @@ const families: QuickFamily[] = [
     name: "Claude Code",
     mark: "claude",
     models: models("claude", ["Opus 5.5", "Sonnet 5.5", "Haiku 5.5"]),
+    profiles: [
+      { id: "default", name: "Default" },
+      { id: "subrouter", name: "Subrouter" },
+    ],
+    profile: "default",
     more: models("claude", ["Opus 4.1", "Sonnet 4.5", "Haiku 4.5", "Opus 4", "Sonnet 4"]),
   },
   {
@@ -29,6 +42,7 @@ const families: QuickFamily[] = [
   {
     id: "opencode",
     name: "OpenCode",
+    mark: "opencode",
     models: models("opencode", [
       "opencode/Beam Free",
       "Big Pickle",
@@ -68,13 +82,29 @@ export default componentEntry<Props>({
   load: () =>
     Promise.all([import("./QuickModelMenu"), import("./newTabComposer")]).then(
       ([{ QuickModelMenu }, { OnNewTab }]) =>
-        function GalleryQuickModelMenu({ tab, expand }: Props) {
+        function GalleryQuickModelMenu({ tab, expand, chat, fast = false, many, anchorTop, anchorMiddle }: Props) {
           const [isOpen, setOpen] = useState(false);
           const trigger = useRef<HTMLButtonElement | null>(null);
-          const list = tab ? [...families].sort((a, b) => (a.id === tab ? -1 : b.id === tab ? 1 : 0)) : families;
+          const [isFast, setFast] = useState(fast);
+          const available = many
+            ? [
+                ...families,
+                ...["Cursor", "Gemini", "Copilot", "Amp", "Aider", "Goose"].map((name) => ({
+                  id: name.toLowerCase(),
+                  mark: name.toLowerCase(),
+                  name,
+                  models: models(name.toLowerCase(), [name + " model"]),
+                  more: [],
+                })),
+              ]
+            : families;
+          const list = tab ? [...available].sort((a, b) => (a.id === tab ? -1 : b.id === tab ? 1 : 0)) : available;
           return (
-            <OnNewTab.Provider value={true}>
-              <div style={{ padding: 16 }} data-expand={expand ? "" : undefined}>
+            <OnNewTab.Provider value={!chat}>
+              <div
+                style={{ padding: 16, paddingTop: anchorMiddle ? 280 : chat && !anchorTop ? 400 : 16 }}
+                data-expand={expand ? "" : undefined}
+              >
                 <QuickModelMenu
                   open={isOpen}
                   onOpenChange={setOpen}
@@ -85,10 +115,25 @@ export default componentEntry<Props>({
                     current: "claude/Opus 5.5",
                     onModel: () => undefined,
                     ...extras,
+                    account: {
+                      sessionId: "gallery",
+                      accounts: {
+                        list: async () => ({
+                          accounts: [
+                            { id: "subscription", name: "Claude subscription", kind: "direct-subscription" },
+                            { id: "api", name: "API key", kind: "direct-api-key" },
+                          ],
+                          active: "subscription",
+                        }),
+                        set: async () => undefined,
+                      },
+                    },
+                    fast: { checked: isFast, onChange: setFast },
                     families: {
                       list,
                       current: tab ?? "claude",
                       onPick: () => undefined,
+                      onProfile: () => undefined,
                       onAddHarness: () => undefined,
                     },
                   }}
@@ -102,6 +147,12 @@ export default componentEntry<Props>({
         },
     ),
   variants: {
+    "newtab-midpoint": { props: { anchorMiddle: true }, play: open },
+    "chat-flipped": { props: { chat: true, anchorTop: true }, play: open },
+    "claude-many-harnesses": { props: { many: true }, play: open },
+    combined: { props: { chat: true }, play: open },
+    "combined-fast": { props: { chat: true, fast: true }, play: open },
+    "combined-signed-out": { props: { chat: true, tab: "unii" }, play: open },
     claude: { props: {}, play: open },
     "claude-more-models": {
       props: {},
