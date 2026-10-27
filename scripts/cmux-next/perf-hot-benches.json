@@ -233,6 +233,14 @@
         "key.scroll_frame"
       ]
     },
+    "tab-strip-scroll": {
+      "what": "one coalesced wheel or trackpad delivery to a tab strip (feature tabStripScrollFrames, TabStripScroller.scroll, p04-input-087): the clamp, a binary search of the tabs in view and one scrolling-layer bounds set; applyFrames only when the tabs in view change or the gesture ends",
+      "bench": "swift test --filter 'TabStripScrollTests' (translations and applyFrames per frame); live: scripts/cmux-next/pointer-probe.swift trackpad scroll over a 60-tab strip with CMUX_ENABLE_FEATURES=tabStripScrollFrames and without, light and STRESS, reading input.frame and main stalls from debug.hangs",
+      "owner": "PL-motion-core",
+      "trace": [
+        "input.frame"
+      ]
+    },
     "intent-prewarm-hover": {
       "what": "one hover target change in the sidebar or a tab strip with intentPrewarmHover on: a compare, the dwell timer's cancel and re-arm, and the warmer's isCold lookup",
       "bench": "scripts/cmux-next/bench_hibernation.py (wake after hover vs click), then swift test --filter IntentPrewarmServiceTests",
@@ -247,6 +255,44 @@
       "what": "one C callback resolving its context token to its Swift object (CallbackRegistry.target(for:), p10-stability-081): an acquiring atomic add on the slot's state word, a generation and live check, a weak load, a releasing atomic subtract; no lock, no syscall (FSEvents queues, event taps, and in wave 2 Ghostty and CEF callbacks)",
       "bench": "CMUX_CALLBACK_REGISTRY_BENCH=1 swift test -c release --package-path Packages/Shared/CmuxSafeConcurrency --filter CallbackRegistryTests/lookupBench (CALLBACK-REGISTRY-BENCH JSON: ns_per_lookup), on macOS 26 and 27",
       "owner": "Performance Lead"
+    },
+    "input-tap": {
+      "what": "one event through the app's InputEventTap (CmuxApplication.sendEvent: the dispatch scope, observers, intercepts in order, after-dispatch observers and the dispatch end; InputEventTap.deliverObserve and its siblings): per-class arrays filtered by window number, no copy, lock, allocation or system call per event; budget 5 us per event over the subscribers' handlers",
+      "bench": "CMUX_INPUT_TAP_BENCH=1 swift test -c release --filter InputEventTapBench (ns per event p50/p95/p99/max, eight subscribers, a key, a button, a move and a drag), then swift test --filter 'InputEventTapTests/aDispatchAllocatesNothing', on macOS 26 and 27",
+      "owner": "Performance Lead",
+      "trace": [
+        "input.latency"
+      ]
+    },
+    "input-coalesce": {
+      "what": "one window's FrameInputCoalescer flush at its frame tick or fallback (FrameInputCoalescer.flushAll, p04-input-030): the pending keyed posts and consumers in arrival order, swapped with spare storage, no allocation; budget 10 us per frame over the consumers' bodies",
+      "bench": "swift test --filter 'PointerFrameCoalescerTests|FrameInputCoalescerTests' (deliveries per frame, pooled drag samples), then scripts/cmux-next/drag-lag-live.py, light and STRESS, on macOS 26 and 27",
+      "owner": "Performance Lead",
+      "trace": [
+        "input.frame",
+        "key.scroll_frame"
+      ]
+    },
+    "main-job-gate": {
+      "what": "every main-actor job enqueue through the MainJobGate hook (swift_task_enqueueMainExecutor_hook, p04-input-021): the pass-through is one relaxed load of the pending-input state and the original call, budget 0.2 us per job; while input is pending or dispatching it records the job (MainJobGateDiagnostics.recordEnqueue: a 16-frame backtrace_async and one ring push, no lock, allocation or system call), budget 2 us per recorded job",
+      "bench": "swift test --filter 'MainJobGateHookTests|MainJobGateDiagnosticsTests' (order unchanged, concurrent producers lose no record), then the debug.input action hops and scripts/cmux-next/input-turn-hops.py under STRESS, on macOS 26 and 27",
+      "owner": "Performance Lead"
+    },
+    "input-latency-mark": {
+      "what": "the InputLatencyTracker's per-event stamps (InputLatencyTracker.begin, mark, endDispatch): one slot claim and relaxed stage stores in the preallocated slot table, no lock, allocation or String; budget 0.5 us for a begin, 0.05 us for a mark",
+      "bench": "swift test --filter 'InputLatencyTrackerTests/perEventPathAllocatesNothing' (begin, marks, the dispatch end, the commit and the close allocate nothing per event), then scripts/cmux-next/bench-typing.py (input.latency stages p50/p95/p99), on macOS 26 and 27",
+      "owner": "PL-typing",
+      "trace": [
+        "input.latency"
+      ]
+    },
+    "terminal-input-lane": {
+      "what": "one key's bytes pushed to its session's TerminalInputLane (TerminalInputLane.push, p04-input-058): a single-producer ring push from the main thread and one wake of the IO's queue, never a wait for the drain; budget 2 us per key",
+      "bench": "swift test --filter TerminalInputLaneTests (prints the main push wait p50/p95/max while another thread spills to the overflow; 10k interleaved records in order), then scripts/cmux-next/bench-typing.py (input write stage), on macOS 26 and 27",
+      "owner": "PL-ghostty",
+      "trace": [
+        "key.flow"
+      ]
     }
   }
 }

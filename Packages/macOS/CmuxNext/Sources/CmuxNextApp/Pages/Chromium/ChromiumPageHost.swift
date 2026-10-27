@@ -14,7 +14,10 @@ import Foundation
 /// non-persistent store, a page keeps nothing on disk, and no profile of the person's (their
 /// extensions, cookies) touches a cmux page. Each page's key is a key of that profile, so it takes
 /// the pages spare window the warm start built (`ChromiumWarmup`, p13-webui-016) instead of building
-/// a window in the turn that opened it.
+/// a window in the turn that opened it. The page tabs of one pane share that pane's page window
+/// (``PageChromiumWindow``, p13-webui-063): the second page of a pane builds no window. A page tab runs no
+/// browser-tab document script and attaches none of their DevTools bridges (``CEFEngine/makePagesTab(_:)``,
+/// p13-webui-068): only its first paint is read.
 @MainActor
 final class ChromiumPageHost: PageChromiumHosting {
     enum Failure: Error {
@@ -57,13 +60,14 @@ final class ChromiumPageHost: PageChromiumHosting {
 
     func serves(_ page: PageDescriptor) -> Bool { CEFPageSchemes.firstParty[page.id] != nil }
 
-    func makePage(_ page: PageDescriptor, chatOpen: ChatOpenStages?) async throws -> any PageChromiumPage {
+    func makePage(_ page: PageDescriptor, chatOpen: ChatOpenStages?, window: PageChromiumWindow?) async throws
+        -> any PageChromiumPage {
         #if DEBUG || CMUX_BENCH_HOOKS
         // Taken before any suspension: set by the traced chat's own page in this turn (``ChatOpenTrace``).
         let traced = ChatOpenTrace.shared.takeMakingTracedPage()
         #endif
         let cef = chromium.engine
-        let configuration = cef.pagesTabConfiguration(chatOpen: chatOpen)
+        let configuration = Self.tabConfiguration(of: cef, chatOpen: chatOpen, window: window)
         #if DEBUG || CMUX_BENCH_HOOKS
         if traced, ChatOpenTrace.shared.chromiumPane == nil { ChatOpenTrace.shared.chromiumPane = configuration.pane?.rawValue }
         #endif
@@ -87,5 +91,15 @@ final class ChromiumPageHost: PageChromiumHosting {
     func supervisorOutcome(then answer: @escaping @MainActor @Sendable (PageChromiumSupervisorOutcome) -> Void) {
         guard let engine = chromium.built else { return answer(.gaveUp) }
         engine.restartPagesAfterHostEnd { answer($0 ? .restarted : .gaveUp) }
+    }
+
+    /// The configuration of a page tab in `window`'s page window, or in a window of its own when `window` is nil.
+    static func tabConfiguration(of cef: CEFEngine, chatOpen: ChatOpenStages?, window: PageChromiumWindow?) -> BrowserTabConfiguration {
+        cef.pagesTabConfiguration(chatOpen: chatOpen, pane: window.map(pane(of:)))
+    }
+
+    /// The CEF pane key of `window`: one Chromium window per pane of a main window.
+    nonisolated static func pane(of window: PageChromiumWindow) -> BrowserPaneID {
+        CEFEngine.pagesPane(window: window.window, pane: window.pane)
     }
 }

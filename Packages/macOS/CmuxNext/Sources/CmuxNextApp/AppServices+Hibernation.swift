@@ -1,13 +1,15 @@
+import CmuxNextActions
 import CmuxNextBridge
 import CmuxNextBrowser
 import CmuxNextCompat
 import CmuxNextDesign
 import CmuxNextFeatures
-import CmuxNextHibernation
+package import CmuxNextHibernation
 import CmuxNextInput
 import CmuxNextMemory
 import CmuxNextResources
 import CmuxNextSettings
+package import CmuxNextTabs
 import CmuxNextWakeups
 import CoreGraphics
 
@@ -27,10 +29,10 @@ extension AppServices {
         hibernation.isPinned = { [weak self] key in self?.locateTab(key)?.0.pinned ?? false }
         hibernation.isDownloading = { [weak self] key in self?.cache.pageRequests.downloads.isDownloading(tab: key) ?? false }
         hibernation.measureMemory = { [weak self] in await self?.resources.sample(.everything).browserPageMemory ?? [:] }
-        hibernation.measureCPU = { [work = self.work, mainWork = self.mainWork, renderers = cache.tabRenderers] keys, landed in
-            work.run(.bestEffort, mayBlock: .system) { SaverCPUFreeze.reading(of: Set(keys), tabs: renderers.snapshot(), renderers: ChromiumHelperProcess.tabRendererUsage()) }
-                .reply(on: mainWork, class: .background, owner: "SaverCPUFreeze", landed)
-        }
+        let readCPU = { [work = self.work, mainWork = self.mainWork, tabs = cache.tabRenderers] (owner: String) in
+            SaverCPUFreeze.measure(owner: owner, work: work, mainWork: mainWork, tabs: tabs) { ChromiumHelperProcess.tabRendererUsage() } }
+        hibernation.measureCPU = readCPU("SaverCPUFreeze")
+        hibernation.highEnergy = features.isEnabled(.highEnergyTabs) ? HighEnergyTabMonitor(cache: cache, registry: registry, measure: readCPU("HighEnergyTabs")) : nil
         hibernation.activity.isEnabled = features.isEnabled(.memorySaverBackgroundActivity)
         hibernation.discardsGrowingFrozenPages = features.isEnabled(.frozenGrowthDiscard)
         hibernation.discardsAppPages = features.isEnabled(.memoryDiscardPageTabs)
@@ -94,12 +96,14 @@ extension AppServices {
 
     /// The hibernation's measurements, after startup (p08-startup-029): the hourly footprint samples and,
     /// with `occludedWindowDiscard`, the occluded-window checker (its first pass reports the windows
-    /// already off screen).
+    /// already off screen). With `windowOcclusionFamily` (p03-rendering-097) a checker feeds every window's
+    /// occlusion family, so covered windows stop their frames, terminals and pages.
     func startHibernationMeasurements() {
         memoryFootprints.start()
         if features.isEnabled(.occludedWindowDiscard), let hibernation = cache.hibernation {
             hibernation.follow(WindowOcclusionChecker(windows: { [weak self] in self?.windows.controllers.compactMap(\.window) ?? [] }))
         }
+        if features.isEnabled(.windowOcclusionFamily) { windowOcclusionFamilies = WindowOcclusionChecker.feedingFamilies() }
     }
 
     /// Tab `key` and every tab script can reach from it through `window.opener`
@@ -148,6 +152,14 @@ extension MemoryHistograms {
     /// (absent, never a measured 0) until its discard path records too.
     static let hibernationKinds = [ContentKind.browser, .agentPage].map(\.rawValue)
 
+    /// The counted kinds: ``hibernationKinds``, overlay pages while a feature releases them (their planner,
+    /// ``OverlayPageDiscards``, records each), and sidebar sections while `memoryDiscardSidebarSections` does
+    /// (``SidebarSectionDiscards``).
+    static func discardKinds(overlayPages: Bool, sidebarSections: Bool = false) -> [String] {
+        hibernationKinds + (overlayPages ? [ContentKind.overlayPage.rawValue] : [])
+            + (sidebarSections ? [ContentKind.sidebarSection.rawValue] : [])
+    }
+
     /// Counts each page `hibernation` hibernates and each agent page `agentPages` releases as a
     /// discard of its kind, and records each woken page's time to be back.
     func follow(_ hibernation: BrowserHibernation, agentPages: AgentPageHibernation) {
@@ -162,4 +174,19 @@ extension ResourceSampleSet {
     var browserPageMemory: [String: PageMemoryReading] {
         tabMemoryReadings(kinds: TabResourceKind.browserPages).mapValues { PageMemoryReading(bytes: $0.bytes, sharers: $0.sharers) }
     }
+}
+
+// The tab cards' high-energy flags (p14-energy-125): the cache's hidden browser tabs, and Discard as the tab's Hibernate
+// Tab action (its refusals, and the one path it shares with the menu and the palette).
+extension HighEnergyTabMonitor: TabEnergySource {
+    convenience init(cache: TabContentCache, registry: ActionRegistry, measure: @escaping SaverCPUFreeze.Measure) {
+        self.init(measure: measure, hidden: { [weak cache] in cache?.lifecycle.generations(in: .mountedHidden) { cache?.browsers[$0] != nil } ?? [:] },
+                  discard: { [weak registry] key in
+            _ = registry?.perform("hibernateTab", invocation: ActionInvocation(target: ActionTargetRef(kind: .tab, id: key)))
+        })
+    }
+
+    package func usesHighEnergy(_ tab: TabID, changed: @escaping @MainActor () -> Void) -> Bool { usesHighEnergy(tab.rawValue, changed: changed) }
+
+    package func discard(_ tab: TabID) { discard(tab.rawValue) }
 }

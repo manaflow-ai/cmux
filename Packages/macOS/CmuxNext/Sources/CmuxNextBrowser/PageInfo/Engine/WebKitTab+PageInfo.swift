@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextWakeups
 public import Foundation
 import Security
 public import WebKit
@@ -131,9 +132,12 @@ extension WebKitTab: PageInfoProviding {
         let box = ServerTrustBox(trust: trust)
         let excepted = engine?.hasCertificateException(challenge.protectionSpace.host, profile: profileID) ?? false
         if !excepted { completionHandler(.performDefaultHandling, nil) }
+        let mainWork = mainWork
+        // task-owner: one trust evaluation, ended by its answer. R-hop: evaluated off main; the answer and the Page Info
+        // record are one visible task (an excepted load waits on it; a hidden tab's record still lands).
         Task.detached { [weak self] in
             let result = box.evaluate()
-            await MainActor.run {
+            mainWork.postFromAnyThread(.visible, owner: "WebKitTab.serverTrust") {
                 if excepted {
                     let trusted = result == nil
                     completionHandler(trusted ? .performDefaultHandling : .useCredential, trusted ? nil : URLCredential(trust: box.trust))

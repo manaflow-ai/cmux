@@ -10,10 +10,11 @@
 //! live owner that is still starting and waits for it, instead of seeing no
 //! owner, killing it, or starting a second one.
 
+use cmux_threads::sync::Mutex;
 use std::collections::VecDeque;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex, PoisonError};
+use std::sync::{Arc, PoisonError};
 
 use super::listen::{BoundSocket, ServedSession, spawn_accept_loop};
 use super::{PendingServer, RenderService, cleanup};
@@ -115,6 +116,18 @@ impl RestoringServer {
         });
         self.attached = true;
         PendingServer::from_parts(std::mem::take(&mut self.path), mux, self.shutdown.clone())
+    }
+}
+
+#[cfg(test)]
+impl RestoringServer {
+    /// The oldest connection the accept loop has parked so far, if any.
+    pub(super) fn take_parked(&self) -> Option<Box<dyn transport::Stream>> {
+        let mut state = self.slot.state.lock().unwrap_or_else(PoisonError::into_inner);
+        match &mut *state {
+            SlotState::Restoring(parked) => parked.pop_front(),
+            SlotState::Served(_) => None,
+        }
     }
 }
 

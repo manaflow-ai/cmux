@@ -6,6 +6,11 @@
 /// Every daemon-side feature in registry order; a handle is its index here.
 pub(crate) const TABLE: &[crate::FeatureDef] = &[
     crate::FeatureDef {
+        name: "agentToolsInDaemon",
+        defaults: crate::Defaults { dev: false, nightly: false, release: false },
+        process: crate::Process::Daemon,
+    },
+    crate::FeatureDef {
         name: "coldScrollbackCompression",
         defaults: crate::Defaults { dev: false, nightly: false, release: false },
         process: crate::Process::Daemon,
@@ -16,12 +21,22 @@ pub(crate) const TABLE: &[crate::FeatureDef] = &[
         process: crate::Process::Daemon,
     },
     crate::FeatureDef {
+        name: "energySaver",
+        defaults: crate::Defaults { dev: false, nightly: false, release: false },
+        process: crate::Process::Both,
+    },
+    crate::FeatureDef {
         name: "leftoverDaemonIdleExit",
         defaults: crate::Defaults { dev: false, nightly: false, release: false },
         process: crate::Process::Daemon,
     },
     crate::FeatureDef {
         name: "memoryAcpmuxPressure",
+        defaults: crate::Defaults { dev: false, nightly: false, release: false },
+        process: crate::Process::Daemon,
+    },
+    crate::FeatureDef {
+        name: "memoryKittyShare",
         defaults: crate::Defaults { dev: false, nightly: false, release: false },
         process: crate::Process::Daemon,
     },
@@ -35,22 +50,35 @@ pub(crate) const TABLE: &[crate::FeatureDef] = &[
         defaults: crate::Defaults { dev: false, nightly: false, release: false },
         process: crate::Process::Both,
     },
+    crate::FeatureDef {
+        name: "terminalSizingPerApp",
+        defaults: crate::Defaults { dev: false, nightly: false, release: false },
+        process: crate::Process::Daemon,
+    },
 ];
 
 /// One handle per daemon feature, for `Snapshot::is_enabled`.
 pub mod feature {
     feature_handles!(super::TABLE;
+        /// The acpmux daemon serves each agent chat's sub-session and secret tools itself, to that chat's own caller token only, instead of two tool processes per chat; a harness that runs its own tool servers gets a byte-copy relay under 1 MB.
+        AGENT_TOOLS_IN_DAEMON = "agentToolsInDaemon",
         /// The daemon compresses the scrollback of a terminal that no client views and that printed nothing for 10 minutes, at utility priority and never under memory pressure; any access restores it first. Stays off until the kernel compressor measurement (p07-memory-112) shows a 2x gain.
         COLD_SCROLLBACK_COMPRESSION = "coldScrollbackCompression",
         /// Daemon requests run at their cause's class: verified-app requests at user-initiated, CLI, script, agent and page requests at utility, raised while they wait for or hold a daemon lock.
         DAEMON_REQUEST_QOS = "daemonRequestQos",
+        /// Energy Saver turns on as the energy.saver setting asks (Low Power Mode, low battery or a hot Mac on battery by default) and makes cmux draw fewer frames and wake less often.
+        ENERGY_SAVER = "energySaver",
         /// The acpmux daemon and a headless cmux-tui owner exit after 10 minutes with no client, no live agent, no live terminal (own or holder-owned) and no owning app; an app that reconnects within the 10 minutes keeps them.
         LEFTOVER_DAEMON_IDLE_EXIT = "leftoverDaemonIdleExit",
         /// acpmux and its TUI follow system memory pressure: at warning they empty caches rebuilt on demand (parsed login files, idle chats' error tails, the TUI's transcript layout); at critical they also drop live model lists and each chat's prompt outcomes past its newest 8.
         MEMORY_ACPMUX_PRESSURE = "memoryAcpmuxPressure",
+        /// Daemon Kitty image total sized from installed RAM (64 MiB at 8 GB, 512 MiB at 64 GB) and shared by visibility: a terminal on screen keeps its grant, hidden ones get the rest, least recently shown lose images first; critical pressure clears decoded pixel copies.
+        MEMORY_KITTY_SHARE = "memoryKittyShare",
         /// Daemon scrollback RAM total sized from installed RAM (128 MiB at 8 GB, 1 GiB at 64 GB) and lowered by memory pressure: half at warning, 16 MiB at critical, least recently active terminals first; limits return at normal below 80 %.
         MEMORY_SCROLLBACK_PRESSURE = "memoryScrollbackPressure",
         /// New terminals run on the install's one PTY holder process, and the daemon parses their output, instead of one terminal host process each (terminal-host-model-DESIGN.md option D).
         TERMINAL_HOLDER = "terminalHolder",
+        /// Terminal sizing counts one participant per app connection: all of an app's views of one terminal are leases of one participant (its latest active view sets its size), and disconnecting that participant ends only that terminal's views, not the app's connection.
+        TERMINAL_SIZING_PER_APP = "terminalSizingPerApp",
     );
 }

@@ -1,6 +1,9 @@
 #if DEBUG || CMUX_BENCH_HOOKS
 // The Chromium host app ships in Debug builds only (embed-cef.sh), and so does its Swift side.
 import Darwin
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
+import func CmuxSafeConcurrency.withOnceContinuation
 
 /// The wire measurements `debug.chromium_host.measure` asks the running host for.
 extension ChromiumHostSession {
@@ -14,8 +17,12 @@ extension ChromiumHostSession {
             var frame = ChromiumHostFrame(.ping, t0: sent)
             frame.seq = id
             let pong: ChromiumHostFrame? = await withTaskCancellationHandler {
-                await withCheckedContinuation { (continuation: CheckedContinuation<ChromiumHostFrame?, Never>) in
-                    guard !Task.isCancelled else { return continuation.resume(returning: nil) }
+                // A waiter dropped unanswered (abandoned) is a missing pong: nil.
+                try? await withOnceContinuation { (continuation: OnceContinuation<ChromiumHostFrame?, OnceContinuationError>) in
+                    guard !Task.isCancelled else {
+                        continuation.resume(returning: nil)
+                        return
+                    }
                     pongs[id] = continuation
                     if !send(frame) { pongs.removeValue(forKey: id)?.resume(returning: nil) }
                 }
@@ -36,8 +43,11 @@ extension ChromiumHostSession {
         seq &+= 1
         let id = seq
         let reply: ChromiumHostFrame? = await withTaskCancellationHandler {
-            await withCheckedContinuation { (continuation: CheckedContinuation<ChromiumHostFrame?, Never>) in
-                guard !Task.isCancelled else { return continuation.resume(returning: nil) }
+            try? await withOnceContinuation { (continuation: OnceContinuation<ChromiumHostFrame?, OnceContinuationError>) in
+                guard !Task.isCancelled else {
+                    continuation.resume(returning: nil)
+                    return
+                }
                 statsWaiters[id] = continuation
                 var frame = ChromiumHostFrame(.stats)
                 frame.seq = id

@@ -67,11 +67,8 @@ final class TerminalCopyMode {
         box.isHidden = true
         let badge = TerminalCopyModeBadge()
         view.addSubview(box)
+        badge.pin(toTopTrailingOf: view)
         view.addSubview(badge)
-        NSLayoutConstraint.activate([
-            badge.topAnchor.constraint(equalTo: view.topAnchor, constant: 8),
-            badge.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -8),
-        ])
         session = CopyModeSession(cursorBox: box, badge: badge)
         syncCursor()
         return true

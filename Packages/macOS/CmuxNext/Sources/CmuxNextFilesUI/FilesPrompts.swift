@@ -1,6 +1,9 @@
 import AppKit
 import CmuxNextDesign
 import CmuxNextFiles
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
+import func CmuxSafeConcurrency.withOnceContinuation
 
 /// The Files sheets: Go to Folder, the name-conflict question and rename for tiles.
 @MainActor
@@ -88,8 +91,9 @@ struct FilesPrompts {
     /// no nested modal loop stands in for one (p02-threads-132): the answer is Cancel.
     private func run(_ alert: NSAlert) async -> NSApplication.ModalResponse {
         guard let window = window() else { return .cancel }
-        return await withCheckedContinuation { continuation in
+        // A sheet that went away without an answer is Cancel too.
+        return (try? await withOnceContinuation { (continuation: OnceContinuation<NSApplication.ModalResponse, OnceContinuationError>) in
             alert.beginSheetModal(for: window) { continuation.resume(returning: $0) }
-        }
+        }) ?? .cancel
     }
 }

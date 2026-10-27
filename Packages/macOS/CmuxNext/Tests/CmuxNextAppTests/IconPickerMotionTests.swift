@@ -2,6 +2,7 @@ import AppKit
 @testable import CmuxNextApp
 @testable import CmuxNextDesign
 import Testing
+import CmuxNextWakeups
 
 /// POLISH audit, batch 4 (cx-2grmt): the icon picker appeared and left in one frame. It opens and
 /// closes like every native popup (`PopupFade`).
@@ -14,7 +15,7 @@ import Testing
         window.orderFrontRegardless()
         let content = try #require(window.contentView)
         try #require(window.screen != nil)
-        let picker = IconPickerService(services: nil, webUI: .iconPickerTestHost())
+        let picker = IconPickerService(services: nil, webUI: .iconPickerTestHost(), mainWork: MainWorkScheduler(budget: MainFrameBudget()))
         await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in picker.prepare { done.resume() } }
         var results: [IconPickerResult] = []
         // Synchronous inside: the override is process-wide.

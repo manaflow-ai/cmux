@@ -1,6 +1,10 @@
 import CmuxNextCompat
 import CmuxNextSettings
+import CmuxNextTrace
 import CmuxNextWakeups
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
+import func CmuxSafeConcurrency.withOnceContinuation
 import Darwin
 import Foundation
 
@@ -11,16 +15,23 @@ import Foundation
 /// can only stall its own connection.
 ///
 /// Bounds (architecture.md 5a, "no unbounded buffers"):
-/// - inbound: at most `maxQueuedLines` parsed lines wait for the consumer;
-///   beyond that the read source is suspended and the kernel socket buffer
-///   pushes back on the client.
+/// - inbound: at most `maxQueuedLines` parsed lines, and `maxQueuedBytes` of
+///   them (one line of any size up to `maxLineBytes` always passes), wait for
+///   the consumer; beyond that the read source is suspended and the kernel
+///   socket buffer pushes back on the client.
 /// - outbound: at most `maxOutboxBytes` of unsent responses; a client that
 ///   stops reading past that is disconnected.
 /// - close: queued responses get `drainTimeout` to flush after `close()`.
+///
+/// Hang watch: the queue is one hang-watched lane and each job on it (a source handler or a posted
+/// block, each one ``withState(_:_:)``) is one scope: ``readHangDeadline``, or ``writeHangDeadline`` for a
+/// job that sends. Every call in a job is non-blocking, so a job past its budget is a bug.
 final class ControlConnection: Sendable {
     struct Limits: Sendable {
         var maxLineBytes: Int
         var maxQueuedLines = 64
+        /// The line bytes waiting for the consumer past which reading pauses.
+        var maxQueuedBytes = 8 << 20
         var maxOutboxBytes = 8 << 20
         var drainTimeout: Duration = .seconds(5)
     }
@@ -29,7 +40,13 @@ final class ControlConnection: Sendable {
     private let descriptor: Int32
     private let limits: Limits
     private let queue: DispatchQueue
-    /// Only blocks on `queue` touch the state (``withState(_:)``), so its lock is never contended: it makes the
+    /// The queue's hang-watch lane and the watch it is registered on; nil watches nothing.
+    private let hangWatched: (watch: any HangWatchScoping, lane: HangWatch.Registration)?
+    /// The budget of a job that reads or keeps state (a jank past it, a hang dump 2 s later).
+    static let readHangDeadline: Duration = .seconds(1)
+    /// The budget of a job that sends.
+    static let writeHangDeadline: Duration = .seconds(2)
+    /// Only blocks on `queue` touch the state (``withState(_:_:)``), so its lock is never contended: it makes the
     /// queue's confinement checked.
     private let state: Mutex<State>
 
@@ -40,6 +57,9 @@ final class ControlConnection: Sendable {
         var liveSources = 0
         var inbound = Data()
         var queuedLines = 0
+        /// The byte size of each queued line, oldest first (at most `maxQueuedLines`), and their sum.
+        var queuedLineSizes: [Int] = []
+        var queuedBytes = 0
         var isReadSuspended = false
         var isInputFinished = false
         var outbox = Data()
@@ -50,28 +70,40 @@ final class ControlConnection: Sendable {
         var isDescriptorClosed = false
         var continuation: AsyncStream<String>.Continuation?
         var consumer: Task<Void, Never>?
-        var hangupWaiters: [CheckedContinuation<Void, Never>] = []
+        var hangupWaiters: [OnceContinuation<Void, OnceContinuationError>] = []
         /// Called once on the connection queue after the descriptor closed.
         var onClosed: (@Sendable () -> Void)?
     }
 
-    /// - Parameter onClosed: Called once on the connection queue after the descriptor closed.
-    init(id: ControlConnectionID, descriptor: Int32, limits: Limits, onClosed: (@Sendable () -> Void)? = nil) {
+    /// - Parameters:
+    ///   - hangs: Watches each job on the connection queue; nil watches nothing.
+    ///   - onClosed: Called once on the connection queue after the descriptor closed.
+    init(id: ControlConnectionID, descriptor: Int32, limits: Limits, hangs: (any HangWatchScoping)? = nil,
+         onClosed: (@Sendable () -> Void)? = nil) {
         self.id = id
         self.descriptor = descriptor
         self.limits = limits
         self.queue = DispatchQueue(label: "com.cmuxterm.next.control.\(id)", qos: .utility)
+        hangWatched = hangs.map { (watch: $0, lane: $0.registerLane("control.connection")) }
         var initial = State()
         initial.onClosed = onClosed
         self.state = Mutex(initial)
     }
 
+    deinit {
+        if let hangWatched { hangWatched.watch.unregister(hangWatched.lane) }
+    }
+
     /// The connection queue's QoS (tests).
     var queueQoS: DispatchQoS.QoSClass { queue.qos.qosClass }
 
+    /// The line bytes handed to the consumer that it has not finished (tests).
+    var queuedLineBytes: Int { state.withLock(\.queuedBytes) }
+
     func start(consume: @escaping @Sendable (AsyncStream<String>) async -> Void) {
-        // The stream never exceeds `maxQueuedLines`: reading pauses first.
+        // The stream never exceeds `maxQueuedLines` or `maxQueuedBytes`: reading pauses first.
         // concurrency-allow: bounded by maxQueuedLines; the read source suspends before the stream exceeds it
+        // memory: bounded-by maxQueuedBytes (8 MiB, or one line up to maxLineBytes): the read source suspends at it
         let (stream, continuation) = AsyncStream<String>.makeStream(bufferingPolicy: .unbounded)
         queue.async { [self] in
             withState { state in
@@ -97,7 +129,7 @@ final class ControlConnection: Sendable {
     func send(_ line: String) {
         let data = Data((line + "\n").utf8)
         queue.async { [self] in
-            withState { state in
+            withState(Self.writeHangDeadline) { state in
                 guard !state.isClosed else { return }
                 if state.outbox.count - state.outboxOffset + data.count > limits.maxOutboxBytes {
                     // The client stopped reading; drop it rather than buffer without limit.
@@ -111,12 +143,12 @@ final class ControlConnection: Sendable {
     }
 
     /// Returns once the client stopped sending (EOF, error) or the
-    /// connection closed (a failed write to a gone client closes it).
+    /// connection closed (a failed write to a gone client closes it). A waiter dropped unresumed returns too.
     func hangup() async {
-        await withCheckedContinuation { waiter in
+        _ = try? await withOnceContinuation { (waiter: OnceContinuation<Void, OnceContinuationError>) in
             queue.async { [self] in
                 withState { state in
-                    if state.isInputFinished || state.isClosed { waiter.resume() } else { state.hangupWaiters.append(waiter) }
+                    if state.isInputFinished || state.isClosed { waiter.resume(returning: ()) } else { state.hangupWaiters.append(waiter) }
                 }
             }
         }
@@ -127,8 +159,9 @@ final class ControlConnection: Sendable {
         queue.async { [self] in
             withState { state in
                 state.queuedLines = max(0, state.queuedLines - 1)
+                if !state.queuedLineSizes.isEmpty { state.queuedBytes -= state.queuedLineSizes.removeFirst() }
                 emitLines(&state)
-                if state.isReadSuspended, !state.isInputFinished, state.queuedLines < limits.maxQueuedLines, !state.isClosed {
+                if state.isReadSuspended, !state.isInputFinished, !isQueueFull(state), !state.isClosed {
                     state.isReadSuspended = false
                     state.readSource?.resume()
                 }
@@ -158,9 +191,15 @@ final class ControlConnection: Sendable {
 
     // MARK: - Queue-confined
 
-    /// On the connection queue: runs `body` with the state, then `onClosed` (outside the lock) when the
-    /// descriptor closed in it. Never called from inside `body`: the lock is not recursive.
-    private func withState(_ body: (inout State) -> Void) {
+    /// On the connection queue, as one whole job: runs `body` with the state, then `onClosed` (outside the
+    /// lock) when the descriptor closed in it, both in one hang-watch scope of `deadline`. Never called from
+    /// inside `body`: the lock is not recursive.
+    private func withState(_ deadline: Duration = ControlConnection.readHangDeadline, _ body: (inout State) -> Void) {
+        guard let hangWatched else { return runJob(body) }
+        hangWatched.watch.watch(hangWatched.lane, deadline: deadline) { runJob(body) }
+    }
+
+    private func runJob(_ body: (inout State) -> Void) {
         let closed = state.withLock { state -> (@Sendable () -> Void)? in
             body(&state)
             return state.isDescriptorClosed ? state.onClosed.take() : nil
@@ -171,7 +210,7 @@ final class ControlConnection: Sendable {
     private func resumeHangupWaiters(_ state: inout State) {
         let waiters = state.hangupWaiters
         state.hangupWaiters.removeAll()
-        waiters.forEach { $0.resume() }
+        waiters.forEach { $0.resume(returning: ()) }
     }
 
     private func readAvailable(_ state: inout State) {
@@ -198,20 +237,27 @@ final class ControlConnection: Sendable {
         }
     }
 
-    /// Hands complete lines to the consumer until `maxQueuedLines` wait,
-    /// then suspends reading.
+    /// True when the consumer holds `maxQueuedLines` lines or, with at least one, `maxQueuedBytes`.
+    private func isQueueFull(_ state: State) -> Bool {
+        state.queuedLines >= limits.maxQueuedLines || (state.queuedLines > 0 && state.queuedBytes >= limits.maxQueuedBytes)
+    }
+
+    /// Hands complete lines to the consumer until `maxQueuedLines` or
+    /// `maxQueuedBytes` wait, then suspends reading.
     private func emitLines(_ state: inout State) {
-        while state.queuedLines < limits.maxQueuedLines, let newline = state.inbound.firstIndex(of: 0x0A) {
+        while !isQueueFull(state), let newline = state.inbound.firstIndex(of: 0x0A) {
             let lineData = state.inbound.prefix(upTo: newline)
             state.inbound.removeSubrange(state.inbound.startIndex...newline)
             state.queuedLines += 1
+            state.queuedLineSizes.append(lineData.count)
+            state.queuedBytes += lineData.count
             state.continuation?.yield(String(decoding: lineData, as: UTF8.self))
         }
         if state.isInputFinished, state.inbound.firstIndex(of: 0x0A) == nil {
             state.continuation?.finish()
             state.continuation = nil
         }
-        if state.queuedLines >= limits.maxQueuedLines, !state.isReadSuspended, !state.isInputFinished, let readSource = state.readSource {
+        if isQueueFull(state), !state.isReadSuspended, !state.isInputFinished, let readSource = state.readSource {
             readSource.suspend()
             state.isReadSuspended = true
         }
@@ -276,7 +322,7 @@ final class ControlConnection: Sendable {
             let source = DispatchSource.makeWriteSource(fileDescriptor: descriptor, queue: queue)
             source.setEventHandler { [weak self] in
                 guard let self else { return }
-                withState { self.flush(&$0) }
+                withState(Self.writeHangDeadline) { self.flush(&$0) }
             }
             source.setCancelHandler { [weak self] in
                 guard let self else { return }
@@ -326,7 +372,7 @@ final class ControlConnection: Sendable {
         if state.liveSources == 0, state.isClosed { closeDescriptor(&state) }
     }
 
-    /// Closes the descriptor; ``withState(_:)`` then calls `onClosed`.
+    /// Closes the descriptor; ``withState(_:_:)`` then calls `onClosed`.
     private func closeDescriptor(_ state: inout State) {
         Darwin.close(descriptor)
         state.isDescriptorClosed = true

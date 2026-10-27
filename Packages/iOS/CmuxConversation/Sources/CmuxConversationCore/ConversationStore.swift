@@ -765,7 +765,7 @@ public final class ConversationStore {
             polls.server[message.id] = nil
             pollFailures[message.id] = nil
         }
-        messages.removeFirst(cut)
+        messages.removeSubrange(..<cut)
         indexByID.removeAll(keepingCapacity: true)
         for (index, message) in messages.enumerated() {
             indexByID[message.id] = index

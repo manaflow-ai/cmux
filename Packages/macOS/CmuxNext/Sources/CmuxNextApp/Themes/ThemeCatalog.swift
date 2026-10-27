@@ -1,6 +1,9 @@
 import CmuxNextDesign
 import CmuxNextTerminal
 import CmuxNextWakeups
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
+import func CmuxSafeConcurrency.withOnceContinuation
 import Foundation
 import Observation
 
@@ -34,7 +37,7 @@ final class ThemeCatalog {
     @ObservationIgnored private var namesLanded: UInt64 = 0
     @ObservationIgnored private var colorsLanded: UInt64 = 0
     /// ``reload()`` callers, each with the pass it waits for.
-    @ObservationIgnored private var waiting: [(pass: UInt64, resume: CheckedContinuation<Void, Never>)] = []
+    @ObservationIgnored private var waiting: [(pass: UInt64, resume: OnceContinuation<Void, OnceContinuationError>)] = []
 
     /// - Parameters:
     ///   - work: The app's lanes; the theme folders are read on its files lane.
@@ -58,7 +61,8 @@ final class ThemeCatalog {
     ///   person waits on).
     func reload(_ workClass: BudgetedWorkClass) async {
         let pass = startPass(workClass)
-        await withCheckedContinuation { waiting.append((pass, $0)) }
+        // A catalog dropped with the call waiting ends it abandoned: nothing is left to wait for.
+        _ = try? await withOnceContinuation { (resume: OnceContinuation<Void, OnceContinuationError>) in waiting.append((pass, resume)) }
     }
 
     /// Starts a pass on the files lane: the names first, so pickers list themes first (a strip-less
@@ -110,7 +114,7 @@ final class ThemeCatalog {
         // A newer pass that landed first answered this one's callers too.
         let done = waiting.filter { $0.pass <= colorsLanded }
         waiting.removeAll { $0.pass <= colorsLanded }
-        for waiter in done { waiter.resume.resume() }
+        for waiter in done { waiter.resume.resume(returning: ()) }
     }
 
     /// Whether Ghostty accepts `text` as a theme spec: a spec whose every

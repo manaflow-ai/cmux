@@ -163,7 +163,7 @@ struct SuspendWatchTests {
         #expect(log.edges == [.pause, .resume, .reconnect])
         #expect(log.closes == 1)
         // The same count again reconnects nothing.
-        source.update(EnergyPolicy(onBattery: true, networkResumes: 1))
+        source.update(EnergyPolicy(networkResumes: 1, onBattery: true))
         #expect(log.closes == 1)
         #expect(gate.reconnectDelay() == .seconds(1))
         gate.whileAwake { armed = true }

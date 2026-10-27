@@ -83,7 +83,7 @@ final class TopHomePageView: NSView {
     init(services: AppServices, windowKey: @escaping () -> String) {
         self.services = services
         sidebar = services.home.makeSidebarSource()
-        split = HomeSidebarSplitView(sidebar: list, content: transcriptColumn, mainWork: services.mainWork)
+        split = HomeSidebarSplitView(sidebar: list, content: transcriptColumn, mainWork: services.mainWork, caches: services.home.labCaches, page: visibility.node)
         super.init(frame: .zero)
         setAccessibilityIdentifier("cmux.topPage.home")
         split.windowKey = windowKey

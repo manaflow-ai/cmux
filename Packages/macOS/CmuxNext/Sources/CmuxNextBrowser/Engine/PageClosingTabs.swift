@@ -25,6 +25,7 @@ public final class PageClosingTabs {
         watches[id]?.cancel()
         // task-owner: this set (cancelled on end or a new begin); a keyed page wait (PageWaiters), read
         // only when the page adds a prompt, ends when the page asks or closes or after decideTimeout.
+        // main-hop-allow: whenPrompt is the page's main-actor keyed wait (PageWaiters, R-wait); its resume only drops this set's entry
         watches[id] = Task { [weak self, weak page] in
             _ = await page?.whenPrompt(kind: { $0.isBeforeUnload }, timeout: Self.decideTimeout)
             guard !Task.isCancelled else { return }

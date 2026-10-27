@@ -6,6 +6,9 @@ import CmuxNextDaemon
 import CmuxNextFeed
 import CmuxNextWakeups
 import Foundation
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
+import func CmuxSafeConcurrency.withOnceContinuation
 
 /// The app's feed (plans/cmux-next/feed.md): one `FeedModel` mirroring the
 /// user's `FeedDO` through `CloudFeedSource`. It starts once the cmux account
@@ -30,7 +33,7 @@ final class FeedService {
     /// check on the main thread).
     let acpmuxEnvironment: AcpmuxEnvironment?
     /// The reports reader; a page of a reader that a reset stopped is dropped.
-    private let reports = AcpmuxMailboxSubscription()
+    private let reports: AcpmuxMailboxSubscription
     /// Wakes the current reports reader's retry wait (one per reader, so a stopped reader's end
     /// never touches the next one's watch): its socket's changes, and app activation or wake.
     private var reportsWake: RetryWake?
@@ -48,7 +51,7 @@ final class FeedService {
     private(set) var connection: FeedConnection = .disconnected("not started")
     /// Owner-confirmed state of each item (never the overlay).
     private var confirmed: [String: FeedItemState] = [:]
-    private var waiters: [String: [CheckedContinuation<Void, Never>]] = [:]
+    private var waiters: [String: [OnceContinuation<Void, OnceContinuationError>]] = [:]
     /// Told every owner-confirmed item (snapshot and events), never the overlay
     /// (the agent permission feed bridge reads answers here).
     var onConfirmedItems: (@MainActor ([FeedItem]) -> Void)?
@@ -65,6 +68,8 @@ final class FeedService {
          energy: EnergyPolicySource, shown: ShownWindows?, showcase: Bool = false, acpmuxEnvironment: AcpmuxEnvironment? = nil) {
         self.auth = auth
         self.deadlines = deadlines
+        // Reports are mail agents send: each page lands as an automation task, behind the person's input.
+        reports = AcpmuxMailboxSubscription(mainWork: deadlines.work, workClass: .automation, owner: "FeedService.reports")
         self.work = work
         self.showcase = showcase
         self.acpmuxEnvironment = acpmuxEnvironment
@@ -281,7 +286,7 @@ final class FeedService {
     private func resumeClosed() {
         for (id, list) in waiters where confirmed[id].map({ $0 != .open }) ?? false {
             waiters[id] = nil
-            for waiter in list { waiter.resume() }
+            for waiter in list { waiter.resume(returning: ()) }
         }
     }
 
@@ -291,13 +296,14 @@ final class FeedService {
         // The request's deadline (at most 120 s): a CLI request waits on it; cancelled when the item closes first.
         let timer = MainDeadline(owner: "FeedService.waitClosed", workClass: .automation, scheduler: deadlines)
         timer.schedule(after: ContinuousClock.now.duration(to: deadline)) { [weak self] in self?.expireWaiters(id) }
-        await withCheckedContinuation { waiters[id, default: []].append($0) }
+        // A service dropped with the call waiting ends it abandoned, as the deadline would.
+        _ = try? await withOnceContinuation { (waiter: OnceContinuation<Void, OnceContinuationError>) in waiters[id, default: []].append(waiter) }
         timer.cancel()
     }
 
     private func expireWaiters(_ id: String) {
         guard let list = waiters.removeValue(forKey: id) else { return }
-        for waiter in list { waiter.resume() }
+        for waiter in list { waiter.resume(returning: ()) }
     }
 
     /// One HTTP call to the API Worker as the signed-in user (`/v1/ops` or `/v1/read`), in its

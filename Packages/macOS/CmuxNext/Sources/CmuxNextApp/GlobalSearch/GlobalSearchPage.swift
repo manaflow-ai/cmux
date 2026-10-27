@@ -23,7 +23,8 @@ enum GlobalSearchPage {
     /// The page, reading `tabs` once as it opens; `query` is its starting text.
     static func page(query: String, tabs: [Tab], reveal: @escaping Reveal) -> PalettePageSpec {
         let sources = tabs.map(\.source)
-        let corpus = CorpusHolder(Task { await GlobalSearchCorpus.load(sources) })
+        // The read runs off main from its first step: nothing in it touches the main actor.
+        let corpus = CorpusHolder(Task { @concurrent in await GlobalSearchCorpus.load(sources) })
         let byTab = Dictionary(tabs.map { ($0.source.tabID, $0) }, uniquingKeysWith: { first, _ in first })
         return PalettePageSpec(
             id: pageID, title: GlobalSearchStrings.title, placeholder: GlobalSearchStrings.placeholder, symbol: "magnifyingglass",

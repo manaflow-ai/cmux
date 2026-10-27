@@ -17,7 +17,8 @@ use crate::panic_free::JsonFields;
 use serde::Deserialize;
 use serde_json::{Value, json};
 
-use super::{MessageWriter, Mux};
+use super::routes::{OperationRoute, RouteLine};
+use super::{FrameStage, MessageWriter, Mux};
 use crate::request_origin::page_router_table::{self, Routed};
 use crate::request_origin::{HelloRole, OriginClaim, RequestOrigin, forbidden};
 use crate::resource::{PROTOCOL, RequestId, ResourceError, ResponseEnvelope};
@@ -43,14 +44,22 @@ struct Envelope {
     origin: Option<Value>,
 }
 
-/// `Some(keep_open)` when `message`, a v2 line the catalog parse refused,
-/// is a request of a routed operation (answered here), else `None`.
-pub(super) fn try_handle(
-    mux: &Arc<Mux>,
-    client: u64,
-    message: &str,
-    writer: &MessageWriter,
-) -> Option<bool> {
+/// The v2 operations this module answers (server/routes.rs): every
+/// operation a routed namespace of spec/page-router.json names. Each
+/// page's allow list is checked in [`run`], by the origin gate.
+pub(in crate::server) const OPERATION_ROUTES: &[OperationRoute] = &[OperationRoute {
+    names: |operation| page_router_table::routed(operation).is_some(),
+    stage: FrameStage::PageRouter,
+    entry: handle,
+}];
+
+/// Answers a v2 line whose `operation` a routed namespace names (the route
+/// found it by name). The line's one decode is its [`Envelope`]; `None`
+/// when the line is not exactly one routed request (an unknown or repeated
+/// member, an `operation` no namespace names), which the catalog parse then
+/// answers.
+fn handle(line: &RouteLine<'_>) -> Option<bool> {
+    let RouteLine { mux, client, message, writer, .. } = *line;
     if message.len() > crate::resource::MAX_MESSAGE_BYTES {
         return None;
     }
@@ -278,3 +287,7 @@ fn apps_store(
         json!({"code": "apps.unavailable"}),
     ))
 }
+
+#[cfg(test)]
+#[path = "page_router_tests.rs"]
+mod tests;

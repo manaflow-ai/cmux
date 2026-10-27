@@ -205,6 +205,17 @@ describe("POST /api/hang-reports schema 3", () => {
     expect((payload.scroll_jank as { histograms: unknown[] }).histograms.length).toBe(2);
   });
 
+  test("answers 204 for a hang-watch hang with its thread and stores an unknown thread kind as other", async () => {
+    const report = fixture();
+    const frames = report.hangs[2]!.frames;
+    report.hangs.push({ source: "hangwatch", kind: "hang", durationMs: 2400, frames, thread: { name: "daemon-reader", kind: "io" } });
+    report.hangs.push({ source: "hangwatch", kind: "hang", durationMs: 2100, frames, thread: { name: "other", kind: "gpu" } });
+    const payload = await expectStored(report);
+    expect(payload.dropped).toMatchObject({ labels: 1 });
+    const threads = (payload.hangs as Hang[]).filter((hang) => hang.source === "hangwatch").map((hang) => hang.thread);
+    expect(threads).toEqual([{ name: "daemon-reader", kind: "io" }, { name: "other", kind: "other" }]);
+  });
+
   test("drops key, PTY, per-input and flow records from the black box and counts them", async () => {
     const report = fixture();
     const planted = [
@@ -225,6 +236,22 @@ describe("POST /api/hang-reports schema 3", () => {
     report.catalog_version = 2;
     const payload = await expectStored(report);
     expect(payload.catalog_version).toBe(2);
+  });
+
+  test("accepts the features hash and the non-default features", async () => {
+    const report = fixture();
+    report.features_hash = "363b2a8f1f789985";
+    report.features = [{ name: "hangReportsSchema3", state: "on", source: "env" }, { name: "vsyncHub", state: "off", source: "remote" }];
+    const payload = await expectStored(report);
+    expect(payload.features_hash).toBe("363b2a8f1f789985");
+    expect(payload.features).toEqual(report.features);
+  });
+
+  test("accepts the main thread's blocking site counts by hashed site id", async () => {
+    const report = fixture();
+    report.blocking_sites = [{ site: "9f86d081884c7d65", kind: "file-io", count: 12, total_ms: 34 }];
+    const payload = await expectStored(report);
+    expect(payload.blocking_sites).toEqual(report.blocking_sites);
   });
 
   test("answers 400 for a bad shape", async () => {
@@ -255,6 +282,13 @@ describe("POST /api/hang-reports schema 3", () => {
       (report) => { report.hangs[3]!.task = { class: "visible", owner: "SidebarRows" }; },
       (report) => { report.hangs[1]!.task = { class: "visible", owner: "cmux config" }; },
       (report) => { report.hangs[0]!.blocking = { kind: "File IO", context: "main" }; },
+      (report) => { report.hangs[1]!.thread = { name: "daemon-reader", kind: "io" }; },
+      (report) => { report.hangs[2]!.source = "hangwatch"; },
+      (report) => { Object.assign(report.hangs[3]!, { source: "hangwatch", thread: { name: "daemon-reader", kind: "io" } }); },
+      (report) => { Object.assign(report.hangs[2]!, { source: "hangwatch", thread: { name: "/Users/alice", kind: "io" } }); },
+      (report) => { Object.assign(report.hangs[2]!, { source: "hangwatch", thread: { name: "a".repeat(49), kind: "io" } }); },
+      (report) => { Object.assign(report.hangs[2]!, { source: "hangwatch", thread: { name: "daemon-reader", kind: "IO" } }); },
+      (report) => { Object.assign(report.hangs[2]!, { source: "hangwatch", thread: { name: "daemon-reader", kind: "io", tid: 7 } }); },
       (report) => { report.counts.userBlockingWaitP99Ms = "9-10"; },
       (report) => { report.input_latency[0]!.buckets = [1, 2]; },
       (report) => { delete (report as Partial<Mutable>).input_latency_bucket_edges_ms; },
@@ -266,6 +300,17 @@ describe("POST /api/hang-reports schema 3", () => {
       (report) => { report.launch_sections.push({ ...report.launch_sections[0]! }); },
       (report) => { report.sections = []; },
       (report) => { report.catalog_version = 0; },
+      (report) => { report.features_hash = "363B2A8F1F789985"; },
+      (report) => { report.features_hash = "363b2a8f"; },
+      (report) => { report.features = [{ name: "/Users/alice", state: "on", source: "env" }]; },
+      (report) => { report.features = [{ name: "vsyncHub", state: "enabled", source: "env" }]; },
+      (report) => { report.features = [{ name: "vsyncHub", state: "on", source: "default" }]; },
+      (report) => { report.features = [{ name: "vsyncHub", state: "on", source: "env", owner: "PL-test" }]; },
+      (report) => { report.blocking_sites = [{ site: "Sources/App.swift", kind: "file-io", count: 1, total_ms: 0 }]; },
+      (report) => { report.blocking_sites = [{ site: "9F86D081884C7D65", kind: "file-io", count: 1, total_ms: 0 }]; },
+      (report) => { report.blocking_sites = [{ site: "9f86d081884c7d65", kind: "file-io", count: 0, total_ms: 0 }]; },
+      (report) => { report.blocking_sites = [{ site: "9f86d081884c7d65", kind: "File IO", count: 1, total_ms: 0 }]; },
+      (report) => { report.blocking_sites = [{ site: "9f86d081884c7d65", kind: "file-io", count: 1, total_ms: 0, location: "x" }]; },
       (report) => { report.extra = true; },
       (report) => { (report.launches as Record<string, unknown>).launchFirstFrame = [{ temperature: "hot", count: 1, buckets: [] }]; },
     ];
@@ -320,7 +365,10 @@ describe("POST /api/hang-reports schema 3", () => {
       (report) => { report.counts.userBlockingWaitP99Ms = "4-8"; },
       (report) => { report.hangs.unshift(v3.hangs[0]!); },
       (report) => { report.hangs[0]!.task = { class: "visible", owner: "SidebarRows" }; },
+      (report) => { Object.assign(report.hangs[0]!, { source: "hangwatch", kind: "hang", thread: { name: "daemon-reader", kind: "io" } }); },
       (report) => { report.intervals[0]!.category = "main"; },
+      (report) => { report.features_hash = "363b2a8f1f789985"; },
+      (report) => { report.features = [{ name: "vsyncHub", state: "on", source: "env" }]; },
     ];
     for (const [index, mutate] of mutations.entries()) {
       const report = { ...JSON.parse(schema2), reportId: crypto.randomUUID() };

@@ -42,14 +42,16 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     public let inputReadiness: PageInputReadiness
     /// Delivers router envelopes in order, rendering large ones off the main actor.
     let scripts: PageScriptPipeline
-    /// The bridge the script FIFO and ``evaluateInPage(_:)`` use: WebKit's, or Chromium's while a Chromium page shows the document.
+    /// The bridge the script FIFO and ``pushes`` use: WebKit's, or Chromium's while a Chromium page shows the document.
     let scriptTarget: PageScriptTarget
     /// The engine the page shows in and, for WebKit, why (``PageEnginePolicy``).
     public internal(set) var engineDecision: PageEngineDecision
     /// The Chromium page while one shows the document (PageWebView+Chromium.swift).
     var chromiumSession: PageChromiumSession?
     /// What the page lifecycle froze the page in, nil while it runs (PageWebView+Lifecycle.swift).
-    var frozenEngine: PageFrozenEngine?
+    var frozenEngine: PageFrozenEngine? { didSet { if oldValue == nil, frozenEngine != nil { pushes.freezeStarted() } } }
+    /// The scripts native code runs in the page, held or thawing it first while it is frozen.
+    lazy var pushes = PageNativePushes(self)
     /// Rects in this view's coordinates where native UI of the window shows over the page
     /// (PageWebView+NativeRects.swift): a Chromium page leaves them uncovered. WebKit draws in the
     /// window's own view tree, under that UI, and needs none.
@@ -67,10 +69,23 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     var chromiumStart: Task<Void, Never>?
     /// Set from the Chromium browser's end until the page shows in an engine again or closes (a discard keeps it); a replaced one ends its wait.
     var chromiumRecovery: PageChromiumRecovery? { didSet { if oldValue !== chromiumRecovery { oldValue?.cancel() } } }
+    /// The pane window the Chromium page shows in (``PageChromiumWindow``), nil for one of its own. The
+    /// pane that shows the page's tab sets it; a new value moves a live page there
+    /// (``PageChromiumPage/moveWindow(to:)``), and a page still being made moves once it attaches.
+    public var chromiumWindow: PageChromiumWindow? {
+        didSet {
+            guard let chromiumWindow, chromiumWindow != oldValue else { return }
+            chromiumSession?.page.moveWindow(to: chromiumWindow)
+        }
+    }
     /// How long a Chromium page may take to reach the host before the view falls back to WebKit.
     var chromiumDeadline: Duration = .seconds(8)
-    /// The deadline's clock (tests pass one that returns at once or never).
-    var chromiumClock: any Clock<Duration> = ContinuousClock()
+    /// Where that deadline runs: the view's ``deadlines`` (a suite that is not about the fallback passes one that
+    /// never fires). Read when the Chromium page reaches the host, after the view's first turn; set before then.
+    var chromiumDeadlines: MainDeadlineScheduler
+    /// The app's one deadline scheduler (``WebUIHost``'s or ``PageHostPool``'s): the claim's fallback, the Chromium
+    /// page's deadline and the settings pushes (status look, UI scale) run on it and its ``MainDeadlineScheduler/work``.
+    let deadlines: MainDeadlineScheduler
     /// The Chromium host the view was made with (its ``WebUIHost``'s); a discarded page makes its
     /// Chromium page again through it (PageWebView+Discard.swift).
     let chromiumHost: (any PageChromiumHosting)?
@@ -97,7 +112,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     /// confirmation sheet, a menu or popup, a drop it reads, Web Inspector, dictation); each change
     /// tells the lifecycle.
     package let keepReasons = PageKeepReasons()
-    var loadWaiters: [CheckedContinuation<Void, Never>] = []
+    var loadWaiters: [PageLoadWaiter] = []
     var shouldFocusOnAttach = false
     /// The page's popup past the window's edge (PageWebView+Popup.swift), made on first use.
     var popupHost: WebPopupHost?
@@ -114,10 +129,9 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     private lazy var themeFollower = ThemeFollower(self) { [weak self] in self?.applyTheme() }
     /// The wallpaper still the page's glass lenses (`cmuxTheme.backdrop`), pushed after each theme and when
     /// the page's place settles (PageWebView+GlassMotion.swift).
-    lazy var glassFeed = GlassBackdropFeed(host: self, zoom: { [weak self] in self?.pageZoom ?? 1 }) { [weak self] in self?.evaluateInPage($0) }
-    private var uiScaleObservation: Task<Void, Never>?
-    /// The static status look (`WebTheme.statusIndicators`): the setting and Reduce Motion.
-    private var statusLookObservation: Task<Void, Never>?
+    lazy var glassFeed = GlassBackdropFeed(host: self, zoom: { [weak self] in self?.pageZoom ?? 1 }) { [weak self] in self?.pushGlass($0) }
+    /// The UI scale and the status look the page follows, shown or hidden (PageWebView+SettingsPushes.swift).
+    private var settingsPushes: PageSettingsPushes?
     /// Reduce Motion, the motion switches and the display options (``followAppearance(_:node:)``).
     private var appearanceWatch: AppearanceSignals.Subscription?
     /// Where those come from: the app's ``AppearanceSignals`` (its composition root's, once a pane shows the page).
@@ -200,7 +214,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     /// The crash clock (tests set it).
     var now: () -> Date = { Date() }
     let crash = PageCrashRecovery()
-    let claimState = PageClaimState()
+    let claimState: PageClaimState
     /// The document start a page opened hidden waits with until its first show (PageWebView+FirstShow.swift).
     var firstShowStart: PageFirstShowStart?
     /// The visibility node a page waiting for its first show follows (PageWebView+FirstShow.swift).
@@ -229,36 +243,6 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     /// module's bundled directory, else the root registered for its id.
     nonisolated static func servedRoot(for descriptor: PageDescriptor) -> URL? {
         debugRoot(for: descriptor) ?? PageSchemeHandler.bundledRoot(for: descriptor) ?? PageID.bundledRoot(for: descriptor.id)
-    }
-
-    /// The script that sets `data-<name>` attributes on `<html>`; nil for none. Names keep only
-    /// lowercase letters, digits and dashes; values are JSON string literals.
-    ///
-    /// WebKit runs a document-start script once `<html>` exists, but Chromium runs a new-document
-    /// script (``PageChromiumDocumentScripts``) before the parser makes it, when
-    /// `document.documentElement` is null: setting the attributes then threw, and a Chromium page
-    /// (the agent chat by default) got none of them, so `data-needs-you="off"` never hid Needs you.
-    /// Without `<html>` the script waits for it with a MutationObserver, whose callback runs before
-    /// the page's first script.
-    nonisolated static func attributesScript(_ attributes: [String: String]) -> String? {
-        let safe = attributes.filter { name, _ in !name.isEmpty && name.allSatisfy { $0.isLowercase || $0.isNumber || $0 == "-" } }
-        guard !safe.isEmpty else { return nil }
-        let lines = safe.keys.sorted().map { name in
-            "document.documentElement.setAttribute(\(JSONValue.string("data-" + name).compactText), \(JSONValue.string(safe[name] ?? "").compactText));"
-        }
-        return """
-        (() => {
-        const set = () => {
-        \(lines.joined(separator: "\n"))
-        };
-        if (document.documentElement) { set(); return; }
-        new MutationObserver((_, observer) => {
-          if (!document.documentElement) return;
-          observer.disconnect();
-          set();
-        }).observe(document, { childList: true });
-        })();
-        """
     }
 
     /// The DEBUG root override of a page (`CMUX_NEXT_PAGE_ROOT_cmux_history=/path`), else nil.
@@ -312,8 +296,12 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
          openRequested: TimeInterval? = nil, chromium: (any PageChromiumHosting)? = PageWebView.chromiumHosting,
          openPanel: MadeAheadOpenPanel? = PageWebView.openPanel, registry: PageRegistry = .processWide,
          processGroups: WebProcessGroups? = nil, startsAtFirstShow: Bool = false,
+         deadlines: MainDeadlineScheduler = MainDeadlineScheduler(work: MainWorkScheduler(budget: MainFrameBudget())),
          trace: any PageTraceSink = TraceRuntime.shared, chatOpen: ChatOpenStages? = nil) {
         let constructionStart = openRequested ?? ProcessInfo.processInfo.systemUptime
+        self.deadlines = deadlines
+        chromiumDeadlines = deadlines
+        claimState = PageClaimState(deadlines: deadlines)
         self.trace = trace
         self.chatOpen = chatOpen
         self.descriptor = descriptor
@@ -329,19 +317,18 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         // No script until the first show (``PageScriptTarget/hasDocument``); the engine that shows the document sets the bridge.
         let target = PageScriptTarget(hasDocument: !(load && startsAtFirstShow))
         scriptTarget = target
-        scripts = PageScriptPipeline { script in target.evaluate(script) }
+        scripts = PageScriptPipeline { script in target.evaluate(script) } // MQ12 held queue: the router holds envelopes while hidden
         let decision = Self.engineDecision(for: descriptor, options: options, hosting: chromium)
         engineDecision = pooled || !load ? decision.webKitOnly : decision
         super.init(frame: .zero)
         // A WebKit page builds its engine now; a Chromium page only when it falls back.
         if engineDecision.engine != .cef { _ = webKit }
         SystemScrollers.observe(self) { [weak self] _ in self?.applyTheme() } // theme carries data-scrollers
-        observeStatusLook()
+        observeAppearance()
         wantsLayer = true
         layerContentsRedrawPolicy = .onSetNeedsDisplay
         setAccessibilityIdentifier("cmux.page.\(descriptor.id)")
-        applyUIScale()
-        observeUIScale()
+        settingsPushes = PageSettingsPushes(self, on: deadlines.work) // applies the current scale and look now
         registry.add(self)
         let scripts = scripts
         router.send = { envelope in scripts.send(envelope) }
@@ -390,27 +377,6 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
-    // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
-    nonisolated deinit {
-        guard Thread.isMainThread else { return } // main-proof: returns off the main thread
-        MainActor.assumeIsolated {
-            uiScaleObservation?.cancel()
-            statusLookObservation?.cancel()
-        }
-    }
-
-    /// The theme carries the static status look (`data-status-indicators`, cx-sya4n): a change of
-    /// the setting or of Reduce Motion pushes the theme again.
-    private func observeStatusLook() {
-        statusLookObservation = Task { [weak self] in
-            for await _ in ObservationStream({ DesignSettings.shared.statusIndicator.animation }) {
-                guard let self else { return }
-                self.applyTheme()
-            }
-        }
-        observeAppearance()
-    }
-
     /// Follows `signals` by `node`'s visibility (p06-scheduler.md B): a hidden page re-themes once
     /// when it shows, not on each change. The pane that shows the page calls it
     /// (`TabContent.followAppearance`).
@@ -433,20 +399,11 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         }
     }
 
-    private func observeUIScale() {
-        uiScaleObservation = Task { [weak self] in
-            for await _ in ObservationStream({ (DesignSettings.shared.uiScale, DesignSettings.shared.interfaceScale, DesignSettings.shared.interfaceScaleEnabled) }) {
-                guard let self else { return }
-                self.applyUIScale()
-            }
-        }
-    }
-
     /// Page zoom follows `uiScale`; the chrome multiplier is only the `--cmux-interface-scale` token.
     func applyUIScale() {
         webKitPieces?.view.pageZoom = pageZoom
         chromiumSession?.page.setZoom(pageZoom)
-        evaluateInPage(DesignSettings.shared.interfaceScaleScript)
+        pushes.run(DesignSettings.shared.interfaceScaleScript, whileFrozen: .latest(.interfaceScale))
         if loaded { glassFeed.refresh() } // the zoom moves the art's rect in CSS px
         repaintStandIn() // its title is zoomed as the page's text is
     }
@@ -475,7 +432,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         // pane's hold before the reloaded one drew (finishClaim runs the probe on acknowledgement).
         if repaintsAtNextLayout, !claimState.pending, window != nil, !bounds.isEmpty, !(superview is PageHostParking) {
             repaintsAtNextLayout = false
-            evaluateInPage(PagePaintProbe.script)
+            pushes.run(PagePaintProbe.script, whileFrozen: .latest(.paintProbe))
         }
     }
 
@@ -495,7 +452,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
             loadDocument(descriptor.url(route: fragment))
             return
         }
-        evaluateInPage("window.location.hash = \(JSONValue.string(fragment).compactText);")
+        pushes.run("window.location.hash = \(JSONValue.string(fragment).compactText);", whileFrozen: .latest(.route))
     }
 
     /// Sends a dispatcher command (`find` with optional `text`, `focusSearch`, `back`, `forward`,
@@ -595,6 +552,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         super.viewDidMoveToWindow()
         // Its tab or window closed: the page's popup ends with it.
         if window == nil { popupHost?.dismiss() }
+        // visibility-walk-allow: the engine's visibility is the AppKit state its view shows in (the freeze guard reads the same); one walk per window move
         setEngineVisible(window != nil && !isHiddenOrHasHiddenAncestor)
         checkFirstShow()
         applyTheme()
@@ -606,18 +564,21 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     }
 
     /// Another tab took the pane: the page's popup ends.
+    // visibility-walk-allow: AppKit's hide is the engine's own visibility signal (WebKit and Chromium throttle the page from it), not hidden-dirty view work; a popup over a hidden page ends
     public override func viewDidHide() {
         super.viewDidHide()
         popupHost?.dismiss()
         setEngineVisible(false)
     }
 
+    // visibility-walk-allow: AppKit's unhide is the engine's own visibility signal, and the first show starts the document (checkFirstShow); no hidden-dirty view work
     public override func viewDidUnhide() {
         super.viewDidUnhide()
         setEngineVisible(window != nil)
         checkFirstShow()
     }
 
+    // visibility-walk-allow: the theme push must reach the page shown or hidden, so its first frame after a show paints in the new colors (ThemeFollower's rule); an unchanged payload sends nothing
     public override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         applyTheme()
@@ -637,7 +598,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         let theme = currentTheme()
         if force || theme.payloadJSON != appliedTheme {
             appliedTheme = theme.payloadJSON
-            evaluateInPage(theme.applyScript)
+            pushes.run(theme.applyScript, whileFrozen: .latest(.theme))
         }
         // After the theme, which sets `data-glass`; a forced push is a new document, which has no still yet.
         glassFeed.refresh(newDocument: force)

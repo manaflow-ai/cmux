@@ -54,6 +54,13 @@ extension CEFPaneHost {
             guard let self else { return answered(nil) }
             lookUpWord(at: point, scale: scale, answered: answered)
         }
+        // No macOS caret accessory while the shown tab is a cmux page, as on Chromium's own view of one.
+        page.showsCmuxPage = { [weak self] in self?.visibleTab?.pageThemeSurface != nil }
+        // Two-finger Back and Forward swipes over the shown page, from the host's wheel acks (task 234).
+        page.wheelGesture = { [weak self, weak page] event in
+            guard let self, let page, let tab = visibleTab else { return false }
+            return runtime.swipeNavigation.handleHosted(event, tab: tab, page: page)
+        }
         #endif
         // The host's page window takes the view's size in the same commit as the pane (task 052).
         page.onGeometry = { [weak self, weak page] geometry in

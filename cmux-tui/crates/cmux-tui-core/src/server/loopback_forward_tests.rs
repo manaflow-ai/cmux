@@ -64,8 +64,26 @@ impl Client {
     }
 
     fn send(&mut self, value: Value) {
-        writeln!(self.writer, "{value}").unwrap();
+        self.send_line(&value.to_string());
+    }
+
+    /// Sends `line` as written (for JSON escapes `Value` would not keep).
+    fn send_line(&mut self, line: &str) {
+        writeln!(self.writer, "{line}").unwrap();
         self.writer.flush().unwrap();
+    }
+
+    /// The reply whose `id` is `id`; events before it are kept.
+    fn reply(&mut self, id: u64) -> Value {
+        let deadline = Instant::now() + WAIT;
+        loop {
+            let line = self.read_line(deadline).expect("no response before the deadline");
+            if line.get("event").is_some() {
+                self.events.push_back(line);
+            } else if line["id"] == json!(id) {
+                return line;
+            }
+        }
     }
 
     fn read_line(&mut self, deadline: Instant) -> Option<Value> {
@@ -94,15 +112,7 @@ impl Client {
         self.next_id += 1;
         value["id"] = json!(id);
         self.send(value);
-        let deadline = Instant::now() + WAIT;
-        loop {
-            let line = self.read_line(deadline).expect("no response before the deadline");
-            if line.get("event").is_some() {
-                self.events.push_back(line);
-            } else if line["id"] == json!(id) {
-                return line;
-            }
-        }
+        self.reply(id)
     }
 
     fn opt_in(&mut self) {
@@ -498,6 +508,73 @@ fn loopback_data_for_an_unknown_stream_is_refused() {
     assert_eq!(event["event"], "loopback-closed");
     assert_eq!(event["stream"], 99);
     assert_eq!(event["error"], "unknown-stream");
+}
+
+/// The route is found by the line's decoded `cmd`, so a `cmd` spelled with a
+/// JSON escape reaches the handler. The substring scan this replaced missed
+/// it, and the `Command` parse answered with an unknown command.
+#[test]
+fn an_escaped_loopback_cmd_reaches_its_route() {
+    let mux = mux("loopback-escaped");
+    let mut client = Client::connect(&mux, "escaped");
+    client.opt_in();
+    // The JSON escape of `-`.
+    client.send_line(r#"{"id":70,"cmd":"loopback\u002dstatus"}"#);
+    let reply = client.reply(70);
+    assert_eq!(reply["ok"], true, "{reply}");
+    assert_eq!(reply["data"]["enabled"], true, "{reply}");
+}
+
+/// A data frame's base64 is decoded while the line parses, from the text as
+/// the line spells it: JSON escapes (Swift's encoder writes `/` as `\/`) and
+/// a full 64 KiB frame reach the target byte for byte.
+#[test]
+fn loopback_data_decodes_escaped_and_full_frames_into_the_stream() {
+    let mux = mux("loopback-frames");
+    let (listener, port) = target();
+    let server = std::thread::spawn(move || {
+        let (mut socket, _) = listener.accept().unwrap();
+        let mut received = Vec::new();
+        socket.read_to_end(&mut received).unwrap();
+        received
+    });
+    let mut client = Client::connect(&mux, "frames");
+    client.opt_in();
+    assert_eq!(client.open(3, "127.0.0.1", port)["ok"], true);
+    // 0xfb 0xff 0xbf is `+/+/` in base64.
+    let slashes = [0xfb_u8, 0xff, 0xbf];
+    let escaped = b64(&slashes).replace('/', "\\/");
+    client.send_line(&format!(r#"{{"cmd":"loopback-data","stream":3,"data":"{escaped}"}}"#));
+    let full: Vec<u8> = (0..MAX_FRAME_BYTES).map(|index| (index % 251) as u8).collect();
+    client.send(json!({"cmd": "loopback-data", "stream": 3, "data": b64(&full)}));
+    client.send(json!({"cmd": "loopback-shutdown", "stream": 3}));
+    let mut expected = slashes.to_vec();
+    expected.extend(&full);
+    assert_eq!(server.join().unwrap(), expected);
+}
+
+/// Data that is not base64, or decodes to more than 64 KiB, still reaches its
+/// stream, and the stream ends with `bad-frame`.
+#[test]
+fn loopback_data_that_is_not_a_frame_ends_its_stream() {
+    let oversized = b64(&vec![0_u8; MAX_FRAME_BYTES + 1]);
+    for (stream, data) in [(1_u64, "not base64!"), (2, oversized.as_str())] {
+        let mux = mux("loopback-bad-frame");
+        let (listener, port) = target();
+        let mut client = Client::connect(&mux, "bad-frame");
+        client.opt_in();
+        assert_eq!(client.open(stream, "127.0.0.1", port)["ok"], true);
+        let _accepted = listener.accept().unwrap();
+        client.send(json!({"cmd": "loopback-data", "stream": stream, "data": data}));
+        let closed = loop {
+            let event = client.event(WAIT).expect("no loopback-closed for a bad frame");
+            if event["event"] == "loopback-closed" {
+                break event;
+            }
+        };
+        assert_eq!(closed["stream"], stream, "{closed}");
+        assert_eq!(closed["error"], "bad-frame", "{closed}");
+    }
 }
 
 #[test]

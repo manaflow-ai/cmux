@@ -166,6 +166,32 @@ holder's live terminals, with the A3 reconcile notice. Target: every daemon op <
 
 Owners: D1-D8 cmux-b6 PL-daemon (speed) with PL-holder (cmux-4f) for the holder side; acpmux (A1-A3 and its share of D1-D8) end to end cmux-4f PL-acpmux, audit and fixes (lead decision 2026-10-23; OWNERS.md 8b1e64c6130; [acpmux-audit.md](acpmux-audit.md)). Every fix meets the brief's REVIEW AND FIX STANDARD and gets the deep review (cmux-next-deep-review).
 
+### Chrome runtime idle services (p13-webui-084)
+
+Rule (chrome-parity p13 F, "Home at the floor"): a Chrome runtime service cmux does not use does
+not run at Home. Census from the Chromium 154 sources (cef-154.0.28-cmux.28, Chromium 154.0.8037.58);
+each switch and its source is a constant in `CEFSwitches.swift` (`syncOffSwitch`, and
+`idleServiceOffFeatures` in the one `disable-features` entry), which the Chromium Host passes too. Not measured yet: the home bench and the browser automation suite run
+before and after on the fleet (test phase); the wake rates below are from the sources.
+
+| Service | Idle work at Home (source) | Decision |
+|---|---|---|
+| HangWatcher | a thread per Chromium process (app, GPU, network, renderers) wakes every 10 s, `base/threading/hang_watcher.cc` | off: `disable-features=EnableHangWatcher,EnableHangWatcherOnGpuProcess`; its dumps need Crashpad upload, cmux ships no `crash_reporter.cfg` |
+| Sync | SyncServiceImpl, engine and invalidations per profile, `components/sync/base/command_line_switches.h` | off: `disable-sync`; no Google sign-in, cmux owns bookmarks, password code is null-safe |
+| Optimization Hints | hints component registered with the component updater, `optimization_hints_component_installer.cc` | off: `disable-features=OptimizationHints` (Puppeteer and chrome-launcher do the same) |
+| Optimization guide models (`OptimizationTargetPrediction`) | model downloads through the optimization guide | kept: Safe Browsing client-side detection gets its model here (`client_side_detection_service.cc`) |
+| Component updater | first check 1 min after start, then every 5 h, `components/component_updater/configurator_impl.cc` | kept (written decision): it installs the Widevine CDM (browser.md, Lawrence 2026-10-17) and CRLSet |
+| Safe Browsing | list updates | kept (written decision): no change; phishing and malware protection stays on (p14-energy: "Safe Browsing and CRLSet stay") |
+| Variations seed fetch | none: a build without Chrome branding fetches only with `--variations-server-url`, `components/variations/service/variations_service.cc` IsFetchingEnabled | already off; `disable-field-trial-config` stays |
+| Media Router (Cast) | none before a Cast click: `kDelayMediaSinkDiscovery` is on by default, `chrome/browser/media/router/media_router_feature.cc` | kept: the page menu's Cast row works |
+| Translate | language detection after a page load, not at idle | kept: the page menu's Translate rows work |
+| GCM | delayed start; no app handler registers (`disable-notifications` turns off Push, sync is off) | no switch |
+| Network time | a timer every 360 s, a query at about 1.2 % of checks, `components/network_time/network_time_tracker.cc` | kept: it feeds the cert verifier's clock (`cert_verifier_service_time_updater.cc`); 0.003 wakes/s |
+| Domain Reliability | none without metrics consent, `chrome/browser/domain_reliability/service_factory.cc` | already off |
+
+Tell: the browser owner, PL-cefhost (OWNERS.md row for the CEF files; this task holds the `CEFSwitches.swift`
+lease, coordination/cefs-leases.md).
+
 ## 4. Workstreams (batch 1)
 
 Each workstream is one subagent in its own worktree, lands on feat-cmux-next (rebase, plain
@@ -188,6 +214,14 @@ push), and writes its before/after table into this file's section 5.
   `cef-layer-hosting-DESIGN.md`.
 - **PL-typing**: issue 5 and the terminal key-to-frame baseline; sidebar-caused lag goes to a590 (the
   sidebar owner, who took a576's work).
+- **PL-input** (chrome-parity program p04-input, 2026-10-26): input before all other main-thread
+  work, continuous input once per frame, scroll on layers, prediction that moves only pixels,
+  O(1) key routing, and EventLatency from the OS event to the presented frame. Owns the
+  CmuxNextInput* targets ([OWNERS.md](OWNERS.md)); PL-typing keeps the key router. Red rows: 5
+  and 6 (key to frame under load) and the input half of 26. Target: key to presented frame p50
+  <= 8.3 ms and p99 <= 16.7 ms at 120 Hz, light and STRESS. Design:
+  [input-pipeline-DESIGN.md](input-pipeline-DESIGN.md); spec and task table:
+  [chrome-parity/p04-input.md](chrome-parity/p04-input.md).
 
 Batch 2 (after batch 1 lands): issues 8, 9, 11, 15-20.
 

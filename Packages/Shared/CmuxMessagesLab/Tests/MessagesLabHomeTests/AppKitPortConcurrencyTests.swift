@@ -24,20 +24,31 @@ import Testing
         #expect(seen.n == 1)
     }
 
-    /// The timer fires once on the main run loop; an invalidated one never fires.
-    @Test func aMainRunLoopTimerFiresOnceAndAnInvalidatedOneNever() {
-        let fired = Count(), cancelledFired = Count()
-        let cancelled = MainRunLoopTimer(after: 0) { cancelledFired.n += 1 }
-        cancelled.invalidate()
-        let timer = MainRunLoopTimer(after: 0.01) { fired.n += 1 }
-        #expect(timer.isValid)
+    /// The standalone deadline fires once on the main run loop with its tolerance (none when exact or
+    /// due now); a cancelled or replaced one never fires.
+    @Test func aRunLoopDeadlineFiresOnceAndACancelledOrReplacedOneNever() {
+        let fired = Count(), cancelledFired = Count(), replacedFired = Count()
+        let cancelled = RunLoopDeadline()
+        cancelled.schedule(after: 0) { cancelledFired.n += 1 }
+        #expect(cancelled.pendingTolerance == 0, "a deadline due now is exact")
+        cancelled.cancel()
+        let exact = RunLoopDeadline(exact: true)
+        exact.schedule(after: 0.5) {}
+        #expect(exact.pendingTolerance == 0)
+        exact.cancel()
+        let deadline = RunLoopDeadline()
+        deadline.schedule(after: 0.5) { replacedFired.n += 1 }
+        #expect(deadline.pendingTolerance == RunLoopDeadline.flexibleTolerance)
+        deadline.schedule(after: 0.01) { fired.n += 1 }
+        #expect(deadline.isPending)
         // The main run loop in its default mode, as AppKit runs it between events (bounded).
-        let deadline = Date(timeIntervalSinceNow: 2)
-        while fired.n == 0, Date() < deadline { _ = RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.01)) }
+        let end = Date(timeIntervalSinceNow: 2)
+        while fired.n == 0, Date() < end { _ = RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.01)) }
         #expect(fired.n == 1)
-        #expect(!timer.isValid)
+        #expect(!deadline.isPending)
+        #expect(replacedFired.n == 0)
         #expect(cancelledFired.n == 0)
-        #expect(!cancelled.isValid)
+        #expect(!cancelled.isPending)
     }
 
     /// The renderer draws in its format's color space, so a render job off main can take the space

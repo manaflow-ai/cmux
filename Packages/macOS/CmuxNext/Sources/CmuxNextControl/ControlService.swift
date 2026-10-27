@@ -2,6 +2,7 @@ public import CmuxNextActions
 public import CmuxNextCompat
 import CmuxNextDaemon
 public import CmuxNextSettings
+public import CmuxNextTrace
 public import CmuxNextWakeups
 public import Foundation
 
@@ -22,6 +23,10 @@ public import Foundation
 /// `automation.socketControlMode`, else `automation` (any process of this
 /// user; see ``defaultAccessMode``). The retired password mode fails closed
 /// to `off`; plaintext socket passwords are never read from settings or env.
+///
+/// Hang watch: with `hangs` (the app passes `TraceRuntime.shared.hangWatch`, which its hang monitor reads),
+/// the accept queue and each connection's queue are hang-watched lanes, one scope per job
+/// (``ControlSocketServer``); nil, the default, watches nothing.
 @MainActor
 public final class ControlService {
     public let server: ControlSocketServer
@@ -48,10 +53,12 @@ public final class ControlService {
         accessMode explicitMode: ControlAccessMode? = nil,
         frameSource: any ControlFrameSource = MainQueueFrameSource(),
         watchdog: MainThreadWatchdog? = nil,
-        mainWork: MainWorkScheduler = MainWorkScheduler(budget: MainFrameBudget())
+        mainWork: MainWorkScheduler = MainWorkScheduler(budget: MainFrameBudget()),
+        hangs: (any HangWatchScoping)? = nil
     ) throws -> ControlService {
         let service = try prepare(registry: registry, settings: settings, launch: launch, environment: environment, bundle: bundle,
-                                  accessMode: explicitMode, frameSource: frameSource, watchdog: watchdog, mainWork: mainWork)
+                                  accessMode: explicitMode, frameSource: frameSource, watchdog: watchdog, mainWork: mainWork,
+                                  hangs: hangs)
         try service.server.start()
         return service
     }
@@ -68,7 +75,8 @@ public final class ControlService {
         accessMode explicitMode: ControlAccessMode? = nil,
         frameSource: any ControlFrameSource = MainQueueFrameSource(),
         watchdog: MainThreadWatchdog? = nil,
-        mainWork: MainWorkScheduler = MainWorkScheduler(budget: MainFrameBudget())
+        mainWork: MainWorkScheduler = MainWorkScheduler(budget: MainFrameBudget()),
+        hangs: (any HangWatchScoping)? = nil
     ) throws -> ControlService {
         let configuredMode = settings?.snapshot.root.value(at: ["automation", "socketControlMode"])?.stringValue
         let mode = resolveAccessMode(explicit: explicitMode, environment: environment, configured: configuredMode)
@@ -93,7 +101,8 @@ public final class ControlService {
             identity: identity,
             frameSource: frameSource,
             watchdog: watchdog,
-            mainWork: mainWork
+            mainWork: mainWork,
+            hangs: hangs
         )
     }
 
@@ -106,16 +115,17 @@ public final class ControlService {
         identity: ControlIdentity,
         frameSource: any ControlFrameSource = MainQueueFrameSource(),
         watchdog: MainThreadWatchdog? = nil,
-        mainWork: MainWorkScheduler = MainWorkScheduler(budget: MainFrameBudget())
+        mainWork: MainWorkScheduler = MainWorkScheduler(budget: MainFrameBudget()),
+        hangs: (any HangWatchScoping)? = nil
     ) throws -> ControlService {
         let service = try prepare(registry: registry, settingsStore: settingsStore, settingsWriter: settingsWriter,
                                   configuration: configuration, identity: identity, frameSource: frameSource, watchdog: watchdog,
-                                  mainWork: mainWork)
+                                  mainWork: mainWork, hangs: hangs)
         try service.server.start()
         return service
     }
 
-    /// ``prepare(registry:settings:launch:environment:bundle:accessMode:frameSource:watchdog:mainWork:)`` with an
+    /// ``prepare(registry:settings:launch:environment:bundle:accessMode:frameSource:watchdog:mainWork:hangs:)`` with an
     /// explicit configuration (tests, demos).
     public static func prepare(
         registry: ActionRegistry,
@@ -125,7 +135,8 @@ public final class ControlService {
         identity: ControlIdentity,
         frameSource: any ControlFrameSource = MainQueueFrameSource(),
         watchdog: MainThreadWatchdog? = nil,
-        mainWork: MainWorkScheduler = MainWorkScheduler(budget: MainFrameBudget())
+        mainWork: MainWorkScheduler = MainWorkScheduler(budget: MainFrameBudget()),
+        hangs: (any HangWatchScoping)? = nil
     ) throws -> ControlService {
         guard configuration.accessMode != .off else { throw ControlSocketServer.StartError.disabled }
         let bridge = RegistryControlBridge(registry: registry, work: mainWork)
@@ -137,7 +148,7 @@ public final class ControlService {
         router.register([ThreadsControl().method])
         #endif
         bridge.attach(to: router)
-        let server = ControlSocketServer(configuration: configuration, router: router)
+        let server = ControlSocketServer(configuration: configuration, router: router, hangs: hangs)
         return ControlService(server: server, router: router, bridge: bridge)
     }
 

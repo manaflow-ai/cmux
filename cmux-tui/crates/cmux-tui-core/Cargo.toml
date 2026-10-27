@@ -36,6 +36,9 @@ cmux-unix-socket.workspace = true
 cmux-pty.workspace = true
 # The panic log and the process's hang watcher: request, journal writer and holder-link scopes.
 cmux-panic-log.workspace = true
+# The Release hang watch (p09-observability 3E): frame, request, journal batch,
+# terminal job and line-out write scopes.
+cmux-hang-watch.workspace = true
 cmux-holder.workspace = true
 cmux-ipc.workspace = true
 cmux-process.workspace = true
@@ -70,6 +73,9 @@ serde.workspace = true
 serde_json = { workspace = true, features = ["float_roundtrip", "raw_value"] }
 anyhow.workspace = true
 base64.workspace = true
+# Attach output: one shared buffer per PTY read for every viewer (surface/attach_tap.rs);
+# attach frame payloads share it (server/attach_frames.rs).
+bytes.workspace = true
 libc.workspace = true
 regex.workspace = true
 jsonschema.workspace = true
@@ -109,6 +115,11 @@ backtrace = "0.3"
 reqwest.workspace = true
 rustls.workspace = true
 tokio.workspace = true
+
+# Low Power Mode and the thermal state for the daemon's own Energy Saver
+# reading (mux/power_source.rs); the version cmux-motion's AppKit links.
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSProcessInfo"] }
 
 [target.'cfg(windows)'.dependencies]
 # The local socket transport and its same-user checks (cmux::local_socket),

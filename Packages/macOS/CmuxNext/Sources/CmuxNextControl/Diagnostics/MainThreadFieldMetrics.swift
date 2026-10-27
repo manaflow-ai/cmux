@@ -18,7 +18,14 @@ import CmuxNextMetrics
 /// (chrome/browser/metrics/desktop_session_duration/desktop_session_duration_tracker.cc). A stall counts when it
 /// starts less than 5 minutes after the newest input.
 ///
-/// One writer, the main thread: the counters are relaxed atomics only so that the class is `Sendable`.
+/// - `hang.thread_hung.<lane>`: the same intervals, each lane's hangs in it as a rate per hour (hangs × 120),
+///   counted by the watchdog thread (the main thread's own 2 s hangs, the hang monitor's lanes). Only a lane that
+///   hung records a sample, so idle lanes add nothing to an upload: a lane's hangs per active hour are its sum over
+///   the sample count of `hang.over250.per_hour`, which records every interval (Chrome records
+///   `HangWatcher.IsThreadHung.*` per monitoring period, base/threading/hang_watcher.cc).
+///
+/// One writer, the main thread, apart from the lane hang counts the watchdog thread adds: the counters are relaxed
+/// atomics.
 final class MainThreadFieldMetrics: Sendable {
     /// Two inputs further apart than this end the session between them: the gap is not active time.
     static let inactivityNanos: UInt64 = 5 * 60 * 1_000_000_000
@@ -34,6 +41,12 @@ final class MainThreadFieldMetrics: Sendable {
     private let intervalActiveNanos = Atomic<UInt64>(0)
     /// Stalls of 250 ms or more in the open interval.
     private let intervalStalls = Atomic<UInt64>(0)
+    /// Hangs per lane in the open interval: lane `i` of `HistogramID.HangLane.allCases` is byte `i % 8` of word
+    /// `i / 8`, saturating at 255. The watchdog thread adds, the main thread takes each word whole.
+    private let laneHangs0 = Atomic<UInt64>(0), laneHangs1 = Atomic<UInt64>(0), laneHangs2 = Atomic<UInt64>(0)
+    /// How many lanes the counts hold (a lane past them counts as `other`).
+    static let laneCapacity = laneWords * lanesPerWord
+    private static let laneWords = 3, lanesPerWord = 8
 
     /// Records into `metrics` (the app runtime's store by default; tests pass their own).
     init(metrics: Metrics = Metrics()) {
@@ -70,16 +83,65 @@ final class MainThreadFieldMetrics: Sendable {
         intervalStalls.wrappingAdd(1, ordering: .relaxed)
     }
 
-    /// Records the open interval as a full one when it has active time or stalls (a decided quit: its stalls are
-    /// not lost, and the active time is overstated by under one interval).
+    /// A hang of `lane` that began at `atNanos` (ns of uptime: a lane's budget end, the main thread's stall start) was
+    /// reported (watchdog thread). It counts when the person was active then, as a stall does.
+    func threadHung(_ lane: HistogramID.HangLane, atNanos: UInt64) {
+        let input = lastInputNanos.load(ordering: .relaxed)
+        guard input > 0, atNanos < input || atNanos - input < Self.inactivityNanos else { return }
+        let index = Self.laneIndex(lane)
+        let shift = index % Self.lanesPerWord * 8
+        withLaneWord(index / Self.lanesPerWord) { word in
+            var current = word.load(ordering: .relaxed)
+            while current >> shift & 0xFF < 0xFF {
+                let (exchanged, original) = word.compareExchange(expected: current, desired: current &+ 1 << shift, ordering: .relaxed)
+                if exchanged { break }
+                current = original
+            }
+        }
+    }
+
+    /// Records the open interval as a full one when it has active time, stalls or lane hangs (a decided quit: its
+    /// stalls and hangs are not lost, and the active time is overstated by under one interval).
     func recordOpenInterval() {
-        guard intervalActiveNanos.exchange(0, ordering: .relaxed) > 0 || intervalStalls.load(ordering: .relaxed) > 0 else { return }
+        let active = intervalActiveNanos.exchange(0, ordering: .relaxed)
+        guard active > 0 || intervalStalls.load(ordering: .relaxed) > 0 || hasLaneHangs else { return }
         recordInterval()
     }
 
-    /// One `hang.over250.per_hour` sample: the open interval's stalls as a rate per hour; the count starts again.
+    /// One `hang.over250.per_hour` sample: the open interval's stalls as a rate per hour, and one
+    /// `hang.thread_hung.<lane>` sample per lane that hung in it; the counts start again.
     private func recordInterval() {
         let stalls = intervalStalls.exchange(0, ordering: .relaxed)
         metrics.record(.hangOver250PerHour, Int64(clamping: stalls.saturatingMultiplication(Self.intervalsPerHour)))
+        var lanes = HistogramID.HangLane.allCases.makeIterator()
+        for wordIndex in 0 ..< Self.laneWords {
+            var counts = withLaneWord(wordIndex) { word in word.exchange(0, ordering: .relaxed) }
+            for _ in 0 ..< Self.lanesPerWord {
+                guard let lane = lanes.next() else { break }
+                let hangs = counts & 0xFF
+                if hangs > 0 { metrics.record(.hangThreadHung(lane), Int64(clamping: hangs * Self.intervalsPerHour)) }
+                counts >>= 8
+            }
+        }
+    }
+
+    /// Lane `lane`'s place in the counts: its place in `allCases`, or `other`'s past `laneCapacity`.
+    private static func laneIndex(_ lane: HistogramID.HangLane) -> Int {
+        let lanes = HistogramID.HangLane.allCases
+        if let index = lanes.firstIndex(of: lane), index < laneCapacity { return index }
+        return lanes.firstIndex(of: .other) ?? 0
+    }
+
+    /// Whether a lane hung in the open interval.
+    private var hasLaneHangs: Bool {
+        (0 ..< Self.laneWords).contains { index in withLaneWord(index) { word in word.load(ordering: .relaxed) != 0 } }
+    }
+
+    private func withLaneWord<Value>(_ index: Int, _ body: (borrowing Atomic<UInt64>) -> Value) -> Value {
+        switch index {
+        case 0: body(laneHangs0)
+        case 1: body(laneHangs1)
+        default: body(laneHangs2)
+        }
     }
 }

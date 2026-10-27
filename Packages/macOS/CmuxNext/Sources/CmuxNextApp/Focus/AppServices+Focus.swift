@@ -1,3 +1,4 @@
+import AppKit
 import CmuxNextBrowser
 import CmuxNextActions
 import CmuxNextAgentPane
@@ -10,6 +11,11 @@ import CmuxNextPalette
 
 // App-wide inputs to the per-window focus coordinators.
 extension AppServices {
+    /// Whether the key router decided a key-down: the main menu bar does not search for it (`ActionMenuBar`).
+    var decidedKey: @MainActor (NSEvent) -> Bool {
+        { [weak self] in self?.keyRouter.decided.contains($0) ?? false }
+    }
+
     /// The palette's hooks once it is built (`PaletteOnDemand`): hidden rows, open timings, the shortcut
     /// editor, and the focus overlay. The palette is a panel above the active window: an overlay of that
     /// window's focus while it is open. Reported synchronously by the
@@ -20,9 +26,12 @@ extension AppServices {
         // Memory Saver's mode rows only with its feature on (fixed for the launch).
         let memorySaverRows: Set<ActionID> = features.isEnabled(.memorySaverSetting)
             ? [] : Set(MemorySaverMode.allCases.map(\.actionID))
+        // View Metrics shows only while the metricsView feature is on (a socket run still says why it is off).
+        let featureOffIDs: Set<ActionID> = features.isEnabled(.metricsView) ? [] : ["diagnostics.viewMetrics"]
         palette.hiddenActionIDs = { [energy] in
             energy.driver.paletteHiddenActionIDs.union(memorySaverRows)
                 .union(AgentPaneTunables.pointerInspector.value ? [] : ["agentPane.togglePointerInspector"])
+                .union(featureOffIDs)
         }
         palette.onPresented = { DebugTimings.palettePresented($0) }
         // The key-down that opens the palette (a synthesized one under `debug.key`), for its input stage.
