@@ -1346,6 +1346,56 @@ mod tests {
         assert_eq!(current.generation, next.generation);
     }
 
+    /// Review 2 of #26257: the MDM off a start read holds for its stop, though an unset lands while
+    /// the start's mode change out of full access waits and the harness then refuses it: the
+    /// stopped agent's queued report is not the next agent's.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn a_cap_stop_after_an_unset_during_its_mode_change_retires_the_agent() {
+        let env = ["FAKE_FULL_ACCESS=1", "FAKE_SET_MODE_FAIL=1", "FAKE_SET_MODE_DELAY_MS=600"];
+        let (hub, chat, _) = two_chats_on(&env, false).await;
+        let first = hub.child_for(&chat).await.expect("an agent");
+        hub.apply_full_access_push(Some(false)).await;
+        let off = hub.off_latch();
+        // The harness reports full access; set as the chat holds it, with no check woken.
+        if let Some(modes) = chat.meta.lock().unwrap().modes.as_mut() {
+            modes["currentModeId"] = json!("full-access");
+        }
+        // A mode the next agent never starts in (with MDM unset it may start in full access).
+        let report = Inbound::Notification {
+            method: crate::rpc::method::SESSION_UPDATE.to_owned(),
+            params: Some(json!({"sessionId": "own",
+                                "update": {"sessionUpdate": "current_mode_update",
+                                           "currentModeId": "strict"}})),
+            agent: first.generation,
+            host_seq: None,
+            host_incarnation: None,
+            persisted: None,
+        };
+        let profile = hub.config.read().await.profile("fake").cloned().expect("its profile");
+        let unset = {
+            let hub = hub.clone();
+            tokio::spawn(async move {
+                tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+                hub.apply_full_access_push(None).await;
+            })
+        };
+        let capped = hub.cap_full_access(&chat, &first, &profile, &off).await;
+        unset.await.unwrap();
+        assert!(capped.is_err(), "the start was not refused");
+        assert!(!hub.full_access_managed_off(), "the unset did not land first");
+        let next = hub.child_for(&chat).await.expect("an agent");
+        assert_ne!(first.generation, next.generation, "the stopped agent was handed out again");
+        chat.inbound_tx.send(report).await.unwrap();
+        let (done, drained) = tokio::sync::oneshot::channel();
+        chat.inbound_tx.send(Inbound::Barrier(done)).await.unwrap();
+        drained.await.unwrap();
+        assert_ne!(
+            crate::web_modes::mode_of(&chat.meta()).as_deref(),
+            Some("strict"),
+            "a stopped agent's late report set the mode of the agent after it"
+        );
+    }
+
     /// Review 1 of #26257: a stop for the person's own off (MDM unset) retires nothing, as before:
     /// a report the stopped agent still had queued is applied as it was on base.
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
