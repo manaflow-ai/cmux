@@ -32,9 +32,8 @@
 //!   no computer use server.
 //! - Binaries are found next to this executable (the app's
 //!   `Contents/Resources/bin`), or in `CMUX_AGENT_TOOLS_BIN_DIR`; `cmux-cua`
-//!   also in the nested helper app, its only copy in shipped builds. If both
-//!   are absent, a DEV app can use an installed helper after a signature check.
-//!   A missing binary leaves its server out. Every agent chat gets `cmux mcp serve`
+//!   also in the nested helper app, its only copy in shipped builds. A missing
+//!   binary leaves its server out. Every agent chat gets `cmux mcp serve`
 //!   by default (cx-wx93i, Lawrence 2026-10-14: "give every agent chat the
 //!   cmux MCP tools by default"), so it controls cmux without a shell
 //!   command its sandbox may refuse; the settings file's `"mcp":
@@ -57,8 +56,6 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use serde_json::{Map, Value, json};
-
-mod cua_helper;
 
 /// Directory that overrides where the cmux binaries are looked up.
 pub const BIN_DIR_ENV: &str = "CMUX_AGENT_TOOLS_BIN_DIR";
@@ -463,13 +460,6 @@ pub fn remove_mcp_config(home: &Path, session_id: &str) {
 }
 
 pub fn resolve(inputs: &Inputs) -> AgentTools {
-    resolve_with_cua_helper(inputs, cua_helper::installed)
-}
-
-fn resolve_with_cua_helper(
-    inputs: &Inputs,
-    installed: impl FnOnce(&Path) -> Option<PathBuf>,
-) -> AgentTools {
     if !inputs.enabled {
         return AgentTools::default();
     }
@@ -487,10 +477,7 @@ fn resolve_with_cua_helper(
             args: acpmux.args_lossy(&[CUA_BRIDGE_ARG]),
             env: vec![(crate::cua_v2::ENDPOINT_DIR_ENV.into(), dir.to_string_lossy().into_owned())],
         });
-    } else if let Some(cua) = executable("cmux-cua")
-        .or_else(|| nested_cua_helper(inputs))
-        .or_else(|| installed(&inputs.acpmux.as_ref()?.exe))
-    {
+    } else if let Some(cua) = executable("cmux-cua").or_else(|| nested_cua_helper(inputs)) {
         let mut args = vec!["mcp".to_owned()];
         let mut socket_env: Vec<(String, String)> = Vec::new();
         if let Some(socket) = &inputs.cua {

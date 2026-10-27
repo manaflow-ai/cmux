@@ -190,22 +190,19 @@ public final class AgentActivityModel {
     // MARK: User operations (sent to the host; no optimistic change)
 
     public func perform(_ op: AgentActivityUserOp) {
-        Task { try? await performAndWait(op) }
-    }
-
-    /// Reports the host's result to page callers as well as native controls.
-    public func performAndWait(_ op: AgentActivityUserOp) async throws {
-        do {
-            try await source.perform(op)
-            lastOperationError = nil
-            if case let .watch(session, on) = op {
-                if on { watching.insert(session) } else { watching.remove(session) }
+        if case let .watch(session, on) = op {
+            if on { watching.insert(session) } else { watching.remove(session) }
+            notifyChange()
+        }
+        Task { @MainActor [source] in
+            do {
+                try await source.perform(op)
+                self.lastOperationError = nil
+                self.notifyChange()
+            } catch {
+                self.lastOperationError = String(describing: error)
+                self.notifyChange()
             }
-            notifyChange()
-        } catch {
-            lastOperationError = String(describing: error)
-            notifyChange()
-            throw error
         }
     }
 

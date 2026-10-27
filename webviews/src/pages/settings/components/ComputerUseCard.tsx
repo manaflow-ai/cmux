@@ -34,8 +34,6 @@ export function ComputerUseCard() {
   const { host } = useSettingsState();
   const state = host?.computer_use;
   if (!state || state.phase === "disabled_by_policy") return null;
-  const failed = state.phase === "failed";
-  const action = failed ? "palette.computerUse.restart" : "palette.computerUse.setup";
   const row = (
     pane: "accessibility" | "screenRecording",
     granted: boolean | null,
@@ -52,11 +50,16 @@ export function ComputerUseCard() {
     <section className="group" data-card="computer-use" data-phase={state.phase}>
       <h3 className="group-title">{t("settingsWindow.computerUse.title")}</h3>
       <div className="rows">
-        {!failed && row("accessibility", state.accessibility, "palette.computerUse.accessibility")}
-        {!failed && row("screenRecording", state.screen_recording, "palette.computerUse.screenRecording")}
+        {row("accessibility", state.accessibility, "palette.computerUse.accessibility")}
+        {row("screenRecording", state.screen_recording, "palette.computerUse.screenRecording")}
         <ActionRow title={t("settingsWindow.computerUse.status")} help={phaseText(state)}>
-          <button type="button" className="button" data-action={action} onClick={() => void store.runAction(action)}>
-            {t(failed ? "settingsWindow.computerUse.restartHelper" : "settingsWindow.computerUse.setUp")}
+          <button
+            type="button"
+            className="button"
+            data-action="palette.computerUse.setup"
+            onClick={() => void store.runAction("palette.computerUse.setup")}
+          >
+            {t("settingsWindow.computerUse.setUp")}
           </button>
         </ActionRow>
       </div>

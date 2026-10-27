@@ -28,7 +28,6 @@ dependencies = [
  "libc",
  "memchr",
  "notify",
- "plist",
  "png",
  "pulldown-cmark",
  "ratatui",

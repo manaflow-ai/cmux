@@ -12,7 +12,6 @@ nonisolated extension ActionSurfaceCatalog {
     /// (#16174): screen, screen group, pane, column, tab move, extension,
     /// terminal and headless appearance verbs were added here.
     static let cliNamed: Set<ActionID> = [
-        "palette.computerUse.restart",
         "help.showCrashLogs", "palette.mobileConnect", "newWindow", "newIncognitoWindow", "closeWindow", "tab.focus", "pane.focus", "screen.focus", "quit", "quitKeepSessions", "quitEndSessions",
         "quitEndEverything", "keepMacAwake", "newBrowserWorkspace", "openFolder",
         "palette.openFolderInVSCodeInline", "reopenPreviousSession", "workspace.importClassic", "reopenClosedWorkspace", "moveWorkspaceUp",

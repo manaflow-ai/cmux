@@ -44,7 +44,7 @@ public struct AgentActivityRequests {
                 model.follow(Set((params["ids"] as? [String]) ?? [])); value = NSNull()
             case "perform":
                 guard let op = Self.operation(params) else { throw AgentActivitySourceError.malformed }
-                try await model.performAndWait(op); value = NSNull()
+                model.perform(op); value = NSNull()
             case "frame":
                 guard let blob = params["blob"] as? String else { throw AgentActivitySourceError.malformed }
                 let width = params["width"] as? Int ?? 1
