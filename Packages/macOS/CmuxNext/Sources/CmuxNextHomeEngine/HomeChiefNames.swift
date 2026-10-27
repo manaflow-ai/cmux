@@ -116,8 +116,8 @@ public nonisolated struct HomeLocalChiefRename: Hashable, Sendable {
         ["chief": .string(chief), "display_name": .string(name), "machine": .string("current"), "session": .string("current")]
     }
 
-    /// One key per rename of this Chief to this name.
-    public func idempotencyKey(_ unique: String = UUID().uuidString.lowercased()) -> String {
+    /// One key per rename of this Chief, `unique` telling renames apart.
+    public func idempotencyKey(_ unique: String) -> String {
         "home-chief-rename-\(chief)-\(unique)"
     }
 
@@ -126,7 +126,7 @@ public nonisolated struct HomeLocalChiefRename: Hashable, Sendable {
     public func send(over connection: DaemonConnection) async -> HomeChiefRenameFailure? {
         do {
             _ = try await ResourceRelayClient(connection: connection).send(operation: operation, params: params,
-                                                                           idempotencyKey: idempotencyKey())
+                                                                           idempotencyKey: idempotencyKey(UUID().uuidString.lowercased()))
             return nil
         } catch {
             return Self.failure(error)
