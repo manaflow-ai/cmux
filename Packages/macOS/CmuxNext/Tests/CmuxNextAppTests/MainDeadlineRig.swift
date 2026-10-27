@@ -27,7 +27,9 @@ final class MainDeadlineRig {
         self.uptime = uptime
         self.budgetClock = budgetClock
         let queue = MainWakeUpQueue(energy: EnergyPolicySource(), ledger: WakeupLedger(uptime: { 0 }), uptime: { uptime.now }) { _ in timer }
-        let heldTurns: MainWorkScheduler.TurnPerformer? = runsTurns ? nil : { _ in }
+        // A typed closure, not `runsTurns ? nil : { _ in }`: Swift 6.3's type checker crashes on that ternary.
+        let dropTurn: MainWorkScheduler.TurnPerformer = { _ in }
+        let heldTurns: MainWorkScheduler.TurnPerformer? = runsTurns ? nil : dropTurn
         let work = MainWorkScheduler.testing(budget: MainFrameBudget(uptimeNanos: { budgetClock.now }), ledger: WakeupLedger(),
                                              startup: startup, performTurn: heldTurns) { _ in RigLink() }
         self.queue = queue
