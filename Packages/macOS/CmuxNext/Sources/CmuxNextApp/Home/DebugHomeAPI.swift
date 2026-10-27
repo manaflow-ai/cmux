@@ -74,7 +74,7 @@ enum DebugHomeAPI {
             .first { $0.kind == .conversation && $0.snapshot.conversation?.conversation == id }
         // A header showing this Chief now (a Home tab's, or the Home page's), else none.
         #if DEBUG || CMUX_BENCH_HOOKS
-        let header = HomeHostView.debugLive.allObjects.filter { $0.debugConversation == id && $0.window != nil }
+        let header = home.debugHostViews.allObjects.filter { $0.debugConversation == id && $0.window != nil }
             .compactMap(\.transcript.headerTitle).first
         #else
         let header: String? = nil

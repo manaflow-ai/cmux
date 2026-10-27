@@ -62,9 +62,7 @@ final class HomeHostView: NSView {
     private var fileActions: HomeFileActions?
 
     #if DEBUG || CMUX_BENCH_HOOKS
-    /// Every live Home view, for `debug.home.api` `chief_names` (each one's header name).
-    static let debugLive = NSHashTable<HomeHostView>.weakObjects()
-    /// The conversation this view shows.
+    /// The conversation this view shows (`HomeService.debugHostViews`).
     var debugConversation: String { control.conversation.rawValue }
     #endif
 
@@ -80,7 +78,7 @@ final class HomeHostView: NSView {
                                        picks: services.chiefMascotPicks, uploads: services.chiefAvatarUploads)
         super.init(frame: .zero)
         #if DEBUG || CMUX_BENCH_HOOKS
-        Self.debugLive.add(self)
+        service.debugHostViews.add(self)
         #endif
         transcript.linkScheme = services.linkScheme  // "Copy Link" names messages in this build's scheme
         transcript.setNamePillHelp(HomeEngineStrings.pillHelp)

@@ -90,6 +90,10 @@ final class HomeService {
     private(set) var cloudChiefs = HomeCloudChiefs()
     /// Chief renames being saved, shown at once on every surface (``chiefName(of:)``).
     var chiefRenames = HomeChiefNames()
+    #if DEBUG || CMUX_BENCH_HOOKS
+    /// Every live Home view, for `debug.home.api` `chief_names` (each one's header name).
+    @ObservationIgnored let debugHostViews = NSHashTable<HomeHostView>.weakObjects()
+    #endif
     /// The cloud Chief whose main conversation is the Chief tab, or nil (the local Chief, also
     /// whenever it is the default Chief: ``prefersLocalChief``).
     var cloudChief: CloudChief? { prefersLocalChief ? nil : tabChiefs.shown(choice: hostedChief.choice) }
