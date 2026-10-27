@@ -1,6 +1,6 @@
 import CmuxNextDaemon
 import CmuxNextDesign
-/// The local daemon's user-only prompts, started before the daemon connects (``AppServices/startLocalDaemon(prestart:)``):
+/// The local daemon's user-only prompts, started before the daemon connects (``AppServices/startLocalDaemon(after:)``):
 /// OSC 52 clipboard reads, browser pairings, and keys it gives back (``TerminalInputUnclaimed``) to the focused terminal
 /// of their own window. Starting them is subscription wiring only; the work runs when an event comes.
 @MainActor

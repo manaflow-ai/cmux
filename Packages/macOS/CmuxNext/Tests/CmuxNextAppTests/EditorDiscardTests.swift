@@ -28,7 +28,8 @@ struct EditorDiscardTests {
     }
 
     static func documents() -> FileQuitDocuments {
-        let drafts = RecoveryDraftStore(directory: FileManager.default.temporaryDirectory.appending(path: "editor-discard-\(UUID().uuidString)"))
+        let drafts = RecoveryDraftStore(directory: FileManager.default.temporaryDirectory.appending(path: "editor-discard-\(UUID().uuidString)"),
+                                        deadlines: MainDeadlineScheduler(work: MainWorkScheduler(budget: MainFrameBudget())))
         return FileQuitDocuments(drafts: drafts, registry: QuitUnsavedRegistry(drafts: drafts))
     }
 
