@@ -960,19 +960,24 @@ impl ChildAgent {
     /// open request, answer waiter and turn of this process: resume after
     /// the last logged entry on a new owner connection. No recovery runs:
     /// this process still holds the state the recovery would rebuild.
-    pub async fn reattach(self: &Arc<Self>) -> Result<()> {
+    /// Reconnect to this agent's host; the host's last entry (`Adopted::last_h`), which the
+    /// reader replays up to.
+    pub async fn reattach(self: &Arc<Self>) -> Result<u64> {
         use crate::agent_host::link::{Connect, connect};
-        let Some(h) = &self.hosted else { return Ok(()) };
+        let Some(h) = &self.hosted else { return Ok(0) };
         let record = h.link().record.clone();
         let after = *h.logged.borrow();
-        let link: Arc<crate::agent_host::link::Link> = match connect(record, after).await? {
-            Connect::Ready(link, _) => Arc::from(link),
-            Connect::Incompatible { .. } => return Err(anyhow!("agent host refused this build")),
-        };
+        let (link, last_h): (Arc<crate::agent_host::link::Link>, u64) =
+            match connect(record, after).await? {
+                Connect::Ready(link, adopted) => (Arc::from(link), adopted.last_h),
+                Connect::Incompatible { .. } => {
+                    return Err(anyhow!("agent host refused this build"));
+                }
+            };
         *h.link.write_or_recover() = link.clone();
         h.broken.store(false, Ordering::SeqCst);
         self.start_reader(link);
-        Ok(())
+        Ok(last_h)
     }
 
     /// Leave a hosted agent running and let go of it (daemon shutdown or

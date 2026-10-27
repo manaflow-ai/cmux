@@ -233,9 +233,10 @@ impl Hub {
     /// fork's answer describes the new chat, so it does not (review 62).
     ///
     /// The read is strict (review 62): it starts at the newest `host_started` and needs every
-    /// record from there, one `seq` after another (`Hub::append` numbers them so). None when the
-    /// log could not be read, has no `host_started`, or lost a record since (a torn or malformed
-    /// line, a failed append): what the host reported is then unknown.
+    /// record from there, one `seq` after another (`Hub::append` numbers them so), each one whole
+    /// (`Store::scan_strict`, review 63: a torn last record leaves no gap). None when the log
+    /// could not be read, has no `host_started`, or lost a record since (a torn or malformed line,
+    /// a failed append): what the host reported is then unknown.
     fn reported_by_left_host(&self, session: &Session) -> Option<FullAccessView> {
         use crate::rpc::method;
         let own = session.meta().agent_session_id;
@@ -273,7 +274,7 @@ impl Hub {
             if fails {
                 return Err(anyhow::anyhow!("the log could not be read"));
             }
-            self.store.scan(&session.id, start.saturating_sub(1), visit)
+            self.store.scan_strict(&session.id, start.saturating_sub(1), visit)
         };
         let mut next = start;
         let mut lost = false;

@@ -118,9 +118,9 @@ impl Hub {
                 return None;
             }
             match child.reattach().await {
-                Ok(()) => {
+                Ok(last_h) => {
                     self.append(session, "mux", "host_reattached", json!({"reason": "link_lost"}));
-                    return Some(child.clone());
+                    return self.judged_after_reattach(session, child, last_h).await;
                 }
                 Err(e) => {
                     tracing::warn!(session = %session.id, "agent host reattach after a lost link failed: {e:#}");
@@ -129,8 +129,11 @@ impl Hub {
             }
         }
         if let Some(child) = current.filter(|c| c.is_broken()) {
-            if let Err(e) = child.reattach().await {
-                tracing::warn!(session = %session.id, "agent host reattach failed: {e:#}");
+            match child.reattach().await {
+                Ok(last_h) => return self.judged_after_reattach(session, &child, last_h).await,
+                Err(e) => {
+                    tracing::warn!(session = %session.id, "agent host reattach failed: {e:#}")
+                }
             }
             return Some(child);
         }
@@ -158,6 +161,30 @@ impl Hub {
             (None, None) => return,
         };
         session.backgrounds_work.store(moves, Ordering::SeqCst);
+    }
+
+    /// A reattached `child` under MDM's off (#23322, review 63): what its host kept while the link
+    /// was down is judged before the agent is handed out. The replay is waited for (bounded, as
+    /// adoption waits) and the session judged again from the log; an agent that runs in full
+    /// access, or whose replay did not complete, ends, and None is returned (the caller starts a
+    /// fresh agent, or refuses when the host did not end). Without MDM's off nothing changes.
+    async fn judged_after_reattach(
+        &self,
+        session: &Arc<Session>,
+        child: &Arc<ChildAgent>,
+        last_h: u64,
+    ) -> Option<Arc<ChildAgent>> {
+        if !self.full_access_managed_off() {
+            return Some(child.clone());
+        }
+        let replayed = child.wait_replayed(last_h, REPLAY_STALL, REPLAY_CEILING).await;
+        session.floor.left_host_read.store(false, Ordering::SeqCst);
+        let ended = if replayed {
+            self.end_if_runs_full_access(session).await
+        } else {
+            self.end_managed_full_access(session).await
+        };
+        (ended == FullAccessEnd::NotInFullAccess).then(|| child.clone())
     }
 
     /// Whether a host for `session` may still run (a live or unproven record).
