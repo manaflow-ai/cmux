@@ -83,7 +83,14 @@ public nonisolated struct ChiefAdoption: Sendable {
     /// A SQLite database goes through the online backup; one it cannot read
     /// (not busy: corrupt, locked in another way, out of space) is cloned
     /// raw with its journal files and named in `raw`, so the backup still ends.
-    static func cloneTree(from source: URL, to target: URL, top: Bool = true, raw: inout [String]) throws {
+    /// One SQLite reports corrupt or not a database also goes to `onUnreadable`, once.
+    static func cloneTree(
+        from source: URL,
+        to target: URL,
+        top: Bool = true,
+        raw: inout [String],
+        onUnreadable: (BackupError) -> Void = ChiefAdoption.logUnreadable
+    ) throws {
         var info = stat()
         guard (top ? stat(source.path, &info) : lstat(source.path, &info)) == 0 else { throw Self.posixError() }
         guard (info.st_mode & S_IFMT) == S_IFDIR else { throw POSIXError(.ENOTDIR) }
@@ -98,14 +105,14 @@ public nonisolated struct ChiefAdoption: Sendable {
             guard lstat(from.path, &entry) == 0 else { continue }
             switch entry.st_mode & S_IFMT {
             case S_IFDIR:
-                try cloneTree(from: from, to: to, top: false, raw: &raw)
+                try cloneTree(from: from, to: to, top: false, raw: &raw, onUnreadable: onUnreadable)
             case S_IFREG where databases.contains(name):
                 do {
                     try Self.backUpDatabase(from: from, to: to)
                 } catch let error as BackupError where error.busy {
                     throw error
                 } catch {
-                    if let error = error as? BackupError, error.unreadable { Self.reportUnreadable(error) }
+                    if let error = error as? BackupError, error.unreadable { onUnreadable(error) }
                     try? FileManager.default.removeItem(at: to)
                     for file in [name] + ["-wal", "-shm", "-journal"].map({ name + $0 }) where names.contains(file) {
                         try Self.cloneFile(from: source.appendingPathComponent(file), to: target.appendingPathComponent(file))

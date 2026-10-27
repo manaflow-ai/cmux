@@ -55,8 +55,8 @@ nonisolated extension ChiefAdoption {
 
     /// The SQLite error policy for a database the adoption only reads: a corrupt source is never
     /// moved or repaired here (its owner, the conversation daemon, sets its own aside); the backup
-    /// keeps a raw clone and this reports one fault for it.
-    static func reportUnreadable(_ error: BackupError) {
+    /// keeps a raw clone and `cloneTree` reports one fault for it; this is the default report.
+    static func logUnreadable(_ error: BackupError) {
         sqliteLogger.fault("chief adoption kept a raw copy of an unreadable database: \(error.description, privacy: .public)")
     }
 

@@ -46,28 +46,36 @@ nonisolated final class HistorySQLite {
     /// The SQLite error policy, after Chromium's `sql::Database` error callback and `sql::Recovery`
     /// (sql/database.cc, sql/recovery.cc): a busy timeout on the handle; a file SQLite reports
     /// corrupt or not a database is moved aside with its sidecars, a new database is created in its
-    /// place and `onSetAside` hears it once. The open runs at most twice, so a start never loops.
-    init(url: URL?, onSetAside: (SetAside) -> Void = HistorySQLite.logFault) throws {
+    /// place and `onSetAside` hears it once, as soon as the file has moved (also when the new
+    /// database then fails to open). The open runs at most twice, so a start never loops.
+    /// `opener` is the open seam; a test makes its second run fail.
+    init(
+        url: URL?,
+        onSetAside: (SetAside) -> Void = HistorySQLite.logFault,
+        opener: (String) -> Result<OpaquePointer, Failure> = HistorySQLite.openHandle(path:)
+    ) throws {
         guard let url else {
-            handle = try Self.openHandle(path: ":memory:").get()
+            handle = try opener(":memory:").get()
             return
         }
         try FileManager.checked.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-        switch Self.openHandle(path: url.path) {
+        switch opener(url.path) {
         case .success(let opened):
             handle = opened
         case .failure(.unreadable(let reason)):
             let aside = try Self.moveAside(url)
-            handle = try Self.openHandle(path: url.path).get()
             onSetAside(SetAside(database: url, aside: aside, reason: reason))
+            handle = try opener(url.path).get()
         case .failure(let failure):
             throw failure
         }
     }
 
     /// Opens `path` and reads its schema once (an open reads no page; the first statement would
-    /// meet a damaged file instead).
-    private static func openHandle(path: String) -> Result<OpaquePointer, Failure> {
+    /// meet a damaged file instead). A schema this SQLite cannot parse ("malformed database
+    /// schema") is an open failure and the file is kept: a newer build may have written it (the
+    /// same rule as cmux-tui's `sqlite_policy::unreadable_reason`).
+    static func openHandle(path: String) -> Result<OpaquePointer, Failure> {
         var opened: OpaquePointer?
         let flags = SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE | SQLITE_OPEN_NOMUTEX
         let code = blockingSQLiteOpen(path, &opened, flags)
@@ -82,7 +90,8 @@ nonisolated final class HistorySQLite {
             let message = String(cString: sqlite3_errmsg(opened))
             blockingSQLiteClose(opened)
             let primary = probe & 0xff
-            return .failure(primary == SQLITE_CORRUPT || primary == SQLITE_NOTADB ? .unreadable(message) : .open(message))
+            let unreadable = (primary == SQLITE_CORRUPT || primary == SQLITE_NOTADB) && !message.contains("malformed database schema")
+            return .failure(unreadable ? .unreadable(message) : .open(message))
         }
         return .success(opened)
     }
