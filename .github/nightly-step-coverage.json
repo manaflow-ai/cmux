@@ -60,6 +60,7 @@
         "Checkout build ref (warm nightly-next builder)": {"plumbing": true}, "Select Xcode": {"plumbing": true},
         "Clear build outputs a persistent runner kept": {"plumbing": true},
         "Start Release DerivedData empty": {"plumbing": true},
+        "Mark the kept Release DerivedData built (dedicated nightly-next builder)": {"plumbing": true},
         "Compute Xcode compilation cache key": {"plumbing": true},
         "Restore Xcode compilation cache": {"plumbing": true, "note": "local action: restores or saves a cache with actions/cache, WarpBuilds/cache or R2 and reports a receipt; no product check. Re-review this entry if the action gains a check"},
         "Install compilation dependencies": {"plumbing": true},
