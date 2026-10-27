@@ -408,7 +408,9 @@ test("native Cloud context offers recovery and only transferred success permits 
   };
   // A real daemon summary supplies only its harness, not host or hostKind.
   const summary = { harness: "claude" };
-  const recover = cloudCredentialRecovery(true, "provider-vm-1", "chat-1", summary.harness, call)!;
+  let current = true;
+  const isCurrent = () => current;
+  const recover = cloudCredentialRecovery(true, "provider-vm-1", "chat-1", summary.harness, call, isCurrent)!;
   expect(calls).toEqual([]);
   expect(await recover()).toBe(true);
   expect(calls).toEqual([
@@ -422,7 +424,14 @@ test("native Cloud context offers recovery and only transferred success permits 
     },
   ]);
   for (response of [{ transferred: false }, true, undefined]) expect(await recover()).toBe(false);
-  expect(cloudCredentialRecovery(true, undefined, "chat-1", "claude", call)).toBeUndefined();
-  expect(cloudCredentialRecovery(false, "provider-vm-1", "chat-1", "claude", call)).toBeUndefined();
-  expect(cloudCredentialRecovery(true, "provider-vm-1", "chat-1", "opencode", call)).toBeUndefined();
+  expect(cloudCredentialRecovery(true, undefined, "chat-1", "claude", call, isCurrent)).toBeUndefined();
+  expect(cloudCredentialRecovery(false, "provider-vm-1", "chat-1", "claude", call, isCurrent)).toBeUndefined();
+  expect(cloudCredentialRecovery(true, "provider-vm-1", "chat-1", "opencode", call, isCurrent)).toBeUndefined();
+  response = { transferred: true };
+  const pending = recover();
+  current = false;
+  expect(await pending).toBe(false);
+  const count = calls.length;
+  expect(await recover()).toBe(false);
+  expect(calls).toHaveLength(count);
 });
