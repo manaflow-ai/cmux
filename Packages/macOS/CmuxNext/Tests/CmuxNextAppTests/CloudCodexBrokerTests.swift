@@ -2,7 +2,10 @@ import Foundation
 import Testing
 @testable import CmuxNextCloud
 
-@Suite("Cloud Codex broker", .timeLimit(.minutes(1)))
+// Each case owns a private broker process and pipe. Serializing the suite
+// avoids exhausting the platform's concurrent process/pipe reader budget when
+// the parameterized interruption matrix grows.
+@Suite("Cloud Codex broker", .serialized, .timeLimit(.minutes(1)))
 struct CloudCodexBrokerTests {
     actor Recorder {
         var files: [String: Data] = [:]
