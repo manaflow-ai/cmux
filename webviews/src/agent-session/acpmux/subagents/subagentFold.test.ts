@@ -92,7 +92,12 @@ test("mixed child activity and nested streams reuse summaries until completion",
   const fold = new SubagentFold();
   feed(fold, { sessionUpdate: "subagent_spawned" }, { subagents: [{ id: "a", parent: null }] });
   feed(fold, { sessionUpdate: "subagent_spawned" }, { subagents: [{ id: "b", parent: "a" }] });
-  feed(fold, { sessionUpdate: "tool_call", toolCallId: "done", title: "Read", status: "completed" }, { subagent: "b" });
+  feed(fold, { sessionUpdate: "tool_call", toolCallId: "done", title: "Read", kind: "read", status: "completed", locations: [{ path: "before.ts" }] }, { subagent: "b" });
+  expect(sessionSummary(fold.views().b!).sources.map(source => source.label)).toEqual(["before.ts"]);
+  feed(fold, { sessionUpdate: "tool_call_update", toolCallId: "done", locations: [{ path: "after.ts" }] }, { subagent: "b" });
+  expect(sessionSummary(fold.views().b!).sources.map(source => source.label)).toEqual(["after.ts"]);
+  feed(fold, { sessionUpdate: "tool_call", toolCallId: "live", title: "Work", kind: "think", status: "in_progress" }, { subagent: "b" });
+  expect(sessionSummary(fold.views().b!).subagents).toEqual([{ id: "live", title: "Work", state: "running" }]);
   const parent = sessionSummary(fold.views().a!, "acme/app");
   for (let index = 0; index < 50; index++) {
     feed(
