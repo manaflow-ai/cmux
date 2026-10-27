@@ -1,0 +1,21 @@
+{
+  "_doc": "Gaps of scripts/cmux-next/every-action-gaps.json the session fixture (scripts/cmux-next/oracle/action_fixtures/session_states.py) closes, each with how, and the ids of its family it leaves open, each with why. p15-oracle-087 applies every gap-closures file to every-action-gaps.json in one edit; action_fixtures.load_families refuses a CLOSES that differs from `closed`. `follow_up` is the task that closes the `reasoned` ids (plans/cmux-next/chrome-parity/p15-oracle.md); each reason names it first.",
+  "family": "session",
+  "task": "p15-oracle-086",
+  "fixture": "scripts/cmux-next/oracle/action_fixtures/session_states.py",
+  "closed": {
+    "space.newWindow": "space: the launch's scratch space, given 3 workspaces by PREPARE; the new window is an extra close_new closes",
+    "space.newWorkspace": "space: the scratch space with 3 workspaces; the new workspace is an extra, UNDO switches the window back to room:default",
+    "space.switch": "space: the scratch space with 3 workspaces; UNDO switches the window back to room:default",
+    "workspace.duplicateToSpace": "space: the scratch space with 3 workspaces; the duplicate of the base workspace is an extra, UNDO switches the window back to room:default",
+    "workspace.moveToSpace": "space: the scratch space with 3 workspaces; PREPARE adds a focused workspace (workspace.newAtBottom), the one it moves, an extra",
+    "workspaceGroup.moveToSpace": "space: the scratch space with 3 workspaces; PREPARE adds a focused workspace in a new group (workspace.newInNewGroup), the group it moves, both extras",
+    "workspaceGroup.addToSection": "section: sidebar-section:sec_top, the built-in top section; PREPARE adds a focused workspace in a new group (workspace.newInNewGroup), and the section drops its item when close_new closes that workspace"
+  },
+  "reasoned": {
+    "sidebar.priority.markRead": "p15-oracle-274. Its `chat` target is a Priority row, and the rows are the lanes of the app's own acpmux (AgentPriorityChats reads AgentLaneStore.shared and .chief, which AgentTurnStateFeed fills from that daemon's _acpmux/watch). The sweep's launch has no such lane: ACPMUX_AGENT_LAUNCH=deny refuses session/new, and the mock agent's seeded chats (CMUX_NEXT_AGENT_PANE_MOCK=1) live in the page's in-memory daemon (webviews/src/agent-session/acpmux/mock.ts), which no app store reads. The handlers are also unavailable while sidebar.priorityView.enabled is off, its default, and each restore (restore_settings) turns it off again; a family has no per-sample settings step (PREPARE runs actions only, an ArgumentFixture runs once per row)",
+    "sidebar.priority.snooze": "p15-oracle-274, as sidebar.priority.markRead: no lane in the app's acpmux for the `chat` target, and no per-sample step turns the Priority view on",
+    "sidebar.priority.togglePin": "p15-oracle-274, as sidebar.priority.markRead: no lane in the app's acpmux for the `chat` target, and no per-sample step turns the Priority view on"
+  },
+  "follow_up": "p15-oracle-274"
+}

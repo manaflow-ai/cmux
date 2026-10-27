@@ -56,7 +56,7 @@ public struct LaunchServicePosts {
         ])
     }
 
-    /// The warm-ups for later tabs (Chromium, WebKit for agent pages, the New Tab spare, page hosts), the
+    /// The warm-ups for later tabs (Chromium, WebKit for agent pages, the New Tab spare, page preloads), the
     /// agent tab import and the right sidebar's icons.
     ///
     /// No post here makes a `WKWebView` or a `WKProcessPool` before startup completes (p08-startup-042):
@@ -72,7 +72,7 @@ public struct LaunchServicePosts {
     ///     nothing once a shown agent tab made its view, or when agent pages open in Chromium.
     ///   - spareProbe: Asks off the main thread whether WebKit's setup answers (`NewTabPreload.prewarm()`).
     ///   - spareWarming: Lets the New Tab spare be made (`NewTabPreload.startWarming()`).
-    ///   - pageHostPool: Starts the page host pool.
+    ///   - pagePreload: Lets Settings, History and Cloud preload through the preload slot (`PagePreloads.start()`).
     ///   - agentTabImport: Starts the agent tab import.
     ///   - rightSidebarIcons: Posts the right sidebar's icon build on the cpu lane (a panel built first posted it).
     /// - Returns: The posts, Chromium and the spare's hooks at afterFirstFrame and the rest at afterStartup.
@@ -81,7 +81,7 @@ public struct LaunchServicePosts {
                                  agentPageWarmup: @escaping @MainActor @Sendable () -> Void,
                                  spareProbe: @escaping @MainActor @Sendable () -> Void,
                                  spareWarming: @escaping @MainActor @Sendable () -> Void,
-                                 pageHostPool: @escaping @MainActor @Sendable () -> Void,
+                                 pagePreload: @escaping @MainActor @Sendable () -> Void,
                                  agentTabImport: @escaping @MainActor @Sendable () -> Void,
                                  rightSidebarIcons: @escaping @MainActor @Sendable () -> Void) -> LaunchServicePosts {
         LaunchServicePosts(posts: [
@@ -90,7 +90,7 @@ public struct LaunchServicePosts {
             Post(priority: .afterStartup, name: "AgentPane.webKitWarmup", work: agentPageWarmup),
             Post(priority: .afterStartup, name: "NewTabSpares.probe", work: spareProbe),
             Post(priority: .afterStartup, name: "NewTabSpares.warm", work: spareWarming),
-            Post(priority: .afterStartup, name: "PageHostPool.start", work: pageHostPool),
+            Post(priority: .afterStartup, name: "PagePreload.start", work: pagePreload),
             Post(priority: .afterStartup, name: "AgentTabImport.start", work: agentTabImport),
             Post(priority: .afterStartup, name: "RightSidebar.prewarm", work: rightSidebarIcons),
         ])

@@ -21,20 +21,21 @@ pub struct UnixListener(cmux::local_socket::Listener);
 /// Unix).
 pub async fn bind_unix(path: &Path) -> Result<UnixListener> {
     if let Some(parent) = path.parent().filter(|p| !p.as_os_str().is_empty())
-        && std::fs::symlink_metadata(parent).is_err()
+        && tokio::fs::symlink_metadata(parent).await.is_err()
     {
         cmux::local_socket::private_directory(parent)
             .with_context(|| format!("create {}", parent.display()))?;
     }
     // A socket file is a reparse point that `Path::exists` does not follow.
-    if std::fs::symlink_metadata(path).is_ok() {
+    if tokio::fs::symlink_metadata(path).await.is_ok() {
         match cmux::local_socket::connect_same_user(path) {
             Ok(_) => anyhow::bail!("another acpmux daemon owns {}", path.display()),
             // Another user's socket: never removed, never used.
             Err(e) if e.kind() == std::io::ErrorKind::PermissionDenied => {
                 return Err(anyhow::Error::new(e).context(format!("bind {}", path.display())));
             }
-            Err(_) => std::fs::remove_file(path)
+            Err(_) => tokio::fs::remove_file(path)
+                .await
                 .with_context(|| format!("remove the stale socket {}", path.display()))?,
         }
     }
@@ -64,7 +65,7 @@ pub async fn serve_unix(hub: Arc<Hub>, listener: UnixListener) -> Result<()> {
                     Err(e) => {
                         tracing::warn!("accept failed: {e}");
                         // No busy loop on a persistent accept error.
-                        std::thread::sleep(Duration::from_millis(100));
+                        cmux_blocking::thread::sleep(Duration::from_millis(100));
                     }
                 }
             }
@@ -104,10 +105,10 @@ pub fn router_admin(path: &Path) -> Result<cmux_coderouter::AdminConnections> {
                         );
                     }
                     Err(_) => {
-                        let _ = std::fs::remove_file(path);
+                        let _ = cmux_blocking::fs::remove_file(path);
                     }
                 }
-                std::thread::sleep(Duration::from_millis(50));
+                cmux_blocking::thread::sleep(Duration::from_millis(50));
             }
             Err(e) => {
                 return Err(anyhow::Error::new(e).context(format!("bind {}", path.display())));
@@ -130,7 +131,7 @@ pub fn router_admin(path: &Path) -> Result<cmux_coderouter::AdminConnections> {
                     }
                     Err(e) => {
                         tracing::warn!("router admin accept failed: {e}");
-                        std::thread::sleep(Duration::from_millis(100));
+                        cmux_blocking::thread::sleep(Duration::from_millis(100));
                     }
                 }
             }

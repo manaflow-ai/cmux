@@ -123,6 +123,7 @@ public final class TitlebarBandButton: NSButton {
     }
 
     /// The hold's drags move nothing (as the press always took them).
+    // input-coalesce: native (a held press drops its drags; otherwise NSButton's own tracking)
     override public func mouseDragged(with event: NSEvent) {
         guard !isHoldingForMenu else { return }
         super.mouseDragged(with: event)

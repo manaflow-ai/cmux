@@ -27,8 +27,9 @@ extension TerminalSurfaceView {
             noteKeyTaken()
             return
         }
-        // The key goes to the terminal: its echo's frame is awaited from here.
+        // The key goes to the terminal: its echo's frame is awaited from here, and Ghostty's ticks run as input until it.
         lane?.echoStage?.keyDown()
+        GhosttyRuntime.shared.noteTerminalKey()
 
         // Ghostty decides which modifiers take part in text translation (for
         // example `macos-option-as-alt`). Rebuild the event only when that

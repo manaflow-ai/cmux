@@ -62,6 +62,7 @@ public final class HomeConversationSession {
         isLoading = true
         let id = id
         // task-owner: one conversation-snapshot read; ends with its reply
+        // main-hop-allow: the snapshot read awaits the daemon's actor; its resume resets the session's main-actor mirror and replays the events buffered meanwhile, in order, before any newer event applies
         loading = Task { [weak self] in
             do {
                 let snapshot = try await ConversationClient(connection).snapshot(id, tail: tail)

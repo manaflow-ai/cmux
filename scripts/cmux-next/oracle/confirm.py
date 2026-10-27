@@ -24,8 +24,12 @@ Classes, one line per divergent case in OUT/confirmed.jsonl (schema cmux-oracle-
     flake        the head retry passed or was flaky: appended to MQ-flakes (--flaky-out)
     base-red     the head failed twice but the base alone failed: appended to the base-red queue
     unconfirmed  a rerun did not run or could not be compared (host mismatch, no receipt): no queue
-Every line carries three verdicts, `head`, `head_retry` and `base`, each {"verdict", "run_id", "dir",
-"sha", "detail"}; a verdict that was not needed is `not-run` and says why.
+Every line carries three verdicts, `head`, `head_retry` and `base`, each {"verdict", "run", "dir",
+"sha", "detail"} (`run` is the run id); a verdict that was not needed is `not-run` and says why.
+A line is also route.py's input (task 118): the diff.py finding (`journey`, `step`, `checkpoint`,
+`pointer`, `a`, `b`, `replay`, `evidence`), `confidence` (the class; `flaky` for a flake), `product`,
+and the target: `switch` and `source` (the head SHA) for a switch, `mode` launch-config and `source`
+for every switch, `base` and `head` SHAs for a base/head comparison.
 
 Reruns go through the product's own runner (the Launcher seam): the app on the fleet through
 fleet.py's cmux-ci steps, pinned to the worker of the shard it repeats, with the mutant its step applied;
@@ -73,6 +77,9 @@ SUMMARY_SCHEMA = "cmux-oracle-confirm-v1"
 FAIL, PASS, FLAKY, NOT_RUN, NOT_COMPARABLE = "fail", "pass", "flaky", "not-run", "not-comparable"
 CONFIRMED, FLAKE, BASE_RED, UNCONFIRMED = "confirmed", "flake", "base-red", "unconfirmed"
 VERDICT_KEYS = ("head", "head_retry", "base")
+# route.py's input (task 118): the diff.py finding fields a line carries, and its `confidence` for each class.
+FINDING_KEYS = ("step", "checkpoint", "pointer", "a", "b", "count", "evidence", "replay")
+ROUTE_CONFIDENCE = {FLAKE: "flaky"}
 DEFAULT_FLAKY_OUT = Path("/tmp/oracle/flaky.jsonl")
 DEFAULT_BASE_RED_OUT = Path("/tmp/oracle/base-red.jsonl")
 EXIT_NONE, EXIT_CONFIRMED, EXIT_USAGE, EXIT_INCOMPLETE = 0, 1, 2, 3
@@ -416,7 +423,7 @@ def default_launcher(product: str) -> Launcher:
 
 
 def verdict(value: str, *, run_id: Optional[str], directory: Optional[Path], sha: str, detail: str) -> Dict[str, Any]:
-    return {"verdict": value, "run_id": run_id, "dir": str(directory) if directory else None, "sha": sha,
+    return {"verdict": value, "run": run_id, "dir": str(directory) if directory else None, "sha": sha,
             "detail": detail}
 
 
@@ -712,6 +719,9 @@ def confirm(inputs: Inputs, launcher: Launcher, options: Options) -> List[Dict[s
         for cid in ids:
             verdicts[cid]["base"] = base_alone_verdict(rerun, cid, base.sha)
 
+    mode = head.mode()
+    # route.py's target (task 118): a switch at the head's ref, every switch (launch-config), or the commit pair.
+    target: Dict[str, Any] = {"source": head.sha} if mode != "base-head" else {"base": base.sha, "head": head.sha}
     rows = []
     for cid in cases:
         kind, reason = classify(verdicts[cid])
@@ -720,8 +730,9 @@ def confirm(inputs: Inputs, launcher: Launcher, options: Options) -> List[Dict[s
             "schema": SCHEMA,
             "case": cid,
             "class": kind,
+            "confidence": ROUTE_CONFIDENCE.get(kind, kind),
             "reason": reason,
-            "mode": head.mode(),
+            "mode": mode,
             "product": head.product,
             "switch": head.config.get("switch"),
             "arm": head.config.get("arm"),
@@ -729,9 +740,10 @@ def confirm(inputs: Inputs, launcher: Launcher, options: Options) -> List[Dict[s
             "b_label": head.label,
             "base_sha": base.sha,
             "head_sha": head.sha,
+            **target,
             "verdicts": {key: verdicts[cid][key] for key in VERDICT_KEYS},
-            "finding": {key: finding.get(key) for key in ("step", "checkpoint", "pointer", "a", "b", "count",
-                                                         "evidence", "replay")},
+            "journey": cid,
+            **{key: finding.get(key) for key in FINDING_KEYS},
             "comparison": str(inputs.diff_dir / "comparison.json"),
         })
     return rows
@@ -762,9 +774,9 @@ def append_lines(path: Path, rows: Sequence[Mapping[str, Any]]) -> None:
 def flake_line(row: Mapping[str, Any]) -> Dict[str, Any]:
     """The MQ-flakes line (`oracle.py run --flaky-out` shape) of a head that passed or flaked on retry."""
     retry = row["verdicts"]["head_retry"]
-    return {"case": row["case"], "run_id": retry["run_id"], "product": row["product"], "arm": row["arm"],
+    return {"case": row["case"], "run_id": retry["run"], "product": row["product"], "arm": row["arm"],
             "switches": {row["switch"]: row["arm"]} if row["switch"] else {}, "source": "confirm",
-            "pointer": row["finding"]["pointer"], "reasons": [row["reason"]], "verdicts": row["verdicts"]}
+            "pointer": row["pointer"], "reasons": [row["reason"]], "verdicts": row["verdicts"]}
 
 
 def summary_of(inputs: Inputs, rows: Sequence[Mapping[str, Any]], out: Path, routed: Optional[Dict[str, Any]]) -> Dict[str, Any]:
@@ -796,10 +808,12 @@ def print_summary(summary: Mapping[str, Any], rows: Sequence[Mapping[str, Any]])
           + ", ".join(f"{kind} {counts[kind]}" for kind in (CONFIRMED, FLAKE, BASE_RED, UNCONFIRMED)))
     for row in rows:
         marks = " ".join(f"{key}={row['verdicts'][key]['verdict']}" for key in VERDICT_KEYS)
-        print(f"  {row['class']}: {row['case']} {row['finding']['pointer']} ({marks}): {row['reason']}")
+        print(f"  {row['class']}: {row['case']} {row['pointer']} ({marks}): {row['reason']}")
     print(f"  confirmed.jsonl: {summary['confirmed']}")
     if summary["route"] is not None:
         print(f"  routed {summary['route']['routed']} to {summary['route']['out']}")
+        for item in summary["route"]["unrouted"]:
+            print(f"  unrouted {item['where']}: {item['why']}", file=sys.stderr)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -813,7 +827,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--expectations-root", type=Path, help="expectations of the reruns")
     parser.add_argument("--parallel", type=int, default=MAX_PARALLEL_RUNS, help="reruns at once")
     parser.add_argument("--no-route", action="store_true", help="write confirmed.jsonl only; do not run route.py")
-    parser.add_argument("--route-out", type=Path, help="route.py --out (default its own)")
+    parser.add_argument("--route-out", type=Path, help="route.py --out, joined under its lock (default its own)")
     parser.add_argument("--json", action="store_true", help="print the summary as JSON")
     return parser
 
@@ -839,8 +853,8 @@ def main(argv: Optional[List[str]] = None, *, launcher: Optional[Launcher] = Non
     if not args.no_route:
         route = oracle.require_sibling("route", "p15-oracle-118")
         try:
-            routed = route.route_files([out / "confirmed.jsonl"], route.Options(out=args.route_out or route.DEFAULT_OUT))
-        except route.RouteError as error:
+            routed = route.route_files([out / "confirmed.jsonl"], args.route_out or route.DEFAULT_OUT, merge=True)
+        except route.InputError as error:
             print(f"confirm: route.py: {error}; confirmed.jsonl is written, route it with `oracle.py route`",
                   file=sys.stderr)
             return EXIT_USAGE

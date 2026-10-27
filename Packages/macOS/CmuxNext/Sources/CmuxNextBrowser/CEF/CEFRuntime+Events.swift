@@ -87,6 +87,7 @@ extension CEFRuntime {
             widgetHost?.ownerClosed(browser)
             hostStart?.popupMenus?.ownerClosed(browser)
             hostStart?.files?.browserClosed(browser)
+            hostStart?.choosers?.ownerClosed(browser)
             browserClosed(browser)
         case .beforeUnloadDialog(let browser, let token, let isReload):
             // A page with no tab to ask in never keeps its unload waiting: it leaves.
@@ -110,6 +111,8 @@ extension CEFRuntime {
             popupMenuOpened(browser: browser, token: token, popup: popup)
         case .popupMenuHidden(let browser, let token):
             hostStart?.popupMenus?.hide(browser: browser, token: token)
+        case .subframeRenderer(let browser, let frame, let client, let attached):
+            childMonitor?.subframe(frame, browser: browser, client: client, attached: attached)
         case .pageDragEnter(let browser, let pathsJSON):
             if let tab = tabsByBrowser[browser], let entered = tab.pageFilesDragged { entered(CEFTab.dragPaths(pathsJSON)) }
         case .fileDialog(let browser, let dialogID, let mode, let acceptTypes, let defaultPath):
@@ -123,7 +126,8 @@ extension CEFRuntime {
             }
         case .reply(_, let id, let value, let json):
             let reply = CEFSiteReply(value: value, json: json)
-            if !builtInLoader.answer(reply: id, value: value), !siteReplies.resolve(id, with: .success(reply)), siteReplyBrowsers[id] != nil {
+            if !surfaceCopies.answer(reply: id, value: value, json: json), !builtInLoader.answer(reply: id, value: value),
+               !siteReplies.resolve(id, with: .success(reply)), siteReplyBrowsers[id] != nil {
                 earlySiteReplies[id] = reply
             }
         case .tab(let kind, let browser, let window, let value):
@@ -284,6 +288,7 @@ extension CEFRuntime {
         devToolsCalls.failAll(where: { $0.browser == browser }, with: BrowserTabError.closed)
         siteReplies.failAll(where: { siteReplyBrowsers[$0] == browser }, with: BrowserTabError.closed)
         failEvaluations(of: browser)
+        surfaceCopies.browserClosed(browser)
         // The fork counts a browser's window until its destructor, after this close.
         if let shim { shutdownSequence?.windowsOpen(Int(shim.windowCount())) }
         shutdownSequence?.browserClosed(remaining: tabsByBrowser.count + pendingWindows.count)
@@ -354,21 +359,9 @@ extension CEFRuntime {
     /// throws `timedOut` when no result arrives within `timeout`.
     func devTools(_ browser: Int32, method: String, params: [String: Any] = [:],
                   timeout: Duration = CEFRuntime.devToolsTimeout) async throws -> String {
-        guard let shim else { throw BrowserTabError.closed }
-        // Chromium answers some methods inside ExecuteDevToolsMethod, before a
-        // waiter exists; without this the result was dropped and the call
-        // timed out after `timeout` (every device emulation lost 5 s on
-        // Emulation.setEmitTouchEventsForMouse).
-        // A nested run loop inside the call may start another call: keep the outer one's table.
-        let outer = synchronousDevToolsResults
-        synchronousDevToolsResults = [:]
-        let message = shim.devToolsCall(browser, method, CEFDevToolsResult.params(params))
-        let answered = synchronousDevToolsResults
-        synchronousDevToolsResults = outer.map { $0.merging(answered ?? [:]) { first, _ in first } }
-        guard message != 0 else { throw BrowserTabError.closed }
-        let key = CEFDevToolsKey(browser: browser, message: message)
-        if let result = answered?[key] { return try result.get() }
-        return try await devToolsCalls.reply(for: key, timeout: timeout) {
+        guard let sent = sendDevTools(browser, method: method, params: params) else { throw BrowserTabError.closed }
+        if let result = sent.answered { return try result.get() }
+        return try await devToolsCalls.reply(for: sent.key, timeout: timeout) {
             BrowserTabError.timedOut("DevTools \(method) (\(timeout))")
         }
     }

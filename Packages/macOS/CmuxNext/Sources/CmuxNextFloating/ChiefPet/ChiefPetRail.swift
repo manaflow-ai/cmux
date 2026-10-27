@@ -104,6 +104,7 @@ final class ChiefPetTool: NSButton {
 
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
+    // visibility-walk-allow: one tool's tint color, no layout or text measure; cheaper than a deferral
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         recolor()

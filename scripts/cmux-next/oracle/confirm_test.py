@@ -169,8 +169,10 @@ class Fixture:
         argv = ["--diff", str(self.tmp / "cmp"), "--flaky-out", str(self.tmp / "q" / "flaky.jsonl"),
                 "--base-red-out", str(self.tmp / "q" / "base-red.jsonl"), "--route-out", str(self.tmp / "q" / "route.jsonl"),
                 *extra]
-        with unittest.mock.patch.object(route, "git_changed_files",
-                                        lambda repo: lambda base, head: ["scripts/cmux-next/oracle/diff.py", "nobody/owns.txt"]):
+        # The synthetic SHAs are no commits of this checkout: route.py resolves them as they are.
+        with unittest.mock.patch.object(route, "resolve", lambda roots, ref: ref), \
+                unittest.mock.patch.object(route, "changed_files",
+                                           lambda roots, base, head: ["scripts/cmux-next/oracle/diff.py", "nobody/owns.txt"]):
             code = quiet(confirm.main, argv, launcher=launcher)
         out = self.tmp / "cmp" / "confirm"
         rows = [json.loads(line) for line in (out / "confirmed.jsonl").read_text().splitlines()] \
@@ -201,9 +203,9 @@ class ConfirmTests(unittest.TestCase):
                 self.assertEqual(set(row["verdicts"]), {"head", "head_retry", "base"})
             real = by_case["alpha/real"]["verdicts"]
             self.assertEqual([real[k]["verdict"] for k in ("head", "head_retry", "base")], ["fail", "fail", "pass"])
-            self.assertEqual(real["head"]["run_id"], "head-s0")
-            self.assertIn("retry-s0of1", real["head_retry"]["run_id"])
-            self.assertIn("alone-s0of1", real["base"]["run_id"])
+            self.assertEqual(real["head"]["run"], "head-s0")
+            self.assertIn("retry-s0of1", real["head_retry"]["run"])
+            self.assertIn("alone-s0of1", real["base"]["run"])
             self.assertEqual(real["head"]["sha"], HEAD_SHA)
             self.assertEqual(real["base"]["sha"], BASE_SHA)
             # The changed-value flake names both places; the flakes needed no base run.
@@ -218,15 +220,15 @@ class ConfirmTests(unittest.TestCase):
             self.assertEqual(sorted(r["case"] for r in fixture.queue("base-red.jsonl")), ["alpha/crash", "alpha/order"])
             routed = fixture.queue("route.jsonl")
             self.assertEqual([r["case"] for r in routed], ["alpha/real"])
-            self.assertEqual(summary["route"]["skipped"], {"base-red": 2, "flake": 2})
+            self.assertEqual(summary["route"]["skipped"], {"base-red": 2, "flaky": 2})
             line = routed[0]
             self.assertEqual([line["verdicts"][k]["verdict"] for k in ("head", "head_retry", "base")], ["fail", "fail", "pass"])
-            self.assertTrue(all(line["verdicts"][k]["run_id"] for k in ("head", "head_retry", "base")))
-            self.assertTrue(any(o["owner"].startswith("PL-oracle") for o in line["owners"]))
-            self.assertEqual(line["unowned_files"], ["nobody/owns.txt"])
-            self.assertIn(f"--base {BASE_SHA} --head {HEAD_SHA}", line["replay"]["oracle"])
-            self.assertIn("--filter alpha/real", line["replay"]["oracle"])
-            self.assertIn("diff.py", line["replay"]["diff"])
+            self.assertTrue(all(line["verdicts"][k]["run"] for k in ("head", "head_retry", "base")))
+            self.assertTrue(line["owner"].startswith("PL-oracle"))
+            self.assertEqual(line["file_count"], 2)
+            self.assertIn(f"--base {BASE_SHA} --head {HEAD_SHA}", line["rerun"])
+            self.assertIn("--filter alpha/real", line["rerun"])
+            self.assertIn("diff.py", line["replay"])
             # A second confirm of the same diff reruns into its own dir; the route queue keeps one line per divergence.
             again = ScriptLauncher(tmp, SET)
             code, rows, _ = fixture.confirm(again)
@@ -252,7 +254,7 @@ class ConfirmTests(unittest.TestCase):
                 self.assertEqual(request.side.label, "head")
             # The head verdict names the shard run the case was in.
             for row in rows:
-                self.assertEqual(row["verdicts"]["head"]["run_id"], f"head-s{oracle.shard_of(row['case'], 3)}")
+                self.assertEqual(row["verdicts"]["head"]["run"], f"head-s{oracle.shard_of(row['case'], 3)}")
             alone = [r for r in launcher.requests if r.label.startswith("alone")]
             self.assertTrue(alone)
             for request in alone:
@@ -299,7 +301,7 @@ class ConfirmTests(unittest.TestCase):
             by_case = {row["case"]: row for row in rows}
             for request in alone:
                 for cid in request.filters:
-                    self.assertTrue(by_case[cid]["verdicts"]["base"]["run_id"].endswith(request.label))
+                    self.assertTrue(by_case[cid]["verdicts"]["base"]["run"].endswith(request.label))
 
     def test_a_fleet_step_that_fails_in_fleet_py_leaves_the_cases_unconfirmed(self):
         with tempfile.TemporaryDirectory() as raw:
@@ -501,38 +503,46 @@ class LauncherTests(unittest.TestCase):
 
 
 class RouteTests(unittest.TestCase):
+    """confirm.py's lines through route.py (task 118's router; its own gate and owner map: route_test.py)."""
+
     def row(self, **overrides) -> Dict[str, Any]:
-        verdicts = {key: {"verdict": v, "run_id": f"run-{key}", "dir": None, "sha": HEAD_SHA, "detail": ""}
+        verdicts = {key: {"verdict": v, "run": f"run-{key}", "dir": None, "sha": HEAD_SHA, "detail": ""}
                     for key, v in (("head", "fail"), ("head_retry", "fail"), ("base", "pass"))}
-        row = {"schema": confirm.SCHEMA, "case": "alpha/real", "class": "confirmed", "reason": "", "mode": "base-head",
-               "product": "daemon", "switch": None, "arm": None, "a_label": "base", "b_label": "head",
-               "base_sha": BASE_SHA, "head_sha": HEAD_SHA, "verdicts": verdicts,
-               "finding": {"step": "s1", "checkpoint": "settled", "pointer": "/value", "a": "x", "b": "y",
-                           "replay": "python3 -I scripts/cmux-next/oracle/diff.py A B --case alpha/real"},
+        row = {"schema": confirm.SCHEMA, "case": "alpha/real", "class": "confirmed", "confidence": "confirmed",
+               "reason": "", "mode": "base-head", "product": "daemon", "switch": None, "arm": None,
+               "a_label": "base", "b_label": "head", "base_sha": BASE_SHA, "head_sha": HEAD_SHA,
+               "base": BASE_SHA, "head": HEAD_SHA, "verdicts": verdicts, "journey": "alpha/real",
+               "step": "s1", "checkpoint": "settled", "pointer": "/value", "a": "x", "b": "y",
+               "replay": "python3 -I scripts/cmux-next/oracle/diff.py A B --case alpha/real",
                "comparison": "/tmp/cmp/comparison.json"}
         row.update(overrides)
         return row
 
+    def roots(self, tmp: Path, registry: Optional[Path] = None) -> "route.Roots":
+        return route.Roots(repo=tmp, owners=route.Roots().owners, registry=registry or tmp / "no-registry")
+
     def route(self, tmp: Path, rows, registry: Optional[Path] = None, changed=("scripts/cmux-next/oracle/diff.py",)):
         source = tmp / "confirmed.jsonl"
         source.write_text("".join(json.dumps(r) + "\n" for r in rows))
-        options = route.Options(out=tmp / "route.jsonl", registry=registry or tmp / "no-registry",
-                                changed_files=lambda base, head: list(changed))
-        return route.route_files([source], options)
+        with unittest.mock.patch.object(route, "resolve", lambda roots, ref: ref), \
+                unittest.mock.patch.object(route, "changed_files", lambda roots, base, head: list(changed)):
+            return route.route_files([source], tmp / "route.jsonl", roots=self.roots(tmp, registry))
 
     def test_only_head_fails_twice_and_base_passes_is_routed(self):
         with tempfile.TemporaryDirectory() as raw:
             tmp = Path(raw)
-            bad_base = self.row(case="alpha/b")
+            bad_base = self.row(case="alpha/b", journey="alpha/b")
             bad_base["verdicts"] = {**bad_base["verdicts"], "base": {**bad_base["verdicts"]["base"], "verdict": "not-run"}}
-            no_run_id = self.row(case="alpha/c")
-            no_run_id["verdicts"] = {**no_run_id["verdicts"], "head_retry": {**no_run_id["verdicts"]["head_retry"], "run_id": None}}
-            result = self.route(tmp, [self.row(), bad_base, no_run_id, self.row(case="alpha/d", **{"class": "flake"})])
+            no_run = self.row(case="alpha/c", journey="alpha/c")
+            no_run["verdicts"] = {**no_run["verdicts"], "head_retry": {**no_run["verdicts"]["head_retry"], "run": None}}
+            flake = self.row(case="alpha/d", journey="alpha/d", confidence="flaky", **{"class": "flake"})
+            result = self.route(tmp, [self.row(), bad_base, no_run, flake])
             self.assertEqual(result["routed"], 1)
-            self.assertEqual(sorted(r["case"] for r in result["refused"]), ["alpha/b", "alpha/c"])
-            self.assertEqual(result["skipped"], {"flake": 1})
+            self.assertEqual(sum(result["skipped"].values()), 3)
+            self.assertEqual(result["skipped"]["flaky"], 1)
             lines = [json.loads(l) for l in (tmp / "route.jsonl").read_text().splitlines()]
             self.assertEqual([l["case"] for l in lines], ["alpha/real"])
+            self.assertEqual(lines[0]["verdicts"], self.row()["verdicts"])
 
     def test_queue_replaces_a_rerouted_divergence_and_drops_unverified_lines(self):
         with tempfile.TemporaryDirectory() as raw:
@@ -540,7 +550,7 @@ class RouteTests(unittest.TestCase):
             (tmp / "route.jsonl").write_text(json.dumps({"schema": route.SCHEMA, "key": "old", "case": "x"}) + "\n")
             first = self.route(tmp, [self.row()])
             self.assertEqual(first["dropped"], ["old"])
-            second = self.route(tmp, [self.row(), self.row(case="alpha/other")])
+            second = self.route(tmp, [self.row(), self.row(case="alpha/other", journey="alpha/other")])
             self.assertEqual(second["queue"], 2)
             lines = [json.loads(l) for l in (tmp / "route.jsonl").read_text().splitlines()]
             self.assertEqual(sorted(l["case"] for l in lines), ["alpha/other", "alpha/real"])
@@ -550,66 +560,83 @@ class RouteTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as raw:
             tmp = Path(raw)
             first, second = tmp / "first.jsonl", tmp / "second.jsonl"
-            first.write_text(json.dumps(self.row(case="alpha/first")) + "\n")
-            second.write_text(json.dumps(self.row(case="alpha/second")) + "\n")
-            options = route.Options(out=tmp / "route.jsonl", registry=tmp / "no-registry",
-                                    changed_files=lambda base, head: [])
-            original = route.write_lines
+            first.write_text(json.dumps(self.row(case="alpha/first", journey="alpha/first")) + "\n")
+            second.write_text(json.dumps(self.row(case="alpha/second", journey="alpha/second")) + "\n")
+            out = tmp / "route.jsonl"
+            roots = self.roots(tmp)
+            original = route.write_jsonl
             inner: List[threading.Thread] = []
             locked: List[bool] = []
 
-            def write_lines(path, rows):
+            def write_jsonl(lines, path):
                 if not inner:
                     # The first route has read the queue and not replaced it: the queue is locked, and the second
                     # route, started now, reads it only after this replace.
-                    with route.lock_path(options.out).open("a") as probe:
+                    with route.lock_path(out).open("a") as probe:
                         try:
                             fcntl.flock(probe.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
                             locked.append(False)
                             fcntl.flock(probe.fileno(), fcntl.LOCK_UN)
                         except BlockingIOError:
                             locked.append(True)
-                    inner.append(threading.Thread(target=route.route_files, args=([second], options)))
+                    inner.append(threading.Thread(target=route.route_files, args=([second], out), kwargs={"roots": roots}))
                     inner[0].start()
-                original(path, rows)
+                original(lines, path)
 
-            with unittest.mock.patch.object(route, "write_lines", write_lines):
-                route.route_files([first], options)
+            with unittest.mock.patch.object(route, "write_jsonl", write_jsonl), \
+                    unittest.mock.patch.object(route, "resolve", lambda roots, ref: ref), \
+                    unittest.mock.patch.object(route, "changed_files", lambda roots, base, head: ["README.md"]):
+                route.route_files([first], out, roots=roots)
                 inner[0].join()
             self.assertEqual(locked, [True])
-            lines = [json.loads(l) for l in options.out.read_text().splitlines()]
+            lines = [json.loads(l) for l in out.read_text().splitlines()]
             self.assertEqual(sorted(l["case"] for l in lines), ["alpha/first", "alpha/second"])
+
+    def registry(self, tmp: Path) -> Path:
+        registry = tmp / "registry"
+        registry.mkdir()
+        (registry / "holder.json").write_text(json.dumps({
+            "owner": "PL-holder", "plan": "plans/cmux-next/chrome-parity/p15-oracle.md#f6",
+            "old_paths": ["cmux-tui/crates/cmux-tui-core/src/oracle_state.rs"]}))
+        (registry / "intents.json").write_text(json.dumps({
+            "owner": "PL-intents", "plan": "plans/cmux-next/chrome-parity/p09-intents.md"}))
+        return registry
 
     def test_a_switch_divergence_maps_to_its_plan_and_owner(self):
         with tempfile.TemporaryDirectory() as raw:
             tmp = Path(raw)
-            registry = tmp / "registry"
-            registry.mkdir()
-            (registry / "holder.json").write_text(json.dumps({
-                "owner": "PL-holder", "plan": "plans/cmux-next/chrome-parity/p15-oracle.md#f6",
-                "old_paths": ["cmux-tui/crates/cmux-tui-core/src/oracle_state.rs"]}))
-            self.route(tmp, [self.row(mode="switch", switch="holder", arm="new", base_sha=HEAD_SHA)], registry=registry,
-                       changed=("should/not/be/read",))
+            row = self.row(mode="switch", switch="holder", arm="new", source=HEAD_SHA)
+            del row["base"], row["head"]
+            self.route(tmp, [row], registry=self.registry(tmp), changed=("should/not/be/read",))
             line = json.loads((tmp / "route.jsonl").read_text())
             self.assertEqual(line["switch_owner"], "PL-holder")
-            self.assertEqual(line["files"], ["plans/cmux-next/chrome-parity/p15-oracle.md",
-                                             "cmux-tui/crates/cmux-tui-core/src/oracle_state.rs"])
-            self.assertEqual([o["count"] for o in line["owners"] if o["owner"].startswith("PL-oracle")], [2])
-            self.assertIn(f"--switch holder --ref {HEAD_SHA}", line["replay"]["oracle"])
-            self.assertTrue(line["key"].endswith(":switch=holder"))
+            self.assertEqual(line["file_count"], 2)
+            self.assertTrue(line["owner"].startswith("PL-oracle"))
+            self.assertIn(f"--switch holder --ref {HEAD_SHA}", line["rerun"])
 
-    def test_cli_exit_codes(self):
+    def test_a_launch_config_divergence_maps_to_every_switch(self):
         with tempfile.TemporaryDirectory() as raw:
             tmp = Path(raw)
-            source = tmp / "c.jsonl"
-            source.write_text(json.dumps(self.row()) + "\n")
-            changed = lambda base, head: []  # noqa: E731
-            self.assertEqual(quiet(route.main, [str(source), "--out", str(tmp / "r.jsonl")], changed_files=changed), 0)
-            bad = self.row()
-            bad["verdicts"]["base"]["verdict"] = "fail"
-            source.write_text(json.dumps(bad) + "\n")
-            self.assertEqual(quiet(route.main, [str(source), "--out", str(tmp / "r.jsonl")], changed_files=changed), 1)
-            self.assertEqual(quiet(route.main, [str(tmp / "missing.jsonl"), "--out", str(tmp / "r.jsonl")]), 2)
+            row = self.row(mode="launch-config", arm="launch-config", source=HEAD_SHA)
+            del row["base"], row["head"]
+            result = self.route(tmp, [row], registry=self.registry(tmp), changed=("should/not/be/read",))
+            self.assertEqual((result["routed"], result["unrouted"]), (1, []))
+            line = json.loads((tmp / "route.jsonl").read_text())
+            self.assertEqual(line["file_count"], 3)
+            self.assertEqual(line["switch_owner"], "PL-holder, PL-intents")
+            self.assertIn(f"--arm launch-config --ref {HEAD_SHA}", line["rerun"])
+
+    def test_cli_merge_keeps_the_queue_on_a_bad_input(self):
+        with tempfile.TemporaryDirectory() as raw:
+            tmp = Path(raw)
+            queue = tmp / "r.jsonl"
+            self.route(tmp, [self.row()])
+            (tmp / "route.jsonl").replace(queue)
+            before = queue.read_text()
+            self.assertEqual(quiet(route.main, [str(tmp / "missing.jsonl"), "--out", str(queue), "--merge"]), 2)
+            self.assertEqual(queue.read_text(), before)
+            self.assertEqual(quiet(route.main, [str(tmp / "missing.jsonl"), "--out", str(queue)]), 2)
+            self.assertFalse(queue.exists())
 
 
 class DelegationTests(unittest.TestCase):
