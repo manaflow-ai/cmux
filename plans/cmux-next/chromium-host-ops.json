@@ -1376,6 +1376,25 @@
       "reason": "The external message pump does not exist in host mode (CefRunMessageLoop runs in the host, task 034): a no-op."
     },
     {
+      "name": "cmux_shim_set_pump_time_slice",
+      "class": "local",
+      "args": [
+        {
+          "name": "slice_us",
+          "type": "int64_t"
+        }
+      ],
+      "returns": "int",
+      "result_used_by": [
+        "CmuxNextBrowser/CEF/CEFInProcessPump.swift"
+      ],
+      "mirror_key": null,
+      "refresh_events": [],
+      "pending_keys": [],
+      "reply_event": null,
+      "reason": "The slice of the next external message pump pass, which does not exist in host mode (CefRunMessageLoop runs in the host, task 034): the remote shim returns 0, and CEFInProcessPump calls it only in process (p03-rendering-116)."
+    },
+    {
       "name": "cmux_shim_set_schedule_delayed",
       "class": "local",
       "args": [

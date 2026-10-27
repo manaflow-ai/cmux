@@ -36,6 +36,12 @@ public nonisolated struct CEFPumpStats: Equatable, Sendable {
     public var passesWhileInputPending = PassesByTarget()
     /// Passes the input policy held until an input's dispatch ended (one per hold).
     public var deferredForInput = 0
+    /// Due passes the frame deadline held for the next frame: less than 1 ms was left before the
+    /// frame's commit (``CEFPumpFrameDeadline``, p03-rendering-116).
+    public var frameDeadlineWaits = 0
+    /// Due passes the frame deadline held for a person's input turn, or for pending input after a
+    /// pass that used its whole slice (at most one wait in a row).
+    public var frameInputHolds = 0
     /// Each pass's main-thread time while the input policy runs.
     public var passTimes = InputLatencyHistogram()
     /// Passes for a delayed fire date that came before Chromium's task was due (``EarlyPassWatch``), so one
