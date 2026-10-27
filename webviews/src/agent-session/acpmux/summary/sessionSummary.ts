@@ -6,7 +6,12 @@ import type { AcpmuxActivity, AcpmuxRow } from "../model";
 import { isSubagentGroup } from "../subagents/subagentRows";
 import { mcpCall, mcpPlainName } from "../conversation/mcpCalls";
 import { editedPaths } from "../toolPaths";
-import { transcriptPullRequests, transcriptSourceVersion, type SummaryPullRequest } from "./transcriptPullRequests";
+import {
+  transcriptPullRequestKey,
+  transcriptPullRequests,
+  transcriptSourceVersion,
+  type SummaryPullRequest,
+} from "./transcriptPullRequests";
 
 export type { PullRequestState, SummaryPullRequest } from "./transcriptPullRequests";
 
@@ -92,6 +97,14 @@ const GITHUB_PR_URL = /^https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/pull\/\d+(?:\/[
 const GITHUB_ISSUE_URL = /^https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/issues\/\d+(?:\/[^\s]*)?$/;
 const sourceKey = (source: SummarySource) => `${source.kind ?? "url"}:${source.url ?? source.label}`;
 let sourceCache: { revision: symbol; pullRequests: string; sources: SummarySource[] } | undefined;
+let pullRequestCache:
+  | {
+      revision: string | symbol;
+      folder?: string;
+      replies: boolean;
+      pullRequests: SummaryPullRequest[];
+    }
+  | undefined;
 const pullRequestSourceKey = (pullRequests: readonly SummaryPullRequest[]) =>
   pullRequests
     .map((pr) => `${pr.url}:${pr.kind ?? ""}:${pr.opened ? 1 : 0}:${pr.changed ? 1 : 0}:${pr.mentioned ? 1 : 0}`)
@@ -236,7 +249,18 @@ export function sessionSummary(rows: readonly AcpmuxRow[], repository?: string |
   const all = tools(rows);
   const inspector = repository !== undefined;
   // The summary card reads only the commands, and lists no mention.
-  const pullRequests = transcriptPullRequests(rows, { folder: repository ?? undefined, replies: inspector });
+  const folder = repository ?? undefined;
+  const revision = inspector
+    ? (transcriptSourceVersion(rows) ?? transcriptPullRequestKey(rows, true))
+    : transcriptPullRequestKey(rows);
+  const cached =
+    pullRequestCache?.revision === revision &&
+    pullRequestCache.folder === folder &&
+    pullRequestCache.replies === inspector
+      ? pullRequestCache.pullRequests
+      : undefined;
+  const pullRequests = cached ?? transcriptPullRequests(rows, { folder, replies: inspector });
+  if (!cached) pullRequestCache = { revision, folder, replies: inspector, pullRequests };
   return {
     ...(cwd ? { cwd } : {}),
     scheduled: scheduled(all),

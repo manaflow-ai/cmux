@@ -271,6 +271,9 @@ const cache = new WeakMap<AcpmuxRow, Finding[]>();
 
 function rowFindings(row: AcpmuxRow, replies: boolean): Finding[] {
   if (row.kind !== "activity" && !(replies && row.kind === "assistant")) return [];
+  // Sources and Changes are settled transcript facts. A streaming reply is still mutable, so
+  // parsing it here would make every token look like a new reference and invalidate the summary.
+  if (row.kind === "assistant" && row.streaming) return [];
   const kept = cache.get(row);
   if (kept) return kept;
   const findings =

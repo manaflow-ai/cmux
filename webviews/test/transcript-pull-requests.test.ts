@@ -313,6 +313,33 @@ test("cached Sources do not reread settled replies for each snapshot", () => {
   expect(textReads).toBe(0);
 });
 
+test("streaming reply references stay out of Sources without rescanning settled replies", () => {
+  let settledReads = 0;
+  const settled = Array.from({ length: 100 }, (_, index) => {
+    const row = assistant(`settled status ${index}`, index + 1);
+    Object.defineProperty(row, "text", {
+      configurable: true,
+      get: () => {
+        settledReads += 1;
+        return `settled status ${index}`;
+      },
+    });
+    return row;
+  });
+  const streaming = assistant("acme/app#7", 200);
+  streaming.streaming = true;
+  const rows = [...settled, streaming];
+  markTranscriptSourceVersion(rows, Symbol("settled"));
+
+  expect(sessionSummary(rows, "acme/app").sources).toEqual([]);
+  expect(settledReads).toBeGreaterThan(0);
+
+  settledReads = 0;
+  streaming.text = "acme/app#71";
+  expect(sessionSummary(rows, "acme/app").sources).toEqual([]);
+  expect(settledReads).toBe(0);
+});
+
 test("pending and failed tools do not enter Sources or advance the settled source key", () => {
   const pending = tool("Read pending", "read", "in_progress", {
     output: "https://example.com/pending",
