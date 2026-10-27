@@ -35,9 +35,10 @@ import { carryInline, inlinePrompt, recordedPromptParts, restoreInline, stripFil
 import { liftInlineImages } from "./inlineImages";
 import { primeSentImages } from "./conversation/imageEntries";
 import { resentAttachments, shownPrompt } from "./pastedText";
-import { peerConnectedFromStatus, peerKindsFromStatus } from "./environments";
+import { peerConnectedFromStatus, peerKindsFromStatus, peerStatesFromStatus } from "./environments";
 import { type ChatUnavailable, chatUnavailable, type PeerStatus, peerStatusFromStatus } from "./chatUnavailable";
 import { hostKind, sessionEntry, summaryActivityAt, text, type AcpmuxSessionEntry } from "./sessionList";
+import { clampRunning, subsessionLimits } from "./subsessionLimits";
 import { agentName } from "./agents";
 import { FORK_OP, servesOperation } from "./operations";
 import { postNative } from "./native";
@@ -72,7 +73,7 @@ import { SubagentFold, subagentsLeft, subagentStops, type SubagentStopReason } f
 import { WORKSPACE_CONTEXT } from "./workspaceContext";
 import { promptSurfaceMeta } from "./surfaces/promptSurface";
 import { BOOKMARKS_KIND, bookmarksHeard } from "./threadMinimap/bookmarks";
-import { type StartMode, startModeChanged } from "./startMode";
+import { type StartMode, fullAccessTicket, rememberFullAccess, startModeChanged } from "./startMode";
 import { highestMode } from "./harnessModes";
 import { sameSessionStart, sessionStartOf } from "./conversation/sessionStart";
 import { reduceAgentPair } from "./conversation/agentPairs";
@@ -124,10 +125,22 @@ export type AcpmuxAdopt = {
 
 /** `session/new` params: the host's cwd when it gave one, else acpmux's default. An adopt
  *  sends no cwd: acpmux resumes the chat where its harness recorded it. */
+/// Where a new session starts: `cwd` when given; another machine (`peer`) or no project never
+/// inherits this tab's folder, which is a path on this Mac (the peer starts where it defaults).
+export function newSessionHost(
+  host: Pick<AcpmuxHostConfig, "cwd" | "adopt">,
+  cwd: string | undefined,
+  peer: string | undefined,
+  noProject: boolean,
+): Pick<AcpmuxHostConfig, "cwd" | "adopt"> & { peer?: string } {
+  return cwd ? { cwd, peer } : noProject || peer ? { peer } : { ...host, peer };
+}
+
 export function newSessionParams(
   host: Pick<AcpmuxHostConfig, "cwd" | "adopt"> & { peer?: string },
   harness?: string,
   noProject = false,
+  model?: string,
 ): Record<string, unknown> {
   if (host.adopt)
     return {
@@ -141,6 +154,8 @@ export function newSessionParams(
       acpmux: {
         harness,
         ...(host.peer ? { peer: host.peer } : {}),
+        // The model the page showed, for a chat on another machine (acpmux `model_request`).
+        ...(model ? { model } : {}),
         // Do not work in a project: the host starts the chat in its agent-home folder, not the
         // workspace's (AcpmuxPathPolicy), and strips this before acpmux sees it.
         ...(noProject ? { noProject: true } : {}),
@@ -186,6 +201,9 @@ export const PREWARM_METHOD = "_acpmux/prewarm";
 /// Reconnects a Claude Code chat's MCP server (reconnectMcp); listed in `initialize` where served.
 export const MCP_RECONNECT_METHOD = "_acpmux/mcp/reconnect";
 
+/// Most reads of a chat's running limit one step makes when each is overtaken in flight
+/// (`readRunningLimit`): enough for an attach and a record landing together, never a loop.
+const LIMIT_READS = 3;
 /// The slash commands are not transcript, so the pane asks for their updates by kind.
 /// How long Stop waits for the turn to end before the pane stops showing it as working. It is
 /// shorter than acpmux's own grace (`CANCEL_GRACE`, 10 s), so a slow agent's turn stops showing
@@ -317,6 +335,9 @@ const OFFER_RESULT_PROMPT = "offer-result-";
 /// `prompt_refused`: acpmux refused a prompt sent now at dispatch (hub/web_control.rs), after it left the
 /// queue; it is not a transcript record, so the pane asks for it by name.
 const QUEUE_KINDS = ["queue_order", "queue_updated", "prompt_refused"];
+/// acpmux's sub-session records (hub/subsessions.rs `RECORD_KIND`): a child started or ended, and
+/// the chat's `limits` changing.
+const SUBSESSION_KIND = "subsession";
 /// acpmux's refusals of an answer to a card it no longer has (hub/secrets.rs): a restart lost it,
 /// or the agent stopped waiting.
 const SECRET_GONE = ["no secret request with that id", "the agent stopped waiting"];
@@ -1136,6 +1157,16 @@ export class AcpmuxDirectClient {
   /// names the options it runs now), then each newer config update. A replayed update before it is
   /// history and never takes the current options back (a chat moved from Low to High).
   private configSeq = 0;
+  /// The seq the selected chat's `subsessionLimits` were read at (the attach's `lastSeq`, then each
+  /// newer `limits` record): an older record replayed with the page never takes them back.
+  private limitsSeq = 0;
+  /// Bumped each time the summary's limits come from anything but a `_acpmux/subsession/limits`
+  /// reply: a chat selected, an attach, a newer `limits` record. A reply is current only as of its
+  /// request, so one that finds this moved is older than what the summary holds. A seq alone can't
+  /// tell: a re-attach can install a newer inherited limit at the same `lastSeq`.
+  private limitsVersion = 0;
+  /// The running-limit changes in flight, one after another: each steps from the answer before it.
+  private limitsChain: Promise<unknown> = Promise.resolve();
   /// The session detail's goal is current through attach's lastSeq; older session-info history
   /// must not replace it while newer live goal events still apply.
   private goalSeq = 0;
@@ -1379,6 +1410,7 @@ export class AcpmuxDirectClient {
   /// Each peer's transport, for the environment picker's SSH and Cloud sections (environments.ts).
   private peerKinds: Record<string, "ssh" | "cloud"> = {};
   private peerConnected: Record<string, boolean> = {};
+  private peerStates: Record<string, string> = {};
   /// Each peer's link state, last-seen time and failed attempts, for why a chat is not listed.
   private peerStatus: Record<string, PeerStatus> = {};
   private reconnectTimer?: number;
@@ -1820,6 +1852,8 @@ export class AcpmuxDirectClient {
     this.clockOffset = undefined;
     this.summary = undefined;
     this.configSeq = 0;
+    this.limitsSeq = 0;
+    this.limitsVersion += 1;
     this.goalSeq = 0;
     this.usage = undefined;
     this.turnTokens = undefined;
@@ -2554,6 +2588,66 @@ export class AcpmuxDirectClient {
     return this.request("_acpmux/process/kill", { sessionId, processId }, 10_000);
   }
 
+  /// How many of chat `sessionId`'s sub-sessions run a turn at once: `maxRunning` (1 to 1000), or
+  /// `null` to drop the chat's own limit for the one it inherits (an ancestor's, the workspace's,
+  /// the settings' or acpmux's default). acpmux answers `{sessionId, subsessionLimits}` and logs a
+  /// `limits` record; the selected chat's summary takes the reply's limits at once.
+  ///
+  /// A step (− or +) names the limit it stepped `from`. A chat's inherited limit moves with no
+  /// record of its own (an ancestor's, the workspace's or the settings' changed), so unless the
+  /// chat's own limit is known here, acpmux is read first, and a limit that is no longer `from`
+  /// is stepped from instead: + on a stale 16 when acpmux holds 20 sets 21, never 17. Changes run
+  /// one after another, each from the answer before it, so quick clicks never step from the same
+  /// number twice.
+  setRunningLimit(sessionId: string, maxRunning: number | null, from?: number): Promise<void> {
+    const run = this.limitsChain.then(() => this.applyRunningLimit(sessionId, maxRunning, from));
+    this.limitsChain = run.catch(() => undefined);
+    return run;
+  }
+
+  private async applyRunningLimit(sessionId: string, maxRunning: number | null, from?: number): Promise<void> {
+    let value = maxRunning;
+    if (value !== null && from !== undefined) {
+      // The chat's own limit is current here only once this selection's attach is in: a kept tail
+      // drawn before it is what an earlier visit saw, and another client may have moved it since.
+      const attached = sessionId === this.selectedSessionId && this.attachedSession() === sessionId;
+      const known = attached ? subsessionLimits(this.summary?.subsessionLimits) : undefined;
+      const current = known?.maxRunningSource === "session" ? known : await this.readRunningLimit(sessionId);
+      if (current && current.maxRunning !== from) value = clampRunning(current.maxRunning + (value - from));
+    }
+    const seen = this.limitsVersion;
+    const result = await this.request("_acpmux/subsession/limits", { sessionId, maxRunning: value }, 10_000);
+    this.takeRunningLimit(sessionId, result?.subsessionLimits, seen);
+  }
+
+  /// Chat `sessionId`'s limits as acpmux holds them now (`_acpmux/subsession/limits` naming no
+  /// field only reads them). A read that something overtook while it was in flight (a `limits`
+  /// record, a chat selected or attached: `limitsVersion` moved) may be older than acpmux's limit,
+  /// and neither the summary nor a kept tail proves which is newer, so it is read again, at most
+  /// `LIMIT_READS` times. A step builds only on a read nothing overtook: if every read was, the
+  /// step is refused (the stepper says so and shows acpmux's limit) rather than written from a
+  /// number known to be stale.
+  private async readRunningLimit(sessionId: string) {
+    for (let read = 0; read < LIMIT_READS; read++) {
+      const seen = this.limitsVersion;
+      const result = await this.request("_acpmux/subsession/limits", { sessionId }, 10_000);
+      this.takeRunningLimit(sessionId, result?.subsessionLimits, seen);
+      if (this.limitsVersion === seen) return subsessionLimits(result?.subsessionLimits);
+    }
+    throw new Error("the running limit kept changing while it was read");
+  }
+
+  /// A reply carries no seq, so it is current only as of the request: a `limits` record, a new
+  /// attach or another chat selected while it was in flight (`limitsVersion` moved) is newer, and
+  /// the reply never takes the limit back from it (a streamed 20 then the older reply's 9 would
+  /// make the next + send 10).
+  private takeRunningLimit(sessionId: string, limits: unknown, seen: number) {
+    if (sessionId !== this.selectedSessionId || !limits || typeof limits !== "object") return;
+    if (this.limitsVersion !== seen) return;
+    this.summary = { ...this.summary, subsessionLimits: limits };
+    this.emit("subsession limits");
+  }
+
   /// Ctrl-B: moves the selected Claude Code chat's foreground work to the background, only the
   /// call `toolCallId` started or all of it (Claude Code's `background_tasks`). acpmux answers
   /// `{backgrounded}` and refuses another harness's chat; a Claude that never answers fails it
@@ -2863,6 +2957,8 @@ export class AcpmuxDirectClient {
         CONFIG_KIND,
         BOOKMARKS_KIND,
         ...SECRET_KINDS,
+        // The chat's sub-session records: its running limit's `limits` changes (the eighth kind).
+        SUBSESSION_KIND,
         ...(this.localOrigin ? QUEUE_KINDS : []),
       ],
       eventStream: true,
@@ -2995,6 +3091,8 @@ export class AcpmuxDirectClient {
       void this.fetchCommands(sessionId, generation, result.lastSeq).catch(() => {});
     this.summary = detail;
     this.configSeq = Array.isArray(detail.configOptions) && typeof result?.lastSeq === "number" ? result.lastSeq : 0;
+    this.limitsSeq = typeof result?.lastSeq === "number" ? result.lastSeq : 0;
+    this.limitsVersion += 1;
     this.goalSeq = typeof result?.lastSeq === "number" ? result.lastSeq : 0;
     this.queue = [];
     // The reads the chat draws with, at once rather than one after another: each is a round trip,
@@ -3372,12 +3470,19 @@ export class AcpmuxDirectClient {
   /// permission; events after replayAfterSeq are then reapplied on top of them.
   private rebuildKeepingLiveState(replayAfterSeq?: number): void {
     const summary = this.summary;
+    // The summary's running limit goes back with it, so the seq it was read at must too: else the
+    // rebuild's own pass leaves limitsSeq past a missed `limits` record and its reapply below is
+    // refused, keeping the old limit.
+    const limitsSeq = this.limitsSeq;
+    const limitsVersion = this.limitsVersion;
     const queue = this.queue;
     const permission = this.pendingPermission;
     const waiting = this.waitingPermissions;
     const secret = this.pendingSecret;
     this.rebuild();
     this.summary = summary;
+    this.limitsSeq = limitsSeq;
+    this.limitsVersion = limitsVersion;
     this.queue = queue;
     this.pendingPermission = permission;
     this.waitingPermissions = waiting;
@@ -3531,6 +3636,13 @@ export class AcpmuxDirectClient {
     } else if (event.kind === "permission_group" || event.kind === "permission_chat_allowance")
       void this.permissions.refresh().catch(() => {});
     else if (event.kind === "status") this.summary = { ...this.summary, status: msg.status };
+    // The chat's sub-session limits changed (acpmux hub/subsessions.rs: the person, or an ancestor).
+    else if (event.kind === SUBSESSION_KIND && msg.event === "limits" && msg.limits && typeof msg.limits === "object") {
+      if (event.seq && event.seq <= this.limitsSeq) return;
+      this.summary = { ...this.summary, subsessionLimits: msg.limits };
+      if (event.seq) this.limitsSeq = event.seq;
+      this.limitsVersion += 1;
+    }
   }
 
   /// What is ending the running turn, as `event` finds it: a prompt sent now (its `queue_order`
@@ -3808,6 +3920,9 @@ export class AcpmuxDirectClient {
         // acpmux's step of a subagent's retry: whether it gave up (subagents/retryState.ts).
         this.subagents.reduceRetryStep(msg);
         this.takeSubagentRows();
+      } else if (event.kind === "subsession" && msg.event === "limits") {
+        // The chat's running limit changed: its summary's, not a child's card.
+        this.reduceLiveState(event);
       } else if (event.kind === "subsession") {
         // A child an `acpmux run --parent` call of this chat started (acpmux #25019): that call's
         // run, whose card stands for the call's row from now on.
@@ -4404,6 +4519,7 @@ export class AcpmuxDirectClient {
       this.asks.sessions(this.sessions);
     }
     const summary = this.summary;
+    const limits = subsessionLimits(summary?.subsessionLimits);
     const effort = (summary?.configOptions ?? []).find(
       (option: any) => option.category === "thought_level" || option.id === "reasoning_effort",
     );
@@ -4423,6 +4539,7 @@ export class AcpmuxDirectClient {
       peers: this.peers,
       peerKinds: this.peerKinds,
       peerConnected: this.peerConnected,
+      peerStates: this.peerStates,
       ...(this.forkedAtSeq !== undefined ? { forkedAtSeq: this.forkedAtSeq } : {}),
       summary: summary
         ? {
@@ -4464,6 +4581,7 @@ export class AcpmuxDirectClient {
             queuePaused: summary.queuePaused === true,
             ...(text(summary.watching) ? { watching: text(summary.watching) } : {}),
             ...(Array.isArray(summary.mcpServers) ? { mcpServers: summary.mcpServers } : {}),
+            ...(limits ? { subsessionLimits: limits } : {}),
             status: summary.status,
             enforcement: sessionEnforcement(summary.enforcement),
             modes: summary.modes,
@@ -5718,14 +5836,22 @@ export class AcpmuxDirectClient {
   }
   /// A new session, in `cwd` when given; otherwise in the inherited cwd, then where acpmux defaults.
   /// `noProject` starts it in no project: the host's agent-home folder, never the inherited cwd.
-  create(harness?: string, cwd?: string, peer?: string, noProject = false): Promise<string | undefined> {
+  /// `model`: the model to start on (a chat on another machine starts on the one the page showed).
+  create(
+    harness?: string,
+    cwd?: string,
+    peer?: string,
+    noProject = false,
+    model?: string,
+  ): Promise<string | undefined> {
     const started = (async () => {
       const sessionId = await this.startSession(
         harness,
         cwd,
         peer,
-        () => void this.create(harness, cwd, peer, noProject).catch(() => undefined),
+        () => void this.create(harness, cwd, peer, noProject, model).catch(() => undefined),
         noProject,
+        model,
       );
       return sessionId ? this.select(sessionId) : undefined;
     })();
@@ -5746,9 +5872,10 @@ export class AcpmuxDirectClient {
     peer?: string,
     again?: () => void,
     noProject = false,
+    model?: string,
   ): Promise<string | undefined> {
     const result = await this.newSession(
-      newSessionParams(cwd ? { cwd, peer } : noProject ? { peer } : { ...this.host, peer }, harness, noProject),
+      newSessionParams(newSessionHost(this.host, cwd, peer, noProject), harness, noProject, model),
       again,
     );
     // The inherited cwd is the first default chat's; later ones start where acpmux defaults.
@@ -5935,13 +6062,17 @@ export class AcpmuxDirectClient {
   /// as acpmux decides it; undefined when it would set none, does not know, or predates the method.
   /// Rejects when it could not be asked (no socket, the request failed): that is no answer.
   async startMode(harness: string, cwd?: string): Promise<StartMode | undefined> {
+    const ticket = fullAccessTicket();
     try {
       const answer = (await this.request("_acpmux/start_mode", cwd ? { harness, cwd } : { harness })) as {
         harness?: unknown;
         modeId?: unknown;
         name?: unknown;
         level?: unknown;
+        fullAccess?: unknown;
       } | null;
+      // Read before any mode check: an answer that names no mode still says full access is managed off.
+      rememberFullAccess(answer?.fullAccess, ticket);
       // Full access on a harness whose modes acpmux has not seen yet (no chat of it since acpmux
       // started: a first Codex chat): acpmux names no mode, and sets the harness's full-access mode
       // once it reports its modes. The chip names that mode now, never nothing.
@@ -5959,7 +6090,12 @@ export class AcpmuxDirectClient {
       // that never reached it, or whose socket closed, answered nothing (startMode.ts keeps what it had).
       // The pane's host refusing to relay it (`data.origin: "native"`, such as a new workspace's home
       // folder outside the roots it relays) is one of those: acpmux never saw the ask.
-      if (error instanceof AcpmuxRpcError && !refusedByHost(error)) return undefined;
+      // Only a daemon that predates the method (method not found) manages nothing; any other
+      // refusal comes from a daemon that may still manage full access, so the mark stays.
+      if (error instanceof AcpmuxRpcError && !refusedByHost(error)) {
+        if (error.code === METHOD_NOT_FOUND) rememberFullAccess(undefined, ticket);
+        return undefined;
+      }
       throw error;
     }
   }
@@ -6259,6 +6395,7 @@ export class AcpmuxDirectClient {
       : [];
     this.peerKinds = peerKindsFromStatus(status);
     this.peerConnected = peerConnectedFromStatus(status);
+    this.peerStates = peerStatesFromStatus(status);
     this.peerStatus = peerStatusFromStatus(status);
   }
   /// Probes every agent's live model list again (`_acpmux/models {refresh: true}`): acpmux forgets
@@ -6818,6 +6955,9 @@ function catalogEntry(harness: any): AcpmuxSnapshot["catalog"][number] {
 function pageShown(): boolean {
   return typeof document === "undefined" || document.visibilityState !== "hidden";
 }
+
+/// JSON-RPC's method-not-found code: a daemon that predates the method.
+const METHOD_NOT_FOUND = -32601;
 
 /// Whether the pane's host refused to relay a request (`data.origin: "native"`): acpmux never saw it.
 function refusedByHost(error: AcpmuxRpcError): boolean {

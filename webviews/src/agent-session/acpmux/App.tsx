@@ -5279,6 +5279,12 @@ function AcpmuxPane() {
     (id: string) => directClient.current?.killProcess(id) ?? Promise.reject(new Error()),
     [],
   );
+  // The Inspector's running-limit stepper (inspector/SubagentLimitStepper.tsx).
+  const setRunningLimit = useCallback(
+    (sessionId: string, maxRunning: number | null, from?: number) =>
+      directClient.current?.setRunningLimit(sessionId, maxRunning, from) ?? Promise.reject(new Error()),
+    [],
+  );
   const reconnectMcp = useCallback(
     (server: string) => directClient.current?.reconnectMcp(server) ?? Promise.reject(new Error()),
     [],
@@ -5993,6 +5999,8 @@ function AcpmuxPane() {
     onStopProcess: stopProcess,
     subagents: cardSubagents,
     sessions: cardSessions,
+    // acpmux takes the limit only from this Mac's app (a person-proven connection), never a Web one.
+    onSetRunningLimit: snapshot.origin === "local" ? setRunningLimit : undefined,
     workflows: inspectorWorkflows,
     // A folder opens in the Files tree beside the chat; a remote or cloud chat's folders are not on
     // this Mac.
@@ -7346,6 +7354,7 @@ function AcpmuxPane() {
               folder,
               peer ? String(peer) : undefined,
               noProject === true,
+              peer && model ? String(model) : undefined,
             );
             await persistSession(started);
             return started;
@@ -9211,6 +9220,10 @@ function AcpmuxPane() {
             }
             queueImage={readQueuedImage}
             onProject={chooseProject}
+            // A machine with no folder known here: the new chat starts there, in its default folder.
+            onComputer={(computer) =>
+              void callNative("chat.new", computer === "local" ? {} : { peer: computer }).catch(() => undefined)
+            }
             onNewWorktree={freshChat && !quick && !remoteChat ? startInWorktree : undefined}
             onConnect={connectMachine}
             // The floating chat has no tab to move.
@@ -9535,6 +9548,7 @@ function AcpmuxPane() {
               key={newTabGeneration}
               environments={preview}
               onConnect={connectMachine}
+              onRefreshMachines={() => void directClient.current?.refreshPeers()}
               onNewWorktree={(cwd) => {
                 let folder: string | undefined;
                 return newWorktree(callNative, cwd, (used) => {

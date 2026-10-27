@@ -156,6 +156,14 @@ async fn forward_inner(
                 return Err(crate::prompt_uploads::peer_unsupported(&peer));
             }
         }
+        // An upload for a prompt (`attach::blocks_for`) to a peer that would refuse the prompt
+        // naming it: refused before its bytes are sent, so none is left behind.
+        if m == method::MUX_FILE_PUT_BEGIN
+            && params.get("forPrompt") == Some(&Value::Bool(true))
+            && !peer.supports_prompt_uploads()
+        {
+            return Err(crate::prompt_uploads::peer_unsupported(&peer));
+        }
         // An older peer would answer status as unknown and finish without checking `sha256`.
         let checked =
             m == method::MUX_FILE_PUT_FINISH && params.get("sha256").is_some_and(|h| !h.is_null());
@@ -164,9 +172,12 @@ async fn forward_inner(
         }
         if m == method::MUX_FILE_PUT_CHUNK {
             crate::hub::file_uploads::check_chunk(params)?;
-            if !peer.supports_file_put() {
-                return Err(crate::hub::file_uploads::peer_unsupported(&peer));
-            }
+        }
+        // A peer with only the one-shot `file_put` would refuse the upload part way through.
+        if matches!(m, method::MUX_FILE_PUT_BEGIN | method::MUX_FILE_PUT_CHUNK)
+            && !peer.supports_file_put_chunks()
+        {
+            return Err(crate::hub::file_uploads::peer_unsupported(&peer));
         }
         // The media reader runs on the peer that owns the chat, if it has one (`hub/media_read.rs`).
         if matches!(m, method::MUX_MEDIA_OPEN | method::MUX_MEDIA_RANGE)
