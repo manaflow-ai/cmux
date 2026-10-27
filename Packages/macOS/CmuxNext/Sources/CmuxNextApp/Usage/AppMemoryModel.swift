@@ -101,23 +101,24 @@ struct AppMemoryModel: MemorySnapshotModel {
         page.webKitEngine.flatMap { WebContentProcess.identifier(of: $0) }
     }
 
-    /// The app process, its Chromium helpers and the WebContent processes in `snapshot`, each with
-    /// its `phys_footprint` (`proc_pid_rusage`), read off the main actor.
+    /// The app process, the Chromium helpers of `helperParent` and the WebContent processes in `snapshot`, each
+    /// with its `phys_footprint` (`proc_pid_rusage`), read off the main actor.
     @concurrent
-    nonisolated static func processes(_ snapshot: MemoryDiagnosticsSnapshot) async -> MemoryDiagnosticsProcesses {
-        await processes(webContentPIDs: snapshot.webContentPIDs)
+    nonisolated static func processes(_ snapshot: MemoryDiagnosticsSnapshot, helperParent: pid_t?) async -> MemoryDiagnosticsProcesses {
+        await processes(webContentPIDs: snapshot.webContentPIDs, helperParent: helperParent)
     }
 
-    /// The app process, its Chromium helpers and the WebContent processes `webContentPIDs`, each with
-    /// its `phys_footprint` (`proc_pid_rusage`), read off the main actor.
+    /// The app process, the Chromium helpers of `helperParent` (``ChromiumHelperParent/pid``: the app in process, the
+    /// Chromium Host in host mode) and the WebContent processes `webContentPIDs`, each with its `phys_footprint`
+    /// (`proc_pid_rusage`), read off the main actor.
     @concurrent
-    nonisolated static func processes(webContentPIDs: [Int32]) async -> MemoryDiagnosticsProcesses {
+    nonisolated static func processes(webContentPIDs: [Int32], helperParent: pid_t?) async -> MemoryDiagnosticsProcesses {
         func row(_ kind: MemoryDiagnosticsProcesses.Kind, _ pid: Int32) -> MemoryDiagnosticsProcesses.Row {
             .init(kind: kind, pid: pid, physFootprintBytes: ProcessUsage.sample(pid).map { Int(clamping: $0.physFootprint) })
         }
         var rows = [row(.app, getpid())]
         var rendererPIDs: [Int32: Int32] = [:]
-        for helper in ChromiumHelperProcess.list() {
+        for helper in ChromiumHelperProcess.list(parent: helperParent) {
             switch helper.kind {
             case .renderer(let client):
                 rendererPIDs[client] = helper.pid

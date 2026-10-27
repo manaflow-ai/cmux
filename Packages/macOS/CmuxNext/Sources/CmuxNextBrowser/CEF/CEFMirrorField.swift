@@ -80,7 +80,7 @@ nonisolated enum CEFMirrorField: String, CaseIterable, Sendable {
         case .extList, .extCommands, .omniboxKeywords: [.afterCreated, .tab(.extensionsChanged)]
         case .sidePanelState: [.afterCreated, .tab(.inserted), .tab(.moved), .tab(.sidePanelChanged)]
         case .devToolsInspectedBounds: [.tab(.devToolsDeviceMode), .devToolsClosed, .beforeClose]
-        case .rendererClientIDs: [.afterCreated, .address, .loadEnd, .renderTerminated, .beforeClose]
+        case .rendererClientIDs: [.afterCreated, .address, .loadEnd, .renderTerminated, .frameRenderers, .beforeClose]
         case .popupWindowBounds: [.tab(.popupWindowCreated), .tab(.popupWindowBounds), .tab(.windowDestroyed)]
         }
     }
@@ -121,6 +121,7 @@ nonisolated struct CEFMirrorTrigger: Hashable, Sendable {
     static let devToolsOpened = CEFMirrorTrigger(kind: 21)
     static let devToolsClosed = CEFMirrorTrigger(kind: 22)
     static let renderTerminated = CEFMirrorTrigger(kind: 23)
+    static let frameRenderers = CEFMirrorTrigger(kind: 62)
     static func tab(_ event: CEFForkTabEvent) -> CEFMirrorTrigger { CEFMirrorTrigger(kind: 16, tabEvent: event.rawValue) }
 }
 
@@ -140,6 +141,7 @@ extension CEFShimEvent {
         case .devToolsOpened(let browser, _, _): (CEFMirrorTrigger.devToolsOpened, browser, 0)
         case .devToolsClosed(let browser, _): (CEFMirrorTrigger.devToolsClosed, browser, 0)
         case .renderTerminated(let browser, _, _, _, _): (CEFMirrorTrigger.renderTerminated, browser, 0)
+        case .frameRenderers(let browser): (CEFMirrorTrigger.frameRenderers, browser, 0)
         default: nil
         }
     }

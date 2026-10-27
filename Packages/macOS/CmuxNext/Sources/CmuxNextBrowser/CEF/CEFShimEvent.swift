@@ -132,6 +132,9 @@ nonisolated enum CEFShimEvent: Equatable, Sendable {
     /// One of the Chromium Host's helpers ended (HELPER_EXIT; host mode, task p01-process-225): the host
     /// watches its children as ``CEFChildProcessMonitor`` watches the app's in process.
     case helperExit(CEFChildProcessMonitor.Exit)
+    /// The renderers of the tab's frames changed (FRAME_RENDERERS, task p01-process-225): an iframe's renderer came
+    /// or went after the load. In host mode `tab.renderer_client_ids` was pushed before it.
+    case frameRenderers(browser: Int32)
     case unknown(kind: Int32)
 
     init(kind: Int32, browser: Int32, request: Int32, a: Int64, b: Int64, s1: String, s2: String) {
@@ -210,6 +213,7 @@ nonisolated enum CEFShimEvent: Equatable, Sendable {
         case 59: self = .popupMenuHidden(browser: browser, token: a)
         case 60: self = ChromiumHostSuggestionEvent(request: request, a: a, b: b, s1: s1).map { Self.pageView(browser: browser, .suggestions($0)) } ?? .unknown(kind: kind)
         case 61: self = CEFChildProcessMonitor.Exit(helperExitPID: request, status: a, flags: b, type: s1, subType: s2).map(Self.helperExit) ?? .unknown(kind: kind)
+        case 62: self = .frameRenderers(browser: browser)
         default: self = .unknown(kind: kind)
         }
     }
@@ -230,7 +234,8 @@ extension CEFShimEvent {
              .devToolsMessage(let b, _), .authCallback(let b, _), .permissionPrompt(let b, _, _, _), .permissionDismissed(let b, _), .passwordPrompt(let b, _, _),
              .beforeUnloadDialog(let b, _, _), .beforeUnloadDismissed(let b), .pageResource(let b, _, _), .pageDragEnter(let b, _),
              .fileDialog(let b, _, _, _, _), .pageView(let b, _),
-             .pageMessage(let b, _, _, _), .widgetGone(let b, _), .popupMenu(let b, _, _), .popupMenuHidden(let b, _):
+             .pageMessage(let b, _, _, _), .widgetGone(let b, _), .popupMenu(let b, _, _), .popupMenuHidden(let b, _),
+             .frameRenderers(let b):
             b
         case .widgetContext(let context):
             context.owner

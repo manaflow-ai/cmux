@@ -24,7 +24,9 @@ enum WatchdogReporting {
         let memory = HiddenWorkspaceMemory(
             work: services.work, mainWork: services.mainWork,
             capture: { [weak services] in services.map(WatchdogReporting.hiddenWorkspaceCapture) ?? .init() },
-            rendererPIDs: { Dictionary(AppProcesses.tabRendererClients().map { pid, client in (client, pid) }, uniquingKeysWith: { first, _ in first }) })
+            rendererPIDs: { [parent = services.cache.chromium.source.helperParent] in
+                Dictionary(AppProcesses.tabRendererClients(helperParent: parent.pid).map { pid, client in (client, pid) }, uniquingKeysWith: { first, _ in first })
+            })
         let hangReports = HangReportsController.forThisLaunch(
             policy: reporter.policy, folder: SidebarSnapshotFile.buildDirectory(launch: services.environment.launch)
                 .appending(path: "HangReports", directoryHint: .isDirectory),

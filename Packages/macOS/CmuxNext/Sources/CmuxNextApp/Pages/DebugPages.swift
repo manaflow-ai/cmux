@@ -61,7 +61,7 @@ extension AppControl {
     /// The children of `parent` (the app, or the Chromium Host: `ChromiumEngineSlot.helperParent`) as `debug.webui`
     /// rows. Reads each new child's argv: off the main actor.
     nonisolated static func webUIHelpers(of parent: pid_t?) -> [WebUICensus.Helper] {
-        (parent.map { ChromiumHelperProcess.list(parent: $0) } ?? []).map {
+        ChromiumHelperProcess.list(parent: parent).map {
             WebUICensus.Helper(pid: $0.pid, kind: $0.kind.name, rendererClientID: $0.kind.rendererClientID)
         }
     }

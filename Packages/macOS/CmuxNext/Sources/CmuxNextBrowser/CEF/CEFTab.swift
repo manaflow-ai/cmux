@@ -83,8 +83,8 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserPageCover
         }
     }
     /// Runs when the renderers that serve this page may have changed: its load phase changed (a navigation
-    /// can move it to another renderer) or its renderer ended (``publishRenderers(as:into:while:)``,
-    /// p14-energy-124). In process only: with the Chromium Host on, those shim calls are replies over the
+    /// can move it to another renderer), a frame's renderer came or went (FRAME_RENDERERS) or its renderer
+    /// ended (``publishRenderers(as:into:while:)``, p14-energy-124). In process only: with the Chromium Host on, those shim calls are replies over the
     /// wire, and attribution there is p14-energy-124a.
     @ObservationIgnored var onRenderersMayChange: (() -> Void)?
     /// The page plays unmuted media (`BrowserAudibleReporting`): `state.media?.isAudible`, kept

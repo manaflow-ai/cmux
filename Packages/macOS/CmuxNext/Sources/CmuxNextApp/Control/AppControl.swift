@@ -89,7 +89,6 @@ final class AppControl {
         // diagnostics mode also records tasks past their class budget, with a stack (debug.hangs
         // over_budget). It perturbs what it measures, so it is off unless asked for.
         watchdog.attach(board: mainWork.budget.board, recordTaskBudgets: recordsTaskBudgets)
-        watchdog.busy.setHelperSource { AppProcesses.chromiumHelpers() }
         // Input explains CPU use to the busy watchdog (one atomic add per event) and, while the app is inactive,
         // ends an idle-wakeups period at that input.
         inputSubscription = input.observe(types: Self.activityInput) { [weak self] _ in
@@ -119,6 +118,11 @@ final class AppControl {
         // A busy renderer's record names the Chromium tabs it serves (p14-energy-124), from the snapshot
         // the cache publishes: the watchdog reads it off the main thread.
         watchdog.busy.setTabSource { [directory = services.cache.tabRenderers] in directory.snapshot() }
+        // Its helpers are the children of the Chromium helpers' parent (the app, or the Chromium Host in host mode),
+        // read on the watchdog's thread.
+        watchdog.busy.setHelperSource { [parent = services.cache.chromium.source.helperParent] in
+            AppProcesses.chromiumHelpers(helperParent: parent.pid)
+        }
         registerSyncBarrier(service.router, daemon: services.daemon)
         registerOracleSettle(service.router, services: services)
     }

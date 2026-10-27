@@ -180,7 +180,9 @@ extension AppControl {
             // The action signposts' commit boundary against this macOS's display observers.
             .mainActor("debug.commit_boundary") { _ in .value(DebugCommitBoundary().report()) },
             // Idle wakeups: ledger, display-link clients, process CPU (idle-wakeups.md).
-            .async("debug.wakeups") { [budgeted = mainWork.frames] call in await DebugWakeups.report(call.params, budgeted: budgeted) },
+            .async("debug.wakeups") { [budgeted = mainWork.frames, parent = services.cache.chromium.source.helperParent] call in
+                await DebugWakeups.report(call.params, budgeted: budgeted, helperParent: parent.pid)
+            },
             // Energy Saver policy and inputs, main wake queue, top wakers, process energy; simulated inputs (p14-energy.md).
             EnergyReport(services: services).method, EnergyReport.simulateMethod(services: services),
             // Chromium start: trigger (tab or warm reason), timings, footprint.

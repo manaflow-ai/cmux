@@ -3933,11 +3933,12 @@
         "CMUX_SHIM_ADDRESS",
         "CMUX_SHIM_LOAD_END",
         "CMUX_SHIM_RENDER_TERMINATED",
+        "CMUX_SHIM_FRAME_RENDERERS",
         "CMUX_SHIM_BEFORE_CLOSE"
       ],
       "pending_keys": [],
       "reply_event": null,
-      "reason": "The renderer client ids of the tab's frames, which the resource hover card maps to the host's renderer helpers (task p01-process-225). host_mirror.mm pushes them for every open tab, with no watch, at the events that change a tab's frame processes: its first frame (AFTER_CREATED), a main-frame navigation that may swap the process (ADDRESS), the frames a load made (LOAD_END) and a renderer's end (RENDER_TERMINATED); BEFORE_CLOSE forgets them. Chrome's task manager follows the same changes (RenderFrameHostChanged, RenderFrameCreated, RenderFrameDeleted, PrimaryMainFrameRenderProcessGone in chrome/browser/task_manager/providers/web_contents/web_contents_task_provider.cc). The value holds kMirrorOutCapacity ids; a read copies what fits."
+      "reason": "The renderer client ids of the tab's frames, which the resource hover card maps to the host's renderer helpers (task p01-process-225). host_mirror.mm pushes them for every open tab, with no watch, at the events that change a tab's frame processes: its first frame (AFTER_CREATED), a main-frame navigation (ADDRESS, LOAD_END), a main-frame renderer's end (RENDER_TERMINATED) and FRAME_RENDERERS, which the shim sends when any frame's renderer set changed (CefFrameHandler: an iframe added after the load, an out-of-process iframe's swap or its renderer's end); BEFORE_CLOSE forgets them. Chrome's task manager follows a tab's processes through the same frame changes (RenderFrameCreated, RenderFrameDeleted, RenderFrameHostChanged in chrome/browser/task_manager/providers/web_contents/web_contents_task_provider.cc). The value holds kMirrorOutCapacity ids; a read copies what fits."
     },
     {
       "name": "cmux_shim_renderer_frames",
@@ -4818,6 +4819,14 @@
       "value": 60,
       "refreshes": [],
       "reason": "A field's suggestions as data (fork API 31's suggestion handler, tasks 172 and 061): SHOW, SELECT, HIDE and ANNOUNCE for the page view's suggestion list (ChromiumHostSuggestionList), as Chrome's AutofillPopupController drives its view."
+    },
+    {
+      "kind": "CMUX_SHIM_FRAME_RENDERERS",
+      "value": 62,
+      "refreshes": [
+        "tab.renderer_client_ids[browser_id]"
+      ],
+      "reason": "The renderers of a tab's frames changed (task p01-process-225): the shim's CefFrameHandler saw a frame attach, detach or become the main frame, and the set of the frames' renderer client ids is new (CEFShim/src/frame_renderers.h). tab.renderer_client_ids is pushed before it, so the hover card and debug.webui see an iframe renderer that came after LOAD_END or one that ended."
     }
   ],
   "optional_exports": [

@@ -240,6 +240,13 @@ void CancelFileDialogs(int browser_id);
 std::map<int, CefRefPtr<CefBrowser>>& browsers();
 CefRefPtr<CefBrowser> BrowserById(int browser_id);
 
+// A frame of browser_id attached to its renderer, left it or became the main
+// frame (CefFrameHandler): FRAME_RENDERERS follows once the task's changes are
+// done, when the renderers of its frames changed (shim_browser.mm,
+// frame_renderers.h). ForgetFrameRenderers at its close. UI thread only.
+void NoteFrameRenderersChanged(int browser_id);
+void ForgetFrameRenderers(int browser_id);
+
 // DevTools protocol traffic of the host (shim_devtools_protocol.mm, UI
 // thread). The next id for a shim-internal call of browser_id (1 ..
 // 2^30 - 1), or 0 when the browser used them all up.

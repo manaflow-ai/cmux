@@ -21,6 +21,7 @@ extension CEFRuntime {
         // Every awaited reply fails with hostGone; each proxied profile's proxy goes to the next host again.
         hostGone()
         hostStart.hostEnded()
+        publishHelperParent()  // none until the next host is attached
         shim = nil
         state = .idle
         // The pages on the host: its browsers, and the tabs whose browser it was still making.

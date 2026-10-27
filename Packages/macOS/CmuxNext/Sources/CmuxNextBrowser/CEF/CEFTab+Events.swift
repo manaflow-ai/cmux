@@ -124,6 +124,7 @@ extension CEFTab {
             emit(.takeFocus(forward: forward))
         case .renderTerminated(_, let status, let code, _, _):
             rendererTerminated(.cef(status: status, code: code))
+        case .frameRenderers: if runtime.hostStart == nil { onRenderersMayChange?() } // an iframe's renderer came or went
         case .renderUnresponsive: machine.apply(.unresponsiveChanged(true))
         case .renderResponsive: machine.apply(.unresponsiveChanged(false))
         case .permissionPrompt, .permissionDismissed, .passwordPrompt: CEFPermissionPrompts(tab: self).handle(event)

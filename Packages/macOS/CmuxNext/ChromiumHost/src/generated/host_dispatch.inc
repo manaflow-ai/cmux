@@ -212,10 +212,10 @@ inline constexpr uint16_t kOpEvent = 0x8001;  // host -> cmux: one shim event
 inline constexpr uint16_t kOpReply = 0x8002;  // host -> cmux: an async op's result
 inline constexpr uint16_t kOpMirror = 0x8003;  // host -> cmux: a mirror value
 inline constexpr uint16_t kOpAck = 0x8004;  // host -> cmux: a token's op ran
-inline constexpr int kEventKindCount = 61;
-inline constexpr char kShimAbiID[] = "423f0fc54a39bbdefe004c29cbb6e2bcbaa8a3d3623bb8a584a0ee4ad82fb8e9";
+inline constexpr int kEventKindCount = 62;
+inline constexpr char kShimAbiID[] = "153fb6ca11d09f8f6bb3a5f389ed333956a090d45d14d0277fb6738bf38c69cc";
 // Both sides' HELLO carries it: the op ids, classes and wire types of this generation.
-inline constexpr char kWireID[] = "7be51ff6e6ef19796d003a1aa3672b3c68841c43ec30a093a7d1c65e8843df04";
+inline constexpr char kWireID[] = "699e485fd840e84149781af68e62c432a8ec423b45af30a9145302a57b4f11ee";
 inline constexpr int32_t kMaxRecords = 65536;
 inline constexpr int32_t kMaxOutCapacity = 65536;
 inline constexpr int32_t kMirrorOutCapacity = 64;
@@ -2248,6 +2248,7 @@ inline constexpr MirrorRefresh kMirrorRefreshes[] = {
     {4, -1, kOpRendererClientIds},  // CMUX_SHIM_ADDRESS
     {9, -1, kOpRendererClientIds},  // CMUX_SHIM_LOAD_END
     {23, -1, kOpRendererClientIds},  // CMUX_SHIM_RENDER_TERMINATED
+    {62, -1, kOpRendererClientIds},  // CMUX_SHIM_FRAME_RENDERERS
     {3, -1, kOpRendererClientIds},  // CMUX_SHIM_BEFORE_CLOSE
     {-1, -1, kOpExtLoadLaterSupported},  // attach
 };

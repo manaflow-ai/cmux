@@ -5,6 +5,7 @@
 
 #include "include/cef_devtools_message_observer.h"
 #include "include/cef_drag_handler.h"
+#include "include/cef_frame_handler.h"
 #include "include/cef_image.h"
 #include "include/cef_jsdialog_handler.h"
 #include "include/cef_parser.h"
@@ -82,6 +83,7 @@
     case CMUX_SHIM_POPUP_MENU:
     case CMUX_SHIM_POPUP_MENU_HIDE:
     case CMUX_SHIM_SUGGESTIONS:
+    case CMUX_SHIM_FRAME_RENDERERS:
       return true;
   }
   return false;
@@ -275,6 +277,7 @@ class Client : public CefClient,
                public CefFocusHandler,
                public CefJSDialogHandler,
                public CefDragHandler,
+               public CefFrameHandler,
                public CefDevToolsMessageObserver {
  public:
   explicit Client(int request) : request_(request) {}
@@ -291,6 +294,8 @@ class Client : public CefClient,
   // beforeunload only; alert, confirm and prompt keep Chromium's dialogs.
   CefRefPtr<CefJSDialogHandler> GetJSDialogHandler() override { return this; }
   CefRefPtr<CefDragHandler> GetDragHandler() override { return this; }
+  // The renderers of the page's frames (FRAME_RENDERERS).
+  CefRefPtr<CefFrameHandler> GetFrameHandler() override { return this; }
   // File choosers go to the host app (shim_file_dialog.mm).
   CefRefPtr<CefDialogHandler> GetDialogHandler() override { return FileDialogHandlerInstance(); }
   // Every download waits for the host's path (shim_downloads.mm).
@@ -642,7 +647,27 @@ class Client : public CefClient,
     ForgetOwnBackground(id);
     ForgetDevTools(id);
     ForgetPopups(id);
+    ForgetFrameRenderers(id);
     Emit(CMUX_SHIM_BEFORE_CLOSE, id);
+  }
+
+  // MARK: Frames
+
+  // A frame's renderer is known once it attaches; it leaves at its end, its
+  // renderer's end or a cross-process navigation, whose new frame attaches.
+  // The main frame's swap comes as OnMainFrameChanged. Chrome's task manager
+  // follows the same changes (RenderFrameCreated, RenderFrameDeleted,
+  // RenderFrameHostChanged; web_contents_task_provider.cc).
+  void OnFrameAttached(CefRefPtr<CefBrowser> browser, CefRefPtr<CefFrame>, bool) override {
+    NoteFrameRenderersChanged(browser->GetIdentifier());
+  }
+
+  void OnFrameDetached(CefRefPtr<CefBrowser> browser, CefRefPtr<CefFrame>) override {
+    NoteFrameRenderersChanged(browser->GetIdentifier());
+  }
+
+  void OnMainFrameChanged(CefRefPtr<CefBrowser> browser, CefRefPtr<CefFrame>, CefRefPtr<CefFrame>) override {
+    NoteFrameRenderersChanged(browser->GetIdentifier());
   }
 
   // MARK: Display

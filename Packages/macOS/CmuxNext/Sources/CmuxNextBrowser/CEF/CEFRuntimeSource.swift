@@ -1,3 +1,5 @@
+import Darwin
+
 /// Where ``CEFEngine`` finds the Chromium runtime: embedded in the app
 /// bundle, or a pack the app downloads on first use
 /// (plans/cmux-next/bundle-size-DESIGN.md section 6), and where its browser
@@ -43,6 +45,9 @@ public final class CEFRuntimeSource {
     /// go to the host as paths (feature `chromiumHostFileDialogs`, set by the App; ``ChromiumHostFiles``).
     /// Nil leaves Chromium's own panel, which in host mode opens in the host. Read when the runtime adopts the source.
     public var hostFileDialogs: (any ChromiumFileDialogAnswering)?
+    /// Whose children the Chromium helpers are, for listings on any thread (task p01-process-225): this app in
+    /// process; in host mode none until the runtime that adopts this source attaches a host, then that host.
+    public let helperParent: ChromiumHelperParent
 
     /// Creates a source.
     ///
@@ -56,6 +61,7 @@ public final class CEFRuntimeSource {
         self.layout = layout
         self.pending = layout == nil ? pending : nil
         self.hostSupervisor = hostSupervisor
+        helperParent = ChromiumHelperParent(hostSupervisor == nil ? getpid() : nil)
     }
 
     /// Where Chromium's browser process runs: in the Chromium Host when the

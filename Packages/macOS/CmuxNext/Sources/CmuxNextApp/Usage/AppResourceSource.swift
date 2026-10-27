@@ -217,7 +217,7 @@ final class AppResourceSource: ResourceSampleSource {
     /// The children of `parent`, the app or the Chromium Host (`ChromiumEngineSlot.helperParent`).
     @concurrent
     private static func chromiumHelpers(of parent: pid_t?) async -> [ChromiumHelperProcess] {
-        parent.map { ChromiumHelperProcess.list(parent: $0) } ?? []
+        ChromiumHelperProcess.list(parent: parent)
     }
 
     @concurrent

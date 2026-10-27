@@ -29,8 +29,8 @@ extension AppServices {
         hibernation.isPinned = { [weak self] key in self?.locateTab(key)?.0.pinned ?? false }
         hibernation.isDownloading = { [weak self] key in self?.cache.pageRequests.downloads.isDownloading(tab: key) ?? false }
         hibernation.measureMemory = { [weak self] in await self?.resources.sample(.everything).browserPageMemory ?? [:] }
-        let readCPU = { [work = self.work, mainWork = self.mainWork, tabs = cache.tabRenderers] (owner: String) in
-            SaverCPUFreeze.measure(owner: owner, work: work, mainWork: mainWork, tabs: tabs) { ChromiumHelperProcess.tabRendererUsage() } }
+        let readCPU = { [work = self.work, mainWork = self.mainWork, tabs = cache.tabRenderers, parent = cache.chromium.source.helperParent] (owner: String) in
+            SaverCPUFreeze.measure(owner: owner, work: work, mainWork: mainWork, tabs: tabs) { ChromiumHelperProcess.tabRendererUsage(parent: parent.pid) } }
         hibernation.measureCPU = readCPU("SaverCPUFreeze")
         hibernation.highEnergy = features.isEnabled(.highEnergyTabs) ? HighEnergyTabMonitor(cache: cache, registry: registry, measure: readCPU("HighEnergyTabs")) : nil
         hibernation.activity.isEnabled = features.isEnabled(.memorySaverBackgroundActivity)

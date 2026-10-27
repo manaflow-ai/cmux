@@ -10,15 +10,18 @@ extension CEFRuntime {
         guard let hostStart else { return getpid() }
         return hostStart.hostPID
     }
+
+    /// Writes ``helperParentPID`` where listings off the main actor read it (``helperParent``): when the runtime
+    /// enters host mode, attaches a host, loses it, and adopts a source.
+    func publishHelperParent() {
+        helperParent.set(helperParentPID)
+    }
 }
 
 extension ChromiumEngineSlot {
-    /// Whose children the Chromium helpers are (``CEFRuntime/helperParentPID``): the app's, or the Chromium Host's in
-    /// host mode, nil while no host is attached. The app's before the engine is built: no helper runs then.
-    public var helperParent: pid_t? {
-        guard built != nil else { return getpid() }
-        return CEFRuntime.shared.helperParentPID
-    }
+    /// Whose children the Chromium helpers are now (``CEFRuntimeSource/helperParent``): the app's, or the Chromium
+    /// Host's in host mode, nil while no host is attached. Off the main actor, read `source.helperParent`.
+    public var helperParent: pid_t? { source.helperParent.pid }
 }
 
 extension CEFTab: BrowserProcessReporting {

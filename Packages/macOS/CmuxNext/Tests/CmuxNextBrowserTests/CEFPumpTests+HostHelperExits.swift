@@ -68,12 +68,20 @@ extension CEFPumpTests {
     }
 
     /// In process the helpers are the app's children; in host mode they are the attached host's, and none while no host
-    /// is attached.
+    /// is attached. The runtime publishes the parent where listings off the main actor read it.
     @Test func theHelpersParentIsTheAppInProcess() throws {
         let (runtime, _) = try Self.hostHelperRig()
         #expect(runtime.helperParentPID == getpid())
+        #expect(runtime.helperParent.pid == getpid())
         runtime.hostStart = CEFHostStart(supervisor: NoHostSupervisor())
         #expect(runtime.helperParentPID == nil, "host mode with no host attached")
+        #expect(runtime.helperParent.pid == nil, "published as host mode starts")
+    }
+
+    /// A source's parent before any runtime adopts it: the app in process, none in host mode.
+    @Test func aSourcesHelperParentFollowsItsBackend() {
+        #expect(CEFRuntimeSource(layout: nil).helperParent.pid == getpid())
+        #expect(CEFRuntimeSource(layout: nil, hostSupervisor: NoHostSupervisor()).helperParent.pid == nil)
     }
 }
 

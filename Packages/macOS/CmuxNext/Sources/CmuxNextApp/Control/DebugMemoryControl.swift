@@ -29,12 +29,13 @@ final class DebugMemoryControl {
     /// - Parameters:
     ///   - services: The app's services, held weakly.
     ///   - budget: The budgets the report shows: the app passes this Mac's, sized for the terminal GPU release when it has one.
-    ///   - sample: Reads the footprints; the app's processes by default.
-    init(services: AppServices, budget: SubsystemBudget = .forThisMac(gpuResidentAvailable: false),
-         sample: @escaping Sampler = { await AppMemoryModel.processes($0) }) {
+    ///   - sample: Reads the footprints; nil: the app's processes and the Chromium helpers of its helper parent.
+    init(services: AppServices, budget: SubsystemBudget = .forThisMac(gpuResidentAvailable: false), sample: Sampler? = nil) {
         self.services = services
         self.budget = budget
-        self.sample = sample
+        let parent = services.cache.chromium.source.helperParent
+        let appProcesses: Sampler = { await AppMemoryModel.processes($0, helperParent: parent.pid) }
+        self.sample = sample ?? appProcesses
         history = MemoryPressureHistory(pressure: services.memoryPressure)
         histograms = services.memoryHistograms
     }

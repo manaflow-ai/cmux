@@ -640,8 +640,9 @@ std::pair<int, std::vector<int>> RendererClients(int tab, int capacity) {
 }
 
 // Task 225: a tab's renderer client ids are in cmux's cache with no watch and no reply. AFTER_CREATED
-// pushes them; a navigation that swaps the renderer has the new ones in the ADDRESS callback; a
-// renderer's end refreshes them before RENDER_TERMINATED; BEFORE_CLOSE forgets them.
+// pushes them; a navigation that swaps the renderer has the new ones in the ADDRESS callback; an iframe
+// renderer that comes or goes after the load has them in FRAME_RENDERERS' callback; a renderer's end
+// refreshes them before RENDER_TERMINATED; BEFORE_CLOSE forgets them.
 void RendererClientIDsWithNoWatch() {
   World w;
   shim.renderers[3] = {7};
@@ -657,6 +658,20 @@ void RendererClientIDsWithNoWatch() {
   Check(at_address == std::vector<int>({9, 11}), "a read in ADDRESS's callback has the new renderers");
   const auto [count, first] = RendererClients(tab, 1);
   Check(count == 2 && first == std::vector<int>{9}, "a smaller buffer gets what fits and the count");
+  // An out-of-process iframe a script adds after LOAD_END, and its renderer's end: no main-frame event, the
+  // shim's FRAME_RENDERERS refreshes them before its callback.
+  shim.renderers[3] = {9, 11, 13};
+  std::vector<int> at_frames;
+  w.on_event = [&](const Event& e) {
+    if (e.kind == CMUX_SHIM_FRAME_RENDERERS && e.browser == tab) at_frames = RendererClients(tab, 32).second;
+  };
+  Emit(CMUX_SHIM_FRAME_RENDERERS, 3, 0);
+  w.PumpUntilEvent(CMUX_SHIM_FRAME_RENDERERS);
+  Check(at_frames == std::vector<int>({9, 11, 13}), "an iframe renderer added after LOAD_END reaches the cache");
+  shim.renderers[3] = {9, 11};
+  Emit(CMUX_SHIM_FRAME_RENDERERS, 3, 0);
+  w.PumpUntilEvent(CMUX_SHIM_FRAME_RENDERERS);
+  Check(at_frames == std::vector<int>({9, 11}), "an iframe renderer's end leaves it");
   shim.renderers[3] = {};
   std::optional<int> at_terminated;
   w.on_event = [&](const Event& e) {

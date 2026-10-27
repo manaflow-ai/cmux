@@ -235,6 +235,14 @@ typedef enum {
   // a key selected, -1 none. HIDE: the token's rows close. ANNOUNCE: s1 =
   // what VoiceOver reads.
   CMUX_SHIM_SUGGESTIONS = 60,
+  // 61 is taken (plans/cmux-next/chromium-host-ops.json, optional_events).
+  // The renderer processes that host browser_id's frames changed: a frame
+  // attached to its renderer, left it or became the main frame
+  // (CefFrameHandler), as an iframe added after the load, an out-of-process
+  // iframe's swap or its renderer's end do. Sent once after a task's
+  // changes, and only when the set of the frames' renderer client ids
+  // (cmux_shim_renderer_client_ids) differs from the one it last reported.
+  CMUX_SHIM_FRAME_RENDERERS = 62,
 } cmux_shim_event_kind_t;
 
 typedef enum {
