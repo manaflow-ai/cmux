@@ -218,7 +218,7 @@ async fn a_withdrawal_after_the_recovery_snapshot_is_not_lost() {
 fn work_fields(w: &OpenWork) -> String {
     let permissions: std::collections::BTreeMap<_, _> = w.permissions.iter().collect();
     format!(
-        "{:?} {} {} {:?} {:?} {:?} {:?} {:?} {} {:?} {:?} {} {} {:?} {:?} {:?} {:?}",
+        "{:?} {} {} {:?} {:?} {:?} {:?} {:?} {} {:?} {:?} {} {} {:?} {:?} {:?} {:?} {:?}",
         w.turn.as_ref().map(|t| (t.0, &t.1, &t.2, &t.3, &t.4, t.5)),
         w.turn_at,
         w.heard_at,
@@ -236,6 +236,7 @@ fn work_fields(w: &OpenWork) -> String {
         permissions,
         w.withdrawn.iter().collect::<std::collections::BTreeSet<_>>(),
         w.cancelled_permissions.iter().collect::<std::collections::BTreeSet<_>>(),
+        w.withdrawn_asks.iter().collect::<std::collections::BTreeSet<_>>(),
     )
 }
 

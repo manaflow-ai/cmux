@@ -35,6 +35,8 @@ pub mod cli;
 pub mod client;
 pub mod clock;
 pub mod codex_app_server;
+#[cfg(unix)]
+mod codex_auth_file;
 pub mod complete;
 pub mod config;
 pub mod cua_socket;
