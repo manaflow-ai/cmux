@@ -41,6 +41,8 @@ enum WatchdogReporting {
             },
             blockingSites: { [blocking = services.blocking] in blocking.mainThreadRead })
         let collector = hangReports.collector
+        // Each hang of 1 s and up, watched-thread hang and key frame over 50 ms starts a local last-hang bundle (p09-observability-125).
+        let lastHang = services.makeLastHangBundles()?.attached(to: watchdog)
         if let collector { services.crashReporting.attachHangReports(collector) }
         // The drain queue is a hang-watched lane for the process's life (Compat cannot see the watch). Set before
         // the sink: both are drain-queue jobs in call order, so the replay below runs inside the watch.
@@ -97,8 +99,9 @@ enum WatchdogReporting {
             lagSpikes.noteStall(duration: record.duration, cpu: record.cpu, addresses: record.addresses, phase: record.details["phase"]?.stringValue, cef: record.details["cef"]?.boolValue == true)
             collector?.noteStall(durationNanos: Self.nanos(record.duration), cpuNanos: Self.nanos(record.cpu), addresses: record.addresses)
         }
-        // A slow key frame takes the black box (one compare, then one atomic load while reports are off).
-        if let collector { services.inputFrameSignposts.committedKey = { collector.noteKeyFrame(durationMicros: $0) } }
+        // A slow key frame takes the black box (one compare, then one atomic load while reports are off) and starts a
+        // last-hang bundle past 50 ms (one compare otherwise).
+        services.inputFrameSignposts.committedKey = LastHangBundles.committedKeySink(collector.map { collector in { collector.noteKeyFrame(durationMicros: $0) } }, then: lastHang)
         return hangReports
     }
 

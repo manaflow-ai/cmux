@@ -161,6 +161,7 @@ final class AppControl {
             ControlRouter.metricsMethod(enabled: services.features.isEnabled(.metricsView)),
         ])
         router.register(DebugHibernationControl.methods(services)) // debug.memory serves release builds too
+        router.register(TraceBlackboxControl.methods(services.makeLastHangBundles(), work: services.work)) // `cmux trace blackbox`
     }
 
     func startSnapshotPublisher(_ services: AppServices, on router: ControlRouter) {

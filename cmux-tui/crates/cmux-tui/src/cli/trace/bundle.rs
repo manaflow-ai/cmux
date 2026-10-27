@@ -16,6 +16,7 @@
 
 use std::path::{Component, Path, PathBuf};
 
+use cmux_trace::{ChromiumInput, ExportInput, Machine, RingInput};
 use serde_json::{Value, json};
 
 use super::{CHROMIUM_FILE, Failure, MANIFEST_FILE, RINGS_DIR};
@@ -74,17 +75,74 @@ pub(in crate::cli) trait TraceExporter {
     fn export(&self, bundle: &Bundle, to: &Path) -> Result<(), String>;
 }
 
-/// `cmux_trace::export` (task 022) is not on this branch yet. When it is, this decodes each ring
-/// and passes the bundle as its `ExportInput`, field for field.
+/// `cmux_trace::export` (task 022): decodes each ring and passes the bundle as its `ExportInput`,
+/// field for field. The trace is written beside `to` and renamed onto it, so a failed export
+/// never leaves half a trace under the name.
 pub(in crate::cli) struct PerfettoExport;
 
 impl TraceExporter for PerfettoExport {
     fn available(&self) -> bool {
-        false
+        true
     }
 
-    fn export(&self, _bundle: &Bundle, _to: &Path) -> Result<(), String> {
-        Err("this build has no Perfetto exporter".to_owned())
+    fn export(&self, bundle: &Bundle, to: &Path) -> Result<(), String> {
+        let named =
+            |path: &Path, error: &dyn std::fmt::Display| format!("{}: {error}", path.display());
+        let decoded = bundle
+            .rings
+            .iter()
+            .map(|ring| {
+                let bytes = std::fs::read(&ring.path).map_err(|error| named(&ring.path, &error))?;
+                cmux_trace::decode(&bytes).map_err(|error| named(&ring.path, &error))
+            })
+            .collect::<Result<Vec<_>, String>>()?;
+        let rings: Vec<RingInput<'_>> = decoded
+            .iter()
+            .zip(&bundle.rings)
+            .map(|(ring, file)| RingInput {
+                ring,
+                machine: match file.machine {
+                    RingMachine::Local => Machine::Local,
+                    RingMachine::Remote(index) => Machine::Remote(index),
+                },
+            })
+            .collect();
+        let remotes: Vec<cmux_trace::RemoteMachine> = bundle
+            .remotes
+            .iter()
+            .map(|remote| cmux_trace::RemoteMachine {
+                name: remote.name.clone(),
+                offset_ns: remote.offset_ns,
+                error_bound_ns: remote.error_bound_ns,
+            })
+            .collect();
+        let chromium_json = match &bundle.chromium {
+            Some(chromium) => {
+                Some(std::fs::read(&chromium.path).map_err(|error| named(&chromium.path, &error))?)
+            }
+            None => None,
+        };
+        let chromium: Vec<ChromiumInput<'_>> = chromium_json
+            .iter()
+            .zip(&bundle.chromium)
+            .map(|(json, file)| ChromiumInput { json, offset_ns: file.offset_ns.unwrap_or(0) })
+            .collect();
+        let input = ExportInput { remotes: &remotes, rings: &rings, chromium: &chromium };
+        let mut partial = to.as_os_str().to_owned();
+        partial.push(".partial");
+        let partial = PathBuf::from(partial);
+        let written = std::fs::File::create(&partial)
+            .map_err(|error| named(&partial, &error))
+            .and_then(|file| {
+                let mut out = std::io::BufWriter::new(file);
+                cmux_trace::export(&input, &mut out).map_err(|error| error.to_string())?;
+                out.into_inner().map_err(|error| named(&partial, error.error()))?;
+                std::fs::rename(&partial, to).map_err(|error| named(to, &error))
+            });
+        if written.is_err() {
+            let _ = std::fs::remove_file(&partial);
+        }
+        written
     }
 }
 

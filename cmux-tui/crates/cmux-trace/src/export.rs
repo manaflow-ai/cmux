@@ -26,6 +26,9 @@
 //!   machine, so a remote pid or tid equal to a local one would join the local process or thread.
 //!   `TracePacket.machine_id` would keep them apart too, but trace_processor (v58) joins flows
 //!   only within one machine, and a key's flow crosses into the remote daemon.
+//! - A watched thread's hang dump (`hang.thread_hung`, written by the watchdog thread with the
+//!   hung thread's tid) also puts the hang on a `hang` track under the hung thread, from its
+//!   budget's end to the dump: `cmux trace blackbox --last-hang N` (task 125) shows the hung lane.
 //! - Chromium's JSON trace ([`ChromiumInput`]) is merged on the local clock after its measured
 //!   offset ([`chromium`]).
 //!
@@ -171,6 +174,9 @@ pub struct ExportStats {
     pub counters: u64,
     /// Events that carry a flow id.
     pub flow_events: u64,
+    /// Watched-thread hang dumps (`hang.thread_hung`) shown as a slice on the hung thread's own
+    /// `hang` track.
+    pub hung_lanes: u64,
     /// `E`/`AE` records (or Chromium `E`/`e` events) with no open slice on their track: dropped.
     pub unmatched_ends: u64,
     /// Records with a phase this exporter does not know: dropped.

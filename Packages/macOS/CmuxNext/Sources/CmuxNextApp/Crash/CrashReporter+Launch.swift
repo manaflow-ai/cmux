@@ -93,7 +93,7 @@ struct AppCrashReporting: Sendable {
         // Every shipped Rust process's panic and hang logs but acpmux's, which the forwarders' first pass adds
         // because finding acpmux reads the file system. The owner's and acpmux's offsets from before the log list
         // carry over.
-        let sessions = Self.ownerSessionsDirectory(stateDirectory: environment.daemonStateDirectory)
+        let sessions = RustDiagnosticsLog.Roots.ownerSessionsDirectory(stateDirectory: environment.daemonStateDirectory)
         let roots = RustDiagnosticsLog.Roots.app(sessionsDirectory: sessions, session: environment.daemonSession, acpmuxHome: nil,
                                                  bundleID: environment.launch.bundleID)
         let rustDiagnostics = RustDiagnosticsForwarder(
@@ -171,13 +171,5 @@ struct AppCrashReporting: Sendable {
         let bin = Bundle.main.resourceURL?.appendingPathComponent("bin", isDirectory: true)
         return AcpmuxEnvironment.resolve(build: build, bundledBinDirectory: bin,
                                          environment: ProcessInfo.processInfo.environment)?.home
-    }
-
-    /// The owner's sessions directory: the build's `CMUX_TUI_STATE_DIR` (DaemonLauncher.appNames) or cmux-tui's
-    /// default. Its parent is the owner's state root.
-    static func ownerSessionsDirectory(stateDirectory: URL?) -> URL {
-        stateDirectory
-            ?? FileManager.default.homeDirectoryForCurrentUser
-                .appending(path: "Library/Application Support/cmux-tui/sessions", directoryHint: .isDirectory)
     }
 }

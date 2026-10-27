@@ -23,6 +23,14 @@ extension MainThreadWatchdog {
         }
     }
 
+    /// Hands a finished stall to ``onStall`` and, at ``LastHangBundles/mainThreadHang`` and up, to ``onLastHang``.
+    /// Main thread, once per finished stall.
+    func deliverStall(_ record: HangRecord) {
+        stallSink.withLock { $0 }?(record)
+        guard record.duration >= LastHangBundles.mainThreadHang else { return }
+        threadHangSinks.withLock { $0.lastHang }?(.mainThreadHang(record.duration))
+    }
+
     /// A stall just crossed the hang threshold (once per stall): samples the main thread and
     /// every other thread, opens the hang file, hands the hang to ``fatalHangs`` (every one) and
     /// reports it (``onHang``) at most once per `hangReportInterval`. Watchdog thread only.
@@ -30,6 +38,8 @@ extension MainThreadWatchdog {
                     trace: TraceRuntime?, lastReportNanos: inout UInt64?) {
         let duration = Duration.nanoseconds(Int64(clamping: elapsedNanos))
         logger.fault("main thread hang: busy \(duration.fractionalMilliseconds, format: .fixed(precision: 0)) ms and counting")
+        // The last-hang bundle copies the black boxes while the hang lasts, whatever the report interval says.
+        threadHangSinks.withLock { $0.lastHang }?(.mainThreadHang(duration))
         let due = lastReportNanos.map { now >= $0 &+ hangIntervalNanos } ?? true
         let sink = due ? onHang : nil
         let recorder = episodes

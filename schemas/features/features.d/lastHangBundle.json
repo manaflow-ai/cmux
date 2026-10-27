@@ -1,0 +1,13 @@
+{
+  "$schema": "../features.schema.json",
+  "name": "lastHangBundle",
+  "owner": "PL-telemetry",
+  "description": "At a hang of 1 s or more, a watched thread's hang or a key frame over 50 ms, the app copies every running process's trace black box into a local last-hang bundle (the newest 5 kept) that cmux trace blackbox --last-hang N exports to Perfetto.",
+  "defaults": { "dev": true, "nightly": false, "release": false },
+  "kind": "labs",
+  "process": "app",
+  "params": [],
+  "stories": [],
+  "sticky": false,
+  "runtimeMutable": false
+}

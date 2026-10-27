@@ -40,7 +40,7 @@ public final class MainThreadWatchdog: Sendable {
         get { stallSink.withLock { $0 } }
         set { stallSink.withLock { $0 = newValue } }
     }
-    private let stallSink = Mutex<(@Sendable (HangRecord) -> Void)?>(nil)
+    let stallSink = Mutex<(@Sendable (HangRecord) -> Void)?>(nil) // ``deliverStall(_:)`` (+Episodes)
     /// ``fatalHangs``' sink (+FatalHang): set once at launch, read on the watchdog thread once per hang episode event.
     let fatalHangSink = Mutex<FatalHangSink?>(nil)
     let mainTurnMinimumNanos = Atomic<UInt64>(.max), turnStartNanos = Atomic<UInt64>(0) // +MainTurns
@@ -351,7 +351,7 @@ public final class MainThreadWatchdog: Sendable {
             logger.error("main thread stalled \(record.duration.fractionalMilliseconds, format: .fixed(precision: 1)) ms (hang \(record.sequence), \(addresses.count) frames; see debug.hangs)")
         }
         if nanos >= hangNanos { hangEnds.withLock { ends in ends.append((beat, nanos)); if ends.count > 4 { ends.removeFirst() } } }
-        stallSink.withLock { $0 }?(record)
+        deliverStall(record)
     }
 
     // MARK: - Watchdog thread

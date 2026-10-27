@@ -20,6 +20,9 @@ mod arg {
         [(ARG0, "arg0"), (ARG1, "arg1"), (ESTIMATED, "estimated"), (ID, "id")];
 }
 
+/// The watchdog's dump of a watched thread's hang ([`RingExport::hung_lane`]).
+const HANG_THREAD_HUNG: &str = "hang.thread_hung";
+
 /// A record's debug annotations: up to two numbers and the estimate flag. No allocation.
 #[derive(Default)]
 struct Args {
@@ -67,6 +70,8 @@ pub(super) struct RingExport<'a> {
     names: HashMap<u16, (String, u8)>,
     /// Open slices per track (thread and async tracks).
     open: HashMap<u64, u32>,
+    /// Each hung thread's `hang` track to where its last hang slice ends ([`Self::hung_lane`]).
+    hung_until: HashMap<u64, u64>,
 }
 
 impl<'a> RingExport<'a> {
@@ -100,6 +105,7 @@ impl<'a> RingExport<'a> {
             threads: HashMap::new(),
             names,
             open: HashMap::new(),
+            hung_until: HashMap::new(),
         }
     }
 
@@ -141,35 +147,93 @@ impl<'a> RingExport<'a> {
             return track;
         }
         let track = match self.ring.thread_of(record) {
-            Some(thread) => {
-                let (pid, process, remote) = (self.pid, self.process, self.remote);
-                let parts: [&[u8]; 4] = [
-                    b"thread",
-                    &self.machine_key.to_le_bytes(),
-                    &pid.to_le_bytes(),
-                    &thread.tid.to_le_bytes(),
-                ];
-                let description = qos_name(thread.qos).map(|qos| format!("QoS: {qos}"));
-                let kind = if remote {
-                    let name = match thread.name.as_str() {
-                        "" => format!("thread {}", thread.tid),
-                        name => format!("{name} {}", thread.tid),
-                    };
-                    TrackKind::Remote { name, description }
-                } else {
-                    TrackKind::Thread {
-                        pid: pid as i32,
-                        tid: thread.tid as i64,
-                        name: (!thread.name.is_empty()).then(|| thread.name.clone()),
-                        description,
-                    }
-                };
-                builder.tracks.insert(uuid_of(&parts), || Track { parent: Some(process), kind })
-            }
+            Some(thread) => self.tid_track(builder, thread.tid, &thread.name, thread.qos),
             None => self.unregistered_thread_track(builder, record),
         };
         self.threads.insert(key, track);
         track
+    }
+
+    /// The track of thread `tid` of this ring's process, named `name` with QoS `qos` when it is
+    /// made here.
+    fn tid_track(&self, builder: &mut Builder, tid: u64, name: &str, qos: u8) -> u64 {
+        let parts: [&[u8]; 4] = [
+            b"thread",
+            &self.machine_key.to_le_bytes(),
+            &self.pid.to_le_bytes(),
+            &tid.to_le_bytes(),
+        ];
+        let description = qos_name(qos).map(|qos| format!("QoS: {qos}"));
+        let kind = if self.remote {
+            let name = match name {
+                "" => format!("thread {tid}"),
+                name => format!("{name} {tid}"),
+            };
+            TrackKind::Remote { name, description }
+        } else {
+            TrackKind::Thread {
+                pid: self.pid as i32,
+                tid: tid as i64,
+                name: (!name.is_empty()).then(|| name.to_owned()),
+                description,
+            }
+        };
+        let process = self.process;
+        builder.tracks.insert(uuid_of(&parts), || Track { parent: Some(process), kind })
+    }
+
+    /// A watched thread's hang dump (`hang.thread_hung`, task 068) names the hung thread by its tid
+    /// (arg0) and says how far past its budget it ran, in ms (arg1); the record itself is on the
+    /// watchdog thread that wrote it. This adds the hang as a slice from the budget's end to the
+    /// dump on a `hang` track under the hung thread's own track, so the trace shows which lane
+    /// hung and for how long, as Chrome's `HangWatcher` names the hung thread rather than its
+    /// watcher (base/threading/hang_watcher.cc, `HangWatcher::RecordHang`). The hung thread may
+    /// have written nothing to the black box; its track is then made from the ring's thread table,
+    /// or from the tid alone. Each hung thread has one `hang` track whose slices never overlap.
+    fn hung_lane(
+        &mut self,
+        builder: &mut Builder,
+        sequence: usize,
+        record: &DecodedRecord,
+        interned: &dyn Fn(&mut Message),
+    ) {
+        let tid = record.arg0;
+        if tid == 0 {
+            return;
+        }
+        let entry = self
+            .ring
+            .threads
+            .iter()
+            .filter(|thread| thread.tid == tid)
+            .max_by_key(|thread| thread.generation);
+        let (name, qos) = entry.map_or(("", 0), |thread| (thread.name.as_str(), thread.qos));
+        let thread = self.tid_track(builder, tid, name, qos);
+        let parts: [&[u8]; 4] =
+            [b"hung", &self.machine_key.to_le_bytes(), &self.pid.to_le_bytes(), &tid.to_le_bytes()];
+        let lane = builder.tracks.insert(uuid_of(&parts), || Track {
+            parent: Some(thread),
+            kind: TrackKind::Named { name: "hang".to_owned() },
+        });
+        let end = record.t_ns;
+        let budget_end = end.saturating_sub(record.arg1.saturating_mul(1_000_000));
+        let begin = budget_end.max(self.hung_until.get(&lane).copied().unwrap_or(0)).min(end);
+        self.hung_until.insert(lane, end);
+        let category = self.names[&record.name].1;
+        let mut event = Event {
+            kind: field::TYPE_SLICE_BEGIN,
+            track: lane,
+            name_iid: Some(u64::from(record.name)),
+            category_iid: category_name(category).map(|_| u64::from(category) + 1),
+            ..Event::default()
+        };
+        let mut args = Args::default();
+        args.push(arg::ARG0, record.arg0);
+        args.push(arg::ARG1, record.arg1);
+        builder.emit(sequence, begin, &event, Some(interned), &|message| args.write(message));
+        event.kind = field::TYPE_SLICE_END;
+        builder.emit(sequence, end, &event, Some(interned), &|_| {});
+        builder.stats.hung_lanes += 1;
     }
 
     /// A chunk whose thread entry is gone (an earlier occupant) or was never taken (a full table):
@@ -279,6 +343,9 @@ impl<'a> RingExport<'a> {
             builder.emit(sequence, record.t_ns, &event, Some(interned), &|message| {
                 args.write(message);
             });
+        }
+        if phase == Phase::Instant && self.names[&record.name].0 == HANG_THREAD_HUNG {
+            self.hung_lane(builder, sequence, record, interned);
         }
     }
 

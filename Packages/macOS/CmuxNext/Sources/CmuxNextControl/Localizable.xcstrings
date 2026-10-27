@@ -12842,6 +12842,792 @@
           }
         }
       }
+    },
+    "control.error.traceBlackboxFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "the black boxes could not be copied into %@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تعذّر نسخ الصناديق السوداء إلى %@"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "crne kutije nije bilo moguće kopirati u %@"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "de sorte bokse kunne ikke kopieres til %@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "die Blackboxen konnten nicht nach %@ kopiert werden"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "no se pudieron copiar las cajas negras en %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "les boîtes noires n'ont pas pu être copiées dans %@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "non è stato possibile copiare le scatole nere in %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ブラックボックスを %@ にコピーできませんでした"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "មិនអាចចម្លងប្រអប់ខ្មៅទៅ %@ បានទេ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "블랙박스를 %@에 복사할 수 없습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "de svarte boksene kunne ikke kopieres til %@"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "nie udało się skopiować czarnych skrzynek do %@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "não foi possível copiar as caixas-pretas para %@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "не удалось скопировать чёрные ящики в %@"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ไม่สามารถคัดลอกกล่องดำไปยัง %@ ได้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "kara kutular %@ konumuna kopyalanamadı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "не вдалося скопіювати чорні скриньки до %@"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "không thể sao chép các hộp đen vào %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "无法将黑匣子复制到 %@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "無法將黑盒子複製到 %@"
+          }
+        }
+      }
+    },
+    "control.error.traceNoLastHang": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "there is no last-hang bundle %@: cmux copies one at a hang of 1 s or more or a key frame over 50 ms"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لا توجد حزمة التعليق الأخير %@: ينسخ cmux واحدة عند تعليق مدته ثانية واحدة أو أكثر أو عند إطار مفتاح يتجاوز 50 مللي ثانية"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ne postoji paket posljednjeg zastoja %@: cmux ga kopira pri zastoju od 1 s ili duže ili kada okvir tipke traje duže od 50 ms"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "der er ingen last-hang-pakke %@: cmux kopierer en ved et hæng på 1 s eller mere eller en tastframe over 50 ms"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "es gibt kein Last-Hang-Paket %@: cmux kopiert eines bei einem Hänger von 1 s oder mehr oder einem Tasten-Frame über 50 ms"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "no hay ningún paquete de último bloqueo %@: cmux copia uno ante un bloqueo de 1 s o más o un fotograma de tecla de más de 50 ms"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "il n'y a pas de paquet de dernier blocage %@ : cmux en copie un lors d'un blocage de 1 s ou plus ou d'une image de touche de plus de 50 ms"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "non esiste il pacchetto dell'ultimo blocco %@: cmux ne copia uno a ogni blocco di 1 s o più o fotogramma di tasto oltre 50 ms"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "最後のハングのバンドル %@ はありません: cmux は 1 秒以上のハング、または 50 ms を超えるキーフレームのときに 1 つコピーします"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "គ្មានកញ្ចប់គាំងចុងក្រោយ %@ ទេ៖ cmux ចម្លងមួយនៅពេលគាំង 1 វិនាទី ឬច្រើនជាងនេះ ឬស៊ុមគ្រាប់ចុចលើស 50 ms"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "마지막 멈춤 번들 %@이(가) 없습니다: cmux는 1초 이상의 멈춤이나 50ms를 넘는 키 프레임마다 하나를 복사합니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "det finnes ingen last-hang-pakke %@: cmux kopierer en ved et heng på 1 s eller mer eller en tasteramme over 50 ms"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "nie ma pakietu ostatniego zawieszenia %@: cmux kopiuje go przy zawieszeniu trwającym 1 s lub dłużej albo klatce klawisza powyżej 50 ms"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "não há pacote do último travamento %@: o cmux copia um em um travamento de 1 s ou mais ou um quadro de tecla acima de 50 ms"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "пакета последнего зависания %@ нет: cmux копирует его при зависании от 1 с или кадре клавиши дольше 50 мс"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ไม่มีชุดข้อมูลการค้างล่าสุด %@: cmux จะคัดลอกหนึ่งชุดเมื่อค้าง 1 วินาทีขึ้นไปหรือเฟรมของปุ่มนานเกิน 50 ms"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ numaralı son donma paketi yok: cmux, 1 sn veya daha uzun bir donmada ya da 50 ms'yi aşan bir tuş karesinde bir tane kopyalar"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "пакета останнього зависання %@ немає: cmux копіює його під час зависання від 1 с або кадру клавіші довше 50 мс"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "không có gói treo gần nhất %@: cmux sao chép một gói khi treo từ 1 giây trở lên hoặc khung phím quá 50 ms"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "没有最近卡顿包 %@：cmux 会在卡顿 1 秒及以上或按键帧超过 50 毫秒时复制一个"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "沒有最近卡頓包 %@：cmux 會在卡頓 1 秒以上或按鍵影格超過 50 毫秒時複製一個"
+          }
+        }
+      }
+    },
+    "control.error.traceLastHangOff": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "this build makes no last-hang bundles: the lastHangBundle feature is off"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لا ينشئ هذا الإصدار حزم التعليق الأخير: ميزة lastHangBundle متوقفة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ova verzija ne pravi pakete posljednjeg zastoja: funkcija lastHangBundle je isključena"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "denne build laver ingen last-hang-pakker: funktionen lastHangBundle er slået fra"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "dieser Build erstellt keine Last-Hang-Pakete: die Funktion lastHangBundle ist aus"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "esta compilación no crea paquetes de último bloqueo: la función lastHangBundle está desactivada"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cette version ne crée pas de paquets de dernier blocage : la fonctionnalité lastHangBundle est désactivée"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "questa build non crea pacchetti dell'ultimo blocco: la funzione lastHangBundle è disattivata"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "このビルドは最後のハングのバンドルを作りません: lastHangBundle 機能がオフです"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កំណែនេះមិនបង្កើតកញ្ចប់គាំងចុងក្រោយទេ៖ មុខងារ lastHangBundle ត្រូវបានបិទ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 빌드는 마지막 멈춤 번들을 만들지 않습니다: lastHangBundle 기능이 꺼져 있습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "denne versjonen lager ingen last-hang-pakker: funksjonen lastHangBundle er av"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ta wersja nie tworzy pakietów ostatniego zawieszenia: funkcja lastHangBundle jest wyłączona"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "esta versão não cria pacotes do último travamento: o recurso lastHangBundle está desativado"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "эта сборка не создаёт пакеты последнего зависания: функция lastHangBundle выключена"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "บิลด์นี้ไม่สร้างชุดข้อมูลการค้างล่าสุด: ฟีเจอร์ lastHangBundle ปิดอยู่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "bu derleme son donma paketi oluşturmaz: lastHangBundle özelliği kapalı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ця збірка не створює пакети останнього зависання: функцію lastHangBundle вимкнено"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "bản dựng này không tạo gói treo gần nhất: tính năng lastHangBundle đang tắt"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此版本不创建最近卡顿包：lastHangBundle 功能已关闭"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此版本不建立最近卡頓包：lastHangBundle 功能已關閉"
+          }
+        }
+      }
+    },
+    "control.error.traceBlackboxSource": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "trace.blackbox takes last_hang or now, not both"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "يقبل trace.blackbox المعامل last_hang أو now، وليس كليهما"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "trace.blackbox prima last_hang ili now, ne oba"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "trace.blackbox tager last_hang eller now, ikke begge"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "trace.blackbox nimmt last_hang oder now, nicht beides"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "trace.blackbox acepta last_hang o now, no ambos"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "trace.blackbox accepte last_hang ou now, pas les deux"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "trace.blackbox accetta last_hang o now, non entrambi"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "trace.blackbox には last_hang か now のどちらか一方を指定します"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "trace.blackbox ទទួល last_hang ឬ now មិនមែនទាំងពីរទេ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "trace.blackbox는 last_hang 또는 now 중 하나만 받습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "trace.blackbox tar last_hang eller now, ikke begge"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "trace.blackbox przyjmuje last_hang albo now, nie oba naraz"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "trace.blackbox aceita last_hang ou now, não ambos"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "trace.blackbox принимает last_hang или now, но не оба"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "trace.blackbox รับ last_hang หรือ now อย่างใดอย่างหนึ่ง ไม่ใช่ทั้งสอง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "trace.blackbox last_hang veya now alır, ikisini birden almaz"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "trace.blackbox приймає last_hang або now, але не обидва"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "trace.blackbox nhận last_hang hoặc now, không nhận cả hai"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "trace.blackbox 只接受 last_hang 或 now 之一，不能同时使用"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "trace.blackbox 只接受 last_hang 或 now 其中之一，不能同時使用"
+          }
+        }
+      }
+    },
+    "control.error.traceLastHangRange": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "last_hang must be a whole number from 1 to %@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "يجب أن يكون last_hang عددًا صحيحًا من 1 إلى %@"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "last_hang mora biti cijeli broj od 1 do %@"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "last_hang skal være et heltal fra 1 til %@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "last_hang muss eine ganze Zahl von 1 bis %@ sein"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "last_hang debe ser un número entero de 1 a %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "last_hang doit être un nombre entier de 1 à %@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "last_hang deve essere un numero intero da 1 a %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "last_hang は 1 から %@ までの整数である必要があります"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "last_hang ត្រូវតែជាចំនួនគត់ពី 1 ដល់ %@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "last_hang은 1부터 %@까지의 정수여야 합니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "last_hang må være et heltall fra 1 til %@"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "last_hang musi być liczbą całkowitą od 1 do %@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "last_hang deve ser um número inteiro de 1 a %@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "last_hang должен быть целым числом от 1 до %@"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "last_hang ต้องเป็นจำนวนเต็มตั้งแต่ 1 ถึง %@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "last_hang 1 ile %@ arasında bir tam sayı olmalıdır"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "last_hang має бути цілим числом від 1 до %@"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "last_hang phải là số nguyên từ 1 đến %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "last_hang 必须是 1 到 %@ 之间的整数"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "last_hang 必須是 1 到 %@ 之間的整數"
+          }
+        }
+      }
+    },
+    "control.error.traceBlackboxLocal": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ serves local callers only, never a remote relay or a cmux app"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "يخدم %@ المستدعين المحليين فقط، ولا يخدم أبدًا مُرحِّلًا بعيدًا أو تطبيق cmux"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ služi samo lokalnim pozivaocima, nikada udaljenom releju ili cmux aplikaciji"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ betjener kun lokale kaldere, aldrig et fjernrelæ eller en cmux-app"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ bedient nur lokale Aufrufer, nie ein entferntes Relay oder eine cmux-App"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ solo atiende a llamadores locales, nunca a un relé remoto ni a una app de cmux"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ ne sert que les appelants locaux, jamais un relais distant ni une app cmux"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ serve solo chiamanti locali, mai un relay remoto o un'app cmux"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ はローカルの呼び出し元だけに応答し、リモートのリレーや cmux アプリには応答しません"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ បម្រើតែអ្នកហៅក្នុងម៉ាស៊ីនប៉ុណ្ណោះ មិនដែលបម្រើ relay ពីចម្ងាយ ឬកម្មវិធី cmux ទេ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@은(는) 로컬 호출자에게만 응답하며 원격 릴레이나 cmux 앱에는 응답하지 않습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ betjener bare lokale kallere, aldri et eksternt relé eller en cmux-app"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ obsługuje tylko lokalnych wywołujących, nigdy zdalnego przekaźnika ani aplikacji cmux"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ atende apenas chamadores locais, nunca um relay remoto ou um app do cmux"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ обслуживает только локальных вызывающих, но не удалённый ретранслятор или приложение cmux"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ ให้บริการเฉพาะผู้เรียกในเครื่องเท่านั้น ไม่ให้บริการรีเลย์ระยะไกลหรือแอป cmux"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ yalnızca yerel çağıranlara hizmet eder; uzak bir aktarıcıya veya cmux uygulamasına asla hizmet etmez"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ обслуговує лише локальних викликачів, ніколи віддалений ретранслятор або застосунок cmux"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ chỉ phục vụ bên gọi cục bộ, không bao giờ phục vụ relay từ xa hay ứng dụng cmux"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ 只服务本地调用方，从不服务远程中继或 cmux 应用"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ 只服務本機呼叫端，從不服務遠端中繼或 cmux App"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

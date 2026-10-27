@@ -218,15 +218,18 @@ extension MainThreadWatchdog {
     /// reporting and hang reports. It must not wait for the main thread or the hung thread.
     ///
     /// Lock carve-out: as ``onHang``'s sink, `threadHangSinks` is set once at launch and read on the watchdog thread
-    /// once per delivered thread hang; it is never held across a call.
+    /// once per delivered thread hang or main-thread hang, and on the main thread once per stall of 1 s and up; it is
+    /// never held across a call.
     public var onThreadHang: (@Sendable (ThreadHang) -> Void)? {
         get { threadHangSinks.withLock { $0.report } }
         set { threadHangSinks.withLock { $0.report = newValue } }
     }
 
-    /// Starts the local last-hang bundle (task p09-observability-125 sets it) for each thread hang that goes out,
-    /// on the watchdog thread and apart from ``onThreadHang``: hang-report consent and crash reporting do not gate
-    /// it. It must not wait for the main thread or the hung thread.
+    /// Starts the local last-hang bundle (``LastHangBundles/attached(to:)``, task p09-observability-125): for each
+    /// thread hang that goes out and each main-thread hang at the hang threshold (watchdog thread), and each finished
+    /// stall of ``LastHangBundles/mainThreadHang`` and up (main thread). Apart from ``onThreadHang`` and ``onHang``:
+    /// hang-report consent, crash reporting and the report interval do not gate it. It must return at once and not
+    /// wait for the main thread or the hung thread.
     public var onLastHang: (@Sendable (LastHangCause) -> Void)? {
         get { threadHangSinks.withLock { $0.lastHang } }
         set { threadHangSinks.withLock { $0.lastHang = newValue } }

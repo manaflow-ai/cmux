@@ -1166,3 +1166,120 @@ fn trace_processor_imports_a_wrapped_black_box_cleanly() {
         trace_processor("wrapped", &trace, &["select count(*) as n from slice where dur < -1"]);
     assert_eq!(number(&answers[0]), 0, "no slice with a negative duration");
 }
+
+/// A black box with three of task 068's watched-thread hang dumps (`hang.thread_hung`): the
+/// watchdog thread writes each, with the hung thread's tid and how far past its budget in ms. The
+/// `terminal.feed` lane hangs twice (the second dump's budget ended inside the first hang), a
+/// thread that wrote nothing hangs once, and a dump with tid 0 names no thread.
+fn hung_lane_export() -> (Vec<u8>, ExportStats) {
+    let tracer = tracer(Role::App, 5555);
+    let mut lane = Writer::new(&tracer, ThreadIdentity::new(606, 0x11, "terminal.feed"));
+    let mut watchdog = Writer::new(&tracer, ThreadIdentity::new(707, 0x21, "cmux-watchdog"));
+    lane.write(record(500_000, "action.perform", Phase::Begin, 0, 1, 0));
+    watchdog.write(record(2_001_000_000, "hang.thread_hung", Phase::Instant, 0, 606, 2_000));
+    watchdog.write(record(2_500_000_000, "hang.thread_hung", Phase::Instant, 0, 606, 2_000));
+    watchdog.write(record(3_000_000_000, "hang.thread_hung", Phase::Instant, 0, 808, 1_500));
+    watchdog.write(record(3_100_000_000, "hang.thread_hung", Phase::Instant, 0, 0, 10));
+    drop(lane);
+    drop(watchdog);
+    let ring = decode(&tracer.snapshot_active()).expect("the ring decodes");
+    export_rings(&[RingInput { ring: &ring, machine: Machine::Local }], &[])
+}
+
+/// The hang slices on the `hang` track under thread `tid`: (begin, end, arg0, arg1).
+fn hung_slices(parsed: &Parsed, tid: u64) -> Vec<(u64, u64, String, String)> {
+    let thread = parsed
+        .tracks
+        .iter()
+        .find(|(_, descriptor)| {
+            descriptor.msg(TD_THREAD).and_then(|thread| thread.uint(2)) == Some(tid)
+        })
+        .map(|(uuid, _)| *uuid)
+        .unwrap_or_else(|| panic!("a thread track for {tid}"));
+    let lane = parsed
+        .tracks
+        .iter()
+        .find(|(_, descriptor)| {
+            descriptor.uint(TD_PARENT) == Some(thread)
+                && descriptor.text(TD_NAME).as_deref() == Some("hang")
+        })
+        .map(|(uuid, _)| *uuid)
+        .unwrap_or_else(|| panic!("a hang track under thread {tid}"));
+    let events: Vec<&Event> = parsed.events.iter().filter(|event| event.track == lane).collect();
+    let mut slices = Vec::new();
+    let mut open = None;
+    for event in events {
+        assert_eq!(event.name, "hang.thread_hung");
+        match event.kind {
+            BEGIN => {
+                assert!(open.is_none(), "hang slices never overlap");
+                open = Some((event.t, event.args.clone()));
+            }
+            END => {
+                let (begin, args) = open.take().expect("an end has its begin");
+                slices.push((begin, event.t, args[0].1.clone(), args[1].1.clone()));
+            }
+            other => panic!("a hang track holds slices only, not type {other}"),
+        }
+    }
+    slices
+}
+
+#[test]
+fn export_a_thread_hang_shows_on_the_hung_threads_lane() {
+    let (trace, stats) = hung_lane_export();
+    let parsed = parse(&trace);
+    assert_eq!(stats.hung_lanes, 3, "every dump that names a thread");
+    assert_eq!(stats.unmatched_ends, 0);
+    assert_eq!(
+        hung_slices(&parsed, 606),
+        [
+            (1_000_000, 2_001_000_000, "uint 606".into(), "uint 2000".into()),
+            (2_001_000_000, 2_500_000_000, "uint 606".into(), "uint 2000".into()),
+        ],
+        "from the budget's end to the dump, the second clipped to start where the first ended"
+    );
+    assert_eq!(
+        hung_slices(&parsed, 808),
+        [(1_500_000_000, 3_000_000_000, "uint 808".into(), "uint 1500".into())],
+        "a hung thread with no record of its own still gets its lane"
+    );
+    let lane_name = parsed.tracks.values().find_map(|descriptor| {
+        let thread = descriptor.msg(TD_THREAD)?;
+        (thread.uint(2) == Some(606)).then(|| thread.text(5))
+    });
+    assert_eq!(lane_name, Some(Some("terminal.feed".into())), "the hung lane keeps its name");
+    let instants = parsed
+        .events
+        .iter()
+        .filter(|event| event.name == "hang.thread_hung" && event.kind == INSTANT)
+        .count();
+    assert_eq!(instants, 4, "the watchdog's own instants stay on its thread");
+}
+
+/// `cmux trace blackbox --last-hang 1` (task 125) loads a black box with hang dumps with 0 import
+/// errors and shows each hang on the hung thread.
+#[test]
+#[ignore = "needs Perfetto's trace_processor_shell: cargo test -p cmux-trace --test export -- --include-ignored"]
+fn trace_processor_shows_the_hung_lane() {
+    let (trace, _) = hung_lane_export();
+    let answers = trace_processor(
+        "hung-lane",
+        &trace,
+        &[
+            "select t.tid || ':' || ifnull(t.name, '') || ':' || s.ts || ':' || s.dur as n from slice s \
+           join thread_track tt on s.track_id = tt.id join thread t using (utid) \
+           where s.name = 'hang.thread_hung' and s.dur > 0 order by s.ts",
+        ],
+    );
+    let hangs: Vec<&str> = answers[0].lines().skip(1).map(|line| line.trim_matches('"')).collect();
+    assert_eq!(
+        hangs,
+        [
+            "606:terminal.feed:1000000:2000000000",
+            "808::1500000000:1500000000",
+            "606:terminal.feed:2001000000:499000000"
+        ],
+        "each hang on the hung thread"
+    );
+}

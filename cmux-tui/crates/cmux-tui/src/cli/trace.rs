@@ -1,5 +1,5 @@
-//! `cmux trace record|start|stop|status|export`: a Release trace from the command line
-//! (plans/cmux-next/chrome-parity/p09-observability.md, task 021).
+//! `cmux trace record|start|stop|status|export|blackbox`: a Release trace from the command line
+//! (plans/cmux-next/chrome-parity/p09-observability.md, tasks 021 and 125).
 //!
 //! `start`, `stop` and `status` are one app method each (task 020): `trace.start {categories?,
 //! keys, chromium, seconds_cap?}`, `trace.stop` and `trace.status`. The app forwards them to its
@@ -11,6 +11,13 @@
 //! recording ring the stop reply names and the Chromium JSON into `--out`, writes
 //! `manifest.json`, and runs the Perfetto exporter (task 022) on that bundle ([`bundle`] reads
 //! the stop reply). `export` runs the exporter again on a recorded directory.
+//!
+//! `blackbox` (task 125) exports the black boxes, the always-on rings every process keeps: the
+//! app's `trace.blackbox` method copies every live process's tail into a bundle of its own
+//! (`--now`), or names the bundle it copied at its N-th newest hang (`--last-hang N`: a hang of
+//! 1 s and up or a key frame over 50 ms; it keeps the newest [`MAX_LAST_HANGS`]). Each bundle has
+//! the `manifest.json` of a recording, so the same exporter reads it. As with the other verbs,
+//! no parameter names a file in the app.
 
 use std::io::{BufRead, BufReader, Read, Write};
 use std::os::unix::net::UnixStream;
@@ -37,6 +44,10 @@ const START_TIMEOUT: Duration = Duration::from_secs(15);
 /// A stop also flushes Chromium's trace to its JSON file.
 const STOP_TIMEOUT: Duration = Duration::from_secs(30);
 const STATUS_TIMEOUT: Duration = Duration::from_secs(10);
+/// `--now` copies every process's black box (a few MB) on the app's files lane.
+const BLACKBOX_TIMEOUT: Duration = Duration::from_secs(30);
+/// How many last-hang bundles the app keeps (`last-hang/1` the newest); the app refuses more.
+pub(super) const MAX_LAST_HANGS: u32 = 5;
 /// A status reply lists every terminal host; this bounds one reply line.
 const MAX_REPLY_BYTES: u64 = 8 * 1024 * 1024;
 
@@ -59,6 +70,33 @@ pub(super) enum Verb {
     Stop,
     Status,
     Export(ExportPlan),
+    Blackbox(BlackboxPlan),
+}
+
+/// `trace blackbox [--last-hang N | --now] [--out FILE]`.
+#[derive(Debug, PartialEq, Eq)]
+pub(super) struct BlackboxPlan {
+    pub source: BlackboxSource,
+    /// `None`: `trace.perfetto-trace` in the bundle the app names.
+    pub to: Option<PathBuf>,
+}
+
+/// Which black boxes `trace.blackbox` hands over.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum BlackboxSource {
+    /// Every live process's tail, copied now.
+    Now,
+    /// The bundle copied at the N-th newest hang (1 the newest).
+    LastHang(u32),
+}
+
+impl BlackboxPlan {
+    fn params(&self) -> Value {
+        match self.source {
+            BlackboxSource::Now => json!({ "now": true }),
+            BlackboxSource::LastHang(n) => json!({ "last_hang": n }),
+        }
+    }
 }
 
 /// `trace export --in DIR [--out FILE]`.
@@ -151,6 +189,19 @@ pub(super) fn parse(rest: &[String]) -> Result<Invocation, UsageError> {
             let to = options.path("out").map(PathBuf::from);
             Verb::Export(ExportPlan { dir: PathBuf::from(dir), to })
         }
+        "blackbox" => {
+            options.allow(verb, &["last-hang", "now", "out"])?;
+            let last_hang = options.count("last-hang", MAX_LAST_HANGS, messages.last_hang_range)?;
+            let source = match (last_hang, options.flag("now")) {
+                (Some(_), true) => return Err(UsageError::new(messages.blackbox_one_source)),
+                (Some(n), false) => BlackboxSource::LastHang(n),
+                (None, _) => BlackboxSource::Now,
+            };
+            if options.value("out").is_some() && options.path("out").is_none() {
+                return Err(UsageError::new(messages.blackbox_out_empty));
+            }
+            Verb::Blackbox(BlackboxPlan { source, to: options.path("out").map(PathBuf::from) })
+        }
         "stop" | "status" => {
             options.allow(verb, &[])?;
             if verb == "stop" { Verb::Stop } else { Verb::Status }
@@ -166,8 +217,8 @@ struct Options {
     flags: Vec<String>,
 }
 
-const FLAGS: [&str; 2] = ["keys", "chromium"];
-const VALUED: [&str; 5] = ["seconds", "out", "categories", "seconds-cap", "in"];
+const FLAGS: [&str; 3] = ["keys", "chromium", "now"];
+const VALUED: [&str; 6] = ["seconds", "out", "categories", "seconds-cap", "in", "last-hang"];
 
 impl Options {
     fn parse(verb: &str, args: &[String]) -> Result<Self, UsageError> {
@@ -249,6 +300,20 @@ impl Options {
             return Err(UsageError::new(range.replace("{max}", &max.to_string())));
         }
         Ok(Some(seconds))
+    }
+
+    /// `--key N` with N in 1..=max, a count; `range` is the message when it is not.
+    fn count(&self, key: &str, max: u32, range: &str) -> Result<Option<u32>, UsageError> {
+        let Some(value) = self.value(key) else { return Ok(None) };
+        let messages = &crate::localization::catalog().trace;
+        let flag = format!("--{key}");
+        let count = value.trim().parse::<u32>().map_err(|_| {
+            UsageError::new(messages.bad_count.replace("{flag}", &flag).replace("{value}", value))
+        })?;
+        if !(1..=max).contains(&count) {
+            return Err(UsageError::new(range.replace("{max}", &max.to_string())));
+        }
+        Ok(Some(count))
     }
 
     /// `--categories` (comma-separated, repeatable), checked against the shared catalog so a
@@ -520,6 +585,17 @@ pub(super) fn execute(
             let text = messages.perfetto_written.replace("{path}", path);
             return Ok((value, text));
         }
+        Verb::Blackbox(plan) => {
+            let value = blackbox(&plan, app, exporter)?;
+            let bundle = value["out"].as_str().unwrap_or_default();
+            let path = value["perfetto"].as_str().unwrap_or_default();
+            let text = [
+                messages.blackbox_bundle.replace("{path}", bundle),
+                messages.perfetto_written.replace("{path}", path),
+            ]
+            .join("\n");
+            return Ok((value, text));
+        }
     };
     let text = status_text(&value, messages);
     Ok((value, text))
@@ -597,6 +673,28 @@ pub(super) fn export(plan: &ExportPlan, exporter: &dyn TraceExporter) -> Result<
         Failure::local("trace.export_failed", message, 1)
     })?;
     Ok(json!({ "out": shown, "perfetto": to.display().to_string() }))
+}
+
+/// `trace blackbox`: the app copies the black boxes (or names its last-hang bundle), then the
+/// exporter writes that bundle as one Perfetto trace. The result is the app's reply (`bundle`, and
+/// for a last-hang bundle its `cause`) plus `out` and `perfetto`, as `export`'s.
+pub(super) fn blackbox(
+    plan: &BlackboxPlan,
+    app: &mut dyn TraceApp,
+    exporter: &dyn TraceExporter,
+) -> Result<Value, Failure> {
+    let messages = &crate::localization::catalog().trace;
+    let mut reply = call(app, "trace.blackbox", plan.params(), BLACKBOX_TIMEOUT)?;
+    let Some(bundle) = reply.get("bundle").and_then(Value::as_str).filter(|path| !path.is_empty())
+    else {
+        return Err(Failure::local("trace.bad_reply", messages.blackbox_no_bundle.to_owned(), 1));
+    };
+    let plan = ExportPlan { dir: PathBuf::from(bundle), to: plan.to.clone() };
+    let exported = export(&plan, exporter)?;
+    for key in ["out", "perfetto"] {
+        reply[key] = exported[key].clone();
+    }
+    Ok(reply)
 }
 
 /// `--out` must be new or empty, so a record never mixes with an older one. Checked before

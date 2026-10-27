@@ -569,14 +569,11 @@ fn cli_trace_record_stops_early_on_a_signal_and_still_collects() {
         }),
     };
     let mut notes = Vec::new();
-    let result = record(
-        &plan,
-        &mut app,
-        &FakeWait::new(Waited::Interrupted),
-        &PerfettoExport,
-        &mut |note| notes.push(note),
-    )
-    .unwrap();
+    let result =
+        record(&plan, &mut app, &FakeWait::new(Waited::Interrupted), &NoExporter, &mut |note| {
+            notes.push(note)
+        })
+        .unwrap();
     assert_eq!(app.methods(), ["trace.start", "trace.stop"]);
     assert_eq!(result["interrupted"], json!(true));
     assert_eq!(result["export"], json!("unavailable"));
@@ -664,7 +661,12 @@ fn cli_trace_export_reexports_a_recorded_bundle() {
     let recorded =
         record(&plan, &mut app, &FakeWait::new(Waited::Elapsed), &PerfettoExport, &mut no_notes())
             .unwrap();
-    assert_eq!(recorded["export"], json!("unavailable"));
+    let export_error = recorded["export_error"].as_str().unwrap_or_default();
+    assert!(
+        export_error.contains("app.recording.cmxtrace"),
+        "the real exporter names the ring it cannot decode: {recorded}"
+    );
+    assert!(!out.join(PERFETTO_FILE).exists(), "a failed export leaves no trace under the name");
 
     let mut no_app = ScriptedApp { calls: Vec::new(), reply: Box::new(|_| panic!("no call")) };
     let exporter = FakeExporter::default();
@@ -747,8 +749,245 @@ fn cli_trace_export_refuses_what_is_not_a_bundle() {
     }
     assert!(exporter.seen.borrow().is_none());
     std::fs::write(temp.path().join(MANIFEST_FILE), json!({"rings": []}).to_string()).unwrap();
-    let failure = export(&plan, &PerfettoExport).unwrap_err();
+    let failure = export(&plan, &NoExporter).unwrap_err();
     assert_eq!(failure.error["code"], json!("trace.export_unavailable"));
+}
+
+/// A build with no exporter.
+struct NoExporter;
+
+impl TraceExporter for NoExporter {
+    fn available(&self) -> bool {
+        false
+    }
+
+    fn export(&self, _: &Bundle, _: &Path) -> Result<(), String> {
+        panic!("not available")
+    }
+}
+
+fn blackbox_plan(list: &[&str]) -> Result<BlackboxPlan, UsageError> {
+    match parse(&words(list))? {
+        Invocation::Verb(Verb::Blackbox(plan)) => Ok(plan),
+        other => panic!("not a blackbox: {other:?}"),
+    }
+}
+
+#[test]
+fn cli_trace_blackbox_parses_last_hang_or_now() {
+    assert_eq!(
+        blackbox_plan(&["blackbox"]).unwrap(),
+        BlackboxPlan { source: BlackboxSource::Now, to: None },
+        "the current black boxes by default"
+    );
+    assert_eq!(blackbox_plan(&["blackbox", "--now"]).unwrap().source, BlackboxSource::Now);
+    assert_eq!(
+        blackbox_plan(&["blackbox", "--last-hang", "1", "--out", "/tmp/hang.pftrace"]).unwrap(),
+        BlackboxPlan {
+            source: BlackboxSource::LastHang(1),
+            to: Some(PathBuf::from("/tmp/hang.pftrace"))
+        }
+    );
+    assert_eq!(
+        blackbox_plan(&["blackbox", "--last-hang=5"]).unwrap().source,
+        BlackboxSource::LastHang(MAX_LAST_HANGS)
+    );
+    for bad in [
+        &["blackbox", "--last-hang", "0"][..],
+        &["blackbox", "--last-hang", "6"],
+        &["blackbox", "--last-hang", "one"],
+        &["blackbox", "--last-hang", "1", "--now"],
+        &["blackbox", "--out="],
+        &["blackbox", "--in", "/tmp"],
+        &["blackbox", "--keys"],
+        &["blackbox", "/tmp"],
+    ] {
+        assert!(parse(&words(bad)).is_err(), "{bad:?} is refused");
+    }
+}
+
+/// `blackbox --last-hang N` asks the app for its N-th newest last-hang bundle, which names no file
+/// in its parameters, and exports the folder the reply names.
+#[test]
+fn cli_trace_blackbox_exports_the_bundle_the_app_names() {
+    let temp = tempfile::tempdir().unwrap();
+    let bundle = temp.path().join("last-hang").join("1");
+    std::fs::create_dir_all(bundle.join(RINGS_DIR)).unwrap();
+    let manifest = json!({
+        "rings": [{"role": "app", "pid": 41, "machine": "local", "file": "rings/app-41.blackbox.cmxtrace"}],
+        "remotes": [],
+        "chromium": null,
+    });
+    std::fs::write(bundle.join(MANIFEST_FILE), manifest.to_string()).unwrap();
+    let reply = json!({
+        "bundle": bundle.display().to_string(),
+        "last_hang": 1,
+        "cause": {"kind": "thread_hang", "thread": "terminal.feed", "milliseconds": 2400},
+    });
+    let mut app =
+        ScriptedApp { calls: Vec::new(), reply: Box::new(move |_| Ok(Ok(reply.clone()))) };
+    let exporter = FakeExporter::default();
+    let plan = blackbox_plan(&["blackbox", "--last-hang", "1"]).unwrap();
+    let (value, text) = execute(
+        Verb::Blackbox(plan),
+        &mut app,
+        &FakeWait::new(Waited::Elapsed),
+        &exporter,
+        &mut no_notes(),
+    )
+    .unwrap();
+    assert_eq!(app.calls, [("trace.blackbox".to_owned(), json!({"last_hang": 1}))]);
+    let perfetto = bundle.join(PERFETTO_FILE);
+    assert_eq!(value["perfetto"], json!(perfetto.display().to_string()));
+    assert_eq!(value["out"], json!(bundle.display().to_string()));
+    assert_eq!(value["cause"]["thread"], json!("terminal.feed"), "the app's reply is kept");
+    assert!(text.contains(&perfetto.display().to_string()), "{text}");
+    let (seen, to) = exporter.seen.borrow_mut().take().unwrap();
+    assert_eq!(to, perfetto);
+    assert_eq!(seen.rings[0].path, bundle.join("rings/app-41.blackbox.cmxtrace"));
+
+    // --now with --out: the trace goes where --out says.
+    let reply = json!({"bundle": bundle.display().to_string()});
+    let mut app =
+        ScriptedApp { calls: Vec::new(), reply: Box::new(move |_| Ok(Ok(reply.clone()))) };
+    let out = temp.path().join("now.pftrace");
+    let plan = blackbox(
+        &BlackboxPlan { source: BlackboxSource::Now, to: Some(out.clone()) },
+        &mut app,
+        &exporter,
+    )
+    .unwrap();
+    assert_eq!(app.calls, [("trace.blackbox".to_owned(), json!({"now": true}))]);
+    assert_eq!(plan["perfetto"], json!(out.display().to_string()));
+    assert_eq!(std::fs::read(&out).unwrap(), b"perfetto");
+}
+
+#[test]
+fn cli_trace_blackbox_reports_refusals_and_bad_replies() {
+    let exporter = FakeExporter::default();
+    let plan = BlackboxPlan { source: BlackboxSource::LastHang(2), to: None };
+    let mut none = ScriptedApp {
+        calls: Vec::new(),
+        reply: Box::new(|_| {
+            Ok(Err(json!({"code": "no_last_hang", "message": "no hang bundle 2"})))
+        }),
+    };
+    let failure = blackbox(&plan, &mut none, &exporter).unwrap_err();
+    assert_eq!((failure.exit_code, failure.error["code"].clone()), (1, json!("no_last_hang")));
+    let mut old_app = ScriptedApp {
+        calls: Vec::new(),
+        reply: Box::new(|_| Ok(Err(json!({"code": "method_not_found", "message": "unknown"})))),
+    };
+    assert_eq!(blackbox(&plan, &mut old_app, &exporter).unwrap_err().exit_code, 5);
+    let mut empty =
+        ScriptedApp { calls: Vec::new(), reply: Box::new(|_| Ok(Ok(json!({"bundle": ""})))) };
+    let failure = blackbox(&plan, &mut empty, &exporter).unwrap_err();
+    assert_eq!(failure.error["code"], json!("trace.bad_reply"));
+    assert!(exporter.seen.borrow().is_none(), "nothing exported");
+}
+
+/// A black-box ring as a process writes it: `role` with pid `pid`, one thread that hangs and a
+/// watchdog that dumps its hang (task 068's `hang.thread_hung`).
+fn fixture_ring(role: cmux_trace::Role, pid: u32) -> Vec<u8> {
+    use cmux_trace::clock::ClockDomain;
+    use cmux_trace::{
+        Phase, ProcessIdentity, Record, RingSizes, StartClocks, ThreadIdentity, Tracer,
+        TracerConfig, Writer, names::catalog_id,
+    };
+    let tracer = Tracer::new(TracerConfig {
+        blackbox: RingSizes { name_capacity: 256, thread_capacity: 64, chunk_count: 8 },
+        recording: RingSizes { name_capacity: 256, thread_capacity: 64, chunk_count: 8 },
+        clocks: StartClocks {
+            uptime_ns: || 0,
+            unix_ns: || 1_700_000_000_000_000_000,
+            continuous_ns: || 5,
+            domain: ClockDomain::UptimeRaw,
+        },
+        identity: ProcessIdentity {
+            pid,
+            process_start_unix_us: 1_699_999_999_000_000,
+            boot_session_uuid: [7; 16],
+            build_uuid: [9; 16],
+            build_version: [0; 32],
+        },
+        read_slow_identity: |_| {},
+        ..TracerConfig::for_process("/nonexistent", role)
+    });
+    let record = |t_ns, name, phase, arg0, arg1| Record {
+        t_ns,
+        name: catalog_id(name),
+        phase,
+        flags: 0,
+        arg0,
+        arg1,
+    };
+    let mut lane = Writer::new(&tracer, ThreadIdentity::new(606, 0x11, "terminal.feed"));
+    let mut watchdog = Writer::new(&tracer, ThreadIdentity::new(707, 0x21, "watchdog"));
+    lane.write(record(1_000, "action.perform", Phase::Begin, 1, 0));
+    lane.write(record(2_000, "action.perform", Phase::End, 0, 0));
+    watchdog.write(record(2_500_000_000, "hang.thread_hung", Phase::Instant, 606, 2_000));
+    drop(lane);
+    drop(watchdog);
+    tracer.snapshot_active()
+}
+
+/// The fixture: a last-hang bundle as the app writes it (two processes' black boxes and the
+/// manifest) exports with the real exporter, and the Perfetto trace it writes is a protobuf
+/// `Trace` of packets only.
+#[test]
+fn cli_trace_blackbox_fixture_exports_with_the_real_exporter() {
+    let temp = tempfile::tempdir().unwrap();
+    let bundle = temp.path().join("1");
+    std::fs::create_dir_all(bundle.join(RINGS_DIR)).unwrap();
+    std::fs::write(
+        bundle.join("rings/app-41.blackbox.cmxtrace"),
+        fixture_ring(cmux_trace::Role::App, 41),
+    )
+    .unwrap();
+    std::fs::write(
+        bundle.join("rings/daemon-42.blackbox.cmxtrace"),
+        fixture_ring(cmux_trace::Role::Daemon, 42),
+    )
+    .unwrap();
+    let manifest = json!({
+        "rings": [
+            {"role": "app", "pid": 41, "machine": "local", "file": "rings/app-41.blackbox.cmxtrace"},
+            {"role": "daemon", "pid": 42, "machine": "local", "file": "rings/daemon-42.blackbox.cmxtrace"},
+        ],
+        "remotes": [],
+        "chromium": null,
+        "cause": {"kind": "thread_hang"},
+    });
+    std::fs::write(bundle.join(MANIFEST_FILE), manifest.to_string()).unwrap();
+    let reply = json!({"bundle": bundle.display().to_string()});
+    let mut app =
+        ScriptedApp { calls: Vec::new(), reply: Box::new(move |_| Ok(Ok(reply.clone()))) };
+    let plan = BlackboxPlan { source: BlackboxSource::LastHang(1), to: None };
+    let value = blackbox(&plan, &mut app, &PerfettoExport).unwrap();
+    let trace = std::fs::read(value["perfetto"].as_str().unwrap()).unwrap();
+    // Every top-level field is `Trace.packet` (1, length-delimited) and the lengths add up.
+    let mut at = 0;
+    let mut packets = 0;
+    let varint = |at: &mut usize| {
+        let mut value = 0u64;
+        for shift in (0..64).step_by(7) {
+            let byte = trace[*at];
+            *at += 1;
+            value |= u64::from(byte & 0x7F) << shift;
+            if byte & 0x80 == 0 {
+                break;
+            }
+        }
+        value
+    };
+    while at < trace.len() {
+        assert_eq!(varint(&mut at), 1 << 3 | 2, "a Trace holds packets only");
+        at += varint(&mut at) as usize;
+        packets += 1;
+    }
+    assert_eq!(at, trace.len());
+    assert!(packets > 10, "clock, tracks and events: {packets} packets");
+    assert!(!bundle.join("trace.perfetto-trace.partial").exists());
 }
 
 #[test]
