@@ -168,6 +168,15 @@ class Daemon {
     this.answer(message!);
   }
 
+  /// Answers only the newest request of `method` held so far.
+  releaseLast(method: string): void {
+    let at = this.held.length - 1;
+    while (at >= 0 && this.held[at]!.method !== method) at -= 1;
+    if (at < 0) return;
+    const [message] = this.held.splice(at, 1);
+    this.answer(message!);
+  }
+
   /// Answers the requests of `method` held so far, in the order they were asked.
   release(method: string): void {
     const now = this.held.filter((message) => message.method === method);
@@ -1466,8 +1475,11 @@ test("an attach retried because the row moved on while its reads were out shows 
   await flush();
   expect(text(tab.last())).toContain("third 3.");
   expect(text(tab.last())).not.toContain("second 4.");
-  // Every list read back answers, in the order asked.
+  // The list reads back answer newest first: the session it ends on, then any asked before it.
   daemon.holdCommandReads = false;
+  daemon.releaseLast("_acpmux/events");
+  await flush();
+  daemon.releaseLast("_acpmux/events");
   daemon.release("_acpmux/events");
   await flush();
   const names = (tab.last()!.commands ?? []).map((command) => command.name);
