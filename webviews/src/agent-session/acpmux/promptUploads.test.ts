@@ -174,6 +174,38 @@ test("a cancelled waiter leaves a shared upload cached for its surviving retry",
   expect(retry).toEqual(prepared);
   expect(calls).toBe(1);
 });
+test("removing every shared waiter cancels the upload and releases its Blob", async () => {
+  const one = image("all-cancelled");
+  const done = deferred();
+  let cancelled = false;
+  let removed = false;
+  const common = {
+    entries: promptEntries("", [one]),
+    features: ["promptUploads"],
+    sessionId: "session",
+    cache: new Map(),
+    tokenCache: new Map(),
+    isCancelled: () => removed,
+    transport: {
+      async beginBlob(params: { size: number }) {
+        await done.promise;
+        return { uploadId: "shared", size: params.size };
+      },
+      async cancelBlob() {
+        cancelled = true;
+      },
+    },
+  };
+  const first = preparePromptUploads(common);
+  const retry = preparePromptUploads(common);
+  removed = true;
+  releasePromptUploadAttachments([one.id]);
+  expect(cancelled).toBe(true);
+  done.resolve();
+  await expect(first).rejects.toThrow("closed");
+  await expect(retry).rejects.toThrow("closed");
+  expect(blobs().size).toBe(0);
+});
 test("an older daemon keeps the existing inline block shape when upload refs are unavailable", async () => {
   const one = image("one");
   const entries = promptEntries("ship", [one]);
