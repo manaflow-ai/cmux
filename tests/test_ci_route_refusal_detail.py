@@ -138,12 +138,34 @@ class RefusalDetailTests(unittest.TestCase):
         side = (ROOT / "scripts/ci/side_lane_placement.py").read_text()
         self.assertIn("retry_cap=SIDE_RETRY_CAP_SECONDS", side)
         self.assertIn("SIDE_RETRY_CAP_SECONDS = 5.0", side)
-        # Two tokens (ROUTE_TOKEN, then ROUTE_TOKEN_FALLBACK) of about three reads, each retried at most once,
+        # One retry per token (ROUTE_TOKEN, then ROUTE_TOKEN_FALLBACK): at most a wait and a 15 s request each,
         # plus the cascade's read budget, stay well inside the placement step's two minutes.
-        self.assertLess(2 * 3 * 5.0 + cascade.READ_BUDGET_SECONDS, 90)
+        self.assertLessEqual(2 * (5.0 + 15) + cascade.READ_BUDGET_SECONDS, 90)
         users = [path.name for path in (ROOT / "scripts").rglob("*.py") if "retry_cap=" in path.read_text(errors="ignore")
                  and path.name not in ("pr_runner_pool.py",)]
         self.assertEqual(users, ["side_lane_placement.py"])
+
+    def test_one_retry_per_client_whatever_the_reads(self):
+        # Slow refusals on every read (the review's case): the client still retries only once,
+        # so it adds one wait and one request to what it takes with no retry at all.
+        now = [0.0]
+        sleeps: list[float] = []
+
+        def slow(*args, **kwargs):
+            now[0] += 10
+            raise refused(403, "", Retry_After="30")
+
+        client = pool.GitHub("t", "o/r", retry_cap=5)
+        err = io.StringIO()
+        with mock.patch.object(pool.urllib.request, "urlopen", side_effect=slow) as opened, \
+                mock.patch.object(pool.time, "sleep", side_effect=lambda s: (sleeps.append(s), now.__setitem__(0, now[0] + s))), \
+                contextlib.redirect_stderr(err):
+            for _ in range(3):
+                with self.assertRaises(urllib.error.HTTPError):
+                    client.get_api("/orgs/o/actions/runners")
+        self.assertEqual(sleeps, [5.0])
+        self.assertEqual(opened.call_count, 4)  # three reads, one of them retried
+        self.assertEqual(now[0], 3 * 10 + 5 + 10)
 
     def test_other_statuses_are_not_retried(self):
         for name, module, fn, cap in clients():

@@ -2130,7 +2130,10 @@ class _NoRedirect(urllib.request.HTTPRedirectHandler):
 
 class GitHub:
     def __init__(self, token: str, repo: str, *, retry_cap: float = 0.0) -> None:
+        # One retry per client, not per read: whatever the reads, retrying adds at most one
+        # wait (retry_cap) and one request (its 15 s timeout) to what the client takes today.
         self.retry_cap = retry_cap
+        self.retries_left = 1 if retry_cap > 0 else 0
         self.repo = repo
         self.headers = {
             "Accept": "application/vnd.github+json",
@@ -2151,7 +2154,9 @@ class GitHub:
                 with urllib.request.urlopen(request, timeout=15) as response:
                     return json.loads(response.read())
             except urllib.error.HTTPError as error:
-                wait = retry_wait(error, self.retry_cap) if attempt == 1 and self.retry_cap > 0 else None
+                wait = retry_wait(error, self.retry_cap) if attempt == 1 and self.retries_left > 0 else None
+                if wait is not None:
+                    self.retries_left -= 1
                 print(f"GitHub refused GET {path.split('?')[0]}: {refusal(error)}"
                       + (f"; retrying once in {wait:.0f} s" if wait is not None else ""), file=sys.stderr)
                 if wait is None:

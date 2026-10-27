@@ -462,8 +462,9 @@ def main(env: Mapping[str, str] = os.environ) -> int:
         if not (token and repo):
             continue
         try:
-            # One retry per read, at most 5 s, on a refusal that names a Retry-After: each token lists
-            # in about three reads, two tokens at most, inside the 2-minute step shared with the cascade (45 s).
+            # At most one retry per token, after at most 5 s, on a refusal that names a Retry-After:
+            # with two tokens that adds at most 2 x (5 s + one 15 s request) = 40 s to today's reads,
+            # inside the 2-minute step this shares with the cascade (45 s).
             runners = pool.GitHub(token, repo, retry_cap=SIDE_RETRY_CAP_SECONDS).runners()
             break
         except Exception as error:  # noqa: BLE001 - fail open: keep today's route
