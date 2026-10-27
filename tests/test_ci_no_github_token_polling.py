@@ -47,6 +47,13 @@ ALLOWED: dict[str, str] = {
         "tick's own dispatches run main's, which has no coalescer): at most 48 passes, 15 s apart",
     'cmux-next-base-autofix.yml: Wait for the GhosttyKit release':
         'per feat-cmux-next push touching its paths, only while the ghostty gitlink has no published GhosttyKit release: one release read every 120 s, at most 45 passes, one run at a time; a candidate for workflow_run on build-ghosttykit.yml',
+    "cmux-next.yml: Decide the Linux build's REF capture":
+        "per DEV compile on a mini with CMUX_NEXT_HYBRID_REF_CAPTURE=1: two artifact reads "
+        "(hybrid_ref_capture.py have), each sleeping only after a rate-limit refusal (Retry-After or "
+        "the reset) or a 5xx, 600 s in all; a silent rate limit lost run 40428066457's capture",
+    "cmux-next.yml: Capture the Linux build's REF":
+        "calls hybrid_ref_capture.py capture, which never runs have's retry loop (the scan reads the "
+        "whole script); its one jobs read is not in a loop",
     'cmux-next.yml: Probe the same-tree cmux-tui':
         'a same-repository PR whose merge has its own unpublished cmux-tui tree waits for an active trusted publisher (pin-cmux-tui.sh await_outside_publisher): two run reads every 10 s, at most 10 passes; forks look once; pushes and DEV dispatches look once, then re-check once after 20 s',
     'cmux-tui-artifacts.yml: Re-check the owner after leaving the marker':
@@ -109,7 +116,7 @@ ALLOWED: dict[str, str] = {
         "only while the pull request's head has not caught up with the event: at most four GraphQL re-reads (five in all), 5 s apart",
     "gallery-advisory.yml: Update the PR's gallery section":
         'pr_status.py: a request is retried only after a rate limit or 5xx (at most 5 waits); the settle re-read after a write runs at most 4 rounds',
-    "gallery-link.yml: Update the PR's review line":
+    "pr-checks.yml: Update the PR's review line":
         'pr_status.py: a request is retried only after a rate limit or 5xx (at most 5 waits); the settle re-read after a write runs at most 4 rounds',
     'pr-status.yml: Write the line':
         'pr_status.py: a request is retried only after a rate limit or 5xx (at most 5 waits); the settle re-read after a write runs at most 4 rounds',

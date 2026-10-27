@@ -63,6 +63,9 @@ const SESSION_SCOPED_EXCLUDED: &[&str] = &[
     "_acpmux/peer_lease",
     "_acpmux/peer_remove",
     "_acpmux/peer_reconnect",
+    // This daemon's own copy of a peer session's events (`hub/peer_snapshot.rs`),
+    // answered here while the peer is down too.
+    "_acpmux/peer_snapshot",
 ];
 
 /// The reply when `m` is for a peer's session (forwarded there), else None
@@ -146,6 +149,9 @@ async fn forward_inner(
             crate::attach::check_wire(params)?;
             if crate::attach::any(blocks) && !peer.supports_send_attach() {
                 return Err(crate::attach::peer_unsupported(&peer));
+            }
+            if crate::prompt_uploads::any(blocks) && !peer.supports_prompt_uploads() {
+                return Err(crate::prompt_uploads::peer_unsupported(&peer));
             }
         }
         if m == method::MUX_FILE_PUT_CHUNK {
@@ -307,6 +313,12 @@ async fn forward_inner(
             && let Some(obj) = result.as_object_mut()
         {
             obj.insert("presence".into(), crate::hub::presence::none(&id));
+        }
+        // This daemon's link is never the person on the peer, so the peer
+        // refuses every group allow it forwards (`hub/person.rs`), whatever
+        // its build says: the client draws none.
+        if m == method::MUX_PERMISSION_GROUPS && result.is_object() {
+            result["allowRefused"] = json!(crate::hub::person::REASON);
         }
         if m == method::SESSION_FORK
             && let Some(new_id) = result.get("sessionId").and_then(Value::as_str)
