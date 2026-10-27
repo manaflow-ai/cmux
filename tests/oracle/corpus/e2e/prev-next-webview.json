@@ -68,6 +68,7 @@
       "id": "field",
       "op": "snapshot",
       "args": {"facets": ["topology", "focus", "layout"]},
+      "waitFor": {"pointer": "/focus/windows/0/model/resolved", "equals": "agentPage", "maxMs": 5000},
       "settleMaxMs": 5000
     },
     {
@@ -81,6 +82,16 @@
       "note": "script row 'Ctrl-PageDown from the New Tab field': nextSidebarTab, one workspace down (the launch workspace)"
     },
     {
+      "id": "launch-new-tab-page",
+      "op": "key",
+      "target": {"window": "current"},
+      "args": {"keys": ["cmd+t"]},
+      "expect": {"outcome": "ok", "receipt": "action.done"},
+      "waitFor": {"pointer": "/focus/windows/0/model/resolved", "equals": "agentPage", "maxMs": 10000},
+      "settleMaxMs": 10000,
+      "note": "Cmd-T in the launch workspace: its pane gets a New Tab page beside the terminal tab, and its field has the keyboard, so the next press starts from a field too"
+    },
+    {
       "id": "ctrl-pageup",
       "op": "key",
       "target": {"window": "current"},
@@ -88,13 +99,15 @@
       "expect": {"outcome": "ok", "receipt": "action.done"},
       "waitFor": {"pointer": "/layout/screens/0/workspace", "equals": "$step:second-workspace#/created/0", "maxMs": 5000},
       "settleMaxMs": 5000,
-      "note": "script row 'Ctrl-PageUp': prevSidebarTab, back to the middle workspace, whose New Tab page is still its pane's shown tab"
+      "note": "script row 'Ctrl-PageUp from the New Tab field': prevSidebarTab, back to the middle workspace, whose New Tab page is still its pane's shown tab"
     },
     {
       "id": "back-in-field",
       "op": "snapshot",
       "args": {"facets": ["focus", "layout"]},
-      "settleMaxMs": 5000
+      "waitFor": {"pointer": "/focus/windows/0/model/resolved", "equals": "agentPage", "maxMs": 5000},
+      "settleMaxMs": 5000,
+      "note": "the keyboard comes back to the middle workspace's New Tab field after the switch (asynchronously), before the next press"
     },
     {
       "id": "ctrl-cmd-next",
@@ -103,7 +116,15 @@
       "args": {"keys": ["ctrl+cmd+]"]},
       "expect": {"outcome": "ok", "receipt": "action.done"},
       "waitFor": {"pointer": "/layout/screens/0/workspace", "predicate": "changed", "maxMs": 5000},
-      "note": "script row 'Ctrl-Cmd-]': nextSidebarTab"
+      "note": "script row 'Ctrl-Cmd-] from the New Tab field': nextSidebarTab, one workspace down (the launch workspace)"
+    },
+    {
+      "id": "launch-field",
+      "op": "snapshot",
+      "args": {"facets": ["focus", "layout"]},
+      "waitFor": {"pointer": "/focus/windows/0/model/resolved", "equals": "agentPage", "maxMs": 5000},
+      "settleMaxMs": 5000,
+      "note": "the keyboard comes back to the launch workspace's New Tab field, before the next press"
     },
     {
       "id": "ctrl-cmd-previous",
@@ -113,7 +134,7 @@
       "expect": {"outcome": "ok", "receipt": "action.done"},
       "waitFor": {"pointer": "/layout/screens/0/workspace", "equals": "$step:second-workspace#/created/0", "maxMs": 5000},
       "settleMaxMs": 5000,
-      "note": "script row 'Ctrl-Cmd-[': prevSidebarTab"
+      "note": "script row 'Ctrl-Cmd-[ from the New Tab field': prevSidebarTab, back to the middle workspace"
     },
     {
       "id": "ended",
@@ -123,9 +144,9 @@
     }
   ],
   "invariants": [
-    "focus/windows/0/model/resolved is agentPage at field and at back-in-field: the New Tab page's field has the keyboard before each press from it",
-    "layout/screens/0/workspace at ctrl-pagedown and at ctrl-cmd-next is the launch workspace (launched's), the one below second-workspace; at ctrl-pageup, ctrl-cmd-previous and ended it is second-workspace's created/0",
-    "second-workspace's pane still holds both tabs at ended: no key stepped or closed the pane's tabs",
+    "focus/windows/0/model/resolved is agentPage at field, launch-new-tab-page, back-in-field and launch-field: a New Tab page's field has the keyboard before each of the four presses",
+    "layout/screens/0/workspace at ctrl-pagedown, launch-new-tab-page, ctrl-cmd-next and launch-field is the launch workspace (launched's), the one below second-workspace; at ctrl-pageup, back-in-field, ctrl-cmd-previous and ended it is second-workspace's created/0",
+    "at ended, second-workspace's pane and the launch workspace's pane each still hold their two tabs: no key stepped or closed a pane's tabs",
     "every mutation has one receipt or one typed error (I1)",
     "ids stay stable unless the step created or closed them (I2)"
   ],

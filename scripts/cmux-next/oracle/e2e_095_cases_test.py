@@ -4,10 +4,12 @@
 Spec: plans/cmux-next/chrome-parity/p15-oracle.md, section 5 item 4, and task p15-oracle-095 (MQ-e2e entries 34-44).
 Stdlib only, Python 3.9+, safe under `python3 -I`.
 
-- `tests/oracle/corpus/e2e/_scripts-095.json` names exactly the scripts at positions 34..44 of MQ-e2e
-  (`ls scripts/cmux-next/*-e2e.py scripts/cmux-next/*-e2e.sh`, sorted), each converted (a case whose first step names
-  the script, with the fix commit, its parent and the step `catches` names, or `catches: null` with a `gap`) or
-  excluded with a reason. The checks read only this batch's file and cases; the sibling batches keep their own.
+- `tests/oracle/corpus/e2e/_scripts-095.json` names 11 distinct scripts that exist, each converted (a case whose first
+  step names the script, with the fix commit, its parent and the step `catches` names, or `catches: null` with a `gap`)
+  or excluded with a reason. They are positions 34..44 of MQ-e2e (`ls scripts/cmux-next/*-e2e.py
+  scripts/cmux-next/*-e2e.sh`, sorted) at the manifest's `queue_ref`, the base commit the batches were assigned from;
+  the test lists that commit's tree (`ls-tree`), not the working tree, so a script added on the base later does not
+  move the batch (skipped when a shallow clone lacks the commit). The checks read only this batch's file and cases.
 - Each converted case runs through driver_app's real step runner against a fake app that offers only the facets the
   base build has providers for (AppServices+OracleHost.makeOracleFacets, plus the router's topology in a snapshot):
   a wait on another facet is refused, as OracleSettleControl refuses it (no provider, or no change signal), and a
@@ -57,10 +59,13 @@ SNAPSHOT_PROVIDED = ("topology", "focus", "layout", "tabs", "overlays", "setting
 WAITABLE = ("focus", "layout", "tabs", "overlays", "settings", "windows", "invariants")
 
 
-def mq_e2e() -> List[str]:
-    """MQ-e2e: the e2e scripts in `ls` order, repo-relative."""
-    scripts = REPO / "scripts" / "cmux-next"
-    return sorted(f"scripts/cmux-next/{p.name}" for pattern in ("*-e2e.py", "*-e2e.sh") for p in scripts.glob(pattern))
+def mq_e2e_at(ref: str) -> Optional[List[str]]:
+    """MQ-e2e at commit `ref`: the e2e scripts in `ls` order, repo-relative; None when the clone lacks `ref`."""
+    listed = subprocess.run(["git", "-C", str(REPO), "ls-tree", "--name-only", ref, "scripts/cmux-next/"],
+                            capture_output=True, text=True, check=False)
+    if listed.returncode != 0:
+        return None
+    return sorted(p for p in listed.stdout.splitlines() if p.endswith(("-e2e.py", "-e2e.sh")))
 
 
 def manifest() -> Dict[str, Any]:
@@ -343,7 +348,8 @@ class ManifestTest(unittest.TestCase):
         first, last = batch["range"]
         self.assertEqual((first, last), RANGE, "p15-oracle-095 converts MQ-e2e entries 34-44")
         self.assertEqual(batch["task"], "p15-oracle-095")
-        self.assertEqual(sorted(batch["scripts"]), mq_e2e()[first - 1:last], "the scripts at positions 34-44")
+        self.assertEqual(len(batch["scripts"]), last - first + 1, "one entry per queue position")
+        self.assertRegex(batch["queue_ref"], SHA)
         self.assertIn("p15-oracle-202", batch.get("red_on_parent", ""), "say how and when red on parent is run")
         for script, entry in batch["scripts"].items():
             with self.subTest(script=script):
@@ -366,6 +372,14 @@ class ManifestTest(unittest.TestCase):
                     self.assertGreaterEqual(len(entry.get("gap", "")), 80, "a case that catches nothing says why")
                 else:
                     self.assertIn(catches_step(entry), [s["id"] for s in case["steps"]], "catches names a step")
+
+    def test_manifest_is_positions_34_to_44_at_its_queue_ref(self) -> None:
+        batch = manifest()
+        queue = mq_e2e_at(batch["queue_ref"])
+        if queue is None:
+            self.skipTest(f"queue_ref {batch['queue_ref']} is not in this clone (a shallow checkout)")
+        first, last = batch["range"]
+        self.assertEqual(sorted(batch["scripts"]), queue[first - 1:last], "the scripts at positions 34-44")
 
     def test_cases_read_only_facets_the_base_provides(self) -> None:
         for case_id in converted():
@@ -468,13 +482,24 @@ class ConvertedCaseTest(unittest.TestCase):
 
         keys = self.run_as("e2e/prev-next-webview", parent=False)
         launch = self.snapshot(keys, "launched", "layout")["screens"][0]["workspace"]
-        for step in ("field", "back-in-field"):
-            self.assertEqual(self.snapshot(keys, step, "focus")["windows"][0]["model"]["resolved"], "agentPage")
+        # Each of the four presses starts from a New Tab field: the step just before it ends with one focused.
+        steps = [s["id"] for s in load("e2e/prev-next-webview")["steps"]]
+        for press in ("ctrl-pagedown", "ctrl-pageup", "ctrl-cmd-next", "ctrl-cmd-previous"):
+            before = steps[steps.index(press) - 1]
+            self.assertEqual(self.snapshot(keys, before, "focus")["windows"][0]["model"]["resolved"], "agentPage",
+                             f"{press} starts from {before}")
+            self.assertIn("waitFor", next(s for s in load("e2e/prev-next-webview")["steps"] if s["id"] == before),
+                          f"{before} waits for the field before {press}")
         middle = self.snapshot(keys, "field", "layout")["screens"][0]["workspace"]
         self.assertNotEqual(middle, launch)
-        for step, expected in (("ctrl-pagedown", launch), ("ctrl-pageup", middle), ("ctrl-cmd-next", launch),
+        for step, expected in (("ctrl-pagedown", launch), ("launch-new-tab-page", launch), ("ctrl-pageup", middle),
+                               ("back-in-field", middle), ("ctrl-cmd-next", launch), ("launch-field", launch),
                                ("ctrl-cmd-previous", middle), ("ended", middle)):
             self.assertEqual(self.snapshot(keys, step, "layout")["screens"][0]["workspace"], expected, step)
+        ended = self.snapshot(keys, "ended", "topology")["topology"]
+        for workspace in (launch, middle):
+            panes = next(w for w in ended["workspaces"] if w["id"] == workspace)["screens"][0]["panes"]
+            self.assertEqual(len(panes[0]["tabs"]), 2, workspace)
 
     def test_a_wait_on_a_facet_the_base_lacks_is_refused(self) -> None:
         """/sidebar has no provider on the base, so a wait on it crashes the case instead of passing it."""
