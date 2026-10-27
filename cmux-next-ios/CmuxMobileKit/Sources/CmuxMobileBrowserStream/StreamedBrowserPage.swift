@@ -90,8 +90,9 @@ public struct StreamedBrowserPage: View {
         .onDisappear { model.setVisible(false) }
         // The page's `<select>`: its options in a sheet. Swiping it away cancels; the page
         // closing the popup itself closes the sheet.
-        .sheet(item: Binding(get: { model.selectMenu }, set: { next in
-            if next == nil, let open = model.selectMenu { model.choose(.cancel, in: open.token) }
+        .sheet(item: Binding(get: { model.selectMenu }, set: { [shown = model.selectMenu?.token] next in
+            // Only the select this sheet showed: a late write never cancels a newer one.
+            if next == nil, let shown { model.choose(.cancel, in: shown) }
         })) { open in
             StreamedSelectSheet(open: open) { model.choose($0, in: open.token) }
         }
@@ -103,10 +104,16 @@ public struct StreamedBrowserPage: View {
                 TextField(String(localized: "Answer"), text: $promptText)
                     .accessibilityIdentifier("browser.dialog.field")
             }
+            // The dialog open when the button is tapped: the host can replace one (cancel, then a
+            // new show) before SwiftUI redraws the alert, and the page waits for that one.
             if open.dialog.hasCancel {
-                Button(String(localized: "Cancel"), role: .cancel) { model.answerDialog(open.token, accept: false) }
+                Button(String(localized: "Cancel"), role: .cancel) {
+                    if let current = model.dialog { model.answerDialog(current.token, accept: false) }
+                }
             }
-            Button(open.dialog.acceptTitle) { model.answerDialog(open.token, accept: true, text: promptText) }
+            Button(open.dialog.acceptTitle) {
+                if let current = model.dialog { model.answerDialog(current.token, accept: true, text: promptText) }
+            }
         } message: { open in
             if !open.dialog.message.isEmpty { Text(open.dialog.message) }
         }
@@ -437,6 +444,8 @@ final class StreamView: UIView, UIKeyInput, UIContextMenuInteractionDelegate {
 
     /// Where the long press is, in this view.
     private var menuPoint: CGPoint = .zero
+    /// The page's menu for the menu on screen (nil until the menu shows).
+    private var menuWait: StreamMenuWait?
     /// An empty spot at the press: the menu opens from it instead of lifting the whole page.
     private lazy var menuAnchor: UIView = {
         let anchor = UIView(frame: CGRect(x: 0, y: 0, width: 2, height: 2))
@@ -449,17 +458,23 @@ final class StreamView: UIView, UIKeyInput, UIContextMenuInteractionDelegate {
     func contextMenuInteraction(_ interaction: UIContextMenuInteraction,
                                 configurationForMenuAtLocation location: CGPoint) -> UIContextMenuConfiguration? {
         guard model.phase == .live else { return nil }
-        stopMomentum()
         menuPoint = location
         let (x, y) = css(location)
-        // The page is asked at once; the menu fills in when its rows arrive.
         let wait = StreamMenuWait()
-        model.requestContextMenu(x: x, y: y) { open in wait.arrived(open) }
+        menuWait = wait
         return UIContextMenuConfiguration(identifier: nil, previewProvider: nil) { [weak self] _ in
             UIMenu(children: [UIDeferredMenuElement.uncached { completion in
-                // UIKit asks for the rows on the main thread.
+                // UIKit asks for the rows on the main thread, only once the menu shows: the
+                // page is asked then (a press that turns into a scroll asks nothing), and the
+                // menu fills in when its rows arrive.
                 MainActor.assumeIsolated {
-                    wait.whenArrived { open in completion(self?.menuElements(open) ?? []) }
+                    guard let self else { return completion([]) }
+                    if !wait.asked {
+                        wait.asked = true
+                        stopMomentum()
+                        model.requestContextMenu(x: x, y: y) { open in wait.arrived(open) }
+                    }
+                    wait.whenArrived { [weak self] open in completion(self?.menuElements(open) ?? []) }
                 }
             }])
         }
@@ -481,12 +496,21 @@ final class StreamView: UIView, UIKeyInput, UIContextMenuInteractionDelegate {
     /// there was one, has already gone; `choose` sends each menu's answer once).
     func contextMenuInteraction(_ interaction: UIContextMenuInteraction, willEndFor configuration: UIContextMenuConfiguration,
                                 animator: (any UIContextMenuInteractionAnimating)?) {
-        guard let animator else { return model.abandonContextMenu() }
-        animator.addCompletion { [weak self] in
-            // UIKit runs the chosen row's handler as the menu finishes closing: the cancel
-            // waits for the next main-queue turn so a choice is never overtaken by it.
-            DispatchQueue.main.async { self?.model.abandonContextMenu() }
+        guard let wait = menuWait else { return }
+        menuWait = nil
+        let model = model
+        // This press's menu only (never a later press's), cancelled when nothing was picked:
+        // `choose` answers each menu once, so a pick sent first wins, and a menu still on its
+        // way is cancelled when it comes.
+        let abandon: @MainActor @Sendable () -> Void = {
+            wait.whenArrived { open in if let open { model.choose(.cancel, in: open.token) } }
         }
+        // UIKit runs the chosen row's handler as the menu closes: the cancel goes after it.
+        guard let animator else {
+            Task { @MainActor in abandon() }
+            return
+        }
+        animator.addCompletion { Task { @MainActor in abandon() } }
     }
 
     private func pressPreview() -> UITargetedPreview {
@@ -715,6 +739,8 @@ final class StreamKeyBar: UIInputView {
 /// for the menu's rows.
 @MainActor
 final class StreamMenuWait {
+    /// The page was asked for its menu (the menu showed).
+    var asked = false
     private var result: StreamedBrowserModel.OpenMenu??
     private var waiting: [(StreamedBrowserModel.OpenMenu?) -> Void] = []
 

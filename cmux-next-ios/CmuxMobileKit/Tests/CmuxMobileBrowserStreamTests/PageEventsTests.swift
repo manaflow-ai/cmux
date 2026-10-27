@@ -69,7 +69,7 @@ import Testing
     @Test func aTabThatDidNotOpenIsRefused() async throws {
         let (model, stream, sink) = try await model()
         await host(sink, #"{"t":"rb.open_tab","request":1,"url":"https://a.example/","disposition":"popup","user_gesture":true}"#)
-        #expect(sent(stream, "rb.open_tab.result").first?["refused"] as? String == "unsupported")
+        #expect(sent(stream, "rb.open_tab.result").first?["refused"] as? String == "refused")
         model.openTab = { _ in nil }
         await host(sink, #"{"t":"rb.open_tab","request":2,"url":"https://a.example/","disposition":"background_tab","user_gesture":true}"#)
         let answer = try #require(sent(stream, "rb.open_tab.result").last)
@@ -93,7 +93,8 @@ import Testing
         // Save Link As…, Copy Link Address and Inspect would act on the Mac; their separators go too.
         #expect(open.menu.phoneItems.map(\.label) == ["Open Link in New Tab", "Open Link in New Window"])
         model.choose(.command(50100), in: 3)
-        model.abandonContextMenu()
+        // The menu closing afterwards cancels this menu only: its pick already went.
+        model.choose(.cancel, in: 3)
         let results = sent(stream, "rb.menu.result")
         #expect(results.count == 1)
         #expect((results[0]["choice"] as? [String: Any])?["choice"] as? String == "command")
@@ -107,7 +108,7 @@ import Testing
         let (model, stream, sink) = try await model()
         model.requestContextMenu(x: 1, y: 1) { _ in }
         await host(sink, Self.linkMenu)
-        model.abandonContextMenu()
+        model.choose(.cancel, in: 3)
         #expect((sent(stream, "rb.menu.result").last?["choice"] as? [String: Any])?["choice"] as? String == "cancel")
         model.requestContextMenu(x: 1, y: 1) { _ in }
         await host(sink, Self.linkMenu.replacingOccurrences(of: #""token":3"#, with: #""token":4"#))

@@ -694,13 +694,6 @@ public final class StreamedBrowserModel: BrowserTabState {
         }
     }
 
-    /// The long press's menu closed with no choice: the page's menu is cancelled, and one
-    /// still on its way is cancelled when it comes (nobody waits for it now).
-    public func abandonContextMenu() {
-        if let open = contextMenu { choose(.cancel, in: open.token) }
-        contextMenuWaitEnded()
-    }
-
     private func menuCancelled(_ token: UInt64) {
         if selectMenu?.token == token { selectMenu = nil }
         if contextMenu?.token == token { contextMenu = nil }
@@ -742,7 +735,7 @@ public final class StreamedBrowserModel: BrowserTabState {
     private func openRequestedTab(_ request: RemoteBrowserOpenTab, from sink: Sink) {
         log.notice("browser \(self.tab, privacy: .public): open_tab \(request.request) \(request.disposition.rawValue, privacy: .public)")
         guard let openTab else {
-            send(wire.openTabResult(request: request.request, tab: nil, refused: "unsupported"))
+            send(wire.openTabResult(request: request.request, tab: nil, refused: "refused"))
             return
         }
         // task-owner: one tab request; the answer goes back on the stream session it came on
