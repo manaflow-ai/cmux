@@ -83,14 +83,14 @@ def launch_env(extension_paths):
             "CMUX_NEXT_CEF_LOAD_EXTENSIONS": ":".join(extension_paths)}
 
 
-def rows_named(names):
-    """`--native-ui`'s value as the rows to run, in ROWS order: all for "", else the comma-separated names. Raises
+def rows_named(names, rows=ROWS):
+    """`--native-ui`'s value as the rows to run, in `rows` order: all for "", else the comma-separated names. Raises
     ValueError for a name that is no row."""
     wanted = [name.strip() for name in (names or "").split(",") if name.strip()]
-    unknown = sorted(set(wanted) - set(ROWS))
+    unknown = sorted(set(wanted) - set(rows))
     if unknown:
-        raise ValueError(f"no native-ui row {', '.join(unknown)} (rows: {', '.join(ROWS)})")
-    return [row for row in ROWS if not wanted or row in wanted]
+        raise ValueError(f"no native-ui row {', '.join(unknown)} (rows: {', '.join(rows)})")
+    return [row for row in rows if not wanted or row in wanted]
 
 
 def host_widgets(rpc):

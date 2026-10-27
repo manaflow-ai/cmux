@@ -27,7 +27,7 @@ fn kitty_image_storage_and_copied_pixels_share_one_process_budget() {
         .sum::<u64>();
 
     assert!(
-        configured <= KITTY_IMAGE_PROCESS_BUDGET_BYTES,
+        configured <= KittyShare::default().total_bytes,
         "per-terminal limits allow {configured} bytes across native screen storage, copied caches, and in-flight uploads"
     );
 }
@@ -43,7 +43,7 @@ fn kitty_capacity_buckets_reserve_encoded_upload_bytes_inside_the_process_budget
         );
         assert!(
             kitty_surface_byte_reservation(limits.image_bytes).saturating_mul(capacity as u64)
-                <= KITTY_IMAGE_PROCESS_BUDGET_BYTES,
+                <= KittyShare::default().total_bytes,
             "capacity {capacity} exceeded the process byte budget with {limits:?}"
         );
         capacity = capacity.saturating_mul(2);

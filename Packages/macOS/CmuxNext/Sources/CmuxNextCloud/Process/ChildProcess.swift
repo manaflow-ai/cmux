@@ -1,5 +1,8 @@
 package import Foundation
 import CmuxNextCompat
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
+import func CmuxSafeConcurrency.withOnceContinuation
 package import CmuxNextWakeups
 
 /// A cmux-tui helper process (`wg hub`, `remote connect`) whose stdout is a
@@ -15,7 +18,7 @@ package final class ChildProcess: Sendable {
         var process: Process?
         var stderrTail = Data()
         var exitStatus: Int32?
-        var exitWaiters: [CheckedContinuation<Int32, Never>] = []
+        var exitWaiters: [OnceContinuation<Int32, OnceContinuationError>] = []
     }
 
     package let lines: AsyncStream<String>
@@ -72,7 +75,7 @@ package final class ChildProcess: Sendable {
         }
         process.terminationHandler = { [weak self] finished in
             let status = finished.terminationStatus
-            let waiters = self?.state.withLock { state -> [CheckedContinuation<Int32, Never>] in
+            let waiters = self?.state.withLock { state -> [OnceContinuation<Int32, OnceContinuationError>] in
                 state.exitStatus = status
                 defer { state.exitWaiters.removeAll() }
                 return state.exitWaiters
@@ -91,16 +94,20 @@ package final class ChildProcess: Sendable {
         return String(decoding: data, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
+    /// The exit status, or ``unknownExitStatus`` when the wait was dropped without one.
     package func waitForExit() async -> Int32 {
-        await withCheckedContinuation { waiter in
+        (try? await withOnceContinuation { (waiter: OnceContinuation<Int32, OnceContinuationError>) in
             let done = state.withLock { state -> Int32? in
                 if let status = state.exitStatus { return status }
                 state.exitWaiters.append(waiter)
                 return nil
             }
             if let done { waiter.resume(returning: done) }
-        }
+        }) ?? Self.unknownExitStatus
     }
+
+    /// The status ``waitForExit()`` answers when it never learned one.
+    package static let unknownExitStatus: Int32 = -1
 
     /// SIGTERM to this process only, not its process group: a `remote
     /// connect` link client still needs its ssh child to send the session's

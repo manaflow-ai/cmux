@@ -304,10 +304,11 @@ import Testing
             try drag(list, deploy.key, by: scratch.y + 2 - deploy.y)
         case .tabAcrossGroups:
             // A tab from a pane: over the folded group (it springs open), then into Work between docs and web.
-            list.springLoadDelay = .zero
+            let rig = MainDeadlineRig()
+            list.deadlines = rig.deadlines
             let foldedRow = try row(list, group(folded))
             _ = list.externalDragMoved(windowPoint: list.convert(NSPoint(x: 80, y: foldedRow.y + foldedRow.height / 2), to: nil), sourceMachine: nil)
-            try? await Task.sleep(for: .milliseconds(50))
+            rig.fireAndRun()
             await expectMatchesRebuild(sidebar, "after the folded group springs open")
             let web = try row(list, workspace("web"))
             _ = list.externalDragMoved(windowPoint: list.convert(NSPoint(x: 80, y: web.y), to: nil), sourceMachine: nil)

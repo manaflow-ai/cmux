@@ -12,53 +12,40 @@ enum PageCallDeadline {
     static func answer<T: Sendable>(within deadline: Duration, clock: any Clock<Duration>,
                                     onTimeout: @escaping @MainActor @Sendable () -> any Error,
                                     _ work: @escaping @MainActor @Sendable () async throws -> T) async throws -> T {
-        let once = Once<T>()
-        let timer = DemandTimer(owner: "PageCallDeadline", clock: clock)
-        defer { timer.cancel() }
-        return try await withTaskCancellationHandler {
-            try await withOnceThrowingContinuation { (continuation: OnceContinuation<T, any Error>) in
-                // Cancelled before it started: the cancel handler found nothing to answer.
-                guard !Task.isCancelled else {
-                    continuation.resume(throwing: CancellationError())
-                    return
-                }
-                once.continuation = continuation
-                // task-owner: the call's work; cancelled when the deadline or the caller's cancel answers first
-                once.task = Task { @MainActor in
-                    let result: Result<T, any Error>
-                    do { result = .success(try await work()) } catch { result = .failure(error) }
-                    once.finish(result)
-                }
-                timer.scheduleOnMain(after: deadline) {
-                    guard once.isWaiting else { return }
-                    once.finish(.failure(onTimeout()))
-                }
-            }
-        } onCancel: {
-            // The page cancelled the call (navigation, tab close): its work stops sending too.
-            // task-owner: one hop onto the main actor to answer and cancel the work
-            Task { @MainActor in once.finish(.failure(CancellationError())) }
+        // Cancelled before it started: no work runs.
+        try Task.checkCancellation()
+        guard let answered = await first(of: work, within: deadline, clock: clock) else {
+            // The page cancelled the call (navigation, tab close), or the deadline passed.
+            throw Task.isCancelled ? CancellationError() : onTimeout()
         }
+        return try answered.get()
     }
 
-    /// The continuation and the work's task; the first ``finish(_:)`` resumes, later ones are dropped.
-    @MainActor
-    private final class Once<T: Sendable> {
-        var continuation: OnceContinuation<T, any Error>?
-        var task: Task<Void, Never>?
-
-        var isWaiting: Bool { continuation != nil }
-
-        // A main-actor generic class needs a nonisolated deinit while the package targets macOS 14: the
-        // isolated deinit's back-deploy path crashes swift-frontend's Release inliner (EarlyPerfInliner);
-        // this one touches nothing.
-        nonisolated deinit {}
-
-        func finish(_ result: Result<T, any Error>) {
-            guard let continuation else { return }
-            self.continuation = nil
-            task?.cancel()
-            continuation.resume(with: result)
+    /// The work's result, or nil when the deadline or the caller's cancel came first; the work is cancelled
+    /// then. Both cancel the wait, which ends its cancellable continuation at once and makes the work's late
+    /// result a no-op. Off the main actor: only the work runs there, in its own isolation.
+    private nonisolated static func first<T: Sendable>(of work: @escaping @MainActor @Sendable () async throws -> T,
+                                                       within deadline: Duration,
+                                                       clock: any Clock<Duration>) async -> Result<T, any Error>? {
+        // task-owner: the call's work; cancelled when the deadline or the caller's cancel answers first
+        let running = Task { try await work() }
+        // task-owner: the wait for `running`; ends with its result, at the deadline, or at the caller's cancel
+        let wait = Task {
+            try await withOnceThrowingContinuation(cancellation: .cancellable) {
+                (answer: OnceContinuation<Result<T, any Error>, any Error>) in
+                // task-owner: hands the work's end to the wait; ends with the work
+                Task { answer.resume(returning: await running.result) }
+            }
         }
+        let timer = DemandTimer(owner: "PageCallDeadline", clock: clock)
+        timer.schedule(after: deadline) { wait.cancel() }
+        let answered = await withTaskCancellationHandler {
+            try? await wait.value
+        } onCancel: {
+            wait.cancel()
+        }
+        timer.cancel()
+        if answered == nil { running.cancel() }
+        return answered
     }
 }
