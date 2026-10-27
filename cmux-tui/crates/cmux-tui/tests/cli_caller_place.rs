@@ -28,7 +28,6 @@ const OWN_TAB: &str = "tab_44444444444444444444444444444444";
 const OWN_TERMINAL: &str = "term_55555555555555555555555555555555";
 /// The workspace the person looks at.
 const FRONT_WS: &str = "ws_77777777777777777777777777777777";
-const FRONT_SCREEN: &str = "screen_66666666666666666666666666666666";
 const FRONT_PANE: &str = "pane_88888888888888888888888888888888";
 /// A terminal the daemon does not show.
 const STALE_TERMINAL: &str = "term_00000000000000000000000000000000";
@@ -86,7 +85,8 @@ fn focused_is_the_pane_the_person_looks_at() {
     let run = Run::new().app(App::Placed).terminal().cli(&["--json", "pane", "focused", "split"]);
     let split = run.mutation("pane.split");
     assert_eq!(split["workspace"], FRONT_WS, "{}", run.stderr());
-    assert_eq!(split["screen"], FRONT_SCREEN);
+    // The app names no focused screen: the daemon's active one of that workspace.
+    assert_eq!(split["screen"], "current");
     assert_eq!(split["pane"], FRONT_PANE);
     assert!(!run.daemon_operations().contains(&"terminal.get".to_owned()));
 }
@@ -504,8 +504,9 @@ fn app_response(mode: App, request: &Value) -> Value {
             App::Placed => json!({"caller": {"agent_session": "01a17599", "workspace": OWN_WS,
                 "screen": OWN_SCREEN, "pane": OWN_PANE, "tab": OWN_TAB}, "beside": null}),
         },
+        // The app's focus names no screen (ControlTopology+JSON.swift).
         "snapshot.get" => json!({"topology": {"focus": {"window": "win_a",
-            "workspace": FRONT_WS, "screen": FRONT_SCREEN, "pane": FRONT_PANE}}}),
+            "workspace": FRONT_WS, "pane": FRONT_PANE}}}),
         other => {
             return json!({"id": request["id"], "ok": false, "error": {"code": "unknown_method",
                 "message": format!("unexpected {other}"), "data": {}}});
