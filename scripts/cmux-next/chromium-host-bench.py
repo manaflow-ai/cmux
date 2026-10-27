@@ -142,7 +142,9 @@ chromiumHostWidgets on and two test extensions, then the autofill and password r
 p01-process-061): the field's suggestions in cmux's list (`debug.cef` `host_suggestions`) with feature
 chromiumHostSuggestions on, then the page dialog rows (chromium_host_native_ui_dialogs.py, p01-process-064): file
 picker, certificate error, beforeunload and renderer hang, each answered by cmux while the host is never frontmost
-and shows no window, with feature chromiumHostFileDialogs on. The page rows share one probe tab; each row gets a
+and shows no window, with feature chromiumHostFileDialogs on, then the chooser rows (chromium_host_native_ui_choosers.py,
+p01-process-228): color, device chooser, screen share, external protocol, Web Share (skipped until p01-process-228c), video
+and document picture-in-picture, with feature chromiumHostChoosers on. The page rows share one probe tab; each row gets a
 `host_windows` block from the host's lines in the app log written while it ran (chromium_host_windows.py,
 p01-process-068): the Chromium widgets the fork blocked (BLOCKED_WIDGET, by Views class and by the cmux UI whose kind
 of request it was) and the host windows its backstop took off screen (UNEXPECTED_WINDOW). A row fails with any
@@ -185,9 +187,14 @@ import chromium_host_display  # noqa: E402
 import chromium_host_find  # noqa: E402
 import chromium_host_kill  # noqa: E402
 import chromium_host_native_ui  # noqa: E402
+import chromium_host_native_ui_choosers  # noqa: E402
 import chromium_host_native_ui_dialogs  # noqa: E402
 import chromium_host_profiles  # noqa: E402
 import chromium_host_windows  # noqa: E402
+
+# Every --native-ui row, in the order they run.
+NATIVE_UI_ROWS = (chromium_host_native_ui.ROWS + chromium_host_native_ui_dialogs.ROWS
+                  + chromium_host_native_ui_choosers.ROWS)
 
 
 def parse(argv=None):
@@ -204,7 +211,7 @@ def parse(argv=None):
     parser.add_argument("--ime", action="store_true", help="helper: TEXT_INPUT_STATE pushes per keystroke (ime_row)")
     parser.add_argument("--native-ui", nargs="?", const="", default=None, metavar="ROWS",
                         help="only the native UI rows (chromium_host_native_ui.py): all, or the comma-separated ROWS "
-                             f"({', '.join(chromium_host_native_ui.ROWS + chromium_host_native_ui_dialogs.ROWS)})")
+                             f"({', '.join(NATIVE_UI_ROWS)})")
     parser.add_argument("--list-failing", action="store_true",
                         help="with --native-ui: print one FAILING line per failing row at the end")
     parser.add_argument("--find", action="store_true", help="only the find rows (chromium_host_find.py)")
@@ -234,7 +241,7 @@ def parse(argv=None):
     if args.native_ui is not None:
         try:
             args.native_ui = chromium_host_native_ui.rows_named(
-                args.native_ui, chromium_host_native_ui.ROWS + chromium_host_native_ui_dialogs.ROWS)
+                args.native_ui, NATIVE_UI_ROWS)
         except ValueError as error:
             parser.error(str(error))
     if args.tag is not None and tag_of(f"cmux DEV {args.tag}.app") != tag_of(args.app):
@@ -746,7 +753,11 @@ def main():
         open(native, "w").write(chromium_host_native_ui.PAGE)
         url = pathlib.Path(native).as_uri()
         env.update(chromium_host_native_ui.launch_env(chromium_host_native_ui.write_extensions(opts.out)))
-        env["CMUX_ENABLE_FEATURES"] = ",".join(filter(None, [env.get("CMUX_ENABLE_FEATURES"), chromium_host_native_ui_dialogs.FEATURES]))
+        env["CMUX_ENABLE_FEATURES"] = ",".join(filter(None, [env.get("CMUX_ENABLE_FEATURES"), chromium_host_native_ui_dialogs.FEATURES,
+                                                             chromium_host_native_ui_choosers.FEATURES]))
+        env.update(chromium_host_native_ui_choosers.ENV)
+        chooser_page = os.path.join(opts.out, "native-ui-choosers.html")
+        open(chooser_page, "w").write(chromium_host_native_ui_choosers.PAGE)
     if opts.kill_host:
         kill_page = os.path.join(opts.out, "kill-host.html")
         open(kill_page, "w").write(chromium_host_kill.PAGE)
@@ -780,7 +791,8 @@ def main():
         DEFAULTS["launch"] = defaults_snapshot(app_bundle_id())
         modes = [] if opts.native_ui or opts.find or opts.kill_host else opts.modes.split(",")
         if opts.native_ui:
-            RESULT["modes"]["native_ui"], ok = native_ui_rows(rpc, url, app.process.pid if app.process else None)
+            RESULT["modes"]["native_ui"], ok = native_ui_rows(rpc, url, pathlib.Path(chooser_page).as_uri(),
+                                                              app.process.pid if app.process else None)
         if opts.find:
             RESULT["modes"]["find"], ok = chromium_host_find.run(rpc, wait, lambda script: page_eval(rpc, script, None), url)
         if opts.kill_host:
@@ -867,8 +879,9 @@ def main():
     return 0 if ok else 1
 
 
-def native_ui_rows(rpc, url, app_pid):
-    """The --native-ui rows (task p01-process-068): the page rows in one probe tab, then the dialog rows; each row gets
+def native_ui_rows(rpc, url, chooser_url, app_pid):
+    """The --native-ui rows (task p01-process-068): the page rows in one probe tab, then the dialog rows, then the
+    chooser rows on their probe page at `chooser_url`; each row gets
     chromium_host_windows' block of the app log lines written while it ran (a log cursor taken right after it), and
     RESULT["host_windows"] is the block of the whole run (lines a row's last dismissal wrote after it ended are counted
     there). Each block also holds the host's visible windows the window server lists at its end (host_on_screen): a
@@ -892,9 +905,16 @@ def native_ui_rows(rpc, url, app_pid):
     if dialog_rows:
         rows.update(chromium_host_native_ui_dialogs.run(rpc, wait, evaluate, opts.out, chromium_host_pid, front_pid,
                                                         on_screen_windows, rows_to_run=dialog_rows, on_row=on_row)[0])
+    chooser_rows = [row for row in opts.native_ui if row in chromium_host_native_ui_choosers.ROWS]
+    if chooser_rows:
+        rows.update(chromium_host_native_ui_choosers.run(rpc, wait, evaluate, chooser_url, chromium_host_pid, front_pid,
+                                                         on_screen_windows, rows_to_run=chooser_rows,
+                                                         on_row=on_row)[0])
     every_line += cursor.take()
     RESULT["host_windows"] = chromium_host_windows.count(every_line, host_on_screen())
-    ok = bool(rows) and RESULT["host_windows"]["ok"] and all(row.get("ok") for row in rows.values())
+    # A skipped row (another task's, chromium_host_native_ui_choosers.skipped) counts neither way.
+    ok = bool(rows) and RESULT["host_windows"]["ok"] and all(row.get("ok") for row in rows.values()
+                                                             if "skipped" not in row)
     return rows, ok
 
 

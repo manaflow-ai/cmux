@@ -13,11 +13,12 @@ import contextlib, importlib.util, io, os, sys, tempfile, unittest
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(HERE, ".."))
 import chromium_host_native_ui  # noqa: E402
+import chromium_host_native_ui_choosers  # noqa: E402
 import chromium_host_native_ui_dialogs  # noqa: E402
 import chromium_host_windows as windows  # noqa: E402
 
 # The modules are shared by every load of the bench: each test patches their run and tearDown puts these back.
-REAL_RUNS = (chromium_host_native_ui.run, chromium_host_native_ui_dialogs.run)
+REAL_RUNS = (chromium_host_native_ui.run, chromium_host_native_ui_dialogs.run, chromium_host_native_ui_choosers.run)
 
 PREFIX = "[12:00:01.5] cmux-chromium-host: "
 DISMISSED = (PREFIX + "BLOCKED_WIDGET browser=7 widget=11 kind=0 class=JavaScriptTabModalDialogViewViews "
@@ -136,6 +137,7 @@ class BenchTests(unittest.TestCase):
         self.bench.APP_LOG["path"] = self.log
         self.bench.RESULT = {"modes": {}, "notes": []}
         self.lines = {}  # row -> lines its run writes
+        self.results = {}  # row -> the row its run returns (default {"ok": True})
         self.ran = []
         self.calls = []  # (module, rows) per run call: one probe per module
         self.page_kwargs = {}
@@ -156,21 +158,23 @@ class BenchTests(unittest.TestCase):
                     self.current[0] = name
                     with open(self.log, "a") as log:
                         log.writelines(line + "\n" for line in self.lines.get(name, []))
-                    rows[name] = on_row(name, {"ok": True})
+                    rows[name] = on_row(name, dict(self.results.get(name, {"ok": True})))
                 self.current[0] = None
                 return rows, True
             return run
 
         self.bench.chromium_host_native_ui.run = fake("page", self.bench.chromium_host_native_ui.ROWS)
         self.bench.chromium_host_native_ui_dialogs.run = fake("dialogs", self.bench.chromium_host_native_ui_dialogs.ROWS)
+        self.bench.chromium_host_native_ui_choosers.run = fake("choosers", self.bench.chromium_host_native_ui_choosers.ROWS)
 
     def tearDown(self):
-        chromium_host_native_ui.run, chromium_host_native_ui_dialogs.run = REAL_RUNS
+        (chromium_host_native_ui.run, chromium_host_native_ui_dialogs.run,
+         chromium_host_native_ui_choosers.run) = REAL_RUNS
         self.root.cleanup()
 
     def run_bench(self, names, rpc=None):
         self.bench.opts = self.bench.parse(["--app", "x", "--out", self.root.name, "--native-ui", names, "--list-failing"])
-        rows, ok = self.bench.native_ui_rows(rpc, "file:///probe", 1)
+        rows, ok = self.bench.native_ui_rows(rpc, "file:///probe", "file:///choosers", 1)
         self.bench.RESULT["modes"]["native_ui"] = rows
         out = io.StringIO()
         with contextlib.redirect_stdout(out):
@@ -191,6 +195,24 @@ class BenchTests(unittest.TestCase):
         self.assertEqual(self.bench.RESULT["host_windows"]["unexpected_windows"], 1)
         self.assertEqual([line.split(":")[0] for line in printed],
                          ["FAILING native_ui.file_picker", "FAILING native_ui.host_windows"])
+
+    def test_chooser_rows_get_their_own_lines_and_a_skipped_row_counts_neither_way(self):
+        self.lines = {"color": [DISMISSED], "web_share": [], "device_chooser": [WINDOW]}
+        self.results = {"web_share": {"skipped": "no Web Share handler", "task": "p01-process-228c"}}
+        rows, ok, printed = self.run_bench("select,color,device_chooser,web_share")
+        self.assertEqual(self.calls, [("page", ["select"]), ("choosers", ["color", "device_chooser", "web_share"])])
+        self.assertTrue(rows["color"]["ok"])
+        self.assertFalse(rows["device_chooser"]["ok"], "a chooser row's own unexpected window fails it")
+        self.assertIn("skipped", rows["web_share"])
+        self.assertFalse(ok)
+        self.assertEqual([line.split(":")[0] for line in printed],
+                         ["FAILING native_ui.device_chooser", "FAILING native_ui.host_windows"])
+        self.lines = {"color": [DISMISSED]}
+        self.calls, self.ran = [], []
+        self.bench.RESULT = {"modes": {}, "notes": []}
+        rows, ok, printed = self.run_bench("color,web_share")
+        self.assertTrue(ok, rows)
+        self.assertEqual(printed, ["FAILING none"])
 
     def test_context_menu_and_download_rows(self):
         self.lines = {"context_menu": [POPUP], "download": [DISMISSED]}

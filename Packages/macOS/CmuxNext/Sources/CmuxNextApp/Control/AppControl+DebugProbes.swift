@@ -210,6 +210,9 @@ extension AppControl {
                 } else if call.params["file_dialog_cancel"]?.boolValue == true {
                     _ = services.cache.cef.answerHostFileDialog(with: nil)
                 }
+                // {"color_chooser_pick": 0xRRGGBB} or {"color_chooser_close": true}: the open <input type=color>'s panel (p01-process-228).
+                if let color = call.params["color_chooser_pick"]?.intValue { _ = services.cache.cef.pickHostColor(UInt32(truncatingIfNeeded: color)) }
+                if call.params["color_chooser_close"]?.boolValue == true { _ = services.cache.cef.closeHostColorChooser() }
                 return .value(DebugCEF.report(services))
             },
             // Remote localhost proxy: port, counters, recent outcomes.

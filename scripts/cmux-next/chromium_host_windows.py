@@ -142,10 +142,11 @@ def checked(row, lines, on_screen=()):
 
 
 def failing(rows):
-    """`(name, reason)` for each failing row of a native-ui result, in its order."""
+    """`(name, reason)` for each failing row of a native-ui result, in its order; a skipped row (another task's,
+    chromium_host_native_ui_choosers.skipped) is not failing."""
     out = []
     for name, row in rows.items():
-        if row.get("ok"):
+        if row.get("ok") or "skipped" in row:
             continue
         reason = (row.get("host_windows_failed") or row.get("not_run") or row.get("error") or
                   row.get("reason") or "row checks failed")
