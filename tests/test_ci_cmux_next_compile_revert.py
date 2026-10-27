@@ -89,6 +89,47 @@ class Main(unittest.TestCase):
         self.assertEqual(values["pr"], "")
 
 
+class RevertStep(unittest.TestCase):
+    """The workflow's revert command on a real repository: a squash and a two-parent commit both revert."""
+
+    def revert_script(self) -> str:
+        job_ = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]["release-compile-revert"]
+        run = next(step["run"] for step in job_["steps"] if step.get("name") == "Open the revert pull request")
+        return run[run.index("mainline=()"):run.index("auth=")]
+
+    def test_squash_and_two_parent_commits_revert(self):
+        import subprocess
+        import tempfile
+        script = self.revert_script()
+        for two_parents in (False, True):
+            with self.subTest(two_parents=two_parents), tempfile.TemporaryDirectory() as tmp:
+                def git(*args: str) -> str:
+                    return subprocess.run(["git", "-C", tmp, *args], check=True, capture_output=True, text=True).stdout.strip()
+
+                git("init", "-q", "-b", "base")
+                git("config", "user.email", "t@t")
+                git("config", "user.name", "t")
+                Path(tmp, "a").write_text("1\n")
+                git("add", "a")
+                git("commit", "-qm", "base")
+                git("checkout", "-qb", "topic")
+                Path(tmp, "b").write_text("broken\n")
+                git("add", "b")
+                git("commit", "-qm", "topic")
+                git("checkout", "-q", "base")
+                if two_parents:
+                    git("merge", "-q", "--no-ff", "-m", "two parents", "topic")
+                else:
+                    git("merge", "-q", "--squash", "topic")
+                    git("commit", "-qm", "squash")
+                sha = git("rev-parse", "HEAD")
+                done = subprocess.run(["bash", "-euo", "pipefail", "-c", script], cwd=tmp,
+                                      env={"MERGE_SHA": sha, "PR": "1", "PATH": "/usr/bin:/bin:/usr/local/bin:/opt/homebrew/bin"},
+                                      capture_output=True, text=True)
+                self.assertEqual(done.returncode, 0, done.stderr)
+                self.assertFalse(Path(tmp, "b").exists())
+
+
 class WorkflowJob(unittest.TestCase):
     def test_it_runs_after_a_failed_base_push_compile_only(self):
         job_ = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]["release-compile-revert"]
@@ -102,6 +143,8 @@ class WorkflowJob(unittest.TestCase):
         run = "\n".join(step.get("run", "") for step in job_["steps"])
         self.assertIn("cmux_next_compile_revert.py", run)
         self.assertIn("git revert --no-edit", run)
+        # A merge commit (not a squash) is reverted against its first parent.
+        self.assertIn("mainline=(-m 1)", run)
         self.assertIn("base=feat-cmux-next", run)
 
 

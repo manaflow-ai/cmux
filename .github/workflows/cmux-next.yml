@@ -5081,7 +5081,11 @@ jobs:
             echo "::warning title=Release compile revert::$MERGE_SHA is not in the last 200 commits of feat-cmux-next; left to #$PR's owner."
             exit 0
           fi
-          if ! git revert --no-edit "$MERGE_SHA"; then
+          mainline=()
+          if [[ "$(git rev-list --parents -n1 "$MERGE_SHA" | wc -w)" -gt 2 ]]; then
+            mainline=(-m 1)  # a merge commit: undo what it brought onto feat-cmux-next
+          fi
+          if ! git revert --no-edit ${mainline[@]+"${mainline[@]}"} "$MERGE_SHA"; then
             git revert --abort || true
             echo "::warning title=Release compile revert::reverting #$PR ($MERGE_SHA) conflicts with feat-cmux-next's tip; left to its owner."
             exit 0
