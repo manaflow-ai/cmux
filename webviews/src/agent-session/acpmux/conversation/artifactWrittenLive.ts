@@ -26,7 +26,7 @@ export class ArtifactWrittenLive {
       for (const item of row.items ?? [])
         for (const artifact of item.tool ? toolArtifacts(item.tool) : []) {
           if (!this.matches(artifact)) continue;
-          this.order = Math.max(this.order, order);
+          this.order = Math.max(this.order, producer?.artifactOrder(artifact) ?? order);
           if (!this.versions.some((version) => version.code === artifact.code)) this.append(artifact);
         }
     }
@@ -45,12 +45,13 @@ export class ArtifactWrittenLive {
     this.versions.push(artifact);
   }
   private changed(update: RowUpdate) {
-    if (this.disposed || update.order < this.order || (update.order === this.order && update.tool.id === this.toolId))
-      return;
+    if (this.disposed) return;
     const before = update.before ? toolArtifacts(update.before) : [];
     for (const next of toolArtifacts(update.tool)) {
+      const order = this.producer?.artifactOrder(next) ?? update.order;
+      if (order < this.order || (order === this.order && update.tool.id === this.toolId)) continue;
       if (!this.matches(next) || before.some((old) => this.matches(old) && old.code === next.code)) continue;
-      this.order = update.order;
+      this.order = order;
       this.toolId = update.tool.id;
       this.artifact = { ...next, identity: this.artifact.identity, revision: ++this.revision };
       const index = this.versions.findIndex((version) => version.code === next.code);
