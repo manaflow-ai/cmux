@@ -1,90 +1,116 @@
 @testable import CmuxNextControl
 import CmuxNextWakeups
+import CmuxNextWakeupsTestSupport
 import CoreFoundation
 import Darwin
 import Foundation
 import Testing
 
-/// The launch's startup tag (p08-startup-088): the phase and the running startup task, written by
-/// the startup scheduler with one store per task start and end, read by the watchdog thread inside
-/// a stall's sample, so a stall before startup completion names where the launch was.
+/// The launch's startup tag (p08-startup-088): `main()`'s steps and the startup scheduler's running task,
+/// with the launch phase, written with one store per step or task and read by the watchdog thread inside a
+/// stall's sample, so a stall before startup completion names where the launch was.
 @Suite(.serialized, .timeLimit(.minutes(1))) struct StartupTaskTagTests {
-    @Test func aTaskIsReadByItsStaticNameUntilItEnds() {
+    @Test func aStepIsReadByItsStaticNameUntilItEnds() {
         let tag = StartupTaskTag()
-        #expect(tag.read() == StartupTaskTag.Reading(packedTask: 0, phase: .main))
-        tag.begin("settings.start")
-        #expect(tag.read().taskName == "settings.start")
-        #expect(tag.read().phase == .main)
-        tag.end()
+        #expect(tag.read() == StartupTaskTag.Reading(packedTask: 0, phase: .beforeFirstFrame, inMain: true))
+        tag.step("main.environment")
+        #expect(tag.read().taskName == "main.environment")
+        tag.step("main.launch_reads")
+        #expect(tag.currentTask == "main.launch_reads", "a step replaces the one before it")
+        tag.endStep()
         #expect(tag.read().taskName == nil)
-        let value = tag.run("theme.start") { tag.read().taskName }
-        #expect(value == "theme.start")
-        #expect(tag.read().taskName == nil, "run ends the task it began")
     }
 
-    @Test func thePhaseOnlyMovesForward() {
-        let tag = StartupTaskTag()
-        tag.enter(.afterFirstFrame)
-        tag.enter(.critical)
-        #expect(tag.phase == .afterFirstFrame)
-        tag.enter(.complete)
-        tag.enter(.afterFirstFrame)
+    /// The scheduler's task is read while it runs, inside the launch step it runs in; the step is current again after it.
+    @MainActor
+    @Test func aSchedulerTaskIsReadInsideTheStepItRunsIn() {
+        let s = StartupTestScheduler()
+        let tag = s.startup.log.tag
+        tag.step("app.did_finish_launching")
+        let seen = SeenTask()
+        s.startup.post(.critical, "ThemeBridge.start", on: .main) { seen.name = tag.currentTask }
+        s.hand.drain()
+        #expect(seen.name == "ThemeBridge.start")
+        #expect(tag.currentTask == "app.did_finish_launching", "the task's end restores the step")
+    }
+
+    /// `main` until applicationDidFinishLaunching, `critical` to the first frame, `after_first_frame` to the
+    /// completion; no phase once startup completed.
+    @MainActor
+    @Test func theStallPhaseFollowsTheLaunch() {
+        let s = StartupTestScheduler()
+        let tag = s.startup.log.tag
+        #expect(tag.read().stallPhase == "main")
+        tag.appFinishedLaunching()
+        #expect(tag.read().stallPhase == "critical")
+        s.startup.firstFrameCommitted()
+        #expect(tag.read().stallPhase == "after_first_frame")
+        s.complete()
+        #expect(s.startup.completion != nil)
         #expect(tag.phase == .complete)
-        #expect(!tag.read().isBeforeCompletion)
+        #expect(tag.read().stallPhase == nil)
     }
 
-    @Test func aStallAfterCompletionCarriesNoStartupFields() {
+    @Test func theWatchdogsPublishedTagKeepsTheReading() {
         let tag = StartupTaskTag()
-        tag.begin("late.task")
-        #expect(MainThreadWatchdog.details(ofStartup: tag.read()) == ["startup_phase": .string("main"), "startup_task": .string("late.task")])
-        tag.enter(.complete)
-        #expect(MainThreadWatchdog.details(ofStartup: tag.read()).isEmpty)
-        #expect(MainThreadWatchdog.details(ofStartup: StartupTaskTag().read()) == ["startup_phase": .string("main")],
-                "a stall between tasks still names its phase")
+        tag.step("main.daemon_prestart")
+        let reading = tag.read()
+        #expect(StartupStallTag(reading).reading == reading)
+        #expect(StartupStallTag(reading).details == ["startup_phase": .string("main"), "startup_task": .string("main.daemon_prestart")])
+        tag.endStep()
+        tag.appFinishedLaunching()
+        #expect(StartupStallTag(tag.read()).details == ["startup_phase": .string("critical")], "a stall between steps still names its phase")
+        #expect(StartupStallTag(nil).details.isEmpty, "a watchdog with no tag adds no field")
     }
 
-    /// Marking a startup task costs one atomic store at its start and one at its end: printed in ns
-    /// per pair, bounded far above what two stores cost so a loaded runner never fails it, and far
-    /// below what a lock, an allocation or a string copy per task would make it.
-    @Test func beginAndEndCostNanoseconds() {
+    /// Marking a step costs one atomic store: printed in ns per pair, bounded far above what two stores
+    /// cost so a loaded runner never fails it, and far below what a lock, an allocation or a string copy
+    /// per step would make it.
+    @Test func aStepCostsNanoseconds() {
         let tag = StartupTaskTag()
         let count = 200_000
         let start = clock_gettime_nsec_np(CLOCK_UPTIME_RAW)
         for _ in 0..<count {
-            tag.begin("bench.task")
-            tag.end()
+            tag.step("bench.step")
+            tag.endStep()
         }
         let perPair = Double(clock_gettime_nsec_np(CLOCK_UPTIME_RAW) - start) / Double(count)
-        print("StartupTaskTag begin+end: \(String(format: "%.1f", perPair)) ns")
+        print("StartupTaskTag step+endStep: \(String(format: "%.1f", perPair)) ns")
         #expect(perPair < 1_000)
     }
 
     #if DEBUG
-    /// A stall inside a startup task, before completion: the record names the phase and the task
-    /// the fake scheduler was running when the watchdog sampled it (injected clock, as in
+    /// A stall inside a startup scheduler task, before completion: the record names the phase and the
+    /// task the scheduler was running when the watchdog sampled it (injected clock, as in
     /// MainThreadWatchdogTests: host load cannot add or miss the stall).
     @MainActor
-    @Test func aStallBeforeCompletionNamesThePhaseAndTheStartupTask() throws {
-        let tag = StartupTaskTag()
-        tag.enter(.critical)
-        let record = try #require(Self.recordOneStall(tag: tag, in: "fake.critical_task"))
+    @Test func aStallInASchedulerTaskNamesThePhaseAndTheTask() throws {
+        let s = StartupTestScheduler()
+        s.startup.log.tag.appFinishedLaunching()
+        let record = try #require(Self.recordOneStall(tag: s.startup.log.tag) { stall in
+            s.startup.post(.critical, "ThemeBridge.start", on: .main) { stall() }
+            s.hand.drain()
+        })
         #expect(record.details["startup_phase"] == .string("critical"))
-        #expect(record.details["startup_task"] == .string("fake.critical_task"))
-        #expect(tag.read().taskName == nil, "the fake scheduler ended its task")
+        #expect(record.details["startup_task"] == .string("ThemeBridge.start"))
+        #expect(s.startup.log.tag.currentTask == nil, "the task ended")
     }
 
     @MainActor
     @Test func aStallAfterCompletionHasNoStartupTag() throws {
-        let tag = StartupTaskTag()
-        tag.enter(.complete)
-        let record = try #require(Self.recordOneStall(tag: tag, in: "fake.late_task"))
+        let s = StartupTestScheduler()
+        s.complete()
+        let record = try #require(Self.recordOneStall(tag: s.startup.log.tag) { stall in
+            s.startup.log.tag.step("late.step")
+            stall()
+        })
         #expect(record.details["startup_phase"] == nil)
         #expect(record.details["startup_task"] == nil)
     }
 
     @MainActor
     @Test func aWatchdogWithNoTagRecordsNoStartupFields() throws {
-        let record = try #require(Self.recordOneStall(tag: nil, in: "fake.untagged"))
+        let record = try #require(Self.recordOneStall(tag: nil) { stall in stall() })
         #expect(record.details["startup_phase"] == nil)
     }
 
@@ -108,7 +134,7 @@ import Testing
         }
         watchdog.startupStep("fake.launch_stall")
         stallForTestUntilSampled(clock: clock, by: .milliseconds(300), sampled: sampled)
-        watchdog.enterStartupPhase(.critical)
+        watchdog.beginCriticalPhase()
         #expect(sampled.hasFired, "the watchdog thread did not sample the stall")
         let records = watchdog.log.records()
         #expect(records.count == 1)
@@ -116,12 +142,15 @@ import Testing
         #expect(record.duration == .milliseconds(300), "the stall's own turn, not the steps before it")
         #expect(record.details["startup_phase"] == .string("main"))
         #expect(record.details["startup_task"] == .string("fake.launch_stall"))
-        #expect(tag.read() == StartupTaskTag.Reading(packedTask: 0, phase: .critical), "the phase ends the last step")
+        #expect(tag.read().stallPhase == "critical")
+        #expect(tag.currentTask == "app.did_finish_launching")
+        watchdog.endStartupStep()
+        #expect(tag.currentTask == nil)
         #expect(watchdog.mainRunLoopWakes == 0, "a startup turn is not a run-loop wake")
     }
 
-    /// The watchdog is made first in main() and started after the one-thread steps: a stall in
-    /// those steps is measured from the watchdog's creation.
+    /// The watchdog is made first in main() and started after the one-thread steps: a stall in those
+    /// steps is measured from the watchdog's creation.
     @MainActor
     @Test func aStallBeforeTheStartIsMeasuredFromCreation() throws {
         let clock = ManualUptime()
@@ -149,10 +178,11 @@ import Testing
         #expect(watchdog.log.records().isEmpty)
     }
 
-    /// Runs one 150 ms stall (on the injected clock) inside `name`, posted through a fake startup
-    /// scheduler that tags it on `tag`, and returns the watchdog's record of it.
+    /// Runs `body` in one main run-loop turn; `body` calls its argument where the 150 ms stall (on the
+    /// injected clock) happens. Returns the watchdog's record of it.
     @MainActor
-    private static func recordOneStall(tag: StartupTaskTag?, in name: StaticString) -> HangRecord? {
+    private static func recordOneStall(tag: StartupTaskTag?,
+                                       _ body: @escaping @MainActor (_ stall: @escaping @Sendable () -> Void) -> Void) -> HangRecord? {
         let clock = ManualUptime()
         let sampled = SampleSignal()
         let watchdog = MainThreadWatchdog(configuration: .init(threshold: .milliseconds(50), logStalls: false),
@@ -160,9 +190,8 @@ import Testing
         watchdog.afterSampleForTesting.withLock { $0 = { sampled.fire() } }
         watchdog.start()
         defer { watchdog.stop() }
-        let scheduler = FakeStartupScheduler(tag: tag ?? StartupTaskTag())
         CFRunLoopPerformBlock(CFRunLoopGetMain(), CFRunLoopMode.defaultMode.rawValue) {
-            scheduler.run(name) { stallForTestUntilSampled(clock: clock, by: .milliseconds(150), sampled: sampled) }
+            body { stallForTestUntilSampled(clock: clock, by: .milliseconds(150), sampled: sampled) }
             CFRunLoopStop(CFRunLoopGetMain())
         }
         CFRunLoopWakeUp(CFRunLoopGetMain())
@@ -173,12 +202,8 @@ import Testing
     #endif
 }
 
-/// The StartupScheduler's side of the tag (p08-startup-010 writes it the same way): each task is
-/// tagged while it runs.
-private struct FakeStartupScheduler: Sendable {
-    let tag: StartupTaskTag
-
-    func run(_ name: StaticString, _ work: () -> Void) {
-        tag.run(name, work)
-    }
+/// What a startup task saw while it ran (main thread).
+@MainActor
+private final class SeenTask {
+    var name: String?
 }

@@ -32,11 +32,4 @@ public nonisolated struct AgentPaneShortcuts: Equatable, Sendable {
         }
         return AgentPaneShortcuts(labels: labels)
     }
-
-    /// The script that hands ``labels`` to a loaded page.
-    func script() -> String? {
-        guard let data = try? JSONSerialization.data(withJSONObject: labels, options: [.sortedKeys]),
-              let json = String(data: data, encoding: .utf8) else { return nil }
-        return "window.cmuxAcpmuxBridge?.applyShortcuts?.(\(json));"
-    }
 }

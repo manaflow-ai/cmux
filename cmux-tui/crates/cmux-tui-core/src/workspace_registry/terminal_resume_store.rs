@@ -49,6 +49,7 @@ impl WorkspaceRegistry {
     /// Set (`Some`) or clear (`None`) the resume command of a live terminal
     /// and return the stored command. Tombstoned or unknown terminals are
     /// rejected so a stale request cannot leave an orphan row behind.
+    #[track_caller]
     pub fn set_terminal_resume_command(
         &mut self,
         terminal_id: &str,
@@ -77,6 +78,7 @@ impl WorkspaceRegistry {
     }
 
     /// The resume command of one terminal, if one is set.
+    #[track_caller]
     pub fn terminal_resume_command(&self, terminal_id: &str) -> anyhow::Result<Option<String>> {
         validate_terminal_identity("terminal id", terminal_id)?;
         Ok(self
@@ -92,6 +94,7 @@ impl WorkspaceRegistry {
 
     /// Delete resume commands whose terminal is tombstoned or no longer
     /// registered. Returns the number of rows removed.
+    #[track_caller]
     pub fn prune_terminal_resume_commands(&mut self) -> anyhow::Result<usize> {
         Ok(self.connection.get().execute(
             "DELETE FROM terminal_resume_command

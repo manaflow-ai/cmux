@@ -75,3 +75,13 @@ Pass `-j 4` to every `swift build` and `swift test`. Run focused test filters wh
 ## Prototypes for every lane (added 2026-10-02)
 
 Lawrence wants prototypes for all lanes. Before you commit a user-facing design, build it so it can be compared: several variants behind a DEV/NIGHTLY switch (Debug Settings tunable or a palette action), or a parallel prototype path that leaves the current one working. Report screenshots of each variant and a recommendation; Lawrence picks. Cross-team agents (Leo's, Aziz's, Austin's) are reached through the agent mailbox on cmux-lawrence (`ssh cmux-lawrence`, `~/agent-mailbox/README.md`); send such messages through the coordinator.
+
+## Perf numbers: lab try receipts (added 2026-10-26)
+
+Measure perf on the fleet, never on the local Mac, and do not add a CI step for it. Budget numbers come from the light and STRESS benches in [perf-lead.md](perf-lead.md#1-targets). For before and after numbers of one change, use a perf lab try job when `scripts/perf-lab/lab.py try` is on your base (p12 tasks 005 and 018); until then, give the perf-lead.md bench numbers for the base and the head.
+
+```bash
+python3 -I scripts/perf-lab/lab.py try --base <base sha> --head <head sha> --stories <a,b> --wait
+```
+
+Paste the receipt lines without changes in the commit message or the PR body. The receipt format, the feature-flag arm, how to wait again after a timeout, and which verdict supports which claim are in [perf try receipts](../../skills/cmux-testing/SKILL.md#perf-try-receipts).

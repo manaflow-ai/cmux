@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextBrowserImport
 import CmuxNextDesign
+import CmuxNextWakeups
 
 /// Import: one row per detected browser profile (the browser's own icon,
 /// the profile's picture and name, a checkbox), then one line of what to
@@ -16,6 +17,8 @@ final class ImportStepView: NSView {
     private let status = OnboardingLabel.make(font: OnboardingMetrics.captionFont, color: Palette.textTertiary, lines: 2)
     private var rows: [String: ImportProfileRow] = [:]
     private var rowSlots: [ImportProfileRow] = []
+    /// How many browser icons the rows show (they land after detection).
+    private var shownIconCount = 0
     private var kindBoxes: [ImportDataKind: NSButton] = [:]
     private var kindSlots: [NSButton] = []
     private var shownKinds: [ImportDataKind] = []
@@ -44,10 +47,12 @@ final class ImportStepView: NSView {
     private var listViews: [NSView] = []
     private var shownProfiles: [BrowserSourceProfile]?
     private var shownAwaiting: [ImportBrowser]?
-    private var loop: RenderLoop?
+    private var loop: ObservationLoop?
+    private let mainWork: MainWorkScheduler
 
-    init(model: ImportStepModel) {
+    init(model: ImportStepModel, mainWork: MainWorkScheduler) {
         self.model = model
+        self.mainWork = mainWork
         consent = ImportConsentView(model: model)
         access = ImportAccessView(model: model)
         super.init(frame: .zero)
@@ -109,7 +114,8 @@ final class ImportStepView: NSView {
             consent.widthAnchor.constraint(equalTo: stack.widthAnchor),
             access.widthAnchor.constraint(equalTo: stack.widthAnchor),
         ])
-        loop = RenderLoop { [weak self] in self?.render() }
+        // node-free: the onboarding tool window, in no tab
+        loop = ObservationLoop(owner: "onboarding.import", delivery: .visible(nil), on: mainWork) { [weak self] in self?.render() }
     }
 
     @available(*, unavailable)
@@ -130,11 +136,12 @@ final class ImportStepView: NSView {
         passwordsCSV.isHidden = !model.offersPasswordCSV
         let profiles = model.profiles
         let awaiting = model.awaitingAccess
-        if profiles != shownProfiles || awaiting != shownAwaiting {
+        let icons = model.browserIcons
+        if profiles != shownProfiles || awaiting != shownAwaiting || icons.count != shownIconCount {
             shownProfiles = profiles
             shownAwaiting = awaiting
+            shownIconCount = icons.count
             rows = [:]
-            let apps = Dictionary(model.sources.map { ($0.browser, $0.appURL) }, uniquingKeysWith: { first, _ in first })
             let blockedBrowsers = Set(model.sources.filter(\.needsFullDiskAccess).map(\.browser))
             while rowSlots.count < profiles.count + awaiting.count {
                 let row = ImportProfileRow(toggle: nil)
@@ -147,14 +154,14 @@ final class ImportStepView: NSView {
                     let waiting = index - profiles.count
                     if awaiting.indices.contains(waiting) {
                         let browser = awaiting[waiting]
-                        row.configureAwaiting(browser) { [weak model] in model?.askAccess(browser) }
+                        row.configureAwaiting(browser, icon: icons[browser]) { [weak model] in model?.askAccess(browser) }
                     } else {
                         row.clearProfile()
                     }
                     continue
                 }
                 let profile = profiles[index]
-                row.configure(profile: profile, appURL: apps[profile.browser] ?? nil,
+                row.configure(profile: profile, icon: icons[profile.browser],
                               needsFullDiskAccess: blockedBrowsers.contains(profile.browser),
                               onAccess: { [weak model] in model?.openFullDiskAccessSettings() }) { [weak model] in model?.toggle(profile) }
                 rows[profile.id] = row

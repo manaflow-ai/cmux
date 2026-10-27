@@ -1,7 +1,7 @@
 public import CmuxNextRemoteView
 public import Foundation
 
-#if DEBUG
+#if DEBUG || CMUX_BENCH_HOOKS
 /// The record URL of a development remote tab:
 /// `cmux://remote-browser?address=127.0.0.1:4103[&url=<first page>][&secret_file=<path>]`. The
 /// tab survives relaunch like any browser record and reconnects to the same

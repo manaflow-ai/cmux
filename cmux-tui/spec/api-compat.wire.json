@@ -1,0 +1,1922 @@
+{
+  "sdk-schema.json": {
+    "families": {
+      "agent-events": {
+        "id": 195
+      },
+      "agent-machine": {
+        "id": 21
+      },
+      "agent-sessions": {
+        "id": 19
+      },
+      "agents": {
+        "id": 14
+      },
+      "apps": {
+        "id": 18
+      },
+      "assets": {
+        "id": 17
+      },
+      "bookmarks": {
+        "id": 12
+      },
+      "browser": {
+        "id": 11
+      },
+      "clients": {
+        "id": 2
+      },
+      "cloud": {
+        "id": 16
+      },
+      "cloud-events": {
+        "id": 198
+      },
+      "conversation-events": {
+        "id": 197
+      },
+      "conversations": {
+        "id": 15
+      },
+      "daemon": {
+        "id": 1
+      },
+      "daemon-events": {
+        "id": 194
+      },
+      "files": {
+        "id": 22
+      },
+      "layout": {
+        "id": 6
+      },
+      "loopback": {
+        "id": 20
+      },
+      "loopback-events": {
+        "id": 199
+      },
+      "mux-events": {
+        "id": 193
+      },
+      "personal": {
+        "id": 13
+      },
+      "personal-events": {
+        "id": 196
+      },
+      "screens": {
+        "id": 9
+      },
+      "script-events": {
+        "id": 200
+      },
+      "scripts": {
+        "id": 23
+      },
+      "sizing": {
+        "id": 5
+      },
+      "tab-groups": {
+        "id": 8
+      },
+      "tabs": {
+        "id": 7
+      },
+      "terminal-io": {
+        "id": 3
+      },
+      "terminal-stream-events": {
+        "id": 192
+      },
+      "terminals": {
+        "id": 4
+      },
+      "workspaces": {
+        "id": 10
+      }
+    },
+    "methods": {
+      "access-request": {
+        "id": 5385,
+        "priority": "control"
+      },
+      "access-request-answer": {
+        "id": 5388,
+        "priority": "control"
+      },
+      "access-request-list": {
+        "id": 5387,
+        "priority": "control"
+      },
+      "access-request-status": {
+        "id": 5386,
+        "priority": "control"
+      },
+      "ack-tab-notifications": {
+        "id": 1810,
+        "priority": "control"
+      },
+      "add-screens-to-screen-group": {
+        "id": 2310,
+        "priority": "control"
+      },
+      "add-tabs-to-tab-group": {
+        "id": 2051,
+        "priority": "control"
+      },
+      "agent-cli-intents-attach": {
+        "id": 3594,
+        "priority": "control"
+      },
+      "agent-cli-intents-list": {
+        "id": 3592,
+        "priority": "control"
+      },
+      "agent-cli-intents-record": {
+        "id": 3591,
+        "priority": "control"
+      },
+      "agent-cli-intents-settle": {
+        "id": 3593,
+        "priority": "control"
+      },
+      "agent-cli-update-job": {
+        "id": 3595,
+        "priority": "control"
+      },
+      "agent-cli-update-job-resolve": {
+        "id": 3596,
+        "priority": "control"
+      },
+      "agent-inventory": {
+        "id": 3597,
+        "priority": "control"
+      },
+      "agent-inventory-refresh": {
+        "id": 3598,
+        "priority": "background"
+      },
+      "agent-inventory-watch": {
+        "id": 3599,
+        "priority": "control"
+      },
+      "agent-session-attach": {
+        "id": 4864,
+        "priority": "control"
+      },
+      "agent-session-cancel": {
+        "id": 4868,
+        "priority": "input"
+      },
+      "agent-session-children": {
+        "id": 4871,
+        "priority": "control"
+      },
+      "agent-session-detach": {
+        "id": 4870,
+        "priority": "control"
+      },
+      "agent-session-events": {
+        "id": 4866,
+        "priority": "control"
+      },
+      "agent-session-media": {
+        "id": 4872,
+        "priority": "control"
+      },
+      "agent-session-observe": {
+        "id": 4865,
+        "priority": "control"
+      },
+      "agent-session-permission": {
+        "id": 4869,
+        "priority": "input"
+      },
+      "agent-session-prompt": {
+        "id": 4867,
+        "priority": "input"
+      },
+      "agent-session-start": {
+        "id": 4873,
+        "priority": "control"
+      },
+      "agent-session-trust": {
+        "id": 4874,
+        "priority": "control"
+      },
+      "agent-transfer-abort": {
+        "id": 5384,
+        "priority": "control"
+      },
+      "agent-transfer-begin": {
+        "id": 5380,
+        "priority": "control"
+      },
+      "agent-transfer-commit": {
+        "id": 5383,
+        "priority": "control"
+      },
+      "agent-transfer-finish": {
+        "id": 5378,
+        "priority": "control"
+      },
+      "agent-transfer-read": {
+        "id": 5382,
+        "priority": "bulk"
+      },
+      "agent-transfer-receive": {
+        "id": 5376,
+        "priority": "control"
+      },
+      "agent-transfer-receive-abort": {
+        "id": 5379,
+        "priority": "control"
+      },
+      "agent-transfer-source": {
+        "id": 5381,
+        "priority": "control"
+      },
+      "agent-transfer-write": {
+        "id": 5377,
+        "priority": "control"
+      },
+      "agent-update-apply": {
+        "id": 5390,
+        "priority": "control"
+      },
+      "agent-update-plan": {
+        "id": 5389,
+        "priority": "control"
+      },
+      "apply-layout": {
+        "id": 1537,
+        "priority": "control"
+      },
+      "apps-agent-inventory-changed": {
+        "id": 4619,
+        "priority": "control"
+      },
+      "apps-dispatch": {
+        "id": 4613,
+        "priority": "control"
+      },
+      "apps-link-changed": {
+        "id": 4617,
+        "priority": "control"
+      },
+      "apps-list": {
+        "id": 4608,
+        "priority": "control"
+      },
+      "apps-logs": {
+        "id": 4616,
+        "priority": "control"
+      },
+      "apps-mount": {
+        "id": 4611,
+        "priority": "control"
+      },
+      "apps-provider-register": {
+        "id": 4618,
+        "priority": "control"
+      },
+      "apps-provider-result": {
+        "id": 4620,
+        "priority": "control"
+      },
+      "apps-run": {
+        "id": 4614,
+        "priority": "control"
+      },
+      "apps-set": {
+        "id": 4609,
+        "priority": "control"
+      },
+      "apps-store": {
+        "id": 4610,
+        "priority": "control"
+      },
+      "apps-terminal-links": {
+        "id": 4615,
+        "priority": "control"
+      },
+      "apps-unmount": {
+        "id": 4612,
+        "priority": "control"
+      },
+      "attach-surface": {
+        "id": 783,
+        "priority": "control"
+      },
+      "bind-conversation-tab-session": {
+        "id": 1802,
+        "priority": "control"
+      },
+      "browser-activate": {
+        "id": 2828,
+        "priority": "control"
+      },
+      "browser-back": {
+        "id": 2825,
+        "priority": "control"
+      },
+      "browser-forward": {
+        "id": 2826,
+        "priority": "control"
+      },
+      "browser-frame-presented": {
+        "id": 2816,
+        "priority": "control"
+      },
+      "browser-host-provider": {
+        "id": 2836,
+        "priority": "control"
+      },
+      "browser-insert-text": {
+        "id": 2823,
+        "priority": "input"
+      },
+      "browser-key": {
+        "id": 2821,
+        "priority": "input"
+      },
+      "browser-key-press": {
+        "id": 2822,
+        "priority": "input"
+      },
+      "browser-mouse": {
+        "id": 2817,
+        "priority": "input"
+      },
+      "browser-mouse-guarded": {
+        "id": 2818,
+        "priority": "input"
+      },
+      "browser-navigate": {
+        "id": 2824,
+        "priority": "control"
+      },
+      "browser-reload": {
+        "id": 2827,
+        "priority": "control"
+      },
+      "browser-runtime-start": {
+        "id": 2838,
+        "priority": "control"
+      },
+      "browser-runtime-status": {
+        "id": 2837,
+        "priority": "control"
+      },
+      "browser-runtime-stop": {
+        "id": 2839,
+        "priority": "control"
+      },
+      "browser-wheel": {
+        "id": 2819,
+        "priority": "input"
+      },
+      "browser-wheel-guarded": {
+        "id": 2820,
+        "priority": "input"
+      },
+      "cancel-request": {
+        "id": 4621,
+        "priority": "control"
+      },
+      "chief-inspect": {
+        "id": 3856,
+        "priority": "control"
+      },
+      "clear-history": {
+        "id": 771,
+        "priority": "control"
+      },
+      "clear-window-title": {
+        "id": 260,
+        "priority": "control"
+      },
+      "client-focus": {
+        "id": 516,
+        "priority": "control"
+      },
+      "client-hello": {
+        "id": 517,
+        "priority": "control"
+      },
+      "close-pane": {
+        "id": 1551,
+        "priority": "control"
+      },
+      "close-provider-managed-workspace": {
+        "id": 2571,
+        "priority": "control"
+      },
+      "close-screen": {
+        "id": 2320,
+        "priority": "control"
+      },
+      "close-screen-group": {
+        "id": 2314,
+        "priority": "control"
+      },
+      "close-surface": {
+        "id": 1797,
+        "priority": "control"
+      },
+      "close-tab-group": {
+        "id": 2058,
+        "priority": "control"
+      },
+      "close-tabs": {
+        "id": 1809,
+        "priority": "control"
+      },
+      "close-terminal": {
+        "id": 1027,
+        "priority": "control"
+      },
+      "close-workspace": {
+        "id": 2567,
+        "priority": "control"
+      },
+      "cloud-attachment-link": {
+        "id": 4121,
+        "priority": "control"
+      },
+      "cloud-attachment-read": {
+        "id": 4120,
+        "priority": "bulk"
+      },
+      "cloud-attachment-upload": {
+        "id": 4119,
+        "priority": "control"
+      },
+      "cloud-conversation-history": {
+        "id": 4106,
+        "priority": "bulk"
+      },
+      "cloud-conversation-live": {
+        "id": 4117,
+        "priority": "control"
+      },
+      "cloud-conversation-op": {
+        "id": 4111,
+        "priority": "control"
+      },
+      "cloud-conversation-run": {
+        "id": 4110,
+        "priority": "control"
+      },
+      "cloud-conversation-runs": {
+        "id": 4109,
+        "priority": "control"
+      },
+      "cloud-conversation-snapshot": {
+        "id": 4105,
+        "priority": "control"
+      },
+      "cloud-conversation-subscribe": {
+        "id": 4115,
+        "priority": "control"
+      },
+      "cloud-conversation-thread": {
+        "id": 4107,
+        "priority": "control"
+      },
+      "cloud-conversation-typing": {
+        "id": 4118,
+        "priority": "control"
+      },
+      "cloud-conversation-unsubscribe": {
+        "id": 4116,
+        "priority": "control"
+      },
+      "cloud-host-replica-clear": {
+        "id": 4100,
+        "priority": "control"
+      },
+      "cloud-host-replica-set": {
+        "id": 4099,
+        "priority": "control"
+      },
+      "cloud-host-replica-status": {
+        "id": 4101,
+        "priority": "control"
+      },
+      "cloud-inbox-list": {
+        "id": 4102,
+        "priority": "control"
+      },
+      "cloud-inbox-op": {
+        "id": 4112,
+        "priority": "control"
+      },
+      "cloud-inbox-subscribe": {
+        "id": 4113,
+        "priority": "control"
+      },
+      "cloud-inbox-unsubscribe": {
+        "id": 4114,
+        "priority": "control"
+      },
+      "cloud-mux-ack": {
+        "id": 4124,
+        "priority": "control"
+      },
+      "cloud-mux-subscribe": {
+        "id": 4122,
+        "priority": "control"
+      },
+      "cloud-mux-unsubscribe": {
+        "id": 4123,
+        "priority": "control"
+      },
+      "cloud-participant-avatar-get": {
+        "id": 4108,
+        "priority": "control"
+      },
+      "cloud-requests-list": {
+        "id": 4103,
+        "priority": "control"
+      },
+      "cloud-selfhost-info": {
+        "id": 4104,
+        "priority": "control"
+      },
+      "cloud-session-clear": {
+        "id": 4097,
+        "priority": "control"
+      },
+      "cloud-session-set": {
+        "id": 4096,
+        "priority": "control"
+      },
+      "cloud-session-status": {
+        "id": 4098,
+        "priority": "control"
+      },
+      "conversation-agent-token": {
+        "id": 3854,
+        "priority": "control"
+      },
+      "conversation-attachment-link": {
+        "id": 3859,
+        "priority": "control"
+      },
+      "conversation-attachment-read": {
+        "id": 3858,
+        "priority": "bulk"
+      },
+      "conversation-attachment-upload": {
+        "id": 3857,
+        "priority": "control"
+      },
+      "conversation-bind": {
+        "id": 3853,
+        "priority": "control"
+      },
+      "conversation-create": {
+        "id": 3841,
+        "priority": "control"
+      },
+      "conversation-draft": {
+        "id": 3852,
+        "priority": "control"
+      },
+      "conversation-history": {
+        "id": 3843,
+        "priority": "bulk"
+      },
+      "conversation-import": {
+        "id": 3855,
+        "priority": "control"
+      },
+      "conversation-inbox-op": {
+        "id": 3846,
+        "priority": "control"
+      },
+      "conversation-link-resolve": {
+        "id": 3845,
+        "priority": "control"
+      },
+      "conversation-list": {
+        "id": 3840,
+        "priority": "control"
+      },
+      "conversation-live": {
+        "id": 3864,
+        "priority": "control"
+      },
+      "conversation-live-publish": {
+        "id": 3863,
+        "priority": "control"
+      },
+      "conversation-op": {
+        "id": 3850,
+        "priority": "control"
+      },
+      "conversation-run": {
+        "id": 3862,
+        "priority": "control"
+      },
+      "conversation-run-append": {
+        "id": 3860,
+        "priority": "control"
+      },
+      "conversation-runs": {
+        "id": 3861,
+        "priority": "control"
+      },
+      "conversation-search": {
+        "id": 3848,
+        "priority": "control"
+      },
+      "conversation-snapshot": {
+        "id": 3842,
+        "priority": "control"
+      },
+      "conversation-thread": {
+        "id": 3844,
+        "priority": "control"
+      },
+      "conversation-typing": {
+        "id": 3851,
+        "priority": "control"
+      },
+      "copy": {
+        "id": 775,
+        "priority": "control"
+      },
+      "create-bookmark": {
+        "id": 3073,
+        "priority": "control"
+      },
+      "create-browser-profile": {
+        "id": 2832,
+        "priority": "control"
+      },
+      "create-personal-group": {
+        "id": 3340,
+        "priority": "control"
+      },
+      "create-profile": {
+        "id": 3329,
+        "priority": "control"
+      },
+      "create-screen-group": {
+        "id": 2308,
+        "priority": "control"
+      },
+      "create-surface-with-receipt": {
+        "id": 1792,
+        "priority": "control"
+      },
+      "create-tab-group": {
+        "id": 2049,
+        "priority": "control"
+      },
+      "create-terminal": {
+        "id": 1031,
+        "priority": "control"
+      },
+      "create-workspace": {
+        "id": 2565,
+        "priority": "control"
+      },
+      "create-workspace-group": {
+        "id": 2575,
+        "priority": "control"
+      },
+      "debug-daemon-locks": {
+        "id": 274,
+        "priority": "background"
+      },
+      "delete-bookmark": {
+        "id": 3076,
+        "priority": "control"
+      },
+      "delete-browser-profile": {
+        "id": 2835,
+        "priority": "control"
+      },
+      "delete-personal-group": {
+        "id": 3342,
+        "priority": "control"
+      },
+      "delete-profile": {
+        "id": 3332,
+        "priority": "control"
+      },
+      "delete-saved-screen-group": {
+        "id": 2318,
+        "priority": "control"
+      },
+      "delete-saved-tab-group": {
+        "id": 2062,
+        "priority": "control"
+      },
+      "delete-terminal-commands": {
+        "id": 1039,
+        "priority": "control"
+      },
+      "delete-workspace-group": {
+        "id": 2577,
+        "priority": "control"
+      },
+      "detach-attached-view": {
+        "id": 1285,
+        "priority": "control"
+      },
+      "detach-client": {
+        "id": 514,
+        "priority": "control"
+      },
+      "export-layout": {
+        "id": 1536,
+        "priority": "control"
+      },
+      "feed-local-handoff-abort": {
+        "id": 3589,
+        "priority": "control"
+      },
+      "feed-local-handoff-begin": {
+        "id": 3588,
+        "priority": "control"
+      },
+      "feed-local-handoff-done": {
+        "id": 3590,
+        "priority": "control"
+      },
+      "feed-local-list": {
+        "id": 3586,
+        "priority": "control"
+      },
+      "feed-local-read": {
+        "id": 3587,
+        "priority": "control"
+      },
+      "focus-direction": {
+        "id": 1548,
+        "priority": "control"
+      },
+      "focus-pane": {
+        "id": 1553,
+        "priority": "control"
+      },
+      "forget-session": {
+        "id": 3337,
+        "priority": "control"
+      },
+      "fs.delete": {
+        "id": 5638,
+        "priority": "control"
+      },
+      "fs.list": {
+        "id": 5633,
+        "priority": "control"
+      },
+      "fs.mkdir": {
+        "id": 5636,
+        "priority": "control"
+      },
+      "fs.read": {
+        "id": 5634,
+        "priority": "bulk"
+      },
+      "fs.rename": {
+        "id": 5637,
+        "priority": "control"
+      },
+      "fs.stat": {
+        "id": 5632,
+        "priority": "control"
+      },
+      "fs.write": {
+        "id": 5635,
+        "priority": "control"
+      },
+      "get-blob": {
+        "id": 4353,
+        "priority": "bulk"
+      },
+      "get-browser-provider": {
+        "id": 2830,
+        "priority": "control"
+      },
+      "get-cell-pixels": {
+        "id": 779,
+        "priority": "control"
+      },
+      "get-frontend-browser-history": {
+        "id": 1808,
+        "priority": "bulk"
+      },
+      "get-frontend-projection": {
+        "id": 2562,
+        "priority": "control"
+      },
+      "get-host-size-policy": {
+        "id": 1291,
+        "priority": "control"
+      },
+      "get-size-state": {
+        "id": 1288,
+        "priority": "control"
+      },
+      "history-search": {
+        "id": 3849,
+        "priority": "control"
+      },
+      "home-inbox": {
+        "id": 3847,
+        "priority": "control"
+      },
+      "identify": {
+        "id": 256,
+        "priority": "control"
+      },
+      "ids": {
+        "id": 1538,
+        "priority": "control"
+      },
+      "import-bookmarks": {
+        "id": 3077,
+        "priority": "control"
+      },
+      "import-session-organization": {
+        "id": 3339,
+        "priority": "control"
+      },
+      "journal-frontend-event": {
+        "id": 2560,
+        "priority": "control"
+      },
+      "list-agents": {
+        "id": 3584,
+        "priority": "control"
+      },
+      "list-bookmarks": {
+        "id": 3072,
+        "priority": "control"
+      },
+      "list-clients": {
+        "id": 513,
+        "priority": "control"
+      },
+      "list-notifications": {
+        "id": 1811,
+        "priority": "control"
+      },
+      "list-personal": {
+        "id": 3328,
+        "priority": "control"
+      },
+      "list-saved-screen-groups": {
+        "id": 2315,
+        "priority": "control"
+      },
+      "list-saved-tab-groups": {
+        "id": 2059,
+        "priority": "control"
+      },
+      "list-tab-groups": {
+        "id": 2048,
+        "priority": "control"
+      },
+      "list-terminal-commands": {
+        "id": 1038,
+        "priority": "bulk"
+      },
+      "list-terminals": {
+        "id": 1024,
+        "priority": "control"
+      },
+      "list-workspace-groups": {
+        "id": 2574,
+        "priority": "control"
+      },
+      "list-workspaces": {
+        "id": 2561,
+        "priority": "control"
+      },
+      "loopback-close": {
+        "id": 5124,
+        "priority": "control"
+      },
+      "loopback-credit": {
+        "id": 5122,
+        "priority": "control"
+      },
+      "loopback-data": {
+        "id": 5121,
+        "priority": "bulk"
+      },
+      "loopback-open": {
+        "id": 5120,
+        "priority": "control"
+      },
+      "loopback-shutdown": {
+        "id": 5123,
+        "priority": "bulk"
+      },
+      "loopback-status": {
+        "id": 5125,
+        "priority": "control"
+      },
+      "machine-catalog-publish": {
+        "id": 273,
+        "priority": "control"
+      },
+      "machine-listening-tcp": {
+        "id": 264,
+        "priority": "control"
+      },
+      "machine-usage": {
+        "id": 265,
+        "priority": "background"
+      },
+      "mark-workspaces-provider-managed": {
+        "id": 2570,
+        "priority": "control"
+      },
+      "mint-terminal-renderer": {
+        "id": 778,
+        "priority": "control"
+      },
+      "mint-terminal-renderer-by-terminal": {
+        "id": 780,
+        "priority": "control"
+      },
+      "move-bookmark": {
+        "id": 3075,
+        "priority": "control"
+      },
+      "move-browser-profile": {
+        "id": 2834,
+        "priority": "control"
+      },
+      "move-column": {
+        "id": 1556,
+        "priority": "control"
+      },
+      "move-personal-group": {
+        "id": 3343,
+        "priority": "control"
+      },
+      "move-profile": {
+        "id": 3331,
+        "priority": "control"
+      },
+      "move-screen": {
+        "id": 2307,
+        "priority": "control"
+      },
+      "move-screen-group": {
+        "id": 2312,
+        "priority": "control"
+      },
+      "move-tab": {
+        "id": 1796,
+        "priority": "control"
+      },
+      "move-tab-group": {
+        "id": 2053,
+        "priority": "control"
+      },
+      "move-tab-group-to-column": {
+        "id": 2055,
+        "priority": "control"
+      },
+      "move-tab-group-to-new-workspace": {
+        "id": 2056,
+        "priority": "control"
+      },
+      "move-tab-group-to-split": {
+        "id": 2054,
+        "priority": "control"
+      },
+      "move-tab-to-column": {
+        "id": 1814,
+        "priority": "control"
+      },
+      "move-tab-to-new-workspace": {
+        "id": 1815,
+        "priority": "control"
+      },
+      "move-tab-to-split": {
+        "id": 1813,
+        "priority": "control"
+      },
+      "move-tab-to-workspace": {
+        "id": 1800,
+        "priority": "control"
+      },
+      "move-terminal": {
+        "id": 1035,
+        "priority": "control"
+      },
+      "move-workspace": {
+        "id": 2566,
+        "priority": "control"
+      },
+      "move-workspace-group": {
+        "id": 2578,
+        "priority": "control"
+      },
+      "move-workspace-to-group": {
+        "id": 2579,
+        "priority": "control"
+      },
+      "new-browser-tab": {
+        "id": 1795,
+        "priority": "control"
+      },
+      "new-conversation-tab": {
+        "id": 1801,
+        "priority": "control"
+      },
+      "new-frontend-browser-tab": {
+        "id": 1803,
+        "priority": "control"
+      },
+      "new-pane": {
+        "id": 1539,
+        "priority": "control"
+      },
+      "new-pane-right": {
+        "id": 1540,
+        "priority": "control"
+      },
+      "new-remote-terminal-tab": {
+        "id": 1816,
+        "priority": "control"
+      },
+      "new-row": {
+        "id": 1554,
+        "priority": "control"
+      },
+      "new-screen": {
+        "id": 2304,
+        "priority": "control"
+      },
+      "new-tab": {
+        "id": 1794,
+        "priority": "control"
+      },
+      "new-workspace": {
+        "id": 2564,
+        "priority": "control"
+      },
+      "note-size-activity": {
+        "id": 1289,
+        "priority": "control"
+      },
+      "notify": {
+        "id": 1793,
+        "priority": "control"
+      },
+      "page-credential": {
+        "id": 268,
+        "priority": "control"
+      },
+      "pairing-response": {
+        "id": 263,
+        "priority": "control"
+      },
+      "pane-neighbor": {
+        "id": 1547,
+        "priority": "control"
+      },
+      "park-tabs": {
+        "id": 1806,
+        "priority": "control"
+      },
+      "paste-image": {
+        "id": 784,
+        "priority": "input"
+      },
+      "pin-workspace": {
+        "id": 3334,
+        "priority": "control"
+      },
+      "ping": {
+        "id": 257,
+        "priority": "control"
+      },
+      "process-info": {
+        "id": 1032,
+        "priority": "control"
+      },
+      "put-blob": {
+        "id": 4352,
+        "priority": "control"
+      },
+      "put-frontend-projection": {
+        "id": 2563,
+        "priority": "control"
+      },
+      "put-session": {
+        "id": 3336,
+        "priority": "control"
+      },
+      "read-screen": {
+        "id": 770,
+        "priority": "control"
+      },
+      "read-scrollback": {
+        "id": 772,
+        "priority": "bulk"
+      },
+      "reattach-view": {
+        "id": 1290,
+        "priority": "control"
+      },
+      "register-browser-provider": {
+        "id": 2829,
+        "priority": "control"
+      },
+      "release-attached-view-size": {
+        "id": 1284,
+        "priority": "control"
+      },
+      "release-surface-size": {
+        "id": 1283,
+        "priority": "control"
+      },
+      "reload-config": {
+        "id": 258,
+        "priority": "control"
+      },
+      "remote-terminal-snapshot": {
+        "id": 1818,
+        "priority": "control"
+      },
+      "remove-screens-from-screen-group": {
+        "id": 2311,
+        "priority": "control"
+      },
+      "remove-tabs-from-tab-group": {
+        "id": 2052,
+        "priority": "control"
+      },
+      "rename-pane": {
+        "id": 1552,
+        "priority": "control"
+      },
+      "rename-provider-managed-workspace": {
+        "id": 2572,
+        "priority": "control"
+      },
+      "rename-screen": {
+        "id": 2321,
+        "priority": "control"
+      },
+      "rename-surface": {
+        "id": 1798,
+        "priority": "control"
+      },
+      "rename-workspace": {
+        "id": 2568,
+        "priority": "control"
+      },
+      "reopen-saved-screen-group": {
+        "id": 2319,
+        "priority": "control"
+      },
+      "reopen-saved-tab-group": {
+        "id": 2063,
+        "priority": "control"
+      },
+      "report-agent": {
+        "id": 3585,
+        "priority": "control"
+      },
+      "report-focus": {
+        "id": 515,
+        "priority": "control"
+      },
+      "resize-attached-view": {
+        "id": 1282,
+        "priority": "input"
+      },
+      "resize-surface": {
+        "id": 1281,
+        "priority": "control"
+      },
+      "resolve-terminal": {
+        "id": 1026,
+        "priority": "control"
+      },
+      "restart-tab": {
+        "id": 1805,
+        "priority": "control"
+      },
+      "run": {
+        "id": 1025,
+        "priority": "control"
+      },
+      "save-screen-group": {
+        "id": 2316,
+        "priority": "control"
+      },
+      "save-tab-group": {
+        "id": 2060,
+        "priority": "control"
+      },
+      "script-repl-close": {
+        "id": 5891,
+        "priority": "control"
+      },
+      "script-repl-eval": {
+        "id": 5890,
+        "priority": "control"
+      },
+      "script-repl-open": {
+        "id": 5889,
+        "priority": "control"
+      },
+      "script-run": {
+        "id": 5888,
+        "priority": "control"
+      },
+      "scroll-surface": {
+        "id": 777,
+        "priority": "input"
+      },
+      "select-screen": {
+        "id": 2322,
+        "priority": "control"
+      },
+      "select-tab": {
+        "id": 1799,
+        "priority": "control"
+      },
+      "select-workspace": {
+        "id": 2569,
+        "priority": "control"
+      },
+      "send": {
+        "id": 769,
+        "priority": "input"
+      },
+      "send-key": {
+        "id": 774,
+        "priority": "input"
+      },
+      "server-blocking": {
+        "id": 276,
+        "priority": "background"
+      },
+      "server-stats": {
+        "id": 266,
+        "priority": "background"
+      },
+      "server-threads": {
+        "id": 275,
+        "priority": "background"
+      },
+      "set-cell-pixels": {
+        "id": 781,
+        "priority": "control"
+      },
+      "set-client-info": {
+        "id": 512,
+        "priority": "control"
+      },
+      "set-client-sizing": {
+        "id": 1280,
+        "priority": "control"
+      },
+      "set-column-dock": {
+        "id": 1545,
+        "priority": "control"
+      },
+      "set-default-colors": {
+        "id": 261,
+        "priority": "control"
+      },
+      "set-frontend-browser-history": {
+        "id": 1807,
+        "priority": "control"
+      },
+      "set-host-size-policy": {
+        "id": 1292,
+        "priority": "control"
+      },
+      "set-personal-terminal": {
+        "id": 3344,
+        "priority": "control"
+      },
+      "set-personal-workspace": {
+        "id": 3345,
+        "priority": "control"
+      },
+      "set-profile-follows": {
+        "id": 3333,
+        "priority": "control"
+      },
+      "set-ratio": {
+        "id": 1542,
+        "priority": "control"
+      },
+      "set-row-heights": {
+        "id": 1555,
+        "priority": "control"
+      },
+      "set-screen-metadata": {
+        "id": 2305,
+        "priority": "control"
+      },
+      "set-screen-pinned": {
+        "id": 2306,
+        "priority": "control"
+      },
+      "set-session-icon": {
+        "id": 3338,
+        "priority": "control"
+      },
+      "set-size-counts": {
+        "id": 1287,
+        "priority": "control"
+      },
+      "set-size-policy": {
+        "id": 1286,
+        "priority": "control"
+      },
+      "set-split-ratio": {
+        "id": 1543,
+        "priority": "control"
+      },
+      "set-tab-pinned": {
+        "id": 1812,
+        "priority": "control"
+      },
+      "set-terminal-command-history": {
+        "id": 1037,
+        "priority": "control"
+      },
+      "set-terminal-idle-policy": {
+        "id": 1028,
+        "priority": "control"
+      },
+      "set-terminal-keep": {
+        "id": 1029,
+        "priority": "control"
+      },
+      "set-viewport-pane-width": {
+        "id": 1544,
+        "priority": "control"
+      },
+      "set-window-title": {
+        "id": 259,
+        "priority": "control"
+      },
+      "set-workspace-metadata": {
+        "id": 2573,
+        "priority": "control"
+      },
+      "shutdown-daemon": {
+        "id": 262,
+        "priority": "control"
+      },
+      "sidebar-plugin": {
+        "id": 1036,
+        "priority": "control"
+      },
+      "snapshot-request": {
+        "id": 791,
+        "priority": "control"
+      },
+      "split": {
+        "id": 1541,
+        "priority": "control"
+      },
+      "subscribe": {
+        "id": 782,
+        "priority": "control"
+      },
+      "subscribe-activity": {
+        "id": 269,
+        "priority": "control"
+      },
+      "swap-pane": {
+        "id": 1549,
+        "priority": "control"
+      },
+      "terminal-clipboard-reply": {
+        "id": 790,
+        "priority": "control"
+      },
+      "terminal-clipboard-subscribe": {
+        "id": 789,
+        "priority": "control"
+      },
+      "terminal-events": {
+        "id": 768,
+        "priority": "bulk"
+      },
+      "terminal-history": {
+        "id": 792,
+        "priority": "bulk"
+      },
+      "terminal-ports": {
+        "id": 1033,
+        "priority": "control"
+      },
+      "terminal-read-range": {
+        "id": 793,
+        "priority": "bulk"
+      },
+      "terminal-resources": {
+        "id": 1034,
+        "priority": "background"
+      },
+      "terminal-resume-command": {
+        "id": 1030,
+        "priority": "control"
+      },
+      "trace-start": {
+        "id": 270,
+        "priority": "control"
+      },
+      "trace-status": {
+        "id": 272,
+        "priority": "control"
+      },
+      "trace-stop": {
+        "id": 271,
+        "priority": "control"
+      },
+      "undo-layout": {
+        "id": 1546,
+        "priority": "control"
+      },
+      "ungroup-screen-group": {
+        "id": 2313,
+        "priority": "control"
+      },
+      "ungroup-tab-group": {
+        "id": 2057,
+        "priority": "control"
+      },
+      "unpin-workspace": {
+        "id": 3335,
+        "priority": "control"
+      },
+      "unregister-browser-provider": {
+        "id": 2831,
+        "priority": "control"
+      },
+      "unsave-screen-group": {
+        "id": 2317,
+        "priority": "control"
+      },
+      "unsave-tab-group": {
+        "id": 2061,
+        "priority": "control"
+      },
+      "update-bookmark": {
+        "id": 3074,
+        "priority": "control"
+      },
+      "update-browser-profile": {
+        "id": 2833,
+        "priority": "control"
+      },
+      "update-frontend-browser-tab": {
+        "id": 1804,
+        "priority": "control"
+      },
+      "update-personal-group": {
+        "id": 3341,
+        "priority": "control"
+      },
+      "update-profile": {
+        "id": 3330,
+        "priority": "control"
+      },
+      "update-remote-terminal-tab": {
+        "id": 1817,
+        "priority": "control"
+      },
+      "update-screen-group": {
+        "id": 2309,
+        "priority": "control"
+      },
+      "update-tab-group": {
+        "id": 2050,
+        "priority": "control"
+      },
+      "update-workspace-group": {
+        "id": 2576,
+        "priority": "control"
+      },
+      "url-open": {
+        "id": 785,
+        "priority": "control"
+      },
+      "url-open-claim": {
+        "id": 787,
+        "priority": "control"
+      },
+      "url-open-result": {
+        "id": 788,
+        "priority": "control"
+      },
+      "url-open-subscribe": {
+        "id": 786,
+        "priority": "control"
+      },
+      "vt-state": {
+        "id": 776,
+        "priority": "control"
+      },
+      "wait-for": {
+        "id": 773,
+        "priority": "control"
+      },
+      "ws-listen": {
+        "id": 267,
+        "priority": "control"
+      },
+      "zoom-pane": {
+        "id": 1550,
+        "priority": "control"
+      }
+    },
+    "events": {
+      "activity-changed": {
+        "id": 49675,
+        "priority": "background"
+      },
+      "agent-changed": {
+        "id": 49920,
+        "priority": "control"
+      },
+      "agent-inventory-changed": {
+        "id": 49921,
+        "priority": "background"
+      },
+      "agent-inventory-watch-ended": {
+        "id": 49922,
+        "priority": "control"
+      },
+      "agent-presence-changed": {
+        "id": 49923,
+        "priority": "control"
+      },
+      "bell": {
+        "id": 49408,
+        "priority": "control"
+      },
+      "bookmarks-changed": {
+        "id": 50177,
+        "priority": "control"
+      },
+      "browser-state": {
+        "id": 49152,
+        "priority": "control"
+      },
+      "chief-changed": {
+        "id": 50437,
+        "priority": "control"
+      },
+      "client-attached": {
+        "id": 49664,
+        "priority": "control"
+      },
+      "client-changed": {
+        "id": 49665,
+        "priority": "control"
+      },
+      "client-detached": {
+        "id": 49666,
+        "priority": "control"
+      },
+      "client-list-invalidated": {
+        "id": 49667,
+        "priority": "control"
+      },
+      "cloud-conversation-changed": {
+        "id": 50688,
+        "priority": "control"
+      },
+      "cloud-conversation-live": {
+        "id": 50691,
+        "priority": "control"
+      },
+      "cloud-conversation-resynced": {
+        "id": 50689,
+        "priority": "control"
+      },
+      "cloud-conversation-run-changed": {
+        "id": 50690,
+        "priority": "control"
+      },
+      "cloud-conversation-typing": {
+        "id": 50692,
+        "priority": "control"
+      },
+      "cloud-host-replica-needed": {
+        "id": 50697,
+        "priority": "control"
+      },
+      "cloud-inbox-changed": {
+        "id": 50693,
+        "priority": "control"
+      },
+      "cloud-inbox-reset": {
+        "id": 50694,
+        "priority": "control"
+      },
+      "cloud-mux-resynced": {
+        "id": 50699,
+        "priority": "control"
+      },
+      "cloud-mux-wake": {
+        "id": 50698,
+        "priority": "control"
+      },
+      "cloud-session-needed": {
+        "id": 50696,
+        "priority": "control"
+      },
+      "cloud-subscription-state": {
+        "id": 50695,
+        "priority": "control"
+      },
+      "colors-changed": {
+        "id": 49153,
+        "priority": "control"
+      },
+      "config-reload-requested": {
+        "id": 49668,
+        "priority": "control"
+      },
+      "conversation-changed": {
+        "id": 50432,
+        "priority": "control"
+      },
+      "conversation-draft": {
+        "id": 50438,
+        "priority": "control"
+      },
+      "conversation-inbox-changed": {
+        "id": 50439,
+        "priority": "control"
+      },
+      "conversation-live": {
+        "id": 50435,
+        "priority": "control"
+      },
+      "conversation-run-changed": {
+        "id": 50434,
+        "priority": "control"
+      },
+      "conversation-typing": {
+        "id": 50433,
+        "priority": "control"
+      },
+      "daemon-shutdown": {
+        "id": 49669,
+        "priority": "control"
+      },
+      "detached": {
+        "id": 49154,
+        "priority": "control"
+      },
+      "empty": {
+        "id": 49409,
+        "priority": "control"
+      },
+      "frame": {
+        "id": 49155,
+        "priority": "input"
+      },
+      "frontend-projection-changed": {
+        "id": 49410,
+        "priority": "control"
+      },
+      "graphics-status": {
+        "id": 49411,
+        "priority": "control"
+      },
+      "history-changed": {
+        "id": 50178,
+        "priority": "control"
+      },
+      "keybindings-changed": {
+        "id": 49670,
+        "priority": "control"
+      },
+      "layout-changed": {
+        "id": 49412,
+        "priority": "control"
+      },
+      "loopback-closed": {
+        "id": 50947,
+        "priority": "control"
+      },
+      "loopback-credit": {
+        "id": 50945,
+        "priority": "control"
+      },
+      "loopback-data": {
+        "id": 50944,
+        "priority": "bulk"
+      },
+      "loopback-eof": {
+        "id": 50946,
+        "priority": "bulk"
+      },
+      "machine-usage-changed": {
+        "id": 49673,
+        "priority": "background"
+      },
+      "notification": {
+        "id": 49413,
+        "priority": "control"
+      },
+      "output": {
+        "id": 49156,
+        "priority": "input"
+      },
+      "overflow": {
+        "id": 49157,
+        "priority": "control"
+      },
+      "pairing-requested": {
+        "id": 49671,
+        "priority": "control"
+      },
+      "pairing-resolved": {
+        "id": 49672,
+        "priority": "control"
+      },
+      "pane-added": {
+        "id": 49414,
+        "priority": "control"
+      },
+      "pane-closed": {
+        "id": 49415,
+        "priority": "control"
+      },
+      "participant-avatar-changed": {
+        "id": 50436,
+        "priority": "control"
+      },
+      "personal-changed": {
+        "id": 50176,
+        "priority": "control"
+      },
+      "program-status-changed": {
+        "id": 49443,
+        "priority": "control"
+      },
+      "render-delta": {
+        "id": 49158,
+        "priority": "input"
+      },
+      "render-state": {
+        "id": 49159,
+        "priority": "input"
+      },
+      "resized": {
+        "id": 49160,
+        "priority": "control"
+      },
+      "screen-added": {
+        "id": 49416,
+        "priority": "control"
+      },
+      "screen-changed": {
+        "id": 49419,
+        "priority": "control"
+      },
+      "screen-closed": {
+        "id": 49417,
+        "priority": "control"
+      },
+      "screen-renamed": {
+        "id": 49418,
+        "priority": "control"
+      },
+      "script-log": {
+        "id": 51200,
+        "priority": "control"
+      },
+      "scroll-changed": {
+        "id": 49161,
+        "priority": "control"
+      },
+      "settings-changed": {
+        "id": 49674,
+        "priority": "control"
+      },
+      "size-state": {
+        "id": 49163,
+        "priority": "control"
+      },
+      "status": {
+        "id": 49420,
+        "priority": "control"
+      },
+      "surface-exited": {
+        "id": 49421,
+        "priority": "control"
+      },
+      "surface-output": {
+        "id": 49422,
+        "priority": "bulk"
+      },
+      "surface-resize-failed": {
+        "id": 49423,
+        "priority": "control"
+      },
+      "surface-resized": {
+        "id": 49424,
+        "priority": "control"
+      },
+      "tab-added": {
+        "id": 49425,
+        "priority": "control"
+      },
+      "tab-changed": {
+        "id": 49441,
+        "priority": "control"
+      },
+      "tab-closed": {
+        "id": 49426,
+        "priority": "control"
+      },
+      "tab-renamed": {
+        "id": 49427,
+        "priority": "control"
+      },
+      "terminal-clipboard-read": {
+        "id": 49439,
+        "priority": "control"
+      },
+      "terminal-clipboard-read-cancelled": {
+        "id": 49440,
+        "priority": "control"
+      },
+      "terminal-input-unclaimed": {
+        "id": 49428,
+        "priority": "control"
+      },
+      "terminal-reaped": {
+        "id": 49430,
+        "priority": "control"
+      },
+      "terminal-registry-changed": {
+        "id": 49429,
+        "priority": "control"
+      },
+      "title-changed": {
+        "id": 49431,
+        "priority": "control"
+      },
+      "tree-changed": {
+        "id": 49432,
+        "priority": "control"
+      },
+      "url-open": {
+        "id": 49438,
+        "priority": "control"
+      },
+      "vt-state": {
+        "id": 49162,
+        "priority": "control"
+      },
+      "window-title-requested": {
+        "id": 49433,
+        "priority": "control"
+      },
+      "workspace-added": {
+        "id": 49434,
+        "priority": "control"
+      },
+      "workspace-changed": {
+        "id": 49442,
+        "priority": "control"
+      },
+      "workspace-closed": {
+        "id": 49435,
+        "priority": "control"
+      },
+      "workspace-moved": {
+        "id": 49436,
+        "priority": "control"
+      },
+      "workspace-renamed": {
+        "id": 49437,
+        "priority": "control"
+      }
+    }
+  }
+}

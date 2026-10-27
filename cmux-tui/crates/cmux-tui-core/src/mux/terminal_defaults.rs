@@ -40,6 +40,7 @@ impl Mux {
     }
 
     #[allow(clippy::too_many_arguments)]
+    #[track_caller]
     pub(crate) fn resource_update_terminal_defaults_selected(
         &self,
         selectors: crate::ResourceSelectors,

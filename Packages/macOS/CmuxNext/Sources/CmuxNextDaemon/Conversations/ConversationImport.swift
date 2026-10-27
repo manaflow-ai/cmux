@@ -29,7 +29,7 @@ public struct ConversationImportedMessage: Encodable, Sendable, Hashable {
 /// seqs and skips what it already holds. Local user connections only.
 public struct ConversationImportRequest: DaemonRequest {
     public typealias Response = ConversationImportResult
-    public static let command = "conversation-import"
+    public static let commandName: DaemonCommandName = "conversation-import"
     public var conversation: String
     public var messages: [ConversationImportedMessage]
 

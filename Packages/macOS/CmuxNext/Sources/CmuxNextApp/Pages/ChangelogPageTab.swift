@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextHibernation
 import CmuxNextIcons
 import CmuxNextPages
 import CmuxNextUpdater
@@ -13,8 +14,8 @@ extension InternalPageID {
 final class ChangelogPageTab: InternalPageProvider {
     private weak var services: AppServices?
     private var pages: [String: PageWebView] = [:]
-    /// The route the next page view opens on (``open(_:focus:from:to:)``).
-    private var pendingRoute: String?
+    /// The route each show asked for (``open(_:focus:from:to:)``), for the page of the tab it opened or selected.
+    private let opens = PageOpenRequests<String>()
 
     init(services: AppServices) {
         self.services = services
@@ -26,8 +27,7 @@ final class ChangelogPageTab: InternalPageProvider {
     var icon: IconName? { .fileText }
 
     func makeView(for key: String, in window: WindowController?) -> NSView {
-        let route = pendingRoute
-        pendingRoute = nil
+        let route = opens.take(for: key) ?? opens.running
         guard let services, let view = PageFactory(services: services).changelogPage(route: route) else { return NSView() }
         pages[key] = view
         return view
@@ -35,6 +35,26 @@ final class ChangelogPageTab: InternalPageProvider {
 
     func tabClosed(_ key: String) {
         pages.removeValue(forKey: key)?.close()
+        opens.forget(key)
+    }
+
+    // MARK: Discard (`memoryDiscardInternalPages`; What's New is this page)
+
+    /// Ten minutes hidden: read-only notes, so a rebuilt page on the same place shows the same.
+    func discardPolicy(for key: String) -> ContentDiscardPolicy { .standard }
+
+    /// The release span or version the page shows now (its own links move it).
+    func saveViewState(for key: String, content: NSView) async -> ContentViewState {
+        await (content as? PageWebView)?.discardViewState() ?? ContentViewState()
+    }
+
+    func restoreViewState(_ state: ContentViewState, for key: String, content: NSView) async {
+        (content as? PageWebView)?.restoreDiscardViewState(state)
+    }
+
+    /// The tab's page went (the tab store closed it); the next view makes its own.
+    func viewDiscarded(_ key: String) {
+        pages.removeValue(forKey: key)
     }
 
     /// The page's provider, registered once. The app registers it at launch:
@@ -55,11 +75,12 @@ final class ChangelogPageTab: InternalPageProvider {
     static func open(_ services: AppServices, focus: Bool = true, from: String? = nil, to: String? = nil) -> Bool {
         let provider = register(services)
         let route = Self.route(from: from, to: to, design: WhatsNewTunables.design.value)
-        provider.pendingRoute = route
-        let view = services.pages.show(.changelog, in: services.windows.active, focus: focus)
-        provider.pendingRoute = nil
-        // An open tab moves to the new span (a design change alone applies the next time the page opens).
-        if let route, to?.isEmpty == false, let page = view?.content as? PageWebView, page.route != route { page.open(route: route) }
+        let view = provider.opens.open(route) { services.pages.show(.changelog, in: services.windows.active, focus: focus) }
+        // A shown page moves to the new span (a design change alone applies the next time the page
+        // opens); a tab with no page yet opens on the route at its first show.
+        if let route, to?.isEmpty == false, let view, view.isBuilt, let page = view.content as? PageWebView, page.route != route {
+            page.open(route: route)
+        }
         return view != nil
     }
 
@@ -88,7 +109,7 @@ extension PageFactory {
         let provider = changelogNotes(media: services.updater.releaseMedia)
         let native = AppPageNativeProvider(services: services, page: .changelog)
         let routes = [PageRoute(prefix: "cmux.changelog.", provider: provider), PageRoute(prefix: "cmux.app.", provider: native)]
-        let page = PageWebView(descriptor: .changelog, routes: routes, route: route)
+        let page = services.webUI.open(PageOpenRequest(descriptor: .changelog, routes: routes, route: route))
         native.anchor = { [weak page] in page }
         provider.anchor = { [weak page] in page }
         return page
@@ -101,7 +122,7 @@ extension PageFactory {
     func changelogNotes(media: ReleaseMediaStore? = nil) -> ChangelogPageProvider {
         ChangelogPageProvider(
             source: services.updater.changelogNotes, currentBuild: services.updater.changelogReadsDevelopmentNotes ? "" : services.updater.identity.build,
-            media: media,
+            media: media, links: ChangelogPageProvider.cardLinks(services.pullRequests.replies),
             // `browser.openIn` with cmux's id, as the agent page's card opens a link: LinkOpener.openWeb,
             // from the pane that shows the page.
             openLink: { [weak services] url, view in

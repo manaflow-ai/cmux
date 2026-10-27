@@ -56,8 +56,9 @@ struct PinnedUnreadDotCaptureTests {
         let width = grid.map { $0.map(\.width).reduce(0, +) + gap * ($0.count - 1) }.max() ?? 0
         let height = grid.map { $0.map(\.height).max() ?? 0 }.reduce(0, +) + gap * (grid.count - 1)
         let space = try #require(CGColorSpace(name: CGColorSpace.sRGB))
-        let ctx = try #require(CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0,
-                                         space: space, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+        // SAFETY: the data pointer is nil, so Core Graphics allocates, owns and frees the pixels.
+        let ctx = try #require(unsafe CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0,
+                                                space: space, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
         ctx.setFillColor(CGColor(gray: 0.5, alpha: 1))
         ctx.fill(CGRect(x: 0, y: 0, width: width, height: height))
         var y = height

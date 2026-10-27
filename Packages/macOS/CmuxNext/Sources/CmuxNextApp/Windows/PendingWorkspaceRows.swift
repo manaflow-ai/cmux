@@ -11,7 +11,15 @@ import Observation
 /// or a create that fails, removes the row (it closes like any row).
 @MainActor @Observable
 final class PendingWorkspaceRows {
-    static let shared = PendingWorkspaceRows()
+    static let shared = PendingWorkspaceRows(newRows: SidebarNewRowTimer())
+
+    /// Times each row from its create to the commit that first lists it (`create.workspace`); each window's
+    /// sidebar list reports to it (`SidebarBridge`), and `debug.new_workspace` reads its recorder.
+    let newRows: SidebarNewRowTimer
+
+    init(newRows: SidebarNewRowTimer) {
+        self.newRows = newRows
+    }
 
     struct Row: Equatable {
         /// The workspace's key, fixed at the press.
@@ -36,14 +44,19 @@ final class PendingWorkspaceRows {
     /// sidebar shows already, not after a rows pass walks every workspace on a later hop.
     let redraws = SidebarRedraws()
 
-    func add(_ row: Row, name: String) {
+    /// The create of `row` names its workspace: its row lists from now, and its `create.workspace` interval begins
+    /// (`inputTimestamp`: the person's key or click that asked for it; nil for a script's create).
+    func add(_ row: Row, name: String, inputTimestamp: Double? = nil) {
+        newRows.began(row.id, inputTimestamp: inputTimestamp) // before the redraw that lists it
         rows.append(row)
         names[row.id] = (row.machine, name)
         redraws.run()
     }
 
-    /// The create `id` failed or a close took it: its row and its name go.
+    /// The create `id` failed or a close took it: its row and its name go (a `create.workspace` interval whose row
+    /// was not drawn yet ends as missed).
     func remove(_ id: String) {
+        newRows.forget(id)
         rows.removeAll { $0.id == id }
         names[id] = nil
         takenOver.remove(id)
@@ -70,7 +83,11 @@ final class PendingWorkspaceRows {
             row.window == window && (listed.contains(row.id) || elsewhere(row.id) || takenOver.contains(row.id) && !held(row.id))
         }
         guard rows.contains(where: done) else { return }
-        for row in rows where done(row) { takenOver.remove(row.id) }
+        for row in rows where done(row) {
+            takenOver.remove(row.id)
+            // It leaves without this window listing it: a later listing elsewhere must not end its interval as shown.
+            if !listed.contains(row.id) { newRows.forget(row.id) }
+        }
         rows.removeAll(where: done)
         redraws.run()
     }

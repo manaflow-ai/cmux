@@ -11,7 +11,7 @@ extension CEFEngine {
     /// Whether this build's Chromium can list and delete profile passkeys.
     public func canManagePasskeys() async -> Bool {
         do {
-            try await CEFRuntime.shared.start(layout: layout, trigger: "passkeys")
+            try await startRuntime(trigger: "passkeys")
         } catch {
             return false
         }
@@ -20,7 +20,7 @@ extension CEFEngine {
 
     /// The profile passkeys of `profile` (metadata only).
     public func passkeys(in profile: BrowserProfileID) async throws -> [ChromiumPasskey] {
-        try await CEFRuntime.shared.start(layout: layout, trigger: "passkeys")
+        try await startRuntime(trigger: "passkeys")
         guard let shim = Self.passkeyShim() else { throw ChromiumPasskeyError.unavailable }
         let reply = try await CEFRuntime.shared.profileWrite(profile, label: "passkey list", timeout: Self.passkeyTimeout) { path, id in
             shim.passkeysList(path, id)
@@ -31,10 +31,10 @@ extension CEFEngine {
 
     /// Deletes one profile passkey; true when Chromium deleted it.
     public func deletePasskey(_ credentialID: String, in profile: BrowserProfileID) async throws -> Bool {
-        try await CEFRuntime.shared.start(layout: layout, trigger: "passkeys")
+        try await startRuntime(trigger: "passkeys")
         guard let shim = Self.passkeyShim(), !credentialID.isEmpty else { throw ChromiumPasskeyError.unavailable }
         let reply = try await CEFRuntime.shared.profileWrite(profile, label: "passkey delete", timeout: Self.passkeyTimeout) { path, id in
-            credentialID.withCString { shim.passkeyDelete(path, $0, id) }
+            shim.passkeyDelete(path, credentialID, id)
         }
         return reply.value == 1
     }

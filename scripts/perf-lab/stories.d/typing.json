@@ -1,0 +1,25 @@
+{
+  "id": "typing",
+  "tier": "T1",
+  "description": "Key to frame on every typing surface, light session (typing-frame-bench.py): the terminal at a zsh -f prompt, the native Home composer, the docked Home and the omnibar of a Chromium tab (the Chromium arm of omnibar.json), idle and under load (busy terminals, streaming agent chats, a streaming Chief reply), three rounds. T1, not T0: the 480 s T0 budget holds only its terminal cut (typing-terminal.json).",
+  "command": ["scripts/cmux-next/typing-frame-bench.py", "--story", "typing", "--sessions", "light",
+              "--engine", "chromium"],
+  "session": "light",
+  "engine": "chromium",
+  "config": "bench",
+  "metrics": [
+    {"name": "terminal\\.key_to_frame", "unit": "ms", "better": "lower"},
+    {"name": "terminal\\.load\\.key_to_frame", "unit": "ms", "better": "lower"},
+    {"name": "(home|omnibar)\\.(idle|load)\\.key_to_frame", "unit": "ms", "better": "lower"},
+    {"name": "dock\\.idle\\.key_to_frame", "unit": "ms", "better": "lower"}
+  ],
+  "repeats": 1,
+  "seconds": 600,
+  "needs": ["debug:debug.key", "debug:debug.focus", "debug:debug.frames", "debug:debug.hangs", "debug:debug.timings",
+            "debug:debug.view_churn", "debug:debug.home", "debug:debug.home.drive",
+            "debug:debug.home_native_fixture.open", "debug:debug.omnibar", "debug:debug.agent_pane",
+            "env:CMUX_NEXT_TYPING_PROBE"],
+  "hot_paths": ["home-key", "omnibar-key"],
+  "owner": "PL-typing",
+  "component": "Input>Typing"
+}

@@ -11,7 +11,7 @@ public struct ProfileResult: Decodable, Sendable, Equatable {
 
 public struct CreateProfileRequest: DaemonRequest {
     public typealias Response = ProfileResult
-    public static let command = "create-profile"
+    public static let commandName: DaemonCommandName = "create-profile"
     public static let requiredCapability: String? = DaemonCapability.profiles.rawValue
     public var name: String
     /// Caller-chosen id makes a retry idempotent; nil lets the daemon mint one.
@@ -33,5 +33,9 @@ public struct CreateProfileRequest: DaemonRequest {
         self.index = index
         self.browserProfileID = browserProfileID
         self.defaults = defaults
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case name, profile, color, icon, theme, index, browserProfileID = "browser_profile_id", defaults
     }
 }

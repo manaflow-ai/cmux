@@ -22,7 +22,7 @@ struct AgentCursorTagGlassTests {
 
     private func placed(reduced: Bool = false) throws -> AgentCursorLayer {
         let stack = AgentCursorStack(hostLayer: CALayer(), resolver: Visible(),
-                                     reduceTransparency: ReduceTransparency(system: { reduced }, changes: NotificationCenter()))
+                                     reduceTransparency: ReduceTransparency(system: { reduced }))
         stack.host.apply(.place(session: session, point: CGPoint(x: 100, y: 100)))
         let cursor = try #require(stack.host.cursorLayer(for: session))
         cursor.showCaption("hello", scale: 2)

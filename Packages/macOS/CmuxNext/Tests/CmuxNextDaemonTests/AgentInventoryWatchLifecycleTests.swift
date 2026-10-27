@@ -7,19 +7,19 @@ import Testing
 struct AgentInventoryWatchLifecycleTests {
     private struct Inspect: DaemonRequest {
         typealias Response = JSONValue
-        static let command = "test-state"
+        static let commandName: DaemonCommandName = "test-state"
     }
     private struct WaitPending: DaemonRequest {
         typealias Response = EmptyResponse
-        static let command = "test-wait-pending"
+        static let commandName: DaemonCommandName = "test-wait-pending"
     }
     private struct Release: DaemonRequest {
         typealias Response = EmptyResponse
-        static let command = "test-release"
+        static let commandName: DaemonCommandName = "test-release"
     }
     private struct Drop: DaemonRequest {
         typealias Response = EmptyResponse
-        static let command = "test-drop"
+        static let commandName: DaemonCommandName = "test-drop"
     }
 
     private let machine: ResourceID = "machine_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"

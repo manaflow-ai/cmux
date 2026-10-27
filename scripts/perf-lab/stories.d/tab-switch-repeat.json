@@ -1,0 +1,19 @@
+{
+  "id": "tab-switch-repeat",
+  "tier": "T1",
+  "description": "Tab and workspace switches at key-repeat speed (Ctrl-Tab held, terminal/Chromium toggles, next workspace) over 20 mixed tabs and 6 workspaces: displayed frame intervals, main-thread busy time per frame and stalls (debug.frames, debug.hangs).",
+  "command": ["scripts/cmux-next/bench_tab_switch.py", "--label", "lab"],
+  "session": "light",
+  "engine": "chromium",
+  "config": "bench",
+  "metrics": [
+    {"name": "switch_repeat\\.(tab-repeat|tab-mixed|tab-back-forth|workspace-repeat)\\.(frame_interval|main_busy)", "unit": "ms", "better": "lower"},
+    {"name": "switch_repeat\\.(tab-repeat|tab-mixed|tab-back-forth|workspace-repeat)\\.stalls", "unit": "count", "better": "lower"}
+  ],
+  "repeats": 1,
+  "seconds": 120,
+  "needs": ["debug:debug.frames", "debug:debug.surfaces", "debug:debug.hangs"],
+  "hot_paths": ["tab-switch", "workspace-switch"],
+  "owner": "PL-switch",
+  "component": "Tabs>Switch"
+}

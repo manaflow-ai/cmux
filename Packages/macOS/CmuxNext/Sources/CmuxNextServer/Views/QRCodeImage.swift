@@ -3,18 +3,27 @@ import CoreImage
 import CoreImage.CIFilterBuiltins
 import SwiftUI
 
+// memory: fixed the `kept` (4) most recent payloads, each at most 181 rows of 181 one-byte pixels
+// (version 40 with the default quiet zone) that CoreGraphics pads to 192 bytes: about 35 KB each.
 /// QR codes from CoreImage's `CIQRCodeGenerator`: one pixel per module,
 /// dark modules on white with a quiet zone, scaled up without smoothing.
 /// Always dark on white, whatever the theme, so every camera reads it.
 enum QRCode {
-    private static var cache: [String: CGImage] = [:]
+    /// Codes kept: a pairing sheet shows one, and each pairing has a new payload.
+    static let kept = 4
+    /// Least recently drawn first.
+    private static var cache: [(key: String, image: CGImage)] = []
     private static let context = CIContext(options: [.useSoftwareRenderer: true])
 
     /// The code for `payload` with a `quiet`-module border, one pixel per
-    /// module, cached per payload.
+    /// module, cached for the ``kept`` most recent payloads.
     static func image(for payload: String, quiet: Int = 2) -> CGImage? {
         let key = "\(quiet):\(payload)"
-        if let cached = cache[key] { return cached }
+        if let index = cache.firstIndex(where: { $0.key == key }) {
+            let hit = cache.remove(at: index)
+            cache.append(hit)
+            return hit.image
+        }
         let filter = CIFilter.qrCodeGenerator()
         filter.message = Data(payload.utf8)
         filter.correctionLevel = "M"
@@ -29,10 +38,14 @@ enum QRCode {
         bitmap.fill(CGRect(x: 0, y: 0, width: side, height: side))
         bitmap.interpolationQuality = .none
         bitmap.draw(modules, in: CGRect(x: quiet, y: quiet, width: modules.width, height: modules.height))
-        let image = bitmap.makeImage()
-        cache[key] = image
+        guard let image = bitmap.makeImage() else { return nil }
+        cache.append((key, image))
+        if cache.count > kept { cache.removeFirst(cache.count - kept) }
         return image
     }
+
+    /// How many codes are kept now.
+    static var count: Int { cache.count }
 }
 
 /// A QR code on a white rounded tile.

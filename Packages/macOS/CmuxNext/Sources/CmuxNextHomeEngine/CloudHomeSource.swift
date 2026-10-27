@@ -1,6 +1,6 @@
 public import CmuxHomeCore
 public import CmuxNextDaemon
-import CmuxNextWakeups
+public import CmuxNextWakeups
 public import Foundation
 import CmuxNextCompat
 
@@ -42,12 +42,15 @@ public nonisolated final class CloudHomeSource: HomeSource {
     let attachmentCache: URL
     /// Most bytes `attachmentCache` keeps; least recently used files go first.
     let attachmentCacheLimit: Int
+    /// The app's one ``BackgroundWork``: an attachment read's disk steps run on its files lane.
+    let work: BackgroundWork
 
     /// `attachmentCache`: where fetched variants land (tests pass a temporary directory).
-    public init(me: Participant, clock: any Clock<Duration> = ContinuousClock(),
+    public init(me: Participant, work: BackgroundWork, clock: any Clock<Duration> = ContinuousClock(),
                 attachmentCache: URL = DaemonHomeSource.defaultAttachmentCache,
                 attachmentCacheLimit: Int = DaemonHomeSource.defaultAttachmentCacheLimit) {
         self.me = me
+        self.work = work
         self.clock = clock
         self.attachmentCache = attachmentCache
         self.attachmentCacheLimit = attachmentCacheLimit

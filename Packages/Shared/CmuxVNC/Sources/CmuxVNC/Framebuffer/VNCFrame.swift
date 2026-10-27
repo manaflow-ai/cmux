@@ -24,14 +24,19 @@ public struct VNCFrame: @unchecked Sendable {
     public func makeImage() -> CGImage? {
         CVPixelBufferLockBaseAddress(pixelBuffer, .readOnly)
         defer { CVPixelBufferUnlockBaseAddress(pixelBuffer, .readOnly) }
-        guard let base = CVPixelBufferGetBaseAddress(pixelBuffer) else { return nil }
+        // SAFETY: the buffer is locked until the defer, so its base address stays valid while
+        // the copy below reads it.
+        guard let base = unsafe CVPixelBufferGetBaseAddress(pixelBuffer) else { return nil }
         let stride = CVPixelBufferGetBytesPerRow(pixelBuffer)
-        let data = Data(bytes: base, count: stride * height)
+        // SAFETY: a locked 32BGRA buffer of `height` rows holds stride * height bytes at
+        // `base`; Data copies them before the defer unlocks the buffer.
+        let data = unsafe Data(bytes: base, count: stride * height)
         guard let provider = CGDataProvider(data: data as CFData) else { return nil }
         let info = CGBitmapInfo(rawValue: CGImageAlphaInfo.noneSkipFirst.rawValue | CGBitmapInfo.byteOrder32Little.rawValue)
-        return CGImage(width: width, height: height, bitsPerComponent: 8, bitsPerPixel: 32, bytesPerRow: stride,
-                       space: CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB(), bitmapInfo: info,
-                       provider: provider, decode: nil, shouldInterpolate: false, intent: .defaultIntent)
+        // SAFETY: a nil decode array: CGImage reads no decode values; the provider owns a copy of the bytes.
+        return unsafe CGImage(width: width, height: height, bitsPerComponent: 8, bitsPerPixel: 32, bytesPerRow: stride,
+                              space: CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB(), bitmapInfo: info,
+                              provider: provider, decode: nil, shouldInterpolate: false, intent: .defaultIntent)
     }
 }
 
@@ -47,16 +52,20 @@ final class FramePublisher {
         guard width > 0, height > 0, let buffer = makeBuffer(width: width, height: height) else { return nil }
         CVPixelBufferLockBaseAddress(buffer, [])
         defer { CVPixelBufferUnlockBaseAddress(buffer, []) }
-        guard let base = CVPixelBufferGetBaseAddress(buffer) else { return nil }
+        // SAFETY: the buffer is locked for writing until the defer; the copy below runs before it.
+        guard let base = unsafe CVPixelBufferGetBaseAddress(buffer) else { return nil }
         let stride = CVPixelBufferGetBytesPerRow(buffer)
+        guard stride >= width * 4 else { return nil }
         framebuffer.pixels.withUnsafeBytes { source in
-            guard let from = source.baseAddress else { return }
-            if stride == width * 4 {
-                base.copyMemory(from: from, byteCount: width * height * 4)
-            } else {
-                for row in 0 ..< height {
-                    base.advanced(by: row * stride).copyMemory(from: from.advanced(by: row * width * 4), byteCount: width * 4)
-                }
+            // SAFETY: the start of the framebuffer's words, valid for this closure.
+            guard let from = unsafe source.baseAddress else { return }
+            for row in 0 ..< height {
+                // SAFETY: the framebuffer holds width * height words, so `from` starts width * height * 4
+                // bytes. The pool buffer is width x height 32BGRA with `stride` >= width * 4 bytes a row
+                // (checked above), so this writes width * 4 bytes at row * stride, inside its
+                // stride * height bytes, and reads width * 4 bytes at row * width * 4, inside the words.
+                // Both ranges stay valid until the closure and the lock end.
+                unsafe (base + row * stride).copyMemory(from: from + row * width * 4, byteCount: width * 4)
             }
         }
         sequence += 1
@@ -74,14 +83,17 @@ final class FramePublisher {
                 kCVPixelBufferMetalCompatibilityKey as String: true,
             ]
             var created: CVPixelBufferPool?
-            CVPixelBufferPoolCreate(nil, [kCVPixelBufferPoolMinimumBufferCountKey as String: 3] as CFDictionary,
-                                    attributes as CFDictionary, &created)
+            // SAFETY: CVPixelBufferPoolCreate stores at most one +1 pool in the local `created`,
+            // live for this call; the Swift import takes ownership of it.
+            _ = unsafe CVPixelBufferPoolCreate(nil, [kCVPixelBufferPoolMinimumBufferCountKey as String: 3] as CFDictionary,
+                                               attributes as CFDictionary, &created)
             pool = created
             poolSize = (width, height)
         }
         guard let pool else { return nil }
         var buffer: CVPixelBuffer?
-        CVPixelBufferPoolCreatePixelBuffer(nil, pool, &buffer)
+        // SAFETY: stores at most one +1 pixel buffer in the local `buffer`, live for this call.
+        _ = unsafe CVPixelBufferPoolCreatePixelBuffer(nil, pool, &buffer)
         return buffer
     }
 }

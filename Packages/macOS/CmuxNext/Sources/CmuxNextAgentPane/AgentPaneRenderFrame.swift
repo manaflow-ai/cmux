@@ -1,9 +1,12 @@
+import CmuxNextPages
 import Foundation
 
 /// The frame a render card shows an agent's HTML in (`conversation/RenderCard.tsx`):
-/// `cmux-agent://render/frame`, an origin of its own beside the pane's `cmux-agent://pane`. The
-/// card frames it sandboxed without same-origin, so the HTML runs with an opaque origin and
-/// cannot reach the pane, its bridge or acpmux.
+/// `cmux-page://cmux.agent/__render/frame` on the page host (``AgentPageResources``). The page host
+/// serves it with its own policy behind `sandbox allow-scripts` (``PageResource/sandboxedPolicy``),
+/// and the card frames it sandboxed without same-origin too, so the HTML always runs with an
+/// opaque origin and cannot reach the pane, its bridge or acpmux. Only the WebKit page host serves
+/// a document its own policy, so the page frames renders only there (`data-engine="webkit"`).
 ///
 /// The document waits for its parent's `cmux-render` message, writes the HTML into itself
 /// (`document.open` keeps the document, so this policy still applies), puts the pane's theme
@@ -11,16 +14,12 @@ import Foundation
 /// and evaluated script and the script CDNs a mock or chart loads its library from, and no
 /// connection, frame, form or remote image.
 nonisolated enum AgentPaneRenderFrame {
-    static let host = "render"
-    static let path = "/frame"
-    /// The frame's origin, for the pane's CSP `frame-src` (PageDescriptor.agent).
-    static let source = "cmux-agent://\(host)"
-
-    /// True for the frame document's URL, and nothing else on the render host.
-    static func isFrame(_ url: URL) -> Bool {
-        url.scheme?.lowercased() == AgentPaneSource.bundledScheme && url.host?.lowercased() == host
-            && url.path == path && url.port == nil && url.user == nil
-    }
+    /// The agent page's dynamic prefix the frame is served under (``PageDescriptor/agent``).
+    static let prefix = "__render"
+    /// The frame document's one name under ``prefix``.
+    static let name = "frame"
+    /// The frame's URL, for the pane's CSP `frame-src` (PageDescriptor.agent): this document only.
+    static let source = "\(PageDescriptor.scheme)://cmux.agent/\(prefix)/\(name)"
 
     static let policy = [
         "default-src 'none'",
@@ -69,14 +68,8 @@ nonisolated enum AgentPaneRenderFrame {
     </script></head></html>
     """#.utf8)
 
-    static func headers(length: Int) -> [String: String] {
-        [
-            "Content-Type": "text/html; charset=utf-8",
-            "Content-Length": String(length),
-            "Content-Security-Policy": policy,
-            "Cache-Control": "no-store",
-            "X-Content-Type-Options": "nosniff",
-            "Referrer-Policy": "no-referrer",
-        ]
+    /// The frame document as the page host serves it.
+    static var resource: PageResource {
+        PageResource(data: document, mimeType: "text/html; charset=utf-8", sandboxedPolicy: policy)
     }
 }

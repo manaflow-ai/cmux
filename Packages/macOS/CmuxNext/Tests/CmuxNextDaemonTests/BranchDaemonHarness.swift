@@ -1,3 +1,4 @@
+import CmuxNextWakeups
 import Foundation
 import Testing
 @testable import CmuxNextDaemon
@@ -29,7 +30,7 @@ struct BranchDaemonHarness {
         var configuration = DaemonLauncher.Configuration(binary: binary, session: session,
                                                          stateDirectory: root.appendingPathComponent("state"), installKey: installKey)
         if let terminalReapGraceSeconds { configuration.terminalReapGraceSeconds = terminalReapGraceSeconds }
-        let launcher = DaemonLauncher(configuration: configuration, environment: { environment })
+        let launcher = DaemonLauncher(work: BackgroundWork(label: "test.daemon-launcher"), configuration: configuration, environment: { environment })
         let ensured = try await launcher.ensure()
         var connectionConfiguration = Self.configuration(terminalEnvironment: terminalEnvironment, sessionEvents: sessionEvents)
         if let installKey { connectionConfiguration.clientHello = .init(installKey: installKey) }

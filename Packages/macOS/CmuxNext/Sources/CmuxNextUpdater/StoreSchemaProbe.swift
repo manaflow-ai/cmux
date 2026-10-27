@@ -1,3 +1,4 @@
+import CmuxNextCompat
 public import Foundation
 import CmuxNextWakeups
 
@@ -53,7 +54,7 @@ nonisolated public struct StoreSchemaProbe: Sendable {
     }
 
     static func parse(_ data: Data) -> [String: Int]? {
-        guard let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else { return nil }
+        guard let object = (try? JSONSerialization.blockingJSONObject(with: data)) as? [String: Any] else { return nil }
         var schemas: [String: Int] = [:]
         for (store, value) in object {
             guard let number = value as? NSNumber, CFGetTypeID(number) != CFBooleanGetTypeID() else { return nil }

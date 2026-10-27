@@ -41,6 +41,7 @@ pub(crate) fn now_ms() -> u64 {
 impl Mux {
     /// One use of palette row `key`, run for `query` ("" when the query was
     /// empty), under `mutation`'s idempotency key.
+    #[track_caller]
     pub(crate) fn state_palette_usage_record(
         &self,
         mutation: &WorkspaceMutation,
@@ -63,6 +64,7 @@ impl Mux {
 
     /// Merges a former history from `source` once (a source seen before
     /// commits nothing new).
+    #[track_caller]
     pub(crate) fn state_palette_usage_import(
         &self,
         mutation: &WorkspaceMutation,
@@ -87,6 +89,7 @@ impl Mux {
     }
 
     /// Hides row `key` from the palette, or shows it again (`hidden` false).
+    #[track_caller]
     pub(crate) fn state_palette_usage_hide(
         &self,
         mutation: &WorkspaceMutation,
@@ -105,6 +108,7 @@ impl Mux {
     }
 
     /// Reset Ranking: forgets row `key`'s uses and learned picks.
+    #[track_caller]
     pub(crate) fn state_palette_usage_forget(
         &self,
         mutation: &WorkspaceMutation,
@@ -120,6 +124,7 @@ impl Mux {
         )
     }
 
+    #[track_caller]
     fn commit_palette_usage(
         &self,
         mutation: &WorkspaceMutation,

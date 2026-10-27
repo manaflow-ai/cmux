@@ -56,6 +56,7 @@ impl WorkspaceRegistry {
     /// explicit user restart (`any_end`, `restart-tab`); returns the terminal
     /// revision, or `None` when the terminal was closed, relaunched or ended
     /// otherwise.
+    #[track_caller]
     pub(crate) fn begin_terminal_respawn(
         &mut self,
         terminal_id: &str,
@@ -114,6 +115,7 @@ impl WorkspaceRegistry {
     /// `terminal_snapshot` is the public terminal value to publish (its `id`
     /// must be the terminal's public id). Returns the terminal and resource
     /// revisions, or `None` when a close won meanwhile.
+    #[track_caller]
     pub(crate) fn commit_terminal_respawned(
         &mut self,
         terminal_id: &str,
@@ -214,6 +216,7 @@ impl WorkspaceRegistry {
 
     /// The replay of terminal `terminal_public_id` in the latest journal
     /// checkpoint that captured it, verified against its digest.
+    #[track_caller]
     pub(crate) fn latest_checkpoint_terminal_replay(
         &self,
         terminal_public_id: &str,

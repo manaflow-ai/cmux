@@ -75,6 +75,13 @@ impl HolderTerminal {
         self.service.untrack(self.chan);
     }
 
+    /// Tell the holder its next read of this terminal echoes the key press
+    /// `flow` (WRITE_FLOW, [`HolderService::mark_input_flow`]): the daemon
+    /// writes the bytes itself on its custody master.
+    pub(crate) fn mark_input_flow(&self, flow: u64) -> bool {
+        self.service.mark_input_flow(self.chan, flow)
+    }
+
     /// How to replay the screen for a new holder (the surface sets it).
     pub(crate) fn set_replay(&self, replay: Replay) {
         *self.replay.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = Some(replay);
@@ -418,14 +425,33 @@ impl std::fmt::Debug for HolderKiller {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use std::io::Read;
     use std::os::fd::FromRawFd;
 
     use super::*;
 
     /// A raw PTY pair whose master is non-blocking, as the holder leaves it.
-    fn nonblocking_pty() -> (OwnedFd, std::fs::File) {
+    /// A terminal on `service` (a stand-in holder) whose custody master is
+    /// `custody`, its output from offset 0.
+    pub(crate) fn stand_in_terminal(
+        service: Arc<HolderService>,
+        chan: u32,
+        custody: OwnedFd,
+    ) -> Arc<HolderTerminal> {
+        Arc::new(HolderTerminal {
+            chan,
+            id: [0x5a; 16],
+            pid: 0,
+            custody,
+            ring: std::sync::Mutex::new(None),
+            sink: HolderSink::new(0),
+            service,
+            replay: std::sync::Mutex::new(None),
+        })
+    }
+
+    pub(crate) fn nonblocking_pty() -> (OwnedFd, std::fs::File) {
         let (mut master, mut slave) = (-1, -1);
         // SAFETY: out-pointers to live locals; default termios and size.
         let opened = unsafe {

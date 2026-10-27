@@ -1,26 +1,29 @@
 import class CmuxNextDesign.LaunchReveal
+import CmuxNextLaunch
+import CmuxNextWakeups
 
 extension AgentTabStore {
-    /// Whether `key`'s view in `pane` waits for the launch's first pane
-    /// content (the focused terminal's first frame, `LaunchSettle`; other
-    /// content once shown; the reveal deadline). A tab's first web view
-    /// (`WKProcessPool`, `AgentPaneView.init`) costs about 150 ms on the main
-    /// thread and would delay the focused pane's terminal, so a tab outside
-    /// the focused pane waits while that pane shows a terminal that will
-    /// draw (`focusedDraws`); a focused tab, a focused terminal whose host
-    /// ended, or a launch whose focus is not known yet makes its view at
-    /// once. `show` runs once, when the content arrives; the pane keeps what
-    /// it shows (the launch snapshot) meanwhile.
-    func deferAtLaunch(_ key: String, reveal: LaunchReveal, focusedPane: String?, pane: String, focusedDraws: Bool,
+    /// Whether `key`'s view waits for the launch (p08-startup-042). A tab's view is a `WKWebView`, and
+    /// the first one makes the `WKProcessPool` (about 150 ms on the main thread), so before startup
+    /// completes a tab draws its picture and makes its view in an afterFirstFrame post of the launch's
+    /// scheduler, the focused pane's tab first (``LaunchViewQueue``). A tab outside the focused pane,
+    /// while that pane shows a terminal that will draw, posts only once the pane region is ready (the
+    /// terminal's first content, `LaunchSettle`), so its view does not delay that terminal. A tab whose
+    /// view exists, or shown after completion, makes its view at once. `show` runs once, in the post;
+    /// the pane keeps the tab's picture meanwhile.
+    ///
+    /// - Parameters:
+    ///   - key: The tab.
+    ///   - focused: The tab shows in the window's focused pane.
+    ///   - focusedTerminalDraws: The window's focused pane shows a terminal that will draw.
+    ///   - reveal: The launch's reveal (`AppServices.launchReveal`), whose pane region gates the other panes' tabs.
+    ///   - startup: The launch's scheduler (`AppServices.launchStartup`); nil in tests with no launch.
+    ///   - show: Shows the tab again once its view may be made.
+    /// - Returns: True when the view waits.
+    func deferAtLaunch(_ key: String, focused: Bool, focusedTerminalDraws: Bool, reveal: LaunchReveal, startup: StartupScheduler?,
                        show: @escaping @MainActor () -> Void) -> Bool {
-        guard focusedDraws, !reveal.isReady(.pane), views[resolve(key)] == nil, let focusedPane, focusedPane != pane else {
-            return false
-        }
-        guard launchDeferred.insert(key).inserted else { return true }
-        reveal.whenReady(.pane) { [weak self] in
-            self?.launchDeferred.remove(key)
-            show()
-        }
-        return true
+        guard views[resolve(key)] == nil else { return false }
+        return launchDeferred.waitsAtLaunch(key, focused: focused, paneGate: focusedTerminalDraws ? reveal : nil,
+                                            startup: startup, show: show)
     }
 }

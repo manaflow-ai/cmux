@@ -12,6 +12,7 @@ impl Mux {
     }
 
     /// Start the configured journal plugin against the bound local socket.
+    #[track_caller]
     pub fn start_journal_plugin(&self, socket: std::path::PathBuf) {
         let generation = match self.workspace_registry.lock() {
             Ok(registry) => registry.reserve_journal_plugin_generation(),
@@ -32,6 +33,7 @@ impl Mux {
     /// Journal a supervisor-observed plugin exit. The roster reducer removes
     /// only entries owned by this producer, so a crash cannot leave stale
     /// rows until the next terminal scan and the cleanup remains replayable.
+    #[track_caller]
     pub(super) fn record_journal_plugin_exit(&self, plugin_id: &str, generation: u64) {
         let ingress =
             match crate::agent_hooks::journal_plugin_exit_journal_ingress(plugin_id, generation) {

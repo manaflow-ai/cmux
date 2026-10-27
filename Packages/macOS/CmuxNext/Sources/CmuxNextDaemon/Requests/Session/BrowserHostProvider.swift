@@ -21,6 +21,6 @@ public struct BrowserHostProviderRequest: DaemonRequest {
             case listenerPID = "listener_pid"
         }
     }
-    public static let command = "browser-host-provider"
+    public static let commandName: DaemonCommandName = "browser-host-provider"
     public init() {}
 }

@@ -68,6 +68,15 @@ public protocol TerminalSessionDelegate: AnyObject {
     /// Right-click menu for the terminal. Nil shows the built-in
     /// Copy/Paste/Select All menu.
     func terminalSession(_ session: TerminalSession, contextMenuFor event: NSEvent) -> NSMenu?
+    /// Ghostty took a key press of the key-down being dispatched (it encoded it for the program or ran a
+    /// binding), or the key changed the preedit or moved copy mode: the next frame shows its effect, whichever
+    /// entry point delivered the key (`sendEvent`, `debug.key` into a window that is not key, a replayed held key).
+    func terminalSessionTookKey(_ session: TerminalSession)
+    /// How the terminal predicts its echo (`terminal.predictiveEcho`, ``PredictiveEchoSlot``), read at each key it
+    /// takes, so a setting change applies at the next key. Nil, the default, is off: no prediction engine exists.
+    func terminalSessionPredictiveEcho(_ session: TerminalSession) -> TerminalPredictiveEcho.Mode?
+    /// The terminal runs on another machine, read when its predictions start.
+    func terminalSessionIsRemote(_ session: TerminalSession) -> Bool
 }
 
 public extension TerminalSessionDelegate {
@@ -79,7 +88,7 @@ public extension TerminalSessionDelegate {
             NSWorkspace.shared.revealInBackground([safeURL])
             return true
         }
-        NSWorkspace.shared.open(safeURL, configuration: NSWorkspace.OpenConfiguration())
+        NSWorkspace.shared.openInBackground(safeURL)
         return true
     }
     func terminalSession(_ session: TerminalSession, openLink text: String) -> Bool {
@@ -92,4 +101,7 @@ public extension TerminalSessionDelegate {
         GhosttyRuntime.shared.bellSettings.ring()
     }
     func terminalSessionDidRequestClose(_ session: TerminalSession) {}
+    func terminalSessionTookKey(_ session: TerminalSession) {}
+    func terminalSessionPredictiveEcho(_ session: TerminalSession) -> TerminalPredictiveEcho.Mode? { nil }
+    func terminalSessionIsRemote(_ session: TerminalSession) -> Bool { false }
 }

@@ -99,6 +99,7 @@ final class ChiefPetMascotCell: NSButton {
         themedToolTip = title
         focusRingType = .default
         wantsLayer = true
+        layerContentsRedrawPolicy = .onSetNeedsDisplay
         translatesAutoresizingMaskIntoConstraints = false
         NSLayoutConstraint.activate([
             widthAnchor.constraint(equalToConstant: Self.side),

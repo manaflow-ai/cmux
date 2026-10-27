@@ -3,6 +3,8 @@ import CmuxNextAgentActivity
 import CmuxNextDesign
 @testable import CmuxNextApp
 @testable import CmuxNextSidebar
+import CmuxNextWakeups
+import Foundation
 import Testing
 
 /// Leo 2026-10-20: an optional Chief item in the sidebar (off by default, placed like any item)
@@ -80,17 +82,43 @@ struct ChiefSidebarItemTests {
     /// look, not a generic glyph; another pick draws another picture, and an unknown id draws the orb.
     @Test func theChiefItemWearsTheChosenPetCharacter() {
         let layout = SidebarLayoutDocument(sections: [LayoutSection(id: LayoutSectionID("sec_top"), region: .top, items: [Self.chiefItem])])
+        let pictures = ChiefSidebarPicture(work: BackgroundWork(label: "test.chief-sidebar-picture"),
+                                           mainWork: MainWorkScheduler(budget: MainFrameBudget()))
         func picture(_ mascot: String?) -> SidebarFavicon? {
-            SidebarBridge.itemInfo(for: layout, registered: { _ in true }, chiefMascot: mascot)[Self.chiefItem.id]?.favicon
+            SidebarBridge.itemInfo(for: layout, registered: { _ in true }, chiefPicture: pictures.favicon(mascot: mascot))[Self.chiefItem.id]?.favicon
         }
+        // Nothing is read on the main thread: the item keeps its plain glyph until the files lane returns the picture.
+        #expect(pictures.load(mascot: "fox"))
+        #expect(pictures.load(mascot: "orb"))
+        #expect(picture("fox") == nil)
+        #expect(!pictures.load(mascot: "fox"), "a picture being read is not read twice")
+        Self.spinMainRunLoop { picture("fox") != nil && picture("orb") != nil }
         let fox = picture("fox"), orb = picture("orb")
         #expect(fox != nil)
         #expect(orb != nil)
         #expect(fox != orb)
         // The same pick is the same picture, so an unrelated sidebar change does not redraw the item.
         #expect(picture("fox") == fox)
+        #expect(!pictures.load(mascot: "fox"), "a loaded picture is not read again")
         #expect(picture(nil) == orb)
         #expect(picture("not-a-mascot") == orb)
+    }
+
+    /// Only a layout with the Chief item reads its picture: the item is off by default, so the default layout
+    /// reads no pet file.
+    @Test func onlyALayoutWithTheChiefItemLoadsItsPicture() {
+        let chief = SidebarLayoutDocument(sections: [LayoutSection(id: LayoutSectionID("sec_top"), region: .top, items: [Self.chiefItem])])
+        #expect(SidebarBridge.showsChief(chief))
+        #expect(!SidebarBridge.showsChief(SidebarLayoutDocument.defaults.withoutChats))
+        #expect(!SidebarBridge.showsChief(SidebarLayoutDocument(sections: [])))
+    }
+
+    /// Runs main run loop passes (where a reply posted from a lane lands) until `done` or 5 s.
+    private static func spinMainRunLoop(until done: () -> Bool) {
+        let end = Date(timeIntervalSinceNow: 5)
+        while !done(), Date() < end {
+            _ = RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.01))
+        }
     }
 
     @Test func foldedHidesOnlyIdleSubagentsInNumberOrder() {

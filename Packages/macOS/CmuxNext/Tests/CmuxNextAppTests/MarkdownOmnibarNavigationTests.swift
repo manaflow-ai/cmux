@@ -6,6 +6,7 @@ import CmuxNextPages
 import CmuxNextSettings
 import Foundation
 import Testing
+import CmuxNextWakeups
 
 /// The Markdown tab's omnibar is the browser's row with Back, Forward and Reload
 /// (plans/cmux-next/markdown-omnibar-DESIGN.md section 2b): the page's history message reaches the
@@ -58,7 +59,7 @@ import Testing
         let actions = MarkdownOmnibarActions(
             open: { _, _ in }, returnFocus: {}, liveLink: { _ in nil }, openInBrowser: { _ in },
             back: { ran.append("back") }, forward: { ran.append("forward") }, reload: { ran.append("reload") })
-        let bar = MarkdownOmnibarBar(suggestionEngine: OmniboxSuggestionEngine(), actions: actions)
+        let bar = MarkdownOmnibarBar(suggestionEngine: OmniboxSuggestionEngine(), actions: actions, mainWork: MainWorkScheduler(budget: MainFrameBudget()))
         let back = try #require(bar.toolbar.backButton)
         let forward = try #require(bar.toolbar.forwardButton)
         let reload = try #require(bar.toolbar.reloadButton)
@@ -85,7 +86,7 @@ import Testing
     @Test func theRowIsTheBrowserToolbarsHeight() {
         let bar = MarkdownOmnibarBar(suggestionEngine: OmniboxSuggestionEngine(), actions: MarkdownOmnibarActions(
             open: { _, _ in }, returnFocus: {}, liveLink: { _ in nil }, openInBrowser: { _ in },
-            back: {}, forward: {}, reload: {}))
+            back: {}, forward: {}, reload: {}), mainWork: MainWorkScheduler(budget: MainFrameBudget()))
         #expect(bar.toolbar.preferredHeight == OmnibarStyle.toolbarHeight(scale: NSScreen.main?.backingScaleFactor ?? 2))
     }
 }

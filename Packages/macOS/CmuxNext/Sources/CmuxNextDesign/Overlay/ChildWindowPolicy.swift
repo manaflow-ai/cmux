@@ -31,7 +31,7 @@ public struct ChildWindowPolicy {
         if WindowOverlayHost.isPageWindow(child) { return true }
         // AppKit's full screen titlebar: AppKit adds it, the app does not.
         if WindowOverlayHost.isAppKitChrome(child) { return true }
-        if let host = WindowOverlayHost.existingHost(for: parent), child === host.panel { return true }
+        if let host = WindowOverlayHost.existingHost(for: parent), child === host.madePanel { return true }
         if child is OverlayHostPanel { return true }
         // The shared native popups (omnibar and toolbar) are child panels above the page by design.
         if child is NativePopupPanel { return true }

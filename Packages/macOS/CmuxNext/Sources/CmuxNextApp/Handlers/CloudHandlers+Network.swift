@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextActions
 import CmuxNextCloud
+import CmuxNextCompat
 
 extension CloudHandlers {
     static func bindNetworkActions(into registry: ActionRegistry, context: AppActionContext, reason: @escaping @MainActor () -> String?) {
@@ -45,11 +46,11 @@ extension CloudHandlers {
         }
         bind("cloudFirewallCreate", registry, reason: reason) { invocation in
             guard let json = invocation["path"]?.stringValue, let data = json.data(using: .utf8),
-                  let value = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let value = try? JSONSerialization.blockingJSONObject(with: data) as? [String: Any],
                   let sourceData = try? JSONSerialization.data(withJSONObject: value["source"] ?? [:]),
                   let destinationData = try? JSONSerialization.data(withJSONObject: value["destination"] ?? [:]),
-                  let source = try? JSONDecoder().decode(CloudFirewallEndpoint.self, from: sourceData),
-                  let destination = try? JSONDecoder().decode(CloudFirewallEndpoint.self, from: destinationData) else {
+                  let source = try? JSONDecoder().blockingDecode(CloudFirewallEndpoint.self, from: sourceData),
+                  let destination = try? JSONDecoder().blockingDecode(CloudFirewallEndpoint.self, from: destinationData) else {
                 throw ActionFailure(message: "Pass path as JSON with source and destination firewall endpoints.")
             }
             runTracked("create Cloud firewall rule", context) { _ = try await cloud.api.createFirewallRule(source: source, destination: destination, description: value["description"] as? String) }

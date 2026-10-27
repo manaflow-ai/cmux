@@ -1,0 +1,17 @@
+{
+  "id": "fsync",
+  "tier": "T2",
+  "description": "Cost of fsync, F_FULLFSYNC and F_BARRIERFSYNC on the lab host's disk (fsync-bench.py: 40 x 4 KiB writes, each followed by its sync), the calls the daemon's journal and store write through; each call's ms, light session, no app.",
+  "command": ["scripts/cmux-next/fsync-bench.py"],
+  "session": "light",
+  "engine": "none",
+  "config": "bench",
+  "metrics": [
+    {"name": "fsync\\.(fsync|fullfsync|barrier)\\.call", "unit": "ms", "better": "lower"}
+  ],
+  "repeats": 1,
+  "seconds": 10,
+  "needs": [],
+  "owner": "PL-daemon",
+  "component": "Daemon>Journal"
+}

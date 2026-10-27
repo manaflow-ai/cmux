@@ -53,6 +53,11 @@ extension SidebarContainerView {
         if !rail, model.isRailOpen { model.isRailOpen = false }
         railView.hugsTrailingEdge = side == .right
         railView.isHidden = !isRailShown
+        // The rail marks every row's state: while it is the style, the list keeps every row observed.
+        if sidebarView.list.observesEveryRow != rail {
+            sidebarView.list.observesEveryRow = rail
+            sidebarView.list.watchRows(layoutChanged: true)
+        }
         applySurfaceFill()
     }
 }

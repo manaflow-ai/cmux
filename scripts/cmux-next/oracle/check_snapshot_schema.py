@@ -497,6 +497,12 @@ def daemon_session(schema: dict) -> dict:
     return schema["properties"]["facets"]["properties"]["daemon"]["oneOf"][0]["properties"]["session"]["properties"]
 
 
+def layout_column(examples: dict) -> dict:
+    """The example's first strip column (a `column` layoutNode)."""
+    screens = examples["snapshot-example.json"]["facets"]["layout"]["screens"]
+    return next(s["root"] for s in screens if s["root"]["kind"] == "strip")["children"][0]
+
+
 def mutations() -> list[tuple[str, object]]:
     """Each breaks one rule; the check must report it. Mutators take (schema, examples, captures)."""
 
@@ -533,9 +539,19 @@ def mutations() -> list[tuple[str, object]]:
     def wrong_id_kind(schema, examples, captures):
         daemon_session(schema)["panes"]["items"]["properties"]["screen_id"]["x-oracle-id-kind"] = "workspace"
 
+    def column_without_width(schema, examples, captures):
+        del layout_column(examples)["width"]
+
+    def width_on_a_split(schema, examples, captures):
+        examples["snapshot-example.json"]["facets"]["layout"]["screens"][0]["root"]["width"] = 0.5
+
+    def height_on_a_column(schema, examples, captures):
+        layout_column(examples)["height"] = 0.5
+
     return [(f.__name__, f) for f in (
         copy_paste_path, decimal_as_integer, wire_integer_revision, dropped_facet, id_without_kind,
         raw_private_text, missing_wire_key, volatile_without_reason, wrong_id_kind,
+        column_without_width, width_on_a_split, height_on_a_column,
     )]
 
 

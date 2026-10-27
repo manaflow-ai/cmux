@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import Foundation
 
 /// A tab's session history (`cmux_shim_tab_navigation_entries`): entries
@@ -15,7 +16,7 @@ nonisolated struct CEFNavigationEntries: Equatable, Sendable {
 
     init?(json: String) {
         guard let data = json.data(using: .utf8),
-              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let object = try? JSONSerialization.blockingJSONObject(with: data) as? [String: Any],
               let list = object["entries"] as? [[String: Any]] else { return nil }
         entries = list.map { Entry(url: $0["url"] as? String ?? "", title: $0["title"] as? String ?? "") }
         currentIndex = object["current"] as? Int ?? -1

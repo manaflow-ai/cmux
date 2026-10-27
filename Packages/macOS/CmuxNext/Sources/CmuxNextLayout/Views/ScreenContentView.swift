@@ -15,7 +15,13 @@ final class ScreenContentView: NSView {
     /// The same for the strip's dividers and column edges.
     var carriedDividers: [DividerHandleView.Kind: CGFloat] = [:]
     /// Frames before the rows' vertical offsets: what the springs target.
-    private(set) var baseGeometry: ScreenGeometry
+    private(set) var baseGeometry: ScreenGeometry {
+        didSet { restStripRange = stripRange(in: baseGeometry, beside: []) }
+    }
+    /// The strip's range beside the docks at rest (`PaneArrival.stripClip`), computed when the geometry is
+    /// (a row or a scroll area moves no dock and no clip edge), so a presentation with no dock growing in
+    /// computes none.
+    private(set) var restStripRange: CGRect?
     /// `baseGeometry` at the presented row and scroll area offsets (`shiftingRows`, `shiftingAreas`): what
     /// hit testing, drops, focus and the strip scroll read.
     var geometry: ScreenGeometry
@@ -33,8 +39,17 @@ final class ScreenContentView: NSView {
     /// springs, and the shift after the last column or row closed is the close's own curve. A user
     /// scroll takes the camera back to the scroll spring.
     var scrollRidesFrames = false
-    /// A close waits for `syncScroll` to place its camera, then takes its first frame (`leadIfPending`).
+    /// A close waits for the change turn to place its camera, then takes its first frame (`leadIfPending`).
     var leadsFrame = false
+    /// This screen's render-server motion variants and the `motion.renderServer` switch
+    /// (`ScreenContentView+Motion.swift`); the composition root passes the switch through the context.
+    var motionBackends: MotionBackends<ScreenContentView>
+    /// Change turns open on this screen (`beginMotionTurn`): a turn nested in another (a resize
+    /// inside the root's) ends with the outer one.
+    var motionTurnDepth = 0
+    /// The presentation the open turn holds until its render-server kinds took their motions; nil
+    /// while no turn holds one (always with the render server off).
+    var heldPresentation: HeldPresentation?
     /// A split's or a close's panes spring to their new sizes: their terminals keep their grids
     /// until every pane landed (`LayoutViewContext.gridHoldScreens`, the PTY resizes once at rest).
     /// A press during the motion (rapid Cmd-D) keeps the hold, so the grids go once for the whole chain.
@@ -56,12 +71,22 @@ final class ScreenContentView: NSView {
     /// Each horizontal scroll area keeps its own instance of the same rules
     /// (ScreenContentView+ScrollAreas.swift).
     var areaScrolls: [SplitID: ScrollAreaScroll] = [:]
+    /// Row and scroll area motion containers, and the scrollers the layout gives one now (`+Scrollers`).
+    var scrollerContainers: [NestedScroller: ScrollerPanContainerView] = [:], wantedScrollers: Set<NestedScroller> = []
+    /// Row and area offsets a remount gave before their scrolls were built (`restoreScroll`).
+    var pendingScroll = LayoutScreenScroll()
     /// A row divider drag's heights, shown until the next layout arrives
     /// (gesture state; the model keeps no copy, rows.md Z1).
     var rowDragPreview: (column: ColumnID, heights: [RowHeight])?
+    /// The strip camera as it shows: during a fling on the render server (`StripClipContainerView.fling`)
+    /// the reducer's spring rests on the fling's target and this is where the strip is on the way. A
+    /// write takes the camera back from the fling first (``takeCameraFromServer()``).
     var scroll: SpringValue {
-        get { scrollState.spring }
-        set { scrollState.spring = newValue }
+        get { stripContainer.fling == nil ? scrollState.spring : flingCamera }
+        set {
+            takeCameraFromServer()
+            scrollState.spring = newValue
+        }
     }
     var isUserScrolling: Bool { scrollState.isGestureActive }
     var reportScrollOnSettle = false
@@ -78,29 +103,61 @@ final class ScreenContentView: NSView {
     var scrollbarFlash = false
     /// The canvas this screen shows, its camera and a pointer drag (ScreenContentView+Canvas).
     var canvasState = ScreenCanvasState()
-    /// A user pan of this screen stepped the layout and has not ended yet (`applyPresentation`).
+    /// Layout motion the CPU step does not own has not ended yet: a user pan of this screen stepped the
+    /// layout (`applyPresentation`), or render-server springs run (``renderSpringsInFlight``).
     var userMotionActive = false
+    /// Render-server spring calls of this screen's panes and dividers that have not landed
+    /// (`ScreenContentView+RenderMotion.swift`).
+    var renderSpringsInFlight = 0
+    /// A close on the render server that has not landed and still owns the camera (`springCloseOnRenderServer`).
+    var renderClose: RenderClose?
+    /// The render-server springs still carrying panes and dividers, what a later change starts from.
+    var renderTracks = RenderTracks()
     /// A strip pan event showed in the current display frame (``presentPan()``); the frame's tick
     /// clears it (``displayFrameBegan()``).
     var panPresentedInFrame = false
     /// Strip pan events reduced but not shown yet: the next frame tick shows them in one presentation.
     var panPresentationPending = false
-    /// Frame ticks the pan still keeps after its last event (``displayFrameBegan()``).
-    var panTicksLeft = 0
-    /// Pane strip clips computed, cumulative (PaneMotionWorkTests: per frame it is the panes that
-    /// moved or whose covers changed, not every pane).
+    /// The strip's dividers sit in the strip container with its hosts (the last `ensureStacking`), so a
+    /// pan on the container moves them (`ScreenContentView+StripPan.swift`).
+    var stripDividersInContainer = false
+    /// While the container carries the pan, the strip offset its views are laid out at; nil when
+    /// they are laid out at the camera.
+    var panBase: CGFloat?
+    /// The strip offset the last layout pass placed the hosts and dividers at (``applyPresentation(force:)``).
+    var laidOutStripOffset: CGFloat = 0
+    /// The strip shift the last visibility pass saw and how far a pan can go from it before a pane
+    /// enters or leaves (``recordVisibilitySpan()``).
+    var visibilitySpan: (shift: CGFloat, span: PanVisibilitySpan)?
+    /// Pane clips computed, cumulative (PaneMotionWorkTests): a spring or a pan beside docks computes none.
     var stripClipsComputed = 0
+    /// Strip ranges computed (`PaneArrival.stripClip`), cumulative (DockArrivalRenderMotionTests): a dock on
+    /// the render server computes them at plan apply only.
+    var stripRangesComputed = 0
+    /// Moves on with any change to the hosts' frames, alphas, clips or order (`PaneHostView.pageCovers`).
+    var coverVersion = 0
+    /// The strip's panes sit in this view, which clips them to the strip's range by its bounds
+    /// (`StripClipContainerView`); the docks stack above it.
+    let stripContainer = StripClipContainerView(frame: .zero)
+    /// The strip panes' rings and dims while the strip pans on its container: the root puts it in the
+    /// overlay plane, and it takes the container's translation (`StripChromePlane`).
+    let stripChrome = StripChromePlane(frame: .zero)
     init(screenID: ScreenID, layout: ScreenLayout, context: LayoutViewContext,
          paneMotionVariant: @escaping () -> PaneMotionVariant = { LayoutTunables.paneMotionVariant.value }) {
         self.screenID = screenID
         self.layout = layout
         self.context = context
         self.motionState = ScreenPaneMotionState(provider: paneMotionVariant)
+        self.motionBackends = MotionBackends(ScreenContentView.renderServerMotions, renderServer: context.rendersMotionOnServer)
         self.baseGeometry = ScreenGeometry.compute(layout, viewport: .zero, style: context.style)
         self.geometry = baseGeometry
+        self.restStripRange = PaneArrival.stripClip(baseGeometry, docks: [])
         super.init(frame: .zero)
         wantsLayer = true
         layer?.masksToBounds = true
+        addSubview(stripContainer)
+        stripContainer.companion = stripChrome.layer
+        stripContainer.onShowsMovedChange = { [weak self] in self?.context.stripMovedDidChange() }
     }
     @available(*, unavailable)
     required init?(coder: NSCoder) {
@@ -156,15 +213,20 @@ final class ScreenContentView: NSView {
     /// A pane spring left mid-flight could park its pane off screen. Column and row camera
     /// springs may resume when the workspace shows (Lucas 2026-10-19).
     func settleMotion() {
+        finishPanFling()
         guard hasMotion else { return }
         reconcileAndScroll()
     }
 
     /// A window resize: frames snap (or, `keepsMotion`, a running spring retargets), and the scroll keeps the
-    /// focused column in place on screen, then fits it (L7).
+    /// focused column in place on screen, then fits it (L7). A render-server camera move comes back first (its
+    /// zoom pivots on the old viewport center); the turn's end hands it over again at the new size.
     fileprivate func reconcileAndScroll(keepsMotion: Bool = false) {
-        reconcile(animated: keepsMotion)
-        syncScroll(focused: lastFocused, source: .programmatic, mode: context.model.centerFocusedColumn, animated: keepsMotion)
+        takeCanvasCameraBack()
+        motionTurn {
+            reconcile(animated: keepsMotion)
+            return syncScroll(focused: lastFocused, source: .programmatic, mode: context.model.centerFocusedColumn, animated: keepsMotion)
+        }
     }
 
     // MARK: Model updates
@@ -197,8 +259,13 @@ final class ScreenContentView: NSView {
 
     @discardableResult
     func reconcile(animated: Bool, structural: Bool = false, unzooming: Bool = false, zooming: Bool = false) -> Bool {
+        // A layout change takes the camera, rows and scroll areas from flings on the render server: the CPU carries them on.
+        takeCameraFromServer()
+        takeScrollersFromServer()
         let shown = rowDragPreview.map { layout.settingRowHeights($0.heights, for: $0.column) } ?? layout
         let before = geometry
+        // A new structure starts from what shows, render-server springs included (`takeRenderSpringsBack`).
+        if structural { takeRenderSpringsBack() }
         // One style read per pass: it is resolved from the settings.
         let style = context.style
         reconcilePasses += 1
@@ -206,6 +273,7 @@ final class ScreenContentView: NSView {
         reconciledScale = scale
         baseGeometry = canvasGeometry ?? ScreenGeometry.compute(shown, viewport: bounds.size, style: style, scale: scale)
         geometry = baseGeometry.shiftingAreas(areaOffsets).shiftingRows(rowOffsets)
+        reconcileScrollerContainers() // before `hostParent` puts a new host in one
         let animate = animated && !context.reduceMotion && bounds.width > 0
         // `ui.paneAnimations` (default on): a split, a close and a released divider spring only with it on.
         let splits = animate && context.animatesPaneLayout
@@ -266,10 +334,8 @@ final class ScreenContentView: NSView {
                 paneFrames[pane] = existing
             } else {
                 let host = context.host(for: pane)
-                if host.superview !== self {
-                    // Under the zooming pane and the dividers: `reconcileDock` ranks it (`ensureStacking`).
-                    addSubview(host, positioned: .below, relativeTo: firstDividerView)
-                }
+                // Under the zooming pane and the dividers: `reconcileDock` ranks it (`ensureStacking`).
+                if !holds(host) { move(host, to: hostParent(for: pane)) }
                 // Opaque from its first frame: an arriving pane grows in from its edge, never fades.
                 var frame = AnimatedFrame(arrivals[pane]?.seed ?? target)
                 if arrivals[pane] != nil { SplitMotion.ride(&frame, panes: shownBefore, skipping: Set(arrivals.keys)) }
@@ -281,7 +347,7 @@ final class ScreenContentView: NSView {
         }
         for pane in paneFrames.keys where baseGeometry.panes[pane] == nil {
             let frame = paneFrames.removeValue(forKey: pane)
-            if covering, context.hosts[pane]?.superview === self, frame != nil {
+            if covering, let host = context.hosts[pane], holds(host), frame != nil {
                 zoomMotion.leave(pane)
                 continue
             }
@@ -310,8 +376,10 @@ final class ScreenContentView: NSView {
             } else {
                 view = DividerHandleView(kind: kind, axis: target.axis)
                 view.onDrag = { [weak self] event in self?.handleDrag(kind: kind, event: event) }
-                view.onPointerChange = { [weak self] in self?.refreshDividerHover() }
-                addSubview(view)
+                followDragInput(view)
+                view.onPointerChange = { [weak self] event in self?.refreshDividerHover(at: event) }
+                // Ranked by `reconcileDock` (`ensureStacking`).
+                dividerParent(for: kind, inContainer: dividersInStripContainer).addSubview(view)
                 dividerViews[kind] = view
             }
             view.lineThickness = style.dividerThickness
@@ -365,7 +433,7 @@ final class ScreenContentView: NSView {
 
         if structural { scrollRidesFrames = departing && animateFrames && !covering }
         // A close's neighbours start covering the closed pane's space in the frame it leaves:
-        // no frame shows the hole before they move (`leadIfPending`, after `syncScroll`).
+        // no frame shows the hole before they move (`leadIfPending`, at the end of the change turn).
         leadsFrame = departing && animateFrames && !covering && !wasMoving
         // A split's or a close's terminals no longer keep their grids until the spring lands (Lawrence
         // 2026-10-23: they resize at the start): each resized pane hears its final size in the step that
@@ -387,6 +455,7 @@ final class ScreenContentView: NSView {
     func releaseCovered(all: Bool = false) {
         for pane in zoomMotion.settled(all: all) where paneFrames[pane] == nil && !context.livePanes.contains(pane) {
             context.release(pane)
+            coverVersion &+= 1
         }
     }
 
@@ -407,10 +476,6 @@ final class ScreenContentView: NSView {
             dividerFrames[kind] = frame
         }
         (carriedShown, carriedDividers) = ([:], [:])
-    }
-
-    fileprivate var firstDividerView: NSView? {
-        subviews.first { $0 is DividerHandleView }
     }
 
     /// A row divider release's preview waits for the layout that carries

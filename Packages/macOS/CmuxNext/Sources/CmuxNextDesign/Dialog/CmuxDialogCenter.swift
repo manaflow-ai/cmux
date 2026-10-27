@@ -1,5 +1,8 @@
 public import AppKit
 public import CmuxNextDesignTokens
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
+import func CmuxSafeConcurrency.withOnceContinuation
 
 /// The single owner of every open cmux dialog. Callers present a spec in a
 /// scope and get exactly one answer; automation (the debug socket, the
@@ -83,11 +86,11 @@ public final class CmuxDialogCenter {
         return id
     }
 
-    /// Shows `spec` in `scope` and waits for the answer.
+    /// Shows `spec` in `scope` and waits for the answer; a dialog that went away without one is dismissed.
     public func present(_ spec: CmuxDialogSpec, in scope: CmuxDialogScope) async -> CmuxDialogAnswer {
-        await withCheckedContinuation { continuation in
+        (try? await withOnceContinuation { (continuation: OnceContinuation<CmuxDialogAnswer, OnceContinuationError>) in
             present(spec, in: scope) { continuation.resume(returning: $0) }
-        }
+        }) ?? CmuxDialogAnswer.dismissed(spec, values: [:])
     }
 
     // MARK: Answering

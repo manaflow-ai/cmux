@@ -1,6 +1,9 @@
 import AppKit
 @testable import CmuxNextBrowser
+@testable import CmuxNextCompat
+import CmuxNextWakeups
 import Foundation
+import os
 import Testing
 
 /// Chrome shares a renderer between at most 2 main frames of one site (kProcessPerSiteUpToMainFrameThreshold),
@@ -109,8 +112,39 @@ import Testing
         #expect(refused.isEmpty)
         #expect(Set(Spy.channels) == Set(CEFPageMessage.Channel.allCases.map(\.name)))
         // The page busy recorder reaches cross-origin frames (it reported nothing from them before).
-        #expect(Spy.scripts.contains { $0.source == BrowserPageBusy.recorderScript && $0.world == "" && $0.allFrames == 1 })
+        let recorder = CEFDocumentScripts.Script(world: "", body: BrowserPageBusy.recorderScript, allFrames: true, scope: .browserTabs)
+        #expect(Spy.scripts.contains { $0.source == recorder.source && $0.world == "" && $0.allFrames == 1 })
         #expect(Spy.scripts.allSatisfy { !$0.source.contains("cmuxMedia(") }, "a page-channel script posts through a DevTools binding")
+    }
+
+    // MARK: cmux page tabs (p13-webui-068)
+
+    /// A cmux page's tab on the shipped fork attaches no browser-tab bridge: no media or verification script and no
+    /// binding go over its DevTools session. Its first paint still reads lifecycle events, so the event watch is on.
+    @Test func aPageTabOnTheShippedForkAttachesNoBrowserTabBridge() async throws {
+        let rig = try Rig(forkAPI: 24)
+        defer { rig.close() }
+        _ = try rig.attachedTab(cmuxPage: true)
+        await rig.answeringDevTools { Spy.devToolsCalls.contains("Page.getFrameTree") }
+        await rig.settle()
+        #expect(Spy.devToolsCalls.contains("Page.setLifecycleEventsEnabled"), "\(Spy.devToolsCalls)")
+        #expect(!Spy.devToolsCalls.contains("Page.addScriptToEvaluateOnNewDocument"), "\(Spy.devToolsCalls)")
+        #expect(!Spy.devToolsCalls.contains("Runtime.addBinding"), "\(Spy.devToolsCalls)")
+        #expect(Spy.watched.last == 1, "the first paint bridge hears no lifecycle events")
+    }
+
+    /// From fork API 29 the media hub's post reaches a browser tab's bridge; a cmux page's tab drops it (its renderer
+    /// runs no browser-tab script, so the post is not cmux's) and opens no DevTools session.
+    @Test(arguments: [false, true]) func aMediaPostReachesOnlyABrowserTab(cmuxPage: Bool) async throws {
+        let rig = try Rig(forkAPI: 29)
+        defer { rig.close() }
+        let tab = try rig.attachedTab(cmuxPage: cmuxPage)
+        await rig.settle()
+        #expect(Spy.devToolsCalls.isEmpty, "\(Spy.devToolsCalls)")
+        let post = try #require(CEFPageMessage(channel: "cmuxMedia", payload: #"{"frame":"f1","report":{"title":"Song","playing":true}}"#,
+                                               mainFrame: true))
+        tab.agentRelay.pageMessage(post)
+        #expect((tab.state.media != nil) == !cmuxPage, "media \(String(describing: tab.state.media))")
     }
 
     /// The spare window's about:blank placeholder is never shown, so Chromium never learned it was hidden and ran
@@ -123,7 +157,7 @@ import Testing
         let host = CEFPaneHost(key: CEFPaneKey(pane: BrowserPaneID(rawValue: "spare-\(UUID().uuidString)"), profile: .default), runtime: rig.runtime)
         let blank = CEFTab(id: .random(), profile: .default, host: host, runtime: rig.runtime)
         host.placeholder = blank
-        host.freezesPlaceholder = true
+        host.quietsPlaceholder = true
         host.add(blank)
         host.ensureCreated(blank)
         let request = try #require(rig.runtime.pendingWindows.keys.first)
@@ -148,6 +182,43 @@ import Testing
         #expect(!Spy.devToolsCalls.contains("Page.setWebLifecycleState"), "\(Spy.devToolsCalls)")
     }
 
+    // MARK: Cookies (on this file's spy shim)
+
+    /// `browser.page.cookies.list` on a Chromium tab: the `Network.getAllCookies` reply, a whole jar far above the main
+    /// thread's JSON gate, is parsed on the `.cpu` lane it is given, never on the main thread, and every field comes
+    /// through.
+    @Test func aTabsCookieJarIsParsedOnTheCPULane() async throws {
+        let rig = try Rig(forkAPI: 29)
+        defer { rig.close() }
+        let tab = try rig.attachedTab()
+        await rig.settle()
+        // One .cpu slot: the sentinel item below runs after the parse item reported its run.
+        let lanes = OSAllocatedUnfairLock<[BlockingLane]>(initialState: [])
+        let work = BackgroundWork(cpuWidth: 1, label: "test.cef-cookies", onRan: { lane, _, _, _ in lanes.withLock { $0.append(lane) } })
+        let filler = (0..<2_000).map { #"{"name":"n\#($0)","value":"v","domain":"filler.test","path":"/","session":true}"# }
+        let jar = #"{"cookies":[{"name":"sid","value":"abc","domain":".example.com","path":"/app","expires":1893456000,"#
+            + #""session":false,"secure":true,"httpOnly":true},"# + filler.joined(separator: ",") + "]}"
+        try #require(jar.utf8.count > BlockingKind.cpuIntensiveJSONBytes)
+        let table = BlockingViolationTable(mode: .record)
+
+        let listed = BlockingViolationTable.$scoped.withValue(table) { Task { try await tab.cookies(on: work) } }
+        await rig.until { Spy.devToolsCalls == ["Network.getAllCookies"] }
+        let message = try #require(Spy.unanswered.last)
+        rig.runtime.handle(.devToolsResult(browser: 7, messageID: message, success: true, json: jar))
+        let cookies = try await listed.value
+        try await work.run(.userVisible, mayBlock: .cpu) {}
+        await table.flush()
+
+        #expect(lanes.withLock { $0.first } == .cpu, "the jar was not parsed on the .cpu lane")
+        #expect(table.sites.filter { $0.kind == .cpuIntensive }.isEmpty, "the jar was parsed on the main thread: \(table.sites)")
+        #expect(cookies.count == 2_001)
+        let sid = try #require(cookies.first)
+        #expect(sid == BrowserCookie(name: "sid", value: "abc", domain: ".example.com", path: "/app",
+                                     expires: Date(timeIntervalSince1970: 1_893_456_000), secure: true, httpOnly: true))
+        #expect(cookies.last?.expires == nil, "a session cookie has no expiry")
+        await work.shutdown()
+    }
+
     // MARK: Rig
 
     @MainActor final class Rig {
@@ -158,13 +229,14 @@ import Testing
             Spy.reset(forkAPI: forkAPI)
             Spy.exportsRendererPaths = exports
             root = FileManager.default.temporaryDirectory.appending(path: "cef-renderer-paths-\(UUID().uuidString)", directoryHint: .isDirectory)
-            runtime = CEFRuntime(shim: try Spy.library(), storage: CEFProfileStorage(root: root))
+            runtime = CEFRuntime.spy(shim: try Spy.library(), storage: CEFProfileStorage(root: root))
         }
 
-        /// A tab whose browser 7 exists (AFTER_CREATED).
-        func attachedTab() throws -> CEFTab {
+        /// A tab whose browser 7 exists (AFTER_CREATED); with `cmuxPage`, a cmux page's tab (`CEFEngine.makePagesTab`).
+        func attachedTab(cmuxPage: Bool = false) throws -> CEFTab {
             let host = CEFPaneHost(key: CEFPaneKey(pane: BrowserPaneID(rawValue: UUID().uuidString), profile: .default), runtime: runtime)
             let tab = CEFTab(id: .random(), profile: .default, host: host, runtime: runtime)
+            tab.agentRelay.servesCmuxPage = cmuxPage
             host.add(tab)
             host.ensureCreated(tab)
             let request = try #require(runtime.pendingWindows.keys.first)

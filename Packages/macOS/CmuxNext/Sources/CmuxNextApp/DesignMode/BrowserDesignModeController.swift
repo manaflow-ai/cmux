@@ -26,16 +26,22 @@ final class BrowserDesignModeController {
     func toggle(_ entry: BrowserEntry, key: String) {
         let modes = entry.chrome.toolbarButtons.modes
         modes.designMode.toggle()
-        let on = modes.designMode, tab = entry.tab
+        let on = modes.designMode
         cards[key] = on ? BrowserDesignModeCards() : nil
-        Task { [weak self, weak chrome = entry.chrome] in
-            guard on else { return await tab.disableDesignMode() }
-            do {
-                try await tab.enableDesignMode(self?.script ?? BrowserDesignModeScript())
-            } catch {
-                modes.designMode = false
-                chrome?.showNotice(self?.strings.couldNotStart ?? "")
-            }
+        // The person's toggle shows in this turn (the toolbar mode); the page script is the rest of their action.
+        // task-owner: BackgroundWork (quit skips it); one page script, it ends when the page answers (recipe R-hop)
+        services?.work.task(.userBlocking) { [weak self] in await self?.runPageScript(on, key: key) }
+    }
+
+    /// Design mode's page script on or off in browser tab `key`; a failed start turns the toolbar mode off again.
+    private func runPageScript(_ on: Bool, key: String) async {
+        guard let entry = services?.cache.existingBrowser(key) else { return }
+        guard on else { return await entry.tab.disableDesignMode() }
+        do {
+            try await entry.tab.enableDesignMode(script)
+        } catch {
+            entry.chrome.toolbarButtons.modes.designMode = false
+            entry.chrome.showNotice(strings.couldNotStart)
         }
     }
 
@@ -69,17 +75,41 @@ final class BrowserDesignModeController {
         }
         let rest = zip(made, deliveries).filter { if case .sendToHome = $0.1 { return false } else { return true } }.map(\.0)
         guard !rest.isEmpty else { return }
-        Task { [weak self, weak page, weak chat, weak home] in
-            guard let page else { return }
-            let shot = await Self.capture(page)
-            for card in rest {
-                let png = shot.flatMap { Self.crop($0, to: card) }
-                if let home {
-                    await self?.attach(card, png: png, to: home)
-                } else if let chat {
-                    // The same id replaces an edited card's chips in the agent chat composer.
-                    AgentPaneDesignSelection(id: card.id, name: card.name, text: card.text, png: png).push(to: chat)
-                }
+        // task-owner: BackgroundWork (quit skips it); one snapshot and the cards' delivery, it ends with the last card
+        // (recipe R-hop). `userVisible`: the person's highlight on the page caused it, and nothing waits on it.
+        // The composers go in a main-actor box (Sendable), so the sending closure captures and passes only
+        // Sendable values; `deliver` is a main-actor method that awaits the page snapshot off main and reads the
+        // composers from the box on main. The closure has no global actor of its own (as `toggle`'s): an explicit
+        // `@MainActor [weak self]` sending closure here trips the region-based isolation checker.
+        let target = DeliveryTarget(home: home, chat: chat)
+        services.work.task(.userVisible) { [weak self] in
+            await self?.deliver(rest, from: key, to: target)
+        }
+    }
+
+    /// The composers a delivery was aimed at, held weakly: a composer closed meanwhile gets nothing.
+    @MainActor private final class DeliveryTarget {
+        weak var home: HomeNativeTranscriptView?
+        weak var chat: AgentPaneView?
+
+        init(home: HomeNativeTranscriptView?, chat: AgentPaneView?) {
+            (self.home, self.chat) = (home, chat)
+        }
+    }
+
+    /// Gives `cards` of browser tab `key`, each with its crop of one page snapshot, to the Home composer, else to the
+    /// agent chat composer.
+    private func deliver(_ cards: [BrowserDesignModeCard], from key: String, to target: DeliveryTarget) async {
+        guard let page = services?.cache.existingBrowser(key)?.tab else { return }
+        let shot = await Self.capture(page)
+        let home = target.home, chat = target.chat
+        for card in cards {
+            let png = shot.flatMap { Self.crop($0, to: card) }
+            if let home {
+                await attach(card, png: png, to: home)
+            } else if let chat {
+                // The same id replaces an edited card's chips in the agent chat composer.
+                AgentPaneDesignSelection(id: card.id, name: card.name, text: card.text, png: png).push(to: chat)
             }
         }
     }
@@ -123,6 +153,7 @@ final class BrowserDesignModeController {
 
     /// The agent chat in the workspace of browser tab `key` whose pane was focused last.
     private func chatView(near key: String) -> AgentPaneView? {
+        // view-observation-allow: locateTab is one MachineTabIndex lookup (p06-scheduler-051), R-index's target; no walk, no observation
         guard let services, let (_, pane) = services.locateTab(key) else { return nil }
         let store = services.daemon(for: pane).store
         guard let workspace = store.workspace(containing: pane.handle) else { return nil }

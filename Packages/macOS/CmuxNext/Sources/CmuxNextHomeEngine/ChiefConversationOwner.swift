@@ -2,6 +2,7 @@ import CmuxNextAgentPane
 public import CmuxNextDaemon
 public import Foundation
 public import Observation
+public import CmuxNextWakeups
 import os
 
 /// The owner of Home's conversations: the cmux-tui daemon session of the
@@ -74,12 +75,13 @@ public final class ChiefConversationOwner {
         await connection?.endpoint?.socketPath
     }
 
-    /// Ensures the owner and keeps a connection to it. Idempotent.
-    public func start(bundle: Bundle = .main, environment: [String: String] = ProcessInfo.processInfo.environment) {
+    /// Ensures the owner and keeps a connection to it, its launcher's disk steps on `work` (the app's one
+    /// ``BackgroundWork``). Idempotent.
+    public func start(work: BackgroundWork, bundle: Bundle = .main, environment: [String: String] = ProcessInfo.processInfo.environment) {
         guard runTask == nil else { return }
         let launcher: DaemonLauncher
         do {
-            launcher = try DaemonLauncher.forChief(session: home.session, stateDirectory: home.daemonStateDirectory,
+            launcher = try DaemonLauncher.forChief(work: work, session: home.session, stateDirectory: home.daemonStateDirectory,
                                                    bundle: bundle, processEnvironment: Self.ownerEnvironment(home: home, process: environment, bundle: bundle))
         } catch {
             lastError = String(describing: error)
@@ -172,7 +174,8 @@ public final class ChiefConversationOwner {
         refusal = nil
     }
 
-    private func attach(_ connection: DaemonConnection, identity: DaemonIdentity) {
+    /// The owner answered on `connection` (internal: a test attaches an owner without starting one).
+    func attach(_ connection: DaemonConnection, identity: DaemonIdentity) {
         self.identity = identity
         self.connection = connection
         lastError = nil

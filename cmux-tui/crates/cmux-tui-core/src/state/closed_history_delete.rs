@@ -249,6 +249,7 @@ fn delete_in(
 }
 
 impl Mux {
+    #[track_caller]
     pub(crate) fn state_delete_closed(
         self: &Arc<Self>,
         mutation: &WorkspaceMutation,

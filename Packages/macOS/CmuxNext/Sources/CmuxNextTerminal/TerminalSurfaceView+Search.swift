@@ -15,6 +15,6 @@ extension TerminalSurfaceView {
     }
 
     public override func accessibilitySelectedText() -> String? {
-        TerminalSelection.read(surface)?.text
+        TerminalSelection.read(of: self)?.text
     }
 }

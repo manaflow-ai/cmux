@@ -40,7 +40,8 @@
   "x-oracle-id-unpatterned": {
     "surface": "daemon surface handle; only in snapshot.get tabs[].surface, a typed field",
     "agentSession": "acpmux session id; only in typed fields of snapshot.get and the agents facet",
-    "intent": "app intent id; only in the typed intents.pending[].intent"
+    "intent": "app intent id; only in the typed intents.pending[].intent",
+    "conversation": "Home conversation id (the Chief owner's or Cloud's); only in the typed agents.home[].conversation"
   },
   "x-oracle-open-keys": [
     {"key": "^(.+_)?at_ms$|^since_ms$", "x-oracle-time": {"unit": "ms", "epoch": "fixture"}},
@@ -145,7 +146,9 @@
               "crashes",
               "liveObjects",
               "invariants",
-              "switches"
+              "switches",
+              "cli",
+              "mcp"
             ]
           }
         }
@@ -1888,7 +1891,7 @@
             "method": "debug.oracle.snapshot",
             "path": "/focus",
             "v0": "debug.focus",
-            "provider": "OracleFocusFacet",
+            "provider": "InputObservationBuilder.oracleFocusFacet",
             "task": "p15-oracle-034",
             "from": "InputObservationBuilder.observe"
           },
@@ -1909,6 +1912,7 @@
                       "id",
                       "isKey",
                       "responder",
+                      "responderPane",
                       "layoutFocus",
                       "ghosttyFocused",
                       "childPage",
@@ -1932,12 +1936,24 @@
                         "type": "boolean"
                       },
                       "responder": {
+                        "description": "the classified first responder's kind; its pane is responderPane",
                         "x-oracle-source": {
                           "method": "debug.oracle.snapshot",
                           "path": "/focus/windows/*/responder",
-                          "from": "FocusResponderClassifier.classify(firstResponder)"
+                          "from": "FocusResponderClassifier.classify(firstResponder), the case name"
                         },
-                        "type": "string"
+                        "type": "string",
+                        "enum": ["content", "addressBar", "findBar", "devTools", "sidebar", "sidebarField", "textField", "windowOrNone"]
+                      },
+                      "responderPane": {
+                        "description": "the pane the first responder is in; null for a responder outside every pane",
+                        "x-oracle-source": {
+                          "method": "debug.oracle.snapshot",
+                          "path": "/focus/windows/*/responderPane",
+                          "from": "FocusResponderClassifier.classify(firstResponder), its pane"
+                        },
+                        "type": ["string", "null"],
+                        "x-oracle-id-kind": "pane"
                       },
                       "layoutFocus": {
                         "x-oracle-source": {
@@ -1955,7 +1971,12 @@
                         "items": {"type": "string", "x-oracle-id-kind": "tab"}
                       },
                       "childPage": {
-                        "x-oracle-source": {"method": "debug.oracle.snapshot", "path": "/focus/windows/*/childPage"},
+                        "description": "the tab whose Chromium page window has focus; a cmux page's Chromium tab id is mapped to its tab key, so it differs from debug.focus child_window_page (raw page id) for a cmux page",
+                        "x-oracle-source": {
+                          "method": "debug.oracle.snapshot",
+                          "path": "/focus/windows/*/childPage",
+                          "from": "FocusApplier.focusedChildWindowPageID mapped to the tab key"
+                        },
                         "type": ["string", "null"],
                         "x-oracle-id-kind": "tab"
                       },
@@ -1994,12 +2015,32 @@
                             "x-oracle-id-kind": "pane"
                           },
                           "target": {
-                            "x-oracle-source": {"method": "debug.oracle.snapshot", "path": "/focus/windows/*/model/target"},
-                            "type": "string"
+                            "x-oracle-source": {
+                              "method": "debug.oracle.snapshot",
+                              "path": "/focus/windows/*/model/target",
+                              "from": "String(describing: FocusState.Target)"
+                            },
+                            "type": "string",
+                            "enum": [
+                              "content",
+                              "addressBar",
+                              "findBar",
+                              "devTools",
+                              "sidebar(keyboard: true)",
+                              "sidebar(keyboard: false)",
+                              "sidebarField",
+                              "textField",
+                              "none"
+                            ]
                           },
                           "resolved": {
-                            "x-oracle-source": {"method": "debug.oracle.snapshot", "path": "/focus/windows/*/model/resolved"},
-                            "type": "string"
+                            "x-oracle-source": {
+                              "method": "debug.oracle.snapshot",
+                              "path": "/focus/windows/*/model/resolved",
+                              "from": "FocusState.Resolved.kind"
+                            },
+                            "type": "string",
+                            "pattern": "^(terminal|browserPage|addressBar|findBar|devTools|agentPage|page|conversation|emptyPane|sidebar|sidebarField|textField|none|overlay:(palette|sheet|rename|groupEditor))$"
                           },
                           "resolvedPane": {
                             "x-oracle-source": {"method": "debug.oracle.snapshot", "path": "/focus/windows/*/model/resolvedPane"},
@@ -2044,10 +2085,11 @@
                         }
                       },
                       "consistent": {
+                        "description": "no InputInvariants.world violation names this window. Not debug.focus's consistent (layout, W1 and Ghostty only): F, W4, W5, W6 (sheet), W7 and W8 violations count here too. An unsettled window is not inconsistent (settle is debug.oracle.settle and I5), and a violation that names no window (W6 palette, W5 app-wide panel) marks none",
                         "x-oracle-source": {
                           "method": "debug.oracle.snapshot",
                           "path": "/focus/windows/*/consistent",
-                          "from": "InputInvariants over this window"
+                          "from": "InputInvariants.world violations naming this window"
                         },
                         "type": "boolean"
                       }
@@ -2111,12 +2153,12 @@
           ]
         },
         "layout": {
-          "description": "Layout model values per screen: tree, ratios, zoom, dock, canvas.",
+          "description": "LayoutModel values per screen of each workspace a window shows (the focused one and the ones sidebar.multiView shows beside it): the split, strip, column and row tree with ratios, widths and heights at 3 dp, docks on their columns, zoom, focus, the strip's column count and the free canvas. Nothing the views report (frames, LayoutModel.visiblePanes, the strip's scroll offset) and nothing fitted to the viewport.",
           "x-oracle-source": {
             "method": "debug.oracle.snapshot",
             "path": "/layout",
             "v0": null,
-            "provider": "OracleLayoutFacet",
+            "provider": "OracleLayoutFacet (CmuxNextBridge), listed in AppServices+OracleHost",
             "task": "p15-oracle-035",
             "from": "LayoutModel values per screen"
           },
@@ -2133,7 +2175,7 @@
                   "items": {
                     "type": "object",
                     "additionalProperties": false,
-                    "required": ["workspace", "screen", "root", "focusedPane", "zoomedPane", "dock", "canvas"],
+                    "required": ["workspace", "screen", "active", "root", "focusedPane", "zoomedPane", "strip", "canvas"],
                     "properties": {
                       "workspace": {
                         "x-oracle-source": {"method": "debug.oracle.snapshot", "path": "/layout/screens/*/workspace"},
@@ -2144,6 +2186,11 @@
                         "x-oracle-source": {"method": "debug.oracle.snapshot", "path": "/layout/screens/*/screen"},
                         "type": "string",
                         "x-oracle-id-kind": "screen"
+                      },
+                      "active": {
+                        "description": "the screen the workspace shows (LayoutModel.activeScreenID)",
+                        "x-oracle-source": {"method": "debug.oracle.snapshot", "path": "/layout/screens/*/active"},
+                        "type": "boolean"
                       },
                       "root": {
                         "$ref": "#/definitions/layoutNode",
@@ -2159,54 +2206,51 @@
                         "type": ["string", "null"],
                         "x-oracle-id-kind": "pane"
                       },
-                      "dock": {
-                        "x-oracle-source": {"method": "debug.oracle.snapshot", "path": "/layout/screens/*/dock"},
+                      "strip": {
+                        "description": "the screen's scrolling column strip. Which columns show is not here: the scroll offset (ScreenContentView.scrollState) and the panes the view reports visible (LayoutModel.visiblePanes) are view state that changes with the window width and on every frame of a scroll.",
+                        "x-oracle-source": {"method": "debug.oracle.snapshot", "path": "/layout/screens/*/strip"},
                         "type": "object",
                         "additionalProperties": false,
-                        "required": ["side", "fraction", "open"],
+                        "required": ["columns"],
                         "properties": {
-                          "side": {
-                            "x-oracle-source": {"method": "debug.oracle.snapshot", "path": "/layout/screens/*/dock/side"},
-                            "type": ["string", "null"],
-                            "enum": ["left", "right", "bottom", null]
-                          },
-                          "fraction": {
-                            "x-oracle-source": {"method": "debug.oracle.snapshot", "path": "/layout/screens/*/dock/fraction"},
-                            "type": ["number", "null"],
-                            "x-oracle-precision": 0.001
-                          },
-                          "open": {
-                            "x-oracle-source": {"method": "debug.oracle.snapshot", "path": "/layout/screens/*/dock/open"},
-                            "type": "boolean"
+                          "columns": {
+                            "description": "the columns that are not docked; a screen stored as one split tree is one implicit column (LayoutScreen.implicitColumnID)",
+                            "x-oracle-source": {"method": "debug.oracle.snapshot", "path": "/layout/screens/*/strip/columns"},
+                            "type": "integer",
+                            "minimum": 0
                           }
                         }
                       },
                       "canvas": {
+                        "description": "the screen shown as a free canvas (LayoutModel.canvases), null when it is not one. Pane frames are not here: a canvas seeds them from the view's frames when it opens, so they depend on the window size.",
                         "x-oracle-source": {"method": "debug.oracle.snapshot", "path": "/layout/screens/*/canvas"},
-                        "type": "object",
-                        "additionalProperties": false,
-                        "required": ["columns", "firstVisibleColumn", "offset"],
-                        "properties": {
-                          "columns": {
-                            "x-oracle-source": {"method": "debug.oracle.snapshot", "path": "/layout/screens/*/canvas/columns"},
-                            "type": "integer",
-                            "minimum": 0
-                          },
-                          "firstVisibleColumn": {
-                            "x-oracle-source": {
-                              "method": "debug.oracle.snapshot",
-                              "path": "/layout/screens/*/canvas/firstVisibleColumn"
-                            },
-                            "type": "integer",
-                            "minimum": 0
-                          },
-                          "offset": {
-                            "description": "horizontal scroll as a fraction of one column",
-                            "x-oracle-source": {"method": "debug.oracle.snapshot", "path": "/layout/screens/*/canvas/offset"},
-                            "type": "number",
-                            "x-oracle-precision": 0.001
+                        "oneOf": [
+                          {"type": "null"},
+                          {
+                            "type": "object",
+                            "additionalProperties": false,
+                            "required": ["order", "zoom", "overview"],
+                            "properties": {
+                              "order": {
+                                "description": "panes back to front",
+                                "x-oracle-source": {"method": "debug.oracle.snapshot", "path": "/layout/screens/*/canvas/order"},
+                                "type": "array",
+                                "x-oracle-order": "sequence",
+                                "items": {"type": "string", "x-oracle-id-kind": "pane"}
+                              },
+                              "zoom": {
+                                "description": "the camera's zoom; null in the overview, whose camera is fitted to the viewport the view reports (CanvasCamera.fitting)",
+                                "x-oracle-source": {"method": "debug.oracle.snapshot", "path": "/layout/screens/*/canvas/zoom"},
+                                "type": ["number", "null"],
+                                "x-oracle-precision": 0.001
+                              },
+                              "overview": {
+                                "x-oracle-source": {"method": "debug.oracle.snapshot", "path": "/layout/screens/*/canvas/overview"},
+                                "type": "boolean"
+                              }
+                            }
                           }
-                        }
+                        ]
                       }
                     }
                   }
@@ -2324,13 +2368,14 @@
           ]
         },
         "tabs": {
-          "description": "Engine-neutral browser tab state per pane.",
+          "description": "Per pane that lists a browser or page tab: the tab it shows and its browser and page tabs as its strip lists them (daemon tabs, then its window's session-local browser tabs, then internal page tabs, less the tabs the strip hides while they move to a dock or the side), read through the engine-neutral BrowserTab protocol (Chromium's TabRendererData analog). The find bar is overlays.findBar.",
           "x-oracle-source": {
             "method": "debug.oracle.snapshot",
             "path": "/tabs",
             "v0": null,
             "provider": "OracleTabsFacet",
-            "task": "p15-oracle-037"
+            "task": "p15-oracle-037",
+            "from": "BrowserTab.state of the live page, else the daemon tab record"
           },
           "oneOf": [
             {
@@ -2353,6 +2398,7 @@
                         "x-oracle-id-kind": "pane"
                       },
                       "selected": {
+                        "description": "the tab the pane shows, of any kind (a terminal too); null when no window remembers one",
                         "x-oracle-source": {"method": "debug.oracle.snapshot", "path": "/tabs/panes/*/selected"},
                         "type": ["string", "null"],
                         "x-oracle-id-kind": "tab"
@@ -2367,8 +2413,12 @@
                           "required": [
                             "tab",
                             "kind",
+                            "page",
+                            "pinned",
+                            "engine",
                             "url",
                             "title",
+                            "loadState",
                             "loading",
                             "canGoBack",
                             "canGoForward",
@@ -2376,7 +2426,7 @@
                             "muted",
                             "audible",
                             "crashed",
-                            "findActive"
+                            "hibernated"
                           ],
                           "properties": {
                             "title": {
@@ -2385,8 +2435,8 @@
                                 "path": "/tabs/panes/*/tabs/*/title",
                                 "derive": "sha256"
                               },
-                              "type": "string",
-                              "description": "a terminal tab's title is a shell title",
+                              "type": ["string", "null"],
+                              "description": "page text; null when the page has no title",
                               "pattern": "^sha256:[0-9a-f]{64}$",
                               "x-oracle-rewrite": "path"
                             },
@@ -2399,6 +2449,27 @@
                               "x-oracle-source": {"method": "debug.oracle.snapshot", "path": "/tabs/panes/*/tabs/*/kind"},
                               "type": "string",
                               "enum": ["browser", "page"]
+                            },
+                            "page": {
+                              "description": "the internal page a page tab shows (InternalPageID); null for a browser tab",
+                              "x-oracle-source": {"method": "debug.oracle.snapshot", "path": "/tabs/panes/*/tabs/*/page"},
+                              "type": ["string", "null"]
+                            },
+                            "pinned": {
+                              "x-oracle-source": {"method": "debug.oracle.snapshot", "path": "/tabs/panes/*/tabs/*/pinned"},
+                              "type": "boolean"
+                            },
+                            "engine": {
+                              "description": "BrowserTab.engineKind of the live page, else the record's engine; null for a page tab",
+                              "x-oracle-source": {"method": "debug.oracle.snapshot", "path": "/tabs/panes/*/tabs/*/engine"},
+                              "type": ["string", "null"],
+                              "enum": ["webkit", "cef", null]
+                            },
+                            "loadState": {
+                              "description": "BrowserLoadPhase of the live page; unloaded when the tab has no engine page now (none made yet, or a hibernated or not-yet-started stand-in, as Chrome gives a discarded tab TabNetworkState::kNone); canGoBack, canGoForward, audible and crashed are then false",
+                              "x-oracle-source": {"method": "debug.oracle.snapshot", "path": "/tabs/panes/*/tabs/*/loadState"},
+                              "type": "string",
+                              "enum": ["unloaded", "idle", "provisional", "committed", "finished", "failed"]
                             },
                             "url": {
                               "x-oracle-source": {"method": "debug.oracle.snapshot", "path": "/tabs/panes/*/tabs/*/url"},
@@ -2431,11 +2502,13 @@
                               "type": "boolean"
                             },
                             "crashed": {
+                              "description": "the page's content process ended (the sad tab)",
                               "x-oracle-source": {"method": "debug.oracle.snapshot", "path": "/tabs/panes/*/tabs/*/crashed"},
                               "type": "boolean"
                             },
-                            "findActive": {
-                              "x-oracle-source": {"method": "debug.oracle.snapshot", "path": "/tabs/panes/*/tabs/*/findActive"},
+                            "hibernated": {
+                              "description": "the page was discarded to free memory (DormantTabs; Chrome's is_tab_discarded)",
+                              "x-oracle-source": {"method": "debug.oracle.snapshot", "path": "/tabs/panes/*/tabs/*/hibernated"},
                               "type": "boolean"
                             }
                           }
@@ -2669,20 +2742,20 @@
           ]
         },
         "intents": {
-          "description": "Pending intents and monotonic outcome totals.",
+          "description": "Pending intents, monotonic outcome totals and the last refusal.",
           "x-oracle-source": {
             "method": "debug.oracle.snapshot",
             "path": "/intents",
             "v0": null,
             "provider": "OracleIntentsFacet",
             "task": "p15-oracle-040",
-            "from": "store intents sent through daemon.intentEffect"
+            "from": "the daemon store's intent log and IntentTotals (store intents sent through daemon.intentEffect) and the refused perform turns OracleActionTurns counts"
           },
           "oneOf": [
             {
               "type": "object",
               "additionalProperties": false,
-              "required": ["pending", "totals"],
+              "required": ["pending", "totals", "lastRefusal"],
               "properties": {
                 "pending": {
                   "x-oracle-source": {"method": "debug.oracle.snapshot", "path": "/intents/pending"},
@@ -2705,17 +2778,7 @@
                       "target": {
                         "x-oracle-source": {"method": "debug.oracle.snapshot", "path": "/intents/pending/*/target"},
                         "type": ["string", "null"],
-                        "description": "the intent's target id; normalize takes the kind whose x-oracle-id-patterns entry matches",
-                        "x-oracle-id-kind": [
-                          "window",
-                          "workspace",
-                          "workspaceGroup",
-                          "screen",
-                          "pane",
-                          "tab",
-                          "terminal",
-                          "browser"
-                        ]
+                        "description": "the public id of the one object the intent changes (ws_, screen_, pane_, tab_, grp_, tgrp_), relabeled by the x-oracle-id-patterns kind it matches; null when it changes no one public object (a column's rows, a close of several tabs) or the object has no public id yet"
                       }
                     }
                   }
@@ -2728,22 +2791,45 @@
                   "required": ["applied", "rolledBack", "refused"],
                   "properties": {
                     "applied": {
+                      "description": "intents that left the log on their echo or settle sequence",
                       "x-oracle-source": {"method": "debug.oracle.snapshot", "path": "/intents/totals/applied"},
                       "type": "integer",
                       "minimum": 0,
                       "x-oracle-counter": "monotonic"
                     },
                     "rolledBack": {
+                      "description": "intents whose command failed: the store took their change back",
                       "x-oracle-source": {"method": "debug.oracle.snapshot", "path": "/intents/totals/rolledBack"},
                       "type": "integer",
                       "minimum": 0,
                       "x-oracle-counter": "monotonic"
                     },
                     "refused": {
+                      "description": "perform turns whose action did not run or whose handler refused",
                       "x-oracle-source": {"method": "debug.oracle.snapshot", "path": "/intents/totals/refused"},
                       "type": "integer",
                       "minimum": 0,
                       "x-oracle-counter": "monotonic"
+                    }
+                  }
+                },
+                "lastRefusal": {
+                  "description": "what was refused last in this app process; I3 reads it from the raw checkpoint with a refused or rolledBack delta",
+                  "x-oracle-source": {"method": "debug.oracle.snapshot", "path": "/intents/lastRefusal"},
+                  "x-oracle-volatile": {"reason": "process-wide: it names the last refusal of whatever ran before in this app process, so it depends on the cases the session ran first; only the totals' deltas are per case", "task": "p15-oracle-040"},
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["action", "intent"],
+                  "properties": {
+                    "action": {
+                      "description": "the canonical action id of the last refused perform turn, never the localized reason",
+                      "x-oracle-source": {"method": "debug.oracle.snapshot", "path": "/intents/lastRefusal/action"},
+                      "type": ["string", "null"]
+                    },
+                    "intent": {
+                      "description": "the case name of the last intent rolled back (renamePane), never its payload",
+                      "x-oracle-source": {"method": "debug.oracle.snapshot", "path": "/intents/lastRefusal/intent"},
+                      "type": ["string", "null"]
                     }
                   }
                 }
@@ -2823,7 +2909,7 @@
                         "minimum": 0
                       },
                       "frame": {
-                        "description": "window frame as fractions of its screen's visible frame",
+                        "description": "window frame as fractions of its screen's visible frame (of the whole screen for a full-screen window), origin top left; a window on no screen fails the snapshot",
                         "x-oracle-source": {"method": "debug.oracle.snapshot", "path": "/windows/list/*/frame"},
                         "type": "object",
                         "additionalProperties": false,
@@ -2977,22 +3063,23 @@
           ]
         },
         "agents": {
-          "description": "Agent sessions, turns, approvals and draft hashes.",
+          "description": "Each agent chat tab's acpmux session (the store's tab record, acpmux's lane from the app's watch) and the conversation each Home Messages view shows. Hashes only: no prompt, reply, title or draft text.",
           "x-oracle-source": {
             "method": "debug.oracle.snapshot",
             "path": "/agents",
             "v0": null,
             "provider": "OracleAgentsFacet",
             "task": "p15-oracle-043",
-            "from": "agent session store (hashes only)"
+            "from": "agent chat tab records, the acpmux lane mirror, the unsent-draft store and the Home pages (hashes only)"
           },
           "oneOf": [
             {
               "type": "object",
               "additionalProperties": false,
-              "required": ["sessions"],
+              "required": ["sessions", "home"],
               "properties": {
                 "sessions": {
+                  "description": "one row per agent chat tab, a new chat with no session yet too",
                   "x-oracle-source": {"method": "debug.oracle.snapshot", "path": "/agents/sessions"},
                   "type": "array",
                   "x-oracle-order": "set",
@@ -3002,31 +3089,37 @@
                     "required": ["session", "agent", "state", "turn", "pendingApprovals", "draftSha256", "workspace", "tab"],
                     "properties": {
                       "session": {
+                        "description": "the tab record's acpmux session; null for a new chat before its first prompt",
                         "x-oracle-source": {"method": "debug.oracle.snapshot", "path": "/agents/sessions/*/session"},
-                        "type": "string",
+                        "type": ["string", "null"],
                         "x-oracle-id-kind": "agentSession"
                       },
                       "agent": {
-                        "description": "claude, codex, ...",
+                        "description": "the harness the tab records (claude, codex, ...), else the lane's; null while unknown",
                         "x-oracle-source": {"method": "debug.oracle.snapshot", "path": "/agents/sessions/*/agent"},
-                        "type": "string"
+                        "type": ["string", "null"]
                       },
                       "state": {
+                        "description": "acpmux's lane state for the session; unknown with no lane (no session, the watch down, another machine's chat)",
                         "x-oracle-source": {"method": "debug.oracle.snapshot", "path": "/agents/sessions/*/state"},
-                        "type": "string"
+                        "type": "string",
+                        "enum": ["working", "input", "idle", "failed", "lost", "unknown"]
                       },
                       "turn": {
+                        "description": "acpmux's turnCount for the session; 0 with no lane",
                         "x-oracle-source": {"method": "debug.oracle.snapshot", "path": "/agents/sessions/*/turn"},
                         "type": "integer",
                         "minimum": 0
                       },
                       "pendingApprovals": {
+                        "description": "acpmux's pendingPermissions for the session; 0 with no lane",
                         "x-oracle-source": {"method": "debug.oracle.snapshot", "path": "/agents/sessions/*/pendingApprovals"},
                         "type": "integer",
                         "minimum": 0
                       },
                       "draftSha256": {
-                        "x-oracle-source": {"method": "debug.oracle.snapshot", "path": "/agents/sessions/*/draftSha256"},
+                        "description": "sha256 of the composer text the app keeps for a new chat (AgentUnsentDrafts); null when none. A started chat's draft is acpmux's and the page's (webviews facet)",
+                        "x-oracle-source": {"method": "debug.oracle.snapshot", "path": "/agents/sessions/*/draftSha256", "derive": "sha256"},
                         "type": ["string", "null"],
                         "pattern": "^sha256:[0-9a-f]{64}$"
                       },
@@ -3039,6 +3132,37 @@
                         "x-oracle-source": {"method": "debug.oracle.snapshot", "path": "/agents/sessions/*/tab"},
                         "type": ["string", "null"],
                         "x-oracle-id-kind": "tab"
+                      }
+                    }
+                  }
+                },
+                "home": {
+                  "description": "each Home Messages view: a window's Home top page, a Home tab, the docked Home",
+                  "x-oracle-source": {"method": "debug.oracle.snapshot", "path": "/agents/home"},
+                  "type": "array",
+                  "x-oracle-order": "set",
+                  "items": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": ["window", "tab", "conversation"],
+                    "properties": {
+                      "window": {
+                        "description": "the window whose Home top page this is; null for a tab",
+                        "x-oracle-source": {"method": "debug.oracle.snapshot", "path": "/agents/home/*/window"},
+                        "type": ["string", "null"],
+                        "x-oracle-id-kind": "window"
+                      },
+                      "tab": {
+                        "description": "the Home tab or docked Home tab; null for a top page",
+                        "x-oracle-source": {"method": "debug.oracle.snapshot", "path": "/agents/home/*/tab"},
+                        "type": ["string", "null"],
+                        "x-oracle-id-kind": "tab"
+                      },
+                      "conversation": {
+                        "description": "the conversation the view shows (selected in its list); null on New Message, on a docked Home that shows Channels, or before one shows",
+                        "x-oracle-source": {"method": "debug.oracle.snapshot", "path": "/agents/home/*/conversation"},
+                        "type": ["string", "null"],
+                        "x-oracle-id-kind": "conversation"
                       }
                     }
                   }
@@ -3248,7 +3372,7 @@
                               "type": "string"
                             },
                             "labelKey": {
-                              "description": "localization key, never the shown text",
+                              "description": "localization key, never the shown text; \"<ambiguous>\" when the shown text is that of several keys and the element names none; null when it is no app string",
                               "x-oracle-source": {"method": "debug.oracle.snapshot", "path": "/ax/windows/*/nodes/*/labelKey"},
                               "type": ["string", "null"]
                             },
@@ -3277,14 +3401,14 @@
           ]
         },
         "crashes": {
-          "description": "Child-process exits since case start, by kind.",
+          "description": "Child-process exits by kind: totals since the app launched (holder: since the daemon owner started; a new owner counts from 0, which I17 reads as a reset). renderer counts each renderer process once, not each tab it hosted. daemon counts the owner ends the app's connection saw without daemon-shutdown (a crash or a kill, not a requested stop). The runner and I17 take the rise between checkpoints.",
           "x-oracle-source": {
             "method": "debug.oracle.snapshot",
             "path": "/crashes",
             "v0": null,
             "provider": "OracleCrashesFacet",
             "task": "p15-oracle-188",
-            "from": "CEFChildProcessMonitor, CrashRecoveryService and holder exit records since case start"
+            "from": "CEFChildProcessMonitor's helper exits (BrowserCrashLog tallies), CrashRecoveryService's previous run, the daemon connection's drops without daemon-shutdown, and the daemon's oracle-state childExits (holders its owner counted ending)"
           },
           "oneOf": [
             {
@@ -3301,37 +3425,45 @@
                     "renderer": {
                       "x-oracle-source": {"method": "debug.oracle.snapshot", "path": "/crashes/counts/renderer"},
                       "type": "integer",
-                      "minimum": 0
+                      "minimum": 0,
+                      "x-oracle-counter": "monotonic"
                     },
                     "gpu": {
                       "x-oracle-source": {"method": "debug.oracle.snapshot", "path": "/crashes/counts/gpu"},
                       "type": "integer",
-                      "minimum": 0
+                      "minimum": 0,
+                      "x-oracle-counter": "monotonic"
                     },
                     "browser": {
                       "x-oracle-source": {"method": "debug.oracle.snapshot", "path": "/crashes/counts/browser"},
                       "type": "integer",
-                      "minimum": 0
+                      "minimum": 0,
+                      "x-oracle-counter": "monotonic"
                     },
                     "utility": {
                       "x-oracle-source": {"method": "debug.oracle.snapshot", "path": "/crashes/counts/utility"},
                       "type": "integer",
-                      "minimum": 0
+                      "minimum": 0,
+                      "x-oracle-counter": "monotonic"
                     },
                     "daemon": {
                       "x-oracle-source": {"method": "debug.oracle.snapshot", "path": "/crashes/counts/daemon"},
                       "type": "integer",
-                      "minimum": 0
+                      "minimum": 0,
+                      "x-oracle-counter": "monotonic"
                     },
                     "holder": {
                       "x-oracle-source": {"method": "debug.oracle.snapshot", "path": "/crashes/counts/holder"},
                       "type": "integer",
-                      "minimum": 0
+                      "minimum": 0,
+                      "x-oracle-counter": "monotonic"
                     }
                   }
                 },
                 "exits": {
+                  "description": "the exits the app saw, oldest first; I17 reads the entries past the previous checkpoint's from the raw checkpoint",
                   "x-oracle-source": {"method": "debug.oracle.snapshot", "path": "/crashes/exits"},
+                  "x-oracle-volatile": {"reason": "process-wide: it lists every exit since the app launched, so it depends on the cases the session ran first; only the counts' rises are per case", "task": "p15-oracle-188"},
                   "type": "array",
                   "x-oracle-order": "sequence",
                   "items": {
@@ -3532,6 +3664,52 @@
             },
             {"$ref": "#/definitions/notComparable"}
           ]
+        },
+        "cli": {
+          "description": "The receipt of a cli step (invariant I1), in that step's settled checkpoint: the exit code of its `cmux` call, its stdout and the typed code of a failed call. stdout is open: one JSON value, JSON lines as an array, or the text, with the rules of open objects (ids by x-oracle-id-patterns, x-oracle-open-keys, the path and url rewrites).",
+          "x-oracle-source": {
+            "method": "cli",
+            "path": "/cli",
+            "task": "p15-oracle-048",
+            "from": "the shipped cmux binary run by driver_cli.py (VM: the run SHA's cmux-tui; fleet: CMUX_TAG=<tag> scripts/cmux-debug-cli.sh)"
+          },
+          "type": "object",
+          "required": ["exit", "stdout"],
+          "properties": {
+            "exit": {
+              "x-oracle-source": {"method": "cli", "path": "/cli/exit"},
+              "type": "integer"
+            },
+            "error": {
+              "description": "the code of the JSON error a failed call writes to stderr (`--json`), else cli.failed; present only when exit is not 0",
+              "x-oracle-source": {"method": "cli", "path": "/cli/error"},
+              "type": "string",
+              "pattern": "^[a-z][a-z_]*(\\.[a-z][a-z_]*)+$"
+            }
+          }
+        },
+        "mcp": {
+          "description": "The receipt of an mcp step (invariant I1), in that step's settled checkpoint: whether the tools/call result is a tool error, the result's structuredContent (its content when it has none), and the typed code of a failed call. result is open, with the rules of open objects (ids by x-oracle-id-patterns, x-oracle-open-keys, the path and url rewrites).",
+          "x-oracle-source": {
+            "method": "mcp",
+            "path": "/mcp",
+            "task": "p15-oracle-209",
+            "from": "`cmux mcp serve --all-tools` over stdio, run by driver_mcp.py (VM: the run SHA's cmux-tui; fleet: the tagged bundle's cmux on the app's socket)"
+          },
+          "type": "object",
+          "required": ["isError", "result"],
+          "properties": {
+            "isError": {
+              "x-oracle-source": {"method": "mcp", "path": "/mcp/isError"},
+              "type": "boolean"
+            },
+            "error": {
+              "description": "the code of the tool error's envelope (structuredContent.error.code), or mcp.rpc_error for a JSON-RPC error; present only when isError is true",
+              "x-oracle-source": {"method": "mcp", "path": "/mcp/error"},
+              "type": "string",
+              "pattern": "^[a-z][a-z_]*(\\.[a-z][a-z_]*)+$"
+            }
+          }
         }
       }
     }
@@ -3553,10 +3731,50 @@
       }
     },
     "layoutNode": {
-      "description": "one LayoutModel node; leaves name a pane",
+      "description": "one LayoutModel node. split: a binary split (SplitNode), ratios [a, b]; strip: a screen's columns in model order; column: one LayoutColumn, its rows or its one tree as children, with width and dock; row: one LayoutRow, its tree as the one child, with height; leaf: a pane. stack is the daemon's, which LayoutMapping shows as a leaf.",
       "type": "object",
       "additionalProperties": false,
       "required": ["kind", "axis", "ratios", "pane", "children"],
+      "oneOf": [
+        {
+          "description": "a column: its width and its dock, no height",
+          "additionalProperties": false,
+          "required": ["width", "dock"],
+          "properties": {
+            "kind": {"x-oracle-source": {"method": "debug.oracle.snapshot", "path": "/layout/screens/*/root/**/kind", "from": "LayoutModel node"}, "const": "column"},
+            "axis": {"x-oracle-source": {"method": "debug.oracle.snapshot", "path": "/layout/screens/*/root/**/axis", "from": "LayoutModel node"}},
+            "ratios": {"x-oracle-source": {"method": "debug.oracle.snapshot", "path": "/layout/screens/*/root/**/ratios", "from": "LayoutModel node"}},
+            "pane": {"x-oracle-source": {"method": "debug.oracle.snapshot", "path": "/layout/screens/*/root/**/pane", "from": "LayoutModel node"}},
+            "children": {"x-oracle-source": {"method": "debug.oracle.snapshot", "path": "/layout/screens/*/root/**/children", "from": "LayoutModel node"}},
+            "width": {"x-oracle-source": {"method": "debug.oracle.snapshot", "path": "/layout/screens/*/root/**/width", "from": "LayoutColumn.width"}},
+            "dock": {"x-oracle-source": {"method": "debug.oracle.snapshot", "path": "/layout/screens/*/root/**/dock", "from": "LayoutColumn.dock"}}
+          }
+        },
+        {
+          "description": "a row: its height, no width or dock",
+          "additionalProperties": false,
+          "required": ["height"],
+          "properties": {
+            "kind": {"x-oracle-source": {"method": "debug.oracle.snapshot", "path": "/layout/screens/*/root/**/kind", "from": "LayoutModel node"}, "const": "row"},
+            "axis": {"x-oracle-source": {"method": "debug.oracle.snapshot", "path": "/layout/screens/*/root/**/axis", "from": "LayoutModel node"}},
+            "ratios": {"x-oracle-source": {"method": "debug.oracle.snapshot", "path": "/layout/screens/*/root/**/ratios", "from": "LayoutModel node"}},
+            "pane": {"x-oracle-source": {"method": "debug.oracle.snapshot", "path": "/layout/screens/*/root/**/pane", "from": "LayoutModel node"}},
+            "children": {"x-oracle-source": {"method": "debug.oracle.snapshot", "path": "/layout/screens/*/root/**/children", "from": "LayoutModel node"}},
+            "height": {"x-oracle-source": {"method": "debug.oracle.snapshot", "path": "/layout/screens/*/root/**/height", "from": "LayoutRow.height"}}
+          }
+        },
+        {
+          "description": "a split, strip, stack or leaf: no width, height or dock",
+          "additionalProperties": false,
+          "properties": {
+            "kind": {"x-oracle-source": {"method": "debug.oracle.snapshot", "path": "/layout/screens/*/root/**/kind", "from": "LayoutModel node"}, "enum": ["split", "stack", "leaf", "strip"]},
+            "axis": {"x-oracle-source": {"method": "debug.oracle.snapshot", "path": "/layout/screens/*/root/**/axis", "from": "LayoutModel node"}},
+            "ratios": {"x-oracle-source": {"method": "debug.oracle.snapshot", "path": "/layout/screens/*/root/**/ratios", "from": "LayoutModel node"}},
+            "pane": {"x-oracle-source": {"method": "debug.oracle.snapshot", "path": "/layout/screens/*/root/**/pane", "from": "LayoutModel node"}},
+            "children": {"x-oracle-source": {"method": "debug.oracle.snapshot", "path": "/layout/screens/*/root/**/children", "from": "LayoutModel node"}}
+          }
+        }
+      ],
       "properties": {
         "kind": {
           "x-oracle-source": {
@@ -3565,7 +3783,7 @@
             "from": "LayoutModel node"
           },
           "type": "string",
-          "enum": ["split", "stack", "leaf", "column", "row"]
+          "enum": ["split", "stack", "leaf", "strip", "column", "row"]
         },
         "axis": {
           "x-oracle-source": {
@@ -3577,7 +3795,7 @@
           "enum": ["horizontal", "vertical", null]
         },
         "ratios": {
-          "description": "child shares, sum 1",
+          "description": "a split's child shares, sum 1; empty on other kinds",
           "x-oracle-source": {
             "method": "debug.oracle.snapshot",
             "path": "/layout/screens/*/root/**/ratios",
@@ -3605,6 +3823,87 @@
           "type": "array",
           "x-oracle-order": "sequence",
           "items": {"$ref": "#/definitions/layoutNode"}
+        },
+        "width": {
+          "description": "a column's width as a fraction of the viewport",
+          "x-oracle-source": {
+            "method": "debug.oracle.snapshot",
+            "path": "/layout/screens/*/root/**/width",
+            "from": "LayoutColumn.width"
+          },
+          "type": "number",
+          "x-oracle-precision": 0.001
+        },
+        "height": {
+          "description": "a row's height as a fraction of the column's viewport height",
+          "x-oracle-source": {
+            "method": "debug.oracle.snapshot",
+            "path": "/layout/screens/*/root/**/height",
+            "from": "LayoutRow.height"
+          },
+          "type": "number",
+          "x-oracle-precision": 0.001
+        },
+        "dock": {
+          "description": "the edge a column is pinned to, null for a scrolling column",
+          "x-oracle-source": {
+            "method": "debug.oracle.snapshot",
+            "path": "/layout/screens/*/root/**/dock",
+            "from": "LayoutColumn.dock"
+          },
+          "oneOf": [
+            {"type": "null"},
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["edge", "mode", "role", "pinned", "allowsTabs"],
+              "properties": {
+                "edge": {
+                  "x-oracle-source": {
+                    "method": "debug.oracle.snapshot",
+                    "path": "/layout/screens/*/root/**/dock/edge",
+                    "from": "DockColumn.edge"
+                  },
+                  "type": "string",
+                  "enum": ["left", "right", "top", "bottom"]
+                },
+                "mode": {
+                  "x-oracle-source": {
+                    "method": "debug.oracle.snapshot",
+                    "path": "/layout/screens/*/root/**/dock/mode",
+                    "from": "DockColumn.mode"
+                  },
+                  "type": "string",
+                  "enum": ["docked", "overlay"]
+                },
+                "role": {
+                  "x-oracle-source": {
+                    "method": "debug.oracle.snapshot",
+                    "path": "/layout/screens/*/root/**/dock/role",
+                    "from": "DockColumn.role"
+                  },
+                  "type": ["string", "null"],
+                  "enum": ["agentChat", null]
+                },
+                "pinned": {
+                  "x-oracle-source": {
+                    "method": "debug.oracle.snapshot",
+                    "path": "/layout/screens/*/root/**/dock/pinned",
+                    "from": "DockColumn.isPinned"
+                  },
+                  "type": "boolean"
+                },
+                "allowsTabs": {
+                  "x-oracle-source": {
+                    "method": "debug.oracle.snapshot",
+                    "path": "/layout/screens/*/root/**/dock/allowsTabs",
+                    "from": "DockColumn.allowsTabs"
+                  },
+                  "type": "boolean"
+                }
+              }
+            }
+          ]
         }
       }
     }

@@ -10,7 +10,8 @@ extension SidebarViewComponents {
     /// reach the same actions through the palette and the registry menus.
     /// Minimal mode's bands hide with the buttons; they stay in the view and
     /// accessibility tree (a fade), so VoiceOver still reaches their items. The
-    /// footer's update pill stays visible (the only update notice). The top
+    /// footer's update pill stays visible (the only update notice); the Energy
+    /// Saver leaf on the footer's line fades with the footer. The top
     /// band's hairline fades with its band (Lawrence 2026-10-05).
     func setChromeRevealed(_ revealed: Bool) {
         let changed = revealed != isChromeRevealed
@@ -39,6 +40,8 @@ extension SidebarViewComponents {
             belowFade.animator().alphaValue = belowRegion.restAlpha(hiddenByMode: below == 0)
             footerRegion.animator().alphaValue = below
             searchButton.animator().alphaValue = below
+            // The Energy Saver leaf sits on the footer's line; its own show/hide fades its button.
+            energyIndicator.animator().alphaValue = below
         }
         fadeLine(aboveLine, to: above)
     }

@@ -15,8 +15,13 @@ final class SidebarEmojiGlyphView: NSView {
     var fill: CGFloat = 0.86 { didSet { if fill != oldValue { needsDisplay = true } } }
 
     private struct Key: Hashable { let text: String; let size: CGFloat; let pixelScale: CGFloat }
+    // memory: fixed at most `inkCacheLimit` entries of one CGRect each (`ink` empties it when full), about 40 KB.
     /// Ink rect of an emoji at a point size and pixel scale, relative to its baseline origin.
     private static var inkCache: [Key: CGRect] = [:]
+    /// The most ink rects `inkCache` keeps: a sidebar's emojis at the few sizes `fit` probes.
+    static let inkCacheLimit = 512
+    /// How many ink rects `inkCache` keeps now (tests).
+    static var inkCacheCount: Int { inkCache.count }
 
     override func draw(_ dirtyRect: NSRect) {
         guard !text.isEmpty, let context = NSGraphicsContext.current?.cgContext else { return }
@@ -84,6 +89,7 @@ final class SidebarEmojiGlyphView: NSView {
                            y: CGFloat(side - 1 - maxY) / pixelScale - origin,
                            width: CGFloat(maxX - minX + 1) / pixelScale,
                            height: CGFloat(maxY - minY + 1) / pixelScale)
+        if inkCache.count >= inkCacheLimit { inkCache.removeAll() }
         inkCache[key] = found
         return found
     }

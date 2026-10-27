@@ -4,6 +4,7 @@ use super::*;
 
 impl Mux {
     #[allow(clippy::too_many_arguments)]
+    #[track_caller]
     pub(super) fn resource_effectful_topology_operation(
         self: &Arc<Self>,
         operation: ResourceOperation,

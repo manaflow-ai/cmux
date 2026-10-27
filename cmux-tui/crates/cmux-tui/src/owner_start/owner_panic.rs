@@ -11,8 +11,12 @@
 //! cmux-next app reads new lines and sends them to Sentry under the user's
 //! telemetry choice. The line format and hook live in `cmux-panic-log`,
 //! which the acpmux daemon uses too.
-
-use std::path::PathBuf;
+//!
+//! The owner's hang log (cmux-panic-log `hang`) is beside it,
+//! `owner-hangs-<session>.jsonl` with the same fields: the request watchdog
+//! writes one line per watched scope (a request, a journal commit, a
+//! holder-link frame) busy past its hang tier, with the method and the
+//! hung thread's stack.
 
 /// Debug builds only: `thread` makes a worker thread panic once the hook is
 /// installed (tests/owner_panic.rs). Its line carries `"test": true`.
@@ -21,44 +25,53 @@ const TEST_PANIC_ENV: &str = "CMUX_TUI_TEST_OWNER_PANIC";
 #[cfg(debug_assertions)]
 const TEST_PANIC_THREAD: &str = "owner-panic-test";
 
-/// The log for `session`: the state root (the parent of the sessions
-/// directory). A session name that needs escaping gets a hash suffix, so two
-/// names never share a log.
-pub(super) fn log_path(session: &str) -> Option<PathBuf> {
-    let sessions = cmux_tui_core::platform::workspace_state_dir()?;
-    let root = sessions.parent().map(PathBuf::from).unwrap_or(sessions);
-    let safe: String = session
-        .chars()
-        .map(|c| if c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.') { c } else { '-' })
-        .collect();
-    let name = if safe == session {
-        safe
-    } else {
-        // FNV-1a: stable across builds, no dependency.
-        let hash = session.bytes().fold(0xcbf2_9ce4_8422_2325_u64, |hash, byte| {
-            (hash ^ u64::from(byte)).wrapping_mul(0x100_0000_01b3)
-        });
-        format!("{safe}-{:08x}", hash as u32)
-    };
-    Some(root.join(format!("owner-panics-{name}.jsonl")))
-}
+/// The log for `session` (the rule lives in core, so `oracle-state` reports
+/// the same path).
+pub(super) use cmux_tui_core::diagnostics::owner_panic_log_path as log_path;
 
-/// Install the owner's panic hook. Call once, in the headless owner only.
+/// Install the owner's panic hook and hang log. Call once, in the headless
+/// owner only, before its mux is built (the mux watches holder links only
+/// in a process with a hang log).
 pub(super) fn install(session: &str) {
     if let Some(path) = log_path(session) {
-        let mut fields = cmux_panic_log::Fields::new();
-        fields.insert("session".into(), session.into());
-        fields.insert("owner_pid".into(), std::process::id().into());
-        // The release and build a tester runs, so crash reports group by
-        // release and platform (plans/cmux-next/tui-tester-rollout.md).
-        fields.insert("version".into(), crate::version_report::DISTRIBUTION_VERSION.into());
-        fields.insert("build_identity".into(), build_identity().into());
-        fields.insert("os".into(), std::env::consts::OS.into());
-        fields.insert("arch".into(), std::env::consts::ARCH.into());
-        cmux_panic_log::install(path, fields, is_test_thread);
+        cmux_panic_log::install(path, fields(session), is_test_thread);
     }
+    install_hang_log(session);
     #[cfg(debug_assertions)]
     panic_for_test();
+}
+
+/// Every line's fields: the session and the build that wrote it.
+fn fields(session: &str) -> cmux_panic_log::Fields {
+    let mut fields = cmux_panic_log::Fields::new();
+    fields.insert("session".into(), session.into());
+    fields.insert("owner_pid".into(), std::process::id().into());
+    // The release and build a tester runs, so crash reports group by
+    // release and platform (plans/cmux-next/tui-tester-rollout.md).
+    fields.insert("version".into(), crate::version_report::DISTRIBUTION_VERSION.into());
+    fields.insert("build_identity".into(), build_identity().into());
+    fields.insert("os".into(), std::env::consts::OS.into());
+    fields.insert("arch".into(), std::env::consts::ARCH.into());
+    fields
+}
+
+/// Make the owner's hang log the process's: the request watchdog writes
+/// each hung scope there.
+fn install_hang_log(session: &str) {
+    use cmux_panic_log::hang;
+    let Some(path) = cmux_tui_core::diagnostics::owner_hang_log_path(session) else { return };
+    // A second install keeps the first log (one per process).
+    let _ = hang::install(hang::file_sink(path, fields(session)));
+}
+
+/// Debug builds only: with `CMUX_TUI_TEST_OWNER_PANIC=hang`, block a thread
+/// in a watched scope once the owner's mux exists, so one line reaches the
+/// hang log (tests/owner_panic.rs).
+#[cfg(debug_assertions)]
+pub(super) fn hang_for_test() {
+    if std::env::var(TEST_PANIC_ENV).as_deref() == Ok("hang") {
+        cmux_tui_core::diagnostics::spawn_owner_hang_test();
+    }
 }
 
 /// The debug test trigger's thread; its line carries `"test": true`.

@@ -2,6 +2,8 @@ public import Foundation
 import AVFoundation
 import ImageIO
 import CmuxNextCompat
+import class CmuxSafeConcurrency.OnceContinuation
+import func CmuxSafeConcurrency.withOnceThrowingContinuation
 import UniformTypeIdentifiers
 
 /// Bringing a background in (cx-t2x.8, backgrounds plan phase 3): a file is checked before it is
@@ -42,9 +44,8 @@ nonisolated extension BackdropUserImages {
             guard (try? await asset.load(.isPlayable)) == true else { return false }
             return !((try? await asset.loadTracks(withMediaType: .video)) ?? []).isEmpty
         }
-        guard let source = CGImageSourceCreateWithURL(url as CFURL, nil), CGImageSourceGetCount(source) > 0 else { return false }
-        return CGImageSourceCreateThumbnailAtIndex(source, 0, [kCGImageSourceThumbnailMaxPixelSize: 64,
-                                                               kCGImageSourceCreateThumbnailFromImageAlways: true] as CFDictionary) != nil
+        guard let source = CheckedImageSource(blockingContentsOf: url), source.count > 0 else { return false }
+        return source.thumbnail(options: [kCGImageSourceThumbnailMaxPixelSize: 64, kCGImageSourceCreateThumbnailFromImageAlways: true]) != nil
     }
 
     /// Downloads the picture or movie at `link` (https only, redirects included) into a fresh
@@ -94,7 +95,7 @@ nonisolated extension BackdropUserImages {
     /// else the link's own extension when it names a movie. Anything else is not media.
     private nonisolated static func named(_ file: URL, link: URL, mimeType: String?) throws -> URL {
         var ext: String?
-        if let source = CGImageSourceCreateWithURL(file as CFURL, nil), let type = CGImageSourceGetType(source) as String? {
+        if let type = CheckedImageSource(blockingContentsOf: file)?.type {
             ext = UTType(type)?.preferredFilenameExtension
         } else if let mime = mimeType, let type = UTType(mimeType: mime), type.conforms(to: .movie) {
             ext = type.preferredFilenameExtension
@@ -138,7 +139,7 @@ private nonisolated final class LinkDownload: NSObject, URLSessionDataDelegate, 
         var sniffed = false
         var mimeType: String?
         var refusal: BackdropUserImages.ImportError?
-        var continuation: CheckedContinuation<String?, any Error>?
+        var continuation: OnceContinuation<String?, any Error>?
         var task: URLSessionDataTask?
         var cancelled = false
     }
@@ -157,10 +158,11 @@ private nonisolated final class LinkDownload: NSObject, URLSessionDataDelegate, 
         configuration.timeoutIntervalForRequest = 60
         configuration.timeoutIntervalForResource = 600
         configuration.urlCache = nil
-        let session = URLSession(configuration: configuration, delegate: self, delegateQueue: nil)
+        let session = URLSession(configuration: configuration, delegate: self,
+                                 delegateQueue: .sessionDelegate("com.cmuxterm.next.backdrop.import", qos: .utility))
         defer { session.finishTasksAndInvalidate() }
         return try await withTaskCancellationHandler {
-            try await withCheckedThrowingContinuation { continuation in
+            try await withOnceThrowingContinuation { (continuation: OnceContinuation<String?, any Error>) in
                 let task = session.dataTask(with: link)
                 // A cancel that came before the task existed cancels it now: it then completes
                 // at once, cancelled, and resumes the continuation.

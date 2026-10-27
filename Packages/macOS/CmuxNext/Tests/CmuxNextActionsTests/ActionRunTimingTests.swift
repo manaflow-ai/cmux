@@ -214,6 +214,36 @@ private final class RunTimingRecorder: ActionRunTiming {
         #expect((recorder.runs.first?.inputAge ?? -1) >= 5, "the confirmed run lost the press's age")
     }
 
+    /// A run's scope keeps the press it answers (`ActionRunScope.inputTimestamp`), so a switch the run makes in a
+    /// later turn (a task it started, a gated run confirmed after a daemon reply) answers the same press as the
+    /// run's `action.*` row. The handler's invocation still gets none. A CLI run keeps none, even inside a dispatch.
+    @Test func aRunsScopeKeepsThePressItAnswers() throws {
+        let recorder = RunTimingRecorder()
+        var scopes: [ActionID: ActionRunScope] = [:]
+        let registry = Self.gatedRegistry(recorder) { id, _ in scopes[id] = ActionRunScope.current }
+        registry.register(Action(id: "test.run", title: "Run") { scopes["test.run"] = ActionRunScope.current })
+        var pending: (@MainActor () -> Void)?
+        registry.confirmationPresenter = { _, _, proceed in pending = { proceed(false) } }
+        let key = try Self.key(at: ProcessInfo.processInfo.systemUptime - 0.005)
+        var dispatching: NSEvent? = key
+        registry.dispatchingInputEvent = { dispatching }
+
+        #expect(registry.perform("test.run"))
+        #expect(scopes["test.run"]?.inputTimestamp == key.timestamp, "a run inside the key's dispatch answers the key")
+        #expect(registry.perform("test.run", invocation: ActionInvocation(origin: .cli)))
+        #expect(scopes["test.run"]?.inputTimestamp == nil, "a CLI run answers no press")
+
+        #expect(registry.perform("tabGroup.close"))
+        dispatching = nil  // the key's dispatch ended; the daemon answered later
+        let proceed = try #require(pending)
+        proceed()
+        #expect(scopes["tabGroup.close"]?.inputTimestamp == key.timestamp, "the confirmed run lost its press")
+        // An inner run outside any dispatch, started by the outer run's task, answers the outer run's press.
+        let outer = ActionRunScope(origin: .user, allowsViewChange: true, inputTimestamp: key.timestamp)
+        ActionRunScope.$current.withValue(outer) { _ = registry.perform("test.run") }
+        #expect(scopes["test.run"]?.inputTimestamp == key.timestamp)
+    }
+
     /// The palette opening for a missing argument is a gate; the run after it is a run.
     @Test func collectingArgumentsIsAGateNotARun() throws {
         let recorder = RunTimingRecorder()

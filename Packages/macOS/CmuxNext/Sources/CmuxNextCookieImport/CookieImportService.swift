@@ -65,7 +65,7 @@ public final class CookieImportService {
                                requester: CookieImportRequester?) async -> ActionWorkFailure? {
         // Finding the browsers reads only folder names and Local State profile names (no cookie file).
         let sources = await Task.detached {
-            let environment = ImportEnvironment.live { NSWorkspace.shared.urlForApplication(withBundleIdentifier: $0) }
+            let environment = ImportEnvironment.live()
             return BrowserSourceDetector(environment: environment).detect()
         }.value
         let profile: BrowserSourceProfile

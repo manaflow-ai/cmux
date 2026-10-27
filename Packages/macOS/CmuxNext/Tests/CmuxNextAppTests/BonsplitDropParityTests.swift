@@ -5,6 +5,7 @@ import CmuxNextDesign
 import enum CmuxNextDaemon.PaneEdge
 @testable import CmuxNextLayout
 import CmuxNextTabs
+import CmuxNextWakeups
 import Testing
 
 /// Tab drops behave as bonsplit's do in classic cmux (#22287): no split dwell, the shared edge of
@@ -183,7 +184,7 @@ struct BonsplitDropParityTests {
                               backing: .buffered, defer: false)
 
         init() {
-            root = LayoutRootView(model: model, contentProvider: provider)
+            root = LayoutRootView(model: model, contentProvider: provider, mainWork: MainWorkScheduler(budget: MainFrameBudget()))
             window.contentView = root
             window.orderFrontRegardless()
             root.layoutSubtreeIfNeeded()

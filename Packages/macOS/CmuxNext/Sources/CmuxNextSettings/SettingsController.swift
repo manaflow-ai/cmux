@@ -1,5 +1,9 @@
 public import CmuxNextActions
 public import CmuxNextDesign
+import CmuxNextWakeups
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
+import func CmuxSafeConcurrency.withOnceContinuation
 public import Foundation
 public import Observation
 
@@ -60,6 +64,8 @@ public final class SettingsController {
     public internal(set) var teamPolicy: TeamPolicyLayer = .none
 
     @ObservationIgnored let applier: SettingsApplier
+    /// The design settings this controller applies to (`DesignSettings.shared` in the app).
+    public var design: DesignSettings { applier.design }
     @ObservationIgnored private var diagnosticToasts: SettingsDiagnosticToasts?
     @ObservationIgnored private var watcher: ConfigFileWatcher?
     @ObservationIgnored private var reloadTask: Task<Void, Never>?
@@ -68,11 +74,13 @@ public final class SettingsController {
     @ObservationIgnored let managedReader: any ManagedPreferenceReader
     @ObservationIgnored let managedWatchFiles: [URL]
     @ObservationIgnored var managedWatchers: [ConfigFileWatcher] = []
-    @ObservationIgnored var statusTarget: (url: URL, context: ManagedStatusReport.Context)?
+    @ObservationIgnored var statusTarget: ManagedStatusTarget?
     @ObservationIgnored var lastStatusBody: JSONValue?
+    /// The app activation backstop's subscription (`followActivation(on:)`).
+    @ObservationIgnored var activation: EventSubscription?
     @ObservationIgnored private var loadWaiters: [LoadWaiter] = []
-    /// The launch's read (`readAtLaunch`), adopted by the first load.
-    @ObservationIgnored private var launchRead: LaunchRead?
+    /// The launch's read (`startLaunchRead`), adopted by the first load; until then it is the managed layer launch steps read.
+    @ObservationIgnored var launchRead: LaunchRead?
     /// Writes `setSetting` validated and made, by dotted key (tests check
     /// that palette actions write through it).
     @ObservationIgnored var validatedWrites: [String: Int] = [:]
@@ -80,11 +88,11 @@ public final class SettingsController {
     private struct LoadWaiter {
         let token: UUID
         let count: Int
-        let continuation: CheckedContinuation<Void, Never>
+        let continuation: OnceContinuation<Void, OnceContinuationError>
     }
 
     /// Everything a load depends on; an unchanged input skips the apply.
-    fileprivate nonisolated struct LoadInputs: Equatable, Sendable {
+    nonisolated struct LoadInputs: Equatable, Sendable {
         let source: String
         let managed: ManagedPreferences
         let team: TeamPolicyLayer
@@ -105,8 +113,10 @@ public final class SettingsController {
         self.managedWatchFiles = managedWatchFiles
     }
 
-    /// Loads the file now and starts watching it. `announcingDiagnostics`: the app also tells the
-    /// person about a value it ignores (`SettingsDiagnosticToasts`); tests leave it off.
+    /// Loads the file now (the launch's read when the controller was made with one: no file call
+    /// on this thread) and starts watching it; the watches are armed off this thread, then reload
+    /// once. `announcingDiagnostics`: the app also tells the person about a value it ignores
+    /// (`SettingsDiagnosticToasts`); tests leave it off.
     public func start(announcingDiagnostics: Bool = false) {
         guard watcher == nil else { return }
         if announcingDiagnostics, diagnosticToasts == nil {
@@ -118,7 +128,7 @@ public final class SettingsController {
             Task { @MainActor in self?.requestReload() }
         }
         self.watcher = watcher
-        watcher.start()
+        watcher.startWithoutWaiting()
         startManagedWatchers()
         if loadCount == 0 { loadNow() } else { requestReload() }
     }
@@ -147,9 +157,10 @@ public final class SettingsController {
         guard loadCount < count, !Task.isCancelled else { return }
         let token = UUID()
         await withTaskCancellationHandler {
-            await withCheckedContinuation { continuation in
+            // A dropped waiter returns as a loaded or cancelled one does.
+            _ = try? await withOnceContinuation { (continuation: OnceContinuation<Void, OnceContinuationError>) in
                 if Task.isCancelled || loadCount >= count {
-                    continuation.resume()
+                    continuation.resume(returning: ())
                 } else {
                     loadWaiters.append(LoadWaiter(token: token, count: count, continuation: continuation))
                 }
@@ -161,7 +172,7 @@ public final class SettingsController {
 
     private func resumeWaiter(_ token: UUID) {
         guard let index = loadWaiters.firstIndex(where: { $0.token == token }) else { return }
-        loadWaiters.remove(at: index).continuation.resume()
+        loadWaiters.remove(at: index).continuation.resume(returning: ())
     }
 
     // MARK: - Writing
@@ -288,32 +299,15 @@ public final class SettingsController {
                           configDirectory: file.url.deletingLastPathComponent()))
     }
 
-    /// The launch's first load, read before the controller exists so the
-    /// terminal runtime starts in the file's appearance; the controller
-    /// adopts it (`init(launch:)`) instead of reading the file again.
-    public nonisolated struct LaunchRead: Sendable {
-        fileprivate let loaded: Loaded
-        public let fileURL: URL
-        public var snapshot: CmuxConfigSnapshot { loaded.snapshot }
-    }
-
-    public static func readAtLaunch(
-        fileURL: URL, managedReader: any ManagedPreferenceReader = ManagedPreferenceLocation.defaultReader()
-    ) -> LaunchRead {
-        let source = Result { try CmuxConfigFile.source(at: fileURL) }
-        return LaunchRead(loaded: loaded(source, managed: managedReader.read(), team: .none, lastGood: .object([:]), valid: validValues,
-                                         configDirectory: fileURL.deletingLastPathComponent()), fileURL: fileURL)
-    }
-
-    fileprivate typealias Loaded = (inputs: LoadInputs, effective: EffectiveSettings, snapshot: CmuxConfigSnapshot)
-    private static var validValues: (densities: Set<String>, metrics: Set<String>) {
+    typealias Loaded = (inputs: LoadInputs, effective: EffectiveSettings, snapshot: CmuxConfigSnapshot)
+    static var validValues: (densities: Set<String>, metrics: Set<String>) {
         (SettingsApplier.validDensities, SettingsApplier.validMetrics)
     }
 
     /// Parses the file's text and merges the managed layers.
-    private nonisolated static func loaded(_ read: Result<String, any Error>, managed: ManagedPreferences, team: TeamPolicyLayer,
-                                           lastGood: JSONValue, valid: (densities: Set<String>, metrics: Set<String>),
-                                           configDirectory: URL) -> Loaded {
+    nonisolated static func loaded(_ read: Result<String, any Error>, managed: ManagedPreferences, team: TeamPolicyLayer,
+                                   lastGood: JSONValue, valid: (densities: Set<String>, metrics: Set<String>),
+                                   configDirectory: URL) -> Loaded {
         var source = ""
         var problem: String?
         var root = lastGood
@@ -358,6 +352,6 @@ public final class SettingsController {
         loadCount += 1
         let ready = loadWaiters.filter { $0.count <= loadCount }
         loadWaiters.removeAll { $0.count <= loadCount }
-        ready.forEach { $0.continuation.resume() }
+        ready.forEach { $0.continuation.resume(returning: ()) }
     }
 }

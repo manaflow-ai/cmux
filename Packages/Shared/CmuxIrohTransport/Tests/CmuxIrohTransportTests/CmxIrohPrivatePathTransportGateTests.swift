@@ -526,20 +526,26 @@ struct CmxIrohPrivatePathTransportGateTests {
         var address = sockaddr_in()
         address.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
         address.sin_family = sa_family_t(AF_INET)
-        guard ipAddress.withCString({ inet_pton(AF_INET, $0, &address.sin_addr) }) == 1 else {
+        // SAFETY: inet_pton writes sizeof(struct in_addr) bytes into sin_addr, an in_addr,
+        // and reads the NUL-terminated copy of ipAddress made for this call.
+        guard unsafe inet_pton(AF_INET, ipAddress, &address.sin_addr) == 1 else {
             throw GateError.noPrivateIPv4Interface
         }
         let bound = withUnsafePointer(to: &address) { pointer in
-            pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) {
-                Darwin.bind(descriptor, $0, socklen_t(MemoryLayout<sockaddr_in>.size))
+            // SAFETY: a sockaddr_in begins with the sockaddr header; bind reads the
+            // sockaddr_in size passed from the local `address`, live for this call.
+            unsafe pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) {
+                unsafe Darwin.bind(descriptor, $0, socklen_t(MemoryLayout<sockaddr_in>.size))
             }
         }
         guard bound == 0 else { throw currentPOSIXError() }
 
         var addressLength = socklen_t(MemoryLayout<sockaddr_in>.size)
         let readAddress = withUnsafeMutablePointer(to: &address) { pointer in
-            pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) {
-                Darwin.getsockname(descriptor, $0, &addressLength)
+            // SAFETY: getsockname writes at most addressLength bytes, sizeof(sockaddr_in),
+            // into the local `address`, live for this call.
+            unsafe pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) {
+                unsafe Darwin.getsockname(descriptor, $0, &addressLength)
             }
         }
         guard readAddress == 0 else { throw currentPOSIXError() }

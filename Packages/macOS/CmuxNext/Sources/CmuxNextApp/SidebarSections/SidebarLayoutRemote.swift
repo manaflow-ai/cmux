@@ -1,11 +1,13 @@
+import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextSidebar
 import Foundation
 
 /// The owner of the sidebar layout as the service reaches it: the home
 /// daemon's `sidebar-layout-v1` (or a fake in tests).
+/// Sendable: a main-actor object the service's off-main tasks call.
 @MainActor
-protocol SidebarLayoutRemote: AnyObject {
+protocol SidebarLayoutRemote: AnyObject, Sendable {
     /// The store serves the layout and the connection is up.
     var isAvailable: Bool { get }
     /// Changes when the owner's personal state changes (a refetch signal).
@@ -88,7 +90,7 @@ final class DaemonSidebarLayoutRemote: SidebarLayoutRemote {
 
     func update(_ op: SidebarLayoutOp, key: String) async throws -> SidebarLayoutDocument {
         guard let connection = daemon.connection else { throw DaemonError.notConnected }
-        let wire = try JSONDecoder().decode(JSONValue.self, from: JSONEncoder().encode(op))
+        let wire = try JSONDecoder().blockingDecode(JSONValue.self, from: JSONEncoder().encode(op))
         return try Self.document(try await SidebarLayoutStateClient(connection: connection).update(op: wire, idempotencyKey: key).layout)
     }
 
@@ -98,7 +100,7 @@ final class DaemonSidebarLayoutRemote: SidebarLayoutRemote {
             var revision: String
             var sections: [LayoutSection]
         }
-        let snapshot = try JSONDecoder().decode(Snapshot.self, from: JSONEncoder().encode(value))
+        let snapshot = try JSONDecoder().blockingDecode(Snapshot.self, from: JSONEncoder().encode(value))
         return SidebarLayoutDocument(revision: UInt64(snapshot.revision) ?? 0, sections: snapshot.sections)
     }
 }

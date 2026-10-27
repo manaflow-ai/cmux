@@ -1,4 +1,5 @@
 use crate::panic_free::RecoverPoison;
+use cmux_threads::checked::sync as waits;
 use std::collections::{HashMap, VecDeque};
 use std::path::PathBuf;
 use std::sync::{Arc, Condvar, Mutex, OnceLock, RwLock, Weak};
@@ -292,9 +293,13 @@ impl JournalKernel {
         head_sequence: u64,
     ) -> anyhow::Result<()> {
         let weak = Arc::downgrade(kernel);
-        let tailer = std::thread::Builder::new()
-            .name("mux-session-journal-fanout".into())
-            .spawn(move || run_tailer(weak, reader, head_sequence))?;
+        let tailer = cmux_threads::spawn(
+            "mux-session-journal-fanout",
+            cmux_threads::ThreadQos::Utility,
+            move || {
+                run_tailer(weak, reader, head_sequence);
+            },
+        )?;
         *kernel.tailer.lock().recover_poison() = Some(tailer);
         Ok(())
     }
@@ -391,7 +396,7 @@ impl JournalKernel {
             self.changed.notify_all();
         }
         if let Some(tailer) = self.tailer.lock().recover_poison().take()
-            && tailer.join().is_err()
+            && waits::join(tailer).is_err()
         {
             eprintln!("cmux-tui: session journal tailer panicked during shutdown");
         }

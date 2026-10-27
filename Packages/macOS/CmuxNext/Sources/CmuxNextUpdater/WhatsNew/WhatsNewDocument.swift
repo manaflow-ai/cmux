@@ -1,3 +1,4 @@
+import CmuxNextCompat
 public import Foundation
 
 /// One release's What's New page (decision WHATS-NEW-AFTER-UPDATE W2):
@@ -117,7 +118,7 @@ nonisolated public struct WhatsNewDocument: Codable, Equatable, Sendable, Identi
     /// for this Mac, safe media paths. Entries for other platforms and
     /// media outside `media/` are dropped, not the whole document.
     public static func decode(_ data: Data, origin: Origin) -> WhatsNewDocument? {
-        guard var document = try? JSONDecoder().decode(WhatsNewDocument.self, from: data),
+        guard var document = try? JSONDecoder().blockingDecode(WhatsNewDocument.self, from: data),
               document.schemaVersion == 1, document.parsedVersion != nil else { return nil }
         document.origin = origin
         document.entries = document.entries.filter(\.isForMac).map { entry in

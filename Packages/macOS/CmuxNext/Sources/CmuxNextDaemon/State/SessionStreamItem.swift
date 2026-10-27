@@ -72,8 +72,8 @@ public enum SessionStreamItem: Sendable, Hashable {
     }
 
     /// Decodes one `stream_item` or `stream_end` line.
-    static func decode(_ line: Data) -> SessionStreamItem? {
-        guard let envelope = try? JSONDecoder().decode(SessionWire.Envelope.self, from: line) else { return nil }
+    static func decode(_ line: Data, decoder: WireDecoder = WireCoding.decoder()) -> SessionStreamItem? {
+        guard let envelope = try? decoder.decode(SessionWire.Envelope.self, from: line) else { return nil }
         if envelope.type == "stream_end" { return .ended(reason: envelope.reason ?? "ended") }
         guard let item = envelope.item else { return nil }
         switch item.kind {

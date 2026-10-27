@@ -1,0 +1,22 @@
+{
+  "id": "burst-stress",
+  "tier": "T2",
+  "description": "The burst story in STRESS (burst-bench.py --phases stress: perf-stress-session.py's 60 workspaces, each scenario in the measured workspace's first pane and the shape restored and checked after it): the light story's series per scenario, stress session.",
+  "command": ["scripts/cmux-next/burst-bench.py", "--phases", "stress"],
+  "session": "stress",
+  "engine": "chromium",
+  "config": "bench",
+  "metrics": [
+    {"name": "burst\\.stress\\.[a-z-]+\\.input_to_next_commit", "unit": "ms", "better": "lower"},
+    {"name": "burst\\.stress\\.[a-z-]+\\.(lost|extra|commit_missed|frames_missed|invalid)", "unit": "count",
+     "better": "lower"}
+  ],
+  "repeats": 1,
+  "seconds": 900,
+  "needs": ["debug:debug.key", "debug:debug.burst", "debug:debug.frames", "debug:debug.cef",
+            "debug:debug.layout_counters", "debug:debug.layers", "debug:debug.screens", "debug:debug.window_frame",
+            "file:scripts/cmux-next/perf-signposts.py", "file:scripts/cmux-next/activation-perf.py",
+            "file:scripts/cmux-next/perf-stress-session.py"],
+  "owner": "Performance Lead",
+  "component": "Input>Burst"
+}

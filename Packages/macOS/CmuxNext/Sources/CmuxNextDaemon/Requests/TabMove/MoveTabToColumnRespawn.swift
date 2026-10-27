@@ -7,7 +7,7 @@ import Foundation
 /// the spawn deadline.
 public struct MoveTabToColumnRespawnRequest: TerminalSpawningRequest {
     public typealias Response = TabMoveResult
-    public static let command = "move-tab-to-column"
+    public static let commandName: DaemonCommandName = "move-tab-to-column"
     public static let requiredCapability: String? = DaemonCapability.tabColumnRespawn.rawValue
     public var column: MoveTabToColumnRequest
     public var respawn: SplitRespawn

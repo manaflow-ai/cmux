@@ -151,7 +151,11 @@ struct PaneArrival: Equatable {
     /// The range strip panes show in beside docked columns (nil without
     /// any), moved with docks still growing in from their edge (`docks`, the
     /// arriving frames), so the strip is never cut short of a dock that has
-    /// not reached its place.
+    /// not reached its place. With `motion.renderServer` on it runs at plan
+    /// apply only: once where the docks show and once at rest, and the strip
+    /// container's bounds spring between the two on the render server
+    /// (`ScreenContentView.springStripContainer`). Only the CPU step calls it
+    /// per frame.
     static func stripClip(_ geometry: ScreenGeometry, docks: [AnimatedFrame]) -> CGRect? {
         guard !geometry.dock.isEmpty else { return nil }
         var minX = geometry.clipMinX, maxX = geometry.clipMaxX, minY = geometry.clipMinY, maxY = geometry.clipMaxY
@@ -163,6 +167,23 @@ struct PaneArrival: Equatable {
             if target.minY >= geometry.clipMaxY - 1 { maxY += shown.minY - target.minY }
         }
         return CGRect(x: minX, y: minY, width: max(0, maxX - minX), height: max(0, maxY - minY))
+    }
+
+    /// How fast ``stripClip(_:docks:)``'s range moves with `docks` (their velocities), in points per second:
+    /// each edge a growing dock moves goes at that dock's inner edge's speed. A clip springing on the render
+    /// server starts at it, so the clip edge and the dock edge stay together when a change takes their
+    /// springs back mid-growth (`ScreenContentView.springStripContainer`).
+    static func stripClipVelocity(_ geometry: ScreenGeometry, docks: [AnimatedFrame]) -> RectComponents {
+        guard !geometry.dock.isEmpty else { return .zero }
+        var minX: CGFloat = 0, maxX: CGFloat = 0, minY: CGFloat = 0, maxY: CGFloat = 0
+        for dock in docks {
+            let target = dock.targetRect
+            if target.maxX <= geometry.clipMinX + 1 { minX += dock.x.velocity + dock.width.velocity }
+            if target.minX >= geometry.clipMaxX - 1 { maxX += dock.x.velocity }
+            if target.maxY <= geometry.clipMinY + 1 { minY += dock.y.velocity + dock.height.velocity }
+            if target.minY >= geometry.clipMaxY - 1 { maxY += dock.y.velocity }
+        }
+        return RectComponents(x: minX, y: minY, width: maxX - minX, height: maxY - minY)
     }
 
     /// The dock columns a structural change added, when it grows a pane in;

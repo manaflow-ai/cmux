@@ -1,6 +1,9 @@
 public import AppKit
 public import CmuxNextBrowserImport
 public import Foundation
+public import class CmuxSafeConcurrency.OnceContinuation
+public import enum CmuxSafeConcurrency.OnceContinuationError
+import func CmuxSafeConcurrency.withOnceContinuation
 
 /// Tool-window services with canned data, for tests. Records what the
 /// window asked for; never touches browsers or macOS.
@@ -9,7 +12,7 @@ public final class MockOnboardingServices: OnboardingServices {
     public var sources: [BrowserSource] = []
     public var summary = ImportSummary(batches: [])
     /// When set, `runImport` waits here until the test resumes it.
-    public var importGate: CheckedContinuation<Void, Never>?
+    public var importGate: OnceContinuation<Void, OnceContinuationError>?
     public var holdsImport = false
     /// The progress reports `runImport` sends; nil: one, the first profile starting on bookmarks.
     public var reports: [ImportProgress]?
@@ -37,7 +40,10 @@ public final class MockOnboardingServices: OnboardingServices {
             progress(ImportProgress(profileIndex: 0, profileCount: plan.items.count, profile: profile, kind: .bookmarks,
                                     fraction: 0.5, counts: ImportCounts(bookmarks: 1)))
         }
-        if holdsImport { await withCheckedContinuation { importGate = $0 } }
+        // A dropped gate lets the import go on, as an opened one does.
+        if holdsImport {
+            _ = try? await withOnceContinuation { (gate: OnceContinuation<Void, OnceContinuationError>) in importGate = gate }
+        }
         try Task.checkCancellation()
         return summary
     }
@@ -49,10 +55,14 @@ public final class MockOnboardingServices: OnboardingServices {
     /// While true, a Touch ID request waits for ``answerAuthorizations()``
     /// (the sheet is up).
     public var holdsAuthorization = false
-    private var pendingAuthorizations: [CheckedContinuation<Void, Never>] = []
+    private var pendingAuthorizations: [OnceContinuation<Void, OnceContinuationError>] = []
     public func authorizePasswordRead(reason: String) async -> Bool {
         authorizationReasons.append(reason)
-        if holdsAuthorization { await withCheckedContinuation { pendingAuthorizations.append($0) } }
+        if holdsAuthorization {
+            _ = try? await withOnceContinuation { (sheet: OnceContinuation<Void, OnceContinuationError>) in
+                pendingAuthorizations.append(sheet)
+            }
+        }
         return passwordAuthorization
     }
 
@@ -60,7 +70,7 @@ public final class MockOnboardingServices: OnboardingServices {
     public func answerAuthorizations() {
         let pending = pendingAuthorizations
         pendingAuthorizations = []
-        for continuation in pending { continuation.resume() }
+        for continuation in pending { continuation.resume(returning: ()) }
     }
 
     public func openExternal(_ url: URL) { opened.append(url) }

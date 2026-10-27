@@ -16,8 +16,8 @@
 //! away again is forgotten at once, so a stale entry never revives a second
 //! copy of a chat that left.
 
+use cmux_threads::sync::Mutex;
 use std::path::Path;
-use std::sync::Mutex;
 
 use serde::{Deserialize, Serialize};
 

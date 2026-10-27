@@ -1,3 +1,4 @@
+import CmuxNextCompat
 public import Foundation
 
 /// One cookie to store in a cmux browser profile's Chromium cookie jar
@@ -70,7 +71,7 @@ public nonisolated struct ChromiumCookieWriteResult: Sendable, Equatable {
 
     /// Parses the shim's reply `{"written","rejected"}`.
     static func parse(_ json: String) -> ChromiumCookieWriteResult? {
-        guard let object = try? JSONSerialization.jsonObject(with: Data(json.utf8)) as? [String: Any],
+        guard let object = try? JSONSerialization.blockingJSONObject(with: Data(json.utf8)) as? [String: Any],
               let written = object["written"] as? Int, let rejected = object["rejected"] as? Int else { return nil }
         return ChromiumCookieWriteResult(written: written, rejected: rejected)
     }

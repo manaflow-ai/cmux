@@ -1,0 +1,17 @@
+{
+  "id": "sidebar-mirror-rebuild",
+  "tier": "T1",
+  "description": "Structural sidebar rebuild at 1,000 workspaces in the sidebar-document mode (sidebar-mirror-rebuild-perf.py): per create-and-close cycle, the main-thread time of the Rust mirror reads and of the list layout.",
+  "command": ["scripts/cmux-next/sidebar-mirror-rebuild-perf.py", "--rebuilds", "20"],
+  "session": "stress",
+  "engine": "none",
+  "config": "bench",
+  "metrics": [
+    {"name": "sidebar_mirror_rebuild\\.[0-9]+\\.(mirror_per_cycle|main_per_cycle)", "unit": "ms", "better": "lower"}
+  ],
+  "repeats": 3,
+  "seconds": 150,
+  "needs": ["debug:debug.sidebar_perf", "debug:debug.sidebar_rows"],
+  "owner": "a590",
+  "component": "Sidebar>Mirror"
+}

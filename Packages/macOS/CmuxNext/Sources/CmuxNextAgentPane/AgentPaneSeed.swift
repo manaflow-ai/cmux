@@ -1,4 +1,5 @@
 public import Foundation
+import CmuxNextWakeups
 
 /// What a new agent tab inherits from the tab it was opened from (#16620):
 /// the directory its session starts in, and text the composer starts with.
@@ -141,21 +142,11 @@ public final class AgentPaneSeedSource {
 
 /// `read`'s answer, or nil once `limit` passes. A late answer is dropped
 /// without being awaited (a hung page never answers), unlike a deadline
-/// raced in a task group, which waits for its loser.
-func agentPaneFirst<T: Sendable>(within limit: Duration, _ read: @escaping @MainActor @Sendable () async -> T?) async -> T? {
-    await withCheckedContinuation { continuation in
-        let once = AgentPaneResumeOnce()
-        // task-owner: one-shot deadline for the read below; cancelled when the read answers first
-        let deadline = Task { @MainActor in
-            // wakeup-allow: one-shot deadline (a read from another tab or the page)
-            try? await Task.sleep(for: limit)
-            once.run { continuation.resume(returning: nil) }
-        }
-        // task-owner: one-shot read; a late answer is dropped
-        Task { @MainActor in
-            let value = await read()
-            once.run { continuation.resume(returning: value) }
-            deadline.cancel()
-        }
-    }
+/// raced in a task group, which waits for its loser. The race is ``Deadline``:
+/// the limit sleeps on `clock` with ``WakeLeeway``'s tolerance, and the read is
+/// cancelled when it loses.
+func agentPaneFirst<T: Sendable>(within limit: Duration, clock: any Clock<Duration> = ContinuousClock(),
+                                 _ read: @escaping @MainActor @Sendable () async -> T?) async -> T? {
+    let answer: T?? = await Deadline(limit, clock: clock).value("agent-pane.first-read") { await read() }
+    return answer ?? nil
 }

@@ -13,7 +13,7 @@ public final class WindowSurfaceView: NSView, WindowSurfacePainting {
     /// The window's one material and tint.
     public let backdropView = WindowMaterialView(frame: .zero)
     private let reduceTransparency: @MainActor () -> Bool
-    private var displayOptionsObserver: MainActorObservation?
+    private var displayOptionsWatch: AppearanceSignals.Subscription?
 
     public init(content: NSView,
                 reduceTransparency: @escaping @MainActor () -> Bool = { NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency }) {
@@ -27,9 +27,7 @@ public final class WindowSurfaceView: NSView, WindowSurfacePainting {
         content.frame = bounds
         content.autoresizingMask = [.width, .height]
         addSubview(content)
-        // queue: .main: the workspace center may post off main; a selector
-        // into this main-actor view trapped there.
-        displayOptionsObserver = MainActorObservation(NSWorkspace.accessibilityDisplayOptionsDidChangeNotification, center: NSWorkspace.shared.notificationCenter) { [weak self] in
+        displayOptionsWatch = DesignSettings.shared.signals.subscribe([.displayOptions], owner: "WindowSurfaceView") { [weak self] in
             self?.repaint()
         }
     }

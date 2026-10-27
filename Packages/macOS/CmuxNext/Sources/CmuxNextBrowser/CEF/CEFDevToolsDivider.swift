@@ -1,5 +1,7 @@
 import AppKit
 import CmuxNextDesign
+import CmuxNextInput
+import CmuxNextWakeups
 
 /// The line between a CEF page and its docked DevTools. Drag it to resize
 /// (the page and DevTools windows punch a hole for its grab area, so the
@@ -8,6 +10,16 @@ import CmuxNextDesign
 final class CEFDevToolsDivider: NSView {
     weak var devTools: CEFDevToolsController?
     private var dragging = false
+    /// A drag moves the line to this point (its superview's coordinates): the controller's
+    /// `dragDivider(to:)`.
+    var onMove: ((CGPoint) -> Void)?
+    /// The windows' frame-aligned pointer input (feature `pointerFrameDrags`, ``CEFRuntime/pointerFrames``):
+    /// the line moves on a frame interval's first drag event and once more at its frame, to the latest
+    /// point, as Chromium delivers rAF-aligned moves (main_thread_event_queue.cc). Nil: every drag
+    /// event moves it.
+    var pointerFrames: FrameInputCoalescers?
+    /// This drag's consumer of its window's coalescer, from mouse-down to mouse-up.
+    private var frameDrag: PointerFrameConsumer?
 
     nonisolated override var isFlipped: Bool { false }
     override var mouseDownCanMoveWindow: Bool { false }
@@ -30,17 +42,48 @@ final class CEFDevToolsDivider: NSView {
 
     override func mouseDown(with event: NSEvent) {
         dragging = true
+        endFrameDrag()
+        frameDrag = window.flatMap { pointerFrames?.coalescer(for: $0) }?.consumer(owner: "CEFDevToolsDivider") { [weak self] input in
+            self?.drag(to: NSPoint(x: input.latest.location.x, y: input.latest.location.y))
+        }
     }
 
-    override func mouseDragged(with event: NSEvent) {
-        guard dragging, let devTools, let container = superview else { return }
-        devTools.dragDivider(to: container.convert(event.locationInWindow, from: nil))
+    override func mouseDragged(with event: NSEvent) { // perf-hot: 2ms resize-drag (every drag event)
+        guard dragging else { return }
+        if let frameDrag {
+            frameDrag.post(event)
+        } else {
+            drag(to: event.locationInWindow)
+        }
     }
 
     override func mouseUp(with event: NSEvent) {
         guard dragging else { return }
+        // The frame's pending move lands before the release (Chromium's ShouldFlushQueue).
+        frameDrag?.flush()
+        endFrameDrag()
         dragging = false
         devTools?.rememberLayout()
+    }
+
+    /// Leaving the window mid-drag: no mouse-up comes, so nothing it has pending may land later.
+    override func viewWillMove(toWindow newWindow: NSWindow?) {
+        super.viewWillMove(toWindow: newWindow)
+        guard newWindow == nil else { return }
+        endFrameDrag()
+        dragging = false
+    }
+
+    /// The line goes to `windowPoint` (window coordinates).
+    private func drag(to windowPoint: NSPoint) { // perf-hot: 2ms resize-drag (each move the line takes)
+        guard dragging, let container = superview else { return }
+        onMove?(container.convert(windowPoint, from: nil))
+    }
+
+    /// Drops this drag's consumer and anything it still has pending.
+    private func endFrameDrag() {
+        frameDrag?.cancel()
+        frameDrag = nil
     }
 
     /// The dock side choices (CEF runs DevTools with docking off, so its

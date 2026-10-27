@@ -1,6 +1,7 @@
 //! Unit tests for the surface module, split by topic under surface/tests/.
 //! This file holds the writers that the input and clear-history topics share.
 
+mod allocation_counter;
 mod attach_tap;
 mod byte_mirror;
 mod child_process;
@@ -8,7 +9,10 @@ mod clear_history;
 mod clear_history_tests;
 #[cfg(unix)]
 mod clipboard_read;
+mod cold_scrollback;
 mod colors;
+#[cfg(unix)]
+mod echo_flow;
 mod hosted;
 mod input;
 mod lifecycle;

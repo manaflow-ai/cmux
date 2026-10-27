@@ -1169,6 +1169,7 @@ fn attach_stream_replays_then_streams_without_duplication() {
     loop {
         match attach.stream.recv_timeout(Duration::from_millis(200)) {
             Ok(AttachFrame::Output(chunk))
+            | Ok(AttachFrame::FlowOutput { output: chunk, .. })
             | Ok(AttachFrame::OutputWithColors { output: chunk, .. }) => {
                 mirror.vt_write(&chunk);
                 if mirror.plain_text().unwrap().contains("after-attach") {

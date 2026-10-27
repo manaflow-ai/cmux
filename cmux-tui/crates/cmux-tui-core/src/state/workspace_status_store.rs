@@ -45,6 +45,7 @@ fn validate_status_key(key: &str) -> anyhow::Result<()> {
 }
 
 /// Set or replace one status entry. A new key goes last.
+#[track_caller]
 pub(crate) fn set_status(
     transaction: &Transaction<'_>,
     workspace_id: &str,

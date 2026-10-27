@@ -12,7 +12,7 @@ struct AgentCLIIntentLedgerTests {
 
     private struct Calls: DaemonRequest {
         typealias Response = JSONValue
-        static let command = "test-recovery-calls"
+        static let commandName: DaemonCommandName = "test-recovery-calls"
     }
 
     private func intent() throws -> AgentCLIUpdateIntent {

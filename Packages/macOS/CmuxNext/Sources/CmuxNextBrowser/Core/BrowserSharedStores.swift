@@ -11,7 +11,7 @@ public import Foundation
 /// ```swift
 /// let stores = BrowserSharedStores.application()
 /// let webKit = WebKitEngine(stores: stores)
-/// let cef = CEFEngine(source: source, stores: stores, signInCallbacks: CEFSignInCallbacks())
+/// let cef = CEFEngine(source: source, stores: stores, signInCallbacks: CEFSignInCallbacks(), input: inputTap)
 /// ```
 @MainActor
 public final class BrowserSharedStores {

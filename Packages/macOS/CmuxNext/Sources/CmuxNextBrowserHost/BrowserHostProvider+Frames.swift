@@ -1,29 +1,40 @@
 import CmuxNextBrowser
 import CmuxNextBrowserAutomation
+import CmuxNextWakeups
 import Foundation
 
 extension BrowserHostProvider {
     /// `cookies.restore` names a backup, not a tab: the backup records its profile.
     static let tabLessMethods: Set<String> = ["tabs.list", "tabs.open", "cookies.restore"]
+    /// The WebKit driver's capture call: it holds the tab's capture vote until it answers.
+    static let screenshotMethod = "tab.screenshot"
 
-    /// One frame from the host, in order, on the main actor.
-    func handle(_ frame: ProviderFrame) {
+    /// A frame the app handles: its task's owner on the board, `browser-host.<tag>`, and its handler.
+    struct FrameTask {
+        /// A fixed set, so an unknown or unexpected tag from the host never interns a new owner.
+        let owner: String
+        let run: @MainActor (BrowserHostProvider) -> Void
+    }
+
+    /// The task of one frame from the host; nil for a frame the app does not handle. The one place
+    /// that maps a frame kind to its handler, so a handled kind always has an owner and a task.
+    static func task(for frame: ProviderFrame) -> FrameTask? {
         switch frame {
         case .call(let id, let method, let params):
-            handleCall(id: id, method: method, params: params)
+            FrameTask(owner: "browser-host.call") { $0.handleCall(id: id, method: method, params: params) }
         case .cdpAttach(let targetID):
-            attachRelay(targetID)
+            FrameTask(owner: "browser-host.cdp.attach") { $0.attachRelay(targetID) }
         case .cdpDetach(let targetID):
-            detachRelay(targetID)
+            FrameTask(owner: "browser-host.cdp.detach") { $0.detachRelay(targetID) }
         case .cdp(let targetID, let message):
-            relayToBrowser(targetID, message)
+            FrameTask(owner: "browser-host.cdp") { $0.relayToBrowser(targetID, message) }
         case .lease(let targetID, let lease):
-            leaseChanged(targetID, lease)
+            FrameTask(owner: "browser-host.lease") { $0.leaseChanged(targetID, lease) }
         case .input(let event):
-            notifyInput(event)
+            FrameTask(owner: "browser-host.input") { $0.notifyInput(event) }
         case .hello, .helloAck, .result, .event, .userInput, .tabAccess, .unknown:
             // Frames the host never sends, a repeated ack, or a newer host's frame.
-            break
+            nil
         }
     }
 
@@ -59,6 +70,9 @@ extension BrowserHostProvider {
             return
         }
         let link = connection
+        // A screenshot of a tab nobody sees renders it while the driver takes the picture.
+        let vote = method == Self.screenshotMethod
+            ? targetID.flatMap { capture?.captureVote(targetID: $0, reason: "agent.screenshot") } : nil
         Task { [weak self] in
             let frame: ProviderFrame
             do throws(DriverError) {
@@ -67,10 +81,11 @@ extension BrowserHostProvider {
             } catch {
                 frame = .result(id: id, result: nil, error: error.json)
             }
+            vote?.release()
             guard let self, let link, self.connection === link else { return }
             // A tab the call opened or closed reaches the host before the
             // reply, so the session's next tabs.list sees it.
-            if method == "tabs.open" || method == "tabs.close" { self.observeTabs() }
+            if method == "tabs.open" || method == "tabs.close" { self.readTabsNow() }
             self.send(frame)
         }
     }
@@ -95,7 +110,7 @@ extension BrowserHostProvider {
                 frame = .result(id: id, result: nil, error: error.json)
             }
             guard let self, let link, self.connection === link else { return }
-            if opened { self.observeTabs() }
+            if opened { self.readTabsNow() }
             self.send(frame)
         }
     }

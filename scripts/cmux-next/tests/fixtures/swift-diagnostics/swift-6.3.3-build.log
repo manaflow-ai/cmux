@@ -1,0 +1,71 @@
+Building for debugging...
+[0/13] Write sources
+[2/13] Write swift-version-5F300C53099CDC7E.txt
+[4/15] Emitting module Demo
+[5/15] Compiling Demo A.swift
+/work/tmp/swiftdiag-p10-036/pkg/Sources/Demo/A.swift:4:3: warning: 'old()' is deprecated: old [#DeprecatedDeclaration]
+ 2 | public func old() {}
+ 3 | public func f() {
+ 4 |   old()
+   |   `- warning: 'old()' is deprecated: old [#DeprecatedDeclaration]
+ 5 |   var unused = 1
+ 6 |   let p = UnsafeMutablePointer<Int>.allocate(capacity: 1)
+
+/work/tmp/swiftdiag-p10-036/pkg/Sources/Demo/A.swift:5:7: warning: initialization of variable 'unused' was never used; consider replacing with assignment to '_' or removing it [#no-usage]
+ 3 | public func f() {
+ 4 |   old()
+ 5 |   var unused = 1
+   |       `- warning: initialization of variable 'unused' was never used; consider replacing with assignment to '_' or removing it [#no-usage]
+ 6 |   let p = UnsafeMutablePointer<Int>.allocate(capacity: 1)
+ 7 |   p.pointee = 3
+
+/work/tmp/swiftdiag-p10-036/pkg/Sources/Demo/A.swift:7:3: warning: expression uses unsafe constructs but is not marked with 'unsafe' [#StrictMemorySafety]
+ 5 |   var unused = 1
+ 6 |   let p = UnsafeMutablePointer<Int>.allocate(capacity: 1)
+ 7 |   p.pointee = 3
+   |   |- warning: expression uses unsafe constructs but is not marked with 'unsafe' [#StrictMemorySafety]
+   |   `- note: reference to let 'p' involves unsafe type 'UnsafeMutablePointer<Int>'
+ 8 |   p.deallocate()
+ 9 | }
+
+/work/tmp/swiftdiag-p10-036/pkg/Sources/Demo/A.swift:8:3: warning: expression uses unsafe constructs but is not marked with 'unsafe' [#StrictMemorySafety]
+ 6 |   let p = UnsafeMutablePointer<Int>.allocate(capacity: 1)
+ 7 |   p.pointee = 3
+ 8 |   p.deallocate()
+   |   |- warning: expression uses unsafe constructs but is not marked with 'unsafe' [#StrictMemorySafety]
+   |   |- note: argument 'self' in call to instance method 'deallocate' has unsafe type 'UnsafeMutablePointer<Int>'
+   |   `- note: reference to let 'p' involves unsafe type 'UnsafeMutablePointer<Int>'
+ 9 | }
+10 | 
+
+[#DeprecatedDeclaration]: <https://docs.swift.org/compiler/documentation/diagnostics/deprecated-declaration>
+[#StrictMemorySafety]: <https://docs.swift.org/compiler/documentation/diagnostics/strict-memory-safety>
+[6/18] Wrapping AST for Demo for debugging
+[8/18] Emitting module DemoTests
+[9/18] Compiling DemoTests T.swift
+/work/tmp/swiftdiag-p10-036/pkg/Tests/DemoTests/T.swift:4:3: warning: expression uses unsafe constructs but is not marked with 'unsafe' [#StrictMemorySafety]
+2 | func g() {
+3 |   let q = UnsafeMutablePointer<Int>.allocate(capacity: 1)
+4 |   q.deallocate()
+  |   |- warning: expression uses unsafe constructs but is not marked with 'unsafe' [#StrictMemorySafety]
+  |   |- note: argument 'self' in call to instance method 'deallocate' has unsafe type 'UnsafeMutablePointer<Int>'
+  |   `- note: reference to let 'q' involves unsafe type 'UnsafeMutablePointer<Int>'
+5 | }
+6 | 
+
+[#StrictMemorySafety]: <https://docs.swift.org/compiler/documentation/diagnostics/strict-memory-safety>
+[10/19] /work/tmp/swiftdiag-p10-036/pkg/.build/x86_64-unknown-linux-gnu/debug/DemoPackageDiscoveredTests.derived/all-discovered-tests.swift
+[11/19] Write sources
+[12/19] Wrapping AST for DemoTests for debugging
+[14/22] Compiling DemoPackageDiscoveredTests DemoTests.swift
+[15/22] Compiling DemoPackageDiscoveredTests all-discovered-tests.swift
+[16/22] Emitting module DemoPackageDiscoveredTests
+[17/23] /work/tmp/swiftdiag-p10-036/pkg/.build/x86_64-unknown-linux-gnu/debug/DemoPackageTests.derived/runner.swift
+[18/23] Write sources
+[19/23] Wrapping AST for DemoPackageDiscoveredTests for debugging
+[21/25] Emitting module DemoPackageTests
+[22/25] Compiling DemoPackageTests runner.swift
+[23/26] Wrapping AST for DemoPackageTests for debugging
+[24/26] Write Objects.LinkFileList
+[25/26] Linking DemoPackageTests.xctest
+Build complete! (6.91s)

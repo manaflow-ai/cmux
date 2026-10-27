@@ -1,3 +1,4 @@
+import CmuxNextCompat
 public import Foundation
 
 /// Phase B rules (plans/cmux-next/omnibar-suggestions.md): which input may
@@ -41,8 +42,8 @@ public nonisolated struct OmniboxRemoteSuggestions {
     /// in order. Bytes that are not UTF-8 read as Latin-1 (Google's
     /// `client=firefox` answers in ISO-8859-1 for some languages).
     public static func parse(_ data: Data) -> [String] {
-        let object = (try? JSONSerialization.jsonObject(with: data))
-            ?? String(data: data, encoding: .isoLatin1).flatMap { try? JSONSerialization.jsonObject(with: Data($0.utf8)) }
+        let object = (try? JSONSerialization.blockingJSONObject(with: data))
+            ?? String(data: data, encoding: .isoLatin1).flatMap { try? JSONSerialization.blockingJSONObject(with: Data($0.utf8)) }
         guard let array = object as? [Any], array.count >= 2, let suggestions = array[1] as? [Any] else { return [] }
         return suggestions.compactMap { $0 as? String }
     }

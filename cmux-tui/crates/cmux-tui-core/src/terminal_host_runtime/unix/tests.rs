@@ -3,7 +3,10 @@
 
 mod attach_protocol;
 mod clipboard_read;
+mod echo_threads;
 mod host_fixture;
+mod host_spans;
+mod input_flow;
 mod input_records;
 mod kitty_file_media;
 mod launch_codec;
@@ -153,6 +156,7 @@ fn exited_host_fixture_with_parser_at(
         clipboard: ClipboardReads::new(Arc::new(SystemClock)),
         parser_progress: (Mutex::new(0), Condvar::new()),
         next_client: AtomicU64::new(1),
+        last_input_flow: Default::default(),
         dead: AtomicBool::new(false),
         launch_owner_claimed: AtomicBool::new(true),
         launch_owner_stream_ready: AtomicBool::new(true),
@@ -180,6 +184,7 @@ fn exited_host_fixture_with_parser_at(
         group_escalation_failed: AtomicBool::new(false),
         session_cleanup: session_cleanup::SessionCleanup::new(),
         adopted_session: None,
+        trace_control: shared::host_trace::HostTraceQueue::default(),
         fail_next_resize_publication: AtomicBool::new(false),
     });
     HostShared::start_exit_publisher(&host, exit_publish_receiver).unwrap();
@@ -242,6 +247,8 @@ fn record_fixture(name: &str) -> (PathBuf, TerminalHostRecord, HostLivenessLease
         supports_pty_custody: false,
         supports_program_status: false,
         supports_shell_activity: false,
+        supports_trace_control: false,
+        supports_input_flow: false,
         orphan_grace_secs: None,
     };
     let record_path = record.record_path(&root);
@@ -275,6 +282,8 @@ pub(crate) fn input_ack_surface_fixture() -> (HostAttachment, UnixStream) {
         supports_pty_custody: false,
         supports_program_status: false,
         supports_shell_activity: false,
+        supports_trace_control: false,
+        supports_input_flow: false,
         orphan_grace_secs: None,
     };
     let record_path = std::env::temp_dir().join(format!(
@@ -311,6 +320,7 @@ pub(crate) fn input_ack_surface_fixture() -> (HostAttachment, UnixStream) {
         next_request: AtomicU64::new(2),
         viewer_size: Mutex::new(None),
         viewer_size_acks: false,
+        input_flow: false,
         launch_process: None,
         launch_activation_pending: false,
         pty_custody: None,

@@ -1,6 +1,6 @@
 /// The owner of scheduled main-thread tasks (a batch queue, a control method), interned on a
 /// ``MainTaskBoard`` once: when its queue is built, or off the main thread before a request is
-/// queued. ``MainFrameBudget/run(_:owner:_:)`` publishes the index with atomic stores only, so
+/// queued. ``MainFrameBudget/run(_:owner:posted:_:)`` publishes the index with atomic stores only, so
 /// starting a task takes no lock and hashes no string on the main thread.
 ///
 /// ```swift

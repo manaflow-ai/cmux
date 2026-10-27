@@ -134,14 +134,48 @@ pub(crate) fn map_file(path: &Path, len: usize, reserve: Reserve) -> io::Result<
     })
 }
 
+/// Creates `dir` (and its missing parents) for this user only (0700). An
+/// existing `dir` must be a real directory, not a symlink, that this user
+/// owns and other users cannot write: a ring never lands in a directory
+/// another user prepared.
+#[cfg(unix)]
+pub(crate) fn create_private_dir(dir: &Path) -> io::Result<()> {
+    use std::os::unix::fs::{DirBuilderExt, MetadataExt};
+    std::fs::DirBuilder::new().recursive(true).mode(0o700).create(dir)?;
+    let meta = std::fs::symlink_metadata(dir)?;
+    // SAFETY: getuid cannot fail and takes no pointers.
+    let uid = unsafe { libc::getuid() };
+    if !meta.is_dir() || meta.uid() != uid || meta.mode() & 0o002 != 0 {
+        return Err(io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            format!("{} is not a private directory of this user", dir.display()),
+        ));
+    }
+    Ok(())
+}
+
+#[cfg(not(unix))]
+pub(crate) fn create_private_dir(dir: &Path) -> io::Result<()> {
+    std::fs::create_dir_all(dir)
+}
+
 #[cfg(unix)]
 fn map_reserved(path: &Path, len: usize, reserve: Reserve) -> io::Result<Mapping> {
     use std::os::fd::AsRawFd;
+    use std::os::unix::fs::OpenOptionsExt;
+    // A new file, never one a symlink names: an old ring of a reused pid is
+    // removed first (`remove_file` unlinks a symlink itself, not its target),
+    // and a file that appears in between fails the exclusive create.
+    match std::fs::remove_file(path) {
+        Err(error) if error.kind() != io::ErrorKind::NotFound => return Err(error),
+        _ => {}
+    }
     let file = std::fs::OpenOptions::new()
         .read(true)
         .write(true)
-        .create(true)
-        .truncate(true)
+        .create_new(true)
+        .mode(0o600)
+        .custom_flags(libc::O_NOFOLLOW)
         .open(path)?;
     reserve(&file, len as u64)?;
     file.set_len(len as u64)?;
@@ -227,5 +261,38 @@ mod tests {
         let error = map_file(&path, 8192, full).err().expect("a full disk fails the map");
         assert_eq!(error.raw_os_error(), Some(libc::ENOSPC));
         assert!(!path.exists(), "a ring file with no blocks was left behind");
+    }
+
+    /// A symlink planted at the ring's name is replaced, never written
+    /// through: its target keeps its contents.
+    #[cfg(unix)]
+    #[test]
+    fn a_ring_never_writes_through_a_symlink_at_its_name() {
+        let target = scratch("symlink-target");
+        std::fs::write(&target, b"the owner's file").expect("target");
+        let path = scratch("symlink-ring");
+        let _ = std::fs::remove_file(&path);
+        std::os::unix::fs::symlink(&target, &path).expect("symlink");
+        map_file(&path, 8192, reserve_blocks).expect("maps a new file");
+        assert_eq!(std::fs::read(&target).expect("reads"), b"the owner's file");
+        assert!(!std::fs::symlink_metadata(&path).expect("stats").is_symlink());
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(&target);
+    }
+
+    /// The ring directory is this user's; one other users can write is refused.
+    #[cfg(unix)]
+    #[test]
+    fn a_ring_directory_is_private() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = scratch("private-dir");
+        let _ = std::fs::remove_dir_all(&dir);
+        create_private_dir(&dir.join("trace")).expect("creates");
+        let mode = std::fs::metadata(dir.join("trace")).expect("stats").permissions().mode();
+        assert_eq!(mode & 0o077, 0, "mode {mode:o}");
+        std::fs::set_permissions(dir.join("trace"), std::fs::Permissions::from_mode(0o777))
+            .expect("chmod");
+        assert!(create_private_dir(&dir.join("trace")).is_err(), "a shared directory was taken");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

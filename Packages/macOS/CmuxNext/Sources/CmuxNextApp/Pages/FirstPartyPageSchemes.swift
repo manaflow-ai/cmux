@@ -10,6 +10,10 @@ import Foundation
 /// refuses one on its app-page call). Serving a page here changes no trust:
 /// its CSP is its descriptor's (strict for an id outside the first-party table,
 /// `PageID.firstParty`), and only that table's pages reach the daemon.
+///
+/// The shared chunk origin (`PageID.sharedHost`, `cmux-page://cmux.shared`) is in the table too, from
+/// the pages bundle's `_shared` folder; the shim gives it its own handler, which is not a page (only
+/// `.js` and `.css`, only to a first-party page origin, never a navigation).
 enum FirstPartyPageSchemes {
     enum Refusal: Error, Equatable {
         /// Not a reserved id: app pages do not use this path.
@@ -31,13 +35,20 @@ enum FirstPartyPageSchemes {
         var roots: [String: URL] = [:]
         roots[PageDescriptor.agent.id] = agentPaneRoot
         for page in descriptors where page != .agent { roots[page.id] = page.pagesBundleRoot ?? registered(page.id) }
-        return roots.filter { id, _ in descriptors.contains { $0.id == id } }
+        roots[PageID.sharedHost] = PageID.sharedBundleRoot
+        return roots.filter { id, _ in isServed(id) }
+    }
+
+    /// Whether the app serves `id` in Chromium: a page it ships, or the shared chunk origin.
+    static func isServed(_ id: String) -> Bool {
+        let lowered = id.lowercased()
+        return lowered == PageID.sharedHost || descriptors.contains { $0.id == lowered }
     }
 
     /// Why `id` may not be served from `root`, nil when it may.
     static func refusal(id: String, root: URL, bundleResources: URL) -> Refusal? {
         guard PageID.isReserved(id) else { return .notReserved(id) }
-        guard descriptors.contains(where: { $0.id == id.lowercased() }) else { return .notShipped(id) }
+        guard isServed(id) else { return .notShipped(id) }
         guard isStrictlyInside(root, bundleResources) else { return .outsideBundle(id) }
         return nil
     }
@@ -57,20 +68,44 @@ enum FirstPartyPageSchemes {
     ]
 
     /// The accepted entries of `roots`, each with its page's own CSP.
-    static func entries(roots: [String: URL], bundleResources: URL) -> [String: CEFPageSchemes.Entry] {
+    ///
+    /// - Parameter processGroups: Each entry of a page whose ``PageDescriptor/processGroup`` shares a
+    ///   renderer (``PageProcessGroup/sharesRenderer``) names that group, which the fork shares renderers
+    ///   by (the `pageProcessGroups` feature). A `solo` or `secrets` page names none and keeps Chromium's
+    ///   one process per origin: its raw value is a class, not a group, and two pages with one key would
+    ///   share. Off, no entry names one.
+    /// - Parameter rendererSharing: Each entry of a page whose group shares a renderer gets the shared
+    ///   renderer's main-frame cap (``CEFPageSchemes/sharedRendererMainFrames``), so Chromium sends the
+    ///   page's instances (New Tab and every chat of the agent page) to one live renderer, as Chrome
+    ///   does for every NTP (the `cmuxPageRendererSharing` feature, PL-memory's switch). Pages of other
+    ///   hosts join it only through a registered group, which needs `<page>.<group>` hosts
+    ///   (webui-DESIGN.md 3.2). A `solo` or `secrets` page gets none and never joins one. Off, no entry
+    ///   has a cap.
+    static func entries(roots: [String: URL], bundleResources: URL, processGroups: Bool = false,
+                        rendererSharing: Bool = false) -> [String: CEFPageSchemes.Entry] {
         var out: [String: CEFPageSchemes.Entry] = [:]
         for (id, root) in accepted(roots: roots, bundleResources: bundleResources) {
+            if id.lowercased() == PageID.sharedHost {
+                out[id] = CEFPageSchemes.Entry(root: root, csp: PageID.sharedChunkPolicy)
+                continue
+            }
             guard let page = descriptors.first(where: { $0.id == id }) else { continue }
+            let shares = page.processGroup.sharesRenderer
             out[id] = CEFPageSchemes.Entry(root: root, csp: page.csp.header, dynamicPrefixes: page.dynamicPrefixes.sorted(),
-                                           entry: page.entry)
+                                           entry: page.entry, processGroup: processGroups && shares ? page.processGroup.rawValue : nil,
+                                           mainFrameCap: rendererSharing && shares ? CEFPageSchemes.sharedRendererMainFrames : nil)
         }
         return out
     }
 
     /// Hands the checked table to Chromium; call before Chromium starts.
-    @MainActor static func install(bundle: Bundle = .main) {
+    ///
+    /// - Parameter processGroups: The `pageProcessGroups` feature (``entries(roots:bundleResources:processGroups:rendererSharing:)``).
+    /// - Parameter rendererSharing: The `cmuxPageRendererSharing` feature (the same).
+    @MainActor static func install(bundle: Bundle = .main, processGroups: Bool, rendererSharing: Bool) {
         guard let resources = bundle.resourceURL else { return }
-        CEFPageSchemes.firstParty = entries(roots: bundledRoots(), bundleResources: resources)
+        CEFPageSchemes.firstParty = entries(roots: bundledRoots(), bundleResources: resources, processGroups: processGroups,
+                                            rendererSharing: rendererSharing)
     }
 
     /// Real paths, compared component by component (`Resources2` is not inside `Resources`).

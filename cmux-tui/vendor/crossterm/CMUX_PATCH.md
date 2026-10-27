@@ -25,3 +25,25 @@ only the classification, not wording, so the client can localize the reason.
 Regression coverage: `cmux-tui/crates/cmux-tui/tests/dead_tty_input.rs`. Remove
 this part of the patch when the Crossterm version used by cmux reports end of
 input.
+
+## Zero terminal coordinates
+
+Mouse reports (normal, rxvt, SGR) and cursor position reports carry 1-based
+positions, and the parser subtracted 1 from what the host terminal sent. A 0
+panicked builds with overflow checks (cmux debug builds) and wrapped to 65535
+in release. The cmux patch refuses a 0 position as malformed input, as the
+parser already refuses a bad button byte. Found by the `tui_keys` target in
+`cmux-tui/fuzz`; regression test `zero_coordinates_are_refused_not_underflowed`.
+Remove this part when upstream Crossterm checks the subtraction.
+
+## Parsing buffered bytes
+
+`parse_event_from_bytes` and `parse_input_from_bytes` (both `#[doc(hidden)]`,
+Unix) run the reader's parser on bytes the caller holds, with no terminal.
+`parse_event_from_bytes` returns only public events. `parse_input_from_bytes`
+also reports a complete terminal reply (cursor position, keyboard enhancement
+flags, primary device attributes) as `ParsedInput::Reply`, so a caller that
+feeds bytes one at a time ends the sequence there, as the reader does, instead
+of reading the reply as incomplete. cmux uses them for startup input in
+`ui/graphics.rs` and for the `tui_keys` fuzz target. Regression test
+`a_complete_reply_is_told_apart_from_an_incomplete_sequence`.

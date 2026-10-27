@@ -1,6 +1,5 @@
 public import CmuxUpdater
 import Foundation
-@preconcurrency import Sparkle
 
 extension UpdateSheetContent {
     /// The sheet for a Sparkle phase; nil when Sparkle is idle (the sheet closes).

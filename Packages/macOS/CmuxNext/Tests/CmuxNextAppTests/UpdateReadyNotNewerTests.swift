@@ -1,3 +1,4 @@
+import CmuxNextWakeups
 import Foundation
 @testable import CmuxNextUpdater
 import Testing
@@ -16,7 +17,7 @@ import Testing
                                            infoFeedURL: "https://files-next.cmux.com/nightly-next/appcast-arm64.xml", hasPublicKey: false)
         let defaults = UserDefaults(suiteName: "UpdateReadyNotNewerTests.\(UUID().uuidString)")!
         let updater = UpdaterService(identity: identity, policy: ManagedUpdatePolicy { false }, defaults: defaults,
-                                     enableSparkle: false, recordsUpdates: false)
+                                     enableSparkle: false, recordsUpdates: false, work: BackgroundWork(label: "test.updater"))
         updater.announcementsFetch = false
         updater.stagedBuild = { stagedBuild }
         updater.notesLoader = { _ in nil }

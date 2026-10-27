@@ -15,15 +15,33 @@ page must then hold the whole text (`debug.new_tab` `field`).
   starts on a terminal tab (made through the socket, not measured), so a new page really opens.
 
 Needs the logged-in GUI session and the right to post events (nx-remote --needs input). The
-helper brings the tagged app to the front itself. It never touches another app's windows.
+app launches (and relaunches, for each cold run) through bench_launch.BenchApp: the bench env, a scratch config, a
+fresh saved session, an isolated launch that may activate (CMUX_NEXT_NO_ACTIVATE off, CMUX_NEXT_ISOLATED_LAUNCH on), and
+the tag's teardown at the end. The helper brings the tagged app to the front itself. It never touches another app's
+windows.
 
-Usage: new-workspace-real-typing-e2e.py --tag <tag> [--cold N] [--warm N] [--others N] [--rate 30] [--delay-ms 40]
+With --story (default none) every run's lost keys and each flow's failed runs are written as cmux-perf-result/v1
+into --out (paint_typing_report.typing_series), failing runs included: the lost-key count is the measurement.
+
+Usage: new-workspace-real-typing-e2e.py (--tag <tag> | --app BUNDLE) [--cold N] [--warm N] [--others N] [--rate 30]
+       [--delay-ms 40] [--story new-workspace-typing]
 Exit status 0 when every run kept every key.
 """
-import argparse, json, os, re, socket, subprocess, sys, tempfile, time
+import argparse, json, os, re, subprocess, socket, sys, tempfile, time
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))  # the bench modules, also under `python3 -I`
+import paint_typing_report as report  # noqa: E402
+from bench_launch import ISOLATED_LAUNCH_KEY, BenchApp  # noqa: E402
+from bench_story import story_problem  # noqa: E402
+
+ENGINE = report.ENGINES[report.NEW_WORKSPACE_TYPING_STORY]
 parser = argparse.ArgumentParser()
-parser.add_argument("--tag", required=True)
+parser.add_argument("--tag", help="the tag of a DerivedData Debug app (with --app: the story runner passes it; the bundle carries the tag)")
+parser.add_argument("--app", help="the app bundle (default: the DerivedData Debug app of --tag)")
+parser.add_argument("--story", help="write the runs as cmux-perf-result/v1 under this story")
+parser.add_argument("--session", choices=["light"], default="light", help="result-v1 session (the story runner's)")
+parser.add_argument("--build-config", choices=["bench", "bench-checks"],
+                    help="result-v1 build config of a bench-hooks bundle that does not stamp it")
 parser.add_argument("--cold", type=int, default=10)
 parser.add_argument("--warm", type=int, default=10)
 parser.add_argument("--flow", choices=["workspace", "window"], default="workspace",
@@ -34,9 +52,16 @@ parser.add_argument("--delay-ms", type=int, default=40)
 parser.add_argument("--text", default="hello world 123")
 parser.add_argument("--out", default=os.environ.get("NX_ARTIFACTS", "/tmp"))
 opts = parser.parse_args()
-ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-SLUG = re.sub(r"-+", "-", re.sub(r"[^a-z0-9]+", "-", opts.tag.lower())).strip("-")
-SOCK = f"/tmp/cmux-debug-{SLUG}.sock"
+if not opts.app and not opts.tag:
+    parser.error("name the app with --app, or the tag of a DerivedData Debug app with --tag")
+if opts.story and story_problem(opts.story, ENGINE):
+    parser.error(story_problem(opts.story, ENGINE))
+if not opts.app:
+    SLUG = re.sub(r"-+", "-", re.sub(r"[^a-z0-9]+", "-", opts.tag.lower())).strip("-")
+    opts.app = os.path.expanduser(f"~/Library/Developer/Xcode/DerivedData/cmux-{SLUG}/Build/Products/Debug/cmux DEV {opts.tag}.app")
+os.makedirs(opts.out, exist_ok=True)
+BENCH = BenchApp(opts.app, out=opts.out, env={"CMUX_NEXT_NO_ACTIVATE": None, ISOLATED_LAUNCH_KEY: "1"},
+                 perf_session=opts.session, build_config=opts.build_config)
 
 HELPER = r'''
 import AppKit
@@ -120,7 +145,7 @@ def rpc(method, params=None, timeout=20):
     try:
         conn = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         conn.settimeout(timeout)
-        conn.connect(SOCK)
+        conn.connect(BENCH.socket)
         conn.sendall((json.dumps({"id": 1, "method": method, "params": params or {}}) + "\n").encode())
         buf = b""
         while not buf.endswith(b"\n"):
@@ -146,19 +171,17 @@ def wait(check, seconds, step=0.1):
 
 
 def app_pid():
-    reply = rpc("system.identify") or {}
-    pid = reply.get("pid") or (reply.get("app") or {}).get("pid")
-    if pid:
-        return int(pid)
-    out = subprocess.run(["pgrep", "-n", "-f", f"cmux DEV {opts.tag}.app/Contents/MacOS/"], capture_output=True, text=True).stdout.strip()
-    return int(out) if out else None
+    """The PID of the app BENCH started (the helper activates it and posts its keys while it is in front)."""
+    return BENCH.process.pid
 
 
-def launch():
-    subprocess.run([os.path.join(ROOT, "scripts/launch-tagged-automation.sh"), opts.tag, "--wait-socket", "60"], check=True,
-                   stdout=subprocess.DEVNULL)
-    if not wait(lambda: (rpc("debug.windows") or {}).get("windows"), 60):
-        sys.exit("the app does not answer on " + SOCK)
+def relaunch():
+    """A fresh app for the next runs: the running one quits first (BenchApp.stop), then BenchApp launches it again
+    and returns once its socket answers with a window. TagTeardown.remember arms the teardown again for this launch
+    (the last stop() ended the previous one's daemons)."""
+    BENCH.stop()
+    BENCH.launch(timeout=120)
+    BENCH.teardown.remember()
     # The first window shows its first workspace before the first Cmd-N.
     wait(lambda: (rpc("debug.focus") or {}).get("windows"), 20)
     time.sleep(2)  # test harness: launch work settles (a cold run still has no spare page used yet)
@@ -269,41 +292,38 @@ def run(name, helper, steps, setup=None, new_pane=False):
     except (ValueError, IndexError):
         timing = {"error": (result.stdout + result.stderr)[-300:]}
     got = wait(lambda: (lambda t: t if t == opts.text and focused_tab() not in (None, before) else None)(field_text()), 6)
-    text = got if got is not None else field_text()
     after = focused_tab()
+    # No new focused tab: the keys reached no new page, whatever the old page's field holds.
+    text = got if got is not None else (field_text() if after not in (None, before) else None)
     focus = rpc("debug.focus") or {}
     holds = focus.get("new_tab_key_holds")
     ok = got is not None and "error" not in timing and drained(focus) and (not new_pane or panes() == panes_before + 1)
     if not ok:
         print("  hold log:", json.dumps((focus.get("new_tab_key_log") or [])[-20:]), flush=True)
     row = {"run": name, "field": text, "pass": ok, "tab_before": before, "tab_after": after, "drained": drained(focus),
-           "panes": [panes_before, panes()], "holds_after": holds, **timing}
+           "new_pane": new_pane, "panes": [panes_before, panes()], "holds_after": holds, **timing}
     print(("PASS" if ok else "FAIL"), json.dumps(row), flush=True)
     return row
 
 
-def main():
-    helper_dir = tempfile.mkdtemp(prefix="realkeys-")
-    source, helper = os.path.join(helper_dir, "keys.swift"), os.path.join(helper_dir, "keys")
-    with open(source, "w") as handle:
-        handle.write(HELPER)
-    subprocess.run(["xcrun", "swiftc", "-O", source, "-o", helper], check=True)
+def measure(helper):
+    """Every run of the flows asked for; returns their rows."""
     rows = []
     if opts.flow == "window":
         for index in range(opts.cold):
-            launch()
+            relaunch()
             rows.append(run_window(f"cold-newwin-{index + 1}", helper))
         if opts.warm and not opts.cold:
-            launch()
+            relaunch()
         for index in range(opts.warm):
             time.sleep(1)  # test harness: the previous window settles
             rows.append(run_window(f"warm-newwin-{index + 1}", helper))
     for index in range(opts.cold if opts.flow == "workspace" else 0):
-        launch()
+        relaunch()
         rows.append(run(f"cold-cmdn-{index + 1}", helper, CMD_N))
     if opts.flow == "workspace" and (opts.warm or opts.others):
         if not opts.cold:
-            launch()
+            relaunch()
         for index in range(opts.warm):
             time.sleep(1)  # test harness: the previous workspace settles
             rows.append(run(f"warm-cmdn-{index + 1}", helper, CMD_N))
@@ -312,12 +332,30 @@ def main():
             # Cmd-D on a fresh New Tab page: the new pane opens its own New Tab page.
             rows.append(run(f"warm-split-{index + 1}", helper, CMD_D, setup=fresh_page_workspace, new_pane=True))
             rows.append(run(f"warm-palette-{index + 1}", helper, PALETTE, setup=focus_terminal_tab))
-    rpc("debug.quit", {"press": "end-everything"})
+    return rows
+
+
+def main():
+    helper_dir = tempfile.mkdtemp(prefix="realkeys-")
+    source, helper = os.path.join(helper_dir, "keys.swift"), os.path.join(helper_dir, "keys")
+    with open(source, "w") as handle:
+        handle.write(HELPER)
+    subprocess.run(["xcrun", "swiftc", "-O", source, "-o", helper], check=True)
+    try:
+        rows = measure(helper)
+    finally:
+        BENCH.stop()
     with open(os.path.join(opts.out, "new-workspace-real-typing.json"), "w") as handle:
         json.dump(rows, handle, indent=1)
     passed = sum(1 for row in rows if row["pass"])
+    recorded = True
+    if opts.story and rows:
+        recorded = report.any_written(report.record_all(BENCH, opts.story, ENGINE, report.typing_series(rows, opts.text)))
+        if not recorded:
+            print(f"FAIL no result-v1 written for --story {opts.story}", flush=True)
     print(f"\nRESULT {'PASS' if rows and passed == len(rows) else 'FAIL'} ({passed}/{len(rows)})")
-    sys.exit(0 if rows and passed == len(rows) else 1)
+    sys.exit(0 if rows and passed == len(rows) and recorded else 1)
 
 
-main()
+if __name__ == "__main__":
+    main()

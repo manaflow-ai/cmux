@@ -1,25 +1,32 @@
 #if DEBUG || CMUX_BENCH_HOOKS
 import AppKit
+import CmuxNextWakeups
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
+import func CmuxSafeConcurrency.withOnceContinuation
 
 /// Waits for the production monitor's callback, with a bounded capture deadline.
 @MainActor
 public final class ShortcutHintCaptureWaiter {
-    private var continuation: CheckedContinuation<Bool, Never>?
+    private var continuation: OnceContinuation<Bool, OnceContinuationError>?
     private var deadline: Task<Void, Never>?
 
     public init() {}
 
     public func wait(post: () -> Void) async -> Bool {
         guard continuation == nil else { return false }
-        return await withCheckedContinuation { continuation in
+        // A dropped wait reads as not shown, as the deadline answers.
+        return (try? await withOnceContinuation { (continuation: OnceContinuation<Bool, OnceContinuationError>) in
             self.continuation = continuation
             deadline = Task { [weak self] in
-                // wakeup-allow: bounded DEBUG capture deadline, cancelled on the monitor callback; never polling.
-                do { try await ContinuousClock().sleep(for: .seconds(2)) } catch { return }
+                let limit = Duration.seconds(2)
+                // wakeup-allow: debug capture deadline, cancelled on the monitor callback; never polling;
+                // not a DemandTimer: main actor (timer-class asks MainDeadline, and this type has no MainDeadlineScheduler seam)
+                do { try await ContinuousClock().sleep(for: limit, tolerance: WakeLeeway.window(delay: limit).tolerance) } catch { return }
                 self?.finish(false)
             }
             post()
-        }
+        }) ?? false
     }
 
     public func finish(_ shown: Bool) {

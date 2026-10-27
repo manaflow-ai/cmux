@@ -29,6 +29,7 @@ impl WorkspaceRegistry {
     /// and writes nothing. Terminal identities and incarnations are checked
     /// before anything is written, and any failure rolls back the whole set.
     #[allow(clippy::too_many_arguments)]
+    #[track_caller]
     pub(crate) fn commit_topology_close(
         &mut self,
         mutation: &WorkspaceMutation,

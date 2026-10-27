@@ -1,5 +1,4 @@
 public import Foundation
-@preconcurrency public import Sparkle
 import Observation
 
 /// The observable source of truth for the custom update UI.
@@ -27,7 +26,7 @@ public final class UpdateStateModel {
     /// The display version of the most recently detected background update, if any.
     public private(set) var detectedUpdateVersion: String?
     /// The appcast item for the most recently detected background update, if any.
-    public private(set) var detectedUpdateItem: SUAppcastItem?
+    public private(set) var detectedUpdateItem: UpdateAppcastItem?
     #if DEBUG
     /// A debug override for the pill's title text.
     public var debugOverrideText: String?
@@ -159,7 +158,7 @@ public final class UpdateStateModel {
 
     /// Records a background-detected available update (or clears it when the version string
     /// is unusable).
-    public func recordDetectedUpdate(_ item: SUAppcastItem) {
+    public func recordDetectedUpdate(_ item: UpdateAppcastItem) {
         let version = Self.normalizedDetectedUpdateVersion(from: item.displayVersionString)
         detectedUpdateItem = version == nil ? nil : item
         detectedUpdateVersion = version

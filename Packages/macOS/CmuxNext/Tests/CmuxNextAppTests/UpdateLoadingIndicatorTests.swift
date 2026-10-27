@@ -3,6 +3,7 @@ import AppKit
 import CmuxNextDesign
 @testable import CmuxNextSidebar
 @testable import CmuxNextUpdater
+import CmuxNextWakeups
 import CmuxUpdater
 import CmuxNextActions
 import Foundation
@@ -138,7 +139,7 @@ import Testing
                                            infoFeedURL: "https://files-next.cmux.com/nightly-next/appcast-arm64.xml", hasPublicKey: false)
         let defaults = UserDefaults(suiteName: "UpdateLoadingIndicatorTests.\(UUID().uuidString)")!
         let updater = UpdaterService(identity: identity, policy: ManagedUpdatePolicy { false }, defaults: defaults,
-                                     enableSparkle: false, recordsUpdates: false)
+                                     enableSparkle: false, recordsUpdates: false, work: BackgroundWork(label: "test.updater"))
         updater.announcementsFetch = false
         updater.send(.checkRequested)
         for phase in Self.attemptPhases {
@@ -193,7 +194,7 @@ import Testing
     @Test func checkForUpdatesFromTheCommandShowsTheLoadingCard() {
         let updater = Self.updater()
         let registry = ActionRegistry(catalog: ActionCatalog.all, aliases: ActionCatalog.legacyAliases)
-        UpdateHandlers.bind(into: registry, updater: updater)
+        UpdateHandlers.bind(into: registry, updater: updater, mainWork: MainWorkScheduler(budget: MainFrameBudget()))
         #expect(registry.perform("palette.checkForUpdates", invocation: ActionInvocation(origin: .user)))
         for phase in Self.attemptPhases {
             updater.debugIndicatorPhase = phase
@@ -208,7 +209,8 @@ import Testing
                                            infoFeedURL: "https://files-next.cmux.com/nightly-next/appcast-arm64.xml", hasPublicKey: false)
         let defaults = UserDefaults(suiteName: "UpdateLoadingIndicatorTests.\(UUID().uuidString)")!
         let updater = UpdaterService(identity: identity, policy: ManagedUpdatePolicy { false }, prober: UpdateProber(fetcher: NoFeed()),
-                                     defaults: defaults, enableSparkle: false, recordsUpdates: false)
+                                     defaults: defaults, enableSparkle: false, recordsUpdates: false,
+                                     work: BackgroundWork(label: "test.updater"))
         updater.announcementsFetch = false
         return updater
     }

@@ -1,6 +1,8 @@
 //! Ghostty application defaults: parses the user's Ghostty config files, includes and themes into terminal colors, cursor and scrollback defaults.
 
 use super::*;
+#[cfg(all(test, unix))]
+use cmux_process::Command;
 
 pub(super) struct GhosttyApplicationDefaults {
     pub(super) colors: DefaultColors,

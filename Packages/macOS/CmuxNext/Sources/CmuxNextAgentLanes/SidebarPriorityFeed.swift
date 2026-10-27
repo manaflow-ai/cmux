@@ -117,7 +117,7 @@ public final class SidebarPriorityFeed {
         }
         // Rounded up and a little late, so the wake never lands just before the change.
         let milliseconds = Int64((max(1, next.timeIntervalSince(now)) * 1000).rounded(.up)) + 50
-        nextChange.schedule(after: .milliseconds(milliseconds)) { @MainActor [weak self] in
+        nextChange.scheduleOnMain(after: .milliseconds(milliseconds)) { [weak self] in
             guard let self else { return }
             clock.ticks += 1
             scheduleNextChange(chats.snapshot())

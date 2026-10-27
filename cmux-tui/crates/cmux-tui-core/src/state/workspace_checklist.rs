@@ -25,6 +25,7 @@ pub(crate) enum WorkspaceChecklistChange {
 
 impl Mux {
     /// `workspace_checklist.add`, `.update` and `.remove`.
+    #[track_caller]
     pub(crate) fn state_workspace_checklist(
         &self,
         mutation: &WorkspaceMutation,
@@ -79,6 +80,7 @@ impl Mux {
     }
 
     /// Checklists: one workspace's, or every workspace's that has items.
+    #[track_caller]
     pub(crate) fn workspace_checklist_snapshots(
         &self,
         selectors: &crate::ResourceSelectors,

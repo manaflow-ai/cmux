@@ -41,7 +41,7 @@ nonisolated extension DaemonHomeSource {
         try await HomeAttachmentCache(directory: attachmentCache, limit: attachmentCacheLimit).fetch(ref, variant: variant) { piece, target in
             _ = try await Self.attachmentCall {
                 try await ConversationClient(self.requireConnection())
-                    .downloadAttachment(conversation: location.conversation.rawValue, hash: ref.hash, variant: piece, to: target)
+                    .downloadAttachment(conversation: location.conversation.rawValue, hash: ref.hash, variant: piece, to: target, on: self.work)
             }
         }
     }

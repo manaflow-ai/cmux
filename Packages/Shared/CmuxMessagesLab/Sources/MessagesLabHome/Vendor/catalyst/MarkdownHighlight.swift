@@ -91,7 +91,9 @@ enum MarkdownHighlight {
         // Very long blocks: colours for the first 64k units only (bounded layout time).
         let limit = min(n, 65_536)
         var buf = [UInt16](repeating: 0, count: limit)
-        ns.getCharacters(&buf, range: NSRange(location: 0, length: limit))
+        // SAFETY: getCharacters writes `limit` units (the range's length, at most the string's) into the array, which
+        // holds exactly `limit`, during the call only.
+        unsafe ns.getCharacters(&buf, range: NSRange(location: 0, length: limit))
         let lineStarts = spec.line.map { Array($0.utf16) }
         let blockOpen = spec.block.map { Array($0.0.utf16) }, blockClose = spec.block.map { Array($0.1.utf16) }
         func starts(_ p: [UInt16], at i: Int) -> Bool {

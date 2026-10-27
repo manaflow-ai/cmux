@@ -1,4 +1,4 @@
-// swift-tools-version: 6.0
+// swift-tools-version: 6.2
 
 import PackageDescription
 
@@ -15,12 +15,15 @@ let package = Package(
     ],
     dependencies: [
         .package(url: "https://github.com/sparkle-project/Sparkle", from: "2.9.6"),
+        // The portable Mutex the channel-switch download delegate's state lives in (p10-stability-172).
+        .package(path: "../../Shared/CmuxSafeConcurrency"),
     ],
     targets: [
         .target(
             name: "CmuxUpdater",
             dependencies: [
                 .product(name: "Sparkle", package: "Sparkle"),
+                .product(name: "CmuxSafeConcurrency", package: "CmuxSafeConcurrency"),
             ],
             swiftSettings: [
                 .swiftLanguageMode(.v6),
@@ -42,3 +45,24 @@ let package = Package(
         ),
     ]
 )
+
+// BEGIN apply-stability-settings.py: generated from scripts/cmux-next/stability-settings.json; do not edit.
+// p10 stability settings per target (plans/cmux-next/chrome-parity/p10-stability.md C.5): add a row to
+// stability-settings.json and run the lander instead of editing this block or a target's settings.
+let stabilitySettingGroups: [(targets: [String], settings: [SwiftSetting])] = [
+    (
+        targets: [
+            "CmuxUpdater",
+            "CmuxUpdaterTests",
+        ],
+        settings: [
+            .strictMemorySafety(),
+        ]
+    ),
+]
+for group in stabilitySettingGroups {
+    for target in package.targets where group.targets.contains(target.name) {
+        target.swiftSettings = (target.swiftSettings ?? []) + group.settings
+    }
+}
+// END apply-stability-settings.py

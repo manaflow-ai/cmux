@@ -11,7 +11,8 @@
 //! 3.9 ms on a Mac mini). The exit record, the SQLite registry and the
 //! session journal keep the full sync.
 
-use std::fs::{File, OpenOptions};
+use cmux_threads::checked::fs as files;
+use files::File;
 use std::io;
 use std::os::unix::fs::OpenOptionsExt;
 use std::path::Path;
@@ -20,7 +21,7 @@ use std::path::Path;
 /// where the filesystem refuses the barrier, and on other platforms.
 pub(crate) fn barrier_sync(file: &File) -> io::Result<()> {
     if let Some(delay) = slow_discovery_sync_delay() {
-        std::thread::sleep(delay);
+        crate::request_path::sleep(delay);
     }
     #[cfg(target_os = "macos")]
     {
@@ -31,7 +32,7 @@ pub(crate) fn barrier_sync(file: &File) -> io::Result<()> {
             return Ok(());
         }
     }
-    file.sync_all()
+    files::sync_all(file)
 }
 
 /// Debug seam (`CMUX_TUI_DEBUG_SLOW_DISCOVERY_SYNC_MS=N`, off by default):
@@ -51,21 +52,23 @@ fn slow_discovery_sync_delay() -> Option<std::time::Duration> {
 
 /// [`barrier_sync`] for the directory entry changes in `dir`.
 pub(crate) fn barrier_sync_dir(dir: &Path) -> io::Result<()> {
-    barrier_sync(&File::open(dir)?)
+    barrier_sync(&files::open(dir)?)
 }
 
 /// Open (creating if needed) a private lock file at `path`; also reports
 /// whether it already existed.
 pub(super) fn open_lock_file(path: &Path) -> io::Result<(File, bool)> {
-    let existed = std::fs::symlink_metadata(path).is_ok();
-    let file = OpenOptions::new()
-        .read(true)
-        .write(true)
-        .create(true)
-        .truncate(false)
-        .mode(0o600)
-        .custom_flags(libc::O_CLOEXEC | libc::O_NOFOLLOW)
-        .open(path)?;
+    let existed = files::symlink_metadata(path).is_ok();
+    let file = files::open_with(
+        File::options()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(false)
+            .mode(0o600)
+            .custom_flags(libc::O_CLOEXEC | libc::O_NOFOLLOW),
+        path,
+    )?;
     Ok((file, existed))
 }
 

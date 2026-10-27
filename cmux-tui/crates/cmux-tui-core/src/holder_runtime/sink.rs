@@ -93,6 +93,13 @@ pub(crate) struct HolderSink {
     /// Sends an acknowledgement to the current holder (set once the
     /// terminal has a channel).
     acker: OnceLock<Acker>,
+    /// The key press of the newest input the daemon wrote on the custody
+    /// master (p09-observability-018): the reader's next holder read takes
+    /// it ([`SnapshottingReader`]).
+    pub(crate) input_flow: crate::input_flow::InputFlowSlot,
+    /// The flow that holder read took, for the parser's output of the same
+    /// read ([`Self::take_echo_flow`]).
+    echo_flow: crate::input_flow::InputFlowSlot,
 }
 
 /// Acknowledges to the holder that the parser read every byte before an
@@ -223,7 +230,15 @@ impl HolderSink {
             }),
             changed: Condvar::new(),
             acker: OnceLock::new(),
+            input_flow: Default::default(),
+            echo_flow: Default::default(),
         })
+    }
+
+    /// The key press the last read echoes (0: none), once: the parser takes
+    /// it right after each read, so it stamps that read's output.
+    pub(crate) fn take_echo_flow(&self) -> u64 {
+        self.echo_flow.take()
     }
 
     /// Acknowledge through `acker` from now on, starting with what the
@@ -599,7 +614,10 @@ impl Read for SnapshottingReader {
         let (n, unnumbered) = self.sink.read(buf);
         if n > unnumbered {
             crate::debug_spans::output_marks(&self.terminal_id, &buf[unnumbered..n]);
-            cmux_flow_trace::hop("daemon.output.holder", 0, &self.terminal_id);
+            // The holder's output after the daemon wrote a key on the custody master is its echo.
+            let flow = self.sink.input_flow.take();
+            cmux_flow_trace::hop("daemon.output.holder", flow, &self.terminal_id);
+            self.sink.echo_flow.arm(flow);
         }
         Ok(n)
     }

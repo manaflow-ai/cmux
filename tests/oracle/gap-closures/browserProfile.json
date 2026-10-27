@@ -1,0 +1,16 @@
+{
+  "_doc": "Gaps of scripts/cmux-next/every-action-gaps.json the browserProfile fixture (scripts/cmux-next/oracle/action_fixtures/browser_profile.py) closes, each with how. p15-oracle-087 applies every gap-closures file to every-action-gaps.json in one edit; action_fixtures.load_families refuses a CLOSES that differs from `closed`.",
+  "family": "browserProfile",
+  "task": "p15-oracle-084",
+  "closed": {
+    "browserProfile.duplicateTab": "browserProfile: the scratch profile; PREPARE opens the browser tab it duplicates (both close as extras)",
+    "browserProfile.manageExtensions": "browserProfile: the scratch profile; its extensions page opens as an extra tab",
+    "browserProfile.moveTab": "browserProfile: the scratch profile; PREPARE opens the browser tab it moves (an extra), the base's tabs keep their profile",
+    "browserProfile.newTab": "browserProfile: the scratch profile; the new tab is an extra",
+    "browserProfile.newWindow": "browserProfile: the scratch profile; the new window is an extra",
+    "browserProfile.newWorkspace": "browserProfile: the scratch profile; the new workspace is an extra",
+    "browserProfile.openLink": "browserProfile: the scratch profile, url: about:blank; the new tab is an extra",
+    "browserProfile.setSpaceDefault": "browserProfile: the scratch profile; UNDO runs browserProfile.clearSpaceDefault",
+    "browserProfile.setWorkspaceDefault": "browserProfile: the scratch profile; UNDO runs browserProfile.clearWorkspaceDefault"
+  }
+}

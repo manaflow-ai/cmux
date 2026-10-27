@@ -148,6 +148,7 @@ extension PaneController {
                 page = reporting.contentVisibility
                 if page?.isVisible == true { ownPages = 1 }
             } else {
+                // visibility-walk-allow: debug.surfaces and the blank-pane invariant check the page view's own AppKit state, which a node would hide
                 page = entry.tab.contentView.window == nil || entry.tab.contentView.isHiddenOrHasHiddenAncestor
                     ? .hidden("not_in_window") : .visible
             }

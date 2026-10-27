@@ -75,6 +75,12 @@ SWITCHES = (
            SWIFT + "CmuxNextCrashReporting/CrashReportingPolicy.swift"),
     Switch("CMUX_NEXT_DEV_HANG_REPORTS", "env-unset", None, "hang reports off: a DEV bundle sends only with it =1",
            SWIFT + "CmuxNextApp/HangReports/HangReportsController.swift"),
+    Switch("CMUX_NEXT_BENCH_SHIPPING_DRAW", "env-unset", None,
+           "a Debug automation launch draws occluded windows; =1 (idle-budget's shipping mode) gives it the user's draw",
+           SWIFT + "CmuxNextDesign/Windows/WindowDrawPolicy.swift"),
+    Switch("CMUX_NEXT_ISOLATED_LAUNCH", "env-unset", None,
+           "isolation comes from NO_ACTIVATE; =1 (idle-budget's shipping mode) keeps it in a launch that may activate",
+           SWIFT + "CmuxNextCompat/LaunchIsolation.swift"),
     Switch("updates.checkAutomatically", "config", False, "updater off: no appcast check, download or install",
            SWIFT + "CmuxNextSettings/UpdatesSettings.swift"),
 )

@@ -1,6 +1,5 @@
 import Foundation
 import Testing
-@preconcurrency import Sparkle
 @testable import CmuxUpdater
 
 /// Deterministic end-to-end replays of the update reaction pipeline: a real ``UpdateController``
@@ -14,7 +13,7 @@ import Testing
 @MainActor
 @Suite struct UpdateControllerPipelineTests {
     private func updateAvailable(_ version: String, replyingInto box: ChoiceBox) -> UpdateState {
-        let item = SUAppcastItem(dictionary: [
+        let item = UpdateAppcastItem(dictionary: [
             "title": "cmux \(version)",
             "pubDate": "Wed, 25 Mar 2026 12:00:00 +0000",
             "enclosure": [
@@ -23,7 +22,7 @@ import Testing
                 "sparkle:version": version,
                 "sparkle:shortVersionString": version,
             ],
-        ]) ?? SUAppcastItem.empty()
+        ]) ?? UpdateAppcastItem.empty()
         return .updateAvailable(.init(appcastItem: item, reply: { choice in
             MainActor.assumeIsolated { box.choice = choice }
         }))

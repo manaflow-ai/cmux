@@ -35,15 +35,11 @@ enum CmuxAppLinks {
     static func openPath(_ url: URL, services: AppServices) -> Bool {
         guard url.isFileURL, url.path.hasPrefix("/") else { return false }
         let path = url.standardizedFileURL.path
-        let work = services.work
-        // task-owner: one disk check, then one open
-        Task { @MainActor [weak services] in
-            // A person clicked the link: the disk check runs on the files lane at userBlocking (a stalled volume
-            // holds a lane thread, never a cooperative-pool one).
-            let isDirectory = (try? await work.run(.userBlocking, mayBlock: .files) { () -> Bool in
-                var directory: ObjCBool = false
-                return FileManager.checked.fileExists(atPath: path, isDirectory: &directory) && directory.boolValue
-            }) ?? false
+        // A person clicked the link: the disk check runs on the files lane at userBlocking (a stalled volume holds a
+        // lane thread, never a cooperative-pool one), and the open is the rest of their action, one userBlocking task.
+        services.work.run(.userBlocking, mayBlock: .files) { () -> Bool in
+            FileManager.checked.directoryExists(atPath: path)
+        }.reply(on: services.mainWork, class: .userBlocking, owner: "CmuxAppLinks.openPath") { [weak services] isDirectory in
             guard let services else { return }
             // Beside the pane the link was clicked from (LinkOpener): the pinned Home column, which
             // takes no tabs, gets the pane on its right or a new split.

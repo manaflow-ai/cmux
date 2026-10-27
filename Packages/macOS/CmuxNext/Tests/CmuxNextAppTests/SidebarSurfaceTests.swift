@@ -4,6 +4,7 @@ import CmuxNextActions
 import CmuxNextDesign
 import CmuxNextSettings
 import CmuxNextSidebar
+import CmuxNextWakeups
 import Testing
 
 extension MainPaneGutterSuites {
@@ -16,7 +17,7 @@ extension MainPaneGutterSuites {
         /// A window root in a titled, full-size-content window, as the app shows it, sidebar shown.
         func openRoot() -> (NSWindow, WindowRootView) {
             _ = NSApplication.shared
-            let root = WindowRootView(sidebar: SidebarContainerView(model: SidebarModel()))
+            let root = WindowRootView(sidebar: SidebarContainerView(model: SidebarModel(), mainWork: MainWorkScheduler(budget: MainFrameBudget())))
             let window = NSWindow(contentRect: root.frame, styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
                                   backing: .buffered, defer: false)
             window.isReleasedWhenClosed = false

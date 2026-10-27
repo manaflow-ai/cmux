@@ -7,7 +7,7 @@ public struct ChangedResponse: Decodable, Sendable, Equatable {
 /// Pins a workspace to one room (Move Workspace to Room), replacing any pin.
 public struct PinWorkspaceRequest: DaemonRequest {
     public typealias Response = ChangedResponse
-    public static let command = "pin-workspace"
+    public static let commandName: DaemonCommandName = "pin-workspace"
     public static let requiredCapability: String? = DaemonCapability.profiles.rawValue
     public var sessionID: String
     public var workspaceKey: WorkspaceKey
@@ -17,16 +17,24 @@ public struct PinWorkspaceRequest: DaemonRequest {
         self.workspaceKey = workspaceKey
         self.profile = profile
     }
+
+    enum CodingKeys: String, CodingKey {
+        case sessionID = "session_id", workspaceKey = "workspace_key", profile
+    }
 }
 
 public struct UnpinWorkspaceRequest: DaemonRequest {
     public typealias Response = ChangedResponse
-    public static let command = "unpin-workspace"
+    public static let commandName: DaemonCommandName = "unpin-workspace"
     public static let requiredCapability: String? = DaemonCapability.profiles.rawValue
     public var sessionID: String
     public var workspaceKey: WorkspaceKey
     public init(sessionID: String, workspaceKey: WorkspaceKey) {
         self.sessionID = sessionID
         self.workspaceKey = workspaceKey
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case sessionID = "session_id", workspaceKey = "workspace_key"
     }
 }

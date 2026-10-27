@@ -6,6 +6,7 @@
     "CmuxNextCompat": {"layer": "core"},
     "CmuxNextWakeups": {"layer": "core"},
     "CmuxNextWakeupsTestSupport": {"layer": "core"},
+    "CmuxNextInputCoreTestSupport": {"layer": "core", "note": "FakeInputTap, the one test InputObserving; test targets only"},
     "CmuxNextActions": {"layer": "core"},
     "CmuxNextFocus": {"layer": "core"},
     "CmuxNextTerminalGeometry": {"layer": "core"},
@@ -36,6 +37,7 @@
     "CmuxNextServerHelperDaemon": {"layer": "service"},
     "CmuxNextVSCodeServer": {"layer": "service"},
     "CmuxNextHostPressure": {"layer": "service"},
+    "CmuxNextMemory": {"layer": "service"},
     "CmuxNextChromiumRuntime": {"layer": "service"},
     "CmuxNextChromiumWarmup": {"layer": "service", "plan": "depend on BrowserCore, not Browser"},
     "CmuxNextControl": {"layer": "service"},
@@ -43,6 +45,7 @@
     "CmuxNextBrowserAutomation": {"layer": "service", "plan": "depend on BrowserCore, not Browser"},
     "CmuxNextBrowserHost": {"layer": "service", "plan": "depend on BrowserCore, not Browser"},
     "CmuxNextKeepAwake": {"layer": "service"},
+    "CmuxNextEnergy": {"layer": "service", "note": "Energy Saver power inputs (EnergyMonitor); only CmuxNextApp depends on it (p14-energy-021)"},
     "CmuxNextPhoneAccess": {"layer": "service"},
     "CmuxNextComputerUse": {"layer": "service"},
     "CmuxNextStash": {"layer": "service", "plan": "History model moves to a domain package without views"},
@@ -113,12 +116,24 @@
     "CmuxNextPages": {"layer": "ui", "mixes": ["service"]},
     "CmuxNextPagesTestSupport": {"layer": "ui"},
     "CmuxNextAppPermissions": {"layer": "ui"},
+    "CmuxNextLaunch": {"layer": "ui", "note": "launch-only types (p08-startup task 073): ui because the saved window picture views and its Design dependency are AppKit; never depends on CmuxNextApp"},
     "CmuxNextTestExitTrace": {"layer": "core"},
     "CmuxNextSignposts": {"layer": "core"},
-    "CmuxNextTrace": {"layer": "core", "note": "TraceRuntime, Release trace rings, crash keys, HangWatch slots (p09-observability); depends on Compat only"},
+    "CmuxNextSignpostsC": {"layer": "core", "note": "C: os_signpost macros for the key and stall signposts, no heap allocation (p09-observability 007); libSystem only"},
+    "CmuxNextSharedRegionC": {"layer": "core", "note": "C: shm_open for the Chromium host control channel's sealed payload regions (p01-process 020); libSystem only"},
+    "CmuxNextProfileRuntimeC": {"layer": "core", "note": "C header: the compiler-rt profile runtime's write, reset and file name for ProfileFlush (p08-startup 103); only the profile build calls them"},
+    "CmuxNextTrace": {"layer": "core", "note": "TraceRuntime, Release trace rings, crash keys, HangWatch slots (p09-observability); depends on Compat and swift-atomics only"},
     "CmuxNextMetrics": {"layer": "core", "note": "field histograms (HistogramID, Metrics.record; p09-observability); depends on Compat and Trace only"},
     "CmuxNextFeatures": {"layer": "core", "note": "base::FeatureList: feature declarations and the immutable resolved snapshot (p12-perf-process 3.9)"},
-    "CmuxNextDesignTokens": {"layer": "core", "plan": "labeled core by its imports (72673e48762) but holds state and I/O, so arch-layers.py lists it under impure core; the label stays until the code moves (the layer gate refuses a relabel without the code change that moves the target). It is values only once its state moves out: TunableStore and TunableFile to a service target with Tunable.value reading an injected store (lead decision 2026-10-23), RecoveryDraftStore to the Quit domain, LowPowerMode and MuseumArtSearch (URLSession) to a service, BackdropRevision to CmuxNextAppearance with DesignSettings and ThemeStore (B3)"},
+    "CmuxNextOracle": {"layer": "core", "note": "the refactor oracle: facet catalog, OracleFacetProvider, the immutable provider list the composition root builds and the snapshot capture behind debug.oracle.snapshot, the turn recorder and its ring of facet-value checkpoints behind debug.oracle.turns (task 032); pure, no AppKit; every source under DEBUG || CMUX_BENCH_HOOKS, empty in Release (p15-oracle 3A, task 030)"},
+    "CmuxNextInputCore": {"layer": "core", "note": "input latency (Chrome EventMetrics): kinds, stages, open-slot table, closed-slot ring, buckets; InputEventRecord and InputObserving for core and service consumers; pure, no AppKit (p04-input 3 (A), (I))"},
+    "CmuxNextInput": {"layer": "ui", "note": "the app's one input tap: typed subscriptions by class, phase and window, globalObserve (p04-input 3 (A)); InputLatencyTracker (EventLatency over CommitBoundary and PresentationClock) and its sendEvent wiring (p04-input 3 (I))"},
+    "CmuxNextInputDiagnostics": {"layer": "ui", "note": "debug.input over the tap and the latency ledger; apart from CmuxNextInput so the tap needs only the core and CmuxNextDesign can subscribe (p04-input-013)"},
+    "CmuxNextWireDigest": {"layer": "core", "note": "FNV-1a 64, the schema content digest CmuxNextIPC and CmuxNextWireGen share (cmux-ipc's schema_digest.rs); pure, no Foundation (p05-ipc 3.3, task 027)"},
+    "CmuxNextIPCTestSupport": {"layer": "core", "note": "the fixture schema's generated DaemonWireEvent (CmuxNextWireGenPlugin) and its payload types; test targets only (p05-ipc-022)"},
+    "CmuxNextIPC": {"layer": "core", "note": "the app-daemon wire; bindings built from cmux-tui/spec at build time by CmuxNextWireGenPlugin; its only I/O is the daemon socket's sendmsg in FrameWriter's SocketFrameSink and the reader's recvmsg (p05-ipc 3.3, tasks 027, 054, 055)"},
+    "CmuxNextWireGen": {"layer": "service", "note": "host build executable, not linked into the app: reads the two cmux-tui/spec schema files and writes CmuxNextIPC's bindings into the plugin work directory (file I/O) (p05-ipc 3.3, task 027)"},
+    "CmuxNextDesignTokens": {"layer": "core", "plan": "labeled core by its imports (72673e48762) but holds state and I/O, so arch-layers.py lists it under impure core; the label stays until the code moves (the layer gate refuses a relabel without the code change that moves the target). It is values only once its state moves out: TunableStore and TunableFile to a service target with Tunable.value reading an injected store (lead decision 2026-10-23), RecoveryDraftStore to the Quit domain, MuseumArtSearch (URLSession) to a service (LowPowerMode moved to CmuxNextEnergy, p14-energy-021), BackdropRevision to CmuxNextAppearance with DesignSettings and ThemeStore (B3)"},
 
     "CmuxNextApp": {"layer": "app", "mixes": ["core", "service", "domain", "ui"], "plan": "composition root only (section 4)"},
 
@@ -135,6 +150,10 @@
     "GhosttyNextKit": {"layer": "core", "package": "Packages/Shared/CmuxGhosttyKit", "note": "Ghostty binary, like CCmuxAppFFI"},
     "WebRTC": {"layer": "core", "package": "Packages/Shared/CmuxVNCWebRTC", "note": "WebRTC binary"},
     "CmuxHomeCoreTestSupport": {"layer": "core", "package": "Packages/Shared/CmuxHomeCore", "note": "test helper declared as a regular target"},
+    "CmuxFuzzSupport": {"layer": "core", "package": "Packages/Shared/CmuxFuzzSupport", "note": "seeded property-test support; only test targets depend on it"},
+    "CmuxSafeConcurrency": {"layer": "core", "package": "Packages/Shared/CmuxSafeConcurrency", "note": "portable Mutex (os_unfair_lock) and the shared concurrency primitives; Foundation-free"},
+    "CmuxSafeConcurrencyAtomics": {"layer": "core", "package": "Packages/Shared/CmuxSafeConcurrency", "note": "static inline C atomics (compiler __atomic builtins) under CmuxSafeConcurrency's lock-free CallbackRegistry on the macOS 14 / iOS 17 floor (p10-stability-081)"},
+    "CmuxThreading": {"layer": "core", "package": "Packages/Shared/CmuxThreading", "note": "threading leaf of the Shared/iOS packages: blockingCall seam and hook slot, hooked Mutex, MayBlockRunner (p02-threads-130); Foundation-free"},
 
     "CmuxAppAttest": {"layer": "service", "package": "Packages/Shared/CmuxAppAttest", "note": "DeviceCheck / App Attest calls"},
     "CmuxAuthRuntime": {"layer": "service", "package": "Packages/Shared/CmuxAuthRuntime", "note": "Stack auth runtime: keychain, SQLite, web sign-in"},
@@ -165,5 +184,7 @@
   "_exceptions_doc": "Soft edges (service -> domain) the pre-push layer gate (scripts/cmux-next/arch_rules/layer_gate.py) lets in: {\"from\": target, \"to\": target, \"date\": \"YYYY-MM-DD\", \"reason\": why, and the slice that removes it}. Hard edges (to ui or app) and upward edges (core -> service, core -> domain) have no exceptions. The 12 soft edges already on feat-cmux-next are debt, not exceptions: they are listed by arch-layers.py and removed with the Settings split (DESIGN section 2). The arch ratchet's count rule counts the layer_soft total separately: the push that adds an entry here also adds {\"date\", \"row\": \"layer_soft\", \"allow\": 1, \"why\"} to plans/cmux-next/arch-ratchet.json `exceptions`.",
   "exceptions": [],
   "_relayered_doc": "Relabels: a push that changes the layer of a target already in `targets` adds one entry here, {\"target\": name, \"from\": old layer, \"to\": new layer, \"date\": \"YYYY-MM-DD\", \"reason\": what changed in the target's code that moves it}, and the same push changes that code (a file under the target's sources); otherwise the pre-push layer gate refuses it and names the edges whose class it changes. The gate always classifies a new edge with the stricter of the two layers, so a relabel lands in its own push before any new edge that needs it. A relabel that clears a standing hard, soft or upward edge needs the code-proved path: it moves the target down, and at head the target's sources import no UI framework (AppKit, Cocoa, SwiftUI, WebKit) when the new layer is below ui and no target the map places above the new layer (arch_rules/layer_gate.py `code_proof`). Raising a target to clear its own upward edge is the debt renamed and always refused: fix the edge instead. Only CmuxNextApp is app.",
-  "relayered": []
+  "relayered": [
+    {"target": "CmuxNextWireGen", "from": "core", "to": "service", "date": "2026-10-26", "reason": "p05-ipc-027 review: core was given by its imports, but the tool reads the schema files and writes its output (SchemaFile.swift, WireGenArguments.swift); its FNV-1a moves out to the pure CmuxNextWireDigest, and what stays is the file I/O, so it is labeled at that layer"}
+  ]
 }

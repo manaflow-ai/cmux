@@ -1,6 +1,5 @@
 import Foundation
 import Testing
-@preconcurrency import Sparkle
 @testable import CmuxUpdater
 
 /// Host double that reports whatever blockers the test sets.

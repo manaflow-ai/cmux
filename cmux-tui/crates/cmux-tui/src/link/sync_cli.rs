@@ -273,14 +273,14 @@ pub(super) fn in_git(folder: &Path) -> bool {
 /// machine named: no system config, no bare repository found by discovery,
 /// no fsmonitor.
 pub(super) fn git_top(folder: &Path, ceiling: &std::ffi::OsStr) -> Option<PathBuf> {
-    let output = std::process::Command::new("git")
+    let output = cmux_process::Command::new("git")
         .args(["-c", "safe.bareRepository=explicit", "-c", "core.fsmonitor=false", "-C"])
         .arg(folder)
         .args(["rev-parse", "--show-toplevel"])
         .env("GIT_CONFIG_NOSYSTEM", "1")
         .env("GIT_CEILING_DIRECTORIES", ceiling)
-        .stdin(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
+        .stdin(cmux_process::Stdio::null())
+        .stderr(cmux_process::Stdio::null())
         .output()
         .ok()?;
     let top = String::from_utf8(output.stdout).ok().filter(|_| output.status.success())?;

@@ -1,3 +1,4 @@
+import CmuxNextWakeups
 import Foundation
 
 /// Attachment bytes over one daemon connection: a chunked upload by SHA-256
@@ -77,19 +78,15 @@ struct AttachmentTransfer<Upload: AttachmentUploadStep, Read: AttachmentReadStep
     /// Reads `variant` of `hash` in `conversation` into `destination`
     /// atomically: the bytes land in a temporary file beside it that moves
     /// into place only when complete, so a cancelled read leaves nothing.
+    /// Every disk step runs on `work`'s files lane, never on the caller's
+    /// thread (a Home page awaits this from the main actor).
     /// Returns the variant's mime type.
-    func download(conversation: String, hash: String, variant: ConversationAttachmentVariant, to destination: URL) async throws -> String {
-        let directory = destination.deletingLastPathComponent()
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        let temporary = directory.appendingPathComponent(".\(destination.lastPathComponent).\(UUID().uuidString).partial")
-        FileManager.default.createFile(atPath: temporary.path, contents: nil)
-        var moved = false
-        defer { if !moved { try? FileManager.default.removeItem(at: temporary) } }
-        let handle = try FileHandle(forWritingTo: temporary)
+    func download(conversation: String, hash: String, variant: ConversationAttachmentVariant, to destination: URL,
+                  on work: BackgroundWork) async throws -> String {
+        let partial = try await work.run(.userVisible, mayBlock: .files) { try AttachmentPartialFile.create(for: destination) }
         var offset = 0
         var mimeType = "application/octet-stream"
         do {
-            defer { try? handle.close() }
             var eof = false
             // Ends at the owner's eof; a read that moves no bytes before it is an error.
             while !eof {
@@ -99,19 +96,24 @@ struct AttachmentTransfer<Upload: AttachmentUploadStep, Read: AttachmentReadStep
                                                                  length: ConversationClient.attachmentChunkBytes)),
                     timeout: readTimeout)
                 guard let bytes = Data(base64Encoded: reply.data) else { throw DaemonError.malformedResponse("attachment read: data is not base64") }
-                try handle.write(contentsOf: bytes)
+                let at = offset
+                try await work.run(.userVisible, mayBlock: .files) { try partial.write(bytes, at: at) }
                 offset += bytes.count
                 mimeType = reply.mimeType
                 eof = reply.eof
                 guard eof || !bytes.isEmpty else { throw DaemonError.malformedResponse("attachment read: no progress before eof") }
             }
-            try handle.synchronize()
+        } catch {
+            // Posted, not awaited: a cancelled caller's run would be refused before it starts. Block-shutdown, so a
+            // quit that has begun still takes this one close and unlink (cache eviction skips hidden files).
+            work.post(.userVisible, mayBlock: .files, shutdown: .blockShutdown) { partial.discard() }
+            throw error
         }
         do {
-            try FileManager.default.moveItem(at: temporary, to: destination)
-            moved = true
-        } catch where FileManager.default.fileExists(atPath: destination.path) {
-            // A concurrent read of the same variant placed identical bytes first.
+            try await work.run(.userVisible, mayBlock: .files) { try partial.finish() }
+        } catch is CancellationError {
+            work.post(.userVisible, mayBlock: .files, shutdown: .blockShutdown) { partial.discard() }
+            throw CancellationError()
         }
         return mimeType
     }

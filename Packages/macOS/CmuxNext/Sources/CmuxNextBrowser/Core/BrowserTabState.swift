@@ -66,6 +66,10 @@ public nonisolated struct BrowserTabState: Hashable, Sendable {
     /// A load ended in this tab (finished, stopped or failed): any later load is one the page or
     /// the user started, never the tab's own opening load.
     public var hasEndedLoad = false
+    /// Counts the documents that committed in this tab: it changes with each new document, a
+    /// reload of the same address too, and never on a same-document navigation (pushState, a
+    /// fragment). Chrome's primary-page change (`WebContentsObserver::PrimaryPageChanged`).
+    public var documentGeneration: UInt64 = 0
 
     public init(
         url: URL? = nil,

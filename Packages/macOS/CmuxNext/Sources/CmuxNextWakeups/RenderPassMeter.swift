@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import CoreFoundation
 import Darwin
 
@@ -9,8 +10,9 @@ import Darwin
 /// Two observers on the main run loop in the common modes (event tracking included): the first
 /// at the lowest order notes the phase's start, the last at the highest order reports its length,
 /// so every observer of the phase (the commit's included) runs between them. They are on the run
-/// loop only between ``start()`` and ``stop()``: while the budgeted display link exists, the only
-/// time a frame's scheduled work is held to the budget, so an idle app runs no observer.
+/// loop only between ``start()`` and ``stop()``: while some display link exists (the budgeted one,
+/// whose passes are charged to the budget, or another scheduler's, whose passes may open a short
+/// idle period), so an idle app runs no observer.
 ///
 /// Not actor-isolated and not `Sendable`: its one owner (the ``MainWorkScheduler``, main actor)
 /// holds it, so its deinit may invalidate the observers it made.
@@ -29,7 +31,7 @@ final class RenderPassMeter {
             // main-proof: the observer is only ever added to CFRunLoopGetMain(), whose callouts run on the main thread
             MainActor.assumeIsolated { box.start = uptimeNanos() }
         }
-        let last = CFRunLoopObserverCreateWithHandler(kCFAllocatorDefault, CFRunLoopActivity.beforeWaiting.rawValue, true, CFIndex.max) { _, _ in
+        let last = CFRunLoopObserverCreateWithHandler(kCFAllocatorDefault, CFRunLoopActivity.beforeWaiting.rawValue, true, MainRunLoopObserver.lastOrder) { _, _ in
             // main-proof: the observer is only ever added to CFRunLoopGetMain(), whose callouts run on the main thread
             MainActor.assumeIsolated {
                 guard box.start != 0 else { return }

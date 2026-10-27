@@ -42,24 +42,27 @@ public final class DictationAudioRecording: Sendable {
         }
     }
 
-    private let state = OSAllocatedUnfairLock(initialState: State())
+    private let state = OSAllocatedUnfairLock(initialState: State()) // lock-allow: realtime audio tap, os_unfair_lock donates
 
     public init() {}
 
     /// Folds one tap buffer in.
     public func record(_ buffer: AVAudioPCMBuffer) {
-        guard let channels = buffer.floatChannelData, buffer.frameLength > 0 else { return }
-        let input = UnsafeBufferPointer(start: channels[0], count: Int(buffer.frameLength))
-        append(input, sampleRate: buffer.format.sampleRate)
+        // SAFETY: a float buffer's floatChannelData holds one pointer per channel, each to frameLength valid
+        // samples owned by `buffer`, which outlives this call; append reads the first channel inside the call and
+        // keeps no pointer.
+        guard let channels = unsafe buffer.floatChannelData, buffer.frameLength > 0 else { return }
+        let input = unsafe UnsafeBufferPointer(start: channels[0], count: Int(buffer.frameLength))
+        unsafe append(input, sampleRate: buffer.format.sampleRate)
     }
 
     /// Folds samples at `sampleRate` in (tests feed these directly). Each output sample is the
     /// mean of the input span it covers; an input sample that straddles two spans is split between
     /// them by weight, so a rate that is no whole multiple of 16 kHz (44.1, 24 kHz) stays level.
     /// Input below 16 kHz (a narrowband headset) is not recorded: the session goes as text alone.
-    public func append(_ input: UnsafeBufferPointer<Float>, sampleRate: Double) {
+    public func append(_ input: some Collection<Float>, sampleRate: Double) {
         let limit = Int(Self.sampleRate * Self.maximumDuration)
-        // The closure runs before withLockUnchecked returns, so the buffer is still valid in it.
+        // Unchecked: `input` need not be Sendable; the closure runs before withLockUnchecked returns.
         state.withLockUnchecked { state in
             guard state.omitted == nil else { return }
             guard sampleRate >= Self.sampleRate else { return state.discard(.narrowband) }
@@ -95,13 +98,22 @@ public final class DictationAudioRecording: Sendable {
         let bytes = UInt32(samples.count * MemoryLayout<Int16>.size)
         var data = Data(capacity: 44 + Int(bytes))
         func put(_ text: String) { data.append(contentsOf: Array(text.utf8)) }
-        func put<T: FixedWidthInteger>(_ value: T) { withUnsafeBytes(of: value.littleEndian) { data.append(contentsOf: $0) } }
+        func put<T: FixedWidthInteger>(_ value: T) {
+            for shift in stride(from: 0, to: T.bitWidth, by: 8) { data.append(UInt8(truncatingIfNeeded: value >> shift)) }
+        }
         put("RIFF"); put(36 + bytes); put("WAVE")
         put("fmt "); put(UInt32(16)); put(UInt16(1)); put(UInt16(1))
         put(rate); put(rate * 2); put(UInt16(2)); put(UInt16(16))
         put("data"); put(bytes)
-        // 16-bit PCM is little-endian, as every Mac stores an Int16.
-        samples.withUnsafeBytes { data.append(contentsOf: $0) }
+        // 16-bit PCM is little-endian.
+        var pcm = [UInt8]()
+        pcm.reserveCapacity(samples.count * MemoryLayout<Int16>.size)
+        for sample in samples {
+            let bits = UInt16(bitPattern: sample)
+            pcm.append(UInt8(truncatingIfNeeded: bits))
+            pcm.append(UInt8(truncatingIfNeeded: bits >> 8))
+        }
+        data.append(contentsOf: pcm)
         return data
     }
 }

@@ -1,0 +1,23 @@
+{
+  "id": "daemon-ops",
+  "tier": "T1",
+  "description": "Daemon op latency in the STRESS storm window: trace.py's daemon debug spans (CMUX_TUI_DEBUG_SPANS) whose request arrived in the window, grouped by op, line arrival to reply queued per request (resource and terminal creates alike); per-op series feed the monitored aggregate, and the watchdog's slow requests of any method are counted.",
+  "command": ["scripts/perf-lab/stories/daemon_ops.py"],
+  "session": "stress",
+  "engine": "none",
+  "config": "bench",
+  "metrics": [
+    {"name": "daemon\\.(?!ops\\.)[a-z0-9_-]+\\.ms", "unit": "ms", "better": "lower",
+     "target_ref": {"path": "scripts/perf-lab/stories/daemon_ops.py", "key": "OP_P95_BUDGET_MS"}},
+    {"name": "daemon\\.ops\\.ms", "unit": "ms", "better": "lower",
+     "target_ref": {"path": "scripts/perf-lab/stories/daemon_ops.py", "key": "OP_P95_BUDGET_MS"}},
+    {"name": "daemon\\.ops\\.over_budget", "unit": "count", "better": "lower"},
+    {"name": "daemon\\.ops\\.slow", "unit": "count", "better": "lower"}
+  ],
+  "repeats": 1,
+  "seconds": 900,
+  "needs": ["file:scripts/cmux-next/trace.py", "file:cmux-tui/crates/cmux-tui-util/src/debug_spans.rs",
+            "file:cmux-tui/crates/cmux-tui-core/src/server/request_watchdog.rs"],
+  "owner": "PL-daemon",
+  "component": "Daemon>Requests"
+}

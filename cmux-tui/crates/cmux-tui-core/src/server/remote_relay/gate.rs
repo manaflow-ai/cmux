@@ -85,7 +85,7 @@ pub(crate) enum Denial {
 /// Check one remote frame. `Ok` means the frame may be dispatched; the
 /// conversation handlers still apply the owner scope.
 pub(crate) fn check_frame(frame: &str) -> Result<(), Denial> {
-    let Ok(Value::Object(object)) = serde_json::from_str::<Value>(frame) else {
+    let Ok(Value::Object(object)) = crate::line_parses::parse::<Value>(frame) else {
         return Err(Denial::NotAnObject);
     };
     if object.contains_key("protocol") {

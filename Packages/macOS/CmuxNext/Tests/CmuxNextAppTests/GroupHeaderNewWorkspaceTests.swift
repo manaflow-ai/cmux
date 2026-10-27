@@ -5,6 +5,7 @@ import CmuxNextBridge
 import CmuxNextDaemon
 import CmuxNextDesign
 @testable import CmuxNextSidebar
+import CmuxNextWakeups
 import Foundation
 import Testing
 
@@ -49,6 +50,7 @@ struct GroupHeaderNewWorkspaceTests {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("cn-gplus-\(UUID().uuidString.prefix(8))")
         let session = "cn-gplus-\(UUID().uuidString.prefix(8).lowercased())"
         let launcher = DaemonLauncher(
+            work: BackgroundWork(label: "test.daemon-launcher"),
             configuration: .init(binary: binary, session: session, stateDirectory: root.appendingPathComponent("state")),
             environment: { ["HOME": NSHomeDirectory(), "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "SHELL": "/bin/sh", "TERM": "xterm-256color"] })
         _ = NSApplication.shared

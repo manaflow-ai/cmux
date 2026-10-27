@@ -1,5 +1,6 @@
 public import AppKit
 import CmuxNextCompat
+public import CmuxNextWakeups
 
 /// The phone tab: a device picker and action bar over the phone's screen.
 /// A booted iOS simulator shows live (its IOSurface, frames from SimulatorKit)
@@ -50,6 +51,13 @@ public final class PhoneTabView: NSView {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("not used") }
 
+    /// The windows' frame-aligned pointer input (feature `pointerFrameRemoteInput`): the screen's touch
+    /// moves reach the phone at most twice per display frame. Nil sends each drag event at once.
+    public var pointerFrames: FrameInputCoalescers? {
+        get { screen.pointerFrames }
+        set { screen.pointerFrames = newValue }
+    }
+
     /// Stops observing; the App calls this when the tab closes.
     public func close() {
         observation?.cancel()
@@ -60,6 +68,9 @@ public final class PhoneTabView: NSView {
 
     /// The phone this tab shows, as the tab's restore route (`sim:<udid>`).
     public var route: String? { deviceID?.description }
+
+    /// Notes typed for the running recording and not sent yet: only this view holds them.
+    public var hasUnsentNotes: Bool { !notesField.stringValue.isEmpty }
 
     private func start() async {
         do {

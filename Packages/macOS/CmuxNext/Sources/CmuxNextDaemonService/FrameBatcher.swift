@@ -14,7 +14,9 @@ public import CmuxNextWakeups
 /// (``init(owner:scheduler:)``: all of it every frame, for what a person's action caused) or a
 /// budgeted one on the app's ``MainWorkScheduler`` (``init(owner:budgeted:on:)``: one task at a time
 /// under the class's per-frame budget, yielding to a person's pending input, the rest on the next
-/// frame).
+/// frame). Every batcher names its scheduler: there is no default, so no batch runs outside the
+/// budget's frame window (p06-scheduler-010). A budgeted batcher's work names its cause through
+/// ``queue`` (``FrameBatchQueue/enqueue(cause:_:)``): a person's runs unbudgeted.
 @MainActor
 public final class FrameBatcher: FrameBatchScheduler, ControlFrameSource {
     /// The queue that runs the batches (``FrameBatchQueue``, the one batch primitive).
@@ -24,6 +26,9 @@ public final class FrameBatcher: FrameBatchScheduler, ControlFrameSource {
     /// The board of the budget this batcher draws on (control requests intern their methods and
     /// count queued input there); nil for a frame batcher.
     public nonisolated let mainTaskBoard: MainTaskBoard?
+    /// That budget's thread-safe clock (control requests read their enqueue time with it); nil for
+    /// a frame batcher.
+    public nonisolated let mainTaskClock: (@Sendable () -> UInt64)?
     /// The budget this batcher's work draws on (the control work queue charges its requests to it);
     /// nil for a frame batcher.
     public let mainFrameBudget: MainFrameBudget?
@@ -32,10 +37,11 @@ public final class FrameBatcher: FrameBatchScheduler, ControlFrameSource {
     ///
     /// - Parameters:
     ///   - owner: Names the batcher in the wakeup ledger and debug.wakeups.
-    ///   - scheduler: The frame scheduler (default ``FrameScheduler/app``).
-    public init(owner: String, scheduler: FrameScheduler = .app) {
+    ///   - scheduler: The frame scheduler: the app's ``MainWorkScheduler/frames``, or a window's.
+    public init(owner: String, scheduler: FrameScheduler) {
         queue = FrameBatchQueue(owner: owner, scheduler: scheduler)
         mainTaskBoard = nil
+        mainTaskClock = nil
         mainFrameBudget = nil
     }
 
@@ -49,6 +55,7 @@ public final class FrameBatcher: FrameBatchScheduler, ControlFrameSource {
     public init(owner: String, budgeted: BudgetedWorkClass, on work: MainWorkScheduler) {
         queue = FrameBatchQueue(owner: owner, budgeted: budgeted, on: work)
         mainTaskBoard = work.budget.board
+        mainTaskClock = work.budget.postClock
         mainFrameBudget = work.budget
     }
 

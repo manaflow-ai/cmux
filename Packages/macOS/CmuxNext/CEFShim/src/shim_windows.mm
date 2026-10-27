@@ -1,6 +1,7 @@
 // Chromium never opens a window of its own: the window request handler (fork
 // API 8), popup dispositions for the host's adoption, and the Chromium commands
-// that would open a Chromium window.
+// that would open a Chromium window. Also the page window's resize fence (fork
+// API 32).
 
 #include <chrono>
 
@@ -138,6 +139,11 @@ void cmux_shim_set_window_request_handler(cmux_shim_window_request_fn handler) {
 
 int cmux_shim_foreign_browser_count(void) {
   return fork_api().foreign_browser_count ? fork_api().foreign_browser_count() : -1;
+}
+
+int cmux_shim_browser_set_resize_fence(int browser_id, unsigned int fence_port, unsigned int deadline_frames) {
+  if (!fork_api().browser_set_resize_fence) return 0;
+  return fork_api().browser_set_resize_fence(browser_id, fence_port, deadline_frames);
 }
 
 }  // extern "C"

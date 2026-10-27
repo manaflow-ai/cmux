@@ -23,6 +23,7 @@ use crate::state::store::{StateChanges, StateCommit};
 
 impl Mux {
     /// `agent.message.send`.
+    #[track_caller]
     pub(crate) fn agent_message_send(
         &self,
         mutation: &WorkspaceMutation,
@@ -98,6 +99,7 @@ impl Mux {
     /// The workspace keys of the acpmux sessions a send involves: the
     /// sender, the recipients, and the parent's sender of a reply without
     /// recipients. Read before the commit: it waits on acpmux.
+    #[track_caller]
     fn acp_workspace_keys(
         &self,
         agent: Option<&str>,
@@ -125,6 +127,7 @@ impl Mux {
 
     /// `agent.message.mark`.
     #[allow(clippy::too_many_arguments)]
+    #[track_caller]
     pub(crate) fn agent_message_mark(
         &self,
         mutation: &WorkspaceMutation,
@@ -173,6 +176,7 @@ impl Mux {
     /// approves or declines one held delivery. Any local connection may be
     /// an agent that left out its launch credential, so every other actor,
     /// the plain local user included, is refused (as pairing approval is).
+    #[track_caller]
     pub(crate) fn agent_message_release(
         &self,
         mutation: &WorkspaceMutation,
@@ -231,6 +235,7 @@ impl Mux {
     /// else committed while acpmux answered: acpmux already acted on it.
     /// The pump claims no hand-over and records no outcome meanwhile; one
     /// already out counts as tried, so acpmux decides it.
+    #[track_caller]
     pub(crate) fn agent_message_unsend(
         &self,
         mutation: &WorkspaceMutation,
@@ -334,6 +339,7 @@ impl Mux {
 
     /// `agent.message.list`, newest first. A held delivery whose wait is
     /// over reads as declined (`expired`) even before a mutation stores it.
+    #[track_caller]
     pub(crate) fn agent_message_list(
         &self,
         selectors: &crate::ResourceSelectors,

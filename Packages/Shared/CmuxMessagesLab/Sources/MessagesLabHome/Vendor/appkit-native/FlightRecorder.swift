@@ -19,6 +19,7 @@ import UniformTypeIdentifiers
 /// ~/Library/Logs/MessagesLab/blink-<time>/ and logs one line to stderr. At
 /// most one dump per 15 s. "Save Last 10 Seconds" (Cmd+Shift+S) writes the
 /// same without a finding.
+@MainActor  // cmux: it samples the pane's views and window on the main thread, as its ChatController
 final class FlightRecorder: NSObject {
     static let shared = FlightRecorder()
     // cmux: the app's policy (HomeFlightRecorder: DEV on, NIGHTLY opt-in, Release off), read live.
@@ -38,8 +39,8 @@ final class FlightRecorder: NSObject {
         /// The finding's numbers, rounded as its text prints them (the old rule compared texts).
         var unfilledSig = 0
     }
-    static let maxRows = 64, maxMorphs = 4
-    private static let capacity = 1300                       // ~10 s at 120 Hz
+    nonisolated static let maxRows = 64, maxMorphs = 4  // cmux: nonisolated: the dump queue formats with them
+    nonisolated private static let capacity = 1300           // ~10 s at 120 Hz (cmux: nonisolated, the stored defaults read it)
     private var samples = [RawSample](repeating: RawSample(), count: capacity)
     private var rows = [RawRow](repeating: RawRow(), count: capacity * maxRows)
     private var morphRows = [RawRow](repeating: RawRow(), count: capacity * maxMorphs)
@@ -60,21 +61,19 @@ final class FlightRecorder: NSObject {
     private var lastDump: CFTimeInterval = -.infinity
     private var pendingFinding: (CFTimeInterval, String)?
     private(set) var dumps: [String] = []
-    private static var bursts: [DispatchSourceTimer] = []
     private static let dumpQueue = DispatchQueue(label: "flight.dump", qos: .utility)
 
     // cmux: the pane's window comes and goes and the policy can switch on later: attach (from
     // ChatController.windowChanged) always, replacing the previous window's observers.
-    private var observers: [NSObjectProtocol] = []
+    // cmux: MainQueueObservation (removed when released) runs the main-actor handler.
+    private var observers: [MainQueueObservation] = []
     func attach(_ c: ChatController) {
         self.c = c
-        let nc = NotificationCenter.default
-        observers.forEach { nc.removeObserver($0) }
         observers = []
         guard let window = c.window else { return }
         for n in [NSWindow.didBecomeKeyNotification, NSWindow.didResignKeyNotification, NSWindow.didChangeScreenNotification,
                   NSWindow.didChangeBackingPropertiesNotification] {
-            observers.append(nc.addObserver(forName: n, object: window, queue: .main) { [weak self] note in
+            observers.append(MainQueueObservation(n, object: window) { [weak self] note in
                 self?.event(note.name.rawValue.replacingOccurrences(of: "NSWindow", with: ""))
                 self?.kick()
             })
@@ -135,9 +134,10 @@ final class FlightRecorder: NSObject {
     // MARK: Sampling
 
     /// Main-thread cost of each tick (bench evidence; target 0.3 ms or less).
-    static var tickCount = 0, tickMsTotal = 0.0, tickMsMax = 0.0, ticksOver03 = 0, framesSkipped = 0
-    static var modelChecks = 0, modelCheckMsMax = 0.0
-    static var slowTicks: [[String: Double]] = []
+    /// cmux: the recorder's own counters, not process-wide statics (shared mutable state).
+    var tickCount = 0, tickMsTotal = 0.0, tickMsMax = 0.0, ticksOver03 = 0, framesSkipped = 0
+    var modelChecks = 0, modelCheckMsMax = 0.0
+    var slowTicks: [[String: Double]] = []
     /// Adaptive stride: every frame while a sample costs under 0.2 ms; every 2nd-4th frame
     /// while presented geometry is expensive (many cells, each with many additive springs
     /// during fast sends: presentation() applies them all). Target 0.3 ms per frame.
@@ -151,18 +151,18 @@ final class FlightRecorder: NSObject {
             // blink of a row (hidden, opacity 0, no contents) is never missed.
             let m0 = CACurrentMediaTime()
             if now - lastSend < 10 { modelCheck(v) }
-            FlightRecorder.modelChecks += 1
-            FlightRecorder.modelCheckMsMax = max(FlightRecorder.modelCheckMsMax, (CACurrentMediaTime() - m0) * 1000)
+            modelChecks += 1
+            modelCheckMsMax = max(modelCheckMsMax, (CACurrentMediaTime() - m0) * 1000)
             if !(v.isAnimating || now - lastSend < 10 || pendingFinding != nil) { l.invalidate(); link = nil }
             return
         }
         defer {
             let ms = (CACurrentMediaTime() - now) * 1000
-            FlightRecorder.tickCount += 1; FlightRecorder.tickMsTotal += ms; FlightRecorder.tickMsMax = max(FlightRecorder.tickMsMax, ms)
-            if ms > 0.3 { FlightRecorder.ticksOver03 += 1 }
+            tickCount += 1; tickMsTotal += ms; tickMsMax = max(tickMsMax, ms)
+            if ms > 0.3 { ticksOver03 += 1 }
             if ms > 0.3 { stride = min(4, stride + 1) } else if ms < 0.2 { stride = max(1, stride - 1) }
             skip = stride - 1
-            FlightRecorder.framesSkipped += skip
+            framesSkipped += skip
         }
         let slot = head
         sample(c, v, now, into: slot)
@@ -176,10 +176,10 @@ final class FlightRecorder: NSObject {
         let t3 = CACurrentMediaTime()
         // A slow tick (above 2 ms): its phases, for the bench.
         if t3 - now > 0.002 {
-            FlightRecorder.slowTicks.append(["sampleMs": (t1 - now) * 1000, "detectMs": (t2 - t1) * 1000, "agesMs": (t3 - t2) * 1000,
+            slowTicks.append(["sampleMs": (t1 - now) * 1000, "detectMs": (t2 - t1) * 1000, "agesMs": (t3 - t2) * 1000,
                                              "rows": Double(samples[checked: slot]?.rowCount ?? 0), "keys": Double(keyNames.count), // checked
                                              "morphs": Double(samples[checked: slot]?.morphCount ?? 0), "dumped": now - lastDump < 0.01 ? 1 : 0])
-            if FlightRecorder.slowTicks.count > 8 { FlightRecorder.slowTicks.removeFirst() }
+            if slowTicks.count > 8 { slowTicks.removeFirst() }
         }
         let busy = v.isAnimating || now - lastSend < 10 || pendingFinding != nil
         if !busy { l.invalidate(); link = nil }
@@ -211,7 +211,7 @@ final class FlightRecorder: NSObject {
             originY = Float(Double(listOrigin.y + list.sublayerTransform.m42) + v.containerTranslation(at: Animate.now(v.layer)))
             if FlightRecorder.verifyMath, MessagesWindowView.commitLog?.isEmpty ?? true, let lp = list.presentation() {
                 let d = abs(Double(originY) - Double(listOrigin.y + list.bounds.minY - lp.bounds.minY + lp.sublayerTransform.m42))
-                if d > FlightRecorder.verifyMax { FlightRecorder.verifyMax = d; FlightRecorder.verifyWorst = "container \(d)" }
+                if d > verifyMax { verifyMax = d; verifyWorst = "container \(d)" }
             }
         }
         var s = RawSample(t: now, offset: Float(v.collection.contentOffset.y), key: c.window?.isKeyWindow ?? false)  // cmux: optional window
@@ -229,8 +229,8 @@ final class FlightRecorder: NSObject {
             if FlightRecorder.verifyMath {
                 let ip = v.collection.indexPath(for: cell)?.item
                 let mk = ip.flatMap { v.model.rows[checked: $0]?.spec.key } ?? "-" // checked
-                FlightRecorder.verifyKey = "\(spec.key) cellKey \(cell.key) cell \(ObjectIdentifier(cell).hashValue % 100000) ip \(ip ?? -1) modelKeyAtIp \(mk) modelIndex \(v.model.index[spec.key] ?? -1) frameY \(cell.frame.minY)"
-                if spec.key != mk || cell.key != spec.key, FlightRecorder.verifyLog.count < 24 { FlightRecorder.verifyLog.append("MISMATCH " + FlightRecorder.verifyKey) }
+                verifyKey = "\(spec.key) cellKey \(cell.key) cell \(ObjectIdentifier(cell).hashValue % 100000) ip \(ip ?? -1) modelKeyAtIp \(mk) modelIndex \(v.model.index[spec.key] ?? -1) frameY \(cell.frame.minY)"
+                if spec.key != mk || cell.key != spec.key, verifyLog.count < 24 { verifyLog.append("MISMATCH " + verifyKey) }
             }
             let cl = cell.layer
             let cellPY = presented(cl, "position.y", .cell, entries, cell.applied, lnow)
@@ -327,13 +327,13 @@ final class FlightRecorder: NSObject {
             // Only ticks with no transaction earlier in the same run-loop pass: otherwise the model
             // holds changes that the presentation (last commit) does not show yet.
             let lid = ObjectIdentifier(l).hashValue &+ keyPath.count
-            let movedModel = FlightRecorder.verifyLastModel[lid].map { $0 != model } ?? true
-            FlightRecorder.verifyLastModel[lid] = model
-            guard MessagesWindowView.commitLog?.isEmpty ?? true, !movedModel else { FlightRecorder.verifySkipped += 1; return out }
-            FlightRecorder.verifyCount += 1
-            if d > 0.5 { FlightRecorder.verifyOver += 1 }
-            if d > FlightRecorder.verifyMax { FlightRecorder.verifyMax = d; FlightRecorder.verifyWorst = "\(keyPath) model \(model) math \(out) ca \(pv)" }
-            if d > 0.5, FlightRecorder.verifyLog.count < 16 {
+            let movedModel = verifyLastModel[lid].map { $0 != model } ?? true
+            verifyLastModel[lid] = model
+            guard MessagesWindowView.commitLog?.isEmpty ?? true, !movedModel else { verifySkipped += 1; return out }
+            verifyCount += 1
+            if d > 0.5 { verifyOver += 1 }
+            if d > verifyMax { verifyMax = d; verifyWorst = "\(keyPath) model \(model) math \(out) ca \(pv)" }
+            if d > 0.5, verifyLog.count < 16 {
                 // The layer's animations on this key path and the ledger's view of them (cause hunt).
                 func r(_ x: Double) -> Double { (x * 1000).rounded() / 1000 }
                 let es = entries.filter { $0.keyPath == keyPath }.map {
@@ -344,16 +344,17 @@ final class FlightRecorder: NSObject {
                     let from = (a as? CABasicAnimation)?.fromValue ?? (a as? CAKeyframeAnimation)?.values?.first
                     return "\(k) b \(r(a.beginTime - now)) dur \(r(a.duration)) from \(from ?? "?")"
                 }
-                FlightRecorder.verifyLog.append("\(FlightRecorder.verifyKey) \(target.map { "\($0)" } ?? "nil") \(keyPath) d \(r(d)) model \(r(model)) math \(r(out)) ca \(r(pv)) applied \(applied.sorted()) entries \(es) anims \(anims)")
+                verifyLog.append("\(verifyKey) \(target.map { "\($0)" } ?? "nil") \(keyPath) d \(r(d)) model \(r(model)) math \(r(out)) ca \(r(pv)) applied \(applied.sorted()) entries \(es) anims \(anims)")
             }
         }
         return out
     }
     static let verifyMath = ProcessInfo.processInfo.arguments.contains("--recorder-verify")
     /// Largest difference (points; opacity in hundredths) and its values.
-    static var verifyMax = 0.0, verifyCount = 0, verifyWorst = "", verifyOver = 0, verifySkipped = 0
-    static var verifyLastModel: [Int: Double] = [:]
-    static var verifyKey = "", verifyLog: [String] = []
+    /// cmux: the recorder's own, not process-wide statics.
+    var verifyMax = 0.0, verifyCount = 0, verifyWorst = "", verifyOver = 0, verifySkipped = 0
+    var verifyLastModel: [Int: Double] = [:]
+    var verifyKey = "", verifyLog: [String] = []
 
     private var previousSlot = -1
     /// Ages and last positions for the next frame (every frame, detector or not).
@@ -502,22 +503,19 @@ final class FlightRecorder: NSObject {
     }
 
     /// About 0.5 s of window captures, one per display frame, off the main thread.
+    /// cmux: one block per frame on the burst queue, each with its own index (a repeating timer counted
+    /// in a captured var and was released from a static array off main, a race with main's append).
     private func burst(_ dir: String, _ c: ChatController, count: Int) {
         guard let window = c.window else { return }  // cmux: the pane's window is optional
         guard let wid = UInt32(exactly: window.windowNumber) else { return } // no trapping conversion
         let q = DispatchQueue(label: "flight.burst", qos: .utility)
-        let start = CACurrentMediaTime()
-        var i = 0
-        let timer = DispatchSource.makeTimerSource(queue: q)
-        timer.schedule(deadline: .now(), repeating: 1.0 / 60)
-        timer.setEventHandler {
-            let t = CACurrentMediaTime() - start
-            // cmux: LiveRecord is not vendored (HomeFlightRecorder.grab, .writeJPEG).
-            if let img = HomeFlightRecorder.grab(wid) { HomeFlightRecorder.writeJPEG(img, String(format: "%@/frames/burst_%02d_%.3f.jpg", dir, i, t)) }
-            i += 1
-            if i >= count { timer.cancel(); FlightRecorder.bursts.removeAll { $0 === timer } }
+        let start = CACurrentMediaTime(), now = DispatchTime.now()
+        for i in 0..<max(0, count) {
+            q.asyncAfter(deadline: now + Double(i) / 60) {
+                let t = CACurrentMediaTime() - start
+                // cmux: LiveRecord is not vendored (HomeFlightRecorder.grab, .writeJPEG).
+                if let img = HomeFlightRecorder.grab(wid) { HomeFlightRecorder.writeJPEG(img, String(format: "%@/frames/burst_%02d_%.3f.jpg", dir, i, t)) }
+            }
         }
-        FlightRecorder.bursts.append(timer)
-        timer.resume()
     }
 }

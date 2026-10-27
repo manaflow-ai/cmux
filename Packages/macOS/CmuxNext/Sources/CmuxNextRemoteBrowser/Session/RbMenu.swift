@@ -1,6 +1,6 @@
 import Foundation
 
-#if DEBUG
+#if DEBUG || CMUX_BENCH_HOOKS
 /// A context menu or `<select>` popup (`Menu`).
 public nonisolated struct RbMenu: Sendable, Equatable, Decodable {
     /// `context` or `select`.

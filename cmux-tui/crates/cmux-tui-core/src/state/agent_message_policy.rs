@@ -12,6 +12,7 @@
 //! restart forgets nothing. A refused send stores nothing and names its
 //! reason in `details.reason`.
 
+use cmux_threads::checked::fs as files;
 use rusqlite::{Connection, OptionalExtension, params};
 use serde_json::{Value, json};
 
@@ -335,7 +336,7 @@ pub(crate) fn now_ms() -> i64 {
 #[cfg(debug_assertions)]
 fn test_clock_offset() -> i64 {
     std::env::var_os("CMUX_TUI_TEST_AGENT_MESSAGE_CLOCK_FILE")
-        .and_then(|path| std::fs::read_to_string(path).ok())
+        .and_then(|path| files::read_to_string(path).ok())
         .and_then(|text| text.trim().parse::<i64>().ok())
         .unwrap_or(0)
 }

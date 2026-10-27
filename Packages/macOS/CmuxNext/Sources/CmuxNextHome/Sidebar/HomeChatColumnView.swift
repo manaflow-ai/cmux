@@ -26,14 +26,11 @@ final class HomeChatColumnView: NSView {
     @available(*, unavailable)
     required init?(coder: NSCoder) { nil }
 
-    /// Shows the compose button (every list width; off while New Message is on screen).
+    /// Shows the compose button (every list width; off while New Message is on screen). Every
+    /// layout places it, hidden or not, so showing it needs no layout.
     var showsCompose: Bool {
         get { !compose.isHidden }
-        set {
-            guard compose.isHidden == newValue else { return }
-            compose.isHidden = !newValue
-            needsLayout = true
-        }
+        set { compose.isHidden = !newValue }
     }
 
     override func layout() {

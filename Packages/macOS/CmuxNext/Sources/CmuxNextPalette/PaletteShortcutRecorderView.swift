@@ -43,7 +43,34 @@ final class PaletteShortcutRecorderView: NSView {
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
+        if window == nil { press.cancel() }
         applyColors()
+    }
+
+    /// Press, drag and release, as in the Actions menu: the release picks the option it ends on.
+    private lazy var press = PalettePress(in: content, rows: { [weak self] in self?.rowViews ?? [] }, release: { [weak self] index in
+        guard let self, let options = self.shown?.options, options.indices.contains(index) else { return }
+        self.onChoose?(options[index])
+    })
+
+    // A press on an option is the panel's own: a new state rebuilds the rows while it is held.
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        let hit = super.hitTest(point)
+        return press.isOnRow(hit) ? self : hit
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        if !press.began(event) { super.mouseDown(with: event) }
+    }
+
+    override func mouseDragged(with event: NSEvent) {
+        guard press.isPressed else { return super.mouseDragged(with: event) }
+        press.dragged(event)
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        guard press.isPressed else { return super.mouseUp(with: event) }
+        press.ended(event)
     }
 
     private func applyColors() {
@@ -61,7 +88,13 @@ final class PaletteShortcutRecorderView: NSView {
             + messageHeight + Metrics.space2 + CGFloat(state.options.count) * PaletteLayout.actionsMenuRowHeight + Metrics.space4
     }
 
+    /// The state shown now: the palette renders the open recorder on every model change, and only a
+    /// new state rebuilds it.
+    private var shown: PaletteShortcutRecorderState?
+
     func update(_ state: PaletteShortcutRecorderState) {
+        guard state != shown else { return }
+        shown = state
         action.stringValue = state.actionTitle
         current.keycaps = state.currentKeycaps ?? []
         current.isHidden = state.currentKeycaps == nil
@@ -73,19 +106,10 @@ final class PaletteShortcutRecorderView: NSView {
         let options = state.options
         rowViews = options.enumerated().map { index, option in
             let row = PaletteMenuRow(command: Self.command(option), keycaps: Self.keycaps(option), isSelected: index == 0 && state.pending != nil)
-            // Press, drag and release, as in the Actions menu: the release picks the option it ends on.
-            row.onPress = { [weak self] event in
-                guard let self else { return }
-                PalettePress.track(event, in: self.content, row: { point in
-                    self.rowViews.firstIndex { $0.frame.contains(point) }
-                }, select: { _ in }, release: { index in
-                    if options.indices.contains(index) { self.onChoose?(options[index]) }
-                })
-            }
             content.addSubview(row)
             return row
         }
-        needsLayout = true
+        needsLayout = true // invalidate: a new state (the guard above)
     }
 
     private static func command(_ option: PaletteShortcutOption) -> PaletteCommand {

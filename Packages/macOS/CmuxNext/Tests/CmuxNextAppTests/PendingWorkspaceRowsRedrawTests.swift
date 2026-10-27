@@ -18,7 +18,7 @@ struct PendingWorkspaceRowsRedrawTests {
     }
 
     @Test func addAndRemoveRedrawInTheSameTurn() {
-        let rows = PendingWorkspaceRows(), owner = Owner()
+        let rows = PendingWorkspaceRows(newRows: SidebarNewRowTimer()), owner = Owner()
         var drawn: [[String]] = []
         rows.redraws.add(owner) { drawn.append(rows.rows(in: "w1").map(\.id)) }
         rows.add(row("ws-1", window: "w1"), name: "workspace-1")
@@ -29,7 +29,7 @@ struct PendingWorkspaceRowsRedrawTests {
     }
 
     @Test func forgetRedrawsOnlyWhenItDropsARow() {
-        let rows = PendingWorkspaceRows(), owner = Owner()
+        let rows = PendingWorkspaceRows(newRows: SidebarNewRowTimer()), owner = Owner()
         var redraws = 0
         rows.add(row("ws-1", window: "w1"), name: "workspace-1")
         rows.redraws.add(owner) { redraws += 1 }

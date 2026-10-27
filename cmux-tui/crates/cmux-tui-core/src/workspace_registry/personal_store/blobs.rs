@@ -400,6 +400,7 @@ pub(crate) fn open_blob_store(transaction: &Transaction<'_>) -> anyhow::Result<(
 impl WorkspaceRegistry {
     /// `put-blob`: store one asset prepared (checked, sanitized, hashed)
     /// with [`prepare_blob`] before the registry lock was taken.
+    #[track_caller]
     pub fn put_blob(&mut self, blob: StoredBlob) -> anyhow::Result<StoredBlob> {
         let db = self.connection.get();
         let tx = db.unchecked_transaction()?;
@@ -409,6 +410,7 @@ impl WorkspaceRegistry {
     }
 
     /// `get-blob`: the stored asset a reference names.
+    #[track_caller]
     pub fn get_blob(&self, reference: &str) -> anyhow::Result<StoredBlob> {
         let digest = parse_blob_reference(reference).ok_or_else(|| {
             invalid_asset("blob must be blob:sha256-<64 lowercase hex> or an asset icon value")
@@ -424,6 +426,7 @@ impl WorkspaceRegistry {
 
     /// Refuse an icon that names an asset this store does not hold (checks
     /// made before a multi-step command starts; see [`require_icon_asset`]).
+    #[track_caller]
     pub(crate) fn require_icon_asset(&self, icon: &str) -> anyhow::Result<()> {
         let db = self.connection.get();
         require_icon_asset(&db, icon)

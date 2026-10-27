@@ -37,9 +37,12 @@
 # `server.agent.allowRegister` (off by default) until the server stack ships.
 #
 # The helper is compiled with swiftc from Packages/macOS/CmuxNext/Sources/
-# CmuxNextServerHelper (its only package dependency, CmuxNextCompat, is compiled
-# first the same way, Mutex.swift only: Atomic.swift needs swift-atomics, which
-# the helper does not use) and CmuxNextServerHelperDaemon/
+# CmuxNextServerHelper (its package dependencies are compiled first the same way:
+# Packages/Shared/CmuxSafeConcurrency, whose OnceContinuation the helper uses and
+# whose Mutex CmuxNextCompat's wraps, with its header-only C module
+# CmuxSafeConcurrencyAtomics through a module map; then CmuxNextCompat,
+# Mutex.swift and Threading/Process+OwnThread.swift only: Atomic.swift needs
+# swift-atomics, which the helper does not use) and CmuxNextServerHelperDaemon/
 # main.swift, one slice per arch in $ARCHS: resolving the whole CmuxNext package
 # for one small executable would fetch every remote dependency inside the phase.
 # scripts/sign-cmux-bundle-helpers.sh signs it for Developer ID with no
@@ -138,11 +141,12 @@ stamp_agent() {
   plutil -insert KeepAlive -dictionary "$plist.tmp"
   plutil -insert KeepAlive.SuccessfulExit -bool NO "$plist.tmp"
   plutil -insert ThrottleInterval -integer 10 "$plist.tmp"
-  # Standard, not Background: the job hosts the user's terminals and app
-  # servers, which must not run under background CPU and I/O limits. Same as
-  # cmux-server-core's app_service_agent_plist, which writes this plist byte for
+  # Interactive: every terminal key and frame passes through the job, so it
+  # runs with an app's limits (process roles in plans/cmux-next/threading-model.md,
+  # cmux-server-core LaunchdJob::Server). Same as cmux-server-core's
+  # app_service_agent_plist, which writes this plist byte for
   # byte (golden: cmux-tui/crates/cmux-server-core/tests/fixtures/app-service-agent.plist).
-  plutil -insert ProcessType -string Standard "$plist.tmp"
+  plutil -insert ProcessType -string Interactive "$plist.tmp"
   plist_commit "$plist"
   echo "bundle-server-helper: $label"
 }
@@ -157,6 +161,7 @@ helper="$app/Contents/Resources/libexec/cmux-server-helper"
 
 root="${SRCROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}"
 sources="$root/Packages/macOS/CmuxNext/Sources"
+safe_sources="$root/Packages/Shared/CmuxSafeConcurrency/Sources"
 work="${TARGET_TEMP_DIR:-$(mktemp -d)}/server-helper"
 min_macos="${MACOSX_DEPLOYMENT_TARGET:-14.0}"
 optimize="-O"
@@ -169,6 +174,14 @@ swift_flags=(
   -enable-upcoming-feature InternalImportsByDefault
   "$optimize"
 )
+# CmuxSafeConcurrency's own settings (its Package.swift).
+safe_flags=(
+  -swift-version 6
+  -strict-memory-safety
+  -enable-upcoming-feature ExistentialAny
+  -enable-upcoming-feature InternalImportsByDefault
+  "$optimize"
+)
 
 archs="${ARCHS:-$(uname -m)}"
 slices=()
@@ -177,17 +190,27 @@ for arch in $archs; do
   rm -rf "$out"
   mkdir -p "$out"
   target="$arch-apple-macos$min_macos"
+  # CmuxSafeConcurrencyAtomics is static inline C in its header (its .c only includes it, for SwiftPM),
+  # so a module map is all swiftc needs; -I "$out" finds it for every module that loads it.
+  printf 'module CmuxSafeConcurrencyAtomics {\n  header "%s"\n  export *\n}\n' \
+    "$safe_sources/CmuxSafeConcurrencyAtomics/include/CmuxSafeConcurrencyAtomics.h" > "$out/module.modulemap"
+  xcrun swiftc "${safe_flags[@]}" -target "$target" -parse-as-library \
+    -I "$out" \
+    -module-name CmuxSafeConcurrency -emit-module -emit-module-path "$out/CmuxSafeConcurrency.swiftmodule" \
+    -emit-library -static -o "$out/libCmuxSafeConcurrency.a" \
+    "$safe_sources"/CmuxSafeConcurrency/*.swift
   xcrun swiftc "${swift_flags[@]}" -target "$target" -parse-as-library \
+    -I "$out" \
     -module-name CmuxNextCompat -emit-module -emit-module-path "$out/CmuxNextCompat.swiftmodule" \
     -emit-library -static -o "$out/libCmuxNextCompat.a" \
-    "$sources"/CmuxNextCompat/Mutex.swift
+    "$sources"/CmuxNextCompat/Mutex.swift "$sources"/CmuxNextCompat/Threading/Process+OwnThread.swift
   xcrun swiftc "${swift_flags[@]}" -target "$target" -parse-as-library \
     -I "$out" \
     -module-name CmuxNextServerHelper -emit-module -emit-module-path "$out/CmuxNextServerHelper.swiftmodule" \
     -emit-library -static -o "$out/libCmuxNextServerHelper.a" \
     "$sources"/CmuxNextServerHelper/*.swift
   xcrun swiftc "${swift_flags[@]}" -target "$target" -module-name cmux_server_helper \
-    -I "$out" -L "$out" -lCmuxNextServerHelper -lCmuxNextCompat \
+    -I "$out" -L "$out" -lCmuxNextServerHelper -lCmuxNextCompat -lCmuxSafeConcurrency \
     -o "$out/cmux-server-helper" "$sources/CmuxNextServerHelperDaemon/main.swift"
   slices+=("$out/cmux-server-helper")
 done

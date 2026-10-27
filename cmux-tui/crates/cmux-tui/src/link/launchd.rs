@@ -5,6 +5,8 @@
 use std::io;
 use std::path::{Path, PathBuf};
 
+use cmux_server_core::units::LaunchdJob;
+
 /// The launchd label.
 pub(super) const LABEL: &str = "com.cmuxterm.link";
 
@@ -17,7 +19,8 @@ pub(super) fn plist(program: &Path, arguments: &[String]) -> io::Result<Vec<u8>>
     dictionary.insert("ProgramArguments".into(), plist::Value::Array(command));
     dictionary.insert("RunAtLoad".into(), plist::Value::Boolean(true));
     dictionary.insert("KeepAlive".into(), plist::Value::Boolean(true));
-    dictionary.insert("ProcessType".into(), plist::Value::String("Background".into()));
+    dictionary
+        .insert("ProcessType".into(), plist::Value::String(LaunchdJob::Link.process_type().into()));
     let mut bytes = Vec::new();
     plist::Value::Dictionary(dictionary).to_writer_xml(&mut bytes).map_err(io::Error::other)?;
     Ok(bytes)
@@ -43,6 +46,23 @@ pub(super) fn install(program: &Path, arguments: &[String]) -> io::Result<PathBu
     Ok(path)
 }
 
+/// `serve` start: brings an installed agent's `ProcessType` (an older cmux
+/// wrote `Background`) up to the process-roles table, so its next bootstrap
+/// (login, `install-agent`) runs the link at it. Returns a note when it
+/// rewrote the plist or could not read it.
+pub(super) fn upgrade_installed_role() -> Option<String> {
+    let path = plist_path().ok()?;
+    match crate::launchd_role::upgrade_process_type(&path, LaunchdJob::Link) {
+        Ok(true) => Some(format!(
+            "updated the {LABEL} agent to ProcessType {}; it applies at the next login or \
+             `cmux link install-agent`",
+            LaunchdJob::Link.process_type()
+        )),
+        Ok(false) => None,
+        Err(error) => Some(format!("cannot update {}: {error}", path.display())),
+    }
+}
+
 /// Unload the agent and remove its plist.
 pub(super) fn uninstall() -> io::Result<()> {
     let _ = launchctl(&["bootout", &format!("{}/{LABEL}", gui_domain())]);
@@ -58,7 +78,7 @@ fn gui_domain() -> String {
 }
 
 fn launchctl(arguments: &[&str]) -> io::Result<()> {
-    let status = std::process::Command::new("/bin/launchctl").args(arguments).status()?;
+    let status = cmux_process::Command::new("/bin/launchctl").args(arguments).status()?;
     if status.success() {
         Ok(())
     } else {
@@ -101,5 +121,14 @@ mod tests {
         );
         assert_eq!(dictionary["KeepAlive"].as_boolean(), Some(true));
         assert_eq!(dictionary["RunAtLoad"].as_boolean(), Some(true));
+    }
+
+    #[test]
+    fn the_agent_runs_at_the_process_roles_table_value_never_background() {
+        let bytes = plist(Path::new("/usr/local/bin/cmux"), &[]).unwrap();
+        let value = plist::Value::from_reader_xml(bytes.as_slice()).unwrap();
+        let process_type = value.as_dictionary().unwrap()["ProcessType"].as_string();
+        assert_eq!(process_type, Some(LaunchdJob::Link.process_type()));
+        assert_eq!(process_type, Some("Interactive"));
     }
 }

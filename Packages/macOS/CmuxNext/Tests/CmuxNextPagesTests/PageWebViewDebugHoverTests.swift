@@ -11,7 +11,7 @@ import Testing
 @MainActor
 struct PageWebViewDebugHoverTests {
     private let root: URL
-    private let descriptor = PageDescriptor(id: "test.hover-page", resource: "hover-page", namespaces: [])
+    private let descriptor = PageDescriptor(id: "test.hover-page", resource: "hover-page", processGroup: .solo, namespaces: [])
 
     init() throws {
         root = FileManager.default.temporaryDirectory.appendingPathComponent("page-hover-\(UUID().uuidString)", isDirectory: true)

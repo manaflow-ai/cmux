@@ -9,7 +9,11 @@ extension FileBrowserModel {
         guard !names.isEmpty else { return }
         let plan = rename.plan(names, taken: Set(all.map(\.name)))
         if let bad = plan.first(where: { $0.problem != nil }) {
-            lastError = bad.problem == .invalid ? .invalidName(bad.to) : .exists(folder.appendingPathComponent(bad.to))
+            lastError = switch bad.problem {
+            case .invalid?: .invalidName(bad.to)
+            case .numberTooLarge?: .renameNumberTooLarge
+            case .duplicate?, .exists?, nil: .exists(folder.appendingPathComponent(bad.to))
+            }
             return
         }
         let changed = plan.filter(\.changes)

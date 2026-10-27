@@ -1,3 +1,4 @@
+import CmuxNextCompat
 package import Foundation
 
 /// Finds the pull request an agent session opened. Claude Code writes a
@@ -59,7 +60,7 @@ package nonisolated struct VaultPullRequests: Sendable {
         guard (try? handle.seek(toOffset: start)) != nil, let data = try? handle.readToEnd() else { return nil }
         let text = String(decoding: data, as: UTF8.self)
         for line in text.split(separator: "\n").reversed() where line.contains("pr-link") {
-            guard let object = try? JSONSerialization.jsonObject(with: Data(line.utf8)) as? [String: Any],
+            guard let object = try? JSONSerialization.blockingJSONObject(with: Data(line.utf8)) as? [String: Any],
                   object["type"] as? String == "pr-link", let link = object["prUrl"] as? String,
                   let url = URL(string: link), ["http", "https"].contains(url.scheme?.lowercased() ?? "") else { continue }
             return url

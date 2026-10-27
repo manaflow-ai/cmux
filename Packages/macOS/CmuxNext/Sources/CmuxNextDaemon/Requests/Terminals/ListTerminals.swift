@@ -4,7 +4,7 @@ import Foundation
 /// workspace and, once ended, its exit record (cmux-tui terminal-host.md).
 public struct ListTerminalsRequest: DaemonRequest {
     public typealias Response = TerminalRegistryList
-    public static let command = "list-terminals"
+    public static let commandName: DaemonCommandName = "list-terminals"
     public init() {}
 }
 

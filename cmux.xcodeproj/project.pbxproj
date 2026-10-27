@@ -68,6 +68,7 @@
 				Info.plist,
 				InfoPlist.xcstrings,
 				bin,
+				build/cmux-next.order,
 				cmux-cli-path,
 				cmux-cli-path/zsh/.zshenv,
 				cmux-cli-path/zsh-agent/.zlogin,
@@ -573,11 +574,14 @@
 				"$(SRCROOT)/scripts/cmux-next/install-cef-credits.sh",
 				"$(SRCROOT)/scripts/cmux-next/install-cef-license.sh",
 				"$(SRCROOT)/Packages/macOS/CmuxNext/CEFShim",
+				"$(SRCROOT)/Packages/macOS/CmuxNext/ChromiumHost",
+				"$(SRCROOT)/scripts/cmux-next/build-chromium-host.sh",
 				"$(SRCROOT)/Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/CEF/Shim",
 				"$(CMUX_CEF_PATH)",
 				"$(CMUX_CEF_MANIFEST)",
 				"$(CMUX_NEXT_SKIP_CEF)",
 				"$(CMUX_NEXT_REQUIRE_CEF)",
+				"$(CMUX_NEXT_REQUIRE_CHROMIUM_HOST)",
 				"$(CMUX_NEXT_SKIP_UBLOCK)",
 				"$(CMUX_NEXT_REQUIRE_UBLOCK)",
 				"$(EXPANDED_CODE_SIGN_IDENTITY)",
@@ -605,7 +609,7 @@
 				"$(TARGET_BUILD_DIR)/$(FRAMEWORKS_FOLDER_PATH)/$(PRODUCT_NAME) Helper (Renderer).app",
 				"$(TARGET_BUILD_DIR)/$(FRAMEWORKS_FOLDER_PATH)/$(PRODUCT_NAME) Helper (Plugin).app",
 				"$(TARGET_BUILD_DIR)/$(FRAMEWORKS_FOLDER_PATH)/$(PRODUCT_NAME) Helper (Alerts).app",
-				"$(TARGET_BUILD_DIR)/$(FRAMEWORKS_FOLDER_PATH)/$(PRODUCT_NAME) Chromium Host.app",
+				"$(TARGET_BUILD_DIR)/$(EXECUTABLE_FOLDER_PATH)/$(PRODUCT_NAME) Chromium Host",
 				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/Extensions/ublock-origin",
 				"$(TARGET_TEMP_DIR)/embed-cef.stamp",
 			);
@@ -986,9 +990,11 @@
 					"@executable_path/../Frameworks",
 				);
 				LD_EXPORT_SYMBOLS = NO;
+				LD_GENERATE_MAP_FILE = YES;
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
 				MARKETING_VERSION = 1.0.0;
 				ONLY_ACTIVE_ARCH = NO;
+				ORDER_FILE = "$(SRCROOT)/Resources/build/cmux-next.order";
 				OTHER_LDFLAGS = (
 					"-lc++",
 					"-framework",

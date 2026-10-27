@@ -107,3 +107,59 @@ fn tester_rollout_a_worker_thread_panic_is_logged_and_the_owner_keeps_running() 
         assert_eq!(fs::metadata(&log).unwrap().permissions().mode() & 0o777, 0o600);
     }
 }
+
+/// p10-stability-032: the headless owner's request watchdog writes a scope
+/// busy past its hang tier to `owner-hangs-<session>.jsonl` beside the panic
+/// log, with the owner's fields and the hung thread's stack.
+#[test]
+fn a_hung_scope_in_the_owner_is_written_to_its_hang_log() {
+    let stamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
+    let dir = PathBuf::from("/tmp").join(format!("cmux-oh-{}-{stamp}", std::process::id()));
+    fs::create_dir_all(dir.join("state").join("sessions")).unwrap();
+    let session = "op-hang";
+    let child = command(&dir)
+        .args(["--headless", "--session", session, "--socket"])
+        .arg(dir.join("mux.sock"))
+        // Debug builds only: a thread blocks in a watched scope once the
+        // owner's mux exists.
+        .env("CMUX_TUI_TEST_OWNER_PANIC", "hang")
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .unwrap();
+    let owner = Owner { child, dir, session };
+
+    let log = owner.dir.join("state").join(format!("owner-hangs-{session}.jsonl"));
+    let deadline = Instant::now() + Duration::from_secs(30);
+    let line = loop {
+        if let Some(line) =
+            fs::read_to_string(&log).ok().and_then(|text| text.lines().next().map(String::from))
+        {
+            break line;
+        }
+        assert!(Instant::now() < deadline, "no owner hang log at {}", log.display());
+        std::thread::sleep(Duration::from_millis(50));
+    };
+    let record: serde_json::Value = serde_json::from_str(&line).unwrap();
+    assert_eq!(record["event"], "hang", "{record}");
+    assert_eq!(record["scope"], "owner-hang-test", "{record}");
+    assert_eq!(record["hang_ms"], 500, "{record}");
+    assert_eq!(record["session"], session, "{record}");
+    assert_eq!(record["owner_pid"].as_u64(), Some(u64::from(owner.child.id())), "{record}");
+    let report = command(&owner.dir).args(["--version", "--json"]).output().unwrap();
+    let report: serde_json::Value = serde_json::from_slice(&report.stdout).unwrap();
+    assert_eq!(record["version"], report["version"], "{record}");
+    assert_eq!(record["build_identity"], report["build_identity"], "{record}");
+    assert_eq!(record["stack_error"], serde_json::Value::Null, "{record}");
+    assert!(!record["stack"].as_array().unwrap().is_empty(), "{record}");
+    assert!(
+        !owner.dir.join("state").join(format!("owner-panics-{session}.jsonl")).exists(),
+        "a hang is not a panic"
+    );
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        assert_eq!(fs::metadata(&log).unwrap().permissions().mode() & 0o777, 0o600);
+    }
+}

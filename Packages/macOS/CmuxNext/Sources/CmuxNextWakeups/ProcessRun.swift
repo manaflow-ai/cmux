@@ -2,6 +2,7 @@ import CmuxNextCompat
 import Darwin
 import Dispatch
 import Foundation
+import class CmuxSafeConcurrency.OnceContinuation
 
 /// One ``AsyncProcess`` run: the child, its pipes' read sources and the continuation that resumes once.
 ///
@@ -14,7 +15,7 @@ import Foundation
 /// pipe while it cleans up) and dropped.
 final class ProcessRun: Sendable {
     private struct State {
-        var continuation: CheckedContinuation<ProcessOutcome, any Error>?
+        var continuation: OnceContinuation<ProcessOutcome, any Error>?
         var resolved = false
         /// A stop that came before ``start(_:)`` had the continuation: start resumes with it and launches nothing.
         var early: Result<ProcessOutcome, any Error>?
@@ -34,8 +35,8 @@ final class ProcessRun: Sendable {
     }
 
     private let request: ProcessRequest
-    /// The caller's priority: the read queue's QoS and the child's own.
-    private let priority: WorkPriority
+    /// The request's priority, else the caller's: the read queue's QoS and the child's own.
+    let priority: WorkPriority
     private let queue: DispatchQueue
     // concurrency-allow: one-shot resume guard and buffers shared by the starting task, read sources and the termination callback (lock carve-out).
     private let state = Mutex(State())
@@ -45,12 +46,12 @@ final class ProcessRun: Sendable {
     init(_ request: ProcessRequest, clock: any Clock<Duration>) {
         self.request = request
         let name = request.executable.lastPathComponent
-        priority = WorkPriority(Task.currentPriority)
+        priority = request.priority ?? WorkPriority(Task.currentPriority)
         queue = DispatchQueue(label: "com.cmuxterm.next.process.\(name)", qos: priority.qos)
         killDeadline = DemandTimer(owner: "process.kill.\(name)", clock: clock)
     }
 
-    func start(_ continuation: CheckedContinuation<ProcessOutcome, any Error>) {
+    func start(_ continuation: OnceContinuation<ProcessOutcome, any Error>) {
         let early = state.withLock { state -> Result<ProcessOutcome, any Error>? in
             if state.resolved { return state.early ?? .failure(CancellationError()) }
             state.continuation = continuation
@@ -58,7 +59,8 @@ final class ProcessRun: Sendable {
         }
         if let early {
             killDeadline.cancel()  // nothing launches
-            return continuation.resume(with: early)
+            continuation.resume(with: early)
+            return
         }
         // The spawn (fork and exec, hundreds of ms under memory pressure: 807 ms in STRESS) runs on this
         // run's own serial queue, a GCD thread at the caller's QoS: never on the caller's actor (often
@@ -75,8 +77,8 @@ final class ProcessRun: Sendable {
             return
         }
         let process = Process()
-        // The child runs at its waiter's priority (a best-effort poll never competes at .default; a git run
-        // a person waits for gets userInitiated).
+        // The child runs at its request's or its waiter's priority (a best-effort poll never competes at
+        // .default; a git run a person waits for gets userInitiated).
         process.qualityOfService = priority.processQoS
         process.executableURL = request.executable
         process.arguments = request.arguments
@@ -179,7 +181,7 @@ final class ProcessRun: Sendable {
 
     @discardableResult
     private func resolve(_ result: Result<ProcessOutcome, any Error>) -> Bool {
-        let (resolved, continuation) = state.withLock { state -> (Bool, CheckedContinuation<ProcessOutcome, any Error>?) in
+        let (resolved, continuation) = state.withLock { state -> (Bool, OnceContinuation<ProcessOutcome, any Error>?) in
             guard !state.resolved else { return (false, nil) }
             state.resolved = true
             // Before start: start resumes with it.

@@ -40,6 +40,11 @@ export const EDITOR_OPEN_LINK_OP = "cmux.editor.openLink";
  * dispatcher lets the next key reach the editor until `pending` is false (or 5 s pass). */
 export const EDITOR_KEY_SEQUENCE_OP = "cmux.editor.keySequence";
 export const EDITOR_FLUSH_OP = "cmux.editor.flush";
+// Host -> page: `{dirty, view}`, asked right before the host discards a hidden tab's page: `view` is
+// Monaco's view state (cursor, selections, scroll, folds), which the next page gets back as the
+// config's `viewState`; `dirty` keeps a page with edits not on disk (p07-memory-026). An edit not
+// reported yet is reported first.
+export const EDITOR_VIEW_STATE_OP = "cmux.editor.viewState";
 /** Host to page: the selection's text and lines, `{text, startLine, endLine}`, or null with nothing
  * selected (a viewer comment, viewer-comments-DESIGN.md). */
 export const EDITOR_SELECTION_OP = "cmux.editor.selection";
@@ -81,6 +86,9 @@ export interface EditorConfig extends EditorFile {
   /** Where the cursor goes once the file is loaded (a Find result), 1-based; the column counts UTF-16
    * code units. Sent once: a later config of the same tab starts at the top. */
   reveal?: { line: number; column: number };
+  /** What a discarded page of this tab showed (its `cmux.editor.viewState` answer), applied once the
+   * file is in the view, before `reveal`. Sent once. */
+  viewState?: unknown;
   /** The terminal appearance, as the diff viewer gets it (code font, palette, colors). */
   appearance?: DiffViewerAppearance;
   /** The `editor` settings section (settings.ts `EditorSettings`), unparsed. */

@@ -1310,11 +1310,24 @@ def _method_shape(
     return "shaped", arguments, params, params_may_error
 
 
+# Go keywords (go.dev/ref/spec#Keywords); a lower-case name is a method
+# argument, so a wire field such as `interface` must not become one bare.
+_GO_KEYWORDS = frozenset(
+    {
+        "break", "case", "chan", "const", "continue", "default", "defer", "else",
+        "fallthrough", "for", "func", "go", "goto", "if", "import", "interface", "map",
+        "package", "range", "return", "select", "struct", "switch", "type", "var",
+    }
+)
+
+
 def _lower_go_name(value: str) -> str:
     rendered = _go_name(value)
     if rendered in _ACRONYMS.values():
-        return rendered.lower()
-    return rendered[:1].lower() + rendered[1:]
+        rendered = rendered.lower()
+    else:
+        rendered = rendered[:1].lower() + rendered[1:]
+    return rendered + "_" if rendered in _GO_KEYWORDS else rendered
 
 
 def _render_options_type(

@@ -1,5 +1,6 @@
 public import AppKit
 import CmuxNextDesign
+public import Observation
 
 /// The two views of the docked Home: the sidebar's Home entry (`messages`) and its Channels entry
 /// (`channels`), selected with `home.switchView` (hq-6d cx-frn2y).
@@ -58,7 +59,17 @@ public struct HomeDockSelection: Equatable, Sendable {
 /// the selection over as a permalink.
 open class HomeDockSwitchView: NSView {
     private let content = NSView()
-    public private(set) var mode: HomeDockMode
+    /// The view shown. Observed (the view is not a model, so by hand): a reader of the shown view's selection
+    /// hears a switch.
+    public private(set) var mode: HomeDockMode {
+        get {
+            observation.access(self, keyPath: \.mode)
+            return shownMode
+        }
+        set { observation.withMutation(of: self, keyPath: \.mode) { shownMode = newValue } }
+    }
+    private var shownMode: HomeDockMode
+    private let observation = ObservationRegistrar()
     /// The selection the last switch handed over (debug and GUI proofs).
     public private(set) var lastHandoff: HomeDockSelection?
     /// Told the view each time one shows (the sidebar marks its entry).
@@ -77,7 +88,7 @@ open class HomeDockSwitchView: NSView {
     public var rowTools: [HomeDockMode: NSView] = [:] {
         didSet {
             for (_, tools) in oldValue where !rowTools.values.contains(where: { $0 === tools }) { tools.removeFromSuperview() }
-            needsLayout = true
+            if rowTools.count != oldValue.count || rowTools.contains(where: { oldValue[$0.key] !== $0.value }) { needsLayout = true }
         }
     }
     /// The row the pane last offered (`setTabRow`).
@@ -88,7 +99,7 @@ open class HomeDockSwitchView: NSView {
     public var onTabRowToolsChange: (() -> Void)?
 
     public init(mode: HomeDockMode) {
-        self.mode = mode
+        shownMode = mode
         super.init(frame: .zero)
         setAccessibilityIdentifier("cmux.homeDock")
         content.autoresizingMask = [.width, .height]
@@ -187,7 +198,7 @@ open class HomeDockSwitchView: NSView {
 
     private func show(_ target: HomeDockMode) {
         mode = target
-        needsLayout = true // the shown view's row tools (HomeDockSwitchView+TabRow)
+        needsLayout = true // invalidate: another view shows, and its row tools with it (HomeDockSwitchView+TabRow)
         let view = made[target] ?? makeContent(for: target)
         made[target] = view
         for subview in content.subviews where subview !== view { subview.isHidden = true }
@@ -202,3 +213,5 @@ open class HomeDockSwitchView: NSView {
         onShow?(target)
     }
 }
+
+extension HomeDockSwitchView: Observable {}

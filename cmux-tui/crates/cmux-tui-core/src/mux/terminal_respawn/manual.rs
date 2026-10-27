@@ -68,6 +68,7 @@ impl Mux {
     /// Restart the dead terminal of the tab at `surface` under the same
     /// terminal id. Returns once the worker started.
     #[cfg(unix)]
+    #[track_caller]
     pub(crate) fn restart_dead_tab(
         self: &Arc<Self>,
         surface: SurfaceId,
@@ -99,6 +100,7 @@ impl Mux {
     /// Check the tab, mark its terminal respawning and take the dead runtime
     /// out of its tabs, as the automatic plan does.
     #[cfg(unix)]
+    #[track_caller]
     fn plan_user_restart(&self, surface: SurfaceId) -> anyhow::Result<RespawnPlan> {
         if self.shutting_down.load(Ordering::Acquire)
             || self.session_shutdown.began()

@@ -569,6 +569,18 @@
       "why": "CrashWatcher's pipe write end: an async-signal-safe fatal-signal handler writes to it, so it cannot live in an injected instance (same as CrashDeadline's semaphore); written once at launch, then only read (#22844)"
     },
     {
+      "date": "2026-10-26",
+      "row": "global_mutable_statics",
+      "allow": 1,
+      "why": "p10-stability-207 CrashKeys.swift crashKeysRecordBlock: the address of the crash-key record block (the injected CrashKeySlots' address, this run's run.crashkeys descriptor, the line buffer), read by the async-signal-safe crash path (CrashReporter.recordCrashKeys from fatal-signal and uncaught-exception handlers, after their own record), which has no instance to reach, as CrashDeadline's semaphore and CrashWatcher's pipe. Written once at launch on main before the handlers are installed, then only read; the keys themselves live in the composition root's CrashKeySlots instance. Chrome: crash keys in static storage (components/crash/core/common/crash_key.h)."
+    },
+    {
+      "date": "2026-10-26",
+      "row": "blocking_allow_escapes",
+      "allow": 3,
+      "why": "p10-stability-207 crash keys. CrashKeys.swift recordCrashKeys: the one write(2) of the record runs in a fatal-signal handler, which can call no seam (blockingCall records and may allocate). AppRunMarker.swift: the rename of the previous run.crashkeys and the open of this run's file beside run.signal's open, once at launch on main before the fatal-signal handlers are installed, so a crash at launch still records its keys; a rename and an empty file in the app's own folder, no fsync."
+    },
+    {
       "date": "2026-10-24",
       "row": "stateful_singletons",
       "allow": 1,
@@ -579,6 +591,144 @@
       "row": "stateful_singletons",
       "allow": 1,
       "why": "CmuxNextTrace TraceRuntime.shared: the one process-wide trace runtime (category flags, Release trace rings, name and thread tables, crash-key page, HangWatch slots, metrics store), Chrome's TraceLog / GlobalHistogramAllocator / HangWatcher model (base/trace_event/trace_log.h). Trace points, hang-watch scopes and histogram records run in every module and on every thread, including C hooks, renderer callbacks and deinits with no injection path; code that can inject takes a TraceRuntime(role:) instance (Metrics(runtime:), tests). The single reviewed exception of the p09-observability program (plans/cmux-next/chrome-parity/p09-observability.md section 3A, task 000); no other p09 task may add a global."
+    },
+    {
+      "date": "2026-10-24",
+      "row": "observer_sites",
+      "allow": 2,
+      "why": "PL-cef-helper: ChromiumHostPageView (Debug-only, #if DEBUG, behind browserHost.helper) watches its own window's didMove/didChangeScreen so the out-of-process host's window follows the page on screen; window moves do not change the view's frame, so no view callback reports them. Two names (didMove, didChangeScreen) at one site, counted once each; one observation per name per host page, scoped to object: window and released with the view. No shared per-window geometry adapter exists in a package CmuxNextBrowser can use (WindowOverlayHost keeps its observers private and is PL-motion-cef's); the page view moves onto that adapter when one lands."
+    },
+    {
+      "date": "2026-10-26",
+      "row": "observer_sites",
+      "allow": 1,
+      "why": "p03-rendering-011: CmuxNextWakeups WindowScreenFamily is the per-window adapter the rule asks for: one NSWindow.didChangeScreenNotification observation per window, scoped to object: window, made once by FrameScheduler.forWindow and released with the window's scheduler, and it calls only that window's scheduler (screenDidChange, which moves it to the new display's link on the DisplayClock). It is the only didChangeScreen observer in CmuxNextWakeups; before it nothing moved a dragged window's frame clock until the old display's stall deadline. Chrome: ViewsNSWindowDelegate windowDidChangeScreen (components/remote_cocoa/app_shim/views_nswindow_delegate.mm)."
+    },
+    {
+      "date": "2026-10-26",
+      "row": "observer_sites",
+      "allow": 1,
+      "why": "p15-oracle-041: the oracle's windows facet (DEV and bench builds only, #if DEBUG || CMUX_BENCH_HOOKS) subscribes through the app's AppEvents fan-out, the adapter the rule asks for, to WindowEvents.stateChanges (frame, full screen, miniaturize, key and main, screen, occlusion, display parameters), one site, made on the facet's first read and kept for the facet list's life. Each post only adds one to an observable count the facet's read touches, so a debug.oracle.wait_for on a frame or on full screen wakes: AppKit makes none of these values observable and the control snapshot does not publish on them. No WindowController delegate hook covers them all (no resize, miniaturize, main or display-parameter hook; a child page window's key change reaches no controller). Chrome's window waiters observe the widget the same way (views::test::WidgetBoundsChangeWaiter, ui/views/test/widget_test.h)."
+    },
+    {
+      "date": "2026-10-26",
+      "row": "blocking_allow_escapes",
+      "allow": 2,
+      "why": "p05-ipc-027 CmuxNextWireGen: the SwiftPM build-tool executable that reads cmux-tui/spec and writes one file into the plugin work directory. It runs on the build host as its own short process, never inside the app, so the app's main-thread detector does not apply; routing it through the CmuxNextCompat seams would compile Compat and swift-atomics for the host and rerun the generator on every Compat edit. One read and one write."
+    },
+    {
+      "date": "2026-10-26",
+      "row": "observer_sites",
+      "allow": 17,
+      "why": "p07-memory-021: CmuxNextDesign WindowOcclusionChecker is the one app-wide adapter the rule asks for, a copy of Chrome's WebContentsOcclusionCheckerMac (content/app_shim_remote_cocoa/web_contents_occlusion_checker_mac.mm), which observes the same names once per process: willMove, didMove, willStartLiveResize, didEndLiveResize, willClose, didChangeOcclusionState, didBecomeMain, didResignMain, the four fullscreen transitions, and NSWorkspace screensDidSleep/screensDidWake; plus didResize (a programmatic or tiling resize) and NSApplication didHide/didUnhide (Cmd-H orders every window out with no occlusion change of its own) (17 names, counted once each). One checker per app, made by AppServices.startHibernation only with the default-off occludedWindowDiscard feature; events from any window start a pass (an untracked window can cover a tracked one), it coalesces every event into one pass on a later main turn, and tells only the content cache which window went off screen or came back. It replaces polling occlusionState: AppKit does not report a window covered by another window of the same app."
+    },
+    {
+      "date": "2026-10-26",
+      "row": "stateful_singletons",
+      "allow": 1,
+      "why": "p04-input-013: WindowOverlayHost.appInputTap, the app's one InputEventTap for the design kit's overlay owners, set once in CmuxNextApp.main right after the tap is made (before the delegate and services exist) and never changed. The per-window overlay hosts come from the existing static registry WindowOverlayHost.host(for:) at about a dozen sites in nine packages, and NativePopupHost is made by seven owners in five packages, none of which holds the tap; each reads it once when made (NativePopupHost also takes one by init, and an owner with no tap logs a fault). It replaces the NSApp lookup (InputEventTap.application) that review refused. HoverCardCoordinator takes the tap by init from AppServices, and TooltipPresenter.shared gets it as an instance property. Chrome keeps one process-wide source of platform events that UI owners add observers to: ui::PlatformEventSource::GetInstance() (ui/events/platform/platform_event_source.h). It goes when host(for:) becomes an instance registry the composition root passes."
+    },
+    {
+      "date": "2026-10-26",
+      "row": "observer_sites",
+      "allow": 2,
+      "why": "p06-scheduler-022, merged into p06-scheduler-042: AppVisibilitySource subscribes once per app to the hide, unhide and display sleep and wake notices through AppEvents, and WindowVisibilitySource once per window to the occlusion and miniaturize notices through WindowEvents (recipe R-notif). Those five sites replace per-view observers that this branch removes (StatusIndicatorView's occlusion observer, SidebarListView's, the tab strip's WindowVisibilityObserver), so every indicator, row and strip follows one visibility node per window. Chromium observes the NSApp hide notices once (chrome/browser/app_controller_mac.mm) and each window's occlusion once (web_contents_view_cocoa.mm)."
+    },
+    {
+      "date": "2026-10-26",
+      "row": "blocking_allow_escapes",
+      "allow": 2,
+      "why": "p02-threads-035: two waits that were raw (a queue.sync and a DispatchSemaphore.wait with // concurrency-allow:) now go through the checked seams under the reviewed BlockingAllowance.terminate, so the detector sees them and MQ-8 counts no raw wait. RunMarkerFile.close runs in applicationWillTerminate: it waits for at most one in-flight write of about 100 bytes (no fsync) so its unlink of run.json is the last word; an async unlink would not run before the process exits, and the next launch would show the restart notice after a clean quit. QuitDeadline.wedgeMainThread (DEBUG and bench builds only, debug.quit {wedge_engine_stop: true}) blocks the main thread on purpose after the quit is decided, as the wedged CefShutdown did, so a journey proves the deadline thread still ends the process. Chrome allows blocking during browser shutdown the same way (ScopedAllowBlocking in the shutdown path, base/threading/thread_restrictions.h)."
+    },
+    {
+      "date": "2026-10-26",
+      "row": "blocking_allow_escapes",
+      "allow": 1,
+      "why": "p02-threads-035 (fixer): TerminalOutputLane.close, the fence before ghostty_surface_free that the terminal view's deinit runs on the main thread, was a raw queue.sync with // concurrency-allow:; as blockingSync it is now seen by the detector, under the new reviewed BlockingAllowance.surfaceTeardown (threading-model.md row). The free stays on the main thread because the surface points at the view being deallocated; queued work is skipped once the lane is closing, so the wait is at most the one chunk being parsed, on a user-interactive lane (the main thread's own QoS). Chrome allows bounded teardown waits the same way (ScopedAllowBaseSyncPrimitivesOutsideBlockingScope, base/threading/thread_restrictions.h)."
+    },
+    {
+      "date": "2026-10-26",
+      "row": "blocking_allow_escapes",
+      "allow": 1,
+      "why": "p09-observability-034 LaunchClock.swift: one proc_pidinfo(getpid(), PROC_PIDTBSDINFO) per process, on main at main_start, for the kernel's process start that every launch.* slice and launch mark is measured from (the task's spec; Chrome reads the same start, base::Process::CreationTime). It copies this process's in-memory proc fields: no disk, lock or process wait. It replaces DebugTimings' kinfo_proc sysctl read of the same field at the same moment, so the main thread does no new kernel call. blockingCall would record a false main-thread violation at every Debug launch."
+    },
+    {
+      "date": "2026-10-26",
+      "row": "global_mutable_statics",
+      "allow": 1,
+      "why": "p10-stability-040: Fixture.state, one lock for the vendored MessagesLab palette snapshot and render fallbacks. It replaces five unsynchronized Fixture static vars (theme, lightAppearance, paletteGeneration, elevated, fallbackRenderScale) and Metrics.current; MessagesLabHome global_mutable_statics -29 net. It goes when MessagesWindowView owns its palette and passes it to the renderers."
+    },
+    {
+      "date": "2026-10-26",
+      "row": "assume_isolated_outside_adapters",
+      "allow": 1,
+      "why": "p10-stability-042: MessagesLabHome's MainQueueObservation is CmuxNextCompat.MainActorObservation's seam (the same queue .main observer with its one main-proof, removed when released), which a Shared package cannot import. It replaces the hand-written block observers of the vendored MessagesLab views (FieldTextView's key and text-storage observers, ComposeTextView's bounds observer, FieldChrome's key-fix observers, TranscriptScrollView's three, SequenceScroller's style observer: eleven registrations) whose handlers called main-actor view methods from a nonisolated Sendable block. Inline delivery is kept: the transcript's clip-to-model sync must run in the poster's turn, which the async notification sequence would not. It goes when CmuxMessagesLab can import the CmuxSafeConcurrency seams (p10-stability-172). The pane's three window observers (screen change, the parity key state, the window update; p10-stability-044) use the same adapter, so it stays one site."
+    },
+    {
+      "date": "2026-10-26",
+      "row": "global_mutable_statics",
+      "allow": 1,
+      "why": "p10-stability-055: HomeFlightRecorder.policy, one lock for the flight recorder policy the app sets once at launch (CmuxNextHome HomeFlightRecording.install) and the vendored FlightRecorder reads statically after a send and on its dump queue. It replaces three nonisolated(unsafe) static vars (isEnabled, capturesWindow, logFolder), now computed accessors over it; MessagesLabHome global_mutable_statics -2 net. It goes when FlightRecorder takes its policy from the pane that owns it (an injected value) instead of a static."
+    },
+    {
+      "date": "2026-10-26",
+      "row": "global_mutable_statics",
+      "allow": 1,
+      "why": "CmuxNextDesign MotionActivity.end (p03-rendering-004, review of cp/p03-rendering-004): one main-actor time, when the last Motion animation ends, that every gate path moves forward. The gates are process-wide static values (Motion.panes, Motion.tabs, ... and Motion.gate(_:)) called from every UI module with no injection point, as MotionInFlight's settle entries and MotionTrace already are; motion.late_commits needs every gate animation, not the few that opt in to settle at sleep, so the signal must sit where the gates are. Written only by gate paths and MotionClock steps on main, read once per main run-loop turn by the composition root's MotionLateCommits (an injected closure); no lock, no cache, bounded to one Double."
+    },
+    {
+      "date": "2026-10-26",
+      "row": "stateful_singletons",
+      "allow": 1,
+      "why": "p01-process-231: CEFMirrorExports.served, a weak reference to the cache the deferred-event mode's mirror exports read. Those exports replace cmux_shim_* functions whose C signatures (cmux_cef_shim.h, fixed by the shim ABI) carry no context argument, so a @convention(c) function cannot reach an instance; the remote shim keeps its mirror cache as a dylib global for the same reason (ChromiumHost/client/remote_shim.mm). Only with CMUX_CEF_DEFER_EVENTS=1 (a test mode); every shim over the cache holds it, the static holds it weakly, and CEFMirrorCache.shim(helloNow:) refuses a second cache while it lives (that runtime faults and reads live), so one runtime's reads and frees never reach another's cache or source. The env run of the suites is swift test --no-parallel. Main-thread only (an off-main read gets the C zero value and a fault)."
+    },
+    {
+      "date": "2026-10-26",
+      "row": "observer_sites",
+      "allow": 1,
+      "why": "p04-input-015: ScreenDragSession ends a screen drag when the app goes inactive (the mouse-up then goes to another app, so the drag's tap intercept never hears it). It subscribes through the app's one AppEvents fan-out (AppServices.appEvents: one NotificationCenter observer for didResignActive for the whole app), only for the drag's life; the subscription is released when the drag ends. TabDragSession and LinkDragSession also end on resign. The fan-out registers no second NotificationCenter observer."
+    },
+    {
+      "date": "2026-10-26",
+      "row": "observer_sites",
+      "allow": 2,
+      "why": "p12-perf-process-043: MainThreadActivityFeed (CmuxNextHangReports) subscribes once per app to NSApplication didBecomeActive and didResignActive through the app's AppEvents fan-out (recipe R-notif), the two sites counted. Hang reports' active_seconds follows Chrome's DesktopSessionDurationTracker (chrome/browser/metrics/desktop_session_duration/desktop_session_duration_tracker.cc), which hears browser window activation the same way; no typed app-activation source exists in Wakeups to subscribe to instead. Made only on builds whose hang report schema carries active time, released with the controller."
+    },
+    {
+      "date": "2026-10-26",
+      "row": "stateful_singletons",
+      "allow": 1,
+      "why": "p02-threads-124: CmuxNextCompat BlockingTraceHook.process, one word holding the trace sink that records the process's checked blocking calls (0 while the task category is off, so a blockingCall pays one acquiring load in every build). blockingCall is a free function that every module's seams call on any thread, inside locks and before the composition root exists, so it has no instance to take the hook through; and Compat sits below CmuxNextTrace, so it cannot read TraceRuntime.shared itself. Only TraceRuntime.shared stores into it, when its task category turns on or off. Chrome: ScopedBlockingCall writes its trace event through the process-wide TraceLog (base/threading/scoped_blocking_call.cc)."
+    },
+    {
+      "date": "2026-10-26",
+      "row": "stateful_singletons",
+      "allow": 1,
+      "why": "CmuxNextCompat CheckedQueueLog.app (Debug and bench builds only, #if DEBUG || CMUX_BENCH_HOOKS): the record of every queue DispatchQueue.checked made (label, QoS, target, call site, registry problem), which debug.threads lists (p02-threads-018, RUN-3(b)). DispatchQueue.checked is a static factory called wherever a queue is made, in every module and before any composition root exists, so it has no injection path; the same shape as BlockingViolationTable.shared. Written once per queue creation under CmuxNextCompat Mutex, bounded at 512 records; ThreadsControl takes it injected (tests pass their own log). Not in Release builds."
+    },
+    {
+      "date": "2026-10-26",
+      "row": "observer_sites",
+      "allow": 2,
+      "why": "p09-observability-059 (fixer): IdleWakeupSampler opens and closes its idle periods at NSApplication didResignActive and didBecomeActive, subscribed once per app through the app's one AppEvents fan-out (AppServices.startIdleWakeups), the two sites counted. They replace the two NSApplicationDelegate methods (applicationDidResignActive, applicationDidBecomeActive), each of which AppKit registers as its own NotificationCenter observer; the fan-out already observes both names for FocusEffectApplier, KeyRouter and the others, so the app gains no NotificationCenter observer and loses two. Chrome's AppController observes the NSApp notices once and fans out (chrome/browser/app_controller_mac.mm). Made once after startup, held for the app's life."
+    },
+    {
+      "date": "2026-10-26",
+      "row": "stateful_singletons",
+      "allow": 1,
+      "why": "p02-threads-130: CmuxThreading BlockingCallHookSlot.process, the one slot holding the hook that checks the linked Shared/iOS packages' blockingCall and times their Mutex waits (empty, so a call is its body, until the app installs its detector, and always on iOS). CmuxThreading's blockingCall is a free function those packages call on any thread, inside locks and before any composition root exists, so it has no instance to take the hook through; the slot takes one install (BlockingDetector.forProcess(), in the composition root) and refuses a second. Chrome: ScopedBlockingCall reaches the process's blocking observer from every component (base/threading/scoped_blocking_call_internal.cc)."
+    },
+    {
+      "date": "2026-10-26",
+      "row": "observer_sites",
+      "allow": 4,
+      "why": "p14-energy-120: SuspendWatch (CmuxNextEnergy) is the app's one sleep, wake and display sleep adapter the task asks for: it subscribes once per app to NSWorkspace willSleep, didWake, screensDidSleep and screensDidWake through the app's workspace AppEvents fan-out (recipe R-notif; the display notices share AppVisibilitySource's NotificationCenter observer there), the four sites counted, and publishes them to every keepalive owner through EnergyPolicy instead of each owner observing them. Chrome's PowerMonitor is the same single suspend and resume source (base/power_monitor/power_monitor.h). Made only with the sleepWakeKeepalives feature on; FeedService's own sleep notices move onto it once that feature ships."
+    },
+    {
+      "date": "2026-10-27",
+      "row": "global_mutable_statics",
+      "allow": 1,
+      "why": "p08-startup-082: GlobalJobCensus.installedBits (CmuxNextLaunch), the one word through which the launch's off-main job census reaches its recorder. swift_task_enqueueGlobal_hook is a thin function with no context argument, so the census the composition root makes is published here once (a compare-exchange from 0; a second install is refused). Debug and bench-hooks builds only, and only in a launch armed by CMUX_NEXT_GLOBAL_JOB_CENSUS=1. Chrome reaches its process-wide task observers from the posting thread the same way (base/task/common/task_annotator.cc)."
     }
   ],
   "observer_wrappers": [

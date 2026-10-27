@@ -2,9 +2,10 @@
 use super::*;
 use crate::panic_free::JsonFields;
 use crate::server::{Response, send_response};
+use cmux_threads::sync::Mutex;
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::{Mutex, Weak};
+use std::sync::Weak;
 
 const MAX_WATCHES: usize = 8;
 

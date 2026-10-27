@@ -1,0 +1,5 @@
+j	nextHunk	diffViewerFocused && !textInputFocus
+[
+  // bare
+  {"key": "j", "command": "nextHunk", "when": "diffViewerFocused"},
+]

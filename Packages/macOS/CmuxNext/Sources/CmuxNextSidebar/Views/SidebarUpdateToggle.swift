@@ -35,6 +35,7 @@ final class SidebarUpdateToggle: NSView {
     override init(frame: NSRect) {
         super.init(frame: frame)
         wantsLayer = true
+        layerContentsRedrawPolicy = .onSetNeedsDisplay // updateLayer sets colors only
         focusRingType = .none
         box.cornerCurve = .continuous
         box.borderWidth = 1

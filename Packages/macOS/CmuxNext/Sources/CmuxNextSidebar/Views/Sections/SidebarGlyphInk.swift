@@ -18,6 +18,7 @@ import AppKit
     /// Alpha (of 255) a pixel needs to count as ink, so the antialiased
     /// fringe does not grow the box.
     private let threshold: UInt8 = 64
+    // memory: fixed at most 257 entries of one CGRect each (`box` empties it past 256), about 20 KB.
     private var boxes: [Key: CGRect] = [:]
 
     private struct Key: Hashable {

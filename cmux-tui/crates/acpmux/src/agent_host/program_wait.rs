@@ -28,7 +28,7 @@ pub async fn spawn_within(
     budget: Duration,
 ) -> Result<HostRecord> {
     // A refused launch is refused now, not after the wait.
-    crate::launch_policy::refuse_if_disabled()?;
+    crate::launch_policy::refuse_if_denied()?;
     wait_for_program(&spec.program, budget).await?;
     match link::spawn(launcher, spec).await {
         // Gone again between the check and the host's spawn: the same

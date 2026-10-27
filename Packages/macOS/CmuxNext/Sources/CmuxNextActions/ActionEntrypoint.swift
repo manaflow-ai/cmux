@@ -42,4 +42,20 @@ public nonisolated enum ActionEntrypoint: String, Sendable, Hashable, CaseIterab
         case .page: self = .page
         }
     }
+
+    /// The entrypoint's fixed position in an action signpost's trace ring record (`Signposter` stores it + 1,
+    /// so 0 means "not given"). Fixed: rings written by an older build decode with the same numbers, and a new
+    /// case takes the next free one.
+    var tracePosition: UInt8 {
+        switch self {
+        case .key: 0
+        case .pointer: 1
+        case .unattributed: 2
+        case .cli: 3
+        case .mcp: 4
+        case .script: 5
+        case .remote: 6
+        case .page: 7
+        }
+    }
 }

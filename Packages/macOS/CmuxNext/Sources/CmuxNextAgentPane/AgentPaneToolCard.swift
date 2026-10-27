@@ -126,7 +126,7 @@ extension AgentPaneToolCard {
     /// Gives `view`'s page the cards its model keeps (a page that just loaded).
     @MainActor static func replay(to view: AgentPaneView) {
         let event = AgentPageEvent.toolCards(view.model.toolCards)
-        view.deliver([event], scripts: ["window.cmuxAcpmuxToolCards?.(\(event.value.compactText));"])
+        view.deliver([event])
     }
 
     /// The reply to the page's click on `action` of card `card`: only with a real gesture in the pane

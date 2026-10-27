@@ -5,7 +5,7 @@ import Testing
 @testable import CmuxNextAgentPane
 
 /// The header's right-click Customize saves its quick actions (`pane.setQuickActions`) through the
-/// page host (Debug `agent.pageHost`) as it does through the old bridge: the op reaches the chat's
+/// page host: the op reaches the chat's
 /// model instead of being refused as unknown. With no chat behind the provider, it reaches the
 /// "closed" answer, past the op check.
 @Suite

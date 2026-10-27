@@ -4,6 +4,7 @@
 use super::*;
 
 impl Mux {
+    #[track_caller]
     pub(super) fn default_workspace_name(&self, state: &State) -> String {
         // Provider-created workspaces use a stable, human-readable sequence.
         // Existing names (including user-renamed workspaces) are left untouched;

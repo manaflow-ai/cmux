@@ -1,3 +1,4 @@
+import CmuxNextCompat
 public import Foundation
 
 /// A Chromium extension prompt that cmux answers (fork API 12): the Web
@@ -43,7 +44,7 @@ public nonisolated struct ExtensionInstallPrompt: Equatable, Sendable, Identifia
     /// cmux_install_prompt_handler_t); nil for malformed input.
     public init?(id: Int32, browser: Int32, json: String) {
         guard let data = json.data(using: .utf8),
-              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let object = try? JSONSerialization.blockingJSONObject(with: data) as? [String: Any],
               let type = object["type"] as? String, type != "installed" else { return nil }
         self.id = id
         self.browser = browser
@@ -87,7 +88,7 @@ public nonisolated struct ExtensionInstalledNotice: Equatable, Sendable {
 
     public init?(json: String) {
         guard let data = json.data(using: .utf8),
-              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let object = try? JSONSerialization.blockingJSONObject(with: data) as? [String: Any],
               object["type"] as? String == "installed",
               let id = object["extension_id"] as? String, !id.isEmpty else { return nil }
         extensionID = id

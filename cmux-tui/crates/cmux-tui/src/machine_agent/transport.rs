@@ -2,10 +2,10 @@ use std::ffi::OsString;
 use std::io::{self, BufReader, Read, Write};
 use std::net::Shutdown;
 use std::path::PathBuf;
-use std::process::{Child, Command, Stdio};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+use cmux_process::{Child, Command, Stdio};
 use cmux_tui_core::platform::transport;
 use cmux_tui_core::server::PROTOCOL_VERSION;
 use serde_json::Value;

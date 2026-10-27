@@ -145,7 +145,11 @@ Follows Ardia's `docs/perf/vs-browsers.md` so the numbers compare:
   --mute-audio --window-size=1280,800`; cmux over its control socket
   (`openBrowser.chromium|webkit`, `selectSurfaceByNumber`, `closeTab`); Safari with
   `open` only (its switch and close rows are empty: they need Automation).
-  Hidden = `NSRunningApplication.hide()` (`benchhelper.swift`).
+  Hidden = `NSRunningApplication.hide()` (`benchhelper.swift`), confirmed by its
+  `isHidden` (`benchhelper ishidden`); for cmux, the app's `showHideAllWindows` with
+  `hidden=true` (NSApp.hide, whether or not cmux is active) when hide() is refused. A
+  hidden row is recorded only when the app really is hidden; otherwise it is empty with
+  the note 'the app did not hide'.
 - **Counters** (`procs.py`): `proc_pid_rusage(RUSAGE_INFO_V6)` summed over the
   whole instance: the app's descendants, every process running from inside the
   bundle, every process the app is responsible for (WebKit XPC), cmux's terminal

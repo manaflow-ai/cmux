@@ -1,3 +1,4 @@
+import CmuxNextCompat
 package import CmuxNextWakeups
 package import CryptoKit
 public import Foundation
@@ -175,7 +176,7 @@ package nonisolated struct RecoveryDraftFiles {
             .compactMap { file in
                 // concurrency-allow: @concurrent, off the main actor
                 guard let data = try? Data(contentsOf: file) else { return nil }
-                return try? JSONDecoder().decode(RecoveryDraft.self, from: data)
+                return try? JSONDecoder().blockingDecode(RecoveryDraft.self, from: data)
             }
             .sorted { $0.savedAt < $1.savedAt }
     }

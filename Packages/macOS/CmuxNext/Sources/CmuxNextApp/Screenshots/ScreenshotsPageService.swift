@@ -2,12 +2,13 @@ import AppKit
 import CmuxNextActions
 import CmuxNextBridge
 import CmuxNextBrowser
+import CmuxNextCompat
 import CmuxNextFileGrid
 import CmuxNextFiles
 import CmuxNextScreenshots
 import CmuxNextSettings
+import CmuxNextWakeups
 import Foundation
-import Observation
 
 /// Opens `cmux://screenshots` and makes its pages. Every page shares one
 /// thumbnail cache and follows the `screenshots.*` settings: a change finds
@@ -17,6 +18,8 @@ final class ScreenshotsPageService {
     private weak var services: AppServices?
     /// One cache for every Screenshots page (and, later, the Finder pane's grids).
     let thumbnails = ThumbnailCache()
+    /// The thumbnail cache's memory consumer registration (`memoryFileHomeCaches`; nil while off).
+    private var thumbnailsMemory: AsyncMemoryConsumerRegistration?
     private let workspace = AppScreenshotsWorkspace()
     /// Drops, renames and trashes go through the Files pane's operations.
     private let files = FileOperator()
@@ -25,11 +28,15 @@ final class ScreenshotsPageService {
     private var pages: [String: ScreenshotsPageTab] = [:]
     /// The last folders found, and the settings they were found for.
     private var detected: (settings: ScreenshotsSettings, sources: [ScreenshotSource])?
-    private var detection: Task<Void, Never>?
-    private var followsSettings = false
+    /// The detection running; a newer one cancels it, and ``detectionGeneration`` drops its late result.
+    private var detection: Task<Void, any Error>?
+    private var detectionGeneration: UInt64 = 0
+    /// The `screenshots.*` settings, followed from the first page on (``followSettings()``).
+    private var settingsWatch: FrameObservation<ScreenshotsSettings>?
 
     init(services: AppServices) {
         self.services = services
+        thumbnailsMemory = AppMemoryConsumers(services: services).registerFileGridThumbnails(thumbnails)
     }
 
     /// Selects the active window's Screenshots tab, else opens one beside the
@@ -70,36 +77,41 @@ final class ScreenshotsPageService {
         services?.settings?.snapshot.screenshots ?? ScreenshotsSettings()
     }
 
-    /// Re-arms on each `screenshots.*` change for as long as the service lives.
+    /// Follows the `screenshots.*` settings for as long as the service lives, from the first page on: one
+    /// `.automation` apply per change (open pages in hidden windows update too; the detection runs off main).
     private func followSettings() {
-        guard !followsSettings, let settings = services?.settings else { return }
-        followsSettings = true
-        withObservationTracking {
-            _ = settings.snapshot.screenshots
-        } onChange: { [weak self] in
-            // task-owner: one hop per settings change; re-arms itself while the service lives
-            Task { @MainActor [weak self] in
-                guard let self else { return }
-                followsSettings = false
-                followSettings()
-                let settings = self.settings()
-                if detected?.settings != settings { detect(settings) }
-            }
+        guard settingsWatch == nil, let services, services.settings != nil else { return }
+        settingsWatch = FrameObservation(owner: "screenshots.settings", delivery: .automation, on: services.mainWork) { [weak self] in
+            self?.settings() ?? ScreenshotsSettings()
+        } onChange: { [weak self] settings in
+            guard let self, detected?.settings != settings else { return }
+            detect(settings)
         }
     }
 
     /// Finds the folders for `settings` off the main actor and gives them to every open page.
     /// Pages opened later reuse them until the settings change.
     private func detect(_ settings: ScreenshotsSettings) {
+        guard let services else { return }
         detection?.cancel()
-        let detector = detector
-        // task-owner: `detection`; a newer detection cancels this one
-        detection = Task { [weak self] in
+        detectionGeneration &+= 1
+        let detector = detector, generation = detectionGeneration, mainWork = services.mainWork
+        // task-owner: `detection`; a newer detection cancels this one. R-hop: the folders are found off main; the
+        // pages get them in one visible task (open pages show them).
+        detection = services.work.task(.userVisible) { [weak self] in
             let sources = await Self.detectSources(detector, settings)
-            guard !Task.isCancelled, let self else { return }
-            detected = (settings, sources)
-            for page in pages.values { page.model.setSources(sources) }
+            try Task.checkCancellation()
+            mainWork.postFromAnyThread(.visible, owner: "ScreenshotsPageService.detected") { [weak self] in
+                self?.detected(sources, for: settings, generation: generation)
+            }
         }
+    }
+
+    /// The folders for `settings` were found: every open page shows them, unless a newer detection started.
+    private func detected(_ sources: [ScreenshotSource], for settings: ScreenshotsSettings, generation: UInt64) {
+        guard generation == detectionGeneration else { return }
+        detected = (settings, sources)
+        for page in pages.values { page.model.setSources(sources) }
     }
 
     /// Reads preferences and settings files and checks folders: file system work, off the main actor.

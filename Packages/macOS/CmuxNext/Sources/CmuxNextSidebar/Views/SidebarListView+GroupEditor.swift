@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextDesign
 import CmuxNextIcons
+import CmuxNextInput
 
 // The group editor (cx-rcby): the chip, its more button, a right-click on
 // the header, Return on a focused header, the Rename action and a new group
@@ -42,6 +43,7 @@ struct SidebarGroupEditing {
     /// Wires the editor to the model (once, from `init`).
     func wire() {
         let editor = list.groupEditor
+        editor.lastInput = { [weak list] in list?.inputTap?.lastDispatched }
         editor.onRename = { [weak list] id, name in list?.model.send(.renameGroup(id, name)) }
         editor.onColor = { [weak list] id, color in
             list?.model.send(.setGroupColor(id, color))
@@ -78,10 +80,11 @@ struct SidebarGroupEditing {
     func open(_ id: GroupID, from opener: Opener = .name) {
         guard list.groups[id] != nil, let window = list.window, list.model.presentation == .shown, list.drag == nil else { return }
         // A click whose mouse-down closed this group's editor toggles it closed.
-        if list.groupEditor.closedByThisClick(id, event: NSApp.currentEvent) { return }
+        if list.groupEditor.closedByThisClick(id, input: list.inputTap?.lastDispatched) { return }
         if let row = list.displayed.row(for: .group(id)) { list.scrollToVisible(list.frame(for: row)) }
         list.realizeVisibleRows()
         guard let group = list.groups[id], let view = list.rowViews[.group(id)] as? GroupHeaderRowView else { return }
+        // sync-layout: the anchor below reads the row's nameHitFrame and more button frame.
         view.layoutSubtreeIfNeeded()
         // The row's settled frame: a group made a moment ago may still be moving in.
         let rowFrame = list.displayed.row(for: .group(id)).map(list.frame(for:)) ?? view.frame

@@ -503,7 +503,14 @@
       "update-workspace-group",
       "vt-state",
       "wait-for",
-      "zoom-pane"
+      "zoom-pane",
+      "fs.stat",
+      "fs.list",
+      "fs.read",
+      "fs.write",
+      "fs.mkdir",
+      "fs.rename",
+      "fs.delete"
     ],
     "frontend": [
       "sidebar-plugin",
@@ -538,6 +545,12 @@
     ],
     "local-admin": [
       "server-stats",
+      "debug-daemon-locks",
+      "server-threads",
+      "server-blocking",
+      "trace-start",
+      "trace-stop",
+      "trace-status",
       "subscribe-activity",
       "set-terminal-command-history",
       "list-terminal-commands",
@@ -607,7 +620,71 @@
       "conversation-live",
       "feed-local-handoff-begin",
       "feed-local-handoff-abort",
-      "feed-local-handoff-done"
+      "feed-local-handoff-done",
+      "agent-cli-intents-record",
+      "agent-cli-intents-list",
+      "agent-cli-intents-settle",
+      "agent-cli-intents-attach",
+      "agent-cli-update-job",
+      "agent-cli-update-job-resolve",
+      "apps-list",
+      "apps-set",
+      "apps-store",
+      "apps-mount",
+      "apps-unmount",
+      "apps-dispatch",
+      "apps-run",
+      "apps-terminal-links",
+      "apps-logs",
+      "apps-link-changed",
+      "apps-provider-register",
+      "apps-agent-inventory-changed",
+      "apps-provider-result",
+      "cancel-request",
+      "agent-session-attach",
+      "agent-session-observe",
+      "agent-session-events",
+      "agent-session-prompt",
+      "agent-session-cancel",
+      "agent-session-permission",
+      "agent-session-detach",
+      "agent-session-children",
+      "agent-session-media",
+      "agent-session-start",
+      "agent-session-trust",
+      "script-run",
+      "script-repl-open",
+      "script-repl-eval",
+      "script-repl-close",
+      "agent-transfer-receive",
+      "agent-transfer-write",
+      "agent-transfer-finish",
+      "agent-transfer-receive-abort",
+      "agent-transfer-begin",
+      "agent-transfer-source",
+      "agent-transfer-read",
+      "agent-transfer-commit",
+      "agent-transfer-abort",
+      "access-request",
+      "access-request-status",
+      "access-request-list",
+      "access-request-answer",
+      "agent-update-plan",
+      "agent-update-apply",
+      "browser-runtime-status",
+      "browser-runtime-start",
+      "browser-runtime-stop",
+      "loopback-open",
+      "loopback-data",
+      "loopback-credit",
+      "loopback-shutdown",
+      "loopback-close",
+      "loopback-status",
+      "client-hello",
+      "machine-catalog-publish",
+      "agent-inventory",
+      "agent-inventory-refresh",
+      "agent-inventory-watch"
     ],
     "provider-authority": [
       "mark-workspaces-provider-managed",
@@ -1147,6 +1224,36 @@
     },
     {
       "name": "agent-inventory-watch-ended",
+      "streams": [
+        "control"
+      ]
+    },
+    {
+      "name": "script-log",
+      "streams": [
+        "control"
+      ]
+    },
+    {
+      "name": "loopback-data",
+      "streams": [
+        "control"
+      ]
+    },
+    {
+      "name": "loopback-credit",
+      "streams": [
+        "control"
+      ]
+    },
+    {
+      "name": "loopback-eof",
+      "streams": [
+        "control"
+      ]
+    },
+    {
+      "name": "loopback-closed",
       "streams": [
         "control"
       ]
@@ -1948,6 +2055,7 @@
         "ClipboardReadCancel": 25,
         "PtyCustody": 26,
         "LaunchAdopt": 27,
+        "TraceControlAck": 28,
         "Input": 100,
         "Paste": 101,
         "ViewerSize": 102,
@@ -1960,7 +2068,8 @@
         "SetKittyGraphicsLimits": 109,
         "Activate": 110,
         "Detach": 111,
-        "ClipboardReadReply": 112
+        "ClipboardReadReply": 112,
+        "TraceControl": 113
       }
     },
     "machine_provider_v1": {

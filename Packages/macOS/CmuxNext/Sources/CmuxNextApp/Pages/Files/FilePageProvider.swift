@@ -73,33 +73,23 @@ final class FilePageProvider: PageProvider, PageDynamicResourceSource {
     private(set) var remoteImageToken = UUID().uuidString.lowercased()
     /// A click in the page approved web images for the document currently shown in this tab.
     private var remoteImagesApproved = false
-    /// Canonical paths that are this tab's documents, whoever opened them: its first document,
-    /// chooseFile results, approved links. The page may open them, and their folders bound the
-    /// links that open without asking.
-    private(set) var documents: Set<String> = []
-    /// The documents the user chose (Open File..., the picker, a click, an approved link): these are
-    /// writable. In the code editor, a document an agent or script opened is writable only inside a
-    /// user root; every markdown document is writable (``inWorkspace(_:)``).
-    private(set) var granted: Set<String> = []
-    /// Documents the host opened read only on purpose (a chat transcript): never saved.
-    private(set) var readOnlyDocuments: Set<String> = []
-    /// Markdown files `resolveLinks` found inside a granted document's folder: the page may open
-    /// them in place (following a link it showed).
-    private var linked: Set<String> = []
+    /// What the page may open and save, file by file (``FileWorkspaceRoots/Grants``).
+    private(set) var access = FileWorkspaceRoots.Grants()
     /// A recovered crash draft of the tab's file: the next config carries it once (the markdown and
     /// editor pages load it as an unsaved edit).
     var recoveredText: String?
     /// Where the editor puts the cursor on the tab's file (a Find result's line and column): the
     /// next config of that file carries it once as `reveal`. The markdown page ignores it.
     var reveal: FilePosition?
+    /// What the tab's previous page showed before it was discarded (its `cmux.<page>.viewState`
+    /// answer): the next config of the tab's file carries it once as `viewState`.
+    var viewState: JSONValue?
     /// Whether the tab's file may be saved (the last config's answer).
     private var writable = false
     var isWritable: Bool { writable }
     /// The page shows its file read only (the last config said `readOnly`): bare keys are the
     /// user's bindings there, not typing (`markdownReadOnlyFocused`, K1).
     private(set) var showsReadOnly = false
-    /// Documents this tab has shown (it may reopen them, its own back and forward).
-    private var shown: Set<String> = []
     private(set) var isClosed = false
     /// Where the markdown page keeps table column widths between opens (nil: the page keeps
     /// none past the tab). ``FilePageProvider+TableWidths.swift``.
@@ -122,19 +112,21 @@ final class FilePageProvider: PageProvider, PageDynamicResourceSource {
     /// `userChose`: the user opened the tab's document (Open File..., the picker, a click), so it
     /// is granted and writable; in the code editor, a document an agent or script opened is the
     /// page's to show, and writable only inside a root the user chose. `readOnly`: the host opens
-    /// the document read only whoever opened it (a chat transcript).
-    init(kind: FilePageKind, file: URL?, userChose: Bool = true, readOnly: Bool = false, host: any FilePageHosting,
-         clock: any Clock<Duration> = ContinuousClock(), libraries: URL?, images: any RemoteImageFetching,
-         tableWidths: (any MarkdownTableWidthStoring)? = nil, comments: (any MarkdownCommentStoring)? = nil) {
+    /// the document read only whoever opened it (a chat transcript). `access`: the tab's previous
+    /// provider's, for a tab made again after a discard; it replaces `userChose` and `readOnly`.
+    init(kind: FilePageKind, file: URL?, userChose: Bool = true, readOnly: Bool = false, access: FileWorkspaceRoots.Grants? = nil,
+         host: any FilePageHosting, clock: any Clock<Duration> = ContinuousClock(), libraries: URL?,
+         images: any RemoteImageFetching, tableWidths: (any MarkdownTableWidthStoring)? = nil,
+         comments: (any MarkdownCommentStoring)? = nil) {
         self.kind = kind
         self.tableWidths = tableWidths
         self.comments = comments
         self.file = file.map(Self.canonical)
-        if let file = self.file {
-            shown.insert(file.path)
-            documents.insert(file.path)
-            if userChose { granted.insert(file.path) }
-            if readOnly { readOnlyDocuments.insert(file.path) }
+        if let access {
+            self.access = access
+            if let file = self.file { self.access.shown.insert(file.path) }
+        } else if let file = self.file {
+            self.access = FileWorkspaceRoots.Grants(file: file.path, userChose: userChose, readOnly: readOnly)
         }
         self.host = host
         self.clock = clock
@@ -226,10 +218,14 @@ final class FilePageProvider: PageProvider, PageDynamicResourceSource {
         case kind.op("changes"):
             let id = UUID()
             changeListeners[id] = onEvent
-            return PageSubscription { [weak self] in self?.changeListeners[id] = nil }
+            // Each event carries the file's whole text and hash (or its deletion): the newest replaces the rest.
+            return PageSubscription(frozenDelivery: .latest) { [weak self] in self?.changeListeners[id] = nil }
         case kind.op("look"):
             let stop = host.listenLook(onEvent)
-            return PageSubscription { stop() }
+            // Each event names only the look keys that changed (FilePageLook.publish: the settings and syntax
+            // theme, each theme.css save with its whole text, the imported editor's settings files, the
+            // language packs), and the page merges them with no re-read on a gap: none may drop.
+            return PageSubscription(frozenDelivery: .ordered) { stop() }
         default:
             throw PageError.unknownOp(stream)
         }
@@ -251,7 +247,7 @@ final class FilePageProvider: PageProvider, PageDynamicResourceSource {
     private func inWorkspace(_ url: URL) -> Bool {
         if kind == .markdown { return true }
         let path = Self.canonical(url).path
-        return granted.contains(path) || (host?.roots.contains(path) ?? false)
+        return access.granted.contains(path) || (host?.roots.contains(path) ?? false)
     }
 
     /// Links resolved, `.` and `..` removed: the path every grant check compares.
@@ -261,13 +257,13 @@ final class FilePageProvider: PageProvider, PageDynamicResourceSource {
     /// a document of the tab, and writable.
     func userChose(_ url: URL) {
         let path = Self.canonical(url).path
-        documents.insert(path)
-        granted.insert(path)
+        access.documents.insert(path)
+        access.granted.insert(path)
     }
 
     /// Whether `url` (canonical) is inside the folder of one of the tab's documents.
     private func inGrantedFolder(_ url: URL) -> Bool {
-        documents.contains { document in
+        access.documents.contains { document in
             let folder = URL(fileURLWithPath: document).deletingLastPathComponent().path
             return url.path.hasPrefix(folder == "/" ? "/" : folder + "/")
         }
@@ -277,13 +273,13 @@ final class FilePageProvider: PageProvider, PageDynamicResourceSource {
     /// link, a recents entry, or a markdown file `resolveLinks` found in a granted folder.
     private func mayOpen(_ url: URL) -> Bool {
         let path = url.path
-        return documents.contains(path) || shown.contains(path) || linked.contains(path) || (host?.isRecent(path) ?? false)
+        return access.documents.contains(path) || access.shown.contains(path) || access.linked.contains(path) || (host?.isRecent(path) ?? false)
     }
 
     private func snapshot(_ url: URL) async throws -> FileSnapshot {
         do {
             let file = try await Self.read(url, inWorkspace: inWorkspace(url.resolvingSymlinksInPath()))
-            guard file.readOnlyReason == nil, readOnlyDocuments.contains(file.url.path) else { return file }
+            guard file.readOnlyReason == nil, access.readOnlyDocuments.contains(file.url.path) else { return file }
             return FileSnapshot(url: file.url, text: file.text, hash: file.hash, size: file.size, readOnlyReason: .transcript)
         } catch .notFound {
             throw PageError(code: kind.op("not_found"), message: url.path)
@@ -302,8 +298,8 @@ final class FilePageProvider: PageProvider, PageDynamicResourceSource {
         let opened = try await snapshot(url)
         guard !isClosed else { throw PageError.closed }
         // A link the page followed in place is shown, not granted: writable only in a root.
-        if granted.contains(opened.url.path) || host?.isRecent(opened.url.path) == true { granted.insert(opened.url.path) }
-        shown.insert(opened.url.path)
+        if access.granted.contains(opened.url.path) || host?.isRecent(opened.url.path) == true { access.granted.insert(opened.url.path) }
+        access.shown.insert(opened.url.path)
         if opened.url != file {
             file = opened.url
             assetToken = UUID().uuidString.lowercased()
@@ -333,6 +329,10 @@ final class FilePageProvider: PageProvider, PageDynamicResourceSource {
         if kind == .editor, let reveal, file.url == self.file {
             self.reveal = nil
             config["reveal"] = reveal.jsonValue
+        }
+        if let viewState, file.url == self.file {
+            self.viewState = nil
+            config["viewState"] = viewState
         }
         if let reason = file.readOnlyReason {
             config["readOnly"] = true
@@ -383,7 +383,7 @@ final class FilePageProvider: PageProvider, PageDynamicResourceSource {
         case .null?, nil: base = nil
         default: throw PageError.invalidParams("baseHash must be a string or null")
         }
-        guard !readOnlyDocuments.contains(file.path) else { throw PageError(code: kind.op("read_only"), message: file.path) }
+        guard !access.readOnlyDocuments.contains(file.path) else { throw PageError(code: kind.op("read_only"), message: file.path) }
         let workspace = inWorkspace(file)
         let result: FileSaveResult
         do {
@@ -499,7 +499,7 @@ final class FilePageProvider: PageProvider, PageDynamicResourceSource {
         for case .string(let relative) in (params["paths"]?.arrayValue ?? []).prefix(500) { relatives.append(relative) }
         // The symlink resolution and existence checks run off the main actor; the grants stay here.
         let found = try await Self.resolve(relatives, from: from, file: file, roots: host.roots)
-        for path in found.markdown where inGrantedFolder(URL(fileURLWithPath: path)) { linked.insert(path) }
+        for path in found.markdown where inGrantedFolder(URL(fileURLWithPath: path)) { access.linked.insert(path) }
         return ["links": .object(found.links)]
     }
 

@@ -7,18 +7,21 @@ use crate::panic_free::JsonFields;
 use anyhow::Context;
 
 use super::PROTOCOL_VERSION;
+use super::capabilities::identify_capabilities_for;
 use super::daemon_build::{stamped_build_commit, stamped_ghostty_commit};
-use super::identify_capabilities;
 use crate::platform;
 
 use super::ClientIdentityWire;
 use super::machine_usage_json;
 use super::origin_gate;
 use super::server_stats;
+use super::{AsyncReply, MessageWriter, Response, send_response};
 use crate::Mux;
 use crate::MuxEvent;
 use crate::PaneId;
 use crate::mux::DaemonHandoffRequest;
+use crate::work_reply::{Unanswered, WorkReply};
+use cmux_threads::work::{Lane, Priority, Shutdown};
 use serde_json::Value;
 use serde_json::json;
 use std::sync::Arc;
@@ -34,8 +37,51 @@ pub(super) fn server_stats(
     Ok(serde_json::to_value(server_stats::server_stats(mux, include.as_deref()))?)
 }
 
+/// `debug-daemon-locks`: the registry and state locks' wait and hold time
+/// by caller class and request op (server/server_stats.rs).
+pub(super) fn daemon_locks(mux: &Arc<Mux>, client: u64) -> anyhow::Result<Value> {
+    if !mux.control_clients.is_unix(client) {
+        return Err(server_stats::DaemonLocksRefused::NotLocal.into());
+    }
+    Ok(serde_json::to_value(server_stats::daemon_locks(mux))?)
+}
+
+/// `server-threads`: every registered daemon thread with its declared,
+/// desired and kernel QoS and scheduler priority, the work lanes, and the
+/// process's task role (server/server_stats.rs).
+pub(super) fn server_threads(mux: &Arc<Mux>, client: u64) -> anyhow::Result<Value> {
+    if !mux.control_clients.is_unix(client) {
+        return Err(server_stats::ThreadDiagnosticsRefused::NotLocal.into());
+    }
+    Ok(serde_json::to_value(server_stats::server_threads(mux))?)
+}
+
+/// `server-blocking`: the blocking calls made on threads that disallow
+/// blocking, by call site (server/server_stats.rs).
+pub(super) fn server_blocking(mux: &Arc<Mux>, client: u64) -> anyhow::Result<Value> {
+    if !mux.control_clients.is_unix(client) {
+        return Err(server_stats::ThreadDiagnosticsRefused::NotLocal.into());
+    }
+    Ok(serde_json::to_value(server_stats::server_blocking(mux))?)
+}
+
+/// `trace-start`, `trace-stop` and `trace-status` (server/trace_control.rs):
+/// owner only, refused before `call` reads a parameter.
+pub(super) fn trace_control(
+    mux: &Arc<Mux>,
+    client: u64,
+    call: impl FnOnce() -> anyhow::Result<super::trace_control::Call>,
+) -> anyhow::Result<Value> {
+    use super::trace_control::{TraceControlRefused, run_live};
+    if !mux.control_clients.is_unix(client) {
+        return Err(TraceControlRefused::NotLocal.into());
+    }
+    Ok(run_live(mux, call()?)?)
+}
+
 pub(super) fn identify(
     mux: &Arc<Mux>,
+    client: u64,
     machine_metadata: bool,
     revisions: bool,
 ) -> anyhow::Result<Value> {
@@ -50,7 +96,7 @@ pub(super) fn identify(
         "cli_path": cli_path,
         "ghostty_commit": stamped_ghostty_commit(),
         "protocol": PROTOCOL_VERSION,
-        "capabilities": identify_capabilities(mux),
+        "capabilities": identify_capabilities_for(mux, client),
         "session": mux.session,
         "pid": std::process::id(),
         "session_id": registry_id,
@@ -74,6 +120,8 @@ pub(super) fn identify(
         // How this daemon was installed and how to update it, for a client's refusal text.
         identity.insert("install", json!(channel.as_str()));
         identity.insert("update_command", json!(channel.update_command()));
+        // The stream frame cut (bench-daemon-latency.py --bulk-interference).
+        identity.insert("bulk_frame_max", json!(mux.bulk_frame_max()));
     }
     if machine_metadata {
         identity.insert("machine_id", json!(mux.machine_public_id));
@@ -190,8 +238,60 @@ pub(super) fn machine_usage(mux: &Arc<Mux>) -> anyhow::Result<Value> {
     Ok(machine_usage_json(mux.machine_usage().as_ref()))
 }
 
-pub(super) fn machine_listening_tcp() -> anyhow::Result<Value> {
-    machine_listening_tcp_json()
+/// `machine-listening-tcp` runs ss or netstat to completion, so it runs on a
+/// work item of the System lane and answers from there; the request thread
+/// goes on at once (Chrome posts blocking work to a MayBlock task runner,
+/// base/task/task_traits.h). The inventory is a view's poll: UserVisible.
+/// It only reads, so shutdown never waits for it (ContinueOnShutdown); a
+/// refused, dropped or panicked item still answers its id.
+pub(super) fn start_machine_listening_tcp(
+    mux: &Arc<Mux>,
+    id: Option<Value>,
+    reply: AsyncReply,
+    writer: &MessageWriter,
+) -> bool {
+    let item_writer = writer.clone();
+    let answer = WorkReply::new(move |listing: Result<anyhow::Result<Value>, Unanswered>| {
+        let listing = listing.unwrap_or_else(|why| {
+            Err(match why {
+                Unanswered::ShuttingDown => anyhow::anyhow!("the daemon is shutting down"),
+                Unanswered::Panicked => {
+                    anyhow::anyhow!("internal error: the listening-port read stopped unexpectedly")
+                }
+            })
+        });
+        reply.reply(|| respond(&item_writer, id, listing));
+    });
+    // A refused item is dropped here, and `answer` answers it.
+    let _ = mux.work.post(
+        Priority::UserVisible,
+        Lane::System,
+        Shutdown::ContinueOnShutdown,
+        move || answer.run(machine_listening_tcp_json),
+    );
+    true
+}
+
+fn respond(writer: &MessageWriter, id: Option<Value>, answer: anyhow::Result<Value>) -> bool {
+    let response = match answer {
+        Ok(data) => Response {
+            id,
+            ok: true,
+            data: Some(data),
+            error: None,
+            error_code: None,
+            error_delivery: None,
+        },
+        Err(error) => Response {
+            id,
+            ok: false,
+            data: None,
+            error: Some(error.to_string()),
+            error_code: None,
+            error_delivery: None,
+        },
+    };
+    send_response(writer, response)
 }
 
 pub(super) fn pairing_response(
@@ -288,7 +388,12 @@ pub(super) fn machine_listening_tcp_json() -> anyhow::Result<Value> {
         let candidates: &[(&str, &[&str])] = &[("ss", &["-H", "-ltnp"]), ("netstat", &["-ltn"])];
         let mut failures = Vec::new();
         for &(program, arguments) in candidates {
-            let output = match std::process::Command::new(program).args(arguments).output() {
+            crate::request_path::note(crate::request_path::BlockingKind::ChildProcess);
+            let output = match cmux_process::Command::new(program)
+                .args(arguments)
+                .qos_ceiling(cmux_threads::HELPER_CHILD)
+                .output()
+            {
                 Ok(output) => output,
                 Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
                 Err(error) => {

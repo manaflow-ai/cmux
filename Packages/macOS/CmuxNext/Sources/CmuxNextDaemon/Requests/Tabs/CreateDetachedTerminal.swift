@@ -16,7 +16,7 @@ public struct CreateDetachedTerminalRequest: TerminalSpawningRequest {
             case terminalResourceID = "terminal_resource_id"
         }
     }
-    public static let command = "create-terminal"
+    public static let commandName: DaemonCommandName = "create-terminal"
     public var cwd: String?
     public var size: CellSize?
     public var terminalID: TerminalID?
@@ -32,7 +32,7 @@ public struct CreateDetachedTerminalRequest: TerminalSpawningRequest {
         self.mutation = mutation
     }
 
-    enum CodingKeys: String, CodingKey { case detached, keep, cwd, cols, rows, terminalID, env }
+    enum CodingKeys: String, CodingKey { case detached, keep, cwd, cols, rows, terminalID = "terminal_id", env }
     public func encode(to encoder: any Encoder) throws {
         var c = encoder.container(keyedBy: CodingKeys.self)
         try c.encode(true, forKey: .detached)

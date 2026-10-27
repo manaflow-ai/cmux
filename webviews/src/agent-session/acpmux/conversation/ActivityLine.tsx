@@ -1,8 +1,10 @@
 // The running turn's activity line under its todo list (Debug Settings `agent.sessionStatus`,
 // cx-ncc.102; Claude Code desktop's `Edit ProductGrid.module.css 26s`): what turns.ts names (the
 // running tool call, else the todo in progress) and the turn's time, ticking each second from the
-// prompt like "Working for", whose place it takes. No dots blink before it, as on that line.
+// prompt like "Working for", whose place it takes. No dots blink before it, as on that line. The
+// clock rests while the page is hidden and reads the time again when it shows (usePageInterval).
 import { useEffect, useState } from "react";
+import { usePageInterval } from "../../../pages/shared/pageLifecycle";
 import { useT } from "../i18n";
 import type { AcpmuxRow } from "../model";
 import { BackgroundHint } from "./BackgroundHint";
@@ -14,9 +16,8 @@ export function ActivityLine({ row, now = Date.now }: { row: AcpmuxRow; now?: ()
   const [time, setTime] = useState(now);
   useEffect(() => {
     setTime(now());
-    const timer = setInterval(() => setTime(now()), 1000);
-    return () => clearInterval(timer);
   }, [now]);
+  usePageInterval(() => setTime(now()), 1000, { catchUpOnShow: true });
   return (
     <div className="cv-activity">
       {row.text ? (

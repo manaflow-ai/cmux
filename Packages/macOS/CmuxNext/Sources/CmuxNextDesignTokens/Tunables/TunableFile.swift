@@ -1,3 +1,4 @@
+import CmuxNextCompat
 public import Foundation
 
 /// The override file and the "Copy changed values as JSON" export share one
@@ -78,8 +79,19 @@ public nonisolated enum TunableFile {
     /// Raw values of a file's `values` object, by key (empty when the file
     /// is missing or unreadable). The store reads them against descriptors.
     public static func decode(_ data: Data) -> [String: Any] {
-        guard let root = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+        guard let root = (try? JSONSerialization.blockingJSONObject(with: data)) as? [String: Any],
               let values = root["values"] as? [String: Any] else { return [:] }
+        return values
+    }
+
+    /// The Bool values `url` holds for `keys`; none without the file, for a key it does not hold or for a value
+    /// that is not a Bool. Blocking file IO: a launch lane only (the features a tunable is the local override of).
+    package static func boolValues(_ url: URL, keys: Set<String>) -> [String: Bool] {
+        guard !keys.isEmpty, let data = try? Data(blockingContentsOf: url) else { return [:] }
+        var values: [String: Bool] = [:]
+        for (key, raw) in decode(data) where keys.contains(key) {
+            if case .bool(let flag)? = value(raw, as: .bool) { values[key] = flag }
+        }
         return values
     }
 

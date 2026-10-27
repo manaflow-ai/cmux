@@ -125,44 +125,23 @@ pub fn hold_in_use_lock() {
     imp::hold_in_use_lock();
 }
 
-/// [`spawn_host`] through `cmux_process` (the child gets descriptors 0-2 and
-/// the ones it is given, and no other: reviews 1 and 2 of pl-holder-11). The
-/// holder launch uses it; the terminal-host callers move to it as
-/// cmux-tui-core's spawns move to `cmux_process`, and then [`spawn_host`]
-/// goes.
+/// Spawn a terminal host or holder from [`terminal_host_executable`]
+/// through `cmux_process`: the child gets descriptors 0-2 and the ones it is
+/// given, and no other (reviews 1 and 2 of pl-holder-11). Its command line is
+/// `cmux-tui __terminal-host ...` with no path, also when the daemon's own
+/// executable or the slim host is used. A spawn that fails from the copy is
+/// retried once from the daemon's own executable, and the copy is not used
+/// again.
+#[track_caller]
 pub fn spawn_host_isolated(
-    configure: impl Fn(&mut cmux_process::Command),
+    configure: impl Fn(&mut cmux_process::Command) -> io::Result<()>,
 ) -> io::Result<cmux_process::Child> {
+    crate::request_path::note(crate::request_path::BlockingKind::ProcessSpawn);
     let binary = terminal_host_executable()?;
     let spawn = |binary: &Path| {
         let mut command = cmux_process::Command::new(binary);
         command.arg0("cmux-tui");
-        configure(&mut command);
-        command.spawn()
-    };
-    match spawn(&binary) {
-        Err(error) if binary != crate::platform::self_exe_for_spawn()? => {
-            imp::copy_failed(&binary);
-            eprintln!("cmux-tui: a terminal host did not start from {}: {error}", binary.display());
-            spawn(&crate::platform::self_exe_for_spawn()?)
-        }
-        result => result,
-    }
-}
-
-/// Spawn a terminal host from [`terminal_host_executable`]. Its command line
-/// is `cmux-tui __terminal-host ...` with no path, also when the daemon's own
-/// executable or the slim host is used. A spawn that fails from the copy is retried once from
-/// the daemon's own executable, and the copy is not used again.
-pub fn spawn_host(
-    configure: impl Fn(&mut std::process::Command),
-) -> io::Result<std::process::Child> {
-    use std::os::unix::process::CommandExt;
-    let binary = terminal_host_executable()?;
-    let spawn = |binary: &Path| {
-        let mut command = std::process::Command::new(binary);
-        command.arg0("cmux-tui");
-        configure(&mut command);
+        configure(&mut command)?;
         command.spawn()
     };
     match spawn(&binary) {

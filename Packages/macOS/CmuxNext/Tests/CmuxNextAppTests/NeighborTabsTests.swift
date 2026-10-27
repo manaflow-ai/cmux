@@ -20,6 +20,18 @@ import Testing
         return tabs.awake(radius: radius)
     }
 
+    /// The intent prewarm sizes a hidden page to the pane whose strip lists it (p04-input-042).
+    @Test func thePaneListingATabIsTheOneWhoseOrderHasIt() {
+        var tabs = NeighborTabs()
+        tabs.set(pane, order: order, selected: "c")
+        tabs.set(other, order: ["x", "y"], selected: nil)
+        #expect(tabs.pane(listing: "e") == pane)
+        #expect(tabs.pane(listing: "y") == other)
+        #expect(tabs.pane(listing: "z") == nil)
+        tabs.remove(other)
+        #expect(tabs.pane(listing: "y") == nil)
+    }
+
     @Test func theTabsBeforeAndAfterTheShownTabStayAwake() {
         #expect(awake(order, "c") == ["b", "d"])
     }
@@ -72,11 +84,11 @@ import Testing
         #expect(tabs.awake(radius: 1) == ["a", "c"])
     }
 
-    @Test func memoryPressureAndLowPowerModeTurnItOff() {
-        #expect(NeighborTabs.radius(setting: 2, pressure: .normal, lowPower: false) == 2)
-        #expect(NeighborTabs.radius(setting: 2, pressure: .warning, lowPower: false) == 0)
-        #expect(NeighborTabs.radius(setting: 2, pressure: .critical, lowPower: false) == 0)
-        #expect(NeighborTabs.radius(setting: 2, pressure: .normal, lowPower: true) == 0)
+    @Test func memoryPressureAndEnergySaverTurnItOff() {
+        #expect(NeighborTabs.radius(setting: 2, pressure: .normal, energySaver: false) == 2)
+        #expect(NeighborTabs.radius(setting: 2, pressure: .warning, energySaver: false) == 0)
+        #expect(NeighborTabs.radius(setting: 2, pressure: .critical, energySaver: false) == 0)
+        #expect(NeighborTabs.radius(setting: 2, pressure: .normal, energySaver: true) == 0)
     }
 
     @Test func oneOnEachSideByDefault() {

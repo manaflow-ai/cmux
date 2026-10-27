@@ -2,6 +2,9 @@ import CmuxNextWakeups
 import Darwin
 import Foundation
 import CmuxNextCompat
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
+import func CmuxSafeConcurrency.withOnceContinuation
 
 /// One completion shell: spawned in its own process group, its stdout read to EOF, reaped, and
 /// killed with its group at the deadline. Answers the output, or `timedOut`.
@@ -10,7 +13,7 @@ nonisolated final class CompletionProcess: Sendable {
         var output = Data()
         var closed = false
         var exited = false
-        var continuation: CheckedContinuation<Data?, Never>?
+        var continuation: OnceContinuation<Data?, OnceContinuationError>?
         var answered = false
         /// The pipe's read end. Held until EOF, not until the shell is reaped: the shell can exit
         /// before its output ends (a background job still holds stdout, or the reaper wins the
@@ -23,13 +26,19 @@ nonisolated final class CompletionProcess: Sendable {
 
     private init(pid: pid_t) { self.pid = pid }
 
-    static func run(path: String, arguments: [String], environment: [String: String], folder: String, timeout: Duration)
-        async throws(AgentPaneShellCompletion.Failure) -> Data {
+    /// Spawns the shell on `launcher` (never on the caller's thread, the main actor) and answers its output.
+    static func run(path: String, arguments: [String], environment: [String: String], folder: String, timeout: Duration,
+                    launcher: ChildProcessLauncher) async throws(AgentPaneShellCompletion.Failure) -> Data {
         var pipe: [Int32] = [-1, -1]
-        guard Darwin.pipe(&pipe) == 0 else { throw .spawnFailed(errno) }
+        // SAFETY: pipe writes its two descriptors into the array's own storage (two Int32), lent for the call.
+        guard unsafe Darwin.pipe(&pipe) == 0 else { throw .spawnFailed(errno) }
         let pid: pid_t
+        let writeEnd = pipe[1]
         do {
-            pid = try spawn(path, arguments: arguments, environment: environment, folder: folder, output: pipe[1])
+            pid = try await launcher.run { () throws(AgentPaneShellCompletion.Failure) -> pid_t in
+                try Self.spawn(path, arguments: arguments, environment: environment, folder: folder, output: writeEnd,
+                               priority: launcher.priority)
+            }
         } catch {
             Darwin.close(pipe[0])
             Darwin.close(pipe[1])
@@ -38,7 +47,8 @@ nonisolated final class CompletionProcess: Sendable {
         Darwin.close(pipe[1])
         let process = CompletionProcess(pid: pid)
         let deadline = DemandTimer(owner: "agent-pane.shell.complete")
-        let output: Data? = await withCheckedContinuation { continuation in
+        // Abandoned (the process dropped its continuation) answers as the deadline does: `timedOut`.
+        let output: Data? = try? await withOnceContinuation { (continuation: OnceContinuation<Data?, OnceContinuationError>) in
             process.state.withLock { $0.continuation = continuation }
             process.start(reading: pipe[0])
             deadline.schedule(after: timeout) { process.give(up: true) }
@@ -65,19 +75,14 @@ nonisolated final class CompletionProcess: Sendable {
                 if full { give(up: false) }
             }
         }
-        let pid = pid
-        DispatchQueue.global(qos: .userInitiated).async { [self] in
-            var status: Int32 = 0
-            var result: pid_t
-            // wakeup-allow: a blocking wait for the completion shell's exit, retried only when a signal interrupts it.
-            repeat { result = waitpid(pid, &status, 0) } while result == -1 && errno == EINTR
-            finish { $0.exited = true }
-        }
+        // Reaped from an exit source on its own queue, so no thread waits in `waitpid` while it runs; the Tab waits.
+        ChildExitWatch(pid: pid, queue: DispatchQueue(label: "cmux.next.agent-pane.shell-complete-reap.\(pid)", qos: .userInitiated))
+            .start { [self] _ in finish { $0.exited = true } }
     }
 
     /// Records an end; answers with the output once the shell exited and its pipe closed.
     private func finish(_ change: (inout State) -> Void) {
-        let ready = state.withLock { state -> (CheckedContinuation<Data?, Never>, Data)? in
+        let ready = state.withLock { state -> (OnceContinuation<Data?, OnceContinuationError>, Data)? in
             change(&state)
             guard state.closed, state.exited, !state.answered, let continuation = state.continuation else { return nil }
             state.answered = true
@@ -89,7 +94,7 @@ nonisolated final class CompletionProcess: Sendable {
     /// The deadline passed (`timedOut`) or the output is too long (what was read so far): kills the group.
     private func give(up timedOut: Bool) {
         kill(-pid, SIGKILL)
-        let (ready, reader) = state.withLock { state -> ((CheckedContinuation<Data?, Never>, Data?)?, FileHandle?) in
+        let (ready, reader) = state.withLock { state -> ((OnceContinuation<Data?, OnceContinuationError>, Data?)?, FileHandle?) in
             // The answer is final: stop reading, so a holder outside the killed group cannot keep the pipe open.
             let reader = state.reader
             state.reader = nil
@@ -102,32 +107,33 @@ nonisolated final class CompletionProcess: Sendable {
     }
 
     private static func spawn(_ path: String, arguments: [String], environment: [String: String], folder: String,
-                              output: Int32) throws(AgentPaneShellCompletion.Failure) -> pid_t {
+                              output: Int32, priority: MayBlockPriority) throws(AgentPaneShellCompletion.Failure) -> pid_t {
+        // SAFETY (every posix_spawn_* call below): each takes the address of `actions` or `attributes`, locals
+        // initialized here and destroyed once by the defers, and copies the C strings it is lent (the NUL-terminated
+        // copies made for the call) before it returns.
         var actions: posix_spawn_file_actions_t?
         var attributes: posix_spawnattr_t?
-        guard posix_spawn_file_actions_init(&actions) == 0 else { throw .spawnFailed(errno) }
-        defer { posix_spawn_file_actions_destroy(&actions) }
-        guard posix_spawnattr_init(&attributes) == 0 else { throw .spawnFailed(errno) }
-        defer { posix_spawnattr_destroy(&attributes) }
-        let configured = "/dev/null".withCString { posix_spawn_file_actions_addopen(&actions, STDIN_FILENO, $0, O_RDONLY, 0) } == 0
-            && posix_spawn_file_actions_adddup2(&actions, output, STDOUT_FILENO) == 0
-            && "/dev/null".withCString { posix_spawn_file_actions_addopen(&actions, STDERR_FILENO, $0, O_WRONLY, 0) } == 0
-            && folder.withCString { posix_spawn_file_actions_addchdir_np(&actions, $0) } == 0
-            && posix_spawnattr_setflags(&attributes, Int16(POSIX_SPAWN_SETPGROUP | POSIX_SPAWN_CLOEXEC_DEFAULT)) == 0
-            && posix_spawnattr_setpgroup(&attributes, 0) == 0
-        guard configured else { throw .spawnFailed(EINVAL) }
+        guard unsafe posix_spawn_file_actions_init(&actions) == 0 else { throw .spawnFailed(errno) }
+        defer { unsafe posix_spawn_file_actions_destroy(&actions) }
+        guard unsafe posix_spawnattr_init(&attributes) == 0 else { throw .spawnFailed(errno) }
+        defer { unsafe posix_spawnattr_destroy(&attributes) }
+        guard unsafe posix_spawn_file_actions_addopen(&actions, STDIN_FILENO, "/dev/null", O_RDONLY, 0) == 0,
+              unsafe posix_spawn_file_actions_adddup2(&actions, output, STDOUT_FILENO) == 0,
+              unsafe posix_spawn_file_actions_addopen(&actions, STDERR_FILENO, "/dev/null", O_WRONLY, 0) == 0,
+              unsafe posix_spawn_file_actions_addchdir_np(&actions, folder) == 0,
+              unsafe posix_spawnattr_setflags(&attributes, Int16(POSIX_SPAWN_SETPGROUP | POSIX_SPAWN_CLOEXEC_DEFAULT)) == 0,
+              unsafe posix_spawnattr_setpgroup(&attributes, 0) == 0 else { throw .spawnFailed(EINVAL) }
         let variables = environment.map { "\($0.key)=\($0.value)" }
         var pid: pid_t = 0
-        let status = withCStrings(arguments) { argv in
-            withCStrings(variables) { envp in posix_spawn(&pid, path, &actions, &attributes, argv, envp) }
+        // SAFETY: argv and envp are NULL-terminated lists that withCStringList lends for its closure; posix_spawn
+        // copies them, writes the child's pid into `pid`, a local, and reads `actions` and `attributes` (above).
+        let status = unsafe withCStringList(arguments) { argv in
+            unsafe withCStringList(variables) { envp in
+                unsafe blockingPosixSpawn(&pid, path, &actions, &attributes, argv, envp, priority: priority)
+            }
         }
+        guard let status = status.flatMap({ $0 }) else { throw .spawnFailed(ENOMEM) }
         guard status == 0 else { throw .spawnFailed(status) }
         return pid
-    }
-
-    private static func withCStrings<R>(_ strings: [String], _ body: ([UnsafeMutablePointer<CChar>?]) -> R) -> R {
-        let pointers = strings.map { strdup($0) } + [nil]
-        defer { for pointer in pointers { free(pointer) } }
-        return body(pointers)
     }
 }
