@@ -113,6 +113,12 @@ export type RunArtifactView = {
 export const RUN_ENVIRONMENTS = ["persistent", "sandboxed"] as const;
 export type RunEnvironment = (typeof RUN_ENVIRONMENTS)[number];
 
+export const SANDBOX_RUN_RECIPE = "sandbox-task";
+export const SANDBOX_TASK_MAX_CHARS = 16_000;
+/** The launcher runs after the create response, inside that route's 960 s budget. */
+export const SANDBOX_DEFAULT_TIMEOUT_MS = 10 * 60_000;
+export const SANDBOX_MIN_TIMEOUT_MS = 30_000;
+export const SANDBOX_MAX_TIMEOUT_MS = 12 * 60_000;
 /** A sandbox attempt whose lease lapsed this long ago lost its controller; the reaper fails it. */
 export const SANDBOX_ABANDONED_GRACE_MS = 2 * 60_000;
 /**
@@ -156,6 +162,8 @@ export type SandboxRunOutcome = {
   readonly signal: number | null;
   readonly timedOut: boolean;
   readonly bootMs: number | null;
+  /** Why the run failed, as the launcher saw it (boot, setup, timeout); null when it didn't. */
+  readonly error?: string | null;
 };
 
 /** `cmux.run.receipt/v1`: the result of a sandboxed Run. No provider handles, no secrets. */

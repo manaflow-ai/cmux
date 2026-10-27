@@ -40,6 +40,7 @@ import { translate as t } from "./i18n";
 import { useLocationOpener, useLocationPopover } from "./locationPopover";
 import { usePopoverTrigger } from "../../ui/popoverTrigger";
 import { focusAfterEscape } from "../../ui/escapeFocus";
+import type { RunModeRows } from "./sandboxRun";
 
 export const CONTEXT_LABELS = {
   computer: "composer.computer",
@@ -106,6 +107,7 @@ export function ComposerContext({
   onComputer,
   cloudMachines,
   onCloudMachine = (machine) => void runCloudMachine(machine),
+  runMode,
 }: {
   summary?: Summary;
   sessions?: Session[];
@@ -163,6 +165,8 @@ export function ComposerContext({
   cloudMachines?: readonly CloudMachine[];
   /// A pick of one acpmux does not list: it resumes (paused) or opens; by default through the app.
   onCloudMachine?(machine: CloudMachine): void;
+  /// A new chat's Run as in the environment picker (Persistent or Sandboxed, hq#3367).
+  runMode?: RunModeRows;
 }) {
   const newChat = !started && onProject !== undefined;
   const accountMachines = useCloudMachines();
@@ -237,6 +241,7 @@ export function ComposerContext({
   const currentComputer = computers.find((computer) => computer.id === selectedComputer) ?? computers[0];
   if (!currentComputer && !currentFolder && !projectChoices) return <div className="acpmux-composer-strip" />;
   const readOnly = started || onProject === undefined;
+  const sandboxPicked = runMode?.mode === "sandboxed" && !started && !readOnly;
   const newChats = started && onNewChat !== undefined;
   const branch = summary?.branch;
   // The folder control names the repository (projectRepos.ts), and a worktree's branch while no
@@ -388,18 +393,27 @@ export function ComposerContext({
             <EnvironmentPicker
               label={t(CONTEXT_LABELS.environment)}
               menu="Computer"
-              value={savedPick?.name ?? currentComputer?.label ?? t(CONTEXT_LABELS.chooseComputer)}
+              value={
+                sandboxPicked
+                  ? t("composer.sandboxed")
+                  : (savedPick?.name ?? currentComputer?.label ?? t(CONTEXT_LABELS.chooseComputer))
+              }
               face={
-                <LocationFace
-                  icon={
-                    <EnvironmentIcon
-                      kind={savedPick?.kind ?? currentComputer?.kind ?? "local"}
-                      name={savedPick ? undefined : currentComputer?.label}
-                    />
-                  }
-                  value={savedPick?.name ?? currentComputer?.label ?? t(CONTEXT_LABELS.chooseComputer)}
-                  chevron
-                />
+                // Sandboxed picked (hq#3367): the control names it where the machine was.
+                sandboxPicked ? (
+                  <LocationFace icon={<EnvironmentIcon kind="cloud" />} value={t("composer.sandboxed")} chevron />
+                ) : (
+                  <LocationFace
+                    icon={
+                      <EnvironmentIcon
+                        kind={savedPick?.kind ?? currentComputer?.kind ?? "local"}
+                        name={savedPick ? undefined : currentComputer?.label}
+                      />
+                    }
+                    value={savedPick?.name ?? currentComputer?.label ?? t(CONTEXT_LABELS.chooseComputer)}
+                    chevron
+                  />
+                )
               }
               environments={offload && currentComputer ? [currentComputer] : computers}
               current={selectedComputer}
@@ -408,6 +422,7 @@ export function ComposerContext({
               {...(!started && onConnect ? { onConnect } : {})}
               {...(savedRows ? { saved: savedRows } : {})}
               {...(onRefreshMachines ? { onOpen: onRefreshMachines } : {})}
+              {...(runMode && !started && !readOnly ? { runMode } : {})}
             />
           ) : (
             <LocationPicker

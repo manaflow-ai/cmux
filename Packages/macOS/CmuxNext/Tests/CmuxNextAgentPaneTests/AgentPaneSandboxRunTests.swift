@@ -97,6 +97,10 @@ struct AgentPaneSandboxRunTests {
     }
 
     @Test func onlyTheRunAPIsDocumentedRequestRefusalsAreDefinite() {
+        // A Run API with no sandboxed Runs ("not enabled yet", the App's mapping of its refusals of a
+        // sandboxed body) frees the tab too.
+        #expect(AgentPaneSandboxRuns.isDefiniteRefusal(AgentPaneReply.failure(code: "run_sandbox_unavailable", message: "x")))
+        #expect(AgentPaneReply.pageCode("run_sandbox_unavailable") == "run_sandbox_unavailable")
         for code in ["run_task_required", "run_image_invalid", "run_invalid_request"] {
             #expect(AgentPaneSandboxRuns.isDefiniteRefusal(AgentPaneReply.failure(code: code, message: code)))
             #expect(AgentPaneReply.pageCode(code) == code)

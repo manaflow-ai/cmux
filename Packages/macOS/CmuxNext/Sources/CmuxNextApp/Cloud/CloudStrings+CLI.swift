@@ -102,6 +102,13 @@ extension CloudStrings {
                               table: "Cloud", bundle: .module), path)
     }
 
+    /// `--machine-config FILE` that cannot be read, is empty or is over 64 KB.
+    static func machineConfigUnreadable(_ path: String) -> String {
+        String(format: String(localized: "cloud.cli.machineConfigUnreadable",
+                              defaultValue: "Can't use the machine config %@: it must be a readable file of at most 64 KB.",
+                              table: "Cloud", bundle: .module), path)
+    }
+
     /// `cloud new-machine --bootstrap lane` with no `--name`: the lane bootstrap names the host after it.
     static var laneNeedsName: String {
         String(localized: "cloud.cli.laneNeedsName", defaultValue: "The lane bootstrap needs the machine's name: pass --name lane-vm-N.",
@@ -112,6 +119,27 @@ extension CloudStrings {
     static var machineOptionsUnavailable: String {
         String(localized: "cloud.cli.machineOptionsUnavailable",
                defaultValue: "This Cloud backend can't create a machine with a size, idle pause, name or bootstrap yet. Create it without them, then use cloud resize-machine, cloud set-idle-pause and cloud rename-machine.",
+               table: "Cloud", bundle: .module)
+    }
+
+    /// `cloud new-machine --repo` that is not a GitHub repository in an accepted form.
+    static var repoUnrecognized: String {
+        String(localized: "cloud.cli.repoUnrecognized",
+               defaultValue: "--repo takes a GitHub repository: OWNER/NAME, https://github.com/OWNER/NAME or git@github.com:OWNER/NAME.git, with an optional @REF.",
+               table: "Cloud", bundle: .module)
+    }
+
+    /// `cloud new-machine --repo` with a token or password in the URL.
+    static var repoCredentialsInURL: String {
+        String(localized: "cloud.cli.repoCredentialsInURL",
+               defaultValue: "--repo carries credentials. Remove them: the machine uses the GitHub access it already has, and no token is written to it.",
+               table: "Cloud", bundle: .module)
+    }
+
+    /// `cloud new-machine --repo OWNER/NAME@REF` whose REF is not a plain branch, tag or commit.
+    static var repoInvalidRef: String {
+        String(localized: "cloud.cli.repoInvalidRef",
+               defaultValue: "The @REF of --repo must be a branch, tag or commit of letters, digits, dots, dashes, underscores and slashes.",
                table: "Cloud", bundle: .module)
     }
 
