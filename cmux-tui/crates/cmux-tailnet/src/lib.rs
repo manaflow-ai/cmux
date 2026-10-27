@@ -1,10 +1,7 @@
-//!   TCP listen and dial on the tailnet, and WhoIs for a peer address;
-//! - [`Access`]: who may connect (default: the node's owner only), checked
-//!   on the WhoIs answer before any application byte is read.
-//!
-//! The network decides reachability (Tailscale ACLs); [`Access`] decides
-//! which identities this host serves; the application's own gates (for the
-//! screen host: no browser origins, then the consent prompt) come after both.
+//! Embedded Tailscale node, tailnet TCP streams, and authenticated LocalAPI access.
+//! Blocking operations belong on a background thread.
+
+#![cfg(unix)]
 
 mod ffi;
 mod localapi;
