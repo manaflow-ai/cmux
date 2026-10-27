@@ -141,15 +141,17 @@ class Products(unittest.TestCase):
             "chain": [("cmux.app/Contents/a", ".", None), ("cmux.app/Contents/b", "a/../../..", None)],
             "through a link": [("cmux.app/Contents/a", ".", None), ("cmux.app/Contents/a/payload", None, None)],
             "loop": [("cmux.app/Contents/a", "b", None), ("cmux.app/Contents/b", "a", None)],
-            # On a case-insensitive volume A is a, so b leads three levels up and B/payload follows it.
+            # On a case-insensitive volume A is a, so b leads three levels up and B/payload follows it;
+            # the checks fold case, so a case-sensitive Linux runner refuses it too.
             "mixed case": [("cmux.app/Contents/a", ".", None), ("cmux.app/Contents/b", "A/../../..", None),
                            ("cmux.app/Contents/B/payload", None, None)],
             "duplicate": [("cmux.app/Contents/x", None, None), ("cmux.app/Contents/x", None, None)],
+            "duplicate but for case": [("cmux.app/Contents/x", None, None), ("cmux.app/Contents/X", None, None)],
             "huge pax header": [("cmux.app/Contents/y", None, {"comment": "z" * (nightly.MAX_EXTENSION_HEADER_BYTES + 1)})],
         }
-        for label, members in cases.items():
+        for index, (label, members) in enumerate(cases.items()):
             with self.subTest(case=label):
-                target = self.dir / "restored"
+                target = self.dir / f"restored-{index}"
                 with self.assertRaises(reuse.Miss):
                     nightly.unpack(self.tar_of(*members), target)
                 self.assertFalse(target.exists() and any(target.iterdir()))
