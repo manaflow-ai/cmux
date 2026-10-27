@@ -1,0 +1,7 @@
+{
+  "notifications": {
+    "attention": {
+      "duration": 0.3
+    }
+  }
+}

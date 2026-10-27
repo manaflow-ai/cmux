@@ -28,9 +28,12 @@ pub(crate) fn start(mux: &Arc<Mux>) {
     }
     let Some(layout) = Layout::current() else { return };
     let weak = Arc::downgrade(mux);
-    let spawned = std::thread::Builder::new()
-        .name("mux-project-sources".into())
-        .spawn(move || run(&weak, &layout));
+    let spawned = crate::thread_qos::spawn_raisable(
+        "mux-project-sources",
+        crate::thread_qos::ThreadType::Utility.qos(),
+        None,
+        move || run(&weak, &layout),
+    );
     if let Err(error) = spawned {
         note(&format!("project sources thread did not start: {error}"));
     }

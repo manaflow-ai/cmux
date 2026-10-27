@@ -346,7 +346,7 @@ fn transcript_turns(
         }
     };
     // adopt's reader answers an unreadable file with no turns.
-    std::fs::File::open(&entry.source_path)
+    cmux_blocking::fs::open(&entry.source_path)
         .map_err(|e| TranscriptError::Unreadable(e.to_string()))?;
     let turns = crate::adopt_replay::read(family, &entry.source_path);
     Ok(turns
@@ -365,7 +365,7 @@ fn transcript_turns(
 async fn blocking(
     f: impl FnOnce() -> Result<Value, RpcError> + Send + 'static,
 ) -> Result<Value, RpcError> {
-    tokio::task::spawn_blocking(f).await.map_err(|e| RpcError::internal(e.to_string()))?
+    crate::daemon::spawn_blocking(f).await.map_err(|e| RpcError::internal(e.to_string()))?
 }
 
 /// Sends every index change to `conn` until it closes or turns watching off.
