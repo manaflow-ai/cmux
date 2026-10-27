@@ -14,6 +14,13 @@ import Testing
     private static let echo = URL(filePath: "/bin/sh")
     private static let echoArguments = ["-c", "exec /bin/cat <&3 >&4"]
 
+    /// Task p01-process-222: the host is spawned with no QoS clamp, so its own user-interactive main thread is
+    /// not capped by cmux.
+    @Test func theHostSpawnSetsNoQoSClamp() {
+        #expect(ChromiumHostLauncher.priority == .userBlocking)
+        #expect(ChromiumHostLauncher.priority.spawnClamp == nil)
+    }
+
     @Test func framesRoundTripThroughAChildProcess() async throws {
         let launcher = ChromiumHostLauncher()
         let handle = try await launcher.launch(executable: Self.echo, arguments: Self.echoArguments)

@@ -55,7 +55,7 @@ struct PageChromiumWindowShareTests {
         let view = try #require(host.open(PageOpenRequest(descriptor: descriptor, root: root, routes: [])))
         defer { host.close(view) }
         view.chromiumWindow = paneA
-        let window = PageHostPoolLaunchWindowTests.shownWindow()
+        let window = PagePreloadPageTests.shownWindow()
         defer { window.close() }
         // AppKit reports the off-screen test window covered: its node reads visible.
         let visibility = WindowVisibilitySource.of(window, read: { _ in .visible })
