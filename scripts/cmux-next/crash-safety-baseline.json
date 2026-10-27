@@ -83,9 +83,7 @@
   "rust": {
    "exit": {
     "acpmux": 1,
-    "cmux-browser-host": 5,
-    "cmux-host": 1,
-    "cmux-rd-host": 1,
+    "cmux-browser-host": 4,
     "cmux-tui-core": 4
    },
    "expect": {

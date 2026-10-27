@@ -229,19 +229,14 @@ mod unix {
     ) -> Result<(), String> {
         let slot = engines.provider_slot();
         let bundle: Arc<str> = agent_bundle().into();
-        // supervise-allow: the provider listener, Fatal by hand: its loop never ends while it serves, so an end or a panic exits the host and the daemon starts it again, never a host that takes no providers.
+        // supervise-allow: the provider listener; its loop only accepts, checks the peer and starts one thread per handshake (a handshake's panic stays on that thread), so it ends only when the listener fails, which leaves the host without app tabs until the daemon restarts it.
         std::thread::Builder::new()
             .name("cmux-browser-host-providers".into())
             .spawn(move || {
                 let secret = cmux_browser_host::provider::ProviderSecret::new(secret);
-                let served = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                    cmux_browser_host::server::serve_providers_notifying(
-                        listener, secret, slot, bundle, on_change,
-                    )
-                }));
-                eprintln!("cmux-browser-host: the provider listener ended ({served:?}); exiting");
-                // crash-allow: a host without its provider listener serves no app tabs; the daemon starts it again.
-                std::process::exit(1);
+                let _ = cmux_browser_host::server::serve_providers_notifying(
+                    listener, secret, slot, bundle, on_change,
+                );
             })
             .map_err(|e| e.to_string())?;
         Ok(())
