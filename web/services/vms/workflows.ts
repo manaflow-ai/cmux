@@ -176,6 +176,7 @@ import {
   type VmPauseReason,
 } from "./idlePause";
 import { guestAgentUpdatesCommand } from "./guestAgentUpdates";
+import { vmKindForCaller } from "./vmKind";
 
 export {
   homeVolumeNameForUser,
@@ -5873,7 +5874,8 @@ export function openVmCmuxRemote(input: {
     if (vmAgentUpdatesFromRow(vm) === "latest") {
       yield* scheduleGuestAgentUpdates(providers, vm, "latest", input.deferAfterResponse);
     }
-    return endpoint;
+    // The caller's own sandbox opt-out reads this; see vmKindForCaller.
+    return { ...endpoint, vmKind: vmKindForCaller(vm, input.userId) };
   });
 }
 
@@ -5974,7 +5976,7 @@ type OpenAttachEndpointInput = {
 export function openAttachEndpoint(input: OpenAttachEndpointInput) {
   return Effect.gen(function* () {
     const result = yield* openAttachEndpointResult(input);
-    return result.endpoint;
+    return { ...result.endpoint, vmKind: result.vmKind };
   }).pipe(releaseProviderCredential(input.providerCredential, input.userId));
 }
 
@@ -6220,7 +6222,7 @@ function openAttachEndpointResult(input: OpenAttachEndpointInput) {
         },
       })
       : undefined;
-    return { endpoint, session };
+    return { endpoint, session, vmKind: vmKindForCaller(vm, input.userId) };
   });
 }
 
