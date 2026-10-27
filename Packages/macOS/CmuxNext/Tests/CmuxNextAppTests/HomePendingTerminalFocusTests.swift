@@ -3,6 +3,7 @@ import CmuxHomeCore
 import CmuxNextActions
 @testable import CmuxNextApp
 import CmuxNextFocus
+import CmuxNextHome
 import CmuxNextTerminal
 import Foundation
 import Testing
@@ -34,7 +35,16 @@ struct HomePendingTerminalFocusTests {
             let (window, home) = try await HomeSplitKeysTests.showHome(services, connection)
             let shell = try #require(window.window)
             let dockKey = try #require(window.focusedPane?.paneKey, "Home's dock has no focus")
-            let page = try #require(HomeDockTab.view(services)?.messages, "Home's dock shows no Messages view")
+            // The dock pane's content: Home's page, whose view is the docked Home (Messages, its default view).
+            @MainActor func dockView() -> HomeDockView? {
+                guard case .page(let view)? = window.content?.paneController(key: dockKey)?.currentContent else { return nil }
+                return view.content as? HomeDockView
+            }
+            try await PasswordManagerRouteTests.until({ dockView()?.messages != nil }, report: {
+                "Home's dock pane shows \(String(describing: window.content?.paneController(key: dockKey)?.currentContent)), "
+                    + "mode \(String(describing: dockView()?.mode))"
+            })
+            let page = try #require(dockView()?.messages)
             page.show(ConversationID("conv_pending_terminal"))
             try await PasswordManagerRouteTests.until({ page.host?.primaryInputView is NSTextView }, report: { "Home's message box never appeared" })
             let host = try #require(page.host)
