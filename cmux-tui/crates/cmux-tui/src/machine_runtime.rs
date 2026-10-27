@@ -1130,64 +1130,78 @@ mod tests {
         );
     }
 
-    #[test]
-    fn a_host_name_from_an_include_counts_where_the_include_stands() {
+    /// Writes each `(file, lines)` under a scratch `~/.ssh` and reads the
+    /// config's hosts with their HostNames.
+    fn host_names_of(files: &[(&str, &[&str])]) -> Vec<(String, Option<String>)> {
         let temp = tempfile::tempdir().unwrap();
         let home = temp.path();
         let ssh_root = home.join(".ssh");
         fs::create_dir_all(&ssh_root).unwrap();
-        // `early` comes before `gh`'s block, so its HostName wins; `inside`
-        // is read inside `lab`'s block and gives it one; `loop` includes
+        for (file, lines) in files {
+            fs::write(ssh_root.join(file), lines.join("\n") + "\n").unwrap();
+        }
+        ssh_config_targets_from_path(&ssh_root.join("config"), &ssh_root, home)
+            .into_iter()
+            .map(|h| (h.alias, h.host_name))
+            .collect()
+    }
+
+    fn named(alias: &str, host_name: &str) -> (String, Option<String>) {
+        (alias.to_owned(), Some(host_name.to_owned()))
+    }
+
+    #[test]
+    fn a_host_name_from_an_include_counts_where_the_include_stands() {
+        // `early` comes before `gh`'s block, so its HostName wins. `inside`
+        // is read inside `lab`'s block, so it names `lab` and never
+        // `target` or `other` (ssh reads it only for lab). `loop` includes
         // the config again, which stops.
-        fs::write(
-            ssh_root.join("config"),
-            "Include early
-Host gh
-  HostName example.com
-             Host lab
-  Include inside
-Host lab2
-  Include loop
-",
-        )
-        .unwrap();
-        fs::write(
-            ssh_root.join("early"),
-            "Host gh
-  HostName github.com
-",
-        )
-        .unwrap();
-        fs::write(
-            ssh_root.join("inside"),
-            "HostName 10.0.4.2
-Host other
-  HostName z
-",
-        )
-        .unwrap();
-        fs::write(
-            ssh_root.join("loop"),
-            "Include config
-HostName lab2.internal
-",
-        )
-        .unwrap();
-        let names: Vec<(String, Option<String>)> =
-            ssh_config_targets_from_path(&ssh_root.join("config"), &ssh_root, home)
-                .into_iter()
-                .map(|h| (h.alias, h.host_name))
-                .collect();
-        let want = |a: &str, n: &str| (a.to_owned(), Some(n.to_owned()));
+        let config: &[&str] = &[
+            "Include early",
+            "Host gh",
+            "  HostName example.com",
+            "Host lab",
+            "  Include inside",
+            "Host lab2",
+            "  Include loop",
+            "Host target",
+            "  HostName target.internal",
+        ];
+        let names = host_names_of(&[
+            ("config", config),
+            ("early", &["Host gh", "  HostName github.com"]),
+            ("inside", &["HostName 10.0.4.2", "Host target other", "  HostName github.com"]),
+            ("loop", &["Include config", "HostName lab2.internal"]),
+        ]);
         assert_eq!(
             names,
             vec![
-                want("gh", "github.com"),
-                want("lab", "10.0.4.2"),
-                want("lab2", "lab2.internal"),
-                want("other", "z"),
+                named("gh", "github.com"),
+                named("lab", "10.0.4.2"),
+                named("lab2", "lab2.internal"),
+                named("target", "target.internal"),
+                ("other".to_owned(), None),
             ]
         );
+    }
+
+    #[test]
+    fn a_host_name_may_be_set_with_an_equals_sign() {
+        let config: &[&str] = &[
+            "Host a",
+            "  HostName = a.example",
+            "Host b",
+            "  HostName =b.example",
+            "Host c",
+            "  HostName= c.example",
+            "Host d",
+            "  HostName=d.example",
+            "Host = e",
+            "  HostName e.example",
+        ];
+        let names = host_names_of(&[("config", config)]);
+        let want = |a: &str| named(a, &format!("{a}.example"));
+        assert_eq!(names, vec![want("a"), want("b"), want("c"), want("d"), want("e")]);
     }
 
     #[test]
