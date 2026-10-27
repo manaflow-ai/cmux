@@ -22,6 +22,12 @@
 //! answered without running. A CANCEL for an id that is not in flight lost a
 //! race with its reply and is dropped.
 //!
+//! Frames are granted only at this daemon's API revision (capabilities.rs,
+//! `still_allowed`, checked again before every frame), so a body is never
+//! upgraded from another revision (`MessageWriter::upgrade_request`). While a
+//! daemon handoff is pending, a REQUEST gets the line refusal's body as its
+//! ERROR frame, named by the header's method (server/pending_handoff.rs).
+//!
 //! Only `Command` methods answer on frames yet. A feature route or a v2
 //! operation replies on its own writer, so a frame naming one gets the ERROR
 //! [`METHOD_NOT_FRAMED`] and the client sends that method as a line; the
@@ -57,6 +63,8 @@ const SWEEP_MIN: usize = 64;
 /// One REQUEST frame from its arrival to its reply.
 pub(super) struct FrameCall {
     stream: u16,
+    /// The header's method, checked against the table and the body.
+    method: &'static MethodAttrs,
     /// The request's call fields, echoed by its reply (flags cleared).
     call: CallAux,
     answered: AtomicBool,
@@ -64,13 +72,19 @@ pub(super) struct FrameCall {
 }
 
 impl FrameCall {
-    fn new(stream: u16, call: CallAux) -> Self {
+    pub(super) fn new(stream: u16, call: CallAux, method: &'static MethodAttrs) -> Self {
         FrameCall {
             stream,
+            method,
             call: CallAux { flags: CallFlags::empty(), ..call },
             answered: AtomicBool::new(false),
             cancellation: Arc::default(),
         }
+    }
+
+    /// The `cmd` its body names (the method table's v12 name).
+    pub(super) fn method_name(&self) -> &'static str {
+        self.method.name
     }
 
     /// Whether its reply was sent (its id is free again).
@@ -245,7 +259,7 @@ impl RequestFrames {
         // An admitted REQUEST is one framed request of `server-stats` `ipc`:
         // the body parses below and on its line's path count toward it.
         let _parses = JsonParseScope::enter(connection.mux.ipc_stats(), IpcTransport::Frames);
-        let frame_call = Arc::new(FrameCall::new(header.stream(), call));
+        let frame_call = Arc::new(FrameCall::new(header.stream(), call, method));
         let writer = connection.writer.replying_to(frame_call.clone());
         if !self.served_on_frames(method) {
             return Ok(send_not_framed(&writer, method));
