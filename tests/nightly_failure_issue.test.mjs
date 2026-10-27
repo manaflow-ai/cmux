@@ -276,8 +276,15 @@ test('comments are read in id order whatever order the API returns', async () =>
   assert.equal(issues[0].state, 'open');
 });
 
-test('an older RC line that fails after a newer line published opens no incident', async () => {
+test('an older RC line that fails after a newer line published is resolved by that line', async () => {
   const { github, issues } = fakeGitHub({ parents: RC, branches: RC_BRANCHES });
+  // The release does not name its line, so the report alone cannot tell.
+  github.rest.repos.getReleaseByTag = async () => ({ data: { body: `<!-- cmux-published-sha: ${sha('4')} -->` } });
+  assert.equal(await fail(github, sha('2'), 'rc/v0.65.2', { ...rc, releaseTag: 'rc' }), 1);
+  assert.equal(issues[0].state, 'open');
+  // The newer line's next close knows its line and resolves it.
+  assert.deepEqual(await publish(github, sha('4'), 'rc/v0.65.3', rc), [1]);
+});
   github.rest.repos.getReleaseByTag = async () => ({ data: { body: `<!-- cmux-published-sha: ${sha('4')} -->` } });
   assert.equal(await fail(github, sha('2'), 'rc/v0.65.2', { ...rc, releaseTag: 'rc' }), null);
   assert.equal(issues.length, 0);

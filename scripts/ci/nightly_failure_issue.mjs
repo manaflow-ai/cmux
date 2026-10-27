@@ -236,22 +236,6 @@ export async function publishedCommit({ github, owner, repo, releaseTag }) {
   }
 }
 
-// The rc/ branch newer than the failure's line that holds `published`, or null
-// (RC lines are cut from main, so they diverge from one another).
-export async function newerRcLine({ github, owner, repo, published, failureRef }) {
-  const failed = rcVersion(failureRef);
-  if (!failed) return null;
-  const refs = await github.paginate(github.rest.git.listMatchingRefs, { owner, repo, ref: 'heads/rc/', per_page: 100 });
-  for (const { ref } of refs) {
-    const branch = ref.replace(/^refs\/heads\//, '');
-    const version = rcVersion(branch);
-    if (!version || compareVersions(version, failed) <= 0) continue;
-    const status = await compareStatus(github, owner, repo, published, branch);
-    if (status === 'ahead' || status === 'identical') return branch;
-  }
-  return null;
-}
-
 // The channel's publication that supersedes a failure of `sha` on `ref`, as
 // { sha, ref }, or null.
 async function superseding({ github, owner, repo, releaseTag, sha, ref }) {
@@ -261,10 +245,8 @@ async function superseding({ github, owner, repo, releaseTag, sha, ref }) {
   if (status === 'ahead') return { sha: published, ref };
   if (status === 'missing') return (await failedCommitGone(github, owner, repo, sha, published)) ? { sha: published, ref } : null;
   if (status !== 'diverged' && status !== 'behind') return null;
-  if (status === 'diverged') {
-    const line = await newerRcLine({ github, owner, repo, published, failureRef: ref });
-    if (line) return { sha: published, ref: line };
-  }
+  // The release names its commit, not its rc/ line, so a diverged publication
+  // is never taken for a newer line's here; that line's close resolves it.
   // The failed commit was rewritten off its branch, and the publication is
   // that branch's: the failure is not an incident (`covers` resolves it too).
   if (!(await offBranch(github, owner, repo, sha, ref))) return null;
