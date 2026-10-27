@@ -269,6 +269,26 @@ impl Client {
     }
 }
 
+#[cfg(test)]
+impl Client {
+    /// A client whose daemon connection already ended: every request fails at once, with no I/O.
+    pub(crate) fn closed_for_test() -> Arc<Self> {
+        let (out, _) = mpsc::channel(1);
+        let (notif_tx, notif_rx) = mpsc::channel(1);
+        Arc::new(Self {
+            daemon_build: std::sync::Mutex::new(None),
+            person_challenge: std::sync::Mutex::new(None),
+            out,
+            next_id: AtomicI64::new(1),
+            pending: Arc::default(),
+            notifications: Mutex::new(Some(notif_rx)),
+            notif_tx: Arc::new(Mutex::new(notif_tx)),
+            closed: Arc::new(std::sync::atomic::AtomicBool::new(true)),
+            parent_session: None,
+        })
+    }
+}
+
 /// An error reply from the daemon. It prints as the message alone and
 /// keeps the JSON-RPC code, so callers can tell invalid params (-32602)
 /// from internal errors.

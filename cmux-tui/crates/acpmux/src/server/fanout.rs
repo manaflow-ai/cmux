@@ -4,13 +4,21 @@
 use super::{
     Conn, Hub, Message, Ordering, broadcast, deliver, harness_admin, inventory_watch, json,
 };
+use crate::rpc::method;
 use std::sync::Arc;
+
+/// A watching client reads `_acpmux/status` again on `_acpmux/status_changed`; a peer
+/// daemon's link has no use for it (its own hub tracks its peers).
+fn wants_status_changes(conn: &Conn) -> bool {
+    conn.watch_all.load(Ordering::SeqCst) && conn.origin != super::Origin::Peer
+}
 
 pub(super) fn start(hub: Arc<Hub>, conn: Arc<Conn>) -> tokio::task::JoinHandle<()> {
     let mut rx = hub.subscribe();
     let mut harnesses = hub.subscribe_harness_changes();
     let mut catalog = hub.catalog.subscribe();
     let mut inventory = hub.health.inventory_changes();
+    let mut status = hub.subscribe_status_changes();
     tokio::spawn(async move {
         loop {
             let ev = tokio::select! {
@@ -40,6 +48,14 @@ pub(super) fn start(hub: Arc<Hub>, conn: Arc<Conn>) -> tokio::task::JoinHandle<(
                 changed = inventory.changed() => {
                     if changed.is_err() { break; }
                     inventory_watch::send_latest(&conn, &mut inventory).await;
+                    continue;
+                }
+                // Marks made since the last read fold into this one notification.
+                changed = status.changed() => {
+                    if changed.is_err() { break; }
+                    if wants_status_changes(&conn) {
+                        conn.send(&Message::notification(method::MUX_STATUS_CHANGED, json!({})));
+                    }
                     continue;
                 }
             };

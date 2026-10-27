@@ -348,6 +348,7 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_HARNESSES_CHANGED, Notification),
         untyped(method::MUX_HARNESS_INVENTORY, Notification),
         untyped(method::MUX_START_MODE_CHANGED, Notification),
+        untyped(method::MUX_STATUS_CHANGED, Notification),
         untyped(method::MUX_PROMPT_ACCEPTED, Notification),
         untyped("_acpmux/lagged", Notification),
         untyped(method::MUX_DISCONNECTED, ClientLocal),

@@ -135,6 +135,9 @@ pub const CAPABILITIES: &[Capability] = &[
     Capability { id: "workflows-index-v1", wire: &[method::MUX_WORKFLOWS] },
     // Answer an agent's offer to start a session (`offer_mcp.rs`).
     Capability { id: "session-offers-v1", wire: &[method::MUX_OFFER_RESPOND] },
+    // Host list and web URL changes, so a client reads `_acpmux/status` again instead of
+    // polling it (`hub/status_feed.rs`).
+    Capability { id: "status-changed-v1", wire: &[method::MUX_STATUS, method::MUX_STATUS_CHANGED] },
 ];
 
 /// The ids of [`CAPABILITIES`], in its order.

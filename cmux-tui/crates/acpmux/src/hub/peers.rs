@@ -50,6 +50,7 @@ impl Hub {
             tracing::warn!(peer = %name, "peer refused: its ssh URL is not valid ({why}); fix or remove it");
             if let Some(old) = self.peers.lock().unwrap_or_else(|e| e.into_inner()).remove(name) {
                 old.stop();
+                self.status_changed();
             }
             return tokio::sync::watch::channel(1).1;
         }
@@ -81,6 +82,8 @@ impl Hub {
         if cached {
             self.load_peer_cache(&peer);
         }
+        // A new host, or one that connects again: its chip changes.
+        self.status_changed();
         let generation = peer.generation;
         tokio::spawn(peer.run());
         (generation, settled)
@@ -192,6 +195,7 @@ impl Hub {
         // After the peer left the registry: a late notice of it finds it
         // gone, or its rows go here.
         self.purge_peer_rows(name);
+        self.status_changed();
         let mut cfg = self.config.write().await;
         cfg.peers.remove(name);
         if let Err(e) = cfg.save() {
@@ -376,12 +380,18 @@ impl Hub {
         let peer = peer.to_owned();
         {
             match notice {
-                PeerNotice::Connected => tracing::info!(peer = %peer, "peer ready"),
+                PeerNotice::Connected => {
+                    tracing::info!(peer = %peer, "peer ready");
+                    self.status_changed();
+                }
                 PeerNotice::Disconnected(e) => {
                     let link = self.peer(&peer).map(|p| p.link()).unwrap_or_default();
                     // One line per drop, not per failed attempt while it is down.
                     if link.attempts <= 1 {
                         tracing::warn!(peer = %peer, "peer disconnected: {e}");
+                        // The drop, not each failed attempt after it: only the drop changes
+                        // the host's chip (a peer with no sessions announces nothing else).
+                        self.status_changed();
                     } else {
                         tracing::debug!(peer = %peer, attempts = link.attempts, "peer still unreachable: {e}");
                     }

@@ -84,6 +84,8 @@ impl Hub {
             return Err(RpcError::internal(format!("could not save the new web token: {e:#}")));
         }
         self.web_token.set(token);
+        // `_acpmux/status` webUrl carries the token.
+        self.status_changed();
         tracing::info!("the web token was rotated; run `acpmux web` for the new link");
         Ok(json!({"webUrl": web_url(&cfg)}))
     }

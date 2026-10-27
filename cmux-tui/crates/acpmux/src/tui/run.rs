@@ -71,7 +71,7 @@ pub async fn run(client: Arc<Client>, initial: Option<String>) -> Result<()> {
     let mut events = EventStream::new();
     let mut ticker = scheduler::Ticker::default();
     let mut frames = scheduler::FrameSchedule::new(Instant::now());
-    let status = StatusReads::start(client.clone(), tx.clone());
+    let status = super::status_reads::StatusReads::start(client.clone(), read_status, tx.clone());
     let result: Result<()> = loop {
         // First paint with no sessions: open the form so the empty screen is not a dead end.
         if !app.initial_empty_checked && !app.harnesses.is_empty() {
@@ -170,8 +170,12 @@ pub async fn run(client: Arc<Client>, initial: Option<String>) -> Result<()> {
                     Some(Message::Notification { method: m, params }) if m != method::MUX_DISCONNECTED => {
                         let p = params.unwrap_or(Value::Null);
                         let selected = p.get("sessionId").and_then(Value::as_str) == app.selected_id().as_deref();
-                        // A peer's sessions change when it connects or drops: its host chip may too.
-                        if (m == method::MUX_SESSION_CHANGED && p.get("peer").is_some()) || m == "_acpmux/lagged" {
+                        // The daemon says a host or the web URL changed; a peer's session count is on
+                        // its chip too, and a lagged stream may have dropped either.
+                        if m == method::MUX_STATUS_CHANGED
+                            || (m == method::MUX_SESSION_CHANGED && p.get("peer").is_some())
+                            || m == "_acpmux/lagged"
+                        {
                             status.read_again();
                         }
                         let visible = match m.as_str() {
@@ -363,47 +367,9 @@ fn animated(app: &App) -> bool {
             .is_some_and(|t| t.status == "running")
 }
 
-/// Daemon status (host chips, the web URL), read again on the events that can change it:
-/// focus, a peer's session change, a lagged stream, a reconnect. No poll. Asks made while
-/// a read is in flight fold into one more read (`Notify` keeps one permit).
-struct StatusReads {
-    wanted: Arc<tokio::sync::Notify>,
-    client: tokio::sync::watch::Sender<Arc<Client>>,
-}
-
-impl StatusReads {
-    fn start(client: Arc<Client>, tx: mpsc::UnboundedSender<AppMsg>) -> Self {
-        let wanted = Arc::new(tokio::sync::Notify::new());
-        let (client, mut current) = tokio::sync::watch::channel(client);
-        let asked = wanted.clone();
-        // task-owner: the TUI; it ends when the TUI drops its sender or its messages.
-        tokio::spawn(async move {
-            loop {
-                tokio::select! {
-                    () = asked.notified() => {}
-                    changed = current.changed() => {
-                        if changed.is_err() { return; }
-                        continue;
-                    }
-                }
-                let c = current.borrow_and_update().clone();
-                if let Ok(v) = c.request(method::MUX_STATUS, json!({})).await
-                    && tx.send(AppMsg::Status(v)).is_err()
-                {
-                    return;
-                }
-            }
-        });
-        Self { wanted, client }
-    }
-
-    fn read_again(&self) {
-        self.wanted.notify_one();
-    }
-
-    fn use_client(&self, client: Arc<Client>) {
-        self.client.send_replace(client);
-    }
+/// One `_acpmux/status` read for `StatusReads`; a failed read changes nothing on screen.
+async fn read_status(client: Arc<Client>) -> Option<Value> {
+    client.request(method::MUX_STATUS, json!({})).await.ok()
 }
 
 /// Wait for a daemon to come back (starting one if none does), then rebuild

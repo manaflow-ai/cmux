@@ -1316,6 +1316,11 @@
     },
     {
       "kind": "notification",
+      "name": "_acpmux/status_changed",
+      "params": true
+    },
+    {
+      "kind": "notification",
       "name": "_acpmux/prompt_accepted",
       "params": true
     },

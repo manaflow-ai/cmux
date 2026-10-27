@@ -84,6 +84,7 @@ pub(crate) mod session_pages;
 mod settings_watch;
 mod silent_turn;
 mod stalled_turn;
+mod status_feed;
 pub(crate) mod tasks;
 pub use session::{Session, live_tags};
 pub(super) use session::{newest_first, prompt_text, short_text};
@@ -448,6 +449,8 @@ pub struct Hub {
     pub(super) auto_resumes: auto_resume::Pending,
     /// Fired by `set_transfer_lease`: each move's watch reads the new lease now.
     pub(super) transfer_lease_changed: Notify,
+    /// Marks `_acpmux/status` changed for watching clients (`status_feed.rs`).
+    pub(super) status_feed: status_feed::StatusFeed,
     /// Secrets agents asked the person for, and their one-use refs (`secrets.rs`).
     pub(super) secrets: secrets::Secrets,
     /// Sub-session starts waiting on a folder's trust card, and Not nows (`trust_wait.rs`).
@@ -558,6 +561,7 @@ impl Hub {
             subsession_runs: Default::default(),
             auto_resumes: Default::default(),
             transfer_lease_changed: Notify::new(),
+            status_feed: Default::default(),
             secrets: Default::default(),
             trust_waits: Default::default(),
             outbox: Default::default(),

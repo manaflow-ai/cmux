@@ -172,9 +172,36 @@ enum Ended {
     Resumed,
 }
 
-/// How often the link checks the wall clock for a suspend, and the jump that counts as one.
-const SUSPEND_CHECK: Duration = Duration::from_secs(2);
+/// How far the wall clock may run ahead of the monotonic clock between two wakes of the link
+/// before it counts as a suspend.
 const SUSPEND_JUMP: Duration = Duration::from_secs(10);
+
+/// Tells a suspend from the two clocks: the monotonic clock stops while a VM is paused, the
+/// wall clock does not. Read at each wake the link has anyway (a keepalive, a frame in or
+/// out), so it costs no wake of its own; a resumed machine is seen at the next of them.
+struct SuspendWatch {
+    wall: std::time::SystemTime,
+    mono: tokio::time::Instant,
+}
+
+impl SuspendWatch {
+    fn new(wall: std::time::SystemTime, mono: tokio::time::Instant) -> Self {
+        Self { wall, mono }
+    }
+
+    /// Whether the wall clock ran more than `SUSPEND_JUMP` ahead of the monotonic clock
+    /// since the last read. A wall clock set back counts as no suspend.
+    fn resumed(&mut self, wall: std::time::SystemTime, mono: tokio::time::Instant) -> bool {
+        let wall_gap = wall.duration_since(self.wall).unwrap_or_default();
+        let mono_gap = mono.saturating_duration_since(self.mono);
+        (self.wall, self.mono) = (wall, mono);
+        wall_gap.saturating_sub(mono_gap) > SUSPEND_JUMP
+    }
+
+    fn resumed_now(&mut self) -> bool {
+        self.resumed(std::time::SystemTime::now(), tokio::time::Instant::now())
+    }
+}
 
 async fn serve(
     cfg: &Arc<HandConfig>,
@@ -230,21 +257,13 @@ async fn serve(
     let mut keepalive = tokio::time::interval(KEEPALIVE);
     keepalive.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
     let mut last_pong = tokio::time::Instant::now();
-    // The monotonic clock stops while a VM is paused; the wall clock does not.
-    let mut suspend = tokio::time::interval(SUSPEND_CHECK);
-    suspend.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
-    let mut wall = std::time::SystemTime::now();
+    let mut suspend = SuspendWatch::new(std::time::SystemTime::now(), tokio::time::Instant::now());
     loop {
         tokio::select! {
-            _ = suspend.tick() => {
-                let now = std::time::SystemTime::now();
-                let jumped = now.duration_since(wall).is_ok_and(|gap| gap > SUSPEND_JUMP);
-                wall = now;
-                if jumped {
+            _ = keepalive.tick() => {
+                if suspend.resumed_now() {
                     return Err(Ended::Resumed);
                 }
-            }
-            _ = keepalive.tick() => {
                 if last_pong.elapsed() > KEEPALIVE_DEAD {
                     return Err(Ended::Failed("no keepalive answer".into()));
                 }
@@ -254,6 +273,11 @@ async fn serve(
             }
             frame = out_rx.recv() => {
                 let Some(frame) = frame else { return Ok(()) };
+                if suspend.resumed_now() {
+                    // Kept for the next connection: this socket is gone with the suspend.
+                    if frame["t"] == "res" || frame["t"] == "approve" { let _ = out_tx.try_send(frame); }
+                    return Err(Ended::Resumed);
+                }
                 if let Err(e) = sink.send(Ws::Text(frame.to_string().into())).await {
                     // Keep the frame for the next connection when it is an answer.
                     if frame["t"] == "res" || frame["t"] == "approve" { let _ = out_tx.try_send(frame); }
@@ -261,6 +285,10 @@ async fn serve(
                 }
             }
             msg = source.next() => {
+                // A frame read after a suspend came on a socket the other side may have dropped.
+                if suspend.resumed_now() {
+                    return Err(Ended::Resumed);
+                }
                 match msg {
                     None => return Err(Ended::Failed("socket closed".into())),
                     Some(Err(e)) => return Err(Ended::Failed(e.to_string())),
@@ -342,5 +370,44 @@ fn on_frame(
             });
         }
         _ => {}
+    }
+}
+
+#[cfg(test)]
+mod suspend_tests {
+    use super::{SUSPEND_JUMP, SuspendWatch};
+    use std::time::{Duration, SystemTime};
+    use tokio::time::Instant;
+
+    #[test]
+    fn running_clocks_are_no_suspend() {
+        let (wall, mono) = (SystemTime::now(), Instant::now());
+        let mut watch = SuspendWatch::new(wall, mono);
+        // A keepalive 30 s later: both clocks moved alike.
+        let gap = Duration::from_secs(30);
+        assert!(!watch.resumed(wall + gap, mono + gap));
+        // A wall clock set back is no suspend either.
+        assert!(!watch.resumed(wall, mono + gap * 2));
+    }
+
+    #[test]
+    fn a_wall_clock_jump_past_the_monotonic_one_ends_the_link() {
+        let (wall, mono) = (SystemTime::now(), Instant::now());
+        let mut watch = SuspendWatch::new(wall, mono);
+        // The VM was paused for an hour: the monotonic clock moved 1 s, the wall clock an hour.
+        let mono = mono + Duration::from_secs(1);
+        let wall = wall + Duration::from_secs(3600);
+        assert!(watch.resumed(wall, mono));
+        // The next read compares from there: no second suspend.
+        assert!(!watch.resumed(wall + Duration::from_secs(5), mono + Duration::from_secs(5)));
+    }
+
+    #[test]
+    fn a_jump_within_the_slack_is_no_suspend() {
+        let (wall, mono) = (SystemTime::now(), Instant::now());
+        let mut watch = SuspendWatch::new(wall, mono);
+        assert!(!watch.resumed(wall + SUSPEND_JUMP, mono));
+        let mut watch = SuspendWatch::new(wall, mono);
+        assert!(watch.resumed(wall + SUSPEND_JUMP + Duration::from_millis(1), mono));
     }
 }

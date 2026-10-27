@@ -17,6 +17,7 @@ mod events;
 mod run;
 mod scheduler;
 mod state;
+mod status_reads;
 mod terminal;
 mod tui_memory;
 pub use run::run;
