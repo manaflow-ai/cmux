@@ -698,6 +698,10 @@ path = "tests/test_ci_pr_size_advisory.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_gh_call_log.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_workflow_permissions_are_job_scoped.py"
 lane = "linux-guard"
 
@@ -1054,7 +1058,7 @@ path = "tests/test_dev_release_product_reuse.py"
 lane = "linux-guard"
 
 [[test]]
-path = "tests/test_merge_compile_guard.py"
+path = "tests/test_nightly_release_product_key.py"
 lane = "linux-guard"
 
 [[test]]
@@ -1216,6 +1220,10 @@ path = "tests/test_merge_pbxproj.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_appcast_keep_pubdates.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_appcast_minimum_system_version.py"
 lane = "linux-guard"
 
@@ -1269,6 +1277,10 @@ path = "tests/test_cmux_next_dev_release_host_root.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_cmux_next_hybrid_ref_capture.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_cmux_next_release_build_retention.py"
 lane = "linux-guard"
 
@@ -1293,6 +1305,10 @@ path = "tests/test_nightly_next_guard.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_publish_nightly_next_r2.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_nightly_next_source_archive.py"
 lane = "linux-guard"
 
@@ -1302,6 +1318,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_nightly_next_web_bundles_order.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_nightly_helpers_beside_release_build.py"
 lane = "linux-guard"
 
 [[test]]
@@ -1590,6 +1610,10 @@ path = "tests/test_cmux_tui_feat_publish_order.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_cmux_tui_publish_retries.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_intent_familiar_warning.py"
 lane = "linux-guard"
 
@@ -1622,7 +1646,15 @@ path = "tests/test_nightly_build_state.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_download_run_artifact_retries.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_gh_budget_wait.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_gh_app_token.py"
 lane = "linux-guard"
 
 [[test]]
@@ -1647,6 +1679,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_pr_status.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_no_github_token_polling.py"
 lane = "linux-guard"
 
 [[test]]
@@ -1928,4 +1964,12 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_nightly_step_coverage.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_nightly_delivery_concurrency.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_xcode_build_timeline.py"
 lane = "linux-guard"

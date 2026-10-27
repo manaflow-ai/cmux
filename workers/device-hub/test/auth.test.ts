@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { signEs256 } from "../src/crypto";
 import * as main from "../src/index";
 import { allowedStackProjects } from "../src/stack";
-import { Device, STACK_DEV_PROJECT, STACK_OTHER_PROJECT, STACK_PROJECT, hubEnv, mockOutbound, outbound, rawCall, signIn, stackClaims, stackToken } from "./helpers";
+import { Device, STACK_DEV_PROJECT, STACK_OTHER_PROJECT, STACK_PROJECT, billingPlans, hubEnv, mockOutbound, outbound, rawCall, signIn, stackClaims, stackToken } from "./helpers";
 
 describe("main module", () => {
   it("exports only the handler and the Durable Object classes (workerd rejects other exports)", () => {
@@ -21,15 +21,24 @@ describe("health", () => {
 describe("POST /v1/auth/stack", () => {
   it("exchanges a Stack access token for an ES256 hub session", async () => {
     mockOutbound();
-    const res = await rawCall("POST", "/v1/auth/stack", { body: { token: await stackToken(stackClaims("stack-user-1")) } });
+    const token = await stackToken(stackClaims("stack-user-1"));
+    const res = await rawCall("POST", "/v1/auth/stack", { body: { token } });
     expect(res.status).toBe(200);
     expect(res.json).toMatchObject({ userId: `${STACK_PROJECT}:stack-user-1`, stackUserId: "stack-user-1", projectId: STACK_PROJECT });
-    expect(res.json.expiresAt).toBeGreaterThan(Date.now() + 3500_000);
+    // The hub session ends no later than the Stack token it was exchanged for
+    // (stackClaims: exp = now + 600), so relay checks always have a live token.
+    const stackExp = stackClaims("stack-user-1").exp;
+    expect(res.json.expiresAt).toBeLessThanOrEqual(stackExp * 1000);
+    expect(res.json.expiresAt).toBeGreaterThan(Date.now() + 500_000);
     const [h, p] = (res.json.session as string).split(".");
     expect(JSON.parse(atob(h!.replace(/-/g, "+").replace(/_/g, "/")))).toMatchObject({ alg: "ES256" });
     const payload = JSON.parse(atob(p!.replace(/-/g, "+").replace(/_/g, "/")));
     expect(payload).toMatchObject({ iss: "device-hub", sub: `${STACK_PROJECT}:stack-user-1` });
-    expect(payload.exp - payload.iat).toBe(3600);
+    expect(payload.exp - payload.iat).toBeLessThanOrEqual(600);
+    // The Stack token rides in the session only sealed: never in the clear.
+    expect(JSON.stringify(payload)).not.toContain(token.split(".")[2]);
+    expect(JSON.stringify(payload)).not.toContain(token.split(".")[1]);
+    expect(typeof payload.stk).toBe("string");
     // JWKS is cached across sign-ins.
     const before = outbound.filter((u) => u.endsWith("jwks.json")).length;
     await rawCall("POST", "/v1/auth/stack", { body: { token: await stackToken(stackClaims("stack-user-1")) } });
@@ -97,5 +106,15 @@ describe("POST /v1/auth/stack", () => {
     // A token signed by another key (the ticket key) is not a session.
     const forged = await signEs256(hubEnv.TICKET_KEY, { iss: "device-hub", sub: account.userId, iat: now, exp: now + 60 });
     expect((await d.call("GET", "/v1/me", undefined, { session: forged })).status).toBe(401);
+    // A session from before relay checks (no sealed Stack token) still works,
+    // so an app's socket reconnects after the deploy, but never gets the relay.
+    await d.register();
+    billingPlans.set(account.sub, { subscriptionPlanId: "pro" });
+    const legacy = await signEs256(hubEnv.SESSION_KEY, { iss: "device-hub", sub: account.userId, iat: now, exp: now + 600 });
+    const legacyMe = await d.call("GET", "/v1/me", undefined, { session: legacy });
+    expect([legacyMe.status, legacyMe.json.plan]).toEqual([200, "free"]);
+    // A sealed token that does not open (tampered) is refused too.
+    const tampered = await signEs256(hubEnv.SESSION_KEY, { iss: "device-hub", sub: account.userId, iat: now, exp: now + 600, stk: "AAAA.BBBB" });
+    expect((await d.call("GET", "/v1/me", undefined, { session: tampered })).json.error.code).toBe("unauthorized");
   });
 });

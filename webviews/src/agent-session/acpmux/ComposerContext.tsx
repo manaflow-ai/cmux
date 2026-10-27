@@ -69,6 +69,7 @@ export function ComposerContext({
   offloads = NO_OFFLOADS,
   saved,
   onRefreshMachines,
+  folderNote,
 }: {
   summary?: Summary;
   sessions?: Session[];
@@ -111,6 +112,9 @@ export function ComposerContext({
   saved?: SavedEnvironmentRows;
   /// The environment picker opened: read the machines and their status again.
   onRefreshMachines?(): void;
+  /// A quiet line in the folder menu: where a new chat starts while it has no folder (its
+  /// workspace's private folder).
+  folderNote?: string;
 }) {
   const computers = useMemo(
     // The peers' transports and status draw only in the environment picker: the plain menu stays
@@ -260,6 +264,7 @@ export function ComposerContext({
               }
               localName={localName}
               peers={peers}
+              {...(folderNote && !currentFolder ? { note: folderNote } : {})}
             />
           ) : (
             <LocationPicker
@@ -654,7 +659,7 @@ function LocationPicker({
           placeholder={t(allowPath ? CONTEXT_LABELS.folderSearch : "composer.environmentSearch")}
           inputClassName="acpmux-location-search block h-8 w-full min-w-60 appearance-none border-0 bg-transparent px-2 font-[inherit] text-fg outline-none placeholder:text-muted"
           listClassName="acpmux-location-folders m-0 list-none border-t-[0.5px] border-edge p-0 pt-1 [&:not([hidden])]:mt-1"
-          itemClassName="acpmux-menu-item cursor-default rounded-lg data-[highlighted]:bg-hover"
+          itemClassName="acpmux-menu-item rounded-lg data-[highlighted]:bg-hover"
           itemLabel={(id) => {
             const option = options.find((candidate) => candidate.id === id);
             return allowPath ? [option?.label, id].filter(Boolean).join(" ") : (option?.label ?? id);

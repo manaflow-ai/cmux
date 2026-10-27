@@ -252,7 +252,7 @@ def decide(env: Mapping[str, str], runners: Sequence[Mapping[str, Any]] | None,
     label = (env.get("SIDE_LABEL") or "").strip()
     jobs = tuple((env.get("JOBS") or "").split())
     attempt = (env.get("GITHUB_RUN_ATTEMPT") or "").strip()
-    if attempt not in ("", "1"):
+    if attempt not in ("", "1") and not cascade.bot_rerun(env):
         return (), (), f"attempt {attempt} keeps its own route"
     if not label.startswith(pool.SIDE_PREFIX) or not pool.persistent(label):
         return (), (), f"`{label or 'no label'}` is not an owned side label"
@@ -408,14 +408,65 @@ def delimited(jobs: Sequence[str]) -> str:
     return f" {' '.join(jobs)} " if jobs else ""
 
 
+# The branch whose pushes run the cmux NEXT DEV pipeline.
+FEAT_BRANCH = "refs/heads/feat-cmux-next"
+
+
+def rerun_main(env: Mapping[str, str], runners: Sequence[Mapping[str, Any]] | None) -> int:
+    """The rescue's full re-run (next_macos_cascade.bot_rerun()): only the cascade is placed afresh.
+
+    The owned routes stay empty, as every re-run had them: the jobs that read runner, gui_runner,
+    session_runner, the free GUI and session labels, fast_runner or gateway_runner keep the routes their
+    runs-on gives a re-run. With no gateway the build-fleet compiles skip, so their Mac fallbacks cascade.
+
+    Idle minis are counted on SIDE_LABEL itself: a re-run's cascade jobs fall back to
+    vars.CI_SIDE_LANE_RUNNER, never to side_route()'s wider class (runner is not read). A FEAT_BRANCH
+    push's Release compile takes no placement on a re-run (its runs-on reads it on attempt 1 only), so it
+    leaves the cascade and takes no slot, and no idle mini is counted for it.
+    """
+    if (env.get("GATEWAY_LABEL") or "").strip():
+        env = with_gateway_cascade(env)
+    jobs = tuple((env.get("JOBS") or "").split())
+    if env.get("GITHUB_EVENT_NAME") == "push" and env.get("GITHUB_REF") == FEAT_BRANCH:
+        env = without_cascade(env, "release-compile")
+        jobs = tuple(job for job in jobs if job != "release-compile")
+    label = (env.get("SIDE_LABEL") or "").strip()
+    if runners is None or not label.startswith(pool.SIDE_PREFIX) or not pool.persistent(label):
+        owned: tuple[str, ...] = ()
+        why = f"owned runners could not be read live, or `{label}` is not an owned side label"
+    else:
+        owned = tuple(pool.idle_placement(runners, label, jobs))
+        why = (f"{len(owned)} idle `{label}` runner(s) take {', '.join(owned)}" if owned
+               else f"no idle `{label}` runner now")
+    fallback: tuple[str, ...] = ()
+    print(f"side-lane placement: the rescue's re-run; {why}")
+    output = env.get("GITHUB_OUTPUT")
+    if output:
+        with open(output, "a", encoding="utf-8") as handle:
+            handle.write(f"owned_jobs={delimited(owned)}\nfallback_jobs={delimited(fallback)}\n"
+                         f"watch={'false' if fallback and not owned else 'true'}\n")
+    live, waiting, seen = cascade.read(env, pool, now=dt.datetime.now(dt.timezone.utc))
+    placed = cascade.place(env, owned, live, waiting, seen)
+    print(f"macOS cascade: {placed.why}")
+    cascade.write(placed, env)
+    return 0
+
+
 def main(env: Mapping[str, str] = os.environ) -> int:
     runners = None
-    token, repo = env.get("ROUTE_TOKEN", ""), env.get("GITHUB_REPOSITORY", "")
-    if token and repo:
+    repo = env.get("GITHUB_REPOSITORY", "")
+    # The routing App first, then cmux-bot (ROUTE_TOKEN_FALLBACK) when the first read is refused.
+    for name in ("ROUTE_TOKEN", "ROUTE_TOKEN_FALLBACK"):
+        token = env.get(name, "")
+        if not (token and repo):
+            continue
         try:
             runners = pool.GitHub(token, repo).runners()
+            break
         except Exception as error:  # noqa: BLE001 - fail open: keep today's route
-            print(f"::warning title=side-lane placement::could not list runners ({error})")
+            print(f"::warning title=side-lane placement::could not list runners with {name} ({error})")
+    if cascade.bot_rerun(env):
+        return rerun_main(env, runners)
     fast = fast_route(env, runners)
     if fast:
         env = without_fast(env)
