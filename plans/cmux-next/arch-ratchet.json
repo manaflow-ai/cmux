@@ -726,6 +726,12 @@
     },
     {
       "date": "2026-10-27",
+      "row": "global_mutable_statics",
+      "allow": 1,
+      "why": "p08-startup-082: GlobalJobCensus.installedBits (CmuxNextLaunch), the one word through which the launch's off-main job census reaches its recorder. swift_task_enqueueGlobal_hook is a thin function with no context argument, so the census the composition root makes is published here once (a compare-exchange from 0; a second install is refused). Debug and bench-hooks builds only, and only in a launch armed by CMUX_NEXT_GLOBAL_JOB_CENSUS=1. Chrome reaches its process-wide task observers from the posting thread the same way (base/task/common/task_annotator.cc)."
+    },
+    {
+      "date": "2026-10-27",
       "row": "observer_sites",
       "allow": 2,
       "why": "p14-energy-055b (fixer): chrome hover tracking areas now hear the pointer only in the active app (.activeInActiveApp), so no exit arrives once cmux resigns active and a lit hover (a toast's hold, a tab or reveal) stayed. PointerHover's KeyWindowObserver, the one app-wide hover adapter that already took the key notices, subscribes once per app to NSApplication didResignActive and didBecomeActive through AppEvents (recipe R-notif), the two sites counted. It refreshes only the windows with a hovering target and calls only the hover owners that hold a deactivation watch while their hover shows (ChromeHover, HoverReveal, the tab strip, the saved groups bar), instead of each owner observing the notice. The fan-out already observes both names for TooltipPresenter, HoverCardCoordinator and the others, so the app gains no NotificationCenter observer."
