@@ -584,10 +584,11 @@ impl Hub {
         &self,
         session: &Arc<Session>,
         child: &Arc<ChildAgent>,
+        off: &super::full_access_bound::OffLatch,
     ) -> Result<(), RpcError> {
         let meta = session.meta();
         let Some(current) = crate::web_modes::mode_of(&meta) else { return Ok(()) };
-        if !is_full_access(&current) || self.full_access_allowed() {
+        if !is_full_access(&current) || off.allows_full_access() {
             return Ok(());
         }
         let family = crate::web_modes::family_of(&meta);
@@ -619,16 +620,17 @@ impl Hub {
         session: &Arc<Session>,
         child: &Arc<ChildAgent>,
         profile: &HarnessProfile,
+        off: &super::full_access_bound::OffLatch,
     ) -> Result<(), RpcError> {
         let mut refused = None;
         if !profile_sets_mode(profile)
-            && let Err(e) = self.leave_full_access_if_off(session, child).await
+            && let Err(e) = self.leave_full_access_if_off(session, child, off).await
         {
             refused = Some(e);
         }
         // MDM forces full access off (#23322): a start still in it by any form acpmux sees (a
         // config option, a mode its harness reports without declaring modes) is refused too.
-        if refused.is_none() && self.managed_off_runs_full_access(session) {
+        if refused.is_none() && self.managed_off_runs_full_access(off, session) {
             refused = Some(full_access_off());
         }
         if let Some(e) = refused {

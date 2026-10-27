@@ -319,6 +319,8 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
         hub.watches.open(&home().join("watches.json"));
     }
     crate::hub::watches::Watches::start(&hub);
+    // The Macs whose app may allow here over the peer link (`hub/mac_approvers.rs`).
+    hub.person.macs.open(home().join(crate::hub::mac_approvers::FILE));
     if let Some(key) = person_key {
         // A Team-signed daemon takes the key only from the signed app's
         // `_acpmux/person_enroll`: a same-uid process could restart it with
@@ -1053,7 +1055,7 @@ async fn wait_for_job(path: &std::path::Path, job: String) -> Result<String> {
         }
         tries += 1;
         let left = deadline.saturating_duration_since(tokio::time::Instant::now());
-        if tries % 5 == 0 && !left.is_zero() {
+        if tries.is_multiple_of(5) && !left.is_zero() {
             let job = job.clone();
             let budget = left.min(Duration::from_secs(1));
             let running =

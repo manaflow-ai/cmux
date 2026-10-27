@@ -2,7 +2,23 @@
 // holds this app's socket and the app may replace it). While the restart runs, no handshake
 // starts, including a Retry queued behind an attempt in flight; when it ends, the pane asks once.
 import { expect, test } from "bun:test";
-import { AcpmuxRestartGate, offersAcpmuxRestart } from "./hostRetry";
+import { AcpmuxRestartGate, hostIsReconnecting, offersAcpmuxRestart } from "./hostRetry";
+
+test("only a typed recovery or an unclassified lost transport is neutral", () => {
+  expect(hostIsReconnecting({ code: "host_unavailable", details: { reconnecting: true }, retryable: false })).toBe(
+    true,
+  );
+  expect(hostIsReconnecting({ code: "host_unavailable" })).toBe(false);
+  expect(hostIsReconnecting({ code: "host_unavailable", details: { restartAcpmux: true } })).toBe(false);
+  expect(hostIsReconnecting({ code: "agent_session.untrusted" })).toBe(false);
+  expect(hostIsReconnecting({ code: "native.invalid_request" })).toBe(false);
+  expect(hostIsReconnecting({ code: "native.not_connected" })).toBe(true);
+  expect(hostIsReconnecting({ code: "native.not_connected", retryable: false })).toBe(true);
+  expect(hostIsReconnecting({ code: "native.timed_out" })).toBe(true);
+  expect(hostIsReconnecting({ code: "known", retryable: true })).toBe(true);
+  expect(hostIsReconnecting({ code: "known", retryable: false })).toBe(false);
+  expect(hostIsReconnecting(new Error("socket closed"))).toBe(true);
+});
 
 test("only a refusal the host marked restartAcpmux offers Restart acpmux", () => {
   expect(offersAcpmuxRestart({ code: "host_unavailable", details: { restartAcpmux: true } })).toBe(true);

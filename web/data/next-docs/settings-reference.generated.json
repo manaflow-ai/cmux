@@ -4428,7 +4428,7 @@
           "title": "Hibernate Hidden Tabs",
           "help": "Frees memory; history and position are kept.",
           "kind": "choice_or_number",
-          "default": "moderate",
+          "default": null,
           "group": "Memory"
         },
         {
