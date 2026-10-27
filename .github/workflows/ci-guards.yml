@@ -206,6 +206,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_bash32_linux_job.py
 
+      - name: Validate the macOS keychain real-import runs only for keychain changes
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_signing_keychain_real_import_gate.py
+
       - name: Validate v0.64.25 rpath repair workflow contract
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: bash tests/test_repair_v06425_workflow.sh
