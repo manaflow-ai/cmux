@@ -1662,6 +1662,11 @@ impl LocalStore {
         strict: bool,
         visit: &mut dyn FnMut(EventRecord) -> bool,
     ) -> Result<()> {
+        // A strict read learns that the log's segments could not be listed (`segments` lists
+        // none then).
+        if strict {
+            std::fs::read_dir(self.dir(id).join("events"))?;
+        }
         let segments = self.segments(id)?;
         let mut line = Vec::new();
         for (index, (_, path)) in segments.iter().enumerate() {

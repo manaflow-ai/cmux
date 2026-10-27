@@ -548,6 +548,12 @@ impl Hub {
             tracing::warn!(session = %session.id, seq = next, "its left host's log lost a record");
             return None;
         }
+        // The read starts at the host's start: one that did not reach it read nothing of the
+        // host (review 2 of #26054).
+        if next == start {
+            tracing::warn!(session = %session.id, "its left host's log read back no record");
+            return None;
+        }
         Some(FullAccessView {
             argv: Vec::new(),
             mode: mode.or_else(|| text_at(modes.as_ref(), "currentModeId")),
