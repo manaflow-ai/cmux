@@ -202,9 +202,15 @@ fn machine_steps(
                 port = listening;
                 result
             }
-            (Step::Update, Some(update), _) => match probe(r) {
-                Ok(p) => update(r, fix, p.in_use().filter(|u| u.app).map(|u| u.path).as_deref()),
-                Err(e) => fail(Step::Update, format!("{e:#}"), "Check again."),
+            (Step::Update, Some(update), _) => match daemon_owner(r) {
+                Ok(cmux_own) => update(r, fix, cmux_own.as_deref()),
+                // Not knowing whose daemon runs, it writes nothing.
+                Err(e) => StepResult::new(
+                    Step::Update,
+                    StepState::Warn,
+                    format!("could not tell which acpmux runs the daemon: {e:#}"),
+                )
+                .with_fix("Check again."),
             },
             _ => harness(r, &plan.name, &plan.harnesses, local, fix),
         };
@@ -562,13 +568,32 @@ impl Probe {
 /// resolve [`DAEMON_BIN`] to tell enroll's own link from a cmux session
 /// daemon. Reads only.
 fn probe(r: &dyn Remote) -> Result<Probe> {
-    let mut probe = parse_probe(&r.exec(&probe_script(), None)?.stdout);
+    let stdout = r.exec(&probe_script(), None)?.stdout;
+    read_probe(r, &stdout)
+}
+
+/// [`probe`] from its script's output.
+fn read_probe(r: &dyn Remote, stdout: &str) -> Result<Probe> {
+    let mut probe = parse_probe(stdout);
     if probe.running.as_ref().and_then(|run| run.cmux_tui_acp) == Some(true) {
         let script = format!("readlink -f {DAEMON_BIN} 2>/dev/null");
         let stdout = r.exec(&script, None)?.stdout;
         probe.run_by_cmux_tui = cmux_session_daemon(true, probe.exe.as_deref(), stdout.trim());
     }
     Ok(probe)
+}
+
+/// For the update step: the path of cmux's own acpmux when that is what
+/// serves the daemon, `None` when acpmux's own does. Only a probe that ran
+/// to its end (the `\0` after the binaries) and found an acpmux answers;
+/// a failed connection or an empty answer is an error, never "acpmux's
+/// own", so the step installs nothing beside cmux's daemon.
+fn daemon_owner(r: &dyn Remote) -> Result<Option<String>> {
+    let stdout = r.exec(&probe_script(), None)?.stdout;
+    anyhow::ensure!(stdout.contains('\0'), "the host did not answer");
+    let in_use = read_probe(r, &stdout)?.in_use();
+    let in_use = in_use.ok_or_else(|| anyhow::anyhow!("no acpmux found"))?;
+    Ok(in_use.app.then_some(in_use.path))
 }
 
 /// Link [`DAEMON_BIN`] to `bin`: the daemon runs a cmux-tui as `acpmux`.

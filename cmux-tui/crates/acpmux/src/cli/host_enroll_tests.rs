@@ -146,6 +146,38 @@ fn the_update_step_runs_between_the_daemon_and_the_harness() {
     assert_read_only(&fake);
 }
 
+/// The daemon step found the app's daemon, then the update step's own probe
+/// gets no answer (the connection dropped): it says so and writes nothing,
+/// rather than taking the daemon for acpmux's own and adding the timer.
+#[test]
+fn an_update_step_that_cannot_tell_whose_daemon_runs_writes_nothing() {
+    let local = local_with("blind", "pi", "command = \"/Users/leo/bin/pi\"\n");
+    let ran = std::cell::Cell::new(false);
+    let update = |_: &dyn Remote, _: bool, _: Option<&str>| {
+        ran.set(true);
+        StepResult::new(Step::Update, StepState::Fixed, "installed")
+    };
+    let both: &[(&str, &str)] = &[(LOCAL_BIN, "old"), (APP_BIN, crate::hub::BUILD)];
+    let app = host_with(both, Some((crate::hub::BUILD, true)), APP_EXE, crate::hub::BUILD);
+    let dropped = std::cell::Cell::new(false);
+    let fake = Fake::new(|script, stdin| {
+        if dropped.get() && script == probe_script().as_str() {
+            RemoteOut { ok: false, stdout: String::new(), stderr: "Connection reset".into() }
+        } else {
+            (app.answer)(script, stdin)
+        }
+    });
+    let results = super::machine_steps(&fake, &plan(&[]), &local, true, Some(&update), &mut |r| {
+        dropped.set(dropped.get() || r.step == Step::Daemon)
+    })
+    .0;
+    assert!(results[2].detail.starts_with("cmux's own daemon runs"), "{results:?}");
+    assert_eq!((results[3].step, results[3].state), (Step::Update, StepState::Warn));
+    assert!(results[3].detail.contains("did not answer"), "{:?}", results[3]);
+    assert!(!ran.get(), "the update step never ran on a guess");
+    assert_read_only(&fake);
+}
+
 #[test]
 fn ssh_stderr_is_classified() {
     let cases = [

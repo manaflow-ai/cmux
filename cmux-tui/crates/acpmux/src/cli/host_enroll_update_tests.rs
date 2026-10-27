@@ -222,6 +222,9 @@ mod probe_in_a_shell {
         frag: &'static str,
         /// The unit that has a drop-in, if one does.
         drop_in: Option<&'static str>,
+        /// The manager lists a drop-in for every unit of the type
+        /// (Fedora's `service.d/10-timeout-abort.conf`) on both units.
+        type_drop_in: bool,
         /// The files in ~/.config/systemd/user: acpmux's text, another's, or none.
         service: Option<&'static str>,
         timer: Option<&'static str>,
@@ -237,6 +240,7 @@ mod probe_in_a_shell {
         loaded: true,
         frag: "own",
         drop_in: None,
+        type_drop_in: false,
         service: Some(hosts::UPDATE_SERVICE),
         timer: Some(hosts::UPDATE_TIMER),
         drop_in_dir: None,
@@ -248,6 +252,7 @@ mod probe_in_a_shell {
         loaded: false,
         frag: "",
         drop_in: None,
+        type_drop_in: false,
         service: None,
         timer: None,
         drop_in_dir: None,
@@ -291,7 +296,8 @@ is-active) exit {active} ;;
 show) case "$4" in
   LoadState) echo {load} ;;
   FragmentPath) [ {load} = loaded ] && echo "{frag}/$2" || echo ;;
-  DropInPaths) [ "$2" = "{drop_in}" ] && echo "/x/$2.d/o.conf" || echo ;;
+  DropInPaths) d=; [ {type_wide} = 1 ] && d="/usr/lib/systemd/user/${{2##*.}}.d/10-timeout-abort.conf"
+    [ "$2" = "{drop_in}" ] && d="$d /x/$2.d/o.conf"; echo $d ;;
   esac ;;
 *) exit 2 ;;
 esac
@@ -300,6 +306,7 @@ esac
             active = if u.active { 0 } else { 3 },
             load = if u.loaded { "loaded" } else { "not-found" },
             drop_in = u.drop_in.unwrap_or("-"),
+            type_wide = u8::from(u.type_drop_in),
         );
         let systemctl = bin.join("systemctl");
         fs::write(&systemctl, fake).unwrap();
@@ -348,6 +355,13 @@ esac
         let u =
             Units { drop_in_dir: Some("service.d"), analyzed_drop_in_dir: Some("timer.d"), ..OWN };
         assert_eq!(kind(&probe(u)), "timer");
+        // The manager lists it among the unit's DropInPaths: still acpmux's
+        // own, running or stopped (so --fix starts it).
+        assert_eq!(kind(&probe(Units { type_drop_in: true, ..OWN })), "timer");
+        assert_eq!(kind(&probe(Units { type_drop_in: true, active: false, ..OWN })), "stopped");
+        // Beside one for this unit, that one still makes it foreign.
+        let both = Units { type_drop_in: true, drop_in: Some("acpmux-update.timer"), ..OWN };
+        assert_eq!(kind(&probe(both)), "foreign");
     }
 
     #[test]

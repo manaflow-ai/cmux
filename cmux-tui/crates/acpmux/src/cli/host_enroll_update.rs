@@ -23,7 +23,8 @@ const MARK: &str = "ACPMUX_AU=";
 /// manager lists, and a `NAME.d` or `acpmux-.TYPE.d` directory in any user
 /// unit path (`systemd-analyze --user unit-paths`, and the defaults when it
 /// cannot say). A drop-in for every service or timer (`service.d`) is the
-/// system's (distributions ship them), not about this unit, and is not read. They are
+/// system's (distributions ship them), not about this unit: it does not
+/// count, on disk or in the manager's `DropInPaths`. They are
 /// acpmux's own only when each file there holds acpmux's own text, each unit
 /// the manager knows loads from there, and no drop-in exists for either;
 /// any other is someone else's (`foreign`), which runs what it likes. acpmux's own timer is
@@ -63,7 +64,8 @@ au_s=$(systemctl --user show "$au_f" -p LoadState --value 2>/dev/null) || au_s=e
 if [ -e "$au_d/$au_f" ]; then au_there=1; else au_all=; fi
 case "$au_s" in not-found) ;; *) au_there=1
 [ "$au_s" = loaded ] && [ "$(systemctl --user show "$au_f" -p FragmentPath --value 2>/dev/null)" = "$au_d/$au_f" ] || au_own= ;; esac
-au_x=$(systemctl --user show "$au_f" -p DropInPaths --value 2>/dev/null) || au_x=error; [ -z "$au_x" ] || {{ au_there=1; au_own=; }}
+au_x=$(systemctl --user show "$au_f" -p DropInPaths --value 2>/dev/null) || au_x=error
+for au_y in $au_x; do case "$au_y" in */"${{au_f##*.}}".d/*) ;; *) au_there=1; au_own= ;; esac; done
 au_i=$IFS; IFS='
 '; for au_p in $au_paths; do for au_n in "$au_f.d" "acpmux-.${{au_f##*.}}.d"; do
 [ -z "$au_p" ] || [ ! -d "$au_p/$au_n" ] || {{ au_there=1; au_own=; }}; done; done; IFS=$au_i
