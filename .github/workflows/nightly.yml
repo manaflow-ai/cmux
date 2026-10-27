@@ -2315,10 +2315,9 @@ jobs:
         if: (inputs.nightly_next_unsigned_run == '' && needs.decide.outputs.track == 'nightly-next') && steps.nightly-product.outputs.hit != 'true'
         run: |
           set -euo pipefail
-          if [[ "$NIGHTLY_FAST_BUILD" == "true" ]]; then archs=arm64; else archs=arm64,x86_64; fi
           hostd_bin="$RUNNER_TEMP/cmux-next-mobile-host/cmux-mobile-host"
           python3 scripts/ci/background_build.py start --state "$RUNNER_TEMP/nightly-helper-builds" mobile-host -- \
-            nice -n 10 env CMUX_NEXT_MOBILE_HOST_ARCHS="$archs" scripts/cmux-next/build-mobile-host.sh --output "$hostd_bin"
+            nice -n 10 env CMUX_NEXT_MOBILE_HOST_ARCHS="$NIGHTLY_COMPILE_ARCHS" scripts/cmux-next/build-mobile-host.sh --output "$hostd_bin"
           echo "CMUX_NEXT_MOBILE_HOST_PENDING_BIN=$hostd_bin" >> "$GITHUB_ENV"
 
       # A fast branch dogfood build only needs the arm64 client that is bundled
@@ -5790,6 +5789,15 @@ jobs:
       # contain NIGHTLY_LEGACY_REQUIRED_COMMITS and descend
       # from the commit the NEXT feed serves. A refusal publishes nothing and
       # is not a failure.
+      # NIGHTLY_NEXT_DEV_RING read live with the same token (vars.* is the run's start-time
+      # snapshot, and a re-run keeps it): scripts/ci/nightly_next_dev_ring.sh.
+      - name: Read the Dev ring switch live
+        id: ring
+        if: needs.decide.outputs.should_publish == 'true' && needs.decide.outputs.track == 'nightly-next' && steps.recheck.outputs.already_published != 'true'
+        env:
+          RING_TOKEN: ${{ steps.writer-token.outputs.token }}
+        run: bash .publish-tooling/scripts/ci/nightly_next_dev_ring.sh --github-output "$GITHUB_OUTPUT"
+
       - name: Final publication gate
         id: gate
         if: needs.decide.outputs.should_publish == 'true' && steps.recheck.outputs.already_published != 'true'
@@ -5952,6 +5960,19 @@ jobs:
       # secondary rate-limit backoff (runs 40357982361, 40376320918). The GitHub release copy,
       # its aliases, metadata and tag follow in publish-nightly-next-github, which never holds
       # the feed. Same bytes, so the item's EdDSA signature is unchanged.
+      # The build job tagged its items from its own snapshot of the switch; the feed goes out
+      # tagged from the live one (a Dev item stays Dev only while the ring is on and no pass).
+      - name: Tag the new build's items from the live Dev ring switch
+        if: needs.decide.outputs.should_publish == 'true' && needs.decide.outputs.track == 'nightly-next' && steps.recheck.outputs.already_published != 'true' && steps.gate.outputs.refused != 'true'
+        env:
+          DEV_RING: ${{ steps.ring.outputs.mode || 'off' }}
+        run: |
+          set -euo pipefail
+          for appcast in $NIGHTLY_FEEDS; do
+            python3 "$PUBLISH_TOOLING/ci/nightly_next_ring.py" retag --feed "nightly-out/$appcast" \
+              --out "nightly-out/$appcast" --mode "$DEV_RING" --verdicts-base "$NIGHTLY_NEXT_FEED_BASE"
+          done
+
       - name: Publish the nightly-next download to R2
         id: next_downloads
         if: needs.decide.outputs.should_publish == 'true' && needs.decide.outputs.track == 'nightly-next' && steps.recheck.outputs.already_published != 'true' && steps.gate.outputs.refused != 'true'
@@ -7305,6 +7326,26 @@ jobs:
         with:
           persist-credentials: false
 
+      # The release App with every permission it has (Variables: read); the job's other App token
+      # is contents-only. A failed mint leaves it empty, and the ring reads off.
+      - &ring-token
+        name: Mint the release App token that reads the Dev ring switch
+        id: ring-token
+        continue-on-error: true
+        timeout-minutes: 2
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ secrets.CMUX_RELEASE_APP_ID }}
+          private-key: ${{ secrets.CMUX_RELEASE_APP_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+
+      - name: Read the Dev ring switch live
+        id: ring
+        env:
+          RING_TOKEN: ${{ steps.ring-token.outputs.token }}
+        run: bash scripts/ci/nightly_next_dev_ring.sh --github-output "$GITHUB_OUTPUT"
+
       # Checked again here: another run may have moved the old feed while this
       # build was signed and verified. A continued submission skipped here is
       # not retired: its artifacts expire (3 days), and the target and signing
@@ -7366,7 +7407,7 @@ jobs:
           NEXT_SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_NEXT_PRIVATE_KEY }}
           # Rewritten from the verdicts below (nightly_next_ring.py legacy).
           SPARKLE_CHANNEL: cmux-next
-          DEV_RING: ${{ vars.NIGHTLY_NEXT_DEV_RING == 'on' && 'on' || 'off' }}
+          DEV_RING: ${{ steps.ring.outputs.mode || 'off' }}
           SPARKLE_MINIMUM_SYSTEM_VERSION: ${{ needs.sign-nightly-identity-legacy.outputs.minimum_system_version }}
         run: bash scripts/ci/nightly-steps/legacy-identity-appcast.sh
 
@@ -7706,6 +7747,7 @@ jobs:
             scripts/ci/publish-nightly-next-r2.py
             scripts/ci/upload-r2-object.py
             scripts/ci/gh_app_token.sh
+            scripts/ci/nightly_next_dev_ring.sh
           sparse-checkout-cone-mode: false
 
       - *gh-app-token-write
@@ -7717,6 +7759,14 @@ jobs:
         # reset (at most an hour per job, each wait logged) when a call is refused for the rate
         # limit, instead of failing the publish path. timeout-minutes leaves room for that hour.
         run: bash .publish-tooling/scripts/ci/gh_budget_wait.sh --install
+
+      - *ring-token
+
+      - name: Read the Dev ring switch live
+        id: ring
+        env:
+          RING_TOKEN: ${{ steps.ring-token.outputs.token }}
+        run: bash .publish-tooling/scripts/ci/nightly_next_dev_ring.sh --github-output "$GITHUB_OUTPUT"
 
       - name: Download delta results
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
@@ -7732,7 +7782,7 @@ jobs:
           CMUX_RELEASE_RATE_LIMIT_SECONDS: "1800"
           GH_APP_TOKEN: ${{ steps.gh-app-token.outputs.token }} # the uploader: App first, GH_TOKEN as fallback
           TRACK: ${{ needs.decide.outputs.track }}
-          DEV_RING: ${{ vars.NIGHTLY_NEXT_DEV_RING == 'on' && 'on' || 'off' }}
+          DEV_RING: ${{ steps.ring.outputs.mode || 'off' }}
         run: |
           set -euo pipefail
           # The tag itself: `commits/<name>` resolves the nightly-next branch,

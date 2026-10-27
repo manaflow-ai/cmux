@@ -17,6 +17,7 @@ import {
   numberedEnvironments,
   orderEnvironments,
 } from "./environments";
+import { type CloudMachine, isCloudMachineRow } from "./cloudMachines";
 import { useLocationOpener, useLocationPopover } from "./locationPopover";
 import { machineColor } from "./machineColor";
 
@@ -39,7 +40,20 @@ const STATE_LABELS: Record<string, StringKey> = {
   reconnecting: "header.reconnecting",
 };
 export function environmentStateLabel(environment: Environment): string {
+  if (isCloudMachineRow(environment)) return cloudMachineLabel(environment.cloudMachine);
   return t(STATE_LABELS[environment.state ?? ""] ?? "composer.envNotConnected");
+}
+/// An account Cloud machine acpmux does not list (cloudMachines.ts): its stage, and what a pick does.
+const CLOUD_STAGE_LABELS: Record<string, StringKey> = {
+  ready: "composer.envOpenMachine",
+  paused: "composer.envPausedResume",
+  requesting: "composer.envStarting",
+  creating: "composer.envStarting",
+  booting: "composer.envStarting",
+  connecting: "composer.envStarting",
+};
+function cloudMachineLabel(machine: CloudMachine): string {
+  return t(CLOUD_STAGE_LABELS[machine.stage] ?? "composer.envNotConnected");
 }
 
 /// How often an open machine list reads the machines again: acpmux sends no peer events, so a
@@ -335,7 +349,7 @@ export function EnvironmentPicker({
     // A machine still connecting or down is listed, greyed, in its place, but is no pick: the list
     // stays open.
     const machine = positions.get(value)?.environment;
-    if (machine && !environmentReady(machine)) return;
+    if (machine && !environmentReady(machine) && !isCloudMachineRow(machine)) return;
     close();
     if (action) action.run();
     else if (value === currentRow) focusPrompt();
@@ -404,6 +418,8 @@ export function EnvironmentPicker({
     const { environment, index, sectionStart } = position;
     const number = numbers.get(environment.id);
     const ready = environmentReady(environment);
+    // An account Cloud machine acpmux does not list is a pick (it resumes or opens), not greyed.
+    const greyed = !ready && !isCloudMachineRow(environment);
     return (
       <span
         className="acpmux-location-row acpmux-env-row"
@@ -411,8 +427,8 @@ export function EnvironmentPicker({
         data-section={sectionStart ? t(SECTION_LABELS[sectionOf(environment)]) : undefined}
         data-first-section={sectionStart && index === 0 && savedShown.length === 0 ? "" : undefined}
         data-current={environment.id === currentRow ? "" : undefined}
-        data-ready={ready ? undefined : "false"}
-        aria-disabled={ready ? undefined : true}
+        data-ready={greyed ? "false" : undefined}
+        aria-disabled={greyed ? true : undefined}
       >
         <EnvironmentIcon kind={environment.kind} name={environment.label} />
         <span className="acpmux-menu-text acpmux-location-name">
