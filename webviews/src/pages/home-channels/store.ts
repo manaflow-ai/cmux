@@ -42,6 +42,10 @@ import {
 export const PAGE = 100;
 /** Most pages a link loads to reach its message (older history, or later thread replies). */
 const LINK_PAGES = 20;
+/** Timeline messages (not thread replies) an opened conversation pages back to, about a screen:
+ * a Chief answers in threads, so its newest page can be all replies the timeline does not draw,
+ * and older history loads only on a scroll the short timeline never has (#25570). */
+const FILL_TOP_LEVEL = 30;
 export const WINDOW = 1500;
 
 export type Connection = "connecting" | "online" | "offline";
@@ -449,8 +453,13 @@ export class HomeChannelsStore {
       if (generation !== this.generation || this.snapshot.selected !== id) return;
       const conversations = new Map(this.snapshot.conversations).set(id, page.conversation);
       // Keep what events merged while the page was in flight (and older pages already read);
-      // the snapshot wins for a message both have unless the event copy was edited later.
-      const kept = this.snapshot.messages.filter((m) => m.conversation === id);
+      // the snapshot wins for a message both have unless the event copy was edited later. Kept
+      // messages that end before the page starts (more than a page came in since, a reconnect)
+      // would leave a hole no older page fills: the window starts at the page then (#25570).
+      const kept = joining(
+        this.snapshot.messages.filter((m) => m.conversation === id),
+        page.messages[0]?.seq,
+      );
       const fresh = page.messages.map((m) => {
         const event = kept.find((k) => k.seq === m.seq);
         return event && (event.editedAt ?? 0) > (m.editedAt ?? 0) ? event : m;
@@ -480,6 +489,21 @@ export class HomeChannelsStore {
       if (this.shown) this.markRead(page.conversation, messages.at(-1)?.seq ?? 0);
     } catch (error) {
       if (generation === this.generation) this.set({ error: describe(error) });
+      return;
+    }
+    await this.fillTimeline(id, generation);
+  }
+
+  /** Pages older history (at most LINK_PAGES) until the timeline has FILL_TOP_LEVEL messages
+   * to show or the conversation's start is in. */
+  private async fillTimeline(id: string, generation: number): Promise<void> {
+    for (let page = 0; page < LINK_PAGES; page += 1) {
+      const { selected, messages, hasOlder } = this.snapshot;
+      if (generation !== this.generation || selected !== id || !hasOlder) return;
+      if (messages.filter((m) => !threadOf(m)).length >= FILL_TOP_LEVEL) return;
+      const before = messages[0]?.seq;
+      await this.loadOlder();
+      if (this.snapshot.messages[0]?.seq === before) return;
     }
   }
 
@@ -488,6 +512,7 @@ export class HomeChannelsStore {
     const { selected, messages, hasOlder, loadingOlder } = this.snapshot;
     if (!this.client || !selected || !hasOlder || loadingOlder) return;
     const before = messages[0]?.seq ?? 1;
+    const generation = this.generation;
     this.set({ loadingOlder: true });
     try {
       const older = await this.client.call<HomeHistory>(HomeOps.history, {
@@ -495,7 +520,9 @@ export class HomeChannelsStore {
         beforeSeq: before,
         limit: PAGE,
       });
-      if (this.snapshot.selected !== selected) return;
+      // A reload since (a reconnect) may have moved the window: this page goes before the old one.
+      if (this.snapshot.selected !== selected || this.generation !== generation) return;
+      if ((this.snapshot.messages[0]?.seq ?? 1) !== before) return;
       const merged = mergeMessages(this.snapshot.messages, older.messages, this.snapshot.messages.length + PAGE);
       this.set({
         messages: merged,
@@ -1105,4 +1132,21 @@ function defaultSelection(conversations: readonly HomeConversation[]): string | 
   const chief = conversations.find((c) => c.kind === "chief");
   if (chief) return chief.id;
   return [...conversations].sort((a, b) => b.updatedAt - a.updatedAt)[0]?.id;
+}
+
+/** The window's messages a page starting at `first` keeps: those from `first` on (events merged
+ * while the page was read), and older ones only while they run without a gap up to the page. A
+ * window that ends before the page starts (more than a page came in, a reconnect) would leave a
+ * hole no older page fills, so the window then starts at the page (#25570). */
+function joining(window: readonly HomeMessage[], first: number | undefined): HomeMessage[] {
+  if (first === undefined) return [...window];
+  const older = window.filter((m) => m.seq < first).sort((a, b) => b.seq - a.seq);
+  const kept: HomeMessage[] = [];
+  let next = first - 1;
+  for (const message of older) {
+    if (message.seq !== next) break;
+    kept.push(message);
+    next -= 1;
+  }
+  return [...kept.reverse(), ...window.filter((m) => m.seq >= first)];
 }
