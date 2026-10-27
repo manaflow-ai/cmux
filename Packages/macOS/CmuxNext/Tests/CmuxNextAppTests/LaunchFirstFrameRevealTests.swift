@@ -91,6 +91,19 @@ import Testing
         #expect(launch.pane.launchImageView == nil)
     }
 
+    @Test(arguments: [false, true])
+    func aPageThatLeavesThePaneTakesItsUnpaintedFrameWithIt(parks: Bool) {
+        let launch = LaunchWindow()
+        defer { launch.tearDown() }
+        launch.pane.show(NSView())
+        launch.pane.showLaunchImage(Self.lastFrame())
+        launch.pane.launchImageMayClear = { false }
+        launch.pane.detachContent(parks: parks)
+        #expect(launch.pane.launchImageView == nil,
+                "a closed or displaced page left its last frame covering the empty pane")
+        #expect(launch.pane.launchImageMayClear == nil)
+    }
+
     @Test func tabsThatArriveBeforeTheFirstFrameDrawInIt() {
         let launch = LaunchWindow()
         defer { launch.tearDown() }
