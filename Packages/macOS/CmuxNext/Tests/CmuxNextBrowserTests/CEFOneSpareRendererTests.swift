@@ -19,7 +19,8 @@ import Testing
         let switches = CEFSwitches.current(forkAPIVersion: 29, disabledChromiumFeatures: ["MediaRouter"], chromiumSpareOff: true,
                                            bundleIdentifier: "com.cmuxterm.app.next", environment: [:])
         let disables = switches.arguments.filter { $0.hasPrefix("disable-features=") }
-        #expect(disables == ["disable-features=MediaRouter,SpareRendererForSitePerProcess"], "\(switches.arguments)")
+        let expected = CEFSwitches.idleServiceOffFeatures + ["MediaRouter", CEFSwitches.spareRendererFeature]
+        #expect(disables == ["disable-features=" + expected.joined(separator: ",")], "\(switches.arguments)")
         #expect(!switches.enabledFeatures.contains(CEFSwitches.spareRendererFeature))
     }
 
@@ -31,7 +32,7 @@ import Testing
     @Test func theAppsOwnDisableOfTheSameFeatureIsNotRepeated() {
         let switches = CEFSwitches.current(forkAPIVersion: 29, disabledChromiumFeatures: [CEFSwitches.spareRendererFeature],
                                            chromiumSpareOff: true, bundleIdentifier: "com.cmuxterm.app.next", environment: [:])
-        #expect(switches.disabledFeatures == [CEFSwitches.spareRendererFeature])
+        #expect(switches.disabledFeatures == CEFSwitches.idleServiceOffFeatures + [CEFSwitches.spareRendererFeature])
     }
 
     // MARK: The spare windows

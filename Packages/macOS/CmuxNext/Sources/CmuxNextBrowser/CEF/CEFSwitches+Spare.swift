@@ -19,15 +19,4 @@ nonisolated extension CEFSwitches {
     /// content/browser/renderer_host/spare_render_process_host_manager_impl.cc). It is stock
     /// Chromium's, so every fork reads it.
     static let spareRendererFeature = "SpareRendererForSitePerProcess"
-
-    /// The Chromium `base::Feature`s of the one `disable-features` entry, each once: the app's
-    /// (``disabledChromiumFeatures``), then Chromium's spare renderer while ``chromiumSpareOff``.
-    var disabledFeatures: [String] {
-        var features: [String] = []
-        for feature in disabledChromiumFeatures + (chromiumSpareOff ? [Self.spareRendererFeature] : [])
-        where !features.contains(feature) {
-            features.append(feature)
-        }
-        return features
-    }
 }

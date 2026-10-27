@@ -56,8 +56,7 @@ public struct PasswordCSVImporter: Sendable {
         var info = stat()
         // SAFETY: fstat writes one `stat` into the local `info`, which outlives the call.
         guard unsafe fstat(descriptor, &info) == 0, info.st_mode & S_IFMT == S_IFREG else { throw .unreadable }
-        let size = Int(info.st_size)
-        guard size <= limit else { throw .unreadable }
+        guard let size = Int(exactly: info.st_size), (0...limit).contains(size) else { throw .unreadable }
         var failed = false
         let bytes = SecretBytes(capacity: size) { out in
             // SAFETY: reads the base address of the buffer SecretBytes lends for this closure.
