@@ -28,6 +28,9 @@ final class SidebarNoticeCardView: NSView {
     private let spinner = StatusIndicatorView.spinner()
     private let track = CALayer()
     private let bar = CALayer()
+    /// The card's node (its window's, hidden with the card) and the unmeasured sweep's loop on it.
+    private let loopVisibility = LoopVisibility("sidebar.noticeCard")
+    var loopNode: VisibilityNode { loopVisibility.node } // tests read its deferred work
     private(set) var actionButtons: [SidebarUpdateButton] = []
     let closeButton = SidebarIconButton(icon: .actionClose, pointSize: { 9 }, label: "")
     /// The text button that replaces the x when the notice names one (``SidebarNoticeCard/dismissTitle``).
@@ -39,9 +42,9 @@ final class SidebarNoticeCardView: NSView {
     /// The notice whose `shownAction` was sent (once per notice id), and its
     /// `hiddenAction` (sent when that notice leaves the card).
     private var reportedShown: (id: String, hiddenAction: String?)?
-    /// The window node's flips (``WindowVisibilitySource``): a window that comes into view
-    /// (unhidden app, restored, another window moved away) shows the card now.
-    private var windowVisibility: VisibilitySubscription?
+    /// The card's node coming into view (an unhidden app, a restored window, another window moved away, the
+    /// card or the sidebar unhidden) reports the notice shown then.
+    private var shownWatch: VisibilitySubscription?
     /// Shows and hides the card with its entrance and exit (``SidebarCardTransition``).
     private(set) lazy var presence = SidebarCardPresence(self, policy: motionPolicy)
     private let motionPolicy: @MainActor () -> MotionPolicy
@@ -93,6 +96,7 @@ final class SidebarNoticeCardView: NSView {
         dismissButton.setAccessibilityIdentifier("cmux.sidebar.notice.dismiss")
         setAccessibilityElement(false)
         isHidden = true
+        shownWatch = loopNode.subscribe(owner: "SidebarNoticeCard.shown") { [weak self] in if $0.isVisible { self?.reportShownIfOnScreen() } }
     }
 
     @available(*, unavailable)
@@ -157,19 +161,23 @@ final class SidebarNoticeCardView: NSView {
         reportShownIfOnScreen()
     }
 
-    /// Sends the notice's `shownAction` once it is on screen: a window that is
-    /// not covered, minimized or hidden, no hidden ancestor (a collapsed
-    /// sidebar shows nothing) and a real size.
+    /// Sends the notice's `shownAction` once it is on screen: the card's node is visible (a window that is not
+    /// covered, minimized or hidden; the card and the sidebar not hidden) and the card has a real size.
     private func reportShownIfOnScreen() {
         guard let notice, let action = notice.shownAction, reportedShown?.id != notice.id,
-              window.map({ WindowVisibilitySource.of($0).node.isVisible }) == true, !isHiddenOrHasHiddenAncestor, !bounds.isEmpty else { return }
+              loopNode.isVisible, !bounds.isEmpty else { return }
         reportedShown = (notice.id, notice.hiddenAction)
         onAction?(notice.id, action)
     }
 
+    override func viewDidHide() {
+        super.viewDidHide()
+        loopNode.set(.hidden)
+    }
+
     override func viewDidUnhide() {
         super.viewDidUnhide()
-        reportShownIfOnScreen()
+        loopNode.set(.visible)
     }
 
     /// Right-click (cx-2lm4): the card's buttons, then its x (Dismiss, or the x's menu), as menu items.
@@ -353,7 +361,7 @@ final class SidebarNoticeCardView: NSView {
         defer { CATransaction.commit() }
         guard let frame, let progress = notice?.progress else {
             track.isHidden = true
-            bar.removeAnimation(forKey: Self.sweepKey)
+            loopVisibility.detach(bar, key: Self.sweepKey)
             shownFraction = nil
             return
         }
@@ -362,7 +370,7 @@ final class SidebarNoticeCardView: NSView {
         bar.isHidden = false
         switch progress {
         case .fraction(let value):
-            bar.removeAnimation(forKey: Self.sweepKey)
+            loopVisibility.detach(bar, key: Self.sweepKey)
             let target = CGRect(x: 0, y: 0, width: frame.width * CGFloat(min(1, max(0.03, value))), height: frame.height)
             bar.anchorPoint = .zero
             bar.position = .zero
@@ -381,18 +389,17 @@ final class SidebarNoticeCardView: NSView {
             bar.anchorPoint = .zero
             let segment = frame.width * Self.sweepWidth
             bar.frame = CGRect(x: 0, y: 0, width: segment, height: frame.height)
-            guard motionPolicy().animatesLoops else {
-                bar.removeAnimation(forKey: Self.sweepKey)
+            let travel = frame.width
+            guard motionPolicy().animatesLoops, travel > 0 else {
+                loopVisibility.detach(bar, key: Self.sweepKey)
                 bar.isHidden = true
                 return
             }
-            if bar.animation(forKey: Self.sweepKey) != nil, sweptTravel == frame.width { return }
-            guard let sweep = Motion.indicators.sweepAnimation(segment: segment, travel: frame.width, policy: motionPolicy()) else {
-                bar.isHidden = true
-                return
+            if loopVisibility.isAttached(bar, key: Self.sweepKey), sweptTravel == travel { return }
+            sweptTravel = travel
+            loopVisibility.attach(bar, key: Self.sweepKey) { [motionPolicy] in
+                Motion.indicators.sweepAnimation(segment: segment, travel: travel, policy: motionPolicy())
             }
-            sweptTravel = frame.width
-            bar.add(sweep, forKey: Self.sweepKey)
         }
     }
 
@@ -403,10 +410,11 @@ final class SidebarNoticeCardView: NSView {
     /// The unmeasured segment's share of the track.
     private static let sweepWidth: CGFloat = 0.32
 
-    /// The progress row as shown, for tests: hidden, sweeping (unmeasured) or the bar's fraction of the track.
+    /// The progress row as shown, for tests: hidden, sweeping (unmeasured: the sweep is attached and
+    /// runs while the card is visible) or the bar's fraction of the track.
     var progressShown: ProgressShown {
         guard !track.isHidden else { return .none }
-        if bar.animation(forKey: Self.sweepKey) != nil { return .sweeping }
+        if loopVisibility.isAttached(bar, key: Self.sweepKey) { return .sweeping }
         if notice?.progress == .indeterminate { return .still }
         return .fraction(track.bounds.width > 0 ? Double(bar.frame.width / track.bounds.width) : 0)
     }
@@ -437,16 +445,16 @@ final class SidebarNoticeCardView: NSView {
 
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
-        applyColors()
-        surface.needsDisplay = true
+        loopNode.deferUntilVisible(key: "appearance") { [weak self] in
+            self?.applyColors()
+            self?.surface.needsDisplay = true
+        }
     }
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
+        loopVisibility.place(in: window)
         applyColors()
-        windowVisibility = window.map { window in
-            WindowVisibilitySource.of(window).node.subscribe(owner: "SidebarNoticeCard") { [weak self] _ in self?.reportShownIfOnScreen() }
-        }
         reportShownIfOnScreen()
     }
 

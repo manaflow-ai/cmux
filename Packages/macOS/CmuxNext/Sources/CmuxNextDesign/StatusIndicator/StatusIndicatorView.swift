@@ -50,6 +50,7 @@ public final class StatusIndicatorView: NSView, StatusIndicatorConfigClient {
         visibilityNode = VisibilityNode("statusIndicator", own: .hidden, parent: offWindow)
         super.init(frame: frame)
         wantsLayer = true
+        layerContentsRedrawPolicy = .onSetNeedsDisplay
         layer?.addSublayer(indicator.layer)
         indicator.hostIsFlipped = isFlipped
         isHidden = true
@@ -74,11 +75,11 @@ public final class StatusIndicatorView: NSView, StatusIndicatorConfigClient {
     /// reserve layout space only then).
     public var showsGlyph: Bool { indicator.plan.glyph != .none }
 
+    /// The broadcast comes on a changed config only; ``refresh()`` repaints when this indicator's own
+    /// config changed (a scale it ignores did not) and tells the host when the mark shows, hides or
+    /// changes shape.
     public func statusIndicatorConfigDidChange(_ config: StatusIndicatorConfig) {
         refresh()
-        needsDisplay = true
-        // The static look can show or hide the mark; the host lays out again.
-        superview?.needsLayout = true
     }
 
     /// Checks the indicator again (the app came back, a window became main, the Mac woke). Only
@@ -116,18 +117,32 @@ public final class StatusIndicatorView: NSView, StatusIndicatorConfigClient {
                                  working: config.workingLook)
     }
 
+    /// Applies the state and the config. A resync, or a config that leaves the plan as it was, asks
+    /// for no layout and no paint (the layer starts or stops its loop itself).
     private func refresh() {
         let config = currentConfig
-        let showed = showsGlyph
+        let drawnPlan = indicator.plan, drawnConfig = indicator.config
         nameState()
         // Shown or hidden before the plan applies, so AppKit's unhide reaches ``visibilityNode`` and the
         // loop starts in this pass (whether a glyph shows does not depend on the loop).
         isHidden = plan(config, animates: false).glyph == .none
         applyPlan(config)
-        // The host reserves trailing space only for a visible glyph.
-        if showed != showsGlyph { superview?.needsLayout = true }
-        needsLayout = true
-        needsDisplay = true
+        // The host lays out around the mark: its trailing space shows only for a visible glyph, and a
+        // corner badge sizes its ring to the glyph's kind (RowBadgeView: the Codex set's dot). A
+        // progress step keeps the shape, so it lays the host out no more.
+        if !Self.sameShape(indicator.plan.glyph, drawnPlan.glyph) { superview?.needsLayout = true }
+        guard indicator.plan != drawnPlan || indicator.config != drawnConfig else { return }
+        // invalidate: another plan or config (the guard above): the mark's geometry and colors.
+        needsLayout = true; needsDisplay = true
+    }
+
+    /// Whether two glyphs take the same room: the same kind (none is a kind: no room), whatever ring
+    /// progress each shows.
+    private static func sameShape(_ lhs: StatusIndicatorPlan.Glyph, _ rhs: StatusIndicatorPlan.Glyph) -> Bool {
+        switch (lhs, rhs) {
+        case (.ring, .ring): true
+        default: lhs == rhs
+        }
     }
 
     /// Applies the plan with its loop only while ``visibilityNode`` is visible: a hidden indicator
@@ -145,7 +160,7 @@ public final class StatusIndicatorView: NSView, StatusIndicatorConfigClient {
 
     public override func viewDidChangeBackingProperties() {
         super.viewDidChangeBackingProperties()
-        needsLayout = true
+        needsLayout = true // invalidate: the scale changed; `layout()` sets the layer's contentsScale.
     }
 
     public override func updateLayer() {
@@ -161,6 +176,9 @@ public final class StatusIndicatorView: NSView, StatusIndicatorConfigClient {
         visibilityNode.cancelDeferred(key: Self.resyncKey)
         placeInTree()
         refresh()
+        guard window != nil else { return }
+        // invalidate: another window can bring another scale (`layout()`) and theme scope (`updateLayer()`).
+        needsLayout = true; needsDisplay = true
     }
 
     /// Puts ``visibilityNode`` under the window's node, or under the hidden root while the view is in

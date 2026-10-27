@@ -6,7 +6,8 @@
 /// pointerdown, `moderate` after the pointer rests 200 ms on the link
 /// (third_party/blink/renderer/core/html/anchor_element_interaction_tracker.cc, `kHoverEventDelay`).
 public enum IntentPrewarmTrigger: String, Sendable, CaseIterable {
-    /// A press on a target that commits on release (p04-input-042).
+    /// A press on a target that commits only on its release (p04-input-042): the press-to-release time is
+    /// the head start.
     case pointerDown
     /// The pointer rested on a target for the service's dwell (p04-input-043).
     case hoverDwell
@@ -33,7 +34,7 @@ public enum IntentPrewarmDirection: Sendable, Equatable {
 /// limit evicts the oldest, as Chrome holds at most two non-eager prerenders and cancels the oldest
 /// (content/browser/preloading/prerender/prerender_host_registry.cc,
 /// `kMaxNumOfRunningNonEagerPrerendersExceeded`). Each `PrerenderHost` keeps its trigger the same way, so a
-/// cancel scoped to one trigger never reaches another's.
+/// cancel scoped to one trigger never reaches another's, and a use is counted by trigger.
 public struct IntentPrewarmQueue<Target: Hashable & Sendable>: Sendable, Equatable {
     /// How many prewarms are held at once (2 by default, Chrome's non-eager prerender limit).
     public let limit: Int
@@ -64,12 +65,13 @@ public struct IntentPrewarmQueue<Target: Hashable & Sendable>: Sendable, Equatab
         return evicted
     }
 
-    /// Lets `target` go without a cancel (it committed, or its content went); false when it was not held.
+    /// Lets `target` go without a cancel (it committed, or its content went); returns the trigger that
+    /// started it, nil when it was not held.
     @discardableResult
-    public mutating func remove(_ target: Target) -> Bool {
-        guard triggers.removeValue(forKey: target) != nil else { return false }
+    public mutating func remove(_ target: Target) -> IntentPrewarmTrigger? {
+        guard let trigger = triggers.removeValue(forKey: target) else { return nil }
         held.removeAll { $0 == target }
-        return true
+        return trigger
     }
 
     /// Lets every held prewarm `trigger` started go and returns them, oldest first (a key step the other way

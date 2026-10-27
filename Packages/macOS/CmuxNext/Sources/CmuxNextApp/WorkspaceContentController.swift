@@ -30,7 +30,7 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
     /// room theme.
     let themeScope = ThemeScope(level: .workspace)
     unowned let services: AppServices
-    unowned let state: WindowState
+    let state: WindowState  // strong: a task holding this content past its window reads a live state; no cycle
     private(set) var handles = LayoutHandleMap()
     private(set) var panes: [LayoutPaneID: PaneController] = [:]
     private var observation: Task<Void, Never>?
@@ -163,6 +163,8 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
         // Divider, column-edge and row-edge drags move the layout once per frame (`pointerFrameDrags`), drawn resampled (`resampledDrags`).
         layoutView.setDragInput(frames: services.dragFrameInput, resampler: services.dragResampler)
         layoutView.resamplesStripPan = services.features.isEnabled(.stripPanResampling)
+        // Content keeps its size through a pane spring (feature `paneHoldsContentInMotion`).
+        layoutView.holdsContentInMotion = { [features = services.features] in features.isEnabled(.paneHoldsContentInMotion) }
         // A scroll the layout took is timed as the layout's (`key.scroll_frame target=layout`).
         layoutView.onScrollTaken = { [inputDispatch = services.inputDispatch] in inputDispatch.noteLayoutTookScroll() }
         // A link dragged in from another app or a page: the drop zones a dragged tab has (LinkDropPlan).
@@ -183,9 +185,7 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
             }
             return try await fallbackCreate(key)
         }
-        emptyView = EmptyWorkspaceView(
-            onNew: { [weak self] in self?.newFromEmptyState() }
-        )
+        emptyView = EmptyWorkspaceView(onNew: { [weak self] in self?.newFromEmptyState() })
         themeScope.root(contentView)
         contentView.backgroundMenu = { [weak services, weak self] in
             self.flatMap { services?.registry.makeContextMenu(for: .windowBackground, target: ActionTargetRef(kind: .workspace, id: $0.workspace.id)).themeRows(in: $0.themeScope.fullStrength) }

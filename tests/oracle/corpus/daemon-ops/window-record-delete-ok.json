@@ -73,6 +73,31 @@
         "settled"
       ],
       "note": "deletes the record the put step stored"
+    },
+    {
+      "id": "retry",
+      "op": "resource.call",
+      "target": {
+        "machine": "current",
+        "session": "current"
+      },
+      "args": {
+        "method": "window_record.delete",
+        "params": {
+          "install_id": "oracle-install",
+          "window_id": "oracle-window"
+        },
+        "idempotencyKey": "window-record-delete-ok.call"
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "mutation_result"
+      },
+      "checkpoint": [
+        "before",
+        "settled"
+      ],
+      "note": "I10: step call again with its idempotency key; the daemon replays its reply, adds no journal record and changes no facet"
     }
   ],
   "invariants": [

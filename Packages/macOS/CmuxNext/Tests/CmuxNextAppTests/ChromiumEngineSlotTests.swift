@@ -137,7 +137,8 @@ import Testing
     /// The App's hook holds the crash services themselves: it sets the run marker's signal handlers on an engine
     /// built with no `AppServices` alive (a reader that outlives it, a teardown at quit).
     @Test func theCrashHookNeedsNoAppServices() {
-        let crashRecovery = CrashRecoveryService(bundleID: nil, marksRun: false)
+        let crashRecovery = CrashRecoveryService(bundleID: nil, runMarker: nil, work: BackgroundWork(label: "test.crash-hook"),
+                                                 mainWork: MainWorkScheduler(budget: MainFrameBudget()))
         let reporter = AppCrashReporting(environment: AppEnvironment.current([:])).reporter
         var routed: [ObjectIdentifier] = []
         let fixture = Self.engine()
@@ -181,9 +182,8 @@ import Testing
         _ = services.cache.browserTabs.cefUnavailable()
         _ = services.cache.chromiumNow.runs()
         CEFPasswordPolicy.set(offerToSave: true, generate: true)  // what an earlier engine in this process left
-        BrowserLinkClickPreference.follow(settings, webKit: services.cache.webKit, chromium: services.cache.chromium)
-        BrowserOmnibarPreference.follow(settings, cache: services.cache)
-        for _ in 0..<50 { await Task.yield() }  // the followers' first values
+        let followers = BrowserLinkClickPreference.follow(settings, webKit: services.cache.webKit, chromium: services.cache.chromium, on: services.mainWork)
+            + BrowserOmnibarPreference.follow(settings, cache: services.cache, on: services.mainWork)  // the first values apply now
         #expect(services.cache.chromium.built == nil, "the launch wiring builds no Chromium engine")
         #expect(CEFPasswordPolicy.offerToSave, "nothing reached Chromium's settings without an engine")
         await services.cache.chromium.shutdown()
@@ -197,5 +197,6 @@ import Testing
         #expect(engine.linkClicks == mapping, "browser.links.* reached the engine as it was built")
         #expect(!CEFPasswordPolicy.offerToSave, "browser.passwords.offerToSave reached Chromium as its engine was built")
         #expect(services.cache.chromium.built === engine)
+        withExtendedLifetime(followers) {}
     }
 }

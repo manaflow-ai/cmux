@@ -1,4 +1,5 @@
 public import AppKit
+public import CmuxNextDesign
 
 /// Benchmarks (`debug.hover_sweep`, R131): drive a strip's hover path
 /// without a real pointer.
@@ -10,11 +11,15 @@ public struct TabStripDebug {
     public static func tabCenter(in strip: TabStripView, at index: Int) -> CGPoint? {
         let tabs = strip.model.orderedTabs
         guard tabs.indices.contains(index), let cell = strip.cells[tabs[index].id] else { return nil }
-        return strip.tabsClip.convert(CGPoint(x: cell.frame.midX, y: cell.frame.midY), to: strip)
+        let frame = strip.scroller.shownFrame(cell.layer)
+        return strip.tabsClip.convert(CGPoint(x: frame.midX, y: frame.midY), to: strip)
     }
 
     /// The pointer moves to `point`, as a mouse move does.
     public static func pointerMoved(in strip: TabStripView, to point: CGPoint) { strip.updateHover(at: point, moved: true) }
+
+    /// The hover card target of tab `id`: a scene waits until the coordinator shows it (`high-energy-tab`).
+    public static func cardTarget(of id: TabID) -> HoverTargetID { TabHoverCardController.targetID(id) }
 
     /// The image the strip's hover card shows now (nil: placeholder).
     public static func cardThumbnail(in strip: TabStripView) -> CGImage? { strip.hoverCard.shownThumbnail }
@@ -29,9 +34,9 @@ public struct TabStripDebug {
         // What shows on this frame: the presentation layer, with every Core Animation move in flight.
         var pills = -Double.infinity
         let tabs: [Any] = strip.cells.map { id, cell in
-            let shown = cell.layer.presentation() ?? cell.layer
-            pills = max(pills, Double(strip.tabsClip.convert(CGPoint(x: shown.frame.maxX, y: 0), to: nil).x))
-            return [id.rawValue, Double(shown.frame.minX), Double(shown.frame.width), Double(shown.opacity)] as [Any]
+            let shown = strip.scroller.shownFrame(cell.layer, presented: true)
+            pills = max(pills, Double(strip.tabsClip.convert(CGPoint(x: shown.maxX, y: 0), to: nil).x))
+            return [id.rawValue, Double(shown.minX), Double(shown.width), Double((cell.layer.presentation() ?? cell.layer).opacity)] as [Any]
         }
         var sample: [String: [Any]] = ["tabs": tabs, "strip": [Double(strip.bounds.width)]]
         // Shown strips only: a hidden workspace's panes stay in the window.

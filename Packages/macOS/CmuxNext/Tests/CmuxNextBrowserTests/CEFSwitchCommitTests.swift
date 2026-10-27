@@ -330,7 +330,7 @@ import Testing
         VisibilitySpy.reset()
         let shim = try CEFShimLibrary.resolving(VisibilitySpy.symbol)
         let fork = try #require(CEFLayerHosting.Fork(shim: shim, apiVersion: CEFLayerHosting.embedderVisibilityForkAPI,
-                                                     trackA: [.resizeFence]))
+                                                     policy: CEFLayerHosting.Policy(trackA: [.resizeFence])))
         let setVisibility = try #require(fork.setVisibility)
         let all: [CEFLayerHosting.PageVisibility] = [.window, .visible, .occluded, .hidden]
         for visibility in all { #expect(setVisibility(3, visibility)) }
@@ -344,7 +344,7 @@ import Testing
         VisibilitySpy.reset()
         let shim = try CEFShimLibrary.resolving(VisibilitySpy.symbol)
         let older = try #require(CEFLayerHosting.Fork(shim: shim, apiVersion: CEFLayerHosting.embedderVisibilityForkAPI - 1,
-                                                      trackA: [.resizeFence]))
+                                                      policy: CEFLayerHosting.Policy(trackA: [.resizeFence])))
         #expect(older.setVisibility == nil)
         #expect(older.trackA == [.resizeFence])
         VisibilitySpy.hasExport = false

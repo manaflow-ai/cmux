@@ -378,6 +378,9 @@ _EXTRA_SWITCHES_OPTION = ("an optional extra Chromium switch the person passes f
 DEBUG_ONLY_BY_DESIGN = {
     ("CMUX_NEXT_CEF_EXTRA_SWITCHES", "scripts/cmux-next/bench_renderer_sharing.py"): "--cef-switches: " + _EXTRA_SWITCHES_OPTION,
     ("CMUX_NEXT_CEF_EXTRA_SWITCHES", "scripts/cmux-next/bench_memory.py"): "--cef-switches: " + _EXTRA_SWITCHES_OPTION,
+    ("CMUX_NEXT_CEF_EXTRA_SWITCHES", "scripts/cmux-next/bench-webui.py"):
+        "--page-code-cache: p13-webui-052's spike arm, an engine no build ships; both arms run the same Debug build, "
+        "and a run whose renderers lack the switch is refused",
     ("CMUX_NEXT_CEF_EXTRA_SWITCHES", "scripts/cmux-next/bench_power.py"): "an --env example in its help text only",
     ("CMUX_NEXT_CEF_EXTRA_SWITCHES", "scripts/cmux-next/browser-idle-cost-live.py"): "an --env example in its help text only",
     ("CMUX_NEXT_CHROMIUM_HOST_SWITCHES", "scripts/cmux-next/chromium-host-bench.py"):

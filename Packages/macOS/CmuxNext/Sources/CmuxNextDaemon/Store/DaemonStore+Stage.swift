@@ -30,10 +30,12 @@ extension DaemonStore {
         if let stage, stage.holds(through: sequence) { stage.commitAll() }
     }
 
-    /// Records a read-your-writes wait for `sequence` until ``endAppliedWait(_:)``: the stage shows
-    /// now what it holds at or below it, and holds no later event the wait needs (``awaitsNow(_:)``).
+    /// Records a read-your-writes wait for `sequence` until ``endAppliedWait(_:)``: the drain's tail
+    /// and the stage show now what they hold at or below it, and hold no later event the wait needs
+    /// (``awaitsNow(_:)``).
     public func beginAppliedWait(_ sequence: UInt64) {
         sequenceWaits[sequence, default: 0] += 1
+        applyAwaitedTail { $0.sequence <= sequence }
         commitStage(ifHolding: sequence)
     }
 

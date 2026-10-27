@@ -9,7 +9,7 @@ extension AgentPaneView {
     /// web-override watch.
     ///
     /// - Parameters:
-    ///   - chromiumChat: Whether the agent chat may run in Chromium (`AgentPaneTunables.chromium`).
+    ///   - chromiumChat: Whether the agent chat may run in Chromium (feature `agentChromium`).
     ///   - hosting: The app's Chromium page maker (`AppServices.webUI.chromium`); nil for WebKit only.
     /// - Returns: True when a new agent page opens in WebKit.
     public static func newPagesShowInWebKit(chromiumChat: Bool, hosting: (any PageChromiumHosting)?) -> Bool {
@@ -84,7 +84,7 @@ public final class AgentPageWarmup {
     private let chromiumChat: @MainActor () -> Bool
 
     /// - Parameter chromiumChat: Whether the agent chat may run in Chromium (the app passes
-    ///   `AgentPaneTunables.chromium`'s value). Every engine decision of the warm-up
+    ///   feature `agentChromium`, `AppServices.agentChromiumChat`). Every engine decision of the warm-up
     ///   (each ``start(webUI:)``) reads this one seam.
     public init(chromiumChat: @escaping @MainActor () -> Bool) {
         self.chromiumChat = chromiumChat

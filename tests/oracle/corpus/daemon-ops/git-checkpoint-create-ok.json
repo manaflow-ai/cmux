@@ -58,6 +58,33 @@
         "settled"
       ],
       "note": "a checkpoint of the fixture checkout: its unstaged notes.txt edit and the untracked scratch.txt; HEAD, the index and the files stay as they are"
+    },
+    {
+      "id": "retry",
+      "op": "resource.call",
+      "target": {
+        "machine": "current",
+        "session": "current"
+      },
+      "args": {
+        "method": "git.checkpoint.create",
+        "params": {
+          "path": "$CASE_ROOT/repos/oracle",
+          "include_untracked": [
+            "scratch.txt"
+          ]
+        },
+        "idempotencyKey": "git-checkpoint-create-ok.call"
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "mutation_result"
+      },
+      "checkpoint": [
+        "before",
+        "settled"
+      ],
+      "note": "I10: step call again with its idempotency key; the daemon replays its reply, adds no journal record and changes no facet"
     }
   ],
   "invariants": [

@@ -22,6 +22,7 @@ use cmux_app_host::script::{LogSink, ScriptError};
 use serde::Deserialize;
 use serde_json::{Value, json};
 
+use super::routes::RouteLine;
 use super::{MessageWriter, Response, send_response};
 use crate::mux::Mux;
 use crate::scripts::{Answer, FORBIDDEN, LogBudget, ScriptsSlot, UNAVAILABLE, timeout_from};
@@ -147,28 +148,26 @@ fn refusal(mux: &Mux, client: u64) -> Option<ScriptError> {
     None
 }
 
-/// Runs `job` off the connection thread and replies with its result.
+/// Runs `job` off the connection thread and replies with its result: a
+/// request wait (`request_wait.rs`; the script host is another process),
+/// not a thread per request.
 fn answer_later(
+    mux: &Mux,
     writer: &MessageWriter,
     id: Option<Value>,
-    request_qos: crate::request_qos::RequestQos,
     job: impl FnOnce() -> Result<Value, ScriptError> + Send + 'static,
 ) -> bool {
-    let writer = writer.clone();
     // The job keeps the cause and class of the frame that started it.
-    let cause = crate::event_cause::EventCause::current();
-    let spawned = std::thread::Builder::new().name("cmux-script".into()).spawn({
-        let writer = writer.clone();
-        let id = id.clone();
-        move || {
-            let _cause = request_qos.enter(cause);
-            reply(&writer, id, job());
-        }
+    let (cause, request_qos) = (crate::event_cause::EventCause::current(), mux.request_qos());
+    let (job_writer, job_id) = (writer.clone(), id.clone());
+    let posted = mux.post_request_wait(move || {
+        let _cause = request_qos.enter(cause);
+        reply(&job_writer, job_id, job());
     });
-    match spawned {
-        Ok(_) => true,
-        Err(e) => {
-            reply(&writer, id, Err(ScriptError::new("script.host", format!("no thread: {e}"))))
+    match posted {
+        Ok(()) => true,
+        Err(_) => {
+            reply(writer, id, Err(ScriptError::new("script.host", "the daemon is shutting down")))
         }
     }
 }
@@ -178,23 +177,17 @@ pub(in crate::server) const ROUTES: &[crate::server::routes::Route] =
     &[crate::server::routes::Route {
         names: &[crate::server::routes::RouteName::Prefix("script-")],
         stage: crate::server::FrameStage::Scripts,
-        entry: |line| try_handle(line.mux, line.client, line.message, line.writer),
+        entry: handle,
     }];
 
-/// Handles a `script-*` command; `None` when the message is not one.
-pub(super) fn try_handle(
-    mux: &Arc<Mux>,
-    client: u64,
-    message: &str,
-    writer: &MessageWriter,
-) -> Option<bool> {
-    if !message.contains("\"script-") {
-        return None;
-    }
+/// Answers a line whose `cmd` starts with `script-` (the route found it by
+/// name). The line's one decode is its `Value`: it gives every reply the
+/// `id` as written, a refused one too, and then the typed [`Request`].
+/// `None` only for a line with no `Value` (a number past `f64`, a lone
+/// surrogate); the `Command` parse answers it.
+fn handle(line: &RouteLine<'_>) -> Option<bool> {
+    let RouteLine { mux, client, message, writer, .. } = *line;
     let value: Value = crate::line_parses::parse(message).ok()?;
-    if !value.get("cmd").and_then(Value::as_str)?.starts_with("script-") {
-        return None;
-    }
     let id = value.get("id").cloned();
     let request = match serde_json::from_value::<Request>(value) {
         Ok(request) => request,
@@ -219,11 +212,12 @@ pub(super) fn try_handle(
     let request_key = request_id.to_string();
     Some(match command {
         Command::Run { code, args, timeout_ms } => {
+            let owner = mux;
             let mux = mux.clone();
             let budget = Arc::new(LogBudget::default());
             let tag = request_id;
             let log = log_sink(writer, budget.clone(), Arc::new(move || ("request", tag.clone())));
-            answer_later(writer, id, mux.request_qos(), move || {
+            answer_later(owner, writer, id, move || {
                 mux.control_clients
                     .scripts
                     .run(
@@ -240,9 +234,10 @@ pub(super) fn try_handle(
             })
         }
         Command::Open => {
+            let owner = mux;
             let mux = mux.clone();
             let writer = writer.clone();
-            answer_later(&writer.clone(), id, mux.request_qos(), move || {
+            answer_later(owner, &writer.clone(), id, move || {
                 // The session id is known only after the host starts, so the
                 // sink reads it from a cell set right after.
                 let session_tag = Arc::new(std::sync::OnceLock::<String>::new());
@@ -262,8 +257,9 @@ pub(super) fn try_handle(
             })
         }
         Command::Eval { session, code, args, timeout_ms } => {
+            let owner = mux;
             let mux = mux.clone();
-            answer_later(writer, id, mux.request_qos(), move || {
+            answer_later(owner, writer, id, move || {
                 mux.control_clients
                     .scripts
                     .eval(

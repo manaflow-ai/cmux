@@ -74,16 +74,19 @@ final class SidebarGroupLineViews {
             }
             return (changes, leaving.map(\.0), (moves + leaving).map { ($0.0 as NSView, $0.1) })
         }
-        // Without motion the lines take their frames in one step: a spring an earlier move left on one comes off.
+        // Without motion the lines take their frames in one step: a spring an earlier move left on one comes off,
+        // and the zero-length group stops a move AppKit still runs on one, wherever the caller runs the changes.
         SidebarDragSpring.stop(moves.map(\.0) + leaving.map(\.0))
         let changes = {
-            for (view, frame) in moves {
-                view.animator().frame = frame
-                view.animator().alphaValue = 1
-            }
-            for (view, frame) in leaving {
-                view.animator().frame = frame
-                view.animator().alphaValue = 0
+            Motion.withoutAnimation {
+                for (view, frame) in moves {
+                    view.animator().frame = frame
+                    view.animator().alphaValue = 1
+                }
+                for (view, frame) in leaving {
+                    view.animator().frame = frame
+                    view.animator().alphaValue = 0
+                }
             }
         }
         return (changes, leaving.map(\.0), [])
@@ -152,6 +155,7 @@ final class GroupLineView: NSView {
     init() {
         super.init(frame: .zero)
         wantsLayer = true
+        layerContentsRedrawPolicy = .onSetNeedsDisplay // updateLayer sets colors only; the shape is layout's
         layer?.cornerRadius = 0 // flat body and left edge; the top-right edge has Chrome's cut.
         layer?.masksToBounds = true
         railShape.fillColor = NSColor.black.cgColor
@@ -165,9 +169,16 @@ final class GroupLineView: NSView {
     nonisolated override var wantsUpdateLayer: Bool { true }
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
 
+    // visibility-walk-allow: only invalidates; AppKit draws a hidden view when it shows, so the repaint already waits for it
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         needsDisplay = true
+    }
+
+    override func setFrameSize(_ newSize: NSSize) {
+        let changed = newSize != frame.size
+        super.setFrameSize(newSize)
+        if changed { needsLayout = true }
     }
 
     override func layout() {
@@ -184,7 +195,6 @@ final class GroupLineView: NSView {
             layer?.backgroundColor = NSColor.clear.cgColor
             railShape.fillColor = line.withAlphaComponent(line.alphaComponent * strength).cgColor
         }
-        updateShape()
     }
 
     private func updateShape() {

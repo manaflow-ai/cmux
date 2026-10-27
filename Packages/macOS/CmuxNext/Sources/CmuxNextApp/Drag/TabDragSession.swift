@@ -31,7 +31,8 @@ final class TabDragSession: NSObject {
     var drag: Drag?
     /// Ghost of the previous drag still flying home or into its slot.
     var landing: Drag?
-    var resignObserver: MainActorObservation?
+    /// The app's resign-active notice ends the drag (``AppEvents``: one observer for the app).
+    var resignObserver: EventSubscription?
     /// Takes one `motion.drag_frame` interval per ghost tick (``tick(_:elapsed:)``).
     let motionSignposter: Signposter
     /// The windows' frame-aligned pointer input (feature `pointerFrameDrags`): a drag's moves hit-test on a frame
@@ -136,7 +137,7 @@ final class TabDragSession: NSObject {
             self.deliverMoves(input, at: frame, drag: drag)
         }
         drag.resampler = drag.moves == nil ? nil : makeResampler()
-        resignObserver = MainActorObservation(NSApplication.didResignActiveNotification) { [weak self] in
+        resignObserver = services.appEvents.subscribe(NSApplication.didResignActiveNotification, owner: "TabDragSession.resign") { [weak self] in
             self?.finish(commit: false)
         }
         self.drag = drag
@@ -377,6 +378,7 @@ final class TabDragSession: NSObject {
         // (home-chief-pane.md H4). Home's dock takes tabs, so its strip takes drops.
         for pane in controller.onScreenContents.flatMap(\.panes.values) where !pane.isClosedPinnedDockPane {
             let strip = pane.view.stripView
+            // visibility-walk-allow: hit test: a strip takes the drop only where AppKit draws it under the pointer (a pane's node says nothing of a hidden tab bar)
             guard let window = strip.window, !strip.isHiddenOrHasHiddenAncestor else { continue }
             let frame = window.convertToScreen(strip.convert(strip.bounds, to: nil)).insetBy(dx: 0, dy: -Metrics.space4)
             if frame.contains(point) { list.append(strip) }

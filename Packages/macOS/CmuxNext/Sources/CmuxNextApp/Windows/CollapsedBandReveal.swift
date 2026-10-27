@@ -12,7 +12,7 @@ import CmuxNextWakeups
 /// with the sidebar hidden, the band opens at once; a band that is open
 /// stays open while engaged (a click on the toggle that hides the sidebar
 /// leaves the band under the pointer). Disengaged, it closes after
-/// `closeDelay` on the injected clock, so a pointer that grazes the edge
+/// `closeDelay` (a `MainDeadline` on the app's scheduler), so a pointer that grazes the edge
 /// does not flicker; a return before then cancels the close. While open
 /// it holds the row's reveal, so the buttons stay shown for the whole
 /// delay instead of fading before the band closes; that hold does not
@@ -49,14 +49,15 @@ final class CollapsedBandReveal {
     /// Carries the open share as its width; takes no clicks, draws nothing.
     let driver = PassThroughView(frame: .zero)
     private var width: NSLayoutConstraint?
-    /// The close delay's one-shot deadline.
-    private let closeTimer: DemandTimer
+    /// The close delay's one-shot deadline: `visible` work, the band is on screen.
+    private let closeTimer: MainDeadline
     /// The band's share on screen now (the sidebar's or this driver's), so
     /// an open starts from it instead of from 0.
     var shownPresence: () -> CGFloat = { 0 }
 
-    init(clock: any Clock<Duration> = ContinuousClock()) {
-        closeTimer = DemandTimer(owner: "CollapsedBandReveal.close", clock: clock)
+    /// - Parameter deadlines: The app's one main-thread deadline scheduler.
+    init(deadlines: MainDeadlineScheduler) {
+        closeTimer = MainDeadline(owner: "CollapsedBandReveal.close", workClass: .visible, scheduler: deadlines)
         driver.setAccessibilityElement(false)
     }
 
@@ -96,7 +97,7 @@ final class CollapsedBandReveal {
             closeTimer.cancel()
             if sidebarHidden, !isOpen { open() }
         } else if isOpen {
-            closeTimer.scheduleOnMainIfIdle(after: Self.closeDelay) { [weak self] in
+            closeTimer.scheduleIfIdle(after: Self.closeDelay) { [weak self] in
                 guard let self, !engaged, isOpen else { return }
                 close()
             }

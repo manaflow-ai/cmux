@@ -52,8 +52,10 @@ enum WorkspaceGroupClose {
         let handle = CmuxToastCenter.shared.show(CmuxToast(id: id, message: message, action: .undo()), in: window)
         handle.onAction = { [weak services] in
             guard let services else { return }
-            // task-owner: one undo, bounded by `arrivalLimit`
-            Task { @MainActor in for (group, names) in groups { await reopen(group: group, names: names, after: seen, services) } }
+            // One undo (the person's click), bounded by `arrivalLimit`: the waits are awaited off main, each reopen runs on main.
+            services.registry.completion(on: services.mainWork).start {
+                for (group, names) in groups { await reopen(group: group, names: names, after: seen, services) }
+            }
         }
     }
 
@@ -97,7 +99,9 @@ enum WorkspaceGroupClose {
             guard let services else { return true }
             return matches(names: names, group: id, after: seen, services).missing.isEmpty
         }
-        if !arrived() { await ObservationDeadline(owner: "workspace-group-close-undo").until(arrived, limit: arrivalLimit) }
+        // One ServiceObservation reads the closed items again only when the store's history changes.
+        await ObservedCondition(owner: "workspace-group-close-undo", .visible, on: services.mainWork)
+            .until(timeout: arrivalLimit, deadlines: services.mainDeadlines, arrived)
         let found = matches(names: names, group: id, after: seen, services)
         for itemID in found.workspaces.reversed() {
             if let entry = DaemonClosedHistory.entry(itemID, in: services) { DaemonClosedHistory.reopen(entry, services: services) }

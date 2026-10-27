@@ -184,8 +184,12 @@ final class CEFHiddenPageSnapshot {
         guard IOSurfaceLock(surface, .readOnly, nil) == KERN_SUCCESS else { return nil }
         defer { IOSurfaceUnlock(surface, .readOnly, nil) }
         let width = IOSurfaceGetWidth(surface), height = IOSurfaceGetHeight(surface), bytesPerRow = IOSurfaceGetBytesPerRow(surface)
-        let pixels = Data(bytes: IOSurfaceGetBaseAddress(surface), count: bytesPerRow * height)
-        guard width > 0, height > 0, let provider = CGDataProvider(data: pixels as CFData) else { return nil }
+        let (byteCount, overflows) = bytesPerRow.multipliedReportingOverflow(by: height)
+        guard width > 0, height > 0, bytesPerRow >= width * 4, !overflows, byteCount <= IOSurfaceGetAllocSize(surface) else { return nil }
+        // SAFETY: the read-only lock above keeps the base address mapped until the deferred unlock, and the copy
+        // reads `byteCount` bytes, which the guard keeps within the surface's allocation.
+        let pixels = unsafe Data(bytes: IOSurfaceGetBaseAddress(surface), count: byteCount)
+        guard let provider = CGDataProvider(data: pixels as CFData) else { return nil }
         let info = CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedFirst.rawValue | CGBitmapInfo.byteOrder32Little.rawValue)
         return CGImage(width: width, height: height, bitsPerComponent: 8, bitsPerPixel: 32, bytesPerRow: bytesPerRow,
                        space: space, bitmapInfo: info, provider: provider, decode: nil, shouldInterpolate: false,
@@ -270,13 +274,15 @@ extension IOSurface {
     /// Swift names differ by SDK.
     fileprivate func makeSnapshotVolatile() {
         var old: UInt32 = 0
-        IOSurfaceSetPurgeable(self, 1, &old)
+        // SAFETY: IOSurfaceSetPurgeable writes one UInt32, the previous state, into `old` during the call.
+        _ = unsafe IOSurfaceSetPurgeable(self, 1, &old)
     }
 
     /// Non-volatile for a reader; false when the system purged the pages meanwhile.
     fileprivate func reclaimSnapshot() -> Bool {
         var old: UInt32 = 0
-        IOSurfaceSetPurgeable(self, 0, &old)
+        // SAFETY: IOSurfaceSetPurgeable writes one UInt32, the previous state, into `old` during the call.
+        _ = unsafe IOSurfaceSetPurgeable(self, 0, &old)
         return old != 2
     }
 }

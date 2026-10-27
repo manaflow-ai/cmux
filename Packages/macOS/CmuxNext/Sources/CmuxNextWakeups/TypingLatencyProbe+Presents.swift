@@ -10,6 +10,8 @@ extension TypingLatencyProbe {
     struct EchoCommit {
         var flow: UInt64
         var display: UInt32?
+        /// Its frame went to its layer before its GPU work finished (``mark(_:surface:awaitsGPU:)``).
+        var awaitsGPU = false
     }
 
     /// The echo commits of this turn end whose display is known, oldest first; nil-display ones are not
@@ -29,7 +31,7 @@ extension TypingLatencyProbe.State {
         for commit in commits {
             guard let display = commit.display else { continue }
             if presentCommits.count >= TypingLatencyProbe.openCapacity { presentCommits.removeFirst() }
-            presentCommits.append(FramePresentEstimate.Commit(flow: commit.flow, display: display))
+            presentCommits.append(FramePresentEstimate.Commit(flow: commit.flow, display: display, awaitsGPU: commit.awaitsGPU))
         }
     }
 }
