@@ -7579,17 +7579,28 @@ function AcpmuxPane() {
             // Capture the source before starting: a failed target start must return to the
             // conversation that the person forked, rather than leaving the unprompted target
             // selected in this pane. The source remains a live daemon session throughout.
-            const source = client.handoff.state.record?.source.sessionId;
+            const handoff = client.handoff.state.record;
+            const source = handoff?.source.sessionId;
+            const target = handoff?.target.sessionId;
+            const handoffId = handoff?.handoffId;
             try {
               const receipt = await client.startHandoff(review as HandoffReviewInput);
-              const target = receipt?.targetSessionId;
-              if (!target || !source || client.selectedSession !== target) return receipt;
-              if (await openOwnTab(target)) {
-                if (client.selectedSession === target) await persistSession(await client.select(source));
-              } else await persistSession(target);
+              const startedTarget = receipt?.targetSessionId;
+              if (!startedTarget || !source || client.selectedSession !== startedTarget) return receipt;
+              if (await openOwnTab(startedTarget)) {
+                if (client.selectedSession === startedTarget) await persistSession(await client.select(source));
+              } else await persistSession(startedTarget);
               return receipt;
             } catch (error) {
-              if (source && client.selectedSession !== source) {
+              // The user may have switched chats while Start was in flight. Only clean up the
+              // handoff we captured, while its target is still selected; a late failure must never
+              // discard another chat's draft or move that chat to this fork's source.
+              const sameHandoff =
+                !!handoffId &&
+                client.handoff.state.record?.handoffId === handoffId &&
+                !!target &&
+                client.selectedSession === target;
+              if (source && sameHandoff && client.selectedSession !== source) {
                 // A draft target has never received a prompt, so discard it and select the
                 // source. If delivery was uncertain, discard refuses and the source is still
                 // selected explicitly; the target remains recoverable by its handoff record.
