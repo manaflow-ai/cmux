@@ -99,26 +99,39 @@ fn local_surface_reaper_timeout_retains_production_handle() {
 }
 
 /// p02-threads-237: fifty local terminals end with their own exit statuses
-/// through the mux's one reaper, and none of them has a wait thread.
+/// through the mux's one reaper, and none of them has a wait thread. Every
+/// shell runs until the threads are counted (each waits for a line), so a
+/// wait thread per child would still be alive then.
 #[cfg(unix)]
 #[test]
 fn local_terminals_end_through_the_mux_reaper_with_no_wait_thread() {
     let mux = Mux::new_for_test("reaper-fifty", SurfaceOptions::default());
     let surfaces: Vec<_> = (0..50)
         .map(|code| {
+            let script = format!("read _; exit {code}");
             let options = SurfaceOptions {
-                command: Some(vec!["/bin/sh".into(), "-c".into(), format!("exit {code}")]),
+                command: Some(vec!["/bin/sh".into(), "-c".into(), script]),
                 ..SurfaceOptions::default()
             };
             (code, Surface::spawn(1000 + code, options, Arc::downgrade(&mux)).expect("spawn"))
         })
         .collect();
-    let waits = cmux_threads::snapshot()
-        .into_iter()
-        .filter(|thread| thread.name.starts_with("surface-1") && thread.name.ends_with("-wait"))
-        .count();
-    assert_eq!(waits, 0, "a local terminal started a wait thread");
     let deadline = Instant::now() + Duration::from_secs(20);
+    let (_never, tick) = sync_channel::<()>(0);
+    // The reaper thread registers itself once it runs. Every mux of this
+    // test process has its own (tests run in parallel), so this mux's one
+    // thread is the one its reaper's counters belong to.
+    while threads_named(|name| name == "mux-reaper") == 0 {
+        assert!(Instant::now() < deadline, "no mux-reaper thread");
+        let _ = tick.recv_timeout(Duration::from_millis(10));
+    }
+    assert_eq!(mux.reaper.stats().watching, 50, "the mux reaper does not watch every shell");
+    let own_wait = |name: &str| (1000..1050).any(|id| name == format!("surface-{id}-wait"));
+    assert_eq!(threads_named(own_wait), 0, "a local terminal started a wait thread");
+    assert_eq!(threads_named(|name| name == "mux-reap-wait"), 0, "a shell got a wait thread");
+    for (_, surface) in &surfaces {
+        surface.write_bytes(b"\n").expect("the shell takes its line");
+    }
     for (code, surface) in &surfaces {
         let pty = surface.as_pty().expect("a PTY surface");
         assert!(pty.reaper_completion.wait_until(deadline), "terminal {code} never ended");
@@ -129,6 +142,12 @@ fn local_terminals_end_through_the_mux_reaper_with_no_wait_thread() {
         );
     }
     assert_eq!(mux.reaper.stats().watching, 0);
+}
+
+/// Live threads of this process whose name matches.
+#[cfg(unix)]
+fn threads_named(matches: impl Fn(&str) -> bool) -> usize {
+    cmux_threads::snapshot().into_iter().filter(|thread| matches(&thread.name)).count()
 }
 
 #[test]

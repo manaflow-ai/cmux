@@ -1,7 +1,7 @@
 //! Surface teardown: kill, daemon shutdown and disconnect, terminal reader and
 //! reaper completion, and the hosted launch release.
 
-use super::terminal_runtime::LocalReaper;
+use super::terminal_runtime::{EndingTerminal, LocalReaper};
 use super::*;
 
 impl Surface {
@@ -14,13 +14,17 @@ impl Surface {
         // Decide self-join under the lock and leave the reaper's own handle
         // in place: taking it and putting it back let a concurrent caller
         // see an empty slot and return while the handle was restored later.
-        // A watched child's completion marks `reaper_completion` before it
-        // publishes the exit, so it never waits for itself here.
+        // The reaper marks `reaper_completion` only after it published the
+        // exit; a teardown that publish runs is on the reaper's own thread or
+        // work item (`EndingTerminal`) and must not wait for itself.
         let reaper = {
             let mut slot = pty.reaper_thread.lock().unwrap();
-            if let Some(LocalReaper::Thread(reaper)) = slot.as_ref()
-                && reaper.thread().id() == std::thread::current().id()
-            {
+            let own_thread = matches!(
+                slot.as_ref(),
+                Some(LocalReaper::Thread(reaper))
+                    if reaper.thread().id() == std::thread::current().id()
+            );
+            if own_thread || EndingTerminal::is_current(&pty.reaper_completion) {
                 eprintln!("cmux-tui: child reaper skipped self-join during shutdown");
                 None
             } else {

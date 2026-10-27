@@ -50,6 +50,38 @@ impl ReaderCompletion {
 
 pub(super) struct ReaderCompletionGuard(pub(super) Arc<ReaderCompletion>);
 
+thread_local! {
+    /// The `reaper_completion` of the terminal whose end this thread records
+    /// and publishes now (0: none).
+    static ENDING_TERMINAL: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+/// Marks this thread as the one publishing a terminal's end until dropped.
+/// The publish may tear the terminal down, and teardown waits for the
+/// terminal's reaper completion, which is marked only after the publish:
+/// teardown on this thread skips that wait instead of waiting for itself.
+pub(super) struct EndingTerminal {
+    previous: usize,
+}
+
+impl EndingTerminal {
+    pub(super) fn enter(completion: &Arc<ReaderCompletion>) -> Self {
+        let marked = Arc::as_ptr(completion) as usize;
+        Self { previous: ENDING_TERMINAL.with(|ending| ending.replace(marked)) }
+    }
+
+    /// Whether this thread publishes the end whose reaper is `completion`.
+    pub(super) fn is_current(completion: &Arc<ReaderCompletion>) -> bool {
+        ENDING_TERMINAL.with(|ending| ending.get() == Arc::as_ptr(completion) as usize)
+    }
+}
+
+impl Drop for EndingTerminal {
+    fn drop(&mut self) {
+        ENDING_TERMINAL.with(|ending| ending.set(self.previous));
+    }
+}
+
 impl Drop for ReaderCompletionGuard {
     fn drop(&mut self) {
         self.0.complete();

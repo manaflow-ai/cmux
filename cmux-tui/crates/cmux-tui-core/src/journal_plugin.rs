@@ -461,7 +461,8 @@ impl Drop for JournalPluginRuntime {
 /// Wakes the supervisor when plugin process `pid` exits: the mux's reaper
 /// leaves it unreaped (WNOWAIT), so the supervisor's `try_wait` still gets
 /// the status. Replaces the supervisor's 500 ms `try_wait` poll. False when
-/// no reaper is installed.
+/// nothing waits for the exit (no reaper installed, or the reaper could not
+/// watch the child): the supervisor then polls.
 #[cfg(unix)]
 fn watch_exit(
     shared: &Arc<(Mutex<SupervisorState>, Condvar)>,
@@ -472,7 +473,7 @@ fn watch_exit(
     let shared = Arc::clone(shared);
     // The completion runs on a work item, never inline, so taking the
     // supervisor lock there cannot deadlock with this caller.
-    reaper.watch_exited(
+    let watched = reaper.watch_exited(
         pid,
         Box::new(move |_| {
             let (lock, changed) = &*shared;
@@ -480,7 +481,13 @@ fn watch_exit(
             changed.notify_all();
         }),
     );
-    true
+    match watched {
+        Ok(()) => true,
+        Err(unwatched) => {
+            eprintln!("cmux-tui: journal plugin exit not watched ({unwatched}); polling");
+            false
+        }
+    }
 }
 
 fn supervise(shared: Arc<(Mutex<SupervisorState>, Condvar)>) {

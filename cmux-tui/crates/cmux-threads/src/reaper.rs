@@ -16,6 +16,13 @@
 //!   `<label>-reap-wait` thread blocked in `waitid`, counted in
 //!   [`ReaperStats::fallback_threads`].
 //!
+//! "Could not watch" is never "ended": a child whose registration fails (no
+//! descriptor left, a refused `epoll_ctl` or `kevent`, a stopped thread) gets
+//! the same `<label>-reap-wait` thread, and when even that thread cannot
+//! start, [`Reaper::watch`] returns the completion in an [`Unwatched`] for
+//! the caller's own fallback. Only a pid no wait can see (not a child of
+//! this process, or reaped elsewhere) completes as ended without a wait.
+//!
 //! The thread only waits: it never reaps and never runs a completion. Each
 //! exit becomes one [`crate::work`] item ([`Lane::System`], UserVisible,
 //! [`Shutdown::BlockShutdown`]), so a slow completion never delays the next
@@ -33,7 +40,10 @@
 //!
 //! ```ignore
 //! let reaper = Reaper::new("mux", Arc::clone(&work))?;
-//! reaper.watch(child.id(), Box::new(move |status| record(status)));
+//! if let Err(unwatched) = reaper.watch(child.id(), Box::new(move |status| record(status))) {
+//!     // Nothing waits for the child: the caller's own fallback.
+//!     return Err(unwatched.into_error());
+//! }
 //! ```
 
 use std::collections::HashMap;
@@ -42,7 +52,7 @@ use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
 use std::process::ExitStatus;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::mpsc::{Receiver, Sender, channel};
+use std::sync::mpsc::{Receiver, Sender, channel, sync_channel};
 
 use crate::blocking::{BlockingKind, scoped_blocking_call};
 use crate::qos::ThreadQos;
@@ -55,8 +65,48 @@ pub type OnExit = Box<dyn FnOnce(io::Result<ExitStatus>) + Send>;
 /// What runs, as a work item, once a child watched with
 /// [`Reaper::watch_exited`] has ended: true when it waits as a zombie (still
 /// unreaped), false when no wait could see it (not a child of this process,
-/// or reaped elsewhere).
+/// or reaped elsewhere). Never false for a child that still runs.
 pub type OnExited = Box<dyn FnOnce(bool) + Send>;
+
+/// A child [`Reaper::watch`] or [`Reaper::watch_exited`] could not watch:
+/// neither the reaper thread nor a wait thread of its own waits for it, and
+/// the child still runs as far as the reaper knows. It holds the completion,
+/// never called: dropping this drops it, so the completion's own drop path
+/// (a PTY guard's kill and wait) runs where the caller drops it.
+pub struct Unwatched {
+    error: io::Error,
+    _completion: Completion,
+}
+
+impl Unwatched {
+    /// Why no wait could be set up.
+    pub fn error(&self) -> &io::Error {
+        &self.error
+    }
+
+    /// The error, dropping the completion uncalled.
+    pub fn into_error(self) -> io::Error {
+        self.error
+    }
+}
+
+impl std::fmt::Debug for Unwatched {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.debug_struct("Unwatched").field("error", &self.error).finish_non_exhaustive()
+    }
+}
+
+impl std::fmt::Display for Unwatched {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(formatter, "the child's exit is not watched: {}", self.error)
+    }
+}
+
+impl std::error::Error for Unwatched {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        Some(&self.error)
+    }
+}
 
 /// Counters of one [`Reaper`], for `server.threads` and tests.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -83,9 +133,30 @@ pub struct Reaper {
     watches: Sender<(u64, Watch)>,
 }
 
+/// Registers child `pid` with the thread's poller under `token`.
+type Register = fn(&sys::Events, libc::pid_t, u64) -> io::Result<sys::Added>;
+
+/// Starts a named Utility thread that runs its body.
+type SpawnThread = fn(String, Box<dyn FnOnce() + Send>) -> io::Result<()>;
+
+/// The calls a test replaces to force a registration or thread failure.
+#[derive(Clone, Copy)]
+struct Seams {
+    register: Register,
+    spawn: SpawnThread,
+}
+
+impl Seams {
+    const SYSTEM: Seams = Seams {
+        register: |events, pid, token| events.add_child(pid, token),
+        spawn: |name, body| crate::spawn::spawn(name, ThreadQos::Utility, body).map(drop),
+    };
+}
+
 struct Shared {
     label: String,
     work: Arc<Work>,
+    seams: Seams,
     events: sys::Events,
     stopping: AtomicBool,
     next_token: AtomicU64,
@@ -121,8 +192,9 @@ impl Completion {
         }
     }
 
-    /// Runs the completion with `error`: the child could not be watched.
-    fn fail(self, error: io::Error) {
+    /// Runs the completion for a pid no wait can see (`error`, ECHILD):
+    /// nothing is left to reap.
+    fn unwaitable(self, error: io::Error) {
         match self {
             Completion::Reap(on_exit) => on_exit(Err(error)),
             Completion::Exited(on_exited) => on_exited(false),
@@ -133,9 +205,14 @@ impl Completion {
 impl Reaper {
     /// Starts thread `<label>-reaper` at Utility. Completions run on `work`.
     pub fn new(label: &str, work: Arc<Work>) -> io::Result<Reaper> {
+        Reaper::with_seams(label, work, Seams::SYSTEM)
+    }
+
+    fn with_seams(label: &str, work: Arc<Work>, seams: Seams) -> io::Result<Reaper> {
         let shared = Arc::new(Shared {
             label: label.to_owned(),
             work,
+            seams,
             events: sys::Events::new()?,
             stopping: AtomicBool::new(false),
             next_token: AtomicU64::new(0),
@@ -155,18 +232,27 @@ impl Reaper {
     /// Waits for child `pid` to end, then reaps it and runs `on_exit` with
     /// its status as a work item. `pid` must be a child of this process that
     /// nothing else waits for. A child that already ended is reaped at once;
-    /// one that cannot be watched gets `on_exit(Err(..))`. Never blocks.
-    pub fn watch(&self, pid: u32, on_exit: OnExit) {
-        self.add(pid, Completion::Reap(on_exit));
+    /// a pid no wait can see gets `on_exit(Err(ECHILD))`. Never blocks.
+    ///
+    /// # Errors
+    ///
+    /// [`Unwatched`] when nothing could be set up to wait for the child (no
+    /// registration and no wait thread): `on_exit` is never called.
+    pub fn watch(&self, pid: u32, on_exit: OnExit) -> Result<(), Unwatched> {
+        self.add(pid, Completion::Reap(on_exit))
     }
 
     /// Waits for child `pid` to end, then runs `on_exited` as a work item
     /// with the child still unreaped: the completion may signal the child's
     /// process group (the pid is still taken) and reaps it (its owner's
-    /// `Child::wait` returns at once) or leaves that to its owner. Never
-    /// blocks.
-    pub fn watch_exited(&self, pid: u32, on_exited: OnExited) {
-        self.add(pid, Completion::Exited(on_exited));
+    /// `Child::wait` returns at once) or leaves that to its owner. A pid no
+    /// wait can see gets `on_exited(false)`. Never blocks.
+    ///
+    /// # Errors
+    ///
+    /// [`Unwatched`] as for [`Reaper::watch`]: `on_exited` is never called.
+    pub fn watch_exited(&self, pid: u32, on_exited: OnExited) -> Result<(), Unwatched> {
+        self.add(pid, Completion::Exited(on_exited))
     }
 
     /// The counters now.
@@ -180,53 +266,40 @@ impl Reaper {
         }
     }
 
-    fn add(&self, pid: u32, completion: Completion) {
+    fn add(&self, pid: u32, completion: Completion) -> Result<(), Unwatched> {
         let Ok(pid) = libc::pid_t::try_from(pid) else {
-            self.shared.fail(io::Error::from_raw_os_error(libc::ESRCH), completion);
-            return;
+            let error = io::Error::from_raw_os_error(libc::ESRCH);
+            return Err(Unwatched { error, _completion: completion });
         };
         // kqueue and pidfd watch any process; only a child can be reaped, so
-        // a pid that is not one (ECHILD) would never complete.
+        // a pid no wait sees (ECHILD) would never complete: it ended for us.
         if let Err(error) = child_status(pid) {
-            self.shared.fail(error, completion);
-            return;
+            self.shared.unwaitable(error, completion);
+            return Ok(());
         }
         let token = self.shared.next_token.fetch_add(1, Ordering::Relaxed);
-        match self.shared.events.add_child(pid, token) {
+        let registered = (self.shared.seams.register)(&self.shared.events, pid, token);
+        match registered {
             Ok(sys::Added::Watching(registration)) => {
                 self.shared.watching.fetch_add(1, Ordering::Relaxed);
                 let watch = Watch { pid, completion, _registration: registration };
-                // The thread ends only when this reaper drops, so the send
-                // fails only if it stopped on a poller error.
-                if let Err(unsent) = self.watches.send((token, watch)) {
-                    let (_, watch) = unsent.0;
-                    self.shared.watching.fetch_sub(1, Ordering::Relaxed);
-                    let stopped = io::Error::other("the reaper thread stopped");
-                    self.shared.fail(stopped, watch.completion);
-                }
+                // The thread reads its channel until this reaper drops (a
+                // poller error included), so only a panicked thread refuses.
+                let Err(unsent) = self.watches.send((token, watch)) else { return Ok(()) };
+                self.shared.watching.fetch_sub(1, Ordering::Relaxed);
+                let (_, Watch { completion, .. }) = unsent.0;
+                self.shared.wait_on_own_thread(pid, completion)
             }
-            Ok(sys::Added::Exited) => self.shared.ended(pid, completion),
-            Ok(sys::Added::Unsupported) => self.wait_on_own_thread(pid, completion),
-            Err(error) => self.shared.fail(error, completion),
-        }
-    }
-
-    /// No pidfd for this child: one thread blocks in `waitid` until it is a
-    /// zombie, then hands it to a work item as an exit event would.
-    fn wait_on_own_thread(&self, pid: libc::pid_t, completion: Completion) {
-        let shared = Arc::clone(&self.shared);
-        let name = format!("{}-reap-wait", self.shared.label);
-        let started = crate::spawn::spawn(name, ThreadQos::Utility, move || {
-            wait_zombie(pid);
-            shared.ended(pid, completion);
-        });
-        match started {
-            Ok(_) => {
-                self.shared.fallback_threads.fetch_add(1, Ordering::Relaxed);
+            Ok(sys::Added::Exited) => {
+                self.shared.ended(pid, completion);
+                Ok(())
             }
-            // The closure, and with it the completion, is gone with the
-            // failed spawn: its owner's drop path stops and reaps the child.
-            Err(error) => eprintln!("cmux-threads: no wait thread for child {pid}: {error}"),
+            Ok(sys::Added::Unsupported) => self.shared.wait_on_own_thread(pid, completion),
+            // Not watched is not ended: the child may still run.
+            Err(error) => {
+                eprintln!("cmux-threads: no exit event for child {pid} ({error}); a wait thread");
+                self.shared.wait_on_own_thread(pid, completion)
+            }
         }
     }
 }
@@ -247,9 +320,37 @@ impl Shared {
         self.post(Box::new(move || completion.complete(pid)));
     }
 
-    /// Fails `completion` with `error` as a work item.
-    fn fail(&self, error: io::Error, completion: Completion) {
-        self.post(Box::new(move || completion.fail(error)));
+    /// No wait sees `pid` (`error`): a work item completes it as ended.
+    fn unwaitable(&self, error: io::Error, completion: Completion) {
+        self.post(Box::new(move || completion.unwaitable(error)));
+    }
+
+    /// The child has no exit event: thread `<label>-reap-wait` blocks in
+    /// `waitid` until it is a zombie, then hands it to a work item as an exit
+    /// event would. The completion reaches the thread only once it runs, so
+    /// a thread that cannot start hands it back in the [`Unwatched`].
+    fn wait_on_own_thread(
+        self: &Arc<Self>,
+        pid: libc::pid_t,
+        completion: Completion,
+    ) -> Result<(), Unwatched> {
+        let (handoff, handed) = sync_channel::<Completion>(1);
+        let shared = Arc::clone(self);
+        let body: Box<dyn FnOnce() + Send> = Box::new(move || {
+            wait_zombie(pid);
+            if let Ok(completion) = handed.recv() {
+                shared.ended(pid, completion);
+            }
+        });
+        if let Err(error) = (self.seams.spawn)(format!("{}-reap-wait", self.label), body) {
+            return Err(Unwatched { error, _completion: completion });
+        }
+        self.fallback_threads.fetch_add(1, Ordering::Relaxed);
+        // The thread keeps `handed` until it receives, and the one-slot
+        // channel is empty: the send neither blocks nor fails.
+        handoff
+            .send(completion)
+            .map_err(|unsent| Unwatched { error: thread_gone(), _completion: unsent.0 })
     }
 
     fn post(&self, item: Box<dyn FnOnce() + Send>) {
@@ -259,14 +360,19 @@ impl Shared {
     }
 }
 
+fn thread_gone() -> io::Error {
+    io::Error::other("the wait thread ended before it took its child")
+}
+
 /// The thread: waits for exit events and hands each to a work item.
-fn run(shared: &Shared, registered: &Receiver<(u64, Watch)>) {
+fn run(shared: &Arc<Shared>, registered: &Receiver<(u64, Watch)>) {
     let mut watches: HashMap<u64, Watch> = HashMap::new();
     let mut ended = Vec::new();
     while !shared.stopping.load(Ordering::Acquire) {
         ended.clear();
         if let Err(error) = shared.events.wait(&mut ended) {
-            eprintln!("cmux-threads: the reaper stopped: {error}");
+            eprintln!("cmux-threads: the reaper's poller failed ({error}); wait threads take over");
+            hand_off_after_poller_error(shared, watches, registered);
             return;
         }
         shared.wakeups.fetch_add(1, Ordering::Relaxed);
@@ -275,6 +381,30 @@ fn run(shared: &Shared, registered: &Receiver<(u64, Watch)>) {
             shared.watching.fetch_sub(1, Ordering::Relaxed);
             let Watch { pid, completion, .. } = watch;
             shared.ended(pid, completion);
+        }
+    }
+}
+
+/// The poller failed: no exit event comes any more. Every watched child,
+/// and every one registered until the reaper drops, gets a wait thread, so
+/// none is lost; where even that thread cannot start, a work item waits
+/// for it ([`will_block`]: it holds no lane slot while it waits).
+fn hand_off_after_poller_error(
+    shared: &Arc<Shared>,
+    watches: HashMap<u64, Watch>,
+    registered: &Receiver<(u64, Watch)>,
+) {
+    let pending = watches.into_values().chain(registered.iter().map(|(_, watch)| watch));
+    for Watch { pid, completion, .. } in pending {
+        shared.watching.fetch_sub(1, Ordering::Relaxed);
+        if let Err(unwatched) = shared.wait_on_own_thread(pid, completion) {
+            let Unwatched { _completion: completion, .. } = unwatched;
+            let waiter = Arc::clone(shared);
+            shared.post(Box::new(move || {
+                wait_zombie(pid);
+                waiter.exits.fetch_add(1, Ordering::Relaxed);
+                completion.complete(pid);
+            }));
         }
     }
 }

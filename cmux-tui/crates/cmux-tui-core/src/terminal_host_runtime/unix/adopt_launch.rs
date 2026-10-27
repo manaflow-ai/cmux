@@ -350,9 +350,9 @@ fn predecessor(
 
 /// Start a replacement host on the PTY in `adoption.custody`, reusing the
 /// terminal id, incarnation and owner token. Returns its committed,
-/// activated owner attachment; dropping it never ends the host. No reaper
-/// waits for this host (a caller outside a mux): its exit stays unreaped
-/// until this process ends.
+/// activated owner attachment; dropping it never ends the host. A caller
+/// outside a mux has no child reaper: a `terminal-host-reaper` thread reaps
+/// this host.
 pub fn launch_terminal_host_adopting(
     root: &Path,
     adoption: TerminalHostAdoption<'_>,

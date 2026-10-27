@@ -16,7 +16,7 @@ use std::time::Duration;
 use cmux_pty::{ChildKiller, MasterPty};
 use ghostty_vt::{Callbacks, RenderState, Terminal};
 
-use super::terminal_runtime::LocalReaper;
+use super::terminal_runtime::{EndingTerminal, LocalReaper};
 use super::*;
 use crate::terminal_end::TerminalEnd;
 
@@ -449,15 +449,18 @@ impl Surface {
 
 /// Records the far side's `end`, then publishes the exit once the reader has
 /// drained the PTY, so final output is visible before the mux observes
-/// completion. `completion` is marked before the publish: a shutdown the
-/// publish starts never waits for this completion.
+/// completion. `completion` is marked only after the publish, so a finished
+/// reaper always means a published exit; a shutdown the publish itself
+/// starts sees [`EndingTerminal`] and does not wait for it.
 fn record_local_end(surface: &Arc<Surface>, end: TerminalEnd, completion: ReaderCompletionGuard) {
+    let ending = EndingTerminal::enter(&completion.0);
     if let Some(pty) = surface.as_pty() {
         *pty.exit.lock().unwrap() = Some(end);
     }
     close_local_terminal_master_after_exit(surface);
-    drop(completion);
     publish_local_exit_if_ready(surface);
+    drop(ending);
+    drop(completion);
 }
 
 fn reset_reaper_completion(surface: &Surface) -> Arc<ReaderCompletion> {
@@ -493,7 +496,8 @@ fn spawn_end_wait(
 /// Hands the PTY child to the mux's reaper: its exit status is recorded on a
 /// work item, with no thread of this terminal waiting. The watch keeps the
 /// surface alive until the child ends, as a wait thread would. Without a
-/// mux (it is being dropped) the child is killed and reaped with `child`.
+/// mux (it is being dropped), or when nothing can wait for the child, the
+/// launch fails and dropping `child` kills and reaps it.
 #[cfg(unix)]
 fn watch_child_end(surface: &Arc<Surface>, mut child: PtyChildStartupGuard) -> anyhow::Result<()> {
     let owner = surface.as_pty().and_then(|pty| pty.mux.upgrade());
@@ -503,14 +507,19 @@ fn watch_child_end(surface: &Arc<Surface>, mut child: PtyChildStartupGuard) -> a
     };
     let completion = reset_reaper_completion(surface);
     let watched = surface.clone();
-    owner.reaper.watch(
-        pid,
-        Box::new(move |status| {
-            let completion = ReaderCompletionGuard(completion);
-            let end = TerminalEnd::ProcessEnded(child.reaped(status));
-            record_local_end(&watched, end, completion);
-        }),
-    );
+    let on_exit: cmux_threads::reaper::OnExit = Box::new(move |status| {
+        let completion = ReaderCompletionGuard(completion);
+        let end = TerminalEnd::ProcessEnded(child.reaped(status));
+        record_local_end(&watched, end, completion);
+    });
+    if let Err(unwatched) = owner.reaper.watch(pid, on_exit) {
+        close_local_terminal_master_after_exit(surface);
+        // `into_error` drops the guard uncalled: the child is killed and
+        // reaped here, as when a wait thread did not start.
+        return Err(
+            anyhow::Error::new(unwatched.into_error()).context("watch the terminal's child")
+        );
+    }
     Ok(())
 }
 
