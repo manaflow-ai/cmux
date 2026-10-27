@@ -1,6 +1,7 @@
 #if DEBUG || CMUX_BENCH_HOOKS
 // The Chromium host app ships in Debug builds only (embed-cef.sh), and so does its Swift side.
 public import AppKit
+import CmuxNextMetrics
 import CmuxNextWakeups
 import Darwin
 import Observation
@@ -40,9 +41,14 @@ import enum CmuxSafeConcurrency.OnceContinuationError
 /// (`NavigationController::LoadIfNecessary` from `Browser::OnActiveTabChanged`,
 /// chrome/browser/ui/browser.cc).
 ///
+/// A host that ends by itself is a rate-limited crash report (ChromiumHostSession+EndReport.swift).
+///
 /// Tests pass a ``ChromiumHostLaunching`` stand-in, a clock and a short quit limit.
 @MainActor @Observable
 public final class ChromiumHostSession {
+    /// Takes the crash report of a host that ended by itself (the App sends it).
+    public typealias HostEndReported = @MainActor (ChromiumHostEndReport) -> Void
+
     public enum Phase: Equatable, Sendable {
         case idle
         /// The host is starting: no context yet.
@@ -74,13 +80,17 @@ public final class ChromiumHostSession {
     public let view = ChromiumHostPageView(frame: .zero)
 
     let configuration: ChromiumHostConfiguration
-    private let launcher: any ChromiumHostLaunching
-    private var policy: ChromiumHostRestartPolicy
+    let launcher: any ChromiumHostLaunching
+    private(set) var policy: ChromiumHostRestartPolicy
     /// Checks the host's code signature when it could not start.
     private let signatureChecker: any ChromiumHostSignatureChecking
     private let quitLimit: Duration
     /// Told each connection the session opens (tests await its reader's end).
     private let connected: (ChromiumHostConnection) -> Void
+    // The end reports (ChromiumHostSession+EndReport.swift).
+    let hostEndReported: HostEndReported
+    @ObservationIgnored var endReportLimit: ChromiumHostEndReportLimit
+    let metrics: Metrics
     /// Takes each presentation report of the host (ChromiumHostSession+InputPresented.swift).
     let inputPresented: InputPresented
     let reportsInputPresented: ReportsInputPresented
@@ -123,13 +133,17 @@ public final class ChromiumHostSession {
     ///   - standInPicture: The page's last picture, shown while no host shows the page.
     ///   - inputPresented: Takes the host's presentation report of each input (the input latency tracker).
     ///   - reportsInputPresented: Takes whether the current host sends those reports.
+    ///   - traceFiles: Where each host writes its black box, crash keys and metrics file; nil: nowhere.
+    ///   - hostEndReported: Takes the crash report of a host that ended by itself.
     public convenience init(configuration: ChromiumHostConfiguration, idleExit: ChromiumHostIdleExit? = nil,
                             standInPicture: @escaping @MainActor () -> CGImage? = { nil },
                             inputPresented: @escaping InputPresented = { _, _ in },
-                            reportsInputPresented: @escaping ReportsInputPresented = { _ in }) {
-        self.init(configuration: configuration, launcher: ChromiumHostLauncher(),
+                            reportsInputPresented: @escaping ReportsInputPresented = { _ in },
+                            traceFiles: ChromiumHostTraceFiles? = nil,
+                            hostEndReported: @escaping HostEndReported = { _ in }) {
+        self.init(configuration: configuration, launcher: ChromiumHostLauncher(traceFiles: traceFiles),
                   idleExit: idleExit, standInPicture: standInPicture, inputPresented: inputPresented,
-                  reportsInputPresented: reportsInputPresented)
+                  reportsInputPresented: reportsInputPresented, hostEndReported: hostEndReported)
     }
 
     init(configuration: ChromiumHostConfiguration, launcher: any ChromiumHostLaunching,
@@ -139,7 +153,13 @@ public final class ChromiumHostSession {
          standInPicture: @escaping @MainActor () -> CGImage? = { nil },
          inputPresented: @escaping InputPresented = { _, _ in },
          reportsInputPresented: @escaping ReportsInputPresented = { _ in },
+         endReportLimit: ChromiumHostEndReportLimit = ChromiumHostEndReportLimit(),
+         metrics: Metrics = Metrics(),
+         hostEndReported: @escaping HostEndReported = { _ in },
          connected: @escaping (ChromiumHostConnection) -> Void = { _ in }) {
+        self.endReportLimit = endReportLimit
+        self.metrics = metrics
+        self.hostEndReported = hostEndReported
         self.configuration = configuration
         self.launcher = launcher
         self.policy = policy
@@ -260,15 +280,6 @@ public final class ChromiumHostSession {
     private func startNew() {
         if phase == .exitedIdle, view.standIn == nil, let picture = standInPicture() { view.showStandIn(picture) }
         start()
-    }
-
-    /// SIGKILL to the host this session started (the crash check); its pid, or 0 when none runs.
-    /// The pid stays this host's until hostEnded reaps it.
-    @discardableResult
-    public func killHost() -> Int32 {
-        guard pid > 0, connection != nil else { return 0 }
-        launcher.kill(pid)
-        return pid
     }
 
     // MARK: Lifecycle
@@ -397,13 +408,6 @@ public final class ChromiumHostSession {
     /// and spends nothing of the budget.
     private var endCause: ChromiumHostEndCause { closing ? .quit : .crash }
 
-    /// Reads and hashes the host's code on disk, off the main thread.
-    @concurrent nonisolated private static func checkSignature(
-        of executable: URL, with checker: any ChromiumHostSignatureChecking
-    ) async -> ChromiumHostSignatureCheck {
-        checker.check(executable)
-    }
-
     private func hostEnded(_ exit: ChromiumHostExit, signature: ChromiumHostSignatureCheck, pid ended: Int32,
                            connection current: ChromiumHostConnection) {
         launcher.reap(ended)
@@ -425,9 +429,10 @@ public final class ChromiumHostSession {
         statsWaiters = [:]
         quitDeadline.cancel()
         idleDeadline?.cancel()
-        let endedIdle = idleQuitting
+        let endedIdle = idleQuitting, cause = endCause, hadHello = saidHello
         idleQuitting = false
-        switch policy.hostEnded(exit, saidHello: saidHello, cause: endCause, signature: signature) {
+        let decision = policy.hostEnded(exit, saidHello: hadHello, cause: cause, signature: signature)
+        switch decision {
         case .notCounted:
             closing = false
             if endedIdle {
@@ -459,26 +464,7 @@ public final class ChromiumHostSession {
             view.removeStandIn()
             phase = .ended(failure.description)
         }
-    }
-
-    /// Sends a frame to the running host at once (a full socket queues it in
-    /// the connection's outbox); a host whose wire broke (the outbox is full,
-    /// the socket failed) is ended (its exit restarts it by the policy). Its pid is not reused before
-    /// hostEnded reaps it, so the kill reaches only this host.
-    @discardableResult
-    func send(_ frame: ChromiumHostFrame) -> Bool {
-        guard let connection, ChromiumHostConnection.fits(frame) else { return false }
-        if connection.send(frame) { return true }
-        launcher.kill(pid)
-        return false
-    }
-
-    /// The page view shows the theme's page background (`PageBackground.themeARGB` of its pane) wherever
-    /// the host's pixels are not: while a host starts, restarts or has ended, instead of a hole onto
-    /// whatever is behind the pane. The host sends no page color on the wire yet, so the fill stays under
-    /// the page once its context shows.
-    private func fillPageBackground() {
-        view.backgroundFill = PageBackground.cgColor(argb: PageBackground.themeARGB(in: view))
+        reportEnd(exit, pid: ended, cause: cause, decision: decision, saidHello: hadHello)
     }
 }
 #endif

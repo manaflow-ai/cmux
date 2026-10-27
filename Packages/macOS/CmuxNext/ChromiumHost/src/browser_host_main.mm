@@ -32,6 +32,14 @@
 // holds a user-initiated activity while cmux shows one of its pages and lets
 // App Nap apply when every page is hidden (host_page_activity.h, task
 // p14-energy-128).
+//
+// Observability (p09-observability-104): a black box and crash-key page of
+// role chromium_host from the first line (host_black_box.h), moved into the
+// app's trace folder (--trace-dir) off the main thread; each pass of the
+// message loop watched for hangs, keyed in_cef_pump and timed into the
+// metrics file (--metrics-dir; host_pump_watch.h); cef.create_browser and each
+// input frame's flow-in in the ring; TRACE_START and TRACE_STOP run the ring's
+// recording and Chromium's tracing here (host_tracing.h).
 
 #import <AppKit/AppKit.h>
 #import <QuartzCore/QuartzCore.h>
@@ -63,9 +71,13 @@
 #include "chromium_host_input_ring.h"
 #include "chromium_host_wire.h"
 #include "cmux_cef_shim.h"
+#include "host_black_box.h"
 #include "host_dispatch.h"
 #include "host_page_activity.h"
+#include "host_pump_metrics.h"
+#include "host_pump_watch.h"
 #include "host_switches.h"
+#include "host_tracing.h"
 #include "host_user_input.h"
 #include "shim_internal.h"
 
@@ -259,8 +271,20 @@ void SendWheel(cmux_host::HostContext& host, cmux_host::WheelPixelCarry& carry, 
 // so a click after a resize hits the resized page (HostContext::PlaceFrame,
 // task 053); wheels go to Chromium here; task p01-process-042 adds the other
 // kinds with the ring's reader, and until it starts the reader no frame comes.
+//
+// Each pointer frame's flow-in (cef.host_input, only while the input category
+// records) names the flow cmux's flow-out gave it (InputFlowOf), so a trace
+// joins the app's send to this dispatch. Key and edit frames get none: their
+// timing is the person's typing (the keystroke gate, task 128).
 void DispatchInput(cmux_host::HostContext& host, cmux_host::WheelPixelCarry& carry,
-                   cmux_host::SetEventTimeFn set_event_time, const cmux_host::Header& frame) {
+                   cmux_host::SetEventTimeFn set_event_time, cmux_host::HostBlackBox& black_box, uint32_t app_pid,
+                   const cmux_host::Header& frame) {
+  const bool pointer = frame.kind == cmux_host::kMouse || frame.kind == cmux_host::kWheel;
+  if (pointer && frame.t0 != 0) {
+    black_box.Point(CMUX_TRACE_CAT_INPUT, cmux_host::kTraceCefHostInput, CMUX_TRACE_PHASE_FLOW_IN, frame.kind,
+                    cmux_host::InputFlowOf(app_pid, frame.t0));
+  }
+  if (cmux_host::EventTimeOf(frame, UptimeNowNs()) != 0) black_box.SetKey(CMUX_CRASH_KEY_LAST_INPUT_UPTIME, frame.t0);
   if (host.PlaceFrame(frame)) return;
   const cmux_host::ScopedEventTime event_time(set_event_time, cmux_host::EventTimeOf(frame, UptimeNowNs()));
   if (frame.kind == cmux_host::kWheel) SendWheel(host, carry, frame);
@@ -453,9 +477,68 @@ class AppNapActivity {
   id<NSObject> token_ = nil;
 };
 
+// Browser creations and the live browser count, in the black box (HostTraceMarks).
+class BlackBoxMarks final : public cmux_host::HostTraceMarks {
+ public:
+  explicit BlackBoxMarks(cmux_host::HostBlackBox& black_box) : black_box_(black_box) {}
+  void CreateBegan(int32_t minted) override { Mark(CMUX_TRACE_PHASE_ASYNC_BEGIN, minted); }
+  void Created(int32_t minted) override { Mark(CMUX_TRACE_PHASE_ASYNC_END, minted); }
+  void BrowserCount(size_t count) override { black_box_.SetKey(CMUX_CRASH_KEY_CHROMIUM_BROWSER_COUNT, count); }
+
+ private:
+  void Mark(uint8_t phase, int32_t minted) {
+    black_box_.Point(CMUX_TRACE_CAT_CEF, cmux_host::kTraceCefCreateBrowser, phase, 0,
+                     static_cast<uint32_t>(minted), CMUX_TRACE_FLAG_ID);
+  }
+  cmux_host::HostBlackBox& black_box_;
+};
+
+// Moves the black box, its crash keys and the pump's metrics into their
+// folders on a thread of their own: file work never runs on the main thread,
+// and the host's first frames do not wait for it. Once, at start.
+void AdoptFilesOffMain(cmux_host::HostBlackBox* black_box, cmux_host::PumpMetrics* metrics, std::string trace_dir,
+                       std::string metrics_dir, uint32_t app_pid) {
+  if (trace_dir.empty() && metrics_dir.empty()) return;
+  std::thread([black_box, metrics, app_pid, trace_dir = std::move(trace_dir), metrics_dir = std::move(metrics_dir)] {
+    pthread_setname_np("com.cmuxterm.chromium-host.files");
+    pthread_set_qos_class_self_np(QOS_CLASS_UTILITY, 0);
+    if (!trace_dir.empty() && !black_box->Adopt(trace_dir)) {
+      fprintf(stderr, "cmux-chromium-host: the black box stays on the heap (%s)\n", trace_dir.c_str());
+    }
+    if (!metrics_dir.empty()) {
+      mkdir(metrics_dir.c_str(), 0700);
+      if (!metrics->Adopt(metrics_dir, app_pid)) {
+        fprintf(stderr, "cmux-chromium-host: no metrics file in %s\n", metrics_dir.c_str());
+      }
+    }
+  }).detach();
+}
+
+// Cuts the main run loop into the work items PumpWatch watches: one begins
+// when the loop starts its timers or wakes, and ends when it waits or leaves.
+CFRunLoopObserverRef ObservePumpItems(cmux_host::PumpWatch* watch) {
+  const CFOptionFlags activities = kCFRunLoopBeforeTimers | kCFRunLoopAfterWaiting | kCFRunLoopBeforeWaiting | kCFRunLoopExit;
+  CFRunLoopObserverRef observer = CFRunLoopObserverCreateWithHandler(
+      nullptr, activities, true, 0, ^(CFRunLoopObserverRef, CFRunLoopActivity activity) {
+        if (activity == kCFRunLoopBeforeTimers || activity == kCFRunLoopAfterWaiting) {
+          watch->Begin();
+        } else {
+          watch->Wait();
+        }
+      });
+  CFRunLoopAddObserver(CFRunLoopGetMain(), observer, kCFRunLoopCommonModes);
+  return observer;
+}
+
 }  // namespace
 
 int main(int argc, char* argv[]) {
+  // The black box records from the first line, on the heap (its files come later, off main).
+  // Never freed: a thread may write into it until the process ends.
+  const cmux_host::HostIdentity identity = cmux_host::HostIdentity::Current();
+  const uint64_t start_uptime_ns = cmux_trace_now_ns(), start_unix_ns = cmux_trace_unix_ns();
+  auto* black_box = new cmux_host::HostBlackBox(identity, start_uptime_ns, start_unix_ns, cmux_trace_continuous_ns());
+  auto* pump_metrics = new cmux_host::PumpMetrics(identity, start_uptime_ns, start_unix_ns);
   signal(SIGPIPE, SIG_IGN);
   std::vector<std::string> args(argv + 1, argv + argc);
   struct stat control_stat;
@@ -465,6 +548,8 @@ int main(int argc, char* argv[]) {
   }
   const std::string framework = Arg(args, "framework");
   const std::string binary = framework + "/Chromium Embedded Framework";
+  // cmux, which started this host and writes its input frames (their flow ids).
+  const uint32_t app_pid = static_cast<uint32_t>(getppid());
 
   @autoreleasepool {
     [ChromiumHostApplication sharedApplication];
@@ -482,7 +567,11 @@ int main(int argc, char* argv[]) {
     fprintf(stderr, "cmux-chromium-host: %s\n", error);
     return cmux_host::kExitFrameworkLoad;
   }
+  // The framework is loaded: other threads may start now.
+  AdoptFilesOffMain(black_box, pump_metrics, Arg(args, cmux_host::kTraceDirSwitch),
+                    Arg(args, cmux_host::kMetricsDirSwitch), app_pid);
   const int fork_api = cmux_shim_fork_api_version();
+  black_box->SetKey(CMUX_CRASH_KEY_CEF_API_VERSION, static_cast<uint64_t>(fork_api));
   if (fork_api < cmux_host::kMinForkAPI) {
     fprintf(stderr, "cmux-chromium-host: Chromium fork API %d is older than the host needs (%d)\n", fork_api,
             cmux_host::kMinForkAPI);
@@ -525,14 +614,24 @@ int main(int argc, char* argv[]) {
   // it; without it the HELLO lists no saver and kOpEnergySaver changes nothing.
   if (cmux_shim::fork_api().set_energy_saver) host.SetEnergySaver(&cmux_shim_set_energy_saver);
   host.SetPageShowActivity(&page_activity);
+  // TRACE_START and TRACE_STOP: the ring's recording, and Chromium's tracing through the shim
+  // linked into this host (task 050). Each answer goes back on the main thread.
+  cmux_host::HostTracing tracing(
+      &cmux_cef_begin_tracing, &cmux_cef_end_tracing, black_box,
+      [&host](uint32_t token, const cmux_host::control::TlvWriter& reply) { host.Reply(token, reply); }, &PostToMain);
+  host.SetTracing(&tracing);
+  BlackBoxMarks marks(*black_box);
+  host.SetTraceMarks(&marks);
   // Main thread only, like `host`. The input ring (task 041) attaches its
   // dispatch here (AttachInput) and hands each frame to AddInput; until then
   // no frame comes and cmux stamps no ordered op with an input seq.
   cmux_host::WheelPixelCarry wheel_carry;
   cmux_host::control::OrderedStream ordered(
       [&host](std::vector<cmux_host::control::Message> messages) { host.OnMessages(std::move(messages)); });
-  ordered.AttachInput([&host, &wheel_carry, set_event_time = fork_input.set_input_event_time](
-                          const cmux_host::Header& frame) { DispatchInput(host, wheel_carry, set_event_time, frame); });
+  ordered.AttachInput([&host, &wheel_carry, set_event_time = fork_input.set_input_event_time, black_box, app_pid](
+                          const cmux_host::Header& frame) {
+    DispatchInput(host, wheel_carry, set_event_time, *black_box, app_pid, frame);
+  });
   // The host's one input queue (host_user_input.h): Chromium's user-input
   // queue, or CefPostTask(TID_UI) on a fork without it, chosen here once; the
   // main run loop until CefInitialize returned. HostInput's Post when task
@@ -553,6 +652,18 @@ int main(int argc, char* argv[]) {
   // Chromium's ack of each wheel goes to cmux's swipe navigation (WHEEL_ACK, task p01-process-234).
   host.SetWheelAckHandler(fork_input.set_wheel_ack_handler);
   host.Attach();
+
+  // Every item of the main run loop from here, the preinit loop's and Chromium's.
+  cmux_host::PumpWatch pump_watch(*black_box, *pump_metrics, &cmux_trace_now_ns);
+  pump_watch.Start();
+  // Removed before pump_watch goes (declared after it).
+  struct PumpObserver {
+    CFRunLoopObserverRef observer;
+    ~PumpObserver() {
+      CFRunLoopObserverInvalidate(observer);
+      CFRelease(observer);
+    }
+  } pump_observer{ObservePumpItems(&pump_watch)};
 
   // Preinit ops apply as they arrive; INITIALIZE (or the channel's end) stops
   // this loop. A run loop with no source returns at once, so a no-op source

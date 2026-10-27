@@ -42,7 +42,8 @@ import Testing
             runtime.setCategories(.all)
             connection = ChromiumHostConnection(readFD: back[1], writeFD: pair[0],
                                                 signposter: Signposter(category: .cef, mirror: SignpostMetricKitMirror(),
-                                                                       trace: runtime))
+                                                                       trace: runtime),
+                                                trace: runtime)
         }
 
         func close() {
@@ -94,6 +95,27 @@ import Testing
         #expect(rig.connection.send(ChromiumHostFrame(.mouse, v: [1, 2])))
 
         #expect(rig.log.hostInputs.map(\.arg0) == [UInt64(ChromiumHostFrame.Kind.mouse.rawValue)])
+    }
+
+    /// p09-observability-104: while `input` records, a pointer frame with an event time is also a `cef.host_input`
+    /// flow-out with the flow the host's dispatch flows in to (``ChromiumHostFrame/inputFlow(appPID:)``); a key
+    /// never is, and with `input` off nothing is.
+    @Test func aPointerFrameIsAFlowOutTheHostFlowsInTo() throws {
+        let rig = try Rig()
+        defer { rig.close() }
+        let pid = UInt32(bitPattern: getpid())
+
+        #expect(rig.connection.send(ChromiumHostFrame(.mouse, v: [1, 2], t0: 1_000)))
+        #expect(rig.connection.send(ChromiumHostFrame(.wheel, v: [0, -3], t0: 2_000)))
+        #expect(rig.connection.send(ChromiumHostFrame(.key, v: [0x24], t0: 3_000)))
+        let flows = rig.log.hostInputs.filter { $0.phase == .flowOut }
+        #expect(flows.map(\.arg1) == [ChromiumHostFrame.inputFlow(appPID: pid, eventTime: 1_000),
+                                      ChromiumHostFrame.inputFlow(appPID: pid, eventTime: 2_000)])
+        #expect(flows.map(\.arg0) == [ChromiumHostFrame.Kind.mouse, .wheel].map { UInt64($0.rawValue) })
+
+        rig.runtime.setCategories(.blackBox)
+        #expect(rig.connection.send(ChromiumHostFrame(.mouse, v: [1, 2], t0: 4_000)))
+        #expect(rig.log.hostInputs.filter { $0.phase == .flowOut }.count == 2, "no recording: no flow")
     }
 
     @Test func everyTracedInputKindKeepsItsWireNumber() {

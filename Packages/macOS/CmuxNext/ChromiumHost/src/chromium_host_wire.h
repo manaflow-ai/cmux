@@ -46,6 +46,36 @@ inline constexpr int kExitFrameworkLoad = 65;   // cef_load_library failed
 inline constexpr int kExitForkAPI = 66;         // fork API below kMinForkAPI
 inline constexpr int kExitInitialize = 67;      // CefInitialize failed
 
+// The host's trace folder (p09-observability-104): `--trace-dir=<folder>`, the
+// app's black-box folder. The host writes its black box
+// (chromium-host-<pid>.blackbox.cmxtrace), crash keys
+// (chromium-host-<pid>.crashkeys) and recording ring
+// (chromium-host-<pid>.recording.cmxtrace) there, the names CmuxNextTrace
+// gives a process of role chromium_host. Without it the host keeps its black
+// box on the heap only.
+inline constexpr char kTraceDirSwitch[] = "trace-dir";
+// `--metrics-dir=<folder>`: where the host writes its metrics file
+// (metrics-chromium-host-<pid>.bin, host_pump_metrics.h): the app's metrics
+// folder, which it folds child files from; none without it.
+inline constexpr char kMetricsDirSwitch[] = "metrics-dir";
+
+// The flow id of the input frame whose event time (t0) is `event_time_ns`,
+// written by app `app_pid`: the app's flow-out when it sends the frame and the
+// host's flow-in when it dispatches it name the same flow with nothing on the
+// wire, as the daemon's request flows come from the peer pid and the request
+// id (p09-observability-103). The event time is the id the input's latency
+// slot and kInputPresented already share. A splitmix64 mix of both, bit 62 set
+// and bit 63 clear (the app's task flows set bit 63); 0 for a frame with no
+// event time. ChromiumHostFrame.inputFlow in CmuxNextBrowser is the same.
+inline uint64_t InputFlowOf(uint32_t app_pid, uint64_t event_time_ns) {
+  if (event_time_ns == 0) return 0;
+  uint64_t x = event_time_ns ^ (static_cast<uint64_t>(app_pid) << 40) ^ 0x9e3779b97f4a7c15ull;
+  x = (x ^ (x >> 30)) * 0xbf58476d1ce4e5b9ull;
+  x = (x ^ (x >> 27)) * 0x94d049bb133111ebull;
+  x ^= x >> 31;
+  return (x & ~(uint64_t{3} << 62)) | (uint64_t{1} << 62);
+}
+
 enum Kind : uint32_t {
   // cmux -> host
   kNavigate = 1,   // payload url

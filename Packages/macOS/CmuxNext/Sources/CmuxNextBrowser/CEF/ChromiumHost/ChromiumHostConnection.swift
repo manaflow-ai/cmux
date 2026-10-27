@@ -2,6 +2,7 @@
 // The Chromium host app ships in Debug builds only (embed-cef.sh), and so does its Swift side.
 import CmuxNextCompat
 import CmuxNextSignposts
+import CmuxNextTrace
 import Darwin
 import Foundation
 
@@ -57,6 +58,10 @@ nonisolated final class ChromiumHostConnection: Sendable {
     private let state: ChromiumHostWireState
     /// Takes one `cef.host_input` instant per frame written (tests pass one on their own trace runtime).
     private let signposter: Signposter
+    /// Takes each pointer frame's flow-out while the `input` category records (task p09-observability-104).
+    private let trace: TraceRuntime
+    /// This process, in the flow ids it shares with the host (``ChromiumHostFrame/inputFlow(appPID:)``).
+    private let appPID: UInt32
 
     /// Takes ownership of both descriptors: `readFD` carries frames from the
     /// host, `writeFD` frames to it. ``close()`` (or the host's EOF) closes them.
@@ -65,9 +70,12 @@ nonisolated final class ChromiumHostConnection: Sendable {
         readFD: Int32,
         writeFD: Int32,
         signposter: Signposter = Signposter.cef,
+        trace: TraceRuntime = .shared,
         clock: any Clock<Duration> = ContinuousClock()
     ) {
         self.signposter = signposter
+        self.trace = trace
+        appPID = UInt32(bitPattern: getpid())
         _ = fcntl(writeFD, F_SETFL, fcntl(writeFD, F_GETFL) | O_NONBLOCK)
         var size = Self.sendBuffer
         // SAFETY: setsockopt reads the one Int32 `size` holds, the length given, during the call.
@@ -106,12 +114,18 @@ nonisolated final class ChromiumHostConnection: Sendable {
     /// outbox full (then the connection is closed and nothing more is sent),
     /// or when the frame does not ``fits(_:)`` (nothing is written and the
     /// connection stays).
-    /// An accepted input frame (``ChromiumHostFrame/Kind/traceInput``) is one `cef.host_input` instant with its kind.
+    /// An accepted input frame (``ChromiumHostFrame/Kind/traceInput``) is one `cef.host_input` instant with its kind,
+    /// and a pointer frame, while a recording takes `input`, a `cef.host_input` flow-out whose flow the host's
+    /// dispatch of the frame flows in to (task p09-observability-104).
     @discardableResult
     func send(_ frame: ChromiumHostFrame) -> Bool { // perf-hot: 5us cef-host-input (every forwarded input event)
         guard Self.fits(frame) else { return false }
         let sent = state.send(frame)
-        if sent, let input = frame.kind?.traceInput { signposter.cefHostInput(input) }
+        guard sent, let input = frame.kind?.traceInput else { return sent }
+        signposter.cefHostInput(input)
+        if trace.isEnabled(categoryBit: SignpostCategory.input.traceBit), let flow = frame.inputFlow(appPID: appPID) {
+            trace.flowOut(.cefHostInput, flow: flow, arg0: UInt64(frame.rawKind))
+        }
         return sent
     }
 

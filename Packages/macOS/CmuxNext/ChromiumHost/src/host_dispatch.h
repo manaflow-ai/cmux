@@ -38,6 +38,9 @@
 //                                              str exempt scheme (host_energy_saver.h); the
 //                                              host's shim applies it after initialize, and a
 //                                              token is answered with i32 its result
+//   kOpTraceStart, kOpTraceStop                 the host's ring recording and Chromium tracing
+//                                              (host_tracing.h, task p09-observability-104);
+//                                              answered, refused with zeros when the host has none
 //   kOpGeometryStats                            no fields: answered with GeometryStats as
 //                                              i64 frames, applied, unchanged, unplaced
 //                                              (chromium-host-bench.py geometry row)
@@ -105,6 +108,7 @@
 #include "host_page_activity.h"
 #include "host_resize.h"
 #include "host_text_input.h"
+#include "host_tracing.h"
 #include "host_wheel_ack.h"
 
 namespace cmux_host {
@@ -319,6 +323,13 @@ class HostContext {
   // the count goes to it after each kOpBrowserSetPageVisibility, at each
   // browser's close and once initialize returned; nullptr holds nothing.
   void SetPageShowActivity(PageShowActivity* activity) { page_activity_ = activity; }
+
+  // TRACE_START and TRACE_STOP's handler (browser_host_main.mm, before Attach,
+  // which then lists kTracingHelloName); nullptr answers both as refused.
+  void SetTracing(HostTracing* tracing) { tracing_ = tracing; }
+  // Where browser creations and the live browser count go (the black box's
+  // cef.create_browser and crash key); nullptr records nothing.
+  void SetTraceMarks(HostTraceMarks* marks) { marks_ = marks; }
   // Chromium windows cmux shows (PageWindowVisibility).
   size_t shown_pages() const { return page_windows_.shown(); }
 
@@ -369,6 +380,8 @@ class HostContext {
   bool HandlePageResize(const control::Message& message);
   // kOpEnergySaver: false for a malformed op.
   bool HandleEnergySaver(const control::Message& message);
+  // kOpTraceStart, kOpTraceStop: false for a malformed op.
+  bool HandleTrace(const control::Message& message);
   // Keeps `token`'s size for the next op that opens its view (view_sizes_).
   void RememberViewSize(uint64_t token, int32_t width, int32_t height);
   // Watches `chromium_id`'s text input in the fork: its result (0 refused).
@@ -468,6 +481,8 @@ class HostContext {
   SetWheelAckHandlerFn set_wheel_ack_handler_ = nullptr;
   WheelAcks wheel_acks_;
   EnergySaverFn energy_saver_ = nullptr;
+  HostTracing* tracing_ = nullptr;
+  HostTraceMarks* marks_ = nullptr;
   // Text input watches of minted ids whose creation has not come, by the
   // minted id: the watch tokens Bind arms and answers. Bounded with
   // pending_binds_ (AwaitsCreation).

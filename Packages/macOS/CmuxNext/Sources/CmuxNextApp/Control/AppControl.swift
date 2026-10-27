@@ -4,11 +4,13 @@ import CmuxNextBridge
 import CmuxNextBrowser
 import CmuxNextBrowserImport
 import CmuxNextControl
+import CmuxNextCrashReporting
 import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextEnergy
 import CmuxNextErrorJournal
 import CmuxNextFeatures
+import CmuxNextHangReports
 import CmuxNextInput
 import CmuxNextInputDiagnostics
 import CmuxNextLaunch
@@ -297,12 +299,26 @@ extension AppControl {
     /// Socket focus policy: `open` makes the page first responder only with focus: true.
     private static func registerChromiumHostDebug(_ services: AppServices, on router: ControlRouter) {
         let hostSwitch = chromiumHostSwitch(in: services.features, tunables: TunableStore.shared)
+        let bundleID = Bundle.main.bundleIdentifier, reporter = services.crashReporting.reporter, work = services.work
+        // The host's black box and metrics file go beside the app's (p09-observability-104).
+        let traceFiles = ChromiumHostTraceFiles(traceDirectory: TraceBlackBoxFileSteps.appDirectory(bundleID: bundleID).path,
+                                                metricsDirectory: HangReportFieldSources.appMetricsDirectory(bundleID: bundleID).path)
         let chromiumHost = ChromiumHostPrototype(makeConfiguration: { ChromiumHostPrototype.bundledConfiguration() },
                                                  isOn: { hostSwitch.isEnabled }, mainWork: services.mainWork,
                                                  deadlines: services.mainDeadlines,
                                                  idleExitAfter: chromiumHostIdleExit(in: services.features),
                                                  inputPresented: { [weak services] in _ = services?.inputLatency.tracker.hostPresented(eventNanos: $0, at: $1) },
-                                                 reportsInputPresented: { [weak services] in services?.inputLatency.tracker.pagesReportPresentation = $0 })
+                                                 reportsInputPresented: { [weak services] in services?.inputLatency.tracker.pagesReportPresentation = $0 },
+                                                 traceFiles: traceFiles,
+                                                 hostEndReported: { report in
+                                                     // The black-box tail leaves the Mac only with the hang-reports opt-in.
+                                                     let optIn = AppProcessRoot.shared.hangReports?.collector?.isEnabled == true
+                                                     work.postFiles(.bestEffort, shutdown: .skipOnShutdown) {
+                                                         let event = report.details(hangReportsOptIn: optIn)
+                                                         reporter.captureNonFatal(event.message, type: event.type, fingerprint: event.fingerprint,
+                                                                                  tags: event.tags, extra: event.extra)
+                                                     }
+                                                 })
         router.register([
             .mainActor("debug.chromium_host") { [weak services] call in
                 let controller = services?.windows.controllers.first

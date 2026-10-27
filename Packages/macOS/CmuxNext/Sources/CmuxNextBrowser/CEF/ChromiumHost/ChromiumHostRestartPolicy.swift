@@ -34,6 +34,16 @@ nonisolated struct ChromiumHostRestartPolicy: Sendable {
         case ended(crashes: Int)
         /// The host died before it said hello: no host starts until the person reloads.
         case cannotStart(ChromiumHostCannotStart)
+
+        /// The decision as a crash report names it (``ChromiumHostEndReport/decision``, task p09-observability-104).
+        var reportName: String {
+            switch self {
+            case .restart: "restart"
+            case .notCounted: "not_counted"
+            case .ended: "ended"
+            case .cannotStart: "cannot_start"
+            }
+        }
     }
 
     let forgiveAfter: Duration

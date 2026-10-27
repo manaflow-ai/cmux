@@ -319,7 +319,8 @@ struct World {
                    },
                    delegate, views, &Resolve};
 
-  World() {
+  // `tracing`: the host's TRACE_START and TRACE_STOP (browser_host_main.mm sets them before Attach).
+  explicit World(cmux_host::HostTracing* tracing = nullptr) {
     shim = Shim();
     shim.host = &host;
     current = this;
@@ -331,6 +332,7 @@ struct World {
     channel = std::make_unique<Channel>(
         pair[1], &PostTask, [this](std::vector<Message> batch) { host.OnMessages(std::move(batch)); },
         [](End) {});
+    host.SetTracing(tracing);
     host.Attach();  // browser_host_main.mm: before the first message
     Check(client.attach(pair[0], nullptr, nullptr) == 1, "the remote shim attaches");
     if (!initialized) {
@@ -746,6 +748,119 @@ void WindowsAndProfilesFollowTheTabs() {
   Check(w.delegate.bad.empty() && ended == -1, "neither side ended the wire");
 }
 
+// Host-mode Chromium tracing (task p09-observability-104): cmux's cmux_cef_begin_tracing and
+// cmux_cef_end_tracing from the remote shim reach the host's tracing as TRACE_START and
+// TRACE_STOP, and each callback runs once with the host's answer, or with its failure value when
+// the host goes first.
+struct HostChromium {
+  int begins = 0, ends = 0;
+  std::string categories, path;
+  cmux_host::HostTracing::StartedFn started = nullptr;
+  cmux_host::HostTracing::WrittenFn written = nullptr;
+  void* ctx = nullptr;
+} host_chromium;
+
+int HostBegin(const char* categories, cmux_host::HostTracing::StartedFn started, void* ctx) {
+  ++host_chromium.begins;
+  host_chromium.categories = categories ? categories : "<null>";
+  host_chromium.started = started;
+  host_chromium.ctx = ctx;
+  return 1;
+}
+
+int HostEnd(const char* path, cmux_host::HostTracing::WrittenFn written, void* ctx) {
+  ++host_chromium.ends;
+  host_chromium.path = path ? path : "<null>";
+  host_chromium.written = written;
+  host_chromium.ctx = ctx;
+  return 1;
+}
+
+struct HostRing : cmux_host::TraceRecorder {
+  uint64_t categories = 0;
+  bool StartRecording(uint64_t c) override {
+    categories = c;
+    return true;
+  }
+  bool StopRecording() override {
+    categories = 0;
+    return true;
+  }
+};
+
+// What cmux's callbacks got.
+struct Answers {
+  std::vector<int> started;
+  std::vector<std::string> written;
+} answers;
+
+void Started(void* ctx, int ok) {
+  Check(ctx == &answers, "the callback gets its context");
+  answers.started.push_back(ok);
+}
+void Written(void* ctx, const char* path) {
+  Check(ctx == &answers, "the callback gets its context");
+  answers.written.push_back(path ? path : "<null>");
+}
+
+void TracesThroughTheHost() {
+  using BeginFn = int (*)(const char*, cmux_cef_trace_started_fn, void*);
+  using EndFn = int (*)(const char*, cmux_cef_trace_written_fn, void*);
+  using NowFn = int64_t (*)(void);
+  void* library = dlopen(CMUX_REMOTE_SHIM_PATH, RTLD_NOW | RTLD_LOCAL);
+  auto begin = reinterpret_cast<BeginFn>(dlsym(library, "cmux_cef_begin_tracing"));
+  auto end = reinterpret_cast<EndFn>(dlsym(library, "cmux_cef_end_tracing"));
+  auto now = reinterpret_cast<NowFn>(dlsym(library, "cmux_cef_now_trace_us"));
+  Check(begin && end && now, "the remote shim exports the tracing calls");
+  if (!begin || !end || !now) return;
+  answers = Answers();
+  {
+    World plain;
+    Check(client.host_has_export(cmux_host::kTracingHelloName) == 0, "a host with no tracing does not list it");
+    Check(begin("toplevel", &Started, &answers) == 0, "no host tracing: nothing is sent, no callback");
+  }
+  host_chromium = HostChromium();
+  HostRing ring;
+  // The tracing's answer reaches the host's Reply; the World's host is made in its constructor.
+  World* world = nullptr;
+  cmux_host::HostTracing tracing(
+      &HostBegin, &HostEnd, &ring,
+      [&world](uint32_t token, const cmux_host::control::TlvWriter& reply) { world->host.Reply(token, reply); },
+      &PostTask);
+  {
+    World w(&tracing);
+    world = &w;
+    Check(client.host_has_export(cmux_host::kTracingHelloName) == 1, "the host lists its tracing");
+    const int64_t before = now();
+    Check(before > 0, "the trace clock reads here");
+
+    Check(begin("toplevel,cc", &Started, &answers) == 1, "a begin is sent");
+    Check(PumpUntil([] { return host_chromium.begins == 1; }), "TRACE_START reaches the host");
+    Check(host_chromium.categories == "toplevel,cc", "with cmux's categories");
+    Check(ring.categories == cmux_host::kTraceRecordingCategories, "and the host's ring records");
+    Check(answers.started.empty(), "no answer before Chromium's");
+    host_chromium.started(host_chromium.ctx, 1);
+    Check(PumpUntil([] { return answers.started.size() == 1; }) && answers.started[0] == 1,
+          "started runs once with ok");
+
+    Check(end("relative.json", &Written, &answers) == 0 && end("/tmp/x.txt", &Written, &answers) == 0,
+          "a path that is not absolute JSON is refused, as in process");
+    Check(end("/tmp/chromium.trace.json", &Written, &answers) == 1, "an end is sent");
+    Check(PumpUntil([] { return host_chromium.ends == 1; }), "TRACE_STOP reaches the host");
+    Check(host_chromium.path == "/tmp/chromium.trace.json" && ring.categories == 0, "into the path; the ring stops");
+    host_chromium.written(host_chromium.ctx, "/tmp/chromium.trace.json");
+    Check(PumpUntil([] { return answers.written.size() == 1; }) && answers.written[0] == "/tmp/chromium.trace.json",
+          "written runs once with Chromium's path");
+
+    Check(begin("toplevel", &Started, &answers) == 1, "a second begin is sent");
+    Check(PumpUntil([] { return host_chromium.begins == 2; }), "and reaches the host");
+    world = nullptr;  // the host goes before Chromium answers
+  }
+  Check(answers.started.size() == 2 && answers.started[1] == 0, "the host went: started runs once with 0");
+  PumpUntil([] { return true; });
+  Check(answers.started.size() == 2, "and never again");
+}
+
 }  // namespace
 
 int main() {
@@ -764,6 +879,7 @@ int main() {
   SitePanelAndExtensionsWithNoWatch();
   RefreshRowsMatchTheirScope();
   WindowsAndProfilesFollowTheTabs();
+  TracesThroughTheHost();
   if (failures) return EXIT_FAILURE;
   std::puts("chromium-host-mirror tests: ok");
   return EXIT_SUCCESS;

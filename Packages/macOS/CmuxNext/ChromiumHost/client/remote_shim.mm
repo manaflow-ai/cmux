@@ -20,6 +20,7 @@
 #include "cmux_page_path.h"
 #include "host_energy_saver.h"
 #include "host_resize.h"
+#include "host_tracing.h"
 #include "remote_shim_mirror.h"
 #include "remote_shim_runtime.h"
 
@@ -36,6 +37,7 @@
 #include <vector>
 
 #include <pthread.h>
+#include <time.h>
 #include <unistd.h>
 #if !defined(__APPLE__)
 #include <sys/syscall.h>
@@ -399,6 +401,38 @@ class Runtime {
     return known && sent ? 1 : 0;
   }
 
+  // cmux_cef_begin_tracing in host mode (host_tracing.h, task p09-observability-104): TRACE_START
+  // with the host ring's recording categories and `categories` for Chromium; `started` runs once,
+  // on the main thread, with the host's answer, or with 0 when the host ends first. 0 (nothing
+  // sent, `started` never runs) with no host, before its HELLO, or when its HELLO does not list
+  // kTracingHelloName.
+  int BeginTracing(const char* categories, cmux_cef_trace_started_fn started, void* ctx) {
+    CMUX_REMOTE_ASSERT_MAIN();
+    if (started == nullptr || !HostTraces()) return 0;
+    cmux_host::TraceStart start;
+    start.ring_categories = cmux_host::kTraceRecordingCategories;
+    start.chromium_categories = categories != nullptr ? categories : "";
+    TlvWriter args;
+    cmux_host::WriteTraceStart(start, &args);
+    return SendTrace(cmux_host::kOpTraceStart, args, TraceWaiter{started, nullptr, ctx});
+  }
+
+  // cmux_cef_end_tracing in host mode: TRACE_STOP with the ring and `path`; `written` runs once on
+  // the main thread with the path the host's Chromium reported, or NULL. 0 as BeginTracing, and for
+  // a path that is not absolute or does not end in ".json" (the in-process shim's rule).
+  int EndTracing(const char* path, cmux_cef_trace_written_fn written, void* ctx) {
+    CMUX_REMOTE_ASSERT_MAIN();
+    if (written == nullptr || path == nullptr || path[0] != '/' || !HostTraces()) return 0;
+    const std::string text(path);
+    if (text.size() < 5 || text.compare(text.size() - 5, 5, ".json") != 0) return 0;
+    cmux_host::TraceStop stop;
+    stop.ring = true;
+    stop.chromium_path = text;
+    TlvWriter args;
+    cmux_host::WriteTraceStop(stop, &args);
+    return SendTrace(cmux_host::kOpTraceStop, args, TraceWaiter{nullptr, written, ctx});
+  }
+
   void SetFenceSender(cmux_remote_fence_send_fn send) {
     CMUX_REMOTE_ASSERT_MAIN();
     fence_send_ = send;
@@ -502,6 +536,53 @@ class Runtime {
     Message message;  // token: a verdict still to ask, 0 once asked
     bool keep = true;  // false: replaced while its verdict was unasked; sent once more, then dropped
   };
+
+  // A TRACE_START or TRACE_STOP waiting for its answer: one of the two callbacks.
+  struct TraceWaiter {
+    cmux_cef_trace_started_fn started;
+    cmux_cef_trace_written_fn written;
+    void* ctx;
+  };
+
+  bool HostTraces() const {
+    return link_ == Link::kAttached && hello_ && host_exports_.count(cmux_host::kTracingHelloName) > 0;
+  }
+
+  int SendTrace(uint16_t op, const TlvWriter& args, TraceWaiter waiter) {
+    const uint32_t token = NextToken();
+    trace_waiters_[token] = waiter;
+    if (Send(MakeMessage(op, token, args.fields()))) return 1;
+    trace_waiters_.erase(token);  // not sent: the callback never runs
+    return 0;
+  }
+
+  // The host's answer to a trace op; false for a malformed one (its callback still runs, with
+  // the failure value).
+  bool AnswerTrace(uint32_t token, const std::vector<Field>& fields) {
+    const auto found = trace_waiters_.find(token);
+    const TraceWaiter waiter = found->second;
+    trace_waiters_.erase(found);
+    if (waiter.started) {
+      const std::optional<cmux_host::TraceStartAnswer> answer = cmux_host::DecodeTraceStartAnswer(fields);
+      waiter.started(waiter.ctx, answer && answer->chromium ? 1 : 0);
+      return answer.has_value();
+    }
+    const std::optional<cmux_host::TraceStopAnswer> answer = cmux_host::DecodeTraceStopAnswer(fields);
+    waiter.written(waiter.ctx, answer && answer->path ? answer->path->c_str() : nullptr);
+    return answer.has_value();
+  }
+
+  // The host ended with trace ops unanswered: each callback runs once, with its failure value.
+  static void FailTraces(const std::unordered_map<uint32_t, TraceWaiter>& waiters) {
+    for (const auto& entry : waiters) {
+      const TraceWaiter& waiter = entry.second;
+      if (waiter.started) {
+        waiter.started(waiter.ctx, 0);
+      } else {
+        waiter.written(waiter.ctx, nullptr);
+      }
+    }
+  }
 
   static Message EnergySaverMessage(const cmux_host::EnergySaver& saver) {
     TlvWriter args;
@@ -653,6 +734,10 @@ class Runtime {
     awaiting_.clear();
     host_exports_.clear();
     ReleaseFenceChannel();  // the inbox was this host's
+    // Last: a callback may call back into the shim, which is detached by now.
+    std::unordered_map<uint32_t, TraceWaiter> unanswered;
+    unanswered.swap(trace_waiters_);
+    FailTraces(unanswered);
   }
 
   void ReleaseFenceChannel() {
@@ -722,6 +807,7 @@ class Runtime {
         mirror_.Ack(message.token);
         return true;
       case kOpReply: {
+        if (trace_waiters_.count(message.token) > 0) return AnswerTrace(message.token, message.fields);
         std::string fields;
         if (awaiting_.erase(message.token) == 0) return false;  // a reply to no request
         if (!cmux_host::control::EncodeFields(message.fields, &fields)) return false;
@@ -774,6 +860,8 @@ class Runtime {
   MirrorCache mirror_;
   // Tokens sent with PostForReply and not answered yet.
   std::unordered_set<uint32_t> awaiting_;
+  // Trace ops sent and not answered yet, by token.
+  std::unordered_map<uint32_t, TraceWaiter> trace_waiters_;
   std::unordered_set<std::string> host_exports_;
   // The app's last Energy Saver state (cmux_shim_set_energy_saver), for the whole session.
   std::optional<cmux_host::EnergySaver> energy_saver_;
@@ -973,6 +1061,30 @@ CMUX_SHIM_EXPORT int cmux_shim_set_schedule_delayed(cmux_shim_schedule_delayed_f
 // (ChromiumHost/src/host_energy_saver.h, p14-energy-045).
 CMUX_SHIM_EXPORT int cmux_shim_set_energy_saver(int enabled, const char* exempt_scheme) {
   return R().SetEnergySaver(enabled, exempt_scheme);
+}
+
+// Chromium tracing in host mode (cmux_cef_shim.h; task p09-observability-104): the host's
+// Chromium records, and its recording ring with it, through TRACE_START and TRACE_STOP
+// (ChromiumHost/src/host_tracing.h). Main thread, as every export of this dylib; each callback
+// runs once on the main thread.
+CMUX_SHIM_EXPORT int cmux_cef_begin_tracing(const char* categories, cmux_cef_trace_started_fn started, void* ctx) {
+  return R().BeginTracing(categories, started, ctx);
+}
+
+CMUX_SHIM_EXPORT int cmux_cef_end_tracing(const char* path, cmux_cef_trace_written_fn written, void* ctx) {
+  return R().EndTracing(path, written, ctx);
+}
+
+// Chromium's trace clock is base::TimeTicks, CLOCK_UPTIME_RAW on macOS: the host's and this
+// process's are the same clock, so it is read here, with no round trip.
+CMUX_SHIM_EXPORT int64_t cmux_cef_now_trace_us(void) {
+#if defined(__APPLE__)
+  return static_cast<int64_t>(clock_gettime_nsec_np(CLOCK_UPTIME_RAW) / 1000);
+#else
+  struct timespec now;
+  clock_gettime(CLOCK_MONOTONIC, &now);
+  return static_cast<int64_t>(now.tv_sec) * 1000000 + now.tv_nsec / 1000;
+#endif
 }
 
 // Per-tab attribution is in-process only: a tab's renderer is the Chromium Host's child, which the

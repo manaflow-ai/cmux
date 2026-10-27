@@ -134,6 +134,7 @@ void HostContext::Attach() {
   // Not an export: the host acks every wheel of a gesture (OnWheelAck), so cmux asks the page nothing.
   if (set_wheel_ack_handler_) exports.push_back(kWheelAcksHelloName);
   if (energy_saver_) exports.push_back(kEnergySaverHelloName);
+  if (tracing_ && tracing_->available()) exports.push_back(kTracingHelloName);
   TlvWriter hello;
   hello.Str(kWireID);
   hello.StrList(exports.data(), static_cast<int>(exports.size()));
@@ -198,7 +199,8 @@ void HostContext::Handle(control::Message& message) {
     case State::kPreinit:
       if (message.op == kOpInitialize) {
         if (!HandleInitialize(message)) Bad("a malformed initialize");
-      } else if (IsMirrorOp(message.op) || message.op == kOpPageResize || message.op == kOpEnergySaver) {
+      } else if (IsMirrorOp(message.op) || message.op == kOpPageResize || message.op == kOpEnergySaver ||
+                 message.op == kOpTraceStart || message.op == kOpTraceStop) {
         waiting_.push_back(std::move(message));  // CEF state: read once initialize returned
       } else {
         Dispatch(message);  // a preinit op: the remote shim sends nothing else before initialize
@@ -241,6 +243,10 @@ void HostContext::Handle(control::Message& message) {
       }
       if (message.op == kOpEnergySaver) {
         if (!HandleEnergySaver(message)) Bad("a malformed energy saver");
+        return;
+      }
+      if (message.op == kOpTraceStart || message.op == kOpTraceStop) {
+        if (!HandleTrace(message)) Bad("a malformed trace op");
         return;
       }
       if (IsMirrorOp(message.op)) return Watch(message.op, message.fields);
@@ -330,6 +336,20 @@ bool HostContext::HandleEnergySaver(const control::Message& message) {
     reply.I32(result);
     Reply(message.token, reply);
   }
+  return true;
+}
+
+bool HostContext::HandleTrace(const control::Message& message) {
+  const bool start = message.op == kOpTraceStart;
+  if (tracing_) return start ? tracing_->Start(message.token, message.fields) : tracing_->Stop(message.token, message.fields);
+  if (start ? !DecodeTraceStart(message.fields) : !DecodeTraceStop(message.fields)) return false;
+  TlvWriter reply;
+  if (start) {
+    HostTracing::WriteRefusedStart(&reply);
+  } else {
+    HostTracing::WriteRefusedStop(&reply);
+  }
+  Reply(message.token, reply);
   return true;
 }
 
@@ -672,6 +692,7 @@ void HostContext::ForwardEvent(int kind, int browser_id, int request, int64_t a,
   auto pending = request != 0 ? pending_binds_.find(BindKey(kind, request)) : pending_binds_.end();
   const bool created = pending != pending_binds_.end();
   if (created) {
+    if (marks_) marks_->Created(pending->second.minted);
     Bind(pending->second.minted, browser_id);
     if (pending->second.view) view_of_browser_[browser_id] = pending->second.view;
     if (auto geometry = geometry_awaiting_.find(pending->second.minted); geometry != geometry_awaiting_.end()) {
@@ -703,6 +724,7 @@ void HostContext::ForwardEvent(int kind, int browser_id, int request, int64_t a,
   }
   if (kind == CMUX_SHIM_BEFORE_CLOSE) {
     Forget(client, browser_id);
+    if (marks_) marks_->BrowserCount(client_of_.size());
     delegate_.BrowserClosed();
   }
 }
@@ -720,6 +742,7 @@ int32_t HostContext::ClientOf(int chromium_id) const {
 void HostContext::Bind(int32_t client_id, int chromium_id) {
   chromium_of_[client_id] = chromium_id;
   client_of_[chromium_id] = client_id;
+  if (marks_) marks_->BrowserCount(client_of_.size());
   auto awaiting = text_input_awaiting_.find(client_id);
   if (awaiting == text_input_awaiting_.end()) return;
   const std::vector<uint32_t> tokens = std::move(awaiting->second);
@@ -850,6 +873,7 @@ void HostContext::BindMintedOnEvent(uint16_t op, int32_t minted, int event_kind,
   }
   if (pending_binds_.size() >= kMaxPendingBinds) return Bad("too many browsers waiting for their creation");
   pending_binds_[BindKey(event_kind, request)] = PendingBind{minted, dispatching_view_, dispatching_profile_};
+  if (marks_) marks_->CreateBegan(minted);
 }
 
 void HostContext::PushMirror(uint16_t op, const TlvWriter& key, const TlvWriter& value) {
