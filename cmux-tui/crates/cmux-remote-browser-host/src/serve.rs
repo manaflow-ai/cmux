@@ -383,8 +383,9 @@ impl Host {
         self.viewer = None;
         self.refresh_wanted = false;
         if self.opts.once {
-            // SAFETY: UI thread.
-            unsafe { rb_shim_quit() }
+            // A task, not `quit()` here: the host is borrowed until this returns.
+            // SAFETY: `on_quit` runs on the UI thread and takes no context.
+            unsafe { rb_shim_post(on_quit, std::ptr::null_mut()) }
         }
     }
 
@@ -449,6 +450,11 @@ unsafe extern "C" fn on_timer(_: *mut c_void) {
 }
 
 unsafe extern "C" fn on_quit(_: *mut c_void) {
+    // Drop the host before `rb_shim_quit`, which leads to `CefShutdown`: its
+    // viewer's pump holds a capture lease that must go back to Viz while CEF
+    // is alive.
+    let host = HOST.with(|host| host.try_borrow_mut().ok().and_then(|mut h| h.take()));
+    drop(host);
     // SAFETY: UI thread (posted through `rb_shim_post`).
     unsafe { rb_shim_quit() }
 }
@@ -935,7 +941,7 @@ pub fn run(argv: &mut [*mut c_char], opts: Options) -> i32 {
         on_text_input: Some(on_text_input),
     };
     // SAFETY: argv, the strings and the callbacks outlive the call.
-    unsafe {
+    let code = unsafe {
         rb_shim_run(
             c_int::try_from(argv.len()).unwrap_or(0),
             argv.as_mut_ptr(),
@@ -943,5 +949,12 @@ pub fn run(argv: &mut [*mut c_char], opts: Options) -> i32 {
             0,
             &callbacks,
         )
+    };
+    // CEF is shut down now. A host still set (a quit that did not pass
+    // `on_quit`) is leaked, not dropped by the exit-time TLS destructor: its
+    // leases would call into CEF after `CefShutdown`.
+    if let Some(host) = HOST.with(|host| host.try_borrow_mut().ok().and_then(|mut h| h.take())) {
+        std::mem::forget(host);
     }
+    code
 }
