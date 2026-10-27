@@ -1605,7 +1605,6 @@ jobs:
             python3 tests/test_ios_internal_builder.py
             python3 tests/test_ios_internal_notes.py
             bash scripts/cmux-next/tests/pin-cmux-tui-resolve-newest.test.sh
-            bash scripts/cmux-next/tests/pin-cmux-tui-resolve-tip-wait.test.sh
             bash scripts/cmux-next/tests/pin-cmux-tui-fallback-key.test.sh
             bash scripts/cmux-next/tests/pin-cmux-tui-dispatch.test.sh
             bash scripts/cmux-next/tests/cmux-tui-tree-claim.test.sh

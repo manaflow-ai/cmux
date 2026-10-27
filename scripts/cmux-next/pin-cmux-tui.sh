@@ -1262,7 +1262,9 @@ resolve_newest_published_tree() {
     commit="$(tr ' ' '\n' <<<"$good_keys" | awk -F= -v k="$key" '$1 == k { print $2; exit }')"
     if [[ -z "$commit" ]]; then
       distinct=$((distinct + 1))
-      if ! download "$BASE/tree/$key/cmux-tui-$TARGET.sha256" "$temp_dir/sha256" 2>/dev/null; then
+      # The query string bypasses a cached 404 at the CDN edge: the nightly's
+      # second search follows a wait that saw this tree publish.
+      if ! download "$BASE/tree/$key/cmux-tui-$TARGET.sha256?t=$(date +%s)" "$temp_dir/sha256" 2>/dev/null; then
         echo "tree $key (${rev:0:12}): not published" >&2
         skips+="  ${rev:0:12}: tree ${key:0:12} not published"$'\n'
         bad_keys+="$key "; behind=$((behind + 1)); continue

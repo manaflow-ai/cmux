@@ -83,6 +83,8 @@ case "\$url" in
     cat "$api/all.json"; exit 0 ;;
   https://api.github.com/*) exit 22 ;;
 esac
+# A sha256 read without a cache-busting query gets the edge's cached 404 (it missed once).
+[[ "\$url" == *.sha256 ]] && exit 22
 path="\${url#https://files.cmux.com/cmux-tui/}"; path="\${path%%\?*}"
 [[ "\$path" != "\$url" && -f "$cdn/\$path" ]] || exit 22
 if [[ -n "\$out" ]]; then cp "$cdn/\$path" "\$out"; else cat "$cdn/\$path"; fi
