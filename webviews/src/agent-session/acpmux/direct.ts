@@ -976,7 +976,7 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
     if (changed) this.snapshot = undefined;
   }
 
-  override set(id: string, row: AcpmuxRow): this {
+  override set(id: string, row: AcpmuxRow, changedItem?: number): this {
     const known = this.order.has(id);
     const previous = this.get(id);
     const unchanged = known && previous === row;
@@ -995,7 +995,7 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
     if (this.ordered && !unchanged) this.keepOrdered(id, row, known);
     const result = super.set(id, row);
     if (!unchanged && row.items !== previous?.items)
-      this.artifactUpdates.note(row, this.current ?? this.order.get(id) ?? row.at, previous);
+      this.artifactUpdates.note(row, this.current ?? this.order.get(id) ?? row.at, previous, changedItem);
     return result;
   }
 
@@ -4257,14 +4257,18 @@ export class AcpmuxDirectClient {
       );
       if (itemIndex >= 0) items[itemIndex] = item;
       else items.push(item);
-      this.rows.set(id, {
+      this.rows.set(
         id,
-        version: (existing?.version ?? 0) + 1,
-        at: existing?.at ?? event.at,
-        kind: "activity",
-        toolCount: items.filter((entry) => entry.kind === "tool").length,
-        items,
-      });
+        {
+          id,
+          version: (existing?.version ?? 0) + 1,
+          at: existing?.at ?? event.at,
+          kind: "activity",
+          toolCount: items.filter((entry) => entry.kind === "tool").length,
+          items,
+        },
+        itemIndex < 0 ? items.length - 1 : itemIndex,
+      );
       this.toolRows.set(callId, id);
       if (!knownRow) this.streamingActivity = id;
     } else if (event.kind === "background_task_update") {

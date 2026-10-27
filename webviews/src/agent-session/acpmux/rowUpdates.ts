@@ -16,10 +16,11 @@ export class RowUpdates {
   orderOf(row: AcpmuxRow) {
     return this.orders.get(row) ?? row.at;
   }
-  note(row: AcpmuxRow, order: number, previous?: AcpmuxRow) {
+  note(row: AcpmuxRow, order: number, previous?: AcpmuxRow, changedItem?: number) {
     this.orders.set(row, order);
     if (!this.listeners.size) return;
-    for (let index = 0; index < (row.items?.length ?? 0); index++) {
+    const end = changedItem === undefined ? (row.items?.length ?? 0) : changedItem + 1;
+    for (let index = changedItem ?? 0; index < end; index++) {
       const tool = row.items![index]!.tool;
       const before = previous?.items?.[index]?.tool;
       if (!tool || tool === before) continue;
