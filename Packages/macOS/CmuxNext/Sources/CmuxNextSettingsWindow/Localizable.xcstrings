@@ -42130,7 +42130,7 @@
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Instalirano %@ · %@ dostupno · Ispravke kompatibilnosti."
+            "value": "Verzija %@ · %@ dostupno · Ispravke kompatibilnosti."
           }
         },
         "da": {
