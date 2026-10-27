@@ -4,7 +4,15 @@
 import { turnFiles, type TurnFile } from "../diff";
 import type { AcpmuxActivity, AcpmuxRow } from "../model";
 import { isSubagentGroup } from "../subagents/subagentRows";
-import { transcriptPullRequests, type SummaryPullRequest } from "./transcriptPullRequests";
+import { mcpCall, mcpPlainName } from "../conversation/mcpCalls";
+import { editedPaths } from "../toolPaths";
+import {
+  transcriptPullRequestKey,
+  transcriptPullRequests,
+  transcriptSummaryVersion,
+  transcriptSourceVersion,
+  type SummaryPullRequest,
+} from "./transcriptPullRequests";
 
 export type { PullRequestState, SummaryPullRequest } from "./transcriptPullRequests";
 
@@ -12,7 +20,8 @@ type Tool = NonNullable<AcpmuxActivity["tool"]>;
 
 export type SummarySubagent = { id: string; title: string; state: "running" | "done" | "failed" };
 export type SummaryWakeup = { id: string; text: string; cron?: string };
-export type SummarySource = { url?: string; label: string };
+export type SummarySourceKind = "url" | "pullRequest" | "issue" | "file" | "mcp";
+export type SummarySource = { url?: string; label: string; kind?: SummarySourceKind };
 export type SummaryBackgroundTask = {
   id: string;
   command: string;
@@ -23,6 +32,8 @@ export type SummaryBackgroundTask = {
   startedAt?: number;
 };
 export type SessionSummary = {
+  /// The chat's project folder; absent means only project-relative Outputs can be included.
+  cwd?: string;
   scheduled: SummaryWakeup[];
   pullRequests: SummaryPullRequest[];
   outputs: TurnFile[];
@@ -30,8 +41,6 @@ export type SessionSummary = {
   sources: SummarySource[];
   backgroundTasks: SummaryBackgroundTask[];
 };
-
-const URL = /https?:\/\/[^\s"'<>)]+/;
 
 const tools = (rows: readonly AcpmuxRow[]): Tool[] =>
   rows.flatMap((row) => (row.kind === "activity" ? (row.items ?? []).flatMap((item) => item.tool ?? []) : []));
@@ -85,18 +94,131 @@ function scheduled(all: readonly Tool[]): SummaryWakeup[] {
     });
 }
 
-/// Pages fetched and searches run, once each, in the order first read.
-function sources(all: readonly Tool[]): SummarySource[] {
-  const seen = new Map<string, SummarySource>();
-  for (const tool of all) {
-    if (tool.kind !== "fetch") continue;
-    const text = `${tool.title} ${tool.inputSummary ?? ""}`;
-    const url = URL.exec(text)?.[0];
-    const label = url ? url.replace(/^https?:\/\/(www\.)?/, "").replace(/\/$/, "") : tool.title;
-    const key = url ?? label;
-    if (!seen.has(key)) seen.set(key, { url, label });
+const GITHUB_PR_URL = /^https:\/\/github\.com\/([\w.-]+)\/([\w.-]+)\/pull\/(\d+)(?:\/[^\s]*)?$/;
+const GITHUB_ISSUE_URL = /^https:\/\/github\.com\/([\w.-]+)\/([\w.-]+)\/issues\/(\d+)(?:\/[^\s]*)?$/;
+const sourceKey = (source: SummarySource) => `${source.kind ?? "url"}:${source.url ?? source.label}`;
+let sourceCache: { revision: symbol; pullRequests: string; sources: SummarySource[] } | undefined;
+let summaryCache:
+  | {
+      revision: symbol;
+      repository?: string | null;
+      cwd?: string;
+      summary: SessionSummary;
+    }
+  | undefined;
+let pullRequestCache:
+  | {
+      revision: string | symbol;
+      folder?: string;
+      replies: boolean;
+      pullRequests: SummaryPullRequest[];
+    }
+  | undefined;
+const pullRequestSourceKey = (pullRequests: readonly SummaryPullRequest[]) =>
+  pullRequests
+    .map((pr) => `${pr.url}:${pr.kind ?? ""}:${pr.opened ? 1 : 0}:${pr.changed ? 1 : 0}:${pr.mentioned ? 1 : 0}`)
+    .join("|");
+
+const normalizedPath = (path: string) => {
+  const absolute = path.startsWith("/");
+  const parts: string[] = [];
+  for (const part of path.split("/")) {
+    if (!part || part === ".") continue;
+    if (part === "..") {
+      if (parts.length > 0 && parts.at(-1) !== "..") parts.pop();
+      else if (!absolute) parts.push(part);
+      continue;
+    }
+    parts.push(part);
   }
-  return [...seen.values()];
+  const compact = `${absolute ? "/" : ""}${parts.join("/")}`;
+  return compact || (absolute ? "/" : ".");
+};
+
+/// Outputs belong to the chat's project folder. Relative tool paths are already rooted there;
+/// absolute paths must stay under `cwd`, so scratch files such as `/tmp/m1076.txt` never appear.
+export function projectPathAllowed(path: string, cwd?: string): boolean {
+  if (!path || path.startsWith("~")) return false;
+  if (!path.startsWith("/")) return !path.split("/").includes("..");
+  if (!cwd) return false;
+  const root = normalizedPath(cwd);
+  const normalized = normalizedPath(path);
+  if (root === "/") return true;
+  return normalized === root || normalized.startsWith(`${root}/`);
+}
+
+export function filesInProject(files: readonly TurnFile[], cwd?: string): TurnFile[] {
+  return files.filter((file) => projectPathAllowed(file.canonical ?? file.path, cwd));
+}
+
+/// Pages, files, MCP calls and read-only PR/issue references, in the order first encountered.
+function sources(
+  rows: readonly AcpmuxRow[],
+  all: readonly Tool[],
+  pullRequests: readonly SummaryPullRequest[],
+): SummarySource[] {
+  const revision = transcriptSourceVersion(rows);
+  const pullRequestKey = pullRequestSourceKey(pullRequests);
+  if (revision) {
+    if (sourceCache?.revision === revision && sourceCache.pullRequests === pullRequestKey) return sourceCache.sources;
+  }
+  const seen = new Map<string, SummarySource>();
+  const add = (source: SummarySource) => {
+    const key = sourceKey(source);
+    if (!seen.has(key)) seen.set(key, source);
+  };
+  for (const pr of pullRequests)
+    if (!pr.changed && !pr.opened) {
+      const ambiguous = pr.mentioned && !pr.kind;
+      add({
+        // GitHub redirects /issues/N to the PR when N is a PR; a bare number proves neither kind.
+        url: ambiguous ? `https://github.com/${pr.repo}/issues/${pr.number}` : pr.url,
+        label: pr.title ?? (ambiguous ? `${pr.repo}#${pr.number}` : `${pr.repo} #${pr.number}`),
+        kind: ambiguous ? "url" : (pr.kind ?? "pullRequest"),
+      });
+    }
+  const knownPullRequests = new Map(pullRequests.map((pr) => [pr.url, pr]));
+  const knownIssues = new Map(pullRequests.filter((pr) => pr.kind === "issue").map((pr) => [pr.url, pr]));
+  const addUrls = (text: string) => {
+    for (const match of text.matchAll(/https?:\/\/[^\s"'<>)]+/g)) {
+      const url = match[0]!.replace(/[.,;:!?]+$/, "");
+      const pr = GITHUB_PR_URL.exec(url);
+      if (pr) {
+        const canonical = `https://github.com/${pr[1]}/${pr[2]}/pull/${pr[3]}`;
+        const known = knownPullRequests.get(canonical);
+        if (known?.changed || known?.opened) continue;
+        add({
+          url: canonical,
+          label: known?.title ?? `${pr[1]}/${pr[2]} #${pr[3]}`,
+          kind: "pullRequest",
+        });
+        continue;
+      }
+      if (GITHUB_ISSUE_URL.test(url)) {
+        const issue = GITHUB_ISSUE_URL.exec(url)!;
+        const canonical = `https://github.com/${issue[1]}/${issue[2]}/issues/${issue[3]}`;
+        const known = knownIssues.get(canonical);
+        if (known?.changed || known?.opened) continue;
+        add({ url, label: url.replace(/^https?:\/\/(www\.)?/, "").replace(/\/$/, ""), kind: "issue" });
+      } else {
+        add({ url, label: url.replace(/^https?:\/\/(www\.)?/, "").replace(/\/$/, ""), kind: "url" });
+      }
+    }
+  };
+  for (const tool of all) {
+    if (tool.status !== "completed" || (tool.exitCode ?? 0) !== 0) continue;
+    const text = `${tool.title} ${tool.inputSummary ?? ""} ${tool.output ?? ""}`;
+    addUrls(text);
+    if (tool.kind === "read") for (const path of editedPaths(tool)) add({ label: path, kind: "file" });
+    const call = mcpCall(tool);
+    if (call) add({ label: mcpPlainName(call), kind: "mcp" });
+  }
+  // Assistant URLs become Sources only once the reply settles; streaming tokens never enter this
+  // loop because transcriptSourceVersion remains unchanged until that row is closed.
+  for (const row of rows) if (row.kind === "assistant" && !row.streaming) addUrls(row.text ?? "");
+  const result = [...seen.values()];
+  if (revision) sourceCache = { revision, pullRequests: pullRequestKey, sources: result };
+  return result;
 }
 
 /// The pull requests the chat opened (the composer's PR bars, PullRequestDock.tsx).
@@ -149,20 +271,42 @@ export const runningBackgroundTasks = (rows: readonly AcpmuxRow[]) =>
 /// What the chat made. With `repository` (the chat folder's `owner/name`, or null when it has
 /// none), the Inspector's Changes: its pull requests include the ones the agent only named in a
 /// reply, a bare `#N` in that repository among them; without it, only the ones it opened or touched.
-export function sessionSummary(rows: readonly AcpmuxRow[], repository?: string | null): SessionSummary {
+export function sessionSummary(rows: readonly AcpmuxRow[], repository?: string | null, cwd?: string): SessionSummary {
+  const producerRevision = transcriptSummaryVersion(rows);
+  if (
+    producerRevision &&
+    summaryCache?.revision === producerRevision &&
+    summaryCache.repository === repository &&
+    summaryCache.cwd === cwd
+  )
+    return summaryCache.summary;
   const all = tools(rows);
   const inspector = repository !== undefined;
   // The summary card reads only the commands, and lists no mention.
-  const pullRequests = transcriptPullRequests(rows, { folder: repository ?? undefined, replies: inspector });
-  return {
+  const folder = repository ?? undefined;
+  const revision = inspector
+    ? (transcriptSourceVersion(rows) ?? transcriptPullRequestKey(rows, true))
+    : transcriptPullRequestKey(rows);
+  const cached =
+    pullRequestCache?.revision === revision &&
+    pullRequestCache.folder === folder &&
+    pullRequestCache.replies === inspector
+      ? pullRequestCache.pullRequests
+      : undefined;
+  const pullRequests = cached ?? transcriptPullRequests(rows, { folder, replies: inspector });
+  if (!cached) pullRequestCache = { revision, folder, replies: inspector, pullRequests };
+  const result = {
+    ...(cwd ? { cwd } : {}),
     scheduled: scheduled(all),
     pullRequests: inspector ? pullRequests : pullRequests.filter((pr) => !pr.mentioned),
-    outputs: turnFiles(rows as AcpmuxRow[]),
+    outputs: filesInProject(turnFiles(rows as AcpmuxRow[]), cwd),
     subagents: subagents(rows, all),
-    sources: sources(all),
+    sources: sources(rows, all, pullRequests),
     backgroundTasks: backgroundTasks(rows, all),
   };
+  if (producerRevision) summaryCache = { revision: producerRevision, repository, cwd, summary: result };
+  return result;
 }
 
 export const isEmptySummary = (summary: SessionSummary) =>
-  Object.values(summary).every((list: unknown[]) => list.length === 0);
+  Object.values(summary).every((value) => !Array.isArray(value) || value.length === 0);

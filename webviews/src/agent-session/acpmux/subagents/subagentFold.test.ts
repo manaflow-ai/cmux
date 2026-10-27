@@ -1,5 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { SUBAGENTS, SubagentFold, stopReasonOf, subagentStops } from "./subagentFold";
+import { sessionSummary } from "../summary/sessionSummary";
+import { transcriptPullRequestKey, transcriptSourceVersion } from "../summary/transcriptPullRequests";
 
 // session/update records as acpmux sends them: a subagent's own updates carry its id in
 // `_meta.acpmux.subagent`, spawns and state changes in `_meta.acpmux.subagents`.
@@ -48,6 +50,29 @@ test("a subagent's own updates draw as its view, with the subagents it spawned a
   const after = fold.views().a!;
   expect(after).not.toBe(before);
   expect(after[2]!.subagents?.map((agent) => agent.state)).toEqual(["completed", "failed"]);
+});
+
+test("live child replies stay unsettled and keep the producer revision stable", () => {
+  const fold = new SubagentFold();
+  feed(fold, { sessionUpdate: "subagent_spawned" }, { subagents: [{ id: "a", parent: null, name: "Audit" }] });
+  feed(fold, say("acme/app#7"), { subagent: "a" });
+  const live = fold.views().a!;
+  const liveKey = transcriptPullRequestKey(live, true);
+  expect(live[0]?.streaming).toBe(true);
+  expect(sessionSummary(live, "acme/app").sources).toEqual([]);
+
+  feed(fold, say(" and acme/app#71"), { subagent: "a" });
+  const extended = fold.views().a!;
+  expect(extended[0]?.streaming).toBe(true);
+  expect(transcriptPullRequestKey(extended, true)).toBe(liveKey);
+  expect(transcriptSourceVersion(extended)).toBe(transcriptSourceVersion(live));
+  expect(sessionSummary(extended, "acme/app").sources).toEqual([]);
+
+  feed(fold, { sessionUpdate: "subagent_state_update" }, { subagents: [{ id: "a", state: "completed" }] });
+  const settled = fold.views().a!;
+  expect(settled[0]?.streaming).toBe(false);
+  expect(transcriptSourceVersion(settled)).not.toBe(transcriptSourceVersion(extended));
+  expect(sessionSummary(settled, "acme/app").sources.map((source) => source.label)).toContain("acme/app#7");
 });
 
 describe("why a subagent stopped", () => {

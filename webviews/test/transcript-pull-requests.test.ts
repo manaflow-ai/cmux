@@ -10,7 +10,9 @@ import { sessionPullRequests, sessionSummary } from "../src/agent-session/acpmux
 import {
   transcriptPullRequestKey,
   transcriptPullRequests,
+  transcriptSummaryVersion,
 } from "../src/agent-session/acpmux/summary/transcriptPullRequests";
+import { OrderedRows } from "../src/agent-session/acpmux/direct";
 import { activity, assistant, tool } from "../src/gallery/fixtures/acpmux";
 
 const shell = (command: string, output = "", exitCode = 0) =>
@@ -247,4 +249,72 @@ test("producer PR revisions invalidate on activity edits, deletion and transcrip
   rows.set(opened.id, opened);
   rows.clear();
   expect(transcriptPullRequestKey(rows.sorted(), true)).not.toBe(deleted);
+});
+
+test("brokered PR mutations and git branch updates are Changes", () => {
+  const rows = [
+    activity(
+      [
+        shell("gh pr view 41 -R acme/uploader --json title", '{"title":"Read first"}'),
+        shell("glaeda-gh gh pr edit 41 -R acme/uploader --title 'Changed'"),
+        shell("git push origin si-sources-parser"),
+      ],
+      1,
+    ),
+  ];
+  expect(transcriptPullRequests(rows).map((pr) => [pr.number, pr.changed])).toEqual([[41, true]]);
+});
+
+test("mutating issue calls do not become read-only Sources", () => {
+  for (const action of ["edit", "comment", "close", "reopen", "create"]) {
+    const command =
+      action === "create" ? "gh issue create -R acme/uploader --title x" : `gh issue ${action} 7 -R acme/uploader`;
+    const output = action === "create" ? "https://github.com/acme/uploader/issues/8" : "";
+    const rows = [activity([shell(command, output)], 1)];
+    expect(sessionSummary(rows, "acme/uploader").sources).toEqual([]);
+  }
+});
+
+test("fetched pull request URLs become Sources", () => {
+  const rows = [
+    activity(
+      [
+        tool("Fetch pull request", "fetch", "completed", {
+          inputSummary: JSON.stringify({ url: "https://github.com/acme/uploader/pull/41/files" }),
+          output: "pull request page",
+        }),
+      ],
+      1,
+    ),
+  ];
+  expect(sessionSummary(rows, "acme/uploader").sources).toEqual([
+    { url: "https://github.com/acme/uploader/pull/41", label: "acme/uploader #41", kind: "pullRequest" },
+  ]);
+});
+
+test("OrderedRows summary revisions stay stable for streaming and invalidate when settled", () => {
+  const rows = new OrderedRows();
+  const history = activity([shell("gh pr view 41 -R acme/app")], 1);
+  rows.set(history.id, history);
+  const initial = transcriptSummaryVersion(rows.sorted());
+  const streaming = { ...assistant("working", 2), streaming: true };
+  rows.set(streaming.id, streaming);
+  expect(transcriptSummaryVersion(rows.sorted())).toBe(initial);
+  rows.set(streaming.id, { ...streaming, streaming: false });
+  expect(transcriptSummaryVersion(rows.sorted())).not.toBe(initial);
+});
+
+test("sessionSummary reuses its producer revision across 50 streamed chunks", () => {
+  const rows = new OrderedRows();
+  let visits = 0;
+  const history = activity([shell("gh pr view 41 -R acme/app")], 1);
+  Object.defineProperty(history, "kind", { get: () => (visits++, "activity") });
+  rows.set(history.id, history);
+  const first = sessionSummary(rows.sorted(), "acme/app");
+  visits = 0;
+  for (let index = 0; index < 50; index++) {
+    rows.set("reply", { ...assistant(`chunk ${index}`, 2), id: "reply", version: index + 1, streaming: true });
+    expect(sessionSummary(rows.sorted(), "acme/app")).toBe(first);
+  }
+  expect(visits).toBe(0);
 });
