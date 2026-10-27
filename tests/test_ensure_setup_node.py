@@ -38,10 +38,10 @@ class EnsureSetupNode(unittest.TestCase):
         self.dist.mkdir(parents=True)
         self.tool = self.cache / "node" / VERSION / ARCH
 
-    def publish(self, *, corrupt: bool = False) -> None:
+    def publish(self, *, corrupt: bool = False, reports: str = VERSION) -> None:
         name = f"node-v{VERSION}-{OS}-{ARCH}"
         staged = self.tmp / "staged"
-        fake_node(staged / name / "bin" / "node", VERSION)
+        fake_node(staged / name / "bin" / "node", reports)
         tarball = self.dist / f"{name}.tar.gz"
         with tarfile.open(tarball, "w:gz") as archive:
             archive.add(staged / name, arcname=name)
@@ -90,6 +90,36 @@ class EnsureSetupNode(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertFalse((self.tool / "stale").exists())
         self.assertTrue((self.tool / "bin" / "node").exists())
+
+    def test_a_complete_entry_that_cannot_run_is_replaced(self) -> None:
+        self.tool.joinpath("bin").mkdir(parents=True)
+        broken = self.tool / "bin" / "node"
+        broken.write_text("#!/bin/sh\necho 'dyld: Library not loaded' >&2\nexit 7\n")
+        broken.chmod(0o755)
+        Path(f"{self.tool}.complete").touch()
+        self.publish()
+        result = self.run_script()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("installing it from nodejs.org", result.stdout)
+        self.assertEqual(subprocess.run([str(broken)], text=True, capture_output=True).stdout.strip(), f"v{VERSION}")
+        self.assertEqual(self.github_path.read_text(), f"{self.tool}/bin\n")
+
+    def test_a_complete_entry_of_another_version_is_replaced(self) -> None:
+        fake_node(self.tool / "bin" / "node", "24.11.1")
+        Path(f"{self.tool}.complete").touch()
+        self.publish()
+        result = self.run_script()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(subprocess.run([str(self.tool / "bin" / "node")], text=True,
+                                        capture_output=True).stdout.strip(), f"v{VERSION}")
+
+    def test_a_download_that_does_not_run_as_the_version_fails_and_caches_nothing(self) -> None:
+        self.publish(reports="20.20.2")
+        result = self.run_script()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("not v24.22.1", result.stdout)
+        self.assertFalse(Path(f"{self.tool}.complete").exists())
+        self.assertEqual(self.github_path.read_text(), "")
 
     def test_a_checksum_mismatch_fails_and_caches_nothing(self) -> None:
         self.publish(corrupt=True)

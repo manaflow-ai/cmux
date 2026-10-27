@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # Puts node VERSION on the job's PATH when actions/setup-node did not.
+# Needs bash, curl, tar and shasum (macOS, and Linux runner images with perl).
 #
 # setup-node can end "succeeded" with node never added: it logs "Attempting to download
 # VERSION...", awaits the node-versions manifest, and when that request is dropped without an
@@ -25,7 +26,10 @@ case "$(uname -s)" in Darwin) os=darwin ;; Linux) os=linux ;; *) echo "::error::
 case "$(uname -m)" in arm64 | aarch64) arch=arm64 ;; x86_64) arch=x64 ;; *) echo "::error::ensure-setup-node: unsupported arch $(uname -m)"; exit 1 ;; esac
 tool="${RUNNER_TOOL_CACHE:?RUNNER_TOOL_CACHE is not set}/node/$want/$arch"
 
-if [ ! -f "$tool.complete" ] || [ ! -x "$tool/bin/node" ]; then
+# "vVERSION" when DIR/bin/node runs and reports that version, else empty.
+version_of() { "$1/bin/node" --version 2>/dev/null || true; }
+
+if [ ! -f "$tool.complete" ] || [ "$(version_of "$tool")" != "v$want" ]; then
   echo "::warning title=setup-node::node v$want is not on PATH after setup-node; installing it from nodejs.org"
   name="node-v$want-$os-$arch"
   base="${ENSURE_NODE_DIST:-https://nodejs.org/dist}/v$want"
@@ -44,11 +48,20 @@ if [ ! -f "$tool.complete" ] || [ ! -x "$tool/bin/node" ]; then
     exit 1
   fi
   tar -xzf "$tmp/$name.tar.gz" -C "$tmp"
+  got="$(version_of "$tmp/$name")"
+  if [ "$got" != "v$want" ]; then
+    echo "::error::ensure-setup-node: the downloaded node reports '${got:-nothing}', not v$want"
+    exit 1
+  fi
   rm -rf "$tool" "$tool.complete"
   mkdir -p "$(dirname "$tool")"
   mv "$tmp/$name" "$tool"
   touch "$tool.complete"
 fi
 
-echo "node $("$tool/bin/node" --version) from $tool"
+if [ "$(version_of "$tool")" != "v$want" ]; then
+  echo "::error::ensure-setup-node: $tool/bin/node does not run as v$want"
+  exit 1
+fi
+echo "node v$want from $tool"
 echo "$tool/bin" >> "${GITHUB_PATH:?GITHUB_PATH is not set}"
