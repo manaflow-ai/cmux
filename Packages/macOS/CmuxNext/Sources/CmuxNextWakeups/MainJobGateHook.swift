@@ -106,9 +106,11 @@ nonisolated enum MainJobGateRoute {
     /// thread may still be inside its hook.
     private static let installed = GateWord()
 
-    /// The hook function: a closure made here, outside any actor, with no context.
+    /// The hook function: a closure made here, outside any actor, with no context. It names
+    /// `MainJobGateRoute` explicitly: a bare `enqueue` would capture `self` (the metatype), and a
+    /// thin function cannot carry a capture (as `GlobalJobCensus`'s hook).
     static func hook() -> MainEnqueueHook {
-        { job, original in enqueue(job, original) }
+        { job, original in MainJobGateRoute.enqueue(job, original) }
     }
 
     static func claim(_ gate: MainJobGate) -> Bool {
