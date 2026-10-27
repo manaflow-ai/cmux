@@ -70,6 +70,32 @@ import Testing
         rig.stop(loop)
     }
 
+    /// The read/apply form: only `read` is tracked, and it runs once per render, never in a will-set.
+    @Test func aReadAndApplyLoopReadsOncePerRenderAndFollowsOnlyItsRead() {
+        let rig = LoopRig()
+        var reads = 0, applied: [Int] = []
+        let loop = ObservationLoop(owner: "test.observationLoop.split", delivery: .visible(rig.node), on: rig.work) {
+            reads += 1
+            return rig.model.value
+        } apply: { value in
+            _ = rig.model.other
+            applied.append(value)
+        }
+        #expect(reads == 1 && applied == [0], "init reads and applies once, in the caller's turn")
+        for value in 1...10 { rig.model.value = value }
+        #expect(reads == 1, "a will-set ran the read")
+        rig.frame()
+        #expect(reads == 2 && applied == [0, 10])
+        rig.model.other = 1
+        rig.frame()
+        #expect(reads == 2 && applied == [0, 10], "a change of what only the apply read rendered")
+        rig.work.causes.withCause(.person) { rig.model.value = 11 }
+        #expect(reads == 2, "the person's will-set ran the read")
+        #expect(rig.work.causes.flushPersonCaused() == 1)
+        #expect(reads == 3 && applied == [0, 10, 11], "the person's change waited for a frame")
+        rig.stop(loop)
+    }
+
     @Test func aCancelledLoopRendersNothing() {
         let rig = LoopRig()
         let loop = rig.loop(.visible(rig.node))
@@ -87,6 +113,7 @@ import Testing
 @MainActor @Observable
 private final class LoopModel {
     var value = 0
+    var other = 0
 }
 
 /// A scheduler on a fake link (or none), a hand-moved budget clock, and a loop that records what it rendered.

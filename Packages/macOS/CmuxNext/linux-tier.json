@@ -125,6 +125,7 @@
       "CmuxNextRemoteLocalhost",
       "CmuxNextServerHelper",
       "CmuxNextCLIInstall",
+      "CmuxNextInputModel",
       "CZlib"
     ],
     "testTargets": [
@@ -232,7 +233,6 @@
     },
     "absent": [
       "CmuxNextOracle",
-      "CmuxNextInputModel",
       "OracleReplay",
       "OracleInputWalk",
       "OracleConfigDump",
