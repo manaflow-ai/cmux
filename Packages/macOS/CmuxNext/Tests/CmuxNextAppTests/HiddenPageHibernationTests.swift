@@ -430,14 +430,15 @@ import Testing
         /// an idle machine), not a wall-clock deadline: in the full parallel CmuxNextAppTests run the
         /// main actor and the pages' content processes are starved (tests that do nothing took
         /// over 300 s), so the wait stretches with the load instead of running out. A poll while the
-        /// hibernation asks a page (its probe, snapshot and `beforeunload`, bounded by
-        /// `pageDeadline`) is not idle: the page is still on its way to hibernating or being kept,
-        /// however slowly its content process answers. A condition that never holds still fails.
+        /// hibernation asks a page (a discard probe with its snapshot and `beforeunload`, or a freeze
+        /// probe, each bounded by `pageDeadline`) is not idle: the page is still on its way to
+        /// hibernating, freezing or being kept, however slowly its content process answers. A
+        /// condition that never holds still fails.
         func until(_ what: @autoclosure () -> String, _ condition: () async -> Bool) async throws {
             var idle = 0
             while idle < Self.polls {
                 if await condition() { return }
-                if hibernation.probing.isEmpty { idle += 1 }
+                if hibernation.probing.isEmpty, hibernation.freezeProbing.isEmpty { idle += 1 }
                 try await Task.sleep(for: .milliseconds(25))
             }
             try #require(await condition(), "\(what()) never happened")

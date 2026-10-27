@@ -84,7 +84,7 @@ final class BrowserHibernation {
     /// Hidden pages frozen now (`browser.freezeHiddenTabs`); they thaw when shown or driven.
     private(set) var frozen: Set<String> = []
     /// Pages a freeze probe is asking (media, Web Audio, capture).
-    private var freezeProbing: Set<String> = []
+    private(set) var freezeProbing: Set<String> = []
     /// When a page the probe kept awake (playing audio) is asked again.
     private var freezeKeptAt: [String: ContinuousClock.Instant] = [:]
     /// What each hidden page's probes said lately: the benefit of the doubt while it does not
