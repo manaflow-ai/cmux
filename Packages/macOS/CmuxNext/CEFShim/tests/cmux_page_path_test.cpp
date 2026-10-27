@@ -84,6 +84,10 @@ int main() {
   // A child frame being navigated: its parent decides.
   Allowed(false, "about:blank", "cmux-page://cmux.agent/", "cmux.agent", true);
   Allowed(false, "about:blank", "https://evil.test/", "cmux.agent", false);
+  // Artifact documents must never inherit the page host's file authority.
+  Allowed(false, "cmux-page://cmux.agent/__artifact", "cmux-page://cmux.agent/", "cmux.agent", false);
+  Allowed(false, "about:blank", "cmux-page://cmux.agent/__artifact", "cmux.agent", false);
+  Allowed(false, "about:srcdoc", "cmux-page://cmux.agent/", "cmux.agent", false);
   {
     auto headers = cmux_shim::PageResponseHeaders("default-src 'self'");
     bool xfo = false, corp = false, nosniff = false, csp = false;
