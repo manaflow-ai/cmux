@@ -265,9 +265,9 @@ html[data-cmux-page="changelog"] {
 }
 .cl-reel-play svg {
   box-sizing: content-box;
-  width: 26px;
-  height: 26px;
-  padding: 15px 13px 15px 17px;
+  width: 24px;
+  height: 24px;
+  padding: 16px;
   border-radius: 50%;
   fill: currentColor;
   background: rgb(0 0 0 / 0.45);
@@ -283,7 +283,7 @@ html[data-cmux-page="changelog"] {
   position: absolute;
   right: 8px;
   bottom: 8px;
-  padding: 1px 6px;
+  padding: 0 4px;
   border-radius: 5px;
   background: rgb(0 0 0 / 0.55);
   color: #fff;
