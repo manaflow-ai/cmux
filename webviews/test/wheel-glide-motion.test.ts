@@ -212,7 +212,12 @@ test("a subpixel non-bottom tail cannot become an extra WebKit pixel", () => {
   try {
     f.floorOffsets();
     f.wheel(-100.006103515625, { deltaMode: 0, wheelDeltaY: 300 });
-    for (let frame = 0; frame < 10; frame++) f.tick(20);
+    const offsets = [f.node.scrollTop];
+    for (let frame = 0; frame < 10; frame++) {
+      f.tick(20);
+      offsets.push(f.node.scrollTop);
+    }
+    expect(offsets.slice(1).every((top, index) => top <= offsets[index]!)).toBe(true);
     expect(f.node.scrollTop).toBe(900);
     expect(f.pending.size).toBe(0);
   } finally {
