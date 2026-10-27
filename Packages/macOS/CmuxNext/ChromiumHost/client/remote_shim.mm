@@ -12,7 +12,9 @@
 //                             value to forget the key; before the EVENT that refreshes it
 //                 kOpAck      `token`'s op ran: its pending marks clear
 //                 kOpReply    the answer to an awaited `token`, its fields to the reply callback;
-//                             its op ran, so its pending marks clear first
+//                             its op ran, so its pending marks clear first; a password reveal's
+//                             (PostPasswordReveal) to its own sink only: one bytes field, the
+//                             password, or none
 //                 kOpDragStart  a page's drag (host_drag.h), to the local class's drag handler
 //                             (remote_shim_local.h), which gets the transport at the HELLO
 // Anything else from the host is malformed and ends it, as bad_message::ReceivedBadMessage ends
@@ -305,6 +307,7 @@ class Runtime {
     // The same for cmux's lock handler: a new host's fork starts with none.
     if (locks_.installed()) Route(LockHandlerMessage(true), std::nullopt);
     Flush();
+    AnswerDroppedReveals();
     return 1;
   }
 
@@ -462,6 +465,18 @@ class Runtime {
     const bool sent = Post(op, token, args);
     last_reply_token_ = sent ? token : 0;
     return sent;
+  }
+
+  bool PostPasswordReveal(uint32_t token, const char* path, const char* id, PasswordRevealedFn revealed) {
+    CMUX_REMOTE_ASSERT_MAIN();
+    if (token == 0 || revealed == nullptr || link_ != Link::kAttached) return false;
+    TlvWriter args;
+    args.Str(path);
+    args.Str(id);
+    // Kept only once Post took it: a refused post has its false and never reaches the sink.
+    if (!Post(kOpPasswordReveal, token, args)) return false;
+    reveals_[token] = revealed;
+    return true;
   }
 
   int32_t PostPreinit(uint16_t op, uint32_t token, const TlvWriter& args) {
@@ -683,6 +698,20 @@ class Runtime {
     if (token == 0) return;
     mirror_.Ack(token);
     awaiting_.erase(token);
+    if (const auto reveal = reveals_.find(token); reveal != reveals_.end()) {
+      dropped_reveals_.emplace_back(*reveal);
+      reveals_.erase(reveal);
+    }
+  }
+
+  // A reveal whose op will not reach the host, or whose host is gone, ends as not found:
+  // revealed(token, NULL, 0), as mojo::WrapCallbackWithDefaultInvokeIfNotRun answers a response
+  // callback its pipe dropped (mojo/public/cpp/bindings/callback_helpers.h). Called once this
+  // class's state is consistent, since a sink may post, attach or detach.
+  void AnswerDroppedReveals() {
+    std::vector<std::pair<uint32_t, PasswordRevealedFn>> dropped;
+    dropped.swap(dropped_reveals_);
+    for (const auto& [token, revealed] : dropped) revealed(token, nullptr, 0);
   }
 
   // Closes the channel. Its reader thread ends on its own and its end reaches Ended, which
@@ -707,11 +736,15 @@ class Runtime {
     queued_live_ = 0;
     mirror_.Clear();
     awaiting_.clear();
+    dropped_reveals_.insert(dropped_reveals_.end(), reveals_.begin(), reveals_.end());
+    reveals_.clear();
     host_exports_.clear();
     ::cmux_remote::Detach();
     ReleaseFenceChannel();  // the inbox was this host's
     // Last: cmux's lock fn frees its cursor and keys, and may call back into a detached shim.
     locks_.HostGone();
+    // After the lock fn: a reveal's sink may post, attach or detach (AnswerDroppedReveals).
+    AnswerDroppedReveals();
   }
 
   void ReleaseFenceChannel() {
@@ -800,6 +833,19 @@ class Runtime {
         mirror_.Ack(message.token);
         return true;
       case kOpReply: {
+        if (const auto reveal = reveals_.find(message.token); reveal != reveals_.end()) {
+          // A malformed answer stays pending: the disconnect it causes answers it as not found.
+          const Field* password = nullptr;
+          if (!RevealedPassword(message, &password)) return false;
+          const PasswordRevealedFn revealed = reveal->second;
+          reveals_.erase(reveal);
+          if (password == nullptr) {
+            revealed(message.token, nullptr, 0);
+          } else {
+            revealed(message.token, password->bytes.data(), password->bytes.size());
+          }
+          return true;
+        }
         std::string fields;
         if (awaiting_.erase(message.token) == 0) return false;  // a reply to no request
         if (!cmux_host::control::EncodeFields(message.fields, &fields)) return false;
@@ -823,6 +869,7 @@ class Runtime {
         ::cmux_remote::Attach(&local_transport_);
         choosers::Attach(&chooser_transport_);
         if (callbacks_.ready) callbacks_.ready(callbacks_.ctx);
+        AnswerDroppedReveals();
         return true;
       }
       case cmux_host::kOpDragStart: {
@@ -837,6 +884,20 @@ class Runtime {
       default:
         return false;
     }
+  }
+
+  // A password reveal's REPLY: one bytes field, the password, or none (`password` stays NULL:
+  // not found). False when malformed.
+  static bool RevealedPassword(const Message& message, const Field** password) {
+    *password = nullptr;
+    if (message.fields.empty()) return true;
+    const Field& field = message.fields.front();
+    if (message.fields.size() > 1 || field.type != cmux_host::control::Type::kBytes ||
+        field.tag != cmux_host::control::kTagValue) {
+      return false;
+    }
+    *password = &field;
+    return true;
   }
 
   static bool SendChooserInstalled(void* context, cmux_host::choosers::Handler handler, bool installed) {
@@ -875,6 +936,10 @@ class Runtime {
   MirrorCache mirror_;
   // Tokens sent with PostForReply and not answered yet.
   std::unordered_set<uint32_t> awaiting_;
+  // Password reveals sent and not answered yet, and where each answer goes.
+  std::unordered_map<uint32_t, PasswordRevealedFn> reveals_;
+  // Reveals Forget or Disconnect dropped, for AnswerDroppedReveals.
+  std::vector<std::pair<uint32_t, PasswordRevealedFn>> dropped_reveals_;
   std::unordered_set<std::string> host_exports_;
   // The app's last Energy Saver state (cmux_shim_set_energy_saver), for the whole session.
   std::optional<cmux_host::EnergySaver> energy_saver_;
@@ -926,6 +991,9 @@ bool PostInput(uint16_t op, uint32_t token, const TlvWriter& args) {
 }
 bool PostForReply(uint16_t op, uint32_t token, const TlvWriter& args) {
   return R().PostForReply(op, token, args);
+}
+bool PostPasswordReveal(uint32_t token, const char* profile_cache_path, const char* id, PasswordRevealedFn revealed) {
+  return R().PostPasswordReveal(token, profile_cache_path, id, revealed);
 }
 int32_t PostPreinit(uint16_t op, uint32_t token, const TlvWriter& args) {
   return R().PostPreinit(op, token, args);

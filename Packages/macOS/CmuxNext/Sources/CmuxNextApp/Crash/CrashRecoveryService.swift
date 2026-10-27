@@ -23,6 +23,9 @@ final class CrashRecoveryService {
     /// The crash keys the previous run's crash path wrote (`run.crashkeys`), read off the main thread after launch.
     private(set) var previousCrashKeys: CrashKeys?
     private var crashObserver: UUID?
+    private var helperExitObserver: UUID?
+    /// Which Chromium helper ends go to Sentry (``helperExited(_:reporter:at:)``).
+    private var helperExitLimiter = HelperExitRateLimiter()
     private weak var crashLog: BrowserCrashLog?
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "crash")
     private var notice: RestartNoticePanel?
@@ -80,9 +83,10 @@ final class CrashRecoveryService {
         marker?.armSurvivalWindow(on: deadlines)
     }
 
-    /// Writes a report for each Chromium failure from now on. The Chromium Host's ends have a fuller report of their
-    /// own, written from its supervisor (``AppRunMarker/reportHostCrashes(of:writer:work:)``).
-    func observe(_ log: BrowserCrashLog) {
+    /// Writes a report for each Chromium failure from now on, and sends each helper process's end to `reporter`
+    /// (``helperExited(_:reporter:at:)``). The Chromium Host's ends have a fuller report of their own, written from
+    /// its supervisor (``AppRunMarker/reportHostCrashes(of:writer:work:)``).
+    func observe(_ log: BrowserCrashLog, reporter: CrashReporter) {
         guard crashLog == nil else { return }
         crashLog = log
         let writer = writer
@@ -90,6 +94,19 @@ final class CrashRecoveryService {
             guard record.processType != CrashRecoveryService.hostProcessType else { return }
             writer.writeInBackground(record)
         }
+        helperExitObserver = log.addHelperExitObserver { [weak self] exit in self?.helperExited(exit, reporter: reporter) }
+    }
+
+    /// One Chromium helper's end as one Sentry event, at most one per process type an hour (``HelperExitRateLimiter``);
+    /// the ends held back count into the next. The SDK's envelope write runs on the files lane.
+    @discardableResult
+    func helperExited(_ exit: BrowserHelperExit, reporter: CrashReporter, at now: ContinuousClock.Instant = .now) -> HelperExitEvent? {
+        guard reporter.isStarted, let heldBack = helperExitLimiter.admit(exit.processType, at: now) else { return nil }
+        let event = HelperExitEvent(processType: exit.processType, chromiumType: exit.chromiumType, subType: exit.subType,
+                                    reason: exit.reason.rawValue, code: exit.code, codeName: exit.codeDescription,
+                                    pid: exit.pid, pump: exit.pump, heldBack: heldBack)
+        work.post(.bestEffort, mayBlock: .files) { reporter.reportHelperExit(event) }
+        return event
     }
 
     /// The crash log's process type of the Chromium Host (`CEFRuntime.hostEnded`).
@@ -160,7 +177,7 @@ final class CrashRecoveryService {
 
     /// A normal quit.
     func applicationWillTerminate() {
-        if let crashObserver { crashLog?.removeObserver(crashObserver) }
+        for observer in [crashObserver, helperExitObserver].compactMap({ $0 }) { crashLog?.removeObserver(observer) }
         marker?.markCleanExit()
     }
 
