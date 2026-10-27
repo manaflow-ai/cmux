@@ -14,7 +14,7 @@
     "tagged bench build",
     "no unrelated app instance",
     "a fresh launch: one window, one workspace, one terminal tab",
-    "the launch terminal's folder (the hermetic HOME) is not inside a git repository, so openDiffViewer has no diff to open and reaches its picker"
+    "macOS's /var/empty (an empty, root-owned folder) is in no git repository: open-diff passes it as openDiffViewer's path, so the step does not depend on the pane's folder"
   ],
   "requires": ["actions", "gui"],
   "platforms": ["mac"],
@@ -46,10 +46,10 @@
       "id": "open-diff",
       "op": "action.run",
       "target": {"window": "current"},
-      "args": {"action": "openDiffViewer", "entrypoint": "cli"},
+      "args": {"action": "openDiffViewer", "entrypoint": "cli", "params": {"path": "/var/empty"}},
       "expect": {"outcome": "error", "error": "control.unavailable"},
       "settleMaxMs": 10000,
-      "note": "the pane's folder has no repository, so the diff read fails and the picker would ask for one; without focus the work refuses with the same reason (ViewerHandlers.backgroundPickerRefusal)"
+      "note": "`path` names a folder with no repository, so the diff read fails and the picker would ask for one; without focus the work refuses with the same reason (ViewerHandlers.backgroundPickerRefusal)"
     },
     {
       "id": "no-diff-picker",

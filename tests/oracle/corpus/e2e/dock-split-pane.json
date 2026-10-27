@@ -41,9 +41,9 @@
       "target": {"pane": "current"},
       "args": {"action": "column.dock", "entrypoint": "script"},
       "expect": {"outcome": "ok", "receipt": "action.done"},
-      "waitFor": {"pointer": "/topology/topology/workspaces", "predicate": "changed", "maxMs": 10000},
+      "waitFor": {"pointer": "/layout/screens/0/root", "predicate": "changed", "maxMs": 10000},
       "settleMaxMs": 10000,
-      "note": "the column keeps another pane, so another pane anchors the move; on 5895d36d3b8 (cx-39lm's parent) the tab left through its own pane and the action answered 'move-tab-to-column failed'"
+      "note": "the screen's split tree becomes a strip with the docked column (layout facet); the column keeps another pane, so another pane anchors the move; on 5895d36d3b8 (cx-39lm's parent) the tab left through its own pane and the action answered 'move-tab-to-column failed'"
     },
     {
       "id": "docked",
@@ -57,8 +57,8 @@
       "target": {"window": "current"},
       "args": {"action": "workspace.newBelow"},
       "expect": {"outcome": "ok", "receipt": "action.done"},
-      "waitFor": {"pointer": "/topology/topology/workspaces", "predicate": "changed", "maxMs": 5000},
-      "note": "a second workspace with one terminal pane, for the Dock Column Left round"
+      "settleMaxMs": 10000,
+      "note": "a second workspace with one terminal pane, below the first, for the Dock Column Left round; a socket run without focus files it in the window without showing it (WindowManager.claimNew), so no shown facet changes and the settle is the wait"
     },
     {
       "id": "select-workspace",
@@ -66,8 +66,8 @@
       "target": {"window": "current"},
       "args": {"keys": ["cmd+2"]},
       "expect": {"outcome": "ok", "receipt": "action.done"},
-      "waitFor": {"pointer": "/sidebar/selectedWorkspace", "predicate": "changed", "maxMs": 5000},
-      "note": "Select Workspace 2: the workspace new-workspace made"
+      "waitFor": {"pointer": "/layout/screens/0/workspace", "predicate": "changed", "maxMs": 5000},
+      "note": "Select Workspace 2: the window shows the workspace new-workspace made"
     },
     {
       "id": "split-again",
@@ -83,7 +83,7 @@
       "target": {"pane": "current"},
       "args": {"action": "column.dockLeft", "entrypoint": "script"},
       "expect": {"outcome": "ok", "receipt": "action.done"},
-      "waitFor": {"pointer": "/topology/topology/workspaces", "predicate": "changed", "maxMs": 10000},
+      "waitFor": {"pointer": "/layout/screens/0/root", "predicate": "changed", "maxMs": 10000},
       "settleMaxMs": 10000,
       "note": "the same move pinned to the left edge"
     },
