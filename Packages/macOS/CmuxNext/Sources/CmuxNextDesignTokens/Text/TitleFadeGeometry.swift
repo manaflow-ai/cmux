@@ -1,4 +1,4 @@
-public import CoreGraphics
+public import Foundation
 
 /// Where a single-line title fades and how far its hover marquee scrolls.
 /// Pure, so the rules are unit-tested without layers. All lengths are in the
