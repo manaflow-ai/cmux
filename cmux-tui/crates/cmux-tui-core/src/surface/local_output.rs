@@ -393,12 +393,13 @@ impl OutputPublisher {
 }
 
 /// A publication call that may wait on others. On a read-loop worker it
-/// frees the worker's slot while it runs (`read_loop::will_block`); a
-/// reader thread of its own just runs it.
+/// frees the worker's slot while it runs (`read_loop::will_block`), on a VT
+/// pool shard it moves the shard's other terminals to a new thread
+/// (`vt_pool::will_block`); a reader thread of its own just runs it.
 fn will_block<R>(f: impl FnOnce() -> R) -> R {
     #[cfg(unix)]
     {
-        crate::mux::terminal_work::read_loop::will_block(f)
+        crate::vt_pool::will_block(|| crate::mux::terminal_work::read_loop::will_block(f))
     }
     #[cfg(not(unix))]
     {

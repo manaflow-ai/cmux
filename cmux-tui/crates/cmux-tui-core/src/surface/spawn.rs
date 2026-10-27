@@ -101,8 +101,9 @@ impl Surface {
         let parsed_sink = holder.as_ref().map(|terminal| terminal.sink.clone());
         // Direct PTY readers wait for readiness on the owner's read loop
         // before taking the source order gate. Holder and byte-backend
-        // readers are not backed by this PTY descriptor, so they keep their
-        // blocking reader thread (local_reader.rs).
+        // readers are not backed by this PTY descriptor: a holder terminal
+        // parses on the owner's VT pool, woken by its sink, and a
+        // byte-backend one keeps its blocking reader thread (local_reader.rs).
         #[cfg(unix)]
         let read_fd = holder.is_none().then(|| master.as_raw_fd()).flatten();
         #[cfg(unix)]

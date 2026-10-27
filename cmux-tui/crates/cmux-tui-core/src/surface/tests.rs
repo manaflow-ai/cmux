@@ -14,6 +14,8 @@ mod colors;
 mod directory_publication;
 #[cfg(unix)]
 mod echo_flow;
+#[cfg(unix)]
+mod holder_pool;
 mod hosted;
 mod input;
 mod lifecycle;

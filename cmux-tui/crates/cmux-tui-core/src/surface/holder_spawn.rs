@@ -1,5 +1,6 @@
 //! Terminals whose shell the holder runs (`holder_runtime`): a new one, and
-//! one a previous daemon of the session left running.
+//! one a previous daemon of the session left running. Their output parses
+//! on the owner's VT pool (`crate::vt_pool`), not on a thread of their own.
 
 use std::collections::BTreeMap;
 use std::ffi::OsString;

@@ -51,11 +51,12 @@ impl ReaderCompletion {
 /// Where a terminal's output is read. Either way `reader_completion` marks
 /// its end.
 pub(super) enum TerminalReader {
-    /// A thread of its own: a hosted terminal's host reader, a holder or
-    /// byte-backend terminal's reader. Shutdown joins it.
+    /// A thread of its own: a hosted terminal's host reader, a byte-backend
+    /// terminal's reader. Shutdown joins it.
     Thread(std::thread::JoinHandle<()>),
-    /// A source on the owner's read loop (`mux::TerminalReads`): a
-    /// daemon-local PTY. Nothing to join.
+    /// A source on the owner's read loop (`mux::TerminalReads`, a
+    /// daemon-local PTY) or VT pool (`vt_pool::VtPool`, a holder terminal).
+    /// Nothing to join.
     #[cfg(unix)]
     Looped,
 }

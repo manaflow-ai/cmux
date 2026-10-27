@@ -3,8 +3,10 @@
 //!
 //! A direct PTY reads on its owner's one read loop (`TerminalReads`),
 //! not on a thread of its own: its descriptor's readiness queues a run, and
-//! a resize that drained the readiness kicks one. A holder or byte-backend
-//! terminal has no PTY descriptor in this process and keeps its blocking
+//! a resize that drained the readiness kicks one. A holder terminal parses
+//! on its owner's VT pool (`crate::vt_pool`, p01-process-120): the
+//! holder-link thread wakes its shard when output comes. A byte-backend
+//! terminal has no descriptor in this process and keeps its blocking
 //! `surface-<id>-reader` thread.
 
 use std::io::Read;
@@ -16,8 +18,10 @@ use super::local_output::{LocalOutput, OutputPublisher};
 use super::*;
 #[cfg(unix)]
 use crate::mux::terminal_work::read_loop::{READS_PER_RUN, ReadFlow, ReadSource, TerminalReads};
+#[cfg(unix)]
+use crate::vt_pool::{Slice, VtFlow, VtPool, VtSource};
 
-/// One local terminal's reader, on the read loop or on its thread.
+/// One local terminal's reader, on the read loop, the VT pool or its thread.
 pub(super) struct LocalReader {
     surface: Arc<Surface>,
     output: Arc<Mutex<LocalOutput>>,
@@ -27,14 +31,18 @@ pub(super) struct LocalReader {
     /// `None` for a holder or byte-backend terminal.
     #[cfg(unix)]
     fd: Option<RawFd>,
+    /// A holder terminal's output queue (`LocalOutput::parsed_sink`): its
+    /// reads never wait, and it wakes the terminal's VT pool shard.
+    #[cfg(unix)]
+    holder_sink: Option<Arc<crate::holder_runtime::HolderSink>>,
     /// Dropped last, after the end is published (or on a panic).
     _completion: ReaderCompletionGuard,
 }
 
 /// What one read did.
 enum Step {
-    /// Parsed a chunk (or was interrupted): read again.
-    Read,
+    /// Parsed a chunk of this many bytes (or was interrupted: 0): read again.
+    Read(usize),
     /// Nothing to read now.
     Idle,
     /// End of stream or a read error.
@@ -55,6 +63,8 @@ impl LocalReader {
         let publisher = parser.publisher();
         #[cfg(unix)]
         let fd = parser.descriptor.as_ref().map(AsRawFd::as_raw_fd);
+        #[cfg(unix)]
+        let holder_sink = parser.parsed_sink.clone();
         drop(parser);
         Self {
             surface,
@@ -63,13 +73,16 @@ impl LocalReader {
             publisher,
             #[cfg(unix)]
             fd,
+            #[cfg(unix)]
+            holder_sink,
             _completion: completion,
         }
     }
 
-    /// Starts reading: a direct PTY on its owner's read loop (with no owner,
-    /// on a loop of its own that ends with this terminal), anything else on
-    /// thread `surface-<id>-reader`.
+    /// Starts reading: a direct PTY on its owner's read loop and a holder
+    /// terminal on its owner's VT pool (with no owner, on a loop or pool of
+    /// its own that ends with this terminal), anything else on thread
+    /// `surface-<id>-reader`.
     pub(super) fn start(self, id: SurfaceId) -> anyhow::Result<TerminalReader> {
         #[cfg(unix)]
         if let Some(fd) = self.fd {
@@ -88,6 +101,21 @@ impl LocalReader {
             output.lock().unwrap_or_else(std::sync::PoisonError::into_inner).wake =
                 Some(kick.clone());
             kick.kick();
+            return Ok(TerminalReader::Looped);
+        }
+        #[cfg(unix)]
+        if let Some(sink) = self.holder_sink.clone() {
+            let owner = self.surface.as_pty().and_then(|pty| pty.mux.upgrade());
+            let registered = match owner {
+                Some(mux) => mux.vt_pool().register(Box::new(self)),
+                // Dropped at once: its shard ends after this terminal's end.
+                None => VtPool::for_machine().register(Box::new(self)),
+            };
+            let Ok(wake) = registered else {
+                anyhow::bail!("terminal {id}'s output cannot be parsed on the VT pool");
+            };
+            // Wakes the shard once for what the sink queued already.
+            sink.set_wake(wake);
             return Ok(TerminalReader::Looped);
         }
         let thread =
@@ -127,9 +155,9 @@ impl LocalReader {
         self.publisher.publish(&self.surface, events);
         match result {
             Ok(Some(0)) => Step::Ended,
-            Ok(Some(_)) => Step::Read,
+            Ok(Some(n)) => Step::Read(n),
             Ok(None) => Step::Idle,
-            Err(error) if error.kind() == std::io::ErrorKind::Interrupted => Step::Read,
+            Err(error) if error.kind() == std::io::ErrorKind::Interrupted => Step::Read(0),
             Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => Step::Idle,
             Err(_) => Step::Ended,
         }
@@ -141,7 +169,7 @@ impl LocalReader {
             crate::backoff::Backoff::new(Duration::from_millis(1), Duration::from_millis(50));
         loop {
             match self.step() {
-                Step::Read => would_block.reset(),
+                Step::Read(_) => would_block.reset(),
                 // No parser or source lock is held across backoff.
                 Step::Idle => would_block.sleep(),
                 Step::Ended => break,
@@ -166,6 +194,17 @@ impl LocalReader {
         }
         post_local_exit_if_ready(&self.surface);
     }
+
+    /// The end runs on the owner's terminal work pool, not on the read
+    /// worker or shard; with no owner or a full pool, through `inline`.
+    #[cfg(unix)]
+    fn end_on_terminal_work(self, inline: fn(Box<dyn FnOnce() + Send>)) {
+        let owner = self.surface.as_pty().and_then(|pty| pty.mux.upgrade());
+        let Some(owner) = owner else { return inline(Box::new(move || self.end())) };
+        if let Err(end) = owner.submit_terminal_work(Box::new(move || self.end())) {
+            inline(end);
+        }
+    }
 }
 
 #[cfg(unix)]
@@ -173,7 +212,7 @@ impl ReadSource for LocalReader {
     fn run(&mut self) -> ReadFlow {
         for _ in 0..READS_PER_RUN {
             match self.step() {
-                Step::Read => {}
+                Step::Read(_) => {}
                 Step::Idle => return ReadFlow::Continue,
                 Step::Ended => return ReadFlow::Finished,
             }
@@ -182,14 +221,35 @@ impl ReadSource for LocalReader {
         ReadFlow::Continue
     }
 
-    /// The end publishes the exit through the registry (sqlite), so it
-    /// runs on the owner's terminal work pool, not on the read worker; with
-    /// no owner or a full pool, here (the loop runs it in `will_block`).
+    /// With no owner or a full pool the end runs here: the loop runs
+    /// `finish` in `will_block` already.
     fn finish(self: Box<Self>) {
-        let owner = self.surface.as_pty().and_then(|pty| pty.mux.upgrade());
-        let Some(owner) = owner else { return self.end() };
-        if let Err(end) = owner.submit_terminal_work(Box::new(move || self.end())) {
-            end();
+        self.end_on_terminal_work(|end| end());
+    }
+}
+
+/// A holder terminal on its VT pool shard.
+#[cfg(unix)]
+impl VtSource for LocalReader {
+    fn run(&mut self, slice: &mut Slice) -> VtFlow {
+        loop {
+            match self.step() {
+                Step::Read(n) => {
+                    slice.charge(n);
+                    // The rest goes after the shard's other terminals.
+                    if slice.spent() {
+                        return VtFlow::Yield;
+                    }
+                }
+                Step::Idle => return VtFlow::Idle,
+                Step::Ended => return VtFlow::Finished,
+            }
         }
+    }
+
+    /// With no owner or a full pool the end runs in `will_block`, off the
+    /// shard's other terminals.
+    fn finish(self: Box<Self>) {
+        self.end_on_terminal_work(crate::vt_pool::will_block);
     }
 }

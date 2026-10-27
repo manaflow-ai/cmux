@@ -126,6 +126,8 @@ mod terminal_loss_cause;
 #[cfg(any(unix, windows))]
 mod terminal_loss_log;
 mod terminal_metadata;
+#[cfg(unix)]
+mod vt_pool;
 pub use cmux_tui_util::terminal_respawn_text;
 pub use cmux_wake as wake;
 mod work_reply;

@@ -211,6 +211,11 @@
         "daemon.request"
       ]
     },
+    "vt-pool-dispatch": {
+      "what": "one holder-link wake of a holder terminal's VT pool shard after its DATA (cmux-tui-core vt_pool.rs VtWake::wake): one atomic read-modify-write, and one queue send only when the terminal was idle",
+      "bench": "cargo test -p cmux-tui-core --release --lib -- vt_pool_dispatch_bench --ignored --nocapture (ns per wake, queued and idle), then scripts/cmux-next/bench-typing.py",
+      "owner": "PL-typing"
+    },
     "hang-scope": {
       "what": "one hang scope opened and closed on a watched thread of the holder, terminal host or acpmux (cmux-threads hang.rs HangWatcher::scope and HangScope drop): a clock read, the slot's stores and the armed count",
       "bench": "cargo test -p cmux-threads --release --lib -- hang_scope_bench --ignored --nocapture (ns per scope)"

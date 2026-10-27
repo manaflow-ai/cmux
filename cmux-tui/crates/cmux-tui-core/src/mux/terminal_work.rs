@@ -21,7 +21,8 @@
 //!
 //! The pool also owns the owner's one read loop ([`read_loop`]): every
 //! daemon-local PTY terminal's output is read there, not on a thread of its
-//! own.
+//! own. It owns the VT pool too (`crate::vt_pool`): every holder
+//! terminal's output is parsed there.
 
 use super::*;
 
@@ -68,6 +69,9 @@ pub(crate) struct TerminalWorkPool {
     /// The read loop of the owner's daemon-local PTY terminals.
     #[cfg(unix)]
     reads: read_loop::TerminalReads,
+    /// The VT pool that parses the owner's holder terminals.
+    #[cfg(unix)]
+    vt: crate::vt_pool::VtPool,
     /// The host process started ahead of the next new tab (R81, cap one).
     #[cfg(any(unix, windows))]
     standby: Arc<standby_host::StandbyHostSlot>,
@@ -82,6 +86,8 @@ impl TerminalWorkPool {
             state: Arc::default(),
             #[cfg(unix)]
             reads: read_loop::TerminalReads::new(),
+            #[cfg(unix)]
+            vt: crate::vt_pool::VtPool::for_machine(),
             #[cfg(any(unix, windows))]
             standby: standby_host::StandbyHostSlot::new(memory.clone()),
         }
@@ -208,6 +214,12 @@ impl Mux {
     #[cfg(unix)]
     pub(crate) fn terminal_reads(&self) -> &read_loop::TerminalReads {
         &self.terminal_work.reads
+    }
+
+    /// The VT pool every holder terminal of this owner parses on.
+    #[cfg(unix)]
+    pub(crate) fn vt_pool(&self) -> &crate::vt_pool::VtPool {
+        &self.terminal_work.vt
     }
 
     /// Queue `job` on the terminal work pool. Returns it when the pool is
