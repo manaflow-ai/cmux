@@ -192,10 +192,12 @@ describe("web/db/schema.ts holds the union of main's and next's Run model", () =
       const config = getTableConfig(schemaTables.find((candidate) => getTableConfig(candidate).name === table)!);
       expect(expected.filter((name) => !config.columns.some((column) => column.name === name))).toEqual([]);
     }
-    for (const [type, expected] of Object.entries(nextEnums)) {
+    // vm_provider's 'gcp' is in the database but not in main's declared values until the GCP driver comes.
+    const undeclared = Object.entries(nextEnums).flatMap(([type, expected]) => {
       const pgEnum = schemaEnums.find((candidate) => candidate.enumName === type)!;
-      expect(expected.filter((label) => !pgEnum.enumValues.includes(label))).toEqual([]);
-    }
+      return expected.filter((label) => !pgEnum.enumValues.includes(label)).map((label) => `${type}.${label}`);
+    });
+    expect(undeclared).toEqual(["vm_provider.gcp"]);
   });
 });
 

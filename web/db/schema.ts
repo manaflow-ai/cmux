@@ -20,7 +20,11 @@ import {
   uuid,
 } from "drizzle-orm/pg-core";
 
-export const vmProvider = pgEnum("vm_provider", ["freestyle", "gcp"]);
+/**
+ * The database's vm_provider also holds 'gcp' (next's 20261023120000_gcp_vm_provider). main has no
+ * GCP driver, so its code declares only the provider it can serve; 'gcp' joins with that driver.
+ */
+export const vmProvider = pgEnum("vm_provider", ["freestyle"]);
 
 /** A closed, actionable observed-destroy cleanup object. */
 export function observedDestroyCleanupValidityPredicate(cleanup: SQLWrapper): SQL {
