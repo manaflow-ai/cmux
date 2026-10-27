@@ -8,21 +8,22 @@ struct CloudCredentialTransferTests {
     nonisolated static let token = Data("sk-ant-oat01-abcdefghijklmnopqrstuvwxyz0123456789".utf8)
     nonisolated static let codex = Data(#"{"tokens":{"access_token":"access","refresh_token":"refresh","id_token":"id"},"OPENAI_API_KEY":null}"#.utf8)
 
-    final class Recorder: @unchecked Sendable {
-        nonisolated(unsafe) var commands: [String] = []
-        nonisolated(unsafe) var writes: [(String, Data)] = []
-        nonisolated(unsafe) var logins = 0, stores = 0
-        nonisolated(unsafe) var cached: Data?
-        nonisolated(unsafe) var owner = true
-        nonisolated(unsafe) var team: String? = "team"
-        nonisolated(unsafe) var user: String? = "user"
-        nonisolated(unsafe) var onAcquire: (() throws -> Void)?
-        nonisolated(unsafe) var onWrite: (() -> Void)?
+    @MainActor final class Recorder {
+        var commands: [String] = []
+        var writes: [(String, Data)] = []
+        var logins = 0, stores = 0
+        var cached: Data?
+        var owner = true
+        var team: String? = "team"
+        var user: String? = "user"
+        var onAcquire: (() throws -> Void)?
+        var onWrite: (() -> Void)?
         var effects: CloudCredentialTransfer.Effects {
-            .init(exec: { self.commands.append($0); return self.owner ? 0 : 70 },
-                  write: { self.writes.append(($0, $1)); self.onWrite?() }, load: { self.cached },
-                  acquire: { self.logins += 1; try self.onAcquire?(); return CloudCredentialTransferTests.token },
-                  store: { self.stores += 1; self.cached = $0 })
+            .init(exec: { command in await MainActor.run { self.commands.append(command); return self.owner ? 0 : 70 } },
+                  write: { path, data in await MainActor.run { self.writes.append((path, data)); self.onWrite?() } },
+                  load: { await MainActor.run { self.cached } },
+                  acquire: { await MainActor.run { self.logins += 1; try self.onAcquire?(); return CloudCredentialTransferTests.token } },
+                  store: { value in await MainActor.run { self.stores += 1; self.cached = value } })
         }
         var transfer: CloudCredentialTransfer {
             .init(provider: .claude, machineID: "vm-one", teamID: "team", userID: "user", openTerminal: { _ in false })

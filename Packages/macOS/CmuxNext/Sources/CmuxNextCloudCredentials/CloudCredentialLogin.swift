@@ -134,7 +134,7 @@ import Security
             printf '%s\n' 'Opening the provider sign-in in your browser. Approve it there; cmux will continue automatically.'
             if [ "\(provider.rawValue)" = claude ]; then
               set -o pipefail
-              \(command) 2>&1 | perl -ne '
+              \(command) 2>&1 | CMUX_CAPTURE_DIR=\(dir) perl -ne '
                 BEGIN { $| = 1; open $f, ">>", ($ENV{CMUX_CAPTURE_DIR} . "/output") or exit 2; }
                 print $f $_;
                 my $safe = $_; $safe =~ s/\\e\\[[0-9;]*[A-Za-z]//g;
