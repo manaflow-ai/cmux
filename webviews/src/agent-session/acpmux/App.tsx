@@ -649,6 +649,8 @@ declare global {
       applyNowPlaying?(track: unknown): void;
       /// The app's read-aloud state (conversation/readAloud.ts): `{id}`, the message it reads or null.
       applyReadAloud?(state: unknown): void;
+      /// The tabs agents marked as needing the person, for Needs you (needsYou/attentionTabs.ts).
+      applyAttentionTabs?(tabs: unknown): void;
       /// Scrolls to a turn a `cmux://session/<id>#turn-<turnId>` link names (links.ts), once its row
       /// renders; gives up quietly after a few seconds.
       revealTurn?(turnId: string): void;
@@ -7978,6 +7980,9 @@ function AcpmuxPane() {
       },
       applyReadAloud(state) {
         setReadAloudState(state);
+      },
+      applyAttentionTabs(tabs) {
+        setAttentionTabs(tabs);
       },
       revealTurn(turnId) {
         revealRef.current(turnId);

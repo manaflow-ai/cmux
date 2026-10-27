@@ -369,6 +369,8 @@ public final class AgentPaneModel {
             guard let readAloud else { return Self.unsupported("readAloud") }
             if case .speak(let id, let text, let language) = command { readAloud.speak(text, id: id, language: language, owner: self) } else { readAloud.stop() }
             return AgentPaneReply.success()
+        case .attentionOpen where !transport.gestures.consume(): return Self.transportFailure(.gestureRequired)
+        case .attentionOpen(let tab): return AgentPaneAttentionTabs.shared.open(tab) ? AgentPaneReply.success() : Self.unsupported("chat.attention.open")
         case .runAction(let id, let session): return runAction(id, session: session)
         case .jump(let target, let id): guard newTab != nil, let onJump else { return Self.unsupported("tab.jump") }; onJump(target, id); return AgentPaneReply.success()
         case .chooseFolder where remoteChat: return Self.unsupported("workspace.chooseFolder")

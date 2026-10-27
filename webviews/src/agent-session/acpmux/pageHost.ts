@@ -14,6 +14,7 @@ import { setToolCards } from "./toolCards/toolCardStore";
 import { setRecentlyClosed } from "./newtab/recentlyClosed";
 import { setNowPlaying } from "./newtab/nowPlaying";
 import { setReadAloudState } from "./conversation/readAloud";
+import { setAttentionTabs } from "./needsYou/attentionTabs";
 import { setHeaderState } from "./header/headerState";
 import { setTabRow } from "./header/tabRow";
 import { receiveNativeRowToolInvocation } from "./header/nativeRowTools";

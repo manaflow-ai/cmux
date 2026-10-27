@@ -110,6 +110,7 @@ enum AppActions {
         BrowserProfileHandlers.bind(into: registry, context: context)
         OpenInHandlers.bind(into: registry, context: context)
         NotificationHandlers.bind(into: registry, context: context)
+        AttentionPalettePage.bind(into: registry, context: context)
         AgentHandlers.bind(into: registry, context: context)
         AgentChatMenuHandlers.bind(into: registry, context: context)
         AgentConfigurationHandlers.bind(into: registry, context: context)
