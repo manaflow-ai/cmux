@@ -29,6 +29,8 @@ Usage:
   rust_panic_ratchet.py --clippy-json clippy.jsonl [--update-baseline] [--report md|json]
   # 3. merge the Linux run with the macOS fleet run (scripts/cmux-next/rust-panic-macos.sh):
   rust_panic_ratchet.py --clippy-json linux=linux.jsonl --clippy-json macos=macos.jsonl --report md
+  # 4. the Q10 fix queue (tasks of <= 50 deny-lint hits; see "Q10 fix queue" below):
+  rust_panic_ratchet.py --clippy-json linux=linux.jsonl --clippy-json macos=macos.jsonl --queue [json|md]
 Exit 1 when a crate gained a DENY_LINTS hit (a new crate: any), or an allow lacks a reason.
 TRACKED_LINTS increases print a warning annotation and pass.
 
@@ -43,6 +45,7 @@ run).
 """
 import argparse
 import collections
+import fnmatch
 import json
 import os
 import re
@@ -183,6 +186,15 @@ def read_run(path, label=None):
     return run
 
 
+def merged_hits(runs):
+    """{(workspace file, line, column, lint): (crate, {labels of the runs that saw it})}, first-seen order."""
+    merged = {}
+    for run in runs:
+        for key, crate in run.hits.items():
+            merged.setdefault(key, (crate, set()))[1].add(run.label)
+    return merged
+
+
 def merge_runs(runs):
     """Return (checked, {crate: {lint: count}}, {crate: {file: count}}, finished, {(crate, lint): [loc]}, only).
 
@@ -190,13 +202,11 @@ def merge_runs(runs):
     With one run it is empty.
     """
     checked = set()
-    merged = {}
-    seen_by = collections.defaultdict(set)
     for run in runs:
         checked |= run.checked
-        for key, crate in run.hits.items():
-            merged.setdefault(key, crate)
-            seen_by[key].add(run.label)
+    both = merged_hits(runs)
+    merged = {key: crate for key, (crate, _) in both.items()}
+    seen_by = {key: labels for key, (_, labels) in both.items()}
     counts = collections.defaultdict(collections.Counter)
     files = collections.defaultdict(collections.Counter)
     hits = collections.defaultdict(list)
@@ -343,6 +353,313 @@ def report(checked, counts, files, fmt, only=None):
                 print(f"| {crate} | {SHORT[lint]} | {loc} |")
 
 
+# --- Q10 fix queue (--queue) ------------------------------------------------
+#
+# The deny-lint hits of a (merged) run become fix tasks of at most
+# QUEUE_MAX_HITS hits each, so one agent takes one task: a file with more hits
+# is split into balanced line ranges, and the smaller files of one module
+# directory and owner are packed in path order into one task up to the limit.
+# Every hit is in exactly one task. Each task names its crate, Rust module,
+# owner (plans/cmux-next/OWNERS.md, the most specific row; PL-stability, the
+# panic lane, when no row covers the file), class and boundary error type.
+#
+# Class (the Q14 reachability proxy of chrome-parity/p10-stability.md section
+# D, per file): "input" when the file defines a Q14 decode entry point or reads
+# outside bytes (INPUT_SIGNALS), so its hits get validation that returns a
+# typed error; otherwise "invariant", whose hits get a real fix or an
+# allow(..., reason = "INVARIANT: ...") item. A file the generator cannot read
+# is "input", so no hit reaches the INVARIANT path unread. A task is "input"
+# when any of its files is.
+#
+# Boundary error type (per file): the error type the file's functions already
+# return most often (`-> Result<T, E>`, `io::Result`, `anyhow::Result`, the
+# crate's `type Result<T> = ...` alias); else an `...Error` type the file
+# defines; else one its directory or the crate's src/ defines (error.rs,
+# errors.rs, mod.rs, lib.rs, main.rs); else none, and the task adds one.
+
+QUEUE_MAX_HITS = 50
+QUEUE_DEFAULT_OWNER = "PL-stability"
+OWNERS_DOC = os.path.join("plans", "cmux-next", "OWNERS.md")
+INPUT_SIGNALS = re.compile(
+    r"\bpub(?:\(crate\))?\s+fn\s+(?:decode|parse|from_bytes|read_frame|from_slice)"  # Q14 entry points
+    r"|\bserde_json::from_(?:str|slice|reader|value)\b|\bbincode::deserialize|\btoml::from_str\b"
+    r"|\bfrom_utf8\b|\.read_exact\(|\.read_to_end\(|\.read_to_string\(|\.read_line\(|\bfs::read(?:_to_string)?\(")
+ERROR_TYPE_DEF = re.compile(r"^\s*(?:pub(?:\([^)]*\))?\s+)?(?:enum|struct)\s+(\w*Error)\b", re.M)
+RESULT_ALIAS = re.compile(r"\btype\s+Result\s*<\s*\w+\s*>\s*=\s*(?:\w+::)*Result\s*<")
+RETURN_RESULT = re.compile(r"->\s*((?:\w+::)*)Result\s*<")
+ERROR_FILES = ("error.rs", "errors.rs", "mod.rs", "lib.rs", "main.rs")
+
+
+def _generic_args(text, start):
+    """The generic arguments that open at text[start] ('<'), split at their top-level commas; None if unclosed."""
+    depth, args, current = 0, [], []
+    for at in range(start, min(len(text), start + 400)):
+        char = text[at]
+        if char == "<":
+            depth += 1
+            if depth == 1:
+                continue
+        elif char == ">" and text[at - 1] != "-":
+            depth -= 1
+            if depth == 0:
+                args.append("".join(current).strip())
+                return args
+        elif char == "," and depth == 1:
+            args.append("".join(current).strip())
+            current = []
+            continue
+        current.append(char)
+    return None
+
+
+def _read(path):
+    try:
+        with open(path, encoding="utf-8", errors="replace") as handle:
+            return handle.read()
+    except OSError:
+        return None
+
+
+class QueueSource:
+    """The checkout a queue describes: its source files, crate Result aliases and OWNERS.md rows."""
+
+    def __init__(self, repo):
+        self.repo = repo
+        self._aliases = {}
+        self._dir_errors = {}
+        self.owner_rows = self._owner_rows()
+
+    def text(self, path):
+        return _read(os.path.join(self.repo, path))
+
+    def _owner_rows(self):
+        rows = []
+        for line in (self.text(OWNERS_DOC) or "").splitlines():
+            if not line.startswith("|"):
+                continue
+            cells = [cell.strip() for cell in line.strip().strip("|").split("|")]
+            if len(cells) < 3:
+                continue
+            match = re.search(r"\bPL-[\w-]+", cells[2])
+            owner = match.group(0) if match else cells[2].split("(")[0].strip()
+            for owned in re.findall(r"`([^`]+)`", cells[1]):
+                rows.append((owned, owner))
+        return rows
+
+    def owner(self, path):
+        """(owner, the OWNERS.md path that names it, or None) for a repo-relative file."""
+        best = None
+        for owned, owner in self.owner_rows:
+            if any(c in owned for c in "*?["):
+                hit = fnmatch.fnmatch(path, owned) or fnmatch.fnmatch(path, owned.rstrip("/") + "/*")
+            else:
+                hit = path == owned or path.startswith(owned.rstrip("/") + "/")
+            if hit and (best is None or len(owned) > len(best[0])):
+                best = (owned, owner)
+        return (best[1], best[0]) if best else (QUEUE_DEFAULT_OWNER, None)
+
+    @staticmethod
+    def crate_src(path):
+        parts = path.split("/")
+        return "/".join(parts[:parts.index("src") + 1]) if "src" in parts else os.path.dirname(path)
+
+    def _crate_alias(self, path):
+        """The E of the crate's `type Result<T> = Result<T, E>` alias, or None."""
+        src = self.crate_src(path)
+        if src not in self._aliases:
+            self._aliases[src] = None
+            for dirpath, dirnames, filenames in os.walk(os.path.join(self.repo, src)):
+                dirnames.sort()
+                for name in sorted(n for n in filenames if n.endswith(".rs")):
+                    text = _read(os.path.join(dirpath, name)) or ""
+                    match = RESULT_ALIAS.search(text)
+                    args = _generic_args(text, match.end() - 1) if match else None
+                    if args and len(args) == 2:
+                        self._aliases[src] = " ".join(args[1].split())
+                        break
+                if self._aliases[src]:
+                    break
+        return self._aliases[src]
+
+    def boundary_error(self, path, text):
+        """(error type or None, where it was found) for one repo-relative file and its text."""
+        if text:
+            seen = collections.Counter()
+            for match in RETURN_RESULT.finditer(text):
+                prefix = match.group(1)
+                args = _generic_args(text, match.end() - 1)
+                if not args:
+                    continue
+                if prefix.endswith("io::"):
+                    seen["std::io::Error"] += 1
+                elif prefix.endswith("anyhow::"):
+                    seen["anyhow::Error"] += 1
+                elif len(args) == 2:
+                    error = " ".join(args[1].split())
+                    if not re.fullmatch(r"[A-Z]", error):  # a generic parameter names no type
+                        seen[error] += 1
+                elif len(args) == 1 and not prefix and self._crate_alias(path):
+                    seen[self._crate_alias(path)] += 1
+            if seen:
+                return min(seen.items(), key=lambda kv: (-kv[1], kv[0]))[0], "returned here"
+            match = ERROR_TYPE_DEF.search(text)
+            if match:
+                return match.group(1), "defined here"
+        for directory in (os.path.dirname(path), self.crate_src(path)):
+            found = self._dir_error(directory)
+            if found:
+                return found
+        return None, "none: add a typed error"
+
+    def _dir_error(self, directory):
+        if directory not in self._dir_errors:
+            self._dir_errors[directory] = None
+            for name in ERROR_FILES:
+                match = ERROR_TYPE_DEF.search(self.text(f"{directory}/{name}") or "")
+                if match:
+                    self._dir_errors[directory] = (match.group(1), f"defined in {directory}/{name}")
+                    break
+        return self._dir_errors[directory]
+
+
+def rust_module(path):
+    """crates/<c>/src/a/b.rs -> c::a::b; src/lib.rs -> c; src/main.rs -> c (bin); src/bin/x.rs -> c (bin x)."""
+    parts = path.split("/")
+    root = (crate_of(path) or os.path.splitext(parts[-1])[0]).replace("-", "_")
+    if "src" not in parts:
+        return root
+    rest = parts[parts.index("src") + 1:]
+    if rest in (["lib.rs"], ["mod.rs"], []):
+        return root
+    if rest == ["main.rs"]:
+        return f"{root} (bin)"
+    if rest[0] == "bin":
+        return f"{root} (bin {os.path.splitext(rest[1])[0]})" if len(rest) > 1 and rest[1] != "mod.rs" else f"{root} (bins)"
+    rest[-1] = os.path.splitext(rest[-1])[0]
+    if rest[-1] == "mod":
+        rest.pop()
+    return "::".join([root] + rest)
+
+
+def _balanced_chunks(items, limit):
+    count = -(-len(items) // limit)
+    size, extra = divmod(len(items), count)
+    chunks, at = [], 0
+    for index in range(count):
+        step = size + (1 if index < extra else 0)
+        chunks.append(items[at:at + step])
+        at += step
+    return chunks
+
+
+def _heaviest(counter):
+    return min(counter.items(), key=lambda kv: (-kv[1], kv[0]))[0] if counter else None
+
+
+def build_queue(runs, source, limit=QUEUE_MAX_HITS):
+    """The deny-lint hits of the merged runs as fix tasks of at most `limit` hits (see the block comment)."""
+    merged = len(runs) > 1
+    by_file = collections.defaultdict(list)
+    crates = {}
+    for (file_name, line, column, lint), (crate, labels) in merged_hits(runs).items():
+        if lint not in DENY_LINTS:
+            continue
+        path = file_name if file_name.startswith(("cmux-tui/", "/")) else "cmux-tui/" + file_name
+        hit = {"loc": f"{path}:{line}:{column}", "line": line or 0, "column": column or 0, "lint": lint}
+        if merged and len(labels) == 1:
+            hit["only_in"] = next(iter(labels))
+        by_file[path].append(hit)
+        crates[path] = crate
+    files = {}
+    for path, hits in by_file.items():
+        hits.sort(key=lambda h: (h["line"], h["column"], h["lint"]))
+        text = source.text(path)
+        error, error_source = source.boundary_error(path, text)
+        owner, owner_row = source.owner(path)
+        files[path] = {
+            "path": path,
+            "crate": crates[path],
+            "module": rust_module(path),
+            "class": "input" if text is None or INPUT_SIGNALS.search(text) else "invariant",
+            "owner": owner,
+            "owner_row": owner_row,
+            "boundary_error": error,
+            "boundary_error_source": error_source,
+        }
+    pieces = []  # ([(path, hits)], part label or None)
+    groups = collections.defaultdict(list)
+    for path in sorted(files):
+        hits = by_file[path]
+        if len(hits) > limit:
+            chunks = _balanced_chunks(hits, limit)
+            for index, chunk in enumerate(chunks, 1):
+                pieces.append(([(path, chunk)], f"part {index}/{len(chunks)}"))
+        else:
+            info = files[path]
+            groups[(info["crate"], os.path.dirname(path), info["owner"])].append((path, hits))
+    for key in sorted(groups):
+        bucket, size = [], 0
+        for path, hits in groups[key]:
+            if bucket and size + len(hits) > limit:
+                pieces.append((bucket, None))
+                bucket, size = [], 0
+            bucket.append((path, hits))
+            size += len(hits)
+        pieces.append((bucket, None))
+    pieces.sort(key=lambda piece: (crates[piece[0][0][0]], piece[0][0][0], piece[0][0][1][0]["line"]))
+    tasks = []
+    for number, (bucket, part) in enumerate(pieces, 1):
+        infos = [files[path] for path, _ in bucket]
+        hits = [hit for _, chunk in bucket for hit in chunk]
+        first = infos[0]
+        if len(bucket) == 1:
+            module = first["module"]
+            where = first["path"] + (f" ({part}, lines {hits[0]['line']}-{hits[-1]['line']})" if part else "")
+        else:
+            directory = os.path.dirname(first["path"])
+            module = rust_module(directory + "/mod.rs")
+            where = f"{directory}/ {os.path.basename(first['path'])} .. {os.path.basename(infos[-1]['path'])}"
+        errors = collections.Counter()
+        for path, chunk in bucket:
+            if files[path]["boundary_error"]:
+                errors[files[path]["boundary_error"]] += len(chunk)
+        tasks.append({
+            "id": f"q10-{number:04d}",
+            "title": f"Panic deny: {first['crate']} {where} ({len(hits)} hits)",
+            "crate": first["crate"],
+            "module": module,
+            "owner": first["owner"],
+            "class": "input" if any(info["class"] == "input" for info in infos) else "invariant",
+            "boundary_error": _heaviest(errors),
+            "hit_count": len(hits),
+            "counts": dict(collections.Counter(hit["lint"] for hit in hits)),
+            "files": [dict(files[path], hits=len(chunk), lines=f"{chunk[0]['line']}-{chunk[-1]['line']}")
+                      for path, chunk in bucket],
+            "hits": [{k: v for k, v in hit.items() if k not in ("line", "column")} for hit in hits],
+        })
+    return {
+        "_doc": "Q10 rust-panic-deny fix queue (scripts/cmux-next/rust_panic_ratchet.py --queue): every deny-lint "
+                f"hit in exactly one task, at most {limit} hits per task.",
+        "runs": [run.label for run in runs],
+        "lints": DENY_LINTS,
+        "max_hits": limit,
+        "total_hits": sum(len(hits) for hits in by_file.values()),
+        "tasks": tasks,
+    }
+
+
+def queue_markdown(queue):
+    lines = [f"Q10 rust-panic-deny queue: {queue['total_hits']} hits in {len(queue['tasks'])} tasks"
+             f" (at most {queue['max_hits']} each; runs: {', '.join(queue['runs'])})", "",
+             "| task | crate | module | files | hits | class | owner | boundary error |",
+             "| --- | --- | --- | --- | --- | --- | --- | --- |"]
+    for task in queue["tasks"]:
+        files = "<br>".join(f"{f['path']}:{f['lines']} ({f['hits']})" for f in task["files"])
+        lines.append(f"| {task['id']} | {task['crate']} | {task['module']} | {files} | {task['hit_count']} |"
+                     f" {task['class']} | {task['owner']} | {task['boundary_error'] or 'none: add one'} |")
+    return "\n".join(lines)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--flags", action="store_true", help="print the clippy lint flags and exit")
@@ -352,6 +669,9 @@ def main():
     parser.add_argument("--update-baseline", action="store_true", help="lower the baseline to the counts seen")
     parser.add_argument("--init-baseline", action="store_true", help="write the baseline from scratch (first run only)")
     parser.add_argument("--report", choices=["md", "json"])
+    parser.add_argument("--queue", nargs="?", const="json", choices=["md", "json"],
+                        help=f"print the Q10 fix queue (deny-lint hits in tasks of <= {QUEUE_MAX_HITS}) and exit;"
+                             " the baseline is neither compared nor written")
     args = parser.parse_args()
     if args.flags:
         print(lint_flags())
@@ -368,11 +688,17 @@ def main():
     if len(runs) > 1 and (args.update_baseline or args.init_baseline):
         parser.error("--update-baseline and --init-baseline take one --clippy-json run: the CI-read baseline is the"
                      " Linux run CI repeats, and a merged run would add hits CI never sees")
+    if args.queue and (args.update_baseline or args.init_baseline or args.report):
+        parser.error("--queue prints only the queue: run --report and the baseline flags separately")
     for run in runs:
         if not run.checked or run.finished is not True:
             print(f"rust-panic-ratchet: the {run.label} clippy run did not finish successfully (no build-finished"
                   " success line); counts from a partial build prove nothing", file=sys.stderr)
             return 2
+    if args.queue:
+        queue = build_queue(runs, QueueSource(args.repo))
+        print(queue_markdown(queue) if args.queue == "md" else json.dumps(queue, indent=1))
+        return 0
     checked, counts, files, _, hits, only = merge_runs(runs)
     if only:
         sizes = ", ".join(f"{run.label} {len(run.hits)}" for run in runs)
