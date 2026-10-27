@@ -154,5 +154,9 @@ export function useVideoInfo(
       });
     }
   }, [attachments, setAttachments, enabled]);
-  return attachments.filter((chip) => shown.has(chip.id)).length;
+  // Include reads that the effect is about to start. On Activity reveal, a parent's setup
+  // continuation can send before the store update from that effect causes another render.
+  return attachments.filter(
+    (chip) => shown.has(chip.id) || (enabled && isVideoAttachment(chip) && !chip.video && !asked.current.has(chip)),
+  ).length;
 }
