@@ -1513,6 +1513,27 @@ class StrandedCancel(unittest.TestCase):
                          "stopped: the run was cancelled, and who cancelled it could not be read; left cancelled")
         self.assertEqual(mutations(api), [])
 
+    def test_annotations_are_paged_and_a_full_last_page_is_unknown(self):
+        api = rescue.GitHub("t", "manaflow-ai/cmux")
+        pages = []
+
+        def request(method, path, **_):
+            page = int(path.split("&page=")[1])
+            pages.append(page)
+            full = [{"message": "lint"}] * 100
+            if path_pages[0] == "short" and page == 2:
+                return [{"message": "The run was canceled by @leo."}]
+            return full
+        api.request = request
+        path_pages = ["short"]
+        self.assertEqual(rescue.canceller(api, [{"id": 7, "conclusion": "cancelled"}], lambda _: None, lambda _: None),
+                         "leo")
+        self.assertEqual(pages, [1, 2])
+        path_pages[0] = "endless"
+        pages.clear()
+        self.assertIsNone(rescue.canceller(api, [{"id": 7, "conclusion": "cancelled"}], lambda _: None, lambda _: None))
+        self.assertEqual(pages, list(range(1, rescue.ANNOTATION_PAGES + 1)))
+
     def test_a_cancel_no_annotation_explains_keeps_the_old_rules(self):
         # GitHub's own cancels (a job timeout) write no "canceled by" line: the refusal and timeout rules decide.
         clock = Clock()
