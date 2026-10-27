@@ -2098,16 +2098,22 @@ jobs:
               fi'
 
       - name: Start Release DerivedData empty
+        id: release-derived-data
         if: inputs.nightly_next_unsigned_run == ''
         run: |
           set -euo pipefail
-          # The shipped app never builds on warm DerivedData. An incremental
+          # Every runner but one starts from an empty tree. An incremental
           # build can keep stale autolink and force-load data in objects it
-          # did not recompile after an import set changed, and those objects
-          # then link into the app. Every runner starts from an empty tree.
-          # Warm state that stays: the compilation cache restored into it
+          # did not recompile after the module graph changed, and those objects
+          # then link into the app. Warm state that stays: the compilation cache restored into it
           # below (content-keyed, with explicit module dependencies in each
           # key) and the Swift package checkouts in .spm-cache.
+          # The exception is the dedicated nightly-next builder, which runs only
+          # this build: nightly_build_state.py keeps its DerivedData and builds
+          # each tip on it, starting clean when the last build did not finish,
+          # the toolchain, a lockfile or a submodule changed, a module- or
+          # link-shaping file (Package.swift, *.pbxproj, *.xcconfig, ...)
+          # changed, or every 10th build. Output `mode`: clean or incremental.
           scripts/ci/clear-dirs.sh build-universal
           mkdir -p build-universal
           if [ "${{ needs.decide.outputs.track }}" = nightly-next ]; then
@@ -2560,6 +2566,13 @@ jobs:
       # generated here as before. The Release build copied the committed file;
       # bundle-notices replaces that copy with this tree's. The sign job
       # verifies the bundle against scripts/cmux-next/notices/bundle-map.json.
+      # The dedicated builder's next build may build on this DerivedData only after this
+      # one finished (nightly_build_state.py); a build that failed or was cancelled leaves it
+      # unmarked, so the next one starts clean.
+      - name: Mark the kept Release DerivedData built (dedicated nightly-next builder)
+        if: success() && steps.release-derived-data.outputs.mode != '' && steps.nightly-product.outputs.hit != 'true'
+        run: python3 scripts/ci/nightly_build_state.py mark-built
+
       - name: Download the third-party notices generated beside the app (cmux-next)
         if: (inputs.nightly_next_unsigned_run == '' && (needs.decide.outputs.track == 'nightly-next')) && steps.nightly-product.outputs.hit != 'true'
         continue-on-error: true

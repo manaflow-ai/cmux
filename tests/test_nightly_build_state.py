@@ -2,10 +2,15 @@
 """A trusted NEXT worker keeps its package checkouts and compilation cache, never its build state.
 
 An incremental Xcode build can keep stale autolink and force-load data in
-objects it did not recompile after an import set changed, so a shipped build
-starts from an empty DerivedData even on a worker that kept one before.
+objects it did not recompile after the module graph changed, so a shipped build
+starts from an empty DerivedData even on a worker that kept one before. The one
+exception is the dedicated nightly-next builder, which builds each tip on its kept
+DerivedData and starts clean on the rules nightly_build_state.py lists.
 """
+import json
+import os
 from pathlib import Path
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -69,6 +74,119 @@ class NightlyBuildState(unittest.TestCase):
         self.assertFalse(state.prepare(self.workspace, self.home, 'cmux15-glaeda', 'nightly', 'Xcode 26.6'))
         self.assertFalse((self.workspace / 'build-universal').exists())
         self.assertFalse((self.workspace / '.spm-cache').exists())
+
+
+
+class DedicatedBuilder(unittest.TestCase):
+    RUNNER = 'cmux7s-mac-mini-glaeda-nightly-next'
+
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name)
+        self.workspace = self.root / 'src'
+        self.home = self.root / 'home'
+        self.workspace.mkdir()
+        self.git('init', '-q')
+        self.commit({'Sources/a.swift': 'let a = 1\n', 'Package.resolved': '{}\n'})
+        self.outputs = self.root / 'out'
+        os.environ['GITHUB_OUTPUT'] = str(self.outputs)
+        self.addCleanup(os.environ.pop, 'GITHUB_OUTPUT', None)
+
+    def git(self, *args):
+        return subprocess.run(['git', '-C', str(self.workspace), '-c', 'user.name=t', '-c', 'user.email=t@t', *args],
+                              check=True, capture_output=True, text=True).stdout
+
+    def commit(self, files):
+        for name, text in files.items():
+            path = self.workspace / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(text)
+        self.git('add', '-A')
+        self.git('commit', '-qm', 'x')
+
+    def build(self, toolchain='Xcode 26.6', finish=True):
+        self.outputs.write_text('')
+        self.assertTrue(state.prepare(self.workspace, self.home, self.RUNNER, 'nightly-next', toolchain))
+        derived = self.workspace / 'build-universal'
+        self.assertTrue(derived.is_symlink())
+        app = derived / 'Build/Products/Release/cmux.app/Contents'
+        object_file = derived / 'Build/Intermediates.noindex/a.o'
+        mode = self.outputs.read_text().strip()
+        kept_object = object_file.exists()
+        kept_app = app.exists()
+        object_file.parent.mkdir(parents=True, exist_ok=True)
+        object_file.write_text('compiled')
+        app.mkdir(parents=True, exist_ok=True)
+        (app / 'added-after-build').write_text('a later step put this here')
+        if finish:
+            self.assertTrue(state.mark_built(self.workspace, self.home, self.RUNNER))
+        # The warm checkout's git clean drops the workspace links between jobs.
+        derived.unlink()
+        (self.workspace / '.spm-cache').unlink()
+        return mode, kept_object, kept_app
+
+    def test_the_first_build_is_clean_and_the_next_builds_on_it(self):
+        self.assertEqual(self.build()[:2], ('mode=clean', False))
+        self.commit({'Sources/a.swift': 'let a = 2\n'})
+        mode, kept_object, kept_app = self.build()
+        self.assertEqual((mode, kept_object), ('mode=incremental', True))
+        # The app bundle is rebuilt each time, so what a later step added never ships again.
+        self.assertFalse(kept_app)
+
+    def test_an_unfinished_build_makes_the_next_one_clean(self):
+        self.build()
+        self.build(finish=False)
+        self.assertEqual(self.build()[:2], ('mode=clean', False))
+
+    def test_a_toolchain_lockfile_or_submodule_change_makes_it_clean(self):
+        self.build()
+        self.assertEqual(self.build(toolchain='Xcode 26.7')[:2], ('mode=clean', False))
+        self.build(toolchain='Xcode 26.7')
+        self.commit({'Package.resolved': '{"pins": []}\n'})
+        self.assertEqual(self.build(toolchain='Xcode 26.7')[0], 'mode=clean')
+        self.commit({'cmux-tui/rust-toolchain.toml': '[toolchain]\n'})
+        self.assertEqual(self.build(toolchain='Xcode 26.7')[0], 'mode=clean')
+
+    def test_a_module_or_link_structure_change_makes_it_clean(self):
+        for name in ('Packages/macOS/CmuxNext/Package.swift', 'cmux.xcodeproj/project.pbxproj', 'Config/Release.xcconfig',
+                     'Sources/module.modulemap'):
+            with self.subTest(name=name):
+                self.build()
+                self.commit({name: f'changed {name}\n'})
+                self.assertEqual(self.build()[0], 'mode=clean')
+
+    def test_every_tenth_build_is_clean(self):
+        modes = []
+        for index in range(2 * state.CLEAN_EVERY + 2):
+            self.commit({'Sources/a.swift': f'let a = {index}\n'})
+            modes.append(self.build()[0])
+        clean = [index for index, mode in enumerate(modes) if mode == 'mode=clean']
+        self.assertEqual(clean, [0, state.CLEAN_EVERY + 1, 2 * state.CLEAN_EVERY + 2][:len(clean)])
+        self.assertEqual(len(clean), 2)
+
+    def test_another_identitys_derived_data_is_deleted(self):
+        self.build(toolchain='Xcode 26.6')
+        self.build(toolchain='Xcode 26.7')
+        kept = sorted(path.parent.name for path in (self.home / state.STATE_ROOT / self.RUNNER).glob('*/DerivedData'))
+        self.assertEqual(len(kept), 1)
+
+    def test_a_workspace_that_is_not_a_git_checkout_builds_from_empty(self):
+        subprocess.run(['rm', '-rf', str(self.workspace / '.git')], check=True)
+        self.outputs.write_text('')
+        self.assertTrue(state.prepare(self.workspace, self.home, self.RUNNER, 'nightly-next', 'Xcode 26.6'))
+        derived = self.workspace / 'build-universal'
+        self.assertFalse(derived.is_symlink())
+        self.assertEqual([path.name for path in derived.iterdir()], ['CompilationCache.noindex'])
+        self.assertEqual(self.outputs.read_text(), '')
+
+    def test_only_the_dedicated_builder_keeps_derived_data(self):
+        self.assertTrue(state.dedicated('cmux7s-mac-mini-nightly-next'))
+        self.assertTrue(state.dedicated(self.RUNNER))
+        for runner in ('cmux15-glaeda', 'cmux15-glaeda-2', 'blacksmith-12vcpu-macos-26-1'):
+            with self.subTest(runner=runner):
+                self.assertFalse(state.dedicated(runner))
+        self.assertFalse(state.mark_built(self.workspace, self.home, 'cmux15-glaeda'))
 
 
 if __name__ == '__main__':
