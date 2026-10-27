@@ -1,5 +1,3 @@
-import AppKit
-
 extension ActionRegistry {
     // MARK: - Shortcuts
 

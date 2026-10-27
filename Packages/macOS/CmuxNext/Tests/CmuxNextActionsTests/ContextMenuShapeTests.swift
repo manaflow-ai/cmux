@@ -1,5 +1,6 @@
 import AppKit
 @testable import CmuxNextActions
+@testable import CmuxNextActionsAppKit
 import Testing
 
 /// The shape of every right-click menu as people see it, and as the export hands it to other

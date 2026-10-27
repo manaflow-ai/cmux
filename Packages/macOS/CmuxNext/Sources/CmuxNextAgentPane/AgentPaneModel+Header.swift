@@ -1,5 +1,5 @@
 import AppKit
-import CmuxNextActions
+import CmuxNextActionsAppKit
 import Foundation
 
 /// The app side of the chat header (`pane.action`, `pane.tabState`): runs a

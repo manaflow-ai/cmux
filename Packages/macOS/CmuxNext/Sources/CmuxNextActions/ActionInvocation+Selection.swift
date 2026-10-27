@@ -1,4 +1,4 @@
-public import AppKit
+import Foundation
 
 extension ActionInvocation {
     /// The arguments of a tab menu opened on one of several selected tabs (the strip's
@@ -7,23 +7,10 @@ extension ActionInvocation {
 
     /// A tab menu row run on one of several selected tabs: it acts on all of them.
     public var actsOnTabSelection: Bool { arguments["tabSelection"]?.boolValue == true }
-}
 
-extension NSMenu {
-    /// A tab menu opened on several selected tabs names what its rows do to them (Chrome's Close
-    /// Tabs, Pin Tabs). `pins`: Pin pins them (one is unpinned); else every one is pinned and it unpins.
-    @discardableResult
-    public func namingTabSelection(pins: Bool) -> NSMenu {
-        for item in items {
-            item.submenu?.namingTabSelection(pins: pins)
-            guard let id = ActionRegistry.menuRun(of: item)?.id, let title = Self.tabSelectionTitle(id, pins: pins) else { continue }
-            item.title = title
-        }
-        return self
-    }
-
-    /// The title of `id`'s row (and palette row) while it acts on several selected tabs; nil keeps
-    /// the action's own title. `pins`: as in ``namingTabSelection(pins:)``.
+    /// The title of `id`'s row (and palette row) while it acts on several selected tabs (Chrome's
+    /// Close Tabs, Pin Tabs); nil keeps the action's own title. `pins`: Pin pins them (one is
+    /// unpinned); else every one is pinned and it unpins.
     public static func tabSelectionTitle(_ id: ActionID, pins: Bool) -> String? {
         switch id.rawValue {
         case "closeTab": String(localized: "tabSelection.close", defaultValue: "Close Tabs", bundle: .module)
@@ -37,6 +24,23 @@ extension NSMenu {
         case "tabGroup.addTab": String(localized: "tabSelection.addToGroup", defaultValue: "Add Tabs to Group…", bundle: .module)
         case "tabGroup.removeTab": String(localized: "tabSelection.removeFromGroup", defaultValue: "Remove Tabs from Group", bundle: .module)
         case "tab.stash": String(localized: "tabSelection.stash", defaultValue: "Save and Close Tabs", bundle: .module)
+        default: nil
+        }
+    }
+
+    /// The title of `id`'s row while it acts on several selected workspaces (Chrome's Duplicate
+    /// Tabs, Pin Tabs, Mute Tabs); nil keeps the action's own title. `pins`: Pin pins them (the
+    /// right-clicked row is unpinned); else it unpins. `mutes`: Mute mutes them (one plays
+    /// sound); else it unmutes.
+    public static func workspaceSelectionTitle(_ id: ActionID, pins: Bool, mutes: Bool) -> String? {
+        switch id.rawValue {
+        case "workspace.moveToNewGroup":
+            String(localized: "workspaceSelection.addToNewGroup", defaultValue: "Add Workspaces to New Group", bundle: .module)
+        case "workspace.duplicate": String(localized: "workspaceSelection.duplicate", defaultValue: "Duplicate Workspaces", bundle: .module)
+        case "palette.toggleWorkspacePin": pins ? String(localized: "workspaceSelection.pin", defaultValue: "Pin Workspaces", bundle: .module)
+            : String(localized: "workspaceSelection.unpin", defaultValue: "Unpin Workspaces", bundle: .module)
+        case "workspace.toggleAudioMute": mutes ? String(localized: "workspaceSelection.mute", defaultValue: "Mute Workspaces", bundle: .module)
+            : String(localized: "workspaceSelection.unmute", defaultValue: "Unmute Workspaces", bundle: .module)
         default: nil
         }
     }

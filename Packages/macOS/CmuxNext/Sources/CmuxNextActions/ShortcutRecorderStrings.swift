@@ -24,22 +24,22 @@ public nonisolated enum ShortcutRecorderStrings {
         format("palette.shortcut.usedBy", "%1$@ is used by %2$@.", chord, actions)
     }
     static var shortcutCanKeepBoth: String { text("palette.shortcut.canKeepBoth", "They run in different places, so both can keep it.") }
-    static func shortcutTakesChromeChord(_ chord: String) -> String {
+    package static func shortcutTakesChromeChord(_ chord: String) -> String {
         format("palette.shortcut.takesChromeChord", "In a web page, cmux takes %@ from the page.", chord)
     }
-    static func shortcutLeavesChromeChord(_ chord: String) -> String {
+    package static func shortcutLeavesChromeChord(_ chord: String) -> String {
         format("palette.shortcut.leavesChromeChord", "In a web page, the page keeps %@; this action runs only elsewhere.", chord)
     }
-    static func shortcutBeatsGhostty(_ keybind: String) -> String {
+    package static func shortcutBeatsGhostty(_ keybind: String) -> String {
         format("palette.shortcut.beatsGhostty", "In a terminal, cmux runs before your Ghostty keybind (%@).", keybind)
     }
-    static func shortcutSaved(_ chord: String) -> String { format("palette.shortcut.saved", "Shortcut saved: %@", chord) }
-    static func shortcutSavedReplacing(_ chord: String, _ actions: String) -> String {
+    package static func shortcutSaved(_ chord: String) -> String { format("palette.shortcut.saved", "Shortcut saved: %@", chord) }
+    package static func shortcutSavedReplacing(_ chord: String, _ actions: String) -> String {
         format("palette.shortcut.savedReplacing", "Shortcut saved: %1$@ (removed from %2$@)", chord, actions)
     }
-    static func shortcutUnchanged(_ chord: String) -> String { format("palette.shortcut.unchanged", "Shortcut unchanged: %@", chord) }
-    static var shortcutRemoved: String { text("palette.shortcut.removed", "Shortcut removed") }
-    static var defaultRestored: String { text("palette.shortcut.defaultRestored", "Default shortcut restored") }
+    package static func shortcutUnchanged(_ chord: String) -> String { format("palette.shortcut.unchanged", "Shortcut unchanged: %@", chord) }
+    package static var shortcutRemoved: String { text("palette.shortcut.removed", "Shortcut removed") }
+    package static var defaultRestored: String { text("palette.shortcut.defaultRestored", "Default shortcut restored") }
     public static var optionSave: String { text("palette.shortcut.option.save", "Save") }
     public static var optionReplace: String { text("palette.shortcut.option.replace", "Replace") }
     public static var optionKeepBoth: String { text("palette.shortcut.option.keepBoth", "Keep Both") }

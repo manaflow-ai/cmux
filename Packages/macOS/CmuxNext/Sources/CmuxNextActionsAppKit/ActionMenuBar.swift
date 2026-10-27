@@ -1,4 +1,5 @@
 public import AppKit
+public import CmuxNextActions
 
 /// The main menu bar. A key-down the key router decided, whose chord's items are all registry items the menu
 /// gate refuses (``ActionRegistry/menuKeyEquivalentGate``: no system action), is not searched, and the same
@@ -93,7 +94,7 @@ public final class ActionMenuBar: NSMenu {
         func refusesSearch(for keyDown: ObjectIdentifier) -> Bool {
             if let refusedEvent, ObjectIdentifier(refusedEvent) == keyDown { return true }
             guard let registry, let bar, let decidedKey else { return false }
-            if let event = registry.dispatchingInputEvent(), ObjectIdentifier(event) == keyDown, decidedKey(event),
+            if let event = registry.dispatchingInputEvent() as? NSEvent, ObjectIdentifier(event) == keyDown, decidedKey(event),
                let chord = Chord(event), registry.refusesEveryKeyEquivalent(of: ActionMenuBar.items(matching: chord, in: bar)) {
                 refusedEvent = event
                 registry.menuTarget.counters.skipped += 1

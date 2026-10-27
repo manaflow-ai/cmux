@@ -1,4 +1,5 @@
 public import AppKit
+public import CmuxNextActions
 
 /// The profile the menu's first row shows: today only the current one
 /// (real profiles are a later lane).

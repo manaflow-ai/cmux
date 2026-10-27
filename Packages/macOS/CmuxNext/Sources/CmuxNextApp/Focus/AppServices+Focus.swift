@@ -1,6 +1,6 @@
 import AppKit
 import CmuxNextBrowser
-import CmuxNextActions
+import CmuxNextActionsAppKit
 import CmuxNextAgentPane
 import CmuxNextCompat
 import CmuxNextDaemon

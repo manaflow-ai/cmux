@@ -1,5 +1,6 @@
 import AppKit
 @testable import CmuxNextActions
+@testable import CmuxNextActionsAppKit
 import Testing
 
 /// The profile menu starts with the current avatar row. A separate "Profiles"

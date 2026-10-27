@@ -1,5 +1,6 @@
 import AppKit
 @testable import CmuxNextActions
+@testable import CmuxNextActionsAppKit
 import Testing
 
 /// Every right-click menu reads like a standard macOS menu (Lawrence 2026-10-22: "fix all context

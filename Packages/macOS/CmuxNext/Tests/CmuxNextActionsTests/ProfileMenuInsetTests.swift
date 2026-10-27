@@ -1,5 +1,6 @@
 import AppKit
 @testable import CmuxNextActions
+@testable import CmuxNextActionsAppKit
 import Testing
 
 /// The sidebar profile menu's rows sit at the plain menu inset (Leo 2026-10-13, cosmic-gray on

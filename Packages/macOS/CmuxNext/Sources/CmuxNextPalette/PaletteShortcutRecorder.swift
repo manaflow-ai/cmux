@@ -1,5 +1,5 @@
 public import AppKit
-public import CmuxNextActions
+public import CmuxNextActionsAppKit
 
 /// The palette's Cmd-K shortcut editor: the shared `ShortcutRecorder`
 /// (CmuxNextActions, also used by the Settings window) with its state in

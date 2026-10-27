@@ -1,5 +1,6 @@
 import AppKit
 @testable import CmuxNextActions
+@testable import CmuxNextActionsAppKit
 @testable import CmuxNextApp
 import CmuxNextFocus
 import CmuxNextInput

@@ -1,5 +1,5 @@
 public import AppKit
-import CmuxNextActions
+import CmuxNextActionsAppKit
 public import CmuxNextSignposts
 
 /// The input event being dispatched now: the one source the key router, the menu key gate, the action

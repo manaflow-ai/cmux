@@ -1,5 +1,6 @@
 import AppKit
 @testable import CmuxNextActions
+@testable import CmuxNextActionsAppKit
 import Testing
 
 /// The bookmark manager's more (⋮) button is the app's one ``OverflowButton`` (Leo 2026-10-20), so its

@@ -1,5 +1,6 @@
 import AppKit
 @testable import CmuxNextActions
+@testable import CmuxNextActionsAppKit
 import Testing
 
 /// The workspace, tab and pane menus show the few rows people use, their group rows, then one
@@ -85,12 +86,12 @@ struct ContextMenuEssentialsTests {
         }
         let on = titles(pins: true, mutes: true), off = titles(pins: false, mutes: false)
         for id: ActionID in ["workspace.moveToNewGroup", "workspace.duplicate", "palette.toggleWorkspacePin", "workspace.toggleAudioMute"] {
-            #expect(on[id] == NSMenu.workspaceSelectionTitle(id, pins: true, mutes: true), "\(id)")
+            #expect(on[id] == ActionInvocation.workspaceSelectionTitle(id, pins: true, mutes: true), "\(id)")
         }
         #expect(on["palette.toggleWorkspacePin"] != off["palette.toggleWorkspacePin"])
         #expect(on["workspace.toggleAudioMute"] != off["workspace.toggleAudioMute"])
         // A row with no selection wording keeps the action's title.
-        #expect(NSMenu.workspaceSelectionTitle("workspace.newBelow", pins: true, mutes: true) == nil)
+        #expect(ActionInvocation.workspaceSelectionTitle("workspace.newBelow", pins: true, mutes: true) == nil)
         #expect(on["workspace.newBelow"] == registry().title(for: "workspace.newBelow"))
     }
 

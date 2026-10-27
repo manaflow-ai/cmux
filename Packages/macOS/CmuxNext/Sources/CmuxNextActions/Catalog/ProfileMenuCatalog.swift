@@ -89,7 +89,7 @@ public nonisolated struct ProfileMenuSpec: Sendable {
     /// The setting the Show Chief / Hide Chief row flips (CmuxNextSettings `HomeChiefPetSetting`).
     public static let chiefPetSetting = "home.chiefPetEnabled"
 
-    static func text(_ key: StaticString, _ value: String.LocalizationValue) -> String {
+    package static func text(_ key: StaticString, _ value: String.LocalizationValue) -> String {
         String(localized: key, defaultValue: value, table: "ProfileActions", bundle: .module)
     }
 }

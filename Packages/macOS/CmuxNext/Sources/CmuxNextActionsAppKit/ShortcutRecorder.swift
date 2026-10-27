@@ -1,4 +1,5 @@
 public import AppKit
+public import CmuxNextActions
 
 /// Records a chord for one action and decides, with the registry's
 /// `assessShortcut`, whether it is saved at once, asks first (a conflict

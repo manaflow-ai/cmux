@@ -1,4 +1,5 @@
 public import AppKit
+public import CmuxNextActions
 
 extension ActionRegistry {
     /// Renders the declared right-click menu for `context`
@@ -53,19 +54,6 @@ extension ActionRegistry {
             if let item = makeMenuItem(for: descriptor.id) { items.append(item) }
         }
         return items
-    }
-
-    /// Focus facts a right-click implies (right-clicking a page means a
-    /// browser is the target even if a terminal has focus).
-    nonisolated static func impliedContext(for context: ActionMenuContext) -> ActionContext {
-        switch context {
-        case .browserPage, .browserLink, .browserImage, .browserSelection: .browserFocused
-        case .terminalSelection: .terminalFocused
-        case .agentChat, .priorityRow: .agentPaneFocused
-        // A right-clicked row is the explorer's even while another view has the keyboard.
-        case .fileExplorerRow: .fileExplorerFocused
-        default: []
-        }
     }
 
     private func menuItems(_ entries: [ContextMenuEntry], target: ActionTargetRef?, context: ActionContext, implied: ActionContext,

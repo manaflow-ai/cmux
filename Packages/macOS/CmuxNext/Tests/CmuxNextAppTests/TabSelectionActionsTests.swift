@@ -1,5 +1,5 @@
 import AppKit
-import CmuxNextActions
+import CmuxNextActionsAppKit
 @testable import CmuxNextApp
 import CmuxNextBridge
 import CmuxNextDaemon
@@ -60,7 +60,7 @@ struct TabSelectionActionsTests {
             let ids = try await Self.select(1...3, in: pane)
             let menu = try #require(pane.contextMenu(for: .tab(ids[0], selection: pane.stripModel.contextSelection(for: ids[0]))))
             let row = try #require(Self.rows(menu).first { ActionRegistry.menuRun(of: $0)?.id == "tabGroup.create" }, "no New Tab Group row")
-            #expect(row.title == NSMenu.tabSelectionTitle("tabGroup.create", pins: true), "the row does not say it groups the selected tabs")
+            #expect(row.title == ActionInvocation.tabSelectionTitle("tabGroup.create", pins: true), "the row does not say it groups the selected tabs")
             let refusal = Self.click(row, services)
             #expect(refusal == nil, "the tab menu's New Tab Group refused: \(refusal ?? "")")
             try await PinnedPageTests.until({ Self.grouped(ids, in: pane) }, report: { "groups \(ids.map { pane.tab($0)?.tabGroup?.rawValue })" })
@@ -72,7 +72,7 @@ struct TabSelectionActionsTests {
         try await PinnedPageTests.withApp { services, connection in
             let pane = try await Self.pane(with: 4, services, connection)
             let ids = try await Self.select(0...2, in: pane)
-            #expect(services.registry.action(for: "tabGroup.create")?.paletteTitle?() == NSMenu.tabSelectionTitle("tabGroup.create", pins: true))
+            #expect(services.registry.action(for: "tabGroup.create")?.paletteTitle?() == ActionInvocation.tabSelectionTitle("tabGroup.create", pins: true))
             // The palette runs the action with no target: the focused pane's active tab.
             let refusal = services.registry.capturingRefusal { _ = services.registry.perform("tabGroup.create", invocation: ActionInvocation()) }
             #expect(refusal == nil, "the palette's New Tab Group refused: \(refusal ?? "")")

@@ -1,5 +1,5 @@
 import AppKit
-import CmuxNextActions
+import CmuxNextActionsAppKit
 import CmuxNextBrowser
 @testable import CmuxNextApp
 import CmuxNextFiles

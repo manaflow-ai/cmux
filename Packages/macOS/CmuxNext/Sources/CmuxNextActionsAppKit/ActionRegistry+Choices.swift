@@ -1,4 +1,5 @@
 public import AppKit
+import CmuxNextActions
 
 extension ActionRegistry {
     /// A submenu item for a choices entry: one item per value of the
@@ -17,7 +18,7 @@ extension ActionRegistry {
         let submenu = NSMenu(title: title)
         let coordinator = ActionChoicesMenuCoordinator(registry: self, action: descriptor.id, argument: argument.name, target: target)
         // `NSMenu.delegate` is weak; the coordinator lives as long as the menu.
-        choiceCoordinators.setObject(coordinator, forKey: submenu)
+        menuTarget.choiceCoordinators.setObject(coordinator, forKey: submenu)
         submenu.delegate = coordinator
         for choice in cases {
             let item = NSMenuItem(title: choice.title, action: #selector(ActionMenuTarget.performAction(_:)), keyEquivalent: "")
@@ -35,7 +36,7 @@ extension ActionRegistry {
         if argument.suggestions != nil {
             // The full list, with type-to-search, in the palette.
             submenu.addItem(.separator())
-            let more = NSMenuItem(title: ActionSuggestionsStrings.more, action: #selector(ActionMenuTarget.performAction(_:)), keyEquivalent: "")
+            let more = NSMenuItem(title: ActionSuggestions.moreTitle, action: #selector(ActionMenuTarget.performAction(_:)), keyEquivalent: "")
             more.target = menuTarget
             more.representedObject = ActionMenuPayload(id: descriptor.id, target: target)
             submenu.addItem(more)
@@ -53,29 +54,13 @@ extension ActionRegistry {
     /// Move Workspace to New Group, never confused with a group named "New Group"), run on the same
     /// target; nil when the choices have none or it is not bound and enabled here.
     private func choiceTrailer(for id: ActionID, target: ActionTargetRef?, in context: ActionContext) -> NSMenuItem? {
-        guard let trailerID = ContextMenuEssentials.choiceTrailers[id], let descriptor = descriptor(for: trailerID),
+        guard let trailerID = ContextMenuCatalog.choiceTrailer(of: id), let descriptor = descriptor(for: trailerID),
               Self.isAvailable(descriptor, in: context), action(for: trailerID)?.isEnabled() == true,
               let item = makeMenuItem(for: trailerID) else { return nil }
         item.keyEquivalent = ""
         item.keyEquivalentModifierMask = []
         item.representedObject = ActionMenuPayload(id: descriptor.id, target: target, arguments: [:])
         return item
-    }
-}
-
-extension ActionRegistry {
-    /// The menu items of an argument: every case of an enumeration, or the
-    /// pinned values of a suggested string.
-    nonisolated static func menuChoices(_ argument: ActionArgument) -> (ActionArgument, [ActionEnumCase])? {
-        if case .enumeration(let cases) = argument.kind { return (argument, cases) }
-        if let suggestions = argument.suggestions, !suggestions.pinned.isEmpty { return (argument, suggestions.pinned) }
-        return nil
-    }
-}
-
-nonisolated enum ActionSuggestionsStrings {
-    static var more: String {
-        String(localized: "argument.value.more", defaultValue: "More…", table: "ThemeActions", bundle: .module)
     }
 }
 

@@ -1,6 +1,6 @@
 import AppKit
 @testable import CmuxNextApp
-import CmuxNextActions
+import CmuxNextActionsAppKit
 import CmuxNextDesign
 import CmuxNextPages
 import CmuxNextTabs

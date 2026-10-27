@@ -1,4 +1,5 @@
 public import AppKit
+public import CmuxNextActions
 
 /// What the shortcut recorder needs from the App: the chord's other
 /// meanings, and writing `shortcuts.bindings` in cmux.json (the file

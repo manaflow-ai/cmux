@@ -1,4 +1,4 @@
-public import CmuxNextActions
+public import CmuxNextActionsAppKit
 
 // The recorder lives in CmuxNextActions (`ShortcutRecorder`) so the palette
 // and the Settings window share one recorder and one conflict policy. These

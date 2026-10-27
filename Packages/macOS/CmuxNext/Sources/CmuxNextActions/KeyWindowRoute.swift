@@ -25,7 +25,7 @@ public enum KeyWindowRoute {
     }
 
     /// Whether a menu item for the action is enabled.
-    var enablesMenuItem: Bool {
+    package var enablesMenuItem: Bool {
         if case .run = self { return true }
         return false
     }

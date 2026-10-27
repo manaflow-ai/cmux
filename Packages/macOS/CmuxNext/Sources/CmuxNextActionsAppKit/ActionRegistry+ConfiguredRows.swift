@@ -1,4 +1,5 @@
 public import AppKit
+public import CmuxNextActions
 
 extension ActionRegistry {
     /// A right-click row a person configured (a workspace group's `contextMenu` in cmux.json): it
