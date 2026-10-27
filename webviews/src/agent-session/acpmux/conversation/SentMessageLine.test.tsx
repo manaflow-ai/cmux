@@ -113,14 +113,9 @@ test("a sent message reads its target, how it was taken and its first line, and 
   expect(container.querySelector(".cv-shell")?.textContent).toContain("acpmux send --no-wait coord-deputy");
 });
 
-test("a same-turn heredoc write stays a compact send row and opens to rendered Markdown", async () => {
+test("a direct recorded heredoc send stays compact and opens to rendered Markdown", async () => {
   const container = await line(
-    bash(
-      "cat > /tmp/review.md <<'EOF'\n## Ready\n\n- checks pass\nEOF\nacpmux send --no-wait coord-deputy - < /tmp/review.md",
-      {
-        output: "queued",
-      },
-    ),
+    bash("acpmux send --no-wait coord-deputy - <<'EOF'\n## Ready\n\n- checks pass\nEOF", { output: "queued" }),
   );
   const row = container.querySelector<HTMLElement>(".cv-sent")!;
   expect(row.textContent).toContain("Sent message to coord-deputy");

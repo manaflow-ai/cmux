@@ -123,6 +123,22 @@ test("a later Bash send resolves only a prior same-turn recorded message write",
   if (standalone?.type === "send") expect(standalone.send.text).toBeUndefined();
 });
 
+test("producer cache remains bounded across many completed writer replays", () => {
+  resetRecordedMessageBodyCacheForTests();
+  const rows = Array.from({ length: 65 }, (_, index) =>
+    item({
+      title: "Bash",
+      kind: "execute",
+      command: `cat > /tmp/message-${index}.md <<'EOF'\nbody ${index}\nEOF`,
+    }),
+  );
+  toolGroups(rows);
+  expect(recordedMessageBodyParseCountForTests()).toBe(65);
+  toolGroups(rows.slice(1));
+  // WeakMap parsing by immutable tool object keeps all unchanged revisions from replaying.
+  expect(recordedMessageBodyParseCountForTests()).toBe(65);
+});
+
 test("unchanged streamed tool revisions reuse the bounded body parser cache", () => {
   resetRecordedMessageBodyCacheForTests();
   const writer = item({

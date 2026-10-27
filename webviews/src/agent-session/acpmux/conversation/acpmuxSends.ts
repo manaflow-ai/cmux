@@ -100,6 +100,11 @@ export type ShellCommand = {
   stdinFile?: ShellWord;
   op: "" | ";" | "&&" | "||" | "|" | "&";
   writes?: true;
+  /// Number of output/path redirects in this command (`2>` counts too).
+  redirectWrites?: number;
+  /// Redirects are ambiguous for recorded message provenance (append, fd duplication, non-stdout,
+  /// dynamic path or a second output target).
+  redirectUnsafe?: true;
   /// A literal path written by this command. The parser never reads this path from disk.
   writeFile?: ShellWord;
   /// Its stdout goes somewhere other than the next command (`> out`, `>/dev/null`; not `2>&1`).
@@ -122,6 +127,8 @@ export function shellCommands(line: string): ShellCommand[] {
   let stdin: ShellCommand["stdin"];
   let stdinFile: ShellCommand["stdinFile"];
   let writes = false;
+  let redirectWrites = 0;
+  let redirectUnsafe = false;
   let writeFile: ShellCommand["writeFile"];
   let stdout = false;
   let runs: string[] = [];
@@ -144,6 +151,8 @@ export function shellCommands(line: string): ShellCommand[] {
         ...(stdin && { stdin }),
         ...(stdinFile && { stdinFile }),
         ...(writes && { writes: true as const }),
+        ...(redirectWrites && { redirectWrites }),
+        ...(redirectUnsafe && { redirectUnsafe: true as const }),
         ...(writeFile && { writeFile }),
         ...(stdout && { stdout: true as const }),
         ...(runs.length && { runs }),
@@ -156,6 +165,8 @@ export function shellCommands(line: string): ShellCommand[] {
     stdin = undefined;
     stdinFile = undefined;
     writes = false;
+    redirectWrites = 0;
+    redirectUnsafe = false;
     writeFile = undefined;
     stdout = false;
     runs = [];
@@ -212,9 +223,23 @@ export function shellCommands(line: string): ShellCommand[] {
       // Stdout leaves the pipe: `> f`, `&> f`, `>&f`, `1> f`; `2> f` keeps the
       // command's output on the terminal and must not become a message body source.
       const fd = /^\d+/.exec(redirect[0])?.[0];
-      // A later stdout redirect shadows an earlier candidate, including `/dev/null`.
-      if (op === ">" && (fd === undefined || fd === "1"))
-        writeFile = target.literal && target.text !== "/dev/null" ? target : undefined;
+      if (WRITES.has(op) || op === ">&" || op === "<&") {
+        redirectWrites += 1;
+        if (
+          op !== ">" ||
+          (fd !== undefined && fd !== "1") ||
+          !target.literal ||
+          target.text === "/dev/null" ||
+          redirectWrites > 1
+        )
+          redirectUnsafe = true;
+      }
+      // A later stdout redirect or fd duplication shadows an earlier candidate. Only one plain
+      // truncating `>` to a literal path may remain publishable; append, combined, `>&` and
+      // dynamic redirects all clear it, including `1>&2` and `> candidate >> other`.
+      if ((fd === undefined || fd === "1") && (op.startsWith(">") || op.startsWith("&>")))
+        writeFile = op === ">" && target.literal && target.text !== "/dev/null" ? target : undefined;
+      if (redirectUnsafe) writeFile = undefined;
       if (op === ">&" ? !/^(?:\d+|-)$/.test(target.text) : WRITES.has(op) && target.text !== "/dev/null") {
         writes = true;
       }
@@ -288,12 +313,18 @@ function recordedMessageBodyChange(command: ShellCommand): RecordedMessageBodyCh
   // `;` is the parser's synthetic terminator for a standalone heredoc command. Every other
   // operator may skip the write or alter its working directory before the send.
   if (command.op !== "" && command.op !== ";") return { reset: true };
+  if (command.redirectUnsafe || (command.redirectWrites ?? 0) > 1) return { reset: true };
   const words = unwrapped(command.words);
   const name = program(words[0]);
   if (command.writeFile?.literal) {
+    const path = command.writeFile.text;
+    // Relative paths, dot segments and duplicate separators depend on the writer's cwd or
+    // filesystem normalization. Keep the body unresolved unless the recorded path is unambiguous.
+    if (!path.startsWith("/") || path.includes("//") || path.includes("/./") || path.includes("/../"))
+      return { reset: true };
     const body = command.words.length === 1 && name === "cat" ? command.stdin : undefined;
     return {
-      path: command.writeFile.text,
+      path,
       ...(body && typeof body !== "string" && body.literal ? { text: body.text } : {}),
     };
   }
@@ -314,10 +345,9 @@ export function recordedMessageBodyChanges(line: string): RecordedMessageBodyCha
 }
 
 // Tool rows are immutable snapshots but the enclosing turn is rebuilt as streamed calls arrive.
-// Keep parsing bounded by tool id+command revision so appending a later call does not reparse every
-// earlier shell line. A changed command gets a new key; an evicted key is safe to recompute.
-const RECORDED_BODY_CACHE_LIMIT = 64;
-const recordedBodyCache = new Map<string, readonly RecordedMessageBodyChange[]>();
+// Keep parsing by tool snapshot identity plus command revision so appending a later call does not
+// reparse earlier shell lines. WeakMap lifetime follows row snapshots and cannot grow across turns.
+const recordedBodyCache = new WeakMap<object, { command: string; changes: readonly RecordedMessageBodyChange[] }>();
 let recordedBodyParseCount = 0;
 
 export function recordedMessageBodyChangesForTool(tool: {
@@ -325,18 +355,11 @@ export function recordedMessageBodyChangesForTool(tool: {
   command?: string;
 }): readonly RecordedMessageBodyChange[] {
   if (!tool.command) return [];
-  const key = `${tool.id}\u0000${tool.command}`;
-  const cached = recordedBodyCache.get(key);
-  if (cached) {
-    recordedBodyCache.delete(key);
-    recordedBodyCache.set(key, cached);
-    return cached;
-  }
+  const cached = recordedBodyCache.get(tool);
+  if (cached?.command === tool.command) return cached.changes;
   recordedBodyParseCount += 1;
   const changes = recordedMessageBodyChanges(tool.command);
-  recordedBodyCache.set(key, changes);
-  while (recordedBodyCache.size > RECORDED_BODY_CACHE_LIMIT)
-    recordedBodyCache.delete(recordedBodyCache.keys().next().value!);
+  recordedBodyCache.set(tool, { command: tool.command, changes });
   return changes;
 }
 
@@ -353,7 +376,6 @@ function applyRecordedMessageBodyChange(command: ShellCommand, files: Map<string
 
 /** Test-only observability for the bounded revision cache. */
 export function resetRecordedMessageBodyCacheForTests(): void {
-  recordedBodyCache.clear();
   recordedBodyParseCount = 0;
 }
 
@@ -605,7 +627,10 @@ export function acpmuxSend(
   const recordedFiles = new Map<string, ShellWord>(
     [...(priorFiles ?? [])].map(([path, text]) => [path, { text, literal: true }]),
   );
-  const uncertainControlFlow = commands.some((command) => command.op !== "" && command.op !== ";");
+  // A shell line with more than one simple command is intentionally opaque. Producer inference
+  // is only for a standalone writer; cross-tool Bash calls use the bounded turn map instead.
+  const uncertainControlFlow =
+    commands.length > 1 || commands.some((command) => command.op !== "" && command.op !== ";");
   if (uncertainControlFlow) recordedFiles.clear();
   let found: AcpmuxSend | undefined;
   let at = -1;

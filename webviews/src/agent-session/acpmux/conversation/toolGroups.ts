@@ -96,10 +96,15 @@ export function toolGroups(items: readonly AcpmuxActivity[]): ToolGroup[] {
     const call = subsession ? undefined : named;
     const key = call && mcpKey(call);
     const rememberMessageFiles = () => {
-      if (!tool?.command) return;
+      if (!tool) return;
       // A failed or still-running writer did not produce a durable body. Clear the bounded
       // producer set so a later send cannot display stale content from an earlier call.
-      if (tool.status !== "completed") {
+      if (
+        !tool.command ||
+        tool.status !== "completed" ||
+        (tool.exitCode !== undefined && tool.exitCode !== 0) ||
+        (tool.background && tool.background.state !== "completed")
+      ) {
         messageFiles.clear();
         return;
       }

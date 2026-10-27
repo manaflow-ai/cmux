@@ -111,7 +111,7 @@ describe("acpmuxSend", () => {
     // still counted as other work, and a later unrelated command cannot provide its body.
     expect(
       read("cat > /tmp/message.md <<'EOF'\n# Review\n\n- pass\nEOF\nacpmux send --no-wait lane - < /tmp/message.md"),
-    ).toEqual({ target: "lane", text: "# Review\n\n- pass\n", noWait: true, others: 1 });
+    ).toEqual({ target: "lane", noWait: true, others: 1 });
     expect(read("acpmux send lane - < /tmp/message.md")).toEqual({ target: "lane", noWait: false });
     // The last stdin redirect wins; a writer whose stdout goes elsewhere feeds nothing.
     expect(read("acpmux send lane - <<EOF < /tmp/message\nbody\nEOF")).toEqual({ target: "lane", noWait: false });
@@ -276,6 +276,23 @@ describe("acpmuxSend", () => {
     expect(recordedMessageBodyChanges("cat <> /tmp/message <<'EOF'\nread-write\nEOF")).toEqual([{ reset: true }]);
     expect(recordedMessageBodyChanges("cat > \"$MESSAGE\" <<'EOF'\ndynamic\nEOF")).toEqual([{ reset: true }]);
     expect(recordedMessageBodyChanges("cd /tmp")).toEqual([{ reset: true }]);
+    expect(read("cat > /tmp/message >> /tmp/other <<'EOF'\nambiguous\nEOF\nacpmux send lane - < /tmp/message")).toEqual(
+      {
+        target: "lane",
+        noWait: false,
+        others: 1,
+      },
+    );
+    expect(read("cat > /tmp/message 1>&2 <<'EOF'\nredirected\nEOF\nacpmux send lane - < /tmp/message")).toEqual({
+      target: "lane",
+      noWait: false,
+      others: 1,
+    });
+    expect(read("cat > /tmp/message 2> /tmp/other <<'EOF'\nstderr\nEOF\nacpmux send lane - < /tmp/message")).toEqual({
+      target: "lane",
+      noWait: false,
+      others: 1,
+    });
     expect(
       read("cat > /tmp/message <<'EOF'\nOLD\nEOF\nprintf NEW > /tmp/message\nacpmux send lane - < /tmp/message"),
     ).toEqual({ target: "lane", noWait: false, others: 2 });
@@ -342,6 +359,7 @@ describe("shellCommands", () => {
       op: "",
       writes: true,
       writeFile: { text: "out", literal: true },
+      redirectWrites: 1,
       stdout: true,
     });
   });
