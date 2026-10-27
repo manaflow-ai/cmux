@@ -23,7 +23,9 @@ public nonisolated struct RemoteRdServiceMessages: AsyncSequence, Sendable {
         var base: AsyncStream<Item>.Iterator
         let outlet: RemoteRdServiceOutlet
 
-        public mutating func next() async -> RemoteRdJSON? {
+        /// `@concurrent`, as the stream iterator's own `next()`: `base` stays in this task's region.
+        /// A caller-isolated (nonsending) `next()` would send `base` out of the caller's isolation.
+        @concurrent public mutating func next() async -> RemoteRdJSON? {
             guard let item = await base.next() else { return nil }
             outlet.taken(item.cost)
             return item.body

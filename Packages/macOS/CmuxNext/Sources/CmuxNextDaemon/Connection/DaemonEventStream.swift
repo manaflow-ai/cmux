@@ -22,7 +22,9 @@ public struct DaemonEventStream: AsyncSequence, Sendable {
         var base: AsyncThrowingStream<DaemonEventEnvelope, any Error>.Iterator
         let consumer: Consumer
 
-        public mutating func next() async throws -> DaemonEventEnvelope? {
+        /// `@concurrent`, as the stream iterator's own `next()`: `base` stays in this task's region.
+        /// A caller-isolated (nonsending) `next()` would send `base` out of the caller's isolation.
+        @concurrent public mutating func next() async throws -> DaemonEventEnvelope? {
             let envelope: DaemonEventEnvelope?
             do {
                 envelope = try await base.next()
