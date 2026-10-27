@@ -146,6 +146,12 @@ await requireBrowserLane("inline-video-controls-browser.test.ts", async () => {
         }
         if (playing)
           for (const { name, rect } of actions) {
+            // A short player cannot fit another row between both native control bars.
+            if (video.height < 126) {
+              if (rect.bottom > video.top - GAP + 0.5)
+                out.push(`${name} overlaps a short player instead of sitting above it`);
+              continue;
+            }
             if (rect.top < video.top + NATIVE + GAP - 0.5)
               out.push(`${name} is ${px(rect.top - video.top)} from the top, in the native controls' corner row`);
             if (rect.bottom > video.bottom - NATIVE - GAP + 0.5)
@@ -162,6 +168,9 @@ await requireBrowserLane("inline-video-controls-browser.test.ts", async () => {
       ["in a reply", ""],
       ["in a tool's output", "?tool"],
       ["in a narrow column", "?width=300"],
+      ["on a 100 px short video", "?height=100"],
+      ["on a 180 px normal video", "?height=180"],
+      ["on a 280 px tall video", "?height=280"],
     ] as const) {
       test(`${engine}, ${label}: before it plays, Open in tab, Expand and Play each take their own click`, async () => {
         const page = await open(engine, query);
@@ -180,4 +189,44 @@ await requireBrowserLane("inline-video-controls-browser.test.ts", async () => {
         await page.close();
       });
     }
+  for (const [engine] of engines) {
+    test(`${engine}: a short video's Open in tab and Expand each perform only their own action`, async () => {
+      const page = await open(engine, "?height=100");
+      await rest(page);
+      await page.getByRole("button", { name: "Open in tab", exact: true }).click();
+      expect(await page.evaluate(() => (window as unknown as { __videoActions: string[] }).__videoActions)).toEqual([
+        "link.openPath",
+      ]);
+      expect(await page.locator(".cv-media__frame.is-playing").count()).toBe(0);
+      expect(await page.getByRole("dialog").count()).toBe(0);
+      await page.getByRole("button", { name: "Expand", exact: true }).click();
+      await page.getByRole("dialog").waitFor();
+      expect(
+        await page.evaluate(() => (window as unknown as { __videoActions: string[] }).__videoActions),
+      ).toHaveLength(1);
+      expect(await page.locator(".cv-media__frame.is-playing").count()).toBe(0);
+      await page.close();
+    });
+
+    test(`${engine}: resizing a playing video moves its actions clear of the native controls`, async () => {
+      const page = await open(engine, "?height=180");
+      await rest(page);
+      await page.locator("button.cv-media__poster").click();
+      await page.locator(".cv-media__frame.is-playing").waitFor();
+      expect(await problems(page, true)).toEqual([]);
+      await page.locator("video").evaluate((video) => {
+        video.style.height = "100px";
+      });
+      await page.waitForFunction(() => {
+        const media = document.querySelector(".cv-media")!;
+        return (
+          media.querySelector(".cv-media__actions")!.getBoundingClientRect().bottom <=
+          media.querySelector("video")!.getBoundingClientRect().top - 4
+        );
+      });
+      await rest(page);
+      expect(await problems(page, true)).toEqual([]);
+      await page.close();
+    });
+  }
 });

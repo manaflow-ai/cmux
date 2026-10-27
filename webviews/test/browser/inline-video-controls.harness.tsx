@@ -16,13 +16,24 @@ import "../../src/agent-session/acpmux/chips/chips.css";
 globalThis.__cmuxPaneStrings ??= (await import("../../src/agent-session/acpmux/generated/strings.json")).default;
 setPaneLanguage("en");
 // Open in tab asks the host; here nothing answers.
-setChipHost(async () => undefined);
+const actions: string[] = [];
+Object.assign(window, { __videoActions: actions });
+setChipHost(async (method) => {
+  actions.push(method);
+  return undefined;
+});
 
 const params = new URLSearchParams(location.search);
 document.body.style.margin = "0";
 const root = document.getElementById("root")!;
 root.style.width = `${Number(params.get("width") ?? 640)}px`;
 root.style.padding = "16px";
+const height = Number(params.get("height"));
+if (height > 0) {
+  const style = document.createElement("style");
+  style.textContent = `.cv-media video { width: 400px; height: ${height}px; object-fit: contain; }`;
+  document.head.append(style);
+}
 const player = (
   <MediaPlayer
     src={`data:video/mp4;base64,${LOGIN_TESTS_MP4}`}
