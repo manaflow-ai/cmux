@@ -37,9 +37,11 @@ final class AppControl {
     private let frames: FrameBatcher
     /// `debug.frames` and `debug.damage` share the app's one RenderStats (its hooks are process-wide;
     /// the probes' methods are in AppControl+DebugProbes.swift).
+    #if DEBUG || CMUX_BENCH_HOOKS
     let frameProbe: DebugFrameProbe
-    let damageWindow: RenderDamageWindow
     let mainCPUProbe = DebugMainCPUProbe()
+    #endif
+    let damageWindow: RenderDamageWindow
     let terminalDisplayProbe: DebugTerminalDisplayProbe
     /// `debug.motion`'s Core Animation commit timer (`ca.commit`), owned here, not by a static.
     let motionCommitProbe = MotionCommitProbe()
@@ -75,7 +77,9 @@ final class AppControl {
         let renderStats = RenderStats(layoutGuard: .shared)
         let terminalDisplay = DebugTerminalDisplayProbe()
         terminalDisplayProbe = terminalDisplay
+        #if DEBUG || CMUX_BENCH_HOOKS
         frameProbe = DebugFrameProbe(render: RenderFrameLog(stats: renderStats))
+        #endif
         damageWindow = RenderDamageWindow(stats: renderStats, displayPasses: terminalDisplay,
                                           ghosttyOwners: [String(describing: TerminalSurfaceView.self), "IOSurfaceLayer"])
     }

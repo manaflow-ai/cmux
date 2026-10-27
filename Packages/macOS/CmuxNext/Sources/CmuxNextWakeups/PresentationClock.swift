@@ -206,7 +206,9 @@ public final class PresentationClock {
         private var pending: [PendingCommit] = []
         private var resolving: [PendingCommit] = []
         /// Weak both ways: a closed window's scheduler goes with its window, and the hold goes with the clock.
-        private(set) lazy var client: FrameClient = FrameClient(owner: "PresentationClock.hold", isAnimation: false,
+        // Motion rate: it phases every display frame.
+        // frame-client: resolves the queued commits against each real tick's vsync for a few frames (main state)
+        private(set) lazy var client: FrameClient = FrameClient(owner: "PresentationClock.hold", isAnimation: false, rate: .motion,
                                                    scheduler: { [weak self] in self?.scheduler ?? .app }) { [weak self] tick in
             self?.record(tick) ?? false
         }

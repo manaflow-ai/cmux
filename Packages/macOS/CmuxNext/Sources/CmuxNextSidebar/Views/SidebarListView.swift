@@ -139,8 +139,10 @@ final class SidebarListView: NSView {
     var groupEditing: SidebarGroupEditing { SidebarGroupEditing(list: self) }
     /// Drag autoscroll frames from the window's FrameScheduler.
     lazy var autoscroll = SidebarDragAutoscroll(list: self)
+    #if DEBUG || CMUX_BENCH_HOOKS
     /// Per-display-frame samples for the drag feel proof (`debug.sidebar_rows` motion).
     lazy var motionProbe = SidebarMotionProbe(list: self)
+    #endif
     /// Main-thread milliseconds of the last drag move (`SidebarMotionFrame.dragWorkMs`).
     var lastDragWorkMs: Double = 0
     var external: ExternalDrag?

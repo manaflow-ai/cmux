@@ -176,7 +176,9 @@ public final class GlassBackdropFeed {
             stale.deactivate()
             nextFrame = nil
         }
-        let client = nextFrame ?? FrameClient(owner: "glass.backdrop", isAnimation: false, visibleOnly: node, scheduler: { [weak self] in
+        // UI rate: the still does not follow the pointer.
+        // frame-client: pushes the changed backdrop still at the next seen frame (one tick; view geometry, so on main)
+        let client = nextFrame ?? FrameClient(owner: "glass.backdrop", isAnimation: false, rate: .ui, visibleOnly: node, scheduler: { [weak self] in
             guard let self, let host else { return .app }
             return scheduler(host)
         }) { [weak self] _ in

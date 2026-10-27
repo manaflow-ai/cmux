@@ -1,3 +1,4 @@
+#if DEBUG || CMUX_BENCH_HOOKS
 import AppKit
 import CmuxNextControl
 import CmuxNextDesign
@@ -178,3 +179,4 @@ final class DebugFrameProbe {
         return .object(stats)
     }
 }
+#endif

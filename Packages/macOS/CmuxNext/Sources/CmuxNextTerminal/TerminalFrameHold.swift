@@ -33,7 +33,9 @@ final class TerminalFrameHold {
     private var awaitingContent = false
     private var generation = 0
     private let deadline = DemandTimer(owner: "TerminalFrameHold.limit")
-    private lazy var frames = FrameClient(owner: "TerminalFrameHold", isAnimation: false, scheduler: { [weak self] in
+    // Motion rate: the swap must not show a blank frame.
+    // frame-client: removes the held view the frame the fresh surface presents (AppKit, on main)
+    private lazy var frames = FrameClient(owner: "TerminalFrameHold", isAnimation: false, rate: .motion, scheduler: { [weak self] in
         self?.surface.map(FrameScheduler.forView) ?? .app
     }) { [weak self] _ in self?.tick() ?? false }
 

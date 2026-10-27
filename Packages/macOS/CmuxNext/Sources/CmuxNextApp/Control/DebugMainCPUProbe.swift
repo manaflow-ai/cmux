@@ -1,3 +1,4 @@
+#if DEBUG || CMUX_BENCH_HOOKS
 import AppKit
 import CmuxNextControl
 import CmuxNextSettings
@@ -108,3 +109,4 @@ private func currentThreadCPUNanos() -> UInt64? {
     let system = UInt64(clamping: info.system_time.seconds) * 1_000_000_000 + UInt64(clamping: info.system_time.microseconds) * 1_000
     return user + system
 }
+#endif

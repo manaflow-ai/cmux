@@ -127,7 +127,8 @@ public final class MainWorkScheduler {
         idle = IdleScheduler(budget: budget, timer: idleTimer, ledger: ledger, otherLinksRunning: otherLinks.anyRunning)
         // Its own ambient clients follow the policy it owns, like the app's and the windows' (FrameScheduler+Energy.swift).
         frames.follow(energy)
-        inputResponseTick = FrameClient(owner: "MainFrameBudget.inputResponse", isAnimation: false, on: frames) { [weak budget] _ in
+        // frame-client: one tick while the input-response pass is open (the budget is main state); key to frame
+        inputResponseTick = FrameClient(owner: "MainFrameBudget.inputResponse", isAnimation: false, rate: .motion, on: frames) { [weak budget] _ in
             budget?.isInputResponseOpen ?? false
         }
         if measuresRenderPasses {

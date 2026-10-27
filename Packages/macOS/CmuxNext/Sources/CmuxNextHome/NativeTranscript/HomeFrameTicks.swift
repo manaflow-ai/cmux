@@ -22,6 +22,7 @@ final class HomeFrameTicks: FrameTickSource {
 
     func frames(for view: NSView, onFrame: @escaping @MainActor @Sendable () -> Bool) -> any FrameTickStream {
         let resolve = scheduler
+        // frame-client: Home's page landings and held engine jobs (key to frame), on main with their controller
         let client = FrameClient(owner: Self.owner, isAnimation: false, rate: .motion,
                                  scheduler: { [weak view] in view.map(resolve) ?? .app }) { _ in onFrame() }
         return HomeFrameTickStream(client: client)

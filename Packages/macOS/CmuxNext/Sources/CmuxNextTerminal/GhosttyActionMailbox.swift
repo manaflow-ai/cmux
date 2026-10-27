@@ -141,7 +141,9 @@ final class GhosttyActionMailbox {
 
     private func frameClient() -> FrameClient {
         if let client { return client }
-        let made = FrameClient(owner: owner, isAnimation: false, scheduler: scheduler) { [weak self] _ in
+        // Motion rate: the pointer's visibility and the title follow input.
+        // frame-client: a surface's latest-wins Ghostty actions once a frame (view and model state, on main)
+        let made = FrameClient(owner: owner, isAnimation: false, rate: .motion, scheduler: scheduler) { [weak self] _ in
             self?.tick() ?? false
         }
         client = made

@@ -49,7 +49,9 @@ public final class ResizeCoordinator {
         self.holds = holds ?? { Motion.isFullScreenTransitioning($0) }
     }
 
-    private lazy var frames = FrameClient(owner: "ResizeCoordinator.settle", isAnimation: false, on: .app) { [weak self] _ in
+    // Motion rate: a divider drag is real time (perf I7).
+    // frame-client: the newest grid per terminal once a frame while a size waits; it calls the PTY owners on main
+    private lazy var frames = FrameClient(owner: "ResizeCoordinator.settle", isAnimation: false, rate: .motion, on: .app) { [weak self] _ in
         self?.tick() ?? false
     }
 

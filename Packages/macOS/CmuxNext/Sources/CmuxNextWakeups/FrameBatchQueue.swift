@@ -75,7 +75,8 @@ public final class FrameBatchQueue {
         workClass = .frame
         budgeted = nil
         let target = Target()
-        client = FrameClient(owner: owner, isAnimation: false, on: scheduler) { _ in target.queue?.drainAll() ?? false }
+        // frame-client: the work a person's action queued, all of it, at the next frame (main actor); key to frame
+        client = FrameClient(owner: owner, isAnimation: false, rate: .motion, on: scheduler) { _ in target.queue?.drainAll() ?? false }
         target.queue = self
     }
 
@@ -93,6 +94,8 @@ public final class FrameBatchQueue {
         workClass = budgeted.workClass
         self.budgeted = (work.budget, budgeted.workClass, work.budget.board.owner(owner), work.frames)
         let target = Target()
+        // A budgeted client is always motion rate (FrameClient(owner:budgeted:on:onFrame:)).
+        // frame-client: queued main-actor work in its class's budget each frame while work is left
         client = FrameClient(owner: owner, budgeted: budgeted, on: work) { _, _ in target.queue?.drainBudgeted() ?? false }
         target.queue = self
     }
@@ -131,7 +134,8 @@ public final class FrameBatchQueue {
         if let unbudgetedClient { return unbudgetedClient }
         let target = Target()
         target.queue = self
-        let made = FrameClient(owner: owner + ".person", isAnimation: false, on: frames) { _ in
+        // frame-client: a budgeted queue's person and frontend work at the next frame (main actor); key to frame
+        let made = FrameClient(owner: owner + ".person", isAnimation: false, rate: .motion, on: frames) { _ in
             target.queue?.drainUnbudgeted() ?? false
         }
         unbudgetedClient = made

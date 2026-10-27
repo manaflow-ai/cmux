@@ -353,9 +353,10 @@ extension TabStripView {
         // Tabs moved (scroll, reflow, close): what is under a still pointer may differ. Hit testing reads
         // the targets, the frames written above.
         geometryDidChange()
-        // A drag, a group drag or a torn-out tab over the strip autoscrolls at an edge; `debug.motion`
-        // samples a move's travel while it records.
-        if drag != nil || groups.drag != nil || phantomPoint != nil || (move != nil && MotionTrace.isEnabled) { startAnimating() }
+        // A drag, a group drag or a torn-out tab over the strip autoscrolls at an edge; `debug.motion` samples a
+        // move's travel while it records. A drag elsewhere on the strip starts no frames.
+        // input-driven: the clock runs only while a drag sits in an edge fade (each drag move lays out again)
+        if autoscrollSpeed() != 0 || (move != nil && MotionTrace.isEnabled) { startAnimating() }
     }
 
     // MARK: - Drag autoscroll
