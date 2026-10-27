@@ -222,7 +222,9 @@ request that needed the lock waited behind it.
 
 Recorded 2026-10-27 at perf/chrome-parity 611363dd393 for
 [chrome-parity/p01-process.md](chrome-parity/p01-process.md) (section 7, "VT parsing" and "Holder
-ring to the app"). Measured rows: [perf-lead.md](perf-lead.md), "Process-model done checks".
+ring to the app"). Measured rows: [perf-lead.md](perf-lead.md), "Process-model done checks". This
+section and those rows are an interim record: p01-process-161 is not done, because its dependencies
+100, 137 and 241 have not landed (last item).
 
 - **Phase A is the default: option D as decided in section 3.** The holder keeps only raw output
   (Lawrence 2026-10-23, pty-holder.md D2: "the daemon parses; the holder keeps only raw output").
@@ -257,9 +259,11 @@ ring to the app"). Measured rows: [perf-lead.md](perf-lead.md), "Process-model d
   with terminal hosts, 2 with the holder (daemon + app), and 2 in phase B (worker + app). Only task
   241 (the app draws from the worker's screen pages and damage list, and parses no bytes) makes it 1.
   It also makes "a crash corpus ends only one shard while the app keeps running" true. This record
-  does not claim that protection before 241 lands. 241's spike numbers belong here when it runs. At
-  611363dd393 it has not run: no `cmux-vt-worker` crate, no `screen_page.rs`, no
-  `TerminalOutputRingMapping.swift`.
+  does not claim that protection before 241 lands. 241's spike numbers: none yet. The spike has
+  not run at 5121ebcdb33: no `cmux-vt-worker` crate, no `screen_page.rs`, no
+  `TerminalOutputRingMapping.swift`. The second pass of p01-process-161 puts them here after 241
+  runs: parses per byte, app-side copies per chunk, key-to-frame p50/p99 light and STRESS, and
+  whether a crash corpus ends only one shard, each with host, macOS version, display Hz and sha.
 - **Why the ring from the holder to the app was dropped (old tasks 130 and 132).** The app would
   map the holder's ring and parse straight from it, without the daemon hop. This was dropped for
   four reasons. (1) It conflicts with D3, whose offsets and daemon-side output ring
@@ -272,6 +276,8 @@ ring to the app"). Measured rows: [perf-lead.md](perf-lead.md), "Process-model d
 - **State at 611363dd393.** Phase A is the decided default, but the code for it is not on
   perf/chrome-parity. `terminalHolder` (schemas/features/features.d/terminalHolder.json) is off in
   dev, nightly and release. No vt-pool and no `CMUX_TUI_VT_WORKERS` exist yet. Tasks 100 (host
-  mode in DEV, via `cefHelperHost`, which is bench-only and off), 137 and 241 have not landed. The
-  rows in perf-lead.md give a number for each check where one could be measured, and name the run
-  that fills in the rest.
+  mode in DEV, via `cefHelperHost`, which is bench-only and off), 137 and 241 have not landed, and
+  they are still not on perf/chrome-parity at 5121ebcdb33. The rows in perf-lead.md give a number
+  for each check where one could be measured (7 of 22), and name the run that fills in the rest.
+  So p01-process-161 stays open. Its acceptance ("each done check has a number") is met only
+  when its second pass, after 100, 137 and 241, fills the other 15 rows from those fleet runs.
