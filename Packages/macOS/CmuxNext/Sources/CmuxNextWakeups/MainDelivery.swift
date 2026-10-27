@@ -8,8 +8,10 @@ public import Foundation
 ///
 /// - On the main thread the work runs inline, before ``run(file:line:_:)`` returns, so the order of
 ///   main-thread side effects is unchanged. It runs as a task on the scheduler's board
-///   (``MainFrameBudget/run(_:owner:posted:_:)``): the board names its class, owner and the line that
-///   delivered it, its owner ledger records it, and its time is charged to its class's frame budget.
+///   (``MainFrameBudget/runInline(_:owner:posted:_:)``): the board names its class, owner and the line
+///   that delivered it, its owner ledger records it, and its time is charged to its class's frame
+///   budget. It cannot wait, so it takes no turn of its class's pacing, and the board names the work
+///   it ran inside (a person's action span, a scheduled task) again when it returns.
 /// - Off the main thread the work is posted in its class
 ///   (``MainWorkScheduler/postFromAnyThread(_:owner:file:line:_:)``): it runs on main in class
 ///   order, yields to the person's pending input, and the board names it the same way. Chrome
@@ -86,12 +88,13 @@ public struct MainDelivery: Sendable {
 
         /// Runs `work` now as a task of the class and owner, posted at `file`:`line` at `queuedNanos`
         /// (nil: now, an inline delivery waits for nothing). The board names its site while it runs
-        /// and its owner ledger records it; inside a scheduled task it nests
-        /// (``MainFrameBudget/run(_:owner:posted:_:)``).
+        /// and its owner ledger records it. It nests in a scheduled task or a person's action span, and
+        /// the board names that again when it returns; it takes no turn of its class's pacing
+        /// (``MainFrameBudget/runInline(_:owner:posted:_:)``).
         @MainActor func runInline(file: StaticString, line: UInt, queuedNanos: UInt64?, _ work: @MainActor () -> Void) {
             let budget = scheduler.budget
             let post = MainTaskPost(site: MainPostSite(file: file, line: line), enqueueNanos: queuedNanos ?? budget.nowNanos)
-            budget.run(workClass.workClass, owner: owner, posted: post) { work() }
+            budget.runInline(workClass.workClass, owner: owner, posted: post) { work() }
         }
     }
 }
