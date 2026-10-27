@@ -3203,13 +3203,29 @@ jobs:
       # Each isolated step below runs when its suites' target is selected and
       # the build succeeded, even after a failed test step, so one red step
       # does not hide the others.
+      # Some suites of this target hold the main thread on purpose (the
+      # watchdog's stall and CPU tests, slow action spans, ControlLaneTests'
+      # stalls, the work queue's floods); others check that a main-actor
+      # request answers within its own deadline. Run together, a 2 to 5 s
+      # hold made every request beside it answer `timeout`
+      # (ActionRunCreatedTests, ActionBatchTests and BrowserTabMirrorTests
+      # failed on every tip run, job 122086769190). The holders run after the
+      # rest, one test at a time; the rest stays parallel.
       - name: Run control package tests and callback regressions
         if: ${{ (!cancelled() && steps.build-tests.outcome == 'success' && (env.SWIFT_TARGETS == 'all' || contains(env.SWIFT_TARGETS, 'CmuxNextControlTests') || contains(env.SWIFT_TARGETS, 'CmuxNextAppTests'))) && steps.reuse.outputs.hit != 'true' }}
         timeout-minutes: 20
         working-directory: Packages/macOS/CmuxNext
         env:
           CMUX_NEXT_TEST_HANG_SECONDS: "900"
-        run: ../../../scripts/cmux-next/swift-test-with-hang-sampler.sh --skip-build --filter 'CmuxNextControlTests' --skip CLISurfaceParityTests
+          MAIN_THREAD_HOLDERS: 'CmuxNextControlTests\.(MainThreadWatchdogPolicyTests|MainThreadWatchdogTests|MainThreadWatchdogTaskWakeTests|MainTaskBoardSpanTests|ActionBudgetSpanTests|ControlLaneTests|MainFrameBudgetTests|MainActorWorkQueueTests|HangEpisode[A-Za-z]*Tests|ActionBatchTests)\b'
+        run: |
+          set -uo pipefail
+          status=0
+          ../../../scripts/cmux-next/swift-test-with-hang-sampler.sh --skip-build --filter 'CmuxNextControlTests' \
+            --skip CLISurfaceParityTests --skip "$MAIN_THREAD_HOLDERS" || status=$?
+          held=0
+          ../../../scripts/cmux-next/swift-test-with-hang-sampler.sh --skip-build --no-parallel --filter "$MAIN_THREAD_HOLDERS" || held=$?
+          (( status == 0 && held == 0 ))
 
       # The CLI parity tests assert routing, not scheduler throughput. Concurrent
       # app/catalog setup can occupy the main actor longer than their real request
