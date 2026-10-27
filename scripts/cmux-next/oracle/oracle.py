@@ -87,6 +87,8 @@ Sibling interfaces this file calls:
     linux_run.sh run SHA [--suite S] [--arm A] [--side L] [--fresh] [-- RUN_OPTIONS]
         -> last stdout line is the run dir; every daemon run on the VM goes through it (007, 024)
     fleet.py diff ARGS: the app product's base/head and switch diffs                (050)
+    confirm.py --diff DIR: reruns the divergent cases of DIR/comparison.json (its a_dir, b_dir and
+        expected_files) and routes only "head fails twice, base passes" through route.py (184, 118)
 """
 
 from __future__ import annotations
@@ -1329,11 +1331,15 @@ def comparability(a: RunView, b: RunView, *, partial: bool, order_parity: bool =
     return None
 
 
-def run_diff_py(a_dir: Path, b_dir: Path, out: Path, expected: Sequence[Path]) -> Tuple[int, Dict[str, Any]]:
+def run_diff_py(a_dir: Path, b_dir: Path, out: Path, expected: Sequence[Path],
+                cases: Sequence[str] = ()) -> Tuple[int, Dict[str, Any]]:
+    """diff.py over two run dirs; `cases` limits it to those case ids (confirm.py's reruns)."""
     script = require_sibling("diff", "p15-oracle-014")
     command = [sys.executable, "-I", str(Path(script.__file__)), str(a_dir), str(b_dir), "--out", str(out)]
     for path in expected:
         command += ["--expected", str(path)]
+    for case_id in cases:
+        command += ["--case", glob.escape(case_id)]
     proc = subprocess.run(command, check=False, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
     try:
         document = json.loads(out.read_text(encoding="utf-8"))
@@ -1362,8 +1368,8 @@ def compare_views(a: RunView, b: RunView, *, a_dir: Path, b_dir: Path, out: Path
     refused = refused or comparability(a, b, partial=partial, order_parity=order_parity)
     document: Dict[str, Any] = {}
     code = None
+    files = list(expected)
     if refused is None:
-        files = list(expected)
         if rules:
             write_json(out / "expectation-rules.json", list(rules))
             files.append(out / "expectation-rules.json")
@@ -1396,6 +1402,10 @@ def compare_views(a: RunView, b: RunView, *, a_dir: Path, b_dir: Path, out: Path
         "flaky_excluded": sorted(cid for cid, s in statuses.items() if s == "flaky"),
         "not_comparable": dict(sorted((not_comparable or {}).items())),
         "divergence": str(target) if target.is_file() else None,
+        # What confirm.py (task 184) reruns and compares with: the two run dirs and diff.py's --expected files.
+        "a_dir": str(a_dir),
+        "b_dir": str(b_dir),
+        "expected_files": [str(path) for path in files],
         "order_parity": order_parity,
         "leaked_state": leaks,
         "leaks_differ": leaks_differ,
