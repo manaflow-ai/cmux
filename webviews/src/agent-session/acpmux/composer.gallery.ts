@@ -44,7 +44,7 @@ function dropScreenshotAndVideo(ctx: PlayContext) {
 const SEND_ARRIVES = {
   layoutShiftMax: {
     value: 0.001,
-    reason: "Send comes in after the mic with the draft's first letter, moving the mic one slot left (0.0002).",
+    reason: "Send comes in after the mic with the draft's first letter, moving the mic one slot left (the Linux gallery measured 0.0026).",
   },
 };
 
