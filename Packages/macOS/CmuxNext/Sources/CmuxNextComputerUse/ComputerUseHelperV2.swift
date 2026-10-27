@@ -44,6 +44,8 @@ public final class ComputerUseHelperV2 {
     private(set) var state: State = .off
     public let directory: String
     private let helperApp: @Sendable () -> URL?
+    /// The copy outside this app that runs (ComputerUseHelperStaging).
+    private let staging: ComputerUseHelperStaging
     /// This app's acpmux (executable and daemon socket), set by the agent
     /// pane source once it resolves acpmux.
     public var acpmux: @Sendable () -> (executable: URL, socketPath: String)?
@@ -102,6 +104,7 @@ public final class ComputerUseHelperV2 {
     init(directory: String = ComputerUseHelperV2.defaultDirectory(),
          helperApp: @escaping @Sendable () -> URL? = { ComputerUseHelperV2.embeddedHelperApp() },
          acpmux: @escaping @Sendable () -> (executable: URL, socketPath: String)? = { nil },
+         staging: ComputerUseHelperStaging = .upstream(),
          spawner: any ComputerUseHelperV2Spawning = DisclaimedHelperSpawner(),
          clock: any Clock<Duration> = ContinuousClock(),
          readyTimeout: Duration = .seconds(10),
@@ -109,6 +112,7 @@ public final class ComputerUseHelperV2 {
         self.directory = directory
         self.helperApp = helperApp
         self.acpmux = acpmux
+        self.staging = staging
         self.spawner = spawner
         self.clock = clock
         self.readyTimeout = readyTimeout
@@ -166,7 +170,11 @@ public final class ComputerUseHelperV2 {
         let current = generation
         guard enabled else { return await stop() }
         if case .running = state { return }
-        guard let app = helperApp() else { return unavailable("the cmux Computer Use (dev) helper is not in this build") }
+        guard let embedded = helperApp() else { return unavailable("the cmux Computer Use (dev) helper is not in this build") }
+        // Nested in this app, macOS checks the helper's Screen Recording as this app: run a verified copy outside it.
+        let staged = await staging.stage(embedded)
+        guard current == generation else { return }
+        guard let app = staged else { return unavailable("the helper copy outside the app could not be made or verified") }
         guard ComputerUseHelperDaemon.makePrivateDirectory((directory as NSString).deletingLastPathComponent),
               ComputerUseHelperDaemon.makePrivateDirectory(directory) else {
             return unavailable("\(directory) is not a private directory of this user")

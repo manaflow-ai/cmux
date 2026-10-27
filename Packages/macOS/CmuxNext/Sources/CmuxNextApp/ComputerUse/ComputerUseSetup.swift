@@ -280,11 +280,16 @@ final class ComputerUseSetup {
                                screenRecording: status["screen_recording"] as? Bool ?? false)
     }
 
-    /// The Developer ID signed helper for `running`, else the installed one that would start.
+    /// The Developer ID signed helper for `running`, else the one that would
+    /// start: its verified copy outside this app (the app the grants belong
+    /// to, ComputerUseHelperStaging), or the installed source before the
+    /// first copy is made.
     @concurrent nonisolated static func signedHelper(_ running: URL?) async -> URL? {
-        CuaHelperIdentity().resolve(running: running,
-                                    installed: CuaHelperIdentity.installedCandidates(isDevBuild: ComputerUseHelperDaemon.isDevBuild))
+        let resolved = CuaHelperIdentity().resolve(running: running,
+                                                   installed: CuaHelperIdentity.installedCandidates(isDevBuild: ComputerUseHelperDaemon.isDevBuild))
             .helperURL
+        guard running == nil, resolved != nil else { return resolved }
+        return await ComputerUseHelperDaemon.stagedHelper() ?? resolved
     }
 }
 

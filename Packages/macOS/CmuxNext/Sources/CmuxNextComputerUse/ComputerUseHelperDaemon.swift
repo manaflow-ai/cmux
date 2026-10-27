@@ -78,6 +78,7 @@ public final class ComputerUseHelperDaemon {
     @ObservationIgnored private let candidates: @Sendable () -> [URL]
     @ObservationIgnored private let launcher: any ComputerUseHelperLaunching
     @ObservationIgnored private let manifestReader: CuaHelperManifestReader
+    @ObservationIgnored private let staging: ComputerUseHelperStaging
     @ObservationIgnored private let ownerPID: pid_t
     @ObservationIgnored private let published = Mutex<[String: String]>([:])
     @ObservationIgnored private var agentToken: String?
@@ -91,6 +92,7 @@ public final class ComputerUseHelperDaemon {
          candidates: @escaping @Sendable () -> [URL] = { CuaHelperIdentity.installedCandidates(isDevBuild: ComputerUseHelperDaemon.isDevBuild) },
          launcher: any ComputerUseHelperLaunching = WorkspaceHelperLauncher(),
          manifestReader: CuaHelperManifestReader = .shared,
+         staging: ComputerUseHelperStaging = .legacy(),
          ownerPID: pid_t = getpid(),
          socketPath: String = ComputerUseHelperDaemon.defaultSocketPath(),
          stateDirectory: URL = ComputerUseHelperDaemon.defaultStateDirectory(),
@@ -100,6 +102,7 @@ public final class ComputerUseHelperDaemon {
         self.candidates = candidates
         self.launcher = launcher
         self.manifestReader = manifestReader
+        self.staging = staging
         self.ownerPID = ownerPID
         self.socketPath = socketPath
         self.stateDirectory = stateDirectory
@@ -174,10 +177,19 @@ public final class ComputerUseHelperDaemon {
             state = .unavailable
             return
         }
+        // Launch a verified copy outside this app: nested in it, macOS checks
+        // the helper's Screen Recording as this app (ComputerUseHelperStaging).
+        let staged = await staging.stage(helper)
+        guard current == generation else { return }
+        guard let staged else {
+            helperLogger.error("Computer Use is on, but the cmux Computer Use helper copy could not be made or verified")
+            state = .unavailable
+            return
+        }
         // The helper's parent is launchd (LaunchServices), so it outlives a
         // crash of this app unless it watches this pid. Older helpers may
         // reject an unknown flag: pass it only when the manifest lists it.
-        let capabilities = await manifestReader.capabilities(of: helper)
+        let capabilities = await manifestReader.capabilities(of: staged)
         guard current == generation, !Task.isCancelled else { return }
         let owner = capabilities.contains(CuaHelperManifestReader.ownerPIDCapability) ? ownerPID : nil
         guard prepareDirectories() else {
@@ -186,7 +198,7 @@ public final class ComputerUseHelperDaemon {
         }
         let agent = Self.makeToken()
         let host = Self.makeToken()
-        let pid = await launcher.launch(helper, arguments: Self.arguments(socketPath: socketPath, ownerPID: owner),
+        let pid = await launcher.launch(staged, arguments: Self.arguments(socketPath: socketPath, ownerPID: owner),
                                         environment: Self.environment(stateDirectory: stateDirectory, agentToken: agent, hostToken: host))
         guard current == generation else {
             if let pid { launcher.terminate(pid) }
@@ -199,7 +211,7 @@ public final class ComputerUseHelperDaemon {
         agentToken = agent
         hostToken = host
         state = .running(pid)
-        helperLogger.notice("cmux Computer Use helper started from \(helper.path, privacy: .public)")
+        helperLogger.notice("cmux Computer Use helper started from \(staged.path, privacy: .public)")
         let exported = Self.childEnvironment(socketPath: socketPath, agentToken: agent)
         published.withLock { $0 = exported }
     }
@@ -250,6 +262,12 @@ public final class ComputerUseHelperDaemon {
     @concurrent nonisolated static func resolve(_ identity: CuaHelperIdentity,
                                                 _ candidates: @Sendable () -> [URL]) async -> CuaHelperIdentity.Resolution {
         identity.resolve(running: nil, installed: candidates())
+    }
+
+    /// The verified copy of the helper this app build launches, when it is
+    /// in place (the "drag this app" tile names it). Off the main actor.
+    public nonisolated static func stagedHelper() async -> URL? {
+        await ComputerUseHelperStaging.legacy().existingCopy(named: CuaHelperIdentity.appName)
     }
 
     public nonisolated static var isDevBuild: Bool {
