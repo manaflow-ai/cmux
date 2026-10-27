@@ -2451,8 +2451,6 @@ mod journal_filter;
 use journal_filter::JournalStreamFilter;
 #[cfg(test)]
 use journal_stream::run_session_journal_stream;
-#[cfg(test)]
-use session_event_stream::run_session_event_stream;
 
 mod resource_waits;
 use resource_waits::start_resource_wait;
@@ -2480,6 +2478,7 @@ use resource_attach::{
 mod session_event_stream;
 use session_event_stream::{prepare_session_event_stream, start_session_event_stream};
 mod journal_stream;
+mod subscription_pump;
 #[cfg(test)]
 use journal_stream::journal_extension_error;
 use journal_stream::{
@@ -2488,7 +2487,8 @@ use journal_stream::{
 
 mod resource_connection;
 use resource_connection::{
-    handle_resource_connection_message, resource_stream_end, send_resource_stream_item,
+    handle_resource_connection_message, queue_resource_stream_item, resource_stream_end,
+    send_resource_stream_item,
 };
 
 mod connection_frame;

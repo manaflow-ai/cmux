@@ -13,11 +13,11 @@ mod support;
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::UnixStream;
 use std::path::PathBuf;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use cmux_tui_core::{Mux, SurfaceOptions, server};
 use serde_json::{Value, json};
-use support::DaemonMuxOps;
+use support::{DaemonMuxOps, settled_threads};
 
 const VIEWS: usize = 50;
 /// Render views take streams `RENDER + 1..`, snapshot views `SNAPSHOT + 1..`.
@@ -25,50 +25,6 @@ const RENDER: usize = 100;
 const SNAPSHOT: usize = 200;
 /// The sequenced pool's input workers.
 const THREAD_BUDGET: usize = 2;
-
-/// Threads of this process.
-#[cfg(target_os = "linux")]
-fn process_threads() -> usize {
-    std::fs::read_dir("/proc/self/task").expect("/proc/self/task").count()
-}
-
-/// Threads of this process.
-#[cfg(target_os = "macos")]
-fn process_threads() -> usize {
-    // SAFETY: proc_taskinfo is plain integers; all zeroes is a valid value.
-    let mut info: libc::proc_taskinfo = unsafe { std::mem::zeroed() };
-    let size = std::mem::size_of::<libc::proc_taskinfo>() as libc::c_int;
-    // SAFETY: `info` is a proc_taskinfo, the layout of PROC_PIDTASKINFO.
-    let read = unsafe {
-        libc::proc_pidinfo(
-            std::process::id() as libc::c_int,
-            libc::PROC_PIDTASKINFO,
-            0,
-            (&raw mut info).cast(),
-            size,
-        )
-    };
-    assert_eq!(read, size, "proc_pidinfo");
-    info.pti_threadnum as usize
-}
-
-/// The thread count once it held still for 300 ms (threads that start or
-/// exit after a step settle first).
-fn settled_threads() -> usize {
-    let deadline = Instant::now() + Duration::from_secs(10);
-    let mut last = process_threads();
-    let mut since = Instant::now();
-    while Instant::now() < deadline {
-        std::thread::sleep(Duration::from_millis(25));
-        let now = process_threads();
-        if now != last {
-            (last, since) = (now, Instant::now());
-        } else if since.elapsed() >= Duration::from_millis(300) {
-            break;
-        }
-    }
-    last
-}
 
 struct Connection {
     reader: BufReader<UnixStream>,

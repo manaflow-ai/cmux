@@ -1,28 +1,32 @@
-//! Session event streams: preparing the initial session event items,
-//! starting the stream worker and running it until cancellation or
-//! disconnect.
+//! Session event streams: preparing the initial session event items and
+//! draining the stream on the mux's work lanes until cancellation or
+//! disconnect (p05-ipc-146: no thread per stream).
 
 use super::MessageWriter;
 use super::OutboundStream;
 use super::ResourceWorkerPermit;
+use super::queue_resource_stream_item;
 use super::register_resource_outbound;
 use super::resource_session_snapshot;
 use super::resource_stream_end;
 use super::resource_stream_id;
-use super::send_resource_stream_item;
 use super::session_stream;
+use super::subscription_pump::{SubscriptionDrain, SubscriptionPump, TURN_BUDGET};
 use crate::Mux;
+use crate::mux::JournalWatch;
 use crate::panic_free::JsonFields;
 use crate::resource::ResourceError;
 use crate::resource::ResourceOperation;
 use crate::resource::StreamPublicId;
 use crate::resource::WireDecimal;
+use crate::server::attach_lifecycle::attach_pump::Turn;
 use crate::state::placement_shift::CAPABILITY as PLACEMENT_SHIFT_CAPABILITY;
 use crate::state::placement_shift::PlacementShift;
-use crate::stream_interrupt::StreamInterrupt;
+use crate::workspace_registry::{ResourceEventBatch, ResourceEventPage, SessionJournalReader};
 use cmux_threads::sync::Mutex;
 use serde_json::Value;
 use serde_json::json;
+use std::collections::VecDeque;
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering;
@@ -253,24 +257,34 @@ pub(super) fn prepare_session_event_stream(
     ))
 }
 
+/// Starts the stream's drain on the mux's work lanes (subscription_pump.rs):
+/// a journal commit, room on the stream or its close wakes it; no thread
+/// waits for the journal on its behalf.
 pub(super) fn start_session_event_stream(
     mux: Arc<Mux>,
     client: u64,
     writer: MessageWriter,
-    start: SessionEventStreamStart,
+    mut start: SessionEventStreamStart,
 ) {
     let stream_id = start.stream_id.clone();
     let outbound = start.outbound.clone();
-    let worker_mux = mux.clone();
-    let worker_writer = writer.clone();
-    let spawn = cmux_threads::spawn(
-        "mux-resource-session-events",
-        crate::thread_qos::ThreadType::Interactive.qos(),
-        move || {
-            run_session_event_stream(&worker_mux, client, &worker_writer, start);
-        },
-    );
-    if spawn.is_err() {
+    let pump = SubscriptionPump::new(&mux);
+    writer.register_interrupt(pump.stop());
+    outbound.register_interrupt(pump.stop());
+    outbound.on_space(pump.hook());
+    let journal = mux.watch_journal_events(pump.hook());
+    let drain = SessionEventDrain {
+        mux: mux.clone(),
+        client,
+        writer: writer.clone(),
+        initial: start.initial_items.drain(..).collect(),
+        stream: start,
+        reader: None,
+        page: None,
+        read_again: false,
+        _journal: journal,
+    };
+    if pump.start(Box::new(drain)).is_err() {
         let _ = mux.control_clients.take_resource_stream(client, &stream_id);
         let end = resource_stream_end(
             &stream_id,
@@ -290,157 +304,185 @@ pub(super) fn start_session_event_stream(
     }
 }
 
-pub(super) fn run_session_event_stream(
-    mux: &Arc<Mux>,
+/// A page read and not yet sent.
+struct PendingPage {
+    generation: String,
+    head_revision: u64,
+    batches: VecDeque<ResourceEventBatch>,
+}
+
+/// What the next step of a drain did.
+enum Step {
+    Sent,
+    Idle,
+    End,
+}
+
+/// One `session.events` stream on its pump's sequence. Dropped, it ends
+/// its registration (the stream id and its worker permit).
+struct SessionEventDrain {
+    mux: Arc<Mux>,
     client: u64,
-    writer: &MessageWriter,
-    mut stream: SessionEventStreamStart,
-) {
-    for (cursor, item) in stream.initial_items.drain(..) {
-        if stream.canceled.load(Ordering::Acquire)
-            || !send_resource_stream_item(
-                writer,
-                &stream.outbound,
-                &stream.stream_id,
-                stream.next_sequence,
-                &cursor,
+    writer: MessageWriter,
+    stream: SessionEventStreamStart,
+    initial: VecDeque<(Value, Value)>,
+    /// The stream's own read-only reader, opened at its first read: `None`
+    /// until then, `Some(None)` for an in-memory registry or after a reader
+    /// error (pages then come from the registry).
+    reader: Option<Option<(SessionJournalReader, String)>>,
+    page: Option<PendingPage>,
+    /// The last page ended below its head: read again at once.
+    read_again: bool,
+    _journal: JournalWatch,
+}
+
+impl SubscriptionDrain for SessionEventDrain {
+    fn turn(&mut self) -> Turn {
+        for _ in 0..TURN_BUDGET {
+            if session_stream::stopped(&self.stream.canceled, &self.writer, &self.stream.outbound) {
+                return Turn::Done;
+            }
+            if !self.writer.sink.stream_has_room(&self.stream.outbound) {
+                return Turn::Idle;
+            }
+            match self.step() {
+                Step::Sent => {}
+                Step::Idle => return Turn::Idle,
+                Step::End => return Turn::Done,
+            }
+        }
+        Turn::Yield
+    }
+}
+
+impl Drop for SessionEventDrain {
+    fn drop(&mut self) {
+        self.mux.control_clients.finish_resource_stream(
+            self.client,
+            &self.stream.stream_id,
+            self.stream.outbound.id,
+        );
+    }
+}
+
+impl SessionEventDrain {
+    /// Sends the next item, reading a page when the journal moved.
+    fn step(&mut self) -> Step {
+        if let Some((cursor, item)) = self.initial.pop_front() {
+            return self.send(&cursor, item, None);
+        }
+        loop {
+            if let Some(page) = self.page.as_mut() {
+                if let Some(batch) = page.batches.pop_front() {
+                    let generation = page.generation.clone();
+                    return self.send_batch(&generation, batch);
+                }
+                self.read_again = self.stream.last_revision < page.head_revision;
+                self.page = None;
+            }
+            // Every journal commit (terminal output too) wakes every
+            // stream; one that left the epoch where it was has nothing new.
+            let epoch = self.mux.resource_event_epoch();
+            if epoch == self.stream.epoch && !self.read_again {
+                return Step::Idle;
+            }
+            self.stream.epoch = epoch;
+            self.read_again = false;
+            let Ok(page) = self.read() else { return self.gap() };
+            if page.batches.is_empty() && self.stream.last_revision < page.head_revision {
+                return self.gap();
+            }
+            self.page = Some(PendingPage {
+                generation: page.generation,
+                head_revision: page.head_revision,
+                batches: page.batches.into(),
+            });
+        }
+    }
+
+    /// The page after the last revision sent. Reading pages on the stream's
+    /// own read-only connection keeps those reads off the registry lock,
+    /// which every request and the journal writer need.
+    fn read(&mut self) -> anyhow::Result<ResourceEventPage> {
+        let mux = &self.mux;
+        let reader = self.reader.get_or_insert_with(|| {
+            mux.resource_event_reader().unwrap_or_else(|error| {
+                eprintln!("cmux-tui: session.events: open resource event reader: {error:#}");
+                None
+            })
+        });
+        let after = self.stream.last_revision;
+        let read = match reader {
+            Some((reader, generation)) => reader.resource_events_after(generation, after),
+            None => mux.resource_events_after(after),
+        };
+        match read {
+            // A reader error (a busy or replaced file) falls back to the
+            // registry, which decides between a page and a gap.
+            Err(error) if reader.is_some() => {
+                eprintln!("cmux-tui: session.events: resource event reader: {error:#}");
+                *reader = None;
+                mux.resource_events_after(after)
+            }
+            read => read,
+        }
+    }
+
+    fn send_batch(&mut self, generation: &str, batch: ResourceEventBatch) -> Step {
+        let cursor = json!({
+            "generation":generation,
+            "revision":batch.revision.to_string(),
+        });
+        let revision = batch.revision;
+        let item = match delta_item(&self.mux, self.client, generation, &cursor, batch) {
+            Ok(item) => item,
+            Err(error) => {
+                eprintln!("cmux-tui: session.events: placement restatement failed: {error:#}");
+                return self.gap();
+            }
+        };
+        let end = resource_stream_end(
+            &self.stream.stream_id,
+            "gap",
+            Some(cursor.clone()),
+            Some("request a fresh session snapshot"),
+            None,
+        );
+        let _ = self.writer.update_stream_overflow(&self.stream.outbound, &end);
+        self.send(&cursor, item, Some(revision))
+    }
+
+    fn send(&mut self, cursor: &Value, item: Value, revision: Option<u64>) -> Step {
+        if self.stream.canceled.load(Ordering::Acquire)
+            || !queue_resource_stream_item(
+                &self.writer,
+                &self.stream.outbound,
+                &self.stream.stream_id,
+                self.stream.next_sequence,
+                cursor,
                 item,
             )
         {
-            mux.control_clients.finish_resource_stream(
-                client,
-                &stream.stream_id,
-                stream.outbound.id,
-            );
-            return;
+            return Step::End;
         }
-        stream.next_sequence = stream.next_sequence.saturating_add(1);
+        self.stream.next_sequence = self.stream.next_sequence.saturating_add(1);
+        if let Some(revision) = revision {
+            self.stream.last_revision = revision;
+        }
+        Step::Sent
     }
 
-    // Every journal commit (terminal output too) wakes every stream. Reading
-    // pages on the stream's own read-only connection keeps those reads off
-    // the registry lock, which every request and the journal writer need.
-    let mut reader = match mux.resource_event_reader() {
-        Ok(reader) => reader,
-        Err(error) => {
-            eprintln!("cmux-tui: session.events: open resource event reader: {error:#}");
-            None
-        }
-    };
-    let interrupt = StreamInterrupt::new();
-    writer.register_interrupt(&interrupt);
-    stream.outbound.register_interrupt(&interrupt);
-    mux.wake_journal_waiters_on(&interrupt);
-    'stream: loop {
-        if session_stream::stopped(&stream.canceled, writer, &stream.outbound) {
-            break;
-        }
-        let epoch = mux.wait_for_journal_event_until_interrupted(stream.epoch, &interrupt);
-        if epoch == stream.epoch {
-            continue;
-        }
-        stream.epoch = epoch;
-        loop {
-            let read = match &reader {
-                Some((reader, generation)) => {
-                    reader.resource_events_after(generation, stream.last_revision)
-                }
-                None => mux.resource_events_after(stream.last_revision),
-            };
-            // A reader error (a busy or replaced file) falls back to the
-            // registry, which decides between a page and a gap.
-            let read = match read {
-                Err(error) if reader.is_some() => {
-                    eprintln!("cmux-tui: session.events: resource event reader: {error:#}");
-                    reader = None;
-                    mux.resource_events_after(stream.last_revision)
-                }
-                read => read,
-            };
-            let page = match read {
-                Ok(page) => page,
-                Err(error) => {
-                    let end = resource_stream_end(
-                        &stream.stream_id,
-                        "gap",
-                        None,
-                        Some("request a fresh session snapshot"),
-                        None,
-                    );
-                    let _ = error;
-                    let _ = writer.send_terminal(&end, &stream.outbound);
-                    break 'stream;
-                }
-            };
-            let head_revision = page.head_revision;
-            if page.batches.is_empty() && stream.last_revision < head_revision {
-                let end = resource_stream_end(
-                    &stream.stream_id,
-                    "gap",
-                    None,
-                    Some("request a fresh session snapshot"),
-                    None,
-                );
-                let _ = writer.send_terminal(&end, &stream.outbound);
-                break 'stream;
-            }
-            for batch in page.batches {
-                let cursor = json!({
-                    "generation":page.generation,
-                    "revision":batch.revision.to_string(),
-                });
-                let revision = batch.revision;
-                let item = match delta_item(mux, client, &page.generation, &cursor, batch) {
-                    Ok(item) => item,
-                    Err(error) => {
-                        eprintln!(
-                            "cmux-tui: session.events: placement restatement failed: {error:#}"
-                        );
-                        let end = resource_stream_end(
-                            &stream.stream_id,
-                            "gap",
-                            None,
-                            Some("request a fresh session snapshot"),
-                            None,
-                        );
-                        let _ = writer.send_terminal(&end, &stream.outbound);
-                        break 'stream;
-                    }
-                };
-                let end = resource_stream_end(
-                    &stream.stream_id,
-                    "gap",
-                    Some(cursor.clone()),
-                    Some("request a fresh session snapshot"),
-                    None,
-                );
-                let _ = writer.update_stream_overflow(&stream.outbound, &end);
-                if stream.canceled.load(Ordering::Acquire)
-                    || !send_resource_stream_item(
-                        writer,
-                        &stream.outbound,
-                        &stream.stream_id,
-                        stream.next_sequence,
-                        &cursor,
-                        item,
-                    )
-                {
-                    mux.control_clients.finish_resource_stream(
-                        client,
-                        &stream.stream_id,
-                        stream.outbound.id,
-                    );
-                    return;
-                }
-                stream.next_sequence = stream.next_sequence.saturating_add(1);
-                stream.last_revision = revision;
-            }
-            if stream.last_revision >= head_revision {
-                break;
-            }
-        }
+    fn gap(&self) -> Step {
+        let end = resource_stream_end(
+            &self.stream.stream_id,
+            "gap",
+            None,
+            Some("request a fresh session snapshot"),
+            None,
+        );
+        let _ = self.writer.send_terminal(&end, &self.stream.outbound);
+        Step::End
     }
-    mux.control_clients.finish_resource_stream(client, &stream.stream_id, stream.outbound.id);
 }
 
 /// One journal batch as the `session.events` delta item `client` reads. A
@@ -453,7 +495,7 @@ fn delta_item(
     client: u64,
     generation: &str,
     cursor: &Value,
-    batch: crate::workspace_registry::ResourceEventBatch,
+    batch: ResourceEventBatch,
 ) -> anyhow::Result<Value> {
     let mut changes = batch.changes;
     if let Some(shift) = batch.placement_shift.as_ref().and_then(PlacementShift::from_value)

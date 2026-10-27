@@ -112,31 +112,29 @@ fn handle(line: &RouteLine<'_>) -> Option<bool> {
         let failure_watch = watch.clone();
         let worker_id = id.clone();
         let mux_for_refusal = Arc::downgrade(mux);
-        let spawned = crate::thread_qos::spawn_raisable(
-            "mux-inventory-watch",
-            crate::thread_qos::ThreadType::Utility.qos(),
-            Some(256 * 1024),
-            move || {
-                let result = start(&watch, worker_id.clone());
-                drop(slot);
-                match result {
-                    Ok(true) => {}
-                    Ok(false) => watch.stop(Failure::Unavailable, false),
-                    Err(error) => {
-                        watch.stop(error, false);
-                        refuse(
-                            mux_for_refusal.upgrade().as_deref(),
-                            client,
-                            &watch.writer,
-                            worker_id,
-                            error,
-                            receipt,
-                        );
-                    }
+        // The handshake waits on acpmux: a request wait on the System lane
+        // (request_wait.rs), as `agent-inventory-read`, not a thread of its
+        // own (p05-ipc-146). The watch's events then arrive on its link.
+        let posted = mux.post_request_wait(move || {
+            let result = start(&watch, worker_id.clone());
+            drop(slot);
+            match result {
+                Ok(true) => {}
+                Ok(false) => watch.stop(Failure::Unavailable, false),
+                Err(error) => {
+                    watch.stop(error, false);
+                    refuse(
+                        mux_for_refusal.upgrade().as_deref(),
+                        client,
+                        &watch.writer,
+                        worker_id,
+                        error,
+                        receipt,
+                    );
                 }
-            },
-        );
-        if spawned.is_err() {
+            }
+        });
+        if posted.is_err() {
             failure_watch.stop(Failure::Busy, false);
             return Err(Failure::Busy);
         }

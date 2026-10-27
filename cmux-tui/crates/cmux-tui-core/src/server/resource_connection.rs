@@ -421,17 +421,42 @@ pub(super) fn send_resource_stream_item(
 ) -> bool {
     writer
         .send_stream_backpressured(
-            &json!({
-                "protocol":"cmux.protocol/2",
-                "type":"stream_item",
-                "stream_id":stream_id,
-                "sequence":sequence.to_string(),
-                "cursor":cursor,
-                "item":writer.project_conversation_tab_item(item),
-            }),
+            &resource_stream_item(writer, stream_id, sequence, cursor, item),
             outbound,
         )
         .is_ok()
+}
+
+/// [`send_resource_stream_item`] for a drain that never waits: it checked
+/// that `outbound` has room first (`MessageSink::stream_has_room`).
+pub(super) fn queue_resource_stream_item(
+    writer: &MessageWriter,
+    outbound: &OutboundStream,
+    stream_id: &StreamPublicId,
+    sequence: u64,
+    cursor: &Value,
+    item: Value,
+) -> bool {
+    writer
+        .send_stream(&resource_stream_item(writer, stream_id, sequence, cursor, item), outbound)
+        .is_ok()
+}
+
+fn resource_stream_item(
+    writer: &MessageWriter,
+    stream_id: &StreamPublicId,
+    sequence: u64,
+    cursor: &Value,
+    item: Value,
+) -> Value {
+    json!({
+        "protocol":"cmux.protocol/2",
+        "type":"stream_item",
+        "stream_id":stream_id,
+        "sequence":sequence.to_string(),
+        "cursor":cursor,
+        "item":writer.project_conversation_tab_item(item),
+    })
 }
 
 fn cancel_resource_stream(

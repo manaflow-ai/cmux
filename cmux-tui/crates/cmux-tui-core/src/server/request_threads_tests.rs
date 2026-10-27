@@ -205,8 +205,8 @@ fn read_reply(websocket: &mut WebSocket<TcpStream>, id: &Value) -> Value {
     }
 }
 
-/// The WebSocket listener: the accept loop, the connection thread, its writer
-/// and an events writer run at UserInitiated. The connection thread
+/// The WebSocket listener: the accept loop, the connection thread and its
+/// writer run at UserInitiated; its subscription holds no thread. The connection thread
 /// disallows blocking and hands a v2 resource line to the connection's
 /// request sequence, so the registry read of `workspace.list` (under
 /// resource_router/) is no blocking site on it.
@@ -248,7 +248,11 @@ fn websocket_threads_are_user_initiated_and_the_connection_hands_off_its_blockin
 
     assert_declared("mux-ws-conn", ThreadQos::UserInitiated);
     assert_declared("mux-ws-out", ThreadQos::UserInitiated);
-    assert_declared("mux-events-out", ThreadQos::UserInitiated);
+    // Its subscription is a drain on the work lanes, not a thread (p05-ipc-146).
+    assert!(
+        cmux_threads::snapshot().iter().all(|row| row.name != "mux-events-out"),
+        "a subscription started a thread of its own"
+    );
     let _ = websocket.close(None);
 }
 
