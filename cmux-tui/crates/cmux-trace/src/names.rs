@@ -104,6 +104,7 @@ pub const CATALOG: &[CatalogName] = &[
     name(84, ACTION, "action.presented"),
     name(85, INPUT, "input.latency"),
     name(86, CEF, "cef.memory_pressure_vote"),
+    name(87, GHOSTTY, "ghostty.lock_wait"),
 ];
 
 // `catalog_name` indexes by id: the ids are 1, 2, 3, ... in order. Each text starts with its

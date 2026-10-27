@@ -28,10 +28,12 @@ import Testing
         return try WebUpdatePointerTests.envelope(payload)
     }
 
-    static func updater(_ server: Server, store: WebUpdateStore, app: WebUpdater.App = .init(abi: 2, webBuiltAt: 1_700_000_000)) -> WebUpdater {
+    static func updater(_ server: Server, store: WebUpdateStore, app: WebUpdater.App = .init(abi: 2, webBuiltAt: 1_700_000_000),
+                        kept: WebUpdater.Kept? = nil) -> WebUpdater {
         let updater = WebUpdater(
             store: store, app: app, keys: .keys(WebUpdatePointerTests.keys), energy: EnergyPolicySource(),
             deadlines: MainDeadlineScheduler(work: MainWorkScheduler(budget: MainFrameBudget())), work: BackgroundWork(label: "test.web-updater"),
+            kept: kept,
             fetch: { request in
                 server.pointerReads += 1
                 let url = try #require(request.url)
@@ -118,6 +120,33 @@ import Testing
         let again = Self.updater(server, store: store)
         again.follow(.nightly)
         #expect(await again.launchTree() == nil)
+        #expect(store.readState().active == nil)
+    }
+
+    /// The app's launch read of the kept update (p08-startup-077) is what the relaunched updater
+    /// serves: the followed channel's update, and the bundled web for another channel or off.
+    @Test func aRelaunchServesTheKeptUpdateItsLaunchReadFound() async throws {
+        let root = try WebUpdateStoreTests.scratch()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let (archive, pointer) = try await WebUpdateStoreTests.makeArchive(in: root)
+        let server = Server()
+        server.archive = archive
+        server.pointer = try Self.pointerData(pointer)
+        let store = WebUpdateStore(base: root.appending(path: "store", directoryHint: .isDirectory))
+        let app = WebUpdater.App(abi: 2, webBuiltAt: 1_700_000_000)
+        await Self.updater(server, store: store, app: app).check()
+
+        let same = Self.updater(server, store: store, app: app, kept: WebUpdater.readKept(store: store, app: app))
+        same.follow(.everyMerge)
+        #expect(await same.launchTree() == store.tree(for: pointer.key).root)
+        #expect(same.launchVersion == pointer)
+        #expect(same.state.active == pointer)
+
+        // Another channel at relaunch: the kept update is forgotten, also though the read verified it.
+        let other = Self.updater(server, store: store, app: app, kept: WebUpdater.readKept(store: store, app: app))
+        other.follow(.off)
+        #expect(await other.launchTree() == nil)
+        #expect(other.launchVersion == nil)
         #expect(store.readState().active == nil)
     }
 

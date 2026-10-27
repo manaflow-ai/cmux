@@ -25,7 +25,7 @@ import Testing
         let reads: AsyncStream<Void>
         let readCount = ReadCount()
 
-        init(energy: EnergyPolicySource = EnergyPolicySource(), checkNode: VisibilityNode? = nil) throws {
+        init(energy: EnergyPolicySource = EnergyPolicySource(), checkNode: VisibilityNode? = nil, checksHeld: Bool = false) throws {
             root = try WebUpdateStoreTests.scratch()
             let (reads, read) = AsyncStream.makeStream(of: Void.self)
             self.reads = reads
@@ -34,6 +34,7 @@ import Testing
             updater = WebUpdater(
                 store: store, app: .init(abi: 2, webBuiltAt: 1_700_000_000), keys: .keys(WebUpdatePointerTests.keys),
                 energy: energy, deadlines: deadlines.deadlines, checkNode: checkNode, work: BackgroundWork(label: "test.web-updates-poll"),
+                checksHeld: checksHeld,
                 fetch: { request in
                     readCount.add()
                     read.yield()
@@ -110,6 +111,39 @@ import Testing
         // A window going away drops the booked check.
         rig.updater.noteShown(false)
         #expect(rig.booked == nil)
+    }
+
+    /// Startup holds the network (p08-startup-077, Chrome's AfterStartupTaskUtils): no channel
+    /// follow, show or activation reads the pointer or books a read before ``WebUpdater/startChecks()``,
+    /// which reads it once at once and books the next an interval out.
+    @Test func noPointerIsReadBeforeStartupCompletes() async throws {
+        let rig = try Rig(checksHeld: true)
+        rig.updater.follow(.everyMerge)
+        rig.updater.noteShown(false)
+        rig.updater.noteShown(true)
+        rig.updater.noteActivation(stale: 0)
+        rig.updater.noteBackground()
+        rig.updater.noteActivation(stale: 0)
+        #expect(rig.booked == nil, "a held updater booked a check")
+        // test-deadline: a bound on a wait that must find nothing, not a settle
+        #expect(await rig.readStarts(within: .milliseconds(300)) == false, "a held updater read the pointer")
+        #expect(rig.readCount.count == 0)
+        #expect(rig.updater.lastCheck == nil)
+
+        rig.updater.startChecks()
+        #expect(!rig.updater.checksHeld)
+        #expect(rig.booked != nil, "the start booked no check")
+        rig.deadlines.fireAndRun()
+        await rig.nextRead()
+        try await rig.waitForBooking()
+        #expect(rig.readCount.count == 1)
+        let next = try #require(rig.booked)
+        #expect(next >= .seconds(60) && next <= .seconds(61), "the next read is not a whole interval away: \(next)")
+        // A second start books nothing more.
+        rig.updater.startChecks()
+        #expect(rig.booked == next)
+        #expect(rig.readCount.count == 1)
+        rig.updater.noteShown(false)
     }
 
     /// cmux coming to the front while no window shows neither books a check (a recent last check)

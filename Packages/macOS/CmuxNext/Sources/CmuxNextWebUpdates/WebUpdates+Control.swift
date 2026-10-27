@@ -69,7 +69,7 @@ extension WebUpdates {
             "phase": .string(json(updater.phase)),
             "active": updater.state.active.map(json) ?? .null,
             "previous": updater.state.previous.map(json) ?? .null,
-            "served": WebBundleOverlay.shared.activeTree.map { .string($0.lastPathComponent) } ?? .string("bundled"),
+            "served": web.overlay.activeTree.map { .string($0.lastPathComponent) } ?? .string("bundled"),
             "pending": pending,
             // What held the pending update at the last safe point look (WebSwapGate): app input,
             // a sheet, or a page's own reason (`composer.sending`, `selection`, `page.no-answer`).

@@ -20,7 +20,7 @@ struct PageWebViewEngineNeutralTests {
 
     private func started(_ hosting: FakeChromiumHosting, before: (PageWebView) -> Void = { _ in }) async throws -> (PageWebView, FakeChromiumPage) {
         let view = try #require(PageWebView(descriptor: descriptor, root: root, routes: [], chromium: hosting))
-        view.chromiumClock = PageTestClock.never
+        view.chromiumDeadlines = LifecycleDeadlineRig.never
         before(view)
         await view.chromiumStart?.value
         let page = try #require(hosting.made.first)

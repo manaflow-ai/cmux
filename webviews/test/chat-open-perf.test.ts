@@ -35,6 +35,7 @@ import { chromium, type Browser } from "playwright";
 import { installPaintedFrames } from "./support/paintedFrames";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
+import { perfSeries, recordPerfResults } from "../scripts/perf-result.mjs";
 
 await requireBrowserLane("chat-open-perf.test.ts", async () => {
   setDefaultTimeout(240_000);
@@ -87,6 +88,8 @@ await requireBrowserLane("chat-open-perf.test.ts", async () => {
   const FADE_FRAME_SLACK_MS = 50;
   /// How long after a chat draws the sampler watches it for shifts and blank frames.
   const SETTLE_MS = 700;
+  /// How long the sampler waits for a chat to draw before it gives up on the open.
+  const OPEN_LIMIT_MS = 8_000;
   /// `CMUX_CHAT_OPEN_PERF_VIDEO=<dir>` records the run, for a before/after on a pull request.
   const videoDir = process.env.CMUX_CHAT_OPEN_PERF_VIDEO;
 
@@ -203,6 +206,9 @@ await requireBrowserLane("chat-open-perf.test.ts", async () => {
   let daemon: ReturnType<typeof Bun.serve> | undefined;
   let vite: Awaited<ReturnType<typeof createServer>> | undefined;
   let browser: Browser | undefined;
+  /// Each reported phase's raw opens, written as result-v1 when PERF_RESULT_DIR is set (the lab's
+  /// webviews-chromium story), also when a budget fails.
+  const perfOpens: ReturnType<typeof perfSeries>[] = [];
   const url = (session: string) => {
     const { port } = vite!.httpServer!.address() as { port: number };
     const endpoint = `ws://127.0.0.1:${daemon!.port}/`;
@@ -316,6 +322,7 @@ await requireBrowserLane("chat-open-perf.test.ts", async () => {
     // Awaited, so a lane's interval cannot outlive the run: an open socket's `close` handler is
     // what clears it, and an interval still ticking holds the loop until the file times out.
     await daemon?.stop(true);
+    if (perfOpens.length > 0) recordPerfResults({ story: "webviews-chromium", engine: "chromium", series: perfOpens });
   });
 
   /// What one measured open ran under: the changes the lanes pushed while it was being timed, and
@@ -531,6 +538,47 @@ await requireBrowserLane("chat-open-perf.test.ts", async () => {
   const report = (name: string, phase: "cold" | "cached", opened: Opened[], during: Measured[] = []) => {
     const drawn = opened.map((entry) => entry.drawn ?? Number.POSITIVE_INFINITY);
     const worst = Math.max(...drawn);
+    // `quiet cold` -> web.chat_open.quiet_cold.*. An open that never drew is recorded at the limit
+    // it was cut off at, and counted in never_drawn, so a regression to never drawing raises the
+    // draw distribution instead of leaving it out; it has no fade.
+    const metric = (what: string) => `web.chat_open.${name.replaceAll(" ", "_")}.${what}`;
+    perfOpens.push(
+      perfSeries(
+        metric("draw"),
+        "ms",
+        opened.map((entry) => entry.drawn ?? OPEN_LIMIT_MS),
+      ),
+      perfSeries(
+        metric("never_drawn"),
+        "count",
+        opened.map((entry) => (entry.drawn === null ? 1 : 0)),
+      ),
+      perfSeries(
+        metric("fade"),
+        "ms",
+        opened.map((entry) => (entry.drawn === null ? undefined : entry.fadeMs)),
+      ),
+      perfSeries(
+        metric("draw_frames"),
+        "count",
+        opened.map((entry) => entry.cadence.length),
+      ),
+      perfSeries(
+        metric("shifted_frames"),
+        "count",
+        opened.map((entry) => entry.shifted),
+      ),
+      perfSeries(
+        metric("blank_frames"),
+        "count",
+        opened.map((entry) => entry.blank),
+      ),
+      perfSeries(
+        metric("flashes"),
+        "count",
+        opened.map((entry) => entry.flashes),
+      ),
+    );
     console.log(
       `chat-open-perf ${name}: draws ${drawn.map((ms) => (Number.isFinite(ms) ? ms.toFixed(0) : "never")).join("/")} ms ` +
         `(worst ${Number.isFinite(worst) ? worst.toFixed(0) : "never"}), ` +
@@ -600,7 +648,7 @@ await requireBrowserLane("chat-open-perf.test.ts", async () => {
           sessionId: entry.sessionId,
           marker: entry.marker,
           settleMs: SETTLE_MS,
-          limitMs: 8_000,
+          limitMs: OPEN_LIMIT_MS,
         })})`,
       )) as Opened;
       during.push({ pushes: pushed - pushesBefore, attaches: attaches - attachesBefore });

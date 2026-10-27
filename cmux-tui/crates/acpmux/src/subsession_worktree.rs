@@ -132,6 +132,8 @@ fn output_by(
     drop(tx);
     let stop = |child: &mut std::process::Child| {
         #[cfg(unix)]
+        // SAFETY: killpg takes no pointers; the child leads its own group
+        // (process_group(0) above) and is reaped only by the wait below.
         unsafe {
             libc::killpg(child.id() as i32, libc::SIGKILL);
         }

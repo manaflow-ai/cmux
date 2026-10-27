@@ -91,21 +91,17 @@ impl DirWatch {
         let mut files = Vec::new();
         for dir in dirs {
             // O_EVTONLY: the open descriptor never keeps the volume from unmounting.
-            let opened = std::fs::OpenOptions::new()
-                .read(true)
-                .custom_flags(libc::O_EVTONLY)
-                .open(dir)
-                .and_then(|file| {
-                    let ident = file.as_raw_fd() as usize;
-                    kevent_change(
-                        raw,
-                        ident,
-                        libc::EVFILT_VNODE,
-                        libc::EV_ADD | libc::EV_CLEAR,
-                        fflags,
-                    )
+            #[allow(clippy::disallowed_methods, reason = "inside scoped_blocking_call")]
+            let opened = cmux_blocking::scoped_blocking_call(
+                "fs::open_with",
+                cmux_blocking::BlockingKind::Fs,
+                || std::fs::OpenOptions::new().read(true).custom_flags(libc::O_EVTONLY).open(dir),
+            )
+            .and_then(|file| {
+                let ident = file.as_raw_fd() as usize;
+                kevent_change(raw, ident, libc::EVFILT_VNODE, libc::EV_ADD | libc::EV_CLEAR, fflags)
                     .map(|()| file)
-                });
+            });
             match opened {
                 Ok(file) => files.push(file),
                 Err(e) => tracing::warn!("the host cannot watch {}: {e}", dir.display()),

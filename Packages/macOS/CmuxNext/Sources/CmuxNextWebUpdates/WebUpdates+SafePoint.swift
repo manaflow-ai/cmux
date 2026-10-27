@@ -22,7 +22,7 @@ extension WebUpdates {
             safePoint?.cancel()
             return
         }
-        let wait: Duration = if WebBundleServedViews.shared.shown.isEmpty {
+        let wait: Duration = if servedViews.shown.isEmpty {
             .zero
         } else if NSApp.isActive {
             .milliseconds(Int(max(0, WebSwapGate.seconds(WebSwapGate.quietInput) - Self.idleSeconds()) * 1000))
@@ -42,14 +42,14 @@ extension WebUpdates {
         let generation = pendingGeneration
         var decision = appDecision()
         if decision == .askPages {
-            let views = WebBundleServedViews.shared.shown
+            let views = servedViews.shown
             let documents = views.map(\.url)
             decision = WebSwapGate.pages(await Self.askAll(views, deadlines: deadlines))
             if decision == .swap { decision = WebSwapGate.pages(await Self.askAll(views, deadlines: deadlines)) }
             // A page that came up, navigated or started loading while the pages answered was not
             // asked about what it shows now: it is asked next time.
             if decision == .swap,
-               Set(WebBundleServedViews.shared.shown.map(ObjectIdentifier.init)) != Set(views.map(ObjectIdentifier.init))
+               Set(servedViews.shown.map(ObjectIdentifier.init)) != Set(views.map(ObjectIdentifier.init))
                || views.map(\.url) != documents || views.contains(where: \.isLoading) {
                 decision = .later(after: .seconds(1), reason: "page.changed")
             }
@@ -73,7 +73,7 @@ extension WebUpdates {
 
     private func appDecision() -> WebSwapGate.Decision {
         let away = resignedAt.map { WebSwapGate.seconds(.now - $0) } ?? .infinity
-        return WebSwapGate.app(pagesShown: !WebBundleServedViews.shared.shown.isEmpty, active: NSApp.isActive,
+        return WebSwapGate.app(pagesShown: !servedViews.shown.isEmpty, active: NSApp.isActive,
                                idle: Self.idleSeconds(), blocked: Self.appBlocked(), away: away)
     }
 
