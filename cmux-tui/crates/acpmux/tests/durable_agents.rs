@@ -3410,6 +3410,62 @@ async fn a_link_lost_under_mdm_off_ends_its_agent_at_once() {
     );
 }
 
+/// Review 1 of #26059: under MDM's off, a link that breaks while its agent starts (the
+/// `initialize` answer could not be logged; `ACPMUX_TEST_UNLOGGED_ONCE`) left the start waiting,
+/// under the session's spawn lock, on an answer its stopped reader never reads. The start fails
+/// at once instead, and the agent ends.
+#[tokio::test]
+async fn a_link_that_breaks_while_its_agent_starts_under_mdm_off_ends_it() {
+    let env = [("ACPMUX_TEST_UNLOGGED_ONCE", "agentCapabilities")];
+    let fake = json!({"argv": ["python3", FAKE], "env": {"FAKE_FULL_ACCESS": "1"}});
+    let (daemon, mut rpc) = proven_daemon("mdmbreakstart", fake, &env).await;
+    let pushed = rpc.call("_acpmux/chat_settings", mdm_off_push()).await;
+    assert_eq!(pushed["applied"], true, "{pushed}");
+    let new = json!({"cwd": daemon.home, "mcpServers": []});
+    let created =
+        tokio::time::timeout(Duration::from_secs(20), rpc.reply("session/new", new)).await;
+    assert!(
+        created.is_ok(),
+        "a start whose link broke under the managed off waited on its stopped reader"
+    );
+    // Every host this start left ends.
+    for entry in std::fs::read_dir(daemon.home.join("hosts")).into_iter().flatten().flatten() {
+        let Ok(bytes) = std::fs::read(entry.path()) else { continue };
+        let Ok(record) = serde_json::from_slice::<Value>(&bytes) else { continue };
+        let Some(pid) = record["harness_pid"].as_i64() else { continue };
+        assert!(
+            gone_within(pid, Duration::from_secs(10)),
+            "the agent whose link broke while it started ran on under the managed off"
+        );
+    }
+}
+
+/// Review 1 of #26059: with MDM unset, a link whose acknowledgement failed while its socket still
+/// looks open (`ACPMUX_TEST_ACK_FAILS_ONCE`) goes as before: its agent still counts as alive, so
+/// the chat it answered is not marked disconnected, and its host runs on.
+#[tokio::test]
+async fn an_ack_failure_with_mdm_unset_leaves_its_chat_as_before() {
+    let fake = json!({"argv": ["python3", FAKE], "env": {"FAKE_FULL_ACCESS": "1"}});
+    let env = [("ACPMUX_TEST_ACK_FAILS_ONCE", "ack-fails-here")];
+    let (daemon, mut rpc) = proven_daemon("mdmackunset", fake, &env).await;
+    let session = new_session(&daemon).await;
+    let harness_pid = daemon.host_record(&session)["harness_pid"].as_i64().unwrap();
+    let fails = json!({"sessionId": session,
+                       "prompt": [{"type": "text", "text": "ack-fails-here"}]});
+    rpc.reply("session/prompt", fails).await;
+    tokio::time::sleep(Duration::from_millis(1000)).await;
+    let summary = rpc.call("_acpmux/sessions", json!({})).await;
+    let entry = summary["sessions"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|s| s["sessionId"] == session.as_str())
+        .cloned()
+        .expect("the chat is kept");
+    assert_ne!(entry["status"], "disconnected", "{entry}");
+    assert!(alive(harness_pid), "an ack failure with MDM unset ended the agent");
+}
+
 /// Review 68 of #23322: a host link whose acknowledgement failed (the debug seam
 /// `ACPMUX_TEST_ACK_FAILS_ONCE`) stops its reader while its socket may still look open. Under
 /// MDM's off what the host reports from then on is not heard, so the agent ends at once, before
