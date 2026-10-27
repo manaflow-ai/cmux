@@ -78,7 +78,7 @@ extension UpdateDriver {
         guard case .installing(let installing) = model.state else { return nil }
         if installing.relaunchBlockers != nil { return heldRelaunchItem }
         guard installing.isAutoUpdate else { return nil }
-        return quitInstallItem
+        return quitInstall?.item ?? quitInstallItem
     }
 
     /// Whether `state` ends a click's request to install when ready: nothing
@@ -112,9 +112,16 @@ extension UpdateDriver {
         if automatic, !holdsUserInstalls, let item {
             // Set before asking: the host may start its quit at once.
             quitInstall = (item, install, cancel)
+            quitInstallCommitted = false
             if actionDelegate?.updaterQuitsForAutomaticInstall(build: item.versionString) == true {
                 log.append("background install: the app quits for the install; Sparkle installs as it exits, the app reopens itself")
-                setState(.installing(.init(retryTerminatingApplication: {}, dismiss: {})))
+                // The quit may wait (the host's moment hold): the update shows as staged, and a
+                // click installs it at once instead of waiting with it.
+                setState(.installing(.init(
+                    isAutoUpdate: true,
+                    retryTerminatingApplication: { [weak self] in _ = self?.installQuitInstallNow() },
+                    dismiss: {}
+                )))
                 return true
             }
             quitInstall = nil
@@ -133,6 +140,7 @@ extension UpdateDriver {
     func restageAfterDeclinedQuit() -> Bool {
         guard let pending = quitInstall else { return false }
         quitInstall = nil
+        quitInstallCommitted = false
         log.append("background install: the app did not quit for the install; staged again, waiting for the user")
         backgroundItem = pending.item
         stagedInstall = pending.install
@@ -145,6 +153,30 @@ extension UpdateDriver {
         return true
     }
 
+    /// A click (Install or Relaunch) while the app waits to quit for an automatic install: the click
+    /// owns it now. The host's wait ends without quitting, and Sparkle installs and relaunches at
+    /// once, activating, as for any click. False when no such install waits.
+    @discardableResult
+    func installQuitInstallNow() -> Bool {
+        guard let pending = quitInstall, !quitInstallCommitted else { return false }
+        log.append("background install: clicked while the app waited to quit for the install; installing now")
+        endAutomaticInstallHold()
+        relaunchIsAutomatic = false
+        setState(.installing(.init(retryTerminatingApplication: {}, dismiss: {})))
+        pending.install()
+        return true
+    }
+
+    /// The host's wait ended and its helper now quits the app and reopens it (`open -g`): a click
+    /// can no longer install through Sparkle (both would reopen it), and nothing shows as staged.
+    /// A refused quit restages it (``restageAfterDeclinedQuit()``).
+    func commitQuitInstall() {
+        guard quitInstall != nil else { return }
+        log.append("background install: the app quits for the install now")
+        quitInstallCommitted = true
+        setState(.installing(.init(retryTerminatingApplication: {}, dismiss: {})))
+    }
+
     /// The automatic install the host meant to quit for is now one the user is in the app for:
     /// Sparkle installs and relaunches (activating), once. False when no such install waits.
     @discardableResult
@@ -152,6 +184,8 @@ extension UpdateDriver {
         guard let pending = quitInstall else { return false }
         quitInstall = nil
         log.append("background install: relaunching through Sparkle")
+        // No longer staged: Sparkle relaunches now, so nothing is left for a click.
+        setState(.installing(.init(retryTerminatingApplication: {}, dismiss: {})))
         pending.install()
         return true
     }

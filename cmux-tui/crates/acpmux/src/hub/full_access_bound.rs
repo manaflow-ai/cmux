@@ -16,7 +16,8 @@
 //!   (`RemoteFloor::undeclared_mode`); for a host a restart left, read back from its log first;
 //! - option: any config option holds a full-access value, the `mode` one included (a harness can
 //!   keep `modes.currentModeId` at an asking mode while its `mode` option says full access);
-//! - reported: its harness reported full access while nothing watched it (`StartReports`).
+//! - reported: its harness reported full access while nothing watched it (`StartReports`), or in
+//!   a report the inbound loop has not applied yet (`FloorState::unapplied_full_access`).
 //!
 //! Each form is judged by the shared rule (`start_mode::is_full_access`). A start whose profile
 //! pins full access is refused (`refuse_pinned_full_access`), and so is one that comes up in it
@@ -71,16 +72,24 @@ impl FullAccessView {
 
     /// A session's agent as acpmux records it.
     pub(crate) fn of_session(session: &Session) -> Self {
+        // One snapshot, under the meta lock: the tap counts a report under it (`session_tap`),
+        // and `write_mode_state` applies the report and takes its count back under it, so the
+        // view sees a report counted, applied, or not yet come (reviews 3 to 5 of #26052).
+        let m = session.meta.lock().unwrap_or_else(|e| e.into_inner());
+        #[cfg(test)]
+        between_view_reads(session);
+        let reported = session.floor.unapplied_full_access.load(Ordering::SeqCst) > 0;
         let undeclared_mode =
             session.floor.undeclared_mode.lock().unwrap_or_else(|e| e.into_inner()).clone();
-        let meta = session.meta();
+        let meta = m.clone();
+        drop(m);
         Self {
             mode: crate::web_modes::mode_of(&meta),
             undeclared_mode,
             options: config_options(&meta).cloned().collect(),
             // The argv its agent started with; before any start, the creation's.
             argv: meta.spawn_argv.unwrap_or(meta.harness_argv),
-            reported: false,
+            reported,
         }
     }
 }
@@ -192,6 +201,31 @@ pub(super) type WriteSeam = std::sync::Mutex<
     Option<(tokio::sync::oneshot::Sender<()>, tokio::sync::oneshot::Receiver<()>)>,
 >;
 
+/// How long an MDM off push waits for the family messages and answers checked under the old
+/// bound to be written before it cuts them (`hold_until_written`).
+#[cfg(not(test))]
+const FAMILY_WRITE_BUDGET: std::time::Duration = std::time::Duration::from_secs(5);
+/// Tests: short, so a test sees a push cut and try again in a few seconds.
+#[cfg(test)]
+const FAMILY_WRITE_BUDGET: std::time::Duration = std::time::Duration::from_secs(1);
+
+/// MDM's bound as one operation reads it, once, at its entry (`Hub::mdm_snapshot`): every check
+/// of that operation ranks under it, so no two of them read different pushes (review 86 of
+/// #23322). `generation` counts the offs pushed (`full_access_off_now`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) struct MdmSnapshot {
+    pub(super) off: bool,
+    pub(super) generation: u64,
+}
+
+/// The family gate held for one message or answer (`Hub::family_gate`), the bound read once it
+/// was taken, and the off pushes' cuts since.
+pub(super) struct FamilyHold {
+    gate: tokio::sync::OwnedRwLockReadGuard<()>,
+    pub(super) bound: MdmSnapshot,
+    cut: tokio::sync::watch::Receiver<u64>,
+}
+
 impl Hub {
     /// Tests only: waits at the pause a test set (`WriteSeam`), once.
     #[cfg(test)]
@@ -205,22 +239,68 @@ impl Hub {
 
     /// A family message about to reach `session`'s agent (`provenance` a family prompt's, a
     /// sub-session's retry, or a continuation of either; any other prompt: Ok(None), no gate):
-    /// checked again
-    /// (`family_dispatch_check`) under the family gate, which the caller holds until the
-    /// message is written. An MDM off push waits on the gate (`full_access_turned_off`), so a
-    /// message checked under the old bound is written before the push returns, and one checked
-    /// after it is checked under the off.
+    /// checked again (`family_dispatch_check`) under the family gate, which the caller holds
+    /// until the message is written (`hold_until_written`). An MDM off push waits on the gate
+    /// (`full_access_turned_off`), so a message checked under the old bound is written, or cut,
+    /// before the push returns, and one checked after it is checked under the off.
     pub(super) async fn family_gate(
         &self,
         session: &Session,
         provenance: Option<&Value>,
-    ) -> Result<Option<tokio::sync::RwLockReadGuard<'_, ()>>, RpcError> {
+    ) -> Result<Option<FamilyHold>, RpcError> {
         if !super::subsession_guard::is_family(provenance) {
             return Ok(None);
         }
-        let gate = self.family_gate.read().await;
-        self.family_dispatch_check(session, provenance).await?;
-        Ok(Some(gate))
+        let hold = self.family_hold().await;
+        self.family_dispatch_check(session, provenance, hold.bound).await?;
+        Ok(Some(hold))
+    }
+
+    /// MDM's bound now, read once for one operation (`MdmSnapshot`).
+    pub(super) fn mdm_snapshot(&self) -> MdmSnapshot {
+        let (_, generation, off) = self.full_access_off_now();
+        MdmSnapshot { off, generation }
+    }
+
+    /// Takes the family gate (`family_gate`), for a family message or an ancestor's answer, and
+    /// reads the bound under it.
+    pub(super) async fn family_hold(&self) -> FamilyHold {
+        let gate = self.family_gate.clone().read_owned().await;
+        let mut cut = self.family_cut.subscribe();
+        cut.borrow_and_update();
+        FamilyHold { gate, bound: self.mdm_snapshot(), cut }
+    }
+
+    /// Holds `hold` until the message about to go to `session`'s agent under the returned fence
+    /// is written. An off push that waited `FAMILY_WRITE_BUDGET` cuts it: a message still queued
+    /// is then never written, and the agent whose writer has it already ends first, by an
+    /// identity the cut proves (`Fence::cut_or_end`, reviews 81 and 82 of #23322), so nothing
+    /// the push waited for reaches the agent after it. A cut that can not prove that in time
+    /// tries again, holding the gate (review 84).
+    pub(super) fn hold_until_written(
+        self: &Arc<Self>,
+        session: &Arc<Session>,
+        hold: FamilyHold,
+    ) -> crate::agent::Fence {
+        let fence = crate::agent::Fence::default();
+        let FamilyHold { gate, bound, mut cut } = hold;
+        let (held, id) = (fence.clone(), session.id.clone());
+        // task-owner: ends once the message settles (every carrier settles it) or is cut; each
+        // try to end its writer below is bounded.
+        tokio::spawn(async move {
+            tokio::select! {
+                biased;
+                () = held.settled() => {}
+                _ = cut.changed() => {
+                    while !held.cut_or_end(FAMILY_WRITE_BUDGET).await {
+                        tracing::warn!(session = %id, checked_at = bound.generation, "an MDM off push cut a family message whose agent did not end in time; trying again");
+                        tokio::time::sleep(FAMILY_WRITE_BUDGET).await;
+                    }
+                }
+            }
+            drop(gate);
+        });
+        fence
     }
 
     /// Whether a mode or policy that skips every approval may run now: the settings file under
@@ -320,12 +400,15 @@ impl Hub {
     /// MDM has just forced full access off (`apply_full_access_push`): an ask that read the
     /// policy before the push (`policy_for` reads the bound under the prompt's lock, where it
     /// decides) finishes first, and so does a family message or answer checked under the old
-    /// bound (`family_gate`), so no approve-all decision made after the push returns uses the
+    /// bound (`family_gate`), written or, past `FAMILY_WRITE_BUDGET`, cut
+    /// (`hold_until_written`), so no approve-all decision made after the push returns uses the
     /// old bound.
     /// It runs at every push of the off, as one may follow an agent that entered full access
     /// since. `changed`: this push turned it off; the pool drains only then.
     pub(super) async fn full_access_turned_off(&self, changed: bool) {
-        drop(self.family_gate.write().await);
+        while tokio::time::timeout(FAMILY_WRITE_BUDGET, self.family_gate.write()).await.is_err() {
+            self.family_cut.send_modify(|n| *n += 1);
+        }
         for session in self.sessions() {
             drop(session.permissions.lock().unwrap_or_else(|e| e.into_inner()));
         }
@@ -609,6 +692,12 @@ impl Hub {
             return FullAccessEnd::StillRunning;
         };
         let child = slot.take();
+        // Under the slot's lock the inbound loop checks a mode or option report under: one it
+        // checked before this is applied before this, and one after is dropped, not applied to
+        // the agent after it (`permissions.rs`, reviews 3, 5 and 6 of #26052).
+        if let Some(child) = &child {
+            session.floor.retired_through.fetch_max(child.generation, Ordering::SeqCst);
+        }
         drop(slot);
         let ended = child.is_some() || !Self::host_record_gone(&session.id);
         if let Some(child) = &child {
@@ -643,6 +732,13 @@ impl Hub {
             }
         }
         session.floor.full_access_end_pending.store(false, Ordering::SeqCst);
+        // What its agent reported and nothing applied goes with it; a report it still sends is
+        // not counted (its tap's epoch is gone, review 4 of #26052).
+        {
+            let _m = session.meta.lock().unwrap_or_else(|e| e.into_inner());
+            session.floor.report_epoch.fetch_add(1, Ordering::SeqCst);
+            session.floor.unapplied_full_access.store(0, Ordering::SeqCst);
+        }
         // What only the ended agent said goes with it: the mode it reported without declaring
         // modes, and a full-access value of any option (the next agent reports its own, and
         // `replay_config` skips a null).
@@ -685,6 +781,16 @@ fn text_at(v: Option<&Value>, key: &str) -> Option<String> {
     v.and_then(|v| v.get(key)).and_then(Value::as_str).map(str::to_owned)
 }
 
+/// Whether `params` of a `session/update` the session's harness sent reports full access for the
+/// session itself, not one of its subagents (`on_update` skips those): counted by the tap as it
+/// is logged and taken back once the inbound loop applied it (`FloorState::unapplied_full_access`).
+pub(super) fn own_full_access_report(session: &Session, params: &Value) -> bool {
+    StartReports::reports_full_access(params)
+        && !params["sessionId"].as_str().is_some_and(|sid| {
+            session.subagents.lock().unwrap_or_else(|e| e.into_inner()).owns(sid)
+        })
+}
+
 /// What `end_if_runs_full_access` did.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum FullAccessEnd {
@@ -701,6 +807,19 @@ pub(super) enum FullAccessEnd {
 thread_local! {
     /// Test seam (review 75): runs right after a start read MDM's off.
     pub(super) static AFTER_OFF_COUNT: std::cell::Cell<Option<fn(&Hub)>> = const { std::cell::Cell::new(None) };
+}
+
+#[cfg(test)]
+thread_local! {
+    /// Test seam (review 3 of #26052): runs between `FullAccessView::of_session`'s reads.
+    pub(super) static BETWEEN_VIEW_READS: std::cell::Cell<Option<fn(&Session)>> = const { std::cell::Cell::new(None) };
+}
+
+#[cfg(test)]
+fn between_view_reads(session: &Session) {
+    if let Some(f) = BETWEEN_VIEW_READS.take() {
+        f(session);
+    }
 }
 
 #[cfg(test)]
@@ -913,6 +1032,82 @@ mod tests {
         assert!(!full_access_allowed_by(Some(true), false), "a forced on raises nothing");
     }
 
+    /// The other side of `a_report_tapped_and_applied_while_the_view_is_read_is_seen`.
+    static VIEW_READ: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+    static REPORT_DONE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+    static DONE_IN_READ: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+    /// Reviews 3 to 5 of #26052: a report the tap counts and the inbound loop applies (it sets
+    /// the mode, then takes back the count) while the view is read is in the view: a view read
+    /// while a report came and went never says the agent asks. `BETWEEN_VIEW_READS` holds the
+    /// read 300 ms; the tap and `on_update` run on another thread meanwhile, counted only, or
+    /// counted and applied.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn a_report_tapped_and_applied_while_the_view_is_read_is_seen() {
+        for applied in [false, true] {
+            let (hub, chat, _) = two_chats_on(&[], false).await;
+            chat.meta.lock().unwrap().modes =
+                Some(json!({"currentModeId": "normal", "availableModes": []}));
+            for flag in [&VIEW_READ, &REPORT_DONE, &DONE_IN_READ] {
+                flag.store(false, Ordering::SeqCst);
+            }
+            let tap = hub.session_tap(&chat);
+            let params = json!({"sessionId": "own",
+                                "update": {"sessionUpdate": "current_mode_update",
+                                           "currentModeId": "full-access"}});
+            let report = crate::rpc::Message::Notification {
+                method: crate::rpc::method::SESSION_UPDATE.to_owned(),
+                params: Some(params.clone()),
+            };
+            let (h, c) = (hub.clone(), chat.clone());
+            let reporter = tokio::task::spawn_blocking(move || {
+                while !VIEW_READ.load(Ordering::SeqCst) {
+                    std::thread::sleep(std::time::Duration::from_millis(5));
+                }
+                tap(crate::agent::Direction::In, &report, None);
+                if applied {
+                    h.on_update(&c, Some(&params), false);
+                }
+                REPORT_DONE.store(true, Ordering::SeqCst);
+            });
+            BETWEEN_VIEW_READS.set(Some(|_: &Session| {
+                VIEW_READ.store(true, Ordering::SeqCst);
+                std::thread::sleep(std::time::Duration::from_millis(300));
+                DONE_IN_READ.store(REPORT_DONE.load(Ordering::SeqCst), Ordering::SeqCst);
+            }));
+            let view = FullAccessView::of_session(&chat);
+            reporter.await.unwrap();
+            assert!(
+                !DONE_IN_READ.load(Ordering::SeqCst) || runs_full_access(&view).is_some(),
+                "a report that came and went while the view was read is missed ({applied})"
+            );
+        }
+    }
+
+    /// Review 4 of #26052: a report the off's ended agent sends after its end is not counted for
+    /// the agent after it.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn a_report_of_an_ended_agent_is_not_counted() {
+        let (hub, chat, _) = two_chats_on(&[], false).await;
+        // The ended agent's tap.
+        let tap = hub.session_tap(&chat);
+        hub.end_managed_full_access(&chat).await;
+        let report = crate::rpc::Message::Notification {
+            method: crate::rpc::method::SESSION_UPDATE.to_owned(),
+            params: Some(json!({"sessionId": "ended",
+                                "update": {"sessionUpdate": "current_mode_update",
+                                           "currentModeId": "full-access"}})),
+        };
+        // Once its exit was handled (which drops the count too): the report comes after it.
+        tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
+        tap(crate::agent::Direction::In, &report, None);
+        assert_eq!(
+            chat.floor.unapplied_full_access.load(Ordering::SeqCst),
+            0,
+            "an ended agent's late report was counted"
+        );
+    }
+
     /// Review 1 of #26034: an off push never waits without bound on a session whose spawn lock
     /// another operation holds (a start that cannot end its agent). That session's end is left
     /// pending for the next check, and the push returns.
@@ -951,6 +1146,42 @@ mod tests {
             "the end waited on a held agent slot"
         );
         assert!(chat.floor.full_access_end_pending.load(Ordering::SeqCst));
+    }
+
+    /// Review 6 of #26052: a mode report of an agent MDM's off ended, still queued while eight
+    /// agents after it start and end, is not applied to the ninth: it is not the current agent's.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn a_report_queued_across_nine_ends_is_not_the_next_agents() {
+        let (hub, chat, _) = two_chats_on(&[], false).await;
+        let first = hub.child_for(&chat).await.expect("an agent");
+        // The first agent's report, queued: it reaches the inbound loop after all the rest.
+        let report = Inbound::Notification {
+            method: crate::rpc::method::SESSION_UPDATE.to_owned(),
+            params: Some(json!({"sessionId": "own",
+                                "update": {"sessionUpdate": "current_mode_update",
+                                           "currentModeId": "full-access"}})),
+            agent: first.generation,
+            host_seq: None,
+            host_incarnation: None,
+            persisted: None,
+        };
+        hub.end_managed_full_access(&chat).await;
+        for _ in 0..8 {
+            hub.child_for(&chat).await.expect("an agent");
+            hub.end_managed_full_access(&chat).await;
+        }
+        let last = hub.child_for(&chat).await.expect("an agent");
+        chat.inbound_tx.send(report).await.unwrap();
+        let (done, drained) = tokio::sync::oneshot::channel();
+        chat.inbound_tx.send(Inbound::Barrier(done)).await.unwrap();
+        drained.await.unwrap();
+        assert_ne!(
+            crate::web_modes::mode_of(&chat.meta()).as_deref(),
+            Some("full-access"),
+            "an ended agent's late report set the mode of the agent after it"
+        );
+        let current = chat.child.lock().await.clone().expect("the last agent");
+        assert_eq!(current.generation, last.generation);
     }
 
     /// Review 2 of #26034: under MDM's off, an agent whose end is pending is not handed out by
@@ -1159,6 +1390,11 @@ mod tests {
         });
     }
 
+    fn push_off(hub: &Arc<Hub>) -> tokio::task::JoinHandle<()> {
+        let hub = hub.clone();
+        tokio::spawn(async move { hub.apply_full_access_push(Some(false)).await })
+    }
+
     /// Waits for the first entry of `session`'s log whose kind is one of `kinds`: its kind.
     async fn logged(hub: &Hub, session: &Session, kinds: &[&str]) -> String {
         let found = async {
@@ -1171,6 +1407,155 @@ mod tests {
             }
         };
         tokio::time::timeout(WAIT, found).await.unwrap_or_else(|_| panic!("no {kinds:?} logged"))
+    }
+
+    /// Pauses `session`'s agent's input before the first line holding `pattern`
+    /// (`agent::InputSeam`): the line is queued, its transport takes nothing more.
+    async fn pause_input(
+        hub: &Arc<Hub>,
+        session: &Arc<Session>,
+        pattern: &str,
+    ) -> (tokio::sync::oneshot::Receiver<()>, tokio::sync::oneshot::Sender<()>) {
+        pause_input_at(hub, session, pattern, false).await
+    }
+
+    /// `pause_input`, or (`writing`) once the writer took the line and is writing it.
+    async fn pause_input_at(
+        hub: &Arc<Hub>,
+        session: &Arc<Session>,
+        pattern: &str,
+        writing: bool,
+    ) -> (tokio::sync::oneshot::Receiver<()>, tokio::sync::oneshot::Sender<()>) {
+        let agent = hub.child_for(session).await.expect("a running agent");
+        let (arrived_tx, arrived) = tokio::sync::oneshot::channel();
+        let (release, release_rx) = tokio::sync::oneshot::channel();
+        *agent.input_seam.lock().unwrap() =
+            Some((pattern.to_owned(), writing, arrived_tx, release_rx));
+        (arrived, release)
+    }
+
+    /// A family message checked under the old bound, queued for its agent while its transport
+    /// takes nothing, then MDM's off pushed. Its input moves again 300 ms into the push, or,
+    /// `stuck`, only once the push returned. Whether the push had returned at 300 ms, and how
+    /// the message's turn ended.
+    async fn off_push_over_a_held_write(stuck: bool) -> (bool, String) {
+        let (hub, parent, child) = approve_all_parent().await;
+        let (arrived, release) = pause_input(&hub, &child, "session/prompt").await;
+        send(&hub, &parent, &child, "hello");
+        tokio::time::timeout(WAIT, arrived).await.expect("the message is queued").unwrap();
+        let push = push_off(&hub);
+        tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+        let returned = push.is_finished();
+        let mut release = Some(release);
+        if !stuck {
+            let _ = release.take().map(|r| r.send(()));
+        }
+        tokio::time::timeout(WAIT, push).await.expect("the push returns").unwrap();
+        let _ = release.map(|r| r.send(()));
+        (returned, logged(&hub, &child, &["turn_end", "turn_error"]).await)
+    }
+
+    /// Review 40 of #23322: a family message queued for its agent, not yet written, holds an
+    /// off push until its transport writes it.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn an_off_push_waits_for_a_queued_family_message_until_it_is_written() {
+        let (returned, end) = off_push_over_a_held_write(false).await;
+        assert!(
+            !returned,
+            "an off push returned while a message checked under the old bound was queued"
+        );
+        assert_eq!(end, "turn_end", "the message was written once its transport took it");
+    }
+
+    /// Review 40 of #23322: a transport that never takes the message holds the push only for a
+    /// bounded time, and the message it cut is never written after the push returns.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn an_off_push_cuts_a_family_message_its_transport_never_takes() {
+        let (_, end) = off_push_over_a_held_write(true).await;
+        assert_eq!(end, "turn_error", "a message the off push cut was written after it returned");
+    }
+
+    /// Review 81 of #23322: a message its agent's writer already took when the transport stops
+    /// taking input is cut by ending that agent at once. The push returns in bounded time even
+    /// while the chat's agent slot is held elsewhere (a stop waiting on its host), and the
+    /// message never reaches the agent.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn an_off_push_returns_in_time_while_a_cut_message_is_being_written() {
+        let (hub, parent, child) = approve_all_parent().await;
+        let (arrived, release) = pause_input_at(&hub, &child, "session/prompt", true).await;
+        send(&hub, &parent, &child, "hello");
+        tokio::time::timeout(WAIT, arrived).await.expect("the writer takes the message").unwrap();
+        let slot = child.child.lock().await;
+        let push = push_off(&hub);
+        let returned = tokio::time::timeout(std::time::Duration::from_secs(15), push).await;
+        drop(slot);
+        let _ = release.send(());
+        assert!(returned.is_ok(), "an off push waited on a held agent slot past its bound");
+        let end = logged(&hub, &child, &["turn_end", "turn_error"]).await;
+        assert_eq!(end, "turn_error", "a message the off push cut reached its agent");
+    }
+
+    /// Review 84 of #23322: a cut that can not prove its message's agent ended in time (its
+    /// reaper holds its slot) tries again, and the push never returns while the message may
+    /// still reach the agent.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn an_off_push_waits_until_a_cut_messages_agent_is_ended() {
+        let (hub, parent, child) = approve_all_parent().await;
+        let (arrived, release) = pause_input_at(&hub, &child, "session/prompt", true).await;
+        send(&hub, &parent, &child, "hello");
+        tokio::time::timeout(WAIT, arrived).await.expect("the writer takes the message").unwrap();
+        let slot = hub.child_for(&child).await.expect("a running agent").child_slot();
+        let reaping = slot.lock().await;
+        let push = push_off(&hub);
+        // The cut gives up on the slot after about 3 s (the budget, then twice it on the lock).
+        tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+        let returned = push.is_finished();
+        drop(reaping);
+        tokio::time::timeout(WAIT, push).await.expect("the push returns").unwrap();
+        let _ = release.send(());
+        assert!(!returned, "an off push returned while a cut message's agent could still read it");
+        let end = logged(&hub, &child, &["turn_end", "turn_error"]).await;
+        assert_eq!(end, "turn_error", "a message the off push cut reached its agent");
+    }
+
+    /// Review 86 of #23322: a family prompt that fails before its write (its PDF attachment has
+    /// no folder to go to) settles its fence, so the next off push does not wait on it.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn a_family_prompt_that_fails_before_its_write_holds_no_push() {
+        let (hub, parent, child) = approve_all_parent().await;
+        let dir = std::env::temp_dir().join(format!("hbf-pdf-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        // A file where the agent's folder goes, so its attachment folder cannot be made.
+        std::fs::write(&dir, "").unwrap();
+        child.meta.lock().unwrap().cwd = dir.clone();
+        let pdf = vec![json!({"type": "document", "name": "a.pdf", "data": "JVBERi0="})];
+        let sent = hub.send_family_prompt(&parent, &child, pdf, None, false, false, None, None);
+        tokio::time::timeout(WAIT, sent).await.expect("the send answers").unwrap();
+        // The turn fails at its prompt's attachment, before anything is written.
+        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+        let started = std::time::Instant::now();
+        tokio::time::timeout(WAIT, push_off(&hub)).await.expect("the push returns").unwrap();
+        let took = started.elapsed();
+        let _ = std::fs::remove_file(&dir);
+        assert!(
+            took < std::time::Duration::from_millis(500),
+            "an off push waited {took:?} on a prompt that failed before its write"
+        );
+    }
+
+    /// Review 86 of #23322: a family check ranks both sessions under the one bound its operation
+    /// read at its entry, never a newer push in between.
+    #[tokio::test]
+    async fn a_family_check_ranks_both_sessions_under_the_bound_it_read_once() {
+        let (hub, parent, child) = approve_all_parent().await;
+        let before = hub.mdm_snapshot();
+        hub.apply_full_access_push(Some(false)).await;
+        let after = hub.mdm_snapshot();
+        assert!(!before.off && after.off && after.generation > before.generation);
+        let checked = hub.receiver_check_under(&parent, &child, before).await;
+        assert!(checked.is_ok(), "under the bound read before the push: {checked:?}");
+        let checked = hub.receiver_check_under(&parent, &child, after).await;
+        assert!(checked.is_err(), "under the off the approve-all parent asks");
     }
 
     /// Review 40 of #23322: a family message whose agent hit its limit after the off push is
