@@ -1,5 +1,6 @@
 import CmuxNextBridge
 import CmuxNextDaemon
+import CmuxNextInputModel
 import Foundation
 import CmuxNextFocus
 
