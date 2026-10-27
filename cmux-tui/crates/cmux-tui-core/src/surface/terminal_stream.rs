@@ -147,13 +147,23 @@ impl Surface {
         })
     }
 
-    pub(crate) fn subscribe_terminal_stream_change(
+    /// Notifies `wake` once at the terminal stream's next change (output,
+    /// a resize, a reconnect or a clear); the returned id unregisters it
+    /// ([`Self::unwatch_terminal_stream_change`]).
+    pub(crate) fn watch_terminal_stream_change(
         &self,
-    ) -> ghostty_vt::Result<TerminalStreamSubscription<'_>> {
+        wake: &Arc<ResourceWaitWake>,
+    ) -> ghostty_vt::Result<u64> {
         let Some(pty) = self.as_pty() else {
             return Err(ghostty_vt::Error::InvalidValue);
         };
-        Ok(pty.stream_progress.subscribe())
+        Ok(pty.stream_progress.register_wake(wake))
+    }
+
+    pub(crate) fn unwatch_terminal_stream_change(&self, waiter_id: u64) {
+        if let Some(pty) = self.as_pty() {
+            pty.stream_progress.unregister_wake(waiter_id);
+        }
     }
 
     /// Wait until PTY output advances beyond `observed`, or until `deadline`.

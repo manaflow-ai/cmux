@@ -190,6 +190,21 @@ impl Mux {
         self.terminal_exit_waiters.subscribe(terminal_id)
     }
 
+    /// Notifies `wake` once when `terminal_id` exits; the returned id
+    /// unregisters it ([`Self::unwatch_terminal_exit`]). A wait that holds
+    /// no thread registers this way (p05-ipc-147).
+    pub(crate) fn watch_terminal_exit(
+        &self,
+        terminal_id: &TerminalPublicId,
+        wake: &Arc<ResourceWaitWake>,
+    ) -> u64 {
+        self.terminal_exit_waiters.register(terminal_id, wake)
+    }
+
+    pub(crate) fn unwatch_terminal_exit(&self, terminal_id: &TerminalPublicId, waiter_id: u64) {
+        self.terminal_exit_waiters.unregister(terminal_id, waiter_id);
+    }
+
     #[track_caller]
     pub(super) fn terminal_public_ids_for_hosted(
         registry: &WorkspaceRegistry,

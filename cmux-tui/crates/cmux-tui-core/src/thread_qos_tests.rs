@@ -129,8 +129,7 @@ fn expected_live(class: ThreadQos) -> cmux_threads::LiveQos {
 
 /// Each role of threading-model.md "Daemon QoS by role" (p05-ipc-080)
 /// starts a thread through the entry point its production threads use and
-/// reads its class inside the body: request helpers through
-/// `RequestQos::spawn_helper`, watchers and bulk through `spawn_raisable`,
+/// reads its class inside the body: watchers and bulk through `spawn_raisable`,
 /// the echo path through `echo_thread::spawn`. Only the echo path disallows
 /// blocking: a control stream that waits for its attach to commit
 /// (mux-snapshot-attach-out, mux-resource-terminal-attach) must not be one.
@@ -139,20 +138,7 @@ fn expected_live(class: ThreadQos) -> cmux_threads::LiveQos {
 #[test]
 fn every_role_runs_at_its_class_in_its_body() {
     type Start = fn(Probe) -> BodyReads;
-    let roles: [(&str, Start, ThreadQos, bool); 4] = [
-        (
-            "request helper",
-            |probe| {
-                crate::request_qos::RequestQosGate::default()
-                    .snapshot()
-                    .spawn_helper("mux-role-request-helper", None, probe)
-                    .expect("spawn")
-                    .join()
-                    .expect("join")
-            },
-            crate::request_qos::REQUEST_HELPER_QOS,
-            true,
-        ),
+    let roles: [(&str, Start, ThreadQos, bool); 3] = [
         (
             "watcher",
             |probe| {

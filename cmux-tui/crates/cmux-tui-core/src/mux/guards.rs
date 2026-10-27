@@ -48,19 +48,39 @@ impl Drop for PendingWorkspaceSurface<'_> {
 pub(crate) struct ResourceWaitWake {
     pub(super) notified: Mutex<bool>,
     pub(super) changed: Condvar,
+    /// Run by the first notify, outside the lock: a wait that is a work
+    /// item posts its next turn instead of a thread waking (p05-ipc-147).
+    on_notify: Option<Box<dyn Fn() + Send + Sync>>,
 }
 
 impl Default for ResourceWaitWake {
     fn default() -> Self {
-        Self { notified: Mutex::new(false), changed: Condvar::new() }
+        Self { notified: Mutex::new(false), changed: Condvar::new(), on_notify: None }
     }
 }
 
 impl ResourceWaitWake {
+    /// A wake that runs `on_notify` when it is notified, for a waiter that
+    /// holds no thread.
+    pub(crate) fn with_hook(on_notify: impl Fn() + Send + Sync + 'static) -> Self {
+        Self { on_notify: Some(Box::new(on_notify)), ..Self::default() }
+    }
+
     pub(crate) fn notify(&self) {
-        let mut notified = self.notified.lock().recover_poison();
-        *notified = true;
-        self.changed.notify_all();
+        let first = {
+            let mut notified = self.notified.lock().recover_poison();
+            let first = !*notified;
+            *notified = true;
+            self.changed.notify_all();
+            first
+        };
+        if first && let Some(on_notify) = &self.on_notify {
+            on_notify();
+        }
+    }
+
+    pub(crate) fn is_notified(&self) -> bool {
+        *self.notified.lock().recover_poison()
     }
 
     /// Returns true for an explicit wake and false when the deadline expires.

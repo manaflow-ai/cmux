@@ -150,16 +150,21 @@ fn resource_wait_subscription_wakes_for_output_resize_reconnect_and_clear() {
     let surface =
         Surface::spawn_for_test(1, SurfaceOptions::default(), Arc::downgrade(&mux)).unwrap();
     let wake_deadline = || Some(Instant::now() + Duration::from_secs(1));
+    let subscribe = || {
+        let wake = Arc::new(ResourceWaitWake::default());
+        surface.watch_terminal_stream_change(&wake).unwrap();
+        wake
+    };
 
-    let output = surface.subscribe_terminal_stream_change().unwrap();
+    let output = subscribe();
     surface.apply_stream_output_for_test(b"progress-output").unwrap();
     assert!(output.wait_until(wake_deadline()), "terminal output did not wake the subscription");
 
-    let resize = surface.subscribe_terminal_stream_change().unwrap();
+    let resize = subscribe();
     assert!(surface.resize(91, 37).unwrap(), "test resize did not change the surface");
     assert!(resize.wait_until(wake_deadline()), "terminal resize did not wake the subscription");
 
-    let reconnect = surface.subscribe_terminal_stream_change().unwrap();
+    let reconnect = subscribe();
     surface.as_pty().unwrap().stream_progress.notify_reconnect();
     assert!(
         reconnect.wait_until(wake_deadline()),
@@ -173,7 +178,7 @@ fn resource_wait_subscription_wakes_for_output_resize_reconnect_and_clear() {
         }
         term.vt_write(b"active-command");
     });
-    let clear = surface.subscribe_terminal_stream_change().unwrap();
+    let clear = subscribe();
     surface.clear_history().unwrap();
     assert!(clear.wait_until(wake_deadline()), "terminal clear did not wake the subscription");
 }

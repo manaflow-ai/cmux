@@ -93,7 +93,7 @@ pub use render_tap::{
 };
 use render_tap::{RenderHub, RenderTap};
 use spawn::{LocalLaunch, LocalSpawn};
-pub(crate) use stream_progress::{TerminalStreamProgress, TerminalStreamSubscription};
+pub(crate) use stream_progress::TerminalStreamProgress;
 pub use terminal_runtime::PtyTerminalRuntime;
 pub(crate) use terminal_runtime::{ColdFreeze, ScrollbackMemory, TerminalJournalGap, ThawWake};
 use terminal_runtime::{
