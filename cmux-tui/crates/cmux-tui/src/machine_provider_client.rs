@@ -323,6 +323,7 @@ impl ProviderEventReceiver {
             let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
                 return Err(RecvTimeoutError::Timeout);
             };
+            // wakeup-allow: deadline the caller's one timeout, fixed before the loop; a publish or a disconnect ends the wait, and the loop only waits out the rest after a wake with no event
             let (next, timed_out) = self
                 .queue
                 .ready
@@ -1153,6 +1154,7 @@ impl ProviderClient {
             return Err(error);
         }
 
+        // wakeup-allow: deadline the request's one response timeout; the response or a disconnect (cancel_pending) ends the wait first
         let mut frame = match receiver.recv_timeout(timeout) {
             Ok(Ok(frame)) => frame,
             Ok(Err(failure)) => return Err(failure.into()),
