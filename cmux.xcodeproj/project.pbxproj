@@ -4045,6 +4045,7 @@
 		C0DE00000000000000000D84 /* TerminalController+ControlPaneDock.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE00000000000000000D83 /* TerminalController+ControlPaneDock.swift */; };
 		C0DE00000000000000000C70 /* TerminalController+ControlProjectContext.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE00000000000000000C6F /* TerminalController+ControlProjectContext.swift */; };
 		D10548000000000000000013 /* TerminalController+ControlReadSnapshots.swift in Sources */ = {isa = PBXBuildFile; fileRef = D10548000000000000000014 /* TerminalController+ControlReadSnapshots.swift */; };
+		12F87A95A0CFF7E46392D485 /* TerminalController+ControlSessionPriorityContext.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A927D27D1B01A0EAECBA683 /* TerminalController+ControlSessionPriorityContext.swift */; };
 		C0DE00000000000000000C72 /* TerminalController+ControlSidebarContext.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE00000000000000000C71 /* TerminalController+ControlSidebarContext.swift */; };
 		C0DE00000000000000000C74 /* TerminalController+ControlSidebarContext2.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE00000000000000000C73 /* TerminalController+ControlSidebarContext2.swift */; };
 		C0DE00000000000000000C76 /* TerminalController+ControlSidebarContext3.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE00000000000000000C75 /* TerminalController+ControlSidebarContext3.swift */; };
@@ -8777,6 +8778,7 @@
 		C0DE00000000000000000D83 /* TerminalController+ControlPaneDock.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+ControlPaneDock.swift"; sourceTree = "<group>"; };
 		C0DE00000000000000000C6F /* TerminalController+ControlProjectContext.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+ControlProjectContext.swift"; sourceTree = "<group>"; };
 		D10548000000000000000014 /* TerminalController+ControlReadSnapshots.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+ControlReadSnapshots.swift"; sourceTree = "<group>"; };
+		9A927D27D1B01A0EAECBA683 /* TerminalController+ControlSessionPriorityContext.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+ControlSessionPriorityContext.swift"; sourceTree = "<group>"; };
 		C0DE00000000000000000C71 /* TerminalController+ControlSidebarContext.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+ControlSidebarContext.swift"; sourceTree = "<group>"; };
 		C0DE00000000000000000C73 /* TerminalController+ControlSidebarContext2.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+ControlSidebarContext2.swift"; sourceTree = "<group>"; };
 		C0DE00000000000000000C75 /* TerminalController+ControlSidebarContext3.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+ControlSidebarContext3.swift"; sourceTree = "<group>"; };
@@ -12847,6 +12849,7 @@
 				0DA4CD57D2810F4B410D9FCC /* SessionPriorityCoordinator.swift */,
 				C9F576E371C5320971F96134 /* SessionPriorityCoordinatorState.swift */,
 				F4E7C821999E70F7A1E63745 /* SessionPriorityNotice.swift */,
+				9A927D27D1B01A0EAECBA683 /* TerminalController+ControlSessionPriorityContext.swift */,
 			);
 			path = Sources;
 			sourceTree = "<group>";
@@ -17599,6 +17602,7 @@
 				C0DE00000000000000000D84 /* TerminalController+ControlPaneDock.swift in Sources */,
 				C0DE00000000000000000C70 /* TerminalController+ControlProjectContext.swift in Sources */,
 				D10548000000000000000013 /* TerminalController+ControlReadSnapshots.swift in Sources */,
+				12F87A95A0CFF7E46392D485 /* TerminalController+ControlSessionPriorityContext.swift in Sources */,
 				C0DE00000000000000000C72 /* TerminalController+ControlSidebarContext.swift in Sources */,
 				C0DE00000000000000000C74 /* TerminalController+ControlSidebarContext2.swift in Sources */,
 				C0DE00000000000000000C76 /* TerminalController+ControlSidebarContext3.swift in Sources */,
