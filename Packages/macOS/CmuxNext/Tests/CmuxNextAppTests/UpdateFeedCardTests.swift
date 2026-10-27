@@ -102,6 +102,8 @@ import Testing
                                        notes: notes, appcast: nil)
         #expect(UpdateFeedPosting.step(updated, posted: "1.0.0-nightly.100", enabled: false, at: at) == .skip(version: "1.0.0-nightly.200"))
         #expect(UpdateFeedPosting.step(updated, posted: "1.0.0-nightly.200", enabled: false, at: at) == .done)
+        // Review of #25950: before the settings load, the default (on) must not post the card.
+        #expect(UpdateFeedPosting.step(updated, posted: "1.0.0-nightly.100", enabled: nil, at: at) == .wait)
     }
 
     /// Review of #22701: one change left over read "1 more changes".

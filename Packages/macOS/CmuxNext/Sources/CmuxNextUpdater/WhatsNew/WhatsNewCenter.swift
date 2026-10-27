@@ -21,6 +21,8 @@ public final class WhatsNewCenter {
     public private(set) var presented: [WhatsNewDocument] = []
     /// Set by the App from `updates.showWhatsNew` and `labs.previewFeatures`: whether the card may show.
     public var isItemEnabled = true
+    /// Whether ``isItemEnabled`` holds the settings' value yet (false: still the default).
+    public var isItemEnabledKnown = false
     /// Whether ``load()`` has finished once.
     public private(set) var isLoaded = false
 
