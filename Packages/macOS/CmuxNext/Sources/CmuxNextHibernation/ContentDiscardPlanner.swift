@@ -51,6 +51,8 @@ package nonisolated struct ContentDiscardPlanner: Sendable {
         /// It changed its title or icon while hidden (`PageBackgroundActivity`): the timeout keeps
         /// it and it does not freeze (`HibernationPlanner.freezePlan`), memory pressure does not.
         package var hasBackgroundActivity = false
+        /// It still loads: it does not freeze until the load ends (Chrome's kLoading); a discard ignores it.
+        package var isLoading = false
 
         /// The tab sits beside a pane's shown tab or was just hovered (browser pages).
         package var isNeighbor = false

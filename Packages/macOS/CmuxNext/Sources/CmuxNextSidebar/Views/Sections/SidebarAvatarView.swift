@@ -100,9 +100,11 @@ extension SidebarAvatar {
     @MainActor public func image(diameter: Double) -> NSImage {
         let size = NSSize(width: diameter, height: diameter)
         let image = NSImage(size: size)
-        guard let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: Int(diameter * 2), pixelsHigh: Int(diameter * 2),
-                                         bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
-                                         colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0) else { return image }
+        // SAFETY: the planes pointer is nil, so AppKit allocates and owns the pixel buffer (bytesPerRow 0: a row size
+        // it picks); nothing is read or written through a pointer passed from here.
+        guard let rep = unsafe NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: Int(diameter * 2), pixelsHigh: Int(diameter * 2),
+                                                bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
+                                                colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0) else { return image }
         rep.size = size
         guard let context = NSGraphicsContext(bitmapImageRep: rep) else { return image }
         NSGraphicsContext.saveGraphicsState()

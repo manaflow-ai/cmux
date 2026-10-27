@@ -18,7 +18,11 @@ import Darwin
 ///   nothing for a clean exit). A host that ends before its hello is a failed start, not a page crash. The next
 ///   ``attachment()`` starts a new host, as Chrome's `BrowserGpuChannelHostFactory` establishes a new channel after
 ///   the GPU process died (content/browser/gpu/browser_gpu_channel_host_factory.cc). A host that could not start
-///   (``ChromiumHostExit/startFailure``) is not started again: a new one would fail the same way.
+///   (``ChromiumHostExit/startFailure``, or an end before its hello) is not started again: a new one would fail the
+///   same way.
+/// - Restart: each crash spends Chrome's GPU crash budget (``ChromiumHostRestartPolicy``, task 081). With
+///   `restoresPages` (feature `chromiumHostRestoreTabs`, task 083) a crash within it sets ``lastEndRestoresPages``,
+///   and the runtime starts the next host at once and brings back every tab from its saved history.
 @MainActor
 public final class ChromiumHostSupervisor: ChromiumHostExitReporting {
     public var onHostEnded: (@MainActor (BrowserProcessExit) -> Void)?
@@ -32,15 +36,24 @@ public final class ChromiumHostSupervisor: ChromiumHostExitReporting {
     public private(set) var exits: [String] = []
     /// Why no host can start in this process, once one could not.
     public private(set) var startFailure: String?
+    /// Whether the last end that reached ``onHostEnded`` was a crash within the restart budget whose pages come back.
+    public private(set) var lastEndRestoresPages = false
+    /// Each tab's saved navigation from its daemon record, for its page on the next host. The App sets it.
+    public var savedNavigation: ChromiumHostSavedNavigation?
 
     private struct Host {
         let pid: pid_t
         let generation: UInt64
-        /// The attach that took its wire got its hello: its end is a crash of its pages.
+        /// The attach that took its wire got its hello: its end is a crash of its pages. An end before that is a host
+        /// that could not start.
         var saidHello = false
     }
 
     private let spawner: any ChromiumHostSpawning
+    /// Chrome's GPU crash budget, spent by each crash of a host this supervisor started.
+    private(set) var policy: ChromiumHostRestartPolicy
+    /// A crash within the budget restores the host's pages on the next host (feature `chromiumHostRestoreTabs`).
+    private let restoresPages: Bool
     private var host: Host?
     private var generation: UInt64 = 0
     private var starting = false
@@ -49,15 +62,22 @@ public final class ChromiumHostSupervisor: ChromiumHostExitReporting {
     /// The host this app bundles, spawned on `work`'s `.system` lane; each host's end reaches the main thread on
     /// `mainWork` (class visible: its pages show the crash).
     ///
-    /// - Parameter fencesResizes: Each host gets a resize fence inbox (feature `chromiumHostResizeFence`).
-    public convenience init(work: BackgroundWork, mainWork: MainWorkScheduler, fencesResizes: Bool = false) {
+    /// - Parameters:
+    ///   - fencesResizes: Each host gets a resize fence inbox (feature `chromiumHostResizeFence`).
+    ///   - restoresPages: A crash within the restart budget brings the host's pages back on a new host (feature
+    ///     `chromiumHostRestoreTabs`).
+    public convenience init(work: BackgroundWork, mainWork: MainWorkScheduler, fencesResizes: Bool = false,
+                            restoresPages: Bool = false) {
         self.init(spawner: ChromiumHostLaneSpawner(work: work, mainWork: mainWork, fencesResizes: fencesResizes) {
             ChromiumHostLaunchPlan.bundled()
-        })
+        }, restoresPages: restoresPages)
     }
 
-    init(spawner: any ChromiumHostSpawning) {
+    init(spawner: any ChromiumHostSpawning, policy: ChromiumHostRestartPolicy = ChromiumHostRestartPolicy(),
+         restoresPages: Bool = false) {
         self.spawner = spawner
+        self.policy = policy
+        self.restoresPages = restoresPages
     }
 
     /// The running host's wire, starting a host first. One start at a time: the runtime shares one attach
@@ -105,7 +125,14 @@ public final class ChromiumHostSupervisor: ChromiumHostExitReporting {
         host = nil
         if let failure = exit.startFailure { startFailure = failure }
         endObservers.forEach { $0() }
-        guard current.saidHello, !isQuitting(), let pageExit = exit.pageExit else { return }
+        guard !isQuitting(), let pageExit = exit.pageExit else { return }
+        // A host that died before its hello, or with a start failure (kExit*), could not start: it spends no crash,
+        // and no host starts again (a new one would die the same way).
+        let decision = policy.hostEnded(exit, saidHello: current.saidHello, cause: .crash)
+        if case .cannotStart(let reason) = decision { startFailure = reason.description }
+        lastEndRestoresPages = restoresPages && decision == .restart
+        // Its pages crashed only when it served them: an end before the hello is a failed start, not a page crash.
+        guard current.saidHello else { return }
         onHostEnded?(pageExit)
     }
 

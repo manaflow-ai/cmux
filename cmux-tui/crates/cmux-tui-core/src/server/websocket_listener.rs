@@ -364,9 +364,14 @@ fn handle_websocket_connection_with_permit(
     let writer_outbound = outbound;
     let writer_close = writer.clone();
     let writer_ipc = mux.ipc_stats().clone();
+    // The writer holds the connection's slot until its close frame is out,
+    // so the reader never joins it (a wait for another thread, which the
+    // reader, a request thread that disallows blocking, may not make).
+    let writer_permit = connection_permit.clone();
     let Ok(writer_thread) = cmux_threads::spawn("mux-ws-out", REQUEST_THREAD_QOS, move || {
+        let _permit = writer_permit;
         let mut writer_stream = writer_stream;
-        // mq14-allow: the writer thread waits for its own queue (a checked wait).
+        // mq14-allow: the writer's idle wait for its own queue (BoundedOutbound::recv).
         while let Some(item) = writer_outbound.recv() {
             let result = match item {
                 OutboundItem::Text(text) => {
@@ -508,8 +513,11 @@ fn handle_websocket_connection_with_permit(
     }
     let _ = surface_scheduler.close_and_wait(CONNECTION_SURFACE_SHUTDOWN_TIMEOUT);
     disconnect_client(&mux, client, false);
-    let _ = waits::join(writer_thread);
-    let _ = websocket.close(None);
+    // The disconnect closed the writer's queue: the writer writes what is
+    // left, then the close frame, and shuts the socket down. The reader
+    // writes no close of its own, which could pass the writer's last items.
+    drop(writer_thread);
+    drop(websocket);
     drop(connection_permit);
 }
 
