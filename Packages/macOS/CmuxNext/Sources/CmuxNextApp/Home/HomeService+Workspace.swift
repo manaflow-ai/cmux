@@ -156,6 +156,10 @@ extension HomeService {
         // The local Chief is looked up (never created) while a cloud Chief has the tab.
         let localChief = if shown == nil, let owner { try await chiefConversation(owner) } else { listed?.id }
         let localHasHistory = shown == nil || (listed?.lastSeq ?? 0) > 0
+        // The first launch's welcome from the Chief (#26053), while the local Chief has the tab.
+        if shown == nil, let owner, let localChief {
+            await postChiefWelcome(owner, conversation: localChief, lastSeq: listed?.id == localChief ? listed?.lastSeq ?? 0 : 0)
+        }
         guard let chief = cloud.chiefTab(local: localChief, localHasHistory: localHasHistory, choice: hostedChief.choice,
                                          prefersLocal: prefersLocalChief), HomeDock.classic else { return }
         homeWorkspaceStep = "waiting for the home workspace in the tree"
