@@ -236,6 +236,14 @@ class WorkflowShapeTests(unittest.TestCase):
         self.assertIn(JOB, HOLD_GATED[WORKFLOW.name])
         self.assertIn(JOB, DRAFT_SKIPPED[WORKFLOW.name])
 
+    def test_every_edit_runs_it(self) -> None:
+        # Edited runs share one cancel-in-progress group: a title edit that skipped the job could cancel
+        # the run of a body edit and leave no measured answer.
+        condition = str(self.job["if"])
+        self.assertIn('"edited"', condition)
+        self.assertNotIn("changes.body", condition)
+        self.assertNotIn("changes.title", condition)
+
     def run_step(self, script_exit: int, gh_exit: int = 0, checkout: str = "success") -> int:
         """The job's own count step, with gh and the script stubbed."""
         run = self.job["steps"][-1]["run"]
