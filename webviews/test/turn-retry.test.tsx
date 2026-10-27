@@ -11,7 +11,10 @@ import { RETRY_METHOD, TURN_RETRY } from "../src/agent-session/acpmux/subagents/
 const refusal = (reason: string, why?: string) =>
   Object.assign(new Error(`${reason}: refused`), { reason, ...(why ? { data: { why } } : {}) });
 
-const deps = (answer: () => Promise<unknown>, capabilities: ReadonlySet<string> | undefined = new Set([TURN_RETRY])) => {
+const deps = (
+  answer: () => Promise<unknown>,
+  capabilities: ReadonlySet<string> | undefined = new Set([TURN_RETRY]),
+) => {
   const calls: string[] = [];
   return {
     calls,
