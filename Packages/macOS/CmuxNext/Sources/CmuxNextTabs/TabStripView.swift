@@ -28,9 +28,11 @@ public final class TabStripView: NSView {
     /// The app's one deadline placer: the strip's holds, the reorder settle and closing mode's exit are deadlines on it,
     /// and its ``MainDeadlineScheduler/work`` runs the strip's observations.
     let deadlines: MainDeadlineScheduler
-    /// The node the strip shows under (its pane's or its bar's): the plus's settings observation tracks only while it
-    /// is visible (``TabStripRevealController``).
-    let visibilityNode: VisibilityNode
+    /// The strip in the visibility tree (recipe R-hide): under the node it shows under (its pane's or its bar's),
+    /// own-hidden while AppKit hides the strip or an ancestor (`viewDidHide`). A model, appearance or scale change
+    /// that comes while it is not visible waits on it (`deferUntilVisible`) and applies once, at rest, in its show
+    /// turn; the plus's settings observation tracks only while it is visible (``TabStripRevealController``).
+    public let visibilityNode: VisibilityNode
     /// The strip's own hover moves (`pointerFrameHover`, `TabStripView+Pointer`) on the window's frame input
     /// coalescer: two strips never merge theirs.
     private(set) lazy var frameInputHover = PointerFrameHover(owner: "TabStripView.hover", view: self) { [weak self] point in self?.hoverMoved(toWindowPoint: point) }
@@ -92,12 +94,11 @@ public final class TabStripView: NSView {
     var cells: [TabID: TabCell] = [:]
     let windowMain = WindowMainObserver()
     let windowVisibility = WindowVisibilityObserver()
-    /// In a window and not hidden: written only by `syncShown` (TabStripView+Shown), read instead of an ancestor walk.
+    /// Runs ``syncShown(_:)`` on each flip of ``visibilityNode``.
+    private var visibilityWatch: VisibilitySubscription?
+    /// In a window and its node visible: written only by `syncShown` (TabStripView+Shown), read instead of an
+    /// ancestor walk; the window-wide fan-outs reach the strip.
     var isShownInWindow = false
-    /// The model changed while the strip was out of sight: it syncs once, at rest, when it shows.
-    var modelChangedWhileHidden = false
-    /// An appearance or scale change came while hidden; applied when shown (TabStripView+Shown).
-    var appearanceIsStale = false
     /// Group chips, bands, drag, and optimistic membership.
     var groups = TabStripGroupState()
     /// Every tab's and chip's target geometry (`TabPlace`); Core Animation shows the motion to it.
@@ -204,15 +205,17 @@ public final class TabStripView: NSView {
 
     /// - Parameters:
     ///   - deadlines: The app's one deadline placer (`AppServices.mainDeadlines`).
-    ///   - visibilityNode: The node the strip shows under (its pane's, or its bar's workspace's).
+    ///   - visibilityNode: The node the strip shows under (its pane's, or its bar's workspace's); the strip's own
+    ///     ``visibilityNode`` is its child.
     public init(model: TabStripModel, background: Background = .none, input: InputEventTap, deadlines: MainDeadlineScheduler,
-                visibilityNode: VisibilityNode) {
+                visibilityNode parent: VisibilityNode) {
         self.model = model
         inputTap = input
         self.deadlines = deadlines
-        self.visibilityNode = visibilityNode
+        visibilityNode = VisibilityNode("tabs.strip", parent: parent)
         reorderSettle = MainDeadline(owner: "TabStrip.reorderSettle", workClass: .visible, scheduler: deadlines)
         super.init(frame: CGRect(x: 0, y: 0, width: 600, height: Self.preferredHeight))
+        visibilityWatch = visibilityNode.subscribe(owner: "TabStripView.shown") { [weak self] _ in self?.syncShown() }
         wantsLayer = true
         layerContentsRedrawPolicy = .never
         hoverCard.strip = self
