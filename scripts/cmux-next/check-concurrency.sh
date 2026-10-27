@@ -213,7 +213,7 @@ WORKSPACE_SYNC = re.compile(
     r"|\.open\([^\n]*\bwithApplicationAt:[^\n]*\bconfiguration:"
     r"|\.open\([^\n]*NSWorkspace\.OpenConfiguration\("
     r"|\b\w*[Ww]orkspace[?!]?\.open\([^\n]*\bconfiguration:")
-WORKSPACE_HELPER = "CmuxNextCompat/NSWorkspace+Background.swift"
+WORKSPACE_HELPER = "CmuxNextCompatAppKit/NSWorkspace+Background.swift"
 ALLOW = re.compile(r"//\s*concurrency-allow:\s*\S")
 COMMENT_ONLY = re.compile(r"^\s*(//|\*|/\*)")
 

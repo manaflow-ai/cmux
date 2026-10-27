@@ -1,5 +1,5 @@
 """check-concurrency.sh's workspace-open rule (p02-threads-057): every synchronous NSWorkspace open or
-Finder reveal goes through CmuxNextCompat/NSWorkspace+Background.swift (Chrome posts
+Finder reveal goes through CmuxNextCompatAppKit/NSWorkspace+Background.swift (Chrome posts
 platform_util::OpenExternal to a blocking-allowed sequence, chrome/browser/platform_util_mac.mm).
 Before it, the rule matched only a one-argument `NSWorkspace.shared.open(x)`, so the configuration and
 open-with-app forms, and any call through a local or injected workspace, passed."""
@@ -83,7 +83,7 @@ class WorkspaceOpenRule(unittest.TestCase):
 
     def test_the_helper_file_may_make_the_synchronous_calls(self):
         text = source("\n    ".join(REFUSED))
-        result = run({"CmuxNextCompat/NSWorkspace+Background.swift": text})
+        result = run({"CmuxNextCompatAppKit/NSWorkspace+Background.swift": text})
         self.assertNotIn(RULE, result.stdout, result.stdout + result.stderr)
 
     def test_an_escape_comment_allows_a_reviewed_call(self):
