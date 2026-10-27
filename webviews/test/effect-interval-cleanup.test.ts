@@ -10,6 +10,11 @@ const vp = resolve(import.meta.dir, "../node_modules/.bin/vp");
 const prefix = 'import React, { useEffect, useEffect as effect, useLayoutEffect } from "react";\n';
 const cases = [
   [
+    "async effect cannot register cleanup",
+    "useEffect(async () => { const id = setInterval(tick, 1000); return () => clearInterval(id); }, []);",
+    1,
+  ],
+  [
     "guarded allocation",
     "useEffect(() => { if (active) { const id = setInterval(tick, 1000); return () => clearInterval(id); } }, [active]);",
     0,

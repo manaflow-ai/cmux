@@ -239,7 +239,7 @@ export const intervalCleanup = {
       // handles must first be captured locally, so a later write cannot leak it.
       let scopeOwner = handle?.scope.block;
       while (scopeOwner && scopeOwner !== effect) scopeOwner = scopeOwner.parent;
-      if (!handle || !scopeOwner || overwritten(effect, interval, handle)) return false;
+      if (!handle || !scopeOwner || effect.async || overwritten(effect, interval, handle)) return false;
       return effectCleans(effect, interval, handle);
     }
     return {
