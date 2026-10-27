@@ -24,6 +24,9 @@ public struct ListStressSettings: Equatable, Sendable {
     public var speed: Double
     public var settle: Double
     public var exitsWhenDone: Bool
+    /// `CMUX_MOBILE_LIST_LARGE_DIFF=0`: no 2400-line file rewrite in the newest replayed turn
+    /// (the chat without the diff screen's load).
+    public var largeDiff: Bool
 
     public init(environment: [String: String] = ProcessInfo.processInfo.environment) {
         screen = environment["CMUX_MOBILE_LIST_SCREEN"]
@@ -34,6 +37,7 @@ public struct ListStressSettings: Equatable, Sendable {
         speed = environment["CMUX_MOBILE_LIST_SPEED"].flatMap(Double.init) ?? 2400
         settle = environment["CMUX_MOBILE_LIST_SETTLE"].flatMap(Double.init) ?? 4
         exitsWhenDone = environment["CMUX_MOBILE_LIST_EXIT_WHEN_DONE"] == "1"
+        largeDiff = environment["CMUX_MOBILE_LIST_LARGE_DIFF"] != "0"
     }
 
     /// Turns the mock agent replays as history: the chat and diff screens' load.

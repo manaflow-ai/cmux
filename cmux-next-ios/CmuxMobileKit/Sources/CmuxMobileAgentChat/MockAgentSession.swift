@@ -225,7 +225,7 @@ public final class MockAgentSession: AgentSessionSource {
             var diffs: [ACPToolCall.Content] = [.diff(path: "Sources/Stress\(index).swift",
                                                       oldText: MockStressContent.code(lines: 30, seed: index),
                                                       newText: MockStressContent.code(lines: 30, seed: index, edited: true))]
-            if index == count - 1 {
+            if index == count - 1, ListStressSettings.shared.largeDiff {
                 diffs.append(.diff(path: "Sources/Generated/Large.swift",
                                    oldText: MockStressContent.code(lines: MockStressContent.largeDiffLines, seed: 7),
                                    newText: MockStressContent.code(lines: MockStressContent.largeDiffLines, seed: 7, edited: true)))

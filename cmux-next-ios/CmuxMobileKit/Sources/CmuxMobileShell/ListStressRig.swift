@@ -5,6 +5,7 @@ import CmuxMobileChief
 import CmuxMobileDesign
 import CmuxMobileModel
 import CmuxMobileWorkspaces
+import Darwin
 import OSLog
 import QuartzCore
 import UIKit
@@ -22,6 +23,11 @@ final class ListStressRig: NSObject {
     private var direction: CGFloat = 1
     private var pass = 0
     private var last: CFTimeInterval?
+    private var passStart: CFTimeInterval?
+    /// Where the rig last put the offset: a list that moves it back (a transcript following
+    /// its bottom) is logged, and a pass ends after 90 s either way.
+    private var placed: CGFloat?
+    private var fights = 0
     private var live: Task<Void, Never>?
     private let log = Logger(subsystem: "dev.cmux.mobile", category: "frames")
 
@@ -34,12 +40,15 @@ final class ListStressRig: NSObject {
         let settings = ListStressSettings.shared
         guard let screen = settings.screen else { return }
         let rig = ListStressRig(settings: settings, shell: shell)
+        running = rig
         await rig.open(screen)
         try? await Task.sleep(for: .seconds(settings.settle))
         rig.startLive()
         rig.begin()
-        // Kept alive by the display link until the last pass.
     }
+
+    /// The rig in progress, kept until it finishes (between passes no display link holds it).
+    private static var running: ListStressRig?
 
     // MARK: Seeding and navigation
 
@@ -61,7 +70,10 @@ final class ListStressRig: NSObject {
             try? await Task.sleep(for: .seconds(2))
             if settings.streams { DemoDirector.shared.post(.chatSend("stream")) }
             try? await Task.sleep(for: .seconds(1))
+            FrameIntervalLog.shared.begin("tabs-open-grid")
             WorkspaceDemoDirector.shared.post(.showGrid(true))
+            try? await Task.sleep(for: .seconds(2))
+            FrameIntervalLog.shared.end()
         case "chat", "diff":
             guard let ws = store.workspace(id: "ws-cmux") else { return }
             store.noteOpened(tabID: "t-codex-stress", in: ws.id)
@@ -72,12 +84,21 @@ final class ListStressRig: NSObject {
             store.workspaces = store.workspaces.map { $0.id == ws.id ? opened : $0 }
             shell.tab = .workspaces
             try? await Task.sleep(for: .seconds(1))
+            FrameIntervalLog.shared.begin("\(screen)-open")
             shell.workspacesPath = [opened]
             try? await Task.sleep(for: .seconds(2.5))
+            FrameIntervalLog.shared.end()
+            logMemory("\(screen)-opened")
             if screen == "diff" {
+                FrameIntervalLog.shared.begin("diff-open")
                 DemoDirector.shared.post(.chatOpenFirstFile)
-            } else if settings.streams {
-                DemoDirector.shared.post(.chatSend("stream"))
+                try? await Task.sleep(for: .seconds(3))
+                FrameIntervalLog.shared.end()
+            } else {
+                if settings.streams { DemoDirector.shared.post(.chatSend("stream")) }
+                try? await Task.sleep(for: .seconds(1))
+                // As a reader does: leave the newest turn (the transcript stops following it).
+                DemoDirector.shared.post(.chatScroll(toTop: true))
             }
         case "feed":
             // The Feed's own seeding (`CMUX_MOBILE_FEED_STRESS=N`); this rig only scrolls, as a reference.
@@ -180,6 +201,9 @@ final class ListStressRig: NSObject {
             return
         }
         scrollView = scroll
+        // A transcript opens at its bottom: its first pass goes up.
+        let bottom = scroll.contentSize.height - scroll.bounds.height + scroll.adjustedContentInset.bottom
+        if scroll.contentOffset.y >= bottom - 4 { direction = -1 }
         log.notice("FRAMELOG list-stress \(self.settings.screen ?? "-", privacy: .public) scroll=\(String(describing: type(of: scroll)), privacy: .public) content=\(Int(scroll.contentSize.height), privacy: .public)")
         startPass()
     }
@@ -187,6 +211,9 @@ final class ListStressRig: NSObject {
     private func startPass() {
         FrameIntervalLog.shared.begin("\(settings.screen ?? "list")-\(direction > 0 ? "down" : "up")-\(pass)")
         last = nil
+        passStart = nil
+        placed = nil
+        fights = 0
         let link = CADisplayLink(target: self, selector: #selector(step(_:)))
         link.preferredFrameRateRange = CAFrameRateRange(minimum: 60, maximum: 120, preferred: 120)
         link.add(to: .main, forMode: .common)
@@ -197,23 +224,58 @@ final class ListStressRig: NSObject {
         guard let scrollView else { link.invalidate(); finish(); return }
         let dt = last.map { link.timestamp - $0 } ?? 0
         last = link.timestamp
+        if passStart == nil { passStart = link.timestamp }
+        if let placed, abs(scrollView.contentOffset.y - placed) > 1 { fights += 1 }
         let top = -scrollView.adjustedContentInset.top
         let bottom = max(top, scrollView.contentSize.height - scrollView.bounds.height + scrollView.adjustedContentInset.bottom)
-        var y = scrollView.contentOffset.y + direction * CGFloat(settings.speed * dt)
+        // A pass that starts at the bottom leaves it in one step past the transcript's
+        // 80 pt follow zone, or the transcript takes the offset back to its newest turn.
+        let step = dt == 0 && direction < 0 ? 100 : CGFloat(settings.speed * dt)
+        var y = scrollView.contentOffset.y + direction * step
         let reachedEnd = direction > 0 ? y >= bottom : y <= top
         y = min(max(y, top), bottom)
         scrollView.contentOffset.y = y
-        guard reachedEnd else { return }
+        placed = y
+        let timedOut = link.timestamp - (passStart ?? link.timestamp) > 90
+        guard reachedEnd || timedOut else { return }
         link.invalidate()
         self.link = nil
         FrameIntervalLog.shared.end()
+        if fights > 0 || timedOut {
+            log.notice("FRAMELOG list-stress pass \(self.pass, privacy: .public) moved-by-list=\(self.fights, privacy: .public) timed-out=\(timedOut, privacy: .public) y=\(Int(y), privacy: .public)")
+        }
+        if settings.screen == "chat" {
+            // Down passes only: at its bottom the transcript follows its newest turn again, and only a
+            // drag or the jump command stops that. Jump to the top (as the app's own command does) and go again.
+            pass += 1
+            guard pass < settings.passes else { finish(); return }
+            DemoDirector.shared.post(.chatScroll(toTop: true))
+            Task { @MainActor [weak self] in
+                try? await Task.sleep(for: .seconds(2))
+                self?.startPass()
+            }
+            return
+        }
         if direction < 0 { pass += 1 }
         direction = -direction
         if pass >= settings.passes { finish() } else { startPass() }
     }
 
+    /// Resident memory (phys_footprint), as Xcode's memory gauge shows it.
+    private func logMemory(_ label: String) {
+        var info = task_vm_info_data_t()
+        var count = mach_msg_type_number_t(MemoryLayout<task_vm_info_data_t>.size / MemoryLayout<natural_t>.size)
+        let result = withUnsafeMutablePointer(to: &info) {
+            $0.withMemoryRebound(to: integer_t.self, capacity: Int(count)) { task_info(mach_task_self_, task_flavor_t(TASK_VM_INFO), $0, &count) }
+        }
+        guard result == KERN_SUCCESS else { return }
+        log.notice("FRAMELOG list-stress memory \(label, privacy: .public) footprint=\(info.phys_footprint / 1_048_576, privacy: .public)MB")
+    }
+
     private func finish() {
+        logMemory("\(settings.screen ?? "-")-done")
         live?.cancel()
+        Self.running = nil
         log.notice("FRAMELOG list-stress-done \(self.settings.screen ?? "-", privacy: .public) passes=\(self.pass, privacy: .public)")
         if settings.exitsWhenDone {
             FrameLogFile.flush()

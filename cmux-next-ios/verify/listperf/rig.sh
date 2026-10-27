@@ -5,12 +5,15 @@
 #
 #   rig.sh sync                xcodegen here, rsync sources to $HOST:$DIR (the Rust xcframework is built there once:
 #                              `bash $DIR/cmux-next-ios/rust/scripts/build-xcframework.sh`)
+#   rig.sh seed-xcf            copy the Rust xcframework into $DIR from FROM=host:dir (default aws-m4pro-6:smooth-lists)
+#   rig.sh sim                 create + boot $SIM_NAME (iPhone 17 Pro, iOS 26.5) on $HOST
 #   rig.sh build               Demo simulator build on $HOST (arm64 only)
 #   rig.sh run LABEL SCREEN [K=V..]
 #                              install, launch with CMUX_MOBILE_LIST_SCREEN=SCREEN and CMUX_MOBILE_<K>=V,
 #                              wait for the app to exit after the passes, copy framelog.jsonl to
 #                              verify/evidence/listperf/LABEL.jsonl. VIDEO=1 also records LABEL.mp4;
-#                              TRACE=<template> records LABEL.trace with xctrace attached to the app.
+#                              SAMPLE=<secs> writes LABEL.sample.txt (`sample` at 1 ms from launch);
+#                              TRACE=<template> records LABEL.trace with xctrace (can hang over SSH).
 #
 # Environment: HOST (default aws-m4pro-6 (it has the iOS 26.5 simulator), reached with Tailscale SSH as ec2-user), DIR (default smooth-lists),
 # SIM_NAME (default cmux-listperf-1), WAIT (seconds, default 240).
@@ -22,20 +25,35 @@ here=$(cd "$(dirname "$0")" && pwd)
 mobile=$(cd "$here/../.." && pwd)
 repo=$(cd "$mobile/.." && pwd)
 ts=${TAILSCALE:-/Applications/Tailscale.app/Contents/MacOS/Tailscale}
-remote() { "$ts" ssh "ec2-user@$HOST" "$@"; }
+# An AWS Mac (aws-m4pro-N) is reached with Tailscale SSH as ec2-user; a cmux mini (mini-*) with its SSH alias.
+if [[ $HOST == mini-* ]]; then dest=$HOST; rsh=ssh; else dest=ec2-user@$HOST; rsh="$ts ssh"; fi
+remote() { $rsh "$dest" "$@"; }
 remote_env='export PATH=/opt/homebrew/bin:$PATH DEVELOPER_DIR=/Applications/Xcode_26.6.app/Contents/Developer;'
 
 case "${1:-}" in
   sync)
     (cd "$mobile" && xcodegen generate -q)
-    rsync -a --delete -e "$ts ssh" --exclude .build --exclude build --exclude 'verify/' --exclude 'CmuxMobileKit/Frameworks/' \
-      --exclude 'rust/target' "$mobile" "ec2-user@$HOST:$DIR/"
-    rsync -a --delete -e "$ts ssh" --exclude .build "$repo/Packages" "ec2-user@$HOST:$DIR/"
+    rsync -a --delete -e "$rsh" --exclude .build --exclude build --exclude 'verify/' --exclude 'CmuxMobileKit/Frameworks/' \
+      --exclude 'rust/target' "$mobile" "$dest:$DIR/"
+    rsync -a --delete -e "$rsh" --exclude .build "$repo/Packages" "$dest:$DIR/"
     remote "mkdir -p $DIR/vendor"
-    rsync -a -e "$ts ssh" "$repo/vendor/stack-auth-swift-sdk-prerelease" "ec2-user@$HOST:$DIR/vendor/"
-    rsync -a -e "$ts ssh" "$repo/AppIcon.icon" "ec2-user@$HOST:$DIR/"
+    rsync -a -e "$rsh" "$repo/vendor/stack-auth-swift-sdk-prerelease" "$dest:$DIR/vendor/"
+    rsync -a -e "$rsh" "$repo/AppIcon.icon" "$dest:$DIR/"
     # rsync keeps mtimes; touch so SwiftPM never reuses an older build of a changed file.
     remote "find $DIR/cmux-next-ios/CmuxMobileKit/Sources -name '*.swift' -newer $DIR/.synced -exec touch {} + 2>/dev/null; touch $DIR/.synced"
+    ;;
+  seed-xcf)
+    # The Rust link library (built once on aws-m4pro-5, see header) for a new DIR or host: FROM=host:dir.
+    from=${FROM:-aws-m4pro-6:smooth-lists}
+    fhost=${from%%:*} fdir=${from#*:}
+    if [[ $fhost == mini-* ]]; then fsh=(ssh "$fhost"); else fsh=("$ts" ssh "ec2-user@$fhost"); fi
+    "${fsh[@]}" "cd $fdir/cmux-next-ios/CmuxMobileKit && tar cf - Frameworks/CmuxMobileLinkFFI.xcframework" \
+      | remote "mkdir -p $DIR/cmux-next-ios/CmuxMobileKit && cd $DIR/cmux-next-ios/CmuxMobileKit && tar xf -"
+    ;;
+  sim)
+    remote "$remote_env udid=\$(xcrun simctl list devices | grep '$SIM_NAME (' | head -1 | grep -oE '[0-9A-F-]{36}'); \
+      if [[ -z \$udid ]]; then udid=\$(xcrun simctl create '$SIM_NAME' 'iPhone 17 Pro' com.apple.CoreSimulator.SimRuntime.iOS-26-5); fi; \
+      xcrun simctl boot \$udid 2>/dev/null; xcrun simctl bootstatus \$udid -b >/dev/null; echo \$udid"
     ;;
   build)
     remote "$remote_env cd $DIR/cmux-next-ios && xcodebuild -project CmuxMobileApp.xcodeproj -scheme CmuxMobileApp -configuration Demo \
@@ -57,7 +75,12 @@ case "${1:-}" in
     fi
     launch="$envs perl -e 'alarm shift; exec @ARGV' ${WAIT:-240} xcrun simctl launch --console-pty --terminate-running-process \$udid \$bid \
         -cmuxMobile.setupComplete YES -cmux-mobile-no-restore >/dev/null 2>&1 || true"
-    if [[ -n "${TRACE:-}" ]]; then
+    if [[ -n "${SAMPLE:-}" ]]; then
+      # xctrace over SSH can hang while finalizing; `sample` at 1 ms needs no authorization.
+      launch="pid=\$($envs xcrun simctl launch --terminate-running-process \$udid \$bid \
+          -cmuxMobile.setupComplete YES -cmux-mobile-no-restore | awk '{print \$NF}'); \
+          sample \$pid $SAMPLE 1 -mayDie -file $DIR/$label.sample.txt >/dev/null 2>&1 || true"
+    elif [[ -n "${TRACE:-}" ]]; then
       launch="rm -rf $DIR/$label.trace; pid=\$($envs xcrun simctl launch --terminate-running-process \$udid \$bid \
           -cmuxMobile.setupComplete YES -cmux-mobile-no-restore | awk '{print \$NF}'); \
           xcrun xctrace record --no-prompt --template '$TRACE' --device \$udid --attach \$pid --time-limit ${WAIT:-240}s \
@@ -69,7 +92,10 @@ case "${1:-}" in
       xcrun simctl terminate \$udid \$bid 2>/dev/null; xcrun simctl install \$udid \$app; \
       caches=\$(xcrun simctl get_app_container \$udid \$bid data)/Library/Caches; rm -f \$caches/framelog.jsonl; \
       $rec_start; $launch; $rec_stop; \
-      cat \$caches/framelog.jsonl" > "$out/$label.jsonl"
+      cat \$caches/framelog.jsonl; \
+      xcrun simctl spawn \$udid log show --last 6m --predicate 'subsystem == \"dev.cmux.mobile\" AND category == \"frames\"' --style compact 2>/dev/null \
+        | grep -E 'list-stress (memory|pass)' | sed 's/^/# /'" > "$out/$label.jsonl"
+    [[ -n "${SAMPLE:-}" ]] && remote "cat $DIR/$label.sample.txt" > "$out/$label.sample.txt" && echo "sample: $out/$label.sample.txt"
     [[ -n "${VIDEO:-}" ]] && remote "cat $DIR/$label.mp4" > "$out/$label.mp4" && echo "video: $out/$label.mp4"
     if [[ -n "${TRACE:-}" ]]; then
       rm -rf "$out/$label.trace"

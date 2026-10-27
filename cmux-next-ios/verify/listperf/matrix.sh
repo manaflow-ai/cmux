@@ -11,6 +11,8 @@ runs=(
   "ws-200-live4    workspaces  LIST_COUNT=200 LIST_LIVE_HZ=4"
   "home-300        home        LIST_COUNT=300"
   "chat-40         chat        LIST_COUNT=40"
+  "chat-40-small   chat        LIST_COUNT=40 LIST_LARGE_DIFF=0"
+  "chat-200        chat        LIST_COUNT=200"
   "chat-40-stream  chat        LIST_COUNT=40 LIST_STREAM=1"
   "tabs-30         tabs        LIST_COUNT=30"
   "tabs-30-stream  tabs        LIST_COUNT=30 LIST_STREAM=1"
@@ -22,6 +24,6 @@ for rep in $(seq 1 "$reps"); do
     [[ -n "${ONLY:-}" && $label != ${ONLY}* ]] && continue
     echo "== $label r$rep"
     # shellcheck disable=SC2086
-    "$here/rig.sh" run "$label-r$rep" "$screen" $args | grep -E 'POOLED|-down-|-up-' || echo "$label r$rep: no windows"
+    "$here/rig.sh" run "$label-r$rep" "$screen" $args | grep -E 'POOLED|-down-|-up-|-open' || echo "$label r$rep: no windows"
   done
 done
