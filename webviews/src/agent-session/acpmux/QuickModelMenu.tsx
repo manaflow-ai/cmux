@@ -7,6 +7,7 @@ import { EffortTrack } from "./EffortTrack";
 import type { ReasoningSliderStyle } from "./composerSettings";
 import { useT } from "./i18n";
 import { CHAT_COLUMN } from "./modelPickerLayout";
+import { useOpenSide } from "../../ui/openSide";
 import { OnNewTab } from "./newTabComposer";
 import {
   Menu,
@@ -190,6 +191,10 @@ export function QuickModelMenu({
   const t = useT();
   // On New Tab the menu opens down, shows no key hints and opens More models in place (newTabComposer.ts).
   const newTab = useContext(OnNewTab);
+  // Choose once for the compact menu's possible height; shorter tabs then stay by the same edge
+  // of the chip. This is only a side decision: the surface still fits its visible content.
+  const { open: sideOpen, setOpen: setSideOpen, side } = useOpenSide(trigger, newTab ? "bottom" : "top", 320);
+  if (sideOpen !== open) setSideOpen(open);
   const { models, current, effort, account, fast } = menu;
   const levels = effort?.levels.filter((choice) => !isDefaultChoice(choice)) ?? [];
   const level = levels.find((choice) => choice.id === effort?.current);
@@ -746,7 +751,8 @@ export function QuickModelMenu({
         {children}
       </MenuButton>
       <MenuPopup
-        side={newTab ? "bottom" : "top"}
+        side={side}
+        flip={false}
         align="start"
         label={t("picker.model")}
         className={`acpmux-quick-menu${families ? " acpmux-quick-railed" : ""}${newTab ? " acpmux-quick-newtab" : ""}`}

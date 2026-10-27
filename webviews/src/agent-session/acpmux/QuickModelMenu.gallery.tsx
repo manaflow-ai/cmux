@@ -7,7 +7,15 @@ import { componentEntry } from "../../gallery/format";
 import type { Play } from "../../gallery/play";
 import type { QuickFamily, QuickMenu } from "./QuickModelMenu";
 
-type Props = { tab?: string; expand?: boolean; chat?: boolean; fast?: boolean; many?: boolean; anchorTop?: boolean };
+type Props = {
+  tab?: string;
+  expand?: boolean;
+  chat?: boolean;
+  fast?: boolean;
+  many?: boolean;
+  anchorTop?: boolean;
+  anchorMiddle?: boolean;
+};
 
 const models = (family: string, names: string[]) => names.map((name) => ({ id: `${family}/${name}`, name, family }));
 
@@ -74,7 +82,7 @@ export default componentEntry<Props>({
   load: () =>
     Promise.all([import("./QuickModelMenu"), import("./newTabComposer")]).then(
       ([{ QuickModelMenu }, { OnNewTab }]) =>
-        function GalleryQuickModelMenu({ tab, expand, chat, fast = false, many, anchorTop }: Props) {
+        function GalleryQuickModelMenu({ tab, expand, chat, fast = false, many, anchorTop, anchorMiddle }: Props) {
           const [isOpen, setOpen] = useState(false);
           const trigger = useRef<HTMLButtonElement | null>(null);
           const [isFast, setFast] = useState(fast);
@@ -94,7 +102,7 @@ export default componentEntry<Props>({
           return (
             <OnNewTab.Provider value={!chat}>
               <div
-                style={{ padding: 16, paddingTop: chat && !anchorTop ? 400 : 16 }}
+                style={{ padding: 16, paddingTop: anchorMiddle ? 280 : chat && !anchorTop ? 400 : 16 }}
                 data-expand={expand ? "" : undefined}
               >
                 <QuickModelMenu
@@ -139,6 +147,7 @@ export default componentEntry<Props>({
         },
     ),
   variants: {
+    "newtab-midpoint": { props: { anchorMiddle: true }, play: open },
     "chat-flipped": { props: { chat: true, anchorTop: true }, play: open },
     "claude-many-harnesses": { props: { many: true }, play: open },
     combined: { props: { chat: true }, play: open },

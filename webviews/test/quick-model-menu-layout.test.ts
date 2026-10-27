@@ -77,6 +77,26 @@ await requireBrowserLane("quick-model-menu-layout.test.ts", async () => {
     }
   });
 
+  test("a midpoint menu keeps its opening side as tall content becomes short", async () => {
+    const page = await open("newtab-midpoint");
+    try {
+      const menu = page.locator(".acpmux-quick-menu");
+      await page.waitForFunction(
+        () => document.querySelector(".acpmux-quick-menu")?.getAttribute("data-side") === "top",
+      );
+      const rail = await bounds(page, ".acpmux-quick-rail");
+      await page.getByRole("button", { name: "Unii", exact: true }).click();
+      await page.waitForFunction(
+        () => document.querySelector(".acpmux-quick-menu")!.getBoundingClientRect().height < 230,
+      );
+      await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+      expect(await menu.getAttribute("data-side")).toBe("top");
+      expect(Math.abs((await bounds(page, ".acpmux-quick-rail")).y - rail.y)).toBeLessThan(1);
+    } finally {
+      await page.close();
+    }
+  });
+
   test("keyboard-selected harnesses stay visible in an overflowing strip", async () => {
     const page = await open("claude-many-harnesses", 320);
     try {
