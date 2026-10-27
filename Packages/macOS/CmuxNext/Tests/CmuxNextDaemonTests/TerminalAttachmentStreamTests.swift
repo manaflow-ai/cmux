@@ -286,19 +286,25 @@ struct AttachStreamTableTests {
         if case .dropped = route { true } else { false }
     }
 
+    /// Reserves outside `#require`: the macro wraps its argument in a closure, which cannot call a mutating method.
+    private static func reserve(_ table: inout AttachStreamTable) throws -> AttachStreamHandle {
+        let handle = table.reserve()
+        return try #require(handle)
+    }
+
     @Test func idsSkipTakenOnesAndWrapPastZero() throws {
         var table = AttachStreamTable()
-        let first = try #require(table.reserve())
-        let second = try #require(table.reserve())
+        let first = try Self.reserve(&table)
+        let second = try Self.reserve(&table)
         #expect([first.id, second.id] == [1, 2])
         let cancelled = table.cancel(first)
         #expect(cancelled)
         // Cancelled, not ended: the id stays taken until its stream-end.
         _ = table.route(first.id, ended: true)
         var last = second
-        for _ in 3...Int(UInt16.max) { last = try #require(table.reserve()) }
+        for _ in 3...Int(UInt16.max) { last = try Self.reserve(&table) }
         #expect(last.id == UInt16.max)
-        let wrapped = try #require(table.reserve())
+        let wrapped = try Self.reserve(&table)
         #expect(wrapped.id == 1, "0 is the control sequence; 2 is still taken")
         let full = table.reserve()
         #expect(full == nil, "every id is taken")
@@ -306,13 +312,13 @@ struct AttachStreamTableTests {
 
     @Test func aStaleHandleNeverTouchesANewerStreamOfItsID() throws {
         var table = AttachStreamTable()
-        let old = try #require(table.reserve())
+        let old = try Self.reserve(&table)
         let boundOld = table.bind(old) { _ in }
         #expect(boundOld)
         let ended = table.route(old.id, ended: true)
         #expect(Self.delivers(ended), "the open stream gets its end")
         for _ in 2...Int(UInt16.max) { _ = table.reserve() }
-        let newer = try #require(table.reserve())
+        let newer = try Self.reserve(&table)
         #expect(newer.id == old.id)
         table.release(old)
         let cancelledOld = table.cancel(old)
@@ -327,7 +333,7 @@ struct AttachStreamTableTests {
         var table = AttachStreamTable()
         let beforeAny = table.route(9, ended: false)
         if case .unknown = beforeAny {} else { Issue.record("a connection that never minted routes it as control") }
-        let handle = try #require(table.reserve())
+        let handle = try Self.reserve(&table)
         let reserved = table.route(handle.id, ended: false)
         #expect(Self.drops(reserved))
         let stale = table.route(9, ended: false)
@@ -345,7 +351,7 @@ struct AttachStreamTableTests {
 
     @Test func connectionLossTellsEveryOpenStreamAndMintsNoMore() throws {
         var table = AttachStreamTable()
-        let open = try #require(table.reserve())
+        let open = try Self.reserve(&table)
         let bound = table.bind(open) { _ in }
         #expect(bound)
         _ = table.reserve()
