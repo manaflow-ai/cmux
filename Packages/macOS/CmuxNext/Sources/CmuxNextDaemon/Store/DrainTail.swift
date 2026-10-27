@@ -23,6 +23,15 @@ final class DrainTail {
     struct Transaction {
         let envelopes: [DaemonEventEnvelope]
         let cause: ObservationCause
+        /// A person or the frontend caused it, or it changes the connection or asks for a
+        /// snapshot: the frame applies it, with everything before it.
+        let drainsInFrame: Bool
+
+        init(_ envelopes: [DaemonEventEnvelope]) {
+            self.envelopes = envelopes
+            cause = envelopes.lazy.map(\.cause).max() ?? .program
+            drainsInFrame = cause >= .frontend || envelopes.contains { $0.event.drainsInFrame }
+        }
 
         /// The class its task runs in: visible for a program's, automation for an agent's.
         var workClass: BudgetedWorkClass { cause.budgetedClass }
@@ -46,7 +55,7 @@ final class DrainTail {
     var count: Int { queue.count - head }
 
     /// The class of the transaction at the head; nil when the tail is empty.
-    var headClass: BudgetedWorkClass? { head < queue.count ? queue[head].workClass : nil }
+    var headClass: BudgetedWorkClass? { queue[checked: head]?.workClass }
 
     /// What the frame applies now, in order. With `flushing` (after a snapshot, or at the end of a
     /// connection), the whole tail, then all of `batch`. Otherwise, when `batch` holds a transaction a
@@ -54,25 +63,22 @@ final class DrainTail {
     /// to and including the last such transaction. The rest of `batch` joins the tail.
     func frame(_ batch: [DaemonEventEnvelope], flushing: Bool) -> [DaemonEventEnvelope] {
         guard scheduler != nil else { return batch }
-        if flushing { return takeAll() + batch }
+        // The last event's transaction drains in the frame: so does the whole batch (no cut to find).
+        if flushing || batch.last.map({ $0.cause >= .frontend || $0.event.drainsInFrame }) == true { return takeAll() + batch }
         let transactions = Self.transactions(in: batch)
-        let cut = transactions.lastIndex { range in batch[range].contains { $0.cause >= .frontend || $0.event.drainsInFrame } }
-        var now: [DaemonEventEnvelope] = []
-        if let cut {
-            now = takeAll()
-            now.append(contentsOf: batch[..<transactions[cut].upperBound])
+        guard let cut = transactions.lastIndex(where: \.drainsInFrame) else {
+            queue.append(contentsOf: transactions)
+            return []
         }
-        for range in transactions[(cut.map { $0 + 1 } ?? 0)...] {
-            let envelopes = Array(batch[range])
-            queue.append(Transaction(envelopes: envelopes, cause: envelopes.lazy.map(\.cause).max() ?? .program))
-        }
+        var now = takeAll()
+        for transaction in transactions.prefix(cut + 1) { now.append(contentsOf: transaction.envelopes) }
+        queue.append(contentsOf: transactions.dropFirst(cut + 1))
         return now
     }
 
     /// Removes and returns the transaction at the head.
     func takeHead() -> Transaction? {
-        guard head < queue.count else { return nil }
-        let transaction = queue[head]
+        guard let transaction = queue[checked: head] else { return nil }
         head += 1
         if head == queue.count {
             queue.removeAll(keepingCapacity: true)
@@ -101,23 +107,24 @@ final class DrainTail {
             queue.removeAll(keepingCapacity: true)
             head = 0
         }
-        return queue[head...].flatMap(\.envelopes)
+        return queue.dropFirst(head).flatMap(\.envelopes)
     }
 
     /// `batch` cut into transactions (``TransactionKey``): adjacent events with one key apply together.
-    static func transactions(in batch: [DaemonEventEnvelope]) -> [Range<Int>] {
-        var ranges: [Range<Int>] = []
-        var start = 0
+    static func transactions(in batch: [DaemonEventEnvelope]) -> [Transaction] {
+        var transactions: [Transaction] = []
+        var current: [DaemonEventEnvelope] = []
         var key: TransactionKey?
-        for (index, envelope) in batch.enumerated() {
+        for envelope in batch {
             let next = TransactionKey(envelope)
-            if index > start, next == nil || next != key {
-                ranges.append(start..<index)
-                start = index
+            if !current.isEmpty, next == nil || next != key {
+                transactions.append(Transaction(current))
+                current = []
             }
+            current.append(envelope)
             key = next
         }
-        if start < batch.count { ranges.append(start..<batch.count) }
-        return ranges
+        if !current.isEmpty { transactions.append(Transaction(current)) }
+        return transactions
     }
 }
