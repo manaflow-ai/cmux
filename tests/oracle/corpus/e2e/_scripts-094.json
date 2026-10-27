@@ -1,0 +1,84 @@
+{
+  "$comment": "p15-oracle-094: e2e scripts 23-33 of MQ-e2e (`ls scripts/cmux-next/*-e2e.py scripts/cmux-next/*-e2e.sh`, sorted). Each script stays and is linked here to its case, or excluded with a reason. `fix` is the commit that made the behavior the script checks, `parent` that commit's parent: the case's acceptance is a Failure on `parent`. `catches` says which case step or invariant shows the bug there; `excluded` names a script no case can convert yet, with the reason, and its `gap` names the follow-up and its owner task; such a script is not counted as converted. `gap` on a converted script names what its case leaves out. oracle.py skips `_` files; one file per batch, so the batches (092-097) never edit the same file.",
+  "task": "p15-oracle-094",
+  "queue": "MQ-e2e",
+  "range": [23, 33],
+  "scripts": {
+    "scripts/cmux-next/home-tabs-stay-e2e.py": {
+      "case": "e2e/home-tabs-stay",
+      "fix": "147fb16234326a62b29b2b7cbdcc189d80b3fe66",
+      "parent": "b46e7c634ded2e4e22bf539149afdea9cd6313db",
+      "cited": "cx-zjtn.4 (#19239); first fix afda1f613071b8cd53953cc8710e01036ad82b1f (#18829)",
+      "catches": "merge-home-out and merge-into-home: on the parent the merge runs (ok, not control.unavailable) and Home's tabs move"
+    },
+    "scripts/cmux-next/jump-keys-e2e.py": {
+      "case": "e2e/jump-keys",
+      "fix": "1684fe1884eb7b4ede28ccdd64bf6e531f85e2c4",
+      "parent": "53e7925a01aee9b86b7bccac812b393a831711d1",
+      "cited": "cx-zjtn.2 (#19192)",
+      "catches": "pane-1 and focus-sidebar: on the parent Ctrl-Cmd-1 and Ctrl-Cmd-E run no action, so the receipt check and the focus waits fail"
+    },
+    "scripts/cmux-next/keyboard-parity-e2e.py": {
+      "case": "e2e/keyboard-parity",
+      "fix": "da4553204996ff70b94250d3689fbbd3def239ca",
+      "parent": "2d5eb18257dd860017a86cc56ea78ae0eb4f6cbb",
+      "cited": "#19870 (Cmd-K searches agent chats outside a terminal)",
+      "catches": "page-cmd-k: on the parent Cmd-K on the New Tab page opens no palette, so its waitFor on /overlays/palette/open times out"
+    },
+    "scripts/cmux-next/new-kind-tab-e2e.py": {
+      "case": "e2e/new-kind-tab",
+      "fix": "85c0062314175b3f5257fbcbedec53c691158ca0",
+      "parent": "5415b5737aa921f59594a029794c1a5be9947dd4",
+      "cited": "cx-9r5w, cmuxterm-hq#1829 (#18972)",
+      "catches": "new-of-kind: on the parent newTab.ofKind is not an action (control.not_found)"
+    },
+    "scripts/cmux-next/new-tab-e2e.py": {
+      "case": "e2e/new-tab",
+      "fix": "4ebeb7f64d645eaa87891667b6ee53a7ab710be3",
+      "parent": "6ef7af3a4449bcf15c0eb47cfef331509c991f5c",
+      "cited": "plans/cmux-next/new-tab.md 2.3 (instant new tab, N4)",
+      "catches": "the invariant on the New Tab page's draft at typed: a cold page drops the first keys typed in Cmd-T's turn",
+      "gap": "the adoption's main-thread time (p95 under 16 ms) is the perf lab's story new-tab-page, not an oracle value"
+    },
+    "scripts/cmux-next/new-workspace-in-group-e2e.py": {
+      "case": "e2e/new-workspace-in-group",
+      "fix": "56317d6564f92043375c494b6c5d47d9c2fc1c95",
+      "parent": "d6c5b68be912d8f48a13035ccf618d1485da1fa1",
+      "cited": "cx-caoh (#19018)",
+      "catches": "the group invariants at top-done and end: on the parent a new workspace lands outside the shown group"
+    },
+    "scripts/cmux-next/new-workspace-like-this-e2e.py": {
+      "case": "e2e/new-workspace-like-this",
+      "fix": "7d6c94a3b74cbb5f1550f9151d58b6ea349cc2b7",
+      "parent": "d113210b6aaf60c83f19621112e40ef4d576a1df",
+      "cited": "cx-rrvi, cmuxterm-hq#1829 (#19000)",
+      "catches": "like-anchor: on the parent workspace.newLikeThis is not an action (control.not_found)"
+    },
+    "scripts/cmux-next/new-workspace-real-typing-e2e.py": {
+      "case": "e2e/new-workspace-real-typing",
+      "fix": "1534309328a2b3a274d13046dbafbcc2b0880c0e",
+      "parent": "6b7ab552bebba0dfbddce098c233f462700e2e26",
+      "cited": "cx-kql5h ('hello world 123' became 'lo world 123')",
+      "catches": "the draft invariant at after-cmd-n: on the parent the keys typed before the new workspace's page exists are lost",
+      "gap": "real window-server events at 25-30 keys/s stay in the script; the case types through debug.key"
+    },
+    "scripts/cmux-next/newtab-chat-header-e2e.py": {
+      "case": "e2e/newtab-chat-header",
+      "fix": "0bd0f005b59547d2bf97be2930e29214642535c4",
+      "parent": "440413c26beda03a74e02031271c56b4bb3841cf",
+      "cited": "cx-65br (#19299); cx-p0fz",
+      "catches": "plus-1 to plus-4: on the parent about half the [+] clicks leave the New Tab page in the chat's pane, so that round's layout tree keeps its one pane and the wait on /layout/screens/0/root times out; with four rounds in fresh workspaces, as the script runs them, a parent run fails about 15 times in 16"
+    },
+    "scripts/cmux-next/newtab-key-hold-e2e.py": {
+      "case": "e2e/newtab-key-hold",
+      "fix": "21bd5699039fef51e4548becb8aeed6ce9e8167d",
+      "parent": "f2e949c321341fc1233ff3c5246392b813d65c52",
+      "cited": "nightly 2026-10-11 P0 typing ('I cannot type into cmux nightly at all')",
+      "catches": "open-and-leave: on the parent the hold never ends, so the terminal's screen does not change within 1 s"
+    },
+    "scripts/cmux-next/page-popup-escape-e2e.py": {
+      "excluded": "the bug (cx-6k6cg, #19819; fix e17d3c64ac3d918743c43768f92f3feec663c1c7, parent 6efb6af004cebd3a18d425ae2a1c0dfc052aa9c1) is the composer menu panel's geometry: on the parent it is clipped at the window's edge instead of escaping into a native panel. No snapshot facet records a popup's frame, clipping or native-panel host (the script reads debug.page_popup), so a case could only check that the menu opens and closes, which the parent passes too",
+      "gap": "a popup geometry field in the overlays facet (frame, clipped, native-panel hosted) converts this script; owner p15-oracle-038 (Facet: overlays and palette). Its acceptance is controller state only, so the field must come from the popup controller's own record of its panel, not the view tree"
+    }
+  }
+}
