@@ -9,6 +9,7 @@
       "CmuxNextSignposts",
       "CmuxNextWakeups",
       "CmuxNextWakeupsTestSupport",
+      "CmuxNextTestSupport",
       "CmuxNextProcessEnvironment",
       "CCmuxAppFFILinux"
     ],
@@ -89,6 +90,7 @@
       "CmuxNextSignposts",
       "CmuxNextWakeups",
       "CmuxNextWakeupsTestSupport",
+      "CmuxNextTestSupport",
       "CmuxNextProcessEnvironment",
       "CCmuxAppFFILinux",
       "CmuxNextActions",

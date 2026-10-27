@@ -64,7 +64,8 @@ Inputs (paths relative to --root, the repository by default):
          local the remote answers the same way); --check-return-use and --check-pre-attach accept
          a listed site's calls of its exports. --swift-sites drops a site that is done: one listed
          with needs after_attach, host_exit or kept (a finished pending_tab site becomes kept), an
-         async call in the token form, inside a closure handed to CEFRuntime's sendAsync, siteCall
+         async call (or a preinit whose verdict is a wire:REPLY) in the token form, inside a closure
+         handed to CEFRuntime's sendAsync, siteCall
          or profileWrite (CEFRuntime+HostReplies.swift), which await the answer the same way in
          both backends, and a mint_returns id call in the mint form (its id keys a `.reply(for:`
          wait for its reply_event).
@@ -220,10 +221,13 @@ REWRITE_NEEDS = ("after_attach", "reply", "pending_tab", "host_exit", "kept")
 SETTLED_NEEDS = ("after_attach", "host_exit", "kept")
 # CEFRuntime functions that send an async op and await its answer the same way in both backends
 # (CEFRuntime+HostReplies.swift, task p01-process-021): an async call in a closure handed to one is in
-# the token form, and --swift-sites no longer lists it. A mint call there is no reply's call (sendAsync
-# returns nothing sent for it), so it stays listed.
+# the token form, and --swift-sites no longer lists it. So is a preinit call whose verdict is a
+# wire:REPLY (task p01-process-070: the remote shim returns its own check and the host's verdict comes
+# as that REPLY). A mint call there is no reply's call (sendAsync returns nothing sent for it), so it
+# stays listed.
 TOKEN_FORM_CALLS = ("sendAsync", "siteCall", "profileWrite")
 TOKEN_FORM_CLASSES = ("async",)
+TOKEN_FORM_VERDICT_CLASSES = ("preinit",)  # with reply_event wire:REPLY
 MINT_RETURNS = ("id", "sent")  # the minted id at once, or 1 when sent (the id arrives in reply_event)
 REPLY_WIRE = "wire:REPLY"  # the control channel's REPLY frame answers the call
 ARG_PREFIX = "arg_"  # every C argument in generated code; generator locals never start with it
@@ -2230,10 +2234,12 @@ def first_argument(text: str, begin: int, close: int) -> str:
 
 
 def site_settled(model: Model, site: Site, op: Op) -> bool:
-    """Whether a call site already meets host mode, so --swift-sites no longer lists it: an async call in
-    the token form, a mint_returns id call in the mint form, or a site a host_mode_rewrites entry
-    settles (SETTLED_NEEDS)."""
+    """Whether a call site already meets host mode, so --swift-sites no longer lists it: an async call, or
+    a preinit answered by a wire:REPLY verdict, in the token form, a mint_returns id call in the mint
+    form, or a site a host_mode_rewrites entry settles (SETTLED_NEEDS)."""
     if site.token_form and op.cls in TOKEN_FORM_CLASSES:
+        return True
+    if site.token_form and op.cls in TOKEN_FORM_VERDICT_CLASSES and op.reply_event == REPLY_WIRE:
         return True
     if site.mint_form and op.cls == "mint" and op.mint_returns == "id" and op.reply_event:
         return True

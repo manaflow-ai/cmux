@@ -1,0 +1,18 @@
+{
+  "id": "swift-omnibox-phase-a",
+  "tier": "builder",
+  "description": "OmniboxPhaseABenchmarkTests: the omnibox phase A call over 20,000 history rows, 500 bookmarks and 12 tabs, the fastest of five passes per query for 2,000 prefixes, and the history lookup alone.",
+  "command": ["scripts/perf-lab/stories/swift_benches.py", "run", "--story", "swift-omnibox-phase-a", "--filter", "OmniboxPhaseABenchmarkTests"],
+  "session": "light",
+  "engine": "none",
+  "config": "release",
+  "metrics": [
+    {"name": "swift\\.omnibox_phase_a\\.(query|history_lookup)", "unit": "ms", "better": "lower"}
+  ],
+  "repeats": 1,
+  "seconds": 1200,
+  "needs": ["file:Packages/macOS/CmuxNext/Tests/CmuxNextBrowserTests/OmniboxPhaseABenchmarkTests.swift", "file:Packages/macOS/CmuxNext/Tests/CmuxNextTestSupport/PerfResultWriter.swift"],
+  "owner": "Performance Lead",
+  "component": "Browser>Omnibox",
+  "hot_paths": ["omnibar-key"]
+}

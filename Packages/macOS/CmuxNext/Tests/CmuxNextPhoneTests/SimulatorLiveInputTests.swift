@@ -59,6 +59,25 @@ final class FakeSimulatorHID: SimulatorHIDSending {
         }
     }
 
+    /// The backend checks a swipe time itself (callers other than PhoneService reach it): a time no gesture has is
+    /// a typed error, not a trap in the 16 ms step count (p10-stability-093 fixer; before, seconds=1e300 trapped).
+    @Test func aSwipeTimeNoGestureHasIsRefused() async {
+        let hid = FakeSimulatorHID()
+        let backend = XcodePhoneBackend(runner: FakePhoneRunner(), hid: hid)
+        let start = PhonePoint(x: 200, y: 700), end = PhonePoint(x: 200, y: 100)
+        for seconds in [1e300, .infinity, PhoneInput.longestSwipe * 2] {
+            await #expect(throws: PhoneError.outOfRange(what: "the swipe's seconds")) {
+                try await backend.send(.swipe(from: start, to: end, seconds: seconds), to: sim)
+            }
+        }
+        await #expect(throws: PhoneError.outsideScreen) { try await backend.send(.tap(PhonePoint(x: 1e300, y: 0)), to: sim) }
+        let gesture = PhoneGesture(screen: PhonePoint(x: 400, y: 800))
+        #expect(throws: PhoneError.outOfRange(what: "the swipe's seconds")) {
+            _ = try gesture.swipe(from: start, to: end, seconds: 1e300)
+        }
+        #expect(hid.sent.isEmpty)
+    }
+
     @Test func typedASCIIBecomesHIDKeyStrokesWithShift() async throws {
         let hid = FakeSimulatorHID()
         try await XcodePhoneBackend(runner: FakePhoneRunner(), hid: hid).send(.text("aB1!\n"), to: sim)

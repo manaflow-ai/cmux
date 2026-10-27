@@ -6,7 +6,7 @@
 #[cfg(unix)]
 pub(super) mod machine_catalog;
 mod record;
-pub(super) use record::ClientRecord;
+pub(super) use record::{ClientRecord, ConnectionFacts};
 
 use super::CREATION_ATTEMPT_KEYS_CAPABILITY;
 use super::CREATION_RECEIPTS_CAPABILITY;
@@ -27,6 +27,7 @@ use super::ResourceWorkerAdmissionError;
 use super::ResourceWorkerPermit;
 use super::SHARED_SIZING_CAPABILITY;
 use super::SIZING_VIEW_DETACH_CAPABILITY;
+use super::SizeStateReader;
 use super::TERMINAL_COLOR_OVERRIDES_CAPABILITY;
 use super::TERMINAL_FRONTEND_SHELL_INTEGRATION_CAPABILITY;
 use super::TERMINAL_PENDING_SEQUENCE_CAPABILITY;
@@ -50,6 +51,8 @@ use crate::resource::StreamPublicId;
 use crate::sizing_policy::TerminalSizingState;
 use crate::{SurfaceId, panic_free::RecoverPoison};
 use base64::Engine;
+use cmux_threads::sync::Condvar;
+use cmux_threads::sync::Mutex;
 use serde_json::Value;
 use serde_json::json;
 use std::collections::BTreeMap;
@@ -57,8 +60,6 @@ use std::collections::HashMap;
 use std::collections::HashSet;
 use std::collections::VecDeque;
 use std::sync::Arc;
-use std::sync::Condvar;
-use std::sync::Mutex;
 use std::sync::Weak;
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::AtomicU64;
@@ -338,11 +339,16 @@ pub(crate) struct ClientRegistry {
     pub(super) origin_clock: crate::request_origin::OriginClock,
     pub(crate) browser_host: crate::browser_host::BrowserHostSupervisor,
     pub(super) app_trust: app_trust::AppTrust,
+    /// The daemon's features, reconciled with each app's client hello
+    /// (client_hello.rs, `install_daemon_features`).
+    pub(super) features: std::sync::OnceLock<cmux_features::Live>,
     /// The binary's page listener opener (`ws-listen-v1`).
     pub(super) page_listener: Mutex<Option<super::PageListenerOpener>>,
     pub(super) next_id: AtomicU64,
     pub(super) resource_stream_admission: Arc<ResourceWorkerAdmission>,
     pub(super) resource_wait_admission: Arc<ResourceWorkerAdmission>,
+    /// The daemon-wide cap on open client-minted attach streams.
+    pub(super) attach_stream_admission: Arc<super::attach_streams::AttachStreamAdmission>,
     /// The framed IPC transports this daemon serves (capabilities.rs).
     pub(super) ipc_transports: super::capabilities::IpcTransports,
     pub(super) state: Mutex<ClientRegistryState>,
@@ -404,6 +410,7 @@ impl ClientRegistry {
             origin_clock: Default::default(),
             browser_host: Default::default(),
             app_trust: app_trust::AppTrust::default(),
+            features: std::sync::OnceLock::new(),
             page_listener: Mutex::new(None),
             resource_stream_admission: ResourceWorkerAdmission::new(
                 RESOURCE_STREAMS_PER_CLIENT_CAPACITY,
@@ -412,6 +419,9 @@ impl ClientRegistry {
             resource_wait_admission: ResourceWorkerAdmission::new(
                 RESOURCE_WAITS_PER_CLIENT_CAPACITY,
                 RESOURCE_WAITS_SERVER_CAPACITY,
+            ),
+            attach_stream_admission: super::attach_streams::AttachStreamAdmission::new(
+                super::ATTACH_STREAMS_SERVER_CAPACITY,
             ),
             ipc_transports: super::capabilities::IpcTransports::default(),
             state: Mutex::new(ClientRegistryState::default()),
@@ -454,7 +464,7 @@ impl ClientRegistry {
                 writer,
                 origin: Default::default(),
                 person: false,
-                connection_class: Arc::default(),
+                connection_class: Arc::new(ConnectionClassCell::of_client(client)),
                 #[cfg(unix)]
                 machine_catalog: None,
                 #[cfg(test)]
@@ -784,6 +794,7 @@ impl ClientRegistry {
         surface: SurfaceId,
         runtime: SurfaceId,
         size_state: &TerminalSizingState,
+        scheme: crate::mux::ParticipantScheme,
     ) {
         let targets = {
             let state = self.state.lock().recover_poison();
@@ -801,15 +812,15 @@ impl ClientRegistry {
                     }
                     let open = record.capabilities.contains(OPEN_DEVICE_KINDS_CAPABILITY);
                     Some((
-                        (*client, open),
+                        SizeStateReader { client: *client, open, scheme },
                         record.writer.clone(),
                         Self::event_streams(record, surface),
                     ))
                 })
                 .collect::<Vec<_>>()
         };
-        for (client, writer, streams) in targets {
-            let event = size_state_event_json(surface, runtime, size_state, Some(client));
+        for (reader, writer, streams) in targets {
+            let event = size_state_event_json(surface, runtime, size_state, Some(reader));
             for stream in streams {
                 let _ = writer.send_stream(&event, &stream);
             }

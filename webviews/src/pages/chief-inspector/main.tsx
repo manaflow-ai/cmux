@@ -4,10 +4,12 @@
 // DESKTOP-FEEL (R139): the shared desktop layer loads first.
 import "../shared/desktop";
 import { createRoot } from "react-dom/client";
-import { App } from "../../optchat-inspector/App";
+import { App, type InspectorView } from "../../optchat-inspector/App";
 import { ApiStore, fetcherFor } from "../../optchat-inspector/store";
 import { StoreContext } from "../../optchat-inspector/useApi";
 import { createPageClient } from "../shared/pageClient";
+import { openPageState, restoredPageInputs } from "../shared/pageState";
+import { CHIEF_INSPECTOR_PAGE, restoredInspectorView } from "./view";
 import "../../optchat-inspector/styles.css";
 
 const client = createPageClient();
@@ -15,9 +17,13 @@ const call = client ? (op: string, params: unknown) => client.call<unknown>(op, 
 const store = new ApiStore(fetcherFor(location.protocol, call));
 const root = document.getElementById("root");
 if (root && document.documentElement.dataset.cmuxPage === "chief-inspector") {
+  const state = openPageState(client, CHIEF_INSPECTOR_PAGE);
+  const initial = restoredInspectorView(restoredPageInputs(client, CHIEF_INSPECTOR_PAGE));
+  let view: Partial<InspectorView> = initial;
+  state.keep(() => view);
   createRoot(root).render(
     <StoreContext.Provider value={store}>
-      <App />
+      <App initial={initial} onView={(next) => (view = next)} />
     </StoreContext.Provider>,
   );
 }

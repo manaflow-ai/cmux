@@ -1,7 +1,8 @@
 // The diff viewer notices an agent's edit (cx-9ce.34, dogfood run hq #1893): it kept the old diff
 // until the tab was reopened. It compares the host's fingerprint of its scope's diff with the one
 // it loaded: coming back to the viewer after an edit refreshes it, unless a comment draft or the
-// commit form would be lost, and then it says the files changed.
+// commit form would be lost, and then it says the files changed. It compares on the page's minute
+// clock while shown and runs no timer while hidden (p14-energy-062a).
 import { afterAll, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
 
@@ -43,6 +44,7 @@ Object.assign(scope, replacements);
 const { act } = await import("react");
 const { createRoot } = await import("react-dom/client");
 const { diffFingerprintReader, useDiffFreshness } = await import("../src/diff-viewer/freshness");
+const { fakePage } = await import("./support/fakePageClock");
 
 const host = dom.window.document.getElementById("root")!;
 const root = createRoot(host);
@@ -71,12 +73,14 @@ function Viewer({
   read,
   canRefresh,
   refresh,
+  clockPage,
 }: {
   read: () => Promise<string | undefined>;
   canRefresh: boolean;
   refresh: () => void;
+  clockPage?: ReturnType<typeof fakePage>;
 }) {
-  const stale = useDiffFreshness(read, 0, () => canRefresh, refresh);
+  const stale = useDiffFreshness(read, 0, () => canRefresh, refresh, clockPage);
   return <output>{stale ? "stale" : "fresh"}</output>;
 }
 const shown = () => dom.window.document.querySelector("output")?.textContent;
@@ -119,4 +123,54 @@ test("with a draft or the commit form open it says the files changed instead", a
   await settle();
   expect(refreshed).toBe(0);
   expect(shown()).toBe("stale");
+});
+
+test("a shown viewer compares each minute; a hidden one runs no timer and compares once on show", async () => {
+  const clockPage = fakePage(1_000_000_020_000); // on a minute boundary
+  let fingerprint = "a";
+  let reads = 0;
+  const read = async () => {
+    reads += 1;
+    return fingerprint;
+  };
+  let refreshed = 0;
+  await act(async () => root.render(<></>));
+  await act(async () =>
+    root.render(<Viewer read={read} canRefresh refresh={() => (refreshed += 1)} clockPage={clockPage} />),
+  );
+  await settle();
+  expect(reads).toBe(1);
+  expect(shown()).toBe("fresh");
+  expect(clockPage.timers.live).toBe(1);
+
+  await act(async () => clockPage.timers.advance(59_000));
+  expect(reads).toBe(1);
+  await act(async () => clockPage.timers.advance(1_000));
+  await settle();
+  expect(reads).toBe(2);
+
+  await act(async () => clockPage.doc.hide());
+  expect(clockPage.timers.live).toBe(0);
+  fingerprint = "b";
+  await act(async () => clockPage.timers.advance(10 * 60_000));
+  expect(reads).toBe(2);
+  expect(clockPage.timers.live).toBe(0);
+
+  // Coming back after an edit refreshes, with one read however many minutes passed.
+  await act(async () => clockPage.doc.show());
+  await settle();
+  expect(reads).toBe(3);
+  expect(refreshed).toBe(1);
+  expect(clockPage.timers.live).toBe(1);
+
+  // A change found while the reader stays in the viewer shows the notice; it never refreshes.
+  fingerprint = "c";
+  await act(async () => clockPage.timers.advance(60_000));
+  await settle();
+  expect(reads).toBe(4);
+  expect(refreshed).toBe(1);
+  expect(shown()).toBe("stale");
+
+  await act(async () => root.render(<></>));
+  expect(clockPage.timers.live).toBe(0);
 });

@@ -15,8 +15,9 @@ Cases (each `--only` name, its engine):
   network       chromium  SIGKILL the network service utility (--utility-sub-type=network.mojom.NetworkService):
                           Chromium starts a new one and a navigation of the tab loads over it.
   host          chromium  with cefHelperHost on: SIGKILL the Chromium browser host that serves the tab (the one
-                          parent of the tab's renderers, a process of the app's tree that is not the app); a host
-                          starts again and the same tab answers. No such host: NOT-MEASURABLE.
+                          parent of the tab's renderers, a process of the app's tree that is not the app): the tab
+                          shows the crash page with Reload, and Reload starts a new host under which the same tab
+                          answers. No such host: NOT-MEASURABLE.
   browser_check chromium  chrome://inducebrowsercrashforrealz, run only on proof that Chromium's browser process is
                           not the app (cefHelperHost on and the tab's renderers all under one host). Without that
                           proof (in process until F2, or no renderer to read) a browser CHECK would end cmux, so the
@@ -81,6 +82,8 @@ CHECK_CASES = ("renderer", "gpu", "webkit", "agent")
 # features.list reports the toggle's value with source `local`. The file loads off the main thread after launch.
 HOST_FEATURE = "cefHelperHost"
 HOST_TOGGLE = "browserHost.helper"
+# chromiumHostTabs' local override: with the host on, the arm's Chromium tabs run in it (p01-process-080).
+HOST_TABS_TOGGLE = "browserHost.tabs"
 TUNABLES_FILE = "CMUX_NEXT_DEBUG_TUNABLES_FILE"
 HOST_SETTLE_SECONDS = 15
 NETWORK_SERVICE = "network.mojom.NetworkService"
@@ -637,7 +640,8 @@ class Driver:
             at = self.kill("host", host)
             if at is None:
                 return NOT_MEASURABLE, f"host pid {host} not proved the app's", None
-            outcome, detail, recover = self.page_answers_after("host", tab, at)
+            # The host's end shows the crash page with Reload, and Reload starts a new host (p01-process-082).
+            outcome, detail, recover = self.sad_tab_reloads("host", tab, at)
             if outcome != SURVIVED:
                 return outcome, detail, recover
             fresh = tab_host()
@@ -814,7 +818,7 @@ def arm_env(arm, probe, tunables_path):
     """The launch environment of one run of `arm`: the typing probe, and a tunables file of its own that sets the
     host toggle to the arm (off too, so a developer's own Debug Settings never pick the off arm's value)."""
     with open(tunables_path, "w") as handle:
-        json.dump({"version": 1, "values": {HOST_TOGGLE: arm == "on"}}, handle)
+        json.dump({"version": 1, "values": {HOST_TOGGLE: arm == "on", HOST_TABS_TOGGLE: arm == "on"}}, handle)
     return {"CMUX_NEXT_TYPING_PROBE": probe, TUNABLES_FILE: tunables_path}
 
 

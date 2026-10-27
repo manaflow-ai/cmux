@@ -1,3 +1,4 @@
+public import CmuxNextCompat
 import CmuxNextTrace
 import CmuxNextWakeups
 public import Foundation
@@ -20,13 +21,20 @@ extension HangReportService {
     ///   - metricsDirectory: Where this app's metrics store keeps its launch files (the folder its `adoptFile` uses):
     ///     the earlier launches are read there.
     ///   - rings: Where the daemon, the holders and the hosts keep their black boxes.
+    ///   - features: The features the app runs with (hash and overrides), read at each report and sent where the
+    ///     wire schema carries them.
+    ///   - blockingSites: Reads the blocking detector's main-thread sites and reset count
+    ///     (`BlockingDetector.mainThreadRead`; empty where the detector is compiled out), counted into a
+    ///     ``BlockingSiteLedger`` where the wire schema carries them.
     public static func forThisApp(folder: URL, endpoint: String, channel: String,
                                   personalTerms: @autoclosure @escaping @Sendable () -> [String],
                                   counts: @escaping @Sendable () async -> CoarseCounts, stillAllowed: @escaping @Sendable () -> Bool,
                                   mainThreadHistograms: @escaping @Sendable () -> MainThreadReportLedger.Histograms?,
                                   wireSchema: HangReport.WireSchema = .deployed,
                                   metricsDirectory: URL = HangReportFieldSources.appMetricsDirectory(bundleID: Bundle.main.bundleIdentifier),
-                                  rings: HangReportFieldSources.RingFolders = .app(bundleID: Bundle.main.bundleIdentifier, flowsDirectory: nil))
+                                  rings: HangReportFieldSources.RingFolders = .app(bundleID: Bundle.main.bundleIdentifier, flowsDirectory: nil),
+                                  features: @escaping @Sendable () -> HangReport.FeatureState? = { nil },
+                                  blockingSites: @escaping @Sendable () -> BlockingDetector.MainThreadRead = { .init() })
         -> HangReportService {
         let builder = HangReportBuilder(classifier: ImageClassifier(appBundlePath: Bundle.main.bundlePath, forbiddenTerms: personalTerms()),
                                         resolver: DyldImageResolver(), wireSchema: wireSchema)
@@ -47,9 +55,17 @@ extension HangReportService {
             fieldData = sources
             captureBlackBox = { await sources.captureBlackBox() }
         }
+        // Another process's frames are classified by name and UUID (ImageClassifier.frame(foreign:loaded:)), with this
+        // process's image of that UUID when one is loaded (the system libraries share the dyld cache).
+        let resolveForeign: HangReportCollector.ResolveForeign = { frames in
+            frames.map { frame in
+                builder.classifier.frame(foreign: frame, loaded: frame.uuid.flatMap { builder.resolver.image(uuid: $0.uppercased()) })
+            }
+        }
         let collector = HangReportCollector(resolve: resolve, resolveBlocking: resolveBlocking, captureBlackBox: captureBlackBox,
-                                            keepsThreadHangs: builder.wireSchema.carriesThreadHangs)
+                                            keepsThreadHangs: builder.wireSchema.carriesThreadHangs, resolveForeign: resolveForeign)
         let mainThread = builder.wireSchema.carriesMainThread ? MainThreadReportLedger(histograms: mainThreadHistograms) : nil
+        let blocking = builder.wireSchema.carriesBlockingSites ? BlockingSiteLedger(sites: blockingSites) : nil
         let info = Bundle.main.infoDictionary ?? [:]
         let os = ProcessInfo.processInfo.operatingSystemVersion
         return HangReportService(
@@ -60,6 +76,7 @@ extension HangReportService {
                 app: HangReport.App(version: info["CFBundleShortVersionString"] as? String ?? "0",
                                     build: info["CFBundleVersion"] as? String ?? "0", channel: channel),
                 os: HangReport.OS(version: "\(os.majorVersion).\(os.minorVersion).\(os.patchVersion)"),
-                hardware: .current(), counts: counts, stillAllowed: stillAllowed, mainThread: mainThread, fieldData: fieldData))
+                hardware: .current(), counts: counts, stillAllowed: stillAllowed, mainThread: mainThread, fieldData: fieldData,
+                features: features, blockingSites: blocking))
     }
 }

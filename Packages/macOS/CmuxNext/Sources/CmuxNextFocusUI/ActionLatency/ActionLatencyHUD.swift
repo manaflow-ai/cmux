@@ -102,6 +102,7 @@ package final class ActionLatencyHUD {
         panel.hidesOnDeactivate = false
         panel.becomesKeyOnlyIfNeeded = true
         panel.isReleasedWhenClosed = false
+        panel.isRestorable = false  // AppKit state restoration is off for every cmux window (p08-startup-087)
         let label = NSTextField(labelWithAttributedString: NSAttributedString())
         label.maximumNumberOfLines = 0
         panel.contentView?.addSubview(label)

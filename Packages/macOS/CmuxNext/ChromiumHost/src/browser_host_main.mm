@@ -27,6 +27,11 @@
 // its browser process (host_energy_saver.h). cmux's Chromium switches come in
 // INITIALIZE, the set the app runs in process with (CEFSwitches); the host
 // fits them to its own message loop and adds TimerSlackMac (host_switches.h).
+//
+// App Nap: no window of the host is on screen, so macOS may nap it. The host
+// holds a user-initiated activity while cmux shows one of its pages and lets
+// App Nap apply when every page is hidden (host_page_activity.h, task
+// p14-energy-128).
 
 #import <AppKit/AppKit.h>
 #import <QuartzCore/QuartzCore.h>
@@ -59,6 +64,7 @@
 #include "chromium_host_wire.h"
 #include "cmux_cef_shim.h"
 #include "host_dispatch.h"
+#include "host_page_activity.h"
 #include "host_switches.h"
 #include "host_user_input.h"
 #include "shim_internal.h"
@@ -418,6 +424,35 @@ void ObserveActivation() {
                   }];
 }
 
+// The activity that keeps App Nap off the host (PageShowActivity's hold): as
+// Chrome's AppNapActivity (content/common/mac/app_nap_activity.mm), user
+// initiated with idle system sleep allowed, so a shown page draws at the
+// display's rate and the Mac may still sleep. Main thread.
+class AppNapActivity {
+ public:
+  AppNapActivity() = default;
+  AppNapActivity(const AppNapActivity&) = delete;
+  AppNapActivity& operator=(const AppNapActivity&) = delete;
+  ~AppNapActivity() { Hold(false); }
+
+  void Hold(bool held) {
+    if (held == (token_ != nil)) return;
+    @autoreleasepool {
+      if (held) {
+        token_ = [[NSProcessInfo.processInfo beginActivityWithOptions:NSActivityUserInitiatedAllowingIdleSystemSleep
+                                                                reason:@"cmux shows a Chromium page"] retain];
+      } else {
+        [NSProcessInfo.processInfo endActivity:token_];
+        [token_ release];
+        token_ = nil;
+      }
+    }
+  }
+
+ private:
+  id<NSObject> token_ = nil;
+};
+
 }  // namespace
 
 int main(int argc, char* argv[]) {
@@ -436,6 +471,10 @@ int main(int argc, char* argv[]) {
     [NSApp setActivationPolicy:NSApplicationActivationPolicyAccessory];
     ObserveActivation();
   }
+  // Held from here, through Chromium's start, until the first shown page
+  // count after initialize (HostContext::Resume).
+  AppNapActivity app_nap;
+  cmux_host::PageShowActivity page_activity([&app_nap](bool held) { app_nap.Hold(held); });
   // One thread so far: the framework's allocator and static initializers run
   // before any other thread exists. cmux_shim_load also binds the fork API.
   char error[512] = {0};
@@ -485,6 +524,7 @@ int main(int argc, char* argv[]) {
   // cmux_shim_load bound the fork's cmux_cef_set_energy_saver (p14-energy-029) when it has
   // it; without it the HELLO lists no saver and kOpEnergySaver changes nothing.
   if (cmux_shim::fork_api().set_energy_saver) host.SetEnergySaver(&cmux_shim_set_energy_saver);
+  host.SetPageShowActivity(&page_activity);
   // Main thread only, like `host`. The input ring (task 041) attaches its
   // dispatch here (AttachInput) and hands each frame to AddInput; until then
   // no frame comes and cmux stamps no ordered op with an input seq.
@@ -533,11 +573,17 @@ int main(int argc, char* argv[]) {
     for (const std::string& entry : host_switches) switches.push_back(entry.c_str());
     switches.push_back(nullptr);
     auto c_str = [](const std::optional<std::string>& value) { return value ? value->c_str() : nullptr; };
+    // cmux's runtime sends no paths in host mode (CEFRuntimeBoot.chromiumPaths): the app's
+    // bundle and helper come from the spawn's arguments (ChromiumHostConfiguration), so
+    // Chromium never takes this small host bundle as its main bundle.
+    const std::string main_bundle =
+        request.main_bundle_path.empty() ? Arg(args, "main-bundle") : request.main_bundle_path;
+    const std::string subprocess = request.subprocess_path.empty() ? Arg(args, "subprocess") : request.subprocess_path;
     // The framework this host loaded at start; cmux names the same directory.
     // No schedule_fn: the shim then runs without an external pump, and
     // CefRunMessageLoop below is the loop.
-    const int ok = cmux_shim_initialize(framework.c_str(), request.main_bundle_path.c_str(),
-                                        request.subprocess_path.c_str(), request.root_cache_path.c_str(),
+    const int ok = cmux_shim_initialize(framework.c_str(), main_bundle.c_str(),
+                                        subprocess.c_str(), request.root_cache_path.c_str(),
                                         c_str(request.log_file), request.log_severity, c_str(request.locale),
                                         c_str(request.accept_languages), switches.data(), &host, nullptr,
                                         &cmux_host::HostContext::OnShimEvent, nullptr);

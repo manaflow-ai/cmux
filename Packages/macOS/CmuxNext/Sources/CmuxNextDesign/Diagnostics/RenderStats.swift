@@ -39,6 +39,13 @@ import QuartzCore
 /// frame, window and `updateLayer` calls count on the main thread only (they
 /// read view state). One `-[NSView setFrame:]` that moves and resizes counts 2
 /// (AppKit sends `setFrameOrigin:` and `setFrameSize:`).
+///
+/// A producer that presents its frames itself, off the main thread and through no
+/// `setContents:` (a terminal's renderer with renderer-owned frames,
+/// p03-rendering-093), counts each shown frame as a contents set of its owner
+/// through ``presentedFrames``, from the thread its presentation feedback runs
+/// on, as Chrome counts a frame at its presentation feedback
+/// (`viz::Display::DidReceivePresentationFeedback`, components/viz/service/display/display.cc).
 @MainActor
 public final class RenderStats {
     public nonisolated enum Counter: Int, CaseIterable, Sendable {
@@ -101,6 +108,8 @@ public final class RenderStats {
     public private(set) var isCounting = false
     private var armers = 0
     nonisolated let ledger: Ledger
+    /// Where producers that present off the main thread count their frames (``PresentedFrames``).
+    public nonisolated let presentedFrames: PresentedFrames
     private let layoutGuard: LayoutPassGuard?
     #if DEBUG || CMUX_BENCH_HOOKS
     var hooks = HookSet()
@@ -116,6 +125,7 @@ public final class RenderStats {
     public init(layoutGuard: LayoutPassGuard? = nil, ownerCapacity: Int = 512) {
         self.layoutGuard = layoutGuard
         ledger = Ledger(capacity: ownerCapacity)
+        presentedFrames = PresentedFrames(ledger: ledger)
     }
 
     /// Holds one arm; arms nest (`debug.frames` and `debug.damage` can both
@@ -158,6 +168,7 @@ public final class RenderStats {
     #if DEBUG || CMUX_BENCH_HOOKS
     private func queueHookWork(_ work: @escaping @MainActor (RenderStats) async -> Void) {
         let previous = hookWork
+        // main-hop-allow: debug and bench builds only: the one chain arms and disarms await in order; its scans and swaps run off main (@concurrent), its main parts only set the arm state and hook lists
         hookWork = Task {
             await previous?.value
             await work(self)

@@ -1,0 +1,49 @@
+# guardrails.py (local tier, never CI) runs this on the Rust lines a push adds under cmux-tui/ and Native/.
+# Chromium builds Rust with panic=abort, so no unwind ever reaches C++ (build/config/rust.gni). cmux builds
+# with panic=unwind: a panic that reaches an `extern "C"` boundary aborts the whole app. Every exported
+# function catches it with ffi_boundary (a catch_unwind that reports and returns the fallback value).
+id: rust-ffi-guard
+language: rust
+severity: error
+message: "an `extern \"C\" fn` whose body is not wrapped in ffi_boundary: a panic there aborts the app"
+note: >-
+  Wrap the body: `ffi_boundary(<fallback>, || { ... })`. A body that cannot panic (pure arithmetic, a constant)
+  takes the reviewed escape `// ffi-nopanic: <why it cannot panic>` instead.
+utils:
+  test-code:
+    any:
+      - kind: mod_item
+        follows:
+          kind: attribute_item
+          regex: '^#\[cfg\((test|all\(test)'
+          stopBy:
+            not:
+              any:
+                - kind: attribute_item
+                - kind: line_comment
+                - kind: block_comment
+      - kind: function_item
+        follows:
+          kind: attribute_item
+          regex: '^#\[(\w+::)*test\b'
+          stopBy:
+            not:
+              any:
+                - kind: attribute_item
+                - kind: line_comment
+                - kind: block_comment
+rule:
+  kind: function_item
+  has:
+    kind: function_modifiers
+    has:
+      kind: extern_modifier
+      regex: '^extern(\s*"(C|system)(-unwind)?")?$'
+  not:
+    any:
+      - has:
+          field: body
+          regex: '\bffi_boundary\b'
+      - inside:
+          matches: test-code
+          stopBy: end

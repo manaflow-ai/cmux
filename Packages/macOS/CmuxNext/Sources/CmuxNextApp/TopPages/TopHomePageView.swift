@@ -59,7 +59,7 @@ final class TopHomePageView: NSView {
     let visibility = ViewVisibility("topHome")
     /// The page's observations (recipe R-obs). Service observations write the Home model, start reads or pick the
     /// shown conversation, which must happen while the page hides too.
-    private typealias RowFacts = (all: [InboxRow], archived: Set<String>, owned: [HomeInboxRequest.Response?])
+    private typealias RowFacts = (landed: Bool, all: [InboxRow], archived: Set<String>, owned: [HomeInboxRequest.Response?])
     private var rowsObservation: ServiceObservation<RowFacts>?
     private var selectionObservation: ServiceObservation<(pending: ConversationID?, listed: [ConversationID])>?
     private var chiefObservation: ServiceObservation<String?>?
@@ -83,7 +83,7 @@ final class TopHomePageView: NSView {
     init(services: AppServices, windowKey: @escaping () -> String) {
         self.services = services
         sidebar = services.home.makeSidebarSource()
-        split = HomeSidebarSplitView(sidebar: list, content: transcriptColumn, mainWork: services.mainWork)
+        split = HomeSidebarSplitView(sidebar: list, content: transcriptColumn, mainWork: services.mainWork, caches: services.home.labCaches, page: visibility.node)
         super.init(frame: .zero)
         setAccessibilityIdentifier("cmux.topPage.home")
         split.windowKey = windowKey
@@ -235,14 +235,14 @@ final class TopHomePageView: NSView {
 
     /// Follows the inbox rows and the conversation an action asked to show once it is listed (recipe R-obs).
     private func observe(_ home: HomeService, on work: MainWorkScheduler) {
-        let store = home.homeStore, sidebar = sidebar
+        let store = home.homeStore, sidebar = sidebar, listLaunch = home.listLaunch
         rowsObservation = ServiceObservation(.visible, owner: "TopHomePage.rows", on: work) { () -> RowFacts in
             // Read for their changes: each redraws the list. A Chief's pet character is its avatar when it has none of
             // its own, the team is read after the page opens (its teammates are rows once it lands), and a rename of a
             // Chief redraws its tile.
             _ = (sidebar.query, sidebar.pins, sidebar.unreadMarks, home.chiefFaces, home.directory.chiefHarnesses, home.chiefRoster,
                  home.services.settings?.snapshot.homeChiefPetMascot, home.directory.teamMembers, home.chiefNames)
-            return (all: store.rows, archived: home.directory.archivedChiefs, owned: sidebar.ownerRows)
+            return (landed: listLaunch.isLanded, all: store.rows, archived: home.directory.archivedChiefs, owned: sidebar.ownerRows)
         } apply: { [weak self] facts in
             self?.rowsChanged(facts, home: home)
         }
@@ -294,6 +294,9 @@ final class TopHomePageView: NSView {
     /// The inbox rows changed: the Chiefs' engines and pictures are read again when their Chiefs or the owner's rows
     /// changed, the requests when a conversation came or went, and the list redraws.
     private func rowsChanged(_ facts: RowFacts, home: HomeService) {
+        // Until the last launch's list is read the page is the theme background; then the seeded list shows in one frame.
+        if split.isHidden == facts.landed { split.isHidden = !facts.landed }
+        guard facts.landed else { return }
         let store = home.homeStore
         let chiefs = Set(facts.all.flatMap { $0.summary.participants.filter(\.isChief).map(\.id.rawValue) })
         if chiefs != badgedChiefs {

@@ -128,15 +128,20 @@ RUN_SCHEMA = "cmux-oracle-run-v1"
 COMPARISON_SCHEMA = "cmux-oracle-comparison-v2"
 RESULTS = ("Pass", "Failure", "Crash", "Timeout")
 SLOW_MULTIPLIER = 5
-CAPABILITIES = frozenset({"resource_api", "actions", "keys", "gui", "chromium", "restart", "mcp", "tui", "git_repo"})
+CAPABILITIES = frozenset(
+    {"resource_api", "actions", "keys", "gui", "chromium", "restart", "mcp", "tui", "git_repo", "state_root"}
+)
 # WPT runs one suite against several products; a case runs on a product only when the
 # product has every capability the case `requires`. git_repo (a case with fixture.repo): the
 # driver builds the repository with make_repo.build_for_case first; no driver does yet
-# (p15-oracle-243), so no product has it.
+# (p15-oracle-243), so no product has it. state_root (a case with fixture.stateRoot) runs a tag's
+# build and head's on one state root: gen_upgrades.py run is its runner (p15-oracle-208), so no
+# product has it either.
 PRODUCTS: Dict[str, frozenset] = {
     "daemon": frozenset({"resource_api", "restart"}),
     "cli": frozenset({"resource_api", "restart"}),
-    "mcp": frozenset({"resource_api", "actions", "mcp"}),
+    # The VM mcp session is the daemon driver's case: its own daemon, which a restart step restarts.
+    "mcp": frozenset({"resource_api", "actions", "mcp", "restart"}),
     "tui": frozenset({"resource_api", "keys", "tui"}),
     "headless": frozenset({"resource_api", "actions"}),
     "app": frozenset({"resource_api", "actions", "keys", "gui", "chromium", "restart", "mcp"}),
@@ -456,11 +461,28 @@ class ExpectationStore:
         return rules
 
 
-def load_expectations(root: Path, *, platform: str, arm: Optional[str], product: str, build: str) -> Optional[ExpectationStore]:
+def expectation_arm(arm: Optional[str], registry: Mapping[str, Mapping[str, Any]]) -> Optional[str]:
+    """The run's value in the expectations' arm tag group. A --switch run is on its arm. A run that sets no arm
+    (None or default) runs every switch at its registry `default`: switches land at default old and flip to new
+    only before their old path is deleted (refactor-switches/README.md), so that run is [ old ] while no default
+    is new, [ new ] once every default is, and on no arm while they differ. launch-config mixes planned arms."""
+    if arm in ARMS:
+        return arm
+    if arm not in (None, "default"):
+        return None
+    defaults = {entry.get("default", "old") for entry in registry.values()}
+    if not defaults:
+        return "old"
+    return defaults.pop() if len(defaults) == 1 and defaults <= set(ARMS) else None
+
+
+def load_expectations(root: Path, *, platform: str, arm: Optional[str], product: str, build: str,
+                      registry: Optional[Mapping[str, Mapping[str, Any]]] = None) -> Optional[ExpectationStore]:
     module = load_sibling("expectations")
     if module is None:
         return None
-    return ExpectationStore.load(module, root, platform=platform, arm=arm, product=product, build=build)
+    run_arm = expectation_arm(arm, load_switch_registry() if registry is None else registry)
+    return ExpectationStore.load(module, root, platform=platform, arm=run_arm, product=product, build=build)
 
 
 # ---------------------------------------------------------------------------------------
@@ -1603,6 +1625,14 @@ def add_selection_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--json", action="store_true", help="print the receipt or comparison as JSON")
 
 
+def launch_kind(product: str, binary: Optional[str]) -> str:
+    """The product whose launch defaults (jobs, batch limit, build) a run takes: the mcp product against a tagged
+    app bundle (driver_mcp.py fleet mode) launches the app, so it runs as the app product does."""
+    if product == "mcp" and isinstance(binary, str) and binary.rstrip("/").endswith(".app"):
+        return "app"
+    return product
+
+
 def new_run_id() -> str:
     return time.strftime("%Y%m%dT%H%M%SZ", time.gmtime()) + "-" + base36(random.SystemRandom().randrange(36**6))
 
@@ -1620,6 +1650,7 @@ def options_from_args(args: argparse.Namespace, *, retry_default: Optional[int],
     if args.shuffle and seed is None:
         seed = new_seed()
     product = args.product
+    launch = launch_kind(product, binary)
     for name in ("jobs", "batch_limit", "repeat"):
         value = getattr(args, name)
         if value is not None and value < 1:
@@ -1631,13 +1662,13 @@ def options_from_args(args: argparse.Namespace, *, retry_default: Optional[int],
         suites=suites,
         filters=filters,
         shard=parse_shard(args.shard),
-        jobs=args.jobs or DEFAULT_JOBS.get(product, VM_JOBS),
-        batch_limit=args.batch_limit or DEFAULT_BATCH_LIMIT.get(product, 1),
+        jobs=args.jobs or DEFAULT_JOBS.get(launch, VM_JOBS),
+        batch_limit=args.batch_limit or DEFAULT_BATCH_LIMIT.get(launch, 1),
         repeat=args.repeat,
         retry_limit=0,
         seed=seed,
         platform=args.platform,
-        build=args.build or DEFAULT_BUILD.get(product, "debug"),
+        build=args.build or DEFAULT_BUILD.get(launch, "debug"),
         switch=switch,
         arm=arm,
         switches=switches,

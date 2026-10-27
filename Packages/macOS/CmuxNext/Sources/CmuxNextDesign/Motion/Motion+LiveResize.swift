@@ -73,6 +73,13 @@ extension Motion {
     /// Tests set a live resize here instead of posting AppKit's notifications
     /// to the process-wide center (check-test-notification-centers.sh).
     static var liveResizeOverride: Bool?
+
+    /// Tests begin (`true`) or end (`false`) `window`'s full screen transition here, as its
+    /// `willEnterFullScreen` and `didEnterFullScreen` notifications do, instead of posting them to
+    /// the process-wide center (check-test-notification-centers.sh).
+    static func setFullScreenTransitionForTests(_ window: NSWindow, active: Bool) {
+        if active { LiveResizeWindows.shared.beginTransition(of: window) } else { LiveResizeWindows.shared.endTransition(of: window) }
+    }
 }
 
 /// The windows between `willStartLiveResize` and `didEndLiveResize`, and the
@@ -96,6 +103,9 @@ final class LiveResizeWindows {
     func isTransitioning(_ window: NSWindow) -> Bool { transitioning.contains(ObjectIdentifier(window)) }
     /// A transition AppKit gave up on (`windowDidFailToEnterFullScreen`, `windowDidFailToExitFullScreen`).
     func endTransition(of window: NSWindow) { transitioning.remove(ObjectIdentifier(window)) }
+    /// A transition begins (`willEnterFullScreen`, `willExitFullScreen`; tests through
+    /// ``Motion/setFullScreenTransitionForTests(_:active:)``).
+    func beginTransition(of window: NSWindow) { transitioning.insert(ObjectIdentifier(window)) }
 
     /// True once no window is in a full screen transition, false when the task was cancelled: one signal sent
     /// where the last transition ends (its did-enter or did-exit notification, a failure, a close), as
@@ -125,14 +135,12 @@ final class LiveResizeWindows {
     }
 
     init(center: NotificationCenter = .default) {
-        let changes: [(Notification.Name, Bool)] = [
-            (NSWindow.willStartLiveResizeNotification, true),
-            (NSWindow.didEndLiveResizeNotification, false),
-            (NSWindow.willCloseNotification, false),
-        ]
-        for (name, resizing) in changes {
-            let closes = name == NSWindow.willCloseNotification
+        // (name, starts a resize, closes the window).
+        // raw-observer-allow: the sets need each notice's sender window; an AppEvents call carries none
+        let changes: [(Notification.Name, Bool, Bool)] = [(NSWindow.willStartLiveResizeNotification, true, false), (NSWindow.didEndLiveResizeNotification, false, false), (NSWindow.willCloseNotification, false, true)]
+        for (name, resizing, closes) in changes {
             // The token lives as long as the process: this object never goes away.
+            // raw-observer-allow: the app's one observer per name; the sets need each notice's sender window
             _ = center.addObserver(forName: name, object: nil, queue: nil) { [weak self] note in
                 guard let window = note.object as? NSWindow else { return }
                 let id = ObjectIdentifier(window)
@@ -142,12 +150,11 @@ final class LiveResizeWindows {
                 }
             }
         }
-        let transitions: [(Notification.Name, Bool)] = [
-            (NSWindow.willEnterFullScreenNotification, true), (NSWindow.didEnterFullScreenNotification, false),
-            (NSWindow.willExitFullScreenNotification, true), (NSWindow.didExitFullScreenNotification, false),
-        ]
+        // raw-observer-allow: the transition set needs each notice's sender window; an AppEvents call carries none
+        let transitions: [(Notification.Name, Bool)] = [(NSWindow.willEnterFullScreenNotification, true), (NSWindow.didEnterFullScreenNotification, false), (NSWindow.willExitFullScreenNotification, true), (NSWindow.didExitFullScreenNotification, false)]
         for (name, starts) in transitions {
             // The token lives as long as the process: this object never goes away.
+            // raw-observer-allow: the app's one observer per name; the set needs each notice's sender window
             _ = center.addObserver(forName: name, object: nil, queue: nil) { [weak self] note in
                 guard let window = note.object as? NSWindow else { return }
                 let id = ObjectIdentifier(window)

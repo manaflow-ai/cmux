@@ -12,7 +12,7 @@ import Darwin
 /// `downloading`, `downloadFailed`, `startFailed`, `shutDown`), where the
 /// runtime came from (`runtime`: Chromium on demand) and the WebKit
 /// fallbacks so far, where Chromium's browser process runs (`backend`:
-/// `inProcess` or `host`), what the fork's page tracker read from host views
+/// `inProcess` or `host`; `host_supervisor`: host mode's one host), what the fork's page tracker read from host views
 /// (`tracker`; in host mode only `tracker.hosted_pages`) and, in process only,
 /// the external pump's counters (`pump`), the page windows over each
 /// DevTools tab (`devtools[].child_windows`) and what swipe gestures asked
@@ -53,6 +53,7 @@ enum DebugCEF {
         let backend = services.chromiumRuntime.backend
         object["backend"] = .string(backend.rawValue)
         object["runtime"] = runtime(services.chromiumRuntime)
+        object["host_supervisor"] = hostSupervisor(services.chromiumRuntime.source.hostSupervisor)
         object["devtools"] = .array(devTools(services, pageWindows: ChildPageGeometry.hasPageWindows(backend)))
         object.merge(engineCounters(backend: backend, pump: services.cache.cef.pumpStats,
                                     tracker: services.cache.cef.trackerStats)) { $1 }
@@ -60,6 +61,13 @@ enum DebugCEF {
         // Host mode with feature chromiumHostWidgets (p01-process-066): null without a widget host.
         object["host_widgets"] = services.cache.cef.hostWidgets.map { .array($0.map(hostWidget)) } ?? .null
         object["host_popup_menus"] = .bool(services.cache.cef.drawsHostPopupMenus) // p01-process-060
+        // Host mode with feature chromiumHostSuggestions (p01-process-061): null while the host draws none in cmux.
+        object["host_suggestions"] = services.cache.cef.hostSuggestions.map { .array($0.map(hostSuggestion)) } ?? .null
+        // Host mode with feature chromiumHostFileDialogs (p01-process-064): the page file choosers cmux answered.
+        object["host_file_dialogs"] = services.cache.cef.hostFileDialogs.map { report in
+            .object(["asked": .number(Double(report.asked)), "answered": .number(Double(report.answered)),
+                     "waiting": .number(Double(report.waiting))])
+        } ?? .null
         object["host_resize"] = services.cache.cef.hostResizeCounters.map { counters in .object(counters.mapValues { value in .number(value) }) } ?? .null
         // Swipes over Chromium pages (p01-process-234): a hosted page on a host that acks wheels probes nothing.
         let swipe = services.cache.cef.swipeStats
@@ -165,6 +173,12 @@ enum DebugCEF {
                  "context_id": .number(Double(widget.contextID)), "shown": .bool(widget.shown), "frame": rect(widget.screenFrame)])
     }
 
+    private static func hostSuggestion(_ list: CEFHostSuggestionReport) -> JSONValue {
+        .object(["browser": .number(Double(list.browser)), "token": .number(Double(list.token)), "kinds": .array(list.kinds.map { .string($0) }),
+                 "types": .array(list.types.map { .number(Double($0)) }), "highlighted": list.highlighted.map { .number(Double($0)) } ?? .null,
+                 "frame": list.screenFrame.map(rect) ?? .null, "field": list.field.map(rect) ?? .null])
+    }
+
     private static func rect(_ rect: CGRect) -> JSONValue {
         .array([rect.minX, rect.minY, rect.width, rect.height].map { .number(Double($0)) })
     }
@@ -228,9 +242,9 @@ enum DebugCEF {
             "geometry_skips": .number(Double(stats.geometrySkips)),
             "page_window_widget_shows": .number(Double(stats.pageWindowWidgetShows)),
             // Keyed by the fork's widget kind (CEFNativeWidget raw value): "2" autofill, "5" print preview.
-            "page_window_widget_shows_by_kind": .object(Dictionary(uniqueKeysWithValues: stats.pageWindowWidgetShowsByKind.map {
+            "page_window_widget_shows_by_kind": .object(Dictionary(stats.pageWindowWidgetShowsByKind.map {
                 (String($0.key), JSONValue.number(Double($0.value)))
-            })),
+            }, uniquingKeysWith: { first, _ in first })),
         ])
     }
 
@@ -247,6 +261,22 @@ enum DebugCEF {
             object["error"] = .object(["code": .string(error.code), "detail": .string(error.detail), "attempt": .number(Double(attempt))])
         }
         return .object(object)
+    }
+
+    /// Host mode's one supervisor (p01-process-080): its running host's pid, the hosts it started, how they ended
+    /// and why none can start. Null in process. chromium-host-bench.py's profiles row tells its host from others.
+    private static func hostSupervisor(_ supervising: (any ChromiumHostSupervising)?) -> JSONValue {
+        #if DEBUG || CMUX_BENCH_HOOKS
+        guard let supervisor = supervising as? ChromiumHostSupervisor else { return .null }
+        return .object([
+            "pid": supervisor.hostPID.map { .number(Double($0)) } ?? .null,
+            "hosts_started": .number(Double(supervisor.hostsStarted)),
+            "exits": .array(supervisor.exits.map(JSONValue.string)),
+            "start_failure": supervisor.startFailure.map(JSONValue.string) ?? .null,
+        ])
+        #else
+        .null
+        #endif
     }
 
     private static func unavailable(_ reason: CEFUnavailableReason?) -> JSONValue {

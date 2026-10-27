@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 43809fd7d722d834588b3aab6384dbcdf8f755c500368d8dff2de87bc045e23d. */
+/* cmux-tui mux protocol 12, IR 7eb274630f633e9ac0d047904d92944dbb00b4f9dcb8b2c809d8a6871ce0a777. */
 
 
 import type * as T from "./types.js";
@@ -613,6 +613,7 @@ export interface AttachSurfaceRequest extends CmuxRequestBase {
   "snapshot_images"?: boolean;
   "snapshot_local_history"?: boolean;
   "snapshot_version"?: (number) | null;
+  "stream"?: (number) | null;
   "surface"?: (T.Id) | null;
   "viewer_backlog_bytes"?: (bigint) | null;
 }
@@ -788,6 +789,12 @@ export interface CancelRequestRequest extends CmuxRequestBase {
 }
 export type CancelRequestResult = T.EmptyResult;
 
+/** Protocol v12; authority: frontend. */
+export interface CancelStreamRequest extends CmuxRequestBase {
+  cmd: "cancel-stream";
+  "stream": number;
+}
+
 /** Protocol v12; authority: local-admin. */
 export interface ChiefInspectRequest extends CmuxRequestBase {
   cmd: "chief-inspect";
@@ -827,6 +834,7 @@ export type ClientFocusResult = {
 /** Protocol v12; authority: local-admin. */
 export interface ClientHelloRequest extends CmuxRequestBase {
   cmd: "client-hello";
+  "features"?: (T.ClientHelloFeatures) | null;
   "install_id"?: string;
   "page"?: (string) | null;
   "proof"?: string;
@@ -1739,6 +1747,7 @@ export type DeleteWorkspaceGroupResult = T.JsonValue;
 export interface DetachAttachedViewRequest extends CmuxRequestBase {
   cmd: "detach-attached-view";
   "lease"?: (string) | null;
+  "stream"?: (number) | null;
   "surface": T.Id;
   "view"?: (string) | null;
 }
@@ -2707,6 +2716,7 @@ export type RegisterBrowserProviderResult = T.BrowserProviderSnapshot;
 export interface ReleaseAttachedViewSizeRequest extends CmuxRequestBase {
   cmd: "release-attached-view-size";
   "lease"?: (string) | null;
+  "stream"?: (number) | null;
   "surface": T.Id;
   "view"?: (string) | null;
 }
@@ -2850,6 +2860,7 @@ export interface ResizeAttachedViewRequest extends CmuxRequestBase {
   "identity"?: (T.SizingIdentity) | null;
   "lease"?: (string) | null;
   "rows": number;
+  "stream"?: (number) | null;
   "surface": T.Id;
   "view"?: (string) | null;
 }
@@ -3296,6 +3307,7 @@ export interface SnapshotRequestRequest extends CmuxRequestBase {
   "have"?: (T.SnapshotRequestHave) | null;
   "reason"?: (string) | null;
   "request_id"?: (string) | null;
+  "stream"?: (number) | null;
   "surface": T.Id;
 }
 
@@ -3722,6 +3734,7 @@ export type CmuxRequest =
   | BrowserWheelRequest
   | BrowserWheelGuardedRequest
   | CancelRequestRequest
+  | CancelStreamRequest
   | ChiefInspectRequest
   | ClearHistoryRequest
   | ClearWindowTitleRequest
@@ -4589,6 +4602,14 @@ export interface CmuxCommandDefinitionMap {
     authority: "local-admin";
     since: 12;
     capability: "cancel-request-v1";
+    stream: null;
+  };
+  "cancel-stream": {
+    request: CancelStreamRequest;
+    result: T.CancelStreamResult;
+    authority: "frontend";
+    since: 12;
+    capability: "attach-streams-v1";
     stream: null;
   };
   "chief-inspect": {

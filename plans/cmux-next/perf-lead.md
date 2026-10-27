@@ -166,6 +166,32 @@ holder's live terminals, with the A3 reconcile notice. Target: every daemon op <
 
 Owners: D1-D8 cmux-b6 PL-daemon (speed) with PL-holder (cmux-4f) for the holder side; acpmux (A1-A3 and its share of D1-D8) end to end cmux-4f PL-acpmux, audit and fixes (lead decision 2026-10-23; OWNERS.md 8b1e64c6130; [acpmux-audit.md](acpmux-audit.md)). Every fix meets the brief's REVIEW AND FIX STANDARD and gets the deep review (cmux-next-deep-review).
 
+### Chrome runtime idle services (p13-webui-084)
+
+Rule (chrome-parity p13 F, "Home at the floor"): a Chrome runtime service cmux does not use does
+not run at Home. Census from the Chromium 154 sources (cef-154.0.28-cmux.28, Chromium 154.0.8037.58);
+each switch and its source is a constant in `CEFSwitches.swift` (`syncOffSwitch`, and
+`idleServiceOffFeatures` in the one `disable-features` entry), which the Chromium Host passes too. Not measured yet: the home bench and the browser automation suite run
+before and after on the fleet (test phase); the wake rates below are from the sources.
+
+| Service | Idle work at Home (source) | Decision |
+|---|---|---|
+| HangWatcher | a thread per Chromium process (app, GPU, network, renderers) wakes every 10 s, `base/threading/hang_watcher.cc` | off: `disable-features=EnableHangWatcher,EnableHangWatcherOnGpuProcess`; its dumps need Crashpad upload, cmux ships no `crash_reporter.cfg` |
+| Sync | SyncServiceImpl, engine and invalidations per profile, `components/sync/base/command_line_switches.h` | off: `disable-sync`; no Google sign-in, cmux owns bookmarks, password code is null-safe |
+| Optimization Hints | hints component registered with the component updater, `optimization_hints_component_installer.cc` | off: `disable-features=OptimizationHints` (Puppeteer and chrome-launcher do the same) |
+| Optimization guide models (`OptimizationTargetPrediction`) | model downloads through the optimization guide | kept: Safe Browsing client-side detection gets its model here (`client_side_detection_service.cc`) |
+| Component updater | first check 1 min after start, then every 5 h, `components/component_updater/configurator_impl.cc` | kept (written decision): it installs the Widevine CDM (browser.md, Lawrence 2026-10-17) and CRLSet |
+| Safe Browsing | list updates | kept (written decision): no change; phishing and malware protection stays on (p14-energy: "Safe Browsing and CRLSet stay") |
+| Variations seed fetch | none: a build without Chrome branding fetches only with `--variations-server-url`, `components/variations/service/variations_service.cc` IsFetchingEnabled | already off; `disable-field-trial-config` stays |
+| Media Router (Cast) | none before a Cast click: `kDelayMediaSinkDiscovery` is on by default, `chrome/browser/media/router/media_router_feature.cc` | kept: the page menu's Cast row works |
+| Translate | language detection after a page load, not at idle | kept: the page menu's Translate rows work |
+| GCM | delayed start; no app handler registers (`disable-notifications` turns off Push, sync is off) | no switch |
+| Network time | a timer every 360 s, a query at about 1.2 % of checks, `components/network_time/network_time_tracker.cc` | kept: it feeds the cert verifier's clock (`cert_verifier_service_time_updater.cc`); 0.003 wakes/s |
+| Domain Reliability | none without metrics consent, `chrome/browser/domain_reliability/service_factory.cc` | already off |
+
+Tell: the browser owner, PL-cefhost (OWNERS.md row for the CEF files; this task holds the `CEFSwitches.swift`
+lease, coordination/cefs-leases.md).
+
 ## 4. Workstreams (batch 1)
 
 Each workstream is one subagent in its own worktree, lands on feat-cmux-next (rebase, plain
@@ -294,6 +320,7 @@ Batch 2 (after batch 1 lands): issues 8, 9, 11, 15-20.
 | 2026-10-26 | p02-threads-301 RUN-5 suites half (MQ-13, from p02-threads-303's run) | cp/p02-threads-303 at 96960323425 (has 210, 220, 225; not 211, 221, 231) | RUN-5: `cargo test -p cmux-tui-core -p cmux-tui`, daemon Debug in panic mode, 0 blocking panics on request or echo threads | - | **fail**: `RUN-5 fail panic_only_failures=254 shared_failures=215 blocking_panics=15 sites=21 mq13_tasks=204`; the 15 panic sites are the first fix tasks, the 204 record-mode rows are the MQ-13 list ([results/p02-threads-303](chrome-parity/results/p02-threads-303/README.md)). 360-core Linux VM (no macOS), Debug, ghostty-next 723c4ab93e7. **Missing, task 301 stays open**: RUN-5's bench half (`daemon-blocking-sweep.py bench`: perf-10x-lifecycle part=daemon, server.blocking sites and op p95 against the merge base) is not run by 303 or 301 |
 | 2026-10-27 | p02-threads-301 RUN-2 (blocking probe, MQ-11) (pending) | - | RUN-2: 0 main-thread waits >= 1 ms in cmux code and < 0.5 ms cmux main off-CPU per action at p99, every action light + STRESS; app_chromium total as an open number for p01-process | - | **not measured, task 301 stays open**. The controller refuses the run at cp/p02-threads-301 0a4eb3580a4 (2026-10-27, `invalid ci-step: script scripts/measure/blocking-probe.sh is not on the measurement list: an unlisted scripts/measure script runs only at a commit on feat-cmux-next or main`), and feat-cmux-next's blocking-probe.sh (91f2976c551) has no filing. Run it when this script is on the measurement list or at a feat-cmux-next commit that has it: `cmux-ci run --class exclusive --measurement --label measure --script scripts/measure/blocking-probe.sh --ref SHA --key p02-threads-301 --artifact artifacts/blocking-probe.tar.gz --arg=--config=bench`; replace this row and the next with its `perf-lead-rows.md` (sha, host, macOS), and file `blocking-probe-filing.json`'s mq11 and mq13 tasks (mq13 tasks with `known` "known" are on the 303 list at the same path, line, kind and thread; "unknown" ones need a check against it). The probe sums each stack over the run, so the per-action p99 is not measured: RUN-2 passes only when the run's whole cmux main off-CPU time is under 0.5 ms |
 | 2026-10-27 | p02-threads-301 daemon request and echo threads (blocking probe, MQ-13; not RUN-5's server.blocking bench) (pending) | - | MQ-13 sites: the app session owner's request and echo threads under the same sweep, one task per (location, kind, thread) | - | **not measured**: the same run as the RUN-2 row above |
+| 2026-10-27 | p13-webui-079 (Mojo-like page push channel) | perf/chrome-parity, this push (default-off feature `pagePushChannel`); manaflow-ai/cef `cp/p13-webui-079` at `37353c1b` (API 39, not built, not pinned) | F3: host events into cmux pages, 10 Hz x 10 pages | every delivery is a script: one compile in the page per run of envelopes (`Runtime.evaluate`, or `tabEvaluate` on fork 29), and a DevTools reply per script | **not measured** (needs a fork build of 37353c1b in the train, 086): `bench-webui.py push` with and without `--enable-feature pagePushChannel` on one mini, one build: `push.round_trip_ms` p99 and `push.renderer_cpu_ms_per_1000`. The feature turns on by default only with a gain beyond the off arm's spread in one of them; otherwise it stays off and this row records the loss. With the channel, `push.script_deliveries.on` must read 0 |
 | | | | | | |
 
 ### Process-model baseline and per-role budgets (p01-process-005)

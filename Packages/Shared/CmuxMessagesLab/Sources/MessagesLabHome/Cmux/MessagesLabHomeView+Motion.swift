@@ -21,6 +21,14 @@ extension MessagesLabHomeView {
         set { motionPins.withLock { $0.stillsLoops = newValue } }
     }
 
+    /// Whether the message box's glass fades when a message is sent (a Core Animation opacity
+    /// pulse). cmux-next sets its motion gate (`Motion.home.animatesFades`: the motion switches,
+    /// the speed and Reduce Motion); off, the box stays opaque. The default fades, as Messages does.
+    public var fadeMotionGate: @MainActor () -> Bool {
+        get { controller.host.fieldChrome.animatesFade }
+        set { controller.host.fieldChrome.animatesFade = newValue }
+    }
+
     /// What the host pushed: one lock for both values.
     private struct MotionPins: Sendable {
         var reduceMotion: Bool?

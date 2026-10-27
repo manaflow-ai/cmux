@@ -330,27 +330,6 @@ struct WorkspaceHoverCardContent: Equatable {
         }
     }
 
-    private static let elapsedFormatter: DateComponentsFormatter = {
-        let formatter = DateComponentsFormatter()
-        formatter.unitsStyle = .abbreviated
-        formatter.maximumUnitCount = 2
-        formatter.allowedUnits = [.day, .hour, .minute, .second]
-        formatter.zeroFormattingBehavior = .dropAll
-        return formatter
-    }()
-
-    /// How long since `date`, live on the card: "12s", "4m 12s", "1h 3m"; at least one second,
-    /// also for a start ahead of this clock (another machine's daemon).
-    static func elapsed(since date: Date, now: Date) -> String {
-        elapsedFormatter.string(from: max(1, now.timeIntervalSince(date).rounded(.down))) ?? ""
-    }
-
-    /// `text · 4m 12s` for a running fact, else `text`.
-    static func withElapsed(_ text: String, since: Date?, now: Date) -> String {
-        guard let since else { return text }
-        return text + " · " + elapsed(since: since, now: now)
-    }
-
     /// The one resource line, or nil while the workspace is quiet.
     static func resourceLine(_ report: ResourceReport?) -> String? {
         guard let total = report?.total,
