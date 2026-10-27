@@ -91,23 +91,23 @@ nonisolated enum SingleInstanceHandoffEvents {
 
     static func descriptor(_ event: Event, to pid: pid_t) -> NSAppleEventDescriptor {
         let target = NSAppleEventDescriptor(processIdentifier: pid)
-        func make(_ eventClass: Int, _ eventID: Int) -> NSAppleEventDescriptor {
-            NSAppleEventDescriptor(eventClass: AEEventClass(eventClass), eventID: AEEventID(eventID), targetDescriptor: target,
+        func make(_ eventClass: AEEventClass, _ eventID: AEEventID) -> NSAppleEventDescriptor {
+            NSAppleEventDescriptor(eventClass: eventClass, eventID: eventID, targetDescriptor: target,
                                    returnID: AEReturnID(kAutoGenerateReturnID), transactionID: AETransactionID(kAnyTransactionID))
         }
         switch event {
         case .openDocuments(let files):
-            let descriptor = make(kCoreEventClass, kAEOpenDocuments)
+            let descriptor = make(AEEventClass(kCoreEventClass), AEEventID(kAEOpenDocuments))
             let list = NSAppleEventDescriptor.list()
             for file in files { list.insert(NSAppleEventDescriptor(fileURL: file), at: 0) }
             descriptor.setParam(list, forKeyword: AEKeyword(keyDirectObject))
             return descriptor
         case .getURL(let url):
-            let descriptor = make(kInternetEventClass, kAEGetURL)
+            let descriptor = make(AEEventClass(kInternetEventClass), AEEventID(kAEGetURL))
             descriptor.setParam(NSAppleEventDescriptor(string: url.absoluteString), forKeyword: AEKeyword(keyDirectObject))
             return descriptor
         case .reopen:
-            return make(kCoreEventClass, kAEReopenApplication)
+            return make(AEEventClass(kCoreEventClass), AEEventID(kAEReopenApplication))
         }
     }
 }
