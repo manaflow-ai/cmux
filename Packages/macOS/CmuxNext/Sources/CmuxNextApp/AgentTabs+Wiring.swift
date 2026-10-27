@@ -114,6 +114,8 @@ extension AgentTabStore {
         let state = services.environment.sidebarSnapshotFile?.url.deletingLastPathComponent()
         tabs.unsentDrafts = AgentUnsentDrafts(directory: state)
         tabs.pageChats.environments = state.map { SavedEnvironments(url: $0.appending(path: "environments.json")) }
+        // The environment picker's Cloud machines: the account's, with Open and Resume (`cloudMachine.*`).
+        AgentPaneCloudMachines.shared.wire(services)
         // The composer chips and shell commands chat pages held at the last quit (every relaunch's quit).
         tabs.relaunchWake = services.relaunchWake
         // The Chief home's acpmux: the Chief host's subagent tabs attach there.
