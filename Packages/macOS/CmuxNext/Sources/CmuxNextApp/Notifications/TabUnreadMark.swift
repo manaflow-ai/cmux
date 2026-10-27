@@ -56,8 +56,10 @@ enum TabUnreadMark {
     /// saw what the agent asked. A daemon without the capability holds no mark to clear.
     static func clearAttention(tab: TabModel, daemon: DaemonService) {
         guard daemon.supports(DaemonCapability.tabAttention.rawValue), daemon.store.servesStateResources,
-              let resource = tab.resourceID else { return }
-        daemon.send("tab.update") { try await $0.state.updateTabRecord(resource, clearsAttention: true) }
+              let resource = tab.resourceID, let request = tab.expectAttentionClear() else { return }
+        daemon.send("tab.update", onFailure: { _ in tab.dropExpectedAttentionClear(request) }) {
+            try await $0.state.updateTabRecord(resource, clearsAttention: true)
+        }
     }
 
     /// The ids of `viewed` tabs that `previous` did not hold: the tabs that came

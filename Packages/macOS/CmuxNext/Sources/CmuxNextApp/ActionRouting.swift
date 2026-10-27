@@ -30,6 +30,7 @@ enum ActionRouting {
     /// object's". `windowMachine` maps a window id to its machine's daemon.
     static func daemon(for invocation: ActionInvocation, daemons: [DaemonService],
                        windowMachine: (String) -> DaemonService?) -> DaemonService? {
+        if let machine = invocation.targetMachineID { return daemons.first { $0.machineID == machine } }
         let arguments = ["workspace", "tab", "pane", "group"].compactMap { invocation[$0]?.targetValue }
         guard let target = invocation.target ?? arguments.first else { return nil }
         switch target.kind {
