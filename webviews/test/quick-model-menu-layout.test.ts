@@ -162,6 +162,21 @@ await requireBrowserLane("quick-model-menu-layout.test.ts", async () => {
     }
   });
 
+  test("every harness placement leaves the model rows visible", async () => {
+    for (const variant of ["harness-left", "harness-top", "harness-compact"]) {
+      const page = await open(variant, 420, 560);
+      try {
+        const body = await bounds(page, ".acpmux-quick-body");
+        const first = (await page.locator(".acpmux-quick-list [role=menuitemradio]").first().boundingBox())!;
+        expect(body.height).toBeGreaterThanOrEqual(first.height);
+        expect(first.y).toBeGreaterThanOrEqual(body.y);
+        expect(first.y + first.height).toBeLessThanOrEqual(body.y + body.height);
+      } finally {
+        await page.close();
+      }
+    }
+  });
+
   test("a long account name keeps the Account control readable in a narrow pane", async () => {
     for (const width of [320, 420]) {
       const page = await open("claude", width);

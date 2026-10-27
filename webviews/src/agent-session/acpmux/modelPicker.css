@@ -356,6 +356,7 @@
   max-height: min(132px, calc(var(--available-height, 100vh) / 2));
 }
 .acpmux-quick-placement-top .acpmux-quick-rail-tab { max-width: 100%; }
+.acpmux-quick-placement-top .acpmux-quick-body { flex-basis: auto; }
 .acpmux-quick-placement-compact .acpmux-quick-rail { flex-basis: 76px; }
 .acpmux-quick-placement-compact .acpmux-quick-rail-tab { flex-direction: column; gap: 4px; text-align: center; }
 .acpmux-quick-placement-compact .acpmux-quick-harness-name { font-size: var(--text-caption); }
