@@ -1,6 +1,15 @@
 //! The per-connection surface scheduler: pending surface requests, the
-//! connection's cancellation token, clear-history barriers, and the
-//! dispatcher thread that runs queued surface operations in order.
+//! connection's cancellation token, clear-history and long-read barriers, and
+//! the dispatcher thread that runs queued surface operations in order.
+//!
+//! Requests of one surface run in arrival order. A person's input
+//! (`Command::is_input`) runs before other surfaces' queued requests, as
+//! Chrome's `kUserInput` queue outranks its other UI-thread queues
+//! (content/browser/scheduler/browser_task_queues.h); input never passes
+//! earlier input that can run, nor a request that names no surface. A long
+//! read (`Command::is_long_read`) runs on a work item of the mux's Cpu lane
+//! (`Mux::work`), not on the dispatcher and not on a thread of its own, so a
+//! later Send for another surface answers while it runs.
 //!
 //! Request threads (this dispatcher, its clear-history workers, the WebSocket
 //! connection thread) start through [`spawn_request_thread`]: UserInitiated,
@@ -36,10 +45,12 @@ use crate::thread_qos::ThreadType;
 use cmux_threads::ThreadQos;
 use cmux_threads::sync::Condvar;
 use cmux_threads::sync::Mutex;
+use cmux_threads::work::{Lane, Priority, Shutdown};
 use connection_qos::{ConnectionClassCell, ConnectionThread, RestingClass};
 use std::collections::HashSet;
 use std::collections::VecDeque;
 use std::sync::Arc;
+use std::sync::Weak;
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering;
 use std::thread::JoinHandle;
@@ -90,6 +101,8 @@ pub(super) struct ConnectionSurfaceState {
     pub(super) requests: VecDeque<PendingSurfaceRequest>,
     pub(super) queued_bytes: usize,
     pub(super) active_clear_surfaces: HashSet<SurfaceId>,
+    /// Surfaces whose long read runs on a work item (`Command::is_long_read`).
+    pub(super) active_read_surfaces: HashSet<SurfaceId>,
     /// Terminal creates handed to the terminal work pool and not yet answered (`terminal_create`).
     pub(super) active_creations: usize,
     pub(super) dispatcher_started: bool,
@@ -332,21 +345,48 @@ impl ConnectionSurfaceScheduler {
         Ok(())
     }
 
+    /// The queued request the dispatcher runs next, if one may run now.
+    ///
+    /// - A request waits for every earlier request of its surface, and for
+    ///   that surface's clear-history or long-read worker.
+    /// - Nothing passes a request that names no surface.
+    /// - Input (`Command::is_input`) passes other surfaces' requests.
+    /// - With no worker running, the first request runs unless input passes
+    ///   it; while one runs, only a request that may overtake its barrier
+    ///   runs, and a non-input one passes no request that could run.
     pub(super) fn next_runnable_index(state: &ConnectionSurfaceState) -> Option<usize> {
-        if state.active_clear_surfaces.is_empty() {
+        let idle = state.active_clear_surfaces.is_empty() && state.active_read_surfaces.is_empty();
+        if idle && state.requests.len() <= 1 {
             return (!state.requests.is_empty()).then_some(0);
         }
+        let busy = |surface: &SurfaceId| {
+            state.active_clear_surfaces.contains(surface)
+                || state.active_read_surfaces.contains(surface)
+        };
+        // Surfaces with an earlier request still queued.
+        let mut held = HashSet::new();
+        // The non-input request that runs unless later input passes it.
+        let mut candidate = None;
+        // Whether a request that could run was passed.
+        let mut passed = false;
         for (index, pending) in state.requests.iter().enumerate() {
-            let surface = pending.request.cmd.ordering_surface()?;
-            if state.active_clear_surfaces.contains(&surface) {
+            let cmd = &pending.request.cmd;
+            let Some(surface) = cmd.ordering_surface() else {
+                return candidate.or((idle && !passed).then_some(index));
+            };
+            if busy(&surface) || held.contains(&surface) {
                 continue;
             }
-            if pending.request.cmd.can_overtake_clear_barrier() {
+            if cmd.is_input() {
                 return Some(index);
             }
-            return None;
+            if !passed && (idle || cmd.can_overtake_clear_barrier()) {
+                candidate = Some(index);
+            }
+            passed = true;
+            held.insert(surface);
         }
-        None
+        candidate
     }
 
     pub(super) fn next_request(&self) -> Option<PendingSurfaceRequest> {
@@ -356,13 +396,21 @@ impl ConnectionSurfaceScheduler {
                 && let Some(pending) = state.requests.remove(index)
             {
                 state.queued_bytes = state.queued_bytes.saturating_sub(pending.retained_bytes);
-                // Clear-history is always ordered by a surface; a clear
-                // worker never overlaps another on the same surface.
-                if pending.request.cmd.is_clear_history()
-                    && let Some(surface) = pending.request.cmd.ordering_surface()
-                    && !state.active_clear_surfaces.insert(surface)
+                // Clear-history and long reads are always ordered by a
+                // surface; a worker never overlaps another on the same one.
+                let cmd = &pending.request.cmd;
+                let workers = if cmd.is_clear_history() {
+                    Some(&mut state.active_clear_surfaces)
+                } else if cmd.is_long_read() {
+                    Some(&mut state.active_read_surfaces)
+                } else {
+                    None
+                };
+                if let Some(workers) = workers
+                    && let Some(surface) = cmd.ordering_surface()
+                    && !workers.insert(surface)
                 {
-                    eprintln!("cmux: clear-history worker overlapped surface {surface}");
+                    eprintln!("cmux: surface worker overlapped surface {surface}");
                 }
                 return Some(pending);
             }
@@ -380,6 +428,35 @@ impl ConnectionSurfaceScheduler {
         let mut state = self.state.lock().recover_poison();
         state.active_clear_surfaces.remove(&surface);
         self.changed.notify_all();
+    }
+
+    pub(super) fn finish_read(&self, surface: SurfaceId) {
+        let mut state = self.state.lock().recover_poison();
+        state.active_read_surfaces.remove(&surface);
+        self.changed.notify_all();
+    }
+
+    /// Runs `pending`, a long read of `surface`, on the mux's Cpu work lane
+    /// at its cause's priority. Its surface stays held until the item ends.
+    fn start_long_read(
+        self: &Arc<Self>,
+        mux: &Arc<Mux>,
+        client: u64,
+        surface: SurfaceId,
+        pending: PendingSurfaceRequest,
+        writer: &MessageWriter,
+    ) {
+        let priority = long_read_priority(pending.cause);
+        let read = LongRead {
+            scheduler: self.clone(),
+            mux: Arc::downgrade(mux),
+            client,
+            surface,
+            writer: writer.clone(),
+            pending: Some(pending),
+        };
+        // A refused item drops `read`, which answers it and frees `surface`.
+        let _ = mux.work.post(priority, Lane::Cpu, Shutdown::SkipOnShutdown, move || read.run());
     }
 
     pub(super) fn finish_dispatcher(&self) {
@@ -428,6 +505,7 @@ impl ConnectionSurfaceScheduler {
         let mut state = self.state.lock().recover_poison();
         while !state.dispatcher_done
             || !state.active_clear_surfaces.is_empty()
+            || !state.active_read_surfaces.is_empty()
             || state.active_creations != 0
         {
             if let Some(deadline) = deadline {
@@ -443,6 +521,7 @@ impl ConnectionSurfaceScheduler {
         }
         let drained = state.dispatcher_done
             && state.active_clear_surfaces.is_empty()
+            && state.active_read_surfaces.is_empty()
             && state.active_creations == 0;
         drop(state);
         if drained && let Some(dispatcher) = self.dispatcher.lock().recover_poison().take() {
@@ -471,6 +550,56 @@ struct ActiveClearGuard {
 impl Drop for ActiveClearGuard {
     fn drop(&mut self) {
         self.scheduler.finish_clear(self.surface);
+    }
+}
+
+/// The work lane priority of a long read: a person waits for the app's,
+/// nobody for automation's.
+fn long_read_priority(cause: EventCause) -> Priority {
+    match cause {
+        EventCause::Frontend => Priority::UserBlocking,
+        EventCause::Program => Priority::UserVisible,
+        EventCause::Automation => Priority::BestEffort,
+    }
+}
+
+/// A long read handed to the work lane. It holds its surface until it drops;
+/// dropped unrun (the lane refused it or shut down first), it answers its
+/// request with an error. It holds the mux weakly, as `Mux::post_mux_work`
+/// items do, so a queued read never keeps a dropped mux alive.
+struct LongRead {
+    scheduler: Arc<ConnectionSurfaceScheduler>,
+    mux: Weak<Mux>,
+    client: u64,
+    surface: SurfaceId,
+    writer: MessageWriter,
+    pending: Option<PendingSurfaceRequest>,
+}
+
+impl LongRead {
+    fn run(mut self) {
+        let Some(mux) = self.mux.upgrade() else { return };
+        let Some(pending) = self.pending.take() else { return };
+        if !run_pending_request(&self.scheduler, &mux, self.client, pending, &self.writer) {
+            self.scheduler.close();
+        }
+    }
+}
+
+impl Drop for LongRead {
+    fn drop(&mut self) {
+        if let Some(pending) = self.pending.take() {
+            let (id, reply) = (pending.request.id.clone(), pending.reply_writer(&self.writer));
+            drop(pending);
+            if !send_request_error(
+                &reply,
+                id,
+                "the daemon is shutting down; request was not executed",
+            ) {
+                self.scheduler.close();
+            }
+        }
+        self.scheduler.finish_read(self.surface);
     }
 }
 
@@ -591,6 +720,10 @@ fn run_connection_surface_dispatcher(
                     return;
                 }
             }
+        } else if pending.request.cmd.is_long_read()
+            && let Some(surface) = pending.request.cmd.ordering_surface()
+        {
+            scheduler.start_long_read(&mux, client, surface, pending, &writer);
         } else if pending.request.cmd.creates_terminal() {
             if !scheduler.submit_creation(&mux, client, pending, &writer) {
                 scheduler.close();

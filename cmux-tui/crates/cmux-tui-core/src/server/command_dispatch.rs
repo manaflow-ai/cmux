@@ -894,3 +894,38 @@ pub(super) fn handle_command_with_cancellation(
         }
     }
 }
+
+impl Command {
+    /// A person's input to one surface: text and keys, a paste, a browser
+    /// pointer, wheel or key event, a scroll. On its connection it runs before
+    /// other surfaces' queued requests (`connection_scheduler`), as Chrome's
+    /// input queue outranks the browser's other task queues
+    /// (content/browser/scheduler/browser_task_queues.h, `kUserInput`).
+    pub(super) fn is_input(&self) -> bool {
+        matches!(
+            self,
+            Self::Send(_)
+                | Self::SendKey(_)
+                | Self::PasteImage(_)
+                | Self::BrowserMouse { .. }
+                | Self::BrowserMouseGuarded { .. }
+                | Self::BrowserWheel { .. }
+                | Self::BrowserWheelGuarded { .. }
+                | Self::BrowserKey { .. }
+                | Self::BrowserKeyPress { .. }
+                | Self::BrowserInsertText { .. }
+                | Self::ScrollSurface(_)
+        )
+    }
+
+    /// A read that copies a surface's history: its cost grows with the
+    /// scrollback, so it runs on a work item off the connection's dispatcher
+    /// (`connection_scheduler`), as clear-history runs on a worker.
+    pub(super) fn is_long_read(&self) -> bool {
+        match self {
+            Self::ReadScrollback(_) => true,
+            Self::Copy(CopyParams { mode, .. }) => mode == "scrollback",
+            _ => false,
+        }
+    }
+}
