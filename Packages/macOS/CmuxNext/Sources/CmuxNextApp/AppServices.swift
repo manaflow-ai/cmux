@@ -442,7 +442,7 @@ final class AppServices {
     /// The spare React page hosts for Settings, History and Cloud.
     private(set) lazy var pageHostPool: PageHostPool = {
         let pool = PageHostPool(memory: memoryCoordinator, policy: .init(preloadOnMakeVisible: features.isEnabled(.pageRendererAtFirstShow)),
-                                deadlines: mainDeadlines, hoverFrameInput: hoverFrameInput)
+                                deadlines: mainDeadlines, hoverFrameInput: hoverFrameInput, processGroups: webUI.processGroups)
         pool.scriptFrames = pageScriptFrame
         return pool
     }()
@@ -459,7 +459,7 @@ final class AppServices {
                 keyRouter: keyRouter, work: work, dialogs: .shared,
                 hangWork: features.isEnabled(.pageHangNotice) ? mainWork : nil),
             openPanel: openPanel, memory: memoryCoordinator, registry: .processWide, deadlines: mainDeadlines,
-            startsPagesAtFirstShow: features.isEnabled(.pageRendererAtFirstShow),
+            processGroups: makeWebProcessGroups(), startsPagesAtFirstShow: features.isEnabled(.pageRendererAtFirstShow),
             hoverFrameInput: hoverFrameInput, retirer: PageRetirer(deadlines: mainDeadlines))
         host.scriptFrames = pageScriptFrame
         return host

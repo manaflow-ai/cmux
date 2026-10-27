@@ -295,7 +295,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
          surface: SurfaceKind?, dynamicResources: (any PageDynamicResourceSource)?, pooled: Bool, load: Bool,
          openRequested: TimeInterval? = nil, chromium: (any PageChromiumHosting)? = PageWebView.chromiumHosting,
          openPanel: MadeAheadOpenPanel? = PageWebView.openPanel, registry: PageRegistry = .processWide,
-         processGroups: WebProcessGroups? = nil, startsAtFirstShow: Bool = false,
+         processGroup: PageWebKitProcessGroup? = nil, startsAtFirstShow: Bool = false,
          deadlines: MainDeadlineScheduler = MainDeadlineScheduler(work: MainWorkScheduler(budget: MainFrameBudget())),
          trace: any PageTraceSink = TraceRuntime.shared, chatOpen: ChatOpenStages? = nil) {
         let constructionStart = openRequested ?? ProcessInfo.processInfo.systemUptime
@@ -312,7 +312,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         themeSurface = surface
         self.dynamicResources = dynamicResources
         router = PageRouter(descriptor: descriptor, routes: routes)
-        webKitRecipe = PageWebKitRecipe(configuration: configuration, processGroups: processGroups, openPanel: openPanel)
+        webKitRecipe = PageWebKitRecipe(configuration: configuration, processGroup: processGroup, openPanel: openPanel)
         self.inputReadiness = inputReadiness
         // No script until the first show (``PageScriptTarget/hasDocument``); the engine that shows the document sets the bridge.
         let target = PageScriptTarget(hasDocument: !(load && startsAtFirstShow))
