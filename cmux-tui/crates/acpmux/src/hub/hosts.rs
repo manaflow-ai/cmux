@@ -50,6 +50,10 @@ pub(super) struct OpenWork {
     /// Of those, the agent request ids whose logged decision an ancestor session gave
     /// (`answeredBy.session`, `subsession_answer.rs`).
     ancestor_answers: std::collections::HashSet<String>,
+    /// Of those asked (`permissions`), the agent request ids the agent withdrew, before or after
+    /// their logged decision: under MDM's off a withdrawn ancestor's answer is never asked again
+    /// (review 130 of #23322).
+    withdrawn_asks: std::collections::HashSet<String>,
     /// Agent request ids withdrawn before their permission request was
     /// recorded. These are scoped to the adopted host incarnation.
     pub(super) withdrawn: std::collections::HashSet<String>,
@@ -627,6 +631,7 @@ impl Hub {
                     asked.clear();
                     by_permission.clear();
                     work.withdrawn.clear();
+                    work.withdrawn_asks.clear();
                     work.cancelled_permissions.clear();
                     open_request_ids.clear();
                     work.prompt_request = None;
@@ -688,6 +693,7 @@ impl Hub {
                         let request = e.msg.get("request").cloned().unwrap_or(Value::Null);
                         let key = aid.to_string();
                         let decided = work.withdrawn.remove(&key).then(|| {
+                            work.withdrawn_asks.insert(key.clone());
                             work.cancelled_permissions.insert(key.clone());
                             json!({"outcome": "cancelled"})
                         });
@@ -704,6 +710,7 @@ impl Hub {
                         && open_request_ids.contains(&aid.to_string())
                     {
                         if let Some(entry) = asked.get_mut(&aid.to_string()) {
+                            work.withdrawn_asks.insert(aid.to_string());
                             // A decision already logged won the race before
                             // the withdrawal reached the hub.
                             if entry.2.is_none() {
@@ -971,6 +978,17 @@ impl Hub {
                         // meanwhile cancels it (review 88 of #23322).
                         if hold.bound.off {
                             drop(hold);
+                            // The agent withdrew it (before or after the answer was logged): it
+                            // is answered cancelled, never asked again (review 130 of #23322).
+                            if work.withdrawn_asks.contains(&id.to_string()) {
+                                let key = super::permission_groups::AgentRequestKey::new(
+                                    Some(incarnation),
+                                    &id,
+                                );
+                                let mut state =
+                                    session.permissions.lock().unwrap_or_else(|e| e.into_inner());
+                                state.cancelled_requests.insert(key);
+                            }
                             let asked = Some((epoch, turn_id.clone()));
                             self.reregister_permission(
                                 session,
@@ -1189,8 +1207,11 @@ impl Hub {
         tokio::spawn(async move {
             fence.taken().await;
             // A writer that stopped cuts what it still had: its agent is gone and asks nothing.
+            // Asked again only of the agent that asked it, while it still has the session: a
+            // failover's agent starts its request ids over (review 130 of #23322).
             let (id, permission_id, request, incarnation, asked) = again;
-            if fence.is_cut() && c.is_alive().await {
+            let asking = s.child.lock().await.as_ref().is_some_and(|now| Arc::ptr_eq(now, &c));
+            if fence.is_cut() && asking && c.is_alive().await {
                 hub.reregister_permission(&s, &c, id, permission_id, request, &incarnation, asked)
                     .await;
             } else {
