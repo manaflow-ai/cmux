@@ -81,6 +81,8 @@ public final class AuthCoordinator {
     let timeouts: AuthTimeouts
     let clock: any Clock<Duration>
     private let isOnline: @Sendable () async -> Bool
+    /// The event that re-arms team-scope recovery after its bounded backoff gives up.
+    let networkRestorations: any AuthNetworkRestorations
     /// Reports whether the persisted token store is currently readable. On iOS the data-protection keychain is unreadable before the first unlock after boot (background push launch, prewarm); an empty token read while unavailable must be treated as transient, never as a signed-out verdict.
     let isTokenStorageAvailable: @Sendable () async -> Bool
     private let onSessionWillTransition: @MainActor @Sendable () -> Void
@@ -128,6 +130,9 @@ public final class AuthCoordinator {
     /// The retry loop that restores a missing team scope; see
     /// ``scheduleTeamScopeRecoveryIfNeeded()``.
     @ObservationIgnored var teamScopeRecovery: (id: UUID, task: Task<Void, Never>)?
+    /// Set while that loop has used up its backoff and waits, with no timer,
+    /// for the network path to come back or a host trigger.
+    @ObservationIgnored var teamScopeRecoveryIsParked = false
     /// Set while the sign-in service answers the session check with 429:
     /// the consecutive count and the backoff chosen for it. Recovery then
     /// waits longer, and app activation, wake, and network changes do not
@@ -217,6 +222,9 @@ public final class AuthCoordinator {
     ///     drive timeouts with virtual time. Defaults to `ContinuousClock`.
     ///   - isOnline: Connectivity probe; sign-in flows fail fast when offline.
     ///     Defaults to always-online so tests need not supply it.
+    ///   - networkRestorations: Reports the network path coming back; it
+    ///     re-arms team-scope recovery after its bounded backoff gives up.
+    ///     Defaults to ``PathMonitorAuthNetworkRestorations``.
     ///   - isTokenStorageAvailable: Reports whether the persisted token store is currently readable. On iOS the data-protection keychain is unreadable before the first unlock after boot (background push launch, prewarm); an empty token read while unavailable must be treated as transient, never as a signed-out verdict.
     ///   - onSessionWillTransition: Synchronous hook invoked before the
     ///     coordinator advances to a different auth-session generation.
@@ -236,6 +244,7 @@ public final class AuthCoordinator {
         timeouts: AuthTimeouts = .default,
         clock: any Clock<Duration> = ContinuousClock(),
         isOnline: @escaping @Sendable () async -> Bool = { true },
+        networkRestorations: any AuthNetworkRestorations = PathMonitorAuthNetworkRestorations(),
         isTokenStorageAvailable: @escaping @Sendable () async -> Bool = { true },
         onSessionWillTransition: @escaping @MainActor @Sendable () -> Void = {},
         onSignedIn: @escaping @Sendable () async -> Void = {},
@@ -252,6 +261,7 @@ public final class AuthCoordinator {
         self.timeouts = timeouts
         self.clock = clock
         self.isOnline = isOnline
+        self.networkRestorations = networkRestorations
         self.isTokenStorageAvailable = isTokenStorageAvailable
         self.onSessionWillTransition = onSessionWillTransition
         self.onSignedIn = onSignedIn

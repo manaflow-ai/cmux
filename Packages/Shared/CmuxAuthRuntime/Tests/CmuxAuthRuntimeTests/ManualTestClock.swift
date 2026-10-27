@@ -99,7 +99,8 @@ final class ManualTestClock: Clock, @unchecked Sendable {
         }
     }
 
-    private func hasSleeper(dueWithin window: Duration) -> Bool {
+    /// Whether a sleeper is parked whose deadline is at most `window` from now.
+    func hasSleeper(dueWithin window: Duration) -> Bool {
         lock.lock()
         defer { lock.unlock() }
         let limit = currentInstant.advanced(by: window)

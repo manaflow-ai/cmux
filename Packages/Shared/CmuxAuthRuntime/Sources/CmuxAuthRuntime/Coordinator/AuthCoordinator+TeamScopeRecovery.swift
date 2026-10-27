@@ -6,20 +6,30 @@ extension AuthCoordinator {
         .seconds(min(2 << min(max(attempt, 0), 5), 60))
     }
 
-    /// Whether a team-scope recovery loop is scheduled.
+    /// Backoff sleeps per failure streak (2+4+8+16+32+60+60+60 s, about
+    /// 4 minutes). After the last one the loop parks until the network path
+    /// comes back or a host trigger, so an offline Mac takes no timer wakes.
+    static let teamScopeRecoveryAttemptLimit = 8
+
+    /// Whether a team-scope recovery loop is scheduled, backing off or parked.
     public var hasPendingTeamScopeRecovery: Bool { teamScopeRecovery != nil }
 
     /// Retries now when the session is signed in without a loaded team list.
     ///
-    /// Hosts call this on signals that make a retry likely to succeed (network
-    /// path restored, system wake, app activation). It is a no-op for a
-    /// healthy session, so frequent signals cost nothing. The backoff loop
-    /// keeps running in case this attempt also fails.
+    /// Hosts call this on signals that make a retry likely to succeed (system
+    /// wake, app activation). It is a no-op for a healthy session, so frequent
+    /// signals cost nothing. A running backoff keeps running in case this
+    /// attempt also fails; a parked loop starts a new backoff.
     public func recoverTeamScopeIfNeeded() async {
         // While the sign-in service says too many requests, an activation or
-        // wake must not add a check; the backoff loop owns the next one.
-        guard needsTeamScopeRecovery, teamScopeRateLimit == nil else { return }
+        // wake must not add a check; the backoff loop owns the next one. A
+        // parked loop has already waited out the last 429 delay.
+        guard needsTeamScopeRecovery, teamScopeRateLimit == nil || teamScopeRecoveryIsParked else { return }
         await checkExistingSession()
+        guard teamScopeRecoveryIsParked, needsTeamScopeRecovery else { return }
+        teamScopeRecovery?.task.cancel()
+        teamScopeRecovery = nil
+        scheduleTeamScopeRecoveryIfNeeded()
     }
 
     /// Signed in, but the team list has not loaded for the current session
@@ -42,36 +52,57 @@ extension AuthCoordinator {
     /// this loop the state lasts until the app restarts. A definitive session
     /// rejection during a retry routes to sign-in through the normal
     /// validation path, which also ends the loop.
+    ///
+    /// The backoff is bounded by ``teamScopeRecoveryAttemptLimit``. Then the
+    /// loop parks on ``AuthNetworkRestorations`` with no timer, and a
+    /// restored path starts a new streak with an immediate check.
     func scheduleTeamScopeRecoveryIfNeeded() {
         guard needsTeamScopeRecovery, teamScopeRecovery == nil else { return }
         let id = UUID()
         let clock = self.clock
+        let networkRestorations = self.networkRestorations
+        teamScopeRecoveryIsParked = false
         let task = Task { @MainActor [weak self] in
             var attempt = 0
-            // wakeup-allow: backoff each pass follows a failed team fetch; ends when the teams load or the session ends
+            // wakeup-allow: backoff at most teamScopeRecoveryAttemptLimit sleeps per streak, then parked on a network restoration
             while true {
-                do {
-                    let delay = self?.teamScopeRecoveryWait(afterAttempt: attempt)
-                        ?? Self.teamScopeRecoveryDelay(afterAttempt: attempt)
-                    // wakeup-allow: backoff 2 s doubling to 60 s, or the 429 wait, after a failed team fetch
-                    try await clock.sleep(for: delay, tolerance: delay.authWakeLeeway)
-                } catch {
-                    return
+                if attempt < Self.teamScopeRecoveryAttemptLimit {
+                    do {
+                        let delay = self?.teamScopeRecoveryWait(afterAttempt: attempt)
+                            ?? Self.teamScopeRecoveryDelay(afterAttempt: attempt)
+                        // wakeup-allow: backoff 2 s doubling to 60 s, or the 429 wait, after a failed team fetch
+                        try await clock.sleep(for: delay, tolerance: delay.authWakeLeeway)
+                    } catch {
+                        return
+                    }
+                    attempt += 1
+                } else {
+                    self?.setTeamScopeRecoveryParked(true, id: id)
+                    await networkRestorations.waitForRestoration()
+                    if Task.isCancelled { return }
+                    self?.setTeamScopeRecoveryParked(false, id: id)
+                    attempt = 0
                 }
                 guard let self, self.teamScopeRecovery?.id == id, self.needsTeamScopeRecovery else { break }
-                attempt += 1
                 await self.checkExistingSession()
             }
             if self?.teamScopeRecovery?.id == id {
                 self?.teamScopeRecovery = nil
+                self?.teamScopeRecoveryIsParked = false
             }
         }
         teamScopeRecovery = (id, task)
     }
 
+    private func setTeamScopeRecoveryParked(_ parked: Bool, id: UUID) {
+        guard teamScopeRecovery?.id == id else { return }
+        teamScopeRecoveryIsParked = parked
+    }
+
     func cancelTeamScopeRecovery() {
         teamScopeRecovery?.task.cancel()
         teamScopeRecovery = nil
+        teamScopeRecoveryIsParked = false
         teamScopeRateLimit = nil
     }
 
