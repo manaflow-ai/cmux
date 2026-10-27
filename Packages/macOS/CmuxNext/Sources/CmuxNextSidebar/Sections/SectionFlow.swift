@@ -81,7 +81,7 @@ nonisolated enum SectionFlow {
             let chips = items.map { labelWidths[$0.id] ?? icon }
             let chipTotal = chips.reduce(0, +) + gap * CGFloat(items.count - 1)
             if !iconsOnly, chipTotal <= width {
-                let byID = Dictionary(uniqueKeysWithValues: zip(items.map(\.id), chips))
+                let byID = Dictionary(zip(items.map(\.id), chips), uniquingKeysWith: { first, _ in first })
                 return lay([items], kind: { labelWidths[$0] == nil ? .tile($0, section: section.id) : .chip($0, section: section.id) }, widths: { byID[$0] ?? icon }, x: x, y: y,
                            width: width, gap: gap, align: align, lineHeight: m.rowHeight)
             }

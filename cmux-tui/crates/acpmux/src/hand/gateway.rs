@@ -13,7 +13,7 @@ use super::HandError;
 use crate::client::Client;
 use crate::rpc::method;
 use serde_json::{Value, json};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 /// Longest run token accepted.
 const MAX_TOKEN: usize = 4096;
@@ -80,8 +80,28 @@ fn now_secs() -> u64 {
 /// token and its chat bindings, over a new daemon connection. Runs when the
 /// hand starts and before each new route, so nothing outlives its token.
 pub async fn sweep() {
-    let Ok(rd) = std::fs::read_dir(dir()) else { return };
-    let now = now_secs();
+    // The folder scan reads disk: off the runtime's workers.
+    let stale = cmux_blocking::spawn_blocking(|| expired_routes(&dir(), now_secs()))
+        .await
+        .unwrap_or_default();
+    if stale.is_empty() {
+        return;
+    }
+    let Ok(client) = crate::daemon::connect(false).await else {
+        // No daemon: no session can use them; the files go, the route files stay until next time.
+        for id in &stale {
+            let _ = tokio::fs::remove_file(token_path(id)).await;
+        }
+        return;
+    };
+    for id in stale {
+        remove(&client, &id).await;
+    }
+}
+
+/// The one-run routes in `dir` whose token expired more than a minute before `now`.
+fn expired_routes(dir: &Path, now: u64) -> Vec<String> {
+    let Ok(rd) = std::fs::read_dir(dir) else { return Vec::new() };
     let mut stale = Vec::new();
     for e in rd.flatten() {
         let name = e.file_name().to_string_lossy().into_owned();
@@ -90,23 +110,11 @@ pub async fn sweep() {
             .ok()
             .and_then(|t| t.trim().parse::<u64>().ok())
             .unwrap_or(0);
-        if at + 60 < now && id.starts_with(crate::routes::ONE_RUN_PREFIX) {
+        if at.saturating_add(60) < now && id.starts_with(crate::routes::ONE_RUN_PREFIX) {
             stale.push(id.to_owned());
         }
     }
-    if stale.is_empty() {
-        return;
-    }
-    let Ok(client) = crate::daemon::connect(false).await else {
-        // No daemon: no session can use them; the files go, the route files stay until next time.
-        for id in &stale {
-            let _ = std::fs::remove_file(token_path(id));
-        }
-        return;
-    };
-    for id in stale {
-        remove(&client, &id).await;
-    }
+    stale
 }
 
 /// A new token for a run's route (a long chat outlives one token): the route
@@ -142,18 +150,14 @@ pub async fn prepare(client: &Client, api: &str, route: &ModelRoute) -> Result<S
         .map_err(|e| HandError::new("agent.bad_route", e.to_string()))?;
     let id = format!("cmux-gateway-{}", &uuid::Uuid::now_v7().simple().to_string()[20..]);
     let path = token_path(&id);
-    let dir = path.parent().map(PathBuf::from).unwrap_or_default();
-    std::fs::create_dir_all(&dir).map_err(|e| HandError::io(&dir, e))?;
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        let _ = std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700));
-    }
-    super::config::write_private(&path, route.token.as_bytes())
-        .and_then(|()| {
-            super::config::write_private(&expiry_path(&id), route.expires_at.to_string().as_bytes())
-        })
-        .map_err(|e| HandError::new("agent.bad_route", format!("{e:#}")))?;
+    // The folder and the owner-only files are disk writes: off the runtime's workers.
+    let files = {
+        let (id, path, route) = (id.clone(), path.clone(), route.clone());
+        cmux_blocking::spawn_blocking(move || write_route_files(&id, &path, &route)).await
+    };
+    files.map_err(|e| {
+        HandError::new("agent.bad_route", format!("writing the route files: {e}"))
+    })??;
     let added = client
         .request(
             method::MUX_ROUTE_ADD,
@@ -170,17 +174,37 @@ pub async fn prepare(client: &Client, api: &str, route: &ModelRoute) -> Result<S
         )
         .await;
     if let Err(e) = added {
-        let _ = std::fs::remove_file(&path);
-        let _ = std::fs::remove_file(expiry_path(&id));
+        remove_files(&id).await;
         return Err(HandError::new("agent.route_failed", format!("{e:#}")));
     }
     Ok(id)
 }
 
+/// The owner-only folder, the run's token at `path` and its expiry.
+fn write_route_files(id: &str, path: &Path, route: &ModelRoute) -> Result<(), HandError> {
+    let dir = path.parent().map(PathBuf::from).unwrap_or_default();
+    std::fs::create_dir_all(&dir).map_err(|e| HandError::io(&dir, e))?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700));
+    }
+    super::config::write_private(path, route.token.as_bytes())
+        .and_then(|()| {
+            super::config::write_private(&expiry_path(id), route.expires_at.to_string().as_bytes())
+        })
+        .map_err(|e| HandError::new("agent.bad_route", format!("{e:#}")))
+}
+
+/// The run's token and expiry files.
+async fn remove_files(id: &str) {
+    let _ = tokio::fs::remove_file(token_path(id)).await;
+    let _ = tokio::fs::remove_file(expiry_path(id)).await;
+}
+
 /// Removes the run's route (and its chat bindings) and its token file.
 pub async fn remove(client: &Client, id: &str) {
-    let _ = std::fs::remove_file(token_path(id));
-    let _ = std::fs::remove_file(expiry_path(id));
+    remove_files(id).await;
     let _ = client.request(method::MUX_ROUTE_REMOVE, json!({ "id": id })).await;
 }
 
@@ -188,9 +212,32 @@ pub async fn remove(client: &Client, id: &str) {
 pub async fn remove_fresh(id: &str) {
     match crate::daemon::connect(false).await {
         Ok(client) => remove(&client, id).await,
-        Err(_) => {
-            let _ = std::fs::remove_file(token_path(id));
-            let _ = std::fs::remove_file(expiry_path(id));
-        }
+        Err(_) => remove_files(id).await,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn expired_routes_lists_only_one_run_routes_past_the_slack() {
+        let dir = std::env::temp_dir()
+            .join(format!("acpmux-gateway-sweep-{}", uuid::Uuid::now_v7().simple()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let now = 10_000;
+        let write = |name: &str, at: u64| std::fs::write(dir.join(name), at.to_string()).unwrap();
+        write("cmux-gateway-old.expires", now - 61);
+        write("cmux-gateway-slack.expires", now - 60);
+        write("cmux-gateway-live.expires", now + 600);
+        write("other-route.expires", now - 600);
+        write("cmux-gateway-old.token", 0);
+        std::fs::write(dir.join("cmux-gateway-unreadable.expires"), "not a time").unwrap();
+
+        let mut stale = expired_routes(&dir, now);
+        stale.sort();
+        assert_eq!(stale, ["cmux-gateway-old", "cmux-gateway-unreadable"]);
+        assert!(expired_routes(&dir.join("missing"), now).is_empty());
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

@@ -20,6 +20,7 @@ public nonisolated final class ScriptedTerminalIO: TerminalIO {
     public init(answersTerminalQueries: Bool = true) {
         self.answersTerminalQueries = answersTerminalQueries
         // concurrency-allow: scripted demo IO; finite script
+        // memory: bounded-by the script: demos, previews and tests send a finite list of events
         (events, continuation) = AsyncStream<TerminalIOEvent>.makeStream(bufferingPolicy: .unbounded)
     }
 

@@ -34,6 +34,9 @@ extension HangReportService {
         /// toggle changed since launch is named; nil (the default) where the app passes none. Used only when
         /// the builder's wire schema carries them.
         public var features: @Sendable () -> HangReport.FeatureState?
+        /// The main thread's blocking site counts (``BlockingSiteLedger``, over the detector's sites); nil (the
+        /// default) where the app has none. Used only when the builder's wire schema carries them.
+        public var blockingSites: BlockingSiteLedger?
 
         /// Makes the value from its parts.
         public init(app: HangReport.App, os: HangReport.OS, hardware: HardwareClass,
@@ -42,7 +45,8 @@ extension HangReportService {
                     stillAllowed: @escaping @Sendable () -> Bool = { true },
                     inputLatency: (any HangReportInputLatencySource)? = nil, mainThread: MainThreadReportLedger? = nil,
                     fieldData: HangReportFieldSources? = nil,
-                    features: @escaping @Sendable () -> HangReport.FeatureState? = { nil }) {
+                    features: @escaping @Sendable () -> HangReport.FeatureState? = { nil },
+                    blockingSites: BlockingSiteLedger? = nil) {
             self.app = app
             self.os = os
             self.hardware = hardware
@@ -54,6 +58,7 @@ extension HangReportService {
             self.mainThread = mainThread
             self.fieldData = fieldData
             self.features = features
+            self.blockingSites = blockingSites
         }
     }
 }

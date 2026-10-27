@@ -8,6 +8,11 @@ public final class LaunchValueMarks {
     public static let sidebarRowsBuilt = "launch.sidebar_rows_built"
     /// The rows the sidebar's clip showed at completion (`SidebarModel.LaunchRows.Report.visible`).
     public static let sidebarRowsVisible = "launch.sidebar_rows_visible"
+    /// The main thread's wait for the launch warm-up thread's action catalog build at the registry's read,
+    /// in microseconds (`ActionCatalogMainAccess.waitMicroseconds`; target 0).
+    public static let actionCatalogMainWait = "launch.action_catalog_main_wait_us"
+    /// The main thread's whole time in that read, in microseconds: a build on main counts here, not as a wait.
+    public static let actionCatalogMainRead = "launch.action_catalog_main_read_us"
 
     /// Each value by name, its first record.
     public private(set) var values: [String: Double] = [:]
@@ -24,6 +29,12 @@ public final class LaunchValueMarks {
         guard values[name] == nil else { return }
         values[name] = Double(value)
         pipe(name, value)
+    }
+
+    /// Keeps the registry's read of the launch's action catalog (p08-startup-092).
+    public func recordActionCatalogMainAccess(waitMicroseconds: UInt64, readMicroseconds: UInt64) {
+        record(Self.actionCatalogMainWait, value: waitMicroseconds)
+        record(Self.actionCatalogMainRead, value: readMicroseconds)
     }
 
     /// Keeps what one sidebar built before startup completed (the first window's stay).

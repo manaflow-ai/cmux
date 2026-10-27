@@ -41,6 +41,18 @@ import Testing
         #expect(throws: SurfaceSourceWireError.tooLarge) { _ = try huge.next() }
     }
 
+    /// hostd's kbps is a peer's number: one that is not a whole Int ends the session instead of trapping the
+    /// conversion (p10-stability-093).
+    @Test func aBitrateThatIsNotAWholeIntIsRefused() {
+        #expect(SimulatorSurfaceServer.Session.bitrate(["kbps": .number(2500)]) == 2500)
+        #expect(SimulatorSurfaceServer.Session.bitrate([:]) == 4000)
+        #expect(SimulatorSurfaceServer.Session.bitrate(["kbps": .number(1e300)]) == nil)
+        #expect(SimulatorSurfaceServer.Session.bitrate(["kbps": .number(-.infinity)]) == nil)
+        #expect(SimulatorSurfaceServer.Session.bitrate(["kbps": .number(.nan)]) == nil)
+        #expect(SimulatorSurfaceServer.Session.bitrate(["kbps": .number(2500.5)]) == nil)
+        #expect(SimulatorSurfaceServer.Session.bitrate(["kbps": .string("fast")]) == nil)
+    }
+
     /// Every key hostd lets a phone press has a HID usage here, and nothing else does.
     @Test func theKeysHostdAllowsAreTheKeysTheSimulatorGets() {
         let hostd = ["Backspace", "Enter", "Tab", "Escape", "Delete", "ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"]
