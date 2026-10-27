@@ -189,6 +189,10 @@ extension AppControl {
                 return .value(DebugCrashes.report(services))
             },
         ])
+        // Synthetic sleep, wake and display-change notices on the centers macOS posts them on (lifecycle-sweep.py, RUN-12).
+        // raw-observer-allow: the center the synthetic sleep and wake notices are posted on; nothing observes it here
+        router.register(LifecycleSimulationControl(notices: .appKit, workspaceCenter: NSWorkspace.shared.notificationCenter,
+                                                   workspace: NSWorkspace.shared, appCenter: .default, application: NSApp).methods)
         #if CMUX_PGO_PROFILE
         // The profile build only (p08-startup-103): rest.profraw before quit, on the files lane; launch.profraw
         // was written at startup complete.
@@ -200,5 +204,13 @@ extension AppControl {
         }
         #endif
     }
+}
+
+extension LifecycleSimulationControl.Notices {
+    /// What macOS posts at a sleep, a wake and a display change, in its order (lifecycle-sweep.py, RUN-12).
+    static let appKit = Self(sleep: [NSWorkspace.willSleepNotification, NSWorkspace.screensDidSleepNotification],
+                             wake: [NSWorkspace.didWakeNotification, NSWorkspace.screensDidWakeNotification],
+                             // raw-observer-allow: posted by debug.simulate.display, never observed: the notice every screen observer hears
+                             display: NSApplication.didChangeScreenParametersNotification)
 }
 #endif
