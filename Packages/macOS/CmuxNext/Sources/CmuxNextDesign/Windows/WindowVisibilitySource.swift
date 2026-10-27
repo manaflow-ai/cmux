@@ -5,9 +5,9 @@ import ObjectiveC
 /// One window in the visibility tree, and the one source of whether it is on screen
 /// (plans/cmux-next/chrome-parity/p06-scheduler.md, task 022).
 ///
-/// Its node's own state follows the window: miniaturized is ``Visibility/hidden``, an
-/// `occlusionState` without `.visible` is ``Visibility/occluded``, and so is a window its
-/// ``WindowOcclusionFamily`` calls occluded (p03-rendering-097: fully covered by an opaque cmux
+/// Its node's own state follows the window: miniaturized is ``Visibility/hidden``, a window AppKit
+/// calls not visible (``WindowOcclusionFamily/appKitVisible(_:)``) is ``Visibility/occluded``, and
+/// so is a window its ``WindowOcclusionFamily`` calls occluded (p03-rendering-097: fully covered by an opaque cmux
 /// window of the same size, which AppKit still reports visible, crbug.com/883031); otherwise
 /// ``Visibility/visible``.
 /// The app's node (``AppVisibilitySource``) is its parent, so a hidden app or sleeping displays
@@ -15,8 +15,8 @@ import ObjectiveC
 /// (`content/app_shim_remote_cocoa/web_contents_view_cocoa.mm`, `-updateWebContentsVisibility`,
 /// on `windowDidChangeOcclusionState:` and miniaturize).
 ///
-/// It observes the occlusion and miniaturize notices once, through the window's ``WindowEvents``,
-/// and the family's flips as a content-stage subscriber. Views and controllers that need the flips
+/// It observes the miniaturize notices once, through the window's ``WindowEvents``, and the
+/// family (its flips and AppKit's occlusion notices) as a content-stage subscriber. Views and controllers that need the flips
 /// subscribe to ``node`` instead of observing the window themselves. Drawing does not read the node:
 /// ``WindowDrawPolicy/isOnScreen(_:)`` applies the AppKit rule (``appKitState(of:)``) to AppKit's
 /// live state, so a reader that observes the window's notice directly never sees an answer older
@@ -43,21 +43,20 @@ import ObjectiveC
 
     private static var associationKey: UInt8 = 0
 
-    /// The notices that change a window's own state.
+    /// The notices that change a window's own state besides its occlusion, which the family brings.
     public static let notices: [Notification.Name] = [
-        // raw-observer-allow: the WindowEvents subscription recipe R-notif asks for (one observer per window and notice); only the notice's name matches
-        NSWindow.didChangeOcclusionStateNotification,
         // raw-observer-allow: the WindowEvents subscription recipe R-notif asks for (one observer per window and notice); only the notice's name matches
         NSWindow.didMiniaturizeNotification,
         // raw-observer-allow: the WindowEvents subscription recipe R-notif asks for (one observer per window and notice); only the notice's name matches
         NSWindow.didDeminiaturizeNotification,
     ]
 
-    /// AppKit's answer for `window`: miniaturized is hidden; on screen when `occlusionState`
-    /// contains `.visible` (key or active state plays no part); otherwise occluded.
+    /// AppKit's answer for `window`: miniaturized is hidden; on screen when AppKit calls some of it
+    /// visible (``WindowOcclusionFamily/appKitVisible(_:)``; key or active state plays no part);
+    /// otherwise occluded.
     public static func appKitState(of window: NSWindow) -> Visibility {
         if window.isMiniaturized { return .hidden }
-        return window.occlusionState.contains(.visible) ? .visible : .occluded
+        return WindowOcclusionFamily.appKitVisible(window) ? .visible : .occluded
     }
 
     /// The window's own state: the read answer, capped at ``Visibility/occluded`` while the family
@@ -79,7 +78,7 @@ import ObjectiveC
         self.window = window
         self.read = read
         self.events = events
-        let family = WindowOcclusionFamily.of(window)
+        let family = WindowOcclusionFamily.of(window, events: events)
         self.family = family
         let own = Self.state(read(window), family: family)
         node = app.map { VisibilityNode(name, own: own, parent: $0) } ?? VisibilityNode(root: name, own: own)

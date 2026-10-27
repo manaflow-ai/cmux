@@ -18,7 +18,8 @@ public final class PhoneScreenView: NSView {
     /// Hardware-decoded H.264 frames (Android live screens), shown over `content` while streaming.
     private var video: AVSampleBufferDisplayLayer?
     private var contentSize: CGSize = .zero
-    private var occlusion: Task<Void, Never>?
+    /// Its window's occlusion (the window's `WindowOcclusionFamily`), while in a window.
+    private var occlusion: WindowOcclusionSubscription?
     private var lastVisible: Bool?
 
     /// A touch at a 0...1 screen point (top-left origin).
@@ -198,13 +199,9 @@ public final class PhoneScreenView: NSView {
         super.viewDidMoveToWindow()
         // The coalescer is the old window's: what waits there is for a window the view left.
         dropFramePointer()
-        occlusion?.cancel()
-        occlusion = nil
-        if let window {
-            occlusion = Task { [weak self] in
-                for await _ in NotificationCenter.default.notifications(named: NSWindow.didChangeOcclusionStateNotification, object: window) {
-                    self?.reportVisibility()
-                }
+        occlusion = window.map { window in
+            WindowOcclusionFamily.of(window).subscribe(.content, owner: "PhoneScreenView") { [weak self] _ in
+                self?.reportVisibility()
             }
         }
         reportVisibility()
@@ -220,10 +217,10 @@ public final class PhoneScreenView: NSView {
         reportVisibility()
     }
 
-    /// True while some part of the screen can be seen.
+    /// True while some part of the screen can be seen: shown in a window its family calls on screen.
     public var isOnScreen: Bool {
         guard let window, !isHiddenOrHasHiddenAncestor else { return false }
-        return window.occlusionState.contains(.visible)
+        return WindowOcclusionFamily.of(window).isOnScreen
     }
 
     func reportVisibility() {
@@ -235,7 +232,6 @@ public final class PhoneScreenView: NSView {
 
     /// Stops watching the window; the tab calls this when it closes.
     func close() {
-        occlusion?.cancel()
         occlusion = nil
     }
 }

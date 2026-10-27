@@ -83,6 +83,8 @@ final class WindowOverlayLayer {
     private var geometrySliceOpen = false
     /// The window's own notices (its `WindowEvents`), and every window's (a page window's).
     private var subscriptions: [EventSubscription] = []
+    /// The window's occlusion (its `WindowOcclusionFamily`): a window shown again checks its pages.
+    private var occlusionWatch: WindowOcclusionSubscription?
     private var observers: [MainActorObservation] = []
     /// The visible page windows at the last check: one that orders out may leave `childWindows` first.
     private var shownPages: Set<ObjectIdentifier> = []
@@ -132,26 +134,38 @@ final class WindowOverlayLayer {
         // window may also show again: whether its pages show is checked.
         for name in [NSWindow.didResizeNotification, NSWindow.didMoveNotification, NSWindow.didEndLiveResizeNotification,
                      NSWindow.didChangeBackingPropertiesNotification, NSWindow.didChangeScreenNotification,
-                     NSWindow.didChangeOcclusionStateNotification, NSWindow.didDeminiaturizeNotification,
+                     NSWindow.didDeminiaturizeNotification,
                      NSWindow.didEnterFullScreenNotification, NSWindow.didExitFullScreenNotification] {
             subscriptions.append(events.subscribe(name, owner: "WindowOverlayLayer") { [weak self] in
                 self?.parentGeometryDidChange()
                 self?.evaluate()
             })
         }
+        occlusionWatch = WindowOcclusionFamily.of(window, events: events).subscribe(.content, owner: "WindowOverlayLayer") { [weak self] _ in
+            self?.parentGeometryDidChange()
+            self?.evaluate()
+        }
         // A page window appears (the fork shows it inactive and adds it as a
         // child), hides, moves, or takes key: check the order at once.
-        for name in [NSWindow.didChangeOcclusionStateNotification, NSWindow.didMoveNotification,
-                     NSWindow.didResizeNotification, NSWindow.didBecomeKeyNotification] {
+        for name in [NSWindow.didMoveNotification, NSWindow.didResizeNotification, NSWindow.didBecomeKeyNotification] {
             let moved = name == NSWindow.didMoveNotification || name == NSWindow.didResizeNotification
             observers.append(MainActorObservation(name, center: center, read: { $0.object as? NSWindow }) { [weak self] child in
-                guard let self, let child, child !== self.window else { return }
-                guard child.parent === self.window || self.shownPages.contains(ObjectIdentifier(child)) else { return }
-                self.evaluate()
-                if moved {
-                    self.pageWindowDidChangeFrame(child)
-                }
+                self?.pageWindowDidChange(child, moved: moved)
             })
+        }
+        // A page window has no family: its own AppKit notice (it shows or hides) comes through the app-wide one.
+        observers.append(WindowOcclusionFamily.observeSystemChanges(center: center) { [weak self] child in
+            self?.pageWindowDidChange(child, moved: false)
+        })
+    }
+
+    /// A window posted a notice: when it is one of this window's page windows, check the order at once.
+    private func pageWindowDidChange(_ child: NSWindow?, moved: Bool) {
+        guard let child, child !== window else { return }
+        guard child.parent === window || shownPages.contains(ObjectIdentifier(child)) else { return }
+        evaluate()
+        if moved {
+            pageWindowDidChangeFrame(child)
         }
     }
 
@@ -160,6 +174,7 @@ final class WindowOverlayLayer {
         sidebarResizeArea = nil
         catchers?.teardown()
         subscriptions.forEach { $0.cancel() }
+        occlusionWatch = nil
         observers.removeAll()
         for plane in planes { (plane.home as? LayoutRootView)?.returnPlaneHome() }
         planes.removeAll()

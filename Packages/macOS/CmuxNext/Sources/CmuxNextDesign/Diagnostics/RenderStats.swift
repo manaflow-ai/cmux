@@ -2,6 +2,7 @@ public import AppKit
 import CmuxNextCompat
 import ObjectiveC
 import QuartzCore
+import CmuxNextWakeups
 
 /// Render work counted per owner class while a counting bench is armed:
 /// view frame sets, `layout()` calls, `updateLayer`/`draw(_:)` damage (rects
@@ -238,7 +239,7 @@ public final class RenderStats {
         var counts: [String: Int] = [:]
         for window in windows {
             guard let root = (window.contentView?.superview ?? window.contentView)?.layer else { continue }
-            let shown = window.isVisible && window.occlusionState.contains(.visible)
+            let shown = window.isVisible && WindowOcclusionFamily.isOnScreen(window)
             countHiddenLoops(in: root, hidden: !shown, into: &counts)
         }
         return counts

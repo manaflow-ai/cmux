@@ -1,4 +1,6 @@
 import AppKit
+import CmuxNextCompat
+import CmuxNextWakeups
 import os
 
 /// Last line of defense against Chromium's own top-level windows (a
@@ -21,6 +23,8 @@ final class ChromiumWindowGuard {
     private(set) var recent: [Blocked] = []
     private let recentLimit = 8
     private var observers: [any NSObjectProtocol] = []
+    /// Any window's AppKit occlusion notice (``WindowOcclusionFamily``): a Chromium window ordered in.
+    private var occlusionObservation: MainActorObservation?
     private let logger: Logger
     /// True when `window` is a DevTools window cmux placed on purpose.
     private let isPlacedDevTools: (NSWindow) -> Bool
@@ -36,19 +40,20 @@ final class ChromiumWindowGuard {
     func start() {
         guard observers.isEmpty else { return }
         let center = NotificationCenter.default
-        for name in [NSWindow.didBecomeKeyNotification, NSWindow.didBecomeMainNotification,
-                     NSWindow.didChangeOcclusionStateNotification] {
+        for name in [NSWindow.didBecomeKeyNotification, NSWindow.didBecomeMainNotification] {
             observers.append(center.addObserver(forName: name, object: nil, queue: .main) { [weak self] note in
                 guard let window = note.object as? NSWindow else { return }
                 MainActor.assumeIsolated { self?.check(window) } // main-proof: observer on queue: .main
             })
         }
+        occlusionObservation = WindowOcclusionFamily.observeSystemChanges { [weak self] window in self?.check(window) }
         for window in NSApp.windows { check(window) }
     }
 
     func stop() {
         for observer in observers { NotificationCenter.default.removeObserver(observer) }
         observers.removeAll()
+        occlusionObservation = nil
     }
 
     func facts(for window: NSWindow) -> ChromiumWindowFacts {

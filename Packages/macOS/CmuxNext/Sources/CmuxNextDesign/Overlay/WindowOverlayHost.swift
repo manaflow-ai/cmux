@@ -59,6 +59,9 @@ public final class WindowOverlayHost {
     var observers: [any NSObjectProtocol] = []
     /// Window notice subscriptions held while the panel is attached.
     var windowObservers: [EventSubscription] = []
+    /// The window's occlusion (its `WindowOcclusionFamily`) while the panel is attached: a window
+    /// seen again checks the order.
+    var occlusionWatch: WindowOcclusionSubscription?
     /// Order checks run on a window notice (tests).
     private(set) var orderChecks = 0
     /// The tap observer of pointer moves and clicks that keeps the panel's mouse routing current,
@@ -413,16 +416,20 @@ public final class WindowOverlayHost {
             })
         }
         for name in [NSWindow.didEnterFullScreenNotification, NSWindow.didExitFullScreenNotification, NSWindow.didBecomeKeyNotification,
-                     NSWindow.didChangeOcclusionStateNotification, NSWindow.didDeminiaturizeNotification] {
+                     NSWindow.didDeminiaturizeNotification] {
             windowObservers.append(events.subscribe(name, owner: "WindowOverlayHost.order") { [weak self] in
                 self?.checkOrder()
             })
+        }
+        occlusionWatch = WindowOcclusionFamily.of(window).subscribe(.content, owner: "WindowOverlayHost.order") { [weak self] _ in
+            self?.checkOrder()
         }
     }
 
     private func stopObservingWindow() {
         windowObservers.forEach { $0.cancel() }
         windowObservers.removeAll()
+        occlusionWatch = nil
     }
 
     /// One order check (``reassertOrder()``) from a window notice.

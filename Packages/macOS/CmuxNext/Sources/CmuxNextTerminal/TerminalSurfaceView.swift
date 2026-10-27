@@ -327,7 +327,6 @@ public final class TerminalSurfaceView: NSView {
         guard observe, let window else { return }
         occlusionWatch = watchOcclusionFamily(of: window)
         let names: [Notification.Name] = [
-            NSWindow.didChangeOcclusionStateNotification,
             NSWindow.didBecomeKeyNotification,
             NSWindow.didResignKeyNotification,
             NSWindow.didChangeScreenNotification,
@@ -348,8 +347,6 @@ public final class TerminalSurfaceView: NSView {
     private func windowStateChanged(_ name: Notification.Name) {
         Self.windowStateUpdates &+= 1
         switch name {
-        case NSWindow.didChangeOcclusionStateNotification:
-            updateOcclusion()
         case NSWindow.didChangeScreenNotification:
             updateContentScale()
             updateSurfaceSize()

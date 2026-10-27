@@ -24,7 +24,8 @@ nonisolated enum ChromiumHostPageVisibility: Int32, Sendable {
     struct WindowState: Equatable, Sendable {
         /// Ordered in, not minimized, its app not hidden.
         var isShown: Bool
-        /// No part of it is on screen (`NSWindow.occlusionState` lacks `.visible`).
+        /// No part of it can be seen (its ``WindowOcclusionFamily``: AppKit's state, or an opaque cmux
+        /// window over it).
         var isOccluded: Bool
 
         /// Chrome's rule for the window's part (`-[WebContentsViewCocoa updateWebContentsVisibility]`,
@@ -42,21 +43,23 @@ nonisolated enum ChromiumHostPageVisibility: Int32, Sendable {
         let windowState: @MainActor (NSWindow) -> WindowState
         /// The window's notifications, one observer per window (``WindowEvents``).
         let events: @MainActor (NSWindow) -> WindowEvents
+        /// The window's occlusion family, which brings its occlusion changes.
+        let family: @MainActor (NSWindow) -> WindowOcclusionFamily
 
-        /// AppKit's state and the window's shared ``WindowEvents``.
+        /// AppKit's state through the window's ``WindowOcclusionFamily``, and its shared ``WindowEvents``.
         static var appKit: Source {
             Source(windowState: { window in
                 WindowState(isShown: window.isVisible && !window.isMiniaturized && !(NSApp?.isHidden ?? false),
-                            isOccluded: !window.occlusionState.contains(.visible))
-            }, events: { WindowEvents.of($0) })
+                            isOccluded: !WindowOcclusionFamily.of(window).isOnScreen)
+            }, events: { WindowEvents.of($0) }, family: { WindowOcclusionFamily.of($0) })
         }
     }
 }
 
 /// The page's visibility, as Chrome's page view keeps it for its WebContents
-/// (`WebContentsViewCocoa`: `-viewDidMoveToWindow`, `-viewDidHide`, `-viewDidUnhide`,
-/// `NSWindowDidChangeOcclusionStateNotification`): ``pageNode`` holds the view's own hidden state
-/// under ``windowNode``, the window's; each flip of its effective state goes to
+/// (`WebContentsViewCocoa`: `-viewDidMoveToWindow`, `-viewDidHide`, `-viewDidUnhide`, and its
+/// window's occlusion change, here through the window's ``WindowOcclusionFamily``): ``pageNode``
+/// holds the view's own hidden state under ``windowNode``, the window's; each flip of its effective state goes to
 /// ``onPageVisibility``, which in host mode posts it to the Chromium Host.
 extension ChromiumHostPageView {
     /// What the person sees of the page.
@@ -79,6 +82,7 @@ extension ChromiumHostPageView {
     /// and when the source changes.
     func observeVisibility() {
         visibilitySubscriptions = []
+        occlusionSubscription = nil
         guard let window else { return windowNode.set(.hidden) }
         let events = visibilitySource.events(window)
         let owner = "ChromiumHostPageView.visibility"
@@ -87,8 +91,8 @@ extension ChromiumHostPageView {
         visibilitySubscriptions = [
             events.subscribe(NSWindow.didMiniaturizeNotification, owner: owner, update),
             events.subscribe(NSWindow.didDeminiaturizeNotification, owner: owner, update),
-            events.subscribe(NSWindow.didChangeOcclusionStateNotification, owner: owner, update),
         ]
+        occlusionSubscription = visibilitySource.family(window).subscribe(.content, owner: owner) { _ in update() }
         updateWindowVisibility()
     }
 

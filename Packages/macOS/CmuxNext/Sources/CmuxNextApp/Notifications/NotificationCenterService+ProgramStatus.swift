@@ -61,7 +61,7 @@ extension NotificationCenterService {
         let shown = services.windows.controllers.contains { controller in
             controller.state.workspaceID == located.workspace.id && controller.state.page == nil
                 && (controller.state.selection.selection(in: pane.id) ?? fallback) == located.tab.id
-                && (controller.window?.occlusionState.contains(.visible) ?? false)
+                && (controller.window.map { WindowOcclusionFamily.isOnScreen($0) } ?? false)
         }
         var visibility = TerminalVisibility.hidden
         visibility.appActive = NSApp.isActive

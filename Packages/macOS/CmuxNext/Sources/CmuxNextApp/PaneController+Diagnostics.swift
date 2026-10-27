@@ -25,7 +25,7 @@ struct PaneSurfaceStatus {
     /// Visible page windows over the pane that are not the shown tab's own
     /// page (another tab's page left on screen).
     var foreignPages: Int = 0
-    /// The pane's window is not on screen (`occlusionState` lacks `.visible`).
+    /// The pane's window is not on screen (AppKit calls none of it visible, ``WindowDrawPolicy``).
     var windowOccluded = false
     /// Content in the pane's window may draw now (``WindowDrawPolicy``): it is
     /// on screen, or `render.drawWhenOccluded` is on.

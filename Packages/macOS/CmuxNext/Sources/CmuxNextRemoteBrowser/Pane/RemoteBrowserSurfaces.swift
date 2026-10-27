@@ -35,6 +35,8 @@ public final class RemoteBrowserSurfaces {
     /// surface is open.
     private weak var observedWindow: NSWindow?
     private var windowObservers: [EventSubscription] = []
+    /// The page window's occlusion (its `WindowOcclusionFamily`): a window seen again brings the panels back.
+    private var occlusionWatch: WindowOcclusionSubscription?
     private var layoutPassWatch: WindowLayoutPasses.Observation?
     /// The page's rect in its window when the surfaces were last placed (nil: no window).
     private var placedPageRect: CGRect?
@@ -215,6 +217,7 @@ public final class RemoteBrowserSurfaces {
         guard !(window === observedWindow && (window == nil) == windowObservers.isEmpty) else { return }
         windowObservers.forEach { $0.cancel() }
         windowObservers.removeAll()
+        occlusionWatch = nil
         layoutPassWatch?.cancel()
         layoutPassWatch = nil
         observedWindow = window
@@ -222,10 +225,13 @@ public final class RemoteBrowserSurfaces {
         let events = WindowEvents.of(window)
         for name in [NSWindow.didResizeNotification, NSWindow.didEnterFullScreenNotification,
                      NSWindow.didExitFullScreenNotification, NSWindow.didChangeScreenNotification,
-                     NSWindow.didDeminiaturizeNotification, NSWindow.didChangeOcclusionStateNotification] {
+                     NSWindow.didDeminiaturizeNotification] {
             windowObservers.append(events.subscribe(name, owner: "RemoteBrowserSurfaces") { [weak self] in
                 self?.placeAll()
             })
+        }
+        occlusionWatch = WindowOcclusionFamily.of(window).subscribe(.content, owner: "RemoteBrowserSurfaces") { [weak self] _ in
+            self?.placeAll()
         }
         layoutPassWatch = (window as? any WindowLayoutPassHosting)?.layoutPasses.observe(owner: "RemoteBrowserSurfaces") { [weak self] in
             self?.windowDidLayout()

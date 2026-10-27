@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextHibernation
+import CmuxNextWakeups
 
 // Parked workspaces (plans/cmux-next/tab-lifecycle.md): a workspace this window showed stays mounted and
 // paused, so a switch back swaps its view in within the frame. The app's `ParkedWorkspaceBudget` follows them
@@ -26,10 +27,11 @@ extension WindowController {
 }
 
 extension WindowController: ParkedWorkspaceHolder {
-    /// Shown, not minimized and not fully covered.
+    /// Shown, not minimized and not fully covered (its ``WindowOcclusionFamily``: AppKit's state, or an
+    /// opaque cmux window over it).
     var showsOnScreen: Bool {
         guard let window else { return false }
-        return window.isVisible && !window.isMiniaturized && window.occlusionState.contains(.visible)
+        return window.isVisible && !window.isMiniaturized && WindowOcclusionFamily.isOnScreen(window)
     }
 
     /// The window's own workspace under a top page stays (it is this window's workspace), and so do

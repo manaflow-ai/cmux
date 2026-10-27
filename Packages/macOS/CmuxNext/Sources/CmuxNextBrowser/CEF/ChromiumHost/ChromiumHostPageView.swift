@@ -141,8 +141,10 @@ public final class ChromiumHostPageView: NSView {
     var onPageVisibility: ((ChromiumHostPageVisibility) -> Void)?
     /// The window's state and notifications: AppKit's; tests pass their own.
     var visibilitySource = ChromiumHostPageVisibility.Source.appKit { didSet { observeVisibility() } }
-    /// The window's minimize and occlusion notices while the view is in a window.
+    /// The window's minimize notices while the view is in a window.
     var visibilitySubscriptions: [EventSubscription] = []
+    /// The window's occlusion (its `WindowOcclusionFamily`) while the view is in a window.
+    var occlusionSubscription: WindowOcclusionSubscription?
     /// Tells ``onPageVisibility`` of each flip of ``pageNode``.
     private var pageVisibilityWatch: VisibilitySubscription?
 

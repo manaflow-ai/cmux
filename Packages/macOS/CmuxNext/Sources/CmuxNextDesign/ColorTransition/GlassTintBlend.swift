@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextCompat
 public import CmuxNextDesignTokens
+import CmuxNextWakeups
 
 /// The Liquid Glass tint of a window backdrop moving to a new color with the color transition
 /// (`appearance.colorTransition`, cx-3rf4z). `NSGlassEffectView.tintColor` is not a layer
@@ -35,7 +36,7 @@ final class GlassTintBlend {
         guard previous != target else { return }
         let transition = ColorTransition.current
         guard let previous, let layer = overlay.layer, !transition.isInstant,
-              let window = view.window, window.isVisible, window.occlusionState.contains(.visible) else {
+              let window = view.window, window.isVisible, WindowOcclusionFamily.isOnScreen(window) else {
             stop()
             glass.tintColor = color
             return

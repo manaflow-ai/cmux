@@ -1,7 +1,7 @@
 public import AppKit
 import ObjectiveC
 
-/// One window's notifications (`NSWindow.didBecomeKeyNotification`, `didChangeOcclusionStateNotification`,
+/// One window's notifications (`NSWindow.didBecomeKeyNotification`, `didResizeNotification`,
 /// `willCloseNotification`, ...) for every view and controller in it: one NotificationCenter
 /// observer per name, made on the first subscription and removed with the last, fanned out to the
 /// subscribers whose node is on screen (architecture-refactor-DESIGN.md row B, A4;
@@ -41,7 +41,7 @@ import ObjectiveC
         NSWindow.didMiniaturizeNotification, NSWindow.didDeminiaturizeNotification,
         NSWindow.didBecomeKeyNotification, NSWindow.didResignKeyNotification,
         NSWindow.didBecomeMainNotification, NSWindow.didResignMainNotification,
-        NSWindow.didChangeScreenNotification, NSWindow.didChangeOcclusionStateNotification,
+        NSWindow.didChangeScreenNotification, WindowOcclusionFamily.systemNotice,
         NSApplication.didChangeScreenParametersNotification,
     ]
 

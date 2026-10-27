@@ -20,7 +20,7 @@ public nonisolated enum SurfacePause: String, Sendable {
 /// The facts one drawing decision reads (``WindowDrawPolicy``).
 public nonisolated struct SurfaceDrawInputs: Equatable, Sendable {
     public var inWindow: Bool
-    /// `NSWindow.occlusionState` contains `.visible`. Key or active state
+    /// AppKit calls some of the window visible (`WindowOcclusionFamily.appKitVisible`). Key or active state
     /// plays no part: a visible window of an inactive app draws.
     public var windowVisible: Bool
     public var hidden: Bool
@@ -61,7 +61,7 @@ public nonisolated struct SurfaceDrawInputs: Equatable, Sendable {
 /// terminals today) and for the blank-pane invariant.
 ///
 /// Content in a window draws while AppKit reports the window at least partly
-/// on screen (`occlusionState` contains `.visible`, not miniaturized): the
+/// on screen (AppKit calls some of it visible, not miniaturized): the
 /// rule of ``WindowVisibilitySource/appKitState(of:)``, read live, the same
 /// rule that feeds the window's node; nothing here guesses visibility, and
 /// key or active state plays no part. While the window is

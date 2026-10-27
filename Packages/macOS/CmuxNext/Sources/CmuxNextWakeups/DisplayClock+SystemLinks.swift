@@ -22,10 +22,11 @@ extension DisplayClock {
 
     /// A window can be seen unless it is miniaturized, the app is hidden, or it is on screen with no
     /// visible part. A window not ordered in (still being built) has no occlusion state yet and counts
-    /// as seen.
+    /// as seen. AppKit's answer only: the family's cover flips hold the window scheduler's animation
+    /// clients (FrameScheduler+Occlusion.swift) while its batch clients keep ticking.
     static func systemIsVisible(_ window: NSWindow) -> Bool {
         if window.isMiniaturized || NSApp?.isHidden == true { return false }
-        return !window.isVisible || window.occlusionState.contains(.visible)
+        return !window.isVisible || WindowOcclusionFamily.appKitVisible(window)
     }
 
     static func systemDisplay(_ window: NSWindow?) -> CGDirectDisplayID? {

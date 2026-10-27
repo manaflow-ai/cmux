@@ -119,8 +119,10 @@ public final class HomeNativeTranscriptView: NSView {
     public var onHeaderPanel: (String) -> Void = { _ in }
     /// The header's top-right panel toggles (HomeNativeTranscriptView+HeaderPanels.swift).
     let headerPanels = HomeHeaderPanelBar()
-    /// The window's key and occlusion observers (each removes itself when released, on any thread), and its layout passes.
+    /// The window's key observers (each removes itself when released, on any thread), and its layout passes.
     private var observers: [MainActorObservation] = []
+    /// The window's occlusion (its `WindowOcclusionFamily`).
+    private var occlusionWatch: WindowOcclusionSubscription?
     var layoutPassWatch: WindowLayoutPasses.Observation?
     /// The window's typing hold for the compose field's cursor rects (HomeCursorRectHold).
     private var cursorHold: HomeCursorRectHold?
@@ -437,6 +439,7 @@ public final class HomeNativeTranscriptView: NSView {
         super.viewDidMoveToWindow()
         updateVisibility()
         observers = []
+        occlusionWatch = nil
         followLayoutPasses()
         cursorHold = window.flatMap(HomeCursorRectHold.hold(for:))
         cursorHold?.add(self)
@@ -445,9 +448,11 @@ public final class HomeNativeTranscriptView: NSView {
         }
         guard let window else { return }
         if attachmentPreparer != nil { attachmentPanel?.warmWhenIdle() }  // the "+" opens without making a panel
-        observers = [NSWindow.didBecomeKeyNotification, NSWindow.didResignKeyNotification,
-                     NSWindow.didChangeOcclusionStateNotification].map { name in
+        observers = [NSWindow.didBecomeKeyNotification, NSWindow.didResignKeyNotification].map { name in
             MainActorObservation(name, object: window) { [weak self] in self?.windowStateChanged() }
+        }
+        occlusionWatch = WindowOcclusionFamily.of(window).subscribe(.content, owner: "HomeNativeTranscriptView") { [weak self] _ in
+            self?.windowStateChanged()
         }
         windowStateChanged()
         // A theme change while the tab was hidden (equal palettes return early).

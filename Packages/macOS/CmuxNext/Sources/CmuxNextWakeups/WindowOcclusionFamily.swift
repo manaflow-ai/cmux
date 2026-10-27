@@ -1,4 +1,5 @@
 public import AppKit
+public import CmuxNextCompat
 import ObjectiveC
 
 /// Whether one window is occluded, and the one place its readers learn it (rendering-DESIGN R6,
@@ -11,17 +12,27 @@ import ObjectiveC
 /// (`feedingFamilies()`, started at launch with the feature `windowOcclusionFamily`), through
 /// ``set(occluded:)``. Without a source the family never flips and nothing pauses.
 ///
-/// One per window, made on first use and kept alive by the window (``of(_:)``), as
+/// It is also the one reader of AppKit's own state (p03-rendering-113): it observes the window's
+/// occlusion notice once, through the window's ``WindowEvents``, and reads `occlusionState` live
+/// (``isSystemVisible``), so no view or controller observes the notice or reads the state itself.
+/// A reader asks ``isOnScreen`` (AppKit's state and the source's) and subscribes for changes; an
+/// owner of no window that watches every window (the source, a window's Chromium page children,
+/// app-wide diagnostics) uses ``observeSystemChanges(center:_:)``. Chrome keeps the same split: one
+/// occlusion checker reads the window server and its `WebContentsViewCocoa`s hear from it
+/// (content/app_shim_remote_cocoa/web_contents_occlusion_checker_mac.mm).
+///
+/// One per window, made on first use and kept alive by the window (``of(_:events:)``), as
 /// ``WindowEvents`` and the window's ``FrameScheduler`` are.
 ///
-/// Subscribers hear each flip in ``Stage`` order: the content producers first (the window's
-/// ``FrameScheduler`` pauses its frame clients, Ghostty surfaces stop drawing, hosted pages are
-/// told `occluded`, loops come off), then diagnostics, so a diagnostic never reads a window that is
-/// half paused.
+/// Subscribers hear each flip and each AppKit notice in ``Stage`` order: the content producers
+/// first (the window's ``FrameScheduler`` pauses its frame clients, Ghostty surfaces stop drawing,
+/// hosted pages are told `occluded`, loops come off), then diagnostics, so a diagnostic never reads
+/// a window that is half paused.
 ///
 /// ```swift
 /// let family = WindowOcclusionFamily.of(window)
 /// watch = family.subscribe(.content, owner: "TerminalSurfaceView") { [weak self] _ in self?.updateOcclusion() }
+/// let seen = family.isOnScreen
 /// ```
 @MainActor public final class WindowOcclusionFamily {
     /// The order subscribers hear a flip in.
@@ -40,22 +51,54 @@ import ObjectiveC
     public private(set) var isOccluded = false
     /// Flips since the family was made (tests and debug.wakeups).
     public private(set) var flips = 0
+    /// AppKit occlusion notices of the window delivered since the family was made.
+    public private(set) var systemChanges = 0
 
+    /// Reads AppKit's answer for a window (tests pass a fake).
+    public typealias SystemVisibility = @MainActor (NSWindow) -> Bool
+
+    private let systemVisible: SystemVisibility
     private var subscriptions: [WeakSubscription] = []
-    /// Counts flips: a delivery stops when a subscriber's reaction started a newer one.
+    /// The notices it follows, kept here: a subscription holds its fan-out only weakly.
+    private let events: WindowEvents?
+    /// Its one subscription to the window's AppKit notice; nil for a family made without events.
+    private var systemWatch: EventSubscription?
+    /// Counts deliveries: a delivery stops when a subscriber's reaction started a newer one.
     private var generation = 0
 
     private static var associationKey: UInt8 = 0
 
-    /// A family of `window` that is not installed on it (tests; the app uses ``of(_:)``).
-    public init(window: NSWindow) {
+    /// AppKit's notice that some of a window came on screen or none of it is left. Its name appears
+    /// nowhere else outside Debug files: readers subscribe to the family.
+    nonisolated static let systemNotice = NSWindow.didChangeOcclusionStateNotification
+
+    /// A family of `window` that is not installed on it (tests; the app uses ``of(_:events:)``).
+    ///
+    /// - Parameters:
+    ///   - window: The window (held weakly).
+    ///   - events: The window's notices; the family follows AppKit's occlusion notice through them.
+    ///     Nil follows none (a family only its source drives).
+    ///   - systemVisible: AppKit's answer for the window (``appKitVisible(_:)``).
+    public init(window: NSWindow, events: WindowEvents? = nil,
+                systemVisible: @escaping SystemVisibility = WindowOcclusionFamily.appKitVisible(_:)) {
         self.window = window
+        self.systemVisible = systemVisible
+        self.events = events
+        systemWatch = events?.subscribe(Self.systemNotice, owner: "WindowOcclusionFamily") { [weak self] in
+            self?.systemDidChange()
+        }
     }
 
-    /// `window`'s family, made on first use and kept alive by the window.
-    public static func of(_ window: NSWindow) -> WindowOcclusionFamily {
+    /// `window`'s family, made on first use and kept alive by the window. A later call returns the
+    /// same family and ignores `events`.
+    ///
+    /// - Parameters:
+    ///   - window: The window.
+    ///   - events: The notices the family follows (default the window's shared ``WindowEvents``;
+    ///     tests pass their own center's).
+    public static func of(_ window: NSWindow, events: WindowEvents? = nil) -> WindowOcclusionFamily {
         if let existing = installed(on: window) { return existing }
-        let family = WindowOcclusionFamily(window: window)
+        let family = WindowOcclusionFamily(window: window, events: events ?? WindowEvents.of(window))
         objc_setAssociatedObject(window, &associationKey, family, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
         return family
     }
@@ -65,9 +108,52 @@ import ObjectiveC
         objc_getAssociatedObject(window, &associationKey) as? WindowOcclusionFamily
     }
 
-    /// Calls `onChange` with ``isOccluded`` after each flip, in `stage` order, until the returned
-    /// subscription is cancelled or released. It is not called for the current value: read
-    /// ``isOccluded`` when subscribing.
+    // MARK: Reading
+
+    /// AppKit's answer, read live: some of `window` is on screen (`occlusionState` contains
+    /// `.visible`). False while it is minimized, on another Space, covered by other apps' windows or
+    /// ordered out (the app hidden). The one read of `occlusionState` outside Debug files.
+    public static func appKitVisible(_ window: NSWindow) -> Bool {
+        window.occlusionState.contains(.visible)
+    }
+
+    /// AppKit's answer for the window now (false once the window is gone).
+    public var isSystemVisible: Bool {
+        guard let window else { return false }
+        return systemVisible(window)
+    }
+
+    /// Some of the window can be seen: AppKit says so and the source does not say occluded.
+    public var isOnScreen: Bool { !isOccluded && isSystemVisible }
+
+    /// Whether some of `window` can be seen now: its family's ``isOnScreen``, or AppKit's answer for
+    /// a window with no family (the source judges only windows with one). Makes no family.
+    public static func isOnScreen(_ window: NSWindow) -> Bool {
+        installed(on: window)?.isOnScreen ?? appKitVisible(window)
+    }
+
+    /// Calls `handler` with each of the app's windows that posts AppKit's occlusion notice, with or
+    /// without a family, until the returned observation is released: for an owner that watches
+    /// windows it does not own (the source, `WindowOcclusionChecker`; a window's Chromium page
+    /// children; app-wide diagnostics). A window's own readers subscribe to its family instead.
+    ///
+    /// - Parameters:
+    ///   - center: Where the windows post (tests pass their own).
+    ///   - handler: Main-actor work, given the window.
+    /// - Returns: The observation; keep it, releasing it stops observing.
+    public static func observeSystemChanges(center: NotificationCenter = .default,
+                                            _ handler: @escaping @MainActor (NSWindow) -> Void) -> MainActorObservation {
+        MainActorObservation(systemNotice, center: center, read: { $0.object as? NSWindow }) { window in
+            if let window { handler(window) }
+        }
+    }
+
+    // MARK: Subscribing
+
+    /// Calls `onChange` with ``isOccluded`` after each flip and each AppKit occlusion notice of the
+    /// window, in `stage` order, until the returned subscription is cancelled or released. It is not
+    /// called for the current value: read ``isOnScreen`` when subscribing. A notice may change
+    /// nothing; the subscriber reads the family again and then does nothing.
     ///
     /// - Parameters:
     ///   - stage: When it hears a flip, relative to the other subscribers.
@@ -90,6 +176,17 @@ import ObjectiveC
         guard occluded != isOccluded else { return }
         isOccluded = occluded
         flips += 1
+        deliver()
+    }
+
+    /// The window posted AppKit's occlusion notice: every subscriber reads it again, content first.
+    private func systemDidChange() {
+        systemChanges += 1
+        deliver()
+    }
+
+    private func deliver() {
+        let occluded = isOccluded
         generation += 1
         let current = generation
         for subscription in ordered() {

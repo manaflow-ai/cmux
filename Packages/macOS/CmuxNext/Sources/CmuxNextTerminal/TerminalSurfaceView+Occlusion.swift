@@ -8,9 +8,11 @@ import IOSurface
 extension TerminalSurfaceView {
     /// Follows `window`'s occlusion family while shown (``observeWindow``): a covered window's surface
     /// stops drawing, a window seen again draws its current content. A content-stage subscriber: it
-    /// pauses before diagnostics read the window.
+    /// pauses before diagnostics read the window. The family brings AppKit's occlusion notices too,
+    /// so the view observes no occlusion notice of its own (p03-rendering-113).
     func watchOcclusionFamily(of window: NSWindow) -> WindowOcclusionSubscription {
         WindowOcclusionFamily.of(window).subscribe(.content, owner: "TerminalSurfaceView") { [weak self] _ in
+            TerminalSurfaceView.windowStateUpdates &+= 1
             self?.updateOcclusion()
         }
     }

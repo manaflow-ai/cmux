@@ -2,9 +2,9 @@ import AppKit
 import CmuxNextWakeups
 
 extension HomeNativeTranscriptView {
-    /// The transcript draws as seen only in the key window while that window is visible.
+    /// The transcript draws as seen only in the key window while its ``WindowOcclusionFamily`` calls it on screen.
     func windowStateChanged() {
-        transcript.isVisibleToUser = window.map { $0.isKeyWindow && $0.occlusionState.contains(.visible) } ?? false
+        transcript.isVisibleToUser = window.map { $0.isKeyWindow && WindowOcclusionFamily.of($0).isOnScreen } ?? false
     }
 
     /// After each layout pass of this view's window, the transcript reads its window place again (an ancestor

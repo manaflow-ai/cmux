@@ -1,5 +1,6 @@
 public import AppKit
 import CmuxNextCompat
+import CmuxNextWakeups
 
 /// What one occlusion decision reads about a window (``WindowOcclusionRule``), so the rule is a
 /// pure function over values and tests describe windows without a screen.
@@ -12,7 +13,7 @@ public nonisolated struct WindowOcclusionFacts: Equatable, Sendable {
     /// `NSWindow.isVisible`: ordered in (a minimized window is not).
     public var isVisible: Bool
     public var isMiniaturized: Bool
-    /// AppKit's answer (``WindowDrawPolicy/isOnScreen(_:)``): `occlusionState` contains `.visible`.
+    /// AppKit's answer (``WindowDrawPolicy/isOnScreen(_:)``, ``WindowOcclusionFamily/appKitVisible(_:)``).
     /// False on another Space, minimized, or covered by another app's windows. A hidden app's
     /// windows are ordered out instead (``WindowOcclusionRule/appHidden``).
     public var systemVisible: Bool
@@ -100,7 +101,7 @@ public nonisolated struct WindowOcclusionRule: Sendable {
 }
 
 /// Tells its owner when each of the app's tracked windows goes off screen and comes back
-/// (``WindowOcclusionRule``), from window events only: it never polls `occlusionState`.
+/// (``WindowOcclusionRule``), from window events only: it never polls AppKit's occlusion state.
 ///
 /// The events are Chrome's checker's, from any of the app's windows, since any of them can cover
 /// a tracked one (onboarding, a debug window, a panel): AppKit's occlusion changes, a move or live
@@ -188,8 +189,9 @@ public nonisolated struct WindowOcclusionRule: Sendable {
             if !window.inLiveResize, window.parent == nil { self?.schedule() }
         }
         on(NSWindow.willCloseNotification) { [weak self] in self?.windowWillClose($0) }
-        for name in [NSWindow.didChangeOcclusionStateNotification, NSWindow.didBecomeMainNotification,
-                     NSWindow.didResignMainNotification] {
+        // Any window's AppKit occlusion notice, with a family or not: any of them can cover a tracked one.
+        observations.append(WindowOcclusionFamily.observeSystemChanges(center: center) { [weak self] _ in self?.schedule() })
+        for name in [NSWindow.didBecomeMainNotification, NSWindow.didResignMainNotification] {
             on(name) { [weak self] _ in self?.schedule() }
         }
         for name in [NSWindow.willEnterFullScreenNotification, NSWindow.willExitFullScreenNotification] {

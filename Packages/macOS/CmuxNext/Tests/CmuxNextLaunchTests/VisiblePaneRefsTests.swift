@@ -200,8 +200,8 @@ import Testing
         #expect(!Window.isOnScreen(nil as NSWindow?))
     }
 
-    /// A window's occlusion change reads the panes again (it is not observable), and the window's
-    /// observers go with the last ref.
+    /// A window's occlusion change reads the panes again (it is not observable), through the window's
+    /// occlusion family, and the window's subscriptions go with the last ref.
     @Test func aWindowVisibilityChangeReadsThePanesAgainUntilNoRefIsHeld() async {
         _ = NSApplication.shared
         let f = PaneRefsFixture()
@@ -217,12 +217,15 @@ import Testing
         f.refs.followWindows([window], center: center)
         let occlusion = NSWindow.didChangeOcclusionStateNotification
         let events = WindowEvents.of(window, center: center)
-        #expect(events.subscriberCount(occlusion) == 1)
+        let family = WindowOcclusionFamily.of(window)
+        #expect(events.subscriberCount(occlusion) == 1, "the family observes the notice once")
+        #expect(family.subscribers == ["VisiblePaneRefs"])
         shown.hasContent = true  // the pane's window went off screen
         center.post(name: occlusion, object: window)
         await f.recorder.released(count: 2)
         #expect(f.recorder.releases == [["restoreFinished"], ["noVisiblePane"]])
-        #expect(events.subscriberCount(occlusion) == 0, "the observers end with the last ref")
+        #expect(family.subscribers.isEmpty, "the subscriptions end with the last ref")
+        #expect(events.subscriberCount(NSWindow.willCloseNotification) == 0)
     }
 
     /// The phase's restore and visible-page references are marked before the release that ends them,

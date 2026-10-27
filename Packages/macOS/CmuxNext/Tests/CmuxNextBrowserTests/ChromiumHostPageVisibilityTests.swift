@@ -155,15 +155,19 @@ import Testing
         let container = NSView(frame: NSRect(x: 0, y: 0, width: 200, height: 100))
         let center = NotificationCenter()
         let events: WindowEvents
+        /// The window's occlusion family on the test's center: it brings the occlusion notices.
+        let family: WindowOcclusionFamily
         var state = ChromiumHostPageVisibility.WindowState(isShown: true, isOccluded: false)
 
         init() {
             events = WindowEvents(window: window, center: center)
+            family = WindowOcclusionFamily(window: window, events: events)
             window.contentView?.addSubview(container)
         }
 
         var source: ChromiumHostPageVisibility.Source {
-            ChromiumHostPageVisibility.Source(windowState: { [unowned self] _ in state }, events: { [unowned self] _ in events })
+            ChromiumHostPageVisibility.Source(windowState: { [unowned self] _ in state }, events: { [unowned self] _ in events },
+                                              family: { [unowned self] _ in family })
         }
 
         /// Sets `key` and posts `name` from the window, as AppKit does after such a change.

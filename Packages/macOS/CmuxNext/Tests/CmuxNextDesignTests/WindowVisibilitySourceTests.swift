@@ -47,6 +47,9 @@ import Testing
         let events = WindowEvents(window: window, center: center)
         let source = WindowVisibilitySource(window: window, name: "window", app: nil, events: events) { _ in state.value }
         #expect(source.node.isVisible)
+        // p03-rendering-113: the notice comes through the window's occlusion family, its one observer.
+        #expect(events.subscriberCount(NSWindow.didChangeOcclusionStateNotification) == 1)
+        #expect(WindowOcclusionFamily.installed(on: window)?.subscribers == ["WindowVisibilitySource"])
         state.value = .occluded
         center.post(name: NSWindow.didChangeOcclusionStateNotification, object: window)
         #expect(source.node.effective == .occluded)

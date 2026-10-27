@@ -121,6 +121,8 @@ public final class VisiblePaneRefs {
     private var followed: Set<ObjectIdentifier> = []
     /// The windows' notifications that call ``noteChange()`` (``followWindows(_:)``), cancelled once no ref is held.
     var windowEvents: [EventSubscription] = []
+    /// The windows' occlusion (each window's `WindowOcclusionFamily`), cancelled with ``windowEvents``.
+    var occlusionWatches: [WindowOcclusionSubscription] = []
     private var paneWatch: Task<Void, Never>?
     private var unavailableWatch: Task<Void, Never>?
 
@@ -283,5 +285,7 @@ public final class VisiblePaneRefs {
         followed = []
         for subscription in windowEvents { subscription.cancel() }
         windowEvents = []
+        for watch in occlusionWatches { watch.cancel() }
+        occlusionWatches = []
     }
 }

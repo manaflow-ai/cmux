@@ -3,8 +3,9 @@ public import CoreGraphics
 public import Foundation
 
 /// How much of a window other windows hide (cx-14vdf follow-up, after idlesse's coverage rest).
-/// `NSWindow.occlusionState` reports a window as visible while any pixel of it shows, so a cmux
-/// window behind a browser with a sliver showing still decodes its video wallpaper. This samples
+/// AppKit's occlusion state (read through `WindowOcclusionFamily`) calls a window visible while any
+/// pixel of it shows, so a cmux window behind a browser with a sliver showing still decodes its
+/// video wallpaper. This samples
 /// a 12 by 12 grid of points over the window against the windows above it, and the video rests
 /// once nearly all of it is hidden:
 ///

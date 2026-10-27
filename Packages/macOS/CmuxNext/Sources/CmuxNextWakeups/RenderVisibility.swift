@@ -16,11 +16,12 @@ public protocol RenderVisibility {
     func showsFrames(of scheduler: FrameScheduler) -> Bool
 }
 
-/// ``RenderVisibility`` from AppKit: a window shows when it is on screen, not miniaturized, at least
-/// partly unoccluded, and its display is awake (`CGDisplayIsAsleep`). A screen-hosted scheduler's
-/// frames show only while the display its link is on (``FrameScheduler/display``) is still connected
-/// and awake, and some window of the app shows, on any display: its frames (the daemon drain, the
-/// posted work) reach every window.
+/// ``RenderVisibility`` from AppKit: a window shows when it is on screen, not miniaturized, its
+/// ``WindowOcclusionFamily`` says some of it can be seen (AppKit's state, or no opaque cmux window
+/// covers it), and its display is awake (`CGDisplayIsAsleep`). A screen-hosted scheduler's frames
+/// show only while the display its link is on (``FrameScheduler/display``) is still connected and
+/// awake, and some window of the app shows, on any display: its frames (the daemon drain, the posted
+/// work) reach every window.
 @MainActor
 public struct AppKitRenderVisibility: RenderVisibility {
     public nonisolated init() {}
@@ -37,7 +38,7 @@ public struct AppKitRenderVisibility: RenderVisibility {
     }
 
     private static func shows(_ window: NSWindow) -> Bool {
-        guard window.isVisible, !window.isMiniaturized, window.occlusionState.contains(.visible), let screen = window.screen else {
+        guard window.isVisible, !window.isMiniaturized, WindowOcclusionFamily.isOnScreen(window), let screen = window.screen else {
             return false
         }
         guard let display = number(of: screen) else { return true }

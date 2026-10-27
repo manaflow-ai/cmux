@@ -3,6 +3,7 @@ import CmuxNextAgentCursor
 import CmuxNextAgentCursorVisibility
 import CmuxNextCompat
 import CmuxNextLayout
+import CmuxNextWakeups
 import Observation
 
 /// The live agent cursor visibility: resolves a target tab against the
@@ -22,6 +23,8 @@ final class AgentCursorVisibilitySource {
     /// Last result per tracked target.
     private var tracked: [String: AgentCursorVisibility] = [:]
     private var observers: [any NSObjectProtocol] = []
+    /// Any shell window's AppKit occlusion notice (``WindowOcclusionFamily``).
+    private var occlusionObservation: MainActorObservation?
     private var stateObservation: Task<Void, Never>?
     /// Overlay sync observations of the layout roots this source watches.
     private var hookedRoots: [ObjectIdentifier: LayoutRootHook] = [:]
@@ -77,14 +80,17 @@ final class AgentCursorVisibilitySource {
         let center = NotificationCenter.default
         let names: [Notification.Name] = [
             NSWindow.didMiniaturizeNotification, NSWindow.didDeminiaturizeNotification,
-            NSWindow.didChangeOcclusionStateNotification, NSWindow.didChangeScreenNotification,
-            NSWindow.didResizeNotification,
+            NSWindow.didChangeScreenNotification, NSWindow.didResizeNotification,
         ]
         for name in names {
             observers.append(center.addObserver(forName: name, object: nil, queue: .main) { [weak self] note in
                 guard note.object is ShellWindow else { return }
                 Task { @MainActor in self?.reresolve() }
             })
+        }
+        occlusionObservation = WindowOcclusionFamily.observeSystemChanges { [weak self] window in
+            guard window is ShellWindow else { return }
+            self?.reresolve()
         }
         observers.append(NSWorkspace.shared.notificationCenter.addObserver(
             forName: NSWorkspace.activeSpaceDidChangeNotification, object: nil, queue: .main
@@ -112,6 +118,7 @@ final class AgentCursorVisibilitySource {
             workspaceCenter.removeObserver(observer)
         }
         observers.removeAll()
+        occlusionObservation = nil
         stateObservation?.cancel()
         stateObservation = nil
         for hook in hookedRoots.values { hook.observation.cancel() }
