@@ -22,7 +22,7 @@ nonisolated final class CEFChildProcessMonitor: @unchecked Sendable {
         /// Raw `waitpid` status.
         var status: Int32
         /// A renderer's `--renderer-client-id` (its render process host id); nil for every other helper.
-        var rendererClientID: Int32? = nil
+        var rendererClientID: Int32?
     }
 
     private let queue = DispatchQueue(label: "com.cmuxterm.app.next.cef-children", qos: .userInitiated)
@@ -119,7 +119,7 @@ nonisolated struct CEFHelperIdentity: Equatable, Sendable {
     var subType: String?
     var isExtension: Bool
     /// `--renderer-client-id`: the render process host id Chromium names a renderer's frames by.
-    var rendererClientID: Int32? = nil
+    var rendererClientID: Int32?
 
     static func read(pid: Int32) -> CEFHelperIdentity? {
         parse(arguments(pid: pid))
