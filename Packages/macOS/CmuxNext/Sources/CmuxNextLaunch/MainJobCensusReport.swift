@@ -1,5 +1,5 @@
 #if DEBUG || CMUX_BENCH_HOOKS
-public import CmuxNextWakeups
+import CmuxNextWakeups
 import Foundation
 
 /// `debug.startup.main_jobs`' payload, built from a ``MainJobCensus/Snapshot`` off the main thread: the main jobs and
