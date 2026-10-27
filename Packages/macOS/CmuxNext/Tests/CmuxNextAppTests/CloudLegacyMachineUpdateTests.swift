@@ -118,8 +118,8 @@ struct CloudLegacyMachineUpdateTests {
 
     /// The app runs the fleet's own guest script, byte for byte (web/tests checks the other side).
     @Test func theGuestScriptIsTheFleetScript() throws {
-        let repo = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
-            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        // Tests/CmuxNextAppTests/<file> in Packages/macOS/CmuxNext: six levels up is the repo.
+        let repo = (0..<6).reduce(URL(fileURLWithPath: #filePath)) { url, _ in url.deletingLastPathComponent() }
         let fleet = try String(contentsOf: repo.appendingPathComponent("web/scripts/cloud-vm/cmux-tui-upgrade.sh"), encoding: .utf8)
         #expect(CloudLegacyMachineUpdate.script == fleet)
     }
