@@ -218,7 +218,7 @@ inline constexpr uint16_t kOpAck = 0x8004;  // host -> cmux: a token's op ran
 inline constexpr int kEventKindCount = 65;
 inline constexpr char kShimAbiID[] = "5fa79741f922993e859ba2dd0f47f98e1cd5aba7e38ce3c8f5025976db7b13f6";
 // Both sides' HELLO carries it: the op ids, classes and wire types of this generation.
-inline constexpr char kWireID[] = "90b2f1d8716adf35846c4658557f1726767571550cac908f4ee75463e677bbcd";
+inline constexpr char kWireID[] = "2d94fba3b78f294b853fa1c96f803967f88151ecfa98108b70676826f8518895";
 inline constexpr int32_t kMaxRecords = 65536;
 inline constexpr int32_t kMaxOutCapacity = 65536;
 
@@ -965,9 +965,8 @@ inline bool DispatchOp(HostContext& ctx, uint16_t op, uint32_t wire_token, TlvRe
       const auto arg_width = r.I32();
       if (!r.ok() || !r.AtEnd()) return false;
       const auto call_result = cmux_shim_ext_action_run(ctx.Browser(arg_browser_id), arg_extension_id ? arg_extension_id->c_str() : nullptr, arg_x, arg_width);
-      TlvWriter reply_w;
-      reply_w.I32(call_result);
-      ctx.Reply(wire_token, reply_w);
+      (void)call_result;
+      ctx.Ack(wire_token);
       return true;
     }
     case kOpExtActionHidePopup: {
