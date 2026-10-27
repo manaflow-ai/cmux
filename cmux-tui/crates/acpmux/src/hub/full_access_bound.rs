@@ -373,7 +373,7 @@ impl Hub {
         view: &FullAccessView,
     ) -> Result<(), RpcError> {
         if off.off() && runs_full_access(view).is_some() {
-            self.stop_full_access_agent(session).await;
+            self.stop_full_access_agent(session, true).await;
             return Err(super::start_mode::full_access_off());
         }
         Ok(())
@@ -466,10 +466,14 @@ impl Hub {
     /// Whether `session`'s agent counts as in full access under MDM's off: by what acpmux keeps
     /// of it or its left host reported (`runs_full_access_by_records`), because an end of it
     /// failed and its host may still run (`FloorState::full_access_end_pending`, review 51 of
-    /// #23322), or because the host records cannot be read while this daemon hears no agent of it
+    /// #23322), because its reattached host's replay is not all in the log yet (`host_replaying`),
+    /// or because the host records cannot be read while this daemon hears no agent of it
     /// (`host_unknown`).
     async fn counts_as_full_access(&self, session: &Session) -> bool {
         if session.floor.full_access_end_pending.load(Ordering::SeqCst) {
+            return true;
+        }
+        if Self::host_replaying(session).await {
             return true;
         }
         let records = Self::read_host_records();
@@ -489,6 +493,23 @@ impl Hub {
         match child {
             Some(child) => !child.is_alive().await,
             None => true,
+        }
+    }
+
+    /// Whether `session`'s agent host was reattached and its replay is not all in the log yet:
+    /// what it kept while its link was down is unknown until then, so under MDM's off it counts as
+    /// full access, and its log is not read back (nor `left_host_read` kept) before the replay is
+    /// in it (review 1 of #26057).
+    ///
+    /// The wait for the agent slot is bounded, as an end's is (review 81 of #23322): a slot held
+    /// past it (a stop waiting on its host) keeps no push waiting. The replay is then not known,
+    /// so the agent counts as in full access; the end that follows marks itself pending while the
+    /// slot stays held (`end_managed_full_access`).
+    async fn host_replaying(session: &Session) -> bool {
+        let wait = super::shutdown::SHUTDOWN_GRACE;
+        match tokio::time::timeout(wait, session.child.lock()).await {
+            Ok(slot) => slot.as_ref().is_some_and(|c| c.replay_pending()),
+            Err(_) => true,
         }
     }
 
@@ -1310,6 +1331,139 @@ mod tests {
         );
         let current = chat.child.lock().await.clone().expect("the last agent");
         assert_eq!(current.generation, last.generation);
+    }
+
+    /// Review 7 of #26052, out of scope there: an agent a start's cap stopped
+    /// (`stop_full_access_agent`, a cold or pooled start found in full access) retires its mode
+    /// reports as MDM's end does: one it still had queued is not applied to the agent after it.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn a_report_of_an_agent_a_cap_stopped_is_not_the_next_agents() {
+        let (hub, chat, _) = two_chats_on(&[], false).await;
+        let first = hub.child_for(&chat).await.expect("an agent");
+        // The first agent's report, queued: it reaches the inbound loop after the next agent.
+        let report = Inbound::Notification {
+            method: crate::rpc::method::SESSION_UPDATE.to_owned(),
+            params: Some(json!({"sessionId": "own",
+                                "update": {"sessionUpdate": "current_mode_update",
+                                           "currentModeId": "full-access"}})),
+            agent: first.generation,
+            host_seq: None,
+            host_incarnation: None,
+            persisted: None,
+        };
+        hub.stop_full_access_agent(&chat, true).await;
+        let next = hub.child_for(&chat).await.expect("an agent");
+        assert_ne!(first.generation, next.generation, "the stopped agent was handed out again");
+        chat.inbound_tx.send(report).await.unwrap();
+        let (done, drained) = tokio::sync::oneshot::channel();
+        chat.inbound_tx.send(Inbound::Barrier(done)).await.unwrap();
+        drained.await.unwrap();
+        assert_ne!(
+            crate::web_modes::mode_of(&chat.meta()).as_deref(),
+            Some("full-access"),
+            "a stopped agent's late report set the mode of the agent after it"
+        );
+        let current = chat.child.lock().await.clone().expect("the next agent");
+        assert_eq!(current.generation, next.generation);
+    }
+
+    /// Review 2 of #26257: the MDM off a start read holds for its stop, though an unset lands while
+    /// the start's mode change out of full access waits and the harness then refuses it: the
+    /// stopped agent's queued report is not the next agent's.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn a_cap_stop_after_an_unset_during_its_mode_change_retires_the_agent() {
+        let env = ["FAKE_FULL_ACCESS=1", "FAKE_SET_MODE_FAIL=1", "FAKE_SET_MODE_DELAY_MS=600"];
+        let (hub, chat, _) = two_chats_on(&env, false).await;
+        let first = hub.child_for(&chat).await.expect("an agent");
+        hub.apply_full_access_push(Some(false)).await;
+        let off = hub.off_latch();
+        // The harness reports full access; set as the chat holds it, with no check woken.
+        if let Some(modes) = chat.meta.lock().unwrap().modes.as_mut() {
+            modes["currentModeId"] = json!("full-access");
+        }
+        // A mode the next agent never starts in (with MDM unset it may start in full access).
+        let report = Inbound::Notification {
+            method: crate::rpc::method::SESSION_UPDATE.to_owned(),
+            params: Some(json!({"sessionId": "own",
+                                "update": {"sessionUpdate": "current_mode_update",
+                                           "currentModeId": "strict"}})),
+            agent: first.generation,
+            host_seq: None,
+            host_incarnation: None,
+            persisted: None,
+        };
+        let profile = hub.config.read().await.profile("fake").cloned().expect("its profile");
+        let unset = {
+            let hub = hub.clone();
+            tokio::spawn(async move {
+                tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+                hub.apply_full_access_push(None).await;
+            })
+        };
+        let capped = hub.cap_full_access(&chat, &first, &profile, &off).await;
+        unset.await.unwrap();
+        assert!(capped.is_err(), "the start was not refused");
+        assert!(!hub.full_access_managed_off(), "the unset did not land first");
+        let next = hub.child_for(&chat).await.expect("an agent");
+        assert_ne!(first.generation, next.generation, "the stopped agent was handed out again");
+        chat.inbound_tx.send(report).await.unwrap();
+        let (done, drained) = tokio::sync::oneshot::channel();
+        chat.inbound_tx.send(Inbound::Barrier(done)).await.unwrap();
+        drained.await.unwrap();
+        assert_ne!(
+            crate::web_modes::mode_of(&chat.meta()).as_deref(),
+            Some("strict"),
+            "a stopped agent's late report set the mode of the agent after it"
+        );
+    }
+
+    /// Review 1 of #26257: a stop for the person's own off (MDM unset) retires nothing, as before:
+    /// a report the stopped agent still had queued is applied as it was on base.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn a_stop_for_the_persons_own_off_retires_nothing() {
+        let (hub, chat, _) = two_chats_on(&[], false).await;
+        let first = hub.child_for(&chat).await.expect("an agent");
+        let report = Inbound::Notification {
+            method: crate::rpc::method::SESSION_UPDATE.to_owned(),
+            params: Some(json!({"sessionId": "own",
+                                "update": {"sessionUpdate": "current_mode_update",
+                                           "currentModeId": "strict"}})),
+            agent: first.generation,
+            host_seq: None,
+            host_incarnation: None,
+            persisted: None,
+        };
+        let epoch = chat.floor.report_epoch.load(Ordering::SeqCst);
+        hub.stop_full_access_agent(&chat, false).await;
+        assert_eq!(chat.floor.retired_through.load(Ordering::SeqCst), 0, "a stop retired an agent");
+        assert_eq!(chat.floor.report_epoch.load(Ordering::SeqCst), epoch, "a stop moved the epoch");
+        hub.child_for(&chat).await.expect("an agent");
+        chat.inbound_tx.send(report).await.unwrap();
+        let (done, drained) = tokio::sync::oneshot::channel();
+        chat.inbound_tx.send(Inbound::Barrier(done)).await.unwrap();
+        drained.await.unwrap();
+        assert_eq!(
+            crate::web_modes::mode_of(&chat.meta()).as_deref(),
+            Some("strict"),
+            "with MDM unset a stopped agent's queued report was dropped"
+        );
+    }
+
+    /// Review 3 of #26057: under MDM's off, `child_for`'s fast path does not hand out an agent
+    /// whose reattached host's replay is not all in the log (`ChildAgent::replay_pending`), though
+    /// what the chat holds of it asks: the start judges it, as the off's teardown does.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn a_replaying_agent_is_not_handed_out_under_mdm_off() {
+        let (hub, chat, _) = two_chats_on(&[], false).await;
+        let first = hub.child_for(&chat).await.expect("an agent");
+        hub.apply_full_access_push(Some(false)).await;
+        crate::agent::TEST_REPLAYING.store(first.generation, Ordering::SeqCst);
+        let next = hub.child_for(&chat).await;
+        crate::agent::TEST_REPLAYING.store(0, Ordering::SeqCst);
+        assert!(
+            next.as_ref().map_or(true, |next| next.generation != first.generation),
+            "an agent whose replay is not all in the log was handed out under MDM's off"
+        );
     }
 
     /// Review 2 of #26034: under MDM's off, an agent whose end is pending is not handed out by

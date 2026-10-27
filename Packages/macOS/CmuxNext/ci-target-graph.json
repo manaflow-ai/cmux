@@ -261,6 +261,7 @@
         "CmuxNextChromiumWarmup",
         "CmuxNextCloud",
         "CmuxNextCloudCredentials",
+        "CmuxNextCloudUI",
         "CmuxNextCodeRouter",
         "CmuxNextCompat",
         "CmuxNextComputerUse",
@@ -745,6 +746,15 @@
         "CmuxNextCloud",
         "CmuxNextCompat",
         "CmuxNextDaemon"
+      ],
+      "packages": []
+    },
+    "CmuxNextCloudUI": {
+      "kind": "regular",
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextCloudUI",
+      "targets": [
+        "CmuxNextCloud",
+        "CmuxNextDesign"
       ],
       "packages": []
     },
