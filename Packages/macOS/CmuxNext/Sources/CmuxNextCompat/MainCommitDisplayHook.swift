@@ -26,8 +26,8 @@ public final class MainCommitDisplayHook {
         override func display() {
             let body = onDisplay
             onDisplay = nil
-            // main-proof: the layer joins only layer trees of windows, from the main actor (`run(in:_:)`),
-            // and Core Animation displays those in the main thread's commit.
+            // The layer joins only windows' layer trees, from the main actor (`run(in:_:)`).
+            // main-proof: Core Animation displays a window's layer tree in the main thread's commit.
             MainActor.assumeIsolated { body?() }
         }
 
