@@ -22,6 +22,12 @@ Commands (lookup and record as in dev_release_product_reuse.py):
   lookup --key K --out DIR --products DIR  a hit also unpacks the products into --products
   record --key K --sha SHA --archive A --out manifest.json
   pack --products DIR --out ARCHIVE        archive= (empty with reason= when the app is incomplete)
+  builder --derived-data DIR --out FILE    the builder's facts; recordable=true only on a fresh VM
+                                           whose DerivedData and compilation cache start empty
+
+Records come only from fresh VMs (GitHub-hosted or Blacksmith) that start from an empty
+DerivedData: an owned runner keeps a compilation cache, Rust target directories and helper caches
+between jobs, which the key does not name and which other jobs on that user can write.
 """
 
 from __future__ import annotations
@@ -29,6 +35,7 @@ from __future__ import annotations
 import argparse
 import gzip
 import io
+import json
 import os
 import shutil
 import sys
@@ -269,6 +276,20 @@ def unpack(archive: Path, products: Path) -> None:
         raise reuse.Miss(f"unpacking the archive failed: {why}") from why
 
 
+def builder(env: dict[str, str], derived: Path) -> dict:
+    """Who builds this job and what its build starts from, measured before it compiles: the kind of
+    runner (reuse.builder_kind) and whether DerivedData and the compilation cache in it are empty
+    (an owned runner links a kept cache into it). A record is written only when both hold
+    (reuse.clean_builder), and a lookup takes only such records."""
+    kind = reuse.builder_kind(env.get("RUNNER_NAME", ""), env.get("RUNNER_ENVIRONMENT", ""))
+    cache = derived / "CompilationCache.noindex"
+    empty = not derived.is_symlink() and (not derived.exists() or (derived.is_dir() and not any(derived.iterdir())))
+    return {"runner_name": env.get("RUNNER_NAME", ""), "runner_environment": env.get("RUNNER_ENVIRONMENT", ""),
+            "kind": kind, "fresh_vm": kind in reuse.FRESH_RUNNER_GROUPS,
+            "start": {"derived_data": "empty" if empty else "kept",
+                      "compilation_cache": "empty" if empty or not (cache.exists() or cache.is_symlink()) else "kept"}}
+
+
 def lookup(argv: list[str], products: Path) -> int:
     """The shared lookup, then the unpack; any failure of either is a miss."""
     buffer = io.StringIO()
@@ -299,6 +320,20 @@ def main(argv: list[str] | None = None) -> int:
             print(f"::notice title={NIGHTLY.name} Release product not recorded::{outputs['reason']}", file=sys.stderr)
         for name, value in outputs.items():
             print(f"{name}={value}")
+        return 0
+    if argv and argv[0] == "builder":
+        parser = argparse.ArgumentParser(prog="nightly_release_product_reuse.py builder")
+        parser.add_argument("--derived-data", required=True)
+        parser.add_argument("--out", required=True)
+        args = parser.parse_args(argv[1:])
+        facts = builder(dict(os.environ), Path(args.derived_data))
+        Path(args.out).parent.mkdir(parents=True, exist_ok=True)
+        Path(args.out).write_text(json.dumps(facts, indent=2, sort_keys=True) + "\n")
+        why = reuse.clean_builder(facts)
+        print(f"builder={facts['kind']} {facts['runner_name']}")
+        print(f"recordable={'false' if why else 'true'}")
+        if why:
+            print(f"::notice title={NIGHTLY.name} Release product not recorded::{why}", file=sys.stderr)
         return 0
     if argv and argv[0] == "lookup" and "--products" in argv:
         at = argv.index("--products")

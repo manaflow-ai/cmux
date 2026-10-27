@@ -426,6 +426,7 @@ async fn check_inner(
             | method::MUX_FILE_PUT_CHUNK
             | method::MUX_FILE_PUT_FINISH
             | method::MUX_FILE_PUT_CANCEL
+            | method::MUX_FILE_PUT_STATUS
     ) && control_of(origin, auth, params) == crate::hub::Control::Web
     {
         return Err(RpcError::invalid_params(
@@ -748,7 +749,7 @@ async fn web_starts_asking(
     // session with no policy stays without one: `requests.rs` starts it
     // approve-all (hub/remote_sandbox.rs `vm_host_peer_approves`).
     let vm_host_peer = crate::hub::vm_host_peer_approves(
-        hub.config.read().await.vm_host,
+        hub.vm_host().await,
         cfg!(target_os = "macos"),
         control == crate::hub::Control::Peer,
         hub.approve_all_allowed(),

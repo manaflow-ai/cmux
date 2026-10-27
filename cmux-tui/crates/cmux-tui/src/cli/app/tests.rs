@@ -118,6 +118,25 @@ fn new_machine_bootstrap_script_is_made_absolute() {
     assert_eq!(params["args"]["bootstrap"], json!("lane"));
 }
 
+/// `cmux cloud apply-machine-config --machine-config FILE` names a file of the
+/// caller's working directory too.
+#[test]
+fn machine_config_is_made_absolute() {
+    let (_, params) = call(
+        run_action(
+            "cloud apply-machine-config",
+            &args(&["--target", "machine:vm-1", "--machine-config", ".cmux/machine.toml"]),
+            ActionName::Cli,
+        )
+        .unwrap(),
+    );
+    let cwd = std::env::current_dir().unwrap();
+    assert_eq!(
+        params["args"]["machineConfig"],
+        json!(cwd.join(".cmux/machine.toml").to_string_lossy())
+    );
+}
+
 #[test]
 fn non_app_scopes_are_left_to_the_resource_grammar() {
     assert_eq!(parse(&args(&["workspace", "list"])).unwrap(), None);

@@ -4,8 +4,10 @@
 #
 #   nightly-release-product.sh lookup   key this checkout, look up a record, unpack a hit into
 #                                       build-universal/Build/Products/Release; prints key=, hit=,
-#                                       reason= (and the hit's source_run_id=, source_sha=, ...) for
-#                                       $GITHUB_OUTPUT
+#                                       reason= (and the hit's source_run_id=, source_sha=, ...) and
+#                                       record=true|false (whether this job may write a record:
+#                                       reuse switched on, a key, and a fresh VM that starts with
+#                                       empty DerivedData) for $GITHUB_OUTPUT
 #   nightly-release-product.sh record   pack the finished products and write their record; prints
 #                                       archive= and manifest= (both empty when nothing is recorded)
 #
@@ -17,6 +19,7 @@ set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 products="${NIGHTLY_PRODUCTS_DIR:-build-universal/Build/Products/Release}"
+derived="${NIGHTLY_DERIVED_DATA_DIR:-build-universal}"
 work="${RUNNER_TEMP:-${TMPDIR:-/tmp}}/cmux-nightly-next-product"
 
 # The key names nightly.yml as the build commit has it, but the steps run as the workflow commit
@@ -66,6 +69,7 @@ lookup_once() {
     --extra "xcode=$(xcodebuild -version | tr '\n' ' ')" \
     --extra "sdk=$(xcrun --sdk macosx --show-sdk-version) $(xcrun --sdk macosx --show-sdk-build-version)" \
     --extra "arch=$(uname -m)" \
+    --extra "macos=$(sw_vers -productVersion)" --extra "macos_build=$(sw_vers -buildVersion)" \
     --extra "recipe=$recipe" \
     --extra "tui_tree=${CMUX_TUI_TREE_KEY:-}" \
     "${flags[@]}" | sed -n 's/^fingerprint=//p')" || key=""
@@ -77,26 +81,42 @@ lookup_once() {
 # Every way out but a hit removes the products directory: xcodebuild would merge into whatever a
 # miss left there.
 lookup() {
-  local result status=0
+  local result status=0 facts
+  # Measured first: a hit unpacks into $derived.
+  facts="$(python3 -I "$repo_root/scripts/ci/nightly_release_product_reuse.py" builder \
+    --derived-data "$derived" --out "$work/builder.json")" || facts="recordable=false"
   result="$(lookup_once)" || status=$?
   if (( status != 0 )) || ! grep -qx 'hit=true' <<<"$result"; then
     rm -rf -- "$products"
     grep -q '^hit=' <<<"$result" || result+=$'\nhit=false\nreason=the lookup failed (exit '"$status"')'
   fi
   printf '%s\n' "$result"
+  if [[ -z "${SKIP_REASON:-}" ]] && grep -qx 'recordable=true' <<<"$facts" && grep -q '^key=.' <<<"$result"; then
+    echo "record=true"
+  else
+    echo "record=false"
+  fi
 }
 
 record() {
   local archive="$work/cmux-nightly-next-release-${BUILD_SHA:?}.tar.gz" packed manifest="$work/record/manifest.json"
   [[ "${KEY:-}" =~ ^[0-9a-f]{64}$ ]] || { echo "archive="; echo "manifest="; echo "no product key; nothing recorded" >&2; return 0; }
+  # Only a fresh VM that started from empty DerivedData records (the lookup measured it).
+  if ! python3 -I -c 'import json, sys; sys.path.insert(0, sys.argv[1]); import dev_release_product_reuse as r; why = r.clean_builder(json.load(open(sys.argv[2]))); print(why or "fresh VM, clean start", file=sys.stderr); sys.exit(1 if why else 0)' \
+      "$repo_root/scripts/ci" "$work/builder.json"; then
+    echo "archive="; echo "manifest="; echo "nothing recorded" >&2; return 0
+  fi
   packed="$(python3 -I "$repo_root/scripts/ci/nightly_release_product_reuse.py" pack --products "$products" --out "$archive")"
   printf '%s\n' "$packed" >&2
   if ! grep -q '^archive=.' <<<"$packed"; then
     echo "archive="; echo "manifest="; return 0
   fi
-  python3 -I "$repo_root/scripts/ci/nightly_release_product_reuse.py" record --key "$KEY" --sha "$BUILD_SHA" \
-    --archive "$archive" --out "$manifest" --reused-from-run "${REUSED_FROM_RUN:-}" \
-    --reused-from-sha "${REUSED_FROM_SHA:-}" --compiled-run "${COMPILED_RUN:-}" >&2
+  if ! python3 -I "$repo_root/scripts/ci/nightly_release_product_reuse.py" record --key "$KEY" --sha "$BUILD_SHA" \
+      --archive "$archive" --out "$manifest" --reused-from-run "${REUSED_FROM_RUN:-}" \
+      --reused-from-sha "${REUSED_FROM_SHA:-}" --compiled-run "${COMPILED_RUN:-}" \
+      --builder "$work/builder.json" >&2; then
+    echo "archive="; echo "manifest="; return 0
+  fi
   echo "archive=$archive"
   echo "manifest=$manifest"
 }

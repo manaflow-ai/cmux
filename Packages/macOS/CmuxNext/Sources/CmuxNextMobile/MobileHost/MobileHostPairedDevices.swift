@@ -17,13 +17,18 @@ public struct MobileHostPairRequest: Sendable, Equatable, Hashable {
     /// When the backend registered the phone's device (hostd's `registered_at_ms`), shown in
     /// the prompt so a device made minutes ago stands out; nil from an older hostd.
     public var registeredAt: Date?
+    /// The pre-approval the phone presented from this Mac's pairing code (``MobileHostPairTokens``),
+    /// nil without one. A secret: never logged, never kept with a waiting request.
+    public var pairToken: String?
 
-    public init(phoneDeviceID: String, name: String, identityKey: String, approvalKey: String, registeredAt: Date? = nil) {
+    public init(phoneDeviceID: String, name: String, identityKey: String, approvalKey: String, registeredAt: Date? = nil,
+                pairToken: String? = nil) {
         self.phoneDeviceID = phoneDeviceID
         self.name = name
         self.identityKey = identityKey
         self.approvalKey = approvalKey
         self.registeredAt = registeredAt
+        self.pairToken = pairToken
     }
 
     /// The same device asking with the same keys (a retry, whatever its registration date).

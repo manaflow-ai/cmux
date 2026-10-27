@@ -196,8 +196,48 @@ fn gb(bytes: u64) -> String {
     format!("{:.1} GB", bytes as f64 / 1e9)
 }
 
+/// `acpmux host vm-host`'s line for an `_acpmux/vm_host` reply:
+/// `this machine: vmHost off (a VM cmux created: sandboxed until …)`.
+pub fn vm_host_line(name: Option<&str>, v: &Value) -> String {
+    let who = name.unwrap_or("this machine");
+    let on = v["vmHost"] == true;
+    let state = if on { "on" } else { "off" };
+    let why = match (on, v["configured"].as_bool(), v["cmuxVm"] == true) {
+        (_, Some(false), _) => "turned off in its config",
+        (false, _, true) => {
+            "a VM cmux created: sandboxed until an attested source says it is a dedicated agent VM"
+        }
+        (false, _, false) => "not a VM cmux created",
+        // A daemon from before `hub/vm_host.rs` failed closed reads its own marker and config.
+        (true, Some(true), true) => "on in its config",
+        (true, Some(true), false) => "on in its config; not a VM cmux created",
+        (true, None, _) => "a VM cmux created: on by default",
+    };
+    format!("{who}: vmHost {state} ({why})")
+}
+
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn vm_host_line_says_why() {
+        use serde_json::json;
+        let v = json!({"vmHost": true, "cmuxVm": true, "configured": null});
+        assert_eq!(
+            super::vm_host_line(None, &v),
+            "this machine: vmHost on (a VM cmux created: on by default)"
+        );
+        let v = json!({"vmHost": false, "cmuxVm": true, "configured": false});
+        assert_eq!(
+            super::vm_host_line(Some("cloud-a"), &v),
+            "cloud-a: vmHost off (turned off in its config)"
+        );
+        let v = json!({"vmHost": false, "cmuxVm": true, "configured": null});
+        assert_eq!(
+            super::vm_host_line(None, &v),
+            "this machine: vmHost off (a VM cmux created: sandboxed until an attested source says it is a dedicated agent VM)"
+        );
+    }
+
     use super::*;
     use serde_json::json;
 

@@ -102,7 +102,13 @@ nonisolated enum BrowserSettingsSchema {
                     SettingChoice("aggressive", SettingsText.keyed("settings.choice.aggressive", "After 10 Minutes")),
                     SettingChoice("off", SettingsText.keyed("settings.choice.never", "Never")),
                 ], SettingNumber(1...1_440, step: 5, unit: .minutes, placeholder: 30)),
-                default: .string("moderate"), keywords: ["memory saver", "sleep", "discard"]
+                // Unset is its own behaviour, not "moderate": hidden pages only freeze and are never
+                // discarded on their own (`BrowserHibernationSetting.fallback`). Any written value,
+                // "moderate" included, turns automatic discards on, so it shows as customized and
+                // Reset returns to unset.
+                default: nil,
+                defaultLabel: SettingsText.keyed("settings.default.neverDiscard", "Never Discard"),
+                keywords: ["memory saver", "sleep", "discard", "freeze", "reload"]
             ),
             SettingDescriptor(
                 ["browser", "hibernationExclusions"], section: .browser, group: memory,

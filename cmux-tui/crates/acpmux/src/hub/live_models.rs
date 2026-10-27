@@ -133,6 +133,8 @@ impl Hub {
     }
 
     async fn probe_live(self: &Arc<Self>, target: Target) {
+        // MDM's off as the list starts: its one read, taken first (review 120 of #23322).
+        let latch = self.off_latch();
         // The CLIs need the login environment (PATH, API keys).
         self.wait_startup().await;
         let program = target.argv.first().map(std::path::PathBuf::from);
@@ -141,9 +143,26 @@ impl Hub {
             .await
             .unwrap_or_else(|_| std::env::temp_dir());
         let started = std::time::Instant::now();
-        let listed =
-            crate::live_models::probe(target.cli, &target.argv, &target.env, &cwd, PROBE_TIMEOUT)
-                .await;
+        // MDM forces full access off (#23322): a profile pinning it is never started to list its
+        // models, and a list that runs when the off lands ends then (`probe_bound`).
+        let listed = match self.probe_bound(&latch, &target.argv) {
+            Err(e) => Err(e),
+            Ok(mut bound) => {
+                let probe = crate::live_models::probe(
+                    target.cli,
+                    &target.argv,
+                    &target.env,
+                    &cwd,
+                    PROBE_TIMEOUT,
+                );
+                tokio::select! {
+                    listed = probe => listed,
+                    () = super::full_access_bound::full_access_forced_off(bound.as_mut()) => {
+                        Err(anyhow::anyhow!("MDM forced full access off, which its profile pins"))
+                    }
+                }
+            }
+        };
         // A list call that started a session leaves no transcript behind.
         let folder = cwd.clone();
         let _ = tokio::task::spawn_blocking(move || {
