@@ -9,7 +9,8 @@
 //! [`snapshot`] sound.
 //!
 //! Lock carve-out: the row list is one std `Mutex`, held only to push or
-//! remove a row and for [`snapshot`]'s per-row reads (no I/O, no waits), as
+//! remove a row, for [`snapshot`]'s per-row reads and to start one QoS
+//! override on a row's thread ([`with_live_row`]; no I/O, no waits), as
 //! Chromium's `ThreadIdNameManager` (base/threading/thread_id_name_manager.cc)
 //! holds its lock. The per-thread fields are atomics: no QoS change or
 //! request takes the lock.
@@ -77,6 +78,8 @@ const NO_OWNER: u64 = u64::MAX;
 /// One registered thread.
 #[derive(Debug)]
 pub(crate) struct Row {
+    /// Unique in the process, never 0 (see [`current_id`]).
+    id: u64,
     name: String,
     declared: ThreadQos,
     desired: AtomicU8,
@@ -110,7 +113,13 @@ impl Row {
     pub(crate) fn record_refusal(&self) {
         self.refused.fetch_add(1, Ordering::Relaxed);
     }
+
+    pub(crate) fn native(&self) -> &NativeThread {
+        &self.native
+    }
 }
+
+static NEXT_ID: AtomicU64 = AtomicU64::new(1);
 
 /// A handle to a registered thread's desired-QoS slot. Another thread stores
 /// the QoS it wants the owner to run at; the owner reads it at a point of its
@@ -203,6 +212,21 @@ pub(crate) fn with_current<R>(f: impl FnOnce(&Row) -> R) -> Option<R> {
         .flatten()
 }
 
+/// The calling thread's row id, 0 when it is not registered (ids start at
+/// 1, so 0 stands for "no registered thread").
+pub(crate) fn current_id() -> u64 {
+    with_current(|row| row.id).unwrap_or(0)
+}
+
+/// Runs `f` on the row of the registered thread `id` with the row lock held:
+/// the thread removes its row under this lock before it exits, so it is alive
+/// while `f` runs. `f` must not wait or take another lock. `None` when no
+/// registered thread has that id (it exited or deregistered).
+pub(crate) fn with_live_row<R>(id: u64, f: impl FnOnce(&Row) -> R) -> Option<R> {
+    let rows = rows();
+    rows.iter().find(|row| row.id == id).map(|row| f(row))
+}
+
 /// The QoS the calling thread runs at: the class it last applied, else the
 /// one it declared. `None` when the thread is not registered.
 #[cfg(debug_assertions)]
@@ -222,6 +246,7 @@ pub fn register_current(name: impl Into<String>, qos: ThreadQos) -> bool {
             return false;
         }
         let row = Arc::new(Row {
+            id: NEXT_ID.fetch_add(1, Ordering::Relaxed),
             name: name.into(),
             declared: qos,
             desired: AtomicU8::new(qos as u8),

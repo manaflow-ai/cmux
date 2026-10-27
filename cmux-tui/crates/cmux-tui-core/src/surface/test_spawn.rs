@@ -269,4 +269,43 @@ impl Surface {
         }
         Ok(surface)
     }
+
+    /// Records the bytes written to this test surface's PTY from now on, in
+    /// write order (the test runtime's writer otherwise discards them).
+    #[cfg(test)]
+    pub(crate) fn capture_pty_input_for_test(&self) -> PtyInputCapture {
+        let capture = PtyInputCapture::default();
+        let pty = self.as_pty().expect("a terminal surface");
+        let mut runtime = pty.runtime.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let PtyRuntime::Local { writer, .. } = &mut *runtime else {
+            panic!("a test surface writes its PTY itself");
+        };
+        *writer = Box::new(capture.clone());
+        capture
+    }
+}
+
+/// The PTY input of a test surface ([`Surface::capture_pty_input_for_test`]).
+#[cfg(test)]
+#[derive(Clone, Default)]
+pub(crate) struct PtyInputCapture(Arc<Mutex<Vec<u8>>>);
+
+#[cfg(test)]
+impl PtyInputCapture {
+    /// Every byte written so far.
+    pub(crate) fn written(&self) -> Vec<u8> {
+        self.0.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone()
+    }
+}
+
+#[cfg(test)]
+impl Write for PtyInputCapture {
+    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+        self.0.lock().unwrap_or_else(std::sync::PoisonError::into_inner).extend_from_slice(bytes);
+        Ok(bytes.len())
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
 }
