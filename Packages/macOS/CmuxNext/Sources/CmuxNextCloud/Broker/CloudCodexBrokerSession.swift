@@ -40,15 +40,15 @@ actor CodexBrokerSession {
     private var nextID = 0
     private var pending: [Int: CheckedContinuation<BrokerResult, any Swift.Error>] = [:]
 
-    init(executable: URL, executablePrefix: [String], codexExecutable: URL, home: URL) throws {
+    init(executable: URL, executablePrefix: [String], codexExecutable: URL, home: URL, inheritedEnvironment: [String: String] = ProcessInfo.processInfo.environment) throws {
         try FileManager.checked.createDirectory(at: home, withIntermediateDirectories: true)
         let inputPipe = Pipe()
         let outputPipe = Pipe()
         let process = Process()
         process.executableURL = executable
         process.arguments = executablePrefix + ["codex-auth-broker", "--home", home.path, "--codex", codexExecutable.path]
-        var environment = ["PATH": ProcessInfo.processInfo.environment["PATH"] ?? "/usr/bin:/bin", "HOME": ProcessInfo.processInfo.environment["HOME"] ?? FileManager.default.homeDirectoryForCurrentUser.path]
-        if let user = ProcessInfo.processInfo.environment["USER"] { environment["USER"] = user }
+        var environment = ["PATH": inheritedEnvironment["PATH"] ?? "/usr/bin:/bin", "HOME": inheritedEnvironment["HOME"] ?? FileManager.default.homeDirectoryForCurrentUser.path]
+        if let user = inheritedEnvironment["USER"] { environment["USER"] = user }
         process.environment = environment
         process.standardInput = inputPipe
         process.standardOutput = outputPipe
