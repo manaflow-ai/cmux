@@ -119,11 +119,12 @@ public struct PushActions: Sendable {
     /// The buttons the content extension sets: the payload's own, or nil to
     /// keep the static buttons, as with Show previews off (their titles never
     /// name an option on the lock screen; PR #24156 review L1). With
-    /// `inlineComposer` the long look's own composer is the way to reply, so
-    /// no Reply button stands next to it (two text fields, one unexplained).
-    public func extensionActions(for payload: PushPayload, inlineComposer: Bool = false) -> [UNNotificationAction]? {
+    /// `replyField` the long look shows the system's reply field at its
+    /// bottom (the category's Reply), so no "Reply" button stands beside it
+    /// (the button opened a second field, and read as unexplained).
+    public func extensionActions(for payload: PushPayload, replyField: Bool = false) -> [UNNotificationAction]? {
         guard payload.previews else { return nil }
-        let plan = plan(for: payload).filter { !(inlineComposer && $0.action == .reply) }
+        let plan = plan(for: payload).filter { !(replyField && $0.action == .reply) }
         return plan.map { button in
             // Without the composer the system field is the way to reply: say to whom.
             let title = button.action == .reply ? payload.agent.map { String(localized: "Reply to \($0)") } ?? button.title : button.title

@@ -173,10 +173,14 @@ public final class CmuxMobileAppDelegate: NSObject, UIApplicationDelegate, UNUse
                                         category: content.categoryIdentifier)
         // Only the app's own (local) notifications may carry a retry (review H1).
         let fromPush = response.notification.request.trigger is UNPushNotificationTrigger
-        let read = PushReplies.Response(actionIdentifier: response.actionIdentifier,
+        var read = PushReplies.Response(actionIdentifier: response.actionIdentifier,
                                         text: (response as? UNTextInputNotificationResponse)?.userText,
                                         userInfo: userInfo, fromPush: fromPush, retries: PushRetryStore.app, shown: shown)
+        // Reply sends what the long look's "+" attached to this notification with its text.
+        let requestID = response.notification.request.identifier
+        let reply = response.actionIdentifier == PushAction.reply.identifier
         Task { @MainActor in
+            if reply { read.attachments = await PushReplies.stagedAttachments(for: requestID) }
             await PushReplies.shared.handle(read)
             completionHandler()
         }

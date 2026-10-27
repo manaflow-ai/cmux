@@ -27,6 +27,43 @@ public struct PushOutbox: Sendable {
 
     func file(_ id: UUID) -> URL { directory.appendingPathComponent("\(id.uuidString).json") }
 
+    /// What the long look's "+" picked for one notification, waiting for its
+    /// Reply (the system text field), which the app delegate receives.
+    var staged: URL { directory.appendingPathComponent("staged", isDirectory: true) }
+
+    func stagedFile(_ requestID: String) -> URL {
+        let key = Data(requestID.utf8).base64EncodedString()
+            .replacingOccurrences(of: "/", with: "_").replacingOccurrences(of: "+", with: "-").replacingOccurrences(of: "=", with: "")
+        return staged.appendingPathComponent(String(key.prefix(200)) + ".json")
+    }
+
+    /// Stages `names` (files in `attachments`) for the notification `requestID`; none clears it.
+    public func stage(_ names: [String], for requestID: String) throws {
+        let url = stagedFile(requestID)
+        guard !names.isEmpty else {
+            try? FileManager.default.removeItem(at: url)
+            return
+        }
+        try FileManager.default.createDirectory(at: staged, withIntermediateDirectories: true)
+        try JSONEncoder().encode(names).write(to: url, options: Data.WritingOptions.pushFile)
+    }
+
+    /// Takes what was staged for `requestID`: plain file names that still exist,
+    /// while fresh (`maxAge`); nothing when another process took it first.
+    public func takeStaged(for requestID: String, now: Date = Date()) -> [String] {
+        let url = stagedFile(requestID)
+        let claimed = staged.appendingPathComponent(UUID().uuidString + ".taken")
+        guard (try? FileManager.default.moveItem(at: url, to: claimed)) != nil else { return [] }
+        defer { try? FileManager.default.removeItem(at: claimed) }
+        let date = (try? claimed.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
+        guard now.timeIntervalSince(date) < Self.maxAge,
+              let names = (try? Data(contentsOf: claimed)).flatMap({ try? JSONDecoder().decode([String].self, from: $0) }) else { return [] }
+        return names.filter { name in
+            (name as NSString).lastPathComponent == name && !name.hasPrefix(".")
+                && FileManager.default.fileExists(atPath: attachments.appendingPathComponent(name).path)
+        }
+    }
+
     public struct Refused: Error, Equatable, Sendable {}
 
     /// Queues `reply` for the app. Text into a terminal is refused: the outbox

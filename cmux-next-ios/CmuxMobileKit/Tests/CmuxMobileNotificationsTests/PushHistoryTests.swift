@@ -87,16 +87,16 @@ import UserNotifications
         #expect(history.messages == [.init(role: .agent, text: "Working on it"), .init(role: .system, text: "rate limited")])
     }
 
-    @Test func theComposerReplacesTheReplyButton() throws {
+    @Test func theReplyFieldReplacesTheReplyButton() throws {
         let payload = chief(body: reply, tail: [reply])
-        #expect(PushActions().extensionActions(for: payload, inlineComposer: true) == [])
-        let withoutComposer = try #require(PushActions().extensionActions(for: payload, inlineComposer: false))
+        #expect(PushActions().extensionActions(for: payload, replyField: true) == [])
+        let withoutComposer = try #require(PushActions().extensionActions(for: payload, replyField: false))
         #expect(withoutComposer.map(\.identifier) == [PushAction.reply.identifier])
         #expect(withoutComposer.first?.title == "Reply to Chief")
         // A question keeps its option buttons beside the composer.
         let ask = PushPayload(mac: "m", kind: .question, sessionId: "s",
                               questions: [PushQuestion(question: "Deploy?", options: [.init(label: "Yes"), .init(label: "No")])])
-        #expect(PushActions().extensionActions(for: ask, inlineComposer: true)?.map(\.title) == ["Yes", "No"])
+        #expect(PushActions().extensionActions(for: ask, replyField: true)?.map(\.title) == ["Yes", "No"])
     }
 
     @Test func aSnapshotKeepsChiefsAvatarAndAnOlderFileStillReads() throws {
@@ -108,5 +108,37 @@ import UserNotifications
         let old = Data(#"{"mac":"m","session":"s","messages":[{"role":"user","text":"x"}],"updatedAt":0}"#.utf8)
         let decoded = try JSONDecoder().decode(PushSnapshot.self, from: old)
         #expect(decoded.avatar == nil && decoded.messages.count == 1)
+    }
+
+    @Test func whatPlusStagedGoesWithThatNotificationsReplyOnce() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("push-stage-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let outbox = PushOutbox(directory: dir)
+        try FileManager.default.createDirectory(at: outbox.attachments, withIntermediateDirectories: true)
+        for name in ["a1b2c3d4-shot.png", "e5f6a7b8-notes.pdf"] {
+            try Data("x".utf8).write(to: outbox.attachments.appendingPathComponent(name))
+        }
+        try outbox.stage(["a1b2c3d4-shot.png", "e5f6a7b8-notes.pdf", "../escape", "gone.png"], for: "request-1")
+        #expect(outbox.takeStaged(for: "other-request").isEmpty)
+        #expect(outbox.takeStaged(for: "request-1") == ["a1b2c3d4-shot.png", "e5f6a7b8-notes.pdf"])
+        #expect(outbox.takeStaged(for: "request-1").isEmpty)
+        // Removing the last one clears the stage.
+        try outbox.stage(["a1b2c3d4-shot.png"], for: "request-2")
+        try outbox.stage([], for: "request-2")
+        #expect(outbox.takeStaged(for: "request-2").isEmpty)
+        // A stage older than the outbox's age is dropped.
+        try outbox.stage(["a1b2c3d4-shot.png"], for: "request-3")
+        #expect(outbox.takeStaged(for: "request-3", now: Date().addingTimeInterval(PushOutbox.maxAge + 1)).isEmpty)
+    }
+
+    @Test func aReplyCarriesItsAttachmentsAndATerminalReplyNever() throws {
+        let payload = chief(body: reply, tail: [reply])
+        let withPhoto = try #require(PushReply(payload: payload, button: .reply, text: "  look  ", attachments: ["p.png"]))
+        #expect(withPhoto.action == .text("look", attachments: ["p.png"]))
+        // A photo alone is a reply too.
+        #expect(PushReply(payload: payload, button: .reply, text: "", attachments: ["p.png"])?.action == .text("", attachments: ["p.png"]))
+        #expect(PushReply(payload: payload, button: .reply, text: " ") == nil)
+        let terminal = PushPayload(mac: "m", kind: .terminal, notificationId: "n1", replyable: true)
+        #expect(PushReply(payload: terminal, button: .terminalReply, text: "ls", attachments: ["p.png"])?.action == .text("ls", attachments: []))
     }
 }

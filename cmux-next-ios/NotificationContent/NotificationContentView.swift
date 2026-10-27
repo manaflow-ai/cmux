@@ -15,17 +15,16 @@ final class NotificationContentModel {
     private(set) var outbox: PushOutbox?
     /// False with Show previews off while the phone is locked.
     private(set) var showsContent = true
-    var draft = ""
-    private(set) var attachments: [ComposerBar.Attachment] = []
+    /// Photos and files "+" picked, staged for this notification's Reply.
+    private(set) var attachments: [PickedAttachment] = []
     var sent = false
     var failure: String?
-    /// False: shown, but no row, Submit or composer acts (PR B security review H1).
+    /// False: shown, but no row, Submit or "+" acts (PR B security review H1).
     var actionable = true
 
     @ObservationIgnored var send: (PushReply.Action) -> Void = { _ in }
     @ObservationIgnored var openApp: () -> Void = {}
     @ObservationIgnored var presentPicker: (UIViewController) -> Void = { _ in }
-    @ObservationIgnored var attachmentsChanged: ([ComposerBar.Attachment]) -> Void = { _ in }
     @ObservationIgnored private var pickerDelegate: (any NSObjectProtocol)?
 
     /// A file picked from Files larger than this is refused (the Mac's link carries it whole).
@@ -33,10 +32,13 @@ final class NotificationContentModel {
 
     /// When the notification arrived: a chat the app saved before it does not hold its message.
     private(set) var notifiedAt: Date?
+    /// The notification's request id: what the attachments are staged under.
+    private(set) var requestID: String?
 
-    func load(payload: PushPayload?, group: PushAppGroup?, date: Date? = nil) {
+    func load(payload: PushPayload?, group: PushAppGroup?, date: Date? = nil, requestID: String? = nil) {
         self.payload = payload
         if let date { notifiedAt = date }
+        if let requestID { self.requestID = requestID }
         form = payload.map(PushForm.init(payload:))
         outbox = PushOutbox(group: group)
         let markerDirectory = group?.directory ?? FileManager.default.temporaryDirectory
@@ -53,9 +55,9 @@ final class NotificationContentModel {
     /// A handover is possible: the build shares an App Group with the app.
     var canHandOver: Bool { outbox != nil }
 
-    /// The docked reply bar: a kind that takes text, in a build that can hand it to the app.
-    var showsComposer: Bool {
-        payload != nil && showsContent && actionable && canHandOver && form?.hasComposer == true && !sent
+    /// "+": a reply that takes attachments, in a build that can hand them to the app.
+    var showsAttach: Bool {
+        payload != nil && showsContent && actionable && canHandOver && !attachmentKinds.isEmpty
     }
 
     /// The conversation up to and including the notified message.
@@ -68,18 +70,12 @@ final class NotificationContentModel {
     var chiefAvatar: String { snapshot?.avatar ?? "C" }
 
     /// What "+" offers: Chief's messages carry text and photos only, an agent's prompt any file.
-    var attachmentKinds: ComposerBar.AttachmentKinds {
+    var attachmentKinds: AttachmentKinds {
         switch payload?.kind {
         case .question, .permission, .terminal, nil: []
         case .chief: [.photos]
         case .completed, .failed: [.photos, .files]
         }
-    }
-
-    var composerPlaceholder: String {
-        guard let payload else { return String(localized: "Reply") }
-        if payload.kind == .question { return String(localized: "Type an answer") }
-        return String(localized: "Reply to \(payload.kind == .chief ? chiefName : payload.agent ?? String(localized: "your agent"))")
     }
 
     func tap(_ row: PushForm.Row) {
@@ -89,22 +85,10 @@ final class NotificationContentModel {
         if let action { deliver(action) }
     }
 
-    /// Submit: the chosen options, with the composer's text as a lone question's "Other".
+    /// Submit: the chosen options and each question's "Other" text.
     func submit() {
-        guard var form else { return }
-        let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
-        if form.payload.questions.count == 1, form.allowsOther(0), !text.isEmpty { form.other[0] = text }
-        self.form = form
-        guard let action = form.answers else { return }
+        guard let action = form?.answers else { return }
         deliver(action)
-        draft = ""
-    }
-
-    func sendDraft() {
-        guard let action = form?.composerReply(draft, attachments: attachments.map(\.name)) else { return }
-        deliver(action)
-        draft = ""
-        setAttachments([])
     }
 
     private func deliver(_ action: PushReply.Action) {
@@ -112,9 +96,15 @@ final class NotificationContentModel {
         send(action)
     }
 
-    private func setAttachments(_ items: [ComposerBar.Attachment]) {
+    /// Every change is staged at once: Reply may be sent any moment.
+    private func setAttachments(_ items: [PickedAttachment]) {
         attachments = items
-        attachmentsChanged(items)
+        guard let outbox, let requestID else { return }
+        do {
+            try outbox.stage(items.map(\.name), for: requestID)
+        } catch {
+            failure = String(localized: "Couldn't attach that. Open cmux to send it.")
+        }
     }
 
     func removeAttachment(_ name: String) {
@@ -122,7 +112,7 @@ final class NotificationContentModel {
         setAttachments(attachments.filter { $0.name != name })
     }
 
-    private func added(_ item: ComposerBar.Attachment) {
+    private func added(_ item: PickedAttachment) {
         setAttachments(attachments + [item])
     }
 
@@ -156,6 +146,20 @@ final class NotificationContentModel {
     }
 }
 
+/// A photo or file "+" picked: its name in the outbox, what to call it, a small thumbnail.
+struct PickedAttachment: Equatable {
+    var name: String
+    var title: String
+    var thumbnail: UIImage?
+}
+
+/// What "+" offers.
+struct AttachmentKinds: OptionSet {
+    let rawValue: Int
+    static let photos = AttachmentKinds(rawValue: 1)
+    static let files = AttachmentKinds(rawValue: 2)
+}
+
 /// A picked file's thumbnail, small (ImageIO), so the extension stays inside its memory budget.
 nonisolated func attachmentThumbnail(_ url: URL, side: CGFloat) -> UIImage? {
     guard let source = CGImageSourceCreateWithURL(url as CFURL, nil) else { return nil }
@@ -179,9 +183,9 @@ nonisolated func attachmentName(_ original: String) -> String {
 @MainActor
 private final class PickerDelegate: NSObject, PHPickerViewControllerDelegate {
     let folder: URL
-    let done: @MainActor @Sendable (ComposerBar.Attachment) -> Void
+    let done: @MainActor @Sendable (PickedAttachment) -> Void
 
-    init(folder: URL, done: @escaping @MainActor @Sendable (ComposerBar.Attachment) -> Void) {
+    init(folder: URL, done: @escaping @MainActor @Sendable (PickedAttachment) -> Void) {
         self.folder = folder
         self.done = done
     }
@@ -199,8 +203,8 @@ private final class PickerDelegate: NSObject, PHPickerViewControllerDelegate {
                 let name = UUID().uuidString + "." + (url.pathExtension.isEmpty ? "jpg" : url.pathExtension)
                 let target = folder.appendingPathComponent(name)
                 guard (try? FileManager.default.copyItem(at: url, to: target)) != nil else { return }
-                let thumbnail = attachmentThumbnail(target, side: ComposerBar.thumbnailSize)
-                let item = ComposerBar.Attachment(name: name, title: String(localized: "Photo"), thumbnail: thumbnail)
+                let thumbnail = attachmentThumbnail(target, side: AttachTray.thumbnailSize)
+                let item = PickedAttachment(name: name, title: String(localized: "Photo"), thumbnail: thumbnail)
                 Task { @MainActor in done(item) }
             }
         }
@@ -213,9 +217,9 @@ private final class FilePickerDelegate: NSObject, UIDocumentPickerDelegate {
     struct TooLarge: Error {}
 
     let folder: URL
-    let done: @MainActor (Result<ComposerBar.Attachment, TooLarge>) -> Void
+    let done: @MainActor (Result<PickedAttachment, TooLarge>) -> Void
 
-    init(folder: URL, done: @escaping @MainActor (Result<ComposerBar.Attachment, TooLarge>) -> Void) {
+    init(folder: URL, done: @escaping @MainActor (Result<PickedAttachment, TooLarge>) -> Void) {
         self.folder = folder
         self.done = done
     }
@@ -224,7 +228,7 @@ private final class FilePickerDelegate: NSObject, UIDocumentPickerDelegate {
         let folder = folder
         Task { @MainActor in
             for url in urls {
-                let result = await Task.detached(priority: .userInitiated) { () -> Result<ComposerBar.Attachment, TooLarge>? in
+                let result = await Task.detached(priority: .userInitiated) { () -> Result<PickedAttachment, TooLarge>? in
                     let size = (try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
                     guard size <= NotificationContentModel.maxFileBytes else {
                         try? FileManager.default.removeItem(at: url)
@@ -235,8 +239,8 @@ private final class FilePickerDelegate: NSObject, UIDocumentPickerDelegate {
                     let target = folder.appendingPathComponent(name)
                     guard (try? FileManager.default.moveItem(at: url, to: target)) != nil else { return nil }
                     let isImage = UTType(filenameExtension: target.pathExtension)?.conforms(to: .image) ?? false
-                    let thumbnail = isImage ? attachmentThumbnail(target, side: ComposerBar.thumbnailSize) : nil
-                    return .success(ComposerBar.Attachment(name: name, title: url.lastPathComponent, thumbnail: thumbnail))
+                    let thumbnail = isImage ? attachmentThumbnail(target, side: AttachTray.thumbnailSize) : nil
+                    return .success(PickedAttachment(name: name, title: url.lastPathComponent, thumbnail: thumbnail))
                 }.value
                 if let result { done(result) }
             }
@@ -258,8 +262,9 @@ struct NotificationContentView: View {
                 if model.showsContent {
                     preview(payload)
                     if model.actionable, let form = model.form { options(form) }
+                    if model.showsAttach, !model.sent { AttachTray(model: model) }
                     if model.sent {
-                        Label("Sending in cmux…", systemImage: "paperplane")
+                        Label("Opening cmux to send…", systemImage: "paperplane")
                             .font(.footnote).foregroundStyle(.secondary)
                             .frame(maxWidth: .infinity)
                             .accessibilityIdentifier("cmux.push.sent")
@@ -399,15 +404,19 @@ struct NotificationContentView: View {
                 }
                 if form.showsSubmit {
                     ForEach(form.payload.questions.indices, id: \.self) { q in
-                        if form.allowsOther(q), form.payload.questions.count > 1 {
-                            TextField("Other answer", text: otherBinding(q)).textFieldStyle(.roundedBorder).padding(.vertical, 6)
+                        if form.allowsOther(q) {
+                            TextField("Other answer", text: otherBinding(q))
+                                .padding(.horizontal, 12).padding(.vertical, 8)
+                                .background(.quaternary, in: Capsule())
+                                .padding(.vertical, 6)
+                                .accessibilityIdentifier("cmux.push.other.\(q)")
                         }
                     }
                     Button { model.submit() } label: {
                         Text("Submit").font(.body.weight(.semibold)).frame(maxWidth: .infinity).padding(.vertical, 10)
                     }
                     .buttonStyle(.borderedProminent)
-                    .disabled(!form.canSubmit && form.composerReply(model.draft, attachments: []) == nil)
+                    .disabled(!form.canSubmit)
                     .padding(.top, 8)
                     .accessibilityIdentifier("cmux.push.submit")
                 }
@@ -464,4 +473,79 @@ struct NotificationContentView: View {
         Binding(get: { model.form?.other[q] ?? "" }, set: { model.form?.other[q] = $0 })
     }
 
+}
+
+/// "+" and what it picked, at the foot of the long look, above the system's
+/// reply field: Messages' notification reply attaches the same way. What is
+/// picked goes with the next Reply.
+struct AttachTray: View {
+    let model: NotificationContentModel
+
+    nonisolated static let thumbnailSize: CGFloat = 52
+
+    var body: some View {
+        HStack(alignment: .center, spacing: 10) {
+            Menu {
+                if model.attachmentKinds.contains(.photos) {
+                    Button("Photos", systemImage: "photo.on.rectangle") { model.pickPhotos() }
+                }
+                if model.attachmentKinds.contains(.files) {
+                    Button("Files", systemImage: "folder") { model.pickFiles() }
+                }
+            } label: {
+                Image(systemName: "plus")
+                    .font(.system(.body, weight: .semibold))
+                    .foregroundStyle(.primary)
+                    .frame(width: 36, height: 36)
+                    .glassEffect(.regular.interactive(), in: Circle())
+            }
+            .accessibilityLabel(model.attachmentKinds.contains(.files) ? String(localized: "Attach Photos or Files") : String(localized: "Attach Photos"))
+            .accessibilityIdentifier("cmux.push.attach")
+            if model.attachments.isEmpty {
+                Text(model.attachmentKinds.contains(.files) ? "Add photos or files to your reply" : "Add photos to your reply")
+                    .font(.footnote).foregroundStyle(.secondary)
+            } else {
+                ScrollView(.horizontal) {
+                    HStack(spacing: 8) {
+                        ForEach(model.attachments, id: \.name) { item in tile(item) }
+                    }
+                    .padding(.top, 6).padding(.trailing, 6)
+                }
+                .scrollIndicators(.hidden)
+            }
+            Spacer(minLength: 0)
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("cmux.push.attachments")
+    }
+
+    private func tile(_ item: PickedAttachment) -> some View {
+        let size = Self.thumbnailSize
+        return ZStack(alignment: .topTrailing) {
+            Group {
+                if let image = item.thumbnail {
+                    Image(uiImage: image).resizable().scaledToFill()
+                } else {
+                    VStack(spacing: 3) {
+                        Image(systemName: "doc.fill").font(.title3).foregroundStyle(.secondary)
+                        Text(item.title).font(.caption2).lineLimit(1).truncationMode(.middle).padding(.horizontal, 3)
+                    }
+                }
+            }
+            .frame(width: size, height: size)
+            .background(.quaternary)
+            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+            Button { model.removeAttachment(item.name) } label: {
+                Image(systemName: "xmark.circle.fill")
+                    .symbolRenderingMode(.palette)
+                    .foregroundStyle(.white, .black.opacity(0.6))
+                    .font(.body)
+            }
+            .buttonStyle(.plain)
+            .offset(x: 6, y: -6)
+            .accessibilityLabel(String(localized: "Remove \(item.title)"))
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel(item.title)
+    }
 }
