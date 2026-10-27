@@ -105,7 +105,8 @@ import Darwin
     var nextVoteID: UInt64 = 0
     /// Counts changes of ``notified``: a delivery stops when a subscriber's change started a newer one.
     private var notifyGeneration = 0
-    private var deferred: [(key: AnyHashable, work: @MainActor () -> Void)] = []
+    /// Work waiting for the node to reach `from` (``deferUntilVisible(key:_:)``, ``deferUntilShown(key:_:)``).
+    private var deferred: [(key: AnyHashable, from: Visibility, work: @MainActor () -> Void)] = []
     var mediaPlaying = false
     var mediaStoppedAt: Duration?
     /// The task queues made on this node (``queue(_:owner:on:)``), told of every flip and freeze.
@@ -266,12 +267,25 @@ import Darwin
     ///
     /// The node holds `work` until it runs: capture the node and its owner weakly.
     public func deferUntilVisible(key: some Hashable, _ work: @escaping @MainActor () -> Void) {
-        if isVisible { work(); return }
-        let key = AnyHashable(key)
+        hold(work, until: .visible, key: AnyHashable(key))
+    }
+
+    /// Runs `work` now when this node is not hidden (visible or occluded); otherwise once, when it next is.
+    /// For layout work: an occluded node keeps its layout ready (``Visibility/occluded``), so its sizes apply
+    /// while it is covered. Keys are shared with ``deferUntilVisible(key:_:)``: a later call with the same
+    /// `key` replaces pending work.
+    ///
+    /// The node holds `work` until it runs: capture the node and its owner weakly.
+    public func deferUntilShown(key: some Hashable, _ work: @escaping @MainActor () -> Void) {
+        hold(work, until: .occluded, key: AnyHashable(key))
+    }
+
+    private func hold(_ work: @escaping @MainActor () -> Void, until from: Visibility, key: AnyHashable) {
+        if effective >= from { work(); return }
         if let index = deferred.firstIndex(where: { $0.key == key }) {
-            deferred[index].work = work
+            deferred[index] = (key: key, from: from, work: work)
         } else {
-            deferred.append((key: key, work: work))
+            deferred.append((key: key, from: from, work: work))
         }
     }
 
@@ -311,7 +325,7 @@ import Darwin
         deferred.removeAll { $0.key == key }
     }
 
-    /// The number of keys waiting for this node to become visible.
+    /// The number of keys waiting for this node to become visible (or, for ``deferUntilShown(key:_:)``, not hidden).
     public var deferredCount: Int { deferred.count }
 
     /// The live subscriptions to this node's flips, exemption changes and rendering changes (tests).
@@ -401,12 +415,14 @@ import Darwin
             subscription.onFlip(value)
         }
         guard notifyGeneration == generation else { return }
-        if value == .visible { runDeferred() }
+        if value != .hidden { runDeferred() }
     }
 
+    /// Runs, in the order they were deferred, the bodies this node's state now reaches. A body may change the
+    /// state: each pick reads it again.
     private func runDeferred() {
-        while isVisible, !deferred.isEmpty {
-            deferred.removeFirst().work()
+        while let index = deferred.firstIndex(where: { effective >= $0.from }) {
+            deferred.remove(at: index).work()
         }
     }
 

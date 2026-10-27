@@ -66,4 +66,66 @@ struct TerminalSurfaceVisibilityTests {
         #expect(session.surfaceView.isShown, "a terminal with no tab node is not shown in its window")
         #expect(session.surfaceView.visibilityNode.parent == nil)
     }
+
+    /// What a hidden terminal skips waits on its node under a key, not in a flag: a forced report and a
+    /// resize while its tab is hidden send one grid on show, in either order, and leave nothing waiting.
+    @Test func aForcedReportAndAResizeWhileHiddenReportOnceOnShow() {
+        _ = NSApplication.shared
+        GhosttyRuntime.startedForTests()
+        let reports = GridReportLog()
+        let io = MainGridIO(reports: reports)
+        let tab = VisibilityNode(root: "tab", own: .visible)
+        let session = TerminalSession(io: io, mainWork: MainWorkScheduler(budget: MainFrameBudget()), node: tab)
+        defer { session.close() }
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 800, height: 600), styleMask: [.borderless],
+                              backing: .buffered, defer: true)
+        window.isReleasedWhenClosed = false
+        window.contentView = session.view
+        let surface = session.surfaceView
+        #expect(surface.windowNode.deferredCount == 0, "a shown terminal kept work waiting")
+
+        tab.set(.hidden)
+        var before = reports.grids.count
+        surface.updateSurfaceSize(forceReport: true)
+        surface.setFrameSize(NSSize(width: 500, height: 300))
+        #expect(reports.grids.count == before, "a hidden terminal reported its grid")
+        #expect(surface.windowNode.deferredCount == 2)
+        tab.set(.visible)
+        #expect(reports.grids.count == before + 1, "a forced report and a resize sent \(reports.grids.count - before) grids on show")
+        #expect(reports.grids.last == surface.fittedGrid)
+        #expect(surface.windowNode.deferredCount == 0 && surface.visibilityNode.deferredCount == 0)
+
+        tab.set(.hidden)
+        before = reports.grids.count
+        surface.setFrameSize(NSSize(width: 640, height: 400))
+        surface.updateSurfaceSize(forceReport: true)
+        #expect(surface.windowNode.deferredCount == 1, "a forced report did not take the place of the pending size")
+        tab.set(.visible)
+        #expect(reports.grids.count == before + 1)
+        #expect(surface.windowNode.deferredCount == 0)
+    }
+}
+
+/// The grids a session reported, in its main-actor turn (``MainGridIO``).
+@MainActor private final class GridReportLog {
+    var grids: [TerminalGridSize] = []
+}
+
+/// A ``TerminalIO`` that takes every grid on the main actor, so a test reads the reports in the same turn.
+private nonisolated final class MainGridIO: TerminalIO {
+    let events = AsyncStream<TerminalIOEvent> { $0.finish() }
+    let reports: GridReportLog
+
+    init(reports: GridReportLog) {
+        self.reports = reports
+    }
+
+    func write(_ data: Data) async {}
+
+    func resize(cols: Int, rows: Int, pixelWidth: Int, pixelHeight: Int) async {}
+
+    @MainActor func resizeOnMain(cols: Int, rows: Int, final: Bool, window: NSWindow?) -> Bool {
+        reports.grids.append(TerminalGridSize(columns: cols, rows: rows))
+        return true
+    }
 }

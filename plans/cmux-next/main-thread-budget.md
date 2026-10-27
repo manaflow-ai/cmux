@@ -150,8 +150,12 @@ records `stall.render_starved` with the top unattributed turn from `MainTurnMete
   `WorkspaceContentController.visibilityNode` is nil and `PaneController` hangs its node on a root node.
 - `node.deferUntilVisible(key: k) { }` (task 020, landed) runs at once if the node is visible, else once on show.
   It replaces per-view hidden-dirty flags and heavy `viewDidChangeEffectiveAppearance` bodies. Task 215 (landed)
-  adds `deferAppearance(owner:_:)` (counted in the root's `VisibilityWorkCounts`, `appearance_applies`) and the first R-appear and R-hide adopters:
-  TabStripView and TerminalSurfaceView follow their own child node, and their hidden flags are gone.
+  adds `deferAppearance(owner:_:)` (counted in the root's `VisibilityWorkCounts`, `appearance_applies`),
+  `deferUntilShown(key:_:)` for layout work (it runs at occluded too: an occluded node keeps its layout ready) and the
+  first R-appear and R-hide adopters. TabStripView and TerminalSurfaceView follow their own child node, and their
+  hidden flags are gone: a hidden strip's model sync, appearance and scale, and a hidden terminal's forced grid report,
+  size and scale, wait on the node under a key each. The terminal's node has a child, `windowNode`, hidden while the
+  view is in no window or a container above is parked, so the work waits on everything that hides it.
 - **Show order** (task 213, spec'd). Observers on screen in the focused pane, and `firstFrame` subscribers, read again in
   the show turn. Other newly visible observers post one userBlocking task each, in viewport order, so they land in
   the next 1-2 frames. A `warm` vote (hover, the Ctrl-Tab target, neighbor tabs) reads again in idle without
@@ -353,7 +357,7 @@ perf/chrome-parity at `4e0005673f2`; "spec'd" means the task has not landed and 
 | `MainWakeUpQueue`, `AlignedWakeups`; `DemandTimer.schedule(after:tolerance:)` | MainWakeUpQueue.swift, AlignedWakeups.swift, DemandTimer.swift | 011, 012 | landed |
 | `FrameInputCoalescer`, `FrameInputCoalescers` | FrameInputCoalescer.swift, FrameInputCoalescers.swift | 013 | landed |
 | `Visibility`, `VisibilityNode` (`effective`, `isVisible`, `hiddenSince`, `mediaActiveWithin(_:)`, `setCaptured(_:)`, `subscribe(owner:_:)`, `deferUntilVisible(key:_:)`, `queue(_:owner:on:)`, `freeze()`) | Visibility.swift, VisibilityNode.swift | 020, 209 | landed |
-| `VisibilityNode.deferAppearance(owner:_:)`, `VisibilityWorkCounts`; the first R-appear and R-hide adopters (TabStripView, TerminalSurfaceView) | VisibilityNode.swift, VisibilityWorkCounts.swift, TabStripView.swift, TerminalSurfaceView+Visibility.swift | 215 | landed |
+| `VisibilityNode.deferAppearance(owner:_:)`, `VisibilityNode.deferUntilShown(key:_:)`, `VisibilityWorkCounts`; the first R-appear and R-hide adopters (TabStripView, TerminalSurfaceView) | VisibilityNode.swift, VisibilityWorkCounts.swift, TabStripView.swift, TerminalSurfaceView+Visibility.swift | 215 | landed |
 | `VisibilityNode.captureVote(reason:stayHidden:)` | VisibilityNode.swift | 211 | spec'd |
 | `MainTaskQueue` | MainTaskQueue.swift | 209 | landed |
 | `CPUTimeBudgetPool` | CPUTimeBudgetPool.swift | 210 | spec'd |

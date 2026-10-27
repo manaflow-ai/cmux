@@ -322,6 +322,26 @@ import Testing
         #expect(runs.count == 3)
     }
 
+    /// Layout work waits only while the node is hidden (``VisibilityNode/deferUntilShown(key:_:)``): an occluded
+    /// node keeps its layout ready, so it runs there, while the visible-only work still waits for visible.
+    @Test func shownWorkRunsWhenOccludedAndVisibleWorkWaits() {
+        let window = VisibilityNode(root: "window", own: .hidden)
+        let tab = VisibilityNode("tab", parent: window)
+        var runs: [String] = []
+        tab.deferUntilVisible(key: "appearance") { runs.append("appearance") }
+        tab.deferUntilShown(key: "size") { runs.append("size:1") }
+        tab.deferUntilShown(key: "size") { runs.append("size:2") }
+        #expect(runs.isEmpty && tab.deferredCount == 2)
+        window.set(.occluded)
+        #expect(runs == ["size:2"], "an occluded node did not apply its layout, or ran visible-only work")
+        #expect(tab.deferredCount == 1)
+        tab.deferUntilShown(key: "size") { runs.append("now") }
+        #expect(runs.last == "now", "an occluded node held layout work")
+        window.set(.visible)
+        #expect(runs == ["size:2", "now", "appearance"])
+        #expect(tab.deferredCount == 0)
+    }
+
     @Test func hiddenSinceAndRecentMediaFollowTheInjectedClock() {
         let clock = FakeUptime()
         let window = VisibilityNode(root: "window", own: .visible, uptime: clock.read)
