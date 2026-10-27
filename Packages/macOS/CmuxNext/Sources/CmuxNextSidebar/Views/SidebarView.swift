@@ -266,6 +266,8 @@ public final class SidebarView: NSView {
 
         scrollView.drawsBackground = false
         scrollView.hasVerticalScroller = true
+        // The list never moves sideways, not even a bounce of a gesture AppKit scrolls responsively.
+        scrollView.horizontalScrollElasticity = .none
         // The shared thin scroller (the chat's): a 3 pt knob on no track, an
         // overlay that never narrows the list.
         SystemScrollers.followThin(scrollView)
