@@ -356,6 +356,7 @@ where
     W: AsyncWrite + Unpin,
 {
     use tokio::io::{AsyncWriteExt, BufReader};
+    let frames = features.bridge_frames_v1;
     let upload = {
         let remote = remote.clone();
         async move {
@@ -367,7 +368,7 @@ where
                     &mut reader,
                     &mut line,
                     MAX_MUX_LINE_BYTES,
-                    features.bridge_frames_v1,
+                    frames,
                 )
                 .await?
                 else {
@@ -413,6 +414,14 @@ where
             if !chunk.payload.is_empty() {
                 let budget = chunk.take_budget();
                 if let Some(line) = assembler.push_retaining(chunk.lane, chunk.payload, budget)? {
+                    if let Some(header) = line.frame_header() {
+                        crate::mux_lanes::admit_bridged_frame(
+                            header,
+                            line.lane(),
+                            FrameDirection::ToClient,
+                            frames,
+                        )?;
+                    }
                     local_writer.write_all(line.payload()).await?;
                 }
             }

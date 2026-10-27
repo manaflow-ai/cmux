@@ -2,7 +2,10 @@ use std::borrow::Cow;
 use std::collections::{HashMap, VecDeque};
 use std::sync::{Mutex, PoisonError};
 
-use cmux_ipc::{CallFlags, FrameHeader, FrameKind, PriorityHint};
+use cmux_ipc::{
+    CallAux, CallFlags, Durability, FrameHeader, FrameKind, MethodId, MethodTables, Ordering,
+    PriorityHint,
+};
 use cmux_remote_protocol::Lane;
 use serde::Deserialize;
 
@@ -95,6 +98,74 @@ struct MuxEnvelope<'a> {
     mode: Option<MuxName<'a>>,
     #[serde(borrow)]
     op: Option<MuxName<'a>>,
+    #[serde(default)]
+    stream: StreamMember,
+}
+
+/// A line's `stream` member when it names a client-minted stream (a nonzero
+/// integer). Any other value (`"stream": true` of an `fs.read`) names none.
+#[derive(Default)]
+struct StreamMember(Option<u64>);
+
+impl<'de> Deserialize<'de> for StreamMember {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        deserializer.deserialize_any(StreamMemberVisitor)
+    }
+}
+
+/// Reads a `stream` member without buffering it: an integer is kept, any
+/// other value is skipped.
+struct StreamMemberVisitor;
+
+impl<'de> serde::de::Visitor<'de> for StreamMemberVisitor {
+    type Value = StreamMember;
+
+    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("any JSON value")
+    }
+
+    fn visit_u64<E>(self, value: u64) -> Result<StreamMember, E> {
+        Ok(StreamMember((value != 0).then_some(value)))
+    }
+
+    fn visit_i64<E>(self, _: i64) -> Result<StreamMember, E> {
+        Ok(StreamMember(None))
+    }
+
+    fn visit_f64<E>(self, _: f64) -> Result<StreamMember, E> {
+        Ok(StreamMember(None))
+    }
+
+    fn visit_bool<E>(self, _: bool) -> Result<StreamMember, E> {
+        Ok(StreamMember(None))
+    }
+
+    fn visit_str<E>(self, _: &str) -> Result<StreamMember, E> {
+        Ok(StreamMember(None))
+    }
+
+    fn visit_unit<E>(self) -> Result<StreamMember, E> {
+        Ok(StreamMember(None))
+    }
+
+    fn visit_seq<A>(self, mut items: A) -> Result<StreamMember, A::Error>
+    where
+        A: serde::de::SeqAccess<'de>,
+    {
+        while items.next_element::<serde::de::IgnoredAny>()?.is_some() {}
+        Ok(StreamMember(None))
+    }
+
+    fn visit_map<A>(self, mut entries: A) -> Result<StreamMember, A::Error>
+    where
+        A: serde::de::MapAccess<'de>,
+    {
+        while entries.next_entry::<serde::de::IgnoredAny, serde::de::IgnoredAny>()?.is_some() {}
+        Ok(StreamMember(None))
+    }
 }
 
 fn parse_envelope(line: &[u8]) -> Result<MuxEnvelope<'_>, serde_json::Error> {
@@ -118,6 +189,13 @@ impl MuxLaneTracker {
             return Some(Lane::Control);
         };
         if let Some(event) = envelope.event.as_ref().map(MuxName::as_str) {
+            // An event of a client-minted stream (its items, `stream-end`,
+            // `input-failed`) rides the lane of that stream's frames
+            // ([`classify_frame`] toward the client), so its end never passes
+            // its last items and the opener's reply that follows the end.
+            if envelope.stream.0.is_some() {
+                return Some(Lane::Bulk);
+            }
             return Some(match event {
                 "output" | "vt-state" | "render-state" | "render-delta" | "frame"
                 | "browser-state" | "resized" | "colors-changed" | "scroll-changed"
@@ -218,17 +296,24 @@ pub(crate) enum FrameDirection {
     ToClient,
 }
 
-/// The lane of one `bridge-frames-v1` frame, read from its header only.
+/// The lane of one `bridge-frames-v1` frame, read from its header and the
+/// schema's method table only.
 ///
 /// A data stream (stream != 0) is one sequence (p05-ipc.md 3.4), so every
 /// frame of it rides one lane per direction and keeps its order: toward the
 /// daemon the lane of keystrokes (INPUT and the stream's own calls), toward
-/// the client the bulk lane, where terminal `output` events already go. This
-/// is Mojo's rule that a port delivers its messages in sequence order
-/// (mojo/core/ports/message_queue.cc), whatever channel carried them.
-/// Stream 0 calls go by their priority hint, as JSON lines go by command: the
-/// daemon refuses a hint that differs from its method table, and a REPLY
-/// carries its request's hint, so it returns on the request's lane.
+/// the client the bulk lane, where terminal `output` events and the stream's
+/// JSON lifecycle events go. This is Mojo's rule that a port delivers its
+/// messages in sequence order (mojo/core/ports/message_queue.cc), whatever
+/// channel carried them.
+///
+/// Stream 0 is the connection's control sequence. A call on it keeps the
+/// interactive lane, the one PTY input rides, unless the method table says it
+/// is a read-only `independent` read: a framed `close-surface` must not pass
+/// INPUT already sent on a stream it closes, as a JSON mutation line does not
+/// ([`classify_client_line`]). An independent read goes by its priority hint
+/// (the daemon refuses a hint that differs from its table). REPLY, ERROR and
+/// CANCEL carry their request's method, so each takes its request's lane.
 ///
 /// RING, RING_ADVANCE, RING_ACK, SHARED_BUFFER and calls with descriptors are
 /// refused: a byte bridge passes no descriptor and no shared memory.
@@ -236,6 +321,50 @@ pub(crate) fn classify_frame(
     header: &FrameHeader,
     direction: FrameDirection,
 ) -> Result<Lane, MuxCodecError> {
+    refuse_unbridged(header)?;
+    if header.stream() != 0 {
+        return Ok(stream_lane(direction));
+    }
+    // Only call kinds may use stream 0 once the header is valid.
+    let Some(call) = header.call() else { return Ok(Lane::Interactive) };
+    Ok(if leaves_the_sequence(header.kind(), call) {
+        hint_lane(call.priority)
+    } else {
+        Lane::Interactive
+    })
+}
+
+/// Admits a frame the far end of the bridge sent, before a byte of it reaches
+/// the local socket. The receiving end applies the same rules as the sender
+/// ([`classify_frame`]) and does not trust it to: without `bridge-frames-v1`
+/// a frame is `frames_not_negotiated`, a descriptor or shared-memory frame
+/// never crosses, and a frame must arrive on a lane its sender may use. A
+/// stream-0 call may use the interactive lane or the lane of its hint, so a
+/// peer built from another schema (a method that became independent) still
+/// passes; ordering is the sender's own, so this admits no foreign effect.
+pub(crate) fn admit_bridged_frame(
+    header: &FrameHeader,
+    lane: Lane,
+    direction: FrameDirection,
+    frames_negotiated: bool,
+) -> Result<(), MuxCodecError> {
+    if !frames_negotiated {
+        return Err(MuxCodecError::Frame(cmux_ipc::BadMessage::FramesNotNegotiated));
+    }
+    refuse_unbridged(header)?;
+    let allowed = match (header.stream(), header.call()) {
+        (0, Some(call)) => lane == Lane::Interactive || lane == hint_lane(call.priority),
+        (0, None) => lane == Lane::Interactive,
+        _ => lane == stream_lane(direction),
+    };
+    if allowed {
+        Ok(())
+    } else {
+        Err(MuxCodecError::FrameOffLane { kind: header.kind(), stream: header.stream(), lane })
+    }
+}
+
+fn refuse_unbridged(header: &FrameHeader) -> Result<(), MuxCodecError> {
     let kind = header.kind();
     let descriptors = header.call().is_some_and(|call| call.flags.contains(CallFlags::FDS));
     if descriptors
@@ -246,17 +375,35 @@ pub(crate) fn classify_frame(
     {
         return Err(MuxCodecError::FrameNotBridged(kind));
     }
-    if header.stream() != 0 {
-        return Ok(match direction {
-            FrameDirection::ToDaemon => Lane::Interactive,
-            FrameDirection::ToClient => Lane::Bulk,
-        });
+    Ok(())
+}
+
+/// The one lane of every frame of a data stream in `direction`.
+fn stream_lane(direction: FrameDirection) -> Lane {
+    match direction {
+        FrameDirection::ToDaemon => Lane::Interactive,
+        FrameDirection::ToClient => Lane::Bulk,
     }
-    // Only call kinds may use stream 0 once the header is valid.
-    Ok(match header.call().map(|call| call.priority) {
-        Some(PriorityHint::Input) => Lane::Interactive,
-        Some(PriorityHint::Control) | None => Lane::Control,
-        Some(PriorityHint::Bulk | PriorityHint::Background) => Lane::Bulk,
+}
+
+fn hint_lane(priority: PriorityHint) -> Lane {
+    match priority {
+        PriorityHint::Input => Lane::Interactive,
+        PriorityHint::Control => Lane::Control,
+        PriorityHint::Bulk | PriorityHint::Background => Lane::Bulk,
+    }
+}
+
+/// Whether a stream-0 call may leave the connection's sequence lane: a typed
+/// event (it answers no request), or a call of a read-only method the schema
+/// marks `ordering: independent`. An unknown method stays in sequence; the
+/// daemon answers it with an error there.
+fn leaves_the_sequence(kind: FrameKind, call: CallAux) -> bool {
+    if kind == FrameKind::TypedEvent {
+        return true;
+    }
+    MethodTables::schema().method(MethodId::new(call.method_id)).is_some_and(|method| {
+        method.ordering == Ordering::Independent && method.durability == Durability::ReadOnly
     })
 }
 
@@ -375,7 +522,7 @@ mod tests {
     }
 
     fn call(kind: FrameKind, stream: u16, priority: PriorityHint, flags: CallFlags) -> FrameHeader {
-        let call = cmux_ipc::CallAux { request_id: 1, method_id: 0x0101, priority, flags };
+        let call = CallAux { request_id: 1, method_id: 0x0101, priority, flags };
         FrameHeader::new(kind, stream, 0, cmux_ipc::Aux::Call(call)).unwrap()
     }
 
@@ -409,19 +556,126 @@ mod tests {
         }
     }
 
+    fn method_call(kind: FrameKind, method: &cmux_ipc::MethodAttrs) -> FrameHeader {
+        let call = CallAux {
+            request_id: 1,
+            method_id: method.id.raw(),
+            priority: method.priority,
+            flags: CallFlags::empty(),
+        };
+        FrameHeader::new(kind, 0, 0, cmux_ipc::Aux::Call(call)).unwrap()
+    }
+
     #[test]
-    fn stream_zero_calls_follow_their_priority_hint_both_ways() {
+    fn stream_zero_calls_stay_in_sequence_unless_the_table_marks_them_independent() {
+        let tables = MethodTables::schema();
+        let mut independent = 0;
+        for method in tables.v12_families().chain(tables.v2_families()).flat_map(|f| f.iter()) {
+            let free = method.ordering == Ordering::Independent
+                && method.durability == Durability::ReadOnly;
+            independent += usize::from(free);
+            let lane = if free { hint_lane(method.priority) } else { Lane::Interactive };
+            // A call, its cancel and its answers take one lane.
+            for kind in [FrameKind::Request, FrameKind::Cancel] {
+                let header = method_call(kind, method);
+                assert_eq!(classify_frame(&header, FrameDirection::ToDaemon), Ok(lane));
+            }
+            for kind in [FrameKind::Reply, FrameKind::Error] {
+                let header = method_call(kind, method);
+                assert_eq!(classify_frame(&header, FrameDirection::ToClient), Ok(lane));
+            }
+        }
+        assert!(independent > 0, "the schema has independent reads");
+        let close = tables.v12_id("close-surface").and_then(|id| tables.method(id)).unwrap();
+        let close = method_call(FrameKind::Request, close);
+        assert_eq!(classify_frame(&close, FrameDirection::ToDaemon), Ok(Lane::Interactive));
+        let unknown = call(FrameKind::Request, 0, PriorityHint::Control, CallFlags::empty());
+        let unknown = FrameHeader::new(
+            FrameKind::Request,
+            0,
+            0,
+            cmux_ipc::Aux::Call(CallAux { method_id: 0x5fff, ..unknown.call().unwrap() }),
+        )
+        .unwrap();
+        assert_eq!(classify_frame(&unknown, FrameDirection::ToDaemon), Ok(Lane::Interactive));
         for (priority, lane) in [
             (PriorityHint::Input, Lane::Interactive),
             (PriorityHint::Control, Lane::Control),
             (PriorityHint::Bulk, Lane::Bulk),
             (PriorityHint::Background, Lane::Bulk),
         ] {
-            let request = call(FrameKind::Request, 0, priority, CallFlags::empty());
-            let reply = call(FrameKind::Reply, 0, priority, CallFlags::empty());
-            assert_eq!(classify_frame(&request, FrameDirection::ToDaemon), Ok(lane));
-            assert_eq!(classify_frame(&reply, FrameDirection::ToClient), Ok(lane));
+            let event = call(FrameKind::TypedEvent, 0, priority, CallFlags::empty());
+            assert_eq!(classify_frame(&event, FrameDirection::ToClient), Ok(lane));
         }
+    }
+
+    #[test]
+    fn a_received_frame_is_admitted_only_as_its_sender_may_send_it() {
+        let output = FrameHeader::new(FrameKind::Output, 1, 0, cmux_ipc::Aux::Offset(0)).unwrap();
+        let input = FrameHeader::new(FrameKind::Input, 1, 0, cmux_ipc::Aux::FlowId(0)).unwrap();
+        let (to_app, to_daemon) = (FrameDirection::ToClient, FrameDirection::ToDaemon);
+        assert_eq!(admit_bridged_frame(&output, Lane::Bulk, to_app, true), Ok(()));
+        assert_eq!(admit_bridged_frame(&input, Lane::Interactive, to_daemon, true), Ok(()));
+        assert_eq!(
+            admit_bridged_frame(&output, Lane::Bulk, to_app, false),
+            Err(MuxCodecError::Frame(cmux_ipc::BadMessage::FramesNotNegotiated))
+        );
+        for (header, lane, direction) in
+            [(&output, Lane::Control, to_app), (&input, Lane::Bulk, to_daemon)]
+        {
+            assert_eq!(
+                admit_bridged_frame(header, lane, direction, true),
+                Err(MuxCodecError::FrameOffLane { kind: header.kind(), stream: 1, lane })
+            );
+        }
+        // A stream-0 call may use the sequence lane or its hint's lane,
+        // whichever the sender's schema chose, and no other.
+        let read = call(FrameKind::Reply, 0, PriorityHint::Bulk, CallFlags::empty());
+        assert_eq!(admit_bridged_frame(&read, Lane::Interactive, to_app, true), Ok(()));
+        assert_eq!(admit_bridged_frame(&read, Lane::Bulk, to_app, true), Ok(()));
+        assert_eq!(
+            admit_bridged_frame(&read, Lane::Control, to_app, true),
+            Err(MuxCodecError::FrameOffLane {
+                kind: FrameKind::Reply,
+                stream: 0,
+                lane: Lane::Control
+            })
+        );
+        let ring = FrameHeader::new(FrameKind::Ring, 1, 0, cmux_ipc::Aux::Offset(0)).unwrap();
+        let fds = call(FrameKind::Request, 0, PriorityHint::Control, CallFlags::FDS);
+        for (header, lane) in [(&ring, Lane::Bulk), (&fds, Lane::Interactive)] {
+            for direction in [to_app, to_daemon] {
+                assert_eq!(
+                    admit_bridged_frame(header, lane, direction, true),
+                    Err(MuxCodecError::FrameNotBridged(header.kind()))
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn events_of_a_client_stream_ride_the_bulk_lane_of_its_frames() {
+        let tracker = MuxLaneTracker::default();
+        for line in [
+            &br#"{"event":"stream-end","stream":3,"reason":"attach_failed"}"#[..],
+            br#"{"event":"input-failed","stream":3,"reason":"write_failed","bytes":2}"#,
+            br#"{"stream":3,"event":"title-changed","surface":1}"#,
+        ] {
+            assert_eq!(tracker.classify_server_line(line), Some(Lane::Bulk), "{line:?}");
+        }
+        for line in [
+            &br#"{"event":"title-changed","surface":1}"#[..],
+            br#"{"event":"title-changed","stream":0}"#,
+            br#"{"event":"title-changed","stream":"named"}"#,
+            br#"{"event":"title-changed","stream":{"name":[1,2]}}"#,
+            br#"{"event":"title-changed","stream":null}"#,
+        ] {
+            assert_eq!(tracker.classify_server_line(line), Some(Lane::Control), "{line:?}");
+        }
+        assert_eq!(
+            classify_client_line(br#"{"id":1,"cmd":"fs.read","path":"/a","stream":true}"#),
+            Lane::Interactive
+        );
     }
 
     #[test]

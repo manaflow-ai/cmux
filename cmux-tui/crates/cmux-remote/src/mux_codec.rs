@@ -59,7 +59,7 @@ pub(crate) enum MuxMessage {
 }
 
 /// Whether `message` is a frame: 0xFF never starts a UTF-8 JSON line.
-pub(crate) fn is_frame(message: &[u8]) -> bool {
+fn is_frame(message: &[u8]) -> bool {
     message.first() == Some(&cmux_ipc::MAGIC)
 }
 
@@ -211,12 +211,20 @@ struct PartialLine<R> {
 pub(crate) struct AssembledMuxLine<R> {
     lane: Lane,
     payload: Bytes,
+    frame: Option<FrameHeader>,
     _retained: Vec<R>,
 }
 
 impl<R> AssembledMuxLine<R> {
     pub(crate) fn lane(&self) -> Lane {
         self.lane
+    }
+
+    /// The header of a reassembled frame; `None` for a JSON line. The
+    /// receiving end admits it with [`crate::mux_lanes::admit_bridged_frame`]
+    /// before it writes a byte of it.
+    pub(crate) fn frame_header(&self) -> Option<&FrameHeader> {
+        self.frame.as_ref()
     }
 
     pub(crate) fn payload(&self) -> &Bytes {
@@ -301,12 +309,14 @@ impl<R> MuxLineAssembler<R> {
             joined.extend_from_slice(&part);
         }
         let payload = joined.freeze();
-        if is_frame(&payload) {
-            check_bridged_frame(&payload, self.maximum)?;
+        let frame = if is_frame(&payload) {
+            Some(check_bridged_frame(&payload, self.maximum)?)
         } else if mux_line_payload_len(&payload) > self.maximum.saturating_sub(1) {
             return Err(MuxCodecError::LineTooLarge(payload.len()));
-        }
-        Ok(Some(AssembledMuxLine { lane: line.lane, payload, _retained: line.retained }))
+        } else {
+            None
+        };
+        Ok(Some(AssembledMuxLine { lane: line.lane, payload, frame, _retained: line.retained }))
     }
 }
 
@@ -321,6 +331,13 @@ pub enum MuxCodecError {
     /// A frame that cannot cross a byte bridge: it carries a descriptor or
     /// names the local shared-memory ring.
     FrameNotBridged(FrameKind),
+    /// A frame that arrived on a lane its sender never puts it on, so it
+    /// could have passed items of its own sequence.
+    FrameOffLane {
+        kind: FrameKind,
+        stream: u16,
+        lane: Lane,
+    },
 }
 
 impl fmt::Display for MuxCodecError {
@@ -333,6 +350,11 @@ impl fmt::Display for MuxCodecError {
             Self::FrameNotBridged(kind) => {
                 write!(formatter, "a {} frame cannot cross the mux bridge", kind.name())
             }
+            Self::FrameOffLane { kind, stream, lane } => write!(
+                formatter,
+                "a {} frame of stream {stream} arrived on the {lane:?} mux lane",
+                kind.name()
+            ),
         }
     }
 }
@@ -365,7 +387,7 @@ mod tests {
     use cmux_ipc::{Aux, CallAux, CallFlags, Frame, FrameReader, Message, PriorityHint};
 
     use super::*;
-    use crate::mux_lanes::{FrameDirection, MuxLaneTracker, classify_frame};
+    use crate::mux_lanes::{FrameDirection, MuxLaneTracker, classify_client_line, classify_frame};
 
     const STREAMS: [u16; 3] = [1, 2, 3];
 
@@ -429,9 +451,9 @@ mod tests {
         (wire, per_stream, lines)
     }
 
-    /// What the daemon end of the bridge does: cut each message and encode
+    /// What the sending end of the bridge does: cut each message and encode
     /// it as CMXL packets on its lane.
-    async fn cut_into_lanes(mut wire: &[u8]) -> [VecDeque<Bytes>; 4] {
+    async fn cut_into_lanes(mut wire: &[u8], direction: FrameDirection) -> [VecDeque<Bytes>; 4] {
         let tracker = MuxLaneTracker::default();
         let mut lanes: [VecDeque<Bytes>; 4] = Default::default();
         let mut bytes = Vec::new();
@@ -440,11 +462,12 @@ mod tests {
         while let Some(kind) =
             read_bounded_message(&mut wire, &mut bytes, maximum, true).await.unwrap()
         {
-            let lane = match kind {
-                MuxMessage::Frame(header) => {
-                    classify_frame(&header, FrameDirection::ToClient).unwrap()
+            let lane = match (kind, direction) {
+                (MuxMessage::Frame(header), _) => classify_frame(&header, direction).unwrap(),
+                (MuxMessage::Line, FrameDirection::ToClient) => {
+                    tracker.classify_server_line(&bytes).unwrap()
                 }
-                MuxMessage::Line => tracker.classify_server_line(&bytes).unwrap(),
+                (MuxMessage::Line, FrameDirection::ToDaemon) => classify_client_line(&bytes),
             };
             for packet in encode_line_with_limit(message, &bytes, maximum).unwrap() {
                 lanes[lane as usize].push_back(packet);
@@ -452,6 +475,132 @@ mod tests {
             message += 1;
         }
         lanes
+    }
+
+    /// The messages of a delivered byte stream, in delivery order: each
+    /// frame's stream and kind, or a JSON line.
+    fn delivered_order(delivered: &[u8]) -> Vec<Result<(u16, FrameKind, u16), String>> {
+        let mut reader = FrameReader::new(cmux_ipc::ReaderLimits::default());
+        reader.negotiate_frames();
+        reader.push(delivered);
+        reader.mark_eof();
+        let mut order = Vec::new();
+        while let Some(message) = reader.next_message().unwrap() {
+            order.push(match message {
+                Message::Frame(frame) => {
+                    let header = frame.header();
+                    let method = header.call().map_or(0, |call| call.method_id);
+                    Ok((header.stream(), header.kind(), method))
+                }
+                Message::Json(line) => Err(line.to_string()),
+            });
+        }
+        order
+    }
+
+    const SEEDS: [u64; 8] =
+        [0x9e37_79b9_7f4a_7c15, 1, 0xdead_beef, 42, 7, 0x1234_5678_9abc, 99_991, 0xfeed];
+
+    /// `stream-end` and `input-failed` are JSON text on a frames connection,
+    /// queued behind the stream's last items (pending_streams.rs): over the
+    /// bridge they must still come after every frame of their stream.
+    #[tokio::test]
+    async fn a_stream_end_line_never_passes_the_frames_of_its_stream() {
+        let mut wire = Vec::new();
+        for round in 0..24_u64 {
+            for stream in STREAMS {
+                let payload = vec![round as u8; 1 + (round as usize * 977) % (CHUNK_BYTES + 9)];
+                wire.extend_from_slice(&encode(&data(FrameKind::Output, stream, round, payload)));
+            }
+        }
+        let control = b"{\"event\":\"workspace-changed\",\"workspace\":1}\n";
+        wire.extend_from_slice(control);
+        wire.extend_from_slice(
+            b"{\"event\":\"input-failed\",\"stream\":1,\"reason\":\"overflow\",\"bytes\":4}\n",
+        );
+        wire.extend_from_slice(
+            b"{\"event\":\"stream-end\",\"stream\":1,\"reason\":\"overflow\"}\n",
+        );
+        wire.extend_from_slice(
+            b"{\"event\":\"stream-end\",\"stream\":2,\"reason\":\"attach_failed\"}\n",
+        );
+        let lanes = cut_into_lanes(&wire, FrameDirection::ToClient).await;
+        assert_eq!(
+            lanes[Lane::Control as usize].len(),
+            1,
+            "only the unrelated event rides control"
+        );
+        for seed in SEEDS {
+            let order = delivered_order(&deliver(lanes.clone(), seed));
+            for stream in [1_u16, 2] {
+                let last_frame = order
+                    .iter()
+                    .rposition(|message| matches!(message, Ok((id, _, _)) if *id == stream))
+                    .unwrap();
+                let needle = format!("\"stream\":{stream},");
+                for (index, message) in order.iter().enumerate() {
+                    if let Err(line) = message
+                        && line.contains(&needle)
+                    {
+                        assert!(
+                            index > last_frame,
+                            "seed {seed:#x}: {line} passed a frame of stream {stream}"
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    fn request(stream: u16, request_id: u32, method: &cmux_ipc::MethodAttrs) -> Frame {
+        let call = CallAux {
+            request_id,
+            method_id: method.id.raw(),
+            priority: method.priority,
+            flags: CallFlags::empty(),
+        };
+        Frame::new(FrameKind::Request, stream, Aux::Call(call), Bytes::from_static(b"{}")).unwrap()
+    }
+
+    /// A framed control-priority mutation on stream 0 (`close-surface`) rides
+    /// with the INPUT sent before it, as a JSON mutation line does; only a
+    /// read-only `independent` read may leave that lane.
+    #[tokio::test]
+    async fn a_framed_close_never_passes_input_sent_before_it() {
+        let tables = cmux_ipc::MethodTables::schema();
+        let close = tables.v12_id("close-surface").and_then(|id| tables.method(id)).unwrap();
+        assert_eq!(close.priority, PriorityHint::Control);
+        let read = tables
+            .v12_families()
+            .flat_map(cmux_ipc::FamilyTable::iter)
+            .find(|method| {
+                method.ordering == cmux_ipc::Ordering::Independent
+                    && method.durability == cmux_ipc::Durability::ReadOnly
+                    && method.priority == PriorityHint::Control
+            })
+            .expect("the schema has an independent control read");
+        let mut wire = Vec::new();
+        for round in 0..32_u64 {
+            let keys = vec![b'k'; 1 + (round as usize * 131) % (CHUNK_BYTES * 2)];
+            let input = Frame::new(FrameKind::Input, 1, Aux::FlowId(round), Bytes::from(keys));
+            wire.extend_from_slice(&encode(&input.unwrap()));
+        }
+        wire.extend_from_slice(&encode(&request(0, 7, read)));
+        wire.extend_from_slice(&encode(&request(0, 8, close)));
+        let lanes = cut_into_lanes(&wire, FrameDirection::ToDaemon).await;
+        assert_eq!(lanes[Lane::Control as usize].len(), 1, "only the read leaves the input lane");
+        for seed in SEEDS {
+            let order = delivered_order(&deliver(lanes.clone(), seed));
+            let last_input = order
+                .iter()
+                .rposition(|message| matches!(message, Ok((1, FrameKind::Input, _))))
+                .unwrap();
+            let closed = order
+                .iter()
+                .position(|message| matches!(message, Ok((0, _, id)) if *id == close.id.raw()))
+                .unwrap();
+            assert!(closed > last_input, "seed {seed:#x}: close-surface passed accepted input");
+        }
     }
 
     /// Delivers the lanes as independent carriers do: FIFO within a lane, any
@@ -476,9 +625,10 @@ mod tests {
     #[tokio::test]
     async fn three_interleaved_streams_keep_per_stream_order_and_bytes() {
         let (wire, expected, expected_lines) = daemon_wire();
-        let lanes = cut_into_lanes(&wire).await;
+        let lanes = cut_into_lanes(&wire, FrameDirection::ToClient).await;
         assert!(lanes[Lane::Bulk as usize].len() > 120, "stream data rides the bulk lane");
-        assert!(lanes[Lane::Interactive as usize].is_empty());
+        let replies = lanes[Lane::Interactive as usize].len();
+        assert_eq!(replies, 8, "only the stream-0 replies of a sequenced method ride interactive");
         for seed in [0x9e37_79b9_7f4a_7c15, 1, 0xdead_beef, 42] {
             let delivered = deliver(lanes.clone(), seed);
             let mut reader = FrameReader::new(cmux_ipc::ReaderLimits::default());
