@@ -5,7 +5,11 @@ import CmuxNextWakeups
 import class CmuxSafeConcurrency.OnceContinuation
 import enum CmuxSafeConcurrency.OnceContinuationError
 import func CmuxSafeConcurrency.withOnceContinuation
+#if canImport(Darwin)
 import Darwin
+#else
+import Glibc
+#endif
 import Foundation
 
 /// One accepted client. All socket IO runs on a private serial queue at
@@ -269,7 +273,7 @@ final class ControlConnection: Sendable {
                 // The loop runs only while the outbox has bytes, so the base address is set;
                 // without one the send fails like a closed peer (no trap).
                 guard let base = unsafe raw.baseAddress else { errno = EPIPE; return -1 }
-                return unsafe Darwin.send(descriptor, base + offset, raw.count - offset, MSG_NOSIGNAL)
+                return unsafe socketSend(descriptor, base + offset, raw.count - offset)
             }
             if written > 0 {
                 state.outboxOffset += written
@@ -356,7 +360,27 @@ final class ControlConnection: Sendable {
 
     /// Closes the descriptor; ``withState(_:_:)`` then calls `onClosed`.
     private func closeDescriptor(_ state: inout State) {
-        Darwin.close(descriptor)
+        closeSocket(descriptor)
         state.isDescriptorClosed = true
     }
+}
+
+/// `send(2)` with `MSG_NOSIGNAL`, named apart from the connection's own `send`.
+private func socketSend(_ descriptor: Int32, _ bytes: UnsafeRawPointer, _ count: Int) -> Int {
+    #if canImport(Darwin)
+    // SAFETY: the caller lends `count` readable bytes at `bytes` for the call.
+    unsafe Darwin.send(descriptor, bytes, count, MSG_NOSIGNAL)
+    #else
+    // SAFETY: as above.
+    unsafe Glibc.send(descriptor, bytes, count, Int32(truncatingIfNeeded: MSG_NOSIGNAL))
+    #endif
+}
+
+/// `close(2)`, named apart from the connection's own `close`.
+private func closeSocket(_ descriptor: Int32) {
+    #if canImport(Darwin)
+    _ = Darwin.close(descriptor)
+    #else
+    _ = Glibc.close(descriptor)
+    #endif
 }

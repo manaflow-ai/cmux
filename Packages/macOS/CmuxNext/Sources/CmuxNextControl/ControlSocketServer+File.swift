@@ -1,8 +1,14 @@
 import CmuxNextCompat
 import CmuxNextDaemon
+#if canImport(Darwin)
 import Darwin
+#else
+import Glibc
+#endif
 import Foundation
+#if canImport(os)
 import os
+#endif
 
 /// The socket file: created with its mode, reclaimed when stale, and removed
 /// only while it is still this server's.
@@ -198,7 +204,7 @@ extension ControlSocketServer {
     /// file's identity. The caller owns the descriptor.
     static func makeBoundDescriptor(path: String, mode: mode_t, backlog: Int32 = SOMAXCONN,
                                     bind: BindCall) throws(StartError) -> (descriptor: Int32, identity: (dev: dev_t, ino: ino_t)?) {
-        let descriptor = socket(AF_UNIX, SOCK_STREAM, 0)
+        let descriptor = socket(AF_UNIX, streamSocketType, 0)
         guard descriptor >= 0 else { throw StartError.system(call: "socket", errno: errno) }
         var shouldClose = true
         defer { if shouldClose { close(descriptor) } }
@@ -252,9 +258,8 @@ extension ControlSocketServer {
                     unsafe unlink(staged)
                     throw StartError.system(call: "chmod", errno: code)
                 }
-                // SAFETY: renamex_np reads the NUL-terminated copies of both paths made for the call.
-                guard unsafe renamex_np(staged, path, UInt32(clamping: RENAME_EXCL)) == 0 else {
-                    let code = errno
+                let code = moveExclusive(staged, to: path)
+                guard code == 0 else {
                     // SAFETY: unlink reads the NUL-terminated copy of the path made for the call.
                     unsafe unlink(staged)
                     throw code == EEXIST ? StartError.addressInUse(path) : StartError.system(call: "rename", errno: code)
@@ -266,6 +271,34 @@ extension ControlSocketServer {
         // SAFETY: chmod reads the NUL-terminated copy of the path made for the call.
         unsafe chmod(path, mode)
         try verifyMode(path, mode)
+    }
+
+    /// Moves the entry at `source` to `destination` unless something is there: 0, or the errno (`EEXIST`
+    /// when something is). Darwin renames with `RENAME_EXCL`. Linux links the new name and then unlinks the
+    /// old one: Glibc's `renameat2` is not visible to Swift, and `link(2)` never replaces either. Clients
+    /// reach a Unix socket by its inode, which both names share.
+    static func moveExclusive(_ source: String, to destination: String) -> Int32 {
+        #if canImport(Darwin)
+        // SAFETY: renamex_np reads the NUL-terminated copies of both paths made for the call.
+        return unsafe renamex_np(source, destination, UInt32(clamping: RENAME_EXCL)) == 0 ? 0 : errno
+        #else
+        return blockingCall(.fileIO) {
+            // SAFETY: link reads the NUL-terminated copies of both paths made for the call.
+            guard unsafe link(source, destination) == 0 else { return errno }
+            // SAFETY: unlink reads the NUL-terminated copy of the path made for the call.
+            unsafe unlink(source)
+            return 0
+        }
+        #endif
+    }
+
+    /// `SOCK_STREAM` as `socket(2)` takes it (Glibc imports it as an enum case).
+    static var streamSocketType: Int32 {
+        #if canImport(Darwin)
+        SOCK_STREAM
+        #else
+        Int32(bitPattern: SOCK_STREAM.rawValue)
+        #endif
     }
 
     static func bindAddress(_ descriptor: Int32, _ path: String, bind: BindCall) throws(StartError) {
@@ -313,15 +346,17 @@ extension ControlSocketServer {
     }
 
     static func probe(_ path: String) -> ProbeResult {
-        let descriptor = socket(AF_UNIX, SOCK_STREAM, 0)
+        let descriptor = socket(AF_UNIX, streamSocketType, 0)
         guard descriptor >= 0 else { return .inconclusive(errno) }
         defer { close(descriptor) }
         // Never block the caller (the App starts the server on the main
         // actor): a listener with a full backlog answers EAGAIN, not a wait.
         _ = fcntl(descriptor, F_SETFL, fcntl(descriptor, F_GETFL) | O_NONBLOCK)
+        #if canImport(Darwin)
         var noSigPipe: Int32 = 1  // the probe never writes; set anyway so no path can raise SIGPIPE
         // SAFETY: setsockopt reads the given size, MemoryLayout<Int32>.size, from `noSigPipe`, a local Int32.
         unsafe setsockopt(descriptor, SOL_SOCKET, SO_NOSIGPIPE, &noSigPipe, socklen_t(MemoryLayout<Int32>.size))
+        #endif
         guard let address = UnixSocketAddress(path: path) else { return .inconclusive(ENAMETOOLONG) }
         let result = address.connect(descriptor)
         if result == 0 { return .accepted }

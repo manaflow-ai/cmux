@@ -2,20 +2,27 @@ import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextTrace
 import CmuxNextWakeups
+#if canImport(Darwin)
 import Darwin
+#else
+import Glibc
+#endif
 import Foundation
+#if canImport(os)
 import os
+#endif
 
 /// Notices that a control socket's file is gone and asks for it back.
 ///
 /// A host's /tmp cleaner deleted a running app's `/tmp/cmux-debug-<tag>.sock`
 /// at the same hour two nights running (readiness soak, hq#1870): the app kept
 /// listening on the unlinked inode and no client could connect until a
-/// relaunch. This watches with kqueue (no timer) the entry at the path itself
+/// relaunch. This watches with kqueue (inotify on Linux; no timer) the entry at the path itself
 /// when it can be opened (a symlink, such as the /tmp compatibility link:
 /// `O_SYMLINK` opens the link, not its target), so files other processes write
 /// beside it wake nothing; it is watched again after every change, since a
-/// put-back entry is a new file. A socket file cannot be opened, so for one the
+/// put-back entry is a new file. A socket file cannot be opened on Darwin (Linux's
+/// inotify follows one, ``makeSource(watching:followingEntry:)``), so for one the
 /// watch falls back to its directory (the quiet per-user state folder); so does
 /// a path with nothing at it. A directory watch moves back to following the
 /// entry as soon as an event finds one it can open (someone else's link or file
@@ -53,7 +60,7 @@ final class ControlSocketPathWatch: Sendable {
     private let yieldsToHeldPath: Bool
     // Lock carve-out: stop() runs off `queue` and must cancel the installed watch synchronously
     // (deinit); held only to swap one reference.
-    private let source = Mutex<(any DispatchSourceFileSystemObject)?>(nil)
+    private let source = Mutex<WatchSource?>(nil)
     // Lock carve-out: read and written synchronously by checkPath on `queue` and by the retry
     // timer's handler; a tiny struct, never held across a call out.
     private let failures = Mutex(Failures())
@@ -68,6 +75,14 @@ final class ControlSocketPathWatch: Sendable {
         var inARow = 0
         var waiting = false
         var backoff = Backoff(initial: .seconds(1), maximum: .seconds(60))
+    }
+
+    /// One watch's dispatch source: a vnode source on Darwin, an inotify read source on Linux.
+    // crash-allow: one immutable reference to a dispatch source, whose resume and cancel are safe from any thread (dispatch_source_cancel(3)); Linux's Dispatch module does not mark its source protocols Sendable as Darwin's does
+    struct WatchSource: @unchecked Sendable {
+        let source: any DispatchSourceProtocol
+        func resume() { source.resume() }
+        func cancel() { source.cancel() }
     }
 
     /// The hang-watched lane of `queue` (the server's `control.accept`): each job this watch runs there, a check
@@ -129,15 +144,12 @@ final class ControlSocketPathWatch: Sendable {
     /// the current watch unless the entry can be followed now.
     private func watch(entryOnly: Bool = false) {
         dispatchPrecondition(condition: .onQueue(queue))
-        // O_NONBLOCK: whatever is at the path is opened, and a FIFO there would block open(2) on this
-        // queue until some process opened it for writing (the accept queue: no request answered).
-        // SAFETY: open reads the NUL-terminated copy of the path made for the call.
-        let entry = unsafe open(path, O_EVTONLY | O_SYMLINK | O_NONBLOCK)
-        let followsEntry = entry >= 0
+        let entryWatch = makeSource(watching: path, followingEntry: true)
+        let followsEntry = entryWatch != nil
         if entryOnly, !followsEntry { return }
-        let descriptor: Int32
-        if followsEntry {
-            descriptor = entry
+        let watch: WatchSource
+        if let entryWatch {
+            watch = entryWatch
         } else {
             let parent = (path as NSString).deletingLastPathComponent
             let shared = Self.isShared(parent.isEmpty ? "." : parent)
@@ -148,24 +160,15 @@ final class ControlSocketPathWatch: Sendable {
                 noteOnce("socket path watch off for \(self.path): another entry holds the path in \(parent); the link is not made this run")
                 return
             }
-            // SAFETY: open reads the NUL-terminated copy of the path made for the call.
-            descriptor = unsafe open(parent.isEmpty ? "." : parent, O_EVTONLY)
-            guard descriptor >= 0 else {
+            guard let directoryWatch = makeSource(watching: parent.isEmpty ? "." : parent, followingEntry: false) else {
                 // Without the watch a deleted socket stays gone until relaunch; say so once.
                 let error = POSIXErrorText(errno).description
                 pathWatchLog.error("socket path watch off: cannot open \(parent, privacy: .public): \(error, privacy: .public)")
                 return
             }
+            watch = directoryWatch
             if shared { noteOnce("socket path watch on shared directory \(parent) for \(self.path): wakes on every write there") }
         }
-        let mask: DispatchSource.FileSystemEvent = followsEntry ? [.delete, .rename, .revoke] : [.write, .rename, .delete]
-        let watch = DispatchSource.makeFileSystemObjectSource(fileDescriptor: descriptor, eventMask: mask, queue: queue)
-        // wakeup-allow: kqueue event on the entry (or its directory), no timer; one lstat per event
-        watch.setEventHandler { [weak self] in
-            guard let self else { return }
-            self.job { self.changed(followingEntry: followsEntry) }
-        }
-        watch.setCancelHandler { close(descriptor) }
         // Resumed before it is published (an inactive source must never be cancelled or
         // released); its events run on `queue`, after this install.
         watch.resume()
@@ -177,6 +180,69 @@ final class ControlSocketPathWatch: Sendable {
         }
         if !installed { watch.cancel() }
     }
+
+    /// A watch, not yet resumed, whose events run ``changed(followingEntry:)`` on `queue`: of the entry at
+    /// `target` itself (`followingEntry`: its deletion, rename or revocation) or of the directory `target`
+    /// (an entry made, removed or renamed in it). Nil, with `errno` set, when `target` cannot be watched.
+    ///
+    /// Darwin: a vnode source on `target` opened with `O_EVTONLY` (`O_SYMLINK`: a link itself, not its
+    /// target); a socket cannot be opened, so for one the watch falls back to the directory. Linux: an
+    /// inotify watch, which takes any inode by path without opening it, sockets and FIFOs included, so the
+    /// entry is followed whatever it is (`IN_DONT_FOLLOW`: a link itself). An unlink is `IN_ATTRIB` (its
+    /// link count): a bound socket keeps its inode alive, so `IN_DELETE_SELF` comes only when it closes.
+    /// Chromium's Linux file watcher uses inotify the same way (base/files/file_path_watcher_inotify.cc).
+    private func makeSource(watching target: String, followingEntry: Bool) -> WatchSource? {
+        #if canImport(Darwin)
+        // O_NONBLOCK: whatever is at the path is opened, and a FIFO there would block open(2) on this
+        // queue until some process opened it for writing (the accept queue: no request answered).
+        // SAFETY: open reads the NUL-terminated copy of the path made for the call.
+        let descriptor = unsafe open(target, followingEntry ? O_EVTONLY | O_SYMLINK | O_NONBLOCK : O_EVTONLY)
+        guard descriptor >= 0 else { return nil }
+        let mask: DispatchSource.FileSystemEvent = followingEntry ? [.delete, .rename, .revoke] : [.write, .rename, .delete]
+        let watch = DispatchSource.makeFileSystemObjectSource(fileDescriptor: descriptor, eventMask: mask, queue: queue)
+        // wakeup-allow: kqueue event on the entry (or its directory), no timer; one lstat per event
+        watch.setEventHandler { [weak self] in
+            guard let self else { return }
+            self.job { self.changed(followingEntry: followingEntry) }
+        }
+        #else
+        let descriptor = inotify_init1(Int32(truncatingIfNeeded: IN_NONBLOCK | IN_CLOEXEC))
+        guard descriptor >= 0 else { return nil }
+        let mask = followingEntry
+            ? UInt32(truncatingIfNeeded: IN_ATTRIB | IN_DELETE_SELF | IN_MOVE_SELF | IN_DONT_FOLLOW)
+            : UInt32(truncatingIfNeeded: IN_CREATE | IN_DELETE | IN_MOVED_FROM | IN_MOVED_TO | IN_DELETE_SELF | IN_MOVE_SELF | IN_ONLYDIR)
+        // SAFETY: inotify_add_watch reads the NUL-terminated copy of the path made for the call.
+        guard unsafe inotify_add_watch(descriptor, target, mask) >= 0 else {
+            let code = errno
+            close(descriptor)
+            errno = code
+            return nil
+        }
+        let watch = DispatchSource.makeReadSource(fileDescriptor: descriptor, queue: queue)
+        // wakeup-allow: inotify event on the entry (or its directory), no timer; one lstat per burst of events
+        watch.setEventHandler { [weak self] in
+            Self.drainEvents(descriptor)  // the read source is level-triggered
+            guard let self else { return }
+            self.job { self.changed(followingEntry: followingEntry) }
+        }
+        #endif
+        watch.setCancelHandler { close(descriptor) }
+        return WatchSource(source: watch)
+    }
+
+    #if !canImport(Darwin)
+    /// Reads every queued event off the non-blocking inotify descriptor: one check answers them all.
+    private static func drainEvents(_ descriptor: Int32) {
+        var buffer = [UInt8](repeating: 0, count: 4096)
+        // wakeup-allow: bounded: reads until the queue is empty (EAGAIN), no wait
+        while true {
+            // SAFETY: read writes at most buffer.count bytes into the array's own storage, lent for the call.
+            let count = unsafe read(descriptor, &buffer, buffer.count)
+            if count > 0 || (count < 0 && errno == EINTR) { continue }
+            return
+        }
+    }
+    #endif
 
     /// On `queue`: cancels the current watch and watches nothing.
     private func dropWatch() {

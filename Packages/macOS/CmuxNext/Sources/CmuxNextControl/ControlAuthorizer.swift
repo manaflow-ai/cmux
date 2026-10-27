@@ -1,16 +1,24 @@
 import Foundation
 import CmuxNextSettings
+#if canImport(Darwin)
 import Darwin
+#else
+import Glibc
+#endif
 import CmuxNextCompat
 
 /// Per-connection authorization state, owned by the connection's task.
 struct ControlAuthorizer: Sendable {
     let configuration: ControlSocketServer.Configuration
     let peer: ControlSocketServer.Peer
+    /// Where `cmuxOnly` reads the peer's ancestors from.
+    let ancestry: ControlPeerAncestry
 
-    init(configuration: ControlSocketServer.Configuration, peer: ControlSocketServer.Peer) {
+    init(configuration: ControlSocketServer.Configuration, peer: ControlSocketServer.Peer,
+         ancestry: ControlPeerAncestry = .system) {
         self.configuration = configuration
         self.peer = peer
+        self.ancestry = ancestry
     }
 
     static let accessDenied = "ERROR: Access denied - only processes started inside cmux can connect"
@@ -48,8 +56,7 @@ struct ControlAuthorizer: Sendable {
             return peer.uid == getuid()
         case .cmuxOnly:
             guard peer.uid == getuid(), let pid = peer.pid else { return false }
-            return ControlPeerAncestry.system.isInside(pid, ancestor: configuration.trustedAncestor,
-                                                       executables: configuration.trustedExecutables)
+            return ancestry.isInside(pid, ancestor: configuration.trustedAncestor, executables: configuration.trustedExecutables)
         }
     }
 

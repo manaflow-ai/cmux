@@ -1,7 +1,11 @@
 public import CmuxNextSettings
 import struct CmuxNextDaemon.POSIXErrorText
 import struct CmuxNextDaemon.UnixSocketAddress
+#if canImport(Darwin)
 import Darwin
+#else
+import Glibc
+#endif
 import Foundation
 
 /// A bounded client for another local cmux control socket.
@@ -45,16 +49,20 @@ public struct ControlPeerClient {
 
     private static func exchange(path: String, method: String, params: [String: JSONValue],
                                 timeoutMilliseconds: Int) throws -> JSONValue {
-        let descriptor = socket(AF_UNIX, SOCK_STREAM, 0)
+        let descriptor = socket(AF_UNIX, ControlSocketServer.streamSocketType, 0)
         guard descriptor >= 0 else { throw Failure.socket(POSIXErrorText(errno).description) }
         defer { close(descriptor) }
         var timeout = timeval(tv_sec: timeoutMilliseconds / 1_000,
-                              tv_usec: Int32(clamping: (timeoutMilliseconds % 1_000) * 1_000))
+                              tv_usec: suseconds_t(clamping: (timeoutMilliseconds % 1_000) * 1_000))
+        #if canImport(Darwin)
         var noSigPipe: Int32 = 1 // a peer that hangs up fails the write with EPIPE instead of signalling
-        // SAFETY: each setsockopt reads the size it is given from a local of exactly that type (`noSigPipe`, an
-        // Int32; `timeout`, a timeval), live for the call.
-        guard unsafe setsockopt(descriptor, SOL_SOCKET, SO_NOSIGPIPE, &noSigPipe, socklen_t(MemoryLayout<Int32>.size)) == 0,
-              unsafe setsockopt(descriptor, SOL_SOCKET, SO_SNDTIMEO, &timeout, socklen_t(MemoryLayout<timeval>.size)) == 0,
+        // SAFETY: setsockopt reads the given size, MemoryLayout<Int32>.size, from `noSigPipe`, a local Int32.
+        guard unsafe setsockopt(descriptor, SOL_SOCKET, SO_NOSIGPIPE, &noSigPipe, socklen_t(MemoryLayout<Int32>.size)) == 0 else {
+            throw Failure.socket(POSIXErrorText(errno).description)
+        }
+        #endif
+        // SAFETY: each setsockopt reads the given size, MemoryLayout<timeval>.size, from `timeout`, a local timeval.
+        guard unsafe setsockopt(descriptor, SOL_SOCKET, SO_SNDTIMEO, &timeout, socklen_t(MemoryLayout<timeval>.size)) == 0,
               unsafe setsockopt(descriptor, SOL_SOCKET, SO_RCVTIMEO, &timeout, socklen_t(MemoryLayout<timeval>.size)) == 0 else {
             throw Failure.socket(POSIXErrorText(errno).description)
         }
@@ -107,7 +115,8 @@ public struct ControlPeerClient {
             while unsafe offset < bytes.count {
                 // SAFETY: 0 <= offset < bytes.count, so the write covers the bytes.count - offset bytes left, from
                 // base + offset to the buffer's end.
-                let count = unsafe Darwin.write(descriptor, base.advanced(by: offset), bytes.count - offset)
+                // MSG_NOSIGNAL: a peer that hung up fails the send with EPIPE (Linux has no SO_NOSIGPIPE).
+                let count = unsafe send(descriptor, base.advanced(by: offset), bytes.count - offset, Int32(truncatingIfNeeded: MSG_NOSIGNAL))
                 if count > 0 { offset += count; continue }
                 if count < 0, errno == EINTR { continue }
                 return count < 0 ? errno : EIO

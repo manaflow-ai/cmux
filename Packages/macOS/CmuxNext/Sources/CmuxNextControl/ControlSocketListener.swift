@@ -1,6 +1,10 @@
 import CmuxNextCompat
 public import CmuxNextWakeups
+#if canImport(Darwin)
 import Darwin
+#else
+import Glibc
+#endif
 
 /// A control socket bound and listening at ``path`` that no server accepts on yet
 /// (``ControlSocketServer/bindListener(path:protectStateDirectory:compatibilityLink:accessMode:)``,

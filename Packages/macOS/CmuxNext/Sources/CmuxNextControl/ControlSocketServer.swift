@@ -1,7 +1,11 @@
 public import Foundation
 import CmuxNextSettings
 import CmuxNextDaemon
+#if canImport(Darwin)
 import Darwin
+#else
+import Glibc
+#endif
 import CmuxNextWakeups
 import CmuxNextCompat
 public import CmuxNextTrace
@@ -21,7 +25,7 @@ public import CmuxNextTrace
 /// admits processes started inside this cmux (descended from this app or
 /// from a process running one of `trustedExecutables`, the bundled cmux
 /// binary that hosts every terminal), and `automation` admits the same user.
-/// The socket file is always 0600.
+/// The socket file is always 0600. Peer facts: ``ControlPeerCredentials``, ``ControlPeerAncestry``.
 ///
 /// Hang watch: the accept queue is one hang-watched lane, each accept pass and each socket-path watch job (a
 /// restore binds on disk) one scope of ``acceptHangDeadline``, and each connection's queue is a lane of its own (``ControlConnection``), as
@@ -124,6 +128,10 @@ public final class ControlSocketServer: Sendable {
     typealias BindCall = @Sendable (Int32, UnixSocketAddress) -> Int32
     private let acceptCall: AcceptCall
     let bindCall: BindCall
+    /// Reads each accepted client's uid and pid.
+    private let peerCredentials: ControlPeerCredentials
+    /// Reads a `cmuxOnly` client's ancestors.
+    private let ancestry: ControlPeerAncestry
     private let acceptRetry = DemandTimer(owner: "ControlSocketServer.acceptRetry")
     /// Puts the socket file back when something deletes it (``ControlSocketPathWatch``).
     private let pathWatch = Mutex<[ControlSocketPathWatch]>([])
@@ -136,11 +144,14 @@ public final class ControlSocketServer: Sendable {
     }
 
     init(configuration: Configuration, router: ControlRouter, accept: @escaping AcceptCall,
-         bind: @escaping BindCall = { $1.bind($0) }, hangs: (any HangWatchScoping)? = nil) {
+         bind: @escaping BindCall = { $1.bind($0) }, hangs: (any HangWatchScoping)? = nil,
+         peerCredentials: ControlPeerCredentials = .system, ancestry: ControlPeerAncestry = .system) {
         self.configuration = configuration
         self.router = router
         self.acceptCall = accept
         self.bindCall = bind
+        self.peerCredentials = peerCredentials
+        self.ancestry = ancestry
         self.hangs = hangs
         acceptWatched = hangs.map { HangWatchedLane("control.accept", deadline: Self.acceptHangDeadline, on: $0) }
     }
@@ -357,12 +368,15 @@ public final class ControlSocketServer: Sendable {
             }
             state.withLock { $0.acceptBackoff.reset() }
             _ = fcntl(client, F_SETFD, FD_CLOEXEC)
+            #if canImport(Darwin)
+            // Linux has no SO_NOSIGPIPE; every send passes MSG_NOSIGNAL there (ControlConnection).
             var noSigPipe: Int32 = 1
             // SAFETY: setsockopt reads the given size, MemoryLayout<Int32>.size, from `noSigPipe`, a local Int32.
             unsafe setsockopt(client, SOL_SOCKET, SO_NOSIGPIPE, &noSigPipe, socklen_t(MemoryLayout<Int32>.size))
+            #endif
             _ = fcntl(client, F_SETFL, fcntl(client, F_GETFL) | O_NONBLOCK)
-            let peer = Self.peer(of: client)
-            let authorizer = ControlAuthorizer(configuration: configuration, peer: peer)
+            let peer = peerCredentials.read(client)
+            let authorizer = ControlAuthorizer(configuration: configuration, peer: peer, ancestry: ancestry)
             let limits = ControlConnection.Limits(
                 maxLineBytes: configuration.maxLineBytes,
                 maxQueuedLines: configuration.maxQueuedLinesPerConnection,
@@ -395,23 +409,5 @@ public final class ControlSocketServer: Sendable {
                 connection.close()
             }
         }
-    }
-
-    struct Peer: Sendable {
-        var pid: pid_t?
-        var uid: uid_t?
-    }
-
-    static func peer(of descriptor: Int32) -> Peer {
-        var uid: uid_t = 0
-        var gid: gid_t = 0
-        // SAFETY: getpeereid writes one uid_t and one gid_t into the locals `uid` and `gid`, live for the call.
-        let hasUID = unsafe getpeereid(descriptor, &uid, &gid) == 0
-        var pid: pid_t = 0
-        var length = socklen_t(MemoryLayout<pid_t>.size)
-        // SAFETY: getsockopt writes at most `length` bytes (the size of pid_t) into the local `pid` and the size it
-        // wrote into `length`.
-        let hasPID = unsafe getsockopt(descriptor, SOL_LOCAL, LOCAL_PEERPID, &pid, &length) == 0
-        return Peer(pid: hasPID ? pid : nil, uid: hasUID ? uid : nil)
     }
 }
