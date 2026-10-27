@@ -3,6 +3,7 @@ import CmuxNextBridge
 import CmuxNextCompat
 import CmuxNextControl
 import CmuxNextDaemon
+import CmuxNextInputModel
 import CmuxNextTerminal
 import CmuxNextTrace
 import CmuxNextWakeups

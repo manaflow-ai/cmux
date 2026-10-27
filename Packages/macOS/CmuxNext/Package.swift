@@ -348,6 +348,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextFocus",
                 "CmuxNextFocusUI",
                 "CmuxNextInput",
+                "CmuxNextInputModel",
                 "CmuxNextOracle",
                 "CmuxNextInputDiagnostics",
                 // The app-daemon wire (p05-ipc): the generated `cmux.protocol/2` requests History,
@@ -1417,6 +1418,15 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             dependencies: ["CmuxNextCompat", "CmuxNextCloud", "CmuxNextTrace", "CmuxNextWakeups", .product(name: "CmuxSafeConcurrency", package: "CmuxSafeConcurrency")],
             swiftSettings: daemonSwiftSettings
         ),
+        // The input model (p15-oracle-102): the terminal attach machine and the input journal's values, the input
+        // observation and the model and transition invariants of plans/cmux-next/input-spec.md, as pure values and
+        // rules with no AppKit, so replay and the oracle run them off the app (and on Linux). The journal ring, its
+        // AppKit recorders and the key routing invariants (KeyRouter's tier rules) stay in the App.
+        .target(
+            name: "CmuxNextInputModel",
+            dependencies: ["CmuxNextDaemon", "CmuxNextFocus"],
+            swiftSettings: daemonSwiftSettings
+        ),
         // App-layer mapping between daemon records and feature view models,
         // kept out of CmuxNextApp so it links in `swift test` (no GhosttyKit).
         .target(
@@ -1424,6 +1434,8 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             dependencies: [
                 "CmuxNextCompat",
                 "CmuxNextDaemon", "CmuxNextLayout", "CmuxNextSidebar", "CmuxNextTabs", "CmuxNextIcons",
+                // TerminalAttachDriver runs CmuxNextInputModel's TerminalAttachMachine.
+                "CmuxNextInputModel",
                 .product(name: "CmuxAgentBrands", package: "CmuxAgentBrands"),
                 // OracleLayoutFacet (DEBUG || CMUX_BENCH_HOOKS): the layout facet from LayoutModel values.
                 "CmuxNextOracle",
@@ -2251,6 +2263,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextInput",
                 "CmuxNextInputCore",
                 "CmuxNextInputCoreTestSupport",
+                "CmuxNextInputModel",
                 "CmuxNextKeepAwake",
                 "CmuxNextLaunch",
                 "CmuxNextLayout",
@@ -2605,6 +2618,7 @@ if ProcessInfo.processInfo.environment["CMUX_SWIFTPM_TARGET_LINUX"] == "1" {
                 "CmuxNextRemoteLocalhost",
                 "CmuxNextServerHelper",
                 "CmuxNextCLIInstall",
+                "CmuxNextInputModel",
                 "CZlib",
             ],
             testTargets: [
