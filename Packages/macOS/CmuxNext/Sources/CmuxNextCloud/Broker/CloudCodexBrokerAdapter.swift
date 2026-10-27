@@ -64,14 +64,14 @@ import Observation
         try check(scope)
         let resolved = try await launch()
         try check(scope)
-        if let teardown = teardownTasks.removeValue(forKey: scope) { await teardown.value }
+        if let teardown = teardownTasks[scope] { await teardown.value }
         try check(scope)
         let current = currentScope
         let availability: @MainActor @Sendable () -> CloudCodexBrokerScope? = { [weak self] in
             guard let self, self.available else { return nil }
             return current()
         }
-        let broker = await registry.broker(for: scope, currentScope: { await availability() },
+        let broker = try await registry.broker(for: scope, currentScope: { await availability() },
             executable: resolved.executable, executablePrefix: resolved.prefix,
             codexExecutable: resolved.codex, home: home(for: scope))
         try check(scope)
@@ -118,14 +118,7 @@ import Observation
         for run in runs.values { run.1.cancel() }
         let retiring = scopes
         scopes.removeAll()
-        for scope in retiring {
-            let teardown = Task { [weak self, registry] in
-                let failed = await registry.remove(scope: scope)
-                guard let self else { return }
-                self.pendingCleanup.formUnion(failed)
-            }
-            teardownTasks[scope] = teardown
-        }
+        for scope in retiring { beginRetirement(scope) }
     }
 
     /// Called before deleting/unregistering a VM, while its transport still exists.
@@ -142,7 +135,7 @@ import Observation
     public func shutdown() async {
         stopped = true
         for run in runs.values { run.1.cancel() }
-        for scope in scopes { await retire(scope) }
+        for scope in scopes.union(teardownTasks.keys) { await retire(scope) }
     }
 
     /// Ends account access before Cloud signs out, without permanently stopping
@@ -150,7 +143,7 @@ import Observation
     public func signOut() async {
         signingOutScope = currentScope()
         for run in runs.values { run.1.cancel() }
-        for scope in scopes { await retire(scope) }
+        for scope in scopes.union(teardownTasks.keys) { await retire(scope) }
     }
 
     private func revokeAfterFailure(_ broker: CloudCodexBroker, target: CloudCodexBrokerTarget) async throws {
@@ -177,14 +170,21 @@ import Observation
         return true
     }
 
-    private func retire(_ scope: CloudCodexBrokerScope) async {
+    private func beginRetirement(_ scope: CloudCodexBrokerScope) {
+        guard teardownTasks[scope] == nil else { return }
         for run in runs.values where run.0 == scope { run.1.cancel() }
         scopes.remove(scope)
-        if let teardown = teardownTasks.removeValue(forKey: scope) {
-            await teardown.value
-        } else {
+        // Keep the barrier visible until teardown completes. Every concurrent
+        // caller must await the same task before opening a replacement holder.
+        teardownTasks[scope] = Task { [registry] in
             pendingCleanup.formUnion(await registry.remove(scope: scope))
+            teardownTasks.removeValue(forKey: scope)
         }
+    }
+
+    private func retire(_ scope: CloudCodexBrokerScope) async {
+        beginRetirement(scope)
+        await teardownTasks[scope]?.value
     }
 
     private func check(_ scope: CloudCodexBrokerScope) throws {
