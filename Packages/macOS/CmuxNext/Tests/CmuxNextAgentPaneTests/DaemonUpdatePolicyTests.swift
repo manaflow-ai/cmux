@@ -1,5 +1,6 @@
 import CmuxNextCompat
 import CmuxNextDesign
+import CmuxNextWakeupsTestSupport
 import Foundation
 import Testing
 @testable import CmuxNextAgentPane
@@ -269,16 +270,18 @@ import Testing
     }
 
     /// Review of #25387: the bundled acpmux's `--version` never answers. The probe ends at its
-    /// bound with no build, so the queue drains (pushes nothing) instead of waiting forever.
+    /// bound with no build, so the queue drains (pushes nothing) instead of waiting forever. The
+    /// bound is on the probe's clock (a manual one here), so no wall time is measured.
     @Test(.timeLimit(.minutes(1))) func aBundledVersionThatNeverAnswersEndsAtItsBound() async throws {
-        let fixture = try PolicyFixture()
-        defer { fixture.remove() }
-        let hung = fixture.root.appendingPathComponent("acpmux")
-        try "#!/bin/sh\nexec sleep 120\n".write(to: hung, atomically: true, encoding: .utf8)
-        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: hung.path)
-        let started = ContinuousClock.now
-        #expect(await DaemonUpdatePolicy.bundledBuild(of: hung, within: .milliseconds(500)) == nil)
-        #expect(ContinuousClock.now - started < .seconds(10))
+        let stall = try StalledAcpmux()
+        defer { stall.remove() }
+        let clock = ManualClock()
+        let probe = Task { await DaemonUpdatePolicy.bundledBuild(of: stall.executable, within: .milliseconds(500), clock: clock) }
+        await stall.waitUntilStarted()
+        try await clock.waitForSleeper(within: .seconds(60))
+        clock.advance(by: .milliseconds(500))
+        #expect(await probe.value == nil)
+        #expect(await stall.waitUntilStopped(), "the stalled --version was not stopped at its bound")
     }
 
     /// The probe reads the build from `acpmux --version`.

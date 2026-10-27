@@ -252,6 +252,20 @@ class Main(unittest.TestCase):
                             read_runners=lambda t, r: [runner(*BUILDER)])
         self.assertEqual(out, {"dedicated": DEDICATED})
 
+    def test_the_verify_mode_prints_owned_only_and_never_the_dedicated_builder(self) -> None:
+        fleet = [runner(*BUILDER), runner(SIDE)]
+        out = self.run_main({"DEDICATED_LABEL": DEDICATED}, argv=("verify",), read_runners=lambda t, r: fleet,
+                            read_snapshot=lambda t, r: snapshot({}))
+        self.assertEqual(out, {"owned": SIDE})
+        out = self.run_main({}, argv=("verify",), read_runners=lambda t, r: [runner(SIDE, busy=True)],
+                            read_snapshot=lambda t, r: snapshot({LARGE: 90}))
+        self.assertEqual(out, {"owned": ""})
+        # A busy fleet is never waited on, even while Blacksmith is stalled: the rescue has no timed
+        # fallback for an owned job held behind a stalled Blacksmith label.
+        out = self.run_main({}, argv=("verify",), read_runners=lambda t, r: [runner(SIDE, busy=True)],
+                            read_snapshot=lambda t, r: snapshot({LARGE: 90, SMALL: 90}))
+        self.assertEqual(out, {"owned": ""})
+
     def test_no_route_token_reads_no_runners(self) -> None:
         def unexpected(token: str, repo: str):
             raise AssertionError("runners read without a route token")
