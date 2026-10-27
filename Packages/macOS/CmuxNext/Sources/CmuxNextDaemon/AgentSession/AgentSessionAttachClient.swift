@@ -60,21 +60,27 @@ public actor AgentSessionAttachClient {
     private let requestTimeout: Duration
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "agent-attach")
     private var transport: LineTransport?
-    private var connecting: Task<LineTransport, any Error>?
+    private var connecting: Task<(LineTransport, Served), any Error>?
     private let handler = HandlerBox()
     private var closed = false
-    /// The connected daemon serves `agent-session-start-v1` (read from its own `identify`).
-    private var servesStart = false
-    /// The connected daemon serves `agent-session-trust-v1`.
-    private var servesTrust = false
-    /// The connected daemon serves `agent-session-start-keyed-reason-v1`.
-    private var servesKeyedReason = false
-    /// The connected daemon serves `agent-session-start-vm-kind-v1`.
-    private var servesVMKind = false
-    /// The connected daemon serves `agent-session-children-v1`.
-    private var servesChildren = false
-    /// The connected daemon serves `agent-session-presence-v1`.
-    private var servesPresence = false
+    /// What ``transport``'s daemon serves, read from its own `identify` on that connection and
+    /// replaced only together with it.
+    private var served = Served()
+
+    private struct Served: Sendable {
+        /// `agent-session-start-v1`.
+        var start = false
+        /// `agent-session-trust-v1`.
+        var trust = false
+        /// `agent-session-start-keyed-reason-v1`.
+        var keyedReason = false
+        /// `agent-session-start-vm-kind-v1`.
+        var vmKind = false
+        /// `agent-session-children-v1`.
+        var children = false
+        /// `agent-session-presence-v1`.
+        var presence = false
+    }
 
     /// A start that needs the app's person key in that machine's acpmux (cx-0w0jj): `instance`
     /// is the acpmux run the app holds a key for, nil when it holds none.
@@ -117,15 +123,17 @@ public actor AgentSessionAttachClient {
     /// start is sent (the link's attach answer said the signed-in caller owns the machine, and
     /// that link still runs), through any daemon; anything else is refused here
     /// (`agent_session.host_unverified`). The daemon then gets `vm_kind: "owner"` when this
-    /// connection's own `identify` lists `agent-session-start-vm-kind-v1`.
+    /// connection's own `identify` lists `agent-session-start-vm-kind-v1`. The start goes over
+    /// that same connection, checked before it: if it ended meanwhile the start fails, never
+    /// goes out over a new one.
     public func start(cwd: String, harness: String?, homeConfirmed: Bool = false, personKey: PersonKey? = nil,
                       ownerLink: OwnerLink? = nil) async throws -> String {
         guard mode == .attach else {
             throw AgentSessionAttachError(code: Self.startUnsupported, message: "a read-only agent session cannot start a chat")
         }
         let before = await ownerLink?()
-        _ = try await liveTransport()
-        guard servesStart else {
+        let (transport, served) = try await liveConnection()
+        guard served.start else {
             throw AgentSessionAttachError(code: Self.startUnsupported, message: "the daemon does not serve agent session start")
         }
         if let ownerLink {
@@ -135,8 +143,11 @@ public actor AgentSessionAttachClient {
         }
         let callerOwnsVM = ownerLink != nil
         let params = Self.startParams(cwd: cwd, harness: harness, homeConfirmed: homeConfirmed, personKey: personKey,
-                                      servesKeyedReason: servesKeyedReason, callerOwnsVM: callerOwnsVM, servesVMKind: servesVMKind)
-        let data = try await call("agent-session-start", params)
+                                      servesKeyedReason: served.keyedReason, callerOwnsVM: callerOwnsVM, servesVMKind: served.vmKind)
+        guard !transport.isClosed else {
+            throw AgentSessionAttachError(code: "agent_session.closed", message: "the connection ended before the start was sent")
+        }
+        let data = try await call("agent-session-start", params, on: transport)
         guard let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
               let session = object["session"] as? String, !session.isEmpty else {
             throw AgentSessionAttachError(code: "agent_session.refused", message: "agent-session-start answered no session")
@@ -167,7 +178,7 @@ public actor AgentSessionAttachClient {
             throw AgentSessionAttachError(code: Self.startUnsupported, message: "a read-only agent session cannot change trust")
         }
         _ = try await liveTransport()
-        guard servesTrust else {
+        guard served.trust else {
             throw AgentSessionAttachError(code: Self.startUnsupported, message: "the daemon does not serve agent session trust")
         }
         var params: [String: any Sendable] = ["cwd": cwd]
@@ -209,7 +220,7 @@ public actor AgentSessionAttachClient {
     /// streams their changes too. A daemon without the verb lists none.
     public func children() async throws -> Data {
         _ = try await liveTransport()
-        guard servesChildren else { return Data(#"{"sessions":[]}"#.utf8) }
+        guard served.children else { return Data(#"{"sessions":[]}"#.utf8) }
         return try await call("agent-session-children", [:])
     }
 
@@ -217,7 +228,7 @@ public actor AgentSessionAttachClient {
     /// the attached chat. A daemon without the verb hears nothing (no one else is shown there).
     public func typing(_ on: Bool) async throws {
         _ = try await liveTransport()
-        guard servesPresence else { return }
+        guard served.presence else { return }
         _ = try await call("agent-session-typing", ["on": on])
     }
 
@@ -225,7 +236,7 @@ public actor AgentSessionAttachClient {
     /// attached chat now. A daemon without the verb keeps counting the attach as shown.
     public func view(_ visible: Bool) async throws {
         _ = try await liveTransport()
-        guard servesPresence else { return }
+        guard served.presence else { return }
         _ = try await call("agent-session-view", ["visible": visible])
     }
 
@@ -258,8 +269,11 @@ public actor AgentSessionAttachClient {
 
     /// One verb on the tab; the result's `data` as JSON, or the daemon's refusal. Each of `json`
     /// (a question's answers and annotations, as JSON) goes in the request as it is.
-    private func call(_ cmd: String, _ params: [String: any Sendable], json: [String: Data?] = [:]) async throws -> Data {
-        let transport = try await liveTransport()
+    /// `on`: that connection only (no reconnect), else the live one.
+    private func call(_ cmd: String, _ params: [String: any Sendable], json: [String: Data?] = [:],
+                      on pinned: LineTransport? = nil) async throws -> Data {
+        let transport: LineTransport
+        if let pinned { transport = pinned } else { transport = try await liveTransport() }
         var object: [String: Any] = params
         for case let (key, data?) in json {
             object[key] = try JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed])
@@ -280,23 +294,29 @@ public actor AgentSessionAttachClient {
     }
 
     private func liveTransport() async throws -> LineTransport {
+        try await liveConnection().0
+    }
+
+    /// The live connection and what its daemon serves.
+    private func liveConnection() async throws -> (LineTransport, Served) {
         if closed { throw AgentSessionAttachError(code: "agent_session.closed", message: "closed") }
-        if let transport, !transport.isClosed { return transport }
+        if let transport, !transport.isClosed { return (transport, served) }
         transport = nil
         if let connecting { return try await connecting.value }
         let task = Task { try await self.connect() }
         connecting = task
         defer { connecting = nil }
-        let transport = try await task.value
+        let (transport, served) = try await task.value
         if closed {
             transport.close()
             throw AgentSessionAttachError(code: "agent_session.closed", message: "closed")
         }
         self.transport = transport
-        return transport
+        self.served = served
+        return (transport, served)
     }
 
-    private func connect() async throws -> LineTransport {
+    private func connect() async throws -> (LineTransport, Served) {
         let endpoint = try await self.endpoint()
         let transport = try LineTransport(path: endpoint.socketPath)
         let handler = handler
@@ -313,29 +333,30 @@ public actor AgentSessionAttachClient {
                 logger.info("agent attach connection ended: \(String(describing: reason), privacy: .public)")
                 current("agent-session-closed", Data(#"{"event":"agent-session-closed","reason":"connection_lost"}"#.utf8))
             })
+        let served: Served
         do {
             let identity = try await DaemonConnection.perform(IdentifyRequest(), on: transport, timeout: requestTimeout)
             guard identity.supports(mode.capability) else {
                 transport.close()
                 throw AgentSessionAttachError(code: "agent_session.unsupported", message: mode.unsupportedMessage)
             }
-            servesStart = identity.supports(DaemonCapability.agentSessionStart.rawValue)
-            servesTrust = identity.supports(DaemonCapability.agentSessionTrust.rawValue)
-            servesKeyedReason = identity.supports(DaemonCapability.agentSessionStartKeyedReason.rawValue)
-            servesVMKind = identity.supports(DaemonCapability.agentSessionStartVMKind.rawValue)
-            servesChildren = identity.supports(DaemonCapability.agentSessionChildren.rawValue)
-            servesPresence = identity.supports(DaemonCapability.agentSessionPresence.rawValue)
+            served = Served(start: identity.supports(DaemonCapability.agentSessionStart.rawValue),
+                            trust: identity.supports(DaemonCapability.agentSessionTrust.rawValue),
+                            keyedReason: identity.supports(DaemonCapability.agentSessionStartKeyedReason.rawValue),
+                            vmKind: identity.supports(DaemonCapability.agentSessionStartVMKind.rawValue),
+                            children: identity.supports(DaemonCapability.agentSessionChildren.rawValue),
+                            presence: identity.supports(DaemonCapability.agentSessionPresence.rawValue))
             _ = try await DaemonConnection.perform(
                 // `agent-session-presence-v1` echoed: the daemon then streams presence (an app
                 // from before it would end its attachment on an event it does not know).
                 SetClientInfoRequest(name: mode.clientInfoName, kind: mode.clientInfoKind,
-                                     capabilities: servesPresence ? [DaemonCapability.agentSessionPresence.rawValue] : []),
+                                     capabilities: served.presence ? [DaemonCapability.agentSessionPresence.rawValue] : []),
                 on: transport, timeout: requestTimeout)
         } catch {
             transport.close()
             throw error
         }
-        return transport
+        return (transport, served)
     }
 
     private static func surface(of line: Data) -> UInt64? {

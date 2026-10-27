@@ -216,10 +216,10 @@ impl Daemon {
     }
 
     /// A start with the caller's `vm_kind` (the Cloud API's answer it read).
-    fn start_chat_as(&self, surface: u64, vm_kind: &str) -> Value {
+    fn start_chat_as(&self, surface: u64, vm_kind: impl Into<Value>) -> Value {
         let work = self.dir.join("work");
         self.rpc(json!({"id": 6, "cmd": "agent-session-start", "surface": surface,
-                        "cwd": work.to_str().unwrap(), "vm_kind": vm_kind}))
+                        "cwd": work.to_str().unwrap(), "vm_kind": vm_kind.into()}))
     }
 
     fn start_chat_with(&self, surface: u64, harness: &str) -> Value {
@@ -384,6 +384,9 @@ fn a_cloud_vm_start_needs_the_callers_owner_word_not_the_vms_record() {
     // A machine whose root removed every Cloud sign still reads as a Cloud VM
     // when the caller says so: only `owner` goes on.
     let reply = ssh.start_chat_as(surface, "team");
+    assert_eq!(reply["error_code"], "agent_session.host_unverified", "{reply}");
+    // An explicit null is a word, and not `owner`: refused like any other.
+    let reply = ssh.start_chat_as(surface, Value::Null);
     assert_eq!(reply["error_code"], "agent_session.host_unverified", "{reply}");
     let identity = owner.rpc(json!({"id": 1, "cmd": "identify"}));
     let capabilities = identity["data"]["capabilities"].to_string();

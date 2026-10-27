@@ -58,6 +58,29 @@ import Testing
         #expect(older.frame?["vm_kind"] == nil)
     }
 
+    /// The connection the owner answer was checked for ends right after the last check: the start
+    /// fails, and never goes out over a new connection (another daemon, other capabilities).
+    @Test func aStartNeverReconnectsAfterTheOwnerCheck() async throws {
+        let daemon = try PresenceDaemon(capabilities: ["agent-session-attach-v1", "agent-session-start-v1",
+                                                       DaemonCapability.agentSessionStartVMKind.rawValue])
+        defer { daemon.stop() }
+        let client = AgentSessionAttachClient(surface: 7) { DaemonEndpoint(socketPath: daemon.path) }
+        let reads = Answers([3])
+        let ownerLink: AgentSessionAttachClient.OwnerLink = {
+            if let first = await reads.next() { return first }
+            // The second read, after the connection: end it, and give the client time to see so.
+            daemon.dropClients()
+            try? await Task.sleep(for: .milliseconds(300))
+            return 3
+        }
+        await #expect(throws: AgentSessionAttachError.self) {
+            _ = try await client.start(cwd: "/w", harness: nil, ownerLink: ownerLink)
+        }
+        await client.close()
+        #expect(!daemon.frames.contains { $0["cmd"] as? String == "agent-session-start" }, "the start went out over a new connection")
+        #expect(daemon.frames.filter { $0["cmd"] as? String == "identify" }.count == 1)
+    }
+
     @Test func aMachineThatIsNotCloudNeedsNoAnswer() async throws {
         let plain = try await start(serving: [DaemonCapability.agentSessionStartVMKind.rawValue], ownerLink: nil)
         #expect(plain.frame != nil)

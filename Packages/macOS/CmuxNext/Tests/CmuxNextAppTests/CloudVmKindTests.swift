@@ -7,8 +7,8 @@ import Testing
 /// The attach-endpoint's `vmKind` (the Cloud API's answer, for the signed-in caller, whether a
 /// machine is its own personal VM) decides the link's `--vm-kind owner`, and with it the VM
 /// boundary for that machine's remote chains (acpmux `hub/vm_boundary.rs`). Only the exact
-/// string "owner" opts out of the sandbox; a missing, null, other or malformed value keeps it,
-/// and never fails the attach.
+/// string "owner" opts out of the sandbox; a missing, null or other value keeps it, and a value
+/// of another type fails the attach (never owner).
 struct CloudVmKindTests {
     private func endpoint(_ vmKind: String?) throws -> CloudAttachEndpoint {
         let field = vmKind.map { #","vmKind":\#($0)"# } ?? ""
@@ -28,15 +28,12 @@ struct CloudVmKindTests {
         }
     }
 
-    @Test func anOlderServerOrAMalformedValueKeepsTheSandboxAndStillAttaches() throws {
+    @Test func anOlderServerKeepsTheSandboxAndAMalformedValueIsNeverOwner() throws {
         let older = try endpoint(nil)
         #expect(older.vmKind == nil)
         #expect(CloudMachineLink.vmKindArguments(older).isEmpty)
         for malformed in ["1", "true", #"{"kind":"owner"}"#, #"["owner"]"#] {
-            let decoded = try endpoint(malformed)
-            #expect(decoded.vmKind == nil, "\(malformed)")
-            #expect(decoded.route == "ws://10.9.0.2:1337/v1/link")
-            #expect(CloudMachineLink.vmKindArguments(decoded).isEmpty, "\(malformed)")
+            #expect(throws: (any Error).self, "\(malformed)") { _ = try endpoint(malformed) }
         }
     }
 

@@ -185,9 +185,10 @@ pub(super) struct StartParams {
     person_instance: Option<String>,
     /// The Cloud API's `vmKind` for the caller on its link to this machine,
     /// as the caller read it. Only the exact `owner` lets a start run on a
-    /// Cloud VM; any other value is no word.
-    #[serde(default)]
-    vm_kind: Option<String>,
+    /// Cloud VM; any other value, `null` included, refuses the start. The
+    /// outer `None` is an absent field (a caller from before the param).
+    #[serde(default, deserialize_with = "super::present_nullable")]
+    vm_kind: Option<Option<String>>,
 }
 
 impl StartParams {
@@ -226,7 +227,7 @@ pub(super) fn start(
     if !params.valid() {
         return refuse(writer, id, Refusal::BadRequest);
     }
-    let caller_owns_vm = params.vm_kind.as_deref() == Some("owner");
+    let caller_owns_vm = matches!(params.vm_kind.as_ref(), Some(Some(kind)) if kind == "owner");
     if let Err(refusal) = mux.control_clients.agent_sessions.starts.host_gate(Some(caller_owns_vm))
     {
         return refuse(writer, id, refusal);
