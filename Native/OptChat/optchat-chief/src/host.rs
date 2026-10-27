@@ -656,6 +656,14 @@ pub fn run(flags: &Flags, started_ms: u64) -> i32 {
             log(format!("stopping: {fatal}"));
             0
         }
+        Ok(fatal) if fatal.starts_with(crate::brain::OWNER_APP_EXITED) => {
+            // Its app quit and nothing keeps the Chief: the acpmux daemon
+            // this host started ends with it, as at a stop signal; the next
+            // app starts both again.
+            log(format!("stopping: {fatal}"));
+            stop_started_acpmux();
+            0
+        }
         Ok(fatal) => {
             log(format!("stopping: {fatal}"));
             1
@@ -962,6 +970,18 @@ fn start(
     // channel until the brain runs.
     let (tx, rx) = channel();
     let _ = STOP_TX.set(tx.clone());
+    // The app this host serves: its exit stops an idle brain (owner_app.rs).
+    // The event waits in the channel until the brain runs.
+    if let Some(app) = crate::owner_app::from_env() {
+        let exited = tx.clone();
+        let watched = crate::owner_app::watch(app, crate::owner_app::pid_file(home), move || {
+            log("the app this host serves quit");
+            let _ = exited.send(Input::OwnerAppExited);
+        });
+        if !watched {
+            log("no watch of the app this host serves: it runs until it is stopped");
+        }
+    }
     // Turn sessions get their own Claude Code configuration (section 7: a
     // fresh call with nothing carried over). OPTCHAT_CHIEF_ISOLATE=0 turns it
     // off, for a harness that needs the user's configuration to sign in. On

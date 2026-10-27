@@ -165,6 +165,8 @@ public final class TypingLatencyProbe: Sendable {
     let echoMetrics: Metrics?
     /// Key-downs counted while no echo sample was open (``echoSampleInterval``).
     let echoKeys = Atomic<UInt32>(0)
+    /// Who hears key flows start and stop (``observeRecording(_:)``).
+    let recordingObservers = ObserverSlots<Bool>(capacity: 4)
     /// The commit observer is on the main run loop (added once, at the first recording).
     private let observing = Atomic<Bool>(false)
     /// The last ``SurfaceKey`` handed out (``makeSurfaceKey(route:)``).
@@ -213,8 +215,9 @@ public final class TypingLatencyProbe: Sendable {
 
     /// Starts key flows: each later key-down gets a flow id, and its hops become `key.flow` events.
     public func startFlows() {
-        setModes(Modes.flows, on: true)
+        let before = setModes(Modes.flows, on: true)
         observeCommits()
+        if before & Modes.flows == 0 { recordingObservers.notify(isRecording) }
     }
 
     /// Starts key flows when the app was launched with ``flowsEnvironmentKey`` set.
@@ -225,12 +228,14 @@ public final class TypingLatencyProbe: Sendable {
 
     /// Stops key flows. Without a CSV the open presses are dropped unwritten.
     public func stopFlows() {
-        setModes(Modes.flows, on: false)
-        guard !writesCSV else { return }
-        withState { state in
-            state.open.removeAll()
-            state.echoCommits.removeAll()
+        let before = setModes(Modes.flows, on: false)
+        if !writesCSV {
+            withState { state in
+                state.open.removeAll()
+                state.echoCommits.removeAll()
+            }
         }
+        if before & Modes.flows != 0 { recordingObservers.notify(isRecording) }
     }
 
     /// The commit mark: the end of each main run-loop turn, after Core Animation's commit observer

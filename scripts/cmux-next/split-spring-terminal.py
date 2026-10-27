@@ -56,6 +56,11 @@ if "--suite=launch-check" in sys.argv:
 # build in split-spring.sh has run by then). launch-check above reports it itself, in `check`'s own --json shape.
 if "--suite=pane-bench" not in sys.argv and "--suite=action-budget-bench" not in sys.argv:
     require_gui_session("split-spring")
+# `--suite=first-keys`: the first keys typed into new terminals from Home's dock all reach them, and how fast
+# (new-terminal-first-keys.py; dogfood v2.1 lost them).
+if "--suite=first-keys" in sys.argv:
+    suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "new-terminal-first-keys.py")
+    os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a != "--suite=first-keys"])
 # `--suite=bench-smoke`: one short run of each bench that launches through bench_launch.py (bench-launch-smoke.py).
 if "--suite=bench-smoke" in sys.argv:
     suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "bench-launch-smoke.py")
@@ -64,6 +69,11 @@ if "--suite=bench-smoke" in sys.argv:
 if "--suite=command-pan" in sys.argv:
     suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "bench-command-pan.py")
     os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a != "--suite=command-pan"])
+# `--suite=startup-baseline`: the p08-startup launch battery (warm, cold, STRESS, traces, queues, App Launch),
+# scripts/cmux-next/startup-baseline.py; its rows go to --out/rows.md.
+if "--suite=startup-baseline" in sys.argv:
+    suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "startup-baseline.py")
+    os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a != "--suite=startup-baseline"])
 # `--suite=open-panel`: click to file picker, light and STRESS (scripts/cmux-next/open-panel-bench.py).
 if "--suite=open-panel" in sys.argv:
     suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "open-panel-bench.py")

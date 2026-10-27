@@ -49,7 +49,8 @@ struct HomePasteboardValue: HomePasteboardContents {
 
 extension HomeNativeTranscriptView {
     /// The Home transcript a window shows: the one holding the keyboard,
-    /// else the first visible one (a Home tab whose box is not focused).
+    /// else the first visible one (a Home tab whose box is not focused; its
+    /// node says it is in the window and neither it nor an ancestor is hidden).
     public static func shown(in window: NSWindow?) -> HomeNativeTranscriptView? {
         guard let window else { return nil }
         var responder = window.firstResponder as? NSView
@@ -59,7 +60,7 @@ extension HomeNativeTranscriptView {
         }
         var stack = [window.contentView].compactMap { $0 }
         while let view = stack.popLast() {
-            if let home = view as? HomeNativeTranscriptView, !home.isHiddenOrHasHiddenAncestor { return home }
+            if let home = view as? HomeNativeTranscriptView, home.visibility.isVisible { return home }
             stack.append(contentsOf: view.subviews.reversed())
         }
         return nil
