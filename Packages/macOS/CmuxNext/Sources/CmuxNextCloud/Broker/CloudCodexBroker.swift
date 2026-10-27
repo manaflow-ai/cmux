@@ -297,6 +297,7 @@ public actor CloudCodexBroker {
             try await ensureScope()
             guard targets[target.machineID] != nil, targetGenerations[target.machineID] == generation else { throw CloudCodexBrokerError.cancelled }
         } catch {
+            var reconciliationFailed = false
             if commitAttempted, !committed {
                 // Exec can commit and lose its reply. Reconcile independently
                 // of caller cancellation; a unique installation ID binds it.
@@ -307,7 +308,7 @@ public actor CloudCodexBroker {
                 } catch {
                     // Retain transport until revocation can reconcile this installation.
                     pendingRevocations.insert(target.machineID)
-                    throw CloudCodexBrokerError.remoteDeliveryFailed
+                    reconciliationFailed = true
                 }
             }
             if committed || Task.isCancelled || error as? CloudCodexBrokerError == .scopeChanged {
@@ -337,6 +338,7 @@ public actor CloudCodexBroker {
                 }
             }
             catch { throw CloudCodexBrokerError.remoteDeliveryFailed }
+            if reconciliationFailed { throw CloudCodexBrokerError.remoteDeliveryFailed }
             throw error as? CloudCodexBrokerError ?? (Task.isCancelled ? .cancelled : .remoteDeliveryFailed)
         }
     }

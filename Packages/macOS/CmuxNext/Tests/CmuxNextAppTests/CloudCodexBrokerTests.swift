@@ -25,6 +25,7 @@ struct CloudCodexBrokerTests {
             files[path] = data
         }
         var refuseRemoval = false
+        var refuseAccessRead = false
         var heldRenewal = false
         func holdFirstRenewal() -> Bool {
             guard commitCount > 0, !heldRenewal else { return false }
@@ -32,6 +33,7 @@ struct CloudCodexBrokerTests {
         }
         enum Failure: Error { case denied }
         func failRemoval(_ fail: Bool) { refuseRemoval = fail }
+        func failAccessRead(_ fail: Bool) { refuseAccessRead = fail }
         func remove(_ path: String) throws {
             removals += 1
             if refuseRemoval { throw Failure.denied }
@@ -219,7 +221,7 @@ done
         func logout() { scope = nil }
     }
 
-    @Test(arguments: [0, 1, 2, 3, 4, 5, 6, 7, 8]) func deliversAccessOnlyGrantAndRestoresPriorModeOnRevoke(interruption: Int) async throws {
+    @Test(arguments: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]) func deliversAccessOnlyGrantAndRestoresPriorModeOnRevoke(interruption: Int) async throws {
         let root = temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
@@ -248,7 +250,10 @@ done
         await recorder.write(CloudCodexBroker.modePath, Data("team\n".utf8))
         let target = CloudCodexBrokerTarget(machineID: "vm-1", capability: {
             .init(ownerVM: true, protocolVersion: 1, codexExternalAccessToken: true)
-        }, makeDirectory: { _ in }, readFile: { await recorder.read($0) }, writeFile: { path, data, _ in try await recorder.restore(path, data) }, commitFiles: { a, b, c, d in
+        }, makeDirectory: { _ in }, readFile: { path in
+            if await recorder.refuseAccessRead, path == CloudCodexBroker.accessPath { throw Recorder.Failure.denied }
+            return await recorder.read(path)
+        }, writeFile: { path, data, _ in try await recorder.restore(path, data) }, commitFiles: { a, b, c, d in
             if interruption == 3 { throw CloudCodexBrokerError.remoteDeliveryFailed }
             if await recorder.refuseCommit { throw CloudCodexBrokerError.remoteDeliveryFailed }
             if interruption == 1 || interruption == 2 { await gate.pause() }
@@ -271,6 +276,15 @@ done
             try await broker.revoke(target: target)
             #expect(await recorder.read(CloudCodexBroker.accessPath) == nil)
             #expect(await recorder.read(CloudCodexBroker.modePath) == changedMode)
+            return
+        }
+        if interruption == 9 {
+            await recorder.failCommit(true)
+            await recorder.failAccessRead(true)
+            await #expect(throws: CloudCodexBrokerError.remoteDeliveryFailed) { try await broker.transfer(target: target, confirmed: true) }
+            #expect(await recorder.files.keys.filter { $0.contains(".access-") }.isEmpty)
+            await recorder.failAccessRead(false)
+            try await broker.revoke(target: target)
             return
         }
         if interruption == 4 {
