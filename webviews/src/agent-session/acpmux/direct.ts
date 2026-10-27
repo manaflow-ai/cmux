@@ -83,6 +83,7 @@ import { shownPresence } from "./multiplayer/LivePresence";
 import { PresenceClient } from "./multiplayer/presenceClient";
 import { recordedConversationEvents } from "./conversation/exportEvents";
 import { markPullRequestActivityVersion, pullRequestRowKey } from "./summary/transcriptPullRequests";
+import { parseHarnessIconSpec, rememberHarnessIcons } from "../shared/harnessIcons";
 
 export type AcpmuxHostConfig = {
   protocolVersion: number;
@@ -6279,7 +6280,15 @@ function harnessStart(value: unknown): AcpmuxSnapshot["catalog"][number]["start"
 export function normalizeCatalog(value: any): AcpmuxSnapshot["catalog"] {
   const harnesses = value?.harnesses ?? value?.items ?? value ?? [];
   const entries: any[] = Array.isArray(harnesses) ? harnesses : harnessEntries(harnesses, value?.defaultHarness);
-  return entries.map((harness: any) => ({
+  const catalog = entries.map(catalogEntry);
+  // Every AgentMark given a harness id draws its icon (shared/harnessIcons.ts).
+  rememberHarnessIcons(catalog);
+  return catalog;
+}
+
+function catalogEntry(harness: any): AcpmuxSnapshot["catalog"][number] {
+  const iconSpec = parseHarnessIconSpec(harness.iconSpec);
+  return {
     id: String(harness.id ?? harness.name),
     name: agentName(
       String(harness.id ?? harness.name),
@@ -6292,6 +6301,7 @@ export function normalizeCatalog(value: any): AcpmuxSnapshot["catalog"] {
     models: (harness.models ?? []).map((model: any) => catalogModel(model)),
     ...(typeof harness.family === "string" && harness.family ? { family: harness.family } : {}),
     ...(typeof harness.icon === "string" && harness.icon ? { icon: harness.icon } : {}),
+    ...(iconSpec ? { iconSpec } : {}),
     // A terminal harness (Muse Code) runs in a terminal tab, never as a chat: no picker lists it.
     ...(harness.kind === "terminal" ? { pickable: false } : {}),
     ...(harnessStart(harness.start) ? { start: harnessStart(harness.start) } : {}),
@@ -6302,7 +6312,7 @@ export function normalizeCatalog(value: any): AcpmuxSnapshot["catalog"] {
     // failed model probe (`probeError`).
     ...(harnessRefusal(harness) ? { unavailable: harnessRefusal(harness) } : {}),
     ...(!harness.unavailable && harnessRefusal(harness) ? { probeFailed: true } : {}),
-  }));
+  };
 }
 
 /// Whether the person can see the page: WebKit reports `hidden` for a web view out of its window,
