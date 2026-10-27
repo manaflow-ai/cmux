@@ -45,7 +45,7 @@ struct ChromiumPageHostBridgeTests {
         #expect(fromChild == "checked")
         page.senderIsTop = true
         let fromMain: String? = await PageTestWait.value("main") { done in
-            bridge.onMessage = { name, body in done("\(name) \(body)") }
+            bridge.onMessage = { name, message in done("\(name) \(message.body)") }
             page.onCall = nil
             bridge.receive(devToolsMessage: FakeChromiumPage.bindingCall(["name": "cmuxPagePainted", "body": 12]))
         }

@@ -12,7 +12,7 @@ import Foundation
 extension PageWebView {
     /// The handlers the page scripts post to without a reply, in Chromium mode.
     static let chromiumFireAndForget = [
-        PagePaintProbe.handlerName, PageInputReadiness.handlerName, ConsoleErrorCapture.handlerName,
+        PagePaintProbe.handlerName, PageInputReadiness.handlerName, ConsoleErrorCapture.handlerName, WebTheme.perfHandlerName,
         PageChromiumDocumentScripts.navigateHandler, PageChromiumDocumentScripts.hostDropHandler,
     ]
 
@@ -165,7 +165,7 @@ extension PageWebView {
         guard !Task.isCancelled else { return session.end() }
         traceMark(.setupDone)
         bridge.install { [weak self] message in await self?.receive(message) }
-        bridge.onMessage = { [weak self] name, body in self?.chromiumMessage(name, body: body) }
+        bridge.onMessage = { [weak self] name, message in self?.chromiumMessage(name, message: message) }
         bridge.onFirstMessage = { [weak session] in session?.deadline.cancel() }
         inputReadiness.editor = { [weak self, weak page] edit, expectedEpoch in
             guard let page else { return false }
@@ -295,7 +295,8 @@ extension PageWebView {
         PageChromiumRecovery.browserEnded(self)
     }
 
-    private func chromiumMessage(_ name: String, body: Any) {
+    private func chromiumMessage(_ name: String, message: PageHostMessage) {
+        let body = message.body
         switch name {
         case PagePaintProbe.handlerName:
             notePainted()
@@ -303,6 +304,8 @@ extension PageWebView {
             inputReadiness.receive(body)
         case ConsoleErrorCapture.handlerName:
             ConsoleErrorCapture(page: descriptor.id).record(body)
+        case WebTheme.perfHandlerName:
+            receivePerfReport(message)
         case PageChromiumDocumentScripts.hostDropHandler:
             hostDropped()
         case PageChromiumDocumentScripts.navigateHandler:

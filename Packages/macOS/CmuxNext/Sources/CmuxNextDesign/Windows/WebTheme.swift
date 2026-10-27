@@ -49,32 +49,6 @@ public nonisolated struct WebTheme: Equatable, Sendable {
     /// the payload as it was and the bootstrap removes the attribute.
     public let energy: String?
 
-    /// The terminal colors a page highlights code with: the scope's opaque background and
-    /// readable foreground, and its ANSI palette as the theme names it (the page lifts each
-    /// slot only as far as it needs to read).
-    public nonisolated struct Terminal: Equatable, Sendable {
-        public let type: String
-        public let background: String
-        public let foreground: String
-        public let palette: [String: String]
-        /// The terminal's font family (`DesignSettings.effectiveTerminalFontFamily`); nil when
-        /// neither cmux.json nor the Ghostty config names one.
-        public let fontFamily: String?
-
-        init(_ tokens: ThemeTokens, fontFamily: String?) {
-            type = tokens.isDark ? "dark" : "light"
-            background = WebTheme.hex(tokens.surfaceBackground)
-            foreground = WebTheme.hex(tokens.textPrimary)
-            palette = Dictionary(tokens.ansi.prefix(16).enumerated().map { (String($0.offset), WebTheme.hex($0.element)) }, uniquingKeysWith: { first, _ in first })
-            self.fontFamily = fontFamily
-        }
-
-        var json: [String: Any] {
-            ["type": type, "background": background, "foreground": foreground, "palette": palette,
-             "fontFamily": fontFamily.map { $0 as Any } ?? NSNull()]
-        }
-    }
-
     /// - Parameter tokens: The theme tokens of the view's scope.
     /// - Parameter reduceTransparency: The user's Reduce Transparency setting.
     /// - Parameter surface: The surface the page is (agent chat, new tab
@@ -152,20 +126,6 @@ public nonisolated struct WebTheme: Equatable, Sendable {
         self.glass = (glass ?? .current).rawValue
     }
 
-    /// `data-cmux-motion` for `policy`: `off` when the web category, the master switch or speed
-    /// is off (the bootstrap stylesheet then ends every transition and animation at once),
-    /// `reduced` under Reduce Motion, else `full`.
-    public static func motionValue(_ policy: MotionPolicy) -> String {
-        guard policy.categoryAnimates else { return "off" }
-        return policy.reduceMotion ? "reduced" : "full"
-    }
-
-    /// `data-cmux-energy` for `policy`: `saver` under Energy Saver (``MotionPolicy/energySaver``),
-    /// else nil (no attribute).
-    public static func energyValue(_ policy: MotionPolicy) -> String? {
-        policy.energySaver ? "saver" : nil
-    }
-
     /// The payload `window.cmuxTheme.apply` takes: `{variables, colorScheme, scrollers, terminal, statusIndicators, workingLook, motion, glass}`
     /// and `energy` under Energy Saver only (`terminal.fontFamily` is null when the terminal has no named face).
     /// How the page's color variables move to new values (`appearance.colorTransition`, the same
@@ -186,8 +146,9 @@ public nonisolated struct WebTheme: Equatable, Sendable {
     public var applyScript: String { "window.cmuxTheme && window.cmuxTheme.apply(\(payloadJSON));" }
 
     /// Defines `window.cmuxTheme` (`apply(payload)` and `backdrop(partial)`, which merges into
-    /// `window.cmuxBackdropState` and dispatches `cmux-backdrop`) and the page background rule.
-    /// Install it at document start in every cmux-owned web view.
+    /// `window.cmuxBackdropState` and dispatches `cmux-backdrop`) and the page background rule, and
+    /// posts the page's field data to ``perfHandlerName``. Install it at document start in every
+    /// cmux-owned web view.
     public static let bootstrapScript = """
     (function () {
       if (window.cmuxTheme) return;
@@ -366,26 +327,58 @@ public nonisolated struct WebTheme: Equatable, Sendable {
       ['scrollTo', 'scrollBy'].forEach(function (name) {
         if (window[name] && !window[name].cmuxMotion) window[name] = instant(window[name]);
       });
+      // The page's field data for webview.inp, webview.loaf_ms and webview.js_errors (perfHandlerName):
+      // as Chrome's web vitals, an interaction is the longest Event Timing entry of its interactionId
+      // (third_party/blink/renderer/core/timing/responsiveness_metrics.cc), and a long frame is a
+      // long-animation-frame entry (animation_frame_timing_monitor.cc), a longtask where WebKit has none.
+      // A report goes out when the page hides or ends, after a 200 ms interaction (a poor INP) and when
+      // a list holds perfReportCapacity entries; no timer.
+      var perf = { inp: [], loaf: [], errors: 0, interactions: {} };
+      function perfFlush() {
+        if (!perf.inp.length && !perf.loaf.length && !perf.errors) return;
+        var report = { v: 1, inp: perf.inp, loaf: perf.loaf, errors: perf.errors };
+        perf = { inp: [], loaf: [], errors: 0, interactions: {} };
+        var handlers = window.webkit && window.webkit.messageHandlers;
+        if (!handlers || !handlers.cmuxPagePerf) return;
+        try { handlers.cmuxPagePerf.postMessage(report); } catch (e) {}
+      }
+      function perfObserve(type, options, take) {
+        var types = window.PerformanceObserver && PerformanceObserver.supportedEntryTypes;
+        if (!types || types.indexOf(type) < 0) return false;
+        try {
+          new PerformanceObserver(function (list) { take(list.getEntries()); })
+            .observe(Object.assign({ type: type, buffered: true }, options));
+        } catch (e) { return false; }
+        return true;
+      }
+      function perfFull() { return perf.inp.length >= 32 || perf.loaf.length >= 32; }
+      perfObserve('event', { durationThreshold: 16 }, function (entries) {
+        var slow = false;
+        entries.forEach(function (entry) {
+          if (!entry.interactionId) return;
+          var ms = Math.round(entry.duration);
+          var at = perf.interactions[entry.interactionId];
+          if (at === undefined) {
+            perf.interactions[entry.interactionId] = perf.inp.length;
+            perf.inp.push(ms);
+          } else if (ms > perf.inp[at]) perf.inp[at] = ms;
+          if (ms >= 200) slow = true;
+          if (perfFull()) perfFlush();
+        });
+        if (slow) perfFlush();
+      });
+      function perfFrames(entries) {
+        entries.forEach(function (entry) {
+          perf.loaf.push(Math.round(entry.duration));
+          if (perfFull()) perfFlush();
+        });
+      }
+      if (!perfObserve('long-animation-frame', {}, perfFrames)) perfObserve('longtask', {}, perfFrames);
+      // Bubbling listeners: a resource that fails to load fires no error on window, a script error does.
+      window.addEventListener('error', function () { perf.errors += 1; });
+      window.addEventListener('unhandledrejection', function () { perf.errors += 1; });
+      document.addEventListener('visibilitychange', function () { if (document.visibilityState === 'hidden') perfFlush(); });
+      window.addEventListener('pagehide', perfFlush);
     })();
     """
-
-    /// `#rrggbb`, opaque (the alpha is dropped).
-    static func hex(_ color: ThemeRGB) -> String {
-        func channel(_ value: Double) -> Int { min(max(Int((value * 255).rounded()), 0), 255) }
-        return String(format: "#%02x%02x%02x", channel(color.red), channel(color.green), channel(color.blue))
-    }
-
-    /// `rgba(r, g, b, a)` with 0-255 channels.
-    public static func css(_ color: ThemeRGB) -> String {
-        func channel(_ value: Double) -> Int { Int((value * 255).rounded()) }
-        let alpha = (color.alpha * 1000).rounded() / 1000
-        return "rgba(\(channel(color.red)), \(channel(color.green)), \(channel(color.blue)), \(alpha))"
-    }
-
-    /// `color` as pages read it from `css`: each channel rounded to 8 bits, the alpha to 3 decimals.
-    public static func cssRounded(_ color: ThemeRGB) -> ThemeRGB {
-        func channel(_ value: Double) -> Double { (value * 255).rounded() / 255 }
-        return ThemeRGB(red: channel(color.red), green: channel(color.green), blue: channel(color.blue),
-                        alpha: (color.alpha * 1000).rounded() / 1000)
-    }
 }

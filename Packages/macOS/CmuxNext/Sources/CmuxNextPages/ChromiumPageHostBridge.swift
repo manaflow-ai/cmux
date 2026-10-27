@@ -29,8 +29,9 @@ public final class ChromiumPageHostBridge: PageHostBridge {
     /// Handler names without a reply (the paint probe): their messages go to ``onMessage``.
     private let fireAndForget: [String]
     private var handler: PageHostHandler?
-    /// Messages of the ``fireAndForget`` handlers, after the trust check: (name, body).
-    public var onMessage: ((String, Any) -> Void)?
+    /// Messages of the ``fireAndForget`` handlers from the main frame: the name and the message with its
+    /// sender's URL, which a handler that records what the page says checks (``PageHostTrust``).
+    public var onMessage: ((String, PageHostMessage) -> Void)?
     /// Called once, when the first trusted message arrives: the page reached the host.
     public var onFirstMessage: (() -> Void)?
     private var reachedHost = false
@@ -159,7 +160,7 @@ public final class ChromiumPageHostBridge: PageHostBridge {
         if message.name != PageHostTrust.handlerName {
             guard fireAndForget.contains(message.name), request.isMainFrame else { return }
             noteReached()
-            onMessage?(message.name, message.body)
+            onMessage?(message.name, request)
             return
         }
         guard let handler, let seq = message.seq else { return }
