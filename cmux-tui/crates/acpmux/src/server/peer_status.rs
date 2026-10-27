@@ -164,6 +164,7 @@ async fn peer_row(hub: &Hub, listed: &Value) -> Value {
 fn disk(path: &std::path::Path) -> Option<(u64, u64)> {
     use std::os::unix::ffi::OsStrExt;
     let c = std::ffi::CString::new(path.as_os_str().as_bytes()).ok()?;
+    // SAFETY: statvfs is plain integers; all-zero is a valid value.
     let mut s: libc::statvfs = unsafe { std::mem::zeroed() };
     // SAFETY: a NUL-terminated path and a writable statvfs.
     if unsafe { libc::statvfs(c.as_ptr(), &mut s) } != 0 {
