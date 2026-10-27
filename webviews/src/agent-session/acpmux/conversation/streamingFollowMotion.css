@@ -1,7 +1,9 @@
 /* Comparison-only motion recipes for agent-pane.streaming-follow-motion. The production pane
  * keeps the steady StreamReveal recipe; these variants make the trade-off visible in the gallery. */
-.streaming-follow-motion-gallery--smooth-follow .acpmux-scroll {
-  scroll-behavior: smooth;
+@media (prefers-reduced-motion: no-preference) {
+  :root:not([data-agent-motion="off"]) .streaming-follow-motion-gallery--smooth-follow .acpmux-scroll {
+    scroll-behavior: smooth;
+  }
 }
 
 @keyframes streaming-follow-subtle-fade {

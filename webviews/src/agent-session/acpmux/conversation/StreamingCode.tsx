@@ -68,20 +68,30 @@ function scheduleHighlight(callback: () => void): () => void {
   return () => window.clearTimeout(handle);
 }
 
+/// The bundled page starts Pierre's worker from its own `cmux-agent:`/`cmux-page:` origin. Keep
+/// that path eager so worker setup is not delayed; HTTP/dev and an explicitly failed worker use
+/// the bounded fallback handoff instead.
+function highlightWorkerAvailable(): boolean {
+  if (typeof location === "undefined" || typeof document === "undefined") return false;
+  const bundled = location.protocol === "cmux-agent:" || location.protocol === "cmux-page:";
+  return bundled && document.documentElement.dataset.cmuxHighlightWorker !== "failed";
+}
+
 /// A fence that closed while the reply streamed: highlighted once, then faded in over the plain card.
 /// While the parent reply is still streaming, the plain card stays in place and the decorative
 /// highlighter waits until the reply settles before it enters an idle window.
 export function CodeHandoff({ code, lang, streaming = false }: { code: string; lang: string; streaming?: boolean }) {
   const [stage, setStage] = useState<"plain" | "fading" | "done">("plain");
-  const [highlightReady, setHighlightReady] = useState(!streaming);
+  const deferHighlight = !highlightWorkerAvailable();
+  const [highlightReady, setHighlightReady] = useState(!streaming || !deferHighlight);
   const ref = useRef<HTMLDivElement>(null);
   // A fence that closed while the chat was hidden (or as it shows again) hands over without the
   // fade: nobody watched it close (shared/pageReveal.ts).
   const [closedAway] = useState(() => !entranceAllowed());
   useEffect(() => {
-    if (streaming || highlightReady) return;
+    if (streaming || highlightReady || !deferHighlight) return;
     return scheduleHighlight(() => setHighlightReady(true));
-  }, [highlightReady, streaming]);
+  }, [deferHighlight, highlightReady, streaming]);
   useLayoutEffect(() => {
     if (stage !== "plain" || !highlightReady) return;
     let frame = 0;

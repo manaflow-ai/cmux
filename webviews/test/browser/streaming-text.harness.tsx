@@ -271,6 +271,7 @@ function analyze(
   start: number,
   longTasks: { t: number; ms: number }[] | null,
   dockHeight: number,
+  streamWindowEnd: number,
 ) {
   const at = (t: number) => round2(t - start);
   const live = frames.filter((frame) => frame.live);
@@ -392,7 +393,7 @@ function analyze(
       totalMs: round2(longTasks.reduce((sum, task) => sum + task.ms, 0)),
       tasks: longTasks.slice(0, 20).map((task) => ({ t: at(task.t), ms: round2(task.ms) })),
       duringStream: longTasks
-        .filter((task) => task.t < start + (deltas.at(-1)?.at ?? 0) && task.ms > 50)
+        .filter((task) => task.t >= start && task.t < streamWindowEnd && task.ms > 50)
         .map((task) => ({ t: at(task.t), ms: round2(task.ms) })),
     },
     reveal: {
@@ -496,7 +497,7 @@ async function run({
     : null;
   const observer = longTasks
     ? new PerformanceObserver((list) => {
-        for (const entry of list.getEntries()) if (live) longTasks.push({ t: entry.startTime, ms: entry.duration });
+        for (const entry of list.getEntries()) if (sampling) longTasks.push({ t: entry.startTime, ms: entry.duration });
       })
     : undefined;
   observer?.observe({ type: "longtask", buffered: false });
@@ -539,7 +540,8 @@ async function run({
   sampling = false;
   observer?.disconnect();
   const dock = document.querySelector<HTMLElement>(".acpmux-dock")?.getBoundingClientRect().height ?? 0;
-  return analyze(cadence, deltas, frames, start, longTasks, dock);
+  const streamWindowEnd = start + (deltas.at(-1)?.at ?? 0) + StreamReveal.finishMs + 50 + settleMs;
+  return analyze(cadence, deltas, frames, start, longTasks, dock, streamWindowEnd);
 }
 
 (window as unknown as { __streamingText: { run: typeof run } }).__streamingText = { run };
