@@ -30,7 +30,7 @@ extension DaemonTraceLink {
     /// `trace-start` (cmux-tui server/trace_control.rs `StartParams`).
     struct StartRequest: DaemonRequest {
         typealias Response = CmuxNextDaemon.JSONValue
-        static let command = "trace-start"
+        static let commandName: DaemonCommandName = "trace-start"
         let categories: [String]?
         let keys: Bool
     }
@@ -38,13 +38,13 @@ extension DaemonTraceLink {
     /// `trace-stop`.
     struct StopRequest: DaemonRequest {
         typealias Response = CmuxNextDaemon.JSONValue
-        static let command = "trace-stop"
+        static let commandName: DaemonCommandName = "trace-stop"
     }
 
     /// `trace-status`.
     struct StatusRequest: DaemonRequest {
         typealias Response = CmuxNextDaemon.JSONValue
-        static let command = "trace-status"
+        static let commandName: DaemonCommandName = "trace-status"
     }
 }
 
