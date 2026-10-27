@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { act } from "react";
+import { act, StrictMode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import { noChat } from "../../../gallery/fixtures/acpmux";
@@ -115,4 +115,54 @@ test("a chosen document uses the New Tab upload path and becomes sendable", asyn
   expect((asks[0] as unknown[])[5]).toEqual([
     expect.objectContaining({ kind: "link", path: "/tmp/notes.txt", saved: true }),
   ]);
+});
+
+test("keeps a changed machine choice while browse settles, then permits retry", async () => {
+  const replies: { resolve(folder: string): void; reject(error: Error): void }[] = [];
+  await act(async () => {
+    root!.render(
+      <StrictMode>
+        <NewTabScreen
+          snapshot={noChat([], { peers: ["test-machine"], peerKinds: { "test-machine": "ssh" } })}
+          environments
+          projects={[{ cwd: "/Users/you/src/cmux", label: "cmux" }]}
+        onBrowseProject={() =>
+          new Promise<string | undefined>((resolve, reject) => replies.push({ resolve, reject }))
+        }
+          onAsk={() => {}}
+          onOpen={() => {}}
+          onSearch={() => {}}
+          onShell={() => {}}
+          onJump={() => {}}
+          onOpenSession={() => {}}
+          onShowAll={() => {}}
+        />
+      </StrictMode>,
+    );
+  });
+
+  const browse = async () => {
+    await act(async () => container.querySelector<HTMLButtonElement>(".nt-location .acpmux-location-button")!.click());
+    await act(async () => document.querySelector<HTMLElement>("[data-choose]")!.click());
+  };
+  const machine = async (kind: string) => {
+    await act(async () => container.querySelector<HTMLButtonElement>('[data-kind="computer"] button')!.click());
+    await act(async () => document.querySelector<HTMLElement>(`.acpmux-env-row[data-kind="${kind}"]`)!.click());
+  };
+  await browse();
+  expect(replies).toHaveLength(1);
+  await machine("ssh");
+  await machine("local");
+  await browse();
+  expect(replies).toHaveLength(1);
+  await act(async () => replies[0]!.resolve("/Users/you/src/stale"));
+  expect(container.querySelector(".nt-location")?.textContent).not.toContain("stale");
+  expect(container.querySelector('[role="alert"]')).toBeNull();
+  await browse();
+  expect(replies).toHaveLength(2);
+  await act(async () => replies[1]!.reject(new Error("Folder access was denied.")));
+  expect(container.querySelector('[role="alert"]')?.textContent).toContain("Folder access was denied.");
+  expect(container.querySelectorAll(".acpmux-folder-choice-button")).toHaveLength(2);
+  await machine("ssh");
+  expect(container.querySelector('[role="alert"]')).toBeNull();
 });

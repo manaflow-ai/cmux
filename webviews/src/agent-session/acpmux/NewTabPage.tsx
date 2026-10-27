@@ -9,6 +9,7 @@ import { ArrowUpIcon } from "./ComposerPickers";
 import { useComposerLook } from "./composerLook";
 import { useComposerSettings } from "./composerSettings";
 import type { AcpmuxSnapshot } from "./model";
+import type { BrowseRequest } from "./AddProjectPanel";
 import { ProjectChooser, type Project } from "./ProjectChooser";
 import {
   defaultRow,
@@ -315,7 +316,7 @@ type Props = {
   onShowAll(): void;
   onEditShortcut?(kind: TabKind): void;
   /// Choose Folder…: the host's folder panel; resolves to the picked folder.
-  onBrowseProject?(): Promise<string | undefined>;
+  onBrowseProject?(request?: BrowseRequest): Promise<string | undefined>;
   now?: number;
 };
 
@@ -716,13 +717,7 @@ export function NewTabPage({
                   currentLabel={selectedProject}
                   icon={<FolderIcon />}
                   onPick={setProjectCwd}
-                  onBrowse={
-                    onBrowseProject &&
-                    (() =>
-                      void onBrowseProject().then((picked) => {
-                        if (picked) setProjectCwd(picked);
-                      }))
-                  }
+                  onBrowse={onBrowseProject}
                 />
               )}
               {kind === "terminal" && (

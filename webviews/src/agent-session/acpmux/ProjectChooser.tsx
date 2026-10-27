@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { ChevronIcon } from "./ComposerPickers";
+import type { BrowseRequest } from "./AddProjectPanel";
 import { useT } from "./i18n";
 import { Popover } from "../../ui/Popover";
 import { Combobox } from "../../ui/Combobox";
@@ -48,7 +49,7 @@ export function ProjectChooser({
   currentLabel?: string;
   icon: React.ReactNode;
   onPick(cwd: string, peer?: string): void;
-  onBrowse?(): void;
+  onBrowse?(request?: BrowseRequest): Promise<string | undefined> | string | undefined | void;
   onNoProject?(): void;
   /// The chat is in no project: Do not work in a project is checked, and picking it changes nothing.
   noProject?: boolean;

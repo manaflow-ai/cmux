@@ -575,5 +575,26 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
         },
       },
     },
+    "started-browse-error": {
+      note: "A refused folder chooser leaves a started chat in place with a localized reason and direct Retry and Dismiss actions.",
+      props: {
+        ...baseProps,
+        started: true,
+        summary: {
+          sessionId: "gallery-started-browse-error",
+          harness: "claude",
+          cwd: projects[0]!.cwd,
+          host: "This Mac",
+          hostKind: "local",
+        },
+        onNewChat: () => undefined,
+        onBrowseFolder: () => Promise.reject(new Error("Folder access was denied.")),
+      },
+      play: async (ctx) => {
+        await ctx.click({ role: "button", name: "Folder" });
+        await ctx.click({ selector: ".acpmux-location-choose:last-child" });
+        await ctx.waitFor(() => ctx.document.querySelector('[role="alert"]'));
+      },
+    },
   },
 });

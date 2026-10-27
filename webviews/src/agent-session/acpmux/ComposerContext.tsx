@@ -1,7 +1,8 @@
-import React, { useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Combobox } from "../../ui/Combobox";
 import { Menu, MenuButton, MenuPopup, MenuRadioGroup, MenuRadioItem } from "../../ui/Menu";
 import { Popover } from "../../ui/Popover";
+import { BrowseFailure, browseFailureMessage } from "./BrowseFailure";
 import type { AcpmuxSnapshot } from "./model";
 import { ChevronIcon } from "./ComposerPickers";
 import {
@@ -211,6 +212,14 @@ export function ComposerContext({
   // so a pick on one new chat never carries into the next.
   const pickKey = `${summary?.sessionId ?? ""}\u0000${initialComputer}`;
   const [picked, setPicked] = useState<{ key: string; computer?: string }>({ key: pickKey });
+  const [browseError, setBrowseError] = useState<string>();
+  const browseRequest = useRef(0);
+  useEffect(
+    () => () => {
+      browseRequest.current += 1;
+    },
+    [],
+  );
   if (picked.key !== pickKey) setPicked({ key: pickKey });
   const selectedComputer = picked.key === pickKey && picked.computer ? picked.computer : initialComputer;
   const setSelectedComputer = (computer: string) => setPicked({ key: pickKey, computer });
@@ -269,9 +278,16 @@ export function ComposerContext({
   const browseNewChat =
     onBrowseFolder && onNewChat
       ? () => {
-          void onBrowseFolder().then((cwd) => {
-            if (cwd) onNewChat(cwd);
-          });
+          const request = ++browseRequest.current;
+          setBrowseError(undefined);
+          void Promise.resolve()
+            .then(() => onBrowseFolder())
+            .then((cwd) => {
+              if (request === browseRequest.current && cwd) onNewChat(cwd);
+            })
+            .catch((error: unknown) => {
+              if (request === browseRequest.current) setBrowseError(browseFailureMessage(error));
+            });
         }
       : undefined;
   // An account Cloud machine acpmux does not list runs its machine action: no chat starts on it here.
@@ -436,6 +452,9 @@ export function ComposerContext({
             />
           )}
         </div>
+        {browseError && browseNewChat && (
+          <BrowseFailure error={browseError} onRetry={browseNewChat} onDismiss={() => setBrowseError(undefined)} />
+        )}
         {branch && <BranchPicker branch={branch} />}
       </div>
     </div>
