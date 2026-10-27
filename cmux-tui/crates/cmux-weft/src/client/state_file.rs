@@ -95,7 +95,12 @@ mod tests {
     /// debug and counts as stalled).
     #[test]
     fn load_and_save_keep_file_work_off_the_runtime_thread() {
-        let runtime = cmux_blocking::runtime::current_thread().build().unwrap();
+        let runtime = cmux_blocking::runtime::current_thread(
+            "cmux-weft-test",
+            cmux_threads::ThreadQos::Utility,
+        )
+        .build()
+        .unwrap();
         let directory = tempfile::tempdir().unwrap();
         let path = directory.path().join("state.json");
         let stalled = cmux_blocking::counts().stalled;

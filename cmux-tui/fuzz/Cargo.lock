@@ -806,6 +806,7 @@ dependencies = [
  "cmux-hang-watch",
  "cmux-ipc",
  "cmux-memory",
+ "cmux-panic-log",
  "cmux-threads",
  "cmux-trace",
  "libc",
@@ -1368,6 +1369,7 @@ dependencies = [
  "getrandom 0.3.4",
  "libc",
  "rusqlite",
+ "serde",
  "serde_json",
 ]
 

@@ -842,6 +842,7 @@ dependencies = [
  "cmux-panic-log",
  "cmux-pty",
  "cmux-server-core",
+ "cmux-threads",
  "futures-util",
  "getrandom 0.3.4",
  "http",
@@ -1221,10 +1222,12 @@ dependencies = [
  "cmux-hang-watch",
  "cmux-ipc",
  "cmux-memory",
+ "cmux-panic-log",
  "cmux-process",
  "cmux-threads",
  "cmux-trace",
  "libc",
+ "serde_json",
 ]
 
 [[package]]
@@ -1970,6 +1973,7 @@ dependencies = [
  "getrandom 0.3.4",
  "libc",
  "rusqlite",
+ "serde",
  "serde_json",
 ]
 
