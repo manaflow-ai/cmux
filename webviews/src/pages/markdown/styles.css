@@ -130,6 +130,10 @@ body {
   color: var(--cmux-md-muted-color);
 }
 
+.md-edit-button {
+  font-weight: 600;
+}
+
 .md-mode {
   display: inline-flex;
   flex: 0 0 auto;

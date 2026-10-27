@@ -58,6 +58,19 @@ struct RestoredInternalPageTabTests {
         #expect(TabTitleResolver(pages: pages).title(tab) == ChangelogPageStrings.title)
     }
 
+    @Test(arguments: [InternalPageID.appStore, .changelog])
+    func restoredPreviewPagesWaitForThePreviewSetting(_ page: InternalPageID) throws {
+        let pages = InternalPageTabStore()
+        let provider = Page(page)
+        pages.register(provider)
+        let (store, tab) = try Self.restoredTab(page, route: "saved-route")
+        #expect(pages.view(forStoreTab: tab, in: store, local: true, window: nil) == nil)
+        let key = pages.open(page, in: "preview-pane", of: store)
+        #expect(pages.view(for: key) == nil)
+        #expect(provider.made == 0)
+        #expect(provider.restored.isEmpty)
+    }
+
     @Test func lateRegistrationRefreshesTheStripAndRestoresTheViewOnlyOnce() throws {
         let pages = InternalPageTabStore()
         let page = InternalPageID(rawValue: "late-page")

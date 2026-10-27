@@ -734,6 +734,28 @@ def handle_prompt(rid, params):
         MODE_OPTION[sid] = was
         update(sid, {"sessionUpdate": "config_option_update", "configOptions": mode_options(sid)})
         return handle_prompt(rid, dict(params, prompt=[{"type": "text", "text": "guard: rm -rf \"$TARGET\""}]))
+    # "set-option: ID VALUE": the harness moves a config option of its own (not its mode) to VALUE.
+    if text.startswith("set-option:"):
+        oid, value = text[11:].strip().split(" ", 1)
+        update(sid, {"sessionUpdate": "config_option_update", "configOptions": mode_options(sid) + [
+            {"id": oid, "name": oid, "type": "select", "currentValue": value,
+             "options": [{"value": value, "name": value}]}]})
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        return
+    # "subagent-mode: X": subagent child-2 starts and reports mode X; the session's own mode stays.
+    if text.startswith("subagent-mode:"):
+        update(sid, {"sessionUpdate": "subagent_spawned", "subagentSessionId": "child-2", "name": "Child", "task": "Child", "capabilities": {}})
+        update("child-2", {"sessionUpdate": "current_mode_update", "currentModeId": text[14:].strip()})
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        return
+    # "set-mode-after: MS X": the turn ends; MS later, outside any turn, the harness changes its
+    # own mode to X (a daemon may have left meanwhile: its host keeps the update for the next one).
+    if text.startswith("set-mode-after:"):
+        ms, mode = text[15:].strip().split(" ", 1)
+        later = {"sessionUpdate": "current_mode_update", "currentModeId": mode.strip()}
+        threading.Timer(int(ms) / 1000, update, args=(sid, later)).start()
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        return
     # "set-mode: X": the harness changes its own mode, as a real one may.
     if text.startswith("set-mode:"):
         update(sid, {"sessionUpdate": "current_mode_update", "currentModeId": text[9:].strip()})
@@ -1412,14 +1434,14 @@ def main():
                      "options": [{"value": v, "name": n} for v, n in CLAUDE_MODELS]}]
             send({"jsonrpc": "2.0", "id": rid, "result": result})
         elif m == "session/set_mode":
-            # FAKE_SET_MODE_FAIL=1: the harness refuses every mode change.
-            if os.environ.get("FAKE_SET_MODE_FAIL") == "1":
-                send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32603, "message": "mode change refused"}})
-                continue
             # FAKE_SET_MODE_DELAY_MS: each mode change takes that long to answer.
             if os.environ.get("FAKE_SET_MODE_DELAY_MS"):
                 import time as pause  # main() binds `time` locally
                 pause.sleep(int(os.environ["FAKE_SET_MODE_DELAY_MS"]) / 1000)
+            # FAKE_SET_MODE_FAIL=1: the harness refuses every mode change (after that delay).
+            if os.environ.get("FAKE_SET_MODE_FAIL") == "1":
+                send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32603, "message": "mode change refused"}})
+                continue
             send({"jsonrpc": "2.0", "id": rid, "result": {}})
         elif m == "session/set_config_option":
             v = params.get("value")

@@ -361,7 +361,7 @@ OWNED_VARIABLE = "CI_PR_POOL_OWNED"
 SPLIT_VARIABLE = "CI_PR_POOL_OWNED_SPLIT"
 SLOTS_VARIABLE = "CI_OWNED_POOL_SLOTS"
 LIGHT_CLASS = "light"
-# github-actions[bot] re-runs a run only after a host fault on a mini: the rescue after a refusal or a
+# The rescue bot (RESCUE_ACTORS) re-runs a run only after a host fault on a mini: the rescue after a refusal or a
 # stuck queue (owned_pool_rescue.py), the failure attribution when every failed job is a machine failure
 # (classify_failures.py). Its attempt 2 still goes to the owned pool first, like attempt 1: a runner that
 # lost communication is offline, and a busy mini's gui runner stops listening, so the label hands the job
@@ -370,13 +370,16 @@ LIGHT_CLASS = "light"
 # them to retry_runner (Blacksmith), which ends the loop. Anyone else's re-run follows a code or test
 # failure and goes back to the owned pool on any attempt.
 RESCUE_ACTOR = "github-actions[bot]"
+# Its re-runs come from either identity: GITHUB_TOKEN's, or the cmux-bot App's token the rescue now re-runs
+# with. A cmux-bot re-run counted as a person's went back to the owned label on every attempt and looped.
+RESCUE_ACTORS = frozenset({RESCUE_ACTOR, "cmux-bot[bot]"})
 # The last attempt of the bot's re-runs that may take an owned pool (owned_pool_rescue.LAST_OWNED_ATTEMPT).
 LAST_OWNED_ATTEMPT = 2
 
 
 def host_fault_retry(run_attempt: int, triggering_actor: str | None) -> bool:
-    """The bot's re-run past LAST_OWNED_ATTEMPT (see RESCUE_ACTOR): it goes to Blacksmith."""
-    return run_attempt > LAST_OWNED_ATTEMPT and (triggering_actor or "").strip() == RESCUE_ACTOR
+    """The bot's re-run past LAST_OWNED_ATTEMPT (see RESCUE_ACTORS): it goes to Blacksmith."""
+    return run_attempt > LAST_OWNED_ATTEMPT and (triggering_actor or "").strip() in RESCUE_ACTORS
 MAIN_RESERVE_VARIABLE = "CI_OWNED_MAIN_RESERVE"
 # Machines and root runners main's full suite leaves free for pull requests.
 # 0: main takes the minis like a pull request. A reserve lets it in only
@@ -521,6 +524,18 @@ class Settings:
     stale: tuple[str, ...] = ()
     # CI_PR_POOL_QUEUE_ROUNDS; 0 for a caller that does not pass it (E2E, iOS).
     queue_rounds: int = 0
+
+
+# The dedicated nightly-next builder's label (plans/cmux-next/nightly-builder-DESIGN.md): one mini
+# whose job-started hook admits only nightly-next's app build and signed-app verify. It is one
+# machine, so the picker offers it only while it is online and free (nightly_build_runner.py), and
+# ci-owned-pool-rescue.yml moves a job queued on it past its budget, as on an owned pool.
+NIGHTLY_DEDICATED_LABEL = "glaeda-trusted-next-nightly"
+
+
+def nightly_dedicated(label: str) -> bool:
+    """The dedicated nightly-next builder's label."""
+    return (label or "") == NIGHTLY_DEDICATED_LABEL
 
 
 def persistent(label: str) -> bool:

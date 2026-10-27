@@ -559,6 +559,24 @@ button.nt-widget-row:hover{background:color-mix(in srgb,var(--agent-text) 6%,tra
    pane), so the New Tab composer is as wide as the chat composer in the same pane (Leo 2026-10-21). */
 /* The quiet row sits 4 px under the box (the column gap is 6). */
 .nt-foot .acpmux-composer-foot { margin-top: -2px; }
+/* Claude's location controls share the existing quiet row, never a tray of their own (Leo:
+   "the claw thing should be one single row"). Codex and the non-split templates retain theirs. */
+.nt-foot :is(.nt-location, .acpmux-composer-strip, .acpmux-composer-context) {
+  display: contents;
+}
+.nt-foot .acpmux-composer-strip::after { content: none; }
+.nt-foot .acpmux-composer-context > .acpmux-location-leading {
+  order: -3;
+  flex: 0 1 auto;
+  max-width: 45%;
+  margin-inline-end: auto;
+}
+.nt-foot:has(.acpmux-access) .acpmux-location-leading { margin-inline-end: 0; }
+.nt-foot .acpmux-composer-context > .acpmux-location-picker:last-child {
+  order: -2;
+  margin-inline: 0;
+}
+
 /* The stage layout (templates.ts stage; Leo 2026-10-19, Claude Code desktop's new-session screen):
    the composer at the foot of the page, full width of the column; over it the stage, which scrolls
    on its own and centers its cards in the free space, so a list growing or a chat landing never
