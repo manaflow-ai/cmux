@@ -42,7 +42,8 @@ extension HomeService {
                 guard let self, !Task.isCancelled else { return }
                 homeWorkspaceID = home
                 settleHomeEnsure(generation)
-                homeWorkspaceStep = await (HomeDock.classic ? "ensured \(home)" : dock.ensure(connection, store: services.machines.local.store, home: home) {
+                homeWorkspaceStep = await (HomeDock.classic ? "ensured \(home)" : dock.ensure(connection, store: services.machines.local.store, home: home,
+                                                                                                   work: services.mainWork) {
                     TabMoves.toNewDockColumn($0, anchor: $1, edge: .left, role: .agentChat, respawn: $2, pinned: $3, services: services,
                                              completion: $4) })
                 try await ensureChiefTab(connection, home: home)

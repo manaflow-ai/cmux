@@ -52,6 +52,9 @@ final class CEFHostStart {
     private(set) var acksWheels = false
     /// The attached host ended (``hostEnded()``) and no new one is attached yet.
     private(set) var hostGone = false
+    /// Which host is attached: one more after each ``hostEnded()``. Work begun for one host compares it
+    /// to know that host is still the one attached, as a mojo reply callback dies with its pipe.
+    private(set) var generation = 0
 
     /// `helloDeadline`: how long, on `clock`, the host may take from the attach to its hello
     /// before the start fails (a host that hangs while it starts Chromium). Reply deadlines run on
@@ -100,6 +103,7 @@ final class CEFHostStart {
         remote?.detach()
         files?.hostEnded()
         (task, remote, mapsClientIDs, acksWheels, hostGone, pageResizes) = (nil, nil, false, false, true, nil)
+        generation += 1
     }
 
     /// The REPLY token of the async shim call this turn just made, now expected in ``replies``;
