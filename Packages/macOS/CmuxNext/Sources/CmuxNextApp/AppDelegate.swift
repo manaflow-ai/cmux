@@ -109,8 +109,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        // Design mode files a crash left (BrowserDesignModeTempFiles); off the main thread.
-        Task.detached(priority: .background) { BrowserDesignModeController.tempFiles.removeAll() }
         // SIGTERM, SIGINT and SIGHUP (dev tooling, `kill`, Ctrl-C) are
         // "Quit, keep sessions" with no alert.
         QuitSignal.install(quit: { [weak self] in
@@ -132,12 +130,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // An agent or bench launch must never come back by itself: without this, loginwindow reopens it at
         // the next login (without the agent's environment, so it activates and takes the tag's socket).
         if environment.isolatedLaunch { NSApp.disableRelaunchOnLogin() }
-        // A `cmux` shim outside this app runs the CLI of the app opened last
-        // (plans/cmux-next/version-skew.md); an isolated launch never claims it.
+        // Design mode files a crash left, and the CLI pointer a `cmux` shim outside this app runs
+        // (plans/cmux-next/version-skew.md; an isolated launch never claims it): fenced files-lane posts.
+        var publishCLIPointer: (@Sendable () -> Void)?
         if LastAppCLIPointer.shouldPublish(environment: ProcessInfo.processInfo.environment),
            let cli = Bundle.main.resourceURL?.appendingPathComponent("bin/cmux").path {
-            Task.detached(priority: .utility) { LastAppCLIPointer().publish(cliPath: cli) }
+            publishCLIPointer = { _ = LastAppCLIPointer().publish(cliPath: cli) }
         }
+        LaunchFileJobs(removeDesignModeTempFiles: { BrowserDesignModeController.tempFiles.removeAll() },
+                       publishCLIPointer: publishCLIPointer).post(on: launchReads.work)
         // The rest runs with main()'s settings read, now or when it lands (the startup's main hop, unbudgeted):
         // no wait, no frame in the defaults (p08-startup 025). The launch marks end where the launch work ends.
         settingsRead.whenRead(hop: .userVisible, startup: order.startup, take: { [logger] read in
