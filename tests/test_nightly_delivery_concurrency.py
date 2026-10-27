@@ -16,7 +16,7 @@ WORKFLOWS = ROOT / ".github" / "workflows"
 sys.path.insert(0, str(ROOT / "scripts" / "ci"))
 from delivery_workflows import (  # noqa: E402
     DELIVERY_GLOBS, DELIVERY_RUN_NAME_PREFIXES, REQUIRED_DELIVERY_WORKFLOWS, is_delivery_run, is_delivery_workflow)
-from delivery_concurrency import can_be_shared, findings, stale_allowances  # noqa: E402
+from delivery_concurrency import can_be_shared, findings, matching, stale_allowances  # noqa: E402
 
 # Shared groups in delivery workflows that may replace a waiting run, and why. Each is a run that
 # builds and publishes nothing itself, or whose waiting runs are interchangeable (it reads the tip or
@@ -35,8 +35,8 @@ ALLOWED_SHARED: dict[tuple[str, str], str] = {
         "the tick dispatches no build itself (test_delivery_coalescers_have_fixed_backstops...); a sha "
         "request has its own group"),
     ("nightly-next-train.yml", "drive"): (
-        "the train planner builds and publishes nothing; it plans from the durable verdict to the newest "
-        "tip when it starts, and a candidate build runs in its own mode build run"),
+        "only plain drives share it: each plans from the durable verdict to the branch tip when it starts; "
+        "a fix-forward or a given tip has a group per run"),
     ("nightly.yml", ""): (
         "every push run and promotion request is keyed by its run id; the shared lanes are the scheduled "
         "cache seed and manual fast/full dispatches, which build the branch tip when they start "
@@ -46,8 +46,9 @@ ALLOWED_SHARED: dict[tuple[str, str], str] = {
         "evicted from this queue"),
     ("nightly.yml", "await-release-surface-ack"): "retired (if: false); it never runs",
     ("nightly.yml", "publish-nightly"): (
-        "runs only for private branch artifacts (should_publish != 'true'); published channels publish "
-        "through auto-resume-nightly-notarization.yml under one R2 lease, with no group"),
+        "KNOWN GAP, follow-up: runs only for branch builds that are not main or rc (should_publish != "
+        "'true'); published channels go through auto-resume-nightly-notarization.yml under one R2 lease. "
+        "Moving this job under that lease changes nightly.yml, which is sequenced separately"),
 }
 
 # Workflows whose listed jobs take no concurrency group at all, top-level or
@@ -72,8 +73,7 @@ NO_CONCURRENCY_GROUP: dict[str, tuple[str, ...]] = {
 
 
 def delivery_workflows() -> list[Path]:
-    paths = {path for pattern in DELIVERY_GLOBS for path in WORKFLOWS.glob(pattern)}
-    return sorted(paths)
+    return matching(WORKFLOWS, DELIVERY_GLOBS)
 
 
 def load(path: Path) -> dict:
@@ -124,6 +124,8 @@ def test_the_shared_group_check_tells_keyed_groups_from_fixed_ones() -> None:
     assert can_be_shared("x-${{ inputs.channel }}-${{ inputs.variant }}")
     assert can_be_shared("${{ inputs.sha != '' && format('t-{0}', github.run_id) || 't' }}")
     assert can_be_shared("c-${{ github.event.pull_request.number || 'feed' }}")
+    assert can_be_shared("d-${{ matrix.os }}")
+    assert can_be_shared("c-${{ github.event.pull_request.number }}")
     assert not can_be_shared("x-${{ github.run_id }}")
     assert not can_be_shared("x-${{ github.sha }}")
     assert not can_be_shared("s-${{ github.event.workflow_run.id || inputs.source_run_id }}")
@@ -161,6 +163,12 @@ jobs:
     assert any("job b: group 'fixed'" in p for p in found), found
     assert not any("job a: group" in p for p in found), found
     assert len(found) == 3, found
+    deep = "jobs:\n    a:\n        runs-on: x\n        concurrency:\n            group: fixed\n"
+    with tempfile.TemporaryDirectory() as folder:
+        path = Path(folder) / "nightly-deep.yaml"
+        path.write_text(deep, encoding="utf-8")
+        assert matching(Path(folder), ("nightly*.yml",)) == [path]
+        assert any("job a: group 'fixed'" in p for p in findings(path, {}))
 
 
 def test_newest_wins_jobs_take_no_concurrency_group() -> None:

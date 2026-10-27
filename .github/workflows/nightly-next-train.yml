@@ -84,8 +84,12 @@ jobs:
       contents: read
       issues: write # the nightly-next quarantine issue (direct pushes)
       pull-requests: write # one quarantine comment per car
+    # A fix-forward (pulled_build) or a train to a given tip has its own group, so
+    # a newer request never replaces it. Plain drives share one: each plans from
+    # the durable verdict to the branch tip when it starts, so the waiting one
+    # does the work of any it replaced.
     concurrency:
-      group: nightly-next-train
+      group: ${{ inputs.pulled_build != '' && format('nightly-next-train-fix-{0}-{1}', inputs.pulled_build, github.run_id) || inputs.tip != '' && format('nightly-next-train-tip-{0}', github.run_id) || 'nightly-next-train' }}
       cancel-in-progress: false
     steps:
       # The scripts always run from the dispatched feat-cmux-next head, never

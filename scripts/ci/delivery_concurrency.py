@@ -25,12 +25,12 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-# A reference that differs between two runs carrying different work: the run, the commit, the build
-# or source run a job computed or was handed, a matrix leg, a PR.
+# A reference that differs between two runs carrying different work: the run, the commit, or the
+# build or source run a job computed or was handed. A matrix leg, a PR number or a branch name is not
+# one: two commits share them (and a PR number is empty outside pull_request events).
 VARYING = re.compile(
     r"github\.run_id|github\.sha\b|head_sha|github\.event\.workflow_run\.id|"
-    r"(?:needs\.[\w-]+\.outputs|inputs)\.[\w-]*(?:sha|build|run_id|run)\b|matrix\.|github\.event\.pull_request\.number|"
-    r"github\.event\.number|github\.head_ref")
+    r"(?:needs\.[\w-]+\.outputs|inputs)\.[\w-]*(?:sha|build|run_id|run)\b")
 PR_ONLY_CANCEL = "${{ github.event_name == 'pull_request' }}"
 
 
@@ -114,24 +114,28 @@ def concurrency_blocks(text: str) -> list[tuple[str, dict[str, str]]]:
     (owner: the job id). A form this reader does not know is returned as {"unreadable": line}."""
     lines = text.splitlines()
     blocks: list[tuple[str, dict[str, str]]] = []
-    in_jobs, job, job_indent = False, "", None
+    # The indent of job ids under `jobs:`, and of the current job's own keys (whatever the file uses).
+    in_jobs, job, job_indent, prop_indent = False, "", None, None
     for index, line in enumerate(lines):
         if not line.strip() or line.lstrip().startswith("#"):
             continue
         indent = len(line) - len(line.lstrip(" "))
         if indent == 0:
             in_jobs = line.startswith("jobs:")
-            job, job_indent = "", None
+            job, job_indent, prop_indent = "", None, None
         elif in_jobs and (job_indent is None or indent == job_indent) and re.match(r"\s+[\w-]+:\s*$", line):
-            job_indent = indent
+            job_indent, prop_indent = indent, None
             job = line.strip()[:-1]
+            continue
+        elif in_jobs and job and prop_indent is None and job_indent is not None and indent > job_indent:
+            prop_indent = indent
         match = re.match(r"(\s*)concurrency:(.*)$", line)
         if not match:
             continue
         own = len(match.group(1))
         if own == 0:
             owner = ""
-        elif in_jobs and job_indent is not None and own == job_indent + 2:
+        elif in_jobs and job and own == prop_indent:
             owner = job
         else:
             continue  # an input or step field named concurrency, not a group
@@ -176,6 +180,16 @@ def findings(path: Path, allowed_shared: dict[tuple[str, str], str]) -> list[str
                 "GitHub would replace a waiting one; key it per run or per SHA/build (or drop it), or declare "
                 "it in ALLOWED_SHARED if every run that can wait in it is interchangeable")
     return problems
+
+
+def matching(folder: Path, patterns: tuple[str, ...]) -> list[Path]:
+    """Workflow files in folder whose name matches a pattern, as .yml or .yaml."""
+    found = set()
+    for pattern in patterns:
+        stem = pattern[:-4] if pattern.endswith(".yml") else pattern
+        for suffix in (".yml", ".yaml"):
+            found.update(folder.glob(stem + suffix))
+    return sorted(found)
 
 
 def stale_allowances(workflows: list[Path], allowed_shared: dict[tuple[str, str], str]) -> list[str]:
