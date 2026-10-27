@@ -118,7 +118,7 @@ extension CloudHandlers {
             guard !creation.isTornDown, availability == .available, let userID,
                   cloud.auth.user?.id == userID, cloud.auth.teamID == teamID else { return }
             try await wizard.offerCredentialSetup(machine: session.machine.title,
-                account: cloud.auth.activeTeam.team?.displayName ?? String(localized: "cloud.workspaceSetup.personalAccount", defaultValue: "Personal account", table: "Cloud", bundle: .module), present: present) { provider in
+                account: cloud.auth.activeTeam.team?.displayName ?? CloudWorkspaceSetupWizard.personalAccountTitle, present: present) { provider in
                 let transfer = CloudCredentialTransfer(provider: provider == .claude ? .claude : .codex,
                     machineID: session.machineID, teamID: teamID, userID: userID, openTerminal: { [weak services] line in
                         await services?.openLocalProviderLogin(line) ?? false
