@@ -34,7 +34,29 @@ impl ProviderSecret {
         }
         a.iter().zip(b).fold(0u8, |acc, (x, y)| acc | (x ^ y)) == 0
     }
+
+    /// The credential of the Chromium Host's relay link (p01-process-233):
+    /// HMAC-SHA256 of [`RELAY_CREDENTIAL_CONTEXT`] keyed by this secret's
+    /// UTF-8 bytes, as 64 lowercase hex digits. The app derives it from the
+    /// daemon-minted secret and hands only it to its Chromium Host, so the
+    /// host can open a relay link and nothing else: a `hello` with it is
+    /// refused, and the secret never leaves the app.
+    pub fn relay_credential(&self) -> ProviderSecret {
+        use hmac::{Hmac, Mac};
+        let mut mac = <Hmac<sha2::Sha256> as Mac>::new_from_slice(self.0.as_bytes())
+            .expect("HMAC takes any key length");
+        mac.update(RELAY_CREDENTIAL_CONTEXT);
+        let digest = mac.finalize().into_bytes();
+        ProviderSecret(digest.iter().map(|byte| format!("{byte:02x}")).collect())
+    }
 }
+
+/// What the relay credential signs ([`ProviderSecret::relay_credential`]);
+/// the app's `ProviderSecret.relayCredential` signs the same bytes.
+pub const RELAY_CREDENTIAL_CONTEXT: &[u8] = b"cmux-chromium-host-relay-v1";
+
+/// The relay link's protocol version (`relay.hello`).
+pub const RELAY_VERSION: u32 = 1;
 
 impl fmt::Debug for ProviderSecret {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -207,6 +229,60 @@ pub enum Frame {
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         extensions: Vec<String>,
     },
+    /// Makes a CEF tab agent-ready without relaying it through the app
+    /// (host -> app; p01-process-233): the app marks and prepares the page as
+    /// for `cdp.attach`, then answers with the event `tab.relay.direct`
+    /// (`targetId`, `browser`, `hostPid`) or `tab.relay.failed` (`targetId`,
+    /// `reason`). Sent only while the app's Chromium Host holds a relay link.
+    #[serde(rename = "cdp.prepare")]
+    CdpPrepare {
+        #[serde(rename = "targetId")]
+        target_id: String,
+    },
+    /// A capture command went straight to the Chromium Host (host -> app):
+    /// the app takes or ends the tab's capture vote, as it does for the
+    /// commands it relays itself. `capture` is `screenshot` (one per `id`,
+    /// active until its reply) or `screencast`.
+    #[serde(rename = "cdp.capture")]
+    CdpCapture {
+        #[serde(rename = "targetId")]
+        target_id: String,
+        capture: String,
+        active: bool,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        id: Option<u64>,
+    },
+    /// The Chromium Host's relay link opens (Chromium Host -> host): the
+    /// relay credential ([`ProviderSecret::relay_credential`]) and the
+    /// host's own pid.
+    #[serde(rename = "relay.hello")]
+    RelayHello { version: u32, pid: u32, credential: ProviderSecret },
+    /// The host accepted `relay.hello`.
+    #[serde(rename = "relay.hello.ack")]
+    RelayHelloAck {},
+    /// Relay a tab's raw DevTools on the link (host -> Chromium Host):
+    /// `browser` is the id cmux named the tab's page by.
+    #[serde(rename = "relay.attach")]
+    RelayAttach {
+        #[serde(rename = "targetId")]
+        target_id: String,
+        browser: i32,
+    },
+    /// Stop relaying a tab (host -> Chromium Host).
+    #[serde(rename = "relay.detach")]
+    RelayDetach {
+        #[serde(rename = "targetId")]
+        target_id: String,
+    },
+    /// A relayed tab's page went away in the Chromium Host (Chromium Host
+    /// -> host): the relay ends, and the next call attaches again.
+    #[serde(rename = "relay.closed")]
+    RelayClosed {
+        #[serde(rename = "targetId")]
+        target_id: String,
+        #[serde(default)]
+        reason: String,
+    },
 }
 
 /// Debug output names the frame and its ids only: `call` params, raw CDP
@@ -268,6 +344,35 @@ impl fmt::Debug for Frame {
                 .field("op", op)
                 .field("target_id", target_id)
                 .field("actor", actor)
+                .finish(),
+            Frame::CdpPrepare { target_id } => {
+                f.debug_struct("CdpPrepare").field("target_id", target_id).finish()
+            }
+            Frame::CdpCapture { target_id, capture, active, id } => f
+                .debug_struct("CdpCapture")
+                .field("target_id", target_id)
+                .field("capture", capture)
+                .field("active", active)
+                .field("id", id)
+                .finish(),
+            Frame::RelayHello { version, pid, .. } => f
+                .debug_struct("RelayHello")
+                .field("version", version)
+                .field("pid", pid)
+                .finish_non_exhaustive(),
+            Frame::RelayHelloAck {} => f.write_str("RelayHelloAck"),
+            Frame::RelayAttach { target_id, browser } => f
+                .debug_struct("RelayAttach")
+                .field("target_id", target_id)
+                .field("browser", browser)
+                .finish(),
+            Frame::RelayDetach { target_id } => {
+                f.debug_struct("RelayDetach").field("target_id", target_id).finish()
+            }
+            Frame::RelayClosed { target_id, reason } => f
+                .debug_struct("RelayClosed")
+                .field("target_id", target_id)
+                .field("reason", reason)
                 .finish(),
             Frame::TabAccess { target_id, extension_host_access, user_override, .. } => f
                 .debug_struct("TabAccess")

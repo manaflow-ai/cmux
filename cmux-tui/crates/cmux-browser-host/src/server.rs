@@ -194,24 +194,43 @@ fn accept_provider(
     agent_bundle: &str,
     on_change: Arc<dyn Fn() + Send + Sync>,
 ) -> io::Result<()> {
-    use crate::provider_link::{ProviderDriver, accept};
-    let busy = || {
+    use crate::provider_link::{Opening, ProviderDriver, read_opening, send_hello_ack};
+    let connected = || {
         slot.lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .as_ref()
-            .is_some_and(|provider| provider.closed_reason().is_none())
+            .filter(|provider| provider.closed_reason().is_none())
+            .cloned()
     };
-    if busy() {
-        return Ok(());
-    }
     let mut reader = stream.try_clone()?;
-    let mut writer = stream.try_clone()?;
+    let writer = stream.try_clone()?;
     // A client that connects and never says hello does not keep a thread.
     stream.set_read_timeout(Some(std::time::Duration::from_secs(5)))?;
-    let Ok(info) = accept(&mut reader, &mut writer, secret, agent_bundle) else {
+    let Ok(opening) = read_opening(&mut reader, secret) else {
         return Ok(());
     };
     stream.set_read_timeout(None)?;
+    let info = match opening {
+        Opening::Provider(info) => info,
+        // The connected app's Chromium Host (p01-process-233): its relay link
+        // serves that app's CEF tabs. With no app connected it has nothing to
+        // relay and goes.
+        Opening::RelayLink { pid } => {
+            let Some(provider) = connected() else { return Ok(()) };
+            // The kernel's word for the peer wins over the frame's.
+            let peer = peer_pid(&stream).or(Some(pid));
+            let shutdown_stream = stream.try_clone()?;
+            let shutdown = Box::new(move || {
+                let _ = shutdown_stream.shutdown(std::net::Shutdown::Both);
+            });
+            return provider.attach_relay_link(reader, writer, peer, shutdown);
+        }
+    };
+    // One provider at a time: a second one gets no ack while the first is connected.
+    if connected().is_some() {
+        return Ok(());
+    }
+    let mut ack_writer = stream.try_clone()?;
     let driver = ProviderDriver::start_notifying(
         reader,
         writer,
@@ -227,6 +246,12 @@ fn accept_provider(
     }
     *current = Some(driver);
     drop(current);
+    // Acked once the slot serves it: the app's Chromium Host, which dials its
+    // relay link after this ack, then finds the provider it relays for.
+    if send_hello_ack(&mut ack_writer, agent_bundle).is_err() {
+        let _ = stream.shutdown(std::net::Shutdown::Both);
+        return Ok(());
+    }
     on_change();
     Ok(())
 }
@@ -308,6 +333,49 @@ fn peer_uid(stream: &UnixStream) -> Option<libc::uid_t> {
     // SAFETY: the fd is an open Unix socket; uid and gid are valid out pointers.
     let rc = unsafe { libc::getpeereid(stream.as_raw_fd(), &mut uid, &mut gid) };
     (rc == 0).then_some(uid)
+}
+
+/// The pid of the peer process (the connecting side of a Unix socket).
+#[cfg(target_os = "linux")]
+fn peer_pid(stream: &UnixStream) -> Option<u32> {
+    use std::os::fd::AsRawFd;
+    let mut cred = libc::ucred { pid: 0, uid: 0, gid: 0 };
+    let mut len = size_of::<libc::ucred>() as libc::socklen_t;
+    // SAFETY: the fd is an open Unix socket; cred and len describe a valid buffer.
+    let rc = unsafe {
+        libc::getsockopt(
+            stream.as_raw_fd(),
+            libc::SOL_SOCKET,
+            libc::SO_PEERCRED,
+            (&mut cred as *mut libc::ucred).cast(),
+            &mut len,
+        )
+    };
+    if rc == 0 { u32::try_from(cred.pid).ok().filter(|pid| *pid > 0) } else { None }
+}
+
+/// The pid of the peer process (`LOCAL_PEERPID`: the process that connected).
+#[cfg(target_os = "macos")]
+fn peer_pid(stream: &UnixStream) -> Option<u32> {
+    use std::os::fd::AsRawFd;
+    let mut pid: libc::pid_t = 0;
+    let mut len = size_of::<libc::pid_t>() as libc::socklen_t;
+    // SAFETY: the fd is an open Unix socket; pid and len describe a valid buffer.
+    let rc = unsafe {
+        libc::getsockopt(
+            stream.as_raw_fd(),
+            libc::SOL_LOCAL,
+            libc::LOCAL_PEERPID,
+            (&mut pid as *mut libc::pid_t).cast(),
+            &mut len,
+        )
+    };
+    if rc == 0 { u32::try_from(pid).ok().filter(|pid| *pid > 0) } else { None }
+}
+
+#[cfg(not(any(target_os = "linux", target_os = "macos")))]
+fn peer_pid(_stream: &UnixStream) -> Option<u32> {
+    None
 }
 
 #[cfg(test)]
@@ -410,6 +478,41 @@ mod provider_listener_tests {
             std::thread::yield_now();
         }
         assert!(dial(&path, &secret).is_some(), "a new provider replaces a closed one");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Sends relay.hello with `credential`; true when the host acked it.
+    fn dial_relay(path: &Path, credential: ProviderSecret) -> bool {
+        let mut stream = UnixStream::connect(path).unwrap();
+        stream.set_read_timeout(Some(std::time::Duration::from_secs(10))).unwrap();
+        let frame = Frame::RelayHello {
+            version: crate::provider::RELAY_VERSION,
+            pid: std::process::id(),
+            credential,
+        };
+        write_frame(&mut stream, &frame).unwrap();
+        matches!(read_frame(&mut stream), Ok(Some(Frame::RelayHelloAck {})))
+    }
+
+    #[test]
+    fn a_relay_link_needs_the_relay_credential_and_a_connected_provider() {
+        let dir = std::env::temp_dir().join(format!("cmux-bh-relay-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("browser-host-provider.sock");
+        let listener = bind(&path, true).unwrap();
+        let slot: crate::engines::ProviderSlot = Arc::default();
+        let secret = ProviderSecret::new("s".repeat(40));
+        let (thread_slot, thread_secret) = (slot.clone(), secret.clone());
+        std::thread::spawn(move || {
+            serve_providers(listener, thread_secret, thread_slot, Arc::from("agent"))
+        });
+        assert!(!dial_relay(&path, secret.relay_credential()), "no provider: nothing to relay");
+        let _provider = dial(&path, &"s".repeat(40)).expect("the provider connects");
+        // hello.ack comes once the slot serves the provider: the relay finds it at once.
+        assert!(slot.lock().unwrap().is_some());
+        assert!(!dial_relay(&path, secret.clone()), "the secret is not the relay credential");
+        assert!(dial_relay(&path, secret.relay_credential()));
         let _ = std::fs::remove_dir_all(&dir);
     }
 }
