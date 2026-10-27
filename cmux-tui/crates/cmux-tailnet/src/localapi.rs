@@ -21,6 +21,8 @@ pub(crate) struct LocalApi {
 
 impl LocalApi {
     pub(crate) fn new(addr: &str, cred: &str) -> Result<Self> {
+        // reqwest's rustls-no-provider feature requires explicit initialization.
+        let _ = rustls::crypto::ring::default_provider().install_default();
         let token = base64::engine::general_purpose::STANDARD.encode(format!(":{cred}"));
         // This client carries the private LocalAPI password. Never use proxies or redirects.
         let agent = reqwest::blocking::Client::builder()
