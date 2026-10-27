@@ -214,7 +214,9 @@ export function shellCommands(line: string): ShellCommand[] {
       const fd = /^\d+/.exec(redirect[0])?.[0];
       if (op === ">&" ? !/^(?:\d+|-)$/.test(target.text) : WRITES.has(op) && target.text !== "/dev/null") {
         writes = true;
-        if (target.literal && (fd === undefined || fd === "1")) writeFile = target;
+        // Only a truncating stdout redirect is an unambiguous recorded producer. Appends,
+        // read-write redirects and stderr/combined streams are fail-closed below.
+        if (target.literal && op === ">" && (fd === undefined || fd === "1")) writeFile = target;
       }
       if ((op.startsWith(">") || op.startsWith("&>")) && (fd === undefined || fd === "1") && target.text !== "1")
         stdout = true;
@@ -267,20 +269,28 @@ export function shellCommands(line: string): ShellCommand[] {
  * transcript-only projection: it never reads the host filesystem. `undefined` means the path was
  * overwritten by a write whose contents were not safely recorded, so callers must forget it.
  */
-export type RecordedMessageBodyChange = { path: string; text?: string };
+export type RecordedMessageBodyChange = { path: string; text?: string } | { reset: true };
+const MESSAGE_PATH_MUTATORS = new Set(["cp", "install", "mv", "rm", "sed", "tee", "truncate"]);
 
 export function recordedMessageBodyChanges(line: string): RecordedMessageBodyChange[] {
-  return shellCommands(line)
-    .filter((command) => command.writeFile?.literal)
-    .map((command) => {
-      const path = command.writeFile!.text;
-      const words = unwrapped(command.words);
-      const body = command.words.length === 1 && program(words[0]) === "cat" ? command.stdin : undefined;
-      return {
-        path,
-        ...(body && typeof body !== "string" && body.literal ? { text: body.text } : {}),
-      };
-    });
+  const commands = shellCommands(line);
+  // A control operator can skip a write or change its working directory. Without an event-level
+  // execution record, discard every cached producer rather than guessing which branch ran.
+  // A heredoc line ends with the parser's synthetic `;`; with no second command it is still a
+  // single executed writer. Any other operator means execution or directory state is uncertain.
+  if (commands.length !== 1 || !["", ";"].includes(commands[0]!.op)) return [{ reset: true }];
+  const command = commands[0]!;
+  const words = unwrapped(command.words);
+  const name = program(words[0]);
+  // A simple, literal `cat > path <<EOF` is the only shell writer whose body is recorded here.
+  if (command.writeFile?.literal) {
+    const path = command.writeFile.text;
+    const body = command.words.length === 1 && name === "cat" ? command.stdin : undefined;
+    return [{ path, ...(body && typeof body !== "string" && body.literal ? { text: body.text } : {}) }];
+  }
+  // Any dynamic redirect or known path-mutating command may have changed a cached producer.
+  if (command.writes || !name || MESSAGE_PATH_MUTATORS.has(name)) return [{ reset: true }];
+  return [];
 }
 
 // Tool rows are immutable snapshots but the enclosing turn is rebuilt as streamed calls arrive.

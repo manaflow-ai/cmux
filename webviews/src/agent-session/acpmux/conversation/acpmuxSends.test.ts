@@ -3,7 +3,7 @@
 // command line as a shell reads it, through the wrappers agents put around it.
 import { describe, expect, test } from "bun:test";
 import type { AcpmuxActivity } from "../model";
-import { acpmuxSend, acpmuxSendCall, shellCommands } from "./acpmuxSends";
+import { acpmuxSend, acpmuxSendCall, recordedMessageBodyChanges, shellCommands } from "./acpmuxSends";
 import { sendLabel } from "../inspector/processes";
 import type { Translate } from "../i18n";
 
@@ -266,6 +266,15 @@ describe("acpmuxSend", () => {
     const docs = `${"cat <<E; ".repeat(5000)}\n${"E\n".repeat(5000)}acpmux send a b`;
     expect(shellCommands(docs)).toHaveLength(5001);
     expect(performance.now() - started).toBeLessThan(1000);
+  });
+
+  test("recorded message producers fail closed around control flow and path mutators", () => {
+    expect(recordedMessageBodyChanges("true || cat > /tmp/message <<'EOF'\nskipped\nEOF")).toEqual([{ reset: true }]);
+    expect(recordedMessageBodyChanges("mv /tmp/other /tmp/message")).toEqual([{ reset: true }]);
+    expect(recordedMessageBodyChanges("cat 2> /tmp/message <<'EOF'\nnot stdout\nEOF")).toEqual([{ reset: true }]);
+    expect(recordedMessageBodyChanges("cat >> /tmp/message <<'EOF'\nappend\nEOF")).toEqual([{ reset: true }]);
+    expect(recordedMessageBodyChanges("cat <> /tmp/message <<'EOF'\nread-write\nEOF")).toEqual([{ reset: true }]);
+    expect(recordedMessageBodyChanges("cat > \"$MESSAGE\" <<'EOF'\ndynamic\nEOF")).toEqual([{ reset: true }]);
   });
 });
 

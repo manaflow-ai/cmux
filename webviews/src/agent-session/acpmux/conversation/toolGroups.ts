@@ -97,7 +97,17 @@ export function toolGroups(items: readonly AcpmuxActivity[]): ToolGroup[] {
     const key = call && mcpKey(call);
     const rememberMessageFiles = () => {
       if (!tool?.command) return;
+      // A failed or still-running writer did not produce a durable body. Clear the bounded
+      // producer set so a later send cannot display stale content from an earlier call.
+      if (tool.status !== "completed") {
+        messageFiles.clear();
+        return;
+      }
       for (const change of recordedMessageBodyChangesForTool(tool)) {
+        if ("reset" in change) {
+          messageFiles.clear();
+          continue;
+        }
         if (change.text === undefined) messageFiles.delete(change.path);
         else {
           messageFiles.set(change.path, change.text);

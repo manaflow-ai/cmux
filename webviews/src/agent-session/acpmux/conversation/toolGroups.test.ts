@@ -150,4 +150,17 @@ test("unchanged streamed tool revisions reuse the bounded body parser cache", ()
   const changedSend = changed.find((entry) => entry.type === "send");
   expect(changedSend?.type).toBe("send");
   if (changedSend?.type === "send") expect(changedSend.send.text).toBeUndefined();
+
+  const skippedWriter = {
+    ...writer,
+    tool: { ...writer.tool!, command: "true || cat > /tmp/review.md <<'EOF'\nskipped\nEOF" },
+  };
+  const skipped = toolGroups([writer, skippedWriter, send]).find((entry) => entry.type === "send");
+  expect(skipped?.type).toBe("send");
+  if (skipped?.type === "send") expect(skipped.send.text).toBeUndefined();
+
+  const failedWriter = { ...writer, tool: { ...writer.tool!, status: "failed" } };
+  const failed = toolGroups([writer, failedWriter, send]).find((entry) => entry.type === "send");
+  expect(failed?.type).toBe("send");
+  if (failed?.type === "send") expect(failed.send.text).toBeUndefined();
 });
