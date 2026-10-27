@@ -16,8 +16,9 @@ public final class ComputerUseStepModel {
     /// unavailable in this build, and the window says so instead of
     /// offering an ad-hoc helper for a grant.
     public private(set) var unavailable = false
-    /// How many times a grant landed while its drag panel showed. The
-    /// window comes back to the front on each one.
+    /// How many times a grant landed while its drag panel showed, or the
+    /// panel's back button closed it. The window comes back to the front on
+    /// each one.
     public private(set) var comebacks = 0
     @ObservationIgnored let source: (any ComputerUsePermissionSource)?
     @ObservationIgnored private(set) var task: Task<Void, Never>?
@@ -111,9 +112,12 @@ public final class ComputerUseStepModel {
         source?.restart()
     }
 
-    /// The panel's close button.
+    /// The panel's back button: the panel goes and the window comes back to
+    /// the front, its row primary again.
     public func dismissHelper() {
+        guard helping != nil else { return }
         helping = nil
+        comebacks += 1
     }
 
     /// The helper app was dropped somewhere: read the grants again, since

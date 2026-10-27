@@ -2,21 +2,24 @@ import AppKit
 import CmuxNextCompat
 import CmuxNextDesign
 
-/// The Computer Use window: the helper app's icon, a title, one line, a
-/// `ComputerUseGrantRow` per grant, and a footer. Only the next missing
+/// The Computer Use window: the helper app's large icon, a title, a short
+/// line, a `ComputerUseGrantRow` card per grant, and a footer. Only the next missing
 /// row's Allow is filled. Allow opens that list in System Settings with
 /// `HelperDragPanel` docked to it; when the grant lands the panel goes, the
 /// window comes back to the front, and the next row turns primary
 /// (`ComputerUseStepModel`). All done: the line says so and Done closes.
 final class ComputerUseSetupView: NSView {
-    static let size = NSSize(width: 460, height: 360)
-    private static let margin: CGFloat = 24
+    static let size = NSSize(width: 520, height: 480)
+    private static let margin: CGFloat = 32
+    /// The helper app's icon at the top.
+    static let iconSide: CGFloat = 96
     private let model: ComputerUseStepModel
     private let context: OnboardingStepContext
     private let icon = NSImageView()
     private let body = OnboardingLabel.make(font: Typography.system(size: TypeScale.body), color: Palette.textSecondary, lines: 2)
     private let note = OnboardingLabel.make(font: Typography.system(size: TypeScale.caption), color: Palette.textSecondary, lines: 3)
     private var rows: [ComputerUsePermissionPane: ComputerUseGrantRow] = [:]
+    private let icons = ComputerUseGrantIcon.Cache()
     private lazy var notNow = OnboardingControl.plainButton(OnboardingStrings.computerUseNotNow, target: self, action: #selector(notNowPressed))
     private lazy var done = OnboardingCapsuleButton(title: OnboardingStrings.done, style: .primary, target: self, action: #selector(donePressed))
     private lazy var restart = OnboardingCapsuleButton(title: OnboardingStrings.computerUseRestart, style: .primary,
@@ -39,10 +42,10 @@ final class ComputerUseSetupView: NSView {
         for label in [heading, body] { label.alignment = .center }
         let list = NSStackView()
         list.orientation = .vertical
-        list.spacing = 8
+        list.spacing = 12
         for pane in ComputerUsePermissionPane.allCases {
             let action = pane == .accessibility ? #selector(allowAccessibility) : #selector(allowScreenshots)
-            let row = ComputerUseGrantRow(pane: pane, target: self, action: action)
+            let row = ComputerUseGrantRow(pane: pane, icons: icons, target: self, action: action)
             rows[pane] = row
             list.addArrangedSubview(row)
             row.widthAnchor.constraint(equalTo: list.widthAnchor).isActive = true
@@ -58,10 +61,10 @@ final class ComputerUseSetupView: NSView {
         let margin = Self.margin
         NSLayoutConstraint.activate([
             icon.topAnchor.constraint(equalTo: topAnchor, constant: 36), icon.centerXAnchor.constraint(equalTo: centerXAnchor),
-            icon.widthAnchor.constraint(equalToConstant: 56), icon.heightAnchor.constraint(equalToConstant: 56),
+            icon.widthAnchor.constraint(equalToConstant: Self.iconSide), icon.heightAnchor.constraint(equalToConstant: Self.iconSide),
             heading.topAnchor.constraint(equalTo: icon.bottomAnchor, constant: 12),
-            body.topAnchor.constraint(equalTo: heading.bottomAnchor, constant: 4),
-            list.topAnchor.constraint(equalTo: body.bottomAnchor, constant: 20),
+            body.topAnchor.constraint(equalTo: heading.bottomAnchor, constant: 6),
+            list.topAnchor.constraint(equalTo: body.bottomAnchor, constant: 24),
             list.leadingAnchor.constraint(equalTo: leadingAnchor, constant: margin),
             list.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -margin),
             buttons.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -margin),
@@ -166,7 +169,7 @@ final class ComputerUseSetupView: NSView {
         panel = nil
         guard let helping, window != nil, let url = model.helperAppURL else { return }
         let next = HelperDragPanel(appURL: url, grant: OnboardingStrings.computerUseName(helping),
-                                   onClose: { [weak model] in model?.dismissHelper() },
+                                   onBack: { [weak model] in model?.dismissHelper() },
                                    onDrop: { [weak model] in model?.helperDropped() })
         next.show(on: window?.screen)
         panel = next

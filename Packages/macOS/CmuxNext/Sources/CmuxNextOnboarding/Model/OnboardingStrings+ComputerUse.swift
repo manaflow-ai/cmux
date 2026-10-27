@@ -64,5 +64,4 @@ extension OnboardingStrings {
     static var computerUseRestart: String {
         String(localized: "onboarding.computerUse.restart", defaultValue: "Restart", bundle: .module)
     }
-    static var computerUseHelperClose: String { String(localized: "onboarding.computerUse.helper.close", defaultValue: "Close", bundle: .module) }
 }

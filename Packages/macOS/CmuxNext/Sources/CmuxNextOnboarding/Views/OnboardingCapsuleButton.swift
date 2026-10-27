@@ -8,8 +8,8 @@ import CmuxNextDesign
 final class OnboardingCapsuleButton: NSButton {
     enum Style: Equatable { case primary, plain }
 
-    static let height: CGFloat = 24
-    private static let horizontalPadding: CGFloat = 12
+    static let height: CGFloat = 28
+    private static let horizontalPadding: CGFloat = 14
     private(set) var style: Style
     private var plainTitle: String
 

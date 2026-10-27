@@ -10,7 +10,8 @@ import Testing
 /// The Computer Use window: one primary Allow on the next missing row, the
 /// row waits gray while its drag panel shows, the window comes back when the
 /// grant lands, a done state, Return as the primary action, the entry points
-/// that open it, and where the drag panel docks.
+/// that open it, the drag panel (where it docks, its back button, its line and
+/// its arrow), and the rows' icons.
 @MainActor
 @Suite(.timeLimit(.minutes(1)))
 struct ComputerUseSetupWindowTests {
@@ -232,5 +233,91 @@ struct ComputerUseSetupWindowTests {
         }
         let start = line.attribute(.font, at: 0, effectiveRange: nil) as? NSFont
         #expect(start?.fontName != bold)
+    }
+
+    @Test func backClosesThePanelAndBringsTheWindowBack() async {
+        let (source, model) = make()
+        defer { model.stop() }
+        await settle(model) { true }
+        model.dismissHelper()
+        #expect(model.comebacks == 0, "no panel, nothing to come back from")
+        model.allow(.screenRecording)
+        #expect(model.helping == .screenRecording)
+        model.dismissHelper()
+        #expect(model.helping == nil, "the panel goes")
+        #expect(model.comebacks == 1, "the window comes back to the front")
+        #expect(source.opened == [.screenRecording])
+    }
+
+    private func makePanel(onBack: @escaping () -> Void = {}) -> HelperDragPanel {
+        HelperDragPanel(appURL: URL(fileURLWithPath: "/Applications/cmux Computer Use.app"),
+                        grant: OnboardingStrings.computerUseName(.screenRecording), onBack: onBack, onDrop: {})
+    }
+
+    private func buttons(in view: NSView?) -> [NSButton] {
+        guard let view else { return [] }
+        return (view as? NSButton).map { [$0] } ?? view.subviews.flatMap { buttons(in: $0) }
+    }
+
+    @Test func thePanelHasABackButtonAndNoCloseButton() {
+        let backs = Log()
+        let panel = makePanel { backs.count += 1 }
+        defer { panel.orderOut(nil) }
+        let all = buttons(in: panel.contentView)
+        #expect(all.count == 1, "one button: back")
+        #expect(all.first === panel.back)
+        #expect(panel.back.accessibilityLabel() == OnboardingStrings.back)
+        panel.back.performClick(nil)
+        #expect(backs.count == 1, "back runs the panel's way back")
+    }
+
+    @Test func thePanelNamesTheHelperAndTheGrant() {
+        let panel = makePanel()
+        defer { panel.orderOut(nil) }
+        let text = panel.line.attributedStringValue.string
+        #expect(text.contains("cmux Computer Use"))
+        #expect(text.contains(OnboardingStrings.computerUseName(.screenRecording)))
+        #expect(panel.frame.width == HelperDragPanel.width)
+    }
+
+    @Test func theArrowStaysStillWithMotionOff() {
+        let arrow = HelperPanelArrow()
+        defer { Motion.reduceMotionOverride = nil }
+        Motion.reduceMotionOverride = true
+        arrow.bounce(true)
+        #expect(!arrow.isBouncing, "Reduce Motion: no bob")
+        Motion.reduceMotionOverride = false
+        arrow.bounce(true)
+        #expect(arrow.isBouncing == Motion.indicators.animatesLoops, "the bob follows the indicators gate")
+        arrow.bounce(false)
+        #expect(!arrow.isBouncing)
+    }
+
+    // MARK: The rows' icons
+
+    @Test func aMissingIconFileShowsTheGrantSymbol() async {
+        let symbol = ComputerUseGrantIcon.symbol(.accessibility)
+        let look = await ComputerUseGrantIcon.look(paths: ["/nonexistent/cmux-missing-grant-icon.appex"], symbol: symbol)
+        guard case .symbol(let name) = look else {
+            Issue.record("a missing icon file gives the SF Symbol")
+            return
+        }
+        #expect(name == symbol)
+        for pane in ComputerUsePermissionPane.allCases {
+            #expect(NSImage(systemSymbolName: ComputerUseGrantIcon.symbol(pane), accessibilityDescription: nil) != nil,
+                    "\(pane) falls back to a real SF Symbol")
+        }
+    }
+
+    /// The Screenshot app's icon is an opaque white tile; the row draws the bare symbol instead.
+    @Test func screenshotsUsesTheBareSymbol() async {
+        #expect(ComputerUseGrantIcon.paths(.screenRecording).isEmpty)
+        let look = await ComputerUseGrantIcon.look(paths: ComputerUseGrantIcon.paths(.screenRecording),
+                                                   symbol: ComputerUseGrantIcon.symbol(.screenRecording))
+        guard case .symbol(let name) = look else {
+            Issue.record("Screenshots shows its symbol")
+            return
+        }
+        #expect(name == "camera.viewfinder")
     }
 }

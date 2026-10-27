@@ -3,20 +3,43 @@ import CmuxNextDesign
 import CmuxNextWakeups
 
 /// A glass panel docked over the bottom of the System Settings window while
-/// a grant is pending: an arrow up to the list, "Drag cmux Computer Use to
-/// the list above to allow Screenshots", and the helper app's row to drag.
+/// a grant is pending, about as wide as that window's list:
+///
+///       ^
+///       |  Drag cmux Computer Use to the list above to allow Screenshots
+///     < [icon] cmux Computer Use
+///
+/// An accent arrow that bobs up toward the list stands over the helper's
+/// icon, its head above the line of text and its shaft beside it; the text
+/// starts where the helper's name starts. Under them, a round back button and
+/// the helper app's row to drag, styled like a row of the list it goes into.
+/// The two names are white, the rest of the line secondary.
 /// It never takes focus, so System Settings stays the active app. It waits
 /// at the bottom center of the screen until the System Settings window is
 /// on screen (a few reads while System Settings opens), then docks to it.
 final class HelperDragPanel: NSPanel {
-    static let width: CGFloat = 440
+    static let width: CGFloat = 540
     private static let padding: CGFloat = 12
-    private let onClose: () -> Void
+    /// Room between the back button and the row, and between the text and the row.
+    private static let gap: CGFloat = 8
+    /// The helper row's corner; the panel's corner is concentric around it.
+    static let rowRadius: CGFloat = 8
+    private let onBack: () -> Void
+    let arrow = HelperPanelArrow()
+    let back = HelperPanelBackButton(target: nil, action: nil)
+    /// A text field, not a chrome label: a chrome label draws one color, and this line has two
+    /// (the names white, the rest secondary).
+    let line: NSTextField = {
+        let field = NSTextField(wrappingLabelWithString: "")
+        field.maximumNumberOfLines = 2
+        field.isSelectable = false
+        return field
+    }()
     private var locating: Task<Void, Never>?
     private var fallbackScreen: NSScreen?
 
-    init(appURL: URL, grant: String, onClose: @escaping () -> Void, onDrop: @escaping () -> Void) {
-        self.onClose = onClose
+    init(appURL: URL, grant: String, onBack: @escaping () -> Void, onDrop: @escaping () -> Void) {
+        self.onBack = onBack
         super.init(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: true)
         isOpaque = false
         backgroundColor = .clear
@@ -25,52 +48,69 @@ final class HelperDragPanel: NSPanel {
         level = .floating
         animationBehavior = Motion.overlays.animatesMovement ? .utilityWindow : .none
         collectionBehavior = [.canJoinAllSpaces, .ignoresCycle, .fullScreenAuxiliary]
-        let inner = Self.width - 2 * Self.padding
-        let arrow = NSImageView(image: NSImage(systemSymbolName: "arrow.up", accessibilityDescription: nil) ?? NSImage())
-        arrow.symbolConfiguration = .init(pointSize: 15, weight: .semibold)
-        arrow.contentTintColor = Palette.textPrimary
-        arrow.setContentHuggingPriority(.required, for: .horizontal)
-        let helper = HelperAppTile.displayName(appURL)
-        let line = OnboardingLabel.make(font: Typography.system(size: TypeScale.body), lines: 2)
-        line.attributedStringValue = Self.dragLine(helper: helper, grant: grant)
-        line.preferredMaxLayoutWidth = inner - 15 - 10 - 20 - 10
-        line.setContentCompressionResistancePriority(.keepsTextWidth, for: .horizontal)
-        let close = HelperPanelCloseButton(target: nil, action: nil)
-        close.setContentHuggingPriority(.required, for: .horizontal)
-        let top = NSStackView(views: [arrow, line, close])
-        top.alignment = .centerY
-        top.spacing = 10
-        top.edgeInsets = NSEdgeInsets(top: 0, left: 4, bottom: 0, right: 0)
+        let padding = Self.padding, gap = Self.gap
+        // The text starts where the helper's name starts; the arrow stands over the helper's icon.
+        let textWidth = Self.width - 2 * padding - HelperPanelBackButton.side - gap - HelperAppTile.nameInset
+        line.attributedStringValue = Self.dragLine(helper: HelperAppTile.displayName(appURL), grant: grant)
+        line.preferredMaxLayoutWidth = textWidth
+        // A longer translation wraps to a second line and grows the panel; it is never cut.
+        line.setContentCompressionResistancePriority(.required, for: .vertical)
         let tile = HelperAppTile(appURL: appURL)
         tile.onDrop = onDrop
-        let row = HelperRowFill(content: tile)
-        let stack = NSStackView(views: [top, row])
-        stack.orientation = .vertical
-        stack.alignment = .leading
-        stack.spacing = 10
-        stack.edgeInsets = NSEdgeInsets(top: Self.padding, left: Self.padding, bottom: Self.padding, right: Self.padding)
+        let card = OnboardingCardView(cornerRadius: Self.rowRadius)
+        let circle = HelperPanelBackButton.makeCircle()
+        let content = NSView()
+        content.translatesAutoresizingMaskIntoConstraints = false
+        for view in [arrow, line, circle, back, card, tile] as [NSView] {
+            view.translatesAutoresizingMaskIntoConstraints = false
+            content.addSubview(view)
+        }
+        // Preferred, not required: a one-line text ends level with the arrow's foot (the head stands
+        // above it), and the row sits `gap` under the lower of them.
+        let rowTop = tile.topAnchor.constraint(equalTo: arrow.bottomAnchor, constant: gap)
+        let lineFoot = line.bottomAnchor.constraint(equalTo: arrow.bottomAnchor)
+        for constraint in [rowTop, lineFoot] { constraint.priority = .defaultHigh }
         NSLayoutConstraint.activate([
-            top.widthAnchor.constraint(equalToConstant: inner),
-            row.widthAnchor.constraint(equalToConstant: inner),
+            arrow.topAnchor.constraint(equalTo: content.topAnchor, constant: padding),
+            arrow.centerXAnchor.constraint(equalTo: tile.icon.centerXAnchor),
+            lineFoot,
+            line.topAnchor.constraint(greaterThanOrEqualTo: content.topAnchor, constant: padding),
+            line.leadingAnchor.constraint(equalTo: tile.name.leadingAnchor),
+            line.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -padding),
+            back.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: padding),
+            back.centerYAnchor.constraint(equalTo: tile.centerYAnchor),
+            tile.leadingAnchor.constraint(equalTo: back.trailingAnchor, constant: gap),
+            tile.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -padding),
+            tile.topAnchor.constraint(greaterThanOrEqualTo: arrow.bottomAnchor, constant: gap),
+            tile.topAnchor.constraint(greaterThanOrEqualTo: line.bottomAnchor, constant: gap),
+            rowTop,
+            tile.bottomAnchor.constraint(equalTo: content.bottomAnchor, constant: -padding),
         ])
-        let size = NSSize(width: Self.width, height: stack.fittingSize.height)
-        let surface = Glass.makeOverlayPanel(content: stack)
+        for (under, over) in [(card, tile), (circle, back)] as [(NSView, NSView)] {
+            NSLayoutConstraint.activate([
+                under.leadingAnchor.constraint(equalTo: over.leadingAnchor), under.trailingAnchor.constraint(equalTo: over.trailingAnchor),
+                under.topAnchor.constraint(equalTo: over.topAnchor), under.bottomAnchor.constraint(equalTo: over.bottomAnchor),
+            ])
+        }
+        let size = NSSize(width: Self.width, height: content.fittingSize.height)
+        let surface = Glass.makeOverlayPanel(content: content, cornerRadius: Self.rowRadius + padding)
         // A window's content view sizes by its frame, not constraints.
         surface.translatesAutoresizingMaskIntoConstraints = true
         surface.frame = NSRect(origin: .zero, size: size)
         surface.layoutSubtreeIfNeeded()
-        stack.frame = NSRect(origin: .zero, size: size)
+        content.frame = NSRect(origin: .zero, size: size)
         contentView = surface
         ThemeScope.app.store.adopt(self)
         setContentSize(size)
-        close.target = self
-        close.action = #selector(closePressed)
+        back.target = self
+        back.action = #selector(backPressed)
     }
 
     override var canBecomeKey: Bool { false }
     override var canBecomeMain: Bool { false }
 
-    @objc private func closePressed() { onClose() }
+    /// The back button: the panel goes and the Computer Use window comes back.
+    @objc func backPressed() { onBack() }
 
     /// "Drag **helper** to the list above to allow **grant**": the two names bold.
     static func dragLine(helper: String, grant: String) -> NSAttributedString {
@@ -97,6 +137,7 @@ final class HelperDragPanel: NSPanel {
         alphaValue = 0
         orderFrontRegardless()
         Motion.overlays.animate(.fadeIn, in: contentView) { animator().alphaValue = 1 }
+        arrow.bounce(true)
         dock()
     }
 
@@ -127,41 +168,7 @@ final class HelperDragPanel: NSPanel {
     override func orderOut(_ sender: Any?) {
         locating?.cancel()
         locating = nil
+        arrow.bounce(false)
         super.orderOut(sender)
-    }
-}
-
-/// The helper app's row in the panel: a solid rounded fill under the tile.
-private final class HelperRowFill: NSView {
-    private var loop: RenderLoop?
-
-    init(content: NSView) {
-        super.init(frame: .zero)
-        translatesAutoresizingMaskIntoConstraints = false
-        wantsLayer = true
-        layer?.cornerCurve = .continuous
-        layer?.cornerRadius = 10
-        content.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(content)
-        NSLayoutConstraint.activate([
-            content.leadingAnchor.constraint(equalTo: leadingAnchor), content.trailingAnchor.constraint(equalTo: trailingAnchor),
-            content.topAnchor.constraint(equalTo: topAnchor), content.bottomAnchor.constraint(equalTo: bottomAnchor),
-        ])
-        loop = RenderLoop { [weak self] in
-            _ = ThemeScope.app.store.input
-            self?.applyColors()
-        }
-    }
-
-    @available(*, unavailable)
-    required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
-
-    override func viewDidChangeEffectiveAppearance() {
-        super.viewDidChangeEffectiveAppearance()
-        applyColors()
-    }
-
-    private func applyColors() {
-        performWithTheme { layer?.backgroundColor = Palette.textPrimary.withAlphaComponent(0.06).cgColor }
     }
 }
