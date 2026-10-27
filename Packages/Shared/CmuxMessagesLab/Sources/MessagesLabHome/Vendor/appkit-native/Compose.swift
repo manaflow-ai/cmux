@@ -115,7 +115,8 @@ final class FieldTextView: NSTextView {
         let line = String(format: "%.6f ", CACurrentMediaTime()) + s + "\n"
         let url = URL(fileURLWithPath: "/tmp/caret.log")
         if let h = try? FileHandle(forWritingTo: url) {
-            // A diagnostics line that cannot be appended is dropped (never written over the log's start).
+            // blocking-allow: only under the opt-in `--caret-log` lab flag; each line is written on the main thread in
+            // order, between the key's own work, which is what the log measures. A failed seek drops the line.
             if (try? h.seekToEnd()) != nil { try? h.write(contentsOf: Data(line.utf8)) }
             try? h.close()
         } else { try? Data(line.utf8).write(to: url) }
