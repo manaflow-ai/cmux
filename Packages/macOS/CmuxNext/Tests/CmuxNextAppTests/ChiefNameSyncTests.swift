@@ -33,35 +33,47 @@ struct ChiefNameSyncTests {
         #expect(HomeChiefNames.localRecords(nil).isEmpty)
     }
 
-    /// A rename shows at once, stays while its record has not moved, and the record decides once it
-    /// moves (to the new name, or to another device's later one).
+    /// A rename shows at once, stays while its record still has the old name, and the record decides
+    /// for good once it moves (to the new name, or another device's later one).
     @Test func aRenameShowsAtOnceUntilTheRecordMoves() {
-        var names = HomeChiefNames(records: [mario: "Chief", scout: "Scout"])
-        #expect(names.name(of: mario) == "Chief")
-        names.rename(mario, to: " Mario ")
-        #expect(names.name(of: mario) == "Mario")
-        #expect(names.all == [mario: "Mario", scout: "Scout"], "the other Chief keeps its own")
-        names.records = [mario: "Chief", scout: "Scout"]
-        #expect(names.name(of: mario) == "Mario", "a read before the save lands keeps the new name")
-        names.records = [mario: "Mario", scout: "Scout"]
-        #expect(names.name(of: mario) == "Mario")
-        names.records = [mario: "Luigi", scout: "Scout"]
-        #expect(names.name(of: mario) == "Luigi", "a later rename elsewhere wins")
+        var names = HomeChiefNames()
+        #expect(names.name(of: mario, record: "Chief") == "Chief")
+        names.rename(mario, to: " Mario ", record: "Chief")
+        #expect(names.name(of: mario, record: "Chief") == "Mario")
+        #expect(names.all([mario: "Chief", scout: "Scout"]) == [mario: "Mario", scout: "Scout"], "the other Chief keeps its own")
+        names.settle(mario, record: "Chief")
+        #expect(names.name(of: mario, record: "Chief") == "Mario", "a read before the save lands keeps the new name")
+        names.settle(mario, record: "Mario")
+        #expect(!names.isPending(mario))
+        #expect(names.name(of: mario, record: "Luigi") == "Luigi", "a later rename elsewhere wins")
+        #expect(names.name(of: mario, record: "Chief") == "Chief", "an undo back to the old name shows it, not the settled rename")
+    }
+
+    /// Two renames in a row: the second shows through the first one's echo, then its own.
+    @Test func aSecondRenameShowsThroughTheFirstsEcho() {
+        var names = HomeChiefNames()
+        names.rename(mario, to: "Mario", record: "Chief")
+        names.rename(mario, to: "Luigi", record: "Chief")
+        names.settle(mario, record: "Mario")
+        #expect(names.name(of: mario, record: "Mario") == "Luigi")
+        names.settle(mario, record: "Luigi")
+        #expect(!names.isPending(mario))
+        #expect(names.name(of: mario, record: "Luigi") == "Luigi")
     }
 
     /// A refused save shows the record's name again; a newer rename is not undone by an older refusal.
     @Test func aRefusedSaveRollsBack() {
-        var names = HomeChiefNames(records: [mario: "Chief"])
-        names.rename(mario, to: "Mario")
+        var names = HomeChiefNames()
+        names.rename(mario, to: "Mario", record: "Chief")
         names.rollBack(mario, name: "Mario")
-        #expect(names.name(of: mario) == "Chief")
-        names.rename(mario, to: "Mario")
-        names.rename(mario, to: "Luigi")
+        #expect(names.name(of: mario, record: "Chief") == "Chief")
+        names.rename(mario, to: "Mario", record: "Chief")
+        names.rename(mario, to: "Luigi", record: "Chief")
         names.rollBack(mario, name: "Mario")
-        #expect(names.name(of: mario) == "Luigi")
-        names.rename(mario, to: "   ")
-        #expect(names.name(of: mario) == "Luigi", "a blank name renames nothing")
-        #expect(HomeChiefNames().name(of: scout) == nil, "no record: the conversation's own title")
+        #expect(names.name(of: mario, record: "Chief") == "Luigi")
+        names.rename(mario, to: "   ", record: "Chief")
+        #expect(names.name(of: mario, record: "Chief") == "Luigi", "a blank name renames nothing")
+        #expect(HomeChiefNames().name(of: scout, record: nil) == nil, "no record: the conversation's own title")
     }
 
     /// A header rename of a Chief of this Mac renames its registry record (whose owner retitles its
@@ -84,18 +96,19 @@ struct ChiefNameSyncTests {
         #expect(HomeLocalChiefRename.failure(CancellationError()) == .noConnection)
     }
 
-    /// The app's one rename path: the name shows on the service at once, and a save that cannot go
-    /// (no Chief owner) shows the record's name again.
-    @Test func theServiceRenameIsOptimisticAndRollsBack() async {
+    /// The app's one rename path: a conversation no Chief record names (a group with a Chief, or
+    /// no owner to ask) gets no shown rename, so a refused save never leaves a name behind.
+    @Test func theServiceShowsNoRenameForAConversationWithoutARecord() async {
         _ = NSApplication.shared
         let services = AppServices(environment: AppEnvironment.current(["CMUX_NEXT_SHOWCASE": "1"]))
         let home = services.home
-        home.chiefRenames.rename(mario, to: "Mario")
-        #expect(home.chiefName(of: mario) == "Mario")
-        #expect(home.chiefNames[mario] == "Mario")
-        let failure = await home.renameChief(conversation: mario.rawValue, to: "Luigi")
+        let failure = await home.renameChief(conversation: "conv_launch", to: "Launch v2")
         #expect(failure != nil)
-        #expect(home.chiefName(of: mario) == nil, "the refused name is gone and no record names the Chief")
+        #expect(home.chiefName(of: ConversationID("conv_launch")) == nil)
+        #expect(!home.chiefRenames.isPending(ConversationID("conv_launch")))
+        home.chiefRenames.rename(mario, to: "Mario", record: nil)
+        #expect(home.chiefName(of: mario) == "Mario", "the service reads the shown rename")
+        #expect(home.chiefNames[mario] == "Mario")
     }
 
     /// Send Message… lists and finds a Chief by its own name, the one its tile shows.

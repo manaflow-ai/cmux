@@ -88,7 +88,7 @@ final class HomeService {
     /// The signed-in user's cloud Chiefs (the Hosted Chief and the one
     /// placed on a paired server), as last read on a connect or sign-in.
     private(set) var cloudChiefs = HomeCloudChiefs()
-    /// Chief renames being saved, shown at once on every surface (``chiefNameBook``).
+    /// Chief renames being saved, shown at once on every surface (``chiefName(of:)``).
     var chiefRenames = HomeChiefNames()
     /// The cloud Chief whose main conversation is the Chief tab, or nil (the local Chief, also
     /// whenever it is the default Chief: ``prefersLocalChief``).

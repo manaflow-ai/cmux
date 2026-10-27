@@ -1,4 +1,5 @@
 import CmuxHomeCore
+import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextChiefPetWiring
 import CmuxNextHome
@@ -196,50 +197,77 @@ extension HomeService {
         }
     }
 
-    /// Each Chief's one name by its conversation (issue 26393): its record's (a cloud Chief's
-    /// `chief.list` entry, a Chief of this Mac its registry name from `home-inbox`), or a rename
-    /// being saved. The list's tiles, the chat header, the settings card, the tab strip and banners
-    /// all read it; a Chief with no record keeps its conversation's title.
-    var chiefNameBook: HomeChiefNames {
-        var records = HomeChiefNames.localRecords(homeInbox.rows)
-        for chief in directory.chiefs {
-            guard let conversation = chief.mainConversation else { continue }
-            records[ConversationID(conversation)] = chief.name
-        }
-        var names = chiefRenames
-        names.records = HomeChiefNames(records: records).records
-        return names
+    /// The record name of the Chief whose conversation is `conversation` (issue 26393): a cloud
+    /// Chief's `chief.list` entry, a Chief of this Mac its registry name from `home-inbox`; nil
+    /// for a conversation that is no Chief's own (a group, a DM with a person) or a Chief with no name.
+    func chiefRecord(of conversation: ConversationID) -> String? {
+        if let cloud = directory.chiefs.first(where: { $0.mainConversation == conversation.rawValue }),
+           let name = HomeChiefNames.trimmed(cloud.name) { return name }
+        return HomeChiefNames.localRecord(of: conversation, in: homeInbox.rows)
     }
 
-    /// Each named Chief's name by its conversation, for the list's tiles (``chiefNameBook``).
-    var chiefNames: [ConversationID: String] { chiefNameBook.all }
+    /// Each Chief's one name by its conversation, for the list's tiles (``chiefName(of:)``).
+    var chiefNames: [ConversationID: String] {
+        var records = HomeChiefNames.localRecords(homeInbox.rows)
+        for chief in directory.chiefs {
+            guard let conversation = chief.mainConversation, let name = HomeChiefNames.trimmed(chief.name) else { continue }
+            records[ConversationID(conversation)] = name
+        }
+        return chiefRenames.all(records)
+    }
 
-    /// The name `conversation`'s Chief shows everywhere; nil when it is no Chief's with a name.
-    func chiefName(of conversation: ConversationID) -> String? { chiefNameBook.name(of: conversation) }
+    /// The name `conversation`'s Chief shows everywhere: the list's tile, the chat header, the
+    /// settings card, the tab strip, banners and Send Message… (its record's, or a rename being
+    /// saved); nil when it is no Chief's, and the conversation's title shows.
+    func chiefName(of conversation: ConversationID) -> String? {
+        chiefRenames.name(of: conversation, record: chiefRecord(of: conversation))
+    }
 
-    /// Renames the Chief of `conversation`, from its header card or anywhere else: the new name shows
-    /// on every surface at once and stays while it is saved, then the record's name decides; a
-    /// refused save shows the record's name again. A cloud Chief renames its account record (UserDO
-    /// renames its conversation after); a Chief of this Mac its registry record, whose owner
-    /// retitles the Chief's own conversation. Nil when saved, else why not.
+    /// Renames conversation `conversation` from its header card. A Chief's own conversation renames
+    /// the Chief's record, and the new name shows on every surface at once while it is saved, then
+    /// the record decides; a refused save shows the record's name again. A cloud Chief renames its
+    /// account record (UserDO renames its conversation after); a Chief of this Mac its registry
+    /// record, whose owner retitles the Chief's own conversation. Any other conversation with a
+    /// Chief (a group, a channel) is renamed itself. Nil when saved, else why not.
     func renameChief(conversation: String, to name: String) async -> HomeChiefRenameFailure? {
         let id = ConversationID(conversation)
-        var book = chiefNameBook
-        book.rename(id, to: name)
-        chiefRenames = book
-        let failure = isCloudConversation(id) ? await directory.renameChief(conversation: conversation, to: name)
-            : await renameLocalChief(id, to: name)
-        if failure != nil { chiefRenames.rollBack(id, name: name) }
+        if isCloudConversation(id) {
+            return await renamingRecord(id, to: name) { await self.directory.renameChief(conversation: conversation, to: name) }
+        }
+        guard let connection else { return .noConnection }
+        let row = homeInbox.rows?.first { $0.id == conversation }
+        guard row?.kind == "chief", let chief = row?.chief ?? homeStore.summary(id).flatMap({ Self.soleChief(of: $0.participants) }) else {
+            return await HomeConversationRename(conversation: conversation, name: name).send(over: connection)
+        }
+        return await renamingRecord(id, to: name) { await HomeLocalChiefRename(chief: chief, name: name).send(over: connection) }
+    }
+
+    /// Runs `save` with `name` shown for `id` meanwhile (only for a Chief with a record); a refusal
+    /// rolls it back, a save that lands keeps it until the record leaves the names it replaced.
+    private func renamingRecord(_ id: ConversationID, to name: String,
+                                save: () async -> HomeChiefRenameFailure?) async -> HomeChiefRenameFailure? {
+        guard chiefRecord(of: id) != nil else { return await save() }
+        chiefRenames.rename(id, to: name, record: chiefRecord(of: id))
+        let failure = await save()
+        if failure != nil {
+            chiefRenames.rollBack(id, name: name)
+        } else {
+            settleRename(id)
+        }
         return failure
     }
 
-    /// `chief.profile.update {display_name}` for the Chief of `conversation` on this Mac's Chief owner.
-    private func renameLocalChief(_ conversation: ConversationID, to name: String) async -> HomeChiefRenameFailure? {
-        guard let connection else { return .noConnection }
-        let participants = homeStore.summary(conversation)?.participants ?? []
-        let owned = homeInbox.rows?.first { $0.id == conversation.rawValue }?.chief
-        guard let chief = owned ?? Self.soleChief(of: participants) else { return .notFound }
-        return await HomeLocalChiefRename(chief: chief, name: name).send(over: connection)
+    /// Drops `id`'s shown rename once its record moves past the names it replaced (the save's echo,
+    /// or anyone's rename since); event-driven, it ends then.
+    private func settleRename(_ id: ConversationID) {
+        // task-owner: one saved rename; Observation of the Chief's record, ends when the rename is settled
+        Task { [weak self] in
+            for await record in ObservationStream({ self?.chiefRecord(of: id) }) {
+                guard let self else { return }
+                chiefRenames.settle(id, record: record)
+                if !chiefRenames.isPending(id) { return }
+            }
+        }
     }
 
     /// Each listed Chief's avatar as its Home row, header and bubbles draw it: its own picture or

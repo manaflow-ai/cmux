@@ -172,7 +172,7 @@ final class HomeHostView: NSView {
                 // A cloud Chief's brain runs on its paired server, never on
                 // this Mac's mux home (2026-10-08: the sidebar wrote codex
                 // here while cmux-lawrence ran claude-sr).
-                // The Chief's own name (HomeService.chiefNameBook), the one its tile and tab show.
+                // The Chief's own name (HomeService.chiefName(of:)), the one its tile and tab show.
                 let name = service.chiefName(of: id)
                 return (chief, store.transcriptVersion[id] ?? 0, name ?? row?.summary.title ?? "", service.isCloudConversation(id),
                         row?.isTyping ?? false, row.flatMap { ChiefHome.namedChief(in: $0.summary.participants) },
