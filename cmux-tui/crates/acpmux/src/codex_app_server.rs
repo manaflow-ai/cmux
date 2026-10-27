@@ -178,8 +178,9 @@ impl AuthGate {
                 Some(vec![Self::refresh_response(id, &file)])
             }
             Ok(Some(_)) | Ok(None) | Err(_) => {
-                self.fail();
-                Some(vec![Self::refresh_error(id)])
+                let mut out = vec![Self::refresh_error(id)];
+                out.extend(self.fail());
+                Some(out)
             }
         }
     }
@@ -207,12 +208,18 @@ impl Translator {
     /// One message from the hub.
     pub fn from_client(&self, msg: &Value) -> Vec<Out> {
         #[cfg(unix)]
-        { self.from_client_read(msg, codex_auth_file::read) }
+        {
+            self.from_client_read(msg, codex_auth_file::read)
+        }
         #[cfg(not(unix))]
-        { self.from_client_read(msg) }
+        {
+            self.from_client_read(msg)
+        }
     }
 
-    fn from_client_read(&self, msg: &Value,
+    fn from_client_read(
+        &self,
+        msg: &Value,
         #[cfg(unix)] read: impl FnOnce() -> anyhow::Result<Option<AccessFile>>,
     ) -> Vec<Out> {
         #[cfg(unix)]
@@ -253,9 +260,16 @@ impl Translator {
                     }
                     _ => {
                         let mut out = auth.fail();
-                        out.extend(self.inner.server_closed("Codex broker unavailable"));
                         if msg.get("method").and_then(Value::as_str) == Some("session/cancel") {
                             out.extend(self.inner.from_client(msg));
+                        }
+                        out.extend(self.inner.server_closed("Codex broker unavailable"));
+                        // This request has not reached the inner translator yet.
+                        if let Some(id) = msg.get("id") {
+                            out.push(Out::Client(serde_json::json!({
+                                "jsonrpc":"2.0", "id": id,
+                                "error": {"code": -32001, "message": "Codex broker unavailable"}
+                            })));
                         }
                         return out;
                     }
@@ -742,9 +756,14 @@ mod tests {
         gate.failed = None;
         gate.login_id = Some(json!("login"));
         gate.held_client.push(json!({"id":"queued", "method":"session/new"}));
-        let out = gate.handle_refresh(&json!({
-            "id":"refresh", "method":"account/chatgptAuthTokens/refresh"
-        }), || Ok(None)).unwrap();
+        let out = gate
+            .handle_refresh(
+                &json!({
+                    "id":"refresh", "method":"account/chatgptAuthTokens/refresh"
+                }),
+                || Ok(None),
+            )
+            .unwrap();
         assert!(out.iter().any(|out| matches!(out, Out::Client(v)
             if v["id"] == "queued" && v["error"]["code"] == -32001)));
         assert!(out.iter().any(|out| matches!(out, Out::Server(v)
@@ -755,17 +774,26 @@ mod tests {
     #[test]
     fn failed_file_read_settles_current_and_held_requests() {
         let tr = translator();
-        let file = AccessFile { access_token: "access".into(), account_id: "account".into(),
-            expires_at: 4_102_444_800, modified: std::time::SystemTime::UNIX_EPOCH };
+        let file = AccessFile {
+            access_token: "access".into(),
+            account_id: "account".into(),
+            expires_at: 4_102_444_800,
+            modified: std::time::SystemTime::UNIX_EPOCH,
+        };
         *tr.auth.lock().unwrap() = AuthGate::from_read(Ok(Some(file.clone())));
         tr.auth.lock().unwrap().login_id = Some(json!("login"));
-        assert!(tr.from_client_read(&json!({"id":"queued", "method":"session/new"}),
-            || Ok(Some(file))).is_empty());
-        let out = tr.from_client_read(&json!({"id":"current", "method":"session/new"}), || Ok(None));
+        assert!(
+            tr.from_client_read(&json!({"id":"queued", "method":"session/new"}), || Ok(Some(file)))
+                .is_empty()
+        );
+        let out =
+            tr.from_client_read(&json!({"id":"current", "method":"session/new"}), || Ok(None));
         for id in ["queued", "current"] {
-            assert!(out.iter().any(|out| matches!(out, Out::Client(v)
-                if v["id"] == id && v["error"]["code"] == -32001)), "missing reply for {id}");
+            assert!(
+                out.iter().any(|out| matches!(out, Out::Client(v)
+                if v["id"] == id && v["error"]["code"] == -32001)),
+                "missing reply for {id}"
+            );
         }
     }
-
 }
