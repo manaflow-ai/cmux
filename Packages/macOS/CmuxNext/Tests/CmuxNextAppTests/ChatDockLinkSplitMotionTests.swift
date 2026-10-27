@@ -466,6 +466,34 @@ struct ChatDockLinkSplitMotionTests {
 
     @Test func aRightChatOpensAtItsFullSizeFromTheRightEdge() async throws { try await openRightSplit(.chat) }
 
+    /// The app's native navigation seam consumes a clicked URL, cancels the page navigation, and
+    /// applies the beside layout once. This drives the same decision/open callback that
+    /// `AgentPaneView+PageHost` installs on `PageWebView`; the Chromium browser test cannot reach
+    /// that Swift callback.
+    @Test func aClickedAgentLinkCancelsThePageAndMovesTheChatOnce() {
+        let screen = Screen(.plain)
+        defer { screen.close() }
+        let source = AgentPaneSource.bundled(URL(string: "cmux-agent://pane/index.html")!)
+        let url = URL(string: "https://example.com/native-pane")!
+        #expect(AgentPaneNavigation.decision(for: url, source: source, userClicked: true) == .openOutside(url))
+        #expect(AgentPaneNavigation.decision(for: url, source: source, userClicked: false) == .cancel)
+
+        let gestures = AgentPaneUserGestures()
+        gestures.record(click: true)
+        var moves = 0
+        var opened: [URL] = []
+        let openedOutside = AgentPaneNavigation.openOutside(url, gestures: gestures, open: { openedURL in
+            opened.append(openedURL)
+            moves += 1
+            screen.model.handOffContent(of: Self.anchor)
+            screen.show(Self.docked)
+        })
+        #expect(openedOutside)
+        #expect(opened == [url])
+        #expect(moves == 1, "the native link callback opened the beside layout more than once")
+        #expect(screen.model.screens.first?.layout.contains(Self.dock) == true)
+    }
+
     private func openRightSplit(_ kind: Content) async throws {
         let screen = Screen(kind)
         defer { screen.close() }
