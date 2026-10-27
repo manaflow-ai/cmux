@@ -1792,6 +1792,23 @@ nonisolated extension Feature {
         runtimeMutable: false
     )
 
+    /// Once the live WebKit browser tab processes reach the Chromium renderer limit (physical memory / 3 / 85 MB), a new WebKit tab whose first URL is of the same site (scheme and eTLD+1) as a live process's tabs joins that process, as Chrome reuses a same-site renderer above its limit; sites never mix.
+    public static let webKitSameSiteProcesses = Feature(
+        index: 102,
+        name: "webKitSameSiteProcesses",
+        owner: "PL-memory",
+        description: "Once the live WebKit browser tab processes reach the Chromium renderer limit (physical memory / 3 / 85 MB), a new WebKit tab whose first URL is of the same site (scheme and eTLD+1) as a live process's tabs joins that process, as Chrome reuses a same-site renderer above its limit; sites never mix.",
+        kind: .perfPath,
+        process: .app,
+        chromiumFeature: nil,
+        defaults: FeatureDefaults(dev: false, nightly: false, release: false),
+        expires: "2026-12-20",
+        params: [],
+        stories: ["renderer-sharing"],
+        sticky: false,
+        runtimeMutable: false
+    )
+
     /// A window fully covered by an opaque cmux window counts as occluded like a minimized or other-Space one: its animations stop ticking, its terminals stop drawing and its hosted pages are told they are occluded.
     public static let windowOcclusionFamily = Feature(
         index: 103,
@@ -2010,6 +2027,7 @@ nonisolated extension Feature {
         .topPageDiscard,
         .visibilityGatedHosting,
         .vsyncHub,
+        .webKitSameSiteProcesses,
         .windowOcclusionFamily,
         .cefHelperHost,
         .cefLayerHostingEveryPage,
@@ -2123,6 +2141,7 @@ nonisolated extension Feature {
         .topPageDiscard,
         .visibilityGatedHosting,
         .vsyncHub,
+        .webKitSameSiteProcesses,
         .windowOcclusionFamily,
     ]
     #endif

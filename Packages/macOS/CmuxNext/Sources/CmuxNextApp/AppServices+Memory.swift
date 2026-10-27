@@ -27,6 +27,7 @@ import CmuxNextSidebar
 import CmuxNextTabs
 import CmuxNextTerminal
 import CmuxNextWakeups
+import Foundation
 
 /// Runs the memory coordinator's release slices on a budgeted frame queue: on a later frame, after input
 /// and visible work, never in the turn that asks (Chrome posts memory release as BEST_EFFORT tasks).
@@ -209,6 +210,16 @@ struct AppMemoryConsumers {
     /// pane, the Screenshots pages) take it when they are made.
     var fileCacheRegistry: (any MemoryConsumerRegistry)? {
         services.features.isEnabled(.memoryFileHomeCaches) ? services.memoryCoordinator : nil
+    }
+
+    /// `webKitSameSiteProcesses` (default off): WebKit tabs share a same-site WebContent process from the Chromium
+    /// renderer limit on (p07-memory-088), or from the limit a bench run forces; nil while the feature is off.
+    var webKitProcessReuse: WebKitProcessReuse? {
+        guard services.features.isEnabled(.webKitSameSiteProcesses) else { return nil }
+        let limit = WebKitProcessReuse.benchRendererLimit(environment: ProcessInfo.processInfo.environment,
+                                                          bundleIdentifier: Bundle.main.bundleIdentifier)
+            ?? SubsystemBudget.forThisMac(gpuResidentAvailable: false).chromiumRendererLimit
+        return WebKitProcessReuse.loading(rendererLimit: limit, work: services.work, mainWork: services.mainWork)
     }
 
     /// The Files pane's thumbnail pixel bytes, a quarter of the Mac's image cache budget (32 MiB at

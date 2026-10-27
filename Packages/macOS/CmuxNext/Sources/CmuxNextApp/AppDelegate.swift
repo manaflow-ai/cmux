@@ -312,8 +312,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             case .activity(let type, let webpageURL): _ = services.externalOpen.continueActivity(type: type, webpageURL: webpageURL)
             }
         }
-        // The registered launch work ends the implicit ref. The first window is made in this turn
-        // (`restoreWhenLoaded`), so its commit ends the first-frame ref; a launch that shows none
+        // The registered launch work ends the implicit ref. The first window is made in this turn, or
+        // on the launch snapshot read's end (`restoreWhenLoaded`), so its commit ends the first-frame ref; a launch that shows none
         // completes at the scheduler's failsafe, with reason `failsafe`.
         order.startup.finishRegistration()
         DebugTimings.markLaunch("did_finish_launching_end")
