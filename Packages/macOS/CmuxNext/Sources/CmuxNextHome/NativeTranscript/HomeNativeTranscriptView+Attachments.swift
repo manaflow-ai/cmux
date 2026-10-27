@@ -274,6 +274,7 @@ extension HomeNativeTranscriptView {
     /// Every key typed into the composer ends here (`ChatController.textDidChange`, vendored MessagesLab, carries
     /// the other home-key marker): a notice the person typed past goes. Keep it O(1): no transcript or row work.
     func draftTextChanged() { // perf-hot: 0.1ms home-key (every key typed into the Home composer)
+        updateStarterAvailability()
         guard notice != nil, !transcript.draftText.isEmpty else { return }
         showNotice(nil)
     }

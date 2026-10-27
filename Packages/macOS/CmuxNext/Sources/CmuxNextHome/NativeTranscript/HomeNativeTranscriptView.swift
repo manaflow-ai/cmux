@@ -21,6 +21,7 @@ public import MessagesLabHome
 public final class HomeNativeTranscriptView: NSView {
     let transcript: MessagesLabHomeView
     let firstRun = HomeFirstRunView()
+    var starterSent = false
     let me: ParticipantID
     /// This conversation's part of the store: chained refusal and
     /// unanswered callbacks, attachment bytes, Cancel Upload.
@@ -53,7 +54,7 @@ public final class HomeNativeTranscriptView: NSView {
     /// False while the owner is unreachable (H17: offline Send is off; the
     /// text stays a draft). The wiring sets it from `HomeStore.connection`.
     public var isSendEnabled = true {
-        didSet { transcript.isSendEnabled = isSendEnabled }
+        didSet { transcript.isSendEnabled = isSendEnabled; updateStarterAvailability() }
     }
     /// The Chief works: the compose bar offers Stop (the button, Esc, Cmd-.).
     public var isWorking = false {
@@ -164,6 +165,7 @@ public final class HomeNativeTranscriptView: NSView {
         firstRun.isHidden = true
         firstRun.onAction = { [weak self] action in self?.onFirstRunAction(action) }
         firstRun.onAgent = { [weak self] id in self?.onFirstRunAgent(id) }
+        firstRun.starters.onSend = { [weak self] prompt in self?.sendStarter(prompt) }
         firstRun.switchCard.onHide = { [weak self] in
             self?.firstRun.switchCard.apply(nil)
             self?.firstRun.needsLayout = true
