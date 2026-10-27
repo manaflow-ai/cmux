@@ -237,6 +237,7 @@ final class SidebarBridge {
         if !model.groupsByComputer { sections = SSHConnectingRows.adding(services.machines, to: sections) }
         let hadDocDrag = model.docDrag != nil
         model.docDrag = SidebarDocWiring.docMachines(services.machines).drag() // the sidebar document's drag half, nil keeps the older resolver
+        if let id = state?.id { model.docDrag?.listedElsewhere = WorkspaceLayoutRefs(machines: services.machines).listedElsewhere(window: id, registry: services.windows.registry) }
         model.ungroupedFirst = model.docDrag == nil && !usesMixedOrder
         if model.layout != layout { model.layout = layout }
         // A pass that lists what the rows show already (a daemon reorder the personal or document order hides, a store

@@ -67,6 +67,16 @@ import Testing
         #expect(Self.groupIDs(arranged) == ["itm_gs"], "groups listed: \(Self.groupIDs(arranged))")
     }
 
+    /// An open member no other window lists (its close runs, or its window's row is on the way) keeps the group's
+    /// header here, as a closed one does: a saved group never blinks out while its last workspace closes.
+    @Test func aGroupWhoseOpenMemberNoOtherWindowListsKeepsItsHeader() {
+        var drag = Self.drag
+        drag.listedElsewhere = { $0.workspaceID == "ws-3" }
+        let window = [SidebarSection(kind: .machine(Self.thisMac), nodes: [.workspace(Self.ws("ws-1"))])]
+        let arranged = Self.projection().arrange(window, drag: drag)
+        #expect(Set(Self.groupIDs(arranged)) == ["itm_gs", "itm_ga"], "groups listed: \(Self.groupIDs(arranged))")
+    }
+
     /// The window that lists the members keeps every group, the parent of a subgroup with a member too.
     @Test func theOwningWindowKeepsItsGroups() {
         let owner = [SidebarSection(kind: .machine(Self.thisMac), nodes: [

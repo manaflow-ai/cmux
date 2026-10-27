@@ -62,6 +62,16 @@ struct WorkspaceLayoutRefs {
         return owner != windowID
     }
 
+    /// Whether a window other than `windowID` lists the open workspace a document ref names, read at the call
+    /// (`SidebarDocDrag.listedElsewhere`): not while its close runs, nor before a window owns it.
+    func listedElsewhere(window windowID: String, registry: WindowRegistryStore) -> (SidebarDocWorkspaceRef) -> Bool {
+        { ref in
+            let value = Self.qualified(session: ref.sessionID, resource: ref.workspaceID)
+            guard let id = workspaceID(for: .workspace(value)), !ClosingWorkspaces.shared.ids.contains(id) else { return false }
+            return ownedElsewhere(value, window: windowID, registry: registry.value)
+        }
+    }
+
     /// Sidebar ids of the workspaces the top region shows in `room` (tiles
     /// and top rows), which the workspace list leaves out.
     func topWorkspaceIDs(in layout: SidebarLayoutDocument, room: String?) -> Set<String> {

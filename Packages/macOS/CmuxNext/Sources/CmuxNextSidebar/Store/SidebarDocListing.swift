@@ -12,14 +12,14 @@ import Foundation
 ///   (`SectionID.custom`) at its own place in the document order: its items
 ///   draw in its own arrangement (`SidebarRowKey.block`), and its groups
 ///   leave their machine and list there as header and member rows. A kept
-///   group with no open workspace lists there too; one whose open workspaces
-///   another window lists belongs to that window and does not (#25776).
+///   group no other window lists an open workspace of lists there too; one
+///   whose open workspace another window lists belongs to it (#25776).
 extension SidebarDocProjection {
     /// `sections` arranged as this document places items; `drag` names each row's item and each list section's document section.
     @MainActor public func arrange(_ sections: [SidebarSection], drag: SidebarDocDrag) -> [SidebarSection] {
         let projection = self
         let bandIDs = Set(projection.bandGroups.map(\.id))
-        let open = Self.openTrees(projection.bandGroups)
+        let elsewhere = Self.listedElsewhere(projection.bandGroups, drag: drag)
         var pulled: [String: SidebarGroup] = [:]
         var arranged = sections.map { section in
             var section = section
@@ -58,8 +58,9 @@ extension SidebarDocProjection {
             let id = layoutSection.id.rawValue
             let nodes = projection.bandGroups.filter { $0.section == id }.compactMap { group -> SidebarNode? in
                 if let shown = pulled[group.id] { return .group(shown) }
-                // Not listed here: another window (or room) lists its open workspaces, or none is open (its header alone).
-                return open.contains(group.id) ? nil : .group(Self.emptyGroup(group))
+                // Not listed here: another window lists an open workspace of it, or none does (its header alone, also while
+                // its last one closes or a new one waits for its window's row).
+                return elsewhere.contains(group.id) ? nil : .group(Self.emptyGroup(group))
             }
             guard !passedMachines || !nodes.isEmpty else { continue }
             let section = SidebarSection(kind: .custom(SidebarCustomSection(id: id, title: layoutSection.title, showsTitle: false)), nodes: nodes)
@@ -196,11 +197,12 @@ extension SidebarDocProjection {
         return nodes + waiting
     }
 
-    /// The band groups that hold an open workspace, themselves or in a group under them.
-    private static func openTrees(_ groups: [Group]) -> Set<String> {
+    /// The band groups holding an open workspace another window lists (`SidebarDocDrag.listedElsewhere`), themselves
+    /// or in a group under them.
+    @MainActor private static func listedElsewhere(_ groups: [Group], drag: SidebarDocDrag) -> Set<String> {
         let parents = Dictionary(groups.map { ($0.id, $0.parent) }, uniquingKeysWith: { first, _ in first })
         var open = Set<String>()
-        for group in groups where group.holdsOpenWorkspace {
+        for group in groups where group.openMembers.contains(where: drag.listedElsewhere) {
             var id: String? = group.id
             while let current = id, open.insert(current).inserted { id = parents[current] ?? nil }
         }
