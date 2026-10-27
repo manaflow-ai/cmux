@@ -241,7 +241,7 @@ import CmuxNextWakeups
     // MARK: Phone
 
     @Test func aDiscardedPhoneTabShowsTheSamePhoneAndLeavesTheNextTabsPhone() throws {
-        let tab = PhonePageTab(phones: Self.phones())
+        let tab = PhonePageTab(phones: Self.phones(), mainWork: linklessMainWork(), nodes: { VisibilityNode(root: "test.phone.\($0)", own: .visible) })
         let key = "phone-batch5"
         #expect(PhonePageTab.hiddenPolicy == .afterHidden(.seconds(20)),
                 "a phone tab switched away from and back was rebuilt, running xcrun on the show")

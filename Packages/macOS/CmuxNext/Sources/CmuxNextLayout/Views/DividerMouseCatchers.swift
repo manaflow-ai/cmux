@@ -15,7 +15,9 @@ import CmuxNextDesign
 /// (Chrome's model: `RenderWidgetHostViewCocoa` is a subview,
 /// `content/app_shim_remote_cocoa/render_widget_host_view_cocoa.mm`) needs
 /// none: the divider views are above it in the same window, and
-/// `WindowOverlayLayer` makes no catchers at all.
+/// `WindowOverlayLayer` makes no catchers at all. So does every page of a
+/// window whose pages draw in its view tree (``PageSurface/views``, the
+/// Chromium Host): such a window never shows a catcher panel.
 ///
 /// A content panel (`ContentChildPanel`: a remote page's popup reaching
 /// past the page's edge) lies below these panels, so a catcher never covers
@@ -55,11 +57,13 @@ public final class DividerMouseCatchers {
     }
 
     /// Shows one panel per area (window coordinates), or none when `active`
-    /// is false (no page window takes the mouse). An area's part under a
+    /// is false (no page window takes the mouse) or the window's pages draw
+    /// in its view tree (``PageSurface/views``). An area's part under a
     /// rect of `holes` (window coordinates: the content panels' frames) gets
     /// no panel, so the popup there keeps the mouse.
     public func update(_ areas: [LayoutMouseArea], active: Bool, excluding holes: [CGRect] = []) {
-        let wanted = active && window.isVisible ? Self.pieces(of: areas, excluding: holes) : []
+        let takesMouse = active && window.isVisible && PageSurface.of(window) == .childWindows
+        let wanted = takesMouse ? Self.pieces(of: areas, excluding: holes) : []
         let keys = Set(wanted.map(\.key))
         for (key, panel) in panels where !keys.contains(key) {
             if panel.parent === window { window.removeChildWindow(panel) }
@@ -164,7 +168,7 @@ final class DividerMousePanel: NSPanel {
 /// view gets the press and, as the press's view, the drags and the release.
 final class DividerMouseCatcherView: NSView {
     var resizesColumns = true {
-        didSet { if resizesColumns != oldValue { window?.invalidateCursorRects(for: self) } }
+        didSet { if resizesColumns != oldValue, isEntered { cursor.set() } }
     }
     var onHover: ((Bool) -> Void)?
     private var trackingArea: NSTrackingArea?
@@ -224,6 +228,7 @@ final class DividerMouseCatcherView: NSView {
     }
 
     override func mouseDown(with event: NSEvent) { forward(event) }
+    // input-coalesce: native (a forward into the parent window, whose divider drag coalesces it, p04-input-031)
     override func mouseDragged(with event: NSEvent) { forward(event) }
     override func mouseUp(with event: NSEvent) { forward(event) }
     override func rightMouseDown(with event: NSEvent) { forward(event) }

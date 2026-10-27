@@ -322,6 +322,7 @@ pub fn install_panic_hook() {
     }));
 }
 fn disable_core_dumps() {
+    // SAFETY: setrlimit only reads the rlimit, a temporary that lives across the call.
     #[cfg(unix)]
     unsafe {
         let _ = libc::setrlimit(libc::RLIMIT_CORE, &libc::rlimit { rlim_cur: 0, rlim_max: 0 });

@@ -81,7 +81,7 @@ nonisolated struct ChromiumHostLaneSpawner: ChromiumHostSpawning {
         do throws(ChromiumHostLauncher.LaunchError) {
             let (pid, controlFD) = try ChromiumHostLauncher.spawnControlled(
                 executable: plan.configuration.executable, arguments: plan.configuration.arguments + (fence?.arguments ?? []),
-                priority: .userBlocking)
+                priority: ChromiumHostLauncher.priority)
             let attachment = ChromiumHostAttachment(controlFD: controlFD, remoteShim: plan.remoteShim,
                                                     frameworkLocales: plan.frameworkLocales, resizeFence: fence?.name)
             return .success(ChromiumHostSpawn(pid: pid, attachment: attachment,

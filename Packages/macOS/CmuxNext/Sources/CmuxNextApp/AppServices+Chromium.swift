@@ -104,7 +104,8 @@ extension AppServices {
         let hostSwitch = AppControl.chromiumHostSwitch(in: features, tunables: TunableStore.shared)
         let hostTabs = hostSwitch.isEnabled && features.isEnabled(.chromiumHostTabs)
         guard BrowserHostTunables.backend(hostEnabled: hostTabs) == .host else { return nil }
-        return ChromiumHostSupervisor(work: work, mainWork: mainWork, fencesResizes: features.isEnabled(.chromiumHostResizeFence))
+        return ChromiumHostSupervisor(work: work, mainWork: mainWork, fencesResizes: features.isEnabled(.chromiumHostResizeFence),
+                                      restoresPages: features.isEnabled(.chromiumHostRestoreTabs))
         #else
         return nil
         #endif
@@ -114,8 +115,14 @@ extension AppServices {
     func makeChromiumSlot() -> ChromiumEngineSlot {
         #if DEBUG || CMUX_BENCH_HOOKS
         // A host that ends while cmux quits reports nothing (quit ends it).
-        (chromiumRuntime.source.hostSupervisor as? ChromiumHostSupervisor)?.isQuitting = { [weak self] in self?.quit.isQuitting == true }
+        let supervisor = chromiumRuntime.source.hostSupervisor as? ChromiumHostSupervisor
+        supervisor?.isQuitting = { [weak self] in self?.quit.isQuitting == true }
         AppRunMarker.reportHostCrashes(of: chromiumRuntime.source.hostSupervisor, writer: crashRecovery.writer, work: work)
+        // A crashed host's tabs come back with the history their daemon records keep (p01-process-083).
+        supervisor?.savedNavigation = { [weak self] tab, url in
+            guard let tabs = self?.cache.browserTabs else { return nil }
+            return await tabs.historyStarts.hostRestart(tab.rawValue, at: url, service: tabs)
+        }
         #endif
         let pumpInput = features.isEnabled(.cefPumpInputPolicy) ? CEFPumpInputSeams(mainWork: mainWork) : nil
         // The lanes whose startup fence holds a predicted start's framework read (p08-startup-045).
@@ -129,6 +136,7 @@ extension AppServices {
         // Host mode only: <select> popups as cmux menus (p01-process-060).
         chromiumRuntime.source.drawsHostPopupMenus = features.isEnabled(.chromiumHostPopupMenus)
         chromiumRuntime.source.drawsHostSuggestions = features.isEnabled(.chromiumHostSuggestions) // p01-process-061
+        chromiumRuntime.source.drawsHostChoosers = features.isEnabled(.chromiumHostChoosers) // p01-process-228
         // Host mode only: page file choosers in cmux's picker, the files sent as paths (p01-process-064).
         chromiumRuntime.source.hostFileDialogs = features.isEnabled(.chromiumHostFileDialogs) ? ChromiumFileDialogPanels(openPanel: openPanel) : nil
         // Restored pages start Chromium by their origin, the visible one after the first frame (p08-startup-040).

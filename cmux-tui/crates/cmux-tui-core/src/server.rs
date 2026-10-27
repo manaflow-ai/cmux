@@ -165,6 +165,7 @@ mod orphan_shutdown;
 mod page_router;
 pub use orphan_shutdown::stop_orphaned_owner;
 mod pending_handoff;
+mod pending_streams;
 mod renderer_grant;
 use line_connection::{
     handle_connection_with_permit, serve_line_connection, spawn_connection_reader,
@@ -241,6 +242,7 @@ mod responses;
 mod rows;
 mod screen_json;
 mod server_stats;
+pub(crate) use server_stats::{DIAGNOSTIC_SITES_CAPABILITY, forward_diagnostic_sites};
 mod session_stream;
 mod split_kind;
 mod split_respawn;
@@ -2363,7 +2365,7 @@ use render_service::{
 use render_service::{OutboundByteBudget, RenderGraphicBase64Cache};
 
 mod message_writer;
-use message_writer::{MessageSink, MessageWriter, OutboundStream};
+use message_writer::{MessageSink, MessageWriter, OutboundStream, RoomWaker};
 
 mod request_watchdog;
 #[cfg(unix)]

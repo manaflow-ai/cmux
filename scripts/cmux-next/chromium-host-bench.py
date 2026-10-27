@@ -4,9 +4,9 @@
 Launches one tagged Debug cmux-next app with `browserHost.helper` and `browserResize.layerHostingEveryPage` (the
 bench-only feature `cefLayerHostingEveryPage`'s local override: every page window hosts from fork API 26, without the
 Track A calls the shipping feature `cefLayerHosting` needs) on, and measures the same probe page twice. Chromium tabs
-stay in cmux (`browserHost.tabs` off) except with `--modes profiles`, which needs them in the host and so runs in a
-launch without the in-process rows (inproc, --baseline, --stress); an in-process row of a launch whose tabs run in the
-host says not_run (its numbers would be the host's):
+stay in cmux (`browserHost.tabs` off) except with `--modes profiles` and `--kill-host`, which need them in the host:
+profiles runs in a launch without the in-process rows (inproc, --baseline, --stress), and --kill-host runs instead of
+the modes; an in-process row of a launch whose tabs run in the host says not_run (its numbers would be the host's):
 
   inproc   a normal Chromium tab (`openBrowser.chromium`): the browser process is the cmux app, its pump runs on
            cmux's main thread, the page's pixels are layer hosted (fork API >= 26) and its input goes to the page
@@ -142,7 +142,9 @@ chromiumHostWidgets on and two test extensions, then the autofill and password r
 p01-process-061): the field's suggestions in cmux's list (`debug.cef` `host_suggestions`) with feature
 chromiumHostSuggestions on, then the page dialog rows (chromium_host_native_ui_dialogs.py, p01-process-064): file
 picker, certificate error, beforeunload and renderer hang, each answered by cmux while the host is never frontmost
-and shows no window, with feature chromiumHostFileDialogs on.
+and shows no window, with feature chromiumHostFileDialogs on, then the chooser rows (chromium_host_native_ui_choosers.py,
+p01-process-228): color, device chooser, screen share, external protocol, Web Share (skipped until p01-process-228c), video
+and document picture-in-picture, with feature chromiumHostChoosers on.
 
 --kill-host runs instead the host kill rows (chromium_host_kill.py, p01-process-082): one `--signals` signal per row
 (default KILL; TRAP,SEGV,ABRT,KILL for the done check) to the supervisor's Chromium Host under a Chromium tab
@@ -150,6 +152,12 @@ and shows no window, with feature chromiumHostFileDialogs on.
 `debug.crashes` lists the host's end in `chromium_host` with that signal, its fork API and its log's last lines (at
 least one, none with a URL; the row's `crash_record`, chromium_host_crash_records.py, p01-process-085), and Reload
 brings the page back under a new host.
+
+--kill-host --restore runs instead the restore row (chromium_host_restore.py, p01-process-083) in a launch of its own,
+with feature chromiumHostRestoreTabs on (the kill rows expect the crash page and Reload, which a restore replaces): it
+opens 20 Chromium tabs in 3 windows, each with two history entries, SIGKILLs the Chromium Host, and checks every tab
+back at its address with both entries on one new host: each window's shown tab within 2 s (`shown_ms`), each hidden
+one when it is focused (`hidden_ms`).
 
 --find runs instead the find rows (chromium_host_find.py, p01-process-048): Cmd-F, a typed query, Cmd-G, Cmd-Shift-G
 and Escape through cmux's find pill on a Chromium page in the host (`debug.cef` backend `host`), the pill's match
@@ -182,8 +190,14 @@ import chromium_host_display  # noqa: E402
 import chromium_host_find  # noqa: E402
 import chromium_host_kill  # noqa: E402
 import chromium_host_native_ui  # noqa: E402
+import chromium_host_native_ui_choosers  # noqa: E402
 import chromium_host_native_ui_dialogs  # noqa: E402
 import chromium_host_profiles  # noqa: E402
+import chromium_host_restore  # noqa: E402
+
+# Every --native-ui row, in the order they run.
+NATIVE_UI_ROWS = (chromium_host_native_ui.ROWS + chromium_host_native_ui_dialogs.ROWS
+                  + chromium_host_native_ui_choosers.ROWS)
 
 
 def parse(argv=None):
@@ -200,13 +214,16 @@ def parse(argv=None):
     parser.add_argument("--ime", action="store_true", help="helper: TEXT_INPUT_STATE pushes per keystroke (ime_row)")
     parser.add_argument("--native-ui", nargs="?", const="", default=None, metavar="ROWS",
                         help="only the native UI rows (chromium_host_native_ui.py): all, or the comma-separated ROWS "
-                             f"({', '.join(chromium_host_native_ui.ROWS + chromium_host_native_ui_dialogs.ROWS)})")
+                             f"({', '.join(NATIVE_UI_ROWS)})")
     parser.add_argument("--find", action="store_true", help="only the find rows (chromium_host_find.py)")
     parser.add_argument("--kill-host", action="store_true",
                         help="only the host kill rows (chromium_host_kill.py) with their crash records "
                              "(chromium_host_crash_records.py)")
     parser.add_argument("--signals", default="KILL",
                         help=f"--kill-host: the signals, one row each ({','.join(chromium_host_kill.SIGNALS)})")
+    parser.add_argument("--restore", action="store_true",
+                        help="--kill-host: the restore row (chromium_host_restore.py, p01-process-083) instead of the "
+                             "signal rows, with feature chromiumHostRestoreTabs on")
     parser.add_argument("--baseline", action="store_true", help="task p01-process-005: stall 9a, 10-tab idle wakes, census, rows")
     parser.add_argument("--idle-settle-seconds", type=float, default=35.0, help="wait before the 10-tab idle sample")
     parser.add_argument("--tag", help="the lab runner's tag of --app (checked against the bundle's name)")
@@ -218,6 +235,8 @@ def parse(argv=None):
     args = parser.parse_args(argv)
     if sum([args.native_ui is not None, args.find, args.kill_host]) > 1:
         parser.error("--native-ui, --find and --kill-host each run instead of the modes: pick one")
+    if args.restore and not args.kill_host:
+        parser.error("--restore is a --kill-host row: add --kill-host")
     if "profiles" in args.modes.split(",") and ("inproc" in args.modes.split(",") or args.baseline or args.stress):
         parser.error("--modes profiles runs every Chromium tab in the host: run it in a launch of its own, without "
                      "inproc, --baseline or --stress (they measure in-process tabs)")
@@ -228,7 +247,7 @@ def parse(argv=None):
     if args.native_ui is not None:
         try:
             args.native_ui = chromium_host_native_ui.rows_named(
-                args.native_ui, chromium_host_native_ui.ROWS + chromium_host_native_ui_dialogs.ROWS)
+                args.native_ui, NATIVE_UI_ROWS)
         except ValueError as error:
             parser.error(str(error))
     if args.tag is not None and tag_of(f"cmux DEV {args.tag}.app") != tag_of(args.app):
@@ -385,7 +404,8 @@ TUNABLES = {"version": 1, "values": {"browserHost.helper": True, "browserResize.
 
 def launch_tunables(modes, kill_host=False):
     """TUNABLES for a run of `modes`: Chromium tabs move to the host (`browserHost.tabs`, feature chromiumHostTabs)
-    only for the profiles row and `kill_host` (--kill-host), so every other row's Chromium tab stays in process."""
+    only for the profiles row and the `--kill-host` rows (they end the host their tabs run in, and the restore row
+    brings them back on the next one), so every other row's Chromium tab stays in process."""
     values = dict(TUNABLES["values"], **{"browserHost.tabs": "profiles" in modes or kill_host})
     return {**TUNABLES, "values": values}
 
@@ -748,7 +768,11 @@ def main():
         open(native, "w").write(chromium_host_native_ui.PAGE)
         url = pathlib.Path(native).as_uri()
         env.update(chromium_host_native_ui.launch_env(chromium_host_native_ui.write_extensions(opts.out)))
-        env["CMUX_ENABLE_FEATURES"] = ",".join(filter(None, [env.get("CMUX_ENABLE_FEATURES"), chromium_host_native_ui_dialogs.FEATURES]))
+        env["CMUX_ENABLE_FEATURES"] = ",".join(filter(None, [env.get("CMUX_ENABLE_FEATURES"), chromium_host_native_ui_dialogs.FEATURES,
+                                                             chromium_host_native_ui_choosers.FEATURES]))
+        env.update(chromium_host_native_ui_choosers.ENV)
+        chooser_page = os.path.join(opts.out, "native-ui-choosers.html")
+        open(chooser_page, "w").write(chromium_host_native_ui_choosers.PAGE)
     if opts.kill_host:
         kill_page = os.path.join(opts.out, "kill-host.html")
         open(kill_page, "w").write(chromium_host_kill.PAGE)
@@ -757,6 +781,8 @@ def main():
         find_page = os.path.join(opts.out, "find.html")
         open(find_page, "w").write(chromium_host_find.PAGE)
         url = pathlib.Path(find_page).as_uri()
+    if opts.kill_host and opts.restore:
+        env["CMUX_ENABLE_FEATURES"] = ",".join(filter(None, [env.get("CMUX_ENABLE_FEATURES"), chromium_host_restore.FEATURES]))
     if "dragin" in opts.modes.split(","):
         env["CMUX_ENABLE_FEATURES"] = ",".join(filter(None, [env.get("CMUX_ENABLE_FEATURES"), "chromiumHostDragIn"]))
     if opts.host_switches:
@@ -793,13 +819,26 @@ def main():
                     on_screen_windows, rows_to_run=dialog_rows)
                 RESULT["modes"]["native_ui"].update(dialogs)
                 ok = ok and dialogs_ok
+            chooser_rows = [row for row in opts.native_ui if row in chromium_host_native_ui_choosers.ROWS]
+            if chooser_rows:
+                chosen, choosers_ok = chromium_host_native_ui_choosers.run(
+                    rpc, wait, lambda script: page_eval(rpc, script, None), pathlib.Path(chooser_page).as_uri(),
+                    chromium_host_pid, front_pid, on_screen_windows, rows_to_run=chooser_rows)
+                RESULT["modes"]["native_ui"].update(chosen)
+                ok = ok and choosers_ok
         if opts.find:
             RESULT["modes"]["find"], ok = chromium_host_find.run(rpc, wait, lambda script: page_eval(rpc, script, None), url)
         if opts.kill_host:
-            RESULT["modes"]["kill_host"], ok = chromium_host_kill.run(
-                rpc, wait, url, opts.signals, lambda: supervisor_host_pid(rpc), app.process.pid if app.process else None,
-                lambda pid: pid is not None and not pid_gone(pid),
-                record=lambda host, number: chromium_host_crash_records.row(rpc, wait, host, number))
+            if opts.restore:
+                RESULT["modes"]["kill_host"] = {}
+                RESULT["modes"]["kill_host"]["restore"], ok = chromium_host_restore.run(
+                    rpc, wait, lambda script, tab: page_eval(rpc, script, tab), lambda script: page_eval_reply(rpc, script),
+                    url, chromium_host_pids, lambda pid: os.kill(pid, signal.SIGKILL), time.monotonic, time.sleep)
+            else:
+                RESULT["modes"]["kill_host"], ok = chromium_host_kill.run(
+                    rpc, wait, url, opts.signals, lambda: supervisor_host_pid(rpc), app.process.pid if app.process else None,
+                    lambda pid: pid is not None and not pid_gone(pid),
+                    record=lambda host, number: chromium_host_crash_records.row(rpc, wait, host, number))
         inproc_tab = None
         if "inproc" in modes:
             inproc_tab = run_inproc(rpc, url)
@@ -1311,11 +1350,18 @@ def run_helper(rpc, url, inproc_tab):
                 "front_after_input": front_pid()}
     # 10 clicks on the page and a key after each: the frontmost app stays cmux's process the whole time, and the
     # host never becomes active nor owns the key window (its own counters, debug.chromium_host.measure input).
+    # The overlay host re-adds its panel above no page across those event cycles in host mode (p01-process-223):
+    # debug.overlay reorders_per_event stays 0.
+    rpc("debug.overlay", {"reset": True})
     fronts = []
     for _ in range(10):
         rpc("debug.mouse", click_point("b"))
         rpc("debug.key", {"key": "a"})
         fronts.append(front_pid())
+    overlay = rpc("debug.overlay") or {}
+    identity["overlay"] = {"reorders_per_event": overlay.get("reorders_per_event"),
+                           "windows": [{k: w.get(k) for k in ("page_surface", "reorders", "event_cycles", "order_checks")}
+                                       for w in overlay.get("windows") or []]}
     counters = rpc("debug.chromium_host.measure", {"op": "input"}) or {}
     identity["clicks"] = {"fronts": sorted(set(p for p in fronts if p is not None)), "host_frontmost": fronts.count(host_pid),
                           "activations": counters.get("activations"), "key_windows": counters.get("key_windows")}

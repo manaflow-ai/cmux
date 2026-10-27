@@ -3,6 +3,7 @@
 @testable import CmuxNextBrowser
 @testable import CmuxNextCompat
 import CmuxNextWakeups
+import CmuxNextWakeupsTestSupport
 import Darwin
 import Foundation
 import os
@@ -124,6 +125,29 @@ import Testing
         #expect(rig.reports.reported.map(\.exit.reason) == [.killed, .killed])
     }
 
+    /// p01-process-081/083: a host SIGKILLed before its hello (Chromium never initialized) could not start: it spends
+    /// none of the crash budget, reports no page crash, its pages do not come back, and no host starts again, as
+    /// Chrome does not relaunch a GPU process that failed to initialize.
+    @Test func aHostKilledBeforeItsHelloCannotStartAndSpendsNoCrash() async throws {
+        let spawner = EndingSpawner()
+        let supervisor = ChromiumHostSupervisor(spawner: spawner, policy: ChromiumHostRestartPolicy(clock: ManualClock()),
+                                                restoresPages: true)
+        let seen = Restores()
+        supervisor.onHostEnded = { [weak supervisor] _ in seen.values.append(supervisor?.lastEndRestoresPages ?? false) }
+        _ = try await supervisor.attachment()
+        let killed = ChromiumHostExit(signal: SIGKILL, status: nil)
+
+        spawner.end(try #require(supervisor.hostPID), killed)
+
+        #expect(seen.values.isEmpty, "a host that never started reported a page crash")
+        #expect(!supervisor.lastEndRestoresPages, "a host that never started brought its pages back")
+        #expect(supervisor.policy.recentCrashes == 0, "an end before the hello spent the crash budget")
+        let reason = ChromiumHostCannotStart(exit: killed).description
+        #expect(supervisor.startFailure == reason)
+        await #expect(throws: ChromiumHostAttachError.cannotStart(reason)) { _ = try await supervisor.attachment() }
+        #expect(supervisor.hostsStarted == 1)
+    }
+
     @Test func aHostKilledBeforeItsHelloReportsNothing() async throws {
         let rig = Rig("exec /bin/cat <&3 >&3")
         let attachment = try await rig.supervisor.attachment()
@@ -135,11 +159,10 @@ import Testing
         #expect(rig.reports.ends == 1)
         #expect(rig.supervisor.exits == ["signal \(SIGKILL)"])
         #expect(rig.reports.reported.isEmpty)
-        // A hello for a host that already ended changes nothing; the next host starts.
+        // A hello for a host that already ended changes nothing; that host could not start, so none starts again.
         rig.supervisor.hostSaidHello()
-        let next = try await rig.supervisor.attachment()
-        defer { Darwin.close(next.controlFD) }
-        #expect(rig.supervisor.hostsStarted == 2)
+        await #expect(throws: ChromiumHostAttachError.self) { _ = try await rig.supervisor.attachment() }
+        #expect(rig.supervisor.hostsStarted == 1)
     }
 
     @Test func aCleanExitReportsNothing() async throws {
@@ -252,6 +275,80 @@ import Testing
         #expect(written == [record])
         #expect(rig.supervisor.crashesTotal == 1)
         #expect(rig.reports.reported.map(\.exit.reason) == [.crashed])
+    }
+
+    // MARK: Restart budget (p01-process-083)
+
+    /// `lastEndRestoresPages` of each end, its host crashed (SIGSEGV) at each minute of `minutes` on `clock`.
+    private static func restores(crashingAt minutes: [Int], restoresPages: Bool = true, clock: ManualClock = ManualClock(),
+                                 quitting: Bool = false) async throws -> [Bool] {
+        let spawner = EndingSpawner()
+        let supervisor = ChromiumHostSupervisor(spawner: spawner, policy: ChromiumHostRestartPolicy(clock: clock),
+                                                restoresPages: restoresPages)
+        supervisor.isQuitting = { quitting }
+        let seen = Restores()
+        supervisor.onHostEnded = { [weak supervisor] _ in seen.values.append(supervisor?.lastEndRestoresPages ?? false) }
+        for minute in minutes {
+            clock.advance(by: .seconds(minute * 60) - clock.now.offset)
+            _ = try await supervisor.attachment()
+            supervisor.hostSaidHello()  // CEFHostStart, once the attach got the host's hello
+            spawner.end(try #require(supervisor.hostPID), ChromiumHostExit(signal: SIGSEGV, status: nil))
+        }
+        return seen.values
+    }
+
+    /// Chrome's GPU rule: 3 crashes within 5 minutes spend the budget, so the third one's pages keep their crash page.
+    @Test func threeCrashesInFourMinutesRestoreTwiceThenNot() async throws {
+        #expect(try await Self.restores(crashingAt: [0, 2, 4]) == [true, true, false])
+    }
+
+    /// Each 5 minutes forgive one crash: crashes 6 minutes apart restore every time.
+    @Test func crashesSixMinutesApartRestoreEveryTime() async throws {
+        #expect(try await Self.restores(crashingAt: [0, 6, 12]) == [true, true, true])
+    }
+
+    /// Without the feature (`chromiumHostRestoreTabs`) no end restores pages, and the budget is still counted.
+    @Test func withoutTheFeatureNoEndRestoresPages() async throws {
+        #expect(try await Self.restores(crashingAt: [0, 6], restoresPages: false) == [false, false])
+    }
+
+    /// An end while cmux quits reaches nobody and restores nothing.
+    @Test func anEndWhileQuittingRestoresNothing() async throws {
+        #expect(try await Self.restores(crashingAt: [0], quitting: true).isEmpty)
+    }
+}
+
+/// Each end's `lastEndRestoresPages`, as `onHostEnded` read it.
+@MainActor private final class Restores {
+    var values: [Bool] = []
+}
+
+/// Hands out hosts with no process behind them; the test ends each one (``end(_:_:)``) on the main thread, as the lane
+/// spawner's exit post does.
+private nonisolated final class EndingSpawner: ChromiumHostSpawning {
+    private let state = Mutex<(next: pid_t, watchers: [pid_t: @MainActor @Sendable (ChromiumHostExit, [String]) -> Void])>((next: 40_000, watchers: [:]))
+
+    func spawn() async throws(ChromiumHostAttachError) -> ChromiumHostSpawn {
+        let pid = state.withLock { state in
+            state.next += 1
+            return state.next
+        }
+        let attachment = ChromiumHostAttachment(controlFD: -1, remoteShim: URL(filePath: "/nonexistent/libcmux_cef_shim_remote.dylib"),
+                                                frameworkLocales: [])
+        return ChromiumHostSpawn(pid: pid, attachment: attachment)
+    }
+
+    func watchExit(of pid: pid_t, log: URL?, _ ended: @escaping @MainActor @Sendable (ChromiumHostExit, [String]) -> Void) {
+        state.withLock { $0.watchers[pid] = ended }
+    }
+
+    func reap(_ pid: pid_t) {}
+
+    func kill(_ pid: pid_t) {}
+
+    @MainActor func end(_ pid: pid_t, _ exit: ChromiumHostExit) {
+        let ended = state.withLock { $0.watchers.removeValue(forKey: pid) }
+        ended?(exit, [])
     }
 }
 #endif

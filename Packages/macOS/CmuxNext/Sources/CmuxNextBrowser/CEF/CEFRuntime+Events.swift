@@ -87,6 +87,7 @@ extension CEFRuntime {
             widgetHost?.ownerClosed(browser)
             hostStart?.popupMenus?.ownerClosed(browser)
             hostStart?.files?.browserClosed(browser)
+            hostStart?.choosers?.ownerClosed(browser)
             browserClosed(browser)
         case .beforeUnloadDialog(let browser, let token, let isReload):
             // A page with no tab to ask in never keeps its unload waiting: it leaves.
@@ -110,6 +111,8 @@ extension CEFRuntime {
             popupMenuOpened(browser: browser, token: token, popup: popup)
         case .popupMenuHidden(let browser, let token):
             hostStart?.popupMenus?.hide(browser: browser, token: token)
+        case .subframeRenderer(let browser, let frame, let client, let attached):
+            childMonitor?.subframe(frame, browser: browser, client: client, attached: attached)
         case .pageDragEnter(let browser, let pathsJSON):
             if let tab = tabsByBrowser[browser], let entered = tab.pageFilesDragged { entered(CEFTab.dragPaths(pathsJSON)) }
         case .fileDialog(let browser, let dialogID, let mode, let acceptTypes, let defaultPath):
