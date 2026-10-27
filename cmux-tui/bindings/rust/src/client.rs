@@ -230,8 +230,7 @@ impl ClientConfig {
 
 impl Default for ClientConfig {
     fn default() -> Self {
-        Self::try_from_env_or_default_session("main")
-            .expect("the built-in main session name is valid")
+        Self::from_socket_path(compatibility_socket_path_for_session("main", env_socket_path()))
     }
 }
 
@@ -275,22 +274,16 @@ impl CmuxClient {
             && matches!(kind, std::io::ErrorKind::NotFound | std::io::ErrorKind::ConnectionRefused)
             && is_hashed_socket(&config.socket_path)
             && allow_legacy_fallback
-        {
-            let Some(legacy) = hashed_socket_legacy_path(&config.socket_path) else {
-                return match connection {
-                    Ok(_) => unreachable!("connection error was matched above"),
-                    Err(error) => Err(error),
-                };
-            };
-            if let Ok(candidate) = JsonLineConnection::connect(
+            && let Some(legacy) = hashed_socket_legacy_path(&config.socket_path)
+            && let Ok(candidate) = JsonLineConnection::connect(
                 &legacy,
                 config.timeout,
                 config.timeout,
                 config.max_frame_bytes,
-            ) {
-                config.socket_path = legacy;
-                connection = Ok(candidate);
-            }
+            )
+        {
+            config.socket_path = legacy;
+            connection = Ok(candidate);
         }
         let connection = connection?;
         Ok(Self { config, connection, next_id: 1, server: None, buffered_events: VecDeque::new() })
@@ -519,10 +512,7 @@ pub(crate) fn hashed_socket_legacy_path(path: &Path) -> Option<PathBuf> {
     }
     let canonical = fallback_root().join(format!("cmux-tui-{uid}"));
     let sibling = parent.parent()?.join(format!("cmux-tui-{uid}"));
-    let mut roots = vec![canonical];
-    if sibling != roots[0] {
-        roots.push(sibling);
-    }
+    let roots = if sibling == canonical { vec![canonical] } else { vec![canonical, sibling] };
     for dir in roots {
         let Ok(entries) = std::fs::read_dir(dir) else { continue };
         for entry in entries.flatten().take(256) {

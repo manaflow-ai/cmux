@@ -54,20 +54,24 @@ struct Reader<'a> {
     duplicate: bool,
 }
 
-impl Reader<'_> {
+impl<'a> Reader<'a> {
+    /// The byte at `i`, or None at the end of the text.
+    fn peek(&self) -> Option<u8> {
+        self.bytes.get(self.i).copied()
+    }
+
     fn well_formed_without_duplicates(&mut self) -> bool {
-        let count = self.bytes.len();
         let mut expect = Expect::Value;
         self.space();
-        while self.i < count {
+        while let Some(byte) = self.peek() {
             match expect {
                 Expect::Value | Expect::ValueOrEnd => {
-                    if expect == Expect::ValueOrEnd && self.bytes[self.i] == b']' {
+                    if expect == Expect::ValueOrEnd && byte == b']' {
                         self.i += 1;
                         self.stack.pop();
                         expect = Expect::CommaOrEnd;
                     } else {
-                        match self.bytes[self.i] {
+                        match byte {
                             b'{' => {
                                 self.stack.push(Some(HashSet::new()));
                                 self.i += 1;
@@ -101,12 +105,12 @@ impl Reader<'_> {
                     }
                 }
                 Expect::Key | Expect::KeyOrEnd => {
-                    if expect == Expect::KeyOrEnd && self.bytes[self.i] == b'}' {
+                    if expect == Expect::KeyOrEnd && byte == b'}' {
                         self.i += 1;
                         self.stack.pop();
                         expect = Expect::CommaOrEnd;
                     } else {
-                        if self.bytes[self.i] != b'"' {
+                        if byte != b'"' {
                             return false;
                         }
                         let Some(key) = self.string(true) else { return false };
@@ -121,7 +125,7 @@ impl Reader<'_> {
                             _ => return false,
                         }
                         self.space();
-                        if self.i >= count || self.bytes[self.i] != b':' {
+                        if self.peek() != Some(b':') {
                             return false;
                         }
                         self.i += 1;
@@ -131,7 +135,7 @@ impl Reader<'_> {
                 Expect::CommaOrEnd => {
                     let Some(top) = self.stack.last() else { return false };
                     let array = top.is_none();
-                    match (self.bytes[self.i], array) {
+                    match (byte, array) {
                         (b',', false) => expect = Expect::Key,
                         (b',', true) => expect = Expect::Value,
                         (b'}', false) | (b']', true) => {
@@ -149,16 +153,14 @@ impl Reader<'_> {
     }
 
     fn space(&mut self) {
-        while self.i < self.bytes.len()
-            && matches!(self.bytes[self.i], b' ' | b'\n' | b'\r' | b'\t')
-        {
+        while matches!(self.peek(), Some(b' ' | b'\n' | b'\r' | b'\t')) {
             self.i += 1;
         }
     }
 
     fn literal(&mut self) -> bool {
         for word in [&b"true"[..], b"false", b"null"] {
-            if self.bytes[self.i..].starts_with(word) {
+            if self.bytes.get(self.i..).is_some_and(|rest| rest.starts_with(word)) {
                 self.i += word.len();
                 return true;
             }
@@ -168,36 +170,32 @@ impl Reader<'_> {
 
     fn digits(&mut self) -> bool {
         let start = self.i;
-        while self.i < self.bytes.len() && self.bytes[self.i].is_ascii_digit() {
+        while self.peek().is_some_and(|byte| byte.is_ascii_digit()) {
             self.i += 1;
         }
         self.i > start
     }
 
     fn number(&mut self) -> bool {
-        let count = self.bytes.len();
-        if self.bytes[self.i] == b'-' {
+        if self.peek() == Some(b'-') {
             self.i += 1;
         }
-        if self.i >= count {
-            return false;
-        }
-        match self.bytes[self.i] {
-            b'0' => self.i += 1,
-            b'1'..=b'9' => {
+        match self.peek() {
+            Some(b'0') => self.i += 1,
+            Some(b'1'..=b'9') => {
                 self.digits();
             }
             _ => return false,
         }
-        if self.i < count && self.bytes[self.i] == b'.' {
+        if self.peek() == Some(b'.') {
             self.i += 1;
             if !self.digits() {
                 return false;
             }
         }
-        if self.i < count && matches!(self.bytes[self.i], b'e' | b'E') {
+        if matches!(self.peek(), Some(b'e' | b'E')) {
             self.i += 1;
-            if self.i < count && matches!(self.bytes[self.i], b'+' | b'-') {
+            if matches!(self.peek(), Some(b'+' | b'-')) {
                 self.i += 1;
             }
             if !self.digits() {
@@ -216,10 +214,9 @@ impl Reader<'_> {
         Some(value)
     }
 
-    /// The length of the well-formed UTF-8 sequence at `i`, or None.
-    fn sequence(&self) -> Option<usize> {
-        let count = self.bytes.len();
-        let lead = self.bytes[self.i];
+    /// The well-formed UTF-8 sequence at `i`, or None.
+    fn sequence(&self) -> Option<&'a [u8]> {
+        let lead = self.peek()?;
         let (length, second): (usize, (u8, u8)) = match lead {
             0x00..=0x7F => (1, (0x80, 0xBF)),
             0xC2..=0xDF => (2, (0x80, 0xBF)),
@@ -231,28 +228,25 @@ impl Reader<'_> {
             0xF4 => (4, (0x80, 0x8F)),
             _ => return None,
         };
-        if self.i + length > count {
+        let sequence = self.bytes.get(self.i..self.i + length)?;
+        let mut continuation = sequence.iter().skip(1);
+        if let Some(byte) = continuation.next()
+            && !(second.0..=second.1).contains(byte)
+        {
             return None;
         }
-        if length > 1 && !(second.0..=second.1).contains(&self.bytes[self.i + 1]) {
+        if continuation.any(|byte| !(0x80..=0xBF).contains(byte)) {
             return None;
         }
-        for k in 2..length {
-            if !(0x80..=0xBF).contains(&self.bytes[self.i + k]) {
-                return None;
-            }
-        }
-        Some(length)
+        Some(sequence)
     }
 
     /// The string at `i` (a quote): its decoded text when `decode`, else an
     /// empty one. None when malformed.
     fn string(&mut self, decode: bool) -> Option<String> {
-        let count = self.bytes.len();
         self.i += 1;
         let mut out: Vec<u8> = Vec::new();
-        while self.i < count {
-            let byte = self.bytes[self.i];
+        while let Some(byte) = self.peek() {
             if byte == b'"' {
                 self.i += 1;
                 return Some(if decode { String::from_utf8(out).ok()? } else { String::new() });
@@ -302,11 +296,11 @@ impl Reader<'_> {
                 self.i += 2;
                 continue;
             }
-            let length = self.sequence()?;
+            let sequence = self.sequence()?;
             if decode {
-                out.extend_from_slice(&self.bytes[self.i..self.i + length]);
+                out.extend_from_slice(sequence);
             }
-            self.i += length;
+            self.i += sequence.len();
         }
         None
     }

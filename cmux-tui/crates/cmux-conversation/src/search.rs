@@ -97,10 +97,11 @@ fn fold(ch: char) -> String {
 /// Code-point offset of the first case-insensitive match of `needle`.
 fn find_folded(text: &[char], needle: &[String]) -> Option<usize> {
     let folded = text.iter().map(|ch| fold(*ch)).collect::<Vec<_>>();
-    (0..folded.len()).find(|&start| {
-        start + needle.len() <= folded.len()
-            && needle.iter().enumerate().all(|(offset, ch)| &folded[start + offset] == ch)
-    })
+    if needle.is_empty() {
+        // An empty needle matches at the first character, as the scan did.
+        return (!folded.is_empty()).then_some(0);
+    }
+    folded.windows(needle.len()).position(|window| window == needle)
 }
 
 /// Up to `SNIPPET_CHARS` characters centered on the match at `at` (a code
@@ -117,7 +118,7 @@ pub fn snippet_of(text: &str, at: usize, length: usize) -> String {
     if start > 0 {
         snippet.push('…');
     }
-    snippet.extend(&chars[start..end]);
+    snippet.extend(chars.iter().take(end).skip(start));
     if end < chars.len() {
         snippet.push('…');
     }

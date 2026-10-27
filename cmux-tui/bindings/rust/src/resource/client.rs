@@ -3,7 +3,7 @@ mod capabilities;
 use super::id::StreamId;
 use super::operation_class::{OperationClass, operation_class};
 use super::ops;
-use super::options::{MutationOptions, RequestOptions, validate_idempotency_key};
+use super::options::{MutationOptions, RequestOptions, encode_hex, validate_idempotency_key};
 use super::stream::{ResourceStream, StreamParts};
 use super::wire::{Params, field};
 use crate::codec::JsonLineConnection;
@@ -226,8 +226,10 @@ impl Config {
 
 impl Default for Config {
     fn default() -> Self {
-        Self::try_from_env_or_default_session("main")
-            .expect("the built-in main session name is valid")
+        Self::from_socket_path(crate::client::compatibility_socket_path_for_session(
+            "main",
+            crate::client::env_socket_path(),
+        ))
     }
 }
 
@@ -983,13 +985,7 @@ fn random_stream_id() -> Result<StreamId> {
     let mut bytes = [0u8; 16];
     getrandom::fill(&mut bytes)
         .map_err(|error| Error::Connection(format!("cannot allocate stream ID: {error}")))?;
-    let mut value = String::with_capacity(39);
-    value.push_str("stream_");
-    for byte in bytes {
-        use std::fmt::Write;
-        write!(&mut value, "{byte:02x}").expect("writing to String cannot fail");
-    }
-    StreamId::parse(value)
+    StreamId::parse(format!("stream_{}", encode_hex(bytes)))
 }
 
 #[cfg(all(test, unix))]

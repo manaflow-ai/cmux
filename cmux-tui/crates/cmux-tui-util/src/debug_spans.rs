@@ -258,7 +258,7 @@ fn ring_name(text: &'static str) -> &'static InternedName {
     let first = (hash % RING_NAME_SLOTS as u64) as usize;
     let mut fresh: Option<Box<RingName>> = None;
     for probe in 0..RING_NAME_SLOTS {
-        let slot = &RING_NAMES[(first + probe) % RING_NAME_SLOTS];
+        let Some(slot) = RING_NAMES.get((first + probe) % RING_NAME_SLOTS) else { continue };
         let mut entry = slot.load(Ordering::Acquire);
         if entry.is_null() {
             let new = Box::into_raw(fresh.take().unwrap_or_else(|| {
@@ -364,12 +364,13 @@ pub fn terminal_mark(terminal: &str, name: &'static str) {
         if owed.is_empty() {
             FOLLOWING.store(false, Ordering::Release);
         }
-        let Some(index) =
-            owed.iter().position(|entry| entry.terminal == terminal && entry.left.contains(&name))
+        let Some((index, entry)) = owed
+            .iter_mut()
+            .enumerate()
+            .find(|(_, entry)| entry.terminal == terminal && entry.left.contains(&name))
         else {
             return;
         };
-        let entry = &mut owed[index];
         entry.left.retain(|left| *left != name);
         let found = (entry.label, entry.start_uptime_ns, entry.start.elapsed().as_micros() as u64);
         if entry.left.is_empty() {

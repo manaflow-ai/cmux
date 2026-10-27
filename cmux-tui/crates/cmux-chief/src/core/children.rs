@@ -306,5 +306,5 @@ impl Core {
 /// id is after the last ':'.
 pub fn permission_session(prompt_id: &str) -> Option<&str> {
     let rest = prompt_id.strip_prefix("perm:")?;
-    rest.rfind(':').map(|last| &rest[..last])
+    rest.rsplit_once(':').map(|(session, _)| session)
 }

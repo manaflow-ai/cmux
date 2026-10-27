@@ -399,9 +399,9 @@ impl AppVm {
             let ids: Vec<u64> =
                 shared.timers.iter().filter(|(_, t)| t.due <= now).map(|(id, _)| *id).collect();
             for id in &ids {
-                let repeat = shared.timers[id].repeat;
-                match repeat {
-                    Some(every) => shared.timers.get_mut(id).expect("timer").due = now + every,
+                let Some(timer) = shared.timers.get_mut(id) else { continue };
+                match timer.repeat {
+                    Some(every) => timer.due = now + every,
                     None => {
                         shared.timers.remove(id);
                     }

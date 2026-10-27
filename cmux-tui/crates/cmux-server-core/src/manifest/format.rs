@@ -56,7 +56,8 @@ impl PackageFormat {
             PackageFormat::MachO
         } else if starts(b"MZ") {
             PackageFormat::Pe
-        } else if head.len() >= FORMAT_SNIFF_LEN && &head[257..262] == b"ustar" {
+        } else if head.len() >= FORMAT_SNIFF_LEN && head.get(257..262) == Some(b"ustar".as_slice())
+        {
             PackageFormat::Tar
         } else {
             PackageFormat::Unknown

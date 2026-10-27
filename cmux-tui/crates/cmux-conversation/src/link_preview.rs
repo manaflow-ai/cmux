@@ -35,12 +35,13 @@ pub fn valid_link_url(url: &str) -> bool {
     }
     let lower = url.get(..8).unwrap_or(url).to_ascii_lowercase();
     let rest = if lower.starts_with("https://") {
-        &url[8..]
+        url.get(8..)
     } else if lower.starts_with("http://") {
-        &url[7..]
+        url.get(7..)
     } else {
-        return false;
+        None
     };
+    let Some(rest) = rest else { return false };
     let authority = rest.split(['/', '?', '#']).next().unwrap_or("");
     !authority.is_empty() && !authority.contains('@')
 }

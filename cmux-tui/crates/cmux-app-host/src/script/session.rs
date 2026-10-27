@@ -14,7 +14,7 @@ use std::sync::mpsc::{self, RecvTimeoutError, Sender};
 use std::sync::{Arc, Mutex, PoisonError, Weak};
 use std::time::Duration;
 
-use serde_json::{Value, json};
+use serde_json::{Map, Value, json};
 
 use super::prelude;
 use crate::protocol::{
@@ -92,11 +92,13 @@ impl ScriptError {
 
     /// `{code, message, details?}`.
     pub fn to_json(&self) -> Value {
-        let mut value = json!({ "code": self.code, "message": self.message });
+        let mut value = Map::new();
+        value.insert("code".to_string(), Value::String(self.code.clone()));
+        value.insert("message".to_string(), Value::String(self.message.clone()));
         if !self.details.is_null() {
-            value["details"] = self.details.clone();
+            value.insert("details".to_string(), self.details.clone());
         }
-        value
+        Value::Object(value)
     }
 }
 

@@ -107,9 +107,9 @@ fn process_arguments(pid: u32) -> Option<Vec<String>> {
     let argc = usize::try_from(i32::from_ne_bytes(buffer.get(..4)?.try_into().ok()?)).ok()?;
     let mut rest = buffer.get(4..)?;
     let path_end = rest.iter().position(|byte| *byte == 0)?;
-    rest = &rest[path_end..];
+    rest = rest.get(path_end..)?;
     let start = rest.iter().position(|byte| *byte != 0)?;
-    rest = &rest[start..];
+    rest = rest.get(start..)?;
     let argv: Vec<String> = rest
         .split(|byte| *byte == 0)
         .take(argc)

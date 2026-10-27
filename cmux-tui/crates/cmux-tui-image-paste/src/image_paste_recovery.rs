@@ -28,12 +28,10 @@ impl ImagePasteRecovery {
                 self.storage = ImagePasteStorage::open().ok();
             }
             self.entries = self.storage.as_ref().and_then(|storage| storage.entries().ok());
-            if self.entries.is_none() {
-                return Duration::from_secs(30);
-            }
         }
+        let Some(mut entries) = self.entries.take() else { return Duration::from_secs(30) };
         for _ in 0..64 {
-            match self.entries.as_mut().unwrap().next() {
+            match entries.next() {
                 Some(Ok(entry)) => {
                     let name = entry.file_name();
                     let Some(suffix) =
@@ -56,7 +54,6 @@ impl ImagePasteRecovery {
                 }
                 Some(Err(_)) => continue,
                 None => {
-                    self.entries = None;
                     self.retained_bytes = self.scanning_bytes;
                     self.retained_count = self.scanning_count;
                     self.ready = true;
@@ -66,6 +63,7 @@ impl ImagePasteRecovery {
         }
         // Keep the iterator across batches. Never restart at the same first
         // entries and starve receipts beyond a fixed enumeration cap.
+        self.entries = Some(entries);
         Duration::from_millis(50)
     }
 }

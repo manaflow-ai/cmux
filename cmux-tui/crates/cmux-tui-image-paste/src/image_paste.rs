@@ -1,7 +1,7 @@
 //! Bounded temporary image ownership for the authenticated terminal control channel.
 
 use std::collections::{HashMap, HashSet};
-use std::sync::{Arc, Condvar, Mutex};
+use std::sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError};
 use std::time::{Duration, Instant};
 
 use crate::image_paste_file::ImagePasteFile;
@@ -51,6 +51,15 @@ struct Shared {
     changed: Condvar,
 }
 
+impl Shared {
+    /// The state, also after a panic in another holder: every change to it is one map insert,
+    /// remove or field store, so no holder leaves an upload half-written, and `reap` re-checks
+    /// each upload's deadline and file on the next pass.
+    fn lock(&self) -> MutexGuard<'_, State> {
+        self.state.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+}
+
 pub struct ImagePasteStore {
     shared: Arc<Shared>,
 }
@@ -65,7 +74,7 @@ impl ImagePasteStore {
     fn with_recovery(recovery: Option<crate::image_paste_recovery::ImagePasteRecovery>) -> Self {
         let store = Self { shared: Arc::new(Shared::default()) };
         {
-            let mut state = store.shared.state.lock().unwrap();
+            let mut state = store.shared.lock();
             state.recovery = recovery;
             if let Some(recovery) = &mut state.recovery {
                 let delay = recovery.scan(&HashSet::new());
@@ -84,7 +93,7 @@ impl ImagePasteStore {
                 "image-paste-expiry",
                 cmux_threads::ThreadQos::Utility,
                 move || {
-                    let mut state = shared.state.lock().unwrap();
+                    let mut state = shared.lock();
                     while !state.stopped {
                         Self::reap(&mut state, Instant::now());
                         if state.next_recovery.is_some_and(|deadline| deadline <= Instant::now()) {
@@ -106,9 +115,14 @@ impl ImagePasteStore {
                             .min()
                         {
                             let wait = deadline.saturating_duration_since(Instant::now());
-                            state = shared.changed.wait_timeout(state, wait).unwrap().0;
+                            state = shared
+                                .changed
+                                .wait_timeout(state, wait)
+                                .unwrap_or_else(PoisonError::into_inner)
+                                .0;
                         } else {
-                            state = shared.changed.wait(state).unwrap();
+                            state =
+                                shared.changed.wait(state).unwrap_or_else(PoisonError::into_inner);
                         }
                     }
                 },
@@ -129,7 +143,7 @@ impl ImagePasteStore {
         anyhow::ensure!(valid_id(id), "image-invalid-request");
         anyhow::ensure!((1..=MAX_IMAGE_BYTES).contains(&size), "image-size-limit");
         let extension = extension(mime).ok_or_else(|| anyhow::anyhow!("image-type-rejected"))?;
-        let mut state = self.shared.state.lock().unwrap();
+        let mut state = self.shared.lock();
         Self::reap(&mut state, Instant::now());
         anyhow::ensure!(
             !state.uploads.contains_key(&(owner.client, id.to_owned())),
@@ -191,7 +205,7 @@ impl ImagePasteStore {
             .decode(encoded)
             .map_err(|_| anyhow::anyhow!("image-invalid-request"))?;
         anyhow::ensure!(!bytes.is_empty() && bytes.len() <= MAX_CHUNK_BYTES, "image-size-limit");
-        let mut state = self.shared.state.lock().unwrap();
+        let mut state = self.shared.lock();
         Self::reap(&mut state, Instant::now());
         let upload = Self::upload(&mut state, owner, id)?;
         anyhow::ensure!(!upload.committed && offset == upload.received, "image-invalid-offset");
@@ -209,7 +223,7 @@ impl ImagePasteStore {
         id: &str,
         paste: impl FnOnce(&str) -> std::io::Result<()>,
     ) -> anyhow::Result<()> {
-        let mut state = self.shared.state.lock().unwrap();
+        let mut state = self.shared.lock();
         Self::reap(&mut state, Instant::now());
         let upload = Self::upload(&mut state, owner, id)?;
         anyhow::ensure!(!upload.committed, "image-already-pasted");
@@ -233,7 +247,7 @@ impl ImagePasteStore {
         // paste. Do not hold the store mutex across that I/O.
         let result = paste(&quoted).map_err(|_| anyhow::anyhow!("image-paste-uncertain"));
 
-        let mut state = self.shared.state.lock().unwrap();
+        let mut state = self.shared.lock();
         if let Some(upload) = state.uploads.get_mut(&key) {
             upload.delivery_in_flight = false;
             if upload.cleanup_pending {
@@ -248,7 +262,7 @@ impl ImagePasteStore {
     }
 
     pub fn cancel(&self, owner: &ImagePasteOwner, id: &str) -> anyhow::Result<()> {
-        let mut state = self.shared.state.lock().unwrap();
+        let mut state = self.shared.lock();
         if let Some(upload) = state.uploads.get_mut(&(owner.client, id.to_owned())) {
             anyhow::ensure!(&upload.owner == owner, "image-owner-mismatch");
             anyhow::ensure!(!upload.committed, "image-already-pasted");
@@ -261,7 +275,7 @@ impl ImagePasteStore {
     }
 
     pub fn disconnect(&self, client: u64) {
-        let mut state = self.shared.state.lock().unwrap();
+        let mut state = self.shared.lock();
         for upload in state
             .uploads
             .values_mut()
@@ -275,7 +289,7 @@ impl ImagePasteStore {
     }
 
     pub fn close_terminal(&self, terminal: &str) {
-        let mut state = self.shared.state.lock().unwrap();
+        let mut state = self.shared.lock();
         for upload in state.uploads.values_mut().filter(|upload| upload.owner.terminal == terminal)
         {
             upload.cleanup_pending = true;
@@ -325,7 +339,7 @@ impl ImagePasteStore {
 
 impl Drop for ImagePasteStore {
     fn drop(&mut self) {
-        let mut state = self.shared.state.lock().unwrap();
+        let mut state = self.shared.lock();
         state.uploads.clear();
         state.stopped = true;
         self.shared.changed.notify_one();

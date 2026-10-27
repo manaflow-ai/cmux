@@ -253,26 +253,42 @@ pub struct SessionJournalRecord {
 
 /// Validated lowercase `#rrggbb` protocol color.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct ColorHex(String);
+pub struct ColorHex {
+    text: String,
+    rgb: [u8; 3],
+}
 
 impl ColorHex {
     pub fn parse(value: impl Into<String>) -> Result<Self> {
-        let value = value.into();
-        if !valid_color(&value) {
+        let text = value.into();
+        let Some(rgb) = color_rgb(&text) else {
             return Err(Error::InvalidArgument("color must be lowercase #rrggbb".to_string()));
-        }
-        Ok(Self(value))
+        };
+        Ok(Self { text, rgb })
     }
 
     pub fn as_str(&self) -> &str {
-        &self.0
+        &self.text
+    }
+
+    /// The red, green and blue channels, decoded when the color was validated.
+    pub fn rgb(&self) -> [u8; 3] {
+        self.rgb
     }
 }
 
-fn valid_color(value: &str) -> bool {
-    value.len() == 7
-        && value.starts_with('#')
-        && value[1..].bytes().all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+/// Decodes lowercase `#rrggbb`; `None` for anything else.
+fn color_rgb(value: &str) -> Option<[u8; 3]> {
+    let hex = value.strip_prefix('#')?;
+    if hex.len() != 6
+        || !hex.bytes().all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+    {
+        return None;
+    }
+    let channel = |range: std::ops::Range<usize>| {
+        hex.get(range).and_then(|digits| u8::from_str_radix(digits, 16).ok())
+    };
+    Some([channel(0..2)?, channel(2..4)?, channel(4..6)?])
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -1287,10 +1303,10 @@ fn take_nullable_color(object: &mut Map<String, Value>, key: &str) -> Result<Opt
 }
 
 fn parse_wire_color(value: &str) -> Result<ColorHex> {
-    if !valid_color(value) {
+    let Some(rgb) = color_rgb(value) else {
         return Err(Error::UnexpectedEnvelope("color must be lowercase #rrggbb".to_string()));
-    }
-    Ok(ColorHex(value.to_string()))
+    };
+    Ok(ColorHex { text: value.to_string(), rgb })
 }
 
 fn take_base64(object: &mut Map<String, Value>, key: &str) -> Result<Vec<u8>> {

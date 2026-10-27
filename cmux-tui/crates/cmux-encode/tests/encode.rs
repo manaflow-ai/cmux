@@ -1,13 +1,34 @@
 //! The encoders behind `H264Encoder` and the rules for OpenH264 binaries
 //! (plans/cmux-next/remote-desktop-c7.md section 4).
 
-use cmux_encode::I420;
+use cmux_encode::{I420, bgrx_rect_to_i420};
 
 #[test]
 fn an_i420_picture_starts_black_in_video_range() {
     let pic = I420::new(4, 2);
     assert_eq!(pic.y, vec![16; 8]);
     assert_eq!(pic.u, vec![128; 2]);
+}
+
+#[test]
+fn white_bgrx_converts_to_video_range_white() {
+    let mut pic = I420::new(4, 2);
+    let src = vec![255u8; 4 * 4 * 2];
+    bgrx_rect_to_i420(&src, &mut pic, 0, 0, 4, 2, 1).expect("the rect fills the picture");
+    assert_eq!(pic.y, vec![235; 8]);
+    assert_eq!(pic.u, vec![128; 2]);
+    assert_eq!(pic.v, vec![128; 2]);
+}
+
+#[test]
+fn a_rect_outside_the_picture_is_an_error_and_leaves_it_unchanged() {
+    let mut pic = I420::new(4, 2);
+    let before = pic.clone();
+    let src = vec![255u8; 4 * 4 * 2];
+    let error = bgrx_rect_to_i420(&src, &mut pic, 2, 0, 4, 2, 1).expect_err("x + w > width");
+    assert_eq!((error.x, error.w, error.width), (2, 4, 4));
+    assert!(bgrx_rect_to_i420(&src, &mut pic, 0, 2, 4, 2, 1).is_err(), "y + h > height");
+    assert_eq!(pic, before);
 }
 
 #[cfg(feature = "openh264-source")]

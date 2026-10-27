@@ -36,7 +36,7 @@ pub(crate) fn write(file: &mut File, buffer: &[u8]) -> io::Result<usize> {
     let deadline = Instant::now() + ROOM_WAIT;
     loop {
         match cut(buffer, room) {
-            Cut::Write(length) => return file.write(&buffer[..length]),
+            Cut::Write(length) => return file.write(buffer.get(..length).unwrap_or(buffer)),
             Cut::Wait if Instant::now() >= deadline => return file.write(buffer),
             Cut::Wait => {
                 std::thread::sleep(ROOM_POLL);
@@ -71,19 +71,21 @@ pub(crate) enum Cut {
 /// escape sequence longer than the room waits, unless the sequence cannot fit even an empty queue.
 pub(crate) fn cut(buffer: &[u8], room: usize) -> Cut {
     debug_assert!(buffer.len() > room);
-    if let Some(start) = buffer[1..=room].iter().rposition(|&byte| byte == ESC) {
+    if let Some(start) =
+        buffer.get(1..=room).and_then(|window| window.iter().rposition(|&byte| byte == ESC))
+    {
         return Cut::Write(start + 1);
     }
-    if buffer[0] == ESC {
+    if let Some((&ESC, after)) = buffer.split_first() {
         let sequence =
-            buffer[1..].iter().position(|&byte| byte == ESC).map_or(buffer.len(), |end| end + 1);
+            after.iter().position(|&byte| byte == ESC).map_or(buffer.len(), |end| end + 1);
         if sequence <= CAPACITY || room == 0 {
             return Cut::Wait;
         }
     }
     match room {
         0 => Cut::Wait,
-        _ if buffer[room - 1] == ESC => {
+        _ if buffer.get(room - 1) == Some(&ESC) => {
             if room > 1 {
                 Cut::Write(room - 1)
             } else {

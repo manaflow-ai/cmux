@@ -77,11 +77,8 @@ impl Args {
 }
 
 fn percentile(sorted: &[Duration], fraction: f64) -> f64 {
-    if sorted.is_empty() {
-        return 0.0;
-    }
     let index = ((sorted.len() as f64 - 1.0) * fraction).round() as usize;
-    sorted[index.min(sorted.len() - 1)].as_secs_f64() * 1000.0
+    sorted.get(index).or(sorted.last()).map_or(0.0, |duration| duration.as_secs_f64() * 1000.0)
 }
 
 async fn up(args: &Args) -> anyhow::Result<()> {

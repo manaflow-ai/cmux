@@ -30,7 +30,7 @@ use std::mem::size_of;
 use std::os::fd::FromRawFd;
 use std::os::fd::{AsFd, AsRawFd, OwnedFd};
 use std::os::unix::fs::OpenOptionsExt;
-use std::sync::{Arc, Condvar, Mutex, OnceLock, mpsc};
+use std::sync::{Arc, Condvar, Mutex, OnceLock, PoisonError, mpsc};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
@@ -144,6 +144,9 @@ struct ProcessScopeTrackerState {
     finalizing_turn: u64,
 }
 
+/// Its locks, like each scope's `tracked` set, are used again after a panic in another holder:
+/// every change is one map insert or remove or a flag store, and readers look registrations up
+/// again rather than trusting an earlier pass.
 #[derive(Default)]
 struct ProcessScopeTracker {
     state: Mutex<ProcessScopeTrackerState>,
@@ -493,7 +496,7 @@ impl UnixProcessScope {
     /// signals a late match directly instead of inserting it after this pass.
     #[cfg(target_os = "linux")]
     fn deactivate_and_signal_tracked(&self) {
-        let mut tracked = self.tracked.lock().unwrap();
+        let mut tracked = self.tracked.lock().unwrap_or_else(PoisonError::into_inner);
         tracked.active = false;
         for (identity, pidfd) in tracked.identities.iter() {
             if identity.pid != std::process::id() && Some(*identity) != self.root {
@@ -504,7 +507,7 @@ impl UnixProcessScope {
 
     #[cfg(not(target_os = "linux"))]
     fn deactivate_and_signal_tracked(&self) {
-        let mut tracked = self.tracked.lock().unwrap();
+        let mut tracked = self.tracked.lock().unwrap_or_else(PoisonError::into_inner);
         tracked.active = false;
         for identity in tracked.identities.iter().copied() {
             if identity.pid != std::process::id() && Some(identity) != self.root {
@@ -615,7 +618,7 @@ fn process_scope_tracker() -> Arc<ProcessScopeTracker> {
 impl ProcessScopeTracker {
     fn register(self: &Arc<Self>, scope: ScopeRegistration) -> io::Result<u64> {
         self.ensure_started()?;
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
         state.next_registration = state.next_registration.wrapping_add(1).max(1);
         let registration = state.next_registration;
         state.scopes.insert(registration, scope);
@@ -629,7 +632,7 @@ impl ProcessScopeTracker {
     /// If that budget expires, the tracker retains the inactive registration,
     /// kills late matches, and removes it after the scan completes.
     fn finalize(&self, registration: u64, deadline: Instant) {
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
         if !state.scopes.contains_key(&registration) {
             return;
         }
@@ -641,7 +644,8 @@ impl ProcessScopeTracker {
             if remaining.is_zero() {
                 return;
             }
-            let (next, timeout) = self.changed.wait_timeout(state, remaining).unwrap();
+            let (next, timeout) =
+                self.changed.wait_timeout(state, remaining).unwrap_or_else(PoisonError::into_inner);
             state = next;
             if timeout.timed_out() && state.scopes.contains_key(&registration) {
                 return;
@@ -650,7 +654,7 @@ impl ProcessScopeTracker {
     }
 
     fn ensure_started(self: &Arc<Self>) -> io::Result<()> {
-        let mut started = self.started.lock().unwrap();
+        let mut started = self.started.lock().unwrap_or_else(PoisonError::into_inner);
         if *started {
             return Ok(());
         }
@@ -664,13 +668,16 @@ impl ProcessScopeTracker {
         let mut last_scan = Instant::now().checked_sub(TRACK_INTERVAL).unwrap_or_else(Instant::now);
         loop {
             let (revision, registrations, final_scan) = {
-                let mut state = self.state.lock().unwrap();
+                let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
                 while state.scopes.is_empty() {
-                    state = self.changed.wait(state).unwrap();
+                    state = self.changed.wait(state).unwrap_or_else(PoisonError::into_inner);
                 }
                 let remaining = TRACK_INTERVAL.saturating_sub(last_scan.elapsed());
                 if !remaining.is_zero() {
-                    let (next, _) = self.changed.wait_timeout(state, remaining).unwrap();
+                    let (next, _) = self
+                        .changed
+                        .wait_timeout(state, remaining)
+                        .unwrap_or_else(PoisonError::into_inner);
                     state = next;
                     if state.scopes.is_empty() {
                         continue;
@@ -710,7 +717,7 @@ impl ProcessScopeTracker {
             if let Some((registration, _)) = final_scan {
                 let mut completed = None;
                 {
-                    let mut state = self.state.lock().unwrap();
+                    let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
                     let scan_complete = scan.next.is_none();
                     if let Some(progress) = state.finalizing.get_mut(&registration) {
                         progress.snapshots.extend(
@@ -738,7 +745,9 @@ impl ProcessScopeTracker {
                     gate.pause_once();
                 }
                 for (scope, identity) in scan.matches {
-                    record_tracked_process(&scopes[scope], identity);
+                    if let Some(scope) = scopes.get(scope) {
+                        record_tracked_process(scope, identity);
+                    }
                 }
                 if let Some((scope, snapshots, mut matches)) = completed {
                     let snapshots = snapshots.into_values().collect::<Vec<_>>();
@@ -750,7 +759,7 @@ impl ProcessScopeTracker {
                     for (_, identity) in matches {
                         record_tracked_process(&scope, identity);
                     }
-                    let mut state = self.state.lock().unwrap();
+                    let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
                     if found_owned_process && state.scopes.contains_key(&registration) {
                         state.revision = state.revision.wrapping_add(1);
                         self.changed.notify_one();
@@ -762,14 +771,16 @@ impl ProcessScopeTracker {
                 }
             } else {
                 for (scope, identity) in scan.matches {
-                    record_tracked_process(&scopes[scope], identity);
+                    if let Some(scope) = scopes.get(scope) {
+                        record_tracked_process(scope, identity);
+                    }
                 }
             }
-            let state = self.state.lock().unwrap();
+            let state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
             let _ = self
                 .changed
                 .wait_timeout_while(state, TRACK_INTERVAL, |state| state.revision == revision)
-                .unwrap();
+                .unwrap_or_else(PoisonError::into_inner);
         }
     }
 }
@@ -794,7 +805,7 @@ fn record_tracked_process(scope: &ScopeRegistration, identity: ProcessIdentity) 
     if process_identity(identity.pid) != Some(identity) {
         return;
     }
-    let mut tracked = scope.tracked.lock().unwrap();
+    let mut tracked = scope.tracked.lock().unwrap_or_else(PoisonError::into_inner);
     if !tracked.active {
         let _ = pidfd_send_signal(&pidfd, libc::SIGKILL);
         return;
@@ -812,7 +823,7 @@ fn record_tracked_process(scope: &ScopeRegistration, identity: ProcessIdentity) 
     if identity == scope.root || identity.pid == std::process::id() {
         return;
     }
-    let mut tracked = scope.tracked.lock().unwrap();
+    let mut tracked = scope.tracked.lock().unwrap_or_else(PoisonError::into_inner);
     if !tracked.active {
         signal_process(identity);
         return;
@@ -926,7 +937,7 @@ struct ProcessSnapshot {
 }
 
 fn scope_known_identities(scope: &ScopeRegistration) -> Vec<ProcessIdentity> {
-    let tracked = scope.tracked.lock().unwrap();
+    let tracked = scope.tracked.lock().unwrap_or_else(PoisonError::into_inner);
     #[cfg(target_os = "linux")]
     {
         tracked.identities.keys().copied().collect()
@@ -1388,32 +1399,29 @@ fn mac_process_arguments(pid: u32, buffer: &mut [u8]) -> Option<&[u8]> {
             0,
         )
     };
-    if result == 0 { Some(&buffer[..size.min(buffer.len())]) } else { None }
+    if result == 0 { buffer.get(..size.min(buffer.len())) } else { None }
 }
 
 #[cfg(target_os = "macos")]
 fn mac_environment_contains(arguments: &[u8], expected: &[u8]) -> bool {
-    let Some(argc) = arguments.get(..4) else { return false };
-    let argc = i32::from_ne_bytes(argc.try_into().expect("four-byte argc"));
-    let Ok(argc) = usize::try_from(argc) else { return false };
-    let mut cursor = 4;
-    let Some(path_end) = arguments[cursor..].iter().position(|byte| *byte == 0) else {
-        return false;
-    };
-    cursor += path_end + 1;
-    while arguments.get(cursor) == Some(&0) {
-        cursor += 1;
+    // The bytes after the next NUL, or None when no NUL ends this entry.
+    fn after_nul(bytes: &[u8]) -> Option<&[u8]> {
+        let mut parts = bytes.splitn(2, |byte| *byte == 0);
+        parts.next()?;
+        parts.next()
     }
+    // The bytes from the first non-NUL on (empty when only NULs are left).
+    fn skip_nuls(bytes: &[u8]) -> &[u8] {
+        bytes.iter().position(|byte| *byte != 0).and_then(|start| bytes.get(start..)).unwrap_or(&[])
+    }
+    let Some((argc, rest)) = arguments.split_first_chunk::<4>() else { return false };
+    let Ok(argc) = usize::try_from(i32::from_ne_bytes(*argc)) else { return false };
+    let Some(mut rest) = after_nul(rest).map(skip_nuls) else { return false };
     for _ in 0..argc {
-        let Some(end) = arguments[cursor..].iter().position(|byte| *byte == 0) else {
-            return false;
-        };
-        cursor += end + 1;
+        let Some(next) = after_nul(rest) else { return false };
+        rest = next;
     }
-    while arguments.get(cursor) == Some(&0) {
-        cursor += 1;
-    }
-    arguments[cursor..].split(|byte| *byte == 0).any(|entry| entry == expected)
+    skip_nuls(rest).split(|byte| *byte == 0).any(|entry| entry == expected)
 }
 
 #[cfg(target_os = "macos")]

@@ -264,7 +264,7 @@ impl RequestPathStats {
 
     /// Notes of `kind` since the daemon started.
     pub fn count(&self, kind: BlockingKind) -> u64 {
-        self.counts[kind as usize].load(Ordering::Relaxed)
+        self.counts.get(kind as usize).map_or(0, |count| count.load(Ordering::Relaxed))
     }
 
     /// The recorded sites, newest first (empty unless the mode records). A
@@ -273,7 +273,7 @@ impl RequestPathStats {
         let written = self.ring_next.load(Ordering::Acquire);
         (0..written.min(SITE_RING_LEN))
             .filter_map(|age| {
-                let slot = &self.ring[(written - 1 - age) % SITE_RING_LEN];
+                let slot = self.ring.get((written - 1 - age) % SITE_RING_LEN)?;
                 let site = slot.site.load(Ordering::Acquire);
                 // SAFETY: the ring stores only pointers taken from `&'static Location`.
                 let site: &'static Location<'static> = unsafe { site.as_ref() }?;
@@ -286,13 +286,18 @@ impl RequestPathStats {
     /// Count one note: whether it was recorded, and whether the mode panics
     /// on it.
     fn noted(&self, kind: BlockingKind, site: &'static Location<'static>) -> (Noted, bool) {
-        self.counts[kind as usize].fetch_add(1, Ordering::Relaxed);
+        if let Some(count) = self.counts.get(kind as usize) {
+            count.fetch_add(1, Ordering::Relaxed);
+        }
         if !self.mode.record {
             return (Noted::Counted, false);
         }
-        let slot = &self.ring[self.ring_next.fetch_add(1, Ordering::AcqRel) % SITE_RING_LEN];
-        slot.kind.store(kind as u8, Ordering::Relaxed);
-        slot.site.store(std::ptr::from_ref(site).cast_mut(), Ordering::Release);
+        if let Some(slot) =
+            self.ring.get(self.ring_next.fetch_add(1, Ordering::AcqRel) % SITE_RING_LEN)
+        {
+            slot.kind.store(kind as u8, Ordering::Relaxed);
+            slot.site.store(std::ptr::from_ref(site).cast_mut(), Ordering::Release);
+        }
         let _ = writeln!(
             std::io::stderr().lock(),
             "REQUEST_PATH_IO kind={kind} site={}:{}",

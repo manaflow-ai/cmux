@@ -310,7 +310,7 @@ fn drain_records(mut reader: impl Read, limit: usize, keep: fn(&[u8]) -> bool) -
         match reader.read(&mut chunk) {
             Ok(0) => break,
             Ok(read) => {
-                for &byte in &chunk[..read] {
+                for &byte in chunk.iter().take(read) {
                     if byte == 0 {
                         if !oversized {
                             accept(&record, &mut kept);
@@ -348,7 +348,7 @@ fn drain(mut reader: impl Read, limit: usize) -> (Vec<u8>, bool) {
                 if read > room {
                     truncated = true;
                 }
-                kept.extend_from_slice(&chunk[..read.min(room)]);
+                kept.extend(chunk.iter().take(read.min(room)));
             }
             Err(error) if error.kind() == ErrorKind::Interrupted => {}
             Err(_) => break,

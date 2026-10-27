@@ -72,7 +72,9 @@ pub fn boosted() -> bool {
 fn reversible(qos: ThreadQos) -> bool {
     REVERSIBLE.with(|cache| {
         let mut known = cache.get();
-        let slot = &mut known[qos as usize];
+        let Some(slot) = known.get_mut(qos as usize) else {
+            return cmux_threads::reversible(qos);
+        };
         if let Some(reversible) = *slot {
             return reversible;
         }

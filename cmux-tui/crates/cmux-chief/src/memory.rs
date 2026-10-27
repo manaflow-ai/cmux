@@ -81,9 +81,7 @@ impl MemoryStore for ArrayMemoryStore {
     }
 
     fn read(&self, start: u64, end: u64) -> Vec<String> {
-        let end = (end as usize).min(self.lines.len());
-        let start = (start as usize).min(end);
-        self.lines[start..end].to_vec()
+        self.lines.iter().take(end as usize).skip(start as usize).cloned().collect()
     }
 
     fn node(&self, range: Range) -> Option<String> {
@@ -106,11 +104,15 @@ pub fn to_lines(text: &str) -> Vec<String> {
     while utf8_len(&rest) > MAX_LINE_BYTES {
         let mut cut = rest.len().min(MAX_LINE_BYTES);
         // Leave room for the 3-byte "…" continuation mark.
-        while utf8_len(&rest[..cut]) > MAX_LINE_BYTES - 3 {
+        while rest.get(..cut).is_some_and(|head| utf8_len(head) > MAX_LINE_BYTES - 3) {
             cut -= 1;
         }
         // Never cut between the two halves of a surrogate pair.
-        if cut > 0 && (0xd800..=0xdbff).contains(&rest[cut - 1]) {
+        if cut
+            .checked_sub(1)
+            .and_then(|last| rest.get(last))
+            .is_some_and(|unit| (0xd800..=0xdbff).contains(unit))
+        {
             cut -= 1;
         }
         if let Some(space) = last_space_at_or_before(&rest, cut)
@@ -118,9 +120,10 @@ pub fn to_lines(text: &str) -> Vec<String> {
         {
             cut = space;
         }
-        let head = String::from_utf16_lossy(&rest[..cut]);
+        let Some((head, tail)) = rest.split_at_checked(cut) else { break };
+        let head = String::from_utf16_lossy(head);
         lines.push(format!("{}…", head.trim_end_matches(is_js_whitespace)));
-        let tail = String::from_utf16_lossy(&rest[cut..]);
+        let tail = String::from_utf16_lossy(tail);
         rest = tail.trim_start_matches(is_js_whitespace).encode_utf16().collect();
     }
     if !rest.is_empty() {
@@ -131,8 +134,10 @@ pub fn to_lines(text: &str) -> Vec<String> {
 
 /// `String.prototype.lastIndexOf(" ", from)`: the last space at or before `from`.
 fn last_space_at_or_before(units: &[u16], from: usize) -> Option<usize> {
-    let end = from.min(units.len().saturating_sub(1));
-    (0..=end).rev().find(|&index| units[index] == u16::from(b' '))
+    units
+        .get(..=from.min(units.len().saturating_sub(1)))?
+        .iter()
+        .rposition(|&unit| unit == u16::from(b' '))
 }
 
 /// UTF-8 length of a UTF-16 slice (a lone surrogate counts as U+FFFD, 3 bytes,
@@ -170,7 +175,9 @@ pub fn wake_cover(length: u64, budget: usize) -> Vec<Range> {
         if cover.len() + 1 > budget {
             return cover;
         }
-        let (left, right) = cover[index].children();
+        let Some((left, right)) = cover.get(index).map(|range| range.children()) else {
+            return cover;
+        };
         cover.splice(index..=index, [left, right]);
     }
 }

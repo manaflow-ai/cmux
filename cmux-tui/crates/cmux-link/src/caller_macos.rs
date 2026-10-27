@@ -301,7 +301,7 @@ pub(crate) fn executable_path(token: &[u32; 8]) -> Option<std::path::PathBuf> {
         proc_pidpath_audittoken(&raw mut token, path.as_mut_ptr().cast(), path.len() as u32)
     };
     let written = usize::try_from(written).ok().filter(|written| *written > 0)?;
-    let path = std::str::from_utf8(&path[..written]).ok()?;
+    let path = std::str::from_utf8(path.get(..written)?).ok()?;
     Some(std::path::PathBuf::from(path))
 }
 

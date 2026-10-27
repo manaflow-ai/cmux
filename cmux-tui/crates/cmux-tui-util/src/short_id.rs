@@ -28,13 +28,13 @@ pub fn assign_short_ids(ids: impl IntoIterator<Item = u64>) -> HashMap<u64, Stri
 }
 
 fn encode_base36(mut n: u64) -> String {
-    let mut chars = [b'0'; WIDTH];
-    for slot in chars.iter_mut().rev() {
-        let digit = (n % BASE) as u8;
-        *slot = if digit < 10 { b'0' + digit } else { b'a' + digit - 10 };
+    // Least significant digit first; a value below the radix always has a (lowercase) digit.
+    let mut digits = Vec::with_capacity(WIDTH);
+    for _ in 0..WIDTH {
+        digits.extend(char::from_digit((n % BASE) as u32, BASE as u32));
         n /= BASE;
     }
-    String::from_utf8(chars.to_vec()).expect("base36 output is ascii")
+    digits.iter().rev().collect()
 }
 
 #[cfg(test)]

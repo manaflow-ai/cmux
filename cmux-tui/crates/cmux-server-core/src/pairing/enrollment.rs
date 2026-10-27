@@ -3,7 +3,7 @@
 use base64::Engine as _;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD as B64;
 use serde::{Deserialize, Serialize};
-use serde_json::{Value, json};
+use serde_json::{Map, Value, json};
 use sha2::{Digest, Sha256};
 
 use super::PairingCode;
@@ -58,10 +58,13 @@ pub fn begin_request(
     }
     let proof = begin_proof(environment, &thumbprint, wg_public, issued_at);
     let signature = sign(proof.as_bytes())?;
-    let mut public_info = json!({"name":info["name"],"platform":info["platform"],
-        "os_version":info["os_version"],"arch":info["arch"],"cmux_version":info["cmux_version"]});
+    // The public fields; one the request lacks is null.
+    let mut public_info = Map::new();
+    for key in ["name", "platform", "os_version", "arch", "cmux_version"] {
+        public_info.insert(key.to_string(), info.get(key).cloned().unwrap_or(Value::Null));
+    }
     if let Some(capabilities) = info.get("capabilities") {
-        public_info["capabilities"] = capabilities.clone();
+        public_info.insert("capabilities".to_string(), capabilities.clone());
     }
     Ok(json!({"public_jwk":public_jwk,"wg_public_key":wg_public,"info":public_info,
         "issued_at":issued_at,"signature":signature}))
@@ -212,7 +215,7 @@ pub fn read_frame(text: &str) -> Result<Option<Waited>, String> {
         return Err("pairing.invalid_frame".into());
     }
     let frame: Value = serde_json::from_str(text).map_err(|_| "pairing.invalid_frame")?;
-    match frame["t"].as_str() {
+    match frame.get("t").and_then(Value::as_str) {
         Some("paired") => {
             let paired: Paired =
                 serde_json::from_value(frame).map_err(|_| "pairing.invalid_result")?;

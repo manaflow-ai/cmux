@@ -290,17 +290,15 @@ extern "C" fn on_output(
             return;
         }
         // Length-prefixed (4 bytes, big-endian) NAL units to Annex-B start codes.
-        let mut at = 0usize;
-        while at + 4 <= avcc.len() {
-            let n =
-                u32::from_be_bytes([avcc[at], avcc[at + 1], avcc[at + 2], avcc[at + 3]]) as usize;
-            at += 4;
-            if at + n > avcc.len() {
+        let mut rest = avcc.as_slice();
+        while let Some((length, tail)) = rest.split_first_chunk::<4>() {
+            let Some((nal, after)) = tail.split_at_checked(u32::from_be_bytes(*length) as usize)
+            else {
                 break;
-            }
+            };
             out.annexb.extend_from_slice(&[0, 0, 0, 1]);
-            out.annexb.extend_from_slice(&avcc[at..at + n]);
-            at += n;
+            out.annexb.extend_from_slice(nal);
+            rest = after;
         }
     }
 }
@@ -485,11 +483,12 @@ impl VideoToolbox {
             }
             let uv = CVPixelBufferGetBaseAddressOfPlane(self.pixel_buffer, 1);
             let uvs = CVPixelBufferGetBytesPerRowOfPlane(self.pixel_buffer, 1);
-            for row in 0..(h / 2).min(pic.u.len() / cw.max(1)) {
+            let chroma_rows = pic.u.chunks_exact(cw.max(1)).zip(pic.v.chunks_exact(cw.max(1)));
+            for (row, (u_row, v_row)) in chroma_rows.take(h / 2).enumerate() {
                 let dst = uv.add(row * uvs);
-                for col in 0..(w / 2) {
-                    *dst.add(2 * col) = pic.u[row * cw + col];
-                    *dst.add(2 * col + 1) = pic.v[row * cw + col];
+                for (col, (&u, &v)) in u_row.iter().zip(v_row).take(w / 2).enumerate() {
+                    *dst.add(2 * col) = u;
+                    *dst.add(2 * col + 1) = v;
                 }
             }
             CVPixelBufferUnlockBaseAddress(self.pixel_buffer, 0);

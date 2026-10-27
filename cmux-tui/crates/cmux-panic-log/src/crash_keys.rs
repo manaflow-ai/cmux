@@ -71,12 +71,25 @@ impl Key {
         }
     }
 
-    const fn index(self) -> usize {
+    /// This key's slot of a per-key array (record order).
+    const fn slot<T>(self, slots: &[T; 4]) -> &T {
+        let [action_id, pane_kind, cef_state, daemon_epoch] = slots;
         match self {
-            Key::ActionId => 0,
-            Key::PaneKind => 1,
-            Key::CefState => 2,
-            Key::DaemonEpoch => 3,
+            Key::ActionId => action_id,
+            Key::PaneKind => pane_kind,
+            Key::CefState => cef_state,
+            Key::DaemonEpoch => daemon_epoch,
+        }
+    }
+
+    /// This key's slot of a per-key array (record order), to write.
+    fn slot_mut<T>(self, slots: &mut [T; 4]) -> &mut T {
+        let [action_id, pane_kind, cef_state, daemon_epoch] = slots;
+        match self {
+            Key::ActionId => action_id,
+            Key::PaneKind => pane_kind,
+            Key::CefState => cef_state,
+            Key::DaemonEpoch => daemon_epoch,
         }
     }
 }
@@ -105,31 +118,30 @@ thread_local! {
 /// of its UTF-8 bytes, never 0. The app's `CrashKeySlots.stableKey` computes
 /// the same number.
 pub const fn stable_key(name: &str) -> u64 {
-    let bytes = name.as_bytes();
+    let mut rest = name.as_bytes();
     let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
-    let mut index = 0;
-    while index < bytes.len() {
-        hash = (hash ^ bytes[index] as u64).wrapping_mul(0x0000_0100_0000_01b3);
-        index += 1;
+    while let [byte, tail @ ..] = rest {
+        hash = (hash ^ *byte as u64).wrapping_mul(0x0000_0100_0000_01b3);
+        rest = tail;
     }
     if hash == 0 { 1 } else { hash }
 }
 
 /// Stores `value` in `key` (one relaxed store).
 pub fn set(key: Key, value: u64) {
-    KEYS[key.index()].store(value, Ordering::Relaxed);
+    key.slot(&KEYS).store(value, Ordering::Relaxed);
 }
 
 /// The value `key` holds now (0 when never set).
 pub fn get(key: Key) -> u64 {
-    KEYS[key.index()].load(Ordering::Relaxed)
+    key.slot(&KEYS).load(Ordering::Relaxed)
 }
 
 /// Sets `key` to `value` until the guard drops, then puts the value it
 /// replaced back (Chrome's `ScopedCrashKeyString`).
 #[must_use = "the key is put back when the guard drops"]
 pub fn scoped(key: Key, value: u64) -> Scoped {
-    Scoped { key, outer: KEYS[key.index()].swap(value, Ordering::Relaxed) }
+    Scoped { key, outer: key.slot(&KEYS).swap(value, Ordering::Relaxed) }
 }
 
 /// A key set by [`scoped`]; dropping it restores the outer value.
@@ -148,7 +160,7 @@ impl Drop for Scoped {
 /// This thread's own value of `key` (0 when it has none; also after the
 /// thread's locals are gone).
 pub fn thread_value(key: Key) -> u64 {
-    THREAD_KEYS.try_with(|keys| keys[key.index()].get()).unwrap_or(0)
+    THREAD_KEYS.try_with(|keys| key.slot(keys).get()).unwrap_or(0)
 }
 
 /// Sets `key` to `value` on this thread until the guard drops, then puts
@@ -156,7 +168,7 @@ pub fn thread_value(key: Key) -> u64 {
 /// (requests on a pool); the guard stays on its thread.
 #[must_use = "the key is put back when the guard drops"]
 pub fn scoped_thread(key: Key, value: u64) -> ThreadScoped {
-    let outer = THREAD_KEYS.try_with(|keys| keys[key.index()].replace(value)).unwrap_or(0);
+    let outer = THREAD_KEYS.try_with(|keys| key.slot(keys).replace(value)).unwrap_or(0);
     ThreadScoped { key, outer, _thread: PhantomData }
 }
 
@@ -171,7 +183,7 @@ pub struct ThreadScoped {
 
 impl Drop for ThreadScoped {
     fn drop(&mut self) {
-        let _ = THREAD_KEYS.try_with(|keys| keys[self.key.index()].set(self.outer));
+        let _ = THREAD_KEYS.try_with(|keys| self.key.slot(keys).set(self.outer));
     }
 }
 
@@ -252,7 +264,7 @@ pub fn clear_hung(id: u32) {
 pub fn snapshot() -> Snapshot {
     let mut snapshot = Snapshot::default();
     for key in Key::ALL {
-        snapshot.keys[key.index()] = match thread_value(key) {
+        *key.slot_mut(&mut snapshot.keys) = match thread_value(key) {
             0 => get(key),
             own => own,
         };
@@ -273,12 +285,12 @@ pub struct Snapshot {
 impl Snapshot {
     /// The value of `key`.
     pub fn get(&self, key: Key) -> u64 {
-        self.keys[key.index()]
+        *key.slot(&self.keys)
     }
 
     /// Sets `key` (a snapshot built by hand or read back from a record).
     pub fn set(&mut self, key: Key, value: u64) {
-        self.keys[key.index()] = value;
+        *key.slot_mut(&mut self.keys) = value;
     }
 
     /// The hung-thread entries that are set, in entry order.
@@ -333,9 +345,11 @@ impl Snapshot {
             let Ok(value) = value.parse::<u64>() else { continue };
             if let Some(key) = Key::ALL.into_iter().find(|key| key.name() == name) {
                 snapshot.set(key, value);
-            } else if name.starts_with("hung_kind_") && kinds < HUNG_THREAD_CAPACITY {
+            } else if name.starts_with("hung_kind_")
+                && let Some(slot) = snapshot.hung.get_mut(kinds)
+            {
                 let Ok(kind) = u8::try_from(value) else { continue };
-                snapshot.hung[kinds] = HungThread { id: kinds as u32 + 1, kind }.packed();
+                *slot = HungThread { id: kinds as u32 + 1, kind }.packed();
                 kinds += 1;
             }
         }

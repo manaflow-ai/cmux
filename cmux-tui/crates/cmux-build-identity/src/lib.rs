@@ -25,11 +25,10 @@ pub const BUILD_IDENTITY: &str = env!("CMUX_TUI_BUILD_IDENTITY");
 pub const BUILD_TIME: u64 = parse_u64(env!("CMUX_TUI_BUILD_TIME"));
 
 const fn parse_u64(text: &str) -> u64 {
-    let bytes = text.as_bytes();
+    let mut rest = text.as_bytes();
     let mut value: u64 = 0;
-    let mut index = 0;
-    while index < bytes.len() {
-        let digit = bytes[index];
+    while let [digit, tail @ ..] = rest {
+        let digit = *digit;
         if !digit.is_ascii_digit() {
             return 0;
         }
@@ -40,7 +39,7 @@ const fn parse_u64(text: &str) -> u64 {
             },
             None => return 0,
         };
-        index += 1;
+        rest = tail;
     }
     value
 }

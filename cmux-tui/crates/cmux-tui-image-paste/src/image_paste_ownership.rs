@@ -1,6 +1,6 @@
 //! Persistent ownership survives inode reuse without claiming replacement files.
 
-use std::ffi::CString;
+use std::ffi::CStr;
 use std::fs::File;
 use std::io;
 use std::os::fd::AsRawFd;
@@ -69,11 +69,11 @@ impl ImagePasteOwnership {
         size == token.len() as isize && token == *expected
     }
 
-    fn name() -> CString {
+    fn name() -> &'static CStr {
         #[cfg(target_vendor = "apple")]
-        let name = "com.cmux.image-paste";
+        let name = c"com.cmux.image-paste";
         #[cfg(not(target_vendor = "apple"))]
-        let name = "user.cmux.image-paste";
-        CString::new(name).unwrap()
+        let name = c"user.cmux.image-paste";
+        name
     }
 }

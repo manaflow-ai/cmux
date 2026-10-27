@@ -20,6 +20,25 @@ impl I420 {
     }
 }
 
+/// The rectangle given to [`bgrx_rect_to_i420`] does not fit in the picture.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RectOutsidePicture {
+    pub x: usize,
+    pub y: usize,
+    pub w: usize,
+    pub h: usize,
+    pub width: usize,
+}
+
+impl std::fmt::Display for RectOutsidePicture {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let Self { x, y, w, h, width } = self;
+        write!(f, "rect {w}x{h} at ({x}, {y}) is outside the {width}-pixel-wide picture")
+    }
+}
+
+impl std::error::Error for RectOutsidePicture {}
+
 struct Band<'a> {
     src: &'a [u8],
     y0: &'a mut [u8],
@@ -29,7 +48,8 @@ struct Band<'a> {
 }
 
 /// Converts a BGRX rectangle (rows of `w * 4` bytes, `h` rows) into `dst` at (`x`, `y`).
-/// `x`, `y`, `w`, `h` must be even and inside `dst`.
+/// `x`, `y`, `w`, `h` must be even; a rectangle that does not fit in `dst` is an error and
+/// leaves `dst` unchanged. A short `src` converts only its whole 2-row bands.
 pub fn bgrx_rect_to_i420(
     src: &[u8],
     dst: &mut I420,
@@ -38,30 +58,38 @@ pub fn bgrx_rect_to_i420(
     w: usize,
     h: usize,
     threads: usize,
-) {
+) -> Result<(), RectOutsidePicture> {
     let (dw, cw) = (dst.width, dst.width / 2);
-    let y_rows = dst.y[y * dw..(y + h) * dw].chunks_exact_mut(2 * dw);
-    let u_rows = dst.u[(y / 2) * cw..((y + h) / 2) * cw].chunks_exact_mut(cw);
-    let v_rows = dst.v[(y / 2) * cw..((y + h) / 2) * cw].chunks_exact_mut(cw);
+    let outside = RectOutsidePicture { x, y, w, h, width: dw };
+    if x + w > dw {
+        return Err(outside);
+    }
+    if w == 0 || h == 0 {
+        return Ok(());
+    }
+    let y_plane = dst.y.get_mut(y * dw..(y + h) * dw).ok_or(outside)?;
+    let u_plane = dst.u.get_mut((y / 2) * cw..((y + h) / 2) * cw).ok_or(outside)?;
+    let v_plane = dst.v.get_mut((y / 2) * cw..((y + h) / 2) * cw).ok_or(outside)?;
     let mut bands: Vec<Band> = src
         .chunks_exact(2 * w * 4)
-        .zip(y_rows)
-        .zip(u_rows.zip(v_rows))
+        .zip(y_plane.chunks_exact_mut(2 * dw))
+        .zip(u_plane.chunks_exact_mut(cw).zip(v_plane.chunks_exact_mut(cw)))
         .map(|((s, yy), (u, v))| {
             let (y0, y1) = yy.split_at_mut(dw);
-            Band {
+            Some(Band {
                 src: s,
-                y0: &mut y0[x..x + w],
-                y1: &mut y1[x..x + w],
-                u: &mut u[x / 2..(x + w) / 2],
-                v: &mut v[x / 2..(x + w) / 2],
-            }
+                y0: y0.get_mut(x..x + w)?,
+                y1: y1.get_mut(x..x + w)?,
+                u: u.get_mut(x / 2..(x + w) / 2)?,
+                v: v.get_mut(x / 2..(x + w) / 2)?,
+            })
         })
-        .collect();
+        .collect::<Option<_>>()
+        .ok_or(outside)?;
     // Small rects (the marker) are cheaper on one thread than the spawn cost.
     if threads <= 1 || w * h < 256 * 1024 {
         bands.iter_mut().for_each(|b| convert_band(b, w));
-        return;
+        return Ok(());
     }
     let per = bands.len().div_ceil(threads);
     std::thread::scope(|s| {
@@ -69,6 +97,7 @@ pub fn bgrx_rect_to_i420(
             s.spawn(move || chunk.iter_mut().for_each(|b| convert_band(b, w)));
         }
     });
+    Ok(())
 }
 
 #[inline(always)]
@@ -77,22 +106,17 @@ fn luma(r: i32, g: i32, b: i32) -> u8 {
 }
 
 fn convert_band(b: &mut Band, w: usize) {
-    let (s0, s1) = b.src.split_at(w * 4);
-    let pairs = s0.chunks_exact(8).zip(s1.chunks_exact(8));
-    let outs =
-        b.y0.chunks_exact_mut(2)
-            .zip(b.y1.chunks_exact_mut(2))
-            .zip(b.u.iter_mut().zip(b.v.iter_mut()));
+    // A band's source is two rows of `w` BGRX pixels (chunks_exact in the caller).
+    let Some((s0, s1)) = b.src.split_at_checked(w * 4) else { return };
+    let pairs = s0.as_chunks::<8>().0.iter().zip(s1.as_chunks::<8>().0);
+    let outs = b.y0.as_chunks_mut::<2>().0.iter_mut().zip(b.y1.as_chunks_mut::<2>().0.iter_mut());
+    let outs = outs.zip(b.u.iter_mut().zip(b.v.iter_mut()));
     for ((p0, p1), ((ya, yb), (u, v))) in pairs.zip(outs) {
-        let px = |p: &[u8], o: usize| (i32::from(p[o + 2]), i32::from(p[o + 1]), i32::from(p[o]));
-        let (r00, g00, b00) = px(p0, 0);
-        let (r01, g01, b01) = px(p0, 4);
-        let (r10, g10, b10) = px(p1, 0);
-        let (r11, g11, b11) = px(p1, 4);
-        ya[0] = luma(r00, g00, b00);
-        ya[1] = luma(r01, g01, b01);
-        yb[0] = luma(r10, g10, b10);
-        yb[1] = luma(r11, g11, b11);
+        // Two BGRX pixels per row: blue, green, red, unused.
+        let [b00, g00, r00, _, b01, g01, r01, _] = p0.map(i32::from);
+        let [b10, g10, r10, _, b11, g11, r11, _] = p1.map(i32::from);
+        *ya = [luma(r00, g00, b00), luma(r01, g01, b01)];
+        *yb = [luma(r10, g10, b10), luma(r11, g11, b11)];
         let r = (r00 + r01 + r10 + r11 + 2) >> 2;
         let g = (g00 + g01 + g10 + g11 + 2) >> 2;
         let bl = (b00 + b01 + b10 + b11 + 2) >> 2;

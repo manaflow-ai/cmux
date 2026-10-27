@@ -1,9 +1,10 @@
 //! Private, inode-checked temporary files. No caller-supplied path is accepted.
 
-use std::ffi::{CStr, CString};
+use std::ffi::{CStr, CString, OsStr};
 use std::fs::{self, File};
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::os::fd::{AsRawFd, FromRawFd};
+use std::os::unix::ffi::OsStrExt;
 use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
 use std::path::PathBuf;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
@@ -59,7 +60,9 @@ impl ImagePasteFile {
         let (directory, directory_handle) =
             storage.create_directory(&format!("cmux-image-{name}"))?;
         let result = (|| {
-            let name = CString::new(format!("clipboard.{extension}")).unwrap();
+            let name = CString::new(format!("clipboard.{extension}")).map_err(|_| {
+                std::io::Error::new(std::io::ErrorKind::InvalidInput, "invalid image extension")
+            })?;
             // The directory descriptor pins the newly created private directory.
             let fd = unsafe {
                 libc::openat(
@@ -80,7 +83,7 @@ impl ImagePasteFile {
             let file = unsafe { File::from_raw_fd(fd) };
             let directory_metadata = directory_handle.metadata()?;
             let file_metadata = file.metadata()?;
-            let receipt_name = CString::new(".receipt").unwrap();
+            let receipt_name = c".receipt";
             // The receipt is durable before the first clipboard byte is accepted.
             let receipt_fd = unsafe {
                 libc::openat(
@@ -121,7 +124,11 @@ impl ImagePasteFile {
                 directory_inode: directory_metadata.ino(),
                 file_device: file_metadata.dev(),
                 file_inode: file_metadata.ino(),
-                name: owned.name.to_str().unwrap().to_owned(),
+                name: owned
+                    .name
+                    .to_str()
+                    .map_err(|_| std::io::Error::other("temporary image name is not UTF-8"))?
+                    .to_owned(),
                 // Two minutes to upload plus ten minutes for the agent to read.
                 expires: SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs()
                     + 720,
@@ -153,7 +160,7 @@ impl ImagePasteFile {
         if !self.directory_matches() || !self.file_matches() {
             return Err(std::io::Error::other("temporary image was replaced"));
         }
-        Ok(self.directory.join(self.name.to_str().unwrap()))
+        Ok(self.directory.join(OsStr::from_bytes(self.name.to_bytes())))
     }
 
     fn directory_matches(&self) -> bool {
@@ -287,24 +294,20 @@ impl ImagePasteFile {
         if !self.entry_matches(name, expected) {
             return false;
         }
-        let quarantine = CString::new(if name.to_bytes() == b".receipt" {
-            ".cleanup-receipt"
-        } else {
-            ".cleanup-image"
-        })
-        .unwrap();
+        let quarantine =
+            if name.to_bytes() == b".receipt" { c".cleanup-receipt" } else { c".cleanup-image" };
         let parent = self.directory_handle.as_raw_fd();
         // Move without clobbering, then check what actually moved. A replacement
         // between the initial check and rename is restored instead of deleted.
-        if name == quarantine.as_c_str() || rename_noreplace(parent, name, &quarantine).is_ok() {
-            if self.entry_matches(&quarantine, expected) {
+        if name == quarantine || rename_noreplace(parent, name, quarantine).is_ok() {
+            if self.entry_matches(quarantine, expected) {
                 if unsafe { libc::unlinkat(parent, quarantine.as_ptr(), 0) } == 0 {
                     return true;
                 }
-                let _ = rename_noreplace(parent, &quarantine, name);
+                let _ = rename_noreplace(parent, quarantine, name);
             } else {
                 // If a newer file occupies the original name, preserve both.
-                let _ = rename_noreplace(parent, &quarantine, name);
+                let _ = rename_noreplace(parent, quarantine, name);
             }
         }
         false
@@ -314,18 +317,18 @@ impl ImagePasteFile {
 impl ImagePasteFile {
     pub(crate) fn remove_owned(&self) -> bool {
         // Retain the receipt on failure so a later recovery sweep can retry.
-        let quarantine = CString::new(".cleanup-image").unwrap();
+        let quarantine = c".cleanup-image";
         match (
             self.entry_ownership(&self.name, &self.file),
-            self.entry_ownership(&quarantine, &self.file),
+            self.entry_ownership(quarantine, &self.file),
         ) {
             (EntryOwnership::Owned, _) if self.cleanup_entry(&self.name, &self.file) => {}
-            (_, EntryOwnership::Owned) if self.cleanup_entry(&quarantine, &self.file) => {}
+            (_, EntryOwnership::Owned) if self.cleanup_entry(quarantine, &self.file) => {}
             (EntryOwnership::Owned, _) | (_, EntryOwnership::Owned) => return false,
             (EntryOwnership::Unavailable, _) | (_, EntryOwnership::Unavailable) => return false,
             _ => (), // Ownership changed or the file is already gone; preserve replacements.
         }
-        let _ = self.cleanup_entry(&CString::new(".receipt").unwrap(), &self.receipt);
+        let _ = self.cleanup_entry(c".receipt", &self.receipt);
         if self.directory_matches() {
             let _ = fs::remove_dir(&self.directory);
         }

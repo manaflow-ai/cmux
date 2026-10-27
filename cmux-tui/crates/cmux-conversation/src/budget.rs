@@ -159,10 +159,10 @@ pub fn check_agent_streak(
 pub fn parse_rfc3339_millis(text: &str) -> Option<u64> {
     let bytes = text.as_bytes();
     if bytes.len() != 24
-        || bytes[4] != b'-'
-        || bytes[10] != b'T'
-        || bytes[19] != b'.'
-        || bytes[23] != b'Z'
+        || bytes.get(4) != Some(&b'-')
+        || bytes.get(10) != Some(&b'T')
+        || bytes.get(19) != Some(&b'.')
+        || bytes.get(23) != Some(&b'Z')
     {
         return None;
     }

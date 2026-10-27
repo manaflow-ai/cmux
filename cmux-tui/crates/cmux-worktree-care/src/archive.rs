@@ -309,16 +309,21 @@ fn commit(
 /// Paths in groups whose bytes stay inside one command line.
 fn chunks(paths: &[String]) -> Vec<&[String]> {
     let mut groups = Vec::new();
-    let (mut start, mut bytes) = (0, 0);
-    for (index, path) in paths.iter().enumerate() {
-        if bytes + path.len() + 1 > MAX_ARGUMENT_BYTES && index > start {
-            groups.push(&paths[start..index]);
-            (start, bytes) = (index, 0);
-        }
-        bytes += path.len() + 1;
-    }
-    if start < paths.len() {
-        groups.push(&paths[start..]);
+    let mut rest = paths;
+    while !rest.is_empty() {
+        // The first path that does not fit after at least one other starts the next group.
+        let mut bytes = 0;
+        let count = rest
+            .iter()
+            .enumerate()
+            .position(|(index, path)| {
+                bytes += path.len() + 1;
+                bytes > MAX_ARGUMENT_BYTES && index > 0
+            })
+            .unwrap_or(rest.len());
+        let Some((group, tail)) = rest.split_at_checked(count) else { break };
+        groups.push(group);
+        rest = tail;
     }
     groups
 }

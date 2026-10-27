@@ -44,9 +44,9 @@ pub fn read_all(dir: &Path) -> Result<Vec<Record>, OpenError> {
         let last_segment = index + 1 == paths.len();
         let bytes = fs::read(path)?;
         let mut offset = 0usize;
-        while offset < bytes.len() {
-            let Some(end) = bytes[offset..].iter().position(|b| *b == b'\n').map(|n| offset + n)
-            else {
+        while let Some(remaining) = bytes.get(offset..).filter(|remaining| !remaining.is_empty()) {
+            let mut parts = remaining.splitn(2, |b| *b == b'\n');
+            let (Some(line), Some(_)) = (parts.next(), parts.next()) else {
                 if last_segment {
                     truncate(path, offset as u64)?;
                     break;
@@ -56,7 +56,7 @@ pub fn read_all(dir: &Path) -> Result<Vec<Record>, OpenError> {
                     path.display()
                 )));
             };
-            let line = &bytes[offset..end];
+            let end = offset + line.len();
             match serde_json::from_slice::<Record>(line) {
                 Ok(record) => out.push(record),
                 Err(e) => {

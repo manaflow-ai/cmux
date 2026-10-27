@@ -12,9 +12,11 @@ pub const PREFIX: [u8; 4] = [0xfd, 0x7c, 0x6d, 0x78];
 /// The overlay address of install or host `id`.
 pub fn overlay_address(id: &str) -> Ipv6Addr {
     let digest = Sha256::digest(id.as_bytes());
+    // The prefix, then the first 12 digest bytes.
     let mut octets = [0u8; 16];
-    octets[..4].copy_from_slice(&PREFIX);
-    octets[4..].copy_from_slice(&digest[..12]);
+    for (octet, byte) in octets.iter_mut().zip(PREFIX.iter().chain(digest.iter())) {
+        *octet = *byte;
+    }
     Ipv6Addr::from(octets)
 }
 

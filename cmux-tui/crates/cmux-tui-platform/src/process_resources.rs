@@ -463,7 +463,7 @@ mod imp {
         let written =
             unsafe { libc::proc_pidpath(pid, path.as_mut_ptr().cast(), path.len() as u32) };
         let written = usize::try_from(written).ok().filter(|n| *n > 0)?;
-        let path = std::str::from_utf8(&path[..written.min(path.len())]).ok()?;
+        let path = std::str::from_utf8(path.get(..written.min(path.len()))?).ok()?;
         (!path.is_empty()).then(|| path.to_string())
     }
 
@@ -473,7 +473,7 @@ mod imp {
         // written byte count (0 or less on failure).
         let written = unsafe { proc_name(pid, name.as_mut_ptr().cast(), name.len() as u32) };
         let written = usize::try_from(written).ok().filter(|n| *n > 0)?;
-        let name = std::str::from_utf8(&name[..written.min(name.len())]).ok()?;
+        let name = std::str::from_utf8(name.get(..written.min(name.len()))?).ok()?;
         let name = name.trim_end_matches('\0');
         (!name.is_empty()).then(|| name.to_string())
     }

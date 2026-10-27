@@ -20,10 +20,19 @@ pub const CONTEXT: &[u8] = b"cmux-frontend-hello-v1";
 /// Longest install id the daemon accepts.
 pub const MAX_INSTALL_ID_LEN: usize = 128;
 
+/// An HMAC-SHA256 keyed with `key`.
+#[allow(
+    clippy::expect_used,
+    reason = "INVARIANT: HMAC (RFC 2104) accepts a key of any length; new_from_slice never fails"
+)]
+fn keyed_mac(key: &[u8]) -> Hmac<Sha256> {
+    // crash-allow: HMAC (RFC 2104) accepts a key of any length; new_from_slice never fails.
+    <Hmac<Sha256> as Mac>::new_from_slice(key).expect("HMAC accepts any key length")
+}
+
 /// HMAC-SHA256 of `message` under `key` (RFC 2104, RustCrypto `hmac`).
 pub fn hmac_sha256(key: &[u8], message: &[u8]) -> [u8; 32] {
-    // crash-allow: HMAC (RFC 2104) accepts a key of any length; new_from_slice never fails.
-    let mut mac = <Hmac<Sha256> as Mac>::new_from_slice(key).expect("HMAC accepts any key length");
+    let mut mac = keyed_mac(key);
     mac.update(message);
     mac.finalize().into_bytes().into()
 }
@@ -66,19 +75,18 @@ pub fn verify_hello_proof(
         return false;
     }
     let Some(provided) = unhex::<32>(proof) else { return false };
-    // crash-allow: HMAC (RFC 2104) accepts a key of any length; new_from_slice never fails.
-    let mut mac = <Hmac<Sha256> as Mac>::new_from_slice(key).expect("HMAC accepts any key length");
+    let mut mac = keyed_mac(key);
     mac.update(&proof_message(install_id, nonce));
     mac.verify_slice(&provided).is_ok()
 }
 
 /// Lowercase hex.
 pub fn hex(bytes: &[u8]) -> String {
-    const DIGITS: &[u8; 16] = b"0123456789abcdef";
     let mut out = String::with_capacity(bytes.len() * 2);
     for byte in bytes {
-        out.push(DIGITS[usize::from(byte >> 4)] as char);
-        out.push(DIGITS[usize::from(byte & 0x0f)] as char);
+        // A nibble is always a base-16 digit, so from_digit yields one char.
+        out.extend(char::from_digit(u32::from(byte >> 4), 16));
+        out.extend(char::from_digit(u32::from(byte & 0x0f), 16));
     }
     out
 }
@@ -91,7 +99,8 @@ pub fn unhex<const N: usize>(text: &str) -> Option<[u8; N]> {
     }
     let mut out = [0u8; N];
     for (slot, pair) in out.iter_mut().zip(bytes.chunks_exact(2)) {
-        *slot = (nibble(pair[0])? << 4) | nibble(pair[1])?;
+        let &[high, low] = pair else { return None };
+        *slot = (nibble(high)? << 4) | nibble(low)?;
     }
     Some(out)
 }

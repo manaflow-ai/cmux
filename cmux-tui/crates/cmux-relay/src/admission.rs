@@ -193,7 +193,11 @@ impl AsyncRead for AdmissionStream {
         let previous_length = buffer.filled().len();
         match Pin::new(&mut self.inner).poll_read(context, buffer) {
             Poll::Ready(Ok(())) => {
-                let bytes = &buffer.filled()[previous_length..];
+                let Some(bytes) = buffer.filled().get(previous_length..) else {
+                    return Poll::Ready(Err(io::Error::other(
+                        "the inner stream shrank the read buffer",
+                    )));
+                };
                 Poll::Ready(self.observe_read(bytes))
             }
             Poll::Ready(Err(error)) => Poll::Ready(Err(error)),

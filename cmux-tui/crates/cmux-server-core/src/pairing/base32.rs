@@ -14,18 +14,24 @@ pub fn decode_symbol(c: char) -> Option<u8> {
     }
 }
 
+/// The canonical symbol of an uppercase symbol (aliases folded), or `None`.
+pub fn canonical_symbol(c: char) -> Option<u8> {
+    decode_symbol(c).and_then(|value| ALPHABET.get(usize::from(value)).copied())
+}
+
 /// The first `symbols` symbols of `bytes`, 5 bits each, most significant
 /// bit first. Panics when `bytes` holds fewer than `5 * symbols` bits.
 pub fn encode_bits(bytes: &[u8], symbols: usize) -> String {
     assert!(bytes.len() * 8 >= symbols * 5, "not enough input bits");
     (0..symbols)
-        .map(|i| {
+        .filter_map(|i| {
             let bit = i * 5;
             let (byte, shift) = (bit / 8, bit % 8);
-            let hi = u16::from(bytes[byte]) << 8;
+            let hi = bytes.get(byte).copied().map_or(0, u16::from) << 8;
             let lo = bytes.get(byte + 1).copied().map_or(0, u16::from);
+            // Five bits always name one of the 32 symbols.
             let value = ((hi | lo) >> (11 - shift)) & 0x1f;
-            ALPHABET[value as usize] as char
+            ALPHABET.get(usize::from(value)).map(|symbol| char::from(*symbol))
         })
         .collect()
 }

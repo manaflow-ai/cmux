@@ -14,7 +14,7 @@ mod words;
 use sha2::{Digest, Sha256};
 use std::fmt;
 
-pub use base32::{ALPHABET, decode_symbol, encode_bits};
+pub use base32::{ALPHABET, canonical_symbol, decode_symbol, encode_bits};
 pub use words::{WORDLIST, word_count};
 
 pub const CODE_LEN: usize = 8;
@@ -67,14 +67,10 @@ impl PairingCode {
             if upper == 'U' {
                 return Err(CodeError::ReservedU);
             }
-            let canonical = decode_symbol(upper).ok_or(CodeError::Invalid(c))?;
-            out.push(ALPHABET[canonical as usize]);
+            out.push(canonical_symbol(upper).ok_or(CodeError::Invalid(c))?);
         }
-        if out.len() != CODE_LEN {
-            return Err(CodeError::Length(out.len()));
-        }
-        let mut code = [0u8; CODE_LEN];
-        code.copy_from_slice(&out);
+        let code: [u8; CODE_LEN] =
+            out.try_into().map_err(|out: Vec<u8>| CodeError::Length(out.len()))?;
         Ok(PairingCode(code))
     }
 }
@@ -86,11 +82,14 @@ impl fmt::Display for PairingCode {
 }
 
 /// Four words from the first 44 bits of SHA-256(pubkey), 11 bits each.
+#[allow(
+    clippy::indexing_slicing,
+    reason = "INVARIANT: each index is masked to 11 bits and WORDLIST holds 2^11 words"
+)]
 pub fn fingerprint_words(pubkey: &[u8]) -> [&'static str; 4] {
-    let digest = Sha256::digest(pubkey);
-    let mut first = [0u8; 8];
-    first.copy_from_slice(&digest[..8]);
-    let bits = u64::from_be_bytes(first);
+    let digest: [u8; 32] = Sha256::digest(pubkey).into();
+    let [b0, b1, b2, b3, b4, b5, b6, b7, ..] = digest;
+    let bits = u64::from_be_bytes([b0, b1, b2, b3, b4, b5, b6, b7]);
     std::array::from_fn(|i| {
         let index = (bits >> (64 - 11 * (i as u32 + 1))) & 0x7ff;
         WORDLIST[index as usize]
@@ -130,8 +129,8 @@ pub fn verify_qr_fp(payload: &str, pubkey: &[u8]) -> Result<PairingCode, QrError
     let code = PairingCode::normalize(code).map_err(QrError::Code)?;
     let mut scanned = String::with_capacity(FP_LEN);
     for c in fp.chars() {
-        let v = decode_symbol(c.to_ascii_uppercase()).ok_or(QrError::Malformed)?;
-        scanned.push(ALPHABET[v as usize] as char);
+        let symbol = canonical_symbol(c.to_ascii_uppercase()).ok_or(QrError::Malformed)?;
+        scanned.push(char::from(symbol));
     }
     if scanned.len() != FP_LEN {
         return Err(QrError::Malformed);

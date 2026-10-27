@@ -983,12 +983,12 @@ pub struct RendererGrantOptions {
     pub ttl_ms: Option<u32>,
 }
 
-fn encode_hex(bytes: [u8; 16]) -> String {
-    const HEX: &[u8; 16] = b"0123456789abcdef";
+/// Lowercase hex of 16 bytes (a nibble is always a base-16 digit, so `from_digit` yields one char).
+pub(super) fn encode_hex(bytes: [u8; 16]) -> String {
     let mut output = String::with_capacity(32);
     for byte in bytes {
-        output.push(char::from(HEX[(byte >> 4) as usize]));
-        output.push(char::from(HEX[(byte & 0x0f) as usize]));
+        output.extend(char::from_digit(u32::from(byte >> 4), 16));
+        output.extend(char::from_digit(u32::from(byte & 0x0f), 16));
     }
     output
 }

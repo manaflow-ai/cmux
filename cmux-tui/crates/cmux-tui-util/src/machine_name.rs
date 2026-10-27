@@ -25,8 +25,8 @@ fn host_name() -> Option<String> {
     if status != 0 {
         return None;
     }
-    let end = buffer.iter().position(|byte| *byte == 0).unwrap_or(buffer.len());
-    Some(String::from_utf8_lossy(&buffer[..end]).into_owned())
+    let name = buffer.split(|byte| *byte == 0).next()?;
+    Some(String::from_utf8_lossy(name).into_owned())
 }
 
 #[cfg(not(unix))]

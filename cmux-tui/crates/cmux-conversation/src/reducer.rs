@@ -199,7 +199,7 @@ pub fn create(request: &CreateRequest<'_>) -> Result<ConversationHead, Reject> {
     }
     for (index, participant) in request.participants.iter().enumerate() {
         validate_participant(participant)?;
-        if request.participants[..index].iter().any(|earlier| earlier.id == participant.id) {
+        if request.participants.iter().take(index).any(|earlier| earlier.id == participant.id) {
             return Err(Reject::DuplicateParticipant);
         }
     }
@@ -544,7 +544,9 @@ fn require_participant(head: &ConversationHead, actor: &str) -> Result<(), Rejec
 /// reply may answer a message the owner already trimmed.
 fn validate_answers(answers: &[String], pending: &[String]) -> Result<(), Reject> {
     let distinct = |ids: &[String]| {
-        ids.iter().enumerate().all(|(i, id)| valid_token(id) && !ids[..i].contains(id))
+        ids.iter()
+            .enumerate()
+            .all(|(i, id)| valid_token(id) && !ids.iter().take(i).any(|earlier| earlier == id))
     };
     if answers.len() > crate::MAX_ANSWERS
         || !distinct(answers)

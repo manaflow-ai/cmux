@@ -576,7 +576,8 @@ impl FreeTier {
                         FreeState::NotVerified
                     }
                     _ => {
-                        let delay = RETRY_DELAYS[inner.failures.min(RETRY_DELAYS.len() - 1)];
+                        let [.., longest] = RETRY_DELAYS;
+                        let delay = RETRY_DELAYS.get(inner.failures).copied().unwrap_or(longest);
                         inner.failures += 1;
                         inner.retry_at = Some(Instant::now() + Duration::from_secs(delay));
                         FreeState::Backoff
@@ -745,8 +746,8 @@ impl Provider {
             "purpose": PURPOSE,
             "client_data_hash": base64::engine::general_purpose::STANDARD.encode(hash),
         });
-        if let Some(fresh) = fresh {
-            request["fresh_key"] = json!(fresh);
+        if let (Some(fresh), Some(fields)) = (fresh, request.as_object_mut()) {
+            fields.insert("fresh_key".to_string(), json!(fresh));
         }
         let (tx, rx) = oneshot::channel();
         self.pending.lock().unwrap_or_else(std::sync::PoisonError::into_inner).insert(id, tx);

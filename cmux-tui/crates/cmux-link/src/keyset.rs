@@ -154,10 +154,11 @@ fn valid_kid(kid: &str) -> bool {
 /// over the day instead of fetching together.
 pub fn daily_jitter(host: &str) -> Duration {
     use sha2::Digest as _;
-    let digest = sha2::Sha256::digest(host.as_bytes());
-    let mut first = [0u8; 8];
-    first.copy_from_slice(&digest[..8]);
-    Duration::from_secs(u64::from_be_bytes(first) % REFRESH_PERIOD.as_secs())
+    let digest: [u8; 32] = sha2::Sha256::digest(host.as_bytes()).into();
+    let [b0, b1, b2, b3, b4, b5, b6, b7, ..] = digest;
+    Duration::from_secs(
+        u64::from_be_bytes([b0, b1, b2, b3, b4, b5, b6, b7]) % REFRESH_PERIOD.as_secs(),
+    )
 }
 
 /// The held keyset and the fetch schedule of one Cloud host.

@@ -15,7 +15,7 @@ pub fn encode_id(prefix: &str, unix_ms: u64, random: [u8; 10]) -> String {
     for index in 0..26 {
         let shift = 5 * (25 - index);
         let digit = ((value >> shift) & 31) as usize;
-        id.push(char::from(CROCKFORD[digit]));
+        id.extend(CROCKFORD.get(digit).copied().map(char::from));
     }
     id
 }

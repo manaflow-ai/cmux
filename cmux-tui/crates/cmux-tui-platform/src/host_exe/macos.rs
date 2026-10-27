@@ -447,7 +447,8 @@ fn sha256_file(path: &Path) -> io::Result<String> {
         if read == 0 {
             break;
         }
-        hasher.update(&buffer[..read]);
+        hasher
+            .update(buffer.get(..read).ok_or_else(|| io::Error::other("read overran its buffer"))?);
     }
     Ok(hasher.finalize().iter().map(|byte| format!("{byte:02x}")).collect())
 }

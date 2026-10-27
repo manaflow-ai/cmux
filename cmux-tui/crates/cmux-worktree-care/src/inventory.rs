@@ -309,7 +309,8 @@ fn facts(entry: &ListEntry, overrides: &[Override], bases: &[String]) -> Result<
             }
             Some(b'u') => changed_paths.push(nth_field(&text, 10)),
             Some(b'?') => {
-                let path = text[2..].to_string();
+                let Some(path) = text.strip_prefix("? ") else { continue };
+                let path = path.to_string();
                 if path.ends_with('/') {
                     // `-uall` lists files; a folder is a nested repository,
                     // which `git add` would keep as a bare gitlink.
@@ -388,11 +389,11 @@ fn facts(entry: &ListEntry, overrides: &[Override], bases: &[String]) -> Result<
 /// beside it.
 pub fn is_build_output_at(root: &Path, path: &str) -> bool {
     let parts: Vec<&str> = path.trim_end_matches('/').split('/').collect();
-    (0..parts.len()).any(|index| {
-        let Some((_, markers)) = BUILD_OUTPUT.iter().find(|(name, _)| *name == parts[index]) else {
+    parts.iter().enumerate().any(|(index, part)| {
+        let Some((_, markers)) = BUILD_OUTPUT.iter().find(|(name, _)| name == part) else {
             return false;
         };
-        let parent = parts[..index].iter().fold(root.to_path_buf(), |dir, part| dir.join(part));
+        let parent = parts.iter().take(index).fold(root.to_path_buf(), |dir, part| dir.join(part));
         markers.is_empty() || markers.iter().any(|marker| parent.join(marker).exists())
     })
 }

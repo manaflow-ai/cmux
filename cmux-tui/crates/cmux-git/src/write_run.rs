@@ -171,7 +171,7 @@ fn drain(mut reader: impl Read, limit: usize) -> (Vec<u8>, bool) {
                 if read > room {
                     truncated = true;
                 }
-                kept.extend_from_slice(&chunk[..read.min(room)]);
+                kept.extend(chunk.iter().take(read.min(room)));
             }
             Err(error) if error.kind() == ErrorKind::Interrupted => {}
             Err(_) => break,

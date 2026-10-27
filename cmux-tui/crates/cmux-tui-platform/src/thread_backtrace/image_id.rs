@@ -116,11 +116,11 @@ pub(super) fn mach_uuid(header: &[u8]) -> Option<String> {
             let uuid = hex(header.get(at + 8..at + 24)?).to_uppercase();
             return Some(format!(
                 "{}-{}-{}-{}-{}",
-                &uuid[..8],
-                &uuid[8..12],
-                &uuid[12..16],
-                &uuid[16..20],
-                &uuid[20..]
+                uuid.get(..8)?,
+                uuid.get(8..12)?,
+                uuid.get(12..16)?,
+                uuid.get(16..20)?,
+                uuid.get(20..)?
             ));
         }
         if size < 8 {

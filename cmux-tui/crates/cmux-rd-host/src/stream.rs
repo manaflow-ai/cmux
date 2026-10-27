@@ -333,7 +333,7 @@ impl MediaSession {
                 r.w as usize,
                 r.h as usize,
                 2,
-            );
+            )?;
         }
         let t_capture_us = now_us();
         self.enc.set_bitrate(req.target_kbps);

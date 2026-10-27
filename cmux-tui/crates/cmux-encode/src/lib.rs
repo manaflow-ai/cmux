@@ -16,7 +16,7 @@ pub mod cisco;
 #[cfg(target_os = "macos")]
 pub mod videotoolbox;
 
-pub use picture::{I420, bgrx_rect_to_i420};
+pub use picture::{I420, RectOutsidePicture, bgrx_rect_to_i420};
 
 pub type Res<T> = Result<T, Box<dyn std::error::Error + Send + Sync>>;
 

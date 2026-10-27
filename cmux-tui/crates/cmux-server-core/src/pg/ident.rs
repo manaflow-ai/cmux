@@ -33,7 +33,7 @@ pub fn valid_manifest_id(id: &str) -> bool {
         let b = s.as_bytes();
         !b.is_empty()
             && b.len() <= max
-            && (b[0].is_ascii_lowercase() || b[0].is_ascii_digit())
+            && b.first().is_some_and(|first| first.is_ascii_lowercase() || first.is_ascii_digit())
             && b.iter().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || *c == b'-')
     };
     part(publisher, 39) && part(name, 64)
@@ -80,7 +80,7 @@ impl AppId {
         }
         if mapped.len() > 40 {
             let digest = Sha256::digest(id.as_bytes());
-            let hex: String = digest[..4].iter().map(|b| format!("{b:02x}")).collect();
+            let hex: String = digest.iter().take(4).map(|b| format!("{b:02x}")).collect();
             mapped.truncate(31);
             mapped.push('_');
             mapped.push_str(&hex);

@@ -118,8 +118,7 @@ pub mod harness {
             .and_then(|e| e.get("ANTHROPIC_BASE_URL"))
             .and_then(Value::as_str)
             .map(|u| u.trim().trim_end_matches('/'));
-        argv.len() == 1
-            && basename(&argv[0]) == "claude"
+        matches!(argv.as_slice(), [command] if basename(command) == "claude")
             && url.is_some_and(|u| TEAM_SUBROUTER_URLS.contains(&u))
     }
 

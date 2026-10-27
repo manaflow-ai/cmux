@@ -111,13 +111,13 @@ pub fn local_actor() -> Principal {
 
 /// Mint a time-ordered public id: `<prefix><ms base36><8 random base36>`.
 pub fn mint(prefix: &str) -> String {
-    const ALPHABET: &[u8] = b"0123456789abcdefghijklmnopqrstuvwxyz";
     let mut ms = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map_or(0, |d| d.as_millis() as u64);
+    // Lowercase base 36: from_digit always has a digit for a value below the radix.
     let mut time = Vec::new();
     while ms > 0 {
-        time.push(ALPHABET[(ms % 36) as usize]);
+        time.extend(char::from_digit((ms % 36) as u32, 36));
         ms /= 36;
     }
     time.reverse();
@@ -128,8 +128,10 @@ pub fn mint(prefix: &str) -> String {
         // nanoseconds keep each mint distinct.
         random = fallback_random();
     }
-    let tail: String = random.iter().map(|b| ALPHABET[usize::from(*b) % 36] as char).collect();
-    format!("{prefix}{}{tail}", String::from_utf8_lossy(&time))
+    let tail: String =
+        random.iter().filter_map(|b| char::from_digit(u32::from(*b) % 36, 36)).collect();
+    let time: String = time.into_iter().collect();
+    format!("{prefix}{time}{tail}")
 }
 
 /// Eight bytes unique per call in this process (and, through the pid and

@@ -11,7 +11,7 @@ use std::sync::{Arc, Condvar, Mutex, PoisonError, Weak};
 use std::time::{Duration, Instant};
 
 use base64::Engine;
-use serde_json::{Value, json};
+use serde_json::{Map, Value, json};
 use tungstenite::client::IntoClientRequest;
 use tungstenite::http::HeaderValue;
 use tungstenite::http::header::AUTHORIZATION;
@@ -249,23 +249,22 @@ pub struct CdpKeyEvent<'a> {
 }
 
 fn key_event_params(event: CdpKeyEvent<'_>) -> Value {
-    let mut params = json!({
-        "type": event.event_type,
-        "key": event.key,
-        "modifiers": event.modifiers,
-    });
+    let mut params = Map::new();
+    params.insert("type".to_owned(), json!(event.event_type));
+    params.insert("key".to_owned(), json!(event.key));
+    params.insert("modifiers".to_owned(), json!(event.modifiers));
     if !event.code.is_empty() {
-        params["code"] = json!(event.code);
+        params.insert("code".to_owned(), json!(event.code));
     }
     if event.windows_virtual_key_code != 0 {
-        params["windowsVirtualKeyCode"] = json!(event.windows_virtual_key_code);
-        params["nativeVirtualKeyCode"] = json!(event.windows_virtual_key_code);
+        params.insert("windowsVirtualKeyCode".to_owned(), json!(event.windows_virtual_key_code));
+        params.insert("nativeVirtualKeyCode".to_owned(), json!(event.windows_virtual_key_code));
     }
     if let Some(text) = event.text {
-        params["text"] = json!(text);
-        params["unmodifiedText"] = json!(text);
+        params.insert("text".to_owned(), json!(text));
+        params.insert("unmodifiedText".to_owned(), json!(text));
     }
-    params
+    Value::Object(params)
 }
 
 fn wheel_event_params(x: f64, y: f64, delta_x: f64, delta_y: f64) -> Value {
@@ -381,10 +380,13 @@ impl EventQueue {
             return Err(());
         }
         let event_bytes = event_retained_bytes(&event);
-        if let Some(index) =
-            state.events.iter().position(|queued| same_replaceable(&queued.event, &event))
+        if let Some((index, previous_bytes)) = state
+            .events
+            .iter()
+            .enumerate()
+            .find(|(_, queued)| same_replaceable(&queued.event, &event))
+            .map(|(index, queued)| (index, queued.retained_bytes))
         {
-            let previous_bytes = state.events[index].retained_bytes;
             let retained_bytes = state
                 .retained_bytes
                 .checked_sub(previous_bytes)
@@ -678,15 +680,14 @@ impl CdpClient {
         let (tx, rx) = channel();
         pending_calls(&self.inner).insert(id, PendingCall { response: tx, frame_barrier });
 
-        let mut msg = json!({
-            "id": id,
-            "method": method,
-            "params": null,
-        });
-        msg["params"] = params;
+        let mut msg = Map::new();
+        msg.insert("id".to_owned(), json!(id));
+        msg.insert("method".to_owned(), json!(method));
+        msg.insert("params".to_owned(), params);
         if let Some(session_id) = session_id {
-            msg["sessionId"] = json!(session_id);
+            msg.insert("sessionId".to_owned(), json!(session_id));
         }
+        let msg = Value::Object(msg);
         if let Err(e) = self.send_value(&msg) {
             pending_calls(&self.inner).remove(&id);
             return Err(e);
@@ -1336,18 +1337,17 @@ impl CdpClient {
         button: Option<&str>,
         click_count: Option<u32>,
     ) -> anyhow::Result<()> {
-        let mut params = json!({
-            "type": event_type,
-            "x": x,
-            "y": y,
-        });
+        let mut params = Map::new();
+        params.insert("type".to_owned(), json!(event_type));
+        params.insert("x".to_owned(), json!(x));
+        params.insert("y".to_owned(), json!(y));
         if let Some(button) = button {
-            params["button"] = json!(button);
+            params.insert("button".to_owned(), json!(button));
         }
         if let Some(click_count) = click_count {
-            params["clickCount"] = json!(click_count);
+            params.insert("clickCount".to_owned(), json!(click_count));
         }
-        self.call("Input.dispatchMouseEvent", params, Some(session_id)).map(|_| ())
+        self.call("Input.dispatchMouseEvent", Value::Object(params), Some(session_id)).map(|_| ())
     }
 
     pub fn dispatch_wheel(
@@ -1551,7 +1551,7 @@ fn drain_outbound<W: OutboundWriter>(
 
 fn handle_text(inner: &Arc<Inner>, text: &str) {
     if cdp_debug() {
-        eprintln!("cdp<- {}", &text[..text.len().min(300)]);
+        eprintln!("cdp<- {}", text.chars().take(300).collect::<String>());
     }
     let Ok(value) = serde_json::from_str::<Value>(text) else { return };
     if let Some(id) = value.get("id").and_then(|v| v.as_u64()) {
@@ -1941,10 +1941,11 @@ fn canonical_base64_decoded_len(input: &str) -> Option<usize> {
         return None;
     }
     let data_len = bytes.len().checked_sub(padding)?;
-    if !bytes[..data_len].iter().all(|byte| base64_value(*byte).is_some()) {
+    let (data, pad) = bytes.split_at_checked(data_len)?;
+    if !data.iter().all(|byte| base64_value(*byte).is_some()) {
         return None;
     }
-    if !bytes[data_len..].iter().all(|byte| *byte == b'=') {
+    if !pad.iter().all(|byte| *byte == b'=') {
         return None;
     }
     if padding == 1 && base64_value(*bytes.get(data_len.checked_sub(1)?)?)? & 0b11 != 0 {
@@ -2065,7 +2066,10 @@ fn read_http_response_with_limits(
                 if new_len > max_bytes {
                     anyhow::bail!("CDP discovery response exceeds size limit");
                 }
-                bytes.extend_from_slice(&buf[..n]);
+                let read = buf
+                    .get(..n)
+                    .ok_or_else(|| anyhow::anyhow!("CDP discovery read overran its buffer"))?;
+                bytes.extend_from_slice(read);
                 if complete_http_response(&bytes, max_bytes)? {
                     break;
                 }
@@ -2094,7 +2098,8 @@ fn complete_http_response(bytes: &[u8], max_bytes: usize) -> anyhow::Result<bool
     let Some(header_end) = bytes.windows(4).position(|window| window == b"\r\n\r\n") else {
         return Ok(false);
     };
-    let headers = String::from_utf8_lossy(&bytes[..header_end]);
+    let Some((headers, _)) = bytes.split_at_checked(header_end) else { return Ok(false) };
+    let headers = String::from_utf8_lossy(headers);
     let Some(content_len) = headers.lines().find_map(|line| {
         let (name, value) = line.split_once(':')?;
         name.eq_ignore_ascii_case("content-length").then(|| value.trim().parse::<usize>().ok())?

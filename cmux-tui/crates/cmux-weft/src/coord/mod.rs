@@ -348,7 +348,7 @@ async fn mint_auth_key(
         "admin",
         "authkey.mint",
         &serde_json::json!({
-            "key_hash_prefix": &hash_secret(&secret)[..12],
+            "key_hash_prefix": hash_secret(&secret).chars().take(12).collect::<String>(),
             "tags": request.tags,
             "user": request.user,
             "reusable": request.reusable,

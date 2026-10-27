@@ -89,7 +89,13 @@ impl Settings {
 }
 
 fn hours(table: [u64; 3], pressure: Pressure) -> u64 {
-    table[pressure as usize] * HOUR_MS
+    let [normal, high, critical] = table;
+    let hours = match pressure {
+        Pressure::Normal => normal,
+        Pressure::High => high,
+        Pressure::Critical => critical,
+    };
+    hours * HOUR_MS
 }
 
 /// An agent session and the folder it works in.

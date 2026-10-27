@@ -63,6 +63,10 @@ impl InstallKey {
     }
 
     /// `{"kty":"EC","crv":"P-256","x":…,"y":…}`: the public half only.
+    #[allow(
+        clippy::indexing_slicing,
+        reason = "INVARIANT: ring's ECDSA P-256 public key is always the 65-byte uncompressed SEC1 point"
+    )]
     pub fn public_jwk(&self) -> Value {
         let point = self.pair.public_key().as_ref();
         // An uncompressed SEC1 point: 0x04 || x (32) || y (32).

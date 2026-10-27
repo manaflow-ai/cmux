@@ -296,9 +296,9 @@ pub fn profile_from_file_name(name: &str) -> Option<String> {
     let mut rest = stem.as_bytes();
     while let Some((&byte, tail)) = rest.split_first() {
         if byte == b'_' {
-            let hex = std::str::from_utf8(tail.get(..2)?).ok()?;
-            bytes.push(u8::from_str_radix(hex, 16).ok()?);
-            rest = &tail[2..];
+            let (hex, after) = tail.split_at_checked(2)?;
+            bytes.push(u8::from_str_radix(std::str::from_utf8(hex).ok()?, 16).ok()?);
+            rest = after;
         } else {
             bytes.push(byte);
             rest = tail;

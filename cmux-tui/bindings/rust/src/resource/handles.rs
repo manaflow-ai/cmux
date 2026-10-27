@@ -211,11 +211,17 @@ impl Session {
                 "journal cursor and start are mutually exclusive".to_string(),
             ));
         }
-        if options.max_sensitivity == Some(super::typed_stream::JournalSensitivity::Secret) {
-            return Err(Error::InvalidArgument(
-                "secret journal records are unavailable in v1".to_string(),
-            ));
-        }
+        let max_sensitivity = options
+            .max_sensitivity
+            .map(|sensitivity| match sensitivity {
+                super::typed_stream::JournalSensitivity::Public => Ok("public"),
+                super::typed_stream::JournalSensitivity::Metadata => Ok("metadata"),
+                super::typed_stream::JournalSensitivity::Sensitive => Ok("sensitive"),
+                super::typed_stream::JournalSensitivity::Secret => Err(Error::InvalidArgument(
+                    "secret journal records are unavailable in v1".to_string(),
+                )),
+            })
+            .transpose()?;
         if options.subjects.iter().any(|subject| subject.kind.is_none() && subject.id.is_none()) {
             return Err(Error::InvalidArgument(
                 "journal subject filters require kind or id".to_string(),
@@ -290,19 +296,8 @@ impl Session {
                 ),
             );
         }
-        if let Some(sensitivity) = options.max_sensitivity {
-            filter.insert(
-                "max_sensitivity".to_string(),
-                Value::String(
-                    match sensitivity {
-                        super::typed_stream::JournalSensitivity::Public => "public",
-                        super::typed_stream::JournalSensitivity::Metadata => "metadata",
-                        super::typed_stream::JournalSensitivity::Sensitive => "sensitive",
-                        super::typed_stream::JournalSensitivity::Secret => unreachable!(),
-                    }
-                    .to_string(),
-                ),
-            );
+        if let Some(sensitivity) = max_sensitivity {
+            filter.insert("max_sensitivity".to_string(), Value::String(sensitivity.to_string()));
         }
         if let Some(regex) = options.regex {
             filter.insert(

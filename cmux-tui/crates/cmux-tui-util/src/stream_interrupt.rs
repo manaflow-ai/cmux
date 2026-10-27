@@ -10,13 +10,16 @@
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{RecvTimeoutError, TryRecvError, TrySendError};
-use std::sync::{Arc, Condvar, Mutex, Weak};
+use std::sync::{Arc, Condvar, Mutex, PoisonError, Weak};
 use std::time::{Duration, Instant};
 
 type Waker = Box<dyn Fn() + Send + Sync>;
 
 /// A one-shot stop signal for one blocking loop.
 #[derive(Default)]
+///
+/// Its locks (here and in [`InterruptSet`] and [`signal`]) guard flags and waker lists that each
+/// change in one store or push, so a holder that panicked leaves them whole: they are used again.
 pub struct StreamInterrupt {
     fired: AtomicBool,
     wakers: Mutex<Vec<Waker>>,
@@ -35,7 +38,8 @@ impl StreamInterrupt {
         if self.fired.swap(true, Ordering::AcqRel) {
             return;
         }
-        let wakers = std::mem::take(&mut *self.wakers.lock().unwrap());
+        let wakers =
+            std::mem::take(&mut *self.wakers.lock().unwrap_or_else(PoisonError::into_inner));
         for waker in wakers {
             waker();
         }
@@ -46,7 +50,7 @@ impl StreamInterrupt {
     /// so a receiver that checked `is_fired` and is about to wait cannot miss
     /// the notification.
     pub fn on_fire(&self, waker: impl Fn() + Send + Sync + 'static) {
-        let mut wakers = self.wakers.lock().unwrap();
+        let mut wakers = self.wakers.lock().unwrap_or_else(PoisonError::into_inner);
         if self.is_fired() {
             drop(wakers);
             waker();
@@ -71,7 +75,7 @@ struct InterruptSetState {
 
 impl InterruptSet {
     pub fn register(&self, interrupt: &Arc<StreamInterrupt>) {
-        let mut state = self.inner.lock().unwrap();
+        let mut state = self.inner.lock().unwrap_or_else(PoisonError::into_inner);
         if state.fired {
             drop(state);
             interrupt.fire();
@@ -83,7 +87,7 @@ impl InterruptSet {
 
     pub fn fire(&self) {
         let members = {
-            let mut state = self.inner.lock().unwrap();
+            let mut state = self.inner.lock().unwrap_or_else(PoisonError::into_inner);
             state.fired = true;
             std::mem::take(&mut state.members)
         };
@@ -129,7 +133,7 @@ pub struct SignalSender {
 
 impl SignalSender {
     pub fn try_send(&self, (): ()) -> Result<(), TrySendError<()>> {
-        let mut state = self.state.0.lock().unwrap();
+        let mut state = self.state.0.lock().unwrap_or_else(PoisonError::into_inner);
         if !state.receiver_alive {
             return Err(TrySendError::Disconnected(()));
         }
@@ -145,7 +149,7 @@ impl SignalSender {
 
 impl Drop for SignalSender {
     fn drop(&mut self) {
-        self.state.0.lock().unwrap().sender_alive = false;
+        self.state.0.lock().unwrap_or_else(PoisonError::into_inner).sender_alive = false;
         self.state.1.notify_all();
     }
 }
@@ -157,7 +161,7 @@ pub struct SignalReceiver {
 impl SignalReceiver {
     #[cfg_attr(not(test), allow(dead_code))]
     pub fn try_recv(&self) -> Result<(), TryRecvError> {
-        let mut state = self.state.0.lock().unwrap();
+        let mut state = self.state.0.lock().unwrap_or_else(PoisonError::into_inner);
         if std::mem::take(&mut state.pending) {
             Ok(())
         } else if state.sender_alive {
@@ -170,7 +174,7 @@ impl SignalReceiver {
     #[cfg_attr(not(test), allow(dead_code))]
     pub fn recv_timeout(&self, timeout: Duration) -> Result<(), RecvTimeoutError> {
         let deadline = Instant::now() + timeout;
-        let mut state = self.state.0.lock().unwrap();
+        let mut state = self.state.0.lock().unwrap_or_else(PoisonError::into_inner);
         loop {
             if std::mem::take(&mut state.pending) {
                 return Ok(());
@@ -181,7 +185,12 @@ impl SignalReceiver {
             let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
                 return Err(RecvTimeoutError::Timeout);
             };
-            state = self.state.1.wait_timeout(state, remaining).unwrap().0;
+            state = self
+                .state
+                .1
+                .wait_timeout(state, remaining)
+                .unwrap_or_else(PoisonError::into_inner)
+                .0;
         }
     }
 
@@ -196,7 +205,7 @@ impl SignalReceiver {
         &self,
         interrupt: &StreamInterrupt,
     ) -> Result<(), RecvTimeoutError> {
-        let mut state = self.state.0.lock().unwrap();
+        let mut state = self.state.0.lock().unwrap_or_else(PoisonError::into_inner);
         loop {
             if std::mem::take(&mut state.pending) {
                 return Ok(());
@@ -207,14 +216,14 @@ impl SignalReceiver {
             if interrupt.is_fired() {
                 return Err(RecvTimeoutError::Timeout);
             }
-            state = self.state.1.wait(state).unwrap();
+            state = self.state.1.wait(state).unwrap_or_else(PoisonError::into_inner);
         }
     }
 }
 
 impl Drop for SignalReceiver {
     fn drop(&mut self) {
-        self.state.0.lock().unwrap().receiver_alive = false;
+        self.state.0.lock().unwrap_or_else(PoisonError::into_inner).receiver_alive = false;
     }
 }
 

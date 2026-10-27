@@ -138,7 +138,11 @@ impl SidebarModel {
         } else {
             for row in patch.rows {
                 match self.rows.binary_search_by_key(&row.row, |current| current.row) {
-                    Ok(index) => self.rows[index] = row,
+                    Ok(index) => {
+                        if let Some(current) = self.rows.get_mut(index) {
+                            *current = row;
+                        }
+                    }
                     Err(index) => self.rows.insert(index, row),
                 }
             }
@@ -435,7 +439,7 @@ impl Widget for SidebarWidget<'_> {
                     .rows
                     .binary_search_by_key(&(row as u16), |candidate| candidate.row)
                     .ok()
-                    .map(|index| &self.model.rows[index])
+                    .and_then(|index| self.model.rows.get(index))
                     .map_or_else(|| Line::from(""), |row| render_row(row, self.model))
             })
             .collect::<Vec<_>>();
@@ -495,11 +499,8 @@ fn render_style(run: &RenderRun, model: &SidebarModel) -> Style {
 }
 
 fn ratatui_color(color: &ColorHex) -> Color {
-    let value = color.as_str();
-    let parse = |range: std::ops::Range<usize>| {
-        u8::from_str_radix(&value[range], 16).expect("validated color hex")
-    };
-    Color::Rgb(parse(1..3), parse(3..5), parse(5..7))
+    let [red, green, blue] = color.rgb();
+    Color::Rgb(red, green, blue)
 }
 
 /// Converts supported Crossterm events to stable sidebar input records.

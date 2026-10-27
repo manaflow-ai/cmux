@@ -59,10 +59,10 @@ pub fn run(args: &[String]) -> ExitCode {
     if words.first().map(String::as_str) == Some("task") {
         words.remove(0);
     }
-    if words.is_empty() {
+    let Some((command, operands)) = words.split_first() else {
         print!("{}", help());
         return if global.help { ExitCode::SUCCESS } else { ExitCode::from(2) };
-    }
+    };
     let owner = match owner::resolve(global.team.as_deref(), global.data.clone()) {
         Ok(Owner::Local(local)) => local,
         Ok(Owner::TeamVm { team }) => {
@@ -74,22 +74,25 @@ pub fn run(args: &[String]) -> ExitCode {
         Err(e) => return fail(2, &e),
     };
     let prefix = global.key_prefix.clone().unwrap_or_else(|| DEFAULT_PREFIX.to_owned());
-    match words[0].as_str() {
+    match command.as_str() {
         "serve" => return serve(&owner, &prefix),
-        "catalog" => return print_catalog(&words[1..]),
+        "catalog" => return print_catalog(operands),
         "mine" => {
             words = [
                 vec!["list".to_owned(), "--mine".to_owned(), "--open".to_owned()],
-                words[1..].to_vec(),
+                operands.to_vec(),
             ]
             .concat();
         }
-        "start" => return start(&owner, &prefix, &global, &words[1..]),
+        "start" => return start(&owner, &prefix, &global, operands),
         _ => {}
     }
     let mut path: Vec<&str> = vec!["task"];
     path.extend(words.iter().map(String::as_str));
-    let Some((entry, used)) = catalog::find_cli(&path) else {
+    // `used` counts the matched path words, "task" included, so the operands start at used - 1.
+    let Some((entry, operands)) = catalog::find_cli(&path)
+        .and_then(|(entry, used)| Some((entry, words.get(used.checked_sub(1)?..)?)))
+    else {
         return fail(
             2,
             &format!("unknown command `task {}`; see `cmux task --help`", words.join(" ")),
@@ -99,7 +102,7 @@ pub fn run(args: &[String]) -> ExitCode {
         print!("{}", args::usage(entry));
         return ExitCode::SUCCESS;
     }
-    let params = match args::params(entry, &words[used - 1..]) {
+    let params = match args::params(entry, operands) {
         Ok(p) => p,
         Err(e) => return fail(2, &format!("{e}\n\n{}", args::usage(entry))),
     };

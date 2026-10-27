@@ -146,17 +146,15 @@ impl Backtrace {
 
     #[cfg(any(target_os = "macos", target_os = "linux"))]
     fn push(&mut self, address: usize) -> bool {
-        if self.len == MAX_FRAMES {
-            return false;
-        }
-        self.frames[self.len] = address;
+        let Some(slot) = self.frames.get_mut(self.len) else { return false };
+        *slot = address;
         self.len += 1;
         true
     }
 
     /// The captured addresses, the interrupted pc first.
     pub fn frames(&self) -> &[usize] {
-        &self.frames[..self.len]
+        self.frames.get(..self.len).unwrap_or(&[])
     }
 
     /// The capture kept only the interrupted pc because this build has no
@@ -623,6 +621,10 @@ mod imp {
     /// # Safety
     /// `context` is the handler's `ucontext_t`.
     #[cfg(target_arch = "x86_64")]
+    #[allow(
+        clippy::indexing_slicing,
+        reason = "INVARIANT: REG_RIP, REG_RBP and REG_RSP are indexes of gregset_t, which has NGREG (23) slots"
+    )]
     unsafe fn registers(context: *const libc::ucontext_t) -> (usize, usize, usize) {
         // SAFETY: the kernel passes a valid ucontext_t to an SA_SIGINFO handler.
         let registers = unsafe { &(*context).uc_mcontext.gregs };
@@ -808,7 +810,7 @@ mod imp {
         }
         let mut backtrace = Backtrace::empty();
         let len = REQUEST.len.load(Ordering::Relaxed);
-        for slot in &REQUEST.frames[..len.min(MAX_FRAMES)] {
+        for slot in REQUEST.frames.iter().take(len) {
             backtrace.push(slot.load(Ordering::Relaxed));
         }
         backtrace.stopped = Duration::from_nanos(REQUEST.handler_ns.load(Ordering::Relaxed));

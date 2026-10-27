@@ -1,8 +1,8 @@
 use std::collections::{HashMap, VecDeque};
 use std::fmt;
 use std::net::IpAddr;
-use std::sync::Mutex;
 use std::sync::mpsc::{Receiver, SyncSender, sync_channel};
+use std::sync::{Mutex, PoisonError};
 use std::time::{Duration, Instant};
 
 use base64::Engine;
@@ -127,7 +127,7 @@ impl PairingBroker {
         peer: IpAddr,
     ) -> Result<(PairingChallenge, Receiver<PairingDecision>), PairingError> {
         let now = (self.clock)();
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
         Self::prune(&mut state, now);
         if state.pending.values().any(|request| request.peer == peer) {
             return Err(PairingError::AlreadyPending);
@@ -153,8 +153,7 @@ impl PairingBroker {
             }
         };
         let number = random_u64()? % 1_000_000;
-        let digits = format!("{number:06}");
-        let code = format!("{} {}", &digits[..3], &digits[3..]);
+        let code = format!("{:03} {:03}", number / 1000, number % 1000);
         let challenge = PairingChallenge {
             id,
             code,
@@ -192,9 +191,12 @@ impl PairingBroker {
         commit: impl FnOnce(&PairingChallenge) -> anyhow::Result<R>,
     ) -> anyhow::Result<Option<R>> {
         let now = (self.clock)();
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
         Self::prune(&mut state, now);
-        let Some(challenge) = state.pending.get(&id).map(|request| request.challenge.clone())
+        let Some((challenge, response)) = state
+            .pending
+            .get(&id)
+            .map(|request| (request.challenge.clone(), request.response.clone()))
         else {
             return Ok(None);
         };
@@ -209,8 +211,7 @@ impl PairingBroker {
             })?;
         }
         let committed = commit(&challenge)?;
-        let request =
-            state.pending.remove(&id).expect("pairing lock reserves the validated pending request");
+        state.pending.remove(&id);
         let decision = if let Some(value) = credential {
             state.credentials.push_back(Credential {
                 value: value.clone(),
@@ -228,7 +229,7 @@ impl PairingBroker {
         // keeps the pairing mutex available even if its receiver stopped
         // polling; the decision is advisory because resolution is already
         // authoritative and the credential remains valid.
-        let _ = request.response.try_send(decision);
+        let _ = response.try_send(decision);
         Ok(Some(committed))
     }
 
@@ -249,7 +250,7 @@ impl PairingBroker {
     fn issue_page_credential(&self, page: Option<String>) -> Result<(String, u64), PairingError> {
         let now = (self.clock)();
         let value = random_credential()?;
-        let mut state = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
         Self::prune(&mut state, now);
         let (store, bound) = if page.is_some() {
             (&mut state.scoped_page_credentials, MAX_SCOPED_PAGE_CREDENTIALS)
@@ -268,7 +269,7 @@ impl PairingBroker {
     }
 
     pub fn cancel(&self, id: u64) -> bool {
-        self.state.lock().unwrap().pending.remove(&id).is_some()
+        self.state.lock().unwrap_or_else(PoisonError::into_inner).pending.remove(&id).is_some()
     }
 
     pub fn authenticate(&self, provided: &str) -> bool {
@@ -284,7 +285,7 @@ impl PairingBroker {
         handshake_page: Option<&str>,
     ) -> CredentialMatch {
         let now = (self.clock)();
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
         Self::prune(&mut state, now);
         if state
             .credentials
@@ -312,7 +313,7 @@ impl PairingBroker {
 
     pub fn pending(&self) -> Vec<PairingChallenge> {
         let now = (self.clock)();
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
         Self::prune(&mut state, now);
         state.pending.values().map(|request| request.challenge.clone()).collect()
     }

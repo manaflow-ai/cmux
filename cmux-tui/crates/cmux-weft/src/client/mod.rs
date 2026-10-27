@@ -620,8 +620,8 @@ impl Shared {
             // Datagrams the mesh sends to this peer go out over its relay.
             while let Ok((count, _)) = reader.recv_from(&mut buffer).await {
                 let url = read(&relay).clone();
-                if let Some(url) = url {
-                    pool.send(&url, &key, &buffer[..count]);
+                if let (Some(url), Some(datagram)) = (url, buffer.get(..count)) {
+                    pool.send(&url, &key, datagram);
                 }
             }
         });
@@ -741,7 +741,8 @@ async fn echo(mut stream: WgStream) {
         match stream.read(&mut buffer).await {
             Ok(0) | Err(_) => break,
             Ok(count) => {
-                if stream.write_all(&buffer[..count]).await.is_err() {
+                let Some(data) = buffer.get(..count) else { break };
+                if stream.write_all(data).await.is_err() {
                     break;
                 }
             }

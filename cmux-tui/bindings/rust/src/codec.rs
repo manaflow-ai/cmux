@@ -264,7 +264,8 @@ impl JsonLineConnection {
                 }
             };
             let newline = available.iter().position(|byte| *byte == b'\n');
-            let chunk_len = newline.unwrap_or(available.len());
+            let chunk = newline.and_then(|at| available.get(..at)).unwrap_or(available);
+            let chunk_len = chunk.len();
             if frame.len().saturating_add(chunk_len) > self.max_frame_bytes {
                 self.close();
                 return Err(CmuxError::FrameTooLarge {
@@ -272,7 +273,7 @@ impl JsonLineConnection {
                     limit: self.max_frame_bytes,
                 });
             }
-            frame.extend_from_slice(&available[..chunk_len]);
+            frame.extend_from_slice(chunk);
             self.reader.consume(chunk_len + usize::from(newline.is_some()));
             if newline.is_some() {
                 if frame.last() == Some(&b'\r') {

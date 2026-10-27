@@ -193,7 +193,7 @@ pub fn home_inbox(summaries: &[Summary], input: &HomeInboxInput<'_>) -> Vec<Home
         .map(|summary| {
             let others = others(summary, me);
             let direct = others.len() == 1 && !channels.contains(summary.id.as_str());
-            let chief = direct.then(|| others[0]).filter(|id| is_chief(summary, id, input));
+            let chief = others.first().copied().filter(|id| direct && is_chief(summary, id, input));
             let kind = match (direct, chief.is_some(), summary.title.is_empty()) {
                 (true, true, _) => HomeKind::Chief,
                 (true, false, _) => HomeKind::Direct,

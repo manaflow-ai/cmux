@@ -28,9 +28,8 @@ pub fn valid_sha256(s: &str) -> bool {
 /// a directory in a profile.
 fn valid_name(s: &str) -> bool {
     let b = s.as_bytes();
-    !b.is_empty()
-        && b.len() <= 64
-        && (b[0].is_ascii_lowercase() || b[0].is_ascii_digit())
+    b.len() <= 64
+        && b.first().is_some_and(|first| first.is_ascii_lowercase() || first.is_ascii_digit())
         && b.iter().all(|c| {
             c.is_ascii_lowercase() || c.is_ascii_digit() || matches!(c, b'.' | b'_' | b'-')
         })
@@ -38,9 +37,8 @@ fn valid_name(s: &str) -> bool {
 
 fn valid_role(s: &str) -> bool {
     let b = s.as_bytes();
-    !b.is_empty()
-        && b.len() <= 32
-        && b[0].is_ascii_lowercase()
+    b.len() <= 32
+        && b.first().is_some_and(u8::is_ascii_lowercase)
         && b.iter().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || *c == b'-')
 }
 

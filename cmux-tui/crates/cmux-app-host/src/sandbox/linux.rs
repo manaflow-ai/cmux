@@ -178,9 +178,12 @@ fn landlock() -> Result<Option<u32>, String> {
         return Ok(None);
     }
     let abi = abi as u32;
-    let index = (abi as usize).min(FS_RIGHTS_BY_ABI.len()) - 1;
+    // The newest rights row this kernel knows: row `abi - 1`, or the last row for a newer ABI.
+    let Some(&handled_access_fs) = FS_RIGHTS_BY_ABI.iter().take(abi as usize).next_back() else {
+        return Ok(None);
+    };
     let attr = RulesetAttr {
-        handled_access_fs: FS_RIGHTS_BY_ABI[index],
+        handled_access_fs,
         handled_access_net: if abi >= 4 { NET_RIGHTS } else { 0 },
         scoped: if abi >= 6 { SCOPES } else { 0 },
     };

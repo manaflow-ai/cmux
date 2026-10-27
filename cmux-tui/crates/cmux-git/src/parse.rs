@@ -36,12 +36,12 @@ pub fn name_status(bytes: &[u8]) -> Vec<NameStatus> {
         } else {
             (None, first)
         };
-        let (status, previous_path) = match code.as_bytes()[0] {
-            b'A' => ("added", None),
-            b'D' => ("deleted", None),
-            b'R' => ("renamed", previous_path),
+        let (status, previous_path) = match code.as_bytes().first() {
+            Some(b'A') => ("added", None),
+            Some(b'D') => ("deleted", None),
+            Some(b'R') => ("renamed", previous_path),
             // A copy is a new file; its source is unchanged.
-            b'C' => ("added", None),
+            Some(b'C') => ("added", None),
             _ => ("modified", None),
         };
         files.push(NameStatus { path, previous_path, status });
@@ -111,13 +111,13 @@ fn insert_section(patches: &mut Vec<(String, String)>, section: &[&str]) {
     let Some(first_hunk) = section.iter().position(|line| line.starts_with("@@")) else {
         return;
     };
-    let header = &section[..first_hunk];
+    let Some((header, hunks)) = section.split_at_checked(first_hunk) else { return };
     let path = header
         .iter()
         .find_map(|line| header_path(line, "+++ ", "b/"))
         .or_else(|| header.iter().find_map(|line| header_path(line, "--- ", "a/")));
     if let Some(path) = path {
-        patches.push((path, section[first_hunk..].concat()));
+        patches.push((path, hunks.concat()));
     }
 }
 
@@ -174,7 +174,7 @@ pub fn truncate_patch(patch: &mut String, limit: usize) -> bool {
     if patch.len() <= limit {
         return false;
     }
-    let end = match patch.as_bytes()[..limit].iter().rposition(|byte| *byte == b'\n') {
+    let end = match patch.as_bytes().iter().take(limit).rposition(|byte| *byte == b'\n') {
         Some(newline) => newline + 1,
         None => {
             let mut end = limit;

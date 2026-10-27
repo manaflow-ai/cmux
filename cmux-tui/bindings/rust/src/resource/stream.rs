@@ -355,6 +355,10 @@ impl ResourceStream {
         }
     }
 
+    #[allow(
+        clippy::unreachable,
+        reason = "INVARIANT: recv_poll(None) never returns TimedOut; only its deadline branch does"
+    )]
     pub fn recv(&mut self) -> Result<Option<StreamItem>> {
         match self.recv_poll(None)? {
             StreamPoll::Item(item) => Ok(Some(item)),

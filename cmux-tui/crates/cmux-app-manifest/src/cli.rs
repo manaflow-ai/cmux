@@ -25,14 +25,16 @@ pub(crate) struct Reserved {
 pub(crate) fn parse_reserved(raw: &str) -> Result<Reserved, String> {
     let table: Value =
         serde_json::from_str(raw).map_err(|e| format!("cli-reserved.json is not JSON: {e}"))?;
-    let names = table["names"]
-        .as_array()
+    let names = table
+        .get("names")
+        .and_then(Value::as_array)
         .ok_or("cli-reserved.json has no names")?
         .iter()
         .map(|n| n.as_str().map(str::to_owned).ok_or("cli-reserved.json names are not strings"))
         .collect::<Result<_, _>>()?;
-    let first_party = table["firstParty"]
-        .as_object()
+    let first_party = table
+        .get("firstParty")
+        .and_then(Value::as_object)
         .into_iter()
         .flatten()
         .map(|(word, app)| {

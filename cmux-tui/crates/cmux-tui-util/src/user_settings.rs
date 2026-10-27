@@ -193,86 +193,65 @@ pub fn strip_jsonc(text: &str) -> String {
     drop_trailing_commas(&drop_comments(text))
 }
 
-/// The text without comments; strings are copied unchanged.
-fn drop_comments(text: &str) -> String {
-    let bytes = text.as_bytes();
-    let mut output = String::with_capacity(text.len());
-    let (mut index, mut start, mut in_string) = (0, 0, false);
-    while index < bytes.len() {
-        let byte = bytes[index];
-        if in_string {
-            match byte {
-                b'\\' => index += 2,
-                b'"' => {
-                    in_string = false;
-                    index += 1;
-                }
-                _ => index += 1,
-            }
-            continue;
-        }
-        match (byte, bytes.get(index + 1)) {
-            (b'"', _) => {
-                in_string = true;
-                index += 1;
-            }
-            (b'/', Some(b'/')) => {
-                output.push_str(&text[start..index]);
-                while index < bytes.len() && bytes[index] != b'\n' {
-                    index += 1;
-                }
-                start = index;
-            }
-            (b'/', Some(b'*')) => {
-                output.push_str(&text[start..index]);
-                index += 2;
-                while index < bytes.len()
-                    && !(bytes[index] == b'*' && bytes.get(index + 1) == Some(&b'/'))
-                {
-                    index += 1;
-                }
-                index = (index + 2).min(bytes.len());
-                start = index;
-            }
-            _ => index += 1,
+/// Copies the rest of a string literal whose opening quote is already copied, escapes included.
+fn copy_string(chars: &mut impl Iterator<Item = char>, output: &mut String) {
+    while let Some(c) = chars.next() {
+        output.push(c);
+        match c {
+            '\\' => output.extend(chars.next()),
+            '"' => return,
+            _ => {}
         }
     }
-    output.push_str(&text[start.min(bytes.len())..]);
+}
+
+/// The text without comments; strings are copied unchanged.
+fn drop_comments(text: &str) -> String {
+    let mut output = String::with_capacity(text.len());
+    let mut chars = text.chars().peekable();
+    while let Some(c) = chars.next() {
+        match c {
+            '"' => {
+                output.push(c);
+                copy_string(&mut chars, &mut output);
+            }
+            // A line comment ends before its newline, which stays.
+            '/' if chars.peek() == Some(&'/') => {
+                while chars.next_if(|next| *next != '\n').is_some() {}
+            }
+            '/' if chars.peek() == Some(&'*') => {
+                chars.next();
+                let mut previous = None;
+                for next in chars.by_ref() {
+                    if previous == Some('*') && next == '/' {
+                        break;
+                    }
+                    previous = Some(next);
+                }
+            }
+            _ => output.push(c),
+        }
+    }
     output
 }
 
 /// Removes a comma whose next non-space byte closes an object or array.
 fn drop_trailing_commas(text: &str) -> String {
-    let bytes = text.as_bytes();
     let mut output = String::with_capacity(text.len());
-    let (mut index, mut start, mut in_string) = (0, 0, false);
-    while index < bytes.len() {
-        let byte = bytes[index];
-        if in_string {
-            match byte {
-                b'\\' => index += 2,
-                b'"' => {
-                    in_string = false;
-                    index += 1;
-                }
-                _ => index += 1,
+    let mut chars = text.char_indices();
+    while let Some((index, c)) = chars.next() {
+        match c {
+            '"' => {
+                output.push(c);
+                copy_string(&mut chars.by_ref().map(|(_, c)| c), &mut output);
             }
-            continue;
+            // `index + 1` follows the one-byte comma, so it is a char boundary.
+            ',' if text.get(index + 1..).is_some_and(|rest| {
+                matches!(rest.bytes().find(|byte| !byte.is_ascii_whitespace()), Some(b'}' | b']'))
+            }) => {}
+            _ => output.push(c),
         }
-        if byte == b'"' {
-            in_string = true;
-        } else if byte == b','
-            && matches!(
-                bytes[index + 1..].iter().find(|byte| !byte.is_ascii_whitespace()),
-                Some(b'}' | b']')
-            )
-        {
-            output.push_str(&text[start..index]);
-            start = index + 1;
-        }
-        index += 1;
     }
-    output.push_str(&text[start.min(bytes.len())..]);
     output
 }
 
@@ -280,6 +259,17 @@ fn drop_trailing_commas(text: &str) -> String {
 mod tests {
     use super::NewWorkspacePlacement as Placement;
     use super::resume_agents_from_config_text as resume_agents;
+
+    #[test]
+    fn jsonc_drops_comments_and_trailing_commas_but_keeps_strings_and_multibyte_text() {
+        let text = "{\"é\": \"a // b /* c */\", // ünïcode\n \"x\": [1, \"\\\"\", ], /* ü */ \"y\": \"日本\",\n}";
+        assert_eq!(
+            super::strip_jsonc(text),
+            "{\"é\": \"a // b /* c */\", \n \"x\": [1, \"\\\"\" ],  \"y\": \"日本\"\n}"
+        );
+        assert_eq!(super::strip_jsonc("{\"a\": 1 /* never closed"), "{\"a\": 1 ");
+        assert_eq!(super::strip_jsonc("[\"open"), "[\"open");
+    }
 
     #[test]
     fn agents_resume_after_restart_unless_the_file_says_no() {

@@ -60,7 +60,7 @@ fn process_launch(pid: u32, env_keys: &[&str]) -> Option<JobLaunch> {
     if result != 0 {
         return None;
     }
-    parse_procargs2(&buffer[..size.min(buffer.len())], env_keys)
+    parse_procargs2(buffer.get(..size.min(buffer.len()))?, env_keys)
 }
 
 #[cfg(target_os = "linux")]
@@ -94,7 +94,7 @@ pub(crate) fn parse_procargs2(bytes: &[u8], env_keys: &[&str]) -> Option<JobLaun
     for _ in 0..argc {
         let rest = bytes.get(cursor..)?;
         let end = rest.iter().position(|byte| *byte == 0)?;
-        argv.push(std::str::from_utf8(&rest[..end]).ok()?.to_string());
+        argv.push(std::str::from_utf8(rest.get(..end)?).ok()?.to_string());
         cursor += end + 1;
     }
     if argv.is_empty() {
@@ -120,8 +120,10 @@ fn pick_env<'a>(entries: impl Iterator<Item = &'a str>, keys: &[&str]) -> Vec<(S
     let mut found = vec![None; keys.len()];
     for entry in entries {
         let Some((key, value)) = entry.split_once('=') else { continue };
-        if let Some(index) = keys.iter().position(|wanted| *wanted == key) {
-            found[index].get_or_insert_with(|| value.to_string());
+        if let Some(slot) =
+            keys.iter().position(|wanted| *wanted == key).and_then(|index| found.get_mut(index))
+        {
+            slot.get_or_insert_with(|| value.to_string());
         }
     }
     keys.iter()

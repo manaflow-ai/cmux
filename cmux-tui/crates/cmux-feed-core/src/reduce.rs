@@ -123,16 +123,13 @@ impl Feed {
             .flatten()
             .and_then(|terminal| {
                 self.items
-                    .iter()
-                    .rposition(|item| item.context.terminal.as_deref() == Some(terminal))
+                    .iter_mut()
+                    .rev()
+                    .find(|item| item.context.terminal.as_deref() == Some(terminal))
             })
-            .filter(|&index| {
-                let item = &self.items[index];
-                item.state == ItemState::Open && item.is_unread()
-            });
+            .filter(|item| item.state == ItemState::Open && item.is_unread());
         let outcome = match target {
-            Some(index) => {
-                let item = &mut self.items[index];
+            Some(item) => {
                 item.title = notice.title;
                 item.body = notice.body;
                 item.level = notice.level;

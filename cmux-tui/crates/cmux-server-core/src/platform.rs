@@ -42,11 +42,10 @@ impl Platform {
         match self {
             Platform::Linux | Platform::MacOs => path.starts_with('/'),
             Platform::Windows => {
-                let bytes = path.as_bytes();
-                let drive = bytes.len() >= 3
-                    && bytes[0].is_ascii_alphabetic()
-                    && bytes[1] == b':'
-                    && (bytes[2] == b'\\' || bytes[2] == b'/');
+                let drive = matches!(
+                    path.as_bytes(),
+                    [letter, b':', b'\\' | b'/', ..] if letter.is_ascii_alphabetic()
+                );
                 drive || path.starts_with("\\\\")
             }
         }
@@ -122,7 +121,7 @@ impl HostPath {
 }
 
 fn is_windows_drive_root(platform: Platform, path: &str) -> bool {
-    platform == Platform::Windows && path.len() == 3 && path.as_bytes()[1] == b':'
+    platform == Platform::Windows && matches!(path.as_bytes(), [_, b':', _])
 }
 
 impl fmt::Display for HostPath {

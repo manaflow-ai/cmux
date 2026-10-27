@@ -97,7 +97,7 @@ pub fn restore_within(
             } else {
                 notes.push(format!(
                     "{name} moved since the archive; HEAD is detached at the archived commit {}",
-                    &head[..head.len().min(12)]
+                    head.chars().take(12).collect::<String>()
                 ));
                 args.extend(detached);
             }

@@ -128,13 +128,13 @@ pub fn build_page<E: AsRef<[u8]>>(
             usize::try_from(cursor.i).map_err(|_| TranscriptError::BadCursor)?
         }
     };
-    if start > entries.len() {
+    let Some(pending) = entries.get(start..) else {
         return Err(TranscriptError::BadCursor);
-    }
+    };
 
     let mut raw = Vec::new();
     let mut end = start;
-    for entry in &entries[start..] {
+    for entry in pending {
         let entry = entry.as_ref();
         if entry.len() > MAX_ENTRY_BYTES {
             return Err(TranscriptError::EntryTooLarge { index: end as u64, len: entry.len() });
@@ -207,15 +207,15 @@ pub fn decode_entries(
     let mut entries = Vec::new();
     let mut rest = raw.as_slice();
     while !rest.is_empty() {
-        let Some(prefix) = rest.get(..4) else {
+        let Some((prefix, tail)) = rest.split_first_chunk::<4>() else {
             return Err(TranscriptError::Corrupt);
         };
-        let len = u32::from_be_bytes([prefix[0], prefix[1], prefix[2], prefix[3]]) as usize;
-        let Some(entry) = rest.get(4..4 + len) else {
+        let Some((entry, after)) = tail.split_at_checked(u32::from_be_bytes(*prefix) as usize)
+        else {
             return Err(TranscriptError::Corrupt);
         };
         entries.push(entry.to_vec());
-        rest = &rest[4 + len..];
+        rest = after;
     }
     if entries.len() as u64 != page.entry_count {
         return Err(TranscriptError::Corrupt);
@@ -323,8 +323,8 @@ impl std::fmt::Display for TranscriptError {
 impl std::error::Error for TranscriptError {}
 
 fn read_u32(buffer: &[u8], at: usize) -> Option<usize> {
-    let bytes = buffer.get(at..at + 4)?;
-    Some(u32::from_be_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]) as usize)
+    let bytes = buffer.get(at..)?.first_chunk::<4>()?;
+    Some(u32::from_be_bytes(*bytes) as usize)
 }
 
 fn hex(bytes: &[u8]) -> String {
