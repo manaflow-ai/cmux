@@ -83,3 +83,15 @@ ${script.slice(gateStart, gateEnd)}
   }, 20000);
 
 });
+
+describe("Cloud daemon upgrade from the app", () => {
+  // The cmux NEXT app runs this same script on machines too old to update in place
+  // (CloudLegacyMachineUpdate.swift); its copy is an app resource and must not drift.
+  test("the app's copy of the guest script is this script", () => {
+    const appCopy = readFileSync(
+      path.join(import.meta.dirname, "../../Packages/macOS/CmuxNext/Sources/CmuxNextApp/Resources/cmux-tui-upgrade.sh"),
+      "utf8",
+    );
+    expect(appCopy).toBe(script);
+  });
+});
