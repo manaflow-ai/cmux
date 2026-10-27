@@ -204,4 +204,3 @@ import Testing
         report.drop = Self.counts()
     }
 }
-}
