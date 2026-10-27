@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextAgentPane
 import CmuxNextBrowser
+import CmuxNextFiles
 import CmuxNextSettings
 
 /// The App's side of an agent pane's reply links (D4, D6): the settings, and the favicon and
@@ -18,7 +19,9 @@ struct AgentReplySites {
             guard let services else { return [:] }
             return AgentReplySites(services: services).sites(for: urls)
         }
-        links.findByName = { wanted, roots in await AgentReplyNames.shared.find(wanted, in: roots) }
+        links.findByName = { [weak services] wanted, roots in
+            await services?.agentReplyNames.find(wanted, in: roots) ?? [:]
+        }
         // A chip that did not open says why, as other refused actions do.
         links.notice = { [weak services] message in services?.registry.refuse(message) }
         links.pullRequest = { url in AgentReplyPullRequests.shared.answer(url) }

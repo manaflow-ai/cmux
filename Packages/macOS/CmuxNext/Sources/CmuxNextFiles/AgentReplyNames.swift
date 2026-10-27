@@ -1,4 +1,3 @@
-import CmuxNextFiles
 import CmuxNextWakeups
 import Foundation
 
@@ -8,11 +7,10 @@ import Foundation
 /// chat of the app and kept for a short while, so a reply's chips and the click that follows use
 /// one walk. Like Finder's search the walk skips hidden folders and the inside of packages, and
 /// here generated trees (`node_modules`) too. The home folder and its parents are never walked.
-/// The agent pane still checks every found file against the deny list and the roots.
+/// The agent pane still checks every found file against the deny list and the roots. The App
+/// makes one (`AppServices.agentReplyNames`) and every chat's links use it.
 @MainActor
-final class AgentReplyNames {
-    static let shared = AgentReplyNames()
-
+public final class AgentReplyNames {
     /// The most entries one folder's walk reads (the index then misses the rest).
     nonisolated static let entryLimit = 200_000
     /// Generated folders that are neither indexed nor walked into.
@@ -31,13 +29,13 @@ final class AgentReplyNames {
     private let expiry = DemandTimer(owner: "AgentReplyNames.expiry")
     private let home: String
 
-    init(home: String = NSHomeDirectory()) {
+    public init(home: String = NSHomeDirectory()) {
         self.home = URL(fileURLWithPath: home).resolvingSymlinksInPath().path
     }
 
     /// The files named like each of `names` inside `roots`, best first: the fewest folders below
     /// their root, then the shorter path, then by path.
-    func find(_ names: [String], in roots: [String]) async -> [String: [String]] {
+    public func find(_ names: [String], in roots: [String]) async -> [String: [String]] {
         dropExpired()
         var hits: [String: [(relative: String, path: String)]] = [:]
         for root in roots where !Self.isTooBroad(root, home: home) {

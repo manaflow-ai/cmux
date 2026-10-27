@@ -91,6 +91,9 @@ enum MiscHandlerStrings {
     static func pathNotAbsolute(_ path: String) -> String {
         String(format: String(localized: "handlers.misc.failed.pathNotAbsolute", defaultValue: "%@ is a relative path. Give the file's absolute path.", table: "MiscHandlers", bundle: .module), path)
     }
+    static var invalidLine: String {
+        String(localized: "file.open.invalidLine", defaultValue: "Line must be a number from 1 to 10,000,000, optionally followed by :column or -endLine.", table: "FileOpenLine", bundle: .module)
+    }
     static func invalidPlace(_ place: String) -> String {
         String(format: String(localized: "handlers.misc.failed.invalidPlace", defaultValue: "%@ is not a place to open a file. Use tab or editor.", table: "MiscHandlers", bundle: .module), place)
     }

@@ -381,7 +381,7 @@ enum AgentHandlers {
     /// The file is checked first (`AgentPaneFileOpening`); a tab opens in the
     /// invocation's pane, else the focused one.
     private static func openFile(_ invocation: ActionInvocation, context: AppActionContext) throws {
-        let line = try FileOpenLineArgument(invocation["line"]).location
+        let line = try FileLineLocation.argument(invocation["line"], orThrow: ActionFailure(message: MiscHandlerStrings.invalidLine))
         let path = invocation["path"]?.stringValue ?? ""
         // No path (the File menu, a shortcut, `cmux file open`): the cmux picker (R89).
         guard !path.isEmpty else { return try ViewerHandlers.openFilePicker(invocation, context: context) }

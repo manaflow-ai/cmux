@@ -1,6 +1,6 @@
 import Foundation
 import Testing
-@testable import CmuxNextApp
+@testable import CmuxNextFiles
 
 /// The App's search for a bare file name a reply wrote: exact names only, files only, never
 /// inside hidden or generated folders, best first by depth below its own root, and never a walk

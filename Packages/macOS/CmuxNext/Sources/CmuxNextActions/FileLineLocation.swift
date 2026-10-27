@@ -34,6 +34,21 @@ public nonisolated struct FileLineLocation: Equatable, Sendable {
         endLine = argument.contains("-") ? second : nil
     }
 
+    /// An action's optional `line` argument: a string as ``init(_:)`` reads it, or a whole number.
+    /// Revalidated here because some callers bypass the action schema; `invalid` is thrown for a
+    /// value that does not parse.
+    public static func argument(_ value: ActionValue?, orThrow invalid: @autoclosure () -> any Error) throws
+        -> FileLineLocation? {
+        guard let value else { return nil }
+        let text: String? = switch value {
+        case .string(let text): text
+        case .int(let number): String(number)
+        case .bool, .target: nil
+        }
+        guard let text, let location = FileLineLocation(text) else { throw invalid() }
+        return location
+    }
+
     /// The numeric spelling accepted by CLI, MCP and the reply-link host.
     public var argument: String {
         if let column { return "\(line):\(column)" }

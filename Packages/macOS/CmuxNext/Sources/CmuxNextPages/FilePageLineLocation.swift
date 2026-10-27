@@ -1,31 +1,32 @@
 import Foundation
 import CmuxNextActions
-import CmuxNextPages
 import CmuxNextSettings
 
 /// Retains an editor reveal until config or subscription can deliver it, without reloading edits.
-@MainActor final class FilePageLineLocation {
+@MainActor public final class FilePageLineLocation {
     private var pending: FileLineLocation?
     private var listeners: [UUID: (JSONValue) -> Void] = [:]
 
-    func reveal(_ line: FileLineLocation) {
+    public init() {}
+
+    public func reveal(_ line: FileLineLocation) {
         if listeners.isEmpty { pending = line }
         else { for listener in listeners.values { listener(value(line)) } }
     }
 
-    func take() -> JSONValue? {
+    public func take() -> JSONValue? {
         defer { pending = nil }
         return pending.map(value)
     }
 
-    func subscribe(_ listener: @escaping @MainActor (JSONValue) -> Void) -> PageSubscription {
+    public func subscribe(_ listener: @escaping @MainActor (JSONValue) -> Void) -> PageSubscription {
         let id = UUID()
         listeners[id] = listener
         if let pending { self.pending = nil; listener(value(pending)) }
         return PageSubscription { [weak self] in self?.listeners[id] = nil }
     }
 
-    func close() {
+    public func close() {
         pending = nil
         listeners.removeAll()
     }

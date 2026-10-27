@@ -16,6 +16,7 @@ import CmuxNextMobileHost
 import CmuxNextDaemon
 import CmuxNextDaemonRecovery
 import CmuxNextFeed
+import CmuxNextFiles
 import CmuxNextFloating
 import CmuxNextFavicons
 import CmuxNextHomeEngine
@@ -250,6 +251,8 @@ final class AppServices {
     private(set) lazy var viewers = ViewerService(services: self)
     /// Where a link or path the person opens lands (`layout.linkPlacement`): beside its pane.
     private(set) lazy var linkOpener = LinkOpener(services: self)
+    /// The folder walks behind chat replies' bare file names (``AgentReplyNames``), one for every chat.
+    private(set) lazy var agentReplyNames = AgentReplyNames()
     /// A link dragged out of a chat into a pane drop zone (``LinkDragSession``).
     private(set) lazy var linkDrags = LinkDragSession(services: self)
     /// The cmux server menu bar item (DEV and NIGHTLY prototype; plans/cmux-next/server.md 14).
