@@ -77,7 +77,9 @@ final class CaptureSceneRegistry {
                     && self.services.windows.controller(for: targetWindowID)?.sidebar.model.sections.flatMap(\.workspaces).contains { !$0.rowState.isPending } == true
                     && self.services.showcase.agentTabs.values.contains {
                     guard let view = self.services.agentTabs.existingView($0) else { return false }
-                    return view.webView.window != nil && !view.webView.isLoading
+                    return Self.agentPageCanSettle(attached: view.webView.window != nil,
+                                                   loading: view.webView.isLoading,
+                                                   chromium: view.debugShowsChromium)
                 }
             },
             start: start,
@@ -205,6 +207,13 @@ final class CaptureSceneRegistry {
         (snapshot["webviews_composited"]?.intValue ?? 0) + (snapshot["chromium_pages_composited"]?.intValue ?? 0) > 0
     }
 
+    /// A Chromium agent can have a live, ready DOM while its backing WKWebView still reports loading
+    /// an asynchronous resource. WebKit still needs to finish navigation before seed_rows runs;
+    /// the readiness probe below then checks body, transcript and composer for either engine.
+    static func agentPageCanSettle(attached: Bool, loading: Bool, chromium: Bool) -> Bool {
+        attached && (chromium || !loading)
+    }
+
     private func readinessIsComplete(_ readiness: CmuxNextSettings.JSONValue) -> Bool {
         guard case .object(let report) = readiness else { return false }
         return (report["body_text_length"]?.intValue ?? 0) > 0 && (report["transcript_rows"]?.intValue ?? 0) > 0
@@ -279,12 +288,16 @@ extension CaptureSceneRegistry {
             return .object(["error": .string(message), "scene": .string(definition.name)])
         }
         do {
-            let workspaceID = try await services.windows.createWorkspace(WorkspaceSpawn(newTabPage: true), on: services.daemon, into: windowID)
+            let workspaceID = try await services.windows.createWorkspace(WorkspaceSpawn(newTabPage: true), on: services.daemon)
             let key = WorkspaceKey(rawValue: workspaceID)
             createdKey = key
+            services.windows.claimNew(workspaceID: key.rawValue, window: windowID)
             guard let pane = await services.daemon.store.firstPane(mirroring: key),
                   let workspace = services.daemon.store.workspace(key: key) else {
                 return await failure("auto-name workspace has no mirrored pane")
+            }
+            guard workspace.nameSource == .auto else {
+                return await failure("auto-name workspace was not automatic")
             }
             _ = try await connection.renameWorkspace(key, to: Self.firstAutoName, source: .auto,
                                                       expectedNameRevision: workspace.nameRevision)

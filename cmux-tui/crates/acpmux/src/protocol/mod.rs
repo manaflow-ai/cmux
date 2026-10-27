@@ -342,6 +342,7 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped("_acpmux/peer_lease", Request),
         untyped("_acpmux/peer_reconnect", Request),
         untyped("_acpmux/peer_remove", Request),
+        untyped("_acpmux/peer_snapshot", Request),
         untyped(method::MUX_PAIR_TICKET_NEW, Request),
         untyped(method::MUX_PAIR_LIST, Request),
         untyped(method::MUX_PAIR_REVOKE, Request),

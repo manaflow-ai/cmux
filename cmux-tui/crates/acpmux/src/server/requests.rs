@@ -1270,6 +1270,17 @@ async fn dispatch_request(
         "_acpmux/peers" => Ok(json!({"peers": hub.peers()})),
         "_acpmux/host_health" => Ok(super::peer_status::host_health(hub, conn.origin).await),
         "_acpmux/peer_status" => super::peer_status::peer_status(hub, conn.origin, &params).await,
+        // This daemon's copy of a peer session's events (`hub/peer_snapshot.rs`): transcripts
+        // this machine's clients read, so for the app and the unix socket only.
+        "_acpmux/peer_snapshot" if conn.origin.web_class() => Err(RpcError::invalid_params(
+            "_acpmux/peer_snapshot answers this machine's app and unix socket only",
+        )),
+        "_acpmux/peer_snapshot" => {
+            let (hub, params) = (hub.clone(), params.clone());
+            tokio::task::spawn_blocking(move || hub.peer_snapshot(&params))
+                .await
+                .map_err(|e| RpcError::internal(e.to_string()))?
+        }
         // Names every machine and its numbers: this machine's own clients only.
         "_acpmux/place" if conn.origin != Origin::Local => Err(RpcError::invalid_params(
             "_acpmux/place answers on this machine's unix socket only",
@@ -1587,14 +1598,25 @@ async fn dispatch_request(
             // afterSeq alone pages forward (oldest first); otherwise the page
             // is the newest `limit` records before beforeSeq (or the end).
             let newest = after.is_none() || before.is_some();
+            // Read before the page, as `_acpmux/events` does: a page that reads to the log's
+            // end holds every record up to it (of the kinds asked), so a client may take
+            // the page as covering it.
+            let last = s.meta().last_seq;
             let page = hub
                 .events_page(&s.id, after.unwrap_or(0), before, limit, max_bytes, newest, &filter)
                 .map_err(|e| RpcError::internal(e.to_string()))?;
+            // The newest page holds to the log's end; a page of older records, or a forward one
+            // with more to read, only to its own last record.
+            let through = if before.is_none() && (after.is_none() || !page.has_more) {
+                last
+            } else {
+                events::newest_seq(&page.events)
+            };
             let events: Vec<Value> = events::values(&s.id, page.events);
             // Who has the chat open now (`hub/presence.rs`), this attachment included.
             let presence = hub.presence.snapshot(&s.id);
             Ok(
-                json!({"session": detail, "events": events, "hasMore": page.has_more, "lastSeq": s.meta().last_seq, "presence": presence}),
+                json!({"session": detail, "events": events, "hasMore": page.has_more, "lastSeq": last, "pageThrough": through, "presence": presence}),
             )
         }
         method::MUX_DETACH => {

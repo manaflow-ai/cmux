@@ -89,9 +89,13 @@ the hosted image meets: they pin no Xcode path (select-ci-xcode.sh takes
 xcode-pins.txt's 26.6, the image default, build 17F113 as on Blacksmith),
 their R2 cache keys carry the workspace path (a hosted /Users/runner/work
 build never restores a Blacksmith one), and they use no Blacksmith-only
-action. The scheme compile stays off hosted: a cold app compile, web bundles
+action. A PR's scheme compile stays off hosted: a cold app compile, web bundles
 and launch-time budget on about 3 vCPU are unmeasured against its 60 min
-budget. Without the snapshot's waits nothing is stalled and nothing goes to
+budget. A DEV daily's (HOSTED_FRESH_JOBS, when it is in FRESH_JOBS) takes
+hosted the same way, with a 90 min timeout: a feed's freshness outranks a
+cold build (2026-10-26: the DEV feed unpublished from 21:01Z, its compile
+queued 70 min on blacksmith-6vcpu-macos-26 behind about 75 jobs while hosted
+macos-26 was free). Without the snapshot's waits nothing is stalled and nothing goes to
 hosted, which is the previous route.
 
 `retry_runner` is the Blacksmith label the bot's overflow attempt (2 or
@@ -129,6 +133,8 @@ POOL_VCPU = 60
 HOSTED = "macos-26"
 HOSTED_CAPACITY = 5
 HOSTED_JOBS = ("fast-tier", "swift-canary")
+# A feed's compile whose runs-on also reads hosted_jobs: it takes hosted only as one of FRESH_JOBS.
+HOSTED_FRESH_JOBS = ("cmux-scheme-compile",)
 STALL_MINUTES = 25
 IDLE_STALL_MINUTES = 5
 # simple_pool_picker.CAPACITY's figures for these labels. 12 vCPU: at most six
@@ -288,7 +294,8 @@ def stalled(live: Mapping[str, int], waiting: Mapping[str, int], waits: Mapping[
 
 
 def cascade(jobs: Sequence[str], live: Mapping[str, int], waiting: Mapping[str, int], *,
-            stall: Sequence[str] = (), hosted_free: int = 0) -> dict[str, tuple[str, ...]]:
+            stall: Sequence[str] = (), hosted_free: int = 0,
+            fresh: Sequence[str] = ()) -> dict[str, tuple[str, ...]]:
     """Give `jobs`, in order, the free slots of LARGE, then SMALL (unless stalled), then HOSTED for HOSTED_JOBS.
 
     A Blacksmith slot is free while its label is under CAPACITY and the shared pool fits the job (fits()).
@@ -299,7 +306,7 @@ def cascade(jobs: Sequence[str], live: Mapping[str, int], waiting: Mapping[str, 
     room, queue = pool_room(live, waiting), pool_queued(waiting)
     placed: dict[str, list[str]] = {label: [] for label in (*LABELS, HOSTED)}
     for job in jobs:
-        targets = (*LABELS, HOSTED) if job in HOSTED_JOBS else LABELS
+        targets = (*LABELS, HOSTED) if job in HOSTED_JOBS or job in fresh and job in HOSTED_FRESH_JOBS else LABELS
         label = next((label for label in targets
                       if free[label] > 0 and (label == HOSTED or fits(label, room, queue))), None)
         if label is None:
@@ -363,9 +370,15 @@ def place(env: Mapping[str, str], owned: Sequence[str], live: Mapping[str, int] 
         # every job but a feed's: those take the last resort rather than an owned queue nobody measured.
         fresh = unread_fresh_jobs(env, owned)
         if fresh:
-            return Placement({**empty, SMALL: fresh}, "", f"{why}; {', '.join(fresh)} gate a feed's freshness, "
-                                                          f"so they take `{SMALL}`, the last resort; the rest "
-                                                          "stay on the minis' queue")
+            # A feed's compile that can run on hosted takes it: its queue is the organization's concurrency,
+            # never the Blacksmith backlog nobody counted. The others take the last resort.
+            hosted = tuple(job for job in fresh if job in HOSTED_FRESH_JOBS)
+            small = tuple(job for job in fresh if job not in hosted)
+            moved = "; ".join(f"{', '.join(jobs)} take `{label}`" for label, jobs in ((HOSTED, hosted), (SMALL, small))
+                              if jobs)
+            return Placement({**empty, HOSTED: hosted, SMALL: small}, "",
+                             f"{why}; a feed's freshness waits on them, so {moved}; the rest stay on the minis' "
+                             "queue")
         return Placement(empty, "", f"{why}; no job leaves the minis' queue")
     stall = stalled(live, waiting, seen.waits, seen.age) if seen is not None else ()
     runs = set((env.get("CASCADE_RUNS") or "").split())
@@ -386,7 +399,8 @@ def place(env: Mapping[str, str], owned: Sequence[str], live: Mapping[str, int] 
     candidates = ((promoted if promote_busy else []) + leading[max(0, len(owned) - len(rest)):]
                   + rest[len(owned):])
     hosted_free = HOSTED_CAPACITY - seen.hosted if seen is not None else 0
-    placed = cascade(candidates, live, waiting, stall=stall, hosted_free=hosted_free)
+    placed = cascade(candidates, live, waiting, stall=stall, hosted_free=hosted_free,
+                     fresh=tuple((env.get("FRESH_JOBS") or "").split()))
     # The overflow label counts the slots this run's own jobs just took: they fit, so they start, and hold
     # the pool's vCPUs as jobs in flight do.
     retry = retry_label({**live, **{label: live.get(label, 0) + len(placed.get(label, ())) for label in LABELS}},
