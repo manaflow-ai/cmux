@@ -54,6 +54,8 @@ export function HighlightedCode({ code, lang = "text", label }: CodeBlockProps) 
   const t = useT();
   const host = useRef<HTMLDivElement>(null);
   const view = useRef<PierreFile | undefined>(undefined);
+  const pool = paneHighlightPool("word-alt", isHighlighted(lang) ? lang : "text");
+  const workerAvailable = Boolean(pool);
   const [wrap, setWrap] = useState(false);
   // A highlight job past its budget (highlightWatchdog.ts) draws the card as plain text.
   const name = `snippet-${useId()}`;
@@ -63,6 +65,7 @@ export function HighlightedCode({ code, lang = "text", label }: CodeBlockProps) 
     const el = host.current;
     if (!el) return;
     registerAgentDiffTheme();
+    if (!pool) return;
     const file = new PierreFile(
       {
         theme: { dark: AGENT_DIFF_THEME, light: AGENT_DIFF_THEME_LIGHT },
@@ -73,7 +76,7 @@ export function HighlightedCode({ code, lang = "text", label }: CodeBlockProps) 
         unsafeCSS: codeUnsafeCSS,
         tokenizeMaxLineLength: MAX_TOKENIZED_LINE,
       },
-      paneHighlightPool("word-alt", isHighlighted(lang) ? lang : "text"),
+      pool,
       // React owns the host element: Pierre must not remove it on cleanUp.
       true,
     );
@@ -86,18 +89,19 @@ export function HighlightedCode({ code, lang = "text", label }: CodeBlockProps) 
       file.cleanUp();
       el.shadowRoot?.replaceChildren();
     };
-  }, [lang]);
+  }, [lang, pool]);
   useLayoutEffect(() => {
     const el = host.current;
     const file = view.current;
-    if (!el || !file) return;
+    if (!el || !file || !pool) return;
     file.setOptions({ ...file.options, overflow: wrap ? "wrap" : "scroll" });
     // Shiki throws for a language the bundle does not ship; those draw as plain text.
     file.render({
       fileContainer: el,
       file: { name, contents: code, lang: (isHighlighted(lang) ? lang : "text") as never },
     });
-  }, [code, lang, wrap, name]);
+  }, [code, lang, pool, wrap, name]);
+  if (!workerAvailable) return <PlainCode code={code} lang={lang} />;
   if (tooSlow) return <PlainCode code={code} lang={lang} />;
   return (
     <div className="cv-codeblock" ref={menuPartRef({ code })}>

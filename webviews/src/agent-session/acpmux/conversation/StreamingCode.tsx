@@ -92,6 +92,14 @@ export function CodeHandoff({ code, lang, streaming = false }: { code: string; l
     if (streaming || highlightReady || !deferHighlight) return;
     return scheduleHighlight(() => setHighlightReady(true));
   }, [deferHighlight, highlightReady, streaming]);
+  useEffect(() => {
+    if (!deferHighlight || highlightReady || typeof MutationObserver === "undefined") return;
+    const observer = new MutationObserver(() => {
+      if (highlightWorkerAvailable()) setHighlightReady(true);
+    });
+    observer.observe(document.documentElement, { attributes: true, attributeFilter: ["data-cmux-highlight-worker"] });
+    return () => observer.disconnect();
+  }, [deferHighlight, highlightReady]);
   useLayoutEffect(() => {
     if (stage !== "plain" || !highlightReady) return;
     let frame = 0;

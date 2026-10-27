@@ -537,11 +537,14 @@ async function run({
   live = false;
   // fixed-wait: the settle window is sampled for any jump after the stream; the window is the test
   await new Promise((resolve) => setTimeout(resolve, settleMs));
+  const sampleEnd = performance.now();
+  if (observer && longTasks) {
+    for (const entry of observer.takeRecords()) longTasks.push({ t: entry.startTime, ms: entry.duration });
+  }
   sampling = false;
   observer?.disconnect();
   const dock = document.querySelector<HTMLElement>(".acpmux-dock")?.getBoundingClientRect().height ?? 0;
-  const streamWindowEnd = start + (deltas.at(-1)?.at ?? 0) + StreamReveal.finishMs + 50 + settleMs;
-  return analyze(cadence, deltas, frames, start, longTasks, dock, streamWindowEnd);
+  return analyze(cadence, deltas, frames, start, longTasks, dock, sampleEnd);
 }
 
 (window as unknown as { __streamingText: { run: typeof run } }).__streamingText = { run };
