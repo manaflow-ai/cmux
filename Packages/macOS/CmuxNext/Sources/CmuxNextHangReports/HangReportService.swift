@@ -1,18 +1,19 @@
+import CmuxNextCompat
 import CmuxNextInputCore
 import CmuxNextMetrics
 import CmuxNextTrace
 public import Foundation
 import os
 
-/// Runs opt-in hang reports: follows the setting, turns a trigger (a MetricKit delivery, the
-/// launch) into at most one report, checks it, keeps its readable copy, and sends it through the
-/// outbox. No timers: nothing here runs unless a trigger arrives.
+/// Runs opt-in hang reports and aggregate performance data: follows the settings (``Mode``), turns a trigger (a
+/// MetricKit delivery, the launch) into at most one report, checks it, keeps its readable copy, and sends it through
+/// the outbox. No timers: nothing here runs unless a trigger arrives.
 ///
 /// ```swift
 /// let service = HangReportService(store: HangReportStore(directory: folder), transport: URLSessionHangReportTransport(),
 ///                                 builder: builder, scanner: scanner, identity: InstallIdentity(),
 ///                                 collector: collector, environment: environment)
-/// await service.setEnabled(settings.hangReports)
+/// await service.setMode(.full)  // or .aggregates for diagnostics.performanceData
 /// await service.launched()
 /// ```
 public actor HangReportService {
@@ -21,36 +22,38 @@ public actor HangReportService {
     /// A launch sends a watchdog-only report when the last one is older than this.
     public static let watchdogReportInterval: TimeInterval = 24 * 60 * 60
 
-    private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "hang-reports")
-    private let store: HangReportStore
-    private let transport: any HangReportTransport
-    private let builder: HangReportBuilder
-    private let scanner: PrivacyLeakScanner
-    private let identity: InstallIdentity
-    private let environment: Environment
+    let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "hang-reports")
+    let store: HangReportStore
+    let transport: any HangReportTransport
+    let builder: HangReportBuilder
+    let scanner: PrivacyLeakScanner
+    let identity: InstallIdentity
+    let environment: Environment
     /// The watchdog sink that feeds each report.
     public nonisolated let collector: HangReportCollector
 
-    /// Whether hang reports are on.
-    public private(set) var isEnabled = false
-    /// The first ``setEnabled(_:)`` always runs, so a setting turned off while cmux was closed
+    /// What is recorded and sent (``setMode(_:)``).
+    public private(set) var mode = Mode.off
+    /// ``mode`` is not ``Mode/off``, for the quit path (``saveForNextLaunch()``), which cannot wait for the actor.
+    nonisolated let fieldDataOn = Atomic<Bool>(false)
+    /// The first ``setMode(_:)`` always runs, so a setting turned off while cmux was closed
     /// still clears what an earlier launch left on disk.
-    private var settled = false
-    /// Changes at every ``setEnabled(_:)``: work that suspended checks it before it writes or
+    var settled = false
+    /// Changes at every ``setMode(_:)``: work that suspended checks it before it writes or
     /// sends, so nothing goes out after the person turned reports off (actor reentrancy).
-    private var generation = 0
+    var generation = 0
     /// One send or flush at a time; a trigger that arrives meanwhile asks for another pass.
     private var isSending = false
     private var sendAgain = false
     private var isFlushing = false
     private var flushAgain = false
     /// MetricKit deliveries not yet in a report (the daily cap was reached).
-    private var waiting: [MetricKitInput] = []
+    var waiting: [MetricKitInput] = []
     /// Reports the leak scan refused (a bug if ever above 0; logged, never sent).
-    public private(set) var refusedCount = 0
+    public internal(set) var refusedCount = 0
     /// The field data of queued reports by report id, marked sent only when the server took that report: a report
     /// the outbox drops unsent (an update, the setting turned off) leaves its samples and files for a later one.
-    private var fieldCommits: [String: FieldCommit] = [:]
+    var fieldCommits: [String: FieldCommit] = [:]
 
     /// Makes the value from its parts.
     public init(store: HangReportStore, transport: any HangReportTransport, builder: HangReportBuilder,
@@ -68,34 +71,39 @@ public actor HangReportService {
     /// The readable copy of the last report sent.
     public nonisolated var lastReportURL: URL { store.lastReportURL }
 
-    /// Follows `diagnostics.hangReports`. Off drops what was recorded and queued (the input
-    /// latency field report and the main-thread part too) and forgets the install id; the last
-    /// report's readable copy stays for View Hang Report. On or off, active time and turns from
-    /// before now are never sent.
-    public func setEnabled(_ on: Bool) async {
-        guard !settled || on != isEnabled else { return }
+    /// Follows `diagnostics.hangReports` and `diagnostics.performanceData` (``HangReportAskPolicy/mode(hangReports:performanceData:fullReports:)``).
+    /// Off drops what was recorded and queued (the input latency field report and the main-thread part too) and
+    /// forgets the install id; the last report's readable copy stays for View Hang Report. A change from one mode to
+    /// the other drops what is queued. Active time, turns and field data from before now are never sent.
+    public func setMode(_ mode: Mode) async {
+        guard !settled || mode != self.mode else { return }
         // Turned on while cmux runs: the samples recorded while off are never sent.
-        let turnedOnNow = settled && on
+        let turnedOnNow = settled && !isEnabled
+        let switched = settled && isEnabled && mode != .off
         settled = true
-        isEnabled = on
+        self.mode = mode
+        fieldDataOn.store(mode != .off, ordering: .relaxed)
         generation += 1
         let started = generation
-        collector.setEnabled(on)
+        collector.setEnabled(mode == .full)
         mainThreadLedger?.restart()
         blockingSiteLedger?.restart()
         await syncInputLatencyRecording()
-        if on {
-            if turnedOnNow { fieldSources?.discardCurrent() }
+        if switched { await dropQueued() }
+        if turnedOnNow { fieldSources?.discardCurrent() }
+        switch mode {
+        case .full:
             if let saved = await store.takePending() { collector.merge(saved) }
             if let saved = await store.takePendingMainThread(), generation == started { mainThreadLedger?.merge(saved) }
             if let saved = await store.takePendingBlockingSites(), generation == started { blockingSiteLedger?.merge(saved) }
             if let saved = await store.takePendingBlackBox(), generation == started { collector.restoreBlackBox(saved.records) }
-        } else {
-            waiting = []
-            fieldCommits = [:]
+        case .aggregates:
+            // What a quit saved for a hang report never goes as aggregates.
+            await store.discardPending()
+        case .off:
+            await dropQueued()
             fieldSources?.discardCurrent()
             await fieldSources?.discardEarlierLaunches()
-            await store.clearQueued()
             identity.forget()
         }
     }
@@ -113,27 +121,29 @@ public actor HangReportService {
         }
         guard environment.now().timeIntervalSince(last) >= Self.watchdogReportInterval else { return }
         let samples = await fieldSources?.currentDelta() != nil
-        if samples || hasSendable(collector.snapshot()) || mainThreadLedger?.take().isEmpty == false
-            || blockingSiteLedger?.take().isEmpty == false {
+        if samples || mode == .full && (hasSendable(collector.snapshot()) || mainThreadLedger?.take().isEmpty == false
+            || blockingSiteLedger?.take().isEmpty == false) {
             await sendReport()
         }
     }
 
-    /// A MetricKit delivery (metrics about daily, diagnostics usually at the next launch).
+    /// A MetricKit delivery (metrics about daily, diagnostics usually at the next launch): in aggregates, a trigger
+    /// only (its payload is never sent).
     public func receive(_ input: MetricKitInput) async {
         guard isEnabled, !input.isEmpty, await allowed() else { return }
-        waiting.append(input)
+        if mode == .full { waiting.append(input) }
         if waiting.count > 8 { waiting.removeFirst(waiting.count - 8) }
         await sendReport()
     }
 
     /// Saves the watchdog's findings, the main-thread part and the black box not yet sent for the next launch
     /// (call when the app quits). Synchronous on purpose: `applicationWillTerminate` cannot wait for
-    /// the actor; it writes small files the actor only reads at the next launch's `setEnabled(true)`.
+    /// the actor; it writes small files the actor only reads at the next launch's `setMode(.full)`.
     public nonisolated func saveForNextLaunch() {
         guard collector.isEnabled else {
-            // Off: what this launch recorded is marked sent, so the next launch's fold sends none of it.
-            fieldSources?.discardCurrent()
+            // Off: what this launch recorded is marked sent, so the next launch's fold sends none of it. In
+            // aggregates it stays for the next launch's report.
+            if !fieldDataOn.load(ordering: .relaxed) { fieldSources?.discardCurrent() }
             return
         }
         let aggregate = collector.snapshot()
@@ -157,23 +167,25 @@ public actor HangReportService {
         try? data.write(to: url, options: .atomic)
     }
 
-    /// What View Hang Report opens: the last report sent, else a preview of what would be sent now.
-    public func viewableReport() async -> URL? {
+    /// What View Hang Report opens: the last report sent, else a preview of what would be sent now. In
+    /// ``Mode/aggregates``, or with `aggregatesOnly` (a build that sends no hang report), the preview is aggregates only.
+    public func viewableReport(aggregatesOnly: Bool = false) async -> URL? {
         if await store.hasLastReport() { return store.lastReportURL }
         // While off, the preview names a throwaway id: viewing must not start an install id. The
         // input latency is the field report's preview, so the preview holds the keys a send adds.
+        let full = mode == .full
         var inputLatency: InputLatencySnapshot?
-        if isEnabled, let source = inputLatencySource { inputLatency = await source.preview() }
-        let mainThread = isEnabled ? mainThreadLedger?.take().input : nil
+        if full, let source = inputLatencySource { inputLatency = await source.preview() }
+        let mainThread = full ? mainThreadLedger?.take().input : nil
         var fieldData: HangReportBuilder.FieldDataInput?
         if isEnabled {
             fieldData = await fieldDataInput(pruning: false).input
-            fieldData?.blackbox = collector.blackBoxSnapshot()
+            if full { fieldData?.blackbox = collector.blackBoxSnapshot() }
         }
-        let report = Self.fitted(await build(watchdog: collector.snapshot(), metricKit: waiting, inputLatency: inputLatency,
-                                             mainThread: mainThread, fieldData: fieldData,
-                                             blockingSites: isEnabled ? blockingSiteLedger?.take().sites : nil,
-                                             installId: isEnabled ? nil : UUID().uuidString.lowercased()))
+        let built = await build(watchdog: collector.snapshot(), metricKit: waiting, inputLatency: inputLatency, mainThread: mainThread,
+                                fieldData: fieldData, blockingSites: full ? blockingSiteLedger?.take().sites : nil,
+                                installId: isEnabled ? nil : UUID().uuidString.lowercased())
+        let report = Self.fitted(aggregatesOnly || mode == .aggregates ? built.aggregatesOnly : built)
         guard let readable = try? HangReport.readableEncoder.encode(report),
               scanner.findings(in: readable).isEmpty else { return nil }
         await store.savePreview(readable)
@@ -192,7 +204,7 @@ public actor HangReportService {
         // At most one more pass per trigger that arrived during a send (each pass drains the inputs).
         for _ in 0..<2 {
             sendAgain = false
-            await sendOnce()
+            if mode == .aggregates { await sendAggregatesOnce() } else { await sendOnce() }
             guard sendAgain, isEnabled else { break }
         }
     }
@@ -200,12 +212,7 @@ public actor HangReportService {
     private func sendOnce() async {
         guard await allowed() else { return }
         let started = generation
-        let now = environment.now()
-        let today = Self.day(now)
-        var log = await store.sendLog()
-        guard generation == started else { return }
-        if log.day != today { log = HangReportStore.SendLog() }
-        guard log.sentToday < Self.dailyLimit else { return }
+        guard let slot = await dailySlot(started: started) else { return }
         let aggregate = collector.drain()
         let deliveries = waiting
         waiting = []
@@ -221,37 +228,21 @@ public actor HangReportService {
         // Read, not taken: a report that is not queued below leaves the black box for the next one.
         let blackbox = collector.blackBoxSnapshot()
         field.input?.blackbox = blackbox
-        log.day = today
-        log.sentToday += 1
-        log.lastSentAt = now
-        await store.saveSendLog(log)
+        await spend(slot)
         // Taken, not peeked: held by the source until the report is queued (commit below), so a
         // report dropped by a check here gives its input counts to the next one.
         let inputLatency = await inputLatencySource?.take()
         let report = Self.fitted(await build(watchdog: aggregate, metricKit: deliveries, inputLatency: inputLatency,
                                              mainThread: mainThread?.input, fieldData: field.input, blockingSites: blocking?.sites))
-        guard generation == started, !report.hasNoFindings, let body = try? HangReport.encoder.encode(report),
-              body.count <= Self.bodyLimit(of: report) else { return }
-        let findings = scanner.findings(in: body)
-        guard findings.isEmpty else {
-            refusedCount += 1
-            logger.error("hang report refused by the leak scan: \(findings.count) findings, first \(findings[0].description, privacy: .public)")
-            return
-        }
-        guard generation == started else { return }
-        // Recorded before the body is queued, so a flush that sends it finds what to mark sent.
-        if let commit = FieldCommit(field, sentIn: report) { fieldCommits[report.reportId] = commit }
-        await store.enqueue(body, reportId: report.reportId)
+        guard !report.hasNoFindings, await queue(report, field: field, started: started) else { return }
         collector.releaseBlackBox(sent: blackbox)
         if inputLatency != nil, generation == started { await inputLatencySource?.commit() }
         if let mainThread, generation == started { mainThreadLedger?.commit(mainThread) }
         if let blocking, generation == started { blockingSiteLedger?.commit(blocking) }
-        // The readable copy (View Hang Report) is the queued body's, written only while reports are on.
-        if generation == started, let readable = try? HangReport.readableEncoder.encode(report) { await store.saveLastReport(readable) }
         await flushOutbox()
     }
 
-    private func flushOutbox() async {
+    func flushOutbox() async {
         guard isEnabled else { return }
         guard !isFlushing else { flushAgain = true; return }
         isFlushing = true
@@ -296,18 +287,19 @@ public actor HangReportService {
         builder.wireSchema.carriesLaunches ? !aggregate.isEmpty : !aggregate.isEmptyWithoutLaunches
     }
 
-    /// Whether a queued body would be sent: built by this build (its schema and app), and clean.
-    private func isSendable(_ body: Data) -> Bool {
+    /// Whether a queued body would be sent: built by this build (its schema and app), aggregates only in
+    /// ``Mode/aggregates``, and clean.
+    func isSendable(_ body: Data) -> Bool {
         guard let report = try? JSONDecoder().decode(HangReport.self, from: body), report.schema == builder.wireSchema.rawValue,
-              report.app == HangReportBuilder.safeApp(environment.app) else { return false }
+              report.app == HangReportBuilder.safeApp(environment.app), mode != .aggregates || report.isAggregatesOnly else { return false }
         return scanner.findings(in: body).isEmpty
     }
 
-    /// ``Environment/stillAllowed``; when it says no, everything recorded and queued is dropped
-    /// (off), so nothing recorded while sending was not allowed goes out later.
-    private func allowed() async -> Bool {
-        guard environment.stillAllowed() else {
-            if isEnabled { await setEnabled(false) }
+    /// ``Environment/stillAllowed`` (``Environment/aggregatesAllowed`` in aggregates); when it says no, everything
+    /// recorded and queued is dropped (off), so nothing recorded while sending was not allowed goes out later.
+    func allowed() async -> Bool {
+        guard mode == .aggregates ? environment.aggregatesAllowed() : environment.stillAllowed() else {
+            if isEnabled { await setMode(.off) }
             return false
         }
         return true
@@ -325,13 +317,13 @@ public actor HangReportService {
         builder.wireSchema.carriesMainThread ? environment.mainThread : nil
     }
 
-    /// Brings the source's recording to ``isEnabled``. Calls from overlapping ``setEnabled(_:)``
+    /// Brings the source's recording to ``mode`` (it records in ``Mode/full`` only). Calls from overlapping ``setMode(_:)``
     /// may finish out of order, so each one repeats until its last finished call matches the state.
     private func syncInputLatencyRecording() async {
         guard let source = inputLatencySource else { return }
         var applied: Bool?
-        while applied != isEnabled {
-            let target = isEnabled
+        while applied != (mode == .full) {
+            let target = mode == .full
             await source.setRecording(target)
             applied = target
         }
@@ -349,7 +341,7 @@ public actor HangReportService {
     /// The current delta and the first earlier launches that hold a sample (the empty ones are deleted here). While a
     /// queued report's field data waits for its send, a new report carries none, so no sample goes twice; `pruning`
     /// first forgets the reports the outbox no longer holds (dropped unsent, or past its age), whose data is free again.
-    private func fieldDataInput(pruning: Bool) async -> FieldData {
+    func fieldDataInput(pruning: Bool) async -> FieldData {
         guard let sources = fieldSources else { return FieldData() }
         if pruning, !fieldCommits.isEmpty {
             let queued = Set(await store.outbox(now: environment.now()).map { Self.reportID(of: $0.url) })
@@ -376,7 +368,7 @@ public actor HangReportService {
         for section in commit.sections { await sources.finished(section) }
     }
 
-    private func build(watchdog: StallAggregate, metricKit: [MetricKitInput], inputLatency: InputLatencySnapshot? = nil,
+    func build(watchdog: StallAggregate, metricKit: [MetricKitInput], inputLatency: InputLatencySnapshot? = nil,
                        mainThread: HangReportBuilder.MainThreadInput? = nil, fieldData: HangReportBuilder.FieldDataInput? = nil,
                        blockingSites: [HangReport.BlockingSiteCount]? = nil, installId: String? = nil) async -> HangReport {
         let now = environment.now()

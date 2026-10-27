@@ -168478,6 +168478,399 @@
         }
       }
     },
+    "settings.diagnostics.performanceData": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إرسال بيانات الأداء"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Šalji podatke o performansama"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Send ydelsesdata"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Leistungsdaten senden"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Send Performance Data"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enviar datos de rendimiento"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Envoyer les données de performances"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Invia dati sulle prestazioni"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "パフォーマンスデータを送信"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ផ្ញើ​ទិន្នន័យ​ដំណើរការ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "성능 데이터 보내기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Send ytelsesdata"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wysyłaj dane o wydajności"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enviar dados de desempenho"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Отправлять данные о производительности"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ส่งข้อมูลประสิทธิภาพ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Performans verilerini gönder"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Надсилати дані про продуктивність"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gửi dữ liệu hiệu năng"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "发送性能数据"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "傳送效能資料"
+          }
+        }
+      }
+    },
+    "settings.diagnostics.performanceData.summary": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "توقيتات وأعداد فقط. بدون مكدسات أو أسماء ملفات أو نصوص."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Samo vremena i brojevi. Bez stekova, imena datoteka ili teksta."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kun tider og antal. Ingen stakke, filnavne eller tekst."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nur Zeiten und Zähler. Keine Stapel, Dateinamen oder Texte."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Timings and counts only. No stacks, file names or text."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Solo tiempos y recuentos. Sin pilas, nombres de archivo ni texto."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Durées et comptes uniquement. Ni piles, ni noms de fichiers, ni texte."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Solo tempi e conteggi. Niente stack, nomi di file o testo."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "所要時間と回数のみ。スタック、ファイル名、テキストは含みません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "តែ​ពេលវេលា និង​ចំនួន​ប៉ុណ្ណោះ។ គ្មាន​ជង់ ឈ្មោះ​ឯកសារ ឬ​អត្ថបទ​ទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "시간과 횟수만 포함. 스택, 파일 이름, 텍스트 없음."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bare tider og antall. Ingen stakker, filnavn eller tekst."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tylko czasy i liczby. Bez stosów, nazw plików i tekstu."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apenas tempos e contagens. Sem pilhas, nomes de arquivos ou texto."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Только время и счётчики. Без стеков, имён файлов и текста."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เฉพาะเวลาและจำนวนเท่านั้น ไม่มีสแตก ชื่อไฟล์ หรือข้อความ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yalnızca süreler ve sayılar. Yığın, dosya adı veya metin yok."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Лише час і лічильники. Без стеків, назв файлів і тексту."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chỉ thời gian và số đếm. Không có ngăn xếp, tên tệp hay văn bản."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "仅含耗时和计数。不含调用栈、文件名或文本。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "僅含耗時與計數。不含呼叫堆疊、檔案名稱或文字。"
+          }
+        }
+      }
+    },
+    "settings.diagnostics.performanceData.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يرسل ملخصًا يوميًا عن سرعة عمل cmux: مدرجات تكرارية للتوقيتات وأعداد الاستقرار، وإصداري التطبيق وmacOS، وشريحة جهاز Mac وحجم ذاكرته، وأعدادًا تقريبية للنوافذ وعلامات التبويب المفتوحة. لا يتضمن أبدًا مكدسات الاستدعاء أو أسماء ملفات أو عناوين ويب أو نص الطرفية أو أسماء أو أي شيء تكتبه. يعرض «عرض تقرير التجمّد» ما يُرسل بالضبط."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Šalje dnevni sažetak o tome koliko brzo cmux radi: histograme vremena i brojeve stabilnosti, verzije aplikacije i macOS-a, čip i veličinu memorije vašeg Maca te zaokružen broj otvorenih prozora i kartica. Nikada ne sadrži stekove poziva, imena datoteka, web adrese, tekst terminala, imena ni bilo šta što kucate. Prikaži izvještaj o zastoju pokazuje tačno šta se šalje."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sender et dagligt resumé af, hvor hurtigt cmux kører: histogrammer over tider og stabilitetstal, app- og macOS-version, din Macs chip og hukommelsesstørrelse samt afrundede antal åbne vinduer og faner. Det indeholder aldrig kaldestakke, filnavne, webadresser, terminaltekst, navne eller noget, du skriver. Vis hængningsrapport viser præcis, hvad der sendes."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sendet täglich eine Zusammenfassung, wie schnell cmux läuft: Zeit-Histogramme und Stabilitätszähler, App- und macOS-Version, Chip und Arbeitsspeichergröße deines Mac sowie gerundete Anzahlen offener Fenster und Tabs. Sie enthält nie Aufrufstapel, Dateinamen, Webadressen, Terminaltext, Namen oder etwas, das du tippst. „Hänger-Bericht anzeigen“ zeigt genau, was gesendet wird."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sends a daily summary of how fast cmux runs: timing histograms and stability counts, your app and macOS versions, your Mac's chip and memory size, and rounded counts of open windows and tabs. It never includes call stacks, file names, web addresses, terminal text, names or anything you type. View Hang Report shows exactly what is sent."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Envía un resumen diario de la velocidad de cmux: histogramas de tiempos y recuentos de estabilidad, las versiones de la app y de macOS, el chip y la memoria de tu Mac, y recuentos redondeados de ventanas y pestañas abiertas. Nunca incluye pilas de llamadas, nombres de archivo, direcciones web, texto del terminal, nombres ni nada de lo que escribes. Ver informe de bloqueos muestra exactamente lo que se envía."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Envoie chaque jour un résumé de la rapidité de cmux : histogrammes de durées et compteurs de stabilité, versions de l’app et de macOS, puce et taille de mémoire de votre Mac, et nombres arrondis de fenêtres et d’onglets ouverts. Il ne contient jamais de piles d’appels, de noms de fichiers, d’adresses web, de texte du terminal, de noms ni rien de ce que vous tapez. Afficher le rapport de blocages montre exactement ce qui est envoyé."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Invia ogni giorno un riepilogo della velocità di cmux: istogrammi dei tempi e conteggi di stabilità, versioni dell’app e di macOS, chip e memoria del tuo Mac e numeri arrotondati di finestre e schede aperte. Non include mai stack di chiamate, nomi di file, indirizzi web, testo del terminale, nomi o qualsiasi cosa tu digiti. Mostra rapporto sui blocchi mostra esattamente cosa viene inviato."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmuxの動作速度の概要を1日1回送信します。内容は、所要時間のヒストグラムと安定性の回数、アプリとmacOSのバージョン、Macのチップとメモリ容量、開いているウインドウとタブのおおよその数です。コールスタック、ファイル名、Webアドレス、ターミナルのテキスト、名前、入力した内容は一切含みません。「ハングレポートを表示」で送信内容をそのまま確認できます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ផ្ញើ​សេចក្ដី​សង្ខេប​ប្រចាំថ្ងៃ​អំពី​ល្បឿន​ដំណើរការ​របស់ cmux៖ អ៊ីស្តូក្រាម​ពេលវេលា និង​ចំនួន​ស្ថិរភាព កំណែ​កម្មវិធី និង macOS បន្ទះ​សៀគ្វី និង​ទំហំ​អង្គចងចាំ​នៃ Mac របស់​អ្នក និង​ចំនួន​ប្រហាក់ប្រហែល​នៃ​បង្អួច និង​ផ្ទាំង​ដែល​បើក។ វា​មិន​ដែល​រួម​បញ្ចូល​ជង់​ការ​ហៅ ឈ្មោះ​ឯកសារ អាសយដ្ឋាន​បណ្ដាញ អត្ថបទ​ក្នុង​ទែមីណាល់ ឈ្មោះ ឬ​អ្វី​ដែល​អ្នក​វាយ​ឡើយ។ «មើល​របាយការណ៍​គាំង» បង្ហាញ​យ៉ាង​ពិតប្រាកដ​នូវ​អ្វី​ដែល​ត្រូវ​ផ្ញើ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux가 얼마나 빠르게 동작하는지에 대한 요약을 하루에 한 번 보냅니다. 시간 히스토그램과 안정성 횟수, 앱과 macOS 버전, Mac의 칩과 메모리 크기, 열려 있는 윈도우와 탭의 대략적인 수가 포함됩니다. 호출 스택, 파일 이름, 웹 주소, 터미널 텍스트, 이름, 입력한 내용은 절대 포함하지 않습니다. 멈춤 보고서 보기에서 보내는 내용을 그대로 확인할 수 있습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sender et daglig sammendrag av hvor raskt cmux kjører: histogrammer over tider og stabilitetstall, app- og macOS-versjon, Mac-ens brikke og minnestørrelse og avrundede antall åpne vinduer og faner. Det inneholder aldri kallstabler, filnavn, nettadresser, terminaltekst, navn eller noe du skriver. Vis hengerapport viser nøyaktig hva som sendes."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wysyła codzienne podsumowanie szybkości działania cmux: histogramy czasów i liczniki stabilności, wersje aplikacji i macOS, układ i ilość pamięci Twojego Maca oraz zaokrągloną liczbę otwartych okien i kart. Nigdy nie zawiera stosów wywołań, nazw plików, adresów stron, tekstu terminala, nazwisk ani niczego, co wpisujesz. Pokaż raport o zawieszeniu pokazuje dokładnie, co jest wysyłane."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Envia um resumo diário da velocidade do cmux: histogramas de tempos e contagens de estabilidade, versões do app e do macOS, chip e memória do seu Mac e contagens arredondadas de janelas e abas abertas. Nunca inclui pilhas de chamadas, nomes de arquivos, endereços web, texto do terminal, nomes ou qualquer coisa que você digite. Ver relatório de travamentos mostra exatamente o que é enviado."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Раз в день отправляет сводку о скорости работы cmux: гистограммы времени и счётчики стабильности, версии приложения и macOS, чип и объём памяти вашего Mac и округлённое число открытых окон и вкладок. В ней никогда нет стеков вызовов, имён файлов, веб-адресов, текста терминала, имён и того, что вы вводите. «Показать отчёт о зависаниях» показывает, что именно отправляется."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ส่งสรุปความเร็วในการทำงานของ cmux วันละครั้ง ได้แก่ ฮิสโทแกรมของเวลาและจำนวนด้านความเสถียร เวอร์ชันของแอปและ macOS ชิปและขนาดหน่วยความจำของ Mac และจำนวนหน้าต่างกับแท็บที่เปิดอยู่แบบปัดเศษ ไม่มี call stack ชื่อไฟล์ ที่อยู่เว็บ ข้อความในเทอร์มินัล ชื่อ หรือสิ่งที่คุณพิมพ์เลย \"ดูรายงานการค้าง\" จะแสดงสิ่งที่ส่งอย่างตรงตัว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux’un ne kadar hızlı çalıştığına dair günlük bir özet gönderir: süre histogramları ve kararlılık sayıları, uygulama ve macOS sürümleri, Mac’inizin yongası ve bellek boyutu ile açık pencere ve sekmelerin yuvarlanmış sayıları. Asla çağrı yığını, dosya adı, web adresi, terminal metni, ad veya yazdığınız herhangi bir şey içermez. Donma raporunu görüntüle, tam olarak neyin gönderildiğini gösterir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Щодня надсилає зведення про швидкість роботи cmux: гістограми часу й лічильники стабільності, версії застосунку й macOS, чип і обсяг пам’яті вашого Mac та округлену кількість відкритих вікон і вкладок. Воно ніколи не містить стеків викликів, назв файлів, вебадрес, тексту термінала, імен чи будь-чого, що ви вводите. «Показати звіт про зависання» показує, що саме надсилається."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gửi bản tóm tắt hằng ngày về tốc độ chạy của cmux: biểu đồ tần suất thời gian và số đếm độ ổn định, phiên bản ứng dụng và macOS, chip và dung lượng bộ nhớ của máy Mac, cùng số cửa sổ và tab đang mở đã làm tròn. Bản tóm tắt không bao giờ chứa ngăn xếp lệnh gọi, tên tệp, địa chỉ web, văn bản terminal, tên hay bất kỳ nội dung nào bạn gõ. Xem báo cáo treo cho thấy chính xác nội dung được gửi."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "每天发送一份 cmux 运行速度摘要：耗时直方图和稳定性计数、App 与 macOS 版本、Mac 的芯片和内存大小，以及打开的窗口和标签页的大致数量。摘要绝不包含调用栈、文件名、网址、终端文本、姓名或你输入的任何内容。“查看卡顿报告”会显示实际发送的内容。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "每天傳送一份 cmux 執行速度摘要：耗時直方圖與穩定性計數、App 與 macOS 版本、Mac 的晶片和記憶體大小，以及開啟中視窗和分頁的大約數量。摘要絕不包含呼叫堆疊、檔案名稱、網址、終端機文字、姓名或你輸入的任何內容。「檢視卡頓報告」會顯示實際傳送的內容。"
+          }
+        }
+      }
+    },
     "settings.diagnostics.hangReports.help": {
       "extractionState": "manual",
       "localizations": {

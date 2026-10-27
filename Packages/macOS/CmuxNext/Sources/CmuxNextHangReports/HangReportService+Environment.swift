@@ -19,6 +19,9 @@ extension HangReportService {
         /// passes the managed `DisableTelemetry`, so a profile installed while cmux runs stops the
         /// next send and drops what was recorded).
         public var stillAllowed: @Sendable () -> Bool
+        /// The same check in ``Mode/aggregates`` (the managed `DisableTelemetry` and this Mac's consent to
+        /// `diagnostics.performanceData`).
+        public var aggregatesAllowed: @Sendable () -> Bool
         /// The input latency field report (``HangReportInputLatencySource``); nil (the default)
         /// until the app wires it (p04-input-104). Used only when the builder's wire schema
         /// carries input latency.
@@ -43,6 +46,7 @@ extension HangReportService {
                     counts: @escaping @Sendable () async -> CoarseCounts, now: @escaping @Sendable () -> Date = Date.init,
                     makeReportID: @escaping @Sendable () -> String = { UUID().uuidString.lowercased() },
                     stillAllowed: @escaping @Sendable () -> Bool = { true },
+                    aggregatesAllowed: @escaping @Sendable () -> Bool = { true },
                     inputLatency: (any HangReportInputLatencySource)? = nil, mainThread: MainThreadReportLedger? = nil,
                     fieldData: HangReportFieldSources? = nil,
                     features: @escaping @Sendable () -> HangReport.FeatureState? = { nil },
@@ -54,6 +58,7 @@ extension HangReportService {
             self.now = now
             self.makeReportID = makeReportID
             self.stillAllowed = stillAllowed
+            self.aggregatesAllowed = aggregatesAllowed
             self.inputLatency = inputLatency
             self.mainThread = mainThread
             self.fieldData = fieldData

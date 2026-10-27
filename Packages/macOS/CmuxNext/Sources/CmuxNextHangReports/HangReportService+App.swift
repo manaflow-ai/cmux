@@ -16,6 +16,8 @@ extension HangReportService {
     ///   - personalTerms: This Mac's personal terms; read at the first name check, off the main thread.
     ///   - counts: The coarse counts of what is open now.
     ///   - stillAllowed: Whether sending is still allowed (``Environment/stillAllowed``).
+    ///   - aggregatesAllowed: Whether sending aggregate performance data is still allowed (``Environment/aggregatesAllowed``);
+    ///     the default never allows it.
     ///   - mainThreadHistograms: Reads the watchdog's cumulative main-turn and input-queueing counts.
     ///   - wireSchema: The schema reports are written in (``HangReport/WireSchema/written(serverAcceptsSchema3:)``).
     ///   - metricsDirectory: Where this app's metrics store keeps its launch files (the folder its `adoptFile` uses):
@@ -29,6 +31,7 @@ extension HangReportService {
     public static func forThisApp(folder: URL, endpoint: String, channel: String,
                                   personalTerms: @autoclosure @escaping @Sendable () -> [String],
                                   counts: @escaping @Sendable () async -> CoarseCounts, stillAllowed: @escaping @Sendable () -> Bool,
+                                  aggregatesAllowed: @escaping @Sendable () -> Bool = { false },
                                   mainThreadHistograms: @escaping @Sendable () -> MainThreadReportLedger.Histograms?,
                                   wireSchema: HangReport.WireSchema = .deployed,
                                   metricsDirectory: URL = HangReportFieldSources.appMetricsDirectory(bundleID: Bundle.main.bundleIdentifier),
@@ -76,7 +79,8 @@ extension HangReportService {
                 app: HangReport.App(version: info["CFBundleShortVersionString"] as? String ?? "0",
                                     build: info["CFBundleVersion"] as? String ?? "0", channel: channel),
                 os: HangReport.OS(version: "\(os.majorVersion).\(os.minorVersion).\(os.patchVersion)"),
-                hardware: .current(), counts: counts, stillAllowed: stillAllowed, mainThread: mainThread, fieldData: fieldData,
+                hardware: .current(), counts: counts, stillAllowed: stillAllowed, aggregatesAllowed: aggregatesAllowed,
+                mainThread: mainThread, fieldData: fieldData,
                 features: features, blockingSites: blocking))
     }
 }

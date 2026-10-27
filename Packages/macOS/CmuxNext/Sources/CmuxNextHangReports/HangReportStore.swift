@@ -145,12 +145,18 @@ public actor HangReportStore {
 
     /// Deletes everything but the last report's copy (hang reports turned off).
     public func clearQueued() {
+        discardPending()
+        try? manager.removeItem(at: outboxURL)
+        try? manager.removeItem(at: previewURL)
+    }
+
+    /// Deletes what a quit saved for the next hang report: the watchdog aggregate, the main-thread part, the
+    /// blocking site counts and the black box (aggregate performance data sends none of them).
+    public func discardPending() {
         removePending()
         try? FileManager.checked.removeItem(at: pendingMainThreadURL)
         try? FileManager.checked.removeItem(at: pendingBlockingSitesURL)
         try? FileManager.checked.removeItem(at: pendingBlackBoxURL)
-        try? manager.removeItem(at: outboxURL)
-        try? manager.removeItem(at: previewURL)
     }
 
     private func write(_ data: Data?, to url: URL) {

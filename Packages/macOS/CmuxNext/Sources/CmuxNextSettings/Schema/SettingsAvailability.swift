@@ -18,6 +18,12 @@ public nonisolated struct SettingsAvailability: Sendable, Equatable {
         self.hiddenChoices = hiddenChoices
     }
 
+    /// This value and `other` together: every row and choice either leaves out.
+    public func merging(_ other: SettingsAvailability) -> SettingsAvailability {
+        SettingsAvailability(hiddenRows: hiddenRows.union(other.hiddenRows),
+                             hiddenChoices: hiddenChoices.merging(other.hiddenChoices) { $0.union($1) })
+    }
+
     /// Whether the surfaces offer `descriptor` now.
     public func isShown(_ descriptor: SettingDescriptor) -> Bool {
         !hiddenRows.contains(descriptor.id)

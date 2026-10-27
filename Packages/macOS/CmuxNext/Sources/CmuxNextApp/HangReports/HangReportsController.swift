@@ -23,8 +23,10 @@ private nonisolated let personalTermsOfThisMac = ImageClassifier.personalTerms()
 /// `diagnostics.hangReports`, turns the MetricKit subscription and the watchdog sink on and off,
 /// asks once on NIGHTLY through the sidebar's notice card, and opens View Hang Report.
 ///
-/// Only NIGHTLY builds send (`CrashReportingPolicy.Channel.nightly`); a managed `DisableTelemetry`
-/// turns it off for good. A DEV build sends only with `CMUX_NEXT_DEV_HANG_REPORTS=1`, to the
+/// Only NIGHTLY builds send hang reports (`CrashReportingPolicy.Channel.nightly`); with the `performanceDataReports`
+/// feature every channel sends aggregate performance data once `diagnostics.performanceData` is on and confirmed on
+/// this Mac (histograms and stability counts only, ``HangReportService/Mode/aggregates``). A managed `DisableTelemetry`
+/// turns both off for good. A DEV build sends only with `CMUX_NEXT_DEV_HANG_REPORTS=1`, to the
 /// address in `CMUX_NEXT_HANG_REPORTS_URL` (an end-to-end check against a local server).
 /// No timers: work happens on a setting change, a MetricKit delivery and the launch.
 @MainActor
@@ -35,12 +37,18 @@ final class HangReportsController {
     /// call the confirmation sheet approved). Turning reports off removes it. The synced
     /// cmux-next.json alone never sends.
     static let consentKey = "cmux.next.hangReports.consentedAt"
+    /// The same record for `diagnostics.performanceData` (the card's Send Performance Data, or the person's own write).
+    nonisolated static let performanceDataConsentKey = "cmux.next.performanceData.consentedAt"
     static let devOptInKey = "CMUX_NEXT_DEV_HANG_REPORTS"
     static let devEndpointKey = "CMUX_NEXT_HANG_REPORTS_URL"
 
-    /// Nil on a build that never sends (Release, RC, DEV without the opt-in, tests): nothing is
-    /// built, read or subscribed there.
+    /// Nil on a build that never sends (Release and RC without the `performanceDataReports` feature, DEV without the
+    /// opt-in, tests): nothing is built, read or subscribed there.
     let service: HangReportService?
+    /// Whether this build sends full hang reports (NIGHTLY, or DEV with the opt-in); else aggregates at most.
+    let fullReports: Bool
+    /// Whether this build offers aggregate performance data (the `performanceDataReports` feature, a schema-3 builder).
+    let aggregatesOffered: Bool
     /// Feeds the service's main-thread ledger the activation notices and input (nil where the
     /// builder's wire schema does not carry active time).
     private let activityFeed: MainThreadActivityFeed?
@@ -57,15 +65,17 @@ final class HangReportsController {
     private let defaults: UserDefaults
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "hang-reports")
     private var subscriber: MetricKitSubscriber?
-    /// Follows `diagnostics.hangReports`: a service observation (it turns reporting on and off whatever shows) whose
-    /// newest value the one follow loop takes after each follow.
-    private var settingsObservation: ServiceObservation<Bool>?
+    /// The mode ``subscriber`` was made for: its `since` is that mode's consent.
+    private var subscribedMode = HangReportService.Mode.off
+    /// Follows `diagnostics.hangReports` and `diagnostics.performanceData`: a service observation (it turns reporting
+    /// on and off whatever shows) whose newest value the one follow loop takes after each follow.
+    private var settingsObservation: ServiceObservation<HangReportAskPolicy.Settings>?
     /// What the one-time question needs, from ``start(settings:asks:firstWindow:)``.
     private var asking: Asking?
     private var launchedOnce = false
     /// The card kinds put up this launch (each at most once): an invitation answered Not Now still
     /// lets a later switch-on in the same launch get its confirm card.
-    private var askedThisLaunch: Set<HangReportAskPolicy.Decision> = []
+    private var askedThisLaunch: Set<HangReportAskPolicy.Card> = []
     /// Hang reports are background work: the follow loop, the managed check and MetricKit's deliveries run off
     /// main at best effort; only View Hang Report, a person's click, is user-blocking.
     private let work: BackgroundWork
@@ -78,9 +88,12 @@ final class HangReportsController {
     }
 
     init(service: HangReportService?, managedDisables: @escaping @Sendable () -> Bool, defaults: UserDefaults = .standard,
+         fullReports: Bool = true, aggregatesOffered: Bool = false,
          activityFeed: MainThreadActivityFeed? = nil, memory: HiddenWorkspaceMemory? = nil, daemonMetrics: DaemonMetricsFold? = nil,
          daemonPID: @escaping @MainActor @Sendable () -> Int32? = { nil }, work: BackgroundWork, mainWork: MainWorkScheduler) {
         self.service = service
+        self.fullReports = fullReports
+        self.aggregatesOffered = aggregatesOffered
         self.activityFeed = activityFeed
         self.memory = memory
         self.managedDisables = managedDisables
@@ -98,7 +111,8 @@ final class HangReportsController {
     /// samples at the report triggers too, and runs where nothing is sent. `wireSchema` is schema 3 only while the
     /// `hangReportsSchema3` feature says cmux.com accepts it. `features` reads the features hash and overrides the
     /// app runs with, at each report. `blockingSites` reads the blocking detector's main-thread sites (and reset count), whose counts a
-    /// schema-3 report carries by hashed site id.
+    /// schema-3 report carries by hashed site id. `performanceData` is the `performanceDataReports` feature: with a schema-3
+    /// builder, any channel offers aggregate performance data.
     static func forThisLaunch(policy: CrashReportingPolicy, folder: URL, counts: @escaping @Sendable () async -> CoarseCounts,
                               watchdog: MainThreadWatchdog, input: any InputObserving, events: AppEvents, memory: HiddenWorkspaceMemory,
                               work: BackgroundWork, mainWork: MainWorkScheduler,
@@ -106,14 +120,17 @@ final class HangReportsController {
                               wireSchema: HangReport.WireSchema = .deployed,
                               features: @escaping @Sendable () -> HangReport.FeatureState? = { nil },
                               blockingSites: @escaping @Sendable () -> BlockingDetector.MainThreadRead = { .init() },
+                              performanceData: Bool = false,
                               environment: [String: String] = ProcessInfo.processInfo.environment) -> HangReportsController {
         let devOptIn = policy.channel == .dev && environment[devOptInKey] == "1"
-        let mayReport = (policy.channel == .nightly || devOptIn) && !CrashReportingPolicy.isTestProcess(environment)
+        let testProcess = CrashReportingPolicy.isTestProcess(environment)
+        let fullReports = (policy.channel == .nightly || devOptIn) && !testProcess
+        let aggregatesOffered = performanceData && wireSchema.carriesFieldData && !testProcess
         let managed = ManagedPreferenceLocation.defaultReader(environment: environment)
         let managedDisables: @Sendable () -> Bool = {
             managed.read().forced[CrashReportingPolicy.disableTelemetryPolicyKey]?.boolValue == true
         }
-        guard mayReport else {
+        guard fullReports || aggregatesOffered else {
             return HangReportsController(service: nil, managedDisables: managedDisables, memory: memory, work: work, mainWork: mainWork)
         }
         let endpoint = devOptIn ? environment[devEndpointKey] ?? URLSessionHangReportTransport.defaultEndpoint
@@ -133,6 +150,7 @@ final class HangReportsController {
         let service = HangReportService.forThisApp(
             folder: folder, endpoint: endpoint, channel: policy.channel?.rawValue ?? "dev", personalTerms: personalTermsOfThisMac,
             counts: counts, stillAllowed: { [key = Self.consentKey] in !managedDisables() && UserDefaults.standard.object(forKey: key) is Date },
+            aggregatesAllowed: { [key = Self.performanceDataConsentKey] in !managedDisables() && UserDefaults.standard.object(forKey: key) is Date },
             mainThreadHistograms: { [watchdog] in
                 MainThreadReportLedger.Histograms(edgesNanos: MainTurnHistogram.edgesNanos, turnCounts: watchdog.turnHistogram.snapshot().counts,
                                                   inputQueueingCounts: watchdog.inputQueueHistogram.snapshot().counts)
@@ -143,7 +161,8 @@ final class HangReportsController {
         }
         let daemonMetrics = DaemonMetricsFold(reader: ChildMetricsReader(role: .daemon, directory: metricsFolder), metrics: Metrics(),
                                               work: work)
-        return HangReportsController(service: service, managedDisables: managedDisables, activityFeed: feed, memory: memory,
+        return HangReportsController(service: service, managedDisables: managedDisables, fullReports: fullReports,
+                                     aggregatesOffered: aggregatesOffered, activityFeed: feed, memory: memory,
                                      daemonMetrics: daemonMetrics, daemonPID: daemonPID, work: work, mainWork: mainWork)
     }
 
@@ -206,42 +225,56 @@ final class HangReportsController {
             await settings.waitForLoad(atLeast: 1)
             guard let disabled = try? await work.run(.bestEffort, mayBlock: .files, { managedDisables() }) else { return }
             if disabled {
-                await self?.apply(false, settingOn: false)
+                await self?.apply(.off, settings: HangReportAskPolicy.Settings(hangReports: false, performanceData: false))
                 return
             }
             guard let values = await self?.followSetting(settings) else { return }
-            for await on in values {
-                await self?.follow(settingOn: on)
+            for await current in values {
+                await self?.follow(current)
             }
         }
     }
 
     /// Follows the setting from its loaded value on, handing the newest value to the follow loop (a follow in
     /// progress takes the newest one next; the observation coalesces too).
-    private func followSetting(_ settings: SettingsController) -> AsyncStream<Bool> {
-        let (values, continuation) = AsyncStream.makeStream(of: Bool.self, bufferingPolicy: .bufferingNewest(1))
+    private func followSetting(_ settings: SettingsController) -> AsyncStream<HangReportAskPolicy.Settings> {
+        let (values, continuation) = AsyncStream.makeStream(of: HangReportAskPolicy.Settings.self, bufferingPolicy: .bufferingNewest(1))
         settingsObservation = ServiceObservation(.background, owner: "HangReports.setting", on: mainWork) {
-            settings.snapshot.hangReports
+            Self.values(settings.snapshot)
         } apply: { on in
             continuation.yield(on)
         }
         return values
     }
 
-    /// The policy's decision for the setting's value now, then sends, or asks once this launch.
-    private func follow(settingOn: Bool) async {
-        let decision = Self.decision(defaults: defaults, settingOn: settingOn)
-        await apply(decision == .send, settingOn: settingOn)
-        guard decision == .confirm || decision == .invite, !askedThisLaunch.contains(decision) else { return }
-        askedThisLaunch.insert(decision)
+    /// The policy's decisions for the settings' values now, then sends, or asks once this launch per card.
+    private func follow(_ values: HangReportAskPolicy.Settings) async {
+        let decided = decisions(values), policy = HangReportAskPolicy()
+        await apply(policy.mode(hangReports: decided.hangReports, performanceData: decided.performanceData, fullReports: fullReports),
+                    settings: values)
+        guard let card = policy.card(hangReports: decided.hangReports, performanceData: decided.performanceData),
+              !askedThisLaunch.contains(card) else { return }
+        askedThisLaunch.insert(card)
         // task-owner: one question after the first frame; it ends when the person answers.
-        work.task(.userVisible) { [weak self] in await self?.askAfterFirstWindow() }
+        work.task(.userVisible) { [weak self] in await self?.askAfterFirstWindow(card) }
     }
 
-    private func askAfterFirstWindow() async {
+    /// Both decisions over this app's defaults; `.off` for what this build does not send.
+    private func decisions(_ values: HangReportAskPolicy.Settings)
+        -> (hangReports: HangReportAskPolicy.Decision, performanceData: HangReportAskPolicy.Decision) {
+        (fullReports ? Self.decision(defaults: defaults, settingOn: values.hangReports) : .off,
+         aggregatesOffered ? Self.performanceDataDecision(defaults: defaults, settingOn: values.performanceData) : .off)
+    }
+
+    /// The two settings in `snapshot`.
+    static func values(_ snapshot: CmuxConfigSnapshot) -> HangReportAskPolicy.Settings {
+        HangReportAskPolicy.Settings(hangReports: snapshot.hangReports, performanceData: snapshot.performanceData)
+    }
+
+    private func askAfterFirstWindow(_ card: HangReportAskPolicy.Card) async {
         guard let asking else { return }
         await asking.firstWindow()
-        await ask(asks: asking.asks, settings: asking.settings)
+        await ask(card, asks: asking.asks, settings: asking.settings)
     }
 
     /// Quitting: the watchdog's findings wait on disk for the next launch's report.
@@ -252,28 +285,32 @@ final class HangReportsController {
     /// View Hang Report: the last report sent, else a preview; opened in a cmux file tab.
     func viewReport(open: @escaping @MainActor @Sendable (URL) -> Void) {
         guard let service else { return }
-        let mainWork = mainWork, memory = memory, daemonMetrics = daemonMetrics, pid = daemonPID(), logger = logger
+        let mainWork = mainWork, memory = memory, daemonMetrics = daemonMetrics, pid = daemonPID(), logger = logger, fullReports = fullReports
         // task-owner: one memory sample, fold, read and open, the rest of the person's click; nothing to cancel.
         work.task(.userBlocking) {
             await memory?.sampleNow(.report)
             await Self.foldDaemonMetrics(daemonMetrics, pid: pid, logger: logger)
-            guard let url = await service.viewableReport() else { return }
+            guard let url = await service.viewableReport(aggregatesOnly: !fullReports) else { return }
             mainWork.postFromAnyThread(.userBlocking, owner: "HangReports.view") { open(url) }
         }
     }
 
-    /// Reports on (`send`) or off. Off with the setting off also removes this Mac's consent, so a
-    /// file that turns reports on again needs a new click.
-    private func apply(_ on: Bool, settingOn: Bool) async {
+    /// The service's mode. A setting that is off also removes its consent record, so a file that turns it on again
+    /// needs a new click. MetricKit's daily delivery is a trigger in either mode (its payload goes in hang reports only).
+    private func apply(_ mode: HangReportService.Mode, settings values: HangReportAskPolicy.Settings) async {
         guard let service else { return }
-        if !settingOn { defaults.removeObject(forKey: Self.consentKey) }
-        await service.setEnabled(on)
-        // The catalog's Release intervals reach MetricKit only while reports are on.
-        SignpostMetricKitMirror.shared.setOn(on)
-        if on {
-            if subscriber == nil {
+        if !values.hangReports { defaults.removeObject(forKey: Self.consentKey) }
+        if !values.performanceData { defaults.removeObject(forKey: Self.performanceDataConsentKey) }
+        await service.setMode(mode)
+        // The catalog's Release intervals reach MetricKit only while hang reports are on.
+        SignpostMetricKitMirror.shared.setOn(mode == .full)
+        if mode != .off {
+            if subscriber == nil || subscribedMode != mode {
+                subscriber?.stop()
+                subscribedMode = mode
                 // MetricKit hands over payloads it kept from before the consent: dropped.
-                let since = defaults.object(forKey: Self.consentKey) as? Date ?? Date()
+                let key = mode == .full ? Self.consentKey : Self.performanceDataConsentKey
+                let since = defaults.object(forKey: key) as? Date ?? Date()
                 let work = work, memory = memory, daemonMetrics = daemonMetrics, daemonPID = daemonPID, logger = logger
                 let subscriber = MetricKitSubscriber(since: since) { input in
                     // task-owner: one memory sample and fold, then one delivery handed to the service actor, at best effort.
@@ -299,22 +336,28 @@ final class HangReportsController {
     }
 
     /// The person's own write of `path` (`SettingsController.userWillWrite`, before the file
-    /// write): `true` for the hang reports setting records this Mac's consent, so a Not Now on the
+    /// write): `true` for the hang reports or performance data setting records this Mac's consent to it, so a Not Now on the
     /// invitation followed by the Settings switch in the same launch sends; any other value
     /// removes it. Returns the undo `setSetting` runs when the write then fails, so a failed `true`
     /// leaves no record that a later synced or edited file could use.
     static func recordUserWrite(defaults: UserDefaults, path: [String], value: CmuxNextSettings.JSONValue?) -> (@MainActor () -> Void)? {
-        guard path == HangReportsSetting.path else { return nil }
+        let key: String? = path == HangReportsSetting.path ? consentKey : path == PerformanceDataSetting.path ? performanceDataConsentKey : nil
+        guard let key else { return nil }
         guard value == .bool(true) else {
             // Off stays off even if the write fails: with no record nothing sends.
-            defaults.removeObject(forKey: consentKey)
+            defaults.removeObject(forKey: key)
             return nil
         }
-        let previous = defaults.object(forKey: consentKey) as? Date
-        defaults.set(Date(), forKey: consentKey)
+        let previous = defaults.object(forKey: key) as? Date
+        defaults.set(Date(), forKey: key)
         return { [defaults] in
-            if let previous { defaults.set(previous, forKey: consentKey) } else { defaults.removeObject(forKey: consentKey) }
+            if let previous { defaults.set(previous, forKey: key) } else { defaults.removeObject(forKey: key) }
         }
+    }
+
+    /// The performance data policy over this app's defaults (``HangReportAskPolicy/performanceDataDecision(settingOn:consented:)``).
+    static func performanceDataDecision(defaults: UserDefaults, settingOn: Bool) -> HangReportAskPolicy.Decision {
+        HangReportAskPolicy().performanceDataDecision(settingOn: settingOn, consented: defaults.object(forKey: performanceDataConsentKey) is Date)
     }
 
     /// The policy over this app's defaults (``HangReportAskPolicy``).
@@ -324,27 +367,30 @@ final class HangReportsController {
                                        telemetryOptIn: CrashReportingPolicy.telemetryOptIn(in: defaults))
     }
 
-    /// The question on the sidebar's notice card (no dialog), as an invitation or as the confirm
-    /// of a setting this Mac never agreed to. Any answer, the x included, marks the invitation
-    /// asked; only Send Hang Reports records consent: through the person's write of the setting
-    /// (``recordUserWrite(defaults:path:value:)``, undone if the write fails), or directly when
-    /// the file already has it on.
-    private func ask(asks: SidebarAsks, settings: SettingsController) async {
-        let decision = Self.decision(defaults: defaults, settingOn: settings.snapshot.hangReports)
-        guard decision == .confirm || decision == .invite else { return }
-        let yes = await asks.ask(HangReportsStrings.askTitle, detail: HangReportsStrings.privacySummary, symbol: "gauge.with.dots.needle.33percent",
-                                 yes: HangReportsStrings.askYes, no: HangReportsStrings.askNo)
-        defaults.set(true, forKey: Self.askedKey)
+    /// The question on the sidebar's notice card (no dialog): hang reports' invitation or confirm, or performance
+    /// data's confirm of a setting this Mac never agreed to. Any answer, the x included, marks the hang reports
+    /// invitation asked; only the yes records consent: through the person's write of the setting
+    /// (``recordUserWrite(defaults:path:value:)``, undone if the write fails), or directly when the file already has it on.
+    private func ask(_ card: HangReportAskPolicy.Card, asks: SidebarAsks, settings: SettingsController) async {
+        let decided = decisions(Self.values(settings.snapshot))
+        guard HangReportAskPolicy().card(hangReports: decided.hangReports, performanceData: decided.performanceData) == card else { return }
+        let data = card.isPerformanceData
+        let yes = await asks.ask(data ? HangReportsStrings.performanceDataTitle : HangReportsStrings.askTitle,
+                                 detail: data ? HangReportsStrings.performanceDataSummary : HangReportsStrings.privacySummary,
+                                 symbol: "gauge.with.dots.needle.33percent",
+                                 yes: data ? HangReportsStrings.performanceDataYes : HangReportsStrings.askYes, no: HangReportsStrings.askNo)
+        if !data { defaults.set(true, forKey: Self.askedKey) }
         guard yes else { return }
-        if settings.snapshot.hangReports {
+        if data ? settings.snapshot.performanceData : settings.snapshot.hangReports {
             // Already on in the file: the setting will not change, so record and follow it now.
-            defaults.set(Date(), forKey: Self.consentKey)
-            await apply(true, settingOn: true)
+            defaults.set(Date(), forKey: data ? Self.performanceDataConsentKey : Self.consentKey)
+            await follow(Self.values(settings.snapshot))
             return
         }
-        guard let descriptor = SettingsSchema.descriptor(for: HangReportsSetting.path) else { return }
+        let path = data ? PerformanceDataSetting.path : HangReportsSetting.path
+        guard let descriptor = SettingsSchema.descriptor(for: path) else { return }
         do { try await settings.setSetting(descriptor, to: .bool(true), by: .user) } catch {
-            logger.error("diagnostics.hangReports not written: \(String(describing: error), privacy: .public)")
+            logger.error("\(path.joined(separator: "."), privacy: .public) not written: \(String(describing: error), privacy: .public)")
         }
     }
 }

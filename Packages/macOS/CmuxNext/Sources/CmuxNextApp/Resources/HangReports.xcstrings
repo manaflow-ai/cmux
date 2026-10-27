@@ -525,6 +525,399 @@
         }
       }
     },
+    "performanceData.ask.title" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "هل تريد إرسال بيانات الأداء؟"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Slati podatke o performansama?"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Send ydelsesdata?"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Leistungsdaten senden?"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Send Performance Data?"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "¿Enviar datos de rendimiento?"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Envoyer les données de performances ?"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Inviare i dati sulle prestazioni?"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "パフォーマンスデータを送信しますか？"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ផ្ញើ​ទិន្នន័យ​ដំណើរការ​ឬ?"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "성능 데이터를 보낼까요?"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sende ytelsesdata?"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Wysyłać dane o wydajności?"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Enviar dados de desempenho?"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Отправлять данные о производительности?"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ส่งข้อมูลประสิทธิภาพไหม"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Performans verileri gönderilsin mi?"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Надсилати дані про продуктивність?"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Gửi dữ liệu hiệu năng?"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "要发送性能数据吗？"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "要傳送效能資料嗎？"
+          }
+        }
+      }
+    },
+    "performanceData.privacySummary" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ملخص يومي عن سرعة عمل cmux: مدرجات تكرارية للتوقيتات وأعداد الاستقرار، وأعداد تقريبية للنوافذ وعلامات التبويب، وإصدارا cmux وmacOS، ونوع جهاز Mac، ومعرّف تثبيت عشوائي يتغيّر كل 30 يومًا. لا يحتوي أبدًا على مكدسات الاستدعاء أو أسماء ملفات أو مسارات أو نصوص الطرفية أو الدردشة أو عناوين ويب أو عناوين النوافذ أو أسماء المضيفين. يعرض «عرض تقرير التجمّد» ما يُرسل بالضبط."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dnevni sažetak o tome koliko brzo cmux radi: histogrami vremena i brojevi stabilnosti, približan broj prozora i kartica, verzije cmuxa i macOS-a, vrsta Maca i nasumični ID instalacije koji se mijenja svakih 30 dana. Nikada ne sadrži stekove poziva, imena datoteka, putanje, tekst terminala ili chata, web adrese, naslove prozora ni imena hostova. „Prikaži izvještaj o zastoju“ pokazuje tačno šta se šalje."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Et dagligt resumé af, hvor hurtigt cmux kører: histogrammer over tider og stabilitetstal, omtrentligt antal vinduer og faner, cmux- og macOS-versionerne, typen af Mac og et tilfældigt installations-id, der skifter hver 30. dag. Det indeholder aldrig kaldestakke, filnavne, stier, terminal- eller chattekst, webadresser, vinduestitler eller værtsnavne. „Vis hængningsrapport“ viser præcis, hvad der sendes."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Eine tägliche Zusammenfassung, wie schnell cmux läuft: Zeit-Histogramme und Stabilitätszähler, ungefähre Anzahl von Fenstern und Tabs, die cmux- und macOS-Version, die Art des Mac und eine zufällige Installations-ID, die sich alle 30 Tage ändert. Sie enthält nie Aufrufstapel, Dateinamen, Pfade, Terminal- oder Chattext, Webadressen, Fenstertitel oder Hostnamen. „Hänger-Bericht anzeigen“ zeigt genau, was gesendet wird."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "A daily summary of how fast cmux runs: timing histograms and stability counts, coarse counts of windows and tabs, the cmux and macOS versions, the kind of Mac, and a random install ID that changes every 30 days. It never holds call stacks, file names, paths, terminal or chat text, web addresses, window titles or host names. View Hang Report shows exactly what is sent."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Un resumen diario de la velocidad de cmux: histogramas de tiempos y recuentos de estabilidad, el número aproximado de ventanas y pestañas, las versiones de cmux y macOS, el tipo de Mac y un ID de instalación aleatorio que cambia cada 30 días. Nunca contiene pilas de llamadas, nombres de archivo, rutas, texto del terminal o del chat, direcciones web, títulos de ventana ni nombres de host. «Ver informe de bloqueos» muestra exactamente lo que se envía."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Un résumé quotidien de la rapidité de cmux : histogrammes de durées et compteurs de stabilité, nombre approximatif de fenêtres et d’onglets, versions de cmux et de macOS, type de Mac et un identifiant d’installation aléatoire qui change tous les 30 jours. Il ne contient jamais de piles d’appels, de noms de fichiers, de chemins, de texte du terminal ou du chat, d’adresses web, de titres de fenêtres ni de noms d’hôte. « Afficher le rapport de blocages » montre exactement ce qui est envoyé."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Un riepilogo giornaliero della velocità di cmux: istogrammi dei tempi e conteggi di stabilità, numero approssimativo di finestre e schede, le versioni di cmux e macOS, il tipo di Mac e un ID di installazione casuale che cambia ogni 30 giorni. Non contiene mai stack di chiamate, nomi di file, percorsi, testo del terminale o della chat, indirizzi web, titoli di finestre o nomi host. «Mostra rapporto sui blocchi» mostra esattamente cosa viene inviato."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmuxの動作速度の概要を1日1回送信します。含まれるのは、所要時間のヒストグラムと安定性の回数、ウインドウとタブのおおよその数、cmuxとmacOSのバージョン、Macの種類、30日ごとに変わるランダムなインストールIDです。コールスタック、ファイル名、パス、ターミナルやチャットのテキスト、Webアドレス、ウインドウタイトル、ホスト名は一切含みません。送信内容は「ハングレポートを表示」で正確に確認できます。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "សេចក្ដី​សង្ខេប​ប្រចាំថ្ងៃ​អំពី​ល្បឿន​ដំណើរការ​របស់ cmux៖ អ៊ីស្តូក្រាម​ពេលវេលា និង​ចំនួន​ស្ថិរភាព ចំនួន​ប្រហាក់ប្រហែល​នៃ​បង្អួច និង​ផ្ទាំង កំណែ cmux និង macOS ប្រភេទ Mac និង​លេខ​សម្គាល់​ការ​ដំឡើង​ចៃដន្យ​ដែល​ប្ដូរ​រៀងរាល់ 30 ថ្ងៃ។ វា​មិន​ដែល​មាន​ជង់​ការ​ហៅ ឈ្មោះ​ឯកសារ ផ្លូវ អត្ថបទ​ទែមីណាល់ ឬ​ជជែក អាសយដ្ឋាន​បណ្ដាញ ចំណងជើង​បង្អួច ឬ​ឈ្មោះ​ម៉ាស៊ីន​ឡើយ។ «មើល​របាយការណ៍​គាំង» បង្ហាញ​អ្វី​ដែល​ត្រូវ​ផ្ញើ​យ៉ាង​ពិតប្រាកដ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux가 얼마나 빠르게 동작하는지에 대한 일일 요약입니다. 시간 히스토그램과 안정성 횟수, 창과 탭의 대략적인 수, cmux와 macOS 버전, Mac 종류, 30일마다 바뀌는 무작위 설치 ID가 포함됩니다. 호출 스택, 파일 이름, 경로, 터미널이나 채팅 텍스트, 웹 주소, 창 제목, 호스트 이름은 절대 포함하지 않습니다. '멈춤 보고서 보기'에서 보내는 내용을 정확히 볼 수 있습니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Et daglig sammendrag av hvor raskt cmux kjører: histogrammer over tider og stabilitetstall, omtrentlig antall vinduer og faner, cmux- og macOS-versjonene, typen Mac og en tilfeldig installasjons-ID som endres hver 30. dag. Det inneholder aldri kallstakker, filnavn, stier, terminal- eller chattetekst, nettadresser, vindustitler eller vertsnavn. «Vis hengerapport» viser nøyaktig hva som sendes."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Codzienne podsumowanie szybkości działania cmux: histogramy czasów i liczniki stabilności, przybliżona liczba okien i kart, wersje cmux i macOS, rodzaj Maca oraz losowy identyfikator instalacji, który zmienia się co 30 dni. Nigdy nie zawiera stosów wywołań, nazw plików, ścieżek, tekstu terminala ani czatu, adresów internetowych, tytułów okien ani nazw hostów. „Pokaż raport o zawieszeniu” pokazuje dokładnie, co jest wysyłane."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Um resumo diário da velocidade do cmux: histogramas de tempos e contagens de estabilidade, número aproximado de janelas e abas, as versões do cmux e do macOS, o tipo de Mac e um ID de instalação aleatório que muda a cada 30 dias. Nunca contém pilhas de chamadas, nomes de arquivos, caminhos, texto do terminal ou do chat, endereços web, títulos de janelas nem nomes de host. “Ver relatório de travamentos” mostra exatamente o que é enviado."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ежедневная сводка о скорости работы cmux: гистограммы времени и счётчики стабильности, примерное число окон и вкладок, версии cmux и macOS, тип Mac и случайный идентификатор установки, который меняется каждые 30 дней. Она никогда не содержит стеков вызовов, имён файлов, путей, текста терминала или чата, веб-адресов, заголовков окон и имён хостов. «Показать отчёт о зависаниях» показывает, что именно отправляется."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "สรุปประจำวันเกี่ยวกับความเร็วในการทำงานของ cmux: ฮิสโทแกรมของเวลาและจำนวนด้านความเสถียร จำนวนหน้าต่างและแท็บโดยประมาณ เวอร์ชันของ cmux และ macOS ประเภทของ Mac และ ID การติดตั้งแบบสุ่มที่เปลี่ยนทุก 30 วัน ไม่มีสแตกการเรียก ชื่อไฟล์ พาธ ข้อความในเทอร์มินัลหรือแชท ที่อยู่เว็บ ชื่อหน้าต่าง หรือชื่อโฮสต์เลย \"ดูรายงานการค้าง\" แสดงสิ่งที่ส่งอย่างละเอียด"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux’un ne kadar hızlı çalıştığına dair günlük bir özet: süre histogramları ve kararlılık sayıları, pencere ve sekmelerin yaklaşık sayısı, cmux ve macOS sürümleri, Mac türü ve her 30 günde bir değişen rastgele bir kurulum kimliği. Asla çağrı yığını, dosya adı, yol, terminal veya sohbet metni, web adresi, pencere başlığı ya da ana bilgisayar adı içermez. \"Donma raporunu görüntüle\" tam olarak neyin gönderildiğini gösterir."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Щоденне зведення про швидкість роботи cmux: гістограми часу й лічильники стабільності, приблизна кількість вікон і вкладок, версії cmux і macOS, тип Mac і випадковий ідентифікатор встановлення, що змінюється кожні 30 днів. Воно ніколи не містить стеків викликів, імен файлів, шляхів, тексту термінала чи чату, вебадрес, заголовків вікон або імен хостів. «Показати звіт про зависання» показує, що саме надсилається."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bản tóm tắt hằng ngày về tốc độ chạy của cmux: biểu đồ tần suất thời gian và số đếm độ ổn định, số cửa sổ và thẻ ước chừng, phiên bản cmux và macOS, loại máy Mac và một ID cài đặt ngẫu nhiên thay đổi sau mỗi 30 ngày. Bản tóm tắt không bao giờ chứa ngăn xếp lệnh gọi, tên tệp, đường dẫn, văn bản terminal hoặc trò chuyện, địa chỉ web, tiêu đề cửa sổ hay tên máy chủ. \"Xem báo cáo treo\" cho thấy chính xác những gì được gửi."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux 运行速度的每日摘要：耗时直方图和稳定性计数、窗口和标签页的大致数量、cmux 和 macOS 版本、Mac 类型，以及每 30 天更换一次的随机安装 ID。摘要绝不包含调用栈、文件名、路径、终端或聊天文本、网址、窗口标题或主机名。“查看卡顿报告”会准确显示发送的内容。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux 執行速度的每日摘要：耗時直方圖與穩定性計數、視窗與分頁的大約數量、cmux 與 macOS 版本、Mac 類型，以及每 30 天更換一次的隨機安裝 ID。摘要絕不包含呼叫堆疊、檔案名稱、路徑、終端機或聊天文字、網址、視窗標題或主機名稱。「檢視卡頓報告」會準確顯示傳送的內容。"
+          }
+        }
+      }
+    },
+    "performanceData.ask.yes" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "إرسال بيانات الأداء"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Šalji podatke o performansama"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Send ydelsesdata"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Leistungsdaten senden"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Send Performance Data"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Enviar datos de rendimiento"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Envoyer les données de performances"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Invia dati sulle prestazioni"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "パフォーマンスデータを送信"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ផ្ញើ​ទិន្នន័យ​ដំណើរការ"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "성능 데이터 보내기"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Send ytelsesdata"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Wysyłaj dane o wydajności"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Enviar dados de desempenho"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Отправлять данные о производительности"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ส่งข้อมูลประสิทธิภาพ"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Performans verilerini gönder"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Надсилати дані про продуктивність"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Gửi dữ liệu hiệu năng"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "发送性能数据"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "傳送效能資料"
+          }
+        }
+      }
+    },
     "hangReports.unavailable" : {
       "extractionState" : "manual",
       "localizations" : {

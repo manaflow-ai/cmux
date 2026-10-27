@@ -50,13 +50,17 @@ enum UserOnlySettingConfirmation {
     }
 
     /// The sheet's text: the key and the value it sets (a reset shows the schema default it returns
-    /// to). Turning hang reports on also shows the card's privacy summary, because the approval
-    /// records this Mac's consent (``HangReportsController/recordUserWrite(defaults:path:value:)``).
+    /// to). Turning hang reports or performance data on also shows that card's privacy summary, because the
+    /// approval records this Mac's consent (``HangReportsController/recordUserWrite(defaults:path:value:)``).
     static func body(key: String, value: JSONValue?) -> String {
         let shown = value ?? Self.defaultValue(key)
         let text = ConfirmationStrings.userOnlySettingBody(key, shown.compactText)
-        guard CmuxConfigFile.keyPath(from: key) == HangReportsSetting.path, shown == .bool(true) else { return text }
-        return text + "\n\n" + HangReportsStrings.privacySummary
+        guard shown == .bool(true) else { return text }
+        switch CmuxConfigFile.keyPath(from: key) {
+        case HangReportsSetting.path: return text + "\n\n" + HangReportsStrings.privacySummary
+        case PerformanceDataSetting.path: return text + "\n\n" + HangReportsStrings.performanceDataSummary
+        default: return text
+        }
     }
 
     static func defaultValue(_ key: String) -> JSONValue {
