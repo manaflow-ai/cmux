@@ -1,6 +1,7 @@
 //! Tokio runtimes under the process hang watch (p09-observability task 118): a task that blocks
-//! its worker for 3 s gives one hang record naming that worker; parked workers, short tasks,
-//! blocking-pool threads and `block_in_place` waits give none.
+//! its worker for 3 s gives one hang record naming that worker; parked workers, short tasks, a
+//! worker kept busy past the deadline by short polls, blocking-pool threads and `block_in_place`
+//! waits give none, and `runtime.busy_ms` counts busy periods only.
 //!
 //! Every test shares this binary's process watch, so each names its runtime and reads only the
 //! records of its own threads.
@@ -9,7 +10,7 @@ use std::collections::HashSet;
 use std::io;
 use std::sync::{Arc, Condvar, Mutex, Once};
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use cmux_hang_watch::tokio::{WORKER_DEADLINE, WorkerHooks};
 use cmux_hang_watch::{Config, Hang, HangSink, ThreadKind};
@@ -79,7 +80,7 @@ const WORKERS: usize = 2;
 
 /// A multi-thread runtime with the hooks chained the way [`cmux_hang_watch::tokio::instrument`]
 /// sets them, its park hook also noting parked workers.
-fn runtime(name: &str) -> (tokio::runtime::Runtime, Arc<Parked>) {
+fn runtime(name: &str) -> (tokio::runtime::Runtime, Arc<Parked>, WorkerHooks) {
     start_process_watch();
     let hooks = WorkerHooks::new(name);
     let parked = Arc::new(Parked::default());
@@ -97,7 +98,7 @@ fn runtime(name: &str) -> (tokio::runtime::Runtime, Arc<Parked>) {
         .on_thread_stop(hooks.on_thread_stop())
         .build()
         .unwrap();
-    (runtime, parked)
+    (runtime, parked, hooks)
 }
 
 #[cfg(target_vendor = "apple")]
@@ -112,12 +113,21 @@ fn native_thread_id() -> u64 {
     u64::try_from(unsafe { libc::syscall(libc::SYS_gettid) }).unwrap()
 }
 
-#[cfg(any(target_vendor = "apple", target_os = "linux"))]
+#[cfg(windows)]
+fn native_thread_id() -> u64 {
+    #[link(name = "kernel32")]
+    unsafe extern "system" {
+        safe fn GetCurrentThreadId() -> u32;
+    }
+    u64::from(GetCurrentThreadId())
+}
+
+#[cfg(any(target_vendor = "apple", target_os = "linux", windows))]
 #[test]
 fn tokio_task_that_sleeps_3s_gives_one_hang_naming_its_worker() {
-    let (runtime, parked) = runtime("sleep-rt");
+    let (runtime, parked, hooks) = runtime("sleep-rt");
     parked.wait_for(WORKERS);
-    let busy_before = cmux_hang_watch::stats().unwrap().runtime_busy_ms;
+    let process_busy_before = cmux_hang_watch::stats().unwrap().runtime_busy_ms;
     let worker = runtime
         .block_on(runtime.spawn(async {
             thread::sleep(BLOCK);
@@ -133,13 +143,46 @@ fn tokio_task_that_sleeps_3s_gives_one_hang_naming_its_worker() {
     assert_eq!(hang.kind, ThreadKind::Pool);
     assert_eq!(hang.native_thread_id, worker, "{hang:?}");
     assert_eq!(hang.deadline_ms, u64::try_from(WORKER_DEADLINE.as_millis()).unwrap());
-    let busy = cmux_hang_watch::stats().unwrap().runtime_busy_ms - busy_before;
-    assert!(busy >= 2_900, "runtime.busy_ms grew by {busy}");
+    let busy = hooks.busy();
+    assert!(busy.busy_ms >= 2_900, "runtime.busy_ms of the runtime: {busy:?}");
+    let process_busy = cmux_hang_watch::stats().unwrap().runtime_busy_ms - process_busy_before;
+    assert!(process_busy >= 2_900, "the process's runtime.busy_ms grew by {process_busy}");
+}
+
+/// Runs short polls on its worker until `BLOCK` has passed: `poll` each time, then a yield.
+async fn short_polls_for(poll: impl Fn()) {
+    let start = Instant::now();
+    while start.elapsed() < BLOCK {
+        poll();
+        tokio::task::yield_now().await;
+    }
+}
+
+#[test]
+fn tokio_worker_busy_past_its_deadline_with_short_polls_gives_no_hang() {
+    let (runtime, parked, hooks) = runtime("busy-rt");
+    parked.wait_for(WORKERS);
+    runtime.block_on(async {
+        // Neither worker parks for 3 s: `yield_now` goes back through the scheduler without a park.
+        let spin = tokio::spawn(short_polls_for(|| {
+            let poll = Instant::now();
+            while poll.elapsed() < Duration::from_micros(200) {
+                std::hint::spin_loop();
+            }
+        }));
+        let sleep = tokio::spawn(short_polls_for(|| thread::sleep(Duration::from_millis(20))));
+        spin.await.unwrap();
+        sleep.await.unwrap();
+    });
+    drop(runtime);
+    assert_eq!(hangs_of("busy-rt"), Vec::new());
+    let busy = hooks.busy();
+    assert!(busy.busy_ms >= 2_900, "the busy workers count as busy: {busy:?}");
 }
 
 #[test]
 fn tokio_parked_workers_short_tasks_and_blocking_threads_give_no_hang() {
-    let (runtime, _parked) = runtime("quiet-rt");
+    let (runtime, _parked, _hooks) = runtime("quiet-rt");
     runtime.block_on(async {
         let mut tasks = Vec::new();
         for _ in 0..20 {
@@ -179,4 +222,21 @@ fn tokio_block_in_place_wait_is_not_a_hang_and_the_worker_is_watched_after() {
     runtime.block_on(runtime.spawn(async { thread::sleep(BLOCK) })).unwrap();
     drop(runtime);
     assert_eq!(hangs_of("bip-rt").len(), 1);
+}
+
+#[test]
+fn tokio_block_in_place_ends_the_busy_period_before_the_thread_idles() {
+    let (runtime, parked, hooks) = runtime("bip-busy-rt");
+    parked.wait_for(WORKERS);
+    runtime
+        .block_on(runtime.spawn(async {
+            cmux_hang_watch::tokio::block_in_place(|| thread::sleep(Duration::from_millis(100)));
+        }))
+        .unwrap();
+    // The thread that handed its worker off idles in the blocking pool until the runtime drops.
+    thread::sleep(Duration::from_millis(1_500));
+    drop(runtime);
+    let busy = hooks.busy();
+    assert!(busy.busy_ms < 1_000, "idle time after block_in_place counted as busy: {busy:?}");
+    assert_eq!(hangs_of("bip-busy-rt"), Vec::new());
 }

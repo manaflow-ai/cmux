@@ -749,6 +749,33 @@ pub struct ServerStatsSnapshot {
     /// when the request names `ipc_methods` in `include`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ipc_methods: Option<Vec<MethodLatencySnapshot>>,
+    /// The daemon's tokio workers' busy time and its hang count, from the
+    /// process hang watch; present only when the request names `runtime` in
+    /// `include` and the watch runs.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub runtime: Option<RuntimeSnapshot>,
+}
+
+/// The `runtime` section of `server-stats` (p09-observability task 118).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+pub struct RuntimeSnapshot {
+    /// `runtime.busy_ms`: time the watched tokio workers ran between an
+    /// unpark and the next park, over every instrumented runtime.
+    pub busy_ms: u64,
+    /// The busy periods summed in `busy_ms`.
+    pub busy_periods: u64,
+    /// Hangs the process hang watch recorded.
+    pub hangs: u64,
+}
+
+impl RuntimeSnapshot {
+    pub fn of(watch: cmux_hang_watch::Stats) -> Self {
+        RuntimeSnapshot {
+            busy_ms: watch.runtime_busy_ms,
+            busy_periods: watch.runtime_busy_periods,
+            hangs: watch.hangs,
+        }
+    }
 }
 
 pub const SERVER_STATS_SCHEMA: u32 = 1;

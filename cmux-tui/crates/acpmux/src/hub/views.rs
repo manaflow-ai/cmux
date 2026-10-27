@@ -492,6 +492,8 @@ impl Hub {
             "host_pressure": host_pressure,
             // The footprint, each memory consumer's bytes and the 20 largest sessions (`daemon_status.rs`).
             "memory": crate::daemon_status::memory_status(self),
+            // `runtime.busy_ms` and the hang count of the daemon's hang watch (`daemon_status.rs`).
+            "runtime": crate::daemon_status::runtime_status(cmux_hang_watch::stats()),
         })
     }
 }

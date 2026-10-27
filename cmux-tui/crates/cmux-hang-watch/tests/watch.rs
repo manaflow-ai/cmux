@@ -313,6 +313,88 @@ fn an_overdue_scope_is_reported_once() {
     assert_eq!(hangs[0].t_ns, 1_000 * MS);
 }
 
+/// A manual clock that also gives every thread the CPU time the test sets (None: no CPU clock).
+#[derive(Default)]
+struct ManualCpu {
+    clock: ManualClock,
+    cpu_ns: Mutex<Option<u64>>,
+}
+
+impl ManualCpu {
+    fn set_cpu_ms(&self, ms: Option<u64>) {
+        *self.cpu_ns.lock().unwrap() = ms.map(|ms| ms * MS);
+    }
+}
+
+impl Clock for ManualCpu {
+    fn now_ns(&self) -> u64 {
+        self.clock.now_ns()
+    }
+
+    fn thread_cpu_ns(&self, _native_thread_id: u64) -> Option<u64> {
+        *self.cpu_ns.lock().unwrap()
+    }
+}
+
+fn manual_cpu() -> (HangWatch, Arc<ManualCpu>, Collect) {
+    let clock = Arc::new(ManualCpu::default());
+    let sink = Collect::new();
+    let watch = HangWatch::new(Config::default(), clock.clone(), Box::new(sink.clone()));
+    (watch, clock, sink)
+}
+
+#[test]
+fn a_running_scope_hangs_only_after_a_deadline_with_no_cpu_time() {
+    let (watch, clock, sink) = manual_cpu();
+    let guard = watch.register_thread(ThreadKind::Pool, "rt-0");
+    let scope = guard.watch_running(Duration::from_secs(2));
+    let pass = |ms: u64, cpu_ms: u64| {
+        clock.clock.set_ms(ms);
+        clock.set_cpu_ms(Some(cpu_ms));
+        watch.check(clock.clock.now())
+    };
+
+    assert_eq!(pass(0, 0).armed, 1);
+    // The thread runs short items: each pass that sees CPU time moves the deadline a budget on.
+    assert_eq!(pass(1_000, 5).armed, 1);
+    assert_eq!(pass(2_500, 9).armed, 1, "past its own deadline, but it ran");
+    // Then it blocks in one call: no CPU time from the pass at 2.5 s on.
+    assert_eq!(pass(4_400, 9).armed, 1);
+    assert_eq!(pass(4_600, 9).hangs, 1, "a budget after the last pass that saw it run");
+    assert_eq!(pass(9_000, 9).hangs, 0, "reported once");
+    drop(scope);
+
+    let hangs = sink.hangs();
+    assert_eq!(hangs.len(), 1);
+    assert_eq!(hangs[0].thread, "rt-0");
+    assert_eq!(hangs[0].deadline_ms, 2_000);
+    assert_eq!(hangs[0].overdue_ms, 100);
+}
+
+#[test]
+fn a_running_scope_blocked_from_its_open_hangs_at_its_own_deadline() {
+    let (watch, clock, sink) = manual_cpu();
+    let guard = watch.register_thread(ThreadKind::Pool, "rt-1");
+    let _scope = guard.watch_running(Duration::from_secs(2));
+    clock.set_cpu_ms(Some(7));
+    assert_eq!(watch.check(clock.clock.now()).armed, 1);
+    clock.clock.set_ms(2_000);
+    assert_eq!(watch.check(clock.clock.now()).hangs, 1);
+    assert_eq!(sink.hangs()[0].overdue_ms, 0);
+}
+
+#[test]
+fn a_running_scope_on_a_thread_with_no_cpu_clock_is_never_blamed() {
+    let (watch, clock, sink) = manual_cpu();
+    let guard = watch.register_thread(ThreadKind::Pool, "rt-2");
+    let _scope = guard.watch_running(Duration::from_secs(2));
+    for ms in [0, 1_000, 2_000, 3_000, 10_000] {
+        clock.clock.set_ms(ms);
+        assert_eq!(watch.check(clock.clock.now()).hangs, 0, "at {ms} ms");
+    }
+    assert!(sink.hangs().is_empty());
+}
+
 #[test]
 fn the_innermost_scope_applies_and_the_enclosing_one_comes_back() {
     let (watch, clock, sink) = manual();

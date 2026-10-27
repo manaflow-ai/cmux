@@ -32,6 +32,8 @@ mod state;
 
 #[cfg(test)]
 mod e2e_tests;
+#[cfg(all(test, any(target_vendor = "apple", target_os = "linux")))]
+mod hang_watch_tests;
 #[cfg(test)]
 mod outgoing_revocation_tests;
 #[cfg(test)]
@@ -144,10 +146,22 @@ fn help_text() -> String {
     format!("{}\n{}", catalog().remote_client.link_help, enrollment::help())
 }
 
+/// The link runtime's threads in hang records (`cmux-link-tokio-<n>`).
+const RUNTIME_NAME: &str = "cmux-link-tokio";
+
 fn tokio_runtime() -> anyhow::Result<tokio::runtime::Runtime> {
     let mut builder = tokio::runtime::Builder::new_multi_thread();
     builder.enable_all();
-    Ok(cmux_hang_watch::tokio::instrument(&mut builder, "cmux-link-tokio").build()?)
+    Ok(cmux_hang_watch::tokio::instrument(&mut builder, RUNTIME_NAME).build()?)
+}
+
+/// `cmux link serve`'s release hang watch (cmux-hang-watch, Chrome's `base::HangWatcher`):
+/// `hangs-<pid>.jsonl` in its state directory. It starts before the runtime, whose threads
+/// register when they start; the other link commands start none, so their hooks stay inert.
+fn start_hang_watch(state_dir: &Path) {
+    if let Err(error) = cmux_hang_watch::init(state_dir) {
+        eprintln!("cmux link: {error}");
+    }
 }
 
 /// `cmux link <action> ...`.
@@ -385,6 +399,7 @@ fn run_serve(flags: &Flags) -> anyhow::Result<()> {
     // UDP bind: a second `serve` of the same state directory stops here.
     let _lock = serve_lock(&state)?;
     let served = ensure::Served::of(flags, config_path, config_bytes.as_deref());
+    start_hang_watch(state.dir());
     tokio_runtime()?.block_on(serve(state, session_socket, owner, ready, served))
 }
 

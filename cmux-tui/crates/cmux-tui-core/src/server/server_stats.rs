@@ -13,7 +13,9 @@ use std::collections::HashMap;
 use super::client_registry::ConnectionFacts;
 use super::request_spans::{RequestMethod, lock_op_name};
 use super::{MAX_SERVER_CONNECTIONS, Mux};
-use crate::diagnostics::{LockTableSnapshot, SERVER_STATS_SCHEMA, ServerStatsSnapshot};
+use crate::diagnostics::{
+    LockTableSnapshot, RuntimeSnapshot, SERVER_STATS_SCHEMA, ServerStatsSnapshot,
+};
 
 /// The optional section that reports resource projection spans.
 const RESOURCE_PROJECTION: &str = "resource_projection";
@@ -39,6 +41,9 @@ const IPC: &str = "ipc";
 /// wait by method (`ipc_methods`, request_spans.rs). It is not `ipc`: that
 /// section counts the IPC layer itself (streams, frames, parses, syscalls).
 const IPC_METHODS: &str = "ipc_methods";
+/// The optional section that reports the daemon's tokio workers' busy time
+/// (`runtime.busy_ms`) and its hang count, from the process hang watch.
+const RUNTIME: &str = "runtime";
 
 /// Read every counter; sections outside `include` stay absent so older SDK
 /// decoders, which refuse unknown result fields, keep working.
@@ -64,6 +69,7 @@ pub(super) fn server_stats(mux: &Mux, include: Option<&[String]>) -> ServerStats
         ipc: wants(IPC).then(|| mux.ipc_stats().snapshot()),
         ipc_methods: wants(IPC_METHODS)
             .then(|| mux.request_stats().methods().snapshot(RequestMethod::of_slot)),
+        runtime: wants(RUNTIME).then(cmux_hang_watch::stats).flatten().map(RuntimeSnapshot::of),
     }
 }
 
@@ -403,3 +409,7 @@ mod tests;
 #[cfg(test)]
 #[path = "server_stats_ipc_tests.rs"]
 mod ipc_tests;
+
+#[cfg(test)]
+#[path = "server_stats_runtime_tests.rs"]
+mod runtime_tests;

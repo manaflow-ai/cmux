@@ -2,7 +2,8 @@
 //! level, each memory consumer's bytes (`memory.rs`,
 //! `hub/memory_consumers.rs`) and the sessions that hold the most. Chrome's
 //! `chrome://memory-internals` and the task manager's per-tab memory, for the
-//! daemon.
+//! daemon. Also its `runtime` section: `runtime.busy_ms` and the hang count of
+//! the daemon's hang watch (cmux-hang-watch, p09-observability task 118).
 
 use crate::hub::Hub;
 use cmux_memory::{ConsumerReport, PressureLevel, Retention};
@@ -30,6 +31,19 @@ pub fn memory_status(hub: &Hub) -> Value {
             .into_iter()
             .map(|(bytes, id, name)| json!({"session_id": id, "name": name, "bytes": bytes}))
             .collect::<Vec<_>>(),
+    })
+}
+
+/// The `runtime` section of `daemon status`: the time the runtime's workers
+/// ran between an unpark and the next park (`runtime.busy_ms`, summed over its
+/// busy periods) and the hangs the watch recorded; null with no hang watch (a
+/// command other than `daemon run`).
+pub fn runtime_status(watch: Option<cmux_hang_watch::Stats>) -> Value {
+    let Some(watch) = watch else { return Value::Null };
+    json!({
+        "busy_ms": watch.runtime_busy_ms,
+        "busy_periods": watch.runtime_busy_periods,
+        "hangs": watch.hangs,
     })
 }
 
@@ -85,6 +99,21 @@ pub fn memory_lines(m: &Value) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn runtime_status_reports_the_hang_watch_busy_time() {
+        assert_eq!(runtime_status(None), Value::Null);
+        let watch = cmux_hang_watch::Stats {
+            runtime_busy_ms: 3_250,
+            runtime_busy_periods: 41,
+            hangs: 1,
+            ..Default::default()
+        };
+        assert_eq!(
+            runtime_status(Some(watch)),
+            json!({"busy_ms": 3_250, "busy_periods": 41, "hangs": 1})
+        );
+    }
 
     #[test]
     fn memory_lines_name_each_consumer() {

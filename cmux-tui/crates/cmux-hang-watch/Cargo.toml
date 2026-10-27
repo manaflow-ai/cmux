@@ -21,4 +21,6 @@ libc.workspace = true
 tokio = { workspace = true, optional = true }
 
 [dev-dependencies]
+# The tests build with the `tokio` feature, so `cargo test -p cmux-hang-watch tokio` runs every tokio test.
+cmux-hang-watch = { path = ".", features = ["tokio"] }
 tokio = { workspace = true, features = ["rt-multi-thread"] }

@@ -2308,8 +2308,17 @@ class ServerStatsResult:
     request_latency_us: Union[ServerStatsRequestLatency, MissingType] = field(default=MISSING)
     request_path_io: Union[ServerStatsRequestPathIo, MissingType] = field(default=MISSING)
     resource_projection: Union[ServerStatsResourceProjection, MissingType] = field(default=MISSING)
+    runtime: Union[ServerStatsRuntime, MissingType] = field(default=MISSING)
     slow_requests: Union[ServerStatsSlowRequests, MissingType] = field(default=MISSING)
     write_path: Union[ServerStatsWritePath, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class ServerStatsRuntime:
+    __cmux_schema_path__: ClassVar[str] = 'types/ServerStatsRuntime'
+    busy_ms: int
+    busy_periods: int
+    hangs: int
 
 
 @dataclass(frozen=True)
@@ -7893,6 +7902,7 @@ __all__ = [
     'ServerStatsRequestPathSite',
     'ServerStatsResourceProjection',
     'ServerStatsResult',
+    'ServerStatsRuntime',
     'ServerStatsSlowRequest',
     'ServerStatsSlowRequestFrame',
     'ServerStatsSlowRequests',

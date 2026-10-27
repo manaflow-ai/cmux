@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "df10717146553dfa363854f65845a400d363319d750b9f1e04386389220171be";
+inline constexpr std::string_view kProtocolIrSha256 = "f31048b80367373cff7ea1ec27059f20b914eba8db7d9299a523103a27db6935";
 
 enum class AccessRequestKind;
 struct AccessRequestPending;
@@ -246,6 +246,7 @@ struct ServerStatsRequestPathIo;
 struct ServerStatsRequestPathSite;
 struct ServerStatsResourceProjection;
 struct ServerStatsResult;
+struct ServerStatsRuntime;
 struct ServerStatsSlowRequest;
 struct ServerStatsSlowRequestFrame;
 struct ServerStatsSlowRequests;
@@ -6573,6 +6574,13 @@ struct ServerStatsResourceProjection {
     friend bool operator==(const ServerStatsResourceProjection&, const ServerStatsResourceProjection&) = default;
 };
 
+struct ServerStatsRuntime {
+    std::uint64_t busy_ms{};
+    std::uint64_t busy_periods{};
+    std::uint64_t hangs{};
+    friend bool operator==(const ServerStatsRuntime&, const ServerStatsRuntime&) = default;
+};
+
 struct ServerStatsSlowRequestFrame {
     std::optional<std::string> image{};
     std::optional<std::string> image_id{};
@@ -6624,6 +6632,7 @@ struct ServerStatsResult {
     std::optional<ServerStatsRequestLatency> request_latency_us{};
     std::optional<ServerStatsRequestPathIo> request_path_io{};
     std::optional<ServerStatsResourceProjection> resource_projection{};
+    std::optional<ServerStatsRuntime> runtime{};
     std::uint32_t schema{};
     std::optional<ServerStatsSlowRequests> slow_requests{};
     std::uint64_t uptime_ms{};
@@ -9138,6 +9147,12 @@ template <>
 struct Codec<ServerStatsResult> {
     static Result<Json> encode(const ServerStatsResult& value);
     static Result<ServerStatsResult> decode(const Json& value);
+};
+
+template <>
+struct Codec<ServerStatsRuntime> {
+    static Result<Json> encode(const ServerStatsRuntime& value);
+    static Result<ServerStatsRuntime> decode(const Json& value);
 };
 
 template <>

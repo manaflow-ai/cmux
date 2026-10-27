@@ -209,6 +209,7 @@ MODEL_BY_PATH = {
     'types/ServerStatsRequestPathSite': models.ServerStatsRequestPathSite,
     'types/ServerStatsResourceProjection': models.ServerStatsResourceProjection,
     'types/ServerStatsResult': models.ServerStatsResult,
+    'types/ServerStatsRuntime': models.ServerStatsRuntime,
     'types/ServerStatsSlowRequest': models.ServerStatsSlowRequest,
     'types/ServerStatsSlowRequestFrame': models.ServerStatsSlowRequestFrame,
     'types/ServerStatsSlowRequests': models.ServerStatsSlowRequests,

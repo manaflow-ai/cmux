@@ -583,8 +583,8 @@ reads atomics and never touches SQLite or the journal, so it is safe to poll.
 
 Params: `{include?: array<string>|null}`. `include` names optional result
 sections: `resource_projection`, `write_path`, `request_path_io`,
-`slow_requests`, `requests`, `ipc`, `lock_classes` and `ipc_methods`;
-unknown names are ignored.
+`slow_requests`, `requests`, `ipc`, `lock_classes`, `ipc_methods` and
+`runtime`; unknown names are ignored.
 
 `lock_classes` reports wait and hold by class on the three locks that admit by
 class: the workspace registry, the registry connection (first acquisitions) and
@@ -665,7 +665,8 @@ object{
   ipc_methods?:array<object{
     method:string, id:uint16|null, trace_id:uint16, class:string,
     latency_us:percentiles, handler_us:percentiles, lock_wait_us:percentiles
-  }>
+  }>,
+  runtime?:object{busy_ms:uint64, busy_periods:uint64, hangs:uint64}
 }
 kind_count = object{kind:string,messages:uint64,bytes:uint64}
 parse_count = object{requests:uint64,json_parses:uint64,json_parses_per_request:float64}
@@ -787,6 +788,12 @@ receive buffer. `bad_message` counts connections closed for a malformed
 message: a JSON line over the size limit or not UTF-8, a bad frame, or a
 WebSocket message that is oversized, not UTF-8, binary or against the
 protocol.
+
+`runtime` reports the daemon's release hang watch (cmux-hang-watch): `busy_ms`
+(`runtime.busy_ms`) is the time its watched tokio workers ran between an
+unpark and the next park, summed over `busy_periods` periods, and `hangs` the
+hang records the watch wrote to `hangs-<pid>.jsonl`. It is absent when the
+daemon runs no hang watch.
 
 `ipc_methods` adds the same requests by method (Chrome's per-message IPC
 timing): one row per method that ran since daemon start, ordered by `id`,

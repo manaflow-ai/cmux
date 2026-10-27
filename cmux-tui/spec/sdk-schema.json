@@ -6612,6 +6612,14 @@
      },
      "presence": "optional",
      "nullable": false
+    },
+    "runtime": {
+     "type": {
+      "kind": "ref",
+      "name": "ServerStatsRuntime"
+     },
+     "presence": "optional",
+     "nullable": false
     }
    },
    "additional_properties": false,
@@ -6626,7 +6634,8 @@
     "request_latency_us and dispatch_queue_us are present only when the request names requests in include; dispatch_queue_us is microseconds from a request's parse to its handler's start.",
     "lock_classes is present only when the request names it in include.",
     "ipc is present only when the request names it in include.",
-    "ipc_methods is present only when the request names it in include; its rows are ordered by id, the rows without one last."
+    "ipc_methods is present only when the request names it in include; its rows are ordered by id, the rows without one last.",
+    "runtime is present only when the request names it in include and the daemon runs its hang watch; busy_ms is the time its watched tokio workers ran between an unpark and the next park."
    ]
   },
   "ServerStatsLockClasses": {
@@ -6941,6 +6950,40 @@
    "constraints": [
     "Counters accumulate since daemon start.",
     "writer_registry_locks counts process-wide and is zero unless the journal writer took the workspace registry lock, a lock-order defect."
+   ]
+  },
+  "ServerStatsRuntime": {
+   "kind": "object",
+   "fields": {
+    "busy_ms": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "busy_periods": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "hangs": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    }
+   },
+   "additional_properties": false,
+   "constraints": [
+    "Counters accumulate since daemon start.",
+    "busy_ms sums busy_periods periods of the instrumented tokio runtimes; hangs counts every hang record of the process hang watch."
    ]
   },
   "ServerStatsRequestLatency": {

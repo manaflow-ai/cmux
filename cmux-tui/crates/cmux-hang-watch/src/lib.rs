@@ -20,6 +20,11 @@
 //! - **Drift.** A watcher that wakes more than [`Config::drift_tolerance`] late (the machine slept,
 //!   or the watcher was starved) blames nobody: every deadline up to now is ignored from then on
 //!   (Chrome's `kWaitDriftTolerance` and `deadline_ignore_threshold_`).
+//! - **Running scopes.** A scope opened with [`Guard::watch_running`] (a tokio worker between its
+//!   unpark and its park, `tokio.rs`) is one whose thread runs many short items the watch cannot
+//!   see. Each pass reads that thread's CPU time ([`Clock::thread_cpu_ns`]); while it grows, the
+//!   deadline moves to a full budget past the pass, so only a thread that got no CPU time since
+//!   the watcher last looked (blocked in one call) is reported.
 //! - **Report.** One [`Hang`] per overdue scope goes to the [`HangSink`]; the process sink
 //!   ([`JsonlSink`]) appends one line to `hangs-<pid>.jsonl`. On macOS the record carries a stack
 //!   of the hung thread (`sample_macos`: nothing between suspend and resume but register reads and
@@ -32,30 +37,34 @@
 //! and `tokio::block_in_place` for the crates that run tokio runtimes.
 
 use std::cell::Cell;
-use std::fmt::Write as _;
-use std::io::{self, Write as _};
+use std::io;
 use std::marker::PhantomData;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::ptr;
-use std::sync::atomic::{
-    AtomicBool, AtomicPtr, AtomicU8, AtomicU32, AtomicU64, AtomicUsize, Ordering, fence,
-};
+use std::sync::atomic::{AtomicBool, AtomicPtr, AtomicU8, AtomicU64, AtomicUsize, Ordering, fence};
 use std::sync::{Arc, OnceLock};
 use std::thread::{self, JoinHandle, Thread};
 use std::time::Duration;
 
 #[cfg(any(target_os = "macos", test))]
 mod frame_walk;
+mod platform;
+mod record;
 #[cfg(target_os = "macos")]
 pub mod sample_macos;
+mod slot;
 mod stack;
 pub mod tokio;
 
+use platform::{native_thread_id, run_at_utility_qos, thread_cpu_ns};
+pub(crate) use record::push_json_string;
+pub use record::{Hang, HangSink, JsonlSink, file_name};
+use slot::{FLAGS, IGNORED, REPORTED, RUNNING, Slot, armed, budget_of, deadline_of, duration_ns};
 pub use stack::{Stack, StackFrame, StackImage};
 
 /// A scope's deadline when the caller has no better one (Chrome's `kDefaultHangWatchTime`).
 pub const DEFAULT_DEADLINE: Duration = Duration::from_secs(10);
-/// Slots in one chunk of the slot table (one 4 KiB allocation).
+/// Slots in one chunk of the slot table (one allocation: 4 KiB of slots and the watcher's notes).
 pub const SLOTS_PER_CHUNK: usize = 64;
 /// Chunks the slot table can grow to.
 pub const MAX_CHUNKS: usize = 64;
@@ -118,6 +127,12 @@ impl ThreadKind {
 pub trait Clock: Send + Sync {
     /// Now, in ns, monotonic.
     fn now_ns(&self) -> u64;
+
+    /// The CPU time the thread `native_thread_id` (a [`Hang::native_thread_id`] of this process)
+    /// has run, in ns; None where the platform has no per-thread CPU clock or the read failed.
+    fn thread_cpu_ns(&self, native_thread_id: u64) -> Option<u64> {
+        thread_cpu_ns(native_thread_id)
+    }
 }
 
 /// The trace clock ([`cmux_trace::clock::now_ns`]): `CLOCK_UPTIME_RAW` on macOS, `CLOCK_MONOTONIC`
@@ -129,106 +144,6 @@ impl Clock for TraceClock {
     #[inline]
     fn now_ns(&self) -> u64 {
         cmux_trace::clock::now_ns()
-    }
-}
-
-/// One overdue scope.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Hang {
-    pub pid: u32,
-    /// When the watcher saw it, on the watch's [`Clock`].
-    pub t_ns: u64,
-    /// The thread's name as registered (a catalog string, never a person's text).
-    pub thread: String,
-    pub kind: ThreadKind,
-    /// The thread's id for the sampler and the OS tools: its Mach port on macOS, its tid on Linux,
-    /// `GetCurrentThreadId` on Windows.
-    pub native_thread_id: u64,
-    /// The slot's index in the slot table.
-    pub slot: u32,
-    /// The scope's deadline, from its open.
-    pub deadline_ms: u64,
-    /// How far past the deadline the watcher saw it.
-    pub overdue_ms: u64,
-    /// The hung thread's stack (macOS), None where there is no sampler or the sample failed.
-    pub stack: Option<Stack>,
-}
-
-impl Hang {
-    /// The record as one JSON line, newline included (schema 1 of `hangs-<pid>.jsonl`; the
-    /// `stack` member is there only when the thread was sampled).
-    pub fn to_json_line(&self) -> String {
-        let mut line = String::with_capacity(160);
-        let _ =
-            write!(line, "{{\"schema\":1,\"pid\":{},\"t_ns\":{},\"thread\":", self.pid, self.t_ns);
-        push_json_string(&mut line, &self.thread);
-        let _ = write!(
-            line,
-            ",\"kind\":\"{}\",\"native_thread_id\":{},\"slot\":{},\"deadline_ms\":{},\"overdue_ms\":{}",
-            self.kind.as_str(),
-            self.native_thread_id,
-            self.slot,
-            self.deadline_ms,
-            self.overdue_ms,
-        );
-        if let Some(stack) = &self.stack {
-            stack.push_json(&mut line);
-        }
-        line.push_str("}\n");
-        line
-    }
-}
-
-pub(crate) fn push_json_string(out: &mut String, text: &str) {
-    out.push('"');
-    for ch in text.chars() {
-        match ch {
-            '"' => out.push_str("\\\""),
-            '\\' => out.push_str("\\\\"),
-            ch if (ch as u32) < 0x20 => {
-                let _ = write!(out, "\\u{:04x}", ch as u32);
-            }
-            ch => out.push(ch),
-        }
-    }
-    out.push('"');
-}
-
-/// Where hang records go. The watcher thread calls it, never a watched thread.
-pub trait HangSink: Send + Sync {
-    fn record(&self, hang: &Hang) -> io::Result<()>;
-}
-
-/// Appends each hang as one line to `hangs-<pid>.jsonl`.
-#[derive(Clone, Debug)]
-pub struct JsonlSink {
-    path: PathBuf,
-}
-
-impl JsonlSink {
-    /// `<dir>/hangs-<this pid>.jsonl`.
-    pub fn in_dir(dir: impl AsRef<Path>) -> JsonlSink {
-        JsonlSink { path: dir.as_ref().join(file_name(std::process::id())) }
-    }
-
-    pub fn path(&self) -> &Path {
-        &self.path
-    }
-}
-
-/// The hang file of process `pid`.
-pub fn file_name(pid: u32) -> String {
-    format!("hangs-{pid}.jsonl")
-}
-
-impl HangSink for JsonlSink {
-    fn record(&self, hang: &Hang) -> io::Result<()> {
-        if let Some(dir) = self.path.parent() {
-            std::fs::create_dir_all(dir)?;
-        }
-        let mut file = std::fs::OpenOptions::new().create(true).append(true).open(&self.path)?;
-        // One write of the whole line: an append that small lands whole.
-        file.write_all(hang.to_json_line().as_bytes())
     }
 }
 
@@ -280,47 +195,13 @@ pub struct Stats {
     /// Hangs whose stack sample failed (macOS; the record goes out without a stack).
     pub sample_errors: u64,
     /// `runtime.busy_ms`: time the watched tokio workers ran between an unpark and the next park,
-    /// summed over every instrumented runtime ([`tokio::WorkerHooks`]). Report triggers read it here.
+    /// summed over every instrumented runtime ([`tokio::WorkerHooks`]). The daemons' stats
+    /// (`server-stats` `runtime`, acpmux `daemon status`) report it.
     pub runtime_busy_ms: u64,
+    /// The busy periods summed in `runtime_busy_ms`.
+    pub runtime_busy_periods: u64,
     /// The watcher is parked with no timer.
     pub parked: bool,
-}
-
-// A slot's state word: 0 while no scope is open. Bits 0-39: the deadline in ms since the watch's
-// epoch (34 years); bits 40-59: the scope's deadline duration in ms (at least 1, so an open state
-// is never 0); bit 60: ignored (`invalidate_active`); bit 61: reported. A late watcher ignores
-// through `Shared::ignore_through_ms` instead.
-const DEADLINE_MASK: u64 = (1 << 40) - 1;
-const BUDGET_SHIFT: u32 = 40;
-const BUDGET_MAX_MS: u64 = (1 << 20) - 1;
-const IGNORED: u64 = 1 << 60;
-const REPORTED: u64 = 1 << 61;
-const FLAGS: u64 = IGNORED | REPORTED;
-
-fn pack(deadline_ms: u64, budget_ms: u64) -> u64 {
-    deadline_ms.min(DEADLINE_MASK) | (budget_ms << BUDGET_SHIFT)
-}
-
-fn deadline_of(state: u64) -> u64 {
-    state & DEADLINE_MASK
-}
-
-fn budget_of(state: u64) -> u64 {
-    (state >> BUDGET_SHIFT) & BUDGET_MAX_MS
-}
-
-/// An open scope the watcher may still have to report.
-fn armed(state: u64, ignore_through_ms: u64) -> bool {
-    state != 0 && state & (IGNORED | REPORTED) == 0 && deadline_of(state) > ignore_through_ms
-}
-
-fn budget_ms(deadline: Duration) -> u64 {
-    let ms = deadline.as_nanos().div_ceil(1_000_000);
-    u64::try_from(ms).unwrap_or(u64::MAX).clamp(1, BUDGET_MAX_MS)
-}
-
-fn duration_ns(duration: Duration) -> u64 {
-    u64::try_from(duration.as_nanos()).unwrap_or(u64::MAX)
 }
 
 // The watcher's word: an opener moves QUIET or PARKED to SEEN, and unparks the watcher when it was
@@ -329,116 +210,30 @@ const QUIET: u8 = 0;
 const SEEN: u8 = 1;
 const PARKED: u8 = 2;
 
-/// One registered thread. The owner thread writes `state`; the watcher only sets `REPORTED` with a
-/// compare-exchange. `generation` changes at every register and unregister, so the watcher tells a
-/// reused slot apart.
-#[repr(align(64))]
-struct Slot {
-    state: AtomicU64,
-    native: AtomicU64,
-    generation: AtomicU32,
-    in_use: AtomicBool,
-    kind: AtomicU8,
-    name: [AtomicU64; NAME_BYTES / 8],
+/// The watcher's note on a slot's running scope ([`Guard::watch_running`]). Only passes touch it.
+struct RunMark {
+    /// The running word it last saw on the slot, without flags.
+    word: AtomicU64,
+    /// The thread's CPU time at that pass.
+    cpu_ns: AtomicU64,
+    /// The scope's deadline (ms since the epoch), a budget past the last pass that saw CPU time.
+    deadline_ms: AtomicU64,
 }
 
-const _: () = assert!(size_of::<Slot>() == 64);
-
-impl Slot {
-    const fn new() -> Slot {
-        Slot {
-            state: AtomicU64::new(0),
-            native: AtomicU64::new(0),
-            generation: AtomicU32::new(0),
-            in_use: AtomicBool::new(false),
-            kind: AtomicU8::new(0),
-            name: [const { AtomicU64::new(0) }; NAME_BYTES / 8],
-        }
-    }
-
-    fn set_name(&self, name: &str) {
-        let mut end = name.len().min(NAME_BYTES);
-        while !name.is_char_boundary(end) {
-            end -= 1;
-        }
-        let mut bytes = [0u8; NAME_BYTES];
-        bytes[..end].copy_from_slice(&name.as_bytes()[..end]);
-        for (word, chunk) in self.name.iter().zip(bytes.chunks_exact(8)) {
-            let mut le = [0u8; 8];
-            le.copy_from_slice(chunk);
-            word.store(u64::from_le_bytes(le), Ordering::Relaxed);
-        }
-    }
-
-    fn read_name(&self) -> String {
-        let mut bytes = [0u8; NAME_BYTES];
-        for (word, chunk) in self.name.iter().zip(bytes.chunks_exact_mut(8)) {
-            chunk.copy_from_slice(&word.load(Ordering::Relaxed).to_le_bytes());
-        }
-        let end = bytes.iter().position(|byte| *byte == 0).unwrap_or(NAME_BYTES);
-        String::from_utf8_lossy(&bytes[..end]).into_owned()
-    }
-
-    /// Opens a scope: returns the word it wrote and the enclosing word. The swap keeps a `REPORTED`
-    /// bit the watcher sets on the enclosing word up to the open, so that scope is not reported twice.
-    #[inline]
-    fn open(&self, shared: &Shared, deadline: Duration) -> (u64, u64) {
-        let budget = budget_ms(deadline);
-        let opened = pack(shared.now_ms().saturating_add(budget), budget);
-        let previous = self.state.swap(opened, Ordering::AcqRel);
-        shared.note_open();
-        (opened, previous)
-    }
-
-    /// Closes the scope that wrote `opened`, back to the enclosing word `previous`.
-    #[inline]
-    fn close(&self, shared: &Shared, generation: u32, opened: u64, previous: u64) {
-        if self.generation.load(Ordering::Relaxed) != generation {
-            return; // The guard went first; the slot is no longer this thread's.
-        }
-        let mut current = self.state.load(Ordering::Relaxed);
-        loop {
-            if current & !FLAGS != opened {
-                self.close_out_of_order(current);
-                return;
-            }
-            // Only the watcher writes the word meanwhile, and only to add `REPORTED`: the loop
-            // retries until the restored word carries every flag the closing word had.
-            let restored = shared.restored(current, previous);
-            match self.state.compare_exchange_weak(
-                current,
-                restored,
-                Ordering::Release,
-                Ordering::Relaxed,
-            ) {
-                Ok(_) => break,
-                Err(actual) => current = actual,
-            }
-        }
-        if previous != 0 {
-            // The enclosing scope watches again: a watcher that parked while only a reported or
-            // invalidated scope was open must see it.
-            shared.note_open();
-        }
-    }
-
-    /// A scope closed while a scope it encloses is still open (`current`), or after one did that
-    /// (0). Clearing the slot drops the stale scopes the open ones saved; their closes then find a
-    /// word that is not theirs and do nothing.
-    #[cold]
-    fn close_out_of_order(&self, current: u64) {
-        self.state.store(0, Ordering::Release);
-        debug_assert!(current == 0, "hang-watch scopes close innermost first");
-    }
-
-    fn invalidate(&self) {
-        if self.state.load(Ordering::Relaxed) != 0 {
-            self.state.fetch_or(IGNORED, Ordering::Relaxed);
+impl RunMark {
+    const fn new() -> RunMark {
+        RunMark {
+            word: AtomicU64::new(0),
+            cpu_ns: AtomicU64::new(0),
+            deadline_ms: AtomicU64::new(0),
         }
     }
 }
 
-type Chunk = [Slot; SLOTS_PER_CHUNK];
+struct Chunk {
+    slots: [Slot; SLOTS_PER_CHUNK],
+    marks: [RunMark; SLOTS_PER_CHUNK],
+}
 
 struct Shared {
     config: Config,
@@ -462,6 +257,7 @@ struct Shared {
     sink_errors: AtomicU64,
     sample_errors: AtomicU64,
     runtime_busy_ns: AtomicU64,
+    runtime_busy_periods: AtomicU64,
 }
 
 impl Shared {
@@ -516,14 +312,15 @@ impl Shared {
         unsafe { self.chunks[index].load(Ordering::Acquire).as_ref() }
     }
 
-    fn slots(&self) -> impl Iterator<Item = (u32, &Slot)> {
+    fn slots(&self) -> impl Iterator<Item = (u32, &Slot, &RunMark)> {
         let count = self.chunk_count.load(Ordering::Acquire).min(MAX_CHUNKS);
         (0..count).filter_map(|index| self.chunk(index).map(|chunk| (index, chunk))).flat_map(
             |(index, chunk)| {
-                chunk
-                    .iter()
-                    .enumerate()
-                    .map(move |(offset, slot)| ((index * SLOTS_PER_CHUNK + offset) as u32, slot))
+                chunk.slots.iter().zip(&chunk.marks).enumerate().map(
+                    move |(offset, (slot, mark))| {
+                        ((index * SLOTS_PER_CHUNK + offset) as u32, slot, mark)
+                    },
+                )
             },
         )
     }
@@ -535,7 +332,7 @@ impl Shared {
                 Some(chunk) => chunk,
                 None => self.grow(index),
             };
-            let free = chunk.iter().find(|slot| {
+            let free = chunk.slots.iter().find(|slot| {
                 !slot.in_use.load(Ordering::Relaxed)
                     && slot
                         .in_use
@@ -551,7 +348,10 @@ impl Shared {
 
     #[cold]
     fn grow(&self, index: usize) -> &Chunk {
-        let fresh = Box::into_raw(Box::new([const { Slot::new() }; SLOTS_PER_CHUNK]));
+        let fresh = Box::into_raw(Box::new(Chunk {
+            slots: [const { Slot::new() }; SLOTS_PER_CHUNK],
+            marks: [const { RunMark::new() }; SLOTS_PER_CHUNK],
+        }));
         let installed = match self.chunks[index].compare_exchange(
             ptr::null_mut(),
             fresh,
@@ -581,7 +381,7 @@ impl Shared {
         }
         let ignore_through = self.ignore_through_ms.load(Ordering::Relaxed);
         let mut pass = Pass { late, ..Pass::default() };
-        for (index, slot) in self.slots() {
+        for (index, slot, mark) in self.slots() {
             let state = slot.state.load(Ordering::Acquire);
             if state == 0 {
                 continue;
@@ -590,15 +390,26 @@ impl Shared {
             if !armed(state, ignore_through) {
                 continue;
             }
-            if deadline_of(state) > now_ms {
+            let deadline_ms = if state & RUNNING == 0 {
+                deadline_of(state)
+            } else {
+                self.running_deadline(slot, mark, state, now_ms)
+            };
+            if deadline_ms > now_ms {
                 pass.armed += 1;
                 continue;
             }
-            let reported = self.read_hang(index, slot, state, now_ns, now_ms).filter(|_| {
-                slot.state
-                    .compare_exchange(state, state | REPORTED, Ordering::AcqRel, Ordering::Relaxed)
-                    .is_ok()
-            });
+            let reported =
+                self.read_hang(index, slot, state, deadline_ms, now_ns, now_ms).filter(|_| {
+                    slot.state
+                        .compare_exchange(
+                            state,
+                            state | REPORTED,
+                            Ordering::AcqRel,
+                            Ordering::Relaxed,
+                        )
+                        .is_ok()
+                });
             let Some((mut hang, generation)) = reported else {
                 // The scope closed, nested or changed owner meanwhile; the next pass sees it.
                 pass.armed += 1;
@@ -613,6 +424,21 @@ impl Shared {
         }
         self.passes.fetch_add(1, Ordering::Relaxed);
         pass
+    }
+
+    /// A running scope's deadline: its own until a pass sees its thread's CPU time grow, then a
+    /// full budget past the last pass that saw it grow. A thread with no CPU clock always runs.
+    fn running_deadline(&self, slot: &Slot, mark: &RunMark, state: u64, now_ms: u64) -> u64 {
+        let word = state & !FLAGS;
+        let cpu_ns = self.clock.thread_cpu_ns(slot.native.load(Ordering::Relaxed));
+        if mark.word.swap(word, Ordering::Relaxed) != word {
+            mark.cpu_ns.store(cpu_ns.unwrap_or(0), Ordering::Relaxed);
+            mark.deadline_ms.store(deadline_of(state), Ordering::Relaxed);
+        } else if cpu_ns.is_none_or(|cpu_ns| mark.cpu_ns.swap(cpu_ns, Ordering::Relaxed) != cpu_ns)
+        {
+            mark.deadline_ms.store(now_ms.saturating_add(budget_of(state)), Ordering::Relaxed);
+        }
+        mark.deadline_ms.load(Ordering::Relaxed)
     }
 
     /// The hung thread's stack, while its slot still belongs to it (same generation).
@@ -641,6 +467,7 @@ impl Shared {
         index: u32,
         slot: &Slot,
         state: u64,
+        deadline_ms: u64,
         now_ns: u64,
         now_ms: u64,
     ) -> Option<(Hang, u32)> {
@@ -660,7 +487,7 @@ impl Shared {
             native_thread_id,
             slot: index,
             deadline_ms: budget_of(state),
-            overdue_ms: now_ms - deadline_of(state),
+            overdue_ms: now_ms - deadline_ms,
             stack: None,
         };
         Some((hang, generation))
@@ -668,7 +495,7 @@ impl Shared {
 
     fn any_armed(&self) -> bool {
         let ignore_through = self.ignore_through_ms.load(Ordering::Relaxed);
-        self.slots().any(|(_, slot)| armed(slot.state.load(Ordering::Relaxed), ignore_through))
+        self.slots().any(|(_, slot, _)| armed(slot.state.load(Ordering::Relaxed), ignore_through))
     }
 
     /// Parks when nothing opened during the last period. False when a scope opened meanwhile.
@@ -737,6 +564,7 @@ impl Shared {
             sink_errors: self.sink_errors.load(Ordering::Relaxed),
             sample_errors: self.sample_errors.load(Ordering::Relaxed),
             runtime_busy_ms: self.runtime_busy_ns.load(Ordering::Relaxed) / 1_000_000,
+            runtime_busy_periods: self.runtime_busy_periods.load(Ordering::Relaxed),
             parked: self.watcher.load(Ordering::Relaxed) == PARKED,
         }
     }
@@ -786,6 +614,7 @@ impl HangWatch {
                 sink_errors: AtomicU64::new(0),
                 sample_errors: AtomicU64::new(0),
                 runtime_busy_ns: AtomicU64::new(0),
+                runtime_busy_periods: AtomicU64::new(0),
             }),
             watcher: None,
         }
@@ -891,8 +720,21 @@ impl<'a> Guard<'a> {
     /// Opens a scope on this thread's slot: it hangs if still open after `deadline`.
     #[inline]
     pub fn watch(&self, deadline: Duration) -> Scope<'a> {
+        self.open(deadline, 0)
+    }
+
+    /// Opens a scope over many short items the watch cannot see one by one (a tokio worker between
+    /// its unpark and its park): it hangs only when the thread got no CPU time for `deadline`
+    /// since the watcher last looked, so a busy thread is not blamed and a blocked one is.
+    #[inline]
+    pub fn watch_running(&self, deadline: Duration) -> Scope<'a> {
+        self.open(deadline, RUNNING)
+    }
+
+    #[inline]
+    fn open(&self, deadline: Duration, running: u64) -> Scope<'a> {
         match &self.registered {
-            Some(registered) => Scope::open(registered.shared, registered.slot, deadline),
+            Some(registered) => Scope::open(registered.shared, registered.slot, deadline, running),
             None => Scope::inert(),
         }
     }
@@ -910,10 +752,11 @@ impl<'a> Guard<'a> {
         self.registered.as_ref().map(|registered| registered.shared.clock.now_ns())
     }
 
-    /// Adds `ns` to the watch's [`Stats::runtime_busy_ms`].
+    /// Adds one busy period of `ns` to the watch's [`Stats::runtime_busy_ms`].
     pub(crate) fn add_runtime_busy(&self, ns: u64) {
         if let Some(registered) = &self.registered {
             registered.shared.runtime_busy_ns.fetch_add(ns, Ordering::Relaxed);
+            registered.shared.runtime_busy_periods.fetch_add(1, Ordering::Relaxed);
         }
     }
 }
@@ -957,9 +800,9 @@ pub struct Scope<'a> {
 
 impl<'a> Scope<'a> {
     #[inline]
-    fn open(shared: &'a Shared, slot: &'a Slot, deadline: Duration) -> Scope<'a> {
+    fn open(shared: &'a Shared, slot: &'a Slot, deadline: Duration, running: u64) -> Scope<'a> {
         let generation = slot.generation.load(Ordering::Relaxed);
-        let (opened, previous) = slot.open(shared, deadline);
+        let (opened, previous) = slot.open(shared, deadline, running);
         Scope {
             open: Some(Open { shared, slot, generation, opened, previous }),
             _thread_bound: PhantomData,
@@ -1064,7 +907,7 @@ pub fn watch(deadline: Duration) -> Scope<'static> {
     // SAFETY: CURRENT holds only slots of PROCESS (set by `register_thread`), whose chunks are
     // freed only when PROCESS drops, which a static never does.
     match unsafe { slot.as_ref() } {
-        Some(slot) => Scope::open(&process.shared, slot, deadline),
+        Some(slot) => Scope::open(&process.shared, slot, deadline, 0),
         None => Scope::inert(),
     }
 }
@@ -1085,102 +928,6 @@ pub fn stats() -> Option<Stats> {
     PROCESS.get().map(HangWatch::stats)
 }
 
-/// The watcher's class (threading-model.md: utility). A macOS thread starts at its creator's class.
-/// Linux: the thread keeps its creator's nice value.
-#[cfg(target_vendor = "apple")]
-fn run_at_utility_qos() {
-    // SAFETY: sets the calling thread's own QoS class; no pointer arguments.
-    unsafe { libc::pthread_set_qos_class_self_np(libc::qos_class_t::QOS_CLASS_UTILITY, 0) };
-}
-
-#[cfg(not(target_vendor = "apple"))]
-fn run_at_utility_qos() {}
-
-#[cfg(target_vendor = "apple")]
-fn native_thread_id() -> u64 {
-    // SAFETY: pthread_self has no preconditions and its result is the calling thread's handle.
-    u64::from(unsafe { libc::pthread_mach_thread_np(libc::pthread_self()) })
-}
-
-#[cfg(any(target_os = "linux", target_os = "android"))]
-fn native_thread_id() -> u64 {
-    // SAFETY: gettid has no arguments and no preconditions.
-    let tid = unsafe { libc::syscall(libc::SYS_gettid) };
-    u64::try_from(tid).unwrap_or(0)
-}
-
-#[cfg(all(unix, not(any(target_vendor = "apple", target_os = "linux", target_os = "android"))))]
-fn native_thread_id() -> u64 {
-    // SAFETY: pthread_self has no preconditions.
-    unsafe { libc::pthread_self() as usize as u64 }
-}
-
-#[cfg(windows)]
-fn native_thread_id() -> u64 {
-    #[link(name = "kernel32")]
-    unsafe extern "system" {
-        safe fn GetCurrentThreadId() -> u32;
-    }
-    u64::from(GetCurrentThreadId())
-}
-
-#[cfg(not(any(unix, windows)))]
-fn native_thread_id() -> u64 {
-    0
-}
-
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn state_packs_deadline_budget_and_flags_apart() {
-        let state = pack(123_456, 2_000);
-        assert_eq!(deadline_of(state), 123_456);
-        assert_eq!(budget_of(state), 2_000);
-        assert_eq!(budget_of(state | IGNORED | REPORTED), 2_000);
-        assert_eq!(budget_ms(Duration::ZERO), 1, "an open state is never 0");
-        assert_eq!(budget_ms(Duration::from_micros(1500)), 2);
-        assert_eq!(budget_ms(Duration::from_secs(10_000)), BUDGET_MAX_MS);
-    }
-
-    #[test]
-    fn names_are_cut_at_a_character_boundary() {
-        let slot = Slot::new();
-        slot.set_name("mux-control-dispatch");
-        assert_eq!(slot.read_name(), "mux-control-dispatch");
-        let long = "é".repeat(30);
-        slot.set_name(&long);
-        assert_eq!(slot.read_name(), "é".repeat(20));
-    }
-
-    #[test]
-    fn json_line_escapes_the_name() {
-        let hang = Hang {
-            pid: 7,
-            t_ns: 9,
-            thread: "a\"b\\c\n".into(),
-            kind: ThreadKind::Io,
-            native_thread_id: 3,
-            slot: 1,
-            deadline_ms: 250,
-            overdue_ms: 4,
-            stack: None,
-        };
-        assert_eq!(
-            hang.to_json_line(),
-            "{\"schema\":1,\"pid\":7,\"t_ns\":9,\"thread\":\"a\\\"b\\\\c\\u000a\",\"kind\":\"io\",\
-             \"native_thread_id\":3,\"slot\":1,\"deadline_ms\":250,\"overdue_ms\":4}\n"
-        );
-    }
-
-    #[test]
-    fn thread_kinds_round_trip_with_the_swift_values() {
-        let raw: Vec<u8> = ThreadKind::ALL.iter().map(|kind| *kind as u8).collect();
-        assert_eq!(raw, [1, 2, 3, 4, 5, 6]);
-        for kind in ThreadKind::ALL {
-            assert_eq!(ThreadKind::from_raw(kind as u8), Some(kind));
-        }
-        assert_eq!(ThreadKind::from_raw(0), None);
-    }
-}
+#[path = "lib_tests.rs"]
+mod tests;

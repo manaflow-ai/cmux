@@ -371,6 +371,7 @@ test "every generated optional non-null field rejects explicit null" {
     try expectExplicitNullRejected(protocol.ServerStatsResult, "request_latency_us");
     try expectExplicitNullRejected(protocol.ServerStatsResult, "request_path_io");
     try expectExplicitNullRejected(protocol.ServerStatsResult, "resource_projection");
+    try expectExplicitNullRejected(protocol.ServerStatsResult, "runtime");
     try expectExplicitNullRejected(protocol.ServerStatsResult, "slow_requests");
     try expectExplicitNullRejected(protocol.ServerStatsResult, "write_path");
     try expectExplicitNullRejected(protocol.SetSizeCountsResult, "changed");

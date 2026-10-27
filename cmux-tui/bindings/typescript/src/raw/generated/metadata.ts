@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR df10717146553dfa363854f65845a400d363319d750b9f1e04386389220171be. */
+/* cmux-tui mux protocol 12, IR f31048b80367373cff7ea1ec27059f20b914eba8db7d9299a523103a27db6935. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "df10717146553dfa363854f65845a400d363319d750b9f1e04386389220171be" as const;
+export const SDK_IR_SHA256 = "f31048b80367373cff7ea1ec27059f20b914eba8db7d9299a523103a27db6935" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -14876,7 +14876,8 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
       "request_latency_us and dispatch_queue_us are present only when the request names requests in include; dispatch_queue_us is microseconds from a request's parse to its handler's start.",
       "lock_classes is present only when the request names it in include.",
       "ipc is present only when the request names it in include.",
-      "ipc_methods is present only when the request names it in include; its rows are ordered by id, the rows without one last."
+      "ipc_methods is present only when the request names it in include; its rows are ordered by id, the rows without one last.",
+      "runtime is present only when the request names it in include and the daemon runs its hang watch; busy_ms is the time its watched tokio workers ran between an unpark and the next park."
     ],
     "fields": {
       "connections": {
@@ -14962,6 +14963,14 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
           "name": "ServerStatsResourceProjection"
         }
       },
+      "runtime": {
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "ref",
+          "name": "ServerStatsRuntime"
+        }
+      },
       "schema": {
         "nullable": false,
         "presence": "required",
@@ -14992,6 +15001,40 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "ref",
           "name": "ServerStatsWritePath"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "ServerStatsRuntime": {
+    "additional_properties": false,
+    "constraints": [
+      "Counters accumulate since daemon start.",
+      "busy_ms sums busy_periods periods of the instrumented tokio runtimes; hangs counts every hang record of the process hang watch."
+    ],
+    "fields": {
+      "busy_ms": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "busy_periods": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "hangs": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
         }
       }
     },

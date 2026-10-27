@@ -24503,6 +24503,21 @@
         "ty": "uint64",
         "required": true
       },
+      "/data/runtime": {
+        "ty": "object"
+      },
+      "/data/runtime/busy_ms": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/runtime/busy_periods": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/runtime/hangs": {
+        "ty": "uint64",
+        "required": true
+      },
       "/data/schema": {
         "ty": "uint32",
         "required": true

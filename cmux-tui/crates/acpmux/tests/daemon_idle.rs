@@ -453,6 +453,9 @@ fn acpmux_daemon_idle_has_no_periodic_wakeups() {
     assert!(consumers.iter().any(|c| c["name"] == "pool.auth_cache"), "{}", status["memory"]);
     assert!(consumers.iter().all(|c| c.get("bytes").is_some()), "{}", status["memory"]);
     eprintln!("memory pressure source running: {}", status["memory"]["pressure_source"]);
+    // `daemon run` runs the hang watch, so `daemon status` reports its `runtime.busy_ms`.
+    assert!(status["runtime"]["busy_ms"].is_u64(), "{}", status["runtime"]);
+    assert!(status["runtime"]["busy_periods"].is_u64(), "{}", status["runtime"]);
     assert_idle(&daemon, "an idle acpmux daemon");
 }
 

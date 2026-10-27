@@ -13710,6 +13710,11 @@ Result<Json> Codec<ServerStatsResult>::encode(const ServerStatsResult& value) {
         if (!encoded) return std::move(encoded).error();
         object.emplace("resource_projection", std::move(encoded).value());
     }
+    if (value.runtime) {
+        auto encoded = encode_value(*value.runtime);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("runtime", std::move(encoded).value());
+    }
     auto encoded_schema = encode_value(value.schema);
     if (!encoded_schema) return std::move(encoded_schema).error();
     object.emplace("schema", std::move(encoded_schema).value());
@@ -13806,6 +13811,12 @@ Result<ServerStatsResult> Codec<ServerStatsResult>::decode(const Json& value) {
         if (!decoded) return std::move(decoded).error();
         result.resource_projection = std::move(decoded).value();
     }
+    const Json* field_runtime = value.find("runtime");
+    if (field_runtime) {
+        auto decoded = decode_value<ServerStatsRuntime>(*field_runtime);
+        if (!decoded) return std::move(decoded).error();
+        result.runtime = std::move(decoded).value();
+    }
     const Json* field_schema = value.find("schema");
     if (!field_schema) {
         return make_error(ErrorCode::decode, "missing required field 'schema'");
@@ -13835,6 +13846,55 @@ Result<ServerStatsResult> Codec<ServerStatsResult>::decode(const Json& value) {
         auto decoded = decode_value<ServerStatsWritePath>(*field_write_path);
         if (!decoded) return std::move(decoded).error();
         result.write_path = std::move(decoded).value();
+    }
+    return result;
+}
+
+Result<Json> Codec<ServerStatsRuntime>::encode(const ServerStatsRuntime& value) {
+    (void)value;
+    Json::Object object;
+    auto encoded_busy_ms = encode_value(value.busy_ms);
+    if (!encoded_busy_ms) return std::move(encoded_busy_ms).error();
+    object.emplace("busy_ms", std::move(encoded_busy_ms).value());
+    auto encoded_busy_periods = encode_value(value.busy_periods);
+    if (!encoded_busy_periods) return std::move(encoded_busy_periods).error();
+    object.emplace("busy_periods", std::move(encoded_busy_periods).value());
+    auto encoded_hangs = encode_value(value.hangs);
+    if (!encoded_hangs) return std::move(encoded_hangs).error();
+    object.emplace("hangs", std::move(encoded_hangs).value());
+    return Json(std::move(object));
+}
+
+Result<ServerStatsRuntime> Codec<ServerStatsRuntime>::decode(const Json& value) {
+    auto source = value.as_object();
+    if (!source) return std::move(source).error();
+    ServerStatsRuntime result{};
+    const Json* field_busy_ms = value.find("busy_ms");
+    if (!field_busy_ms) {
+        return make_error(ErrorCode::decode, "missing required field 'busy_ms'");
+    }
+    if (field_busy_ms) {
+        auto decoded = decode_value<std::uint64_t>(*field_busy_ms);
+        if (!decoded) return std::move(decoded).error();
+        result.busy_ms = std::move(decoded).value();
+    }
+    const Json* field_busy_periods = value.find("busy_periods");
+    if (!field_busy_periods) {
+        return make_error(ErrorCode::decode, "missing required field 'busy_periods'");
+    }
+    if (field_busy_periods) {
+        auto decoded = decode_value<std::uint64_t>(*field_busy_periods);
+        if (!decoded) return std::move(decoded).error();
+        result.busy_periods = std::move(decoded).value();
+    }
+    const Json* field_hangs = value.find("hangs");
+    if (!field_hangs) {
+        return make_error(ErrorCode::decode, "missing required field 'hangs'");
+    }
+    if (field_hangs) {
+        auto decoded = decode_value<std::uint64_t>(*field_hangs);
+        if (!decoded) return std::move(decoded).error();
+        result.hangs = std::move(decoded).value();
     }
     return result;
 }

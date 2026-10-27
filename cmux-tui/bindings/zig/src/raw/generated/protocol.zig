@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "df10717146553dfa363854f65845a400d363319d750b9f1e04386389220171be";
+pub const ir_sha256 = "f31048b80367373cff7ea1ec27059f20b914eba8db7d9299a523103a27db6935";
 
 pub const AccessRequestKind = enum {
     file,
@@ -2986,6 +2986,7 @@ pub const ServerStatsResult = struct {
     request_latency_us: ?ServerStatsRequestLatency = null,
     request_path_io: ?ServerStatsRequestPathIo = null,
     resource_projection: ?ServerStatsResourceProjection = null,
+    runtime: ?ServerStatsRuntime = null,
     schema: u32,
     slow_requests: ?ServerStatsSlowRequests = null,
     uptime_ms: u64,
@@ -2999,9 +3000,16 @@ pub const ServerStatsResult = struct {
         "request_latency_us",
         "request_path_io",
         "resource_projection",
+        "runtime",
         "slow_requests",
         "write_path",
     };
+};
+
+pub const ServerStatsRuntime = struct {
+    busy_ms: u64,
+    busy_periods: u64,
+    hangs: u64,
 };
 
 pub const ServerStatsSlowRequest = struct {

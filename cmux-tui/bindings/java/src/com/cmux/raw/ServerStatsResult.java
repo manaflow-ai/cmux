@@ -21,6 +21,7 @@ public final class ServerStatsResult implements WireValue {
     private final Field<ServerStatsRequestLatency> requestLatencyUs;
     private final Field<ServerStatsRequestPathIo> requestPathIo;
     private final Field<ServerStatsResourceProjection> resourceProjection;
+    private final Field<ServerStatsRuntime> runtime;
     private final long schema;
     private final Field<ServerStatsSlowRequests> slowRequests;
     private final UInt64 uptimeMs;
@@ -40,6 +41,7 @@ public final class ServerStatsResult implements WireValue {
         this.requestLatencyUs = builder.requestLatencyUs;
         this.requestPathIo = builder.requestPathIo;
         this.resourceProjection = builder.resourceProjection;
+        this.runtime = builder.runtime;
         if (!builder.schemaSet) throw new IllegalArgumentException("schema is required");
         this.schema = builder.schema;
         this.slowRequests = builder.slowRequests;
@@ -60,6 +62,7 @@ public final class ServerStatsResult implements WireValue {
     public Field<ServerStatsRequestLatency> requestLatencyUs() { return requestLatencyUs; }
     public Field<ServerStatsRequestPathIo> requestPathIo() { return requestPathIo; }
     public Field<ServerStatsResourceProjection> resourceProjection() { return resourceProjection; }
+    public Field<ServerStatsRuntime> runtime() { return runtime; }
     public long schema() { return schema; }
     public Field<ServerStatsSlowRequests> slowRequests() { return slowRequests; }
     public UInt64 uptimeMs() { return uptimeMs; }
@@ -102,6 +105,10 @@ public final class ServerStatsResult implements WireValue {
         if (!Wire.isMissing(rawResourceProjection)) {
             builder.resourceProjection(ServerStatsResourceProjection.fromWire(rawResourceProjection));
         }
+        Object rawRuntime = Wire.optional(object, "runtime");
+        if (!Wire.isMissing(rawRuntime)) {
+            builder.runtime(ServerStatsRuntime.fromWire(rawRuntime));
+        }
         Object rawSchema = Wire.required(object, "schema");
         builder.schema(Wire.uint32(rawSchema, "ServerStatsResult.schema"));
         Object rawSlowRequests = Wire.optional(object, "slow_requests");
@@ -130,6 +137,7 @@ public final class ServerStatsResult implements WireValue {
         Wire.put(object, "request_latency_us", requestLatencyUs);
         Wire.put(object, "request_path_io", requestPathIo);
         Wire.put(object, "resource_projection", resourceProjection);
+        Wire.put(object, "runtime", runtime);
         Wire.put(object, "schema", schema);
         Wire.put(object, "slow_requests", slowRequests);
         Wire.put(object, "uptime_ms", uptimeMs);
@@ -140,11 +148,11 @@ public final class ServerStatsResult implements WireValue {
     @Override
     public boolean equals(Object other) {
         if (!(other instanceof ServerStatsResult that)) return false;
-        return Objects.equals(connections, that.connections) && Objects.equals(dispatchQueueUs, that.dispatchQueueUs) && Objects.equals(ipc, that.ipc) && Objects.equals(ipcMethods, that.ipcMethods) && Objects.equals(journalWriter, that.journalWriter) && Objects.equals(lockClasses, that.lockClasses) && Objects.equals(registryLock, that.registryLock) && Objects.equals(requestLatencyUs, that.requestLatencyUs) && Objects.equals(requestPathIo, that.requestPathIo) && Objects.equals(resourceProjection, that.resourceProjection) && Objects.equals(schema, that.schema) && Objects.equals(slowRequests, that.slowRequests) && Objects.equals(uptimeMs, that.uptimeMs) && Objects.equals(writePath, that.writePath);
+        return Objects.equals(connections, that.connections) && Objects.equals(dispatchQueueUs, that.dispatchQueueUs) && Objects.equals(ipc, that.ipc) && Objects.equals(ipcMethods, that.ipcMethods) && Objects.equals(journalWriter, that.journalWriter) && Objects.equals(lockClasses, that.lockClasses) && Objects.equals(registryLock, that.registryLock) && Objects.equals(requestLatencyUs, that.requestLatencyUs) && Objects.equals(requestPathIo, that.requestPathIo) && Objects.equals(resourceProjection, that.resourceProjection) && Objects.equals(runtime, that.runtime) && Objects.equals(schema, that.schema) && Objects.equals(slowRequests, that.slowRequests) && Objects.equals(uptimeMs, that.uptimeMs) && Objects.equals(writePath, that.writePath);
     }
 
     @Override
-    public int hashCode() { return Objects.hash(connections, dispatchQueueUs, ipc, ipcMethods, journalWriter, lockClasses, registryLock, requestLatencyUs, requestPathIo, resourceProjection, schema, slowRequests, uptimeMs, writePath); }
+    public int hashCode() { return Objects.hash(connections, dispatchQueueUs, ipc, ipcMethods, journalWriter, lockClasses, registryLock, requestLatencyUs, requestPathIo, resourceProjection, runtime, schema, slowRequests, uptimeMs, writePath); }
 
     @Override
     public String toString() { return "ServerStatsResult" + toWire(); }
@@ -163,6 +171,7 @@ public final class ServerStatsResult implements WireValue {
         private Field<ServerStatsRequestLatency> requestLatencyUs = Field.omitted();
         private Field<ServerStatsRequestPathIo> requestPathIo = Field.omitted();
         private Field<ServerStatsResourceProjection> resourceProjection = Field.omitted();
+        private Field<ServerStatsRuntime> runtime = Field.omitted();
         private Long schema;
         private boolean schemaSet;
         private Field<ServerStatsSlowRequests> slowRequests = Field.omitted();
@@ -211,6 +220,10 @@ public final class ServerStatsResult implements WireValue {
         }
         public Builder resourceProjection(ServerStatsResourceProjection value) {
             this.resourceProjection = Field.of(value);
+            return this;
+        }
+        public Builder runtime(ServerStatsRuntime value) {
+            this.runtime = Field.of(value);
             return this;
         }
         public Builder schema(long value) {
