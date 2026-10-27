@@ -25,9 +25,10 @@ echo "$*" >> "$LOG"
 case "$1" in
   api) case "$*" in
          */jobs*) [ -n "${JOBS_FAIL:-}" ] && exit 1; printf '%s' "${JOBS:-}" ;;
+         */actions/runs/*) printf '%s' "${NOW:-completed cancelled ${ATTEMPT:-1}}" ;;
          *) printf '%s' "$RUNS" ;;
        esac ;;
-  run) exit 0 ;;
+  run) echo "attempts=${GH_BUDGET_WAIT_ATTEMPTS:-}" >> "$LOG"; exit 0 ;;
 esac
 """
 
@@ -53,25 +54,36 @@ class CancelledTip(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn(f"head_sha={TIP}", calls[0])
         self.assertIn("runs/40340830337/attempts/1/jobs", calls[1])
-        self.assertEqual(calls[2], "run rerun 40340830337 --failed -R o/r")
+        self.assertIn("runs/40340830337 --jq", calls[2])
+        self.assertEqual(calls[3:], ["run rerun 40340830337 --failed -R o/r", "attempts=1"])
         self.assertIn("re-ran its failed and cancelled jobs", result.stdout)
+
+    def test_a_run_that_changed_since_the_read_is_not_re_run(self):
+        # A rescue re-ran it (or it finished) while the reads waited out a rate limit.
+        for now in ("in_progress - 2", "completed success 1", "completed cancelled 2"):
+            with self.subTest(now=now):
+                result, calls = self.run_script("40340830337 completed cancelled 1\n", NOW=now,
+                                                JOBS="build-nightly-app\tblacksmith-6vcpu-macos-26\n")
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertFalse(any(call.startswith("run rerun") for call in calls), calls)
+                self.assertIn("not re-run", result.stdout)
 
     def test_a_tip_cancelled_on_a_dead_picked_label_is_re_run_whole(self):
         # The failed-jobs re-run keeps the earlier pick; a label that never served the job gets a fresh pick.
         for labels in ("blacksmith-6vcpu-macos-26", "glaeda-side-std-xcode-26.6"):
             with self.subTest(labels=labels):
-                result, calls = self.run_script("40340830337 completed cancelled 2\n",
+                result, calls = self.run_script("40340830337 completed cancelled 2\n", ATTEMPT="2",
                                                 JOBS=f"build-nightly-app\t{labels}\n")
                 self.assertEqual(result.returncode, 0, result.stderr)
                 self.assertIn("runs/40340830337/attempts/2/jobs", calls[1])
-                self.assertEqual(calls[2], "run rerun 40340830337 -R o/r")
+                self.assertEqual(calls[3:], ["run rerun 40340830337 -R o/r", "attempts=1"])
                 self.assertIn(f"build-nightly-app never served on {labels}", result.stdout)
                 self.assertIn("chooses fresh", result.stdout)
 
     def test_an_unreadable_attempt_re_runs_its_failed_jobs(self):
         result, calls = self.run_script("40340830337 completed cancelled 1\n", JOBS_FAIL="1")
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(calls[-1], "run rerun 40340830337 --failed -R o/r")
+        self.assertEqual(calls[-2:], ["run rerun 40340830337 --failed -R o/r", "attempts=1"])
         self.assertIn("could not read", result.stdout)
 
     def test_the_jobs_filter_keeps_only_unserved_picked_macos_jobs(self):

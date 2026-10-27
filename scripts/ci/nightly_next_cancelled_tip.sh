@@ -61,11 +61,21 @@ else
   echo "nightly-next tip ${tip:0:12}: could not read attempt $attempt's jobs; re-running its failed jobs"
   unserved=""
 fi
+
+# The reads above may have waited out a rate limit, and a rescue may have re-run the run
+# meanwhile: re-read it right before the re-run, and send the re-run with no wrapper
+# retries (gh_budget_wait.sh), so a stale decision is never sent. A refused re-run fails
+# this step; the next tick decides again from fresh state.
+now="$(gh api "repos/$repo/actions/runs/$id" --jq '"\(.status) \(.conclusion // "-") \(.run_attempt)"')"
+if [[ "$now" != "completed cancelled $attempt" ]]; then
+  echo "nightly-next tip ${tip:0:12}: run $id changed to '$now' since it was read; not re-run"
+  exit 0
+fi
 if [[ -n "$unserved" ]]; then
   first="$(head -n1 <<<"$unserved")"
-  gh run rerun "$id" -R "$repo"
+  GH_BUDGET_WAIT_ATTEMPTS=1 gh run rerun "$id" -R "$repo"
   echo "::notice title=nightly-next tick::the tip ${tip:0:12}'s run $id ended cancelled (attempt $attempt) with ${first%%$'\t'*} never served on ${first#*$'\t'}; re-ran the whole run so the runner picker chooses fresh"
   exit 0
 fi
-gh run rerun "$id" --failed -R "$repo"
+GH_BUDGET_WAIT_ATTEMPTS=1 gh run rerun "$id" --failed -R "$repo"
 echo "::notice title=nightly-next tick::the tip ${tip:0:12}'s run $id ended cancelled (attempt $attempt); re-ran its failed and cancelled jobs"
