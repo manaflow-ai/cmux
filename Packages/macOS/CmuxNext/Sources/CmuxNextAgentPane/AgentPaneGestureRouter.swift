@@ -9,7 +9,8 @@ import CmuxNextWakeups
     /// Judges `event` as this pane's gesture; the pane checks again that it is the person's and its own.
     func judge(_ event: NSEvent, eventWindow: NSWindow?)
     /// The pane's tab in the visibility tree, once the pane that shows it gave one: while it is
-    /// hidden the router asks the pane nothing, in O(1). Nil before then.
+    /// hidden the router asks the pane nothing, in O(1). Nil before then. A node that is not hidden
+    /// does not prove the pane shows: ``ownsChildWindow(_:)`` still checks.
     var gestureNode: VisibilityNode? { get }
     /// Whether `eventWindow`, a child window of the pane's window, is the window this pane's page
     /// draws in now (a Chromium page draws in such a window, over its pane). A hidden pane owns none:
@@ -129,8 +130,10 @@ import CmuxNextWakeups
 extension AgentPaneView: AgentPaneGestureTarget {
     var gestureNode: VisibilityNode? { visibilityNode }
 
-    /// The router asks only while ``gestureNode`` is not hidden; a pane with no node yet reads its view tree.
-    func ownsChildWindow(_ eventWindow: NSWindow) -> Bool { // visibility-walk-allow: one press's hit test, only before the pane has a node
-        page.showsChromium && (visibilityNode != nil || !isHiddenOrHasHiddenAncestor) && chromiumPage?.isPageWindow(eventWindow) == true
+    /// The router asks only while ``gestureNode`` is not hidden. The view tree is still read: a pane's
+    /// node does not follow its screen's hiding yet (p06-scheduler-023), and a page window is matched
+    /// by place, so a pane on a hidden screen at the same rect must not own the shown pane's window.
+    func ownsChildWindow(_ eventWindow: NSWindow) -> Bool { // visibility-walk-allow: one pane per press, after the router's O(1) node skip
+        page.showsChromium && !isHiddenOrHasHiddenAncestor && chromiumPage?.isPageWindow(eventWindow) == true
     }
 }
