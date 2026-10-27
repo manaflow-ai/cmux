@@ -4203,6 +4203,33 @@ class NightlySigningStall(unittest.TestCase):
                           sleep=clock.sleep, log=lines.append)
             self.assertEqual(mutations(api), [], attempt)
 
+    def test_the_sweeper_adopts_a_nightly_next_re_run_on_blacksmith(self):
+        # Run 40500413442's attempt 2 left no marker (its build picker chose Blacksmith): the sweeper lists it.
+        run = dict(nightly_event(head_branch="nightly-next")["workflow_run"], id=7, run_attempt=2,
+                   status="in_progress")
+
+        class API(SweepAPI):
+            listed = 0
+
+            def nightly_reruns(self, count):
+                API.listed += 1
+                return [(7, 2)]
+        api = API([run])
+        watched, _ = Sweeper.sweep(Sweeper(), api, ticks=rescue.SIDE_FAILURE_TICKS + 1)
+        self.assertEqual(watched, [(7, 2, False)])
+        self.assertEqual(API.listed, 2)  # every SIDE_FAILURE_TICKS ticks
+        # The listing reads nightly-next's unfinished runs and keeps attempts 2 through SIGN_RESCUE_LAST_ATTEMPT.
+        github = rescue.GitHub("t", "manaflow-ai/cmux")
+        asked = []
+
+        def request(method, path, **_):
+            asked.append(path)
+            return {"workflow_runs": [dict(run, run_attempt=attempt, id=attempt) for attempt in (1, 2, 3, 4)]
+                    + [dict(run, id=9, head_branch="main")]}
+        github.request = request
+        self.assertEqual(github.nightly_reruns(5), [(2, 2), (3, 3)] * 2)
+        self.assertTrue(all("branch=nightly-next" in path and "nightly.yml" in path for path in asked))
+
     def test_a_later_attempt_never_cancels_started_work_and_stops_at_the_last_attempt(self):
         # The arm64 sign/notarize job still runs on attempt 2: the stalled legacy sign waits for it.
         clock, api, target = self.later_attempt(2, signing_run(started_at=300))

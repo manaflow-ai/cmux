@@ -1616,6 +1616,20 @@ class GitHub:
                           if isinstance(run, Mapping) and run.get("id") and owned_rerun(run)]
         return found
 
+    def nightly_reruns(self, count: int) -> list[tuple[int, int]]:
+        """(run id, attempt) of unfinished nightly-next re-runs through SIGN_RESCUE_LAST_ATTEMPT. Only a re-run whose
+        build picker chose an owned Mac leaves a marker, so a re-run on Blacksmith (a re-run of failed jobs, or a
+        full one the picker placed there) is found here, for its signing jobs' stalls (signing_stall())."""
+        name = NIGHTLY_WORKFLOW_PATH.rsplit("/", 1)[-1]
+        found: list[tuple[int, int]] = []
+        for status in ("queued", "in_progress"):
+            data = self.request("GET", f"/actions/workflows/{name}/runs?status={status}&branch=nightly-next"
+                                       f"&per_page={count}")
+            found += [(int(run["id"]), int(run["run_attempt"])) for run in (data or {}).get("workflow_runs") or []
+                      if isinstance(run, Mapping) and run.get("id") and run.get("head_branch") == "nightly-next"
+                      and 1 < int(run.get("run_attempt") or 0) <= SIGN_RESCUE_LAST_ATTEMPT]
+        return found
+
     def failed_runs(self, count: int, oldest: dt.datetime, since: dt.datetime | None = None,
                     pages: int = 1) -> list[tuple[int, int]]:
         """(run id, attempt) of the failed runs of SIDE_WORKFLOW_PATHS created since `oldest` and, when
@@ -3190,6 +3204,13 @@ def sweep(client: GitHub, repository: str, *, seconds: int, queue_rounds: str | 
         except READ_ERRORS as error:
             log(f"could not list re-runs ({error}); next tick")
             reruns = []
+        if ticks % SIDE_FAILURE_TICKS == 0 and hasattr(client, "nightly_reruns"):
+            # nightly-next's re-runs on Blacksmith (no marker), every SIDE_FAILURE_TICKS ticks: a signing stall
+            # takes SIGN_STALL_SECONDS to call, so a few minutes' delay costs nothing.
+            try:
+                reruns = [*reruns, *client.nightly_reruns(SWEEP_LISTING)]
+            except READ_ERRORS as error:
+                log(f"could not list nightly-next re-runs ({error}); a later tick")
         for run_id, attempt in reruns:
             if (run_id, attempt) not in rerun_seen:
                 adopt(run_id, False, refusals_known=refusals_listed)
