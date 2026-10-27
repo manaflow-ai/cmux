@@ -294,7 +294,9 @@ if [[ "$mode" == pair-e2e ]]; then
   set -e
 fi
 
-simctl spawn "$udid" log show --last 10m --style compact --predicate 'process == "CmuxMobileApp"' > "$out/app-log.txt" 2>/dev/null || true
+# The app log goes through the pairing redactor: a pairing link or token it logged never reaches the artifact.
+simctl spawn "$udid" log show --last 10m --style compact --predicate 'process == "CmuxMobileApp"' 2>/dev/null |
+  python3 -I scripts/ci/cmux_next_pair_e2e.py --redact > "$out/app-log.txt" || true
 cp "$work/build.log" "$out/build.log" 2>/dev/null || true
 # The app (so the same build runs on another Mac's simulator) and the recordings.
 ditto -c -k --keepParent "$app" "$out/CmuxMobileApp-Demo-simulator.app.zip"

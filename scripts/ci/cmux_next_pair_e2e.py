@@ -66,13 +66,14 @@ def machine_id(bundle_id):
 
 
 class Stream:
-    """A `log stream` child of this script: its lines (token redacted) go to `path`; wait() is woken per line."""
+    """A child of this script (a `log stream`, or the Mac app itself): its output lines (token redacted
+    as they are written, so an interrupted run leaves none on disk) go to `path`; wait() is woken per line."""
 
-    def __init__(self, argv, path):
+    def __init__(self, argv, path, env=None):
         self.lines, self.cond = [], threading.Condition()
         self.file = open(path, "w")
         self.proc = subprocess.Popen(argv, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL,
-                                     text=True, errors="replace")
+                                     text=True, errors="replace", env=env)
         threading.Thread(target=self._read, daemon=True).start()
 
     def _read(self):
@@ -219,8 +220,9 @@ def main():
         if os.path.exists(sock):
             os.unlink(sock)  # this run's own tag
         exe = os.path.join(a.mac_app, "Contents/MacOS", info["CFBundleExecutable"])
-        app = subprocess.Popen([exe], env=env, stdin=subprocess.DEVNULL, stderr=subprocess.STDOUT,
-                               stdout=open(os.path.join(a.out, "mac-app.log"), "w"))
+        app_out = Stream([exe], os.path.join(a.out, "mac-app.log"), env=env)
+        app = app_out.proc
+        streams.append(app_out)
         t0 = time.monotonic()
         if not wait_for(lambda: app.poll() is None and "error" not in rpc("debug.focus", timeout=5), 180):
             raise SystemExit("the Mac app never answered on its control socket")
@@ -260,6 +262,7 @@ def main():
 
         if url:
             t1 = time.monotonic()
+            opened_at = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(time.time() - 1))
             # As the Camera opens a scanned code: cmux-next://pair?... (RootView .onOpenURL).
             opened = subprocess.run(simctl + ["openurl", a.udid, url], capture_output=True, text=True)
             if opened.returncode != 0:  # the error names the link: redacted, never raised with it
@@ -267,7 +270,7 @@ def main():
             paired = mac_log.wait(PAIRED, 180)
             took = time.monotonic() - t1
             if not paired:  # the stream may have missed it: the store keeps info lines a while
-                paired = PAIRED.search(subprocess.run(["/usr/bin/log", "show", "--info", "--last", "15m", "--style",
+                paired = PAIRED.search(subprocess.run(["/usr/bin/log", "show", "--info", "--start", opened_at, "--style",
                                                        "compact", "--predicate", pairing_logs],
                                                       capture_output=True, text=True).stdout)
             connected = wait_for(lambda: status().get("connectedPhones", 0) >= 1, 60, every=2)
@@ -347,21 +350,16 @@ def collect(support, out, note):
         lines += [redact(l) for l in open(path, errors="replace")
                   if re.search(r"pair|auth|link (up|down)|registered|signaling connected", l)]
     open(os.path.join(out, "hostd-pairing.log"), "w").writelines(lines)
-    app_log = os.path.join(out, "mac-app.log")
-    if os.path.exists(app_log):
-        text = redact(open(app_log, errors="replace").read())
-        open(app_log, "w").write(text)
-
     def scrub(value, key=""):
         if isinstance(value, dict):
             return {k: scrub(v, k) for k, v in value.items()}
         if isinstance(value, list):
             return [scrub(v, key) for v in value]
-        if isinstance(value, str) and "key" in key.lower():
+        if isinstance(value, str) and any(word in key.lower() for word in ("key", "token", "secret")):
             return f"<redacted, {len(value)} chars>"
         if isinstance(value, str) and key.lower() in ("id", "userid"):
             return value[:8] + "..."
-        return value
+        return redact(value) if isinstance(value, str) else value
 
     found = glob.glob(os.path.join(support, "**/paired-devices.json"), recursive=True)
     for i, path in enumerate(found):
@@ -375,4 +373,8 @@ def collect(support, out, note):
 
 
 if __name__ == "__main__":
+    if sys.argv[1:] == ["--redact"]:  # a filter: cmux-next-ios-sim.sh's app log goes through it
+        for line in sys.stdin:
+            sys.stdout.write(redact(line))
+        sys.exit(0)
     sys.exit(main())
