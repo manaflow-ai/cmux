@@ -1380,8 +1380,9 @@ every task that changes behavior or performance and is not repeated per row.
   timeout. `PresentState` gives every frame an id under the draw lock and both writers compare-and-swap it over the
   newest committed id before they show it (renderer at encode, main in `cover`); a refused main present counts
   `host_superseded_presents` (new last field of the render counters). cmux side: `TerminalHostFramePresenter`
-  (feature `terminalPreCommitPresent`, default off) runs once ahead of a turn's commit with a resized or shown
-  terminal; it is made only when the pin has `GHOSTTY_PRESENT_NEVER_WAITS` (Package.swift, off until the pin bump
+  (feature `terminalPreCommitPresent`, default off) runs once, as a `.preCommit` handler of the open Core Animation
+  transaction, ahead of the commit that carries a resized or shown terminal's size (a run-loop observer added
+  from AppKit's display-cycle layout would run after that commit); it is made only when the pin has `GHOSTTY_PRESENT_NEVER_WAITS` (Package.swift, off until the pin bump
   that brings 080 and 084, with 081). `TerminalResizeFrameTests` run only then.
 
 #### p03-rendering-085 Grid, snapshot and status off the main actor (G4 rest)

@@ -1,7 +1,7 @@
 import CmuxNextCompat
-import CoreFoundation
 import CoreGraphics
 import GhosttyNextKit
+import QuartzCore
 
 /// Puts each resized terminal's frame at its new size into the Core Animation commit that carries the
 /// size, when the renderer thread has drawn it by then, and never waits for it (p03-rendering-084,
@@ -9,20 +9,22 @@ import GhosttyNextKit
 ///
 /// A host-sized Ghostty surface draws a new size's frame on its renderer thread, text reflowed, and
 /// presents it itself when it completes. When the turn's own display work outlasts that draw (a STRESS
-/// layout, many terminals), the commit can already show the frame. Terminals resized in a main run-loop
-/// turn are collected here, and one observer just ahead of the commit asks each for the frame it has
+/// layout, many terminals), the commit can already show the frame. Terminals resized in a transaction are
+/// collected here, and one pre-commit handler of that transaction asks each for the frame it has
 /// (`ghostty_surface_present_host_frame`): only a drawn frame goes in; one not drawn yet lands when it
 /// completes. Ghostty orders both writers' frames by one sequence, so this present never shows a frame
 /// older than the renderer's. Chromium's browser compositor does the same at a resize: it embeds the
 /// newest frame the renderer submitted and never blocks the UI thread on the new size's frame
 /// (content/browser/renderer_host/delegated_frame_host.cc, `EmbedSurface`).
 ///
-/// The observer exists only in a turn with a resized terminal: nothing runs at rest.
+/// Most resizes come from AppKit's layout, which runs inside Core Animation's commit (the display
+/// cycle): a run-loop observer added then would run after that commit, so the pass joins the open
+/// transaction (`CATransaction.addMainCommitHandler(forPhase: .preCommit)`). That also covers a resize
+/// made outside the display cycle: its implicit transaction commits at the end of the turn.
+///
+/// The handler exists only in a transaction with a resized terminal: nothing runs at rest.
 public final class TerminalHostFramePresenter {
-    /// One before Core Animation's commit observer (order 2,000,000; `CommitBoundary` is one after).
-    static let order: CFIndex = 1_999_999
-
-    /// Runs `body` once, ahead of this turn's commit.
+    /// Runs `body` once, ahead of the commit of the transaction open now.
     typealias Schedule = @MainActor (_ body: @escaping @MainActor () -> Void) -> Void
 
     private let schedule: Schedule
@@ -35,11 +37,9 @@ public final class TerminalHostFramePresenter {
     private(set) var passes = 0
     private(set) var presents = 0
 
-    /// - Parameter schedule: runs a pass once, ahead of the turn's commit (the main run loop's
-    ///   before-waiting and exit stages at ``order``); tests run passes themselves.
-    init(schedule: @escaping Schedule = { body in
-        MainRunLoopObserver.once(activities: [.beforeWaiting, .exit], order: TerminalHostFramePresenter.order, body)
-    }) {
+    /// - Parameter schedule: runs a pass once, ahead of the commit that carries the new sizes (a
+    ///   pre-commit handler of the main thread's open transaction); tests run passes themselves.
+    init(schedule: @escaping Schedule = { body in CATransaction.addMainCommitHandler(forPhase: .preCommit, body) }) {
         self.schedule = schedule
     }
 
@@ -58,14 +58,14 @@ public final class TerminalHostFramePresenter {
         presentNeverWaits ? TerminalHostFramePresenter() : nil
     }
 
-    /// `view` got a new size (or was shown again) in this turn: its drawn frame goes into this turn's commit.
+    /// `view` got a new size (or was shown again): its drawn frame goes into the commit that carries it.
     func sizeChanged(of view: TerminalSurfaceView) {
         sizeChanged(of: view) { [weak view] in
             if let view { Self.presentDrawnFrame(of: view) }
         }
     }
 
-    /// `owner` got a new size in this turn: `present` runs once ahead of this turn's commit (the latest
+    /// `owner` got a new size: `present` runs once ahead of the open transaction's commit (the latest
     /// one given for `owner`).
     func sizeChanged(of owner: AnyObject, present: @escaping @MainActor () -> Void) {
         pending[ObjectIdentifier(owner)] = present
