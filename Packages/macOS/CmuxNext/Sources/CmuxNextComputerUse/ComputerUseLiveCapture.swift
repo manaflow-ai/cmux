@@ -75,11 +75,16 @@ public final class ComputerUseLiveCapture {
     static let maximumRefused = 32
 
     private let frames: any ComputerUseSurfaceCapturing
+    private let cursors: any ComputerUseAgentCursorReading
     private let configuration: @MainActor () -> AgentActivitySocketSource.Configuration?
+    private let helperPID: @MainActor () -> pid_t?
     private let now: @MainActor () -> Date
     private let timer: DemandTimer
     /// Where each new frame goes (``ComputerUseLivePreview``).
     var onFrame: @MainActor (Target, ComputerUsePreviewBoard.Frame) -> Void = { _, _ in }
+    /// Where the agent cursor goes when it moves in the streamed window, or leaves it (nil): the
+    /// session and the cursor as a fraction of the window.
+    var onCursor: @MainActor (String, CGPoint?) -> Void = { _, _ in }
     /// Whether the person still sees the target's chat, checked on each frame: a window covered or
     /// minimized stops the stream (``ComputerUsePreviewSight``).
     var sees: @MainActor (Target) -> Bool = { _ in true }
@@ -97,6 +102,8 @@ public final class ComputerUseLiveCapture {
     /// Bumped each time the stream ends: a request of an earlier one is dropped when it answers.
     private var generation = 0
     private var lastSequence: UInt64 = 0
+    /// The cursor last sent, and its session.
+    private var lastCursor: (session: String, point: CGPoint)?
     /// Windows whose stream the helper refused or that failed: they get the per-action frames. Kept
     /// for one helper launch: a restarted helper (say, after a Screen Recording grant) is asked again.
     private(set) var refused: Set<ComputerUsePreviewWindow> = []
@@ -110,14 +117,20 @@ public final class ComputerUseLiveCapture {
 
     /// - Parameters:
     ///   - frames: The helper side; by default the legacy helper's window stream.
+    ///   - cursors: Where the helper's agent cursor is; by default its cursor windows.
     ///   - configuration: The helper's socket and tokens while it runs.
+    ///   - helperPID: The running helper's process, whose cursor windows are read.
     ///   - clock: The clock the frame interval waits on.
     ///   - now: The time a frame is stamped with (the board orders frames by it).
     public init(frames: any ComputerUseSurfaceCapturing = ComputerUseHelperSurfaceFrames(),
+                cursors: any ComputerUseAgentCursorReading = ComputerUseAgentCursorWindows(),
                 configuration: @escaping @MainActor () -> AgentActivitySocketSource.Configuration?,
+                helperPID: @escaping @MainActor () -> pid_t? = { nil },
                 clock: any Clock<Duration> = ContinuousClock(), now: @escaping @MainActor () -> Date = { Date() }) {
         self.frames = frames
+        self.cursors = cursors
         self.configuration = configuration
+        self.helperPID = helperPID
         self.now = now
         timer = DemandTimer(owner: "ComputerUseLiveCapture.frame", clock: clock)
     }
@@ -194,20 +207,38 @@ public final class ComputerUseLiveCapture {
     }
 
     private func read(_ stream: Stream, for generation: Int) {
-        let frames = frames, after = lastSequence
-        // task-owner: the one request in flight; one read of the shared frame ring, off the main thread.
+        let frames = frames, cursors = cursors, after = lastSequence, helper = helperPID()
+        // task-owner: the one request in flight; one read of the shared frame ring and of the cursor
+        // windows, off the main thread.
         inFlight = Task { [weak self] in
             var frame: ComputerUseLiveFrame?
             var failed = false
             do { frame = try await frames.newestFrame(of: stream.id, after: after) } catch { failed = true }
+            var cursor: CGPoint?
+            if let helper { cursor = await cursors.cursor(in: stream.window, helper: helper) }
             guard let self else { return }
             inFlight = nil
             defer { settled?() }
             guard generation == self.generation, let target, self.stream?.id == stream.id else { return kick() }
             if failed { return refuse(stream.window) }
+            // The cursor moves over a still window too (no new frame then).
+            sendCursor(cursor, session: target.session)
             guard let frame, frame.sequence > lastSequence else { return }
             lastSequence = frame.sequence
             onFrame(target, .init(id: "live-\(stream.id)-\(frame.sequence)", at: now(), url: frame.url))
+        }
+    }
+
+    /// Sends the cursor when it moved, appeared or left.
+    private func sendCursor(_ point: CGPoint?, session: String) {
+        if let point {
+            guard lastCursor?.session != session || lastCursor?.point != point else { return }
+            if let last = lastCursor, last.session != session { onCursor(last.session, nil) }
+            lastCursor = (session, point)
+            onCursor(session, point)
+        } else if let last = lastCursor {
+            lastCursor = nil
+            onCursor(last.session, nil)
         }
     }
 
@@ -226,6 +257,11 @@ public final class ComputerUseLiveCapture {
         timer.cancel()
         dropStream(stopping: true)
         lastSequence = 0
+        // No stream, no live cursor: the card falls back to the last pixel click, if any.
+        if let last = lastCursor {
+            lastCursor = nil
+            onCursor(last.session, nil)
+        }
     }
 
     private func dropStream(stopping: Bool) {

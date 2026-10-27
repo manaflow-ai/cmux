@@ -209,6 +209,39 @@ struct ComputerUsePreviewBoardTests {
         #expect(board.card(for: "a")?.pointer == nil, "a done card draws no cursor")
     }
 
+    /// Agents click by accessibility element, which reports no point: the live agent cursor gives the
+    /// position, and any click event plays the click (seen 2026-10-28: every Calculator click was an
+    /// `element_index` click with no `click_point`).
+    @Test func theLiveCursorWinsAndAnAccessibilityClickPlays() {
+        var board = Self.running()
+        let calculator = ComputerUsePreviewWindow(pid: 40846, windowID: 7)
+        board.apply(window: calculator, session: "s")
+        board.apply(click: 9, session: "s")
+        #expect(board.card(for: "a")?.pointer == nil, "no position yet")
+        board.apply(cursor: CGPoint(x: 0.4, y: 0.6), session: "s")
+        #expect(board.card(for: "a")?.pointer == ComputerUsePreviewPointer(window: calculator, x: 0.4, y: 0.6, click: 9))
+        board.apply(pointer: ComputerUsePreviewPointer(window: calculator, x: 0.1, y: 0.1, click: 4), session: "s")
+        #expect(board.card(for: "a")?.pointer?.x == 0.4, "the live cursor wins over an older pixel click")
+        board.apply(cursor: nil, session: "s")
+        #expect(board.card(for: "a")?.pointer == ComputerUsePreviewPointer(window: calculator, x: 0.1, y: 0.1, click: 9))
+    }
+
+    @Test func theCursorWindowsCenterIsAFractionOfTheTargetWindow() {
+        let window = CGRect(x: 100, y: 200, width: 400, height: 300)
+        let inside = CGPoint(x: 200, y: 350), outside = CGPoint(x: 50, y: 50)
+        #expect(ComputerUseAgentCursorWindows.fraction([outside, inside], in: window) == CGPoint(x: 0.25, y: 0.5))
+        #expect(ComputerUseAgentCursorWindows.fraction([outside], in: window) == nil)
+        #expect(ComputerUseAgentCursorWindows.fraction([inside], in: nil) == nil)
+    }
+
+    @Test func onlyClickToolsPlayTheClick() {
+        func act(_ tool: String) -> AgentActivityEvent { AgentActivityEvent(seq: 1, time: Self.at(1), kind: .act, tool: tool) }
+        #expect(ComputerUseActivityPreviewSource.isClick(act("click")))
+        #expect(ComputerUseActivityPreviewSource.isClick(act("double_click")))
+        #expect(!ComputerUseActivityPreviewSource.isClick(act("type_text")))
+        #expect(!ComputerUseActivityPreviewSource.isClick(AgentActivityEvent(seq: 1, time: Self.at(1), kind: .observe, tool: "click")))
+    }
+
     /// The source takes a batch's newest click that names its window, and keeps the point inside it.
     @Test func theSourceTakesTheNewestClickWithItsWindow() {
         let window = AgentActivityTargetWindow(pid: 1, windowID: 2)

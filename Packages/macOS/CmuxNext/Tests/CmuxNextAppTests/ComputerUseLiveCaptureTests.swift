@@ -35,13 +35,15 @@ struct ComputerUseLiveCaptureTests {
         let host = LiveHost()
         let sight = FakeSight(seen: ["a"])
         let box = HelperBox()
+        let cursors = FakeCursors()
         let preview: ComputerUseLivePreview
         /// Requests whose answer the capture handled, and the waits on that count.
         private var settles = 0
         private var settledWaiters: [(count: Int, continuation: CheckedContinuation<Void, Never>)] = []
 
         init() {
-            let capture = ComputerUseLiveCapture(frames: frames, configuration: { [box] in box.value }, clock: clock)
+            let capture = ComputerUseLiveCapture(frames: frames, cursors: cursors, configuration: { [box] in box.value },
+                                                 helperPID: { 77 }, clock: clock)
             preview = ComputerUseLivePreview(host: host, makeSource: { LiveSource() }, resolver: NoApps(), clock: clock,
                                              capture: capture, sight: sight)
             capture.settled = { [unowned self] in
@@ -106,6 +108,27 @@ struct ComputerUseLiveCaptureTests {
         rig.preview.apply(.newestFrame(session: "s", frame: "b9", at: Date()))
         #expect(rig.capture.streamedSession == "s")
         #expect(rig.preview.board.nextLoad()?.frame.id == "b9")
+    }
+
+    /// The agent cursor shows on the card where the helper draws it, moves over a still window (no new
+    /// frame), and goes when it leaves the window.
+    @Test(.timeLimit(.minutes(1)))
+    func theAgentCursorFollowsTheHelpersCursorWindow() async throws {
+        let rig = Rig()
+        try await rig.streaming()
+        rig.cursors.point = CGPoint(x: 0.3, y: 0.4)
+        try await rig.nextTick()
+        _ = await rig.frames.next()
+        let shown = try #require(await rig.host.next { $0?.pointer?.x == 0.3 })
+        #expect(shown?.pointer?.y == 0.4)
+        rig.cursors.point = CGPoint(x: 0.6, y: 0.4)
+        try await rig.nextTick()
+        _ = await rig.frames.next()
+        _ = try #require(await rig.host.next { $0?.pointer?.x == 0.6 })
+        rig.cursors.point = nil
+        try await rig.nextTick()
+        _ = await rig.frames.next()
+        _ = try #require(await rig.host.next { $0 != nil && $0?.pointer == nil })
     }
 
     @Test(.timeLimit(.minutes(1)))
@@ -346,6 +369,18 @@ struct ComputerUseLiveCaptureTests {
 }
 
 // MARK: Fakes
+
+/// The helper's agent cursor in the streamed window: `point`, read on each tick.
+final class FakeCursors: ComputerUseAgentCursorReading, @unchecked Sendable {
+    private let lock = NSLock()
+    private var _point: CGPoint?
+    var point: CGPoint? {
+        get { lock.withLock { _point } }
+        set { lock.withLock { _point = newValue } }
+    }
+
+    func cursor(in window: ComputerUsePreviewWindow, helper: pid_t) async -> CGPoint? { point }
+}
 
 /// The helper's window stream: each call goes to `next()`; reads answer frames 1, 2, 3...
 final class FakeSurfaceFrames: ComputerUseSurfaceCapturing, @unchecked Sendable {

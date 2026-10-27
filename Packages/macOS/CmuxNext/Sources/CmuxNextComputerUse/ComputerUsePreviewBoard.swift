@@ -81,8 +81,12 @@ nonisolated struct ComputerUsePreviewBoard: Sendable {
         var frame: Frame?
         /// The window the session acted on or read last (the live capture streams it).
         var window: ComputerUsePreviewWindow?
-        /// Where the session's agent clicked last.
+        /// Where the session's agent clicked last, for a pixel click (an accessibility click has no point).
         var pointer: ComputerUsePreviewPointer?
+        /// The agent cursor in the streamed window, as a fraction of it (``ComputerUseLiveCapture``).
+        var cursor: CGPoint?
+        /// The session's newest click event, of any kind.
+        var lastClick: UInt64?
         /// The person closed the card.
         var dismissed = false
         /// The card hid itself after it stayed done (``autoHide(chat:)``): a newer action shows it again.
@@ -158,6 +162,16 @@ nonisolated struct ComputerUsePreviewBoard: Sendable {
     /// `session`'s agent clicked at `pointer` last.
     mutating func apply(pointer: ComputerUsePreviewPointer, session: String) {
         entries[session]?.pointer = pointer
+    }
+
+    /// `session`'s agent cursor is at `cursor` in its streamed window; nil: it does not show there.
+    mutating func apply(cursor: CGPoint?, session: String) {
+        entries[session]?.cursor = cursor
+    }
+
+    /// `session`'s agent clicked (event `click`).
+    mutating func apply(click: UInt64, session: String) {
+        entries[session]?.lastClick = click
     }
 
     /// Gives each live session without a chat its chat; an id that names a chat moves a guessed one
@@ -262,8 +276,7 @@ nonisolated struct ComputerUsePreviewBoard: Sendable {
         let app = session.appKey.flatMap { apps[$0] }
         let name = [session.app, app?.name, session.windowTitle].lazy.compactMap { $0?.trimmingCharacters(in: .whitespaces) }
             .first { !$0.isEmpty }
-        // The cursor only on a running card, and only in the window its frames show.
-        let pointer = done ? nil : entry.pointer.flatMap { $0.window == entry.window ? $0 : nil }
+        let pointer = done ? nil : Self.pointer(entry)
         return ComputerUsePreviewCard(session: session.id, app: name ?? "", done: done, frame: frame.url,
                                       icon: done ? app?.icon : nil, pointer: pointer)
     }
@@ -295,6 +308,16 @@ nonisolated struct ComputerUsePreviewBoard: Sendable {
     /// The apps the kept sessions use, to look up for their names and icons.
     var appKeys: Set<ComputerUsePreviewApp.Key> {
         Set(entries.values.compactMap(\.session.appKey))
+    }
+
+    /// The cursor a running card draws, in the window its frames show: the live agent cursor, else
+    /// the last pixel click. Its click is the newest click event, so an accessibility click plays too.
+    static func pointer(_ entry: Entry) -> ComputerUsePreviewPointer? {
+        guard let window = entry.window else { return nil }
+        let click = max(entry.lastClick ?? 0, entry.pointer?.click ?? 0)
+        if let cursor = entry.cursor { return ComputerUsePreviewPointer(window: window, x: cursor.x, y: cursor.y, click: click) }
+        guard let last = entry.pointer, last.window == window else { return nil }
+        return ComputerUsePreviewPointer(window: window, x: last.x, y: last.y, click: click)
     }
 
     /// No frame before any, then by capture time, then by session id.

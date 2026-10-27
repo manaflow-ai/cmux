@@ -93,10 +93,15 @@ public final class ComputerUseLivePreview {
         self.makeSource = makeSource ?? {
             ComputerUseActivityPreviewSource(configuration: { ComputerUseHelperDaemon.shared.configuration })
         }
-        self.capture = capture ?? ComputerUseLiveCapture(configuration: { ComputerUseHelperDaemon.shared.configuration }, clock: clock)
+        self.capture = capture ?? ComputerUseLiveCapture(configuration: { ComputerUseHelperDaemon.shared.configuration },
+                                                         helperPID: {
+                                                             if case .running(let pid) = ComputerUseHelperDaemon.shared.state { pid } else { nil }
+                                                         },
+                                                         clock: clock)
         self.sight = sight
         host.computerUsePreviewFollowChats { [weak self] in self?.chatsChanged() }
         self.capture.onFrame = { [weak self] target, frame in self?.liveFrame(target, frame) }
+        self.capture.onCursor = { [weak self] session, cursor in self?.liveCursor(cursor, session: session) }
         self.capture.sees = { [weak self] target in self?.sight?.canSee(target.chat) ?? false }
     }
 
@@ -193,6 +198,9 @@ public final class ComputerUseLivePreview {
         case .pointer(let session, let pointer):
             board.apply(pointer: pointer, session: session)
             if let chat = board.entries[session]?.chat { push(chat) }
+        case .clicked(let session, let click):
+            board.apply(click: click, session: session)
+            if let chat = board.entries[session]?.chat { push(chat) }
         }
     }
 
@@ -205,6 +213,13 @@ public final class ComputerUseLivePreview {
         let chats = source == nil ? [] : board.liveChats
         sight.follow(chats) { [weak self] in self?.followCapture() }
         capture.want(chats.isEmpty ? nil : board.liveTarget(canSee: sight.canSee))
+    }
+
+    /// The agent cursor moved in `session`'s streamed window, or left it (nil).
+    private func liveCursor(_ cursor: CGPoint?, session: String) {
+        guard source != nil, board.entries[session] != nil else { return }
+        board.apply(cursor: cursor, session: session)
+        if let chat = board.entries[session]?.chat { push(chat) }
     }
 
     /// A live frame of `target`'s window: the card shows it at once.
