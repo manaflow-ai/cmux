@@ -976,7 +976,7 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
     if (changed) this.snapshot = undefined;
   }
 
-  override set(id: string, row: AcpmuxRow, changedItem?: number): this {
+  override set(id: string, row: AcpmuxRow, changedItem?: number, removedToolId?: string): this {
     const known = this.order.has(id);
     const previous = this.get(id);
     const unchanged = known && previous === row;
@@ -994,7 +994,14 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
     } else if (this.current !== undefined) this.latest = Math.max(this.latest, this.current);
     if (this.ordered && !unchanged) this.keepOrdered(id, row, known);
     const result = super.set(id, row);
-    if (!unchanged) this.artifactUpdates.note(row, this.current ?? this.order.get(id) ?? row.at, previous, changedItem);
+    if (!unchanged)
+      this.artifactUpdates.note(
+        row,
+        this.current ?? this.order.get(id) ?? row.at,
+        previous,
+        changedItem,
+        removedToolId,
+      );
     return result;
   }
 
@@ -3763,17 +3770,24 @@ export class AcpmuxDirectClient {
     this.toolRows.delete(callId);
     const row = this.rows.get(id);
     if (!row?.items) return;
+    const removedIndex = row.items.findIndex((item) => item.tool?.id === callId);
+    if (removedIndex < 0) return;
     const items = row.items.filter((item) => item.tool?.id !== callId);
     if (items.length === 0) {
       this.rows.delete(id);
       if (this.streamingActivity === id) this.streamingActivity = undefined;
     } else
-      this.rows.set(id, {
-        ...row,
-        version: row.version + 1,
-        items,
-        toolCount: items.filter((entry) => entry.kind === "tool").length,
-      });
+      this.rows.set(
+        id,
+        {
+          ...row,
+          version: row.version + 1,
+          items,
+          toolCount: items.filter((entry) => entry.kind === "tool").length,
+        },
+        removedIndex,
+        callId,
+      );
   }
 
   /// The subagent group rows that changed, into the transcript.

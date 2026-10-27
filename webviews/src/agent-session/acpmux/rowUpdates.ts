@@ -26,13 +26,29 @@ export class RowUpdates {
   artifactOrder(artifact: Artifact) {
     return this.artifactOrders.get(artifact);
   }
-  note(row: AcpmuxRow, order: number, previous?: AcpmuxRow, changedItem?: number) {
+  note(row: AcpmuxRow, order: number, previous?: AcpmuxRow, changedItem?: number, removedToolId?: string) {
     this.orders.set(row, order);
     if (row.items === previous?.items) return;
-    const end = changedItem === undefined ? (row.items?.length ?? 0) : changedItem + 1;
+    const end =
+      changedItem === undefined ? (row.items?.length ?? 0) : Math.min(row.items?.length ?? 0, changedItem + 1);
+    const previousById =
+      changedItem === undefined
+        ? new Map(
+            (previous?.items ?? [])
+              .map((item) => item.tool)
+              .filter((tool): tool is Tool => tool !== undefined)
+              .map((tool) => [tool.id, tool] as const),
+          )
+        : undefined;
     for (let index = changedItem ?? 0; index < end; index++) {
-      const tool = row.items![index]!.tool;
-      const before = previous?.items?.[index]?.tool;
+      const tool = row.items?.[index]?.tool;
+      const before = tool
+        ? changedItem === undefined
+          ? previousById?.get(tool.id)
+          : removedToolId
+            ? previous?.items?.[index + 1]?.tool
+            : previous?.items?.[index]?.tool
+        : undefined;
       if (!tool || tool === before) continue;
       // A later output chunk or another tool in this row must not promote an older file write
       // during reconnect. Retain each unchanged document's own completion event, without holding
@@ -56,6 +72,7 @@ export class RowUpdates {
         before: pending ? pending.before : before?.id === tool.id ? before : undefined,
       });
     }
+    if (removedToolId) this.pending.get(row.id)?.delete(removedToolId);
   }
   forget(id: string) {
     this.pending.delete(id);
