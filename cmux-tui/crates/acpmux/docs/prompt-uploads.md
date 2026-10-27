@@ -23,11 +23,12 @@ binding, and calls this API over its daemon connection.
 | `file_put_begin` / `_chunk` (base64, at most 512 KiB a chunk) / `_finish` / `_cancel`, no size cap | on #25730 |
 | upload-ref blocks in `session/prompt` (section 5), what the agent gets (section 6), dedupe (section 7) | on #25730 |
 | `promptUploads` feature flag | on #25730 |
-| binary data frames `_acpmux/file_put_data`, `_acpmux/file_put_status`, finish `sha256`, `upload.*` error reasons | follow-up PR, flag `uploadFrames`; not built yet |
+| `_acpmux/file_put_status`, finish `sha256`, the `upload.*` error reasons, `upload.diskFull` | follow-up PR, flag `uploadResume` |
+| binary data frames `_acpmux/file_put_data` on the app's WebSocket, peer chats included | follow-up PR after it, flag `uploadFrames` |
 
-Until `uploadFrames` lands, a native caller sends data with `_acpmux/file_put_chunk`. The base64
-travels only on the native-to-daemon socket, never on the page binding. Against #25730's head it
-can test begin/chunk/finish, references, inline images, large files by path, and dedupe.
+A native caller checks the flags, not the PRs. Without `uploadFrames` it sends data with
+`_acpmux/file_put_chunk`; the base64 then travels only on the native-to-daemon socket, never on
+the page binding.
 
 ## Capability flags
 
@@ -36,7 +37,8 @@ These are listed in the `initialize` result, `_meta.acpmux.features`.
 | flag | means |
 |---|---|
 | `promptUploads` | the daemon resolves upload-ref blocks in `session/prompt`, and resumable uploads have no size cap |
-| `uploadFrames` | the daemon takes binary data frames and `_acpmux/file_put_status` (section 1) |
+| `uploadResume` | `_acpmux/file_put_status`, finish `sha256`, the `upload.*` reasons and `upload.diskFull` (sections 3, 4) |
+| `uploadFrames` | the daemon takes binary data frames on the app's WebSocket (section 1) |
 
 A client sends by reference only to a daemon that lists `promptUploads`. Without it, the client
 keeps the old inline path.
@@ -65,6 +67,8 @@ The native side uses the WebSocket it already holds to its local daemon (the loc
     frame is taken. This limits a frame, not a file.
   - Frames may be pipelined at increasing offsets. A frame whose `offset` is not the upload's
     current end is refused with `upload.offset`.
+  - Only the local app's connection may send them. Any other connection's frame is answered
+    with `filePut.remote`, never left unanswered.
 - **Data, before `uploadFrames` and on the unix socket:**
   `_acpmux/file_put_chunk {sessionId, uploadId, offset, data}`, where `data` is base64 of at most
   512 KiB of bytes. It returns `{offset}`.
@@ -165,7 +169,7 @@ Send data with `file_put_chunk` (section 1), or with `file_put_data` once `uploa
   (`offset / size`) and to resume.
 - The bytes are on disk before the answer comes.
 
-### Status (with `uploadFrames`)
+### Status (with `uploadResume`)
 
 `_acpmux/file_put_status {sessionId, uploadId}` returns
 `{uploadId, fileName, size, offset, finished, path?}`.
@@ -177,7 +181,7 @@ Send data with `file_put_chunk` (section 1), or with `file_put_data` once `uploa
 `_acpmux/file_put_finish {sessionId, uploadId, fileName, size}` returns `{path}`.
 
 - Allowed only once all `size` bytes have arrived.
-- With `uploadFrames`, an optional `sha256` (lowercase hex) is checked, and a mismatch is
+- With `uploadResume`, an optional `sha256` (lowercase hex) is checked, and a mismatch is
   `upload.corrupt`.
 
 ### Cancel
@@ -196,16 +200,16 @@ Send data with `file_put_chunk` (section 1), or with `file_put_data` once `uploa
 
 | reason | when |
 |---|---|
-| `upload.diskFull` (with `uploadFrames`) | the receiving disk is full; `data: {host, path, needed?, free?, offset?}` |
-| `upload.offset` (with `uploadFrames`) | a frame's offset is not the upload's end; `data: {offset}`, resume there |
+| `upload.diskFull` (with `uploadResume`) | the receiving disk is full; `data: {host, path, needed?, free?, offset?}` |
+| `upload.offset` (with `uploadResume`) | a chunk's or frame's offset is not the upload's end; `data: {offset}`, resume there |
 | `filePut.pastSize` | bytes past the size given at begin; `data: {size}` |
 | `filePut.name` | not a plain file name |
 | `filePut.remote` | the call came from a Web-controlled connection |
 | `filePut.unsupported` | the chat's peer runs a build without uploads |
-| `upload.corrupt` (with `uploadFrames`) | finish `sha256` mismatch |
+| `upload.corrupt` (with `uploadResume`) | finish `sha256` mismatch; the upload is removed, begin again |
 
 Today, an unknown upload, a wrong offset, or a finish before all bytes arrived returns a plain
-`invalid_params` error with no `reason`. `uploadFrames` gives these `upload.unknown`,
+`invalid_params` error with no `reason`. `uploadResume` gives these `upload.unknown`,
 `upload.offset` and `upload.incomplete`.
 
 A client retries every error except `filePut.name`, `filePut.remote` and disk-full. Before it
@@ -244,7 +248,9 @@ These are refused before anything is recorded:
 | reason | when |
 |---|---|
 | `upload.invalid` | `uploadId` or `fileName` is missing; a `resource_link` whose `uri` is not `acpmux-upload:<the same uploadId>`; an image with a `uri`; any other block type |
-| `upload.missing` | not a finished upload of this chat |
+| `upload.missing` | not a finished upload of this chat, or (at its turn) a waiting prompt's file was swept |
+| `upload.unreadable` | the file is there but cannot be read (not a real folder, another hard link, permissions) |
+| `upload.tooMany` | the prompt's links alone pass one message (15 MiB); send the files in more than one |
 | `upload.remote` | the prompt came from a Web client |
 | `upload.unsupported` | the chat is on a peer without `promptUploads` |
 
