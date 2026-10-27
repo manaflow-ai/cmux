@@ -115,8 +115,9 @@ final class FieldTextView: NSTextView {
         let line = String(format: "%.6f ", CACurrentMediaTime()) + s + "\n"
         let url = URL(fileURLWithPath: "/tmp/caret.log")
         if let h = try? FileHandle(forWritingTo: url) {
-            // blocking-allow: only under the opt-in `--caret-log` launch argument; each line is written on the main thread in
-            // order, between the key's own work, which is what the log measures. A failed seek drops the line.
+            // cmux: the throwing seek and write; the legacy ones raised an Objective-C exception (p10-stability-168).
+            // blocking-allow: only under the opt-in `--caret-log` launch argument; each line is written on the main
+            // thread in order, between the key's own work, which is what the log measures. A failed seek drops the line.
             if (try? h.seekToEnd()) != nil { try? h.write(contentsOf: Data(line.utf8)) }
             try? h.close()
         } else { try? Data(line.utf8).write(to: url) }
