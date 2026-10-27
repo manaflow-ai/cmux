@@ -80,6 +80,11 @@ settings:
     # the app instead of handing over what was typed.
     CMUX_MOBILE_APP_GROUP: "NO"
     "CMUX_MOBILE_APP_GROUP[sdk=iphonesimulator*]": "YES"
+    # Info.plist `CmuxMobileAppGroup`: the group only in a build signed with it,
+    # so a build without it never asks containermanagerd for one (the app also
+    # checks its own signed entitlements, PushAppGroup.swift).
+    CMUX_MOBILE_APP_GROUP_ID_YES: group.$(CMUX_MOBILE_APP_BUNDLE_ID)
+    CMUX_MOBILE_APP_GROUP_ID_NO: ""
     # App Store profiles (by name) the TestFlight configurations sign with;
     # testflight-build.sh passes the downloaded profiles' UUIDs instead.
     CMUX_MOBILE_APP_PROFILE: cmux Internal Distribution
@@ -236,7 +241,7 @@ targets:
         CmuxMobilePush: $(CMUX_MOBILE_PUSH)
         CmuxMobileAppleSignIn: $(CMUX_MOBILE_APPLE_SIGN_IN)
         # The App Group the notification content extension shares (when signed with it).
-        CmuxMobileAppGroup: group.$(CMUX_MOBILE_APP_BUNDLE_ID)
+        CmuxMobileAppGroup: $(CMUX_MOBILE_APP_GROUP_ID_$(CMUX_MOBILE_APP_GROUP))
         CmuxMobileKeychainGroup: $(CMUX_MOBILE_KEYCHAIN_GROUP)
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
@@ -314,7 +319,7 @@ targets:
         CFBundleName: cmux
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
-        CmuxMobileAppGroup: group.$(CMUX_MOBILE_APP_BUNDLE_ID)
+        CmuxMobileAppGroup: $(CMUX_MOBILE_APP_GROUP_ID_$(CMUX_MOBILE_APP_GROUP))
         CmuxMobileKeychainGroup: $(CMUX_MOBILE_KEYCHAIN_GROUP)
         NSExtension:
           NSExtensionPointIdentifier: com.apple.usernotifications.content-extension

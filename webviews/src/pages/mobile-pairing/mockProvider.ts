@@ -1,12 +1,21 @@
 // An in-memory Mobile Pairing host for the browser dev loop (`/mobile-pairing/?mock`): signed out
-// at first; Sign In, Allow Phone Access and Turn Off move it through the steps, and the listener is
-// ready a moment after phone access turns on.
+// at first; Sign In, Allow Phone Access and Turn Off move it through the steps, and the iPhone host
+// is online a moment after iPhone connections turn on, with one phone asking to connect.
 import { pageError, type PageClient, type PageHandler } from "../shared/pageClient";
-import { ACTION_RUN, MobilePairingOps, PairingActions, type MobilePairingStatus } from "./types";
+import { ACTION_RUN, MobilePairingOps, PairingActions, type MobilePairingStatus, type PairingHost } from "./types";
 
-/** A 1x1 white PNG stands in for the host's QR code. */
-const BLANK_PNG =
-  "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAAAAAA6fptVAAAACklEQVR4nGP4DwABAQEAG7buVgAAAABJRU5ErkJggg==";
+const HOST: PairingHost = {
+  status: "Online · 1 phone connected",
+  how: "Install cmux on your iPhone and sign in with the same account as this Mac. This Mac then appears under Workspaces.",
+  phonesTitle: "Phones",
+  phones: [{ id: "phone-1", title: "iPhone 17 Pro", subtitle: "WireGuard · direct", connected: true }],
+  phonesEmpty: "No phones yet.",
+  pendingTitle: "Waiting for You",
+  pending: [{ id: "phone-2", title: "iPhone Air", subtitle: "Signed in as you@example.com · Key 3F2A 91C0" }],
+  allowTitle: "Allow",
+  denyTitle: "Don't Allow",
+  blocked: null,
+};
 
 export class MockMobilePairingProvider implements PageClient {
   private status: MobilePairingStatus = {
@@ -27,8 +36,14 @@ export class MockMobilePairingProvider implements PageClient {
         return this.status as R;
       case MobilePairingOps.setAllowed: {
         const on = (params as { on?: boolean }).on === true;
-        this.update({ allowed: on, state: on ? "preparing" : "accessOff", qr: undefined });
+        this.update({ allowed: on, state: on ? "preparing" : "accessOff", host: undefined });
         if (on) setTimeout(() => this.update(this.ready()), 600);
+        return {} as R;
+      }
+      case MobilePairingOps.answerPair: {
+        const id = (params as { id?: string }).id;
+        const host = this.status.host;
+        if (host) this.update({ host: { ...host, pending: host.pending.filter((request) => request.id !== id) } });
         return {} as R;
       }
       case ACTION_RUN: {
@@ -56,10 +71,7 @@ export class MockMobilePairingProvider implements PageClient {
   }
 
   private ready(): Partial<MobilePairingStatus> {
-    return {
-      state: "ready",
-      qr: { url: "cmux://attach?mock", image: BLANK_PNG, expiresAt: Date.now() + 600_000 },
-    };
+    return { state: "ready", connectedPhones: 1, host: HOST };
   }
 
   private update(change: Partial<MobilePairingStatus>) {

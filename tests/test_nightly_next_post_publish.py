@@ -10,10 +10,11 @@ publication writes the feed; it must not become a dependency of
 import re
 import sys
 from pathlib import Path
+from nightly_workflow_text import nightly_text
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = ROOT / ".github" / "workflows" / "nightly.yml"
-TEXT = WORKFLOW.read_text(encoding="utf-8")
+TEXT = nightly_text()
 
 
 def job(name: str) -> str:
@@ -51,10 +52,12 @@ if "verify_remote_daemon_release.py" not in job("sign-nightly-identity-legacy") 
 if 'accepted build $pending_build is not on the live cmux NEXT Nightly feed' not in legacy:
     failures.append("legacy identity continuation must require live NEXT feed membership")
 notes_publish = job("publish-release-notes")
-if "id: current" not in notes_publish or "git/ref/tags/$RELEASE_TAG" not in notes_publish:
-    failures.append("publish-release-notes must recheck the exact release tag before uploading")
-if "appcast-arm64.xml" not in notes_publish or "EXPECTED_BUILD" not in notes_publish or "live_build > EXPECTED_BUILD" not in notes_publish:
-    failures.append("publish-release-notes must skip when a newer NEXT appcast is already live")
+# The tag moves after the feed (publish-nightly-next-github), so the live feed is the check:
+# `!=`, a newer build is live or this one was pulled.
+if "id: current" not in notes_publish or "git/ref/tags/$RELEASE_TAG" in notes_publish:
+    failures.append("publish-release-notes must check the live feed, not the tag that moves after it")
+if "appcast-arm64.xml" not in notes_publish or "EXPECTED_BUILD" not in notes_publish or "live_build != EXPECTED_BUILD" not in notes_publish:
+    failures.append("publish-release-notes must skip unless the live NEXT appcast serves this build")
 delta = job("republish-nightly-deltas")
 # `!=`, not `>`: a newer build may be live, or nightly-next-rollback.yml pulled this one (#21887).
 if "CHANNEL_FEED_BASE/appcast-arm64.xml" not in delta or "live_build != NIGHTLY_BUILD" not in delta:

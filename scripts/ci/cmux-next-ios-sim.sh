@@ -47,8 +47,40 @@ mkdir -p "$out/screens" "$out/bench" "$work"
 summary="$out/SUMMARY.md"
 note() { printf '%s\n' "$*" | tee -a "$summary"; }
 
-# Steps run with a per-step HOME; Homebrew tools (xcodegen) live outside it.
+# Steps run with a per-step HOME; Homebrew tools live outside it.
 export PATH="/opt/homebrew/bin:/usr/local/bin:$HOME/.cargo/bin:$PATH"
+
+# Everything this step makes outside its checkout goes away when it ends: the
+# pinned xcodegen's temp dir and, once made, the simulator device set.
+xcodegen_dir=""
+sims=""
+cleanup() {
+  if [[ -n "$sims" ]]; then
+    xcrun simctl --set "$sims" shutdown all >/dev/null 2>&1 || true
+    xcrun simctl --set "$sims" delete all >/dev/null 2>&1 || true
+    rm -rf "$sims" || true
+  fi
+  # Attempted even when the simulator set's removal failed.
+  if [[ -n "$xcodegen_dir" ]]; then rm -rf "$xcodegen_dir" || true; fi
+}
+trap cleanup EXIT
+
+# xcodegen: a pinned release, checksum-verified, in a temp dir of this step's
+# own, never the host's (aws-m4pro-2 has none, and the fleet's AWS Macs are not
+# provisioned by hand). Bump the version and the zip's sha256 together.
+xcodegen_version=2.46.0
+xcodegen_sha256=4d9e34b62172d645eed6457cac13fc222569974098ef4ee9c3368bedf0196806
+xcodegen_dir="$(mktemp -d "${TMPDIR:-/tmp}/cmux-next-ios-sim-xcodegen.XXXXXX")"
+curl -fsSL --retry 3 --retry-delay 2 -o "$xcodegen_dir/xcodegen.zip" \
+  "https://github.com/yonaskolb/XcodeGen/releases/download/$xcodegen_version/xcodegen.zip" ||
+  { echo "error: could not download xcodegen $xcodegen_version" >&2; exit 3; }
+got="$(shasum -a 256 "$xcodegen_dir/xcodegen.zip" | awk '{ print $1 }')"
+[[ "$got" == "$xcodegen_sha256" ]] ||
+  { echo "error: xcodegen $xcodegen_version zip has sha256 $got, expected $xcodegen_sha256" >&2; exit 3; }
+unzip -q "$xcodegen_dir/xcodegen.zip" -d "$xcodegen_dir"
+# The binary finds its SettingPresets in ../share/xcodegen, so it runs from the unzipped tree.
+xcodegen="$xcodegen_dir/xcodegen/bin/xcodegen"
+[[ -x "$xcodegen" ]] || { echo "error: no xcodegen binary in the $xcodegen_version zip" >&2; exit 3; }
 if [[ -z "${DEVELOPER_DIR:-}" ]]; then
   if [[ -n "${CMUX_CI_XCODE_APP:-}" ]]; then
     export DEVELOPER_DIR="$CMUX_CI_XCODE_APP/Contents/Developer"
@@ -59,19 +91,19 @@ if [[ -z "${DEVELOPER_DIR:-}" ]]; then
   fi
 fi
 [[ -d "$DEVELOPER_DIR" ]] || { echo "error: no Xcode at $DEVELOPER_DIR" >&2; exit 3; }
-command -v xcodegen >/dev/null || { echo "error: xcodegen is not installed on $(hostname -s) (brew install xcodegen)" >&2; exit 3; }
 
 note "# cmux-next-ios simulator step ($mode)"
 note ""
 note "- commit: $(git rev-parse HEAD)"
 note "- host: $(hostname -s), $(sysctl -n machdep.cpu.brand_string), $(sysctl -n hw.ncpu) cores, macOS $(sw_vers -productVersion)"
 note "- Xcode: $(xcodebuild -version | tr '\n' ' ')"
+note "- xcodegen: $xcodegen_version (pinned, sha256 verified)"
 
 # --- Build ------------------------------------------------------------------
 t0=$SECONDS
 JOBS="${JOBS:-8}" bash cmux-next-ios/rust/scripts/build-xcframework.sh >"$work/ffi.log" 2>&1 || {
   tail -60 "$work/ffi.log"; echo "error: CmuxMobileLinkFFI.xcframework build failed" >&2; exit 1; }
-(cd cmux-next-ios && xcodegen generate -q)
+(cd cmux-next-ios && "$xcodegen" generate -q)
 dd="$work/dd"
 # Demo builds the Swift packages as Release (no DEBUG), so the flood benchmark
 # and terminal demo would be missing; the command-line conditions reach the
@@ -94,12 +126,6 @@ note "- build: $((SECONDS - t0)) s (FFI + xcodegen + Demo simulator app), bundle
 sims="$work/sims"
 mkdir -p "$sims"
 simctl() { xcrun simctl --set "$sims" "$@"; }
-cleanup() {
-  simctl shutdown all >/dev/null 2>&1 || true
-  simctl delete all >/dev/null 2>&1 || true
-  rm -rf "$sims"
-}
-trap cleanup EXIT
 read -r runtime device_type < <(xcrun simctl list -j runtimes devicetypes | python3 -c '
 import json, sys
 d = json.load(sys.stdin)

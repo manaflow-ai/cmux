@@ -132,6 +132,14 @@ nonisolated enum WorkspaceActionCatalog: ActionCatalogGroup {
                 surfaces: [.palette, .menu, .contextMenu], targets: [.workspace], cliName: "workspace clear-name",
                 mainMenu: .file
             ),
+            // Asks the cheapest model for a name from the workspace's tabs and applies it as the
+            // person's own rename (WorkspaceActivityName). Leo 2026-10-26: "just run it on the cheapest model."
+            ActionDescriptor(
+                id: "workspace.nameFromActivity",
+                title: String(localized: "action.workspace.nameFromActivity", defaultValue: "Name from Activity", bundle: .module),
+                keywords: ["title", "name", "rename", "auto", "summarize", "ai"], category: .workspace, symbol: "sparkles",
+                surfaces: [.palette, .contextMenu], targets: [.workspace], cliName: "workspace name-from-activity"
+            ),
             ActionDescriptor(
                 id: "editWorkspaceDescription",
                 title: String(localized: "action.editWorkspaceDescription", defaultValue: "Edit Workspace Description…", bundle: .module),
@@ -437,6 +445,6 @@ nonisolated enum WorkspaceActionCatalog: ActionCatalogGroup {
                 keywords: ["current work", "tasks"], category: .workspace, symbol: "sparkle.magnifyingglass",
                 surfaces: [.palette], targets: [.workspace], cliName: "workspace find-work"
             ),
-        ] + classicImportActions()
+        ] + classicImportActions() + sessionTransferActions()
     }
 }

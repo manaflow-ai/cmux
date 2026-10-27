@@ -402,6 +402,10 @@ pub mod method {
     /// the profile at it (`{id, key, value}`; the value is never echoed).
     /// The unix socket only.
     pub const MUX_HARNESS_SECRET_SET: &str = "_acpmux/harness/secret/set";
+    /// Set the icon of a profile in the user's harness folder (`{id, icon}`,
+    /// `{id, data, ext}` for image bytes, or `{id, clear: true}`); the unix
+    /// socket and the local app (Settings), never Web or peer.
+    pub const MUX_HARNESS_ICON: &str = "_acpmux/harness/icon";
     /// The ACP Registry's agents and how each can start here.
     pub const MUX_REGISTRY: &str = "_acpmux/registry";
     /// Agent CLI health (hq #1875; `hub/health_view.rs`): the unix socket
@@ -486,6 +490,9 @@ pub mod method {
     pub const MUX_WORKTREE_REPORT: &str = "_acpmux/worktree/report";
     pub const MUX_WORKTREE_CLEAN: &str = "_acpmux/worktree/clean";
     pub const MUX_WORKTREE_RESTORE: &str = "_acpmux/worktree/restore";
+    /// Compact closed chats' event logs (`hub/retention.rs`): `{dryRun?, archive?,
+    /// olderThanDays?, only?}` -> the pass's report.
+    pub const MUX_RETENTION: &str = "_acpmux/retention";
     // Pairing (`crate::pairing`, `server/pairing.rs`).
     pub const MUX_PAIR_TICKET_NEW: &str = "_acpmux/pair_ticket_new";
     pub const MUX_PAIR_LIST: &str = "_acpmux/pair_list";

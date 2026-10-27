@@ -62,6 +62,12 @@ class ReleaseNotesTests(unittest.TestCase):
         self.assertEqual(notes["highlights"][0]["body"], "Restart when you want.")
         self.assertEqual(notes["changes"], ["sidebar: tidy", "updates: the R114 card"])
 
+    def test_notes_name_their_commit_and_the_time_they_were_made(self):
+        # The Updated card names the build by both (Leo 2026-10-26: "it just says updated to nightly").
+        notes = self.build(self.base)
+        self.assertEqual(notes["head"], self.head)
+        self.assertRegex(notes["builtAt"], r"^2\d{3}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
+
     def test_a_later_build_has_no_highlight_only_changes(self):
         added = git(self.repo, "rev-parse", "HEAD~1")
         notes = self.build(added, build="3")
@@ -210,6 +216,89 @@ class ReleaseNotesTests(unittest.TestCase):
         self.assertTrue(titles, notes["summary"])
         for title in titles:
             self.assertNotRegex(title, r"\((?:a|u)\d+\)")
+
+    def touch(self, subject, *paths):
+        """A commit that changes `paths`, with `subject`."""
+        for path in paths:
+            full = os.path.join(self.repo, path)
+            os.makedirs(os.path.dirname(full), exist_ok=True)
+            with open(full, "a") as f:
+                f.write(subject + "\n")
+        git(self.repo, "add", *paths)
+        git(self.repo, "commit", "-q", "-m", subject)
+        self.head = git(self.repo, "rev-parse", "HEAD")
+
+    def test_release_tooling_never_reaches_the_summary(self):
+        # Leo's update to nightly 4037632091801 (2026-10-26) read "Fixed: validate release headings
+        # within their day": #25533 changed only the release-notes checker and its test.
+        since = self.head
+        self.touch("fix(changelog): validate release headings within their day (#25533)",
+                   "webviews/src/pages/changelog/notesCheck.ts", "webviews/test/changelog-notes-check.test.ts")
+        # Any subject: every file it touches is CI or tooling.
+        self.touch("fix: headings of one day stay in order (#9001)",
+                   "webviews/src/pages/changelog/notesCheck.ts", "webviews/test/changelog-notes-check.test.ts")
+        self.touch("fix: feeds check twice as often (#9002)", ".github/workflows/next.yml", "scripts/ci/tests/feed.test.sh")
+        self.touch("fix(sidebar): rows keep their order after a rename (#9003)",
+                   "webviews/src/pages/sidebar/Rows.tsx", "webviews/test/sidebar-rows.test.ts")
+        notes = self.build(since, build="10")
+        self.assertEqual([line["title"] for line in notes["summary"]], ["Rows keep their order after a rename"])
+        self.assertEqual([(i["pr"], i.get("internal", False)) for i in notes["items"]],
+                         [(9003, False), (9002, True), (9001, True), (25533, True)])
+        self.assertNotIn("internal", notes["items"][0])
+        entries = (notes.get("whatsNew") or {}).get("entries", [])
+        self.assertEqual([e["title"]["en"] for e in entries], ["Rows keep their order after a rename"])
+
+    def test_odd_subjects_and_file_names_keep_their_own_paths(self):
+        # A subject with separators in it, and file names with spaces, a newline and a tab: each
+        # commit keeps its own files.
+        since = self.head
+        self.touch("fix: rows \x1e keep \x1f order (#9101)", "webviews/src/pages/sidebar/A B.tsx")
+        self.touch("fix: tabs keep their names (#9102)", "scripts/ci/tests/odd\nname.py", "tests/odd\tname.py")
+        # A file named like the next commit's hash cannot take that commit's files.
+        self.touch("fix: panes keep their size (#9103)", "tests/" + self.head)
+        notes = self.build(since, build="11")
+        self.assertEqual([(i["pr"], i.get("internal", False)) for i in notes["items"]],
+                         [(9103, True), (9102, True), (9101, False)])
+        self.assertEqual(len(notes["changes"]), 3)
+
+    def test_tooling_paths(self):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("release_notes_paths", SCRIPT)
+        notes = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(notes)
+        for paths in (["webviews/src/pages/changelog/notesCheck.ts", "webviews/test/changelog-notes-check.test.ts"],
+                      [".github/workflows/ci.yml"], ["scripts/cmux-next/release-notes.py", "tests/test_x.py"],
+                      ["docs/ci/runners.md", "AGENTS.md"], ["README.ja.md", "CONTRIBUTING.md", "PLAN.md"], ["scripts/cmux-next/perf-cron.py"],
+                      ["scripts/install-git-hooks.sh"], ["scripts/cmux-next/guardrails.py"],
+                      ["scripts/cmux-next/check-app-bundle.sh"], ["webviews/scripts/check-glass-never-opaque.ts"],
+                      ["scripts/ci/tests/ensure-web-bundles.test.sh"], ["scripts/measure/split-spring.sh"],
+                      ["Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/A.swift"],
+                      ["release-notes/next/highlights/x.md"], ["webviews/src/pages/changelog/changelog.gallery.ts"]):
+            self.assertTrue(notes.tooling_only(paths), paths)
+        for paths in ([], ["webviews/src/pages/changelog/UpdateSurfaces.tsx", "webviews/test/updated-card-summary.test.tsx"],
+                      ["Packages/macOS/CmuxNext/Sources/CmuxNextUpdater/UpdateHighlights.swift"],
+                      ["webviews/src/pages/changelog/Localizable.xcstrings"],
+                      # #25001 fixed the agent pane by changing only the script that bundles it.
+                      ["scripts/cmux-next/build-agent-pane-web.sh"], ["scripts/build-sign-upload.sh"],
+                      # The Embed CEF phase builds the browser from these; CI builds and stages what ships with these.
+                      ["scripts/cmux-next/fetch-ublock.sh"], ["scripts/cmux-next/merge-cef-universal.sh"],
+                      ["scripts/cmux-next/cef-manifest.json"], ["scripts/ci/cmux-remote-browser-host-build.sh"],
+                      ["scripts/ci/ensure-web-bundles.sh"], ["scripts/ci/macos-cross.sh"],
+                      ["scripts/ci/stage-agent-detector.sh"], ["scripts/whats-new/sync-app-bundle.py"],
+                      # The app bundles it: About opens Third-Party Licenses.
+                      ["THIRD_PARTY_LICENSES.md"], ["CHANGELOG.md"]):
+            self.assertFalse(notes.tooling_only(paths), paths)
+
+    def test_a_move_counts_at_both_ends(self):
+        # A shipping file moved into tests/ is not a tooling-only commit.
+        self.touch("feat: tab rows (#9201)", "webviews/src/pages/sidebar/Rows.tsx")
+        since = self.head
+        os.makedirs(os.path.join(self.repo, "tests"), exist_ok=True)
+        git(self.repo, "mv", "webviews/src/pages/sidebar/Rows.tsx", "tests/Rows.tsx")
+        git(self.repo, "commit", "-q", "-m", "fix: rows move (#9202)")
+        self.head = git(self.repo, "rev-parse", "HEAD")
+        notes = self.build(since, build="12")
+        self.assertEqual([(i["pr"], i.get("internal", False)) for i in notes["items"]], [(9202, False)])
 
     def check(self, notes_path):
         return subprocess.run([sys.executable, SCRIPT, "check", "--notes", notes_path],
