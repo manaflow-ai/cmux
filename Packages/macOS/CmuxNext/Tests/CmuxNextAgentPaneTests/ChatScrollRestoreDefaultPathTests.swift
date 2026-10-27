@@ -1,5 +1,6 @@
 import CmuxNextPages
 import CmuxNextSettings
+import CmuxNextWakeups
 import Foundation
 import Testing
 @testable import CmuxNextAgentPane
@@ -29,7 +30,7 @@ struct ChatScrollRestoreDefaultPathTests {
         return reply["value"]
     }
 
-    @Test func aChatReopensWhereItRestedWithThePageHostOff() throws {
+    @Test func aChatReopensWhereItRestedWithThePageHostOff() async throws {
         let directory = FileManager.default.temporaryDirectory.appending(path: "anchors-bridge-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         defer {
@@ -37,12 +38,14 @@ struct ChatScrollRestoreDefaultPathTests {
             try? FileManager.default.removeItem(at: directory)
         }
         // This run: the reader scrolls chat s-1 up and it rests on row user-42.
-        AgentPaneScrollAnchors.shared = AgentPaneScrollAnchors(directory: directory)
+        await AgentPaneScrollAnchors.shared?.flushed()  // the last store\'s saves are on disk
+        AgentPaneScrollAnchors.shared = AgentPaneScrollAnchors(directory: directory, work: BackgroundWork(label: "test.scroll-anchors"))
         _ = Self.value(Self.call("chat.scrollAnchor", ["sessionId": "s-1", "rowId": "user-42", "offset": 120.5]))
 
         // A fresh store — the next run after a crash, or another tab in this one — reads it back,
         // for that chat only.
-        AgentPaneScrollAnchors.shared = AgentPaneScrollAnchors(directory: directory)
+        await AgentPaneScrollAnchors.shared?.flushed()  // the last store\'s saves are on disk
+        AgentPaneScrollAnchors.shared = AgentPaneScrollAnchors(directory: directory, work: BackgroundWork(label: "test.scroll-anchors"))
         let place = Self.value(Self.call("chat.scrollAnchor.get", ["sessionId": "s-1"])) as? [String: Any]
         #expect(place?["rowId"] as? String == "user-42")
         #expect(place?["offset"] as? Double == 120.5)
@@ -50,7 +53,8 @@ struct ChatScrollRestoreDefaultPathTests {
 
         // Back at the latest message: the place is forgotten, so the chat opens following the reply.
         _ = Self.value(Self.call("chat.scrollAnchor", ["sessionId": "s-1", "rowId": NSNull(), "offset": 0]))
-        AgentPaneScrollAnchors.shared = AgentPaneScrollAnchors(directory: directory)
+        await AgentPaneScrollAnchors.shared?.flushed()  // the last store\'s saves are on disk
+        AgentPaneScrollAnchors.shared = AgentPaneScrollAnchors(directory: directory, work: BackgroundWork(label: "test.scroll-anchors"))
         #expect(Self.value(Self.call("chat.scrollAnchor.get", ["sessionId": "s-1"])) is NSNull)
     }
 
@@ -64,7 +68,8 @@ struct ChatScrollRestoreDefaultPathTests {
             AgentPaneScrollAnchors.shared = nil
             try? FileManager.default.removeItem(at: directory)
         }
-        AgentPaneScrollAnchors.shared = AgentPaneScrollAnchors(directory: directory)
+        await AgentPaneScrollAnchors.shared?.flushed()  // the last store\'s saves are on disk
+        AgentPaneScrollAnchors.shared = AgentPaneScrollAnchors(directory: directory, work: BackgroundWork(label: "test.scroll-anchors"))
 
         // Written on the pane's own host, read on the page host.
         _ = Self.value(Self.call("chat.scrollAnchor", ["sessionId": "s-3", "rowId": "user-7", "offset": 8]))
@@ -84,14 +89,15 @@ struct ChatScrollRestoreDefaultPathTests {
         #expect(back?["rowId"] as? String == "user-9")
     }
 
-    @Test func aRequestWithoutAChatIsRefusedAndNothingIsKept() throws {
+    @Test func aRequestWithoutAChatIsRefusedAndNothingIsKept() async throws {
         let directory = FileManager.default.temporaryDirectory.appending(path: "anchors-refuse-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         defer {
             AgentPaneScrollAnchors.shared = nil
             try? FileManager.default.removeItem(at: directory)
         }
-        AgentPaneScrollAnchors.shared = AgentPaneScrollAnchors(directory: directory)
+        await AgentPaneScrollAnchors.shared?.flushed()  // the last store\'s saves are on disk
+        AgentPaneScrollAnchors.shared = AgentPaneScrollAnchors(directory: directory, work: BackgroundWork(label: "test.scroll-anchors"))
         #expect(Self.call("chat.scrollAnchor.get", [:])["ok"] as? Bool == false)
         #expect(Self.call("chat.scrollAnchor", ["sessionId": ""])["ok"] as? Bool == false)
         #expect(Self.call("chat.scrollAnchor.forget", ["sessionId": "s-5"])["ok"] as? Bool == false)
@@ -108,14 +114,15 @@ struct ChatScrollRestoreDefaultPathTests {
     /// calls — `AgentPaneBridge.chatPlaceReply(for:)`, which takes the same `message.body` — and
     /// not the handler itself. That leaves the one call site uncovered by this test, so
     /// ``theHandlerStillCallsThatSeam`` reads it out of the source instead.
-    @Test func thePanesOwnHostRoutesTheseOpsHereBecauseTheModelHasNoneForThem() throws {
+    @Test func thePanesOwnHostRoutesTheseOpsHereBecauseTheModelHasNoneForThem() async throws {
         let directory = FileManager.default.temporaryDirectory.appending(path: "anchors-route-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         defer {
             AgentPaneScrollAnchors.shared = nil
             try? FileManager.default.removeItem(at: directory)
         }
-        AgentPaneScrollAnchors.shared = AgentPaneScrollAnchors(directory: directory)
+        await AgentPaneScrollAnchors.shared?.flushed()  // the last store\'s saves are on disk
+        AgentPaneScrollAnchors.shared = AgentPaneScrollAnchors(directory: directory, work: BackgroundWork(label: "test.scroll-anchors"))
 
         // What the host does with a page message, body and all: it writes, and it reads back.
         let wrote = try #require(AgentPaneBridge.chatPlaceReply(

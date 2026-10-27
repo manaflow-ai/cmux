@@ -136,10 +136,13 @@ public final class BackgroundWork: Sendable {
     ///   - lane: the kind of blocking work `body` does.
     ///   - shutdown: what ``shutdown()`` does with it; a save whose loss loses data is
     ///     ``ShutdownBehavior/blockShutdown``.
+    ///   - dropped: called instead of `body` when the item never runs (shutdown refused or dropped it);
+    ///     default nothing.
     ///   - body: the blocking work. It runs on a lane thread, never on the cooperative pool.
     public func post(_ priority: WorkPriority, mayBlock lane: BlockingLane,
-                     shutdown: ShutdownBehavior = .skipOnShutdown, _ body: @escaping @Sendable () -> Void) {
-        let job = makeJob(id: nextID(), shutdown: shutdown, work: body, abandoned: {})
+                     shutdown: ShutdownBehavior = .skipOnShutdown, dropped: @escaping @Sendable () -> Void = {},
+                     _ body: @escaping @Sendable () -> Void) {
+        let job = makeJob(id: nextID(), shutdown: shutdown, work: body, abandoned: dropped)
         submitted(lanes[lane.rawValue].submit(job, at: priority, unless: { false }), job, on: lane)
     }
 

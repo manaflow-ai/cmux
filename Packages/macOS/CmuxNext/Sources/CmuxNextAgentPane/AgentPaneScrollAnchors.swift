@@ -1,3 +1,4 @@
+public import CmuxNextWakeups
 public import Foundation
 
 /// Where a chat's transcript rests (cx-6bgzj): the row at the top of the view and how far into it.
@@ -23,17 +24,24 @@ public final class AgentPaneScrollAnchors {
     public static var shared: AgentPaneScrollAnchors?
     static let limit = 500
 
-    private struct Entry: Codable, Equatable {
+    private nonisolated struct Entry: Codable, Equatable, Sendable {
         var sessionId: String
         var anchor: AgentPaneScrollAnchor
     }
 
     let file: URL?
+    /// Writes the places off the main thread; nil keeps nothing on disk.
+    private let writer: StateFileWriter?
     /// Oldest first; read from the file on first use.
     private var entries: [Entry]?
 
-    public init(directory: URL?) {
+    /// - Parameters:
+    ///   - directory: The tag's state directory; nil keeps nothing.
+    ///   - work: The app's blocking-work lanes, where each save is encoded and written.
+    ///   - write: Puts a save on disk, on a lane thread; default the disk (tests record where it runs).
+    public init(directory: URL?, work: BackgroundWork, write: @escaping StateFileWriter.Write = StateFileWriter.disk) {
         file = directory?.appending(path: Self.fileName)
+        writer = file.map { StateFileWriter(file: $0, work: work, write: write) }
     }
 
     public func anchor(for sessionId: String) -> AgentPaneScrollAnchor? {
@@ -59,13 +67,15 @@ public final class AgentPaneScrollAnchors {
         return read
     }
 
+    /// Returns once every save so far is on disk (tests; the quit awaits the lanes instead).
+    public func flushed() async {
+        await writer?.flushed()
+    }
+
+    /// Hands the places to the writer: encoded and written on the files lane, never on the main thread;
+    /// none left removes the file.
     private func save() {
-        guard let file, let entries else { return }
-        if entries.isEmpty {
-            try? FileManager.default.removeItem(at: file)
-            return
-        }
-        // concurrency-allow: one small atomic write per settled scroll of a chat
-        try? JSONEncoder().encode(entries).write(to: file, options: .atomic)
+        guard let entries else { return }
+        writer?.save { entries.isEmpty ? nil : try JSONEncoder().encode(entries) }
     }
 }

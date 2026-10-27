@@ -112,7 +112,7 @@ extension AgentTabStore {
         tabs.launchImages = services.launchImages
         tabs.agentAvatars = AgentAvatars(uploads: services.chiefAvatarUploads, openPanel: services.openPanel)
         let state = services.environment.sidebarSnapshotFile?.url.deletingLastPathComponent()
-        tabs.unsentDrafts = AgentUnsentDrafts(directory: state)
+        tabs.unsentDrafts = AgentUnsentDrafts(directory: state, work: services.work)
         tabs.pageChats.environments = state.map { SavedEnvironments(url: $0.appending(path: "environments.json")) }
         // The composer chips and shell commands chat pages held at the last quit (every relaunch's quit).
         tabs.relaunchWake = services.relaunchWake

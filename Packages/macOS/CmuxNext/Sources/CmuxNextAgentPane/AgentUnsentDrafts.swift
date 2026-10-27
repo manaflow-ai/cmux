@@ -1,3 +1,4 @@
+public import CmuxNextWakeups
 public import Foundation
 
 /// A new chat's typed text from before it has an acpmux session (cx-z5vd), by tab, in a JSON file
@@ -9,18 +10,25 @@ public final class AgentUnsentDrafts {
     static let maximumCharacters = 1_000_000
 
     let file: URL?
+    /// Writes the drafts off the main thread; nil keeps nothing on disk.
+    private let writer: StateFileWriter?
     private var drafts: [String: String]
 
-    public init(file: URL?) {
+    /// - Parameters:
+    ///   - file: The JSON file; nil keeps nothing.
+    ///   - work: The app's blocking-work lanes, where each save is encoded and written; nil keeps nothing.
+    ///   - write: Puts a save on disk, on a lane thread; default the disk (tests record where it runs).
+    public init(file: URL?, work: BackgroundWork?, write: @escaping StateFileWriter.Write = StateFileWriter.disk) {
         self.file = file
+        writer = file.flatMap { file in work.map { StateFileWriter(file: file, work: $0, write: write) } }
         // concurrency-allow: one read of a small local state file when the tab store is made
         let data = file.flatMap { try? Data(contentsOf: $0) }
         drafts = data.flatMap { try? JSONDecoder().decode([String: String].self, from: $0) } ?? [:]
     }
 
     /// The file in the tag's state directory (beside the launch snapshot).
-    public convenience init(directory: URL?) {
-        self.init(file: directory?.appending(path: Self.fileName))
+    public convenience init(directory: URL?, work: BackgroundWork) {
+        self.init(file: directory?.appending(path: Self.fileName), work: work)
     }
 
     /// Tab `key`'s kept text as a new chat's seed; nil for a tab whose chat has a session, or
@@ -60,13 +68,15 @@ public final class AgentUnsentDrafts {
         save()
     }
 
+    /// Returns once every save so far is on disk (tests; the quit awaits the lanes instead).
+    public func flushed() async {
+        await writer?.flushed()
+    }
+
+    /// Hands the drafts to the writer: encoded and written on the files lane, never on the main thread
+    /// (a draft holds up to a million characters); an empty set removes the file.
     private func save() {
-        guard let file else { return }
-        if drafts.isEmpty {
-            try? FileManager.default.removeItem(at: file)
-            return
-        }
-        // concurrency-allow: one small atomic write per settled edit of a new chat's text
-        try? JSONEncoder().encode(drafts).write(to: file, options: .atomic)
+        let drafts = drafts
+        writer?.save { drafts.isEmpty ? nil : try JSONEncoder().encode(drafts) }
     }
 }
