@@ -1037,7 +1037,8 @@ select {
 }
 
 @media (max-width: 860px) {
-  .cloud-body {
+  .cloud-body,
+  .cloud-body.layout-cards {
     flex-direction: column;
     flex-wrap: nowrap;
     gap: 0;
