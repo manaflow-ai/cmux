@@ -123,6 +123,9 @@ public final class StatusIndicatorAppearance {
     private let clients = NSHashTable<AnyObject>.weakObjects()
     private var observation: ServiceObservation<StatusIndicatorConfig>?
     private var reduceMotionWatch: AppearanceSignals.Subscription?
+    /// The power state of the app's display clock (``observe(on:appEvents:workspaceEvents:)``): while it
+    /// caps frames (feature `powerFrameCaps`) the spinners hold still, as under Energy Saver.
+    private var powerWatch: PowerStateSubscription?
     private var resyncWatches: [EventSubscription] = []
     /// The windows whose visibility a resync reads again (``resync()``).
     private let windows: @MainActor () -> [NSWindow]
@@ -135,9 +138,19 @@ public final class StatusIndicatorAppearance {
         // mode), or an appearance created before a pin keeps the system setting's loops (a runner
         // with Reduce Motion on shows no spinner).
         reduceMotionWatch = DesignSettings.shared.signals.subscribe([.reduceMotion], owner: "StatusIndicatorAppearance") { [weak self] in
-            self?.apply(StatusIndicatorConfig.current)
+            self?.applyLive()
         }
     }
+
+    /// The live config with the power cap on top: an ambient loop (every indicator loop, ``Motion/paced(_:_:at:)``)
+    /// holds still while the power state pauses ambient rates (``PowerState/pauses(_:)``).
+    private var live: StatusIndicatorConfig {
+        var config = StatusIndicatorConfig.current
+        if powerWatch?.power.pauses(.ambient) == true { config.animatesLoops = false }
+        return config
+    }
+
+    private func applyLive() { apply(live) }
 
     /// Whether ``observe(on:appEvents:workspaceEvents:)`` ran (tests).
     var isObserving: Bool { observation != nil }
@@ -152,8 +165,12 @@ public final class StatusIndicatorAppearance {
     ///   - workspaceEvents: The app's fan-out of the workspace center's notices (the wakes).
     public func observe(on mainWork: MainWorkScheduler, appEvents: AppEvents, workspaceEvents: AppEvents) {
         guard observation == nil else { return }
-        observation = ServiceObservation(.visible, owner: "StatusIndicatorAppearance", on: mainWork) {
-            StatusIndicatorConfig.current
+        // The power state is no Observation read: its change applies at once, through the same config.
+        powerWatch = mainWork.frames.displayClock.subscribePower(owner: "StatusIndicatorAppearance") { [weak self] _ in
+            self?.applyLive()
+        }
+        observation = ServiceObservation(.visible, owner: "StatusIndicatorAppearance", on: mainWork) { [weak self] in
+            self?.live ?? StatusIndicatorConfig.current
         } apply: { [weak self] next in
             self?.apply(next)
         }

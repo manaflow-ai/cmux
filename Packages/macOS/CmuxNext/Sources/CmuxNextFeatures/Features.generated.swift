@@ -1516,12 +1516,12 @@ nonisolated extension Feature {
         runtimeMutable: false
     )
 
-    /// In Low Power Mode or while the Mac is very hot, spinners and other decorative frame loops pause, content that does not move under the pointer draws at 60 frames a second, and motion keeps the display's full rate.
+    /// In Low Power Mode or while the Mac is very hot, status spinners hold still, decorative loops (the night sky, notice progress sweeps, now-playing level bars) pause until the cap lifts, frame work at the UI rate draws at 60 frames a second, and motion keeps the display's full rate.
     public static let powerFrameCaps = Feature(
         index: 87,
         name: "powerFrameCaps",
         owner: "PL-motion-core",
-        description: "In Low Power Mode or while the Mac is very hot, spinners and other decorative frame loops pause, content that does not move under the pointer draws at 60 frames a second, and motion keeps the display's full rate.",
+        description: "In Low Power Mode or while the Mac is very hot, status spinners hold still, decorative loops (the night sky, notice progress sweeps, now-playing level bars) pause until the cap lifts, frame work at the UI rate draws at 60 frames a second, and motion keeps the display's full rate.",
         kind: .perfPath,
         process: .app,
         chromiumFeature: nil,

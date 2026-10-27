@@ -7,7 +7,9 @@ public import Foundation
 /// While it caps frames (``capsFrames``: Low Power Mode, or a serious or critical thermal state) an
 /// ambient client (``FrameRate/isAmbient``) pauses off its scheduler, a ``FrameRate/ui`` client runs
 /// its link at 60 Hz whatever ``DisplayClock/followsClientRates`` says, and a ``FrameRate/motion``
-/// client is unchanged. Chrome reads the same two inputs: the OS battery saver turns its battery
+/// client is unchanged. The Core Animation loops follow it too: `LoopVisibility` takes its ambient
+/// loops off their layers (the night sky, notice sweeps, now-playing bars) and the status indicators'
+/// shared config holds their spinners still, until the cap lifts. Chrome reads the same two inputs: the OS battery saver turns its battery
 /// saver on (components/performance_manager/user_tuning/battery_saver_mode_manager.cc), and
 /// `PowerThermalObserver::DeviceThermalState::kSerious` (base/power_monitor/power_observer.h) is
 /// where it starts shedding work.

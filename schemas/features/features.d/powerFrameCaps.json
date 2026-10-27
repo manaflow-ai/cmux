@@ -2,7 +2,7 @@
   "$schema": "../features.schema.json",
   "name": "powerFrameCaps",
   "owner": "PL-motion-core",
-  "description": "In Low Power Mode or while the Mac is very hot, spinners and other decorative frame loops pause, content that does not move under the pointer draws at 60 frames a second, and motion keeps the display's full rate.",
+  "description": "In Low Power Mode or while the Mac is very hot, status spinners hold still, decorative loops (the night sky, notice progress sweeps, now-playing level bars) pause until the cap lifts, frame work at the UI rate draws at 60 frames a second, and motion keeps the display's full rate.",
   "defaults": { "dev": false, "nightly": false, "release": false },
   "kind": "perfPath",
   "expires": "2026-12-26",

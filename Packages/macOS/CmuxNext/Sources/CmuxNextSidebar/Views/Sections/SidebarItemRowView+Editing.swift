@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextDesign
+import CmuxNextWakeups
 
 /// The sidebar's edit mode on one item (Leo 2026-10-20, as an iPhone's home screen): the item
 /// wiggles through the sidebar's motion gate (still under Reduce Motion or with sidebar animations
@@ -50,7 +51,7 @@ extension SidebarItemRowView {
         // Neighbors wiggle out of step: the phase comes from the item's place.
         let phase = Double((frame.minX * 0.37 + frame.minY * 0.61).truncatingRemainder(dividingBy: 1))
         let center = CGPoint(x: bounds.midX, y: bounds.midY)
-        wiggleLoops.attach(layer, key: Self.wiggleKey) { Motion.sidebar.wiggleAnimation(center: center, phase: phase) }
+        wiggleLoops.attach(layer, key: Self.wiggleKey, rate: .motion) { Motion.sidebar.wiggleAnimation(center: center, phase: phase) }
     }
 
     /// Delete or Forward Delete on a focused item in edit mode takes it out, as its ✕ does; Escape ends edit mode.

@@ -59,4 +59,31 @@ import Testing
         #expect(client.changes == [live], "the clients were not told once")
         withExtendedLifetime(centers) {}
     }
+
+    /// p03-rendering-117: while the app's display clock caps frames (Low Power Mode, a serious thermal
+    /// state) every indicator loop holds still through the shared config, and turns again when it lifts.
+    @Test func thePowerCapHoldsTheIndicatorLoopsStill() {
+        Motion.reduceMotionOverride = false
+        defer { Motion.reduceMotionOverride = nil }
+        let centers = StatusIndicatorTestFollows()
+        let appearance = StatusIndicatorAppearance(windows: { [] })
+        let client = Client()
+        appearance.register(client)
+        centers.start(appearance)
+        let displays = centers.work.frames.displayClock
+        #expect(displays.powerSubscribers == ["StatusIndicatorAppearance"])
+        #expect(appearance.config.animatesLoops == StatusIndicatorConfig.current.animatesLoops)
+        let turns = appearance.config.animatesLoops
+
+        displays.power = PowerState(lowPowerMode: true)
+        #expect(!appearance.config.animatesLoops, "an indicator loop turns in Low Power Mode")
+        #expect(client.changes.last?.animatesLoops == false, "the clients were not told")
+
+        displays.power = PowerState(thermal: .serious)
+        #expect(!appearance.config.animatesLoops, "an indicator loop turns while the Mac is seriously hot")
+
+        displays.power = .nominal
+        #expect(appearance.config.animatesLoops == turns, "the loops do not come back when the cap lifts")
+        withExtendedLifetime(centers) {}
+    }
 }

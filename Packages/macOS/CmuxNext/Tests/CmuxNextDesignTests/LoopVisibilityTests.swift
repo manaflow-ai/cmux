@@ -157,6 +157,77 @@ import Testing
         #expect(loops.node.subscriberCounts.flips == 0, "an idle view still follows its node")
     }
 
+    /// p03-rendering-117: while the power state caps frames (Low Power Mode, a serious or critical
+    /// thermal state) an ambient loop is off its layer and a loop at `.motion` (edit mode's wiggle)
+    /// keeps running; when the cap lifts the ambient loop is made again at the shared clock's phase.
+    @Test func thePowerCapTakesAmbientLoopsOffUntilItLifts() throws {
+        Motion.reduceMotionOverride = false
+        defer { Motion.reduceMotionOverride = nil }
+        let displays = DisplayClock()
+        let clock = SpinnerClock(mediaTime: { 100 }, unixTime: { 1_000.25 })
+        let host = LoopTestWindow()
+        let loops = LoopVisibility("test.power", clock: clock, displays: { displays })
+        loops.place(in: host.window)
+        let spinner = CALayer(), wiggle = CALayer()
+        loops.attach(spinner, key: "spin") { Motion.indicators.spinAnimation() }
+        loops.attach(wiggle, key: "wiggle", rate: .motion) {
+            let turn = CABasicAnimation(keyPath: "transform.rotation.z")
+            turn.duration = 0.25
+            turn.repeatCount = .infinity
+            return turn
+        }
+        #expect(loops.runningCount == 2)
+        #expect(displays.powerSubscribers == ["LoopVisibility.test.power"], "one power subscription per LoopVisibility")
+
+        displays.power = PowerState(lowPowerMode: true)
+        #expect(loops.isPowerPaused)
+        #expect(spinner.animation(forKey: "spin") == nil, "a spinner turns in Low Power Mode")
+        #expect(wiggle.animation(forKey: "wiggle") != nil, "the power cap stopped a loop that follows the person")
+
+        host.set(.occluded)
+        host.set(.visible)
+        #expect(spinner.animation(forKey: "spin") == nil, "showing the window again brought the spinner back under the cap")
+        #expect(wiggle.animation(forKey: "wiggle") != nil)
+
+        displays.power = .nominal
+        #expect(!loops.isPowerPaused)
+        let back = try #require(spinner.animation(forKey: "spin"), "the spinner does not come back when the cap lifts")
+        #expect(back.beginTime == clock.beginTime(cycle: back.duration), "the spinner did not rejoin at the shared phase")
+        #expect(loops.runningCount == 2)
+
+        displays.power = PowerState(thermal: .fair)
+        #expect(spinner.animation(forKey: "spin") != nil, "a fair thermal state caps nothing")
+        displays.power = PowerState(thermal: .serious)
+        #expect(spinner.animation(forKey: "spin") == nil, "a spinner turns while the Mac is seriously hot")
+        displays.power = PowerState(thermal: .critical)
+        #expect(spinner.animation(forKey: "spin") == nil)
+        displays.power = .nominal
+        #expect(loops.runningCount == 2)
+
+        loops.detachAll()
+        #expect(displays.powerSubscribers.isEmpty, "an idle view still follows the power state")
+    }
+
+    /// A LoopVisibility with only loops that follow the person never subscribes to the power state.
+    @Test func motionLoopsDoNotFollowThePowerState() {
+        Motion.reduceMotionOverride = false
+        defer { Motion.reduceMotionOverride = nil }
+        let displays = DisplayClock()
+        let host = LoopTestWindow()
+        let loops = LoopVisibility("test.wiggle", displays: { displays })
+        loops.place(in: host.window)
+        let layer = CALayer()
+        loops.attach(layer, key: "wiggle", rate: .motion) {
+            let turn = CABasicAnimation(keyPath: "transform.rotation.z")
+            turn.duration = 0.25
+            turn.repeatCount = .infinity
+            return turn
+        }
+        #expect(displays.powerSubscribers.isEmpty)
+        displays.power = PowerState(lowPowerMode: true)
+        #expect(loops.runningCount == 1)
+    }
+
     /// The night sky's 93 loops (90 twinkles, 3 rising Zs) run only while its window shows.
     @Test func theNightSkyRunsNoLoopWhileHiddenOrOccluded() throws {
         let host = LoopTestWindow()
