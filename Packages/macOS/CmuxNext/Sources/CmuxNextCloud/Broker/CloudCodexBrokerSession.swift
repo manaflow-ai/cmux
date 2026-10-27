@@ -38,7 +38,7 @@ actor CodexBrokerSession {
     private let output: FileHandle
     private var buffer = Data()
     private var nextID = 0
-    private var pending: [Int: CheckedContinuation<BrokerResult, Swift.Error>] = [:]
+    private var pending: [Int: CheckedContinuation<BrokerResult, any Swift.Error>] = [:]
 
     init(executable: URL, executablePrefix: [String], codexExecutable: URL, home: URL) throws {
         try FileManager.checked.createDirectory(at: home, withIntermediateDirectories: true)
