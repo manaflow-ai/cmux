@@ -40,6 +40,8 @@ final class HomeReduceMotion {
     /// Installs, then re-applies Reduce Motion to `transcript` on each change while it lives.
     static func follow(_ transcript: MessagesLabHomeView) {
         install()
+        // The message box's send fade is an opacity change: it runs while Home's fades animate.
+        transcript.fadeMotionGate = { Motion.home.animatesFades }
         shared.views.add(transcript)
     }
 
