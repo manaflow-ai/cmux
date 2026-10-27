@@ -506,24 +506,35 @@ struct AgentPaneRelayedAllowTests {
         _ = await inbox.frame(containing: "no such option")
         #expect(peerOff == [.onceOnly])
 
-        // A signed one-time Allow, refused for want of enrolling this Mac.
+        // A signed one-time Allow, refused for want of enrolling this Mac: the hint, though an
+        // unsigned answer went before it.
         transport.gestures.record(click: true)
         let yesIntent = try #require(Self.intent(option: "yes"))
         let yes = try #require(transport.reserveGesture(yesIntent))
         let signed = Self.allow(ticket: yes).replacingOccurrences(of: #""id":7"#, with: #""id":8"#)
         #expect(await transport.send(connection: id, frames: [signed]) == nil)
         let second = try await Self.relayID(server, "permission_respond", after: 1)
-        // An unsigned Allow (no ticket) to the same prompt, in flight beside it.
-        transport.gestures.record(click: true)
-        let unsigned = Self.allow(ticket: nil).replacingOccurrences(of: #""id":7"#, with: #""id":9"#)
-        #expect(await transport.send(connection: id, frames: [unsigned]) == nil)
-        let third = try await Self.relayID(server, "permission_respond", after: 2)
-        // Out of order: the unsigned one's refusal comes first, naming another peer.
-        server.push(Self.refusal(third, peer: "near"), to: 0)
-        _ = await inbox.frame(containing: #""id":9"#)
         server.push(Self.refusal(second, peer: "far"), to: 0)
         _ = await inbox.frame(containing: #""id":8"#)
         #expect(peerOff == [.onceOnly, .notEnrolled(peer: "far")])
+
+        // Out of order: a signed Allow and an unsigned one (no ticket) in flight together; the
+        // unsigned one's refusal comes first, naming another peer, and says nothing.
+        transport.gestures.record(click: true)
+        let againIntent = try #require(Self.intent(option: "yes"))
+        let again = try #require(transport.reserveGesture(againIntent))
+        let signedAgain = Self.allow(ticket: again).replacingOccurrences(of: #""id":7"#, with: #""id":10"#)
+        #expect(await transport.send(connection: id, frames: [signedAgain]) == nil)
+        let third = try await Self.relayID(server, "permission_respond", after: 2)
+        transport.gestures.record(click: true)
+        let unsigned = Self.allow(ticket: nil).replacingOccurrences(of: #""id":7"#, with: #""id":9"#)
+        #expect(await transport.send(connection: id, frames: [unsigned]) == nil)
+        let fourth = try await Self.relayID(server, "permission_respond", after: 3)
+        server.push(Self.refusal(fourth, peer: "near"), to: 0)
+        _ = await inbox.frame(containing: #""id":9"#)
+        server.push(Self.refusal(third, peer: "far"), to: 0)
+        _ = await inbox.frame(containing: #""id":10"#)
+        #expect(peerOff == [.onceOnly, .notEnrolled(peer: "far"), .notEnrolled(peer: "far")])
     }
 
     /// The card's Allow for a batch of a peer's tool prompts (`_acpmux/permission_group_respond`),
