@@ -153,6 +153,12 @@ class FakeAPI:
         self.attempt += 1
         self.cancelled_at, self.rerun_at = None, self.clock.seconds
 
+    def rerun_job(self, run_id, job_id, next_attempt):
+        self.calls.append(f"rerun-job:{job_id}")
+        assert next_attempt == self.attempt + 1, (next_attempt, self.attempt)
+        self.attempt += 1
+        self.cancelled_at, self.rerun_at = None, self.clock.seconds
+
 
 def assert_left_at_open_head(case, api, text, number=42):
     """The rescue found the stuck job but cancelled nothing: the pull request is open at the run's head."""
@@ -2202,6 +2208,147 @@ def nightly_run(*, queued_at=15, started_at=None, refused_at=None, runner_label=
             helper["conclusion"] = "success"
         return found + [app, helper]
     return jobs
+
+
+# nightly.yml's shape around its build picker (feat-cmux-next): the helper's uploads as `overwrite` says.
+def picker_workflow(overwrite="true"):
+    upload = {"uses": "actions/upload-artifact@v7", "with": {"name": "cmux-next-source-archive"}}
+    if overwrite is not None:
+        upload["with"]["overwrite"] = overwrite
+    return json.dumps({"jobs": {  # JSON is YAML
+        "decide": {"runs-on": "ubuntu-latest", "steps": [{"run": "true"}]},
+        "pick-nightly-build-runner": {"needs": "decide", "runs-on": "ubuntu-latest", "steps": [{"run": "true"}]},
+        "build-nightly-app": {"needs": ["decide", "pick-nightly-build-runner"], "runs-on": "x", "steps": [{"run": "true"}]},
+        "build-nightly-ghostty-cli-helper": {"needs": ["pick-nightly-build-runner"], "runs-on": "x", "steps": [upload]},
+        "publish": {"needs": ["build-nightly-app", "build-nightly-ghostty-cli-helper"], "runs-on": "x",
+                    "steps": [{"uses": "actions/upload-artifact@v7", "with": {"name": "appcast"}}]},
+        "lint": {"runs-on": "ubuntu-latest", "steps": [{"run": "true"}]},
+    }})
+
+
+def with_picker(jobs_at, picker_id=901):
+    """Adds attempt 1's finished pick-nightly-build-runner job (with an id) to a jobs function."""
+    def jobs(seconds):
+        picker = job("pick-nightly-build-runner", status="completed", labels=[BLACKSMITH], runner="gh")
+        picker.update(id=picker_id, conclusion="success")
+        return [picker, *jobs_at(seconds)]
+    return jobs
+
+
+def done(name, conclusion, **extra):
+    found = job(name, status="completed", labels=[BLACKSMITH], runner="bs")
+    found.update(conclusion=conclusion, **extra)
+    return found
+
+
+class NightlyRepick(unittest.TestCase):
+    """A rescued nightly-next attempt 1 re-runs its build picker, so attempt 2 picks its runner fresh.
+
+    Runs 40549487427, 40550551073 and 40550711613 (2026-10-27): attempt 1's build-nightly-app was refused at
+    "Set up runner" on the dedicated builder; the rescue re-ran the failed jobs, which kept the picker's outputs,
+    and attempt 2 queued on blacksmith-6vcpu-macos-26, a label the picker had reported as stalled."""
+
+    def picker_jobs(self, *rest):
+        picker = done("pick-nightly-build-runner", "success", id=901)
+        return [picker, *rest]
+
+    def test_a_failed_build_that_needs_the_picker_re_runs_the_picker(self):
+        jobs = self.picker_jobs(done("decide", "success"), done("build-nightly-app", "failure"),
+                                done("build-nightly-ghostty-cli-helper", "success"), done("lint", "success"))
+        self.assertEqual(rescue.repick_job(picker_workflow(), jobs)[0], 901)
+
+    def test_a_succeeded_helper_that_uploads_without_overwrite_keeps_the_failed_jobs_re_run(self):
+        jobs = self.picker_jobs(done("build-nightly-app", "failure"), done("build-nightly-ghostty-cli-helper", "success"))
+        for overwrite in (None, "false"):
+            with self.subTest(overwrite=overwrite):
+                picker, why = rescue.repick_job(picker_workflow(overwrite), jobs)
+                self.assertIsNone(picker)
+                self.assertIn("cmux-next-source-archive again without overwrite", why)
+
+    def test_a_helper_that_failed_too_re_runs_either_way(self):
+        # Both builds re-run under a re-run of failed jobs as well: no extra upload.
+        jobs = self.picker_jobs(done("build-nightly-app", "failure"), done("build-nightly-ghostty-cli-helper", "cancelled"))
+        self.assertEqual(rescue.repick_job(picker_workflow(None), jobs)[0], 901)
+
+    def test_a_failed_job_outside_the_picker_keeps_the_failed_jobs_re_run(self):
+        jobs = self.picker_jobs(done("build-nightly-app", "failure"), done("lint", "failure"))
+        picker, why = rescue.repick_job(picker_workflow(), jobs)
+        self.assertIsNone(picker)
+        self.assertIn("lint does not need pick-nightly-build-runner", why)
+
+    def test_no_picker_job_or_no_id_or_no_failure_keeps_the_failed_jobs_re_run(self):
+        app = done("build-nightly-app", "failure")
+        cases = {
+            "no picker job": [app],
+            "no id": [done("pick-nightly-build-runner", "success"), app],
+            "two pickers": [*self.picker_jobs(app), done("pick-nightly-build-runner", "success", id=902)],
+            "nothing failed": self.picker_jobs(done("build-nightly-app", "success")),
+            "picker failed only": [done("pick-nightly-build-runner", "failure", id=901)],
+        }
+        for case, jobs in cases.items():
+            with self.subTest(case):
+                self.assertIsNone(rescue.repick_job(picker_workflow(), jobs)[0])
+        self.assertIsNone(rescue.repick_job("jobs: [", self.picker_jobs(app))[0])
+        self.assertIsNone(rescue.repick_job('{"jobs": {"build-nightly-app": {}}}', self.picker_jobs(app))[0])
+
+    def run_refused(self, workflow, payload=None):
+        clock = Clock()
+        api = NightlyAPI(clock, with_picker(nightly_run(refused_at=60, runner_label="glaeda-runner-cmux22-nightly-next",
+                                                        helper_done_at=200)),
+                         finished=lambda s: s >= 200, workflow=workflow)
+        _, summary = run_main(api, clock, payload=payload or nightly_event(head_branch="nightly-next"))
+        return api, summary
+
+    def test_a_refused_next_build_re_runs_the_picker_and_what_needs_it(self):
+        for event_name in ("push", "workflow_dispatch"):
+            with self.subTest(event_name):
+                api, summary = self.run_refused(picker_workflow(),
+                                                nightly_event(event=event_name, head_branch="nightly-next"))
+                self.assertEqual(api.calls[-1], "rerun-job:901")
+                self.assertNotIn("rerun-failed", api.calls)
+                self.assertNotIn("cancel", api.calls)
+                self.assertIn(f"workflow:{rescue.NIGHTLY_WORKFLOW_PATH}@{HEAD}", api.calls)
+                self.assertIn("so attempt 2 picks its runner fresh", summary)
+
+    def test_a_refused_next_build_whose_workflow_cannot_be_used_re_runs_its_failed_jobs(self):
+        for workflow in (None, picker_workflow(None)):
+            with self.subTest(missing=workflow is None):
+                api, summary = self.run_refused(workflow)
+                self.assertEqual(api.calls[-1], "rerun-failed")
+                self.assertNotIn("rerun-job:901", api.calls)
+
+    def test_main_s_nightly_keeps_the_failed_jobs_re_run(self):
+        # Only nightly-next's builds read the picker; main's nightly has none to re-run.
+        api, _ = self.run_refused(picker_workflow(), nightly_event())
+        self.assertEqual(api.calls[-1], "rerun-failed")
+        self.assertFalse(any(call.startswith("workflow:") for call in api.calls), api.calls)
+
+    def test_a_later_attempt_keeps_the_failed_jobs_re_run(self):
+        # Attempt 2 already picked fresh: a refusal there re-runs failed jobs onto attempt 2's Blacksmith pick.
+        clock = Clock()
+        api = NightlyAPI(clock, lambda s: [], workflow=picker_workflow())
+        target = rescue.Target(RUN_ID, 2, HEAD, 0, path=rescue.NIGHTLY_WORKFLOW_PATH, side=True, nightly=True,
+                               push_branch="nightly-next")
+        api.attempt = 2
+        text = rescue.rerun_failed_or_repick(api, target, clock.sleep, lambda line: None)
+        self.assertEqual(api.calls, ["rerun-failed"])
+        self.assertIn("re-ran the failed jobs", text)
+
+    def test_an_unreadable_run_re_runs_its_failed_jobs(self):
+        clock = Clock()
+
+        class Unreadable(NightlyAPI):
+            def workflow_file(self, path, ref):
+                raise OSError("down")
+
+        api = Unreadable(clock, lambda s: [], workflow=picker_workflow())
+        target = rescue.Target(RUN_ID, 1, HEAD, 0, path=rescue.NIGHTLY_WORKFLOW_PATH, side=True, nightly=True,
+                               push_branch="nightly-next")
+        lines = []
+        text = rescue.rerun_failed_or_repick(api, target, clock.sleep, lines.append)
+        self.assertEqual(api.calls[-1], "rerun-failed")
+        self.assertIn("re-ran the failed jobs", text)
+        self.assertTrue(any("could not read the run for a fresh runner pick" in line for line in lines), lines)
 
 
 class SupersedingAPI(FakeAPI):

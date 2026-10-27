@@ -81,6 +81,12 @@ jobs:
           sparse-checkout: |
             scripts/ci/gh_budget_wait.sh
             scripts/ci/nightly_next_cancelled_tip.sh
+            scripts/ci/nightly_repick.py
+            scripts/ci/owned_pool_rescue.py
+            scripts/ci/owned_pool_sources.py
+            scripts/ci/pr_runner_pool.py
+            scripts/ci/simple_pool_picker.py
+            scripts/ci/ui_tests_dispatch.py
           sparse-checkout-cone-mode: false
 
       # A tick refused "API rate limit exceeded for installation" lost its promotion
@@ -108,6 +114,17 @@ jobs:
           set -euo pipefail
           gh workflow run nightly-next-train.yml -R "$GITHUB_REPOSITORY" --ref feat-cmux-next -f mode="$MODE" \
             || echo "::warning::could not start the nightly-next train ($MODE); is nightly-next-train.yml on feat-cmux-next and main?"
+
+      # nightly_repick.py (run by the re-run below) reads nightly.yml's `needs` graph with
+      # PyYAML. Best effort: without it the re-run takes the attempt's failed jobs, as before.
+      - name: Prepare the re-run's Python
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          python3 -c 'import yaml' 2>/dev/null && exit 0
+          python3 -m venv "$RUNNER_TEMP/tick-venv"
+          "$RUNNER_TEMP/tick-venv/bin/python" -m pip install --disable-pip-version-check --no-input PyYAML==6.0.3
+          echo "$RUNNER_TEMP/tick-venv/bin" >> "$GITHUB_PATH"
 
       # A tip on nightly-next whose newest run ended cancelled (a rescue that lost its
       # re-run, run 40340830337) is never requested again below ("already on
