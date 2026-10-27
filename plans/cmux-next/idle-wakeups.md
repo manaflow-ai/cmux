@@ -240,6 +240,8 @@ of these owners (9.6). The list now:
 | `GitHubFeedSource.refresh` | 120 s | GitHub has no push for the feed; p14-energy-032 (landed) stops it while no cmux window shows, 066b moves it to `NSBackgroundActivityScheduler` |
 | `DeviceHubSocket.ping` | 30 s | The device hub keepalive (PROTOCOL.md); p14-energy-066c sends it only after silence |
 | `ControlEventBus.heartbeat` | 15 s | The `events.stream` `include_heartbeats` keepalive, only while a client asks for it and stays connected |
+| `TeamSsh.sync` | 30 s | cmux-host's team VM trust sync: Cloud has no push for `team_vm.ssh_ca`, and sshd fails closed after 120 s without a sync. Only on a team-bound Linux Cloud VM |
+| `CloudRole.heartbeat` | 3600 s | cmux-host's Cloud liveness report, re-armed by each accepted report. Only on a bound Linux Cloud VM |
 
 ### 9.2 Delay policy and leeway
 

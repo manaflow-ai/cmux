@@ -415,8 +415,8 @@ impl Worker {
                 });
             }
             // SAFETY: `fds` is a valid array of `fds.len()` pollfd entries.
-            // wakeup-allow: deadline the earliest status window, retry or hourly heartbeat (re-armed by
-            // each accepted report); no timeout without one, and any descriptor ends it first
+            // wakeup-allow: periodic CloudRole.heartbeat the hourly liveness report (re-armed by each
+            // accepted report); earlier status windows and retries shorten it, any descriptor ends it
             let n = unsafe { libc::poll(fds.as_mut_ptr(), fds.len() as libc::nfds_t, timeout_ms) };
             if n < 0 {
                 let err = io::Error::last_os_error();
