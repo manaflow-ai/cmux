@@ -385,8 +385,8 @@ for m in majors:
     elif suite in ("smoke", "threads"):
         s = load("result.json")
         verdict = "NO-VERDICT" if not s else ("PASS" if s.get("ok") and not fail else "FAIL")
-        line = "%-4s %-8s " + suite + " %-10s failed=%s crashes=%s hang_reports=%s faults=%s %s" % (
-            m, s.get("os", "?"), verdict, ",".join(s.get("failed_steps", [])) or "-",
+        line = "%-4s %-8s %-5s %-10s failed=%s crashes=%s hang_reports=%s faults=%s %s" % (
+            m, s.get("os", "?"), suite, verdict, ",".join(s.get("failed_steps", [])) or "-",
             s.get("crashes", "-"), s.get("hang_reports", "-"), s.get("faults", "-"), fail)
     elif suite == "chaos":
         # One row per fault (ok, FAIL or skip). A skipped fault (the guest could not inject it) is no
