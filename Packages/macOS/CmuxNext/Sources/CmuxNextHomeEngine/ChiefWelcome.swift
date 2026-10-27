@@ -102,12 +102,17 @@ public nonisolated struct ChiefWelcome: Sendable {
     }
 
     /// Posts the welcome (`text`, written at `at`) when due and records it. Returns the record, or
-    /// nil when the owner failed: nothing is recorded, and the next connection tries again.
+    /// nil when the owner failed: nothing is recorded, and the next launch tries again
+    /// (the owner's `prepare` runs once per launch).
     @concurrent public func run(owner: Owner, text: String, at: Date = Date()) async -> Record? {
         if let done = await load() { return done }
         if let migration, !FileManager.checked.fileExists(atPath: migration.path) { return nil }
         do {
             let listed = HomeChiefName.select(from: try await owner.list())
+            // Imported by an earlier launch whose record was lost (its reply or the write failed).
+            if let listed, listed.lastSeq == 1, listed.lastMessage?.clientMsgID == Self.clientMsgID {
+                return save(Record(conversation: listed.id, seq: 1))
+            }
             if let listed, listed.lastSeq > 0 { return save(Record(conversation: listed.id, seq: 0)) }
             let id: String
             if let listed { id = listed.id } else { id = try await owner.create() }
@@ -131,7 +136,7 @@ public nonisolated struct ChiefWelcome: Sendable {
     /// The action the welcome calls out first (⌘P).
     static let goToAction: ActionID = "goToWorkspace"
 
-    /// Runs the welcome on each connection of `owner` (its `prepare`, after the step set before,
+    /// Runs the welcome on `owner`'s first connection of a launch (its `prepare`, after the step set before,
     /// the old Chiefs' migration, and before Home attaches); `create` makes a missing Chief
     /// conversation, `report` gets the record. Isolated Chief homes (agent preflights, captures)
     /// get no welcome unless `CMUX_NEXT_CHIEF_WELCOME=1`.
@@ -149,7 +154,7 @@ public nonisolated struct ChiefWelcome: Sendable {
             if record == nil {
                 let text = await MainActor.run { Self.text(registry) }
                 record = await welcome.run(owner: Owner(connection: connection, create: create), text: text)
-                if record == nil { logger.info("chief welcome: not posted on this connection; the next one tries again") }
+                if record == nil { logger.info("chief welcome: not posted; the next launch tries again") }
             }
             let done = record
             await MainActor.run { report(done) }

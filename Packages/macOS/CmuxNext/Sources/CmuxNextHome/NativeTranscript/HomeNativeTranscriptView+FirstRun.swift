@@ -56,10 +56,11 @@ extension HomeNativeTranscriptView {
         firstRun.showsHero = HomeTunables.firstRunHero.value && !showsWelcome
     }
 
-    /// Debug Settings > Home > Chief front page hero: off keeps the rows-only first-run panel.
+    /// Debug Settings > Home > Chief front page hero: off keeps the rows-only first-run panel. The
+    /// welcome's record (read through `isOnlyWelcome`) arriving after the rows shows the panel too.
     func followHeroTunable() {
         withObservationTracking {
-            applyHero()
+            updateFirstRun()
         } onChange: { [weak self] in
             Task { @MainActor [weak self] in self?.followHeroTunable() }
         }

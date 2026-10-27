@@ -112,7 +112,8 @@ public final class HomeNativeTranscriptView: NSView {
     public var holdsFirstRun = false { didSet { if holdsFirstRun != oldValue { updateFirstRun() } } }
     /// Whether a conversation holds only the Chief's first-launch welcome (#26053, `ChiefWelcome`): its
     /// first-run panel still shows, above the welcome and without the hero the welcome stands in for.
-    public var isOnlyWelcome: (ConversationSummary) -> Bool = { _ in false } { didSet { updateFirstRun() } }
+    /// Set once by the host; the observation follows what the new predicate reads (`followHeroTunable`).
+    public var isOnlyWelcome: (ConversationSummary) -> Bool = { _ in false } { didSet { followHeroTunable() } }
     var showsWelcome: Bool { transcript.conversationSummary.map(isOnlyWelcome) == true }
     /// Space between the first-run panel and the welcome under it.
     static let welcomeGap: CGFloat = 12
@@ -449,7 +450,7 @@ public final class HomeNativeTranscriptView: NSView {
     }
 
     /// The first-run panel shows only in an empty Chief conversation, or one with only the welcome.
-    private func updateFirstRun() {
+    func updateFirstRun() {
         let welcome = showsWelcome
         firstRun.isHidden = holdsFirstRun || !((transcript.isEmpty || welcome) && transcript.conversationSummary?.kind(me: me) == .chief)
         applyHero()
