@@ -226,7 +226,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         services.lifetimeFollowers.append(FeaturePolicyEnforcer(services: services).start())
         services.postCloudStart(on: order.startup)  // no Cloud restore or connect before the first frame (p08-startup 020)
         services.postNonPaintServices(on: order.startup)
-        // Before the first window opens (restoreWhenLoaded opens one at once).
+        // Before the first window opens (restoreWhenLoaded opens one at once): its indicators and its first
+        // become-main notice find the config and resync follows running.
+        StatusIndicatorAppearance.shared.observe(on: services.mainWork, appEvents: services.appEvents,
+                                                 workspaceEvents: services.workspaceEvents)
         services.windows.onPresent = { [weak services] controller in
             DebugTimings.markLaunch("first_window_presented")  // launch.first_window ends here (once per process)
             services?.crashRecovery.showRestartNotice(on: controller.window)

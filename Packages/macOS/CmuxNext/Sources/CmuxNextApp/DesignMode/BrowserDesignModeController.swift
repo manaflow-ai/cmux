@@ -77,8 +77,21 @@ final class BrowserDesignModeController {
         guard !rest.isEmpty else { return }
         // task-owner: BackgroundWork (quit skips it); one snapshot and the cards' delivery, it ends with the last card
         // (recipe R-hop). `userVisible`: the person's highlight on the page caused it, and nothing waits on it.
-        services.work.task(.userVisible) { [weak self, weak chat, weak home] in
-            await self?.deliver(rest, from: key, home: home, chat: chat)
+        // The composers go in a main-actor box (Sendable), so the sending closure captures no non-Sendable view;
+        // `deliver` is a main-actor method that awaits the page snapshot off main.
+        let target = DeliveryTarget(home: home, chat: chat)
+        services.work.task(.userVisible) { @MainActor [weak self] in
+            await self?.deliver(rest, from: key, home: target.home, chat: target.chat)
+        }
+    }
+
+    /// The composers a delivery was aimed at, held weakly: a composer closed meanwhile gets nothing.
+    @MainActor private final class DeliveryTarget {
+        weak var home: HomeNativeTranscriptView?
+        weak var chat: AgentPaneView?
+
+        init(home: HomeNativeTranscriptView?, chat: AgentPaneView?) {
+            (self.home, self.chat) = (home, chat)
         }
     }
 

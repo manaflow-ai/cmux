@@ -147,7 +147,8 @@
               "liveObjects",
               "invariants",
               "switches",
-              "cli"
+              "cli",
+              "mcp"
             ]
           }
         }
@@ -3682,6 +3683,29 @@
             "error": {
               "description": "the code of the JSON error a failed call writes to stderr (`--json`), else cli.failed; present only when exit is not 0",
               "x-oracle-source": {"method": "cli", "path": "/cli/error"},
+              "type": "string",
+              "pattern": "^[a-z][a-z_]*(\\.[a-z][a-z_]*)+$"
+            }
+          }
+        },
+        "mcp": {
+          "description": "The receipt of an mcp step (invariant I1), in that step's settled checkpoint: whether the tools/call result is a tool error, the result's structuredContent (its content when it has none), and the typed code of a failed call. result is open, with the rules of open objects (ids by x-oracle-id-patterns, x-oracle-open-keys, the path and url rewrites).",
+          "x-oracle-source": {
+            "method": "mcp",
+            "path": "/mcp",
+            "task": "p15-oracle-209",
+            "from": "`cmux mcp serve --all-tools` over stdio, run by driver_mcp.py (VM: the run SHA's cmux-tui; fleet: the tagged bundle's cmux on the app's socket)"
+          },
+          "type": "object",
+          "required": ["isError", "result"],
+          "properties": {
+            "isError": {
+              "x-oracle-source": {"method": "mcp", "path": "/mcp/isError"},
+              "type": "boolean"
+            },
+            "error": {
+              "description": "the code of the tool error's envelope (structuredContent.error.code), or mcp.rpc_error for a JSON-RPC error; present only when isError is true",
+              "x-oracle-source": {"method": "mcp", "path": "/mcp/error"},
               "type": "string",
               "pattern": "^[a-z][a-z_]*(\\.[a-z][a-z_]*)+$"
             }

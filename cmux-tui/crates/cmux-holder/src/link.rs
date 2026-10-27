@@ -60,16 +60,18 @@ pub enum TraceForward {
 /// Watches each frame the reader thread routes, for the daemon's hang
 /// watcher (cmux-panic-log `hang`, which this std-and-libc crate does not
 /// link): `enter` gets the frame's kind before it is routed and returns a
-/// token, `exit` gets that token once the frame is done.
+/// token, `exit` gets that token once the frame is done. `hang` gets each
+/// [`Kind::Hang`] the holder reports about its own loop.
 #[derive(Clone, Copy)]
 pub struct FrameWatch {
     pub enter: fn(u16) -> u32,
     pub exit: fn(u32),
+    pub hang: fn(&wire::HangReport),
 }
 
 impl FrameWatch {
     /// Watches nothing.
-    pub const NONE: Self = Self { enter: |_| 0, exit: |_| {} };
+    pub const NONE: Self = Self { enter: |_| 0, exit: |_| {}, hang: |_| {} };
 }
 
 /// One watched frame: ends its watch when it drops.
@@ -677,6 +679,11 @@ fn read_loop(
                         && let Some(sink) = link.lock().sinks.get(&chan).cloned()
                     {
                         sink.gap(requested, oldest);
+                    }
+                }
+                Some(Kind::Hang) if chan == 0 => {
+                    if let Ok(report) = wire::HangReport::decode(&frame.payload) {
+                        (watch.hang)(&report);
                     }
                 }
                 Some(Kind::Exit) => {

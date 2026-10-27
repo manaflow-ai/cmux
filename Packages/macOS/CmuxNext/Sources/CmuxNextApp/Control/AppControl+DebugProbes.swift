@@ -176,6 +176,13 @@ extension AppControl {
                 if let control = call.params["side_panel"]?.stringValue { DebugCEF.pressSidePanel(control, services: services) }
                 // {"drop_spare": true} closes the spare Chromium window (its memory cost, PL-cef-tab).
                 if call.params["drop_spare"]?.boolValue == true { services.cache.cef.closeUntakenSpareWindows() }
+                // {"file_dialog_choose": ["/abs/path", ...]} or {"file_dialog_cancel": true} answers the newest page
+                // file chooser in cmux's picker, as a choice there would (host mode, chromiumHostFileDialogs).
+                if let paths = call.params["file_dialog_choose"]?.arrayValue?.compactMap(\.stringValue) {
+                    _ = services.cache.cef.answerHostFileDialog(with: paths.map { URL(filePath: $0) })
+                } else if call.params["file_dialog_cancel"]?.boolValue == true {
+                    _ = services.cache.cef.answerHostFileDialog(with: nil)
+                }
                 return .value(DebugCEF.report(services))
             },
             // Remote localhost proxy: port, counters, recent outcomes.

@@ -865,7 +865,7 @@ enum TapbackGlyph {
 /// (default `Fixture.renderScale`: inside a view's `Fixture.withRenderScale`, the view's).
 /// cmux: the cache and its waiters are main-thread state; a render job touches only the drawing (`render`, a
 /// function of the row's value) and the lock-owned demand and finished batch.
-final class RowBitmaps {
+final class RowBitmaps { // memory: consumer via MessagesLabMemoryConsumer (CmuxNextHome)
     static let shared = RowBitmaps()
     /// `space`: the colour space the bitmap is drawn in (WideBitmap.drawSpace; AppKit: the window's display space,
     /// process-wide). Bitmaps of another display stay cached for a move back (cx-3cb scale-redraw).
@@ -880,8 +880,11 @@ final class RowBitmaps {
         return q
     }()
     static let capacity = 500
-    /// Row bitmaps in bytes (media-heavy histories: a 300 x 360 pt photo row is 1.7 MB at 2x).
-    static let byteBudget = 160 << 20
+    /// Row bitmaps in bytes until the host sizes the cache (media-heavy histories: a 300 x 360 pt photo row is 1.7 MB
+    /// at 2x).
+    static let defaultBudget = 160 << 20
+    /// cmux: the most bytes the cache keeps: the host's share of its memory budget (`setBudget(bytes:)`, p07-memory-081).
+    private(set) var byteBudget = RowBitmaps.defaultBudget
     private(set) var bytes = 0
 
     /// The cache key of a row's bitmap: without the width for a width-invariant row
@@ -999,11 +1002,11 @@ final class RowBitmaps {
         bytes += img.bytesPerRow * img.height
         // Trim in chunks (removing from the front of the order array on every
         // insert copied it each time). Bounded by rows and by bytes (media rows are large).
-        if order.count > RowBitmaps.capacity + 100 || bytes > RowBitmaps.byteBudget {
+        if order.count > RowBitmaps.capacity + 100 || bytes > byteBudget {
             var n = max(0, order.count - RowBitmaps.capacity), freed = 0
-            if bytes > RowBitmaps.byteBudget {
+            if bytes > byteBudget {
                 for spec in order.dropFirst(n) { // no index math
-                    guard bytes - freed > RowBitmaps.byteBudget * 4 / 5 else { break }
+                    guard bytes - freed > byteBudget * 4 / 5 else { break }
                     freed += cache.value(for: spec).map { $0.bytesPerRow * $0.height } ?? 0
                     n += 1
                 }
@@ -1017,6 +1020,27 @@ final class RowBitmaps {
         }
     }
     var count: Int { cache.count }
+
+    /// cmux: the host's cap (p07-memory-081). Lowering it frees nothing: the next store trims to it.
+    func setBudget(bytes: Int) { byteBudget = max(0, bytes) }
+
+    /// cmux: frees the oldest bitmaps until at most `fraction` of the bytes held now remain (0 frees every one), off
+    /// main (p07-memory-081). A row on screen keeps the bitmap its layer shows; its next request draws it again.
+    func trim(toFraction fraction: Double) {
+        let target = bytes.trimTarget(fraction)
+        guard bytes > target else { return }
+        var n = 0, freed = 0
+        for spec in order { // no index math
+            guard bytes - freed > target else { break }
+            freed += cache.value(for: spec).map { $0.bytesPerRow * $0.height } ?? 0
+            n += 1
+        }
+        let drop = order.prefix(n)
+        let imgs = drop.compactMap { cache.removeValue(forKey: $0) }
+        bytes -= imgs.reduce(0) { $0 + $1.bytesPerRow * $1.height }
+        Reclaimer.release(bitmaps: imgs)
+        order.removeFirst(drop.count)
+    }
 
     /// cmux: a hidden transcript released its rows (MessagesWindowView.releaseRows): the bitmaps of `specs` at `scale`
     /// go, in every colour space, except those `kept` rows draw too (rows another live view lays out). Freed off main.

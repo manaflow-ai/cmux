@@ -157,6 +157,8 @@ FACETS = (
     "invariants", "switches",
 )
 DEFAULT_FACETS = ("daemon",)
+# The build receipt linux_run.sh writes beside the binary it built (cmux-oracle-build-v1, with the full sha).
+BUILD_RECEIPT = "build.json"
 # The daemon product's only facet; the rest come from the app (driver_app.py) or later daemon tasks.
 FACET_TASKS = {"crashes": "p15-oracle-188", "liveObjects": "p15-oracle-188", "switches": "p15-oracle-049"}
 ORACLE_STATE = "oracle-state"
@@ -1579,7 +1581,10 @@ class DaemonSession:
     Chrome's test launcher runs each test in a child: hundreds of cases run in parallel without one
     interpreter lock or one descriptor table, and a hung or crashed worker fails only its case. The
     session itself gives out the state roots and checks each case's sockets after its worker; `scan` (the
-    whole-table marker scan) runs only for a worker that did not finish."""
+    whole-table marker scan) runs only for a worker that did not finish. A driver that extends the case
+    (driver_cli.py, driver_mcp.py) names its own file as `worker_script`, whose `case-worker` runs its case."""
+
+    worker_script = Path(__file__).resolve()
 
     def __init__(self, session_ctx: Mapping[str, Any],
                  scan: Callable[[], Dict[str, List[CaseProcess]]] = scan_markers):
@@ -1640,7 +1645,7 @@ class DaemonSession:
         payload = {"binary": self.binary, "sha": self.sha, "schema": self.schema_path, "case": case,
                    "ctx": case_ctx, "session": self.session_ctx, "isolation": self.isolation.describe()}
         bound = worker_bound(case, scale)
-        worker = subprocess.Popen([sys.executable, "-I", str(Path(__file__).resolve()), "case-worker"],
+        worker = subprocess.Popen([sys.executable, "-I", str(self.worker_script), "case-worker"],
                                   stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         try:
             out, err = worker.communicate(json.dumps(payload).encode(), timeout=bound)
@@ -1680,13 +1685,13 @@ def tail(data: bytes) -> str:
     return data[-LOG_TAIL_BYTES:].decode("utf-8", "replace").strip()
 
 
-def case_worker() -> int:
-    """`case-worker`: one case from the JSON payload on stdin; the result JSON on stdout."""
+def case_worker(case_class: Callable[..., "CaseRun"] = CaseRun) -> int:
+    """`case-worker`: one `case_class` case from the JSON payload on stdin; the result JSON on stdout."""
     payload = json.load(sys.stdin)
     schema, refusal = load_snapshot_schema(payload["schema"])
     if schema is None:
         raise SystemExit(f"driver_daemon.py case-worker: {refusal}")
-    run = CaseRun(payload["binary"], payload["sha"], schema, payload["case"], payload["ctx"], payload["session"],
+    run = case_class(payload["binary"], payload["sha"], schema, payload["case"], payload["ctx"], payload["session"],
                   hermetic_env.Isolation.from_description(payload["isolation"]))
     # Every process the case starts stays in this worker's tree, whatever it does (I6).
     become_subreaper()
@@ -1713,19 +1718,21 @@ def open_session(session_ctx: Dict[str, Any]) -> DaemonSession:
     return DaemonSession(session_ctx)
 
 
+def build_receipt_sha(binary: str) -> Optional[str]:
+    """The full SHA of the build receipt beside the binary (linux_run.sh writes BUILD_RECEIPT), or None."""
+    try:
+        sha = json.loads((Path(binary).parent / BUILD_RECEIPT).read_text(encoding="utf-8")).get("sha")
+    except (OSError, ValueError, AttributeError):
+        return None
+    return sha if isinstance(sha, str) and re.fullmatch(r"[0-9a-f]{40}", sha) else None
+
+
 def resolve_sha(ref: Any, binary: str) -> str:
     """The SHA under test: a full-SHA ref, else the build receipt beside the binary (linux_run.sh)."""
     if isinstance(ref, str) and re.fullmatch(r"[0-9a-f]{40}", ref):
         return ref
-    receipt = Path(binary).parent / "oracle-build-receipt.json"
-    try:
-        sha = json.loads(receipt.read_text(encoding="utf-8")).get("sha")
-    except (OSError, ValueError):
-        sha = None
-    if isinstance(sha, str) and re.fullmatch(r"[0-9a-f]{40}", sha):
-        return sha
     # meta.sha is volatile (diff.py prints it); an unknown build says so with zeros.
-    return "0" * 40
+    return build_receipt_sha(binary) or "0" * 40
 
 
 # ---------------------------------------------------------------------------------------------------------
