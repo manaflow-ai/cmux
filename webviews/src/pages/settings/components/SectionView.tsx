@@ -1,65 +1,22 @@
-import type { ReactNode } from "react";
-import { categoryById, type CategoryCard } from "../categories";
-import { sections } from "../schema";
-import { text } from "../strings";
-import { AccountsSection } from "./AccountsSection";
-import { AgentHarnesses } from "./AgentHarnesses";
-import { AgentIntegrations } from "./AgentIntegrations";
-import { CHIEF_PET_ROWS, ChiefPetCard } from "./ChiefPetCard";
-import { ChannelsCard } from "./ChannelsCard";
-import { ChiefsCard } from "./ChiefsCard";
-import { ComputerUseCard } from "./ComputerUseCard";
-import { DevicesCard } from "./DevicesCard";
-import { FeatureFlagsCard } from "./FeatureFlagsCard";
-import { GhosttyDiagnostics } from "./GhosttyDiagnostics";
-import { GroupList } from "./GroupList";
-import { HarnessesCard } from "./HarnessesCard";
+import { useEffect, useSyncExternalStore } from "react";
 import { APPEARANCE_CATEGORIES } from "../appearanceUndo";
-import { AppearanceBar } from "./AppearanceBar";
-import { MobileCard } from "./MobileCard";
-import { ImportSuggestionsCard } from "./ImportSuggestionsCard";
-import { AdvancedInfo, BACKDROP_ROWS, Backdrops, TerminalInfo, useBackdropsShown } from "./HostCards";
+import {
+  ACCENT_KEY,
+  APP_THEME_KEY,
+  BACKDROP_ROWS,
+  CHIEF_PET_ROWS,
+  MACHINE_COLORS_KEY,
+  THEME_EDITS_KEY,
+  THEME_KEY,
+  useBackdropsShown,
+} from "../cardRows";
+import { categoryById, type CategoryCard } from "../categories";
+import { useSectionLoader } from "../context";
 import { DENSITY_ROWS } from "../density";
-import { DensityCard } from "./DensityCard";
-import { BrowserProfiles, MACHINE_COLORS_KEY, MachinesSection, SpacesSection } from "./HostSections";
-import { PlaceholderSection } from "./PlaceholderSection";
-import { WebUpdatesCard } from "./WebUpdatesCard";
-import { VoiceInputCard } from "./VoiceInputCard";
-import { ServerCard } from "./ServerCard";
+import { text } from "../strings";
+import { AppearanceBar } from "./AppearanceBar";
+import { GroupList } from "./GroupList";
 import { SectionActions } from "./SectionActions";
-import { ACCENT_KEY, APP_THEME_KEY, THEME_EDITS_KEY, THEME_KEY, ThemeStudio } from "./ThemeStudio";
-
-const machinesTitle = () => text(sections.find((section) => section.id === "machines")?.title);
-
-/** Each card; `focus` is the route's focused key (a card may open a panel it names), `workspace`
- * the workspace the page was opened for. */
-const CARDS: Record<CategoryCard, (focus: string | null, workspace: string | null) => ReactNode> = {
-  themeStudio: (focus) => <ThemeStudio focus={focus} />,
-  terminalInfo: () => <TerminalInfo />,
-  ghosttyDiagnostics: () => <GhosttyDiagnostics />,
-  computerUse: () => <ComputerUseCard />,
-  harnesses: () => <HarnessesCard />,
-  spaces: () => <SpacesSection />,
-  browserProfiles: () => <BrowserProfiles />,
-  machines: () => <MachinesSection title={machinesTitle()} />,
-  accounts: () => <AccountsSection />,
-  agentHarnesses: (focus) => <AgentHarnesses focus={focus} />,
-  agentIntegrations: (focus) => <AgentIntegrations focus={focus} />,
-  chiefs: () => <ChiefsCard />,
-  advancedInfo: () => <AdvancedInfo />,
-  advancedActions: () => <PlaceholderSection section="advanced" />,
-  backdrops: (focus, workspace) => <Backdrops focus={focus} workspace={workspace} />,
-  mobile: () => <MobileCard />,
-  devices: () => <DevicesCard />,
-  chiefPet: (focus) => <ChiefPetCard focus={focus} />,
-  density: () => <DensityCard />,
-  importSuggestions: () => <ImportSuggestionsCard />,
-  channels: () => <ChannelsCard />,
-  webUpdates: () => <WebUpdatesCard />,
-  voiceInput: () => <VoiceInputCard />,
-  server: () => <ServerCard />,
-  featureFlags: () => <FeatureFlagsCard />,
-};
 
 /** One category: its title, the cards before its groups, the groups, the cards after, actions. */
 export function SectionView({
@@ -117,6 +74,13 @@ export function SectionView({
   );
 }
 
+/** A card, drawn from its section's chunk (lazySections.ts). The section route's loader has loaded
+ * the chunk; a section drawn before it (the route's pending component) adds the card when it loads. */
 function CardSlot({ card, focus, workspace }: { card: CategoryCard; focus: string | null; workspace: string | null }) {
-  return CARDS[card](focus, workspace);
+  const sections = useSectionLoader();
+  const draw = useSyncExternalStore(sections.subscribe, () => sections.card(card));
+  useEffect(() => {
+    if (!draw) void sections.loadCard(card);
+  }, [draw, sections, card]);
+  return draw ? draw(focus, workspace) : null;
 }

@@ -344,6 +344,8 @@ pub(crate) struct ClientRegistry {
     pub(super) next_id: AtomicU64,
     pub(super) resource_stream_admission: Arc<ResourceWorkerAdmission>,
     pub(super) resource_wait_admission: Arc<ResourceWorkerAdmission>,
+    /// The daemon-wide cap on open client-minted attach streams.
+    pub(super) attach_stream_admission: Arc<super::attach_streams::AttachStreamAdmission>,
     /// The framed IPC transports this daemon serves (capabilities.rs).
     pub(super) ipc_transports: super::capabilities::IpcTransports,
     pub(super) state: Mutex<ClientRegistryState>,
@@ -413,6 +415,9 @@ impl ClientRegistry {
             resource_wait_admission: ResourceWorkerAdmission::new(
                 RESOURCE_WAITS_PER_CLIENT_CAPACITY,
                 RESOURCE_WAITS_SERVER_CAPACITY,
+            ),
+            attach_stream_admission: super::attach_streams::AttachStreamAdmission::new(
+                super::ATTACH_STREAMS_SERVER_CAPACITY,
             ),
             ipc_transports: super::capabilities::IpcTransports::default(),
             state: Mutex::new(ClientRegistryState::default()),
