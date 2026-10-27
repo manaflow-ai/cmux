@@ -99,4 +99,23 @@ import Testing
         #expect(ready == [daemonTab.id])
         #expect(cache.existingBrowser(daemonTab.id)?.tab is DeferredBrowserTab)
     }
+
+    /// A plain Reload never writes the address it showed over the record (another client may have moved the tab).
+    @Test func aPlainReloadWritesNothingAndUsesTheRecord() async throws {
+        let cache = cache(.startFailed("CefInitialize failed"))
+        let tab = restoredChromiumTab(66)
+        defer { cache.release(tab.id) }
+        cache.findTab = { $0 == tab.id ? tab : nil }
+        var written: [String] = []
+        cache.browserTabs.update = { _, _, update in
+            if let url = update.url { written.append(url) }
+            return true
+        }
+        let first = try #require(cache.browser(for: tab))
+        first.tab.reload()
+        for _ in 0..<10 { await Task.yield() }
+        #expect(written.isEmpty)
+        let again = try #require(cache.existingBrowser(tab.id)?.tab as? DeferredBrowserTab)
+        #expect(again.state.url?.absoluteString == tab.url)
+    }
 }

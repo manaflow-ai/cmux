@@ -42,6 +42,9 @@ import os
         // No Dock icon.
         app.setActivationPolicy(.accessory)
         app.delegate = handoff
+        // A URL launch arrives as `GURL`; take it here (as the app's own delegate does), before AppKit starts.
+        NSAppleEventManager.shared().setEventHandler(handoff, andSelector: #selector(handleURLEvent(_:reply:)),
+                                                     forEventClass: AEEventClass(kInternetEventClass), andEventID: AEEventID(kAEGetURL))
         withExtendedLifetime((handoff, deadline)) { app.run() }
         exit(0)
     }
@@ -49,6 +52,13 @@ import os
     /// This launch's documents and URLs (AppKit routes both `odoc` and `GURL` here).
     func application(_ application: NSApplication, open urls: [URL]) {
         self.urls += urls
+        scheduleFinish()
+    }
+
+    @objc private func handleURLEvent(_ event: NSAppleEventDescriptor, reply: NSAppleEventDescriptor) {
+        guard let text = event.paramDescriptor(forKeyword: AEKeyword(keyDirectObject))?.stringValue,
+              let url = URL(string: text) else { return }
+        urls.append(url)
         scheduleFinish()
     }
 

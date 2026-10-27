@@ -49,28 +49,32 @@ extension TabContentCache {
         let entry = install(page, for: key)
         // The tab the page shows when Reload is pressed: a stand-in's page moves to its daemon tab
         // (`moveBrowser`), which rebinds the chrome's key but not this closure.
-        page.onStart = { [weak self, weak entry] url in self?.retryChromium(entry?.chrome.addressBar.tabKey ?? key, url: url) }
+        // A plain Reload starts on the page it shows; only another address was typed.
+        page.onStart = { [weak self, weak entry] requested in
+            self?.retryChromium(entry?.chrome.addressBar.tabKey ?? key, typed: requested == url ? nil : requested)
+        }
         entry.chrome.showNotice(BrowserEngineStrings.chromiumUnavailableRestoredTab)
         return entry
     }
 
-    /// Reload (or an address) on a "Chromium unavailable" tab: the tab asks for its page again, which waits again
-    /// while Chromium still cannot serve it (in this process, until cmux restarts).
-    private func retryChromium(_ key: String, url: URL?) {
+    /// Reload, or an address typed, on a "Chromium unavailable" tab: the tab asks for its page again, on the
+    /// typed address or else its record's current one. While Chromium still cannot serve it (in this process,
+    /// until cmux restarts) it waits again, and a typed address goes to the tab's record so the restart opens it
+    /// (never an incognito tab's: its URL stays in memory).
+    private func retryChromium(_ key: String, typed: URL?) {
+        browserTabs.untrack(key)
         browsers.removeValue(forKey: key)?.close()
         guard let tab = tabModel(key) else { return }  // a remote machine's tab included
         if let reason = browserTabs.cefUnavailable(), reason.keepsChromiumTabsOutOfWebKit {
-            // Still no Chromium: wait again, on the address the person asked for, and keep it in the tab's record
-            // so the restart the notice asks for opens it (never an incognito tab's: its URL stays in memory).
-            _ = chromiumUnavailable(tab, url: url ?? tab.url.flatMap(URL.init(string:)), reason: reason)
-            if let url, url.absoluteString != tab.url, tab.isFrontendOwned, !browserTabs.isIncognitoTab(key),
+            _ = chromiumUnavailable(tab, url: typed ?? tab.url.flatMap(URL.init(string:)), reason: reason)
+            if let typed, typed.absoluteString != tab.url, tab.isFrontendOwned, !browserTabs.isIncognitoTab(key),
                !ProvisionalTab.isProvisional(surface: tab.surface) {
                 let daemon = browserTabs.daemon(for: tab), update = browserTabs.update, surface = tab.surface
                 // task-owner: one record write; the tab's next page writes over it
-                Task { _ = await update(daemon, surface, BrowserRecordUpdate(url: url.absoluteString, title: nil, favicon: .unchanged)) }
+                Task { _ = await update(daemon, surface, BrowserRecordUpdate(url: typed.absoluteString, title: nil, favicon: .unchanged)) }
             }
-        } else if let entry = browser(for: tab), let url, url.absoluteString != tab.url {
-            entry.tab.load(url)
+        } else if let entry = browser(for: tab), let typed, typed.absoluteString != tab.url {
+            entry.tab.load(typed)
         }
         onBrowserReady?(key)
     }
