@@ -600,10 +600,10 @@ final class CloudService {
     static let inProgressDelay: Duration = .seconds(15)
 
     func deleteMachine(_ machineID: String) async throws {
-        if let user = auth.user {
-            try? await codexBroker.revoke(machineID: machineID, scope: .init(userID: user.id, teamID: auth.teamID))
-        }
+        let brokerScope = auth.user.map { CloudCodexBrokerScope(userID: $0.id, teamID: auth.teamID) }
+        if let brokerScope { try? await codexBroker.revoke(machineID: machineID, scope: brokerScope) }
         try await api.deleteMachine(machineID)
+        if let brokerScope { await codexBroker.machineWasDeleted(machineID, scope: brokerScope) }
         // A list in flight was asked while this machine still existed.
         listGeneration += 1
         creations.machineRemoved(machineID)

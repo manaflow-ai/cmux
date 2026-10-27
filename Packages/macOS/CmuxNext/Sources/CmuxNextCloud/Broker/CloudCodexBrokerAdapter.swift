@@ -133,6 +133,13 @@ import Observation
         } catch { pendingCleanup.insert(machineID); throw error }
     }
 
+    /// Only a successful server deletion may discard failed file cleanup.
+    public func machineWasDeleted(_ machineID: String, scope: CloudCodexBrokerScope) async {
+        for run in runs.values where run.0 == scope && run.1 == machineID { run.2.cancel() }
+        await registry.discardDeletedTarget(machineID, scope: scope)
+        pendingCleanup.remove(machineID)
+    }
+
     /// Stops all renewal/processes and tries to erase delivered files. Local
     /// rotating credentials are retained for the next explicit, confirmed use.
     public func shutdown() async {
