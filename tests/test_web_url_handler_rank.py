@@ -82,18 +82,32 @@ def configuration_settings(pbxproj: str) -> dict[str, dict[str, str]]:
     return found
 
 
+RANK_VAR = "web_url_handler_rank"
+# /bin/bash on macOS is bash 3.2, which cannot parse a `case` pattern's `)`
+# inside `$(...)`; the fleet's reload.sh run failed that way. The rank is set
+# by a plain `case` statement and passed through a variable.
+SHELL = "/bin/bash" if pathlib.Path("/bin/bash").exists() else "bash"
+
+
 def rank_override(script: pathlib.Path) -> str:
-    """The shell that computes the script's CMUX_WEB_URL_HANDLER_RANK=... argument."""
+    """The shell that sets the script's web_url_handler_rank from the bundle id."""
     text = script.read_text()
-    match = re.search(rf'{SETTING}=\\?"?\$\((case .*? esac)\)', text)
+    rel = script.relative_to(REPO_ROOT)
+    if re.search(rf"{SETTING}=[^\n]*\$\(\s*case\b", text):
+        raise AssertionError(f"{rel} computes {SETTING} with a case inside $(...); bash 3.2 cannot parse it")
+    match = re.search(
+        rf'^\s*{RANK_VAR}=Default\n\s*(case "\$(?:BUNDLE_ID|bundle_id)" in .*? esac)$', text, re.M
+    )
     if not match:
-        raise AssertionError(f"{script.relative_to(REPO_ROOT)} passes no {SETTING} derived from the bundle id")
-    return match.group(1)
+        raise AssertionError(f"{rel} sets no {RANK_VAR} from the bundle id")
+    if not re.search(rf'{SETTING}=\\?"?\${RANK_VAR}"?', text):
+        raise AssertionError(f"{rel} does not pass {SETTING}=${RANK_VAR} to xcodebuild")
+    return f"{RANK_VAR}=Default; {match.group(1)}; echo \"${RANK_VAR}\""
 
 
 def run_override(snippet: str, bundle_id: str) -> str:
     out = subprocess.run(
-        ["bash", "-c", f"bundle_id=$1; BUNDLE_ID=$1; {snippet}", "rank", bundle_id],
+        [SHELL, "-c", f"bundle_id=$1; BUNDLE_ID=$1; {snippet}", "rank", bundle_id],
         capture_output=True,
         text=True,
         check=True,

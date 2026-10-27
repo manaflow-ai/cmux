@@ -326,6 +326,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'preflight' }}
         run: python3 tests/test_resources_plist_unique_keys.py
 
+      - name: Validate dev builds declare http/https at Alternate rank
+        if: ${{ !cancelled() && matrix.group == 'preflight' }}
+        run: python3 tests/test_web_url_handler_rank.py
+
       - name: Validate the release-media scenes and changelog patcher
         if: ${{ !cancelled() && matrix.group == 'preflight' }}
         run: python3 tests/test_release_media.py
