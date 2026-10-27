@@ -213,6 +213,7 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
             case .takeOverSize(let setLatest): driver.takeOver(setLatest: setLatest)
             case .reconnect: driver.reconnect()
             case .resync: driver.requestResync()
+            case .refresh: driver.refresh()
             }
             return .next
         }
@@ -251,6 +252,14 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
     /// fresh READY + history.
     func resyncRequested() async {
         driver.requestResync()
+    }
+
+    /// A fresh attach replays the whole screen in snapshot and in byte mode, an exited terminal's final one too.
+    var resendsScreen: Bool { true }
+
+    /// The session dropped its screen: re-attach for a fresh replay.
+    func refreshRequested() async {
+        driver.refresh()
     }
 
     /// Never sent: ``resizeOnMain(cols:rows:final:window:)`` takes every grid in the caller's turn (it always

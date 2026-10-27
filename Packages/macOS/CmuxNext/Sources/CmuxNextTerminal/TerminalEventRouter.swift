@@ -39,8 +39,11 @@ nonisolated struct TerminalEventRouter: Sendable {
     let handoff: (@Sendable () async -> TerminalLaneHandoff?)?
     /// The ``epoch`` value ``lane`` belongs to.
     private var seenEpoch: UInt64
-    /// The session's surface is released: content is dropped, the rebuild's READY carries it.
+    /// The session's surface is released: content is dropped, the rebuild's whole screen carries it.
     private(set) var released = false
+    /// A rebuilt surface waits for a whole screen (a replay or a READY): content before it is dropped, so a
+    /// fragment of the stream never lands on an empty surface with default modes or ends the frame hold.
+    private(set) var awaitsScreen = false
 
     init(lane: TerminalOutputLane?, mailbox: TerminalEventMailbox, input: TerminalInputSink,
          outputLane: TerminalOutputLaneNamer? = nil, epoch: TerminalSurfaceEpoch? = nil,
@@ -80,6 +83,7 @@ nonisolated struct TerminalEventRouter: Sendable {
         seenEpoch = current.epoch
         lane = current.lane
         released = current.released
+        awaitsScreen = !current.released
         hasContent = false
         restored = TerminalRestoredContent()
         restoreQueued = false
@@ -94,8 +98,20 @@ nonisolated struct TerminalEventRouter: Sendable {
         }
     }
 
+    /// Whether `event` brings a whole screen, which a rebuilt surface waits for.
+    private static func bringsScreen(_ event: TerminalIOEvent) -> Bool {
+        switch event {
+        case .replay, .kittyReplay, .snapshot(_, phase: .ready), .snapshot(_, phase: .readyLocalHistory(_)): true
+        default: false
+        }
+    }
+
     private mutating func routeInOrder(_ event: TerminalIOEvent) async -> Bool {
         if released, Self.carriesContent(event) { return true }
+        if awaitsScreen, Self.carriesContent(event) {
+            guard Self.bringsScreen(event) else { return true }
+            awaitsScreen = false
+        }
         if let lane, await lane.takeOffMain(event) {
             if case .output = event { contentQueued() }
             return true

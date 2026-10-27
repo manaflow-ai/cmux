@@ -11,6 +11,7 @@ public import Foundation
 /// stream ended / attach failed ─▶ disconnected ─event or retry─▶ reattaching
 /// any ─processExited─▶ exited        any ─close─▶ closed
 /// exited ─processRevived─▶ reattaching
+/// live / exited ─refresh─▶ reattaching (the view dropped its screen; an exited one ends exited)
 /// ```
 ///
 /// A view is never closed because its stream ended or an attach failed: it
@@ -138,6 +139,7 @@ public nonisolated struct TerminalAttachMachine<Link: Hashable & Sendable>: Send
         case .reconnect: reconnect()
         case .processExited: processExited()
         case .processRevived: processRevived()
+        case .refresh: refresh()
         case .close: close()
         }
     }
@@ -418,6 +420,28 @@ public nonisolated struct TerminalAttachMachine<Link: Hashable & Sendable>: Send
         case .disconnected:
             return reconnect()
         case .detached, .live, .closed:
+            return []
+        }
+    }
+
+    /// Re-attaches for a fresh replay with no status change: a live link is detached as on overflow, an
+    /// exited terminal attaches once for its final screen (`exitAfterReplay`), and a disconnected or
+    /// attaching view re-attaches as on any event. A failed open retries as any re-attach does.
+    private mutating func refresh() -> [Effect] {
+        switch phase {
+        case .live(let link):
+            let pending = newPending(failures: 1)
+            phase = .reattaching(pending)
+            claimed = false; reportedSize = nil; echoesDue = []; announcedSize = nil; hiddenOn = nil
+            return [.detach(link), .open(attempt: pending.attempt, size: pending.size)]
+        case .exited:
+            exitAfterReplay = true
+            let pending = newPending(failures: 1)
+            phase = .reattaching(pending)
+            return [.open(attempt: pending.attempt, size: pending.size)]
+        case .attaching, .reattaching, .disconnected:
+            return reconnect()
+        case .detached, .closed:
             return []
         }
     }

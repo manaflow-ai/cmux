@@ -19,7 +19,7 @@ final class TerminalSurfaceReleaseState {
 }
 
 // A hidden terminal holds no app surface (p01-process-140): after the grace its Ghostty surface goes and a
-// stand-in with none takes its place; shown again, a fresh surface is rebuilt from the owner's READY.
+// stand-in with none takes its place; shown again, a fresh surface is rebuilt from the owner's whole screen.
 extension TerminalSession {
     /// The surface is released: a stand-in with no Ghostty surface shows, and output is not parsed.
     public var isSurfaceReleased: Bool { surfaceRelease?.dormancy.state == .released }
@@ -47,10 +47,16 @@ extension TerminalSession {
     }
 
     private var surfaceReleaseInputs: TerminalSurfaceDormancy.Inputs {
-        // Only an owner that keeps the VT state (the daemon) can rebuild the screen; a bare PTY cannot.
+        // Only an owner that sends the whole screen again (the daemon, by a fresh attach) can rebuild it.
         TerminalSurfaceDormancy.Inputs(hidden: isRenderingSuspended && mirrorDemand == 0,
-                                       rebuildable: io.answersTerminalQueries && model.connection == .connected && !model.hasExited,
-                                       pinned: isSelectionPinned)
+                                       rebuildable: io.resendsScreen && model.connection == .connected && !model.hasExited,
+                                       pinned: holdsViewState)
+    }
+
+    /// The surface holds what the owner's screen does not: a selection, or a viewport scrolled back
+    /// from the bottom (a rebuilt surface shows the bottom with nothing selected).
+    private var holdsViewState: Bool {
+        isSelectionPinned || surfaceView.hasSelection || model.scrollbar.map { !$0.showsBottom } == true
     }
 
     private func perform(_ step: TerminalSurfaceDormancy.Step, _ release: TerminalSurfaceReleaseState) {
@@ -81,19 +87,17 @@ extension TerminalSession {
         release.releases += 1
     }
 
-    /// In the show's turn: a fresh surface with the last frame painted over it until the owner's READY and
-    /// the stream's tail after it are parsed and drawn. With no live stream (it dropped or the process
-    /// ended while released) the frame stays until content comes.
+    /// In the show's turn: a fresh surface with the last frame painted over it until the owner's whole
+    /// screen and the stream after it are parsed and drawn. The owner re-attaches for it whatever the
+    /// stream did while released (an exited terminal's final screen too); the events loop drops content
+    /// until it comes.
     private func rebuildSurface(_ release: TerminalSurfaceReleaseState) {
         let frame = release.frame
         release.frame = nil
         swapSurface()
         surfaceEpoch.advance()
-        if let held = frame?.take() {
-            let live = model.connection == .connected
-            frameHold.begin(lastFrame: held, over: surfaceView, in: view, contentLimit: live ? TerminalFrameHold.contentLimit : nil)
-        }
-        input.resync()
+        if let held = frame?.take() { frameHold.begin(lastFrame: held, over: surfaceView, in: view) }
+        input.refresh()
         release.rebuilds += 1
     }
 }

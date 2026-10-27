@@ -138,6 +138,7 @@ nonisolated enum InputReplay {
         case "reconnect": return .reconnect
         case "processExited": return .processExited
         case "processRevived": return .processRevived
+        case "refresh": return .refresh
         case "ended:overflow": return record.link.map { .ended($0, .overflow) }
         case "ended:other": return record.link.map { .ended($0, .surfaceGone) }
         case "focused": return .focused

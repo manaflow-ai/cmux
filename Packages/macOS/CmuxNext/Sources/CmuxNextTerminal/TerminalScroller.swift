@@ -213,7 +213,6 @@ struct TerminalScrollerGeometry: Equatable {
     static func isUserMove(from old: TerminalScrollbar?, to new: TerminalScrollbar?) -> Bool {
         guard let old, let new, new.totalRows > new.visibleRows else { return false }
         guard old.offsetRows != new.offsetRows else { return false }
-        func atBottom(_ bar: TerminalScrollbar) -> Bool { bar.offsetRows + bar.visibleRows >= bar.totalRows }
-        return !(atBottom(old) && atBottom(new))
+        return !(old.showsBottom && new.showsBottom)
     }
 }

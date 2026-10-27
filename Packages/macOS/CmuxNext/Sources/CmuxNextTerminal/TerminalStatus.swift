@@ -18,4 +18,7 @@ public nonisolated struct TerminalScrollbar: Sendable, Equatable {
     public var totalRows: UInt64
     public var offsetRows: UInt64
     public var visibleRows: UInt64
+
+    /// The viewport shows the last rows (not scrolled back).
+    public var showsBottom: Bool { offsetRows + visibleRows >= totalRows }
 }

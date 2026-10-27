@@ -81,6 +81,9 @@ extension TerminalAttachMachine {
         /// dead (a transient report while its host was re-adopted, or a
         /// restart in place). An exited view re-attaches.
         case processRevived
+        /// The view dropped its screen (a released hidden surface was rebuilt): a fresh attach brings it
+        /// whole again, in snapshot and in byte mode, the final one of an exited terminal too.
+        case refresh
         /// The tab closed or the view was dropped.
         case close
     }

@@ -2,8 +2,9 @@
 /// after ``grace`` hidden, the session frees the surface (its renderer and IO threads, font atlases, GPU
 /// buffers and VT mirror) and keeps only its last presented frame, volatile. The attach stream stays open,
 /// so its offset is kept; output while released is not parsed. Shown again, a fresh surface is built in
-/// the show's turn, the last frame stays painted over it, and the PTY owner's READY (a `snapshot-request`)
-/// plus the stream's tail after it rebuild the screen in one layout.
+/// the show's turn, the last frame stays painted over it, and the PTY owner's whole screen (a fresh
+/// attach's replay or READY, ``TerminalIO/refreshRequested()``) plus the stream after it rebuild the
+/// screen in one layout.
 ///
 /// Chrome does the same with a hidden view's compositor frame: `FrameEvictor` drops it after the view is
 /// hidden (components/viz/client/frame_evictor.cc), and a view shown again embeds its fallback surface
@@ -34,9 +35,9 @@ nonisolated struct TerminalSurfaceDormancy: Equatable {
     struct Inputs: Equatable {
         /// Rendering suspended and no mirror draws it.
         var hidden: Bool
-        /// The owner keeps the VT state and can answer a resync with a READY, and the stream is live.
+        /// The owner sends the whole screen again on a refresh, and the stream is live.
         var rebuildable: Bool
-        /// State only the surface holds would be lost (a pinned copy-mode selection).
+        /// State only the surface holds would be lost (a selection, a viewport scrolled back).
         var pinned: Bool
 
         var releasable: Bool { hidden && rebuildable && !pinned }

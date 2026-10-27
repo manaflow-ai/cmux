@@ -19,6 +19,6 @@ nonisolated struct TerminalLaneHandoff: Sendable {
     let lane: TerminalOutputLane?
     /// The ``TerminalSurfaceEpoch`` value this lane belongs to.
     let epoch: UInt64
-    /// The surface is released: content events are dropped (the rebuild's READY carries them).
+    /// The surface is released: content events are dropped (the rebuild's whole screen carries them).
     let released: Bool
 }

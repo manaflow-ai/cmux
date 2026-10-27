@@ -69,6 +69,15 @@ public nonisolated protocol TerminalIO: Sendable {
     /// snapshot. Ordered with `write`.
     func resyncRequested() async
 
+    /// True when ``refreshRequested()`` brings the whole screen again in every attach mode (a daemon IO
+    /// re-attaches, which replays it): a hidden session may then let its surface go
+    /// (``TerminalSurfaceRelease``). A bare PTY keeps no screen to send.
+    var resendsScreen: Bool { get }
+
+    /// The session dropped its surface's screen (a released hidden surface was rebuilt): send the whole
+    /// screen again, a replay or a READY, ahead of the output after it. Ordered with `write`.
+    func refreshRequested() async
+
     /// Where the session's input lane drains (``TerminalInputLane``): called once per session. An IO
     /// whose sends do not block returns its own serial queue and a handler that takes each record
     /// there, so a key reaches it in one thread hop. The default runs the async calls above in order.
@@ -94,6 +103,8 @@ public extension TerminalIO {
     func takeOverSize(setLatest: Bool) async {}
     func reconnectRequested() async {}
     func resyncRequested() async {}
+    nonisolated var resendsScreen: Bool { false }
+    func refreshRequested() async {}
     nonisolated func inputDrain() -> TerminalInputDrain { .awaiting(self) }
     nonisolated func setOutputLane(_ lane: TerminalEchoLane?) {}
     nonisolated func outputConsumed(_ bytes: Int) {}

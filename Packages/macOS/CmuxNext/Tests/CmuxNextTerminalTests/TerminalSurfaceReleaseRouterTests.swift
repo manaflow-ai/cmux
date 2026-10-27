@@ -59,15 +59,53 @@ import Testing
         #expect(whileReleased?.status == .connected)
         #expect(whileReleased?.contentQueued != true, "content was posted for a released surface")
 
-        // Shown again: a fresh surface, then the owner's READY and the tail after it.
+        // Shown again: a fresh surface. The stream's output before the owner's READY is a fragment: parsed
+        // into the empty surface it would show with default modes and end the frame hold.
         current.value = TerminalLaneHandoff(lane: rebuilt, epoch: 2, released: false)
         epoch.advance()
+        #expect(await router.route(.output(Data("fragment".utf8))))
+        #expect(await router.route(.snapshot(Data("hist".utf8), phase: .history)))
+        await rebuilt.drained()
+        #expect(router.awaitsScreen)
+        #expect(log.entries == ["first output a"], "output before the READY reached the rebuilt surface")
+        #expect(mailbox.take()?.contentQueued != true, "output before the READY ended the frame hold")
+
+        // The READY and the tail after it.
         #expect(await router.route(.snapshot(Data("snap".utf8), phase: .ready)))
         #expect(await router.route(.output(Data("tail".utf8))))
         await rebuilt.drained()
         #expect(!router.released)
+        #expect(!router.awaitsScreen)
         #expect(log.entries == ["first output a", "rebuilt restore", "rebuilt output tail"])
         #expect(mailbox.take()?.contentQueued == true, "the rebuilt surface's content never reached the main actor")
+    }
+
+    @Test func aByteModeReplayRebuildsTheScreenAfterTheFragmentBeforeIt() async {
+        let log = ReleaseStepLog()
+        let rebuilt = Self.lane("rebuilt", log: log)
+        defer { rebuilt.close() }
+        let epoch = TerminalSurfaceEpoch()
+        let current = HandoffSlot(TerminalLaneHandoff(lane: nil, epoch: 0, released: true))
+        let mailbox = TerminalEventMailbox {}
+        let input = TerminalInputLane(drain: TerminalInputDrain(queue: DispatchQueue(label: "test.release.bytes", qos: .utility)) { _, _ in .next })
+        var router = TerminalEventRouter(lane: nil, mailbox: mailbox,
+                                         input: TerminalInputSink(lane: input, typingSurface: TypingLatencyProbe(path: nil).makeSurfaceKey()),
+                                         epoch: epoch, handoff: { current.value },
+                                         replace: { _ in
+                                             log.append("swap")
+                                             return nil
+                                         })
+        // Released, then shown again before the loop's next event.
+        epoch.advance()
+        current.value = TerminalLaneHandoff(lane: rebuilt, epoch: 2, released: false)
+        epoch.advance()
+        #expect(await router.route(.output(Data("fragment".utf8))))
+        #expect(mailbox.take()?.contentQueued != true)
+        #expect(await router.route(.replay(Data("screen".utf8))))
+        #expect(await router.route(.output(Data("tail".utf8))))
+        await rebuilt.drained()
+        #expect(log.entries == ["rebuilt output screen", "rebuilt output tail"], "the replay did not go into the rebuilt surface")
+        #expect(mailbox.take()?.contentQueued == true)
     }
 
     @Test func aSessionGoneDuringTheHandoffEndsTheLoop() async {

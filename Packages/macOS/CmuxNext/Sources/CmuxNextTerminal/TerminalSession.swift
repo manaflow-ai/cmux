@@ -324,7 +324,7 @@ public final class TerminalSession {
     /// lane, for the loop's later events.
     private func replace(_ event: TerminalIOEvent) -> TerminalOutputLane? {
         applyEvents()
-        guard !isSurfaceReleased else { return nil } // released meanwhile: the rebuild's READY carries the replay
+        guard !isSurfaceReleased else { return nil } // released meanwhile: the rebuild's fresh attach replays it
         swapSurface()
         swappedSurfaces += 1
         #if DEBUG || CMUX_BENCH_HOOKS
@@ -355,7 +355,7 @@ public final class TerminalSession {
             view.showStatus(status)
         }
         if pending.exited { model.hasExited = true }
-        if pending.status != nil || pending.exited { updateSurfaceRelease() } // a released surface needs a live stream
+        if pending.status != nil || pending.exited { updateSurfaceRelease() } // only a live stream starts the hidden grace
         if let sizedFor = pending.sizedFor {
             view.showSizedFor(model.connection == .connected ? sizedFor : nil)
         }

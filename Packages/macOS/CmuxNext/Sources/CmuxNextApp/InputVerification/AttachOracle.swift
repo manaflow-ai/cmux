@@ -106,6 +106,7 @@ nonisolated struct AttachOracle<Link: Hashable & Sendable>: Sendable {
         case .reconnect: "reconnect"
         case .processExited: "processExited"
         case .processRevived: "processRevived"
+        case .refresh: "refresh"
         case .close: "close"
         }
     }

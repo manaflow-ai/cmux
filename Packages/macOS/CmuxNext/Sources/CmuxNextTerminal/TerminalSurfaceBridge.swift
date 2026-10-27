@@ -181,6 +181,10 @@ nonisolated struct TerminalInputSink: Sendable {
         lane.push(.resync)
     }
 
+    func refresh() {
+        lane.push(.refresh)
+    }
+
     func focusGained() {
         lane.push(.focusGained)
     }

@@ -208,7 +208,7 @@ public nonisolated final class LocalPTYTerminalIO: TerminalIO {
                 input.flush(to: masterFD, source: writeSource)
             case .resize(let grid, let width, let height):
                 setSize(cols: grid.columns, rows: grid.rows, pixelWidth: width, pixelHeight: height)
-            case .focusGained, .takeOverSize, .reconnect, .resync:
+            case .focusGained, .takeOverSize, .reconnect, .resync, .refresh:
                 break
             }
             return .next

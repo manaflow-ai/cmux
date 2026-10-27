@@ -15,6 +15,8 @@ public nonisolated enum TerminalInputRecord: Sendable, Equatable {
     case reconnect
     /// The mirror needs a full snapshot from the owner.
     case resync
+    /// The session dropped its screen: the owner sends it whole again (``TerminalIO/refreshRequested()``).
+    case refresh
 
     /// Hands the record to the matching async call of `io` (``TerminalInputDrain/awaiting(_:)``).
     func deliver(to io: any TerminalIO) async {
@@ -26,6 +28,7 @@ public nonisolated enum TerminalInputRecord: Sendable, Equatable {
         case .takeOverSize(let setLatest): await io.takeOverSize(setLatest: setLatest)
         case .reconnect: await io.reconnectRequested()
         case .resync: await io.resyncRequested()
+        case .refresh: await io.refreshRequested()
         }
     }
 }

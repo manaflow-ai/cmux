@@ -42,6 +42,7 @@ extension InputJournal {
             case .reconnect: record.event = "reconnect"
             case .processExited: record.event = "processExited"
             case .processRevived: record.event = "processRevived"
+            case .refresh: record.event = "refresh"
             case .close: record.event = "close"
             }
             journal.append(window: nil, .attach(record))

@@ -155,6 +155,8 @@ public nonisolated final class TerminalAttachDriver<Link: TerminalAttachLink>: S
     public func processExited() { send(.processExited) }
     /// The daemon reports the terminal running again after a dead report.
     public func processRevived() { send(.processRevived) }
+    /// The view dropped its screen: re-attach for a fresh replay (``TerminalAttachMachine/Event/refresh``).
+    public func refresh() { send(.refresh) }
     public func close() { send(.close) }
     /// The view's local history did not match the host's: ask the live link
     /// for READY + history (`snapshot-request`, reason gap). Not a machine
