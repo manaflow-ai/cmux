@@ -25,12 +25,7 @@ mod process;
 mod pty_readiness;
 mod spawned_host;
 mod waker;
-/// Remove a host's breadcrumbs after its end was committed: the commit
-/// (`persist_terminal_exit`) already sent its crash sidecar to the owner's
-/// panic log.
-pub(crate) fn remove_terminal_loss_signals(record_path: &Path) {
-    crate::terminal_loss_log::remove_signals(record_path, None);
-}
+pub(crate) use crate::terminal_loss_log::remove_signals as remove_terminal_loss_signals;
 pub(crate) use barrier_sync::{barrier_sync, barrier_sync_dir};
 pub(crate) use lease::*;
 pub(crate) use listener::HostListener;

@@ -184,15 +184,15 @@ impl Mux {
         self.detach_exited_terminal_topology(&identity.terminal_id)?;
         #[cfg(any(unix, windows))]
         if let Some((path, expected)) = surface.terminal_host_exit_sidecar() {
-            crate::terminal_host_runtime::acknowledge_terminal_host_exit_record(&path, &expected)?;
+            crate::terminal_host_runtime::acknowledge_terminal_host_exit_record(
+                &path,
+                &expected,
+                self.host_panic_log().as_ref(),
+            )?;
         }
         Ok(())
     }
 
-    /// Commit terminal lifecycle, topology detach, and exactly one public
-    /// event in one registry transaction. Callers may observe the same exit
-    /// through the live frame, sidecar recovery, and dead-host reconciliation;
-    /// the first commit is the latch and all later observations are no-ops.
     /// The terminal-host record directory and the owner's panic log for its
     /// hosts' crash sidecars; `None` without host records.
     #[cfg(any(unix, windows))]
@@ -204,6 +204,10 @@ impl Mux {
         Some((root, options.host_panic_log.clone()))
     }
 
+    /// Commit terminal lifecycle, topology detach, and exactly one public
+    /// event in one registry transaction. Callers may observe the same exit
+    /// through the live frame, sidecar recovery, and dead-host reconciliation;
+    /// the first commit is the latch and all later observations are no-ops.
     #[track_caller]
     pub(super) fn persist_terminal_exit(
         &self,

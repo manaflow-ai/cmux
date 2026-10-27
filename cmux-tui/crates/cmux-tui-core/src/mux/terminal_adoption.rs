@@ -78,6 +78,7 @@ impl Mux {
     #[track_caller]
     pub(super) fn adopt_terminal_hosts(self: &Arc<Self>) -> anyhow::Result<()> {
         let options = self.surface_options.lock().unwrap().clone();
+        let panic_log = options.host_panic_log.as_ref();
         let exit_records = match options.terminal_host_root.as_deref() {
             Some(root) => crate::terminal_host_runtime::load_terminal_host_exit_records(root)?,
             None => Vec::new(),
@@ -118,7 +119,7 @@ impl Mux {
             };
             if terminal.lifecycle == TerminalLifecycle::Tombstoned {
                 let _ = crate::terminal_host_runtime::acknowledge_terminal_host_exit_record(
-                    &exit_path, &record,
+                    &exit_path, &record, panic_log,
                 )?;
                 handled_terminals.insert(record.terminal_id);
                 continue;
@@ -141,7 +142,7 @@ impl Mux {
             )?;
             self.detach_exited_terminal_topology(&record.terminal_id)?;
             let _ = crate::terminal_host_runtime::acknowledge_terminal_host_exit_record(
-                &exit_path, &record,
+                &exit_path, &record, panic_log,
             )?;
             handled_terminals.insert(record.terminal_id);
         }
@@ -160,7 +161,7 @@ impl Mux {
         for (record_path, record) in records {
             let terminal_id = record.terminal_id.clone();
             if handled_terminals.contains(&terminal_id) {
-                if !cleanup_terminal_host_record(&record, &record_path) {
+                if !cleanup_terminal_host_record(&record, &record_path, panic_log) {
                     cleanup_retries.push((record, record_path));
                 }
                 continue;
@@ -222,7 +223,7 @@ impl Mux {
                         }
                     }
                 } else {
-                    if !cleanup_terminal_host_record(&record, &record_path) {
+                    if !cleanup_terminal_host_record(&record, &record_path, panic_log) {
                         cleanup_retries.push((record, record_path));
                     }
                     continue;
@@ -230,7 +231,7 @@ impl Mux {
             }
             let terminal = terminal.expect("terminal imported or loaded");
             if terminal.lifecycle == TerminalLifecycle::Tombstoned {
-                if !cleanup_terminal_host_record(&record, &record_path) {
+                if !cleanup_terminal_host_record(&record, &record_path, panic_log) {
                     cleanup_retries.push((record, record_path));
                 }
                 continue;
@@ -238,7 +239,7 @@ impl Mux {
             if terminal.lifecycle == TerminalLifecycle::Exited {
                 self.detach_exited_terminal_topology(&terminal.terminal_id)?;
                 handled_terminals.insert(terminal_id.clone());
-                if !cleanup_terminal_host_record(&record, &record_path) {
+                if !cleanup_terminal_host_record(&record, &record_path, panic_log) {
                     cleanup_retries.push((record, record_path));
                 }
                 continue;
@@ -251,7 +252,7 @@ impl Mux {
                     &options,
                 )?;
                 handled_terminals.insert(terminal_id.clone());
-                if !cleanup_terminal_host_record(&record, &record_path) {
+                if !cleanup_terminal_host_record(&record, &record_path, panic_log) {
                     cleanup_retries.push((record, record_path));
                 }
                 continue;
@@ -293,7 +294,7 @@ impl Mux {
                         self.detach_exited_terminal_topology(&terminal_id)?;
                     }
                     handled_terminals.insert(terminal_id.clone());
-                    if !cleanup_terminal_host_record(&record, &record_path) {
+                    if !cleanup_terminal_host_record(&record, &record_path, panic_log) {
                         cleanup_retries.push((record, record_path));
                     }
                     continue;
@@ -314,6 +315,7 @@ impl Mux {
                 let _ = crate::terminal_host_runtime::remove_stale_terminal_host_record(
                     &record_path,
                     &record,
+                    panic_log,
                 );
                 handled_terminals.insert(terminal_id.clone());
                 continue;
@@ -622,7 +624,9 @@ impl Mux {
         }
         if let Some((path, record)) = sidecar {
             let _ = crate::terminal_host_runtime::acknowledge_terminal_host_exit_record(
-                &path, &record,
+                &path,
+                &record,
+                options.host_panic_log.as_ref(),
             )?;
         }
         self.detach_exited_terminal_topology(terminal_id)?;
@@ -868,6 +872,7 @@ impl Mux {
                 {
                     crate::request_path::sleep(Duration::from_millis(ms));
                 }
+                let panic_log = options.host_panic_log.as_ref();
                 let mut delay = first_delay;
                 let mut refusals = pending_terminals::RefusalStreak::default();
                 loop {
@@ -888,7 +893,7 @@ impl Mux {
                         continue;
                     };
                     let Some(terminal) = terminal else {
-                        if cleanup_terminal_host_record(&record, &record_path) {
+                        if cleanup_terminal_host_record(&record, &record_path, panic_log) {
                             break;
                         }
                         delay = (delay * 2).min(Duration::from_secs(5));
@@ -908,7 +913,7 @@ impl Mux {
                             delay = (delay * 2).min(Duration::from_secs(5));
                             continue;
                         }
-                        if cleanup_terminal_host_record(&record, &record_path) {
+                        if cleanup_terminal_host_record(&record, &record_path, panic_log) {
                             break;
                         }
                         delay = (delay * 2).min(Duration::from_secs(5));
@@ -932,7 +937,7 @@ impl Mux {
                             delay = (delay * 2).min(Duration::from_secs(5));
                             continue;
                         }
-                        if cleanup_terminal_host_record(&record, &record_path) {
+                        if cleanup_terminal_host_record(&record, &record_path, panic_log) {
                             break;
                         }
                         delay = (delay * 2).min(Duration::from_secs(5));
@@ -981,6 +986,7 @@ impl Mux {
                         let _ = crate::terminal_host_runtime::remove_stale_terminal_host_record(
                             &record_path,
                             &record,
+                            panic_log,
                         );
                         break;
                     }
@@ -1044,6 +1050,7 @@ impl Mux {
                             let _ = crate::terminal_host_runtime::remove_stale_terminal_host_record(
                                 &record_path,
                                 &record,
+                                panic_log,
                             );
                             break;
                         }
@@ -1069,6 +1076,7 @@ impl Mux {
                         let _ = crate::terminal_host_runtime::remove_stale_terminal_host_record(
                             &record_path,
                             &record,
+                            panic_log,
                         );
                         break;
                     }

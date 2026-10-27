@@ -137,5 +137,9 @@ mod windows_stubs {
     }
 
     /// Windows hosts write no signal breadcrumbs yet.
-    pub(crate) fn remove_terminal_loss_signals(_record_path: &Path) {}
+    pub(crate) fn remove_terminal_loss_signals(
+        _record_path: &Path,
+        _panic_log: Option<&crate::terminal_host_runtime::HostPanicLog>,
+    ) {
+    }
 }

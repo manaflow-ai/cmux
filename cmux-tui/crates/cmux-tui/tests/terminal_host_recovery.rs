@@ -335,7 +335,7 @@ impl Drop for RecoveryHarness {
                     std::thread::sleep(Duration::from_millis(20));
                 }
             }
-            let _ = remove_stale_terminal_host_record(path, record);
+            let _ = remove_stale_terminal_host_record(path, record, None);
         }
         for endpoint in endpoints {
             let _ = fs::remove_file(endpoint);
@@ -1222,7 +1222,8 @@ fn terminal_host_survives_daemon_process_group_hangup() {
     let exit = host.terminate_and_wait_for_exit().unwrap();
     host.disconnect();
     assert!(
-        acknowledge_terminal_host_exit_record(&record_path.with_extension("exit"), &exit).unwrap(),
+        acknowledge_terminal_host_exit_record(&record_path.with_extension("exit"), &exit, None)
+            .unwrap(),
         "terminated host exit receipt was not acknowledged"
     );
     wait_for_no_host_records(&harness.host_root());

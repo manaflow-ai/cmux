@@ -34,6 +34,10 @@ const MAX_BACKTRACE_BYTES: usize = 64 * 1024;
 /// marker already present run normally, so a replacement host lives.
 #[cfg(debug_assertions)]
 const ABORT_ONCE_TEST_ENV: &str = "CMUX_TUI_TEST_HOST_ABORT_ONCE";
+/// Debug builds only: the thread of that injected crash. Its sidecar says
+/// `"test": true`, so its panic-log line is one the app never sends.
+#[cfg(debug_assertions)]
+const TEST_CRASH_THREAD: &str = "terminal-host-test-crash";
 
 /// The `source` of a host panic's line in the owner's panic log; the app
 /// labels such a line as the terminal host's, not the owner's.
@@ -49,8 +53,8 @@ pub struct HostPanicLog {
 
 /// The panic-log line for one sidecar's text: `fields`, the sidecar's
 /// terminal, incarnation and host pid, and its panic (message, location,
-/// thread, backtrace, the time it happened). `None` for text that is not a
-/// crash record.
+/// thread, backtrace, the time it happened, and whether a debug test
+/// injected it). `None` for text that is not a crash record.
 pub(crate) fn panic_log_line(
     sidecar: &str,
     fields: &cmux_panic_log::Fields,
@@ -70,7 +74,7 @@ pub(crate) fn panic_log_line(
         message,
         text("location").unwrap_or_default(),
         text("thread").unwrap_or("unnamed"),
-        false,
+        crash.get("test").and_then(serde_json::Value::as_bool).unwrap_or(false),
         text("backtrace").unwrap_or_default().to_string(),
     );
     // The time of the panic, not of the owner's read.
@@ -117,12 +121,14 @@ pub(crate) fn install(path: PathBuf, terminal_id: &str, incarnation: &str) {
             .duration_since(std::time::UNIX_EPOCH)
             .map(|elapsed| elapsed.as_millis())
             .unwrap_or_default();
+        let thread = std::thread::current().name().unwrap_or("unnamed").to_string();
         let record = serde_json::json!({
             "terminal_id": terminal_id,
             "incarnation": incarnation,
             "message": message,
             "location": location,
-            "thread": std::thread::current().name().unwrap_or("unnamed"),
+            "test": is_test_thread(&thread),
+            "thread": thread,
             "host_pid": std::process::id(),
             "at_ms": at_ms,
             "backtrace": backtrace,
@@ -148,6 +154,19 @@ pub(crate) fn install(path: PathBuf, terminal_id: &str, incarnation: &str) {
     abort_once_for_test();
 }
 
+/// The debug test crash's thread; its sidecar carries `"test": true`.
+fn is_test_thread(thread: &str) -> bool {
+    #[cfg(debug_assertions)]
+    {
+        thread == TEST_CRASH_THREAD
+    }
+    #[cfg(not(debug_assertions))]
+    {
+        let _ = thread;
+        false
+    }
+}
+
 #[cfg(debug_assertions)]
 fn abort_once_for_test() {
     let Some(marker) = std::env::var_os(ABORT_ONCE_TEST_ENV) else { return };
@@ -156,7 +175,7 @@ fn abort_once_for_test() {
     }
     let mut trigger = marker;
     trigger.push(".trigger");
-    let _ = std::thread::Builder::new().name("terminal-host-test-crash".into()).spawn(move || {
+    let _ = std::thread::Builder::new().name(TEST_CRASH_THREAD.into()).spawn(move || {
         // Opening a FIFO for reading blocks until the test opens it for
         // writing: the crash happens at the moment the test chose.
         let _ = files::open(&trigger);
@@ -212,6 +231,7 @@ mod tests {
             "message": "index out of bounds",
             "location": "crates/vt/src/parser.rs:12:5",
             "thread": "terminal-host-parser",
+            "test": false,
             "host_pid": 4242,
             "at_ms": 1_700_000_000_000_u64,
             "backtrace": "0: vt::parser::advance\n1: main",
@@ -270,6 +290,20 @@ mod tests {
         crate::terminal_loss_log::remove_signals(&record, Some(&log));
         assert_eq!(lines(&log.path).len(), 1);
         let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[cfg(debug_assertions)]
+    #[test]
+    fn a_test_injected_host_crash_gives_a_test_line() {
+        // The host's hook marks the debug test crash's thread.
+        assert!(is_test_thread(TEST_CRASH_THREAD));
+        assert!(!is_test_thread("terminal-host-parser"));
+        let mut crash = sidecar();
+        crash["thread"] = TEST_CRASH_THREAD.into();
+        crash["test"] = is_test_thread(TEST_CRASH_THREAD).into();
+        let line = panic_log_line(&crash.to_string(), &cmux_panic_log::Fields::new()).unwrap();
+        assert_eq!(line["test"], true);
+        assert_eq!(line["thread"], TEST_CRASH_THREAD);
     }
 
     #[test]
