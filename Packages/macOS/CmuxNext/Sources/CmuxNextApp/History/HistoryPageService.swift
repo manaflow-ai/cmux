@@ -13,6 +13,7 @@ import CmuxNextRemoteView
 import CmuxNextRemoteViewSessions
 import CmuxNextScreenshots
 import CmuxNextStash
+import CmuxNextWakeups
 import Foundation
 import os
 #if DEBUG || CMUX_BENCH_HOOKS
