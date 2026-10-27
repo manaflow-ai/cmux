@@ -147,8 +147,7 @@ pub(super) fn checked(path: &Path) -> anyhow::Result<std::os::unix::net::UnixStr
     let meta = files::symlink_metadata(path)
         .map_err(|e| anyhow::anyhow!("the Chief tools socket is missing: {e}"))?;
     anyhow::ensure!(meta.file_type().is_socket(), "the Chief tools socket is not a socket");
-    // SAFETY: geteuid has no preconditions.
-    let uid = unsafe { libc::geteuid() };
+    let uid = crate::platform::effective_uid();
     anyhow::ensure!(meta.uid() == uid, "the Chief tools socket belongs to another user");
     Ok(cmux_unix_socket::connect(path)?)
 }

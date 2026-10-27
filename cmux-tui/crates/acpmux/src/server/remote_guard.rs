@@ -945,6 +945,7 @@ fn peer_scratch_root() -> Result<PathBuf, RpcError> {
         let uid = {
             #[cfg(unix)]
             {
+                // SAFETY: getuid has no preconditions and cannot fail.
                 unsafe { libc::getuid() }.to_string()
             }
             #[cfg(not(unix))]

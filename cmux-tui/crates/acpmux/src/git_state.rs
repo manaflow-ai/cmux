@@ -324,6 +324,7 @@ mod tests {
         let head = dir.join(".git/HEAD");
         std::fs::remove_file(&head).unwrap();
         let path = std::ffi::CString::new(head.to_str().unwrap()).unwrap();
+        // SAFETY: `path` is a NUL-terminated CString that outlives the call.
         assert_eq!(unsafe { libc::mkfifo(path.as_ptr(), 0o600) }, 0);
         let (tx, rx) = std::sync::mpsc::channel();
         std::thread::spawn(move || tx.send(GitState::read(&dir)).unwrap());

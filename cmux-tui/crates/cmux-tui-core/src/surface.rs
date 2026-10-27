@@ -166,7 +166,7 @@ use crate::mux::ResourceWaitWake;
 use crate::platform;
 use crate::resource::{ContentPublicId, TabResourceIdentity, TerminalPublicId};
 use crate::terminal_end::TerminalEnd;
-use crate::terminal_host_protocol::{TerminalExit, wait_for_native_child_status_with_reap_result};
+use crate::terminal_host_protocol::TerminalExit;
 use crate::{Mux, MuxEvent, SurfaceId};
 
 pub use crate::browser::{
@@ -939,6 +939,7 @@ impl Surface {
             }
             return Err(error);
         }
+        let owner = surface.as_pty().and_then(|pty| pty.mux.upgrade());
         if terminate_on_error
             && let Some(pty) = surface.as_pty()
             && let PtyRuntime::Hosted(host) = &mut *pty.runtime.lock().unwrap()
@@ -948,7 +949,7 @@ impl Surface {
                 host.disconnect();
                 return Err(error.into());
             }
-            host.commit_launched_host();
+            host.commit_launched_host(owner.as_deref().and_then(Mux::host_reaper));
         }
         #[cfg(debug_assertions)]
         if let Some(delay) = surface
