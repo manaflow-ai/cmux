@@ -280,7 +280,7 @@ public nonisolated struct EditorSettingsImport: Sendable {
         guard parts.count > 1 else { section[name] = value; return }
         var child = section[name]?.objectValue ?? [:]
         set(&child, parts.dropFirst().joined(separator: "."), value)
-        section[first] = .object(child)
+        section[name] = .object(child)
     }
 
     /// `base` with `overlay`'s members on top, objects merged member by member.
