@@ -222,7 +222,7 @@ test("keyboard transcript selection copies source and reports copy success or fa
 // Leo (2026-10-21): "why is there a copy button for the prompt i sent on teh top left?" then "top
 // left??? just remove it". A prompt drawn as the person's bubble keeps only the Copy in the row under
 // its bubble; a tool row keeps its floating Copy and an answer still has none of its own.
-test("a sent prompt's row has exactly one Copy, the one under its bubble; tool and answer rows unchanged", async () => {
+test("transcript rows have no floating Copy; message actions own their copy", async () => {
   // Another agent's message is a user row drawn as a line, not the person's bubble: it keeps its Copy.
   const incoming: AcpmuxRow = {
     id: "selection-4",
@@ -252,10 +252,12 @@ test("a sent prompt's row has exactly one Copy, the one under its bubble; tool a
     expect(copies("selection-1")).toHaveLength(1);
     expect(copies("selection-1")[0]!.closest(".cv-user__actions")).not.toBeNull();
     expect(row("selection-2").querySelector(".acpmux-row__copy")).toBeNull();
-    expect(row("selection-3").querySelector(".acpmux-row__copy")).not.toBeNull();
-    expect(row("selection-3").getAttribute("data-floating-copy")).toBe("true");
+    expect(row("selection-3").querySelector(".acpmux-row__copy")).toBeNull();
+    expect(row("selection-3").getAttribute("data-floating-copy")).toBeNull();
     expect(row("selection-4").querySelector(".cv-user__bubble")).toBeNull();
-    expect(row("selection-4").querySelector(".acpmux-row__copy")).not.toBeNull();
+    expect(row("selection-4").querySelector(".acpmux-row__copy")).toBeNull();
+    expect(copies("selection-4")).toHaveLength(1);
+    expect(copies("selection-4")[0]!.closest(".cv-received-actions")).not.toBeNull();
   } finally {
     await act(async () => root.unmount());
     restore();
