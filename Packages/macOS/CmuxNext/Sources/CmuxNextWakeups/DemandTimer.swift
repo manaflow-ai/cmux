@@ -162,7 +162,8 @@ public final class DemandTimer: Sendable {
         let dropped = state.withLock { state -> Pending? in
             let old = state.supersede()
             let generation = state.generation
-            state.pending = .sleeping(Task { [weak self] in
+            state.pending = .sleeping(Task { @concurrent [weak self] in
+                // timer-class-allow: DemandTimer's own sleep, the off-main deadline recipe R-timer keeps; main-actor actions go through the wake-up queue when the timer has one
                 do { try await clock.sleep(for: request.delay, tolerance: request.tolerance) } catch { return }
                 guard let self, self.take(generation) else { return }
                 self.ledger.record(self.owner, reason: "deadline")
