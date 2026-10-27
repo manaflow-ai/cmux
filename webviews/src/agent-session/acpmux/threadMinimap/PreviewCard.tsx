@@ -1,4 +1,4 @@
-// The minimap's preview card: a two-line prompt with its bookmark, recorded turn details and a
+// The minimap's preview card: an up-to-three-line prompt with its bookmark, recorded turn details and a
 // four-line reply. Both rails (ThreadMinimap.tsx, ScrollMap.tsx) draw it.
 //
 // The card draws in the transcript scroller's parent, not in the rail. The scroller masks its soft
@@ -128,6 +128,7 @@ export const PreviewCard = React.forwardRef<
       ref={own}
       id={id}
       className="acpmux-minimap__card"
+      data-prompt={prompt !== undefined ? "" : undefined}
       style={{ transform: `translate3d(${at.x + x}px, ${at.y + y}px, 0)` }}
       onPointerLeave={onPointerLeave}
       onWheel={layer ? (event) => forwardWheel(scroller!, event.nativeEvent) : undefined}

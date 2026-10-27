@@ -27,7 +27,7 @@ await requireBrowserLane("minimap-card-layout.test.ts", async () => {
     await vite?.close();
   });
 
-  test("a two-line prompt, recorded failure and Markdown reply fit without overlapping details or bookmark", async () => {
+  test("a three-line prompt shares the fixed card height with the reply and stays clear of the bookmark", async () => {
     const page = await browser.newPage({ viewport: { width: 880, height: 640 } });
     try {
       const port = (vite.httpServer!.address() as { port: number }).port;
@@ -46,7 +46,7 @@ await requireBrowserLane("minimap-card-layout.test.ts", async () => {
           row(
             `user-${index + 1}`,
             "user",
-            "Summarize the current rollout and compare it with the previous release while retaining the useful failure details",
+            "Summarize the current rollout\nwhile retaining the useful failure details\nand compare it with the previous release",
           ),
           row(
             `reply-${index}`,
@@ -66,6 +66,7 @@ await requireBrowserLane("minimap-card-layout.test.ts", async () => {
       const card = page.locator(".acpmux-minimap__card");
       await card.waitFor({ state: "visible" });
       expect(await card.locator("strong").textContent()).toBe("Ready to ship");
+      expect(await card.locator(".acpmux-minimap__prompt").textContent()).toContain("\n");
       const token = card.locator("code [title]");
       expect(await token.getAttribute("title")).toBe("0123456789abcdef".repeat(4));
       expect(await token.locator("[aria-hidden]").textContent()).toBe("0123456789abcdef0…f0123456789abcdef");
@@ -96,11 +97,15 @@ await requireBrowserLane("minimap-card-layout.test.ts", async () => {
         };
       });
       expect(bounds.prompt).toBeGreaterThan(20);
-      expect(bounds.prompt).toBeLessThanOrEqual(40);
-      expect(bounds.reply).toBeLessThanOrEqual(80);
+      expect(bounds.prompt).toBeLessThanOrEqual(60);
+      expect(bounds.reply).toBeGreaterThanOrEqual(40);
+      // Chromium's 20 px body line box rounds to 20.5 px at this viewport, so four lines can
+      // measure just over 80 px while the card's 166 px maximum remains the real bound.
+      expect(bounds.reply).toBeLessThanOrEqual(84);
       expect(bounds.failure).toBeLessThanOrEqual(60);
       expect(bounds.gap).toBeGreaterThanOrEqual(4);
       expect(bounds.width).toBeLessThanOrEqual(360);
+      expect(await card.evaluate((node) => node.getBoundingClientRect().height)).toBeLessThanOrEqual(166);
       expect(bounds.bookmarkInside).toBe(true);
       await page.locator(".acpmux-scroll").evaluate((node) => {
         node.scrollTop = 200;
@@ -117,6 +122,82 @@ await requireBrowserLane("minimap-card-layout.test.ts", async () => {
         const card = document.querySelector(".acpmux-minimap__card")?.getBoundingClientRect();
         return card && card.right <= innerWidth - 8;
       });
+    } finally {
+      await page.close();
+    }
+  });
+
+  test("a short prompt keeps its natural height while a long prompt spends reply lines", async () => {
+    const page = await browser.newPage({ viewport: { width: 880, height: 640 } });
+    try {
+      const port = (vite.httpServer!.address() as { port: number }).port;
+      await page.goto(`http://127.0.0.1:${port}/test/browser/thread-minimap.html`);
+      await page.waitForFunction(() => "__showRows" in window);
+      await page.evaluate(() => {
+        const row = (id: string, kind: string, text?: string, extra = {}) => ({
+          id,
+          kind,
+          text,
+          at: 1_700_000_000_000,
+          version: 1,
+          ...extra,
+        });
+        const rows = [
+          [
+            row("user-short", "user", "A short prompt"),
+            row("reply-short", "assistant", "A reply with enough detail to keep the card useful."),
+            row("summary-short", "turnSummary", undefined, { status: "completed" }),
+          ],
+          [
+            row("user-long", "user", "First prompt line\nSecond prompt line\nThird prompt line"),
+            row(
+              "reply-long",
+              "assistant",
+              "First reply line stays visible.\nSecond reply line stays visible.\nThird detail remains in the transcript.",
+            ),
+            row("summary-long", "turnSummary", undefined, { status: "completed" }),
+          ],
+          [
+            row("user-third", "user", "Another prompt"),
+            row("reply-third", "assistant", "Another reply."),
+            row("summary-third", "turnSummary", undefined, { status: "completed" }),
+          ],
+          [
+            row("user-fourth", "user", "Final prompt"),
+            row("reply-fourth", "assistant", "Final reply."),
+            row("summary-fourth", "turnSummary", undefined, { status: "completed" }),
+          ],
+        ].flat();
+        (window as unknown as { __showRows(rows: unknown[]): void }).__showRows(rows);
+      });
+
+      const inspect = async (tick: number) => {
+        const target = page.locator(`[data-tick="${tick}"]`);
+        await target.focus();
+        const card = page.locator(".acpmux-minimap__card");
+        await card.waitFor({ state: "visible" });
+        return card.evaluate((node) => {
+          const bounds = (selector: string) => node.querySelector<HTMLElement>(selector)!.getBoundingClientRect();
+          const prompt = bounds(".acpmux-minimap__prompt");
+          const reply = bounds(".acpmux-minimap__reply");
+          const card = node.getBoundingClientRect();
+          return {
+            card: card.height,
+            prompt: prompt.height,
+            reply: reply.height,
+            text: node.querySelector(".acpmux-minimap__prompt")?.textContent ?? "",
+          };
+        });
+      };
+      const short = await inspect(0);
+      const long = await inspect(1);
+      expect(short.prompt).toBeLessThanOrEqual(20);
+      expect(short.card).toBeLessThan(166);
+      expect(long.prompt).toBeGreaterThan(short.prompt);
+      expect(long.prompt).toBeLessThanOrEqual(60);
+      expect(long.reply).toBeGreaterThanOrEqual(40);
+      expect(long.card).toBeLessThanOrEqual(166);
+      expect(long.text).toBe("First prompt line\nSecond prompt line\nThird prompt line");
     } finally {
       await page.close();
     }

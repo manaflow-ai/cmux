@@ -309,6 +309,14 @@
   -webkit-font-smoothing: antialiased;
   cursor: default;
 }
+/* A card with a prompt keeps the existing maximum: 16 px of padding, a two-line title, the
+   metadata row and a four-line reply. Longer prompts may use one extra title line, but the card
+   clips only the tail of the reply instead of growing over the transcript. Short prompts keep
+   their natural height. */
+.acpmux-minimap__card[data-prompt] {
+  max-height: 166px;
+  overflow: hidden;
+}
 .acpmux-minimap__title {
   display: flex;
   align-items: flex-start;
@@ -322,8 +330,8 @@
   overflow: hidden;
   display: -webkit-box;
   -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
-  white-space: normal;
+  -webkit-line-clamp: 3;
+  white-space: pre-line;
   overflow-wrap: anywhere;
 }
 .acpmux-minimap__bookmark {
