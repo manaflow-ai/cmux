@@ -38,6 +38,7 @@ final class ChromiumHostSuggestionRows: NSView {
         setAccessibilityElement(true)
         setAccessibilityRole(.list)
         setAccessibilityLabel(Strings.suggestionsList)
+        addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self))
     }
 
     @available(*, unavailable)
@@ -45,16 +46,6 @@ final class ChromiumHostSuggestionRows: NSView {
 
     nonisolated override var isFlipped: Bool { true }
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
-
-    private var tracking: NSTrackingArea?
-
-    override func updateTrackingAreas() {
-        super.updateTrackingAreas()
-        if let tracking { removeTrackingArea(tracking) }
-        let area = NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self)
-        addTrackingArea(area)
-        tracking = area
-    }
 
     override func mouseEntered(with event: NSEvent) {}
 

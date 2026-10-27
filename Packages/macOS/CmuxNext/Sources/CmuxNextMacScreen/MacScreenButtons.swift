@@ -22,7 +22,6 @@ final class MacScreenButton: NSButton, MacScreenInked {
     private let onPress: () -> Void
     private var colors = MacScreenColors()
     private var hovering = false { didSet { if hovering != oldValue { refresh() } } }
-    private var tracking: NSTrackingArea?
 
     init(_ title: String, role: Role = .plain, compact: Bool = false, hint: CmuxDialogKeyHint? = nil, symbol: String? = nil,
          id: String? = nil, action: @escaping () -> Void) {
@@ -57,6 +56,7 @@ final class MacScreenButton: NSButton, MacScreenInked {
         setAccessibilityLabel(title)
         setAccessibilityHelp(hint?.spokenName)
         if let id { setAccessibilityIdentifier(id) }
+        addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self))
         refresh()
     }
 
@@ -115,14 +115,6 @@ final class MacScreenButton: NSButton, MacScreenInked {
         var width = ceil(content.width) + horizontalPadding * 2
         if role == .icon { width = max(width, Metrics.space6) }
         return NSSize(width: width, height: max(minHeight, ceil(content.height)))
-    }
-
-    override func updateTrackingAreas() {
-        super.updateTrackingAreas()
-        if let tracking { removeTrackingArea(tracking) }
-        let area = NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self)
-        addTrackingArea(area)
-        tracking = area
     }
 
     override func mouseEntered(with event: NSEvent) { hovering = true }

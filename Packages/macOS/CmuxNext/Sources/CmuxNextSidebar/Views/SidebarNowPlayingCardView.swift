@@ -24,7 +24,6 @@ final class SidebarNowPlayingCardView: NSView {
     let closeButton = SidebarIconButton(icon: .actionClose, pointSize: { 9 }, label: SidebarNowPlayingCardView.closeLabel)
     /// The pointer is on the card: its x shows.
     private(set) var isHovered = false
-    private var hoverArea: NSTrackingArea?
     private(set) var nowPlaying: SidebarNowPlaying?
     let surface = CardSurfaceView()
     let artworkView = DecorativeImageView()
@@ -47,6 +46,7 @@ final class SidebarNowPlayingCardView: NSView {
     override init(frame: NSRect) {
         super.init(frame: frame)
         addSubview(surface)
+        addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeInActiveApp, .inVisibleRect], owner: self))
         artworkView.imageScaling = .scaleProportionallyUpOrDown
         artworkView.wantsLayer = true
         artworkView.layer?.masksToBounds = true
@@ -136,14 +136,6 @@ final class SidebarNowPlayingCardView: NSView {
         guard hovered != isHovered else { return }
         isHovered = hovered
         setHoverShown(closeButton, hovered && nowPlaying != nil, fades: window != nil)
-    }
-
-    override func updateTrackingAreas() {
-        super.updateTrackingAreas()
-        if let hoverArea { removeTrackingArea(hoverArea) }
-        let area = NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeInActiveApp, .inVisibleRect], owner: self, userInfo: nil)
-        addTrackingArea(area)
-        hoverArea = area
     }
 
     override func mouseEntered(with event: NSEvent) {

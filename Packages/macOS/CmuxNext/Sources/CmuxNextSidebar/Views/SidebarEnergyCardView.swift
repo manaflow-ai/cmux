@@ -13,7 +13,6 @@ final class SidebarEnergyCardView: NSView, HoverCardTextReporting {
     private let title = ChromeLabel(labelWithString: Strings.energySaverOn)
     private let reasonLabel = ChromeLabel(wrappingLabelWithString: "")
     private let effect = ChromeLabel(wrappingLabelWithString: Strings.energySaverEffect)
-    private var tracking: NSTrackingArea?
 
     var reportedLines: [String] { [title.stringValue, reasonLabel.stringValue, effect.stringValue, turnOff.title] }
 
@@ -32,6 +31,7 @@ final class SidebarEnergyCardView: NSView, HoverCardTextReporting {
         stack.setCustomSpacing(Metrics.space2, after: effect)
         stack.translatesAutoresizingMaskIntoConstraints = false
         addSubview(stack)
+        addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self))
         let pad = Metrics.space3
         turnOff.translatesAutoresizingMaskIntoConstraints = false
         NSLayoutConstraint.activate([
@@ -75,14 +75,6 @@ final class SidebarEnergyCardView: NSView, HoverCardTextReporting {
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         applyColors()
-    }
-
-    override func updateTrackingAreas() {
-        super.updateTrackingAreas()
-        if let tracking { removeTrackingArea(tracking) }
-        let area = NSTrackingArea(rect: bounds, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self)
-        addTrackingArea(area)
-        tracking = area
     }
 
     override func mouseEntered(with event: NSEvent) { onPointerEnter?() }

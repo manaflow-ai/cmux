@@ -29,6 +29,7 @@ final class SidebarCardTextButton: NSView {
         // VoiceOver reads the button, not its text twice.
         label.setAccessibilityElement(false)
         addSubview(label)
+        addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self))
         setAccessibilityElement(true)
         setAccessibilityRole(.button)
     }
@@ -84,12 +85,6 @@ final class SidebarCardTextButton: NSView {
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         needsDisplay = true
-    }
-
-    override func updateTrackingAreas() {
-        super.updateTrackingAreas()
-        for area in trackingAreas where area.owner === self { removeTrackingArea(area) }
-        addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self))
     }
 
     override func mouseEntered(with event: NSEvent) { isHovered = true }

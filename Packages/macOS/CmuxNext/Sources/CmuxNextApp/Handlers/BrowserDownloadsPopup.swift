@@ -438,17 +438,16 @@ final class BrowserDownloadRowEventView: NSView, NSDraggingSource {
     var onHover: (Bool) -> Void = { _ in }
     private var downEvent: NSEvent?
     private var dragged = false
-    private var tracking: NSTrackingArea?
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect, .assumeInside], owner: self))
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
-
-    override func updateTrackingAreas() {
-        super.updateTrackingAreas()
-        if let tracking { removeTrackingArea(tracking) }
-        let area = NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect, .assumeInside], owner: self)
-        addTrackingArea(area)
-        tracking = area
-    }
 
     override func mouseEntered(with event: NSEvent) { onHover(true) }
     override func mouseExited(with event: NSEvent) { onHover(false) }

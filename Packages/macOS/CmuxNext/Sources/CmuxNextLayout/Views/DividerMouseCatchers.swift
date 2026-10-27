@@ -167,22 +167,21 @@ final class DividerMouseCatcherView: NSView {
         didSet { if resizesColumns != oldValue { window?.invalidateCursorRects(for: self) } }
     }
     var onHover: ((Bool) -> Void)?
-    private var trackingArea: NSTrackingArea?
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        // This panel is never key: track always, or it never sees the pointer.
+        addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .cursorUpdate, .activeAlways, .inVisibleRect], owner: self))
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
     private var cursor: NSCursor {
         if #available(macOS 15, *) { return resizesColumns ? .columnResize : .rowResize }
         return resizesColumns ? .resizeLeftRight : .resizeUpDown
-    }
-
-    override func updateTrackingAreas() {
-        super.updateTrackingAreas()
-        if let trackingArea { removeTrackingArea(trackingArea) }
-        // This panel is never key: track always, or it never sees the pointer.
-        let area = NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .cursorUpdate, .activeAlways, .inVisibleRect], owner: self)
-        addTrackingArea(area)
-        trackingArea = area
     }
 
     /// Whether the pointer is over this catcher now: its panel shows, takes the mouse, and holds

@@ -33,7 +33,6 @@ final class PaletteActionsMenuView: NSView {
     private let empty = PaletteText.label(Typography.body, tone: .tertiary)
     private let separator = NSView()
     private var rowViews: [PaletteMenuRow] = []
-    private var tracking: NSTrackingArea?
     /// A press on a row: the selection follows a drag and the release runs the row it ends on.
     private lazy var press = PalettePress(in: content, rows: { [weak self] in self?.rowViews ?? [] }, select: { [weak self] index in
         self?.onHover?(index)
@@ -50,6 +49,9 @@ final class PaletteActionsMenuView: NSView {
         empty.stringValue = PaletteStrings.noResults
         [title, separator, filter, empty].forEach(content.addSubview)
         addSubview(glass)
+        // The whole menu's edge: leaving it is discrete, so the pending move lands now (`ShouldFlushQueue`).
+        // The rows' own edges are not; they post like moves.
+        addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self))
     }
 
     @available(*, unavailable)
@@ -155,16 +157,6 @@ final class PaletteActionsMenuView: NSView {
         applyColors()
     }
 
-    // The whole menu's edge: leaving it is discrete, so the pending move lands now (`ShouldFlushQueue`).
-    // The rows' own edges are not; they post like moves.
-    override func updateTrackingAreas() {
-        super.updateTrackingAreas()
-        if let tracking { removeTrackingArea(tracking) }
-        let area = NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self)
-        addTrackingArea(area)
-        tracking = area
-    }
-
     override func mouseEntered(with event: NSEvent) {}
     override func mouseExited(with event: NSEvent) { hoverMoves.flush() }
 
@@ -233,19 +225,13 @@ final class PaletteMenuRow: NSView {
         keys.keycaps = keycaps ?? []
         keys.isHidden = keycaps == nil
         [icon, label, keys].forEach(addSubview)
+        addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .mouseMoved, .activeAlways, .inVisibleRect], owner: self))
     }
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
 
     nonisolated override var isFlipped: Bool { true }
-
-    override func updateTrackingAreas() {
-        super.updateTrackingAreas()
-        trackingAreas.forEach(removeTrackingArea)
-        addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .mouseMoved, .activeAlways, .inVisibleRect],
-                                       owner: self))
-    }
 
     override func mouseEntered(with event: NSEvent) {
         onCross?(event)

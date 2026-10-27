@@ -116,7 +116,6 @@ public final class TerminalSurfaceView: NSView {
     private var appliedContentScale: NSSize?
     /// The display ID last given to the surface (`updateContentScale`); nil before it is first shown.
     private(set) var appliedDisplayID: UInt32?
-    var trackingArea: NSTrackingArea?
     var cursor: NSCursor = .iBeam
 
     // Keyboard state (see TerminalSurfaceView+Keyboard.swift).
@@ -177,6 +176,8 @@ public final class TerminalSurfaceView: NSView {
         gpu = TerminalGPUResidencyGate(seam: gpuResidency)
         super.init(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
         bridge.target = self
+        addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .mouseMoved, .inVisibleRect, .activeAlways, .cursorUpdate],
+                                       owner: self))
         createSurface(mode: mode, echoStage: echoStage, contentsGate: echoStages.contentsGate)
     }
 

@@ -180,11 +180,6 @@ public final class RemoteBrowserContentView: NSView {
         addTrackingArea(area)
     }
 
-    public override func updateTrackingAreas() {
-        super.updateTrackingAreas()
-        installHover()
-    }
-
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 

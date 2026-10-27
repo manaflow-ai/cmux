@@ -12,7 +12,6 @@ final class BookmarkBarItemView: NSView {
     /// Only a hover change fades the fill (`ChromeHover.fade`); redraws for
     /// any other reason paint at once.
     private var fadesNextFill = false
-    private var tracking: NSTrackingArea?
     /// A click (its release), or nil for an accessibility press, which opens with no modifiers.
     var onClick: ((BookmarkBarItemView, NSEvent?) -> Void)?
     var onDragStart: ((BookmarkBarItemView, NSEvent) -> Void)?
@@ -39,6 +38,7 @@ final class BookmarkBarItemView: NSView {
         setAccessibilityRole(node.isFolder ? .menuButton : .button)
         setAccessibilityLabel(node.displayTitle)
         setAccessibilityIdentifier("cmux.bookmarks.bar.item")
+        addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self))
     }
 
     @available(*, unavailable)
@@ -63,14 +63,6 @@ final class BookmarkBarItemView: NSView {
         let height = ceil(label.intrinsicContentSize.height)
         label.frame = NSRect(x: labelX, y: (bounds.height - height) / 2, width: max(0, bounds.width - labelX - Metrics.space4), height: height)
         label.isHidden = node.displayTitle.isEmpty
-    }
-
-    override func updateTrackingAreas() {
-        super.updateTrackingAreas()
-        if let tracking { removeTrackingArea(tracking) }
-        let area = NSTrackingArea(rect: bounds, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self)
-        addTrackingArea(area)
-        tracking = area
     }
 
     override func mouseEntered(with event: NSEvent) { setHovered(true) }

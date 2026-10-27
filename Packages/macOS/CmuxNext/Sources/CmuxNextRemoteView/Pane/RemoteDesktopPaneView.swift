@@ -38,6 +38,7 @@ public final class RemoteDesktopPaneView: NSView {
         upstreamIndicator.isHidden = true
         capture.geometry = { [weak self] in self?.video.geometry }
         setAccessibilityRole(.group)
+        addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeInActiveApp, .inVisibleRect], owner: self))
     }
 
     @available(*, unavailable)
@@ -90,12 +91,6 @@ public final class RemoteDesktopPaneView: NSView {
     }
 
     // MARK: Hover chrome
-
-    public override func updateTrackingAreas() {
-        super.updateTrackingAreas()
-        for area in trackingAreas where area.owner === self { removeTrackingArea(area) }
-        addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeInActiveApp, .inVisibleRect], owner: self))
-    }
 
     public override func mouseEntered(with event: NSEvent) {
         isHovering = true

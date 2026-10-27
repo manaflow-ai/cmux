@@ -33,7 +33,6 @@ final class SuggestionRowView: NSView {
 
     private let icon = NSImageView()
     private let label = NSTextField(labelWithString: "")
-    private var tracking: NSTrackingArea?
     private var title = ""
     private var detail = ""
     private var iconKind: IconName?
@@ -59,6 +58,7 @@ final class SuggestionRowView: NSView {
         label.cell?.truncatesLastVisibleLine = true
         addSubview(icon)
         addSubview(label)
+        addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .mouseMoved, .activeAlways, .inVisibleRect], owner: self))
 
         setAccessibilityElement(true)
         setAccessibilityRole(.button)
@@ -145,14 +145,6 @@ final class SuggestionRowView: NSView {
             width: max(0, bounds.width - textLeading - OmnibarStyle.trailingPadding),
             height: height
         )
-    }
-
-    override func updateTrackingAreas() {
-        super.updateTrackingAreas()
-        if let tracking { removeTrackingArea(tracking) }
-        let area = NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .mouseMoved, .activeAlways, .inVisibleRect], owner: self)
-        addTrackingArea(area)
-        tracking = area
     }
 
     // Crossing into or out of a row is a position like a move: the card's consumer coalesces it with the

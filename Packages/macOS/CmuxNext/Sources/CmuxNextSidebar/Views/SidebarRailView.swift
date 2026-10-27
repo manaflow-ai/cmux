@@ -17,7 +17,6 @@ public final class SidebarRailView: NSView {
     weak var cards: SidebarRailHoverCards?
     private(set) weak var model: SidebarModel?
     private var observation: Task<Void, Never>?
-    private var trackingArea: NSTrackingArea?
     /// The ticks drawn now, in this view's (flipped) coordinates.
     private(set) var railLayout = SidebarRailLayout(groups: [], top: 0, available: 0)
     private var marks: [[SidebarRailMark]] = []
@@ -43,6 +42,7 @@ public final class SidebarRailView: NSView {
         setAccessibilityRole(.group)
         setAccessibilityLabel(Strings.railLabel)
         setAccessibilityIdentifier("sidebar.rail")
+        addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseMoved, .mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self))
     }
 
     @available(*, unavailable)
@@ -135,14 +135,6 @@ public final class SidebarRailView: NSView {
     }
 
     // MARK: Pointer
-
-    override public func updateTrackingAreas() {
-        super.updateTrackingAreas()
-        if let trackingArea { removeTrackingArea(trackingArea) }
-        let area = NSTrackingArea(rect: .zero, options: [.mouseMoved, .mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self)
-        addTrackingArea(area)
-        trackingArea = area
-    }
 
     /// The windows' frame-aligned pointer input (feature `pointerFrameHover`): the cards follow a frame
     /// interval's first move at once and the rest once at its frame, at the latest point. Nil: each move.

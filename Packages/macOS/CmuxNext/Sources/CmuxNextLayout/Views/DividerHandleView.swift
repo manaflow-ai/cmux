@@ -83,7 +83,6 @@ final class DividerHandleView: NSView {
     private let line = CALayer()
     private(set) var isHovered = false { didSet { if isHovered != oldValue { applyColors() } } }
     private var isDragging = false { didSet { applyColors() } }
-    private var trackingArea: NSTrackingArea?
 
     init(kind: Kind, axis: SplitAxis) {
         self.kind = kind
@@ -104,6 +103,7 @@ final class DividerHandleView: NSView {
             setAccessibilityLabel(LayoutStrings.rowEdgeAccessibility)
             setAccessibilityIdentifier("cmux.pane.rowEdge.\(column.rawValue).\(row.rawValue)")
         }
+        addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeInKeyWindow, .inVisibleRect], owner: self))
         applyColors()
     }
 
@@ -168,10 +168,9 @@ final class DividerHandleView: NSView {
         return rect.isNull ? .zero : rect
     }
 
-    /// AppKit's cursor rect and tracking area rebuilds of this handle, cumulative (StripPanContainerTests:
-    /// a strip pan on the motion container makes none).
+    /// AppKit's cursor rect rebuilds of this handle, cumulative (StripPanContainerTests: a strip pan on the
+    /// motion container makes none).
     private(set) var cursorRectResets = 0
-    private(set) var trackingAreaUpdates = 0
 
     override func resetCursorRects() {
         cursorRectResets += 1
@@ -183,15 +182,6 @@ final class DividerHandleView: NSView {
         } else {
             addCursorRect(rect, cursor: axis == .horizontal ? .resizeLeftRight : .resizeUpDown)
         }
-    }
-
-    override func updateTrackingAreas() {
-        super.updateTrackingAreas()
-        trackingAreaUpdates += 1
-        if let trackingArea { removeTrackingArea(trackingArea) }
-        let area = NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeInKeyWindow, .inVisibleRect], owner: self)
-        addTrackingArea(area)
-        trackingArea = area
     }
 
     /// The drawn line in the superview's coordinates. It is native UI that

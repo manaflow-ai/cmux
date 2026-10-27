@@ -313,6 +313,7 @@ final class HomeFirstRunRow: NSView {
         shortcutLabel.alignment = .right
         shortcutLabel.isHidden = true
         for view in [glyph, label, activity, shortcutLabel] { addSubview(view) }
+        addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self))
         setAccessibilityElement(true)
         setAccessibilityRole(.button)
         setAccessibilityLabel(title)
@@ -370,12 +371,6 @@ final class HomeFirstRunRow: NSView {
         let textHeight = ceil(label.intrinsicContentSize.height)
         label.frame = CGRect(x: textX, y: (bounds.height - textHeight) / 2,
                              width: max(0, trailing - 8 * scale - textX), height: textHeight)
-    }
-
-    override func updateTrackingAreas() {
-        super.updateTrackingAreas()
-        for area in trackingAreas where area.owner === self { removeTrackingArea(area) }
-        addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self))
     }
 
     override func mouseEntered(with event: NSEvent) { isHovered = true }

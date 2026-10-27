@@ -242,6 +242,9 @@ final class WebPopupRows: NSView {
         self.onPick = onPick
         self.onHover = onHover
         super.init(frame: .zero)
+        // The whole menu's edge: leaving it is discrete, so the pending move lands now (`ShouldFlushQueue`).
+        // The rows' own edges are not; they post like moves (PopupRowView).
+        addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self))
     }
 
     @available(*, unavailable)
@@ -249,18 +252,6 @@ final class WebPopupRows: NSView {
 
     nonisolated override var isFlipped: Bool { true }
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
-
-    // The whole menu's edge: leaving it is discrete, so the pending move lands now (`ShouldFlushQueue`).
-    // The rows' own edges are not; they post like moves (PopupRowView).
-    private var tracking: NSTrackingArea?
-
-    override func updateTrackingAreas() {
-        super.updateTrackingAreas()
-        if let tracking { removeTrackingArea(tracking) }
-        let area = NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self)
-        addTrackingArea(area)
-        tracking = area
-    }
 
     override func mouseEntered(with event: NSEvent) {}
     override func mouseExited(with event: NSEvent) { hoverMoves.flush() }

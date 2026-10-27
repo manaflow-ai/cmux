@@ -20,7 +20,6 @@ final class ExtensionsMenuItemView: NSView {
     private(set) var canPin: Bool
     private(set) var hasSidePanel: Bool
     private let style: ExtensionsMenuStyle
-    private var tracking: NSTrackingArea?
     private var isRowHovered = false { didSet { if oldValue != isRowHovered { needsDisplay = true } } }
 
     var onRun: (() -> Void)?
@@ -52,6 +51,7 @@ final class ExtensionsMenuItemView: NSView {
                                                imageSize: style.buttonIcon, imageBox: style.buttonIcon, insets: insets, style: style)
         super.init(frame: NSRect(x: 0, y: 0, width: style.width - style.padding * 2, height: style.rowHeight))
         for view in [primary, sidePanelButton, pinButton, moreButton] { addSubview(view) }
+        addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self))
         primary.drawsHighlight = false
         primary.onHighlightChange = { [weak self] in self?.needsDisplay = true }
         primary.onPress = { [weak self] in self?.onRun?() }
@@ -157,14 +157,6 @@ final class ExtensionsMenuItemView: NSView {
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         needsDisplay = true
-    }
-
-    override func updateTrackingAreas() {
-        super.updateTrackingAreas()
-        if let tracking { removeTrackingArea(tracking) }
-        let area = NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self)
-        addTrackingArea(area)
-        tracking = area
     }
 
     override func mouseEntered(with event: NSEvent) { isRowHovered = true }

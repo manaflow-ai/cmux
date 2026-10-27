@@ -214,7 +214,6 @@ final class PaletteTableView: NSTableView {
     var onMouseMoved: ((NSPoint) -> Void)?
     var onMouseExited: (() -> Void)?
     var onClick: ((Int) -> Void)?
-    private var trackingArea: NSTrackingArea?
     /// The table's hover moves (feature `pointerFrameHover`, ``PaletteListView/hoverFrameInput``). The
     /// point is converted at delivery, so a list that scrolled since the move hit-tests its rows now.
     private(set) lazy var hoverMoves = PointerFrameHover(owner: "PaletteListView.hover", view: self) { [weak self] point in
@@ -222,15 +221,15 @@ final class PaletteTableView: NSTableView {
         onMouseMoved?(convert(point, from: nil))
     }
 
-    override var acceptsFirstResponder: Bool { false }
-
-    override func updateTrackingAreas() {
-        super.updateTrackingAreas()
-        if let trackingArea { removeTrackingArea(trackingArea) }
-        let area = NSTrackingArea(rect: .zero, options: [.mouseMoved, .mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self)
-        addTrackingArea(area)
-        trackingArea = area
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseMoved, .mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self))
     }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
+
+    override var acceptsFirstResponder: Bool { false }
 
     override func mouseMoved(with event: NSEvent) { hoverMoves.moved(event) }
 

@@ -9,18 +9,6 @@ import GhosttyNextKit
 // scrolls reach Ghostty at most twice per frame (``TerminalPointerFrames``);
 // every other event delivers what is pending first.
 extension TerminalSurfaceView {
-    public override func updateTrackingAreas() {
-        if let trackingArea { removeTrackingArea(trackingArea) }
-        let area = NSTrackingArea(
-            rect: .zero,
-            options: [.mouseEnteredAndExited, .mouseMoved, .inVisibleRect, .activeAlways, .cursorUpdate],
-            owner: self
-        )
-        addTrackingArea(area)
-        trackingArea = area
-        super.updateTrackingAreas()
-    }
-
     public override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
     public override func mouseDown(with event: NSEvent) {

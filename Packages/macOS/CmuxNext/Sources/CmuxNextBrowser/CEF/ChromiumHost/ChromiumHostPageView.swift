@@ -172,7 +172,6 @@ public final class ChromiumHostPageView: NSView {
     /// The input seq of the last wheel frame this view sent, 0 before any: WHEEL_ACKs of a gesture's own
     /// wheels carry later seqs (task p01-process-234).
     private(set) var lastWheelSeq: UInt32 = 0
-    private var tracking: NSTrackingArea?
     #endif
 
     private var lastGeometry: ChromiumHostGeometry?
@@ -205,6 +204,12 @@ public final class ChromiumHostPageView: NSView {
         wantsLayer = true
         autoresizingMask = [.width, .height]
         addSubview(surface)
+        #if DEBUG || CMUX_BENCH_HOOKS
+        if inputTarget == .view {
+            addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseMoved, .mouseEnteredAndExited, .activeInKeyWindow, .inVisibleRect],
+                                           owner: self))
+        }
+        #endif
         pageVisibilityWatch = pageNode.subscribe(owner: "ChromiumHostPageView.pageVisibility") { [weak self] visibility in
             self?.onPageVisibility?(ChromiumHostPageVisibility(visibility))
         }
@@ -377,17 +382,6 @@ public final class ChromiumHostPageView: NSView {
 // The Chromium host app ships in Debug builds only (embed-cef.sh), and so does its wire.
 extension ChromiumHostPageView {
     // MARK: Mouse
-
-    public override func updateTrackingAreas() {
-        super.updateTrackingAreas()
-        if let tracking { removeTrackingArea(tracking) }
-        tracking = nil
-        guard inputTarget == .view else { return }
-        let area = NSTrackingArea(rect: .zero, options: [.mouseMoved, .mouseEnteredAndExited, .activeInKeyWindow, .inVisibleRect],
-                                  owner: self, userInfo: nil)
-        addTrackingArea(area)
-        tracking = area
-    }
 
     public override func mouseDown(with event: NSEvent) {
         window?.makeFirstResponder(self)

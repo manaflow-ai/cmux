@@ -75,7 +75,6 @@ public final class TabStripView: NSView {
     let newTabButton = NewTabButtonView()
     let hoverCard = TabHoverCardController()
     let groupEditor = TabGroupEditorController()
-    var trackingArea: NSTrackingArea?
 
     // MARK: Layout and animation state
 
@@ -230,6 +229,7 @@ public final class TabStripView: NSView {
         setAccessibilityRole(.tabGroup)
         setAccessibilityLabel(Strings.axStrip)
         setAccessibilityIdentifier("cmux.tabs.strip")
+        addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .mouseMoved, .activeAlways, .inVisibleRect], owner: self))
     }
 
     @available(*, unavailable)
@@ -449,17 +449,10 @@ public final class TabStripView: NSView {
         }
     }
 
+    // tracking-area: the strip's own area is added once (init); this moves the closing-mode watch's rect area,
+    // which lives on the content view and covers the strip's bounds plus Chrome's exit pads.
     public override func updateTrackingAreas() {
         super.updateTrackingAreas()
-        if let trackingArea { removeTrackingArea(trackingArea) }
-        let area = NSTrackingArea(
-            rect: .zero,
-            options: [.mouseEnteredAndExited, .mouseMoved, .activeAlways, .inVisibleRect],
-            owner: self,
-            userInfo: nil
-        )
-        addTrackingArea(area)
-        trackingArea = area
         closingWatch.updateTracking()
     }
 

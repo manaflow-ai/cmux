@@ -24,7 +24,6 @@ import CmuxNextCompat
 /// row under the pointer sets its cursor again when another one shows
 /// (`keepCursor`).
 public class ArrowCursorView: NSView {
-    private var cursorArea: NSTrackingArea?
     /// Owns the row's cursor tracking area, so the area's events end there
     /// and never travel up the responder chain (a tracking area keeps its
     /// owner unretained).
@@ -32,22 +31,21 @@ public class ArrowCursorView: NSView {
     /// The cursor the row last set on a pointer move (`debug.omnibar`).
     private(set) var trackedCursor: OmnibarPointer.Cursor?
 
-    public override func resetCursorRects() {
-        addCursorRect(bounds, cursor: OmnibarPointer.cursor(.toolbar).cursor)
-    }
-
-    public override func updateTrackingAreas() {
-        super.updateTrackingAreas()
-        // `.inVisibleRect` follows the view's visible rect: one area is enough. No
+    public override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        cursorTracker.row = self
+        // `.inVisibleRect` follows the view's visible rect: one area for the row's life. No
         // `.cursorUpdate`: AppKit sends a cursor update to the view under the pointer, which
         // may answer with the arrow (an input-host run with `.cursorUpdate` showed the arrow
         // past the end of the text in a window that was not key).
-        guard cursorArea == nil else { return }
-        cursorTracker.row = self
-        let area = NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .mouseMoved, .activeAlways, .inVisibleRect],
-                                  owner: cursorTracker)
-        addTrackingArea(area)
-        cursorArea = area
+        addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .mouseMoved, .activeAlways, .inVisibleRect],
+                                       owner: cursorTracker))
+    }
+
+    public required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+
+    public override func resetCursorRects() {
+        addCursorRect(bounds, cursor: OmnibarPointer.cursor(.toolbar).cursor)
     }
 
     public override func viewDidMoveToWindow() {

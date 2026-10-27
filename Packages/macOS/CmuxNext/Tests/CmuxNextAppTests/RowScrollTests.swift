@@ -86,7 +86,7 @@ import Testing
         let contents = Self.rows.compactMap { w.provider.views[$0] as? StripPanContainerTests.TrackedContent }
         try #require(contents.count == Self.rows.count)
         w.window.displayIfNeeded()
-        let tracking = contents.map(\.trackingAreaUpdates) + dividers.map(\.trackingAreaUpdates)
+        let tracking = contents.map(\.trackingAreaUpdates), dividerAreas = dividers.map(\.trackingAreaIDs)
         let cursors = contents.map(\.cursorRectResets) + dividers.map(\.cursorRectResets)
         let point = try w.center("top")
         let shownBefore = try #require(w.root.frame(of: "top"))
@@ -100,7 +100,8 @@ import Testing
         #expect(dividers.map(\.frame) == dividerFrames, "no divider frame set during the pan")
         #expect(hosts.map(\.chrome.frame) == chromeFrames, "no ring or dim frame set during the pan")
         #expect(w.root.overlayHostsPlaced == placed, "no overlay sync places a ring during the pan")
-        #expect(contents.map(\.trackingAreaUpdates) + dividers.map(\.trackingAreaUpdates) == tracking, "no tracking area rebuilt")
+        #expect(contents.map(\.trackingAreaUpdates) == tracking, "no tracking area rebuilt")
+        #expect(dividers.map(\.trackingAreaIDs) == dividerAreas, "the dividers keep their one tracking area")
         #expect(contents.map(\.cursorRectResets) + dividers.map(\.cursorRectResets) == cursors, "no cursor rect rebuilt")
         #expect(container.translationSets - sets == 20, "one translation per event")
         #expect(screen.stripContainer.translation == 0, "the strip stays")
@@ -195,7 +196,7 @@ import Testing
         let contents = Self.rows.compactMap { w.provider.views[$0] as? StripPanContainerTests.TrackedContent }
         let frames = hosts.map(\.frame), chromeFrames = hosts.map(\.chrome.frame), dividerFrames = dividers.map(\.frame)
         w.window.displayIfNeeded()
-        let tracking = contents.map(\.trackingAreaUpdates) + dividers.map(\.trackingAreaUpdates)
+        let tracking = contents.map(\.trackingAreaUpdates), dividerAreas = dividers.map(\.trackingAreaIDs)
         let cursors = contents.map(\.cursorRectResets) + dividers.map(\.cursorRectResets)
         for _ in 0..<20 { _ = w.root.advanceFrame(1.0 / 120) }
         w.root.flushOverlaySync()
@@ -203,7 +204,8 @@ import Testing
         #expect(hosts.map(\.frame) == frames, "no host frame set during the fling")
         #expect(hosts.map(\.chrome.frame) == chromeFrames, "no ring or dim frame set during the fling")
         #expect(dividers.map(\.frame) == dividerFrames, "no divider frame set during the fling")
-        #expect(contents.map(\.trackingAreaUpdates) + dividers.map(\.trackingAreaUpdates) == tracking, "no tracking area rebuilt during the fling")
+        #expect(contents.map(\.trackingAreaUpdates) == tracking, "no tracking area rebuilt during the fling")
+        #expect(dividers.map(\.trackingAreaIDs) == dividerAreas, "the dividers keep their one tracking area")
         #expect(contents.map(\.cursorRectResets) + dividers.map(\.cursorRectResets) == cursors, "no cursor rect rebuilt during the fling")
         #expect(w.root.isLayoutInMotion, "the fling is layout motion until it lands")
         #expect(tap.subscriberCount(.pointerMove, stage: .intercept) == 1, "while the rows fling, a move lands them")

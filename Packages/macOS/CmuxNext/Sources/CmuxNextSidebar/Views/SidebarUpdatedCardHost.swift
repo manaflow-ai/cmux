@@ -23,7 +23,6 @@ final class SidebarUpdatedCardHost: NSView {
     let closeButton = SidebarIconButton(icon: .actionClose, pointSize: { 9 }, label: "")
     /// The pointer is on the card: its x shows.
     private(set) var isHovered = false
-    private var hoverArea: NSTrackingArea?
     /// Makes ``island`` once a card shows (a web page; none at launch without one).
     var surfaces: (any SidebarUpdateSurfaces)? {
         didSet {
@@ -61,6 +60,8 @@ final class SidebarUpdatedCardHost: NSView {
         closeButton.isHidden = true
         closeButton.alphaValue = 0
         addSubview(closeButton)
+        // Active in the active app, not only the key window: a Chromium page's window may hold the key.
+        addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeInActiveApp, .inVisibleRect], owner: self))
     }
 
     @available(*, unavailable)
@@ -106,15 +107,6 @@ final class SidebarUpdatedCardHost: NSView {
         let side = Self.closeSide
         closeButton.frame = NSRect(x: bounds.width - Self.closeInset.width - side, y: Self.closeInset.height,
                                    width: side, height: side).integral
-    }
-
-    override func updateTrackingAreas() {
-        super.updateTrackingAreas()
-        if let hoverArea { removeTrackingArea(hoverArea) }
-        // Active in the active app, not only the key window: a Chromium page's window may hold the key.
-        let area = NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeInActiveApp, .inVisibleRect], owner: self, userInfo: nil)
-        addTrackingArea(area)
-        hoverArea = area
     }
 
     override func mouseEntered(with event: NSEvent) {

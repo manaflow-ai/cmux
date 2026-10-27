@@ -81,7 +81,6 @@ final class HomeChiefLinkButton: NSButton {
     var textFont: NSFont = Typography.caption { didSet { applyTitle() } }
     private var text = ""
     private var isHovering = false { didSet { applyTitle() } }
-    private var tracking: NSTrackingArea?
 
     init(title: String, target: AnyObject, action: Selector) {
         super.init(frame: .zero)
@@ -92,6 +91,7 @@ final class HomeChiefLinkButton: NSButton {
         bezelStyle = .regularSquare
         setButtonType(.momentaryChange)
         setAccessibilityLabel(title)
+        addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self))
         applyTitle()
     }
 
@@ -100,14 +100,6 @@ final class HomeChiefLinkButton: NSButton {
 
     override func resetCursorRects() {
         addCursorRect(bounds, cursor: .pointingHand)
-    }
-
-    override func updateTrackingAreas() {
-        super.updateTrackingAreas()
-        if let tracking { removeTrackingArea(tracking) }
-        let area = NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self)
-        addTrackingArea(area)
-        tracking = area
     }
 
     override func mouseEntered(with event: NSEvent) { isHovering = true }

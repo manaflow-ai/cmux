@@ -199,7 +199,6 @@ final class SuggestionCardView: NSView {
     /// The rows' hover consumer (``OmniboxSuggestionPanel/hoverMoves``): the pointer leaving the card is
     /// discrete, so its pending move lands then (`ShouldFlushQueue`).
     weak var hoverMoves: PointerFrameHover?
-    private var tracking: NSTrackingArea?
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -219,6 +218,7 @@ final class SuggestionCardView: NSView {
         // the bar; one that stops at the seam shows a gap. A rows shadow needs a cut-out like
         // PopupHostView's and a device check (cx-iif6y follow-up).
         addSubview(card)
+        addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self))
     }
 
     @available(*, unavailable)
@@ -230,14 +230,6 @@ final class SuggestionCardView: NSView {
         card.layer?.maskedCorners = opensUpward ? [.layerMinXMaxYCorner, .layerMaxXMaxYCorner] : [.layerMinXMinYCorner, .layerMaxXMinYCorner]
         card.layer?.cornerRadius = cornerRadius
         refresh()
-    }
-
-    override func updateTrackingAreas() {
-        super.updateTrackingAreas()
-        if let tracking { removeTrackingArea(tracking) }
-        let area = NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self)
-        addTrackingArea(area)
-        tracking = area
     }
 
     override func mouseEntered(with event: NSEvent) {}

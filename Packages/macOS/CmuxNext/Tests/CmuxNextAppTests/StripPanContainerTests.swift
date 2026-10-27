@@ -160,7 +160,7 @@ import Testing
         let contents = Self.strip.compactMap { w.provider.views[$0] as? TrackedContent }
         try #require(contents.count == Self.strip.count)
         w.window.displayIfNeeded()
-        let tracking = contents.map(\.trackingAreaUpdates) + dividers.map(\.trackingAreaUpdates)
+        let tracking = contents.map(\.trackingAreaUpdates), dividerAreas = dividers.map(\.trackingAreaIDs)
         let cursors = contents.map(\.cursorRectResets) + dividers.map(\.cursorRectResets)
         let shownBefore = try #require(w.root.frame(of: "p2"))
         #expect(w.scroll(at: point, phase: .began), "the layout takes the Command gesture")
@@ -178,7 +178,8 @@ import Testing
         #expect(dividers.map(\.frame) == dividerFrames, "no divider frame set during the pan")
         #expect(hosts.map(\.chrome.frame) == chromeFrames, "no ring or dim frame set during the pan")
         #expect(w.root.overlayHostsPlaced == placed, "no overlay sync places a ring during the pan")
-        #expect(contents.map(\.trackingAreaUpdates) + dividers.map(\.trackingAreaUpdates) == tracking, "no tracking area rebuilt")
+        #expect(contents.map(\.trackingAreaUpdates) == tracking, "no tracking area rebuilt")
+        #expect(dividers.map(\.trackingAreaIDs) == dividerAreas, "the dividers keep their one tracking area")
         #expect(contents.map(\.cursorRectResets) + dividers.map(\.cursorRectResets) == cursors, "no cursor rect rebuilt")
         #expect(screen.stripContainer.translationSets - sets == 50, "one translation per event")
         #expect(Window.translation(of: screen.stripChrome.layer) == screen.stripContainer.translation,

@@ -82,7 +82,6 @@ final class SidebarEnergyIndicator: NSView {
     private var closer: MainDeadline?
     /// Bumped by each show or hide, so an old fade's completion does not hide a leaf shown again.
     private var fadeGeneration = 0
-    private var tracking: NSTrackingArea?
     /// The events of a click: the pointer that clicks has already opened the card by entering the leaf.
     private static let clicks: Set<NSEvent.EventType> = [.leftMouseDown, .leftMouseUp]
 
@@ -97,6 +96,7 @@ final class SidebarEnergyIndicator: NSView {
         button.onPress = { [weak self] in self?.pressed() }
         button.setAccessibilityIdentifier("cmux.sidebar.energySaver")
         addSubview(button)
+        addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeInActiveApp, .inVisibleRect], owner: self))
         card.turnOff.onPress = { [weak self] in self?.turnOffForNow() }
         card.onPointerEnter = { [weak self] in self?.closer?.cancel() }
         card.onPointerExit = { [weak self] in self?.scheduleClose() }
@@ -232,14 +232,6 @@ final class SidebarEnergyIndicator: NSView {
     }
 
     // MARK: Pointer
-
-    override func updateTrackingAreas() {
-        super.updateTrackingAreas()
-        if let tracking { removeTrackingArea(tracking) }
-        let area = NSTrackingArea(rect: bounds, options: [.mouseEnteredAndExited, .activeInActiveApp, .inVisibleRect], owner: self)
-        addTrackingArea(area)
-        tracking = area
-    }
 
     override func mouseEntered(with event: NSEvent) {
         showCard()

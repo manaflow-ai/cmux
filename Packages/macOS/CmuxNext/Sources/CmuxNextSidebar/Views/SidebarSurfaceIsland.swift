@@ -50,7 +50,6 @@ public protocol SidebarUpdateSurfaces: AnyObject {
 final class SidebarPopoverIslandHost: NSView {
     var onPointerEnter: (() -> Void)?
     var onPointerExit: (() -> Void)?
-    private var tracking: NSTrackingArea?
 
     /// The host's height in a hover card (the card fits its body); its width is fixed.
     private var heightConstraint: NSLayoutConstraint?
@@ -60,6 +59,7 @@ final class SidebarPopoverIslandHost: NSView {
         let height = heightAnchor.constraint(equalToConstant: 1)
         NSLayoutConstraint.activate([widthAnchor.constraint(equalToConstant: width), height])
         heightConstraint = height
+        addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self))
     }
 
     /// Sizes the host `height` tall (the page's height, capped to its window).
@@ -80,14 +80,6 @@ final class SidebarPopoverIslandHost: NSView {
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError() }
-
-    override func updateTrackingAreas() {
-        super.updateTrackingAreas()
-        if let tracking { removeTrackingArea(tracking) }
-        let area = NSTrackingArea(rect: bounds, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self)
-        addTrackingArea(area)
-        tracking = area
-    }
 
     override func mouseEntered(with event: NSEvent) {
         onPointerEnter?()
