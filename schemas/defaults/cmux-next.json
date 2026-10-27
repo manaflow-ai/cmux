@@ -366,7 +366,7 @@
     "setting.browser.enabled": true,
     "setting.browser.freezeHiddenTabs": 30,
     "setting.browser.hibernatePinnedTabs": false,
-    "setting.browser.hibernation": "moderate",
+    "setting.browser.hibernation": null,
     "setting.browser.hibernationExclusions": [],
     "setting.browser.hostsToOpenInEmbeddedBrowser": [],
     "setting.browser.import.enabled": true,
