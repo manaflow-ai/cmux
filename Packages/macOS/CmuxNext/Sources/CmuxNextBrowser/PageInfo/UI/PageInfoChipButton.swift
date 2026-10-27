@@ -132,6 +132,7 @@ final class PageInfoChipButton: NSView, PointerHoverReporting {
     }
 
     /// Chrome: dragging the location icon drags the page out as a link.
+    // input-coalesce: native (a 3 pt slop test, then an AppKit dragging session, which must start from this event and then tracks the pointer itself)
     // local-monitor-allow: a 3 pt threshold test, then the drag session, which beginDraggingSession must start from this event; a drag is unbuffered until mouseUp (p06-scheduler.md section E)
     override func mouseDragged(with event: NSEvent) {
         guard isPressed, let start = pressLocation, let item = dragItem?() else { return }

@@ -19,6 +19,7 @@ import CmuxNextFavicons
 import CmuxNextFeatures
 import CmuxNextFileGrid
 import CmuxNextHibernation
+import CmuxNextHistory
 import CmuxNextHome
 import CmuxNextMemory
 import CmuxNextPages
@@ -236,6 +237,15 @@ struct AppMemoryConsumers {
             AsyncMemoryConsumerRegistration(name: ThumbnailCache.memoryConsumerName, traits: ThumbnailCache.memoryTraits,
                                             consumer: cache, registry: $0)
         }
+    }
+
+    /// `memorySqliteTrim` (default off): one browser profile's visit log, whose SQLite page cache is an
+    /// asynchronous consumer on the log's actor (p07-memory-090); its owner, the history service, keeps the
+    /// registration while it keeps the log. Nil while the feature is off.
+    func registerVisitLog(_ log: BrowserVisitLog) -> AsyncMemoryConsumerRegistration? {
+        guard services.features.isEnabled(.memorySqliteTrim) else { return nil }
+        return AsyncMemoryConsumerRegistration(name: BrowserVisitLog.memoryConsumerName, traits: BrowserVisitLog.memoryTraits,
+                                               consumer: log, registry: services.memoryCoordinator)
     }
 
     /// `memoryFileHomeCaches`: the apps client's decoded bundle images are one lossless consumer;
