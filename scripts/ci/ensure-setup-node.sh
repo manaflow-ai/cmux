@@ -18,7 +18,9 @@
 set -euo pipefail
 
 want="${1:?usage: ensure-setup-node.sh VERSION}"
-if [ "$(node --version 2>/dev/null || true)" = "v$want" ]; then
+# "vVERSION" when NODE runs, exits 0 and reports that version; empty when it fails.
+runs_as() { local out; out="$("$1" --version 2>/dev/null)" || return 0; printf '%s' "$out"; }
+if command -v node >/dev/null 2>&1 && [ "$(runs_as node)" = "v$want" ]; then
   echo "node v$want is on PATH ($(command -v node))"
   exit 0
 fi
@@ -26,8 +28,7 @@ case "$(uname -s)" in Darwin) os=darwin ;; Linux) os=linux ;; *) echo "::error::
 case "$(uname -m)" in arm64 | aarch64) arch=arm64 ;; x86_64) arch=x64 ;; *) echo "::error::ensure-setup-node: unsupported arch $(uname -m)"; exit 1 ;; esac
 tool="${RUNNER_TOOL_CACHE:?RUNNER_TOOL_CACHE is not set}/node/$want/$arch"
 
-# "vVERSION" when DIR/bin/node runs and reports that version, else empty.
-version_of() { "$1/bin/node" --version 2>/dev/null || true; }
+version_of() { runs_as "$1/bin/node"; }
 
 if [ ! -f "$tool.complete" ] || [ "$(version_of "$tool")" != "v$want" ]; then
   echo "::warning title=setup-node::node v$want is not on PATH after setup-node; installing it from nodejs.org"

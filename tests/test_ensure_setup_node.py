@@ -104,6 +104,37 @@ class EnsureSetupNode(unittest.TestCase):
         self.assertEqual(subprocess.run([str(broken)], text=True, capture_output=True).stdout.strip(), f"v{VERSION}")
         self.assertEqual(self.github_path.read_text(), f"{self.tool}/bin\n")
 
+    def test_a_node_that_prints_the_version_but_fails_does_not_count(self) -> None:
+        failing = "#!/bin/sh\necho v{v}\nexit 7\n".format(v=VERSION)
+        (self.bin / "node").write_text(failing)
+        (self.bin / "node").chmod(0o755)
+        self.tool.joinpath("bin").mkdir(parents=True)
+        (self.tool / "bin" / "node").write_text(failing)
+        (self.tool / "bin" / "node").chmod(0o755)
+        Path(f"{self.tool}.complete").touch()
+        self.publish()
+        result = self.run_script()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("installing it from nodejs.org", result.stdout)
+        self.assertEqual(subprocess.run([str(self.tool / "bin" / "node")]).returncode, 0)
+        self.assertEqual(self.github_path.read_text(), f"{self.tool}/bin\n")
+
+    def test_a_download_that_fails_to_run_caches_nothing(self) -> None:
+        name = f"node-v{VERSION}-{OS}-{ARCH}"
+        staged = self.tmp / "staged" / name / "bin"
+        staged.mkdir(parents=True)
+        (staged / "node").write_text(f"#!/bin/sh\necho v{VERSION}\nexit 7\n")
+        (staged / "node").chmod(0o755)
+        tarball = self.dist / f"{name}.tar.gz"
+        with tarfile.open(tarball, "w:gz") as archive:
+            archive.add(staged.parent, arcname=name)
+        digest = hashlib.sha256(tarball.read_bytes()).hexdigest()
+        (self.dist / "SHASUMS256.txt").write_text(f"{digest}  {name}.tar.gz\n")
+        result = self.run_script()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertFalse(Path(f"{self.tool}.complete").exists())
+        self.assertEqual(self.github_path.read_text(), "")
+
     def test_a_complete_entry_of_another_version_is_replaced(self) -> None:
         fake_node(self.tool / "bin" / "node", "24.11.1")
         Path(f"{self.tool}.complete").touch()
