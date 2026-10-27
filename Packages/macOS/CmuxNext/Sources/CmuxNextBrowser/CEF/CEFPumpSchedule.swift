@@ -251,8 +251,8 @@ extension CEFPumpSchedule {
         /// Less than ``FrameSlicer/floor`` is left before the frame's commit: the pass waits until
         /// `until`, just past it, and takes the next frame's time.
         case waitForFrame(until: TimeInterval)
-        /// A person's input turn is open, or input is pending after a pass that used its whole slice:
-        /// the pass waits until `until`, the next frame or one refresh at most.
+        /// A person's input turn or a plan apply is open, or input is pending after a pass that used its
+        /// whole slice: the pass waits until `until`, the next frame or one refresh at most.
         case holdForInput(until: TimeInterval)
     }
 
@@ -270,11 +270,12 @@ extension CEFPumpSchedule {
     ///
     /// Input goes first, as Chrome's main-thread scheduler runs input before other work
     /// (third_party/blink/renderer/platform/scheduler/main_thread/main_thread_scheduler_impl.cc): no
-    /// pass starts inside a person's input turn (its dispatch, or its frame not rendered yet, which
-    /// covers a pane motion plan applied in the key's turn), and a pass that follows one that used its
-    /// whole slice waits while input is pending. A pass for a Chromium page's input never waits for
-    /// input: Chromium handles that input inside the pump. A pass waits for input at most once in a
-    /// row, until the next frame or one refresh.
+    /// pass starts inside a person's input turn (its dispatch, or its frame not rendered yet) or a
+    /// layout plan's apply before its commit (a CLI, socket or agent change, a motion frame:
+    /// ``PlanApplyTurn``), and a pass that follows one that used its whole slice waits while input is
+    /// pending. A pass for a Chromium page's input never waits for input: Chromium handles that input
+    /// inside the pump. A pass waits for input at most once in a row, until the next frame or one
+    /// refresh, and not at all after the pump's input policy held it.
     nonisolated struct FrameSlicer: Equatable, Sendable {
         /// The shortest slice a pass starts with.
         static let floor: TimeInterval = 0.001
@@ -286,8 +287,8 @@ extension CEFPumpSchedule {
         let cap: TimeInterval
         /// The fork takes a slice per call; false: every pass runs at the static switch.
         let perCall: Bool
-        /// The last due pass waited for input: this one runs.
-        private var heldForInput = false
+        /// The due pass waited for input already: it runs when decided again.
+        private(set) var heldForInput = false
         /// The last pass used its whole slice: Chromium has work left, and the next pass follows it.
         private var followsLongPass = false
 
@@ -302,13 +303,14 @@ extension CEFPumpSchedule {
         ///     measured yet: no deadline, the static switch.
         ///   - refresh: The frame clock's refresh interval: the longest an input wait lasts.
         ///   - inputTurn: A person's input turn is open (its dispatch, or its frame not rendered yet).
-        ///   - pageInput: The pass serves a Chromium page's input (it has the keyboard, or AppKit just
-        ///     delivered it input).
-        ///   - inputPending: Whether a person's input waits for the main thread (read only after a
-        ///     pass that used its whole slice).
-        mutating func decide(now: TimeInterval, frame: Frame?, refresh: TimeInterval, inputTurn: Bool, pageInput: Bool,
-                             inputPending: () -> Bool) -> SliceDecision {
-            if !pageInput, !heldForInput, inputTurn || (followsLongPass && inputPending()) {
+        ///   - planApply: A layout plan was applied and has not committed yet.
+        ///   - pageInput: The pass serves a Chromium page's input (AppKit just delivered it input).
+        ///   - inputWaited: The pump's input policy already held this pass: it does not wait again.
+        ///   - inputPending: Whether a person's input that holds a pass waits for the main thread (read
+        ///     only after a pass that used its whole slice).
+        mutating func decide(now: TimeInterval, frame: Frame?, refresh: TimeInterval, inputTurn: Bool, planApply: Bool = false,
+                             pageInput: Bool, inputWaited: Bool = false, inputPending: () -> Bool) -> SliceDecision {
+            if !pageInput, !heldForInput, !inputWaited, inputTurn || planApply || (followsLongPass && inputPending()) {
                 heldForInput = true
                 return .holdForInput(until: Self.inputWaitEnd(now: now, frame: frame, refresh: refresh))
             }
@@ -326,6 +328,11 @@ extension CEFPumpSchedule {
         /// A pass ended; `usedWholeSlice`: it ran its whole slice, so Chromium has work left.
         mutating func passEnded(usedWholeSlice: Bool) {
             followsLongPass = usedWholeSlice
+        }
+
+        /// No pass waits any more: the next due pass may wait for input once.
+        mutating func holdEnded() {
+            heldForInput = false
         }
 
         /// The end of an input wait from `now`: the next frame target, or one refresh, whichever comes

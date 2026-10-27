@@ -74,6 +74,9 @@ public final class MainWorkScheduler {
     public nonisolated let wakeUps: MainWakeUpQueue
     /// The idle class's periods and queue (``postIdle(owner:maxDelay:node:file:line:_:)``).
     public let idle: IdleScheduler
+    /// A layout plan applied in this run loop turn and not committed yet (``PlanApplyTurn``): the layout
+    /// notes it, the in-process CEF pump starts no slice inside it.
+    public let planApplies: PlanApplyTurn
 
     /// Times the render pass after each frame's scheduled work while any link runs (nil in tests).
     private var renderPasses: RenderPassMeter?
@@ -131,6 +134,7 @@ public final class MainWorkScheduler {
         self.frames = frames
         self.startup = startup
         causes = ObservationCauses(budget: budget)
+        planApplies = PlanApplyTurn(turns: budget.turns)
         let energy = EnergyPolicySource()
         self.energy = energy
         wakeUps = MainWakeUpQueue(energy: energy)
