@@ -452,6 +452,8 @@ extension AgentPaneRequest {
             }
         case _ where AgentPaneEnvironmentRequest.methods.contains(method):
             self = AgentPaneEnvironmentRequest(method: method, params: params).map(AgentPaneRequest.environment) ?? .unsupported(method)
+        case _ where AgentPaneCloudMachineRequest.methods.contains(method):
+            self = AgentPaneCloudMachineRequest(method: method, params: params).map(AgentPaneRequest.cloudMachine) ?? .unsupported(method)
         case _ where AgentPaneReplyRequest.methods.contains(method):
             self = AgentPaneReplyRequest(method: method, params: params).map(AgentPaneRequest.reply) ?? .unsupported(method)
         default:

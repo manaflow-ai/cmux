@@ -25,6 +25,7 @@ use std::time::{Duration, Instant};
 use tokio::sync::mpsc;
 
 const FAKE: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
+const FAKE_CLAUDE: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_claude.py");
 /// `hub/file_uploads.rs` `CHUNK_BYTES`.
 const CHUNK: usize = 512 << 10;
 
@@ -42,7 +43,9 @@ fn home() -> &'static Path {
 fn hub() -> Arc<Hub> {
     home();
     let mut cfg: Config = serde_json::from_value(json!({
-        "harnesses": {"fake": {"argv": ["python3", FAKE], "family": "codex"}},
+        "harnesses": {"fake": {"argv": ["python3", FAKE], "family": "codex"},
+            "fakeclaude": {"argv": ["/usr/bin/env", "FAKE_CLAUDE_ECHO=1", "python3", FAKE_CLAUDE],
+                "kind": "claude-stdio"}},
         "defaultHarness": "fake",
         "permissionPolicy": "approve-all"
     }))
@@ -136,6 +139,23 @@ impl Client {
             .await;
         let events = page["result"]["events"].as_array().unwrap_or_else(|| panic!("{page}"));
         events.iter().map(|e| e["msg"].clone()).collect()
+    }
+}
+
+/// Every record of chat `session`'s log, as JSON, paged through `_acpmux/events`.
+async fn whole_log(c: &mut Client, session: &str) -> String {
+    let (mut after, mut logged) = (0, String::new());
+    loop {
+        let all = json!({"sessionId": session, "afterSeq": after, "maxBytes": 4 << 20});
+        let page = c.call("_acpmux/events", all).await;
+        let records = page["result"]["events"].as_array().unwrap_or_else(|| panic!("{page}"));
+        for r in records {
+            after = r["seq"].as_u64().unwrap();
+            logged.push_str(&r.to_string());
+        }
+        if page["result"]["hasMore"] != true {
+            return logged;
+        }
     }
 }
 
@@ -489,4 +509,106 @@ async fn a_peer_that_cannot_read_uploads_is_refused_before_anything_is_sent() {
     assert_eq!(reply["error"]["data"]["reason"], "upload.unsupported", "{reply}");
     assert!(reply["error"]["message"].as_str().unwrap().contains("acpmux host update old"));
     assert_eq!(prompts.load(Ordering::SeqCst), 0);
+}
+
+/// A real `w`x`h` RGB PNG of noise, which no deflate shrinks: past the inline image size.
+fn noise_png(w: u32, h: u32) -> Vec<u8> {
+    let mut state = 0x2545_f491_4f6c_dd1du64;
+    let data: Vec<u8> = (0..w * h * 3)
+        .map(|_| {
+            state ^= state << 13;
+            state ^= state >> 7;
+            state ^= state << 17;
+            state as u8
+        })
+        .collect();
+    let mut out = Vec::new();
+    let mut e = png::Encoder::new(&mut out, w, h);
+    e.set_color(png::ColorType::Rgb);
+    e.set_depth(png::BitDepth::Eight);
+    e.set_compression(png::Compression::Fast);
+    e.write_header().unwrap().write_image_data(&data).unwrap();
+    out
+}
+
+/// A screenshot past what the model takes inline reaches the agent as the link to its original
+/// and, next to it, a copy sized for the harness (`model_copies.rs`; this hub's harness is of the
+/// codex family): long edge at most 2048 px, under the inline image size, saved next to the
+/// upload. The transcript keeps the prompt as sent.
+#[tokio::test]
+async fn a_large_screenshot_reaches_the_model_as_a_sized_copy_next_to_its_original() {
+    let hub = hub();
+    let mut c = client(&hub, Origin::Local);
+    let session = c.new_session("uploads-model-copy").await;
+    let big = noise_png(2400, 1200);
+    assert!(big.len() > acpmux::prompt_uploads::INLINE_IMAGE_BYTES, "{}", big.len());
+    let id = c.upload(&session, "shot.png", &big).await;
+    let p = prompt(&session, &v7(), "see", vec![image_ref(&id, "shot.png")]);
+    let reply = c.call(method::SESSION_PROMPT, p).await;
+    assert!(reply.get("error").is_none(), "{reply}");
+    // The original, by its path, bytes intact.
+    let linked = links(&c.text);
+    assert_eq!(linked.len(), 1, "{}", c.text);
+    assert_eq!(sha(&std::fs::read(&linked[0].1).unwrap()), sha(&big));
+    // The copy the agent got is the one saved next to the upload, sized for the model.
+    let folder = linked[0].1.parent().unwrap().to_owned();
+    let copies: Vec<_> = std::fs::read_dir(&folder)
+        .unwrap()
+        .flatten()
+        .map(|e| e.path())
+        .filter(|p| p.file_name().unwrap().to_string_lossy().starts_with(".model-"))
+        .collect();
+    let sent: Vec<_> = copies
+        .iter()
+        .map(|p| std::fs::read(p).unwrap())
+        .filter(|b| c.text.contains(&format!("image:{}", sha(b))))
+        .collect();
+    assert_eq!(sent.len(), 1, "copies {copies:?}: {}", c.text);
+    let reader = png::Decoder::new(std::io::Cursor::new(&sent[0])).read_info().unwrap();
+    let (w, h) = (reader.info().width, reader.info().height);
+    assert!(w.max(h) <= 2048 && w == 2 * h, "{w}x{h}");
+    assert!(sent[0].len() <= acpmux::prompt_uploads::INLINE_IMAGE_BYTES, "{}", sent[0].len());
+    let messages = c.user_messages(&session).await;
+    let logged = serde_json::to_string(&messages).unwrap();
+    assert!(!logged.contains("scaled to"), "{logged}");
+    // Nor any record of the log, what was written to the agent too: the copy's base64 is left out.
+    let logged = whole_log(&mut c, &session).await;
+    // The prompt as written to the agent is there, with the original's path.
+    assert!(logged.contains(r#""dir":"out","kind":"session/prompt""#), "{logged:.2000}");
+    let copy = b64(&sent[0]);
+    assert!(!logged.contains(&copy[200..300]), "the copy's base64 was logged");
+}
+
+/// Claude Code echoes each prompt back (`--replay-user-messages`), the copy too: the log keeps
+/// the copy neither as written to Claude nor as echoed.
+#[tokio::test]
+async fn a_screenshots_copy_is_logged_neither_written_to_claude_nor_echoed_back() {
+    let hub = hub();
+    let mut c = client(&hub, Origin::Local);
+    let new = json!({"cwd": std::env::temp_dir(), "mcpServers": [],
+        "_meta": {"acpmux": {"name": "uploads-claude-copy", "harness": "fakeclaude"}}});
+    let made = c.call(method::SESSION_NEW, new).await;
+    let session = made["result"]["sessionId"].as_str().unwrap_or_else(|| panic!("{made}"));
+    let session = session.to_owned();
+    let big = noise_png(2400, 1200);
+    let id = c.upload(&session, "shot.png", &big).await;
+    let p = prompt(&session, &v7(), "see", vec![image_ref(&id, "shot.png")]);
+    let reply = c.call(method::SESSION_PROMPT, p).await;
+    assert!(reply.get("error").is_none(), "{reply}");
+    let logged = whole_log(&mut c, &session).await;
+    // A copy went to Claude, and Claude echoed the prompt back.
+    let folder = home().join("uploads").join(&session).join(&id);
+    let copies: Vec<_> = std::fs::read_dir(&folder)
+        .unwrap()
+        .flatten()
+        .map(|e| e.path())
+        .filter(|p| p.file_name().unwrap().to_string_lossy().starts_with(".model-"))
+        .collect();
+    assert!(!copies.is_empty(), "no copy was made");
+    assert!(logged.contains("model-sized copy, not logged"), "{logged:.3000}");
+    assert!(logged.contains(r#""kind":"claude.user""#), "no echo: {logged:.3000}");
+    for copy in copies {
+        let data = b64(&std::fs::read(&copy).unwrap());
+        assert!(!logged.contains(&data[200..300]), "{} was logged", copy.display());
+    }
 }

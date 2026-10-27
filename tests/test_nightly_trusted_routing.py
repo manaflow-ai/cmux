@@ -63,8 +63,13 @@ def select(field='runs-on', **changes):
 
 
 class NightlyTrustedRouting(unittest.TestCase):
-    def test_next_push_selects_the_owned_pool(self):
-        self.assertEqual(select(), 'glaeda-side-std-xcode-26.6')
+    def test_next_push_selects_the_picked_idle_owned_mac(self):
+        picked = {'needs.pick-nightly-build-runner.outputs.owned': 'glaeda-side-std-xcode-26.6',
+                  'needs.pick-nightly-build-runner.outputs.blacksmith': 'blacksmith-6vcpu-macos-26'}
+        self.assertEqual(select(**picked), 'glaeda-side-std-xcode-26.6')
+        # No idle owned runner now: the moving Blacksmith label, never a wait on the owned queue.
+        self.assertEqual(select(**{**picked, 'needs.pick-nightly-build-runner.outputs.owned': ''}),
+                         'blacksmith-6vcpu-macos-26')
 
     def test_main_keeps_its_worker_and_writer_environment(self):
         changes = {'github.ref': 'refs/heads/main'}
@@ -72,29 +77,35 @@ class NightlyTrustedRouting(unittest.TestCase):
         self.assertEqual(select('environment', **changes), 'ci-cache-writer')
         self.assertEqual(select('environment'), '')
 
-    def test_next_build_reads_its_own_fleet_runner_first(self):
-        # Leo, 2026-10-27: "WHY CANT YOU JUST FORCE A FLEET MINI" and "THE GITHUB HOSTED MACS ARE
-        # THE SLOWEST THINGS". On nightly-next the build takes vars.CI_NIGHTLY_NEXT_BUILD_RUNNER
-        # for every event and attempt; empty, it keeps the owned side pool, then Blacksmith.
-        build = 'glaeda-dev-std-xcode-26.6'
-        for changes in ({}, {'github.run_attempt': 2}, {'github.event_name': 'workflow_dispatch'},
-                        {'needs.decide.outputs.fast_build': 'true'}, {'vars.CI_PR_POOL_OWNED': '0'}):
-            with self.subTest(changes=changes):
-                self.assertEqual(select(**{'vars.CI_NIGHTLY_NEXT_BUILD_RUNNER': build, **changes}), build)
-        self.assertEqual(select(**{'vars.CI_NIGHTLY_NEXT_BUILD_RUNNER': build, 'github.ref': 'refs/heads/main',
-                                   'vars.CI_SEED_TRUSTED_POOL': ''}), 'blacksmith-12vcpu-macos-26')
-        self.assertEqual(select(**{'vars.CI_NIGHTLY_NEXT_BUILD_RUNNER': build,
-                                   'inputs.nightly_next_unsigned_run': '123'}), 'blacksmith-4vcpu-ubuntu-2404')
-        self.assertEqual(select(**{'vars.CI_NIGHTLY_NEXT_BUILD_RUNNER': build, 'github.repository_owner': 'someone'}),
-                         'macos-26')
+    def test_next_build_never_waits_on_one_label_with_no_fallback(self):
+        # Row 3 of the 2026-10-27 nightly path audit: the build read vars.CI_NIGHTLY_NEXT_BUILD_RUNNER
+        # alone for every attempt, so two runs died at "Set up runner" and a rescue re-run went back
+        # to the label that had refused it. The variable now only feeds the picker (OWNED_LABELS), and a
+        # re-run (attempt 2, the rescue's) takes the picked Blacksmith label.
+        picked = {'needs.pick-nightly-build-runner.outputs.owned': 'glaeda-side-std-xcode-26.6',
+                  'needs.pick-nightly-build-runner.outputs.blacksmith': 'blacksmith-6vcpu-macos-26',
+                  'vars.CI_NIGHTLY_NEXT_BUILD_RUNNER': 'glaeda-dev-std-xcode-26.6'}
+        self.assertEqual(select(**{**picked, 'github.run_attempt': 2}), 'blacksmith-6vcpu-macos-26')
+        self.assertEqual(select(**{**picked, 'github.run_attempt': 3}), 'blacksmith-6vcpu-macos-26')
+        # A failed pick (empty outputs) takes Blacksmith 6 vCPU, never an unvalidated variable.
+        for variable in ('macos-26', 'macos-15', 'glaeda-side-std-xcode-26.6', 'blacksmith-12vcpu-macos-26', ''):
+            for attempt in (1, 2):
+                with self.subTest(variable=variable, attempt=attempt):
+                    self.assertEqual(select(**{'vars.CI_NIGHTLY_NEXT_BUILD_RUNNER': 'glaeda-dev-std-xcode-26.6',
+                                               'vars.MACOS_RUNNER_26': variable, 'github.run_attempt': attempt}),
+                                     'blacksmith-6vcpu-macos-26')
+        self.assertEqual(select(**{**picked, 'inputs.nightly_next_unsigned_run': '123'}), 'blacksmith-4vcpu-ubuntu-2404')
+        self.assertEqual(select(**{**picked, 'github.repository_owner': 'someone'}), 'macos-26')
 
-    def test_only_the_nightly_builds_read_the_next_build_runner(self):
+    def test_only_the_nightly_pickers_read_the_next_build_runner(self):
         readers = sorted(path.name for path in (ROOT / '.github/workflows').glob('*.y*ml')
                          if 'vars.CI_NIGHTLY_NEXT_BUILD_RUNNER' in path.read_text()
                          and 'CMUX_CI_RUNNER_VARIABLES' not in path.read_text())
         self.assertEqual(readers, ['nightly.yml'])
         uses = sorted(name for name, job in DOC['jobs'].items() if 'CI_NIGHTLY_NEXT_BUILD_RUNNER' in str(job.get('runs-on', '')))
-        self.assertEqual(uses, ['build-nightly-app'])
+        self.assertEqual(uses, [])
+        steps = sorted(name for name, job in DOC['jobs'].items() if 'CI_NIGHTLY_NEXT_BUILD_RUNNER' in str(job.get('steps', '')))
+        self.assertEqual(steps, ['pick-nightly-build-runner'])
 
     def test_ghostty_helper_takes_owned_macos_26_then_blacksmith_macos_26(self):
         # Leo: "bro WHAT THE FUCK IS THE POINT OF 15???????? WHY". The helper builds with
@@ -134,11 +145,11 @@ class NightlyTrustedRouting(unittest.TestCase):
                 self.assertIsNone(re.search(r"'macos-[0-9]+'", source))
 
     def test_missing_owned_pool_uses_blacksmith_mac_fallback(self):
-        self.assertEqual(select(**{'vars.CI_SIDE_LANE_RUNNER': ''}), 'blacksmith-12vcpu-macos-26')
+        self.assertEqual(select(**{'vars.CI_SIDE_LANE_RUNNER': ''}), 'blacksmith-6vcpu-macos-26')
 
     def test_next_retries_overflow_to_hosted_macos(self):
-        # Blacksmith macOS had ~75 jobs queued (2026-10-26); a NEXT retry goes to hosted macos-26.
-        self.assertEqual(select(**{'github.run_attempt': 2}), 'blacksmith-12vcpu-macos-26')
+        # A NEXT retry with no pick takes Blacksmith 6 vCPU, never hosted; main keeps vars.MACOS_RUNNER_26.
+        self.assertEqual(select(**{'github.run_attempt': 2}), 'blacksmith-6vcpu-macos-26')
         self.assertEqual(select(**{'github.run_attempt': 2, 'github.ref': 'refs/heads/main'}), 'blacksmith-12vcpu-macos-26')
 
     def test_prepare_runs_on_linux_on_every_attempt(self):
@@ -161,7 +172,9 @@ class NightlyTrustedRouting(unittest.TestCase):
         ]
         for changes in cases:
             with self.subTest(changes=changes):
-                self.assertEqual(select(**changes), 'blacksmith-12vcpu-macos-26')
+                # nightly-next with no pick: Blacksmith 6 vCPU; other refs: vars.MACOS_RUNNER_26.
+                expected = 'blacksmith-6vcpu-macos-26' if 'github.ref' not in changes else 'blacksmith-12vcpu-macos-26'
+                self.assertEqual(select(**changes), expected)
         self.assertEqual(select(**{'github.repository_owner': 'someone'}), 'macos-26')
 
     def test_trusted_next_uses_its_own_state_without_shared_cache_secrets(self):
@@ -219,9 +232,9 @@ class NightlyTrustedRouting(unittest.TestCase):
                           job['concurrency']['group'])
         self.assertEqual(group(), 'nightly-build-app-1')
         self.assertNotEqual(group(**{'github.run_id': '2'}), group())
-        self.assertIn('glaeda-side-std-xcode-26.6', select())
-        self.assertEqual(select(**{'github.run_attempt': 2}), 'blacksmith-12vcpu-macos-26')
-        self.assertEqual(select(**{'vars.CI_SIDE_LANE_RUNNER': ''}), 'blacksmith-12vcpu-macos-26')
+        self.assertIn('glaeda-side-std-xcode-26.6', select(**{'needs.pick-nightly-build-runner.outputs.owned': 'glaeda-side-std-xcode-26.6'}))
+        self.assertEqual(select(**{'github.run_attempt': 2}), 'blacksmith-6vcpu-macos-26')
+        self.assertEqual(select(**{'vars.CI_SIDE_LANE_RUNNER': ''}), 'blacksmith-6vcpu-macos-26')
         self.assertEqual(group(**{'vars.CI_SIDE_LANE_RUNNER': '', 'github.run_id': '1'}), 'nightly-build-app-1')
         self.assertEqual(group(**{'github.run_attempt': 2}), 'nightly-build-app-1')
         self.assertEqual(group(**{'github.event_name': 'workflow_dispatch'}), 'nightly-build-app-1')

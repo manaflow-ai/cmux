@@ -530,6 +530,19 @@ export type QueueEdit =
   /** Takes back a steer the agent has not read yet (the X beside it); false once it was read. */
   | { op: "withdraw" };
 
+/** Where a chat's running limit comes from: its own override, an ancestor's, the workspace's, the
+ *  settings' (`agents.subsessions.maxRunning`) or acpmux's default. */
+export type SubsessionLimitSource = "session" | "inherited" | "workspace" | "settings" | "default";
+
+/** How many of a chat's sub-sessions run a turn at once (acpmux `subsessionLimits.maxRunning`,
+ *  1 to 1000), and acpmux's own count of those running and waiting for a slot when it read them. */
+export type SubsessionLimits = {
+  maxRunning: number;
+  maxRunningSource?: SubsessionLimitSource;
+  running?: number;
+  queued?: number;
+};
+
 /// Claude Code's /context breakdown as acpmux keeps it (claude_stdio `context_breakdown`).
 export type AcpmuxContextBreakdown = {
   /// `id` is Claude Code's (`system_prompt`, `mcp_tools_deferred`, `free_space`, ...) when it names
@@ -642,6 +655,9 @@ export type AcpmuxSnapshot = {
     /// The MCP servers the harness says it loaded (acpmux `mcpServers`, from Claude Code's
     /// system/init); unset when it reports none (every ACP harness).
     mcpServers?: { name: string; status: "connected" | "failed" | "pending" }[];
+    /// How many of the chats its agent started run a turn at once (acpmux `subsessionLimits`, from the attach reply's detail
+    /// and its `limits` records); unset from an acpmux without the limit.
+    subsessionLimits?: SubsessionLimits;
     status?: string;
     enforcement?: Enforcement;
     modes?: {
