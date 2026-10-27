@@ -4,7 +4,7 @@ import Testing
 
 struct AcpmuxLaunchWarmTests {
     @Test func anAmbiguousFirstReplyIsNeverRetriedWithoutAStopFence() async throws {
-        let peer = AcpmuxLaunchAcpmuxLaunchWarmPeer([1])
+        let peer = AcpmuxLaunchWarmPeer([1])
         let warm = AcpmuxLaunchWarm { _, params in try await peer.reply(params) }
         // The daemon accepted the call, but its reply was lost. A person may Stop at any time.
         try await warm.warm(["chat"], socket: "unused")
@@ -13,7 +13,7 @@ struct AcpmuxLaunchWarmTests {
 
     @Test func retriesKeepTheOriginalFenceThroughLostRepliesAndStopAfterAnEpochMismatch() async throws {
         let fence = AcpmuxLaunchWarm.Fence(epoch: "123:456", stops: 7)
-        let peer = AcpmuxLaunchAcpmuxLaunchWarmPeer([0, 1, 2], retryFence: fence)
+        let peer = AcpmuxLaunchWarmPeer([0, 1, 2], retryFence: fence)
         let warm = AcpmuxLaunchWarm { _, params in try await peer.reply(params) }
         for _ in 0..<2 {
             await #expect(throws: AgentPaneWarmFailure.self) { try await warm.warm(["chat"], socket: "unused") }
