@@ -15,7 +15,10 @@ public struct LaunchMarkView: View {
     public init() {}
 
     public var body: some View {
+        // Full screen, so the root's `ignoresSafeArea` centers the mark on the
+        // screen as iOS centers the launch image, not in the safe area.
         CmuxLogoMark(chevronHeight: 72)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }
 
@@ -412,21 +415,21 @@ private final class WelcomeIntroClock {
 /// The cmux chevron: the chevron layer of the app icon (`AppIcon.icon`), the
 /// image the launch screen shows (`LaunchMark`, written by
 /// `scripts/generate-launch-mark.swift`), glow included. The image is
-/// `imageSize` points with its solid chevron `imageChevronHeight` tall at its
-/// center; `chevronHeight` scales it so the solid chevron is that tall.
+/// `imageHeight` points tall with its solid chevron `imageChevronHeight` tall
+/// at its center; `chevronHeight` scales it so the solid chevron is that tall.
 struct CmuxLogoMark: View {
     var chevronHeight: CGFloat
 
-    private static let imageSize = CGSize(width: 70, height: 86)
+    private static let imageHeight: CGFloat = 86
     private static let imageChevronHeight: CGFloat = 72
 
     var body: some View {
-        let k = chevronHeight / Self.imageChevronHeight
         // The app's asset catalog (main bundle): the launch screen reads the same entry.
         Image("LaunchMark", bundle: .main)
             .resizable()
             .interpolation(.high)
-            .frame(width: Self.imageSize.width * k, height: Self.imageSize.height * k)
+            .aspectRatio(contentMode: .fit)
+            .frame(height: Self.imageHeight * chevronHeight / Self.imageChevronHeight)
             .accessibilityHidden(true)
     }
 }

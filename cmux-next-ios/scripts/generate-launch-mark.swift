@@ -18,7 +18,8 @@ import Foundation
 import ImageIO
 import UniformTypeIdentifiers
 
-/// Height of the solid chevron, in points (CmuxLogoMark.imageScale's basis).
+/// Height of the solid chevron, in points (CmuxLogoMark.imageChevronHeight;
+/// the image height it prints is CmuxLogoMark.imageHeight).
 private let chevronHeight: CGFloat = 72
 
 private let root = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
