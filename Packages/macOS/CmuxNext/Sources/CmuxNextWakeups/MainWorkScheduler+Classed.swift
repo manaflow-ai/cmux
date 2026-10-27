@@ -223,9 +223,10 @@ extension MainWorkScheduler {
 }
 
 extension MainJobGateSwitch {
-    /// ``init(pending:)`` whose gate also holds `mainWork`'s classed work (``MainWorkScheduler/follow(_:)``).
+    /// ``init(pending:wakeUps:)`` on `mainWork`'s deadline queue, whose gate also holds `mainWork`'s
+    /// classed work (``MainWorkScheduler/follow(_:)``).
     public convenience init(pending: SessionInputPending, holding mainWork: MainWorkScheduler) {
-        self.init(pending: pending)
+        self.init(pending: pending, wakeUps: mainWork.wakeUps)
         mainWork.follow(self)
     }
 

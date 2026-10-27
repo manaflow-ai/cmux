@@ -25,14 +25,16 @@ public struct AfterFrameCommit: Sendable {
     }
 
     /// Runs `work` on the main thread after every pass's commit, until the returned observer is
-    /// released or invalidated. When `work` returns true (it changed something), the run loop
-    /// wakes so the next pass commits that. Capture the owner weakly in `work`.
+    /// released or invalidated: after Core Animation's commit both before the wait and at the run
+    /// loop's exit (a pass that polls and never waits commits only there). When `work` returns true
+    /// (it changed something), the run loop wakes so the next pass commits that. Capture the owner
+    /// weakly in `work`.
     ///
     /// ```swift
     /// drain = AfterFrameCommit().everyPass { [weak gate] in gate?.forwardOldest() ?? false }
     /// ```
     public func everyPass(_ work: @escaping @MainActor () -> Bool) -> MainRunLoopObserver {
-        MainRunLoopObserver(activities: .beforeWaiting, order: .max) { _ in
+        MainRunLoopObserver(activities: [.beforeWaiting, .exit], order: .max) { _ in
             if work() { CFRunLoopWakeUp(CFRunLoopGetMain()) }
         }
     }

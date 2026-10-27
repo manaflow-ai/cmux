@@ -18,6 +18,7 @@ import {
 import {
   BlackboxEvent,
   BlockingDetail,
+  BlockingSiteCount,
   FeatureEntry,
   FeaturesHash,
   FieldHistograms,
@@ -25,6 +26,7 @@ import {
   InputLatencyRow,
   LaunchSections,
   MAX_BLACKBOX_EVENTS,
+  MAX_BLOCKING_SITES,
   MAX_FEATURES,
   MAX_INPUT_LATENCY_ROWS,
   MainTask,
@@ -259,7 +261,9 @@ export const HangReportSchema2 = Schema.Struct({
  *   plans/cmux-next/chrome-parity/p09-observability.md section 3D, "Upload");
  * - `catalog_version`, optional: a client histogram catalog version;
  * - `features_hash` and `features[]`, optional: the launch's features arm and
- *   the features an override decided (p12-perf-process-151).
+ *   the features an override decided (p12-perf-process-151);
+ * - `blocking_sites[]`, optional: the main thread's blocking call counts by
+ *   hashed site id (p12-perf-process-226).
  *
  * The client writes at most 48 KiB; the server keeps its 64 KiB cap. A
  * well-formed name or label this server does not know is dropped and counted
@@ -283,6 +287,7 @@ export const HangReportSchema3 = Schema.Struct({
   launch_sections: Schema.optionalWith(LaunchSections, { exact: true, default: () => [] }),
   features_hash: optionalNullable(FeaturesHash),
   features: optionalArray(FeatureEntry, MAX_FEATURES),
+  blocking_sites: optionalArray(BlockingSiteCount, MAX_BLOCKING_SITES),
 }).pipe(Schema.filter(hasConsistentInputLatency, {
   message: () => "input latency rows need the bucket edges, one bucket per edge and one over",
 }));

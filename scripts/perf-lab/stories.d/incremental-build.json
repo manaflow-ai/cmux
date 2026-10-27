@@ -3,6 +3,7 @@
   "tier": "builder",
   "description": "The edit loop on a builder: a warm Debug build (swift build --target CmuxNextApp in a new scratch path, cargo build -p cmux-tui), then per leaf (CmuxNextCompat file, CmuxNextSidebar view, CmuxNextApp handler, cmux-panic-log crate) a one-comment edit, the timed rebuild, the restore and an untimed rebuild, interleaved rounds; the rebuilt-module list and the slow type-check queue (MQ15) are attached.",
   "command": ["scripts/measure/incremental-build.sh"],
+  "runs": ["scripts/perf-lab/stories/incremental_build.py"],
   "session": "light",
   "engine": "none",
   "config": "debug",

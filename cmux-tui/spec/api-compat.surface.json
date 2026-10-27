@@ -4289,6 +4289,29 @@
         "required": true
       }
     },
+    "event:stream-end": {
+      "/event": {
+        "ty": "literal",
+        "required": true,
+        "values": [
+          "\"stream-end\""
+        ]
+      },
+      "/reason": {
+        "ty": "enum",
+        "required": true,
+        "values": [
+          "attach_failed",
+          "canceled",
+          "detached",
+          "overflow"
+        ]
+      },
+      "/stream": {
+        "ty": "uint16",
+        "required": true
+      }
+    },
     "event:surface-exited": {
       "/cause": {
         "ty": "enum",
@@ -8133,6 +8156,10 @@
         "ty": "uint16",
         "nullable": true
       },
+      "/stream": {
+        "ty": "uint16",
+        "nullable": true
+      },
       "/surface": {
         "ty": "uint64",
         "nullable": true
@@ -8410,6 +8437,12 @@
         "nullable": true
       }
     },
+    "request:cancel-stream": {
+      "/stream": {
+        "ty": "uint16",
+        "required": true
+      }
+    },
     "request:chief-inspect": {
       "/path": {
         "ty": "string",
@@ -8647,6 +8680,20 @@
       }
     },
     "request:client-hello": {
+      "/features": {
+        "ty": "object",
+        "nullable": true
+      },
+      "/features/hash": {
+        "ty": "string"
+      },
+      "/features/values": {
+        "ty": "map",
+        "required": true
+      },
+      "/features/values/*": {
+        "ty": "boolean"
+      },
       "/install_id": {
         "ty": "string"
       },
@@ -10175,6 +10222,10 @@
     "request:detach-attached-view": {
       "/lease": {
         "ty": "string",
+        "nullable": true
+      },
+      "/stream": {
+        "ty": "uint16",
         "nullable": true
       },
       "/surface": {
@@ -12120,6 +12171,10 @@
         "ty": "string",
         "nullable": true
       },
+      "/stream": {
+        "ty": "uint16",
+        "nullable": true
+      },
       "/surface": {
         "ty": "uint64",
         "required": true
@@ -12360,6 +12415,10 @@
       "/rows": {
         "ty": "uint16",
         "required": true
+      },
+      "/stream": {
+        "ty": "uint16",
+        "nullable": true
       },
       "/surface": {
         "ty": "uint64",
@@ -13177,6 +13236,10 @@
       },
       "/request_id": {
         "ty": "string",
+        "nullable": true
+      },
+      "/stream": {
+        "ty": "uint16",
         "nullable": true
       },
       "/surface": {
@@ -15406,6 +15469,20 @@
     "response:browser-wheel": {},
     "response:browser-wheel-guarded": {},
     "response:cancel-request": {},
+    "response:cancel-stream": {
+      "/data/outcome": {
+        "ty": "enum",
+        "required": true,
+        "values": [
+          "applied",
+          "ended"
+        ]
+      },
+      "/data/stream": {
+        "ty": "uint16",
+        "required": true
+      }
+    },
     "response:chief-inspect": {
       "/data/body": {
         "ty": "json",
@@ -15436,6 +15513,39 @@
     },
     "response:client-hello": {
       "/data/connection_id": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/features": {
+        "ty": "object"
+      },
+      "/data/features/applied": {
+        "ty": "array",
+        "required": true
+      },
+      "/data/features/applied/*": {
+        "ty": "string"
+      },
+      "/data/features/hash": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/features/pending": {
+        "ty": "array",
+        "required": true
+      },
+      "/data/features/pending/*": {
+        "ty": "object"
+      },
+      "/data/features/pending/*/app": {
+        "ty": "boolean",
+        "required": true
+      },
+      "/data/features/pending/*/daemon": {
+        "ty": "boolean",
+        "required": true
+      },
+      "/data/features/pending/*/name": {
         "ty": "string",
         "required": true
       },

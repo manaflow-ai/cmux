@@ -54,7 +54,7 @@ extension HomeService {
     func applicationWillTerminate() {
         guard let services else { return }
         settleWatch?.cancel()
-        if homeListPrimed { sidebarLaunch.flush() }
+        if homeListPrimed { listLaunch.read.sidebar.flush() }
         ChiefAppLinks.unpublish(home: chief.home, controlSocket: services.environment.launch.socketPath,
                                 daemonSocket: publishedDaemonSocket)
     }
