@@ -13,6 +13,8 @@ set -euo pipefail
     cat "$RUNNER_TEMP/nightly-prs.md"
   fi
 } > "$RUNNER_TEMP/nightly-release-body.md"
+# GitHub keeps showing the first publish date of a release edited in place, so the title
+# carries the build number.
 expect=()
 names=()
 read -ra names <<<"$UPLOADED_ASSETS"
@@ -20,6 +22,6 @@ for name in "${names[@]}"; do expect+=(--expect-asset "$name"); done
 "$RUNNER_TEMP/still-newest" || exit 0
 python3 "$PUBLISH_TOOLING/ci/finalize-release.py" publish \
   --repo "$GITHUB_REPOSITORY" --tag "$CHANNEL_RELEASE_TAG" --release-id "$RELEASE_ID" \
-  --name "$RELEASE_NAME" --target-commitish "$BUILD_SHA" \
+  --name "$RELEASE_NAME $NIGHTLY_BUILD" --target-commitish "$BUILD_SHA" \
   --body-file "$RUNNER_TEMP/nightly-release-body.md" \
   --prerelease true --make-latest false "${expect[@]}"

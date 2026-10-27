@@ -9,6 +9,7 @@ both or neither, including a build a later run recovers. Main's nightly keeps
 arm64, x86_64 and universal.
 """
 
+import hashlib
 import json
 import os
 import re
@@ -134,6 +135,63 @@ if run_script(require, env, both) != 0:
     failures.append("'Require every variant' must pass with arm64 and x86_64")
 if run_script(require, env, {"nightly-out/p-arm64-123.dmg": "x"}) == 0:
     failures.append("'Require every variant' must refuse an Apple silicon build without its Intel build")
+
+# nightly-next goes live from R2 and copies to the GitHub release after: every
+# step on that path takes each architecture's DMG, named by its own feed.
+STUB = 'import json, os, sys\nopen(os.environ["LOG"], "a").write(json.dumps(sys.argv[1:]) + "\\n")\n'
+next_files = {
+    **both,
+    "pub/ci/publish-nightly-next-r2.py": STUB,
+    "pub/ci/publish-release-assets.py": STUB,
+    "next-github/appcast-arm64.xml": "a",
+    "next-github/appcast-x86_64.xml": "x",
+}
+next_env = {"NIGHTLY_FEEDS": "appcast-arm64.xml appcast-x86_64.xml", "CHANNEL_DMG_PREFIX": "p",
+            "NIGHTLY_BUILD": "123", "CHANNEL_RELEASE_TAG": "nightly-next", "GITHUB_REPOSITORY": "o/r"}
+
+
+def run_logged(name, files, extra=None):
+    with tempfile.TemporaryDirectory(prefix="nightly-next-log-") as directory:
+        log = Path(directory) / "log"
+        log.touch()
+        out = Path(directory) / "out"
+        runner = Path(directory) / "runner"
+        runner.mkdir()
+        (runner / "still-newest").write_text("#!/bin/sh\nexit 0\n")
+        (runner / "still-newest").chmod(0o755)
+        env = {**next_env, "LOG": str(log), "GITHUB_OUTPUT": str(out), "RUNNER_TEMP": str(runner), **(extra or {})}
+        code = run_script(step(name), env, files)
+        return code, [json.loads(line) for line in log.read_text().splitlines()]
+
+
+# run_script runs in a fresh directory: PUBLISH_TOOLING ("pub") is relative to it.
+TOOLING = {"PUBLISH_TOOLING": "pub"}
+code, calls = run_logged("Publish the nightly-next download to R2", next_files, TOOLING)
+uploads = [call[call.index("--file") + 1] for call in calls if call[0] == "upload"]
+rewrites = [(call[call.index("--feed") + 1], call[call.index("--name") + 1]) for call in calls if call[0] == "rewrite"]
+if code != 0 or uploads != ["nightly-out/p-arm64-123.dmg", "nightly-out/p-x86_64-123.dmg"] or rewrites != [
+        ("nightly-out/appcast-arm64.xml", "p-arm64-123.dmg"), ("nightly-out/appcast-x86_64.xml", "p-x86_64-123.dmg")]:
+    failures.append(f"the R2 download step must upload each variant's DMG and name it in its own feed: {code} {calls}")
+
+digests = "".join(f"{hashlib.sha256(b'x').hexdigest()}  p-{v}-123.dmg\n" for v in ("arm64", "x86_64"))
+code, _ = run_logged("Require the DMG to match a tested digest", {**next_files, "tested/t.sha256": digests})
+if code != 0:
+    failures.append("the GitHub release job must accept both tested DMGs")
+code, _ = run_logged("Require the DMG to match a tested digest", {**next_files, "tested/t.sha256": digests.splitlines()[0] + "\n"})
+if code == 0:
+    failures.append("the GitHub release job must refuse an Intel DMG with no tested digest")
+
+code, calls = run_logged("Publish nightly-next release assets", next_files, TOOLING)
+if code != 0 or not calls or not {"nightly-out/p-arm64-123.dmg", "nightly-out/p-x86_64-123.dmg"} <= set(calls[0]):
+    failures.append(f"the GitHub release job must upload both versioned DMGs: {code} {calls}")
+
+code, calls = run_logged("Publish the rolling DMG name and the feed copy", next_files, TOOLING)
+aliases = [call[i + 1] for call in calls for i, arg in enumerate(call) if arg == "--alias"]
+if code != 0 or aliases != ["nightly-out/p-arm64.dmg", "nightly-out/p-x86_64.dmg"]:
+    failures.append(f"the release's rolling names must cover both architectures: {code} {calls}")
+
+if '--name "$RELEASE_NAME $NIGHTLY_BUILD"' not in step("Record the published build in the release body"):
+    failures.append("the nightly-next release title must carry the build number")
 
 # A recovered arm64 build ships only with its own run's verified x86_64 leg.
 recover = job("recover-nightly-next-notarization")

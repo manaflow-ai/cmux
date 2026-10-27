@@ -20,6 +20,6 @@ read -ra names <<<"$UPLOADED_ASSETS"
 for name in "${names[@]}"; do expect+=(--expect-asset "$name"); done
 python3 "$PUBLISH_TOOLING/ci/finalize-release.py" publish \
   --repo "$GITHUB_REPOSITORY" --tag "$RELEASE_TAG" --release-id "$RELEASE_ID" \
-  --name "$RELEASE_NAME${NAME_BUILD_SUFFIX:-}" --target-commitish "$BUILD_SHA" \
+  --name "$RELEASE_NAME" --target-commitish "$BUILD_SHA" \
   --body-file "$RUNNER_TEMP/nightly-release-body.md" \
   --prerelease true --make-latest false "${expect[@]}"
