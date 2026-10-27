@@ -8,16 +8,6 @@ fn args(words: &[&str]) -> Vec<String> {
     words.iter().map(|word| (*word).to_owned()).collect()
 }
 
-fn parsed(words: &[&str]) -> Result<Invocation, UsageError> {
-    let all = args(words);
-    let rest = split(&all).expect("a sandboxed run");
-    parse(rest)
-}
-
-fn request(task: &str) -> Request {
-    Request { task: task.to_owned(), agent: None, image: None, timeout_secs: 600 }
-}
-
 #[test]
 fn only_a_sandboxed_run_routes_here_so_code_mode_scripts_keep_working() {
     assert!(split(&args(&["run", "script.ts"])).is_none());
