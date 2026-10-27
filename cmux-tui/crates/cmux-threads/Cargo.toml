@@ -5,7 +5,7 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 publish.workspace = true
-description = "Named threads with a declared QoS (Chrome's ThreadType table) and a process-wide thread registry: std and libc only (crossbeam-channel behind the crossbeam feature)"
+description = "Named threads with a declared QoS (Chrome's ThreadType table) and a process-wide thread registry: std and libc only (crossbeam-channel behind the crossbeam feature, tokio behind the tokio feature)"
 
 [lints]
 workspace = true
@@ -16,6 +16,9 @@ libc.workspace = true
 [features]
 # Wrapped crossbeam channels (cmux_threads::sync::crossbeam) for crates that use crossbeam-channel.
 crossbeam = ["dep:crossbeam-channel"]
+# Tokio runtime builders whose threads are named and registered (cmux_threads::tokio).
+tokio = ["dep:tokio"]
 
 [dependencies]
 crossbeam-channel = { workspace = true, optional = true }
+tokio = { workspace = true, optional = true }

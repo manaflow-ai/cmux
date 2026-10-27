@@ -1,4 +1,4 @@
-import Foundation
+public import Foundation
 import CmuxNextWakeups
 import GhosttyNextKit
 import CmuxNextCompat
@@ -40,6 +40,19 @@ nonisolated final class TerminalOutputLane: Sendable {
     private struct Backlog {
         var bytes = 0
         var waiters: [OnceContinuation<Void, OnceContinuationError>] = []
+        /// Attach readers waiting for room (``enqueueEcho(_:flow:wake:)``); each is called once.
+        var wakes: [@Sendable () -> Void] = []
+
+        typealias Released = (waiters: [OnceContinuation<Void, OnceContinuationError>], wakes: [@Sendable () -> Void])
+
+        /// Takes every waiter and wake; the caller releases them outside the lock.
+        mutating func release() -> Released {
+            defer {
+                waiters = []
+                wakes = []
+            }
+            return (waiters, wakes)
+        }
     }
 
     private let backlog = Mutex(Backlog())
@@ -143,6 +156,23 @@ nonisolated final class TerminalOutputLane: Sendable {
         }
     }
 
+    /// An attach link's reader hands a live chunk straight here (``TerminalEchoLane``), with no stream, task or
+    /// pool thread between the socket and the parser: the chunk is queued at once, and the echo of key press
+    /// `flow` it carries marks its received and parsed hops. Returns true when the backlog is now above
+    /// `highWater`: the reader then waits until the lane calls `wake`, once, when it drains to `highWater` or
+    /// closes. Returns false otherwise and never calls `wake`. Never blocks (the reader's thread).
+    func enqueueEcho(_ data: Data, flow: UInt64?, wake: @escaping @Sendable () -> Void) -> Bool {
+        outputReceived()
+        ExpectedActivity.shared.note(.terminalOutput)
+        processOutput(data)
+        if let flow { echoReceived(flow) }
+        return backlog.withLock { backlog -> Bool in
+            guard backlog.bytes > highWater, !closing.load(ordering: .relaxed) else { return false }
+            backlog.wakes.append(wake)
+            return true
+        }
+    }
+
     /// Bytes queued but not parsed yet.
     var pendingBytes: Int { backlog.withLock { $0.bytes } }
 
@@ -182,7 +212,7 @@ nonisolated final class TerminalOutputLane: Sendable {
             // SAFETY: as above.
             guard let base = unsafe buffer.baseAddress?.assumingMemoryBound(to: CChar.self) else { return }
             // SAFETY: as above; the caller's live surface.
-            unsafe ghostty_surface_process_output(surface, base, UInt(buffer.count))
+            unsafe ghostty_surface_process_output(surface, base, UInt(buffer.count)) // trap-class: invariant a count is never negative
         }
     }
 
@@ -212,11 +242,11 @@ nonisolated final class TerminalOutputLane: Sendable {
                 // SAFETY: as above.
                 guard let base = unsafe bytes.bindMemory(to: UInt8.self).baseAddress,
                       let expected = unsafe check.bindMemory(to: UInt8.self).baseAddress else {
-                    return Int32(GHOSTTY_SURFACE_LOCAL_HISTORY_ERROR.rawValue)
+                    return GHOSTTY_SURFACE_LOCAL_HISTORY_ERROR.code
                 }
                 // SAFETY: as above; the caller's live surface.
-                return unsafe Int32(ghostty_surface_restore_snapshot_local_history(
-                    surface, base, bytes.count, expectedRows, expected, check.count))
+                return unsafe ghostty_surface_restore_snapshot_local_history(
+                    surface, base, bytes.count, expectedRows, expected, check.count)
             }
         }
     }
@@ -264,15 +294,15 @@ nonisolated final class TerminalOutputLane: Sendable {
         backlog.withLock { $0.bytes += data.count }
         queue.async { [self] in
             defer { parsed(data.count) }
-            var result = Int32(GHOSTTY_SURFACE_LOCAL_HISTORY_ERROR.rawValue)
+            var result = GHOSTTY_SURFACE_LOCAL_HISTORY_ERROR.code
             defer { done(result) }
             guard let surface = liveSurface else { return }
             // SAFETY: ``liveSurface`` on the lane.
             result = unsafe restoreLocal(surface, data, expectedRows, digest)
             // A local READY replaces the old one: no history chunk may follow it.
             readyRestored.store(false, ordering: .releasing)
-            if result != Int32(GHOSTTY_SURFACE_LOCAL_HISTORY_ERROR.rawValue) { gridLock.adopt(grid) }
-            if result != Int32(GHOSTTY_SURFACE_LOCAL_HISTORY_RESTORED.rawValue) {
+            if result != GHOSTTY_SURFACE_LOCAL_HISTORY_ERROR.code { gridLock.adopt(grid) }
+            if result != GHOSTTY_SURFACE_LOCAL_HISTORY_RESTORED.code {
                 Self.logger.error("local-history restore result \(result) (\(data.count) bytes)")
             }
         }
@@ -341,8 +371,14 @@ nonisolated final class TerminalOutputLane: Sendable {
     /// not lane-safe. The main thread never blocks on it.
     func drained() async {
         _ = try? await withOnceContinuation { (done: OnceContinuation<Void, OnceContinuationError>) in
-            queue.async { done.resume(returning: ()) }
+            whenDrained { done.resume(returning: ()) }
         }
+    }
+
+    /// Calls `body` on the lane once every chunk queued so far has been parsed: ``drained()`` for a caller
+    /// that posts its main-thread part with a class instead of awaiting.
+    func whenDrained(_ body: @escaping @Sendable () -> Void) {
+        queue.async(execute: body)
     }
 
     /// The surface for work on `queue`; nil from ``close()`` on. Work queued after the close's fence
@@ -359,23 +395,42 @@ nonisolated final class TerminalOutputLane: Sendable {
     func close() {
         closing.store(true, ordering: .relaxed)
         echoStage?.close()
-        let waiters = backlog.withLock { backlog -> [OnceContinuation<Void, OnceContinuationError>] in
-            defer { backlog.waiters = [] }
-            return backlog.waiters
-        }
+        let (waiters, wakes) = backlog.withLock { $0.release() }
         waiters.forEach { $0.resume(returning: ()) }
+        wakes.forEach { $0() }
         // The reviewed fence before ghostty_surface_free (BlockingAllowance.surfaceTeardown): queued chunks are
         // skipped once `closing` is set, so this waits for at most the one chunk being parsed.
         allowBlocking(.surfaceTeardown) { queue.blockingSync {} }
     }
 
     private func parsed(_ count: Int) {
-        let waiters = backlog.withLock { backlog -> [OnceContinuation<Void, OnceContinuationError>] in
+        let (waiters, wakes) = backlog.withLock { backlog -> Backlog.Released in
             backlog.bytes -= count
-            guard backlog.bytes <= highWater, !backlog.waiters.isEmpty else { return [] }
-            defer { backlog.waiters = [] }
-            return backlog.waiters
+            guard backlog.bytes <= highWater else { return ([], []) }
+            return backlog.release()
         }
         waiters.forEach { $0.resume(returning: ()) }
+        wakes.forEach { $0() }
     }
+}
+
+/// A surface's output lane as an attach link's reader feeds it (``TerminalIO/setOutputLane(_:)``): live
+/// output goes from the reader thread straight to the lane, with no stream or task between them.
+public nonisolated struct TerminalEchoLane: Sendable {
+    let lane: TerminalOutputLane
+
+    /// Queues one live chunk, and the echo of key press `flow` it carries. True: the lane is above its
+    /// capacity, and calls `wake` once when it has room again or closes; the reader waits until then.
+    /// False: it never calls `wake`. Never blocks.
+    public func enqueue(_ data: Data, flow: UInt64?, wake: @escaping @Sendable () -> Void) -> Bool {
+        lane.enqueueEcho(data, flow: flow, wake: wake)
+    }
+
+    /// Whether both name the same lane.
+    func names(_ other: TerminalOutputLane?) -> Bool { lane === other }
+}
+
+extension ghostty_surface_local_history_result_e {
+    /// The result as `ghostty_surface_restore_snapshot_local_history` returns it (a C int).
+    nonisolated var code: Int32 { Int32(truncatingIfNeeded: rawValue) }
 }

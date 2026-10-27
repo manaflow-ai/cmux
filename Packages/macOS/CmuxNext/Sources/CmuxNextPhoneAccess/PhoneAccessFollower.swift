@@ -1,6 +1,7 @@
 import CmuxNextCompat
 import CmuxNextMobile
 import CmuxNextSettings
+import CmuxNextWakeups
 import Foundation
 import os
 
@@ -11,8 +12,16 @@ final class PhoneAccessFollower {
     private let mobile: MobileHostService
     private let settings: SettingsController
     private let history: MobileHostHistory
-    /// The settings observation; app lifetime.
-    private var observation: Task<Void, Never>?
+    /// The load and the one-time migration, then the settings follow; app lifetime.
+    private var starting: Task<Void, Never>?
+    /// The settings follow, once the migration ran.
+    private var observation: ServiceObservation<Access>?
+
+    /// The two settings the listener follows, applied together.
+    nonisolated struct Access: Equatable, Sendable {
+        var allowed: Bool
+        var startsSessions: Bool
+    }
 
     init(mobile: MobileHostService, settings: SettingsController, history: MobileHostHistory) {
         self.mobile = mobile
@@ -21,16 +30,24 @@ final class PhoneAccessFollower {
     }
 
     func start() {
-        guard observation == nil else { return }
-        observation = Task { [mobile, settings, history] in
+        guard starting == nil else { return }
+        starting = Task { [weak self, settings, history] in
             await settings.waitForLoad(atLeast: 1)
             await PhoneAccessMigration.run(settings: settings, history: history)
-            for await (allowed, starts) in ObservationStream({
-                (settings.snapshot.sessions.allowsPhone, settings.snapshot.sessions.phoneStartsSessions)
-            }) {
-                mobile.access.setAllowsStartingSessions(starts)
-                mobile.setAllowed(allowed)
-            }
+            self?.follow()
+        }
+    }
+
+    /// `visible`: Settings > Accounts > Phone Access shows the listener's state; a person's toggle applies in
+    /// their turn.
+    private func follow() {
+        guard observation == nil else { return }
+        let mobile = mobile, settings = settings
+        observation = ServiceObservation(.visible, owner: "PhoneAccessFollower.settings", on: mobile.mainWork) {
+            Access(allowed: settings.snapshot.sessions.allowsPhone, startsSessions: settings.snapshot.sessions.phoneStartsSessions)
+        } apply: { [weak mobile] access in
+            mobile?.access.setAllowsStartingSessions(access.startsSessions)
+            mobile?.setAllowed(access.allowed)
         }
     }
 }

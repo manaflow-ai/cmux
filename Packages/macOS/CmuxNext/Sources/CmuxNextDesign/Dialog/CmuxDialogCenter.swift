@@ -93,6 +93,22 @@ public final class CmuxDialogCenter {
         }) ?? CmuxDialogAnswer.dismissed(spec, values: [:])
     }
 
+    /// Shows `spec` in dialog `id` in place (a chooser's rows changed): the dialog keeps its id, its
+    /// place in its scope's queue, its panel and the keyboard, as Chrome's chooser bubble updates its
+    /// rows in place (chrome/browser/ui/views/device_chooser_content_view.cc). Its fields show `spec`'s
+    /// values, so a caller keeps the person's choice by building `spec` from `record(id)?.values`. False
+    /// when there is no such dialog.
+    @discardableResult
+    public func update(_ id: Int, spec: CmuxDialogSpec) -> Bool {
+        guard entries[id] != nil else { return false }
+        entries[id]?.spec = spec
+        if let view = entries[id]?.view {
+            view.update(spec)
+            host.dialogDidUpdate(view)
+        }
+        return true
+    }
+
     // MARK: Answering
 
     /// Presses button `button` of dialog `id` (visible or still queued),
