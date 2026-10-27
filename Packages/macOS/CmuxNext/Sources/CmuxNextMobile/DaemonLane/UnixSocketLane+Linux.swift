@@ -52,42 +52,41 @@ public actor UnixSocketLane: MobileByteLane {
 
     public func read(maximumBytes: Int) async throws -> Data? {
         var buffer = Data(count: max(1, maximumBytes))
-        while true {
+        let fd = socket.fd
+        let receive = {
             // SAFETY: read writes at most buffer.count bytes into the Data's own storage, which the closure
             // lends for the call and nothing else touches meanwhile.
-            let count = unsafe buffer.withUnsafeMutableBytes { unsafe Glibc.read(socket.fd, $0.baseAddress, $0.count) }
-            if count > 0 {
-                buffer.count = count
-                return buffer
-            }
-            // The stream ended, or close() shut the socket down.
-            if count == 0 { return nil }
-            let code = errno
-            if code == EINTR { continue }
-            guard code == EAGAIN || code == EWOULDBLOCK else { throw Self.error(code) }
-            await wait(until: .readable)
+            unsafe buffer.withUnsafeMutableBytes { unsafe Glibc.read(fd, $0.baseAddress, $0.count) }
         }
+        var outcome = try Self.transfer(receive)
+        while case .wouldBlock = outcome {
+            await wait(until: .readable)
+            outcome = try Self.transfer(receive)
+        }
+        // No bytes: the stream ended, or close() shut the socket down.
+        guard case .moved(let count) = outcome, count > 0 else { return nil }
+        buffer.count = count
+        return buffer
     }
 
     public func write(_ data: Data) async throws {
         var offset = 0
+        let fd = socket.fd
         while offset < data.count {
-            // SAFETY: send reads the bytes from `offset` to the end of the Data's own storage, which the closure
-            // lends for the call; offset < bytes.count, so the start and the length stay inside it.
-            let sent = unsafe data.withUnsafeBytes { bytes -> Int in
-                guard let base = bytes.baseAddress else { return 0 }
-                // No SIGPIPE on a send after the daemon went away: the send fails with EPIPE.
-                return unsafe Glibc.send(socket.fd, base + offset, bytes.count - offset,
-                                         Int32(truncatingIfNeeded: MSG_NOSIGNAL))
+            let outcome = try Self.transfer {
+                // SAFETY: send reads the bytes from `offset` to the end of the Data's own storage, which the
+                // closure lends for the call; offset < bytes.count, so the start and the length stay inside it.
+                unsafe data.withUnsafeBytes { bytes -> Int in
+                    guard let base = bytes.baseAddress else { return 0 }
+                    // No SIGPIPE on a send after the daemon went away: the send fails with EPIPE.
+                    return unsafe Glibc.send(fd, base + offset, bytes.count - offset,
+                                             Int32(truncatingIfNeeded: MSG_NOSIGNAL))
+                }
             }
-            if sent >= 0 {
-                offset += sent
-                continue
+            switch outcome {
+            case .moved(let sent): offset += sent
+            case .wouldBlock: await wait(until: .writable)
             }
-            let code = errno
-            if code == EINTR { continue }
-            guard code == EAGAIN || code == EWOULDBLOCK else { throw Self.error(code) }
-            await wait(until: .writable)
         }
     }
 
@@ -122,6 +121,26 @@ public actor UnixSocketLane: MobileByteLane {
             source.activate()
         }
         waits[id] = nil
+    }
+
+    /// What one non-blocking read or send did: moved that many bytes (0 from a read: the end of the stream),
+    /// or would have blocked.
+    private enum Transfer {
+        case moved(Int)
+        case wouldBlock
+    }
+
+    /// Runs `call`, a read or send that returns a byte count or -1 with `errno` set, again after an EINTR.
+    /// - Throws: the errno of any other failure than EAGAIN.
+    private static func transfer(_ call: () -> Int) throws(POSIXError) -> Transfer {
+        var result = call()
+        while result < 0, errno == EINTR {
+            result = call()
+        }
+        if result >= 0 { return .moved(result) }
+        let code = errno
+        guard code == EAGAIN || code == EWOULDBLOCK else { throw error(code) }
+        return .wouldBlock
     }
 
     private static func error(_ code: Int32) -> POSIXError {
