@@ -1661,6 +1661,9 @@ if [[ -z "$TAG" ]]; then
   )
 fi
 XCODEBUILD_ARGS+=(PRODUCT_BUNDLE_IDENTIFIER="$BUNDLE_ID")
+# A dev bundle id never claims http/https at Default rank, Release mode included
+# (Resources/Info.plist; tests/test_web_url_handler_rank.py).
+XCODEBUILD_ARGS+=(CMUX_WEB_URL_HANDLER_RANK="$(case "$BUNDLE_ID" in com.cmuxterm.app.debug|com.cmuxterm.app.debug.*|com.cmuxterm.app.staging|com.cmuxterm.app.staging.*) echo Alternate ;; *) echo Default ;; esac)")
 # The cmux-next version (cmux-tui/Cargo.toml [workspace.package]) is the app's
 # CFBundleShortVersionString too, so the About window, crash reports and the
 # bundled `cmux --version` agree (check-version-surfaces.sh below). The
