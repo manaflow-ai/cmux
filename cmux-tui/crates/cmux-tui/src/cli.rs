@@ -52,9 +52,9 @@ mod launch_credential;
 mod lifecycle;
 // Like the other scopes its dispatch is in (`run`, `#[cfg(unix)]`): Unix only.
 #[cfg(unix)]
-mod vm;
-#[cfg(unix)]
 mod sandbox_run;
+#[cfg(unix)]
+mod vm;
 #[cfg(unix)]
 pub(crate) use chief::home_for_adopt as chief_home_for_adopt;
 #[cfg(unix)]
