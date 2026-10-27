@@ -359,6 +359,89 @@ class WakeupAuditTests(unittest.TestCase):
             ("spin.css", 2, "css-infinite", "hit"),
         ])
 
+    def test_web_self_loops_are_timers_that_rearm_their_own_function(self) -> None:
+        write(self.root, "webviews/src/pages/loops.ts", """\
+            function poll() {
+              setTimeout(poll, 1000);
+            }
+            const tick = () => {
+              frame = requestAnimationFrame(tick);
+            };
+            const spin = () => requestAnimationFrame(spin);
+            let fetchTail: () => void;
+            const schedule = () => {
+              timer = setTimeout(fetchTail, 1200);
+            };
+            fetchTail = () => {
+              read().then(() => schedule());
+            };
+            class Lens {
+              private step = (now: number) => {
+                this.frame = this.view.requestAnimationFrame(this.step);
+              };
+              loop(): void {
+                window.setTimeout(() => this.loop(), 50);
+              }
+            }
+            async function watch() {
+              while (performance.now() < end) await new Promise((resolve) => requestAnimationFrame(resolve));
+            }
+            const frame = () => new Promise<number>((resolve) => requestAnimationFrame(resolve));
+            async function bench() {
+              for (let index = 0; index < 30; index += 1) await frame();
+            }
+            """)
+        write(self.root, "webviews/src/pages/once.ts", """\
+            // requestAnimationFrame(tick) in a comment is not code
+            function done() {}
+            function later() {
+              setTimeout(done, 100);
+            }
+            const measure = () => {};
+            const kick = () => {
+              frame = requestAnimationFrame(measure);
+            };
+            function show() {}
+            const intent = {
+              show: () => {
+                frame = requestAnimationFrame(() => show());
+              },
+            };
+            const preview = (id: string) => {
+              setTimeout(() => go(undefined), 5);
+            };
+            const pick = flag ? undefined : (x: number) => preview(String(x));
+            const nextFrame = () => new Promise<number>((resolve) => requestAnimationFrame(resolve));
+            async function once() {
+              await nextFrame();
+            }
+            """)
+        write(self.root, "webviews/src/pages/escaped.ts", """\
+            const correct = () => {
+              // wakeup-allow: bounded `until`, the fold's duration
+              if (performance.now() < until) frame = requestAnimationFrame(correct);
+            };
+            """)
+        write(self.root, "webviews/src/pages/loops.test.ts", "const t = () => requestAnimationFrame(t);\n")
+        hits = sorted((h["file"].rsplit("/", 1)[1], h["line"], h["rule"], h["shape"], h["status"])
+                      for h in self.audit.hits("--lang", "web"))
+        self.assertEqual(hits, [
+            ("escaped.ts", 3, "frame-self-loop", "loop", "escaped"),
+            ("loops.ts", 2, "timeout-self-loop", "loop", "hit"),
+            ("loops.ts", 5, "frame-self-loop", "loop", "hit"),
+            ("loops.ts", 7, "frame-self-loop", "loop", "hit"),
+            ("loops.ts", 10, "timeout-self-loop", "loop", "hit"),
+            ("loops.ts", 17, "frame-self-loop", "loop", "hit"),
+            ("loops.ts", 20, "timeout-self-loop", "loop", "hit"),
+            ("loops.ts", 24, "frame-self-loop", "loop", "hit"),
+            ("loops.ts", 26, "frame-self-loop", "loop", "hit"),
+        ])
+        queue = self.audit.run("--lang", "web", "--queue").stdout.splitlines()
+        self.assertIn("web:pages\twebviews/src/pages/loops.ts:10\ttimeout-self-loop\tloop", queue)
+        self.assertEqual(self.audit.run("--lang", "web", "--strict").returncode, 1)
+        (self.root / "webviews/src/pages/loops.ts").unlink()
+        self.assertEqual(self.audit.run("--lang", "web", "--strict").returncode, 0)
+
     def test_unknown_lang_is_an_error(self) -> None:
         result = self.audit.run("--lang", "kotlin")
         self.assertEqual(result.returncode, 2)
@@ -1391,6 +1474,11 @@ class CheckoutTests(unittest.TestCase):
         loop = next(i + 1 for i in range(start, len(source)) if "for (;;)" in source[i])
         reader = [h for h in hits if h["file"] == f"{HOST}/browser_host_main.mm" and h["line"] == loop]
         self.assertEqual([(h["rule"], h["status"]) for h in reader], [("spin-loop", "blocking")])
+
+    def test_webviews_have_no_open_self_loop(self) -> None:
+        open_loops = [f"{h['file']}:{h['line']} {h['rule']}" for h in self.hits("web")
+                      if h["rule"].endswith("self-loop") and h["status"] != "escaped"]
+        self.assertEqual(open_loops, [])
 
     def test_ghostty_next_report_lists_the_known_timers(self) -> None:
         if not (self.repo / GHOSTTY).is_dir():

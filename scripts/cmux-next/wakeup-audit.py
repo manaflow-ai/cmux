@@ -26,7 +26,11 @@ untimed wait: `read(`, `recv(`, `accept(`, waitpid without WNOHANG, kevent with 
 mach_msg without MACH_RCV_TIMEOUT, or a call of a function or `[self method]` of the same file that makes one. A
 timer re-armed from its own function or ObjC method (`@selector(tick)` in `tick`) is a `loop`. The zig rules are
 `.run(` / `.reset(` of an `xev.Timer` (named by its field or variable, `Struct.field` inside a nested struct) and
-sleeps; a timer re-armed from its own callback is a `loop`.
+sleeps; a timer re-armed from its own callback is a `loop`. The web rules are setInterval, CSS `infinite` and
+self-loops: a setTimeout or requestAnimationFrame whose callback names a function it is armed in (`this.name` for a
+method or an object field), or another function of the file that calls that one again, or a timer promise that a
+loop awaits on each turn (`await new Promise(...)` in the loop, or `await frame()` of a function returning it). A
+one-shot timer is not a hit.
 
 A hit is escaped by a comment `wakeup-allow: <word> <reason>` on its statement's lines or in the comment
 block directly above the statement (text inside a string literal is not an escape). The word is one of
@@ -104,6 +108,8 @@ class Rule:
     literal: str = ""
     # Matches inside string literals count (an inline style's `animation: "spin 1s infinite"`).
     in_strings: bool = False
+    # A match counts only when the timer re-arms the function it is armed in (web_rearms): a self-loop.
+    rearming: bool = False
 
 
 @dataclass
@@ -169,6 +175,15 @@ WEB_RULES = [
          re.compile(r"\bsetInterval\("), repeating=True, literal="setInterval("),
     Rule("css-infinite", "infinite animation (bound it, or gate it on visibility and the motion setting)",
          re.compile(r"\binfinite\b"), repeating=True, literal="infinite", in_strings=True),
+    # A function that hands itself to setTimeout or requestAnimationFrame is a poll or a frame loop. Blink only
+    # throttles a hidden page's timers (page_scheduler_impl.cc); on a shown, idle page the loop wakes on every
+    # period or frame, so it needs a bound, the page lifecycle (pageLifecycle.ts) or an event.
+    Rule("timeout-self-loop", "setTimeout that re-arms its own function, a poll (push from the host, or "
+         "startPageInterval / pageClock, which stop while hidden)",
+         re.compile(r"\bsetTimeout\s*\("), literal="setTimeout", rearming=True),
+    Rule("frame-self-loop", "requestAnimationFrame that re-arms its own function, a frame loop (bound it to "
+         "the motion, or startPageAnimationFrame, which stops while hidden)",
+         re.compile(r"\brequestAnimationFrame\s*\("), literal="requestAnimationFrame", rearming=True),
 ]
 
 # CEFShim C++/ObjC. Chromium's own rule: a delayed task is a deadline the message pump coalesces
@@ -1020,6 +1035,174 @@ def _linked_package_paths(repo: Path) -> tuple[str, ...]:
 
 
 # ---------------------------------------------------------------------------------------------------------------
+# Web self-loops: a setTimeout / requestAnimationFrame whose callback is the function it is armed in.
+
+
+@dataclass(frozen=True)
+class WebFunction:
+    """A named function of a TypeScript file: its name and its body (braces, or an arrow's expression). A MEMBER
+    (a method, an object field) is named only as `this.name`; a variable or a class field also by its name."""
+    name: str
+    start: int
+    end: int
+    member: bool = False
+
+
+_WEB_NAME = r"#?[A-Za-z_$][\w$]*"
+_WEB_DECLARATION = re.compile(rf"\bfunction\b\s*\*?\s*({_WEB_NAME})\s*(?:<[^()]*>)?\s*\(")
+_WEB_FUNCTION_VALUE = r"\s*(?:async\s+)?(?=\(|[A-Za-z_$][\w$]*\s*=>|function\b|<)"
+# `name = (...) =>`, `name = x =>`, `name = function`, `const name: T = ...`, `this.name = ...`.
+_WEB_ASSIGNED = re.compile(rf"(?<![\w$#.])(?:this\.)?({_WEB_NAME})\s*(?:\??:(?:[^=;{{}}]|=>)+?)?"
+                           r"(?<![=!<>])=(?![=>])" + _WEB_FUNCTION_VALUE)
+# `name: (...) =>` at the start of an object field (not the `: b` of a ternary).
+_WEB_FIELD = re.compile(rf"(?:^|(?<=[{{,]))\s*({_WEB_NAME})\s*:" + _WEB_FUNCTION_VALUE, re.M)
+# A method: `name(...) {` at the start of a member (`async`, `private`, `static` and the like before it).
+_WEB_METHOD = re.compile(rf"(?:^|(?<=[;{{}},]))\s*(?:(?:public|private|protected|static|async|override|get|set)\s+)*"
+                         rf"({_WEB_NAME})\s*(?:<[^()]*>)?\s*\(", re.M)
+_WEB_NOT_A_NAME = frozenset({"if", "for", "while", "switch", "catch", "with", "return", "function", "typeof", "new",
+                             "await", "yield", "do", "else", "case", "void", "delete", "in", "of", "super", "import"})
+_WEB_ARROW = re.compile(r"\s*(?::[^;{}]*?)?=>\s*")
+_WEB_BODY = re.compile(r"\s*(?::[^;{}=]*)?\{")
+_WEB_PARAM = re.compile(r"[A-Za-z_$][\w$]*\s*=>\s*")
+_WEB_GOES_ON = re.compile(r"[.?:&|+*/<>-]")
+_WEB_OPEN, _WEB_CLOSE = "([{", ")]}"
+
+
+def _web_expression_end(code: str, i: int) -> int:
+    """The end of the arrow expression body that starts at I: a `;` or `,` at its depth, a closing bracket of the
+    expression around it, or a line end that does not go on to the next line."""
+    depth = 0
+    while i < len(code):
+        c = code[i]
+        if c in _WEB_OPEN:
+            depth += 1
+        elif c in _WEB_CLOSE:
+            depth -= 1
+            if depth < 0:
+                return i
+        elif depth == 0 and c in ";,":
+            return i
+        elif depth == 0 and c == "\n":
+            line = code[code.rfind("\n", 0, i) + 1:i].rstrip()
+            if not (_CONTINUED.search(line) or line.endswith("=>") or _WEB_GOES_ON.match(code[i:].lstrip())):
+                return i
+        i += 1
+    return i
+
+
+def _web_function_after(code: str, name: str, i: int, member: bool = False) -> WebFunction | None:
+    """The function NAME whose parameters (or `function` keyword, or arrow parameter) start at I."""
+    if code.startswith(("function", "<"), i):
+        i = code.find("(", i)
+        if i < 0:
+            return None
+    if code.startswith("(", i):
+        close = matching_brace(code, i, _PAREN)
+        arrow = _WEB_ARROW.match(code, close + 1)
+        body = _WEB_BODY.match(code, close + 1)
+        if body and (not arrow or body.end() <= arrow.end()):
+            return WebFunction(name, body.end() - 1, matching_brace(code, body.end() - 1), member)
+        if not arrow:
+            return None
+        after = arrow.end()
+    else:
+        arrow = _WEB_PARAM.match(code, i)
+        if not arrow:
+            return None
+        after = arrow.end()
+    if code.startswith("{", after):
+        return WebFunction(name, after, matching_brace(code, after), member)
+    return WebFunction(name, after, _web_expression_end(code, after), member)
+
+
+def web_functions(code: str) -> list[WebFunction]:
+    """The named functions, arrows and methods of a masked TypeScript file."""
+    out: list[WebFunction] = []
+    for m in _WEB_DECLARATION.finditer(code):
+        if found := _web_function_after(code, m.group(1), m.end() - 1):
+            out.append(found)
+    for pattern, member in ((_WEB_ASSIGNED, False), (_WEB_FIELD, True)):
+        for m in pattern.finditer(code):
+            if m.group(1) not in _WEB_NOT_A_NAME and (found := _web_function_after(code, m.group(1), m.end(), member)):
+                out.append(found)
+    for m in _WEB_METHOD.finditer(code):
+        if m.group(1) in _WEB_NOT_A_NAME:
+            continue
+        close = matching_brace(code, m.end() - 1, _PAREN)
+        body = _WEB_BODY.match(code, close + 1)
+        if body and not _WEB_ARROW.match(code, close + 1):
+            out.append(WebFunction(m.group(1), body.end() - 1, matching_brace(code, body.end() - 1), True))
+    return list(dict.fromkeys(out))
+
+
+def _web_names(function: WebFunction, text: str, call: bool = False) -> bool:
+    """TEXT names FUNCTION (`this.name`, and `name` unless it is a member), or calls it with CALL."""
+    before = r"(?<=\bthis\.)" if function.member else r"(?:(?<![\w$#.])|(?<=\bthis\.))"
+    return bool(re.search(before + re.escape(function.name) + r"(?![\w$])" + (r"\s*\(" if call else ""), text))
+
+
+_WEB_LOOP = re.compile(r"\b(?:while|for)\s*(?:await\s*)?(\()|\bdo\s*(\{)")
+_WEB_PROMISE = re.compile(r"\bnew\s+Promise\b\s*(?:<[^()]*>)?\s*\(")
+
+
+def web_loops(code: str) -> list[tuple[int, int]]:
+    """The bodies of the file's `while`, `for` and `do` loops (a braced body, or the one statement after the
+    header)."""
+    out = []
+    for m in _WEB_LOOP.finditer(code):
+        if m.group(2):
+            out.append((m.start(2), matching_brace(code, m.start(2))))
+            continue
+        after = matching_brace(code, m.start(1), _PAREN) + 1
+        body = re.compile(r"\s*\{").match(code, after)
+        if body:
+            out.append((body.end() - 1, matching_brace(code, body.end() - 1)))
+        else:
+            end = code.find(";", after)
+            out.append((after, len(code) if end < 0 else end))
+    return out
+
+
+def _awaited_in_loop(at: int, code: str, functions: list[WebFunction], loops: list[tuple[int, int]]) -> bool:
+    """The timer at AT resolves a promise that a loop awaits each turn: `await new Promise((r) =>
+    requestAnimationFrame(r))` in a loop body, or a function of the file that returns that promise
+    (`const frame = () => new Promise(...)`) awaited in a loop (`while (...) await frame()`)."""
+    promises = [m for m in _WEB_PROMISE.finditer(code, 0, at) if matching_brace(code, m.end() - 1, _PAREN) > at]
+    if not promises:
+        return False
+    promise = promises[-1].start()
+    if code[:promise].rstrip().endswith("await"):
+        return any(a < promise < b for a, b in loops)
+    owners = [f for f in functions if f.start <= promise < f.end]
+    if not owners or not code[:promise].rstrip().endswith(("return", "=>")):
+        return False
+    owner = min(owners, key=lambda f: f.end - f.start)
+    this = r"this\." if owner.member else r"(?:this\.)?"
+    return any(a < m.start() < b for m in re.finditer(rf"\bawait\s+{this}{re.escape(owner.name)}\s*\(", code)
+               for a, b in loops)
+
+
+def web_rearms(at: int, code: str, functions: list[WebFunction], loops: list[tuple[int, int]]) -> bool:
+    """The setTimeout / requestAnimationFrame at AT re-arms a function it is armed in: its callback names that
+    function (`requestAnimationFrame(tick)` in `tick`, `setTimeout(() => this.poll(), ms)` in `poll`), or names
+    another function of the file that calls it again (`schedule` arms `poll`, and `poll` calls `schedule()`), or a
+    loop awaits it on each turn (_awaited_in_loop)."""
+    paren = code.find("(", at)
+    if paren < 0:
+        return False
+    if _awaited_in_loop(at, code, functions, loops):
+        return True
+    callback = call_args(code, paren)[0]
+    enclosing = [f for f in functions if f.start <= at < f.end]
+    if not enclosing or not callback:
+        return False
+    if any(_web_names(f, callback) for f in enclosing):
+        return True
+    return any(f not in enclosing and _web_names(f, callback) and
+               any(_web_names(e, code[f.start:f.end], call=True) for e in enclosing) for f in functions)
+
+
+# ---------------------------------------------------------------------------------------------------------------
 # Audit
 
 
@@ -1116,14 +1299,24 @@ def audit_text(lang: str, group: str, rel: str, raw: str, rules: list[Rule], per
     with_strings = mask(raw, mlang, strings=False)
     lines = Lines(raw.split("\n"), code.split("\n"), with_strings.split("\n"))
     found: dict[tuple[int, str], int] = {}
+    functions: list[WebFunction] | None = None
+    loops: list[tuple[int, int]] = []
     for rule in rules:
         text = with_strings if rule.in_strings else code
         if rule.literal not in text:
             continue
         for m in rule.pattern.finditer(text):
             index = bisect.bisect_right(starts, m.start()) - 1
-            if (index, rule.id) not in found and not any(a <= m.start() < b for a, b in skip):
-                found[(index, rule.id)] = m.start()
+            if (index, rule.id) in found or any(a <= m.start() < b for a, b in skip):
+                continue
+            if rule.rearming:
+                if mlang != "web":
+                    continue
+                if functions is None:
+                    functions, loops = web_functions(code), web_loops(code)
+                if not web_rearms(m.start(), code, functions, loops):
+                    continue
+            found[(index, rule.id)] = m.start()
     event = cxx_events(code, tree) if lang == "cxx" and found else None
     timers = [r for r in rules if r.id not in WAITS] if lang in ("cxx", "zig") else []
     arming = re.compile("|".join(r.pattern.pattern for r in timers) or "(?!)")
@@ -1136,7 +1329,7 @@ def audit_text(lang: str, group: str, rel: str, raw: str, rules: list[Rule], per
             kind = spin_shape(at, code, tree, mlang, event)
             if status == "hit" and kind == "blocking":
                 status = "blocking"
-        elif rule.repeating or repeating_timer(rule, code, at) or \
+        elif rule.repeating or rule.rearming or repeating_timer(rule, code, at) or \
                 (rule in timers and rearms(at, code, tree, arming)):
             kind = "loop"
         else:
