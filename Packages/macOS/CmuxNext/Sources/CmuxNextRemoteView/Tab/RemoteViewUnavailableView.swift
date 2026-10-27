@@ -63,6 +63,7 @@ public final class RemoteViewUnavailableView: NSView {
 
     public override var acceptsFirstResponder: Bool { true }
 
+    // visibility-walk-allow: refreshColors only stores colors (the layer's background, the icon's tint, the labels' and the button's), R-appear's kept form
     public override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         refreshColors()

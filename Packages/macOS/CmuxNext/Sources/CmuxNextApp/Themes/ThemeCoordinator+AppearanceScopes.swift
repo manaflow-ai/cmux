@@ -115,6 +115,7 @@ extension ThemeCoordinator {
     /// The pane a choice menu or picker shows its check for: the target pane, else the focused one.
     /// Never refuses (a menu's state query must not post a refusal).
     func paneForChoice(_ target: ActionTargetRef?) -> PaneController? {
+        guard let services else { return nil }
         guard let target, target.kind == .pane else { return services.windows.active?.focusedPane }
         for controller in services.windows.controllers {
             for content in controller.mountedContents {
