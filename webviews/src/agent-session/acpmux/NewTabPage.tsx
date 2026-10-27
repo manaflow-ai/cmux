@@ -37,6 +37,7 @@ import { parsePageWidgets, type PageWidget } from "./newtab/pageWidgets";
 import { parseWeather, type NewTabWeather } from "./newtab/ambient";
 import { parseNewTabTemplate, type NewTabTemplate } from "./newtab/templates";
 import { suggestionOrder, type SuggestionOrder } from "./newtab/suggestionOrder";
+import { inputAt } from "./newtab/inputAt";
 import { isStartableProject, rememberedStartedProject } from "./newtab/startedProject";
 import { seedWarmNewTab } from "./newtab/warmSnapshot";
 import { useNoEntryMotion } from "./newtab/noEntryMotion";
@@ -308,8 +309,8 @@ type Props = {
     attachments?: ComposerAttachment[],
     chat?: NewTabChat,
   ): void | Promise<unknown>;
-  /// Go to an open tab or workspace instead of opening a duplicate.
-  onJump?(target: "tab" | "workspace", id: string): void;
+  /// Go to an open tab or workspace instead of opening a duplicate; `at` is the click or Return that picked it.
+  onJump?(target: "tab" | "workspace", id: string, at?: number): void;
   onOpenSession(sessionId: string): void;
   onShowAll(): void;
   onEditShortcut?(kind: TabKind): void;
@@ -529,11 +530,11 @@ export function NewTabPage({
     setBeforePrefix(undefined);
     field.current?.focus();
   };
-  const activate = (row: OmnibarRow) => {
+  const activate = (row: OmnibarRow, at?: number) => {
     switch (row.type) {
       case "tab":
       case "workspace":
-        return onJump?.(row.type, row.id);
+        return onJump?.(row.type, row.id, at);
       case "session":
         return onOpenSession(row.id);
       case "folder":
@@ -559,15 +560,16 @@ export function NewTabPage({
     event.preventDefault();
     field.current?.focus();
   };
-  const submitNow = useRef<() => void>(() => {});
+  const submitNow = useRef<(at?: number) => void>(() => {});
   const submit = (event?: React.FormEvent) => {
     event?.preventDefault();
     if (holdForAttachments(() => submitNow.current())) return;
-    submitNow.current();
+    // The Return's submit, at its time (`inputAt`); one that waited for an attachment has none.
+    submitNow.current(event && inputAt(event));
   };
-  submitNow.current = () => {
+  submitNow.current = (at?: number) => {
     const row = rows[selected];
-    if (row) return activate(row);
+    if (row) return activate(row, at);
     if (kind === "browser" && !query.trim()) return;
     make(kind, query.trim(), kind === "browser" ? undefined : projectCwd);
   };
@@ -765,7 +767,7 @@ export function NewTabPage({
                 onMouseMove={() => index !== selected && setSelected(index)}
                 onMouseDown={(event) => {
                   event.preventDefault();
-                  activate(row);
+                  activate(row, inputAt(event));
                 }}
               >
                 <RowIcon row={row} agent={snapshot.summary?.harness ?? snapshot.catalog[0]?.id} />

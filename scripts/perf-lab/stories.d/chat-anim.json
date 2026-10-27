@@ -1,0 +1,28 @@
+{
+  "id": "chat-anim",
+  "tier": "T1",
+  "description": "perf-budgets families acp (agent chat typing to frame and to paint, own and Chromium modes) and anim (every app animation: frame, dropped, main-thread time) (the perf cron's chat-anim part).",
+  "command": ["scripts/cmux-next/perf-budgets.py", "--only=acp,anim"],
+  "session": "light",
+  "engine": "chromium",
+  "config": "bench",
+  "metrics": [
+    {"name": "acp\\.[a-z]+\\.typing\\.(to_frame|to_paint)", "unit": "ms", "better": "lower",
+     "target_ref": {"path": "scripts/cmux-next/perf-budgets.json", "key": "/rows/acp\\..*\\.typing\\..*/p95"},
+     "floor_ref": {"path": "scripts/cmux-next/perf-budgets.json", "key": "/rows/acp\\..*\\.typing\\..*/floor"}},
+    {"name": "anim\\.[^.]+\\.frame", "unit": "ms", "better": "lower",
+     "target_ref": {"path": "scripts/cmux-next/perf-budgets.json", "key": "/rows/anim\\..*\\.frame/p95"},
+     "floor_ref": {"path": "scripts/cmux-next/perf-budgets.json", "key": "/rows/anim\\..*\\.frame/floor"}},
+    {"name": "anim\\.[^.]+\\.dropped", "unit": "count", "better": "lower",
+     "target_ref": {"target": "motion-dropped"}},
+    {"name": "anim\\.[^.]+\\.(main_ms_max|main_ms_p95)", "unit": "ms", "better": "lower"},
+    {"name": "anim\\.[^.]+\\.over_8_33", "unit": "count", "better": "lower"}
+  ],
+  "repeats": 1,
+  "seconds": 900,
+  "needs": [],
+  "hot_paths": ["frame-tick"],
+  "owner": "Performance Lead",
+  "component": "Motion",
+  "perf_cron_part": "chat-anim"
+}

@@ -35,15 +35,17 @@ enum HistoryHandlers {
             ("history.commands", HistoryPalettePages.commands),
         ]
         for (id, make) in pages {
-            services.palette.sources.actionPages[id] = { [weak services] in services.map(make) }
+            services.palettes.sources.actionPages[id] = { [weak services] in services.map(make) }
             registry.bind(id, run: { _ in services.palette.show(page: make(services), relativeTo: context.activeWindow?.window) })
         }
-        services.palette.sources.actionPages["history.resumeAgentSession"] = { [weak services] in services.map(HistoryPalettePages.agents) }
+        services.palettes.sources.actionPages["history.resumeAgentSession"] = { [weak services] in services.map(HistoryPalettePages.agents) }
         registry.bind("history.resumeAgentSession", run: { invocation in
             guard let id = invocation["session"]?.stringValue, !id.isEmpty else {
                 services.palette.show(page: HistoryPalettePages.agents(services), relativeTo: context.activeWindow?.window)
                 return
             }
+            // task-owner: the action run; a capturing caller awaits it through the registry
+            // main-hop-allow: the action's userBlocking rest (p06 rule 2), tracked for a capturing caller: it awaits the main-actor agent history refresh, then resumes the session; post has no userBlocking class (task 208)
             services.registry.track(Task { @MainActor in
                 await services.history.agents.refresh()
                 guard let session = services.history.agents.session(id: id) else { return ActionWorkFailure(HistoryAppStrings.noSession) }
@@ -63,6 +65,8 @@ enum HistoryHandlers {
         registry.bind("history.open", run: { invocation in
             guard let id = invocation["id"]?.stringValue, !id.isEmpty else { return }
             let newTab = invocation["new_tab"]?.boolValue ?? false
+            // task-owner: the action run; a capturing caller awaits it through the registry
+            // main-hop-allow: the action's userBlocking rest (p06 rule 2), tracked for a capturing caller: it awaits the main-actor history lookup, then restores the entry; post has no userBlocking class (task 208)
             services.registry.track(Task { @MainActor in
                 guard let entry = await services.history.entry(id: id), entry.isAvailable else {
                     return ActionWorkFailure(HistoryAppStrings.entryGone)
@@ -94,6 +98,8 @@ enum HistoryHandlers {
             let handle = pane.pane.handle
             let confirming = pending.revision
             pending.revision = nil
+            // task-owner: the action run; a capturing caller awaits it through the registry
+            // main-hop-allow: the action's userBlocking rest (p06 rule 2), tracked for a capturing caller: the reply's confirmation revision is kept on main for the next Undo; post has no userBlocking class (task 208)
             context.services.registry.track(Task { @MainActor in
                 do {
                     let response = try await connection.undoLayout(pane: handle, confirmingRevision: confirming)

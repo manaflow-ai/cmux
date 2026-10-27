@@ -74,7 +74,7 @@ nonisolated final class CuaHelperManifestReader: Sendable {
 
     /// The `capabilities` strings of a manifest; nil when it is not a JSON object.
     static func parse(_ data: Data) -> Set<String>? {
-        guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return nil }
+        guard let object = try? JSONSerialization.blockingJSONObject(with: data) as? [String: Any] else { return nil }
         return Set((object["capabilities"] as? [Any] ?? []).compactMap { $0 as? String })
     }
 

@@ -7,6 +7,7 @@ use super::*;
 /// `None` when `scoped` commits what `full` would (the same rows after
 /// unchanged-row pruning, the same public values for what it restates, and
 /// the same deletes); otherwise the first difference.
+#[track_caller]
 pub(super) fn projection_difference(
     registry: &WorkspaceRegistry,
     scoped: &ResourceEffectProjection,

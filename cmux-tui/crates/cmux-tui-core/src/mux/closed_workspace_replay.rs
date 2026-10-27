@@ -9,6 +9,7 @@ impl Mux {
     /// `workspace` None: the request's workspace (`workspace_key`) is gone.
     /// A retry of a create whose process ended and closed that workspace
     /// (LAST-TAB-CLOSES-WORKSPACE) still replays from its receipt.
+    #[track_caller]
     pub(crate) fn create_raw_terminal_in_workspace_with_mutation(
         self: &Arc<Self>,
         workspace: Option<WorkspaceId>,

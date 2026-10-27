@@ -6,6 +6,7 @@ use super::*;
 /// Changes whose target row already holds the same value are dropped first,
 /// so a commit rewrites (and journals) only the rows it changes. Callers
 /// journal the returned patch, not their input.
+#[track_caller]
 pub(crate) fn apply_resource_patch(
     transaction: &Transaction<'_>,
     patch: &ResourcePatch,
@@ -16,6 +17,7 @@ pub(crate) fn apply_resource_patch(
 
 /// [`apply_resource_patch`], also returning the time spent pruning unchanged
 /// changes (a `server-stats` span).
+#[track_caller]
 pub(crate) fn apply_resource_patch_timed(
     transaction: &Transaction<'_>,
     patch: &ResourcePatch,
@@ -77,6 +79,7 @@ pub(super) fn decorate_snapshot_result(
 
 /// Apply a patch whose closes are not user closes (a terminal that exited
 /// on its own), so they stay out of the closed history.
+#[track_caller]
 pub(crate) fn apply_resource_patch_unrecorded(
     transaction: &Transaction<'_>,
     patch: &ResourcePatch,

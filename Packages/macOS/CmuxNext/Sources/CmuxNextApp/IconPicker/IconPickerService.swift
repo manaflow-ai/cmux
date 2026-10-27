@@ -1,13 +1,19 @@
 import AppKit
 import CmuxNextBridge
+import CmuxNextCompat
 import CmuxNextDesign
 import CmuxNextPages
 import CmuxNextSidebar
+import CmuxNextSignposts
+import CmuxNextWakeups
 
 /// Shows the one icon picker (R94) in a floating panel beside its anchor and
 /// reports the outcome. One warm picker (S3 d): the first open loads the page
 /// into its panel; every later open reuses that panel, page
 /// and provider (a session swap, no cold load), and a close only hides the panel.
+/// With feature `memoryOverlayPagesOnFirstUse` (``OverlayPageRelease``) the launch makes no picker, and the
+/// warm one goes once unused (five minutes after its close at the Memory Saver mode's medium), or at memory
+/// pressure: the next open makes it again.
 /// One picker at a time: a new open cancels the previous one. ``open`` is what
 /// `debug.popups` lists, so preflights prove it opened.
 @MainActor
@@ -46,14 +52,32 @@ final class IconPickerService {
     private let symbols = IconPickerSymbols()
     /// The system SF Symbol catalog, loaded off the main actor at the first open; nil until then.
     private var catalog: IconPickerSymbolCatalog?
+    /// The catalog read in flight: every caller that asks while it runs shares it.
+    private var catalogLoad: Task<IconPickerSymbolCatalog, Never>?
+    /// What runs once the catalog is loaded, by waiter: each waiter's reply is its own task in its own class (a pick
+    /// `userBlocking`, the idle prepare `background`), so a pick never waits behind the prepare's class.
+    private var catalogWaiters: [Int: () -> Void] = [:]
+    private var nextCatalogWaiter = 0
+    /// The app's main-thread scheduler: the catalog's reply and its waiters are posted tasks on it.
+    private let mainWork: MainWorkScheduler
     private lazy var maxEmojiVersion = IconPickerSymbols.maxEmojiVersion()
     private(set) var open: OpenPicker?
     private var warm: Warm?
     /// Opens and closes the panel like every native popup (POLISH: calm motion).
     private let fade = PopupFade()
 
-    init(services: AppServices?) {
+    /// Makes the picker's page (the app's one ``WebUIHost``).
+    private let webUI: WebUIHost
+    /// When the warm picker goes; nil keeps it for the process's life.
+    private(set) var release: OverlayPageRelease?
+
+    /// - Parameter release: The app's overlay page terms (feature `memoryOverlayPagesOnFirstUse`); nil keeps the
+    ///   warm picker for good and lets the launch make it.
+    init(services: AppServices?, webUI: WebUIHost, mainWork: MainWorkScheduler, release terms: OverlayPageReleaseTerms? = nil) {
         self.services = services
+        self.webUI = webUI
+        self.mainWork = mainWork
+        release = terms?.release(owner: "iconPicker", inUse: { [weak self] in self?.isInUse ?? false }) { [weak self] in self?.dropWarm() }
     }
 
     /// Whether the panel, page and provider exist, so an open reuses them.
@@ -61,12 +85,19 @@ final class IconPickerService {
 
     /// Each open's timing (`debug.timings` lists them as `icon_picker_opens`).
     var onOpened: ((IconPickerOpenTiming) -> Void)?
+    /// Where each open's `stall.icon_picker_open` slice goes (tests pass one over their own trace runtime).
+    var stallSignposter: Signposter = .stall
 
     /// Makes the warm picker ahead of the first open (the app calls it at an idle moment after
-    /// launch); `then` runs when it is ready.
+    /// launch); `then` runs when it is ready. Under ``release`` it makes none before an open since the
+    /// last release (``OverlayPageRelease/allowsPrewarm``).
     func prepare(then: (() -> Void)? = nil) {
+        if let release, !release.allowsPrewarm {
+            then?()
+            return
+        }
         guard let catalog else {
-            loadCatalog { [weak self] in self?.prepare(then: then) }
+            loadCatalog(.background) { [weak self] in self?.prepare(then: then) }
             return
         }
         if warm == nil { _ = makeWarm(catalog: catalog) }
@@ -84,11 +115,15 @@ final class IconPickerService {
     private func pick(current: String?, target: String, at anchor: Anchor, assets: IconAssetStore?, started: ContinuousClock.Instant,
                       completion: @escaping (IconPickerResult) -> Void) {
         guard let catalog else {
-            loadCatalog { [weak self] in
+            loadCatalog(.userBlocking) { [weak self] in
                 self?.pick(current: current, target: target, at: anchor, assets: assets, started: started, completion: completion)
             }
             return
         }
+        // The open's main-thread work, from the catalog in hand to the panel shown, is one thread slice (B/E):
+        // a first open's catalog load runs off the main actor, before it.
+        let slice = stallSignposter.begin(.stallIconPickerOpen)
+        defer { stallSignposter.end(.stallIconPickerOpen, slice) }
         let catalogReady = ContinuousClock.now
         open?.provider.finish(.cancel)
         prefs.load()
@@ -97,6 +132,7 @@ final class IconPickerService {
             completion(.cancel)
             return
         }
+        release?.didShow()
         let pageReady = ContinuousClock.now
         var session = IconPickerSession(id: UUID().uuidString, current: current)
         let dark = anchor.view.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
@@ -122,15 +158,29 @@ final class IconPickerService {
                                        present: pageReady.duration(to: .now), createdPage: createdPage))
     }
 
-    /// Loads the symbol catalog off the main actor (a few plist reads), then runs `then`.
-    private func loadCatalog(then: @escaping () -> Void) {
-        // task-owner: one load per first open; it ends with the read, and the service outlives it weakly
-        Task { [weak self] in
-            let loaded = await IconPickerSymbolCatalog.load()
-            guard let self else { return }
-            if self.catalog == nil { self.catalog = loaded }
-            then()
+    /// Loads the symbol catalog off the main actor (a few plist reads), then runs `then` as a task of `workClass`.
+    /// One load serves every caller that asks while it runs; each caller's reply is posted in that caller's class.
+    private func loadCatalog(_ workClass: BudgetedWorkClass, then: @escaping () -> Void) {
+        let waiter = nextCatalogWaiter
+        nextCatalogWaiter += 1
+        catalogWaiters[waiter] = then
+        // task-owner: one read per first open; it ends with the read, and every waiter's reply holds it
+        let load = catalogLoad ?? Task { @concurrent in await IconPickerSymbolCatalog.load() }
+        catalogLoad = load
+        let mainWork = mainWork
+        // task-owner: one wait per waiter; it ends when the shared read does, and the service outlives it weakly
+        Task { @concurrent [weak self] in
+            let loaded = await load.value
+            mainWork.postFromAnyThread(workClass, owner: "IconPickerService.catalog") { [weak self] in
+                self?.catalogLoaded(loaded, waiter: waiter)
+            }
         }
+    }
+
+    private func catalogLoaded(_ loaded: IconPickerSymbolCatalog, waiter: Int) {
+        if catalog == nil { catalog = loaded }
+        catalogLoad = nil
+        catalogWaiters.removeValue(forKey: waiter)?()
     }
 
     /// The picker page's engine options: it shows in a floating glass panel that closes when it
@@ -142,12 +192,25 @@ final class IconPickerService {
         var routes = [PageRoute(prefix: "cmux.iconPicker.", provider: provider)]
         // Copy in the Actions menu: the shared clipboard op (the descriptor allows only that one).
         if let services { routes.append(PageRoute(prefix: "cmux.app.", provider: AppPageNativeProvider(services: services, page: .iconPicker))) }
-        guard let page = PageWebView(descriptor: .iconPicker, routes: routes, options: Self.engineOptions,
-                                     dynamicResources: symbols) else { return nil }
+        guard let page = webUI.open(PageOpenRequest(descriptor: .iconPicker, routes: routes, options: Self.engineOptions,
+                                                    dynamicResources: symbols)) else { return nil }
         symbols.appearanceView = page
         let made = Warm(panel: IconPickerPanel(content: page, size: Self.size), page: page, provider: provider)
         warm = made
+        release?.didMake()
         return made
+    }
+
+    /// Whether the picker is open or still fading out, so its release waits.
+    private var isInUse: Bool { open != nil || fade.isClosing }
+
+    /// The release's call, made only while the picker is neither open nor fading: ends the warm picker's page through
+    /// its host and drops the panel and provider.
+    private func dropWarm() {
+        guard let warm else { return }
+        self.warm = nil
+        warm.panel.close()
+        webUI.close(warm.page)
     }
 
     /// An anchor at workspace `id`'s sidebar row in the window that lists it, else the middle of
@@ -185,12 +248,13 @@ final class IconPickerService {
         return Anchor(view: content, rect: NSRect(x: bounds.midX - 1, y: bounds.maxY - 80, width: 2, height: 2))
     }
 
-    /// Fades the panel out; the page stays loaded for the next open.
+    /// Fades the panel out; the page stays loaded for the next open, until ``release`` lets it go.
     private func close() {
         guard let open else { return }
         self.open = nil
         open.panel.onDismiss = nil
         fade.close(open.panel, toward: open.anchor)
+        release?.didHide()
     }
 }
 

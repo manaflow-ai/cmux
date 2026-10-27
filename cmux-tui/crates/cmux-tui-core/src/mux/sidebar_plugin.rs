@@ -23,6 +23,7 @@ impl Mux {
         }
     }
 
+    #[track_caller]
     pub fn ensure_sidebar_plugin(
         self: &Arc<Self>,
         cols: u16,
@@ -133,6 +134,7 @@ impl Mux {
         )
     }
 
+    #[track_caller]
     pub(crate) fn reload_sidebar_plugin(
         self: &Arc<Self>,
         cols: u16,
@@ -156,6 +158,7 @@ impl Mux {
         self.ensure_sidebar_plugin(cols, rows, true)
     }
 
+    #[track_caller]
     pub(crate) fn resource_resize_sidebar_selected(
         &self,
         selectors: crate::ResourceSelectors,

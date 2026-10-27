@@ -28,13 +28,19 @@ package struct ChildSignalDefaults {
         var action = sigaction()
         action.__sigaction_u.__sa_handler = caughtAndDropped
         action.sa_flags = SA_RESTART
-        sigemptyset(&action.sa_mask)
-        sigaction(SIGPIPE, &action, nil)
+        // SAFETY: sigemptyset writes one sigset_t into the local's field; sigaction reads one struct sigaction from
+        // `action` and writes none (nil).
+        unsafe sigemptyset(&action.sa_mask)
+        unsafe sigaction(SIGPIPE, &action, nil)
         for signal in restoredSignals {
             var current = sigaction()
-            sigaction(signal, nil, &current)
+            // SAFETY: sigaction reads none (nil) and writes the current disposition, one struct sigaction, into
+            // `current`, a local.
+            unsafe sigaction(signal, nil, &current)
             // SIG_IGN is the handler value 1 (<sys/signal.h>).
-            if unsafeBitCast(current.__sigaction_u, to: Int.self) == 1 {
+            // SAFETY: __sigaction_u is a union of two C function pointers, one pointer wide like Int; the cast copies
+            // its bits and calls nothing.
+            if unsafe unsafeBitCast(current.__sigaction_u, to: Int.self) == 1 {
                 _ = Darwin.signal(signal, SIG_DFL)
             }
         }

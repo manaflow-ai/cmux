@@ -11,7 +11,10 @@ description = "The git reads and checkpoint writes cmux runs: bounded git runs, 
 workspace = true
 
 [dependencies]
-wait-timeout.workspace = true
+# git runs spawn through it: no inherited descriptor, and the child's class
+# (`HELPER_CHILD`) set on the spawn, not the calling thread's.
+cmux-process.workspace = true
+cmux-threads.workspace = true
 
 [target.'cfg(unix)'.dependencies]
 libc.workspace = true

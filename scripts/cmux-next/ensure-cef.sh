@@ -13,6 +13,20 @@
 #                             artifact (fails, or prints nothing with
 #                             --optional).
 #
+# An artifact unpacks to the folder <version>/, or to its "dir" field when it
+# names one (a staging pin of fleet builds, scripts/cmux-next/cef-pin-staging.sh,
+# whose x86_64 folder is not the arm64 one). tar reads xz and plain tar alike.
+#
+# A manifest with a "staging" object (fleet builds, no R2 object or release)
+# fails, also with --optional, so no build ships without the engine:
+#   - in a Release build (CONFIGURATION=Release): only a released pin ships;
+#   - once staging.store_expires is reached (a warning from 3 days before):
+#     the controller store drops the artifacts then;
+#   - when the controller store cannot serve it (off the tailnet: nightly,
+#     release and CI runners, outside contributors).
+#
+#   CMUX_CEF_TODAY=YYYY-MM-DD   the date the expiry is checked against (tests)
+#
 # Sources, in order; every download is checked against the manifest sha256:
 #   1. the local cache
 #   2. the fleet controller's artifact store: the controller signs a short-lived
@@ -114,18 +128,42 @@ else
 fi
 asset="$(field "${prefix}asset")"; url="$(field "${prefix}url")"; sha="$(field "${prefix}sha256")"
 r2_key="$(field "${prefix}r2_key")"
+inner="$(field "${prefix}dir")"; inner="${inner:-$version}"
 [[ -n "$version" && -n "$asset" && -n "$sha" ]] || fail "manifest $MANIFEST lacks version, asset or sha256 for $arch"
+[[ "$inner" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$ ]] || fail "manifest $MANIFEST names no valid folder for $arch"
+
+refuse() { echo "error: $*" >&2; exit 1; }  # not softened by --optional
+staging=0
+if [[ -n "$(field staging)" ]]; then
+  staging=1
+  [[ "${CONFIGURATION:-}" != "Release" ]] ||
+    refuse "the CEF pin $version is a staging pin (scripts/cmux-next/cef-pin-staging.sh): a Release build embeds only a released pin (publish-cef-r2.sh)"
+  expires="$(field staging.store_expires)"
+  days_left="$(python3 -c 'import datetime as d, sys; print((d.date.fromisoformat(sys.argv[1]) - d.date.fromisoformat(sys.argv[2])).days)' \
+    "$expires" "${CMUX_CEF_TODAY:-$(date -u +%F)}" 2>/dev/null)" ||
+    refuse "the staging CEF pin $version names no valid staging.store_expires (${expires:-none})"
+  (( days_left > 0 )) ||
+    refuse "the staging CEF pin $version expired on $expires: the controller store no longer keeps its artifacts. Land the released pin (chrome-parity task 178) or stage a new fork build (cef-pin-staging.sh pin)"
+  (( days_left > 3 )) ||
+    echo "warning: the staging CEF pin $version expires on $expires ($days_left days); after that every build fails here. Land the released pin (chrome-parity task 178) or stage a new fork build" >&2
+fi
 
 root="$("$SCRIPT_DIR/cef-cache-root.sh")"
 dest="$root/$version$suffix"
 # The framework's GN args (archive.json gn_args): DCHECKs must be off, or a
 # DCHECK that web content reaches aborts cmux (crash-elimination.md). A warning
 # until the manifest sets "require_dcheck_off": true (the cmux.17 pin).
+# "require_official_pgo": true (chrome-parity p08-startup-047) also refuses a
+# manifest without the A/B record it won, and a framework that is not
+# is_official_build=true with the manifest's pinned pgo_profile.
 check_build_flags() { # <cef folder>
   local require=()
   case "$(field require_dcheck_off)" in true|True|1) require=(--require) ;; esac
+  case "$(field require_official_pgo)" in
+    true|True|1) require+=(--require-official-pgo --manifest "$MANIFEST" --arch "$arch") ;;
+  esac
   python3 "$SCRIPT_DIR/cef_build_flags.py" "$1" ${require[@]+"${require[@]}"} >&2 ||
-    fail "CEF $version was built with DCHECKs on; pin a framework built with dcheck_always_on=false"
+    fail "CEF $version does not have the GN args the manifest requires (see the error above)"
 }
 if [[ -f "$dest/.verified" && "$(cat "$dest/.verified")" == "$sha" && -d "$dest/$FRAMEWORK" ]]; then
   check_build_flags "$dest"
@@ -251,15 +289,20 @@ fetch_github() {
   return 1
 }
 
-fetch_store || fetch_r2 || fetch_github ||
-  fail "could not download a verified $asset (set CMUX_CEF_R2_* or ~/.secrets/cmux-cef.env, or log in with gh / set GH_TOKEN)"
+if (( staging )); then
+  fetch_store ||
+    refuse "the staging CEF pin $version is served only by the fleet controller store, which gave no verified $asset here (off the tailnet, or CMUX_CEF_NO_STORE=1); a build here cannot embed it"
+else
+  fetch_store || fetch_r2 || fetch_github ||
+    fail "could not download a verified $asset (set CMUX_CEF_R2_* or ~/.secrets/cmux-cef.env, or log in with gh / set GH_TOKEN)"
+fi
 
 mkdir -p "$tmp/x"
-tar -xJf "$archive" -C "$tmp/x"
-[[ -d "$tmp/x/$version/$FRAMEWORK" ]] || fail "archive $asset has no $version/$FRAMEWORK"
-check_build_flags "$tmp/x/$version"
-printf '%s' "$sha" > "$tmp/x/$version/.verified"
+tar -xf "$archive" -C "$tmp/x"
+[[ -d "$tmp/x/$inner/$FRAMEWORK" ]] || fail "archive $asset has no $inner/$FRAMEWORK"
+check_build_flags "$tmp/x/$inner"
+printf '%s' "$sha" > "$tmp/x/$inner/.verified"
 rm -rf "$dest"
-mv "$tmp/x/$version" "$dest"
+mv "$tmp/x/$inner" "$dest"
 echo "==> CEF $version ready at $dest" >&2
 echo "$dest"

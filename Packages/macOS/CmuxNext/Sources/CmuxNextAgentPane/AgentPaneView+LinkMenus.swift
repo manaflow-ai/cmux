@@ -15,13 +15,15 @@ extension AgentPaneView {
         default: return nil
         }
         let file = URL(fileURLWithPath: resolved.path, isDirectory: resolved.isFolder)
-        let menu = LinkMenu()
+        let menu = LinkMenu(queries: model.replyLinks.workspaceQueries)
         // An SVG leaves the pane only as its rebuilt copy (``AgentPaneImageCopies/handedOut(_:in:)``),
         // made when a row is chosen; Open in Text Editor and Copy Path keep the file itself.
         let out = AgentPaneImageCopies.handedOut(file, in: model.replyLinks.imageFolder)
         let handOut: ([NSMenuItem]) -> [NSMenuItem] = { out == file ? $0 : AgentPaneImageCopies.rebuildingFirst($0, file, to: out) }
+        var outMenu = menu
+        outMenu.filledItems = handOut  // an Open With that fills in later hands out the rebuilt copy too
         let rows = menu.pathRows(for: file, isDirectory: resolved.isFolder).filter { $0.kind != .open }.flatMap { row in
-            [.openInTextEditor, .copyPath].contains(row.kind) ? menu.items([row], file: file) : handOut(menu.items([row], file: out))
+            [.openInTextEditor, .copyPath].contains(row.kind) ? menu.items([row], file: file) : handOut(outMenu.items([row], file: out))
         }
         // A file (a chip, a video, an audio clip) leads with Copy and Save As…; a folder has neither.
         guard !resolved.isFolder else { return rows }

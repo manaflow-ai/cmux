@@ -14,6 +14,7 @@
 //! journal keeps the patch, so a retry after a lost reply finds it applied
 //! instead of applying it twice, and one stopped while writing says so.
 
+use cmux_threads::checked::fs as files;
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -54,6 +55,8 @@ pub(super) fn dispatch(
     mux: &Arc<Mux>,
     request: &ParsedResourceRequest,
 ) -> Result<Value, ResourceError> {
+    // git runs to completion here, on a work item (`answer`).
+    crate::request_path::note(crate::request_path::BlockingKind::ChildProcess);
     let key = key(request);
     let target = Target::resolve(mux, request, OPERATION)?;
     let fingerprint = target.fingerprint(request);
@@ -74,8 +77,8 @@ pub(super) fn dispatch(
         let result = apply(&attempt, resumed);
         // A run stopped by the deadline may have applied: its retry looks.
         if !result.as_ref().is_err_and(|error| error.details["reason"] == "timed_out") {
-            let _ = std::fs::remove_file(&attempt.patch);
-            let _ = std::fs::remove_file(&attempt.names);
+            let _ = files::remove_file(&attempt.patch);
+            let _ = files::remove_file(&attempt.names);
             journal.finish();
         }
         result?;
@@ -117,7 +120,7 @@ fn plan(repository: &Repository, git_dir: &Path, key: &str) -> Result<Attempt, R
     let scratch = [index.clone(), git_dir.join(format!("{stamp}.index.lock"))];
     let clear = |paths: &[&PathBuf]| {
         for path in paths {
-            let _ = std::fs::remove_file(path);
+            let _ = files::remove_file(path);
         }
     };
     clear(&[&scratch[0], &scratch[1], &patch, &names]);
@@ -125,7 +128,7 @@ fn plan(repository: &Repository, git_dir: &Path, key: &str) -> Result<Attempt, R
         // A copy of the worktree's index, with every change added: new files
         // count, and the worktree's own index stays as the chat left it.
         let source = git_dir.join("index");
-        if source.exists() && std::fs::copy(&source, &index).is_err() {
+        if source.exists() && files::copy(&source, &index).is_err() {
             let message = format!("{}: could not copy the index", source.display());
             return Err(refused(OPERATION, "git_failed", message, Value::Null));
         }
@@ -164,7 +167,7 @@ fn plan(repository: &Repository, git_dir: &Path, key: &str) -> Result<Attempt, R
         checked(&git, &diff, &environment)?;
         listing.extend(["--name-only", "-z", names_output.as_str(), merge_base.as_str()]);
         checked(&git, &listing, &environment)?;
-        let listed = std::fs::read(&names).map_err(|error| {
+        let listed = files::read(&names).map_err(|error| {
             let message = format!("{}: {error}", names.display());
             refused(OPERATION, "git_failed", message, Value::Null)
         })?;
@@ -210,7 +213,7 @@ fn apply(attempt: &Attempt, resumed: bool) -> Result<(), ResourceError> {
                        checkout may have part of it";
         return Err(refused(OPERATION, "interrupted", message, json!({"files": attempt.files})));
     }
-    let names = std::fs::read(&attempt.names).map_err(|error| {
+    let names = files::read(&attempt.names).map_err(|error| {
         let message = format!("{}: {error}", attempt.names.display());
         refused(OPERATION, "git_failed", message, Value::Null)
     })?;

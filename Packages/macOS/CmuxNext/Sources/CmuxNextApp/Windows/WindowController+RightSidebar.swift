@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextDesign
+import CmuxNextWakeups
 
 // The right sidebar (inventory row 24): one shared path for its toggle, focus
 // and section actions (palette, menu, keyboard, `cmux action run`, MCP). The
@@ -18,7 +19,11 @@ extension WindowController {
         rightSidebar.show(target)
         applyRightSidebar()
         (view.shownSection as? RightSidebarRefreshing)?.refresh()
-        if focus, let section = view.shownSection { window?.makeFirstResponder(Self.firstKeyView(in: section) ?? section) }
+        if focus, let section = view.shownSection {
+            // sync-layout: the panel unhides in the root's layout (`layoutRightPanel`); focus goes into it now.
+            root.layoutSubtreeIfNeeded()
+            window?.makeFirstResponder(Self.firstKeyView(in: section) ?? section)
+        }
         return true
     }
 
@@ -61,6 +66,11 @@ extension WindowController {
             makeSection: { [weak self] mode in self.flatMap { sections.makeView(mode, for: $0) } },
             run: { registry.perform($0) })
         view.onResize = { [weak self] in self?.resizeRightSidebar(to: $0) }
+        // The inner edge resizes on a frame interval's first move and once at its frame (feature `pointerFrameDrags`).
+        view.resizeHandle.pointerFrames = services.dragFrameInput
+        // Empty buttons until the cpu lane's icons land; a panel restored visible fills right after the first frame.
+        sections.whenIconsReady { [weak view] in view?.setIcons($0) }
+        sections.buildIcons(.afterFirstFrame)
         rightSidebarView = view
         root.rightPanel = view
         return view

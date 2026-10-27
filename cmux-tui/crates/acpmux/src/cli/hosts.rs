@@ -10,12 +10,16 @@
 use crate::cli::output::print_json;
 use crate::client::Client;
 use anyhow::{Context, Result, anyhow};
+use cmux_server_core::units::LaunchdJob;
 use serde_json::{Value, json};
 use std::io::Write;
 use std::path::Path;
 use std::process::{Child, Command, Stdio};
 use std::sync::Arc;
 
+#[cfg(test)]
+#[path = "host_launchd_tests.rs"]
+mod host_launchd_tests;
 #[path = "host_lock.rs"]
 mod host_lock;
 #[path = "host_migrate.rs"]
@@ -247,6 +251,8 @@ const INSTALL_PUSHED: &str = "cd ~/.local/bin && chmod +x .acpmux-new/acpmux && 
 /// Put `acpmux.prev` back as `~/.local/bin/acpmux`; fails without one.
 const RESTORE_PREV: &str = "(cd ~/.local/bin && [ -f acpmux.prev ] && rm -f acpmux && { ln acpmux.prev acpmux 2>/dev/null || cp -p acpmux.prev acpmux; })";
 
+/// The daemon's launchd agent; `__HOME__` and `__PROCESS_TYPE__` are filled
+/// in by [`launchd_plist`].
 const PLIST: &str = r#"<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
@@ -256,10 +262,21 @@ const PLIST: &str = r#"<?xml version="1.0" encoding="UTF-8"?>
   <key>WorkingDirectory</key><string>__HOME__</string>
   <key>RunAtLoad</key><true/>
   <key>KeepAlive</key><true/>
+  <key>ProcessType</key><string>__PROCESS_TYPE__</string>
   <key>StandardOutPath</key><string>__HOME__/.acpmux/launchd.log</string>
   <key>StandardErrorPath</key><string>__HOME__/.acpmux/launchd.log</string>
 </dict></plist>
 "#;
+
+/// The daemon's agent plist for a host whose `$HOME` is `home`, at the
+/// process-roles table's `ProcessType` (threading-model.md "Process
+/// roles"): the agent sessions a person prompts and watches run in it, so
+/// launchd must not throttle it as a `Background` or default (`Standard`) job.
+fn launchd_plist(home: &str) -> String {
+    PLIST
+        .replace("__HOME__", home)
+        .replace("__PROCESS_TYPE__", LaunchdJob::AcpmuxDaemon.process_type())
+}
 
 /// A remote script that runs `cmd` and keeps only the start of its output
 /// (`limit`, such as `head -3`), failing when `cmd` fails: a plain pipe into
@@ -322,11 +339,15 @@ const LAUNCHD_START_GRACE: std::time::Duration = std::time::Duration::from_secs(
 /// started then would find `daemon.lock` held and exit. So the old pid, read
 /// from `launchctl print`, is waited on for at most 30 s (launchd SIGKILLs a
 /// job after its 20 s `ExitTimeOut`); the bootstrap runs after the deadline
-/// in any case. Fails when the bootstrap fails.
+/// in any case. Fails when the bootstrap fails. Before the bootstrap,
+/// `plutil` sets the plist's `ProcessType` to the [`launchd_plist`] value, so
+/// a `host update` of a host that an older acpmux set up (no `ProcessType`)
+/// restarts the daemon at its process role.
 const LAUNCHD_RELOAD: &str = r#"acpmux_job=gui/$(id -u)/com.acpmux.daemon
 acpmux_old=$(launchctl print "$acpmux_job" 2>/dev/null | sed -n 's/^[[:space:]]*pid = \([0-9][0-9]*\)$/\1/p' | head -n 1)
 launchctl bootout "$acpmux_job" 2>/dev/null || true
 if [ -n "$acpmux_old" ]; then acpmux_i=0; while ps -p "$acpmux_old" >/dev/null 2>&1 && [ "$acpmux_i" -lt 150 ]; do sleep 0.2; acpmux_i=$((acpmux_i+1)); done; fi
+plutil -replace ProcessType -string Interactive ~/Library/LaunchAgents/com.acpmux.daemon.plist 2>/dev/null || true
 launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.acpmux.daemon.plist"#;
 
 /// The user systemd unit a Linux host runs its daemon under: one daemon per
@@ -578,7 +599,7 @@ pub(crate) fn install_daemon(r: &dyn Remote, port: u16, json: bool) -> Result<St
         return linux_status(r, out, json);
     }
     let home = run(r, "echo $HOME")?;
-    let plist = PLIST.replace("__HOME__", &home);
+    let plist = launchd_plist(&home);
     run(
         r,
         &format!(

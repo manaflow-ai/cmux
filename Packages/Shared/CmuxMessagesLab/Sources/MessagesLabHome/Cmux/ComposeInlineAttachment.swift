@@ -83,8 +83,8 @@ final class ComposeInlineAttachment: NSTextAttachment {
         }
     }
 
-    /// The decoded thumbnail is here (main actor): the view or the field shows it.
-    func thumbnailArrived(_ image: CGImage?) {
+    /// The decoded thumbnail is here: the view or the field shows it.
+    @MainActor func thumbnailArrived(_ image: CGImage?) {
         thumbnail = image
         shownView?.show(image)
         redrawField()
@@ -92,7 +92,7 @@ final class ComposeInlineAttachment: NSTextAttachment {
 
     /// The field draws the attachment again (the thumbnail arrived after it drew the placeholder):
     /// only its rect and no layout, with the other arrivals of this turn (`ComposeInlineRedraw`).
-    private func redrawField() {
+    @MainActor private func redrawField() {
         guard let tv = drawnIn?.textView else { return }
         ComposeInlineRedraw.of(tv).arrived(self)
     }
@@ -193,7 +193,7 @@ final class ComposeInlineAttachment: NSTextAttachment {
     }
 
     /// Decodes the thumbnail now (tests).
-    func loadThumbnailNow(scale: CGFloat) {
+    @MainActor func loadThumbnailNow(scale: CGFloat) {
         guard isImage, let asset = model.asset else { return }
         thumbnailArrived(ComposeAttachmentStrip.thumbnail(asset, maxPixels: thumbnailPixels(scale)))
     }

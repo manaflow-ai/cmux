@@ -33,6 +33,7 @@ struct DebugSidebarNestedFixture {
         sidebar.restore(width: fixture.width, hidden: false)
         sidebar.model.filterText = ""
         sidebar.rows.fixture = fixture.sections
+        // sync-layout: showNestedFixture presses a row at its frame in the list, laid out at the fixture's width.
         sidebar.container.layoutSubtreeIfNeeded()
         sidebar.container.showNestedFixture(fixture)
         return .object(["scenario": .string(scenario.rawValue), "width": .number(fixture.width),

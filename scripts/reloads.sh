@@ -192,11 +192,13 @@ if [[ ! "$BUNDLE_ID" =~ ^com\.cmuxterm\.app\.staging(\.[A-Za-z0-9._-]+)?$ ]]; th
   exit 1
 fi
 
+# CmuxNextWireGenPlugin is a build-tool plugin; headless xcodebuild cannot answer Xcode's trust prompt.
 XCODEBUILD_ARGS=(
   -project cmux.xcodeproj
   -scheme cmux
   -configuration Release
   -destination 'platform=macOS'
+  -skipPackagePluginValidation
 )
 if [[ -n "$DERIVED_DATA" ]]; then
   XCODEBUILD_ARGS+=(-derivedDataPath "$DERIVED_DATA")

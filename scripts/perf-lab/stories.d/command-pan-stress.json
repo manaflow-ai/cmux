@@ -1,0 +1,19 @@
+{
+  "id": "command-pan-stress",
+  "tier": "T2",
+  "description": "Command + scroll pans the columns strip in the STRESS session (perf-stress-session.py) over a terminal: frame intervals, missed vsyncs and input to frame of each pan, Command rounds against base rounds (bench-command-pan.py). The light session is command-pan.",
+  "command": ["scripts/cmux-next/bench-command-pan.py", "--sessions", "stress", "--target", "terminal", "--story", "command-pan-stress"],
+  "session": "stress",
+  "engine": "none",
+  "config": "bench",
+  "metrics": [
+    {"name": "(command|base)\\.(frame_interval|scroll_frame|input_to_frame)", "unit": "ms", "better": "lower"},
+    {"name": "(command|base)\\.missed", "unit": "count", "better": "lower"}
+  ],
+  "repeats": 1,
+  "seconds": 420,
+  "needs": ["debug:debug.frames", "debug:debug.mouse", "signpost:key.scroll_frame",
+            "file:scripts/cmux-next/perf-stress-session.py"],
+  "owner": "PL-motion-core",
+  "component": "Layout>Pan"
+}

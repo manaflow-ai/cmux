@@ -5,14 +5,12 @@ public import CmuxNextSettings
 /// A change to the closed history reaches every open New Tab page. Each page used to build the
 /// JSON (favicons as data URLs included) and its script text again, so one close cost work linear
 /// in the open pages on the main thread. Build one ``AgentPaneClosedList`` per change and assign
-/// it to every ``AgentPaneView``: the page event and the old host's script are made here, once.
+/// it to every ``AgentPaneView``: the page event is made here, once.
 public nonisolated struct AgentPaneClosedList: Equatable, Sendable {
     /// The newest items, at most ``AgentPaneClosedItem/maximumPushed``.
     public let items: [AgentPaneClosedItem]
     /// The `recentlyClosed` page event for the shared page host.
     public let event: AgentPageEvent
-    /// The script the old host evaluates (`cmuxAcpmuxBridge.applyRecentlyClosed`).
-    public let script: String
 
     /// The empty list a page starts with.
     public static let empty = AgentPaneClosedList([])
@@ -24,10 +22,8 @@ public nonisolated struct AgentPaneClosedList: Equatable, Sendable {
     ///   - encode: The per-item encoding; tests pass a counting wrapper to prove each item encodes once.
     public init(_ items: [AgentPaneClosedItem], encode: (AgentPaneClosedItem) -> JSONValue = { $0.json }) {
         let kept = Array(items.prefix(AgentPaneClosedItem.maximumPushed))
-        let event = AgentPageEvent(kind: "recentlyClosed", value: .array(kept.map(encode)))
         self.items = kept
-        self.event = event
-        self.script = "window.cmuxAcpmuxBridge?.applyRecentlyClosed?.(\(event.value.compactText));"
+        event = AgentPageEvent(kind: "recentlyClosed", value: .array(kept.map(encode)))
     }
 
     /// Two lists are equal when they hold the same items; the encodings follow from them.

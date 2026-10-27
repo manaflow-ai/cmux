@@ -5,6 +5,7 @@ import CmuxNextDesignTokens
 import CmuxNextPages
 import CmuxNextSettings
 import CmuxNextSettingsWindow
+import CmuxNextWakeups
 import Dispatch
 import Foundation
 import Testing
@@ -149,6 +150,23 @@ import Testing
         withExtendedLifetime(watchdog) {}
     }
 
+    /// The model changes before one delivery of the state watch (a FrameObservation, p04-input-026) are one page
+    /// event, with no `Task` per change; once the last page left, a change sends nothing.
+    @Test func theModelChangesOfOneTurnAreOnePageEvent() async throws {
+        let model = DebugSettingsModel(store: TunableStore(), descriptors: [])
+        let provider = DebugSettingsPageProvider(model: model, hangs: nil, on: Self.work())
+        let (listening, _) = try await Self.listen(provider)
+        model.query = "a"
+        model.query = "ab"
+        #expect(provider.events == 0, "a change sent its event inside its will-set")
+        await drainMainTurns()
+        #expect(provider.events == 1, "\(provider.events) events for two changes in one turn (want 1)")
+        listening.cancel()
+        model.query = "abc"
+        await drainMainTurns()
+        #expect(provider.events == 1, "an event after the last page left")
+    }
+
         // MARK: Helpers
 
     /// A scratch Debug Settings page (an empty document), for a test build without the built
@@ -185,7 +203,12 @@ import Testing
     }
 
     private static func provider(_ recorder: HangEpisodeRecorder) -> DebugSettingsPageProvider {
-        DebugSettingsPageProvider(model: DebugSettingsModel(store: TunableStore(), descriptors: []), hangs: recorder)
+        DebugSettingsPageProvider(model: DebugSettingsModel(store: TunableStore(), descriptors: []), hangs: recorder, on: work())
+    }
+
+    /// A main-thread scheduler with no display link: a visible post runs on the next main run loop pass.
+    private static func work() -> MainWorkScheduler {
+        MainWorkScheduler.testing(budget: MainFrameBudget()) { _ in nil }
     }
 
     /// One page listening to `changed`: its subscription and the events it receives.

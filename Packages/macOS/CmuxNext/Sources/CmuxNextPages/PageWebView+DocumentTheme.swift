@@ -8,7 +8,7 @@ extension PageWebView {
     /// page without its own background painted white. `didFinish` still applies the scope's
     /// current theme, so one that changed since this script was installed wins.
     func installDocumentStartTheme() {
-        webView.configuration.userContentController.addUserScript(
+        userContent.addUserScript(
             WKUserScript(source: currentTheme().applyScript, injectionTime: .atDocumentStart, forMainFrameOnly: true, in: .page))
     }
 }

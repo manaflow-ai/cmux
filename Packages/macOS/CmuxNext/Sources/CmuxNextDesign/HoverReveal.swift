@@ -208,7 +208,7 @@ public final class HoverReveal {
 
     /// The region left its window (it closed or the view moved): nothing
     /// is hovered, held or focused any more.
-    fileprivate func windowWillChange() {
+    func windowWillChange() {
         generation += 1
         update {
             $0.pointerInside = false
@@ -261,7 +261,7 @@ public final class HoverReveal {
 /// O(view depth) per focus change, where one observation per reveal re-read every reveal of the
 /// window (two per pane, ~5 ms per tab switch at 16 panes).
 @MainActor
-private final class HoverRevealFocusRouter {
+final class HoverRevealFocusRouter {
     private static var routers: [ObjectIdentifier: HoverRevealFocusRouter] = [:]
 
     private weak var window: NSWindow?
@@ -279,8 +279,10 @@ private final class HoverRevealFocusRouter {
             let router = HoverRevealFocusRouter()
             router.window = window
             routers[ObjectIdentifier(window)] = router
+            // raw-observer-allow: AppKit posts no notice for a first-responder change; one KVO per window, for every reveal
             router.observation = window.observe(\.firstResponder, options: [.new]) { @Sendable [weak router] window, _ in
                 // KVO calls back synchronously on the changing thread: inline on main (a hop would reveal a focused button a turn late), a hop from anywhere else.
+                // main-hop-allow: AppKit changes the first responder on main, so this runs inline in the focus change's turn
                 MainDelivery().run { router?.responderDidChange(window.firstResponder) }
             }
             return router
@@ -325,110 +327,5 @@ private final class HoverRevealFocusRouter {
         focused = now.mapValues { HoverReveal.WeakReveal($0) }
         for reveal in left { reveal.setFocusInside(false) }
         for reveal in entered { reveal.setFocusInside(true) }
-    }
-}
-
-/// An invisible full-size subview of the region: it owns the tracking area
-/// and follows the region's window (focus changes, close). It takes no
-/// clicks and draws nothing.
-private final class HoverRevealProbe: NSView {
-    weak var owner: HoverReveal? {
-        didSet { ownerKey = owner.map { ObjectIdentifier($0) } }
-    }
-    /// The owner's identity, for leaving the focus router after the owner went away.
-    private var ownerKey: ObjectIdentifier?
-    /// The window whose focus router this probe's owner joined.
-    private weak var routedWindow: NSWindow?
-    private let trackingOptions: NSTrackingArea.Options
-    private let tracksPointer: Bool
-    private var closeObserver: Task<Void, Never>?
-
-    init(tracking: NSTrackingArea.Options, tracksPointer: Bool) {
-        trackingOptions = tracking
-        self.tracksPointer = tracksPointer
-        super.init(frame: .zero)
-        setAccessibilityElement(false)
-    }
-
-    @available(*, unavailable)
-    required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
-
-    // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
-    nonisolated deinit {
-        guard Thread.isMainThread else { return } // main-proof: returns off the main thread
-        MainActor.assumeIsolated {
-            closeObserver?.cancel()
-        }
-    }
-
-    override func hitTest(_ point: NSPoint) -> NSView? { nil }
-
-    override func updateTrackingAreas() {
-        super.updateTrackingAreas()
-        let own = trackingAreas.filter { $0.owner === self }
-        // An unchanged rect keeps its area. Replacing it on every call (each layout pass of the
-        // sidebar slide) dropped an exit that arrived between the removal and the new area, and the
-        // new area, added with the pointer already outside, never reported it, so the reveal stayed
-        // on (Lawrence 2026-10-05, nxdog55: the window controls with the sidebar closed).
-        if tracksPointer, own.count == 1, own[0].rect == bounds { return }
-        for area in own { removeTrackingArea(area) }
-        guard tracksPointer else { return }
-        // Exactly the bounds, not `.inVisibleRect`: the visible rect of a view that does not clip
-        // reaches past its bounds (nxdog43: the whole window), so the pointer never "left" until it
-        // left the window. AppKit calls this again whenever the bounds change.
-        addTrackingArea(NSTrackingArea(rect: bounds, options: [.mouseEnteredAndExited, .mouseMoved, trackingOptions], owner: self))
-        // A new area cannot know an exit the old one missed: read where the pointer is now.
-        readPointer()
-    }
-
-    /// Sets "inside" from the pointer's position now. A window that is not
-    /// shown cannot be under the pointer.
-    private func readPointer() {
-        guard tracksPointer, let window, let owner else { return }
-        let inside = window.isVisible && bounds.contains(convert(window.mouseLocationOutsideOfEventStream, from: nil))
-        if inside != owner.state.pointerInside { owner.setPointerInside(inside) }
-    }
-
-    /// The tracked rect follows the bounds even when the visible rect does not change.
-    override func setFrameSize(_ newSize: NSSize) {
-        super.setFrameSize(newSize)
-        updateTrackingAreas()
-    }
-
-    override func mouseEntered(with event: NSEvent) { owner?.setPointerInside(true) }
-    override func mouseMoved(with event: NSEvent) {
-        if owner?.state.pointerInside == false { owner?.setPointerInside(true) }
-    }
-    override func mouseExited(with event: NSEvent) { owner?.setPointerInside(false) }
-
-    override func viewWillMove(toWindow newWindow: NSWindow?) {
-        super.viewWillMove(toWindow: newWindow)
-        guard newWindow !== window else { return }
-        if let routedWindow, let ownerKey { HoverRevealFocusRouter.leave(ownerKey, window: routedWindow) }
-        routedWindow = nil
-        closeObserver?.cancel()
-        closeObserver = nil
-        owner?.windowWillChange()
-    }
-
-    override func viewDidMoveToWindow() {
-        super.viewDidMoveToWindow()
-        guard let window else { return }
-        if let owner {
-            HoverRevealFocusRouter.join(owner, window: window)
-            routedWindow = window
-        }
-        // task-owner: the probe (cancelled when it leaves the window or deinits); event-driven.
-        closeObserver = Task { @MainActor [weak self, weak window] in
-            guard let window else { return }
-            for await _ in NotificationCenter.default.notifications(named: NSWindow.willCloseNotification, object: window) {
-                if let key = self?.ownerKey { HoverRevealFocusRouter.forgetFocus(key, window: window) }
-                self?.owner?.windowWillChange()
-            }
-        }
-        // A pointer already over the region when it joins a shown window
-        // reveals at once, before any click (no mouseEntered arrives for
-        // it). A window that is not on screen cannot be under the pointer.
-        readPointer()
     }
 }

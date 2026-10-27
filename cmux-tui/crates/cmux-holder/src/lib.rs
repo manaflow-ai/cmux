@@ -261,12 +261,24 @@ pub fn serve(args: &[String]) -> io::Result<()> {
         std::fs::remove_file(&socket)?;
     }
     let listener = UnixListener::bind(&socket)?;
+    // The black box, so the holder grants TRACE_CONTROL: its rings go into a
+    // holder-lifetime directory beside its socket, in the daemon's private
+    // socket directory. The file opens on a one-shot thread, never the loop.
+    drop(cmux_trace::init_blackbox(socket.with_extension("trace"), cmux_trace::Role::Holder));
     let mut holder = holder::Holder::new(listener, token)?;
     holder.set_child_open_file_limit(child_open_file_limit);
     holder.set_orphan_grace(orphan_grace);
     if let Some(idle_exit) = idle_exit {
         holder.set_idle_exit(idle_exit);
     }
+    // Each pass of the loop is a hang scope; a holder whose watcher cannot
+    // start serves unwatched.
+    match holder::HangWatch::start() {
+        Ok(watch) => holder.set_hang_watch(watch),
+        Err(error) => eprintln!("cmux-holder: no hang watch: {error}"),
+    }
+    // Before `ready`, so a daemon that sees it finds the loop at its class.
+    run_at_echo_qos();
     let mut stdout = io::stdout().lock();
     stdout.write_all(b"ready\n")?;
     stdout.flush()?;
@@ -286,6 +298,25 @@ pub fn serve(args: &[String]) -> io::Result<()> {
     }
     holder.run()
 }
+
+/// The holder's loop carries every terminal's output and input to the
+/// daemon, the key echo path: QOS_CLASS_USER_INTERACTIVE (Chromium's
+/// kDisplayCritical in the `cmux_threads::qos` table). The shells it forks
+/// start at QOS_CLASS_DEFAULT (`pty::reset_qos`), never at this class.
+/// Linux: unchanged, as the class is nice 0 there.
+#[cfg(target_vendor = "apple")]
+fn run_at_echo_qos() {
+    // SAFETY: sets the calling thread's own QoS class; no pointer arguments.
+    let set = unsafe {
+        libc::pthread_set_qos_class_self_np(libc::qos_class_t::QOS_CLASS_USER_INTERACTIVE, 0)
+    };
+    if set != 0 {
+        eprintln!("cmux-holder: cannot run at user-interactive QoS: error {set}");
+    }
+}
+
+#[cfg(not(target_vendor = "apple"))]
+fn run_at_echo_qos() {}
 
 /// When this holder runs from a content-addressed copy (an
 /// [`IN_USE_LOCK`] beside its executable), hold that lock shared for the

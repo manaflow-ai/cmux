@@ -13,6 +13,12 @@ public import WebKit
 /// update, else the bundled root. The web-dev.json server and overlay (live reload) stay ahead
 /// of it, so the order is dev server, dev overlay, update, bundle.
 ///
+/// Every web tree imports React from `cmux-page://cmux.shared/`, the pages' `_shared` folder
+/// (`PageID.sharedBundleRoot`), which maps into an update with this module's pages. So every page
+/// that imports it is registered too (the agent pane, the webviews app, Agent Activity): a page and
+/// the shared files it names then always come from the same update, and an update holds every shared
+/// file its pages name (`WebUpdateTree.missingSharedFiles()` refuses one that does not).
+///
 /// Only the app's web updater activates a folder, after it checked the folder against a
 /// signed pointer (``load(_:)`` at launch, ``activate(_:)`` for a new update); nothing a page
 /// or a file says can point the app at other files.
@@ -21,6 +27,10 @@ public nonisolated final class WebBundleOverlay: Sendable {
 
     /// Where this module's pages sit in the update layout (web-bundle-key.py OUTPUTS).
     public static let pagesOutput = "Packages/macOS/CmuxNext/Sources/CmuxNextPages/Resources/pages"
+    /// Where the Agent Activity page sits in the update layout (web-bundle-key.py OUTPUTS). Its React is
+    /// the shared one under ``pagesOutput``'s `_shared`, so the page is served from the same update as
+    /// that folder (the app registers its bundled folder at launch).
+    public static let agentActivityOutput = "Packages/macOS/CmuxNext/Sources/CmuxNextAgentActivity/Resources/agent-activity"
 
     nonisolated struct Base: Equatable {
         /// The bundled folder's real path.

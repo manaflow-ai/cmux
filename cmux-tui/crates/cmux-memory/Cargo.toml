@@ -1,0 +1,20 @@
+[package]
+name = "cmux-memory"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Memory pressure and memory consumers for cmux's Rust processes (the daemon and acpmux): one kernel pressure source per process and a consumer registry, after Chrome's base/memory_coordinator"
+
+[lints]
+workspace = true
+
+# A leaf crate: libc, and cmux-threads (std and libc only) for the Linux
+# source's thread, so acpmux (which depends on neither cmux-tui-core nor
+# cmux-tui-platform) can use it. No tokio.
+[target.'cfg(unix)'.dependencies]
+libc.workspace = true
+
+[target.'cfg(target_os = "linux")'.dependencies]
+cmux-threads.workspace = true

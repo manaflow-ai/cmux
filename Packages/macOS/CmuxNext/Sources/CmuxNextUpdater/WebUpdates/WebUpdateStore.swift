@@ -1,3 +1,5 @@
+import CmuxNextCompat
+import CmuxNextWakeups
 import CryptoKit
 public import Foundation
 
@@ -31,7 +33,7 @@ nonisolated public struct WebUpdateStore: Sendable {
 
     public func readState() -> WebUpdateState {
         guard let data = try? Data(contentsOf: stateFile),
-              let state = try? JSONDecoder().decode(WebUpdateState.self, from: data)
+              let state = try? JSONDecoder().blockingDecode(WebUpdateState.self, from: data)
         else { return WebUpdateState() }
         return state
     }
@@ -52,7 +54,8 @@ nonisolated public struct WebUpdateStore: Sendable {
     }
 
     /// Checks `archive` (downloaded for `pointer`) against the pointer's size and SHA-256, unpacks
-    /// it, checks the tree's digest and abi, and keeps it as `trees/<key>`. Returns the folder.
+    /// it, checks the tree's digest and abi and that it holds every shared file its bundles name
+    /// (``WebUpdateTree/missingSharedFiles()``), and keeps it as `trees/<key>`. Returns the folder.
     @concurrent public func install(archive: URL, pointer: WebUpdatePointer) async throws(WebUpdateRefusal) -> URL {
         let (size, digest) = try Self.sizeAndDigest(of: archive)
         guard size == pointer.size, digest == pointer.sha256 else { throw .integrity("archive digest") }
@@ -67,6 +70,8 @@ nonisolated public struct WebUpdateStore: Sendable {
         let unpacked = WebUpdateTree(root: staging)
         guard try unpacked.outputDigest() == pointer.outputs else { throw .integrity("tree digest") }
         guard unpacked.abi == pointer.abi else { throw .integrity("tree abi") }
+        // A page of the update imports React from the update's own pages/_shared (cmux-page://cmux.shared/).
+        if let missing = try unpacked.missingSharedFiles().first { throw .integrity("shared \(missing)") }
         let destination = tree(for: pointer.key).root
         do {
             try FileManager.default.createDirectory(at: trees, withIntermediateDirectories: true)
@@ -103,22 +108,22 @@ nonisolated public struct WebUpdateStore: Sendable {
     }
 
     /// `tar -xzf` into `folder`. The archive's digest was checked against the signed pointer first.
-    @concurrent static func unpack(_ archive: URL, into folder: URL) async throws(WebUpdateRefusal) {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/tar")
-        process.arguments = ["-xzf", archive.path, "-C", folder.path, "--no-same-owner", "--no-same-permissions"]
-        process.standardOutput = FileHandle.nullDevice
-        process.standardError = FileHandle.nullDevice
-        let status: Int32? = await withCheckedContinuation { continuation in
-            process.terminationHandler = { continuation.resume(returning: $0.terminationStatus) }
-            do {
-                try process.run()
-            } catch {
-                process.terminationHandler = nil
-                continuation.resume(returning: nil)
-            }
+    ///
+    /// The spawn runs off the caller through ``AsyncProcess``, and tar at the caller's priority's `processQoS`.
+    /// A cancel lets tar finish: the caller removes `folder` after this returns, never while tar writes into it.
+    /// `onLaunch` gets tar's pid on the thread that spawned it (tests check that thread).
+    @concurrent static func unpack(_ archive: URL, into folder: URL,
+                                   onLaunch: (@Sendable (Int32) -> Void)? = nil) async throws(WebUpdateRefusal) {
+        let request = ProcessRequest(URL(fileURLWithPath: "/usr/bin/tar"),
+                                     ["-xzf", archive.path, "-C", folder.path, "--no-same-owner", "--no-same-permissions"],
+                                     onCancel: .finish, onLaunch: onLaunch)
+        let outcome: ProcessOutcome
+        do {
+            outcome = try await AsyncProcess().run(request)
+        } catch {
+            throw .integrity("the archive did not unpack")
         }
-        guard status == 0 else { throw .integrity("the archive did not unpack") }
+        guard outcome.succeeded else { throw .integrity("the archive did not unpack") }
     }
 }
 

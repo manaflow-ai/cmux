@@ -33,7 +33,7 @@ import Testing
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1280, height: 300), styleMask: [.borderless],
                               backing: .buffered, defer: false)
         defer { window.orderOut(nil) }
-        let pane = PaneContentView(stripModel: model, reveal: LaunchReveal(deadline: .zero))
+        let pane = PaneContentView.testing(stripModel: model, reveal: LaunchReveal(deadline: .zero))
         pane.frame = NSRect(x: 0, y: 0, width: 1280, height: 300)
         window.contentView = pane
         let toolbar = PaneToolbar(registry: { nil }, newTabMenu: { nil })
@@ -65,7 +65,7 @@ import Testing
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1200, height: 40), styleMask: [.borderless],
                               backing: .buffered, defer: false)
         defer { window.orderOut(nil) }
-        let strip = TabStripView(model: model)
+        let strip = TabStripView.testing(model: model)
         strip.dragsWindowFromEmptySpace = false
         // 30 tabs in 1200 pt: 40 each, under the selected minimum and over the inactive one.
         strip.frame = NSRect(x: 0, y: 0, width: 1200, height: TabStripView.preferredHeight)

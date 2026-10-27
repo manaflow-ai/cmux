@@ -1,5 +1,6 @@
 import CmuxNextCompat
 import Foundation
+import CmuxNextWakeups
 
 #if DEBUG
 /// A slow local daemon for the restore journey (cx-wwtam), debug builds
@@ -30,7 +31,7 @@ public nonisolated final class DebugSlowAttach: Sendable {
     public func beforeAttach(surface: String) async throws {
         guard isActive else { return }
         // wakeup-allow: debug seam (CMUX_NEXT_DEBUG_SLOW_ATTACH), one wait per attach of a slow-daemon run
-        try await Task.sleep(for: delay)
+        try await Task.sleep(for: delay, tolerance: WakeLeeway.window(delay: delay).tolerance)
         let fail = failed.withLock { counts -> Bool in
             let count = counts[surface, default: 0]
             guard count < fails else { return false }

@@ -53,12 +53,15 @@ public struct FirefoxLoginReader {
             let username: String
             do {
                 password = try crypto.decrypt(entry.encryptedPassword)
-                username = try crypto.decrypt(entry.encryptedUsername).withUnsafeBytes { String(decoding: $0, as: UTF8.self) }
+                username = try crypto.decrypt(entry.encryptedUsername).withUnsafeBytes { bytes in
+                    // SAFETY: String copies the view's count bytes while the closure runs and keeps no pointer.
+                    unsafe String(decoding: bytes, as: UTF8.self)
+                }
             } catch {
                 skipped.undecryptable += 1
                 continue
             }
-            guard password.withUnsafeBytes({ $0.isValidUTF8 }) else {
+            guard password.isValidUTF8 else {
                 skipped.undecryptable += 1
                 continue
             }
@@ -66,7 +69,7 @@ public struct FirefoxLoginReader {
                 skipped.empty += 1
                 continue
             }
-            let created = entry.timeCreated.map { Date(timeIntervalSince1970: $0 / 1000) }
+            let created = entry.timeCreated.flatMap { BrowserTime().unix($0 / 1000) }
             let login = ImportedLogin(url: url, signonRealm: realm, username: username, password: password, created: created)
             let key = realm + "\u{0}" + username
             if let kept = byKey[key] {

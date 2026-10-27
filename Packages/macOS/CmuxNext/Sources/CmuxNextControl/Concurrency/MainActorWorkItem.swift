@@ -21,11 +21,15 @@ final class MainActorWorkItem: Sendable {
     let workClass: MainWorkClass
     let deadline: ContinuousClock.Instant
     let enqueuedAt: ContinuousClock.Instant
-    private let body: @MainActor @Sendable () -> Void
+    /// Where the request was queued from and when, on the app budget's clock (nil without one):
+    /// the board's ledger records its wait under ``owner``.
+    let posted: MainTaskPost?
+    /// Runs the request with the ticket of its `task.post` (nil when it ran before one was written).
+    private let body: @MainActor @Sendable (TaskTrace.Ticket?) -> Void
     private let fail: @Sendable (ControlError) -> Void
-    /// The phase, the deadline timer and the board that counts the item as pending input, under
-    /// one lock: claiming the item (run or expire) takes the board and the timer in the same
-    /// critical section, so running a request takes two lock operations (claim, finish).
+    /// The phase, the deadline timer, the board that counts the item as pending input and the ticket of
+    /// its post, under one lock: claiming the item (run or expire) takes them in the same critical
+    /// section, so running a request takes two lock operations (claim, finish).
     private let state = Mutex(State())
 
     private struct State: Sendable {
@@ -34,6 +38,8 @@ final class MainActorWorkItem: Sendable {
         /// The board that counts this item as a person's pending input (an injected key at the
         /// head of its connection), until run or expire claims it.
         var pendingInput: MainTaskBoard?
+        /// The ticket of the item's `task.post`, written when its queue accepted it (``notePosted(_:)``).
+        var ticket: TaskTrace.Ticket?
     }
 
     init(
@@ -43,7 +49,8 @@ final class MainActorWorkItem: Sendable {
         workClass: MainWorkClass = .automation,
         deadline: ContinuousClock.Instant,
         enqueuedAt: ContinuousClock.Instant,
-        body: @escaping @MainActor @Sendable () -> Void,
+        posted: MainTaskPost? = nil,
+        body: @escaping @MainActor @Sendable (TaskTrace.Ticket?) -> Void,
         fail: @escaping @Sendable (ControlError) -> Void
     ) {
         self.connection = connection
@@ -52,6 +59,7 @@ final class MainActorWorkItem: Sendable {
         self.workClass = workClass
         self.deadline = deadline
         self.enqueuedAt = enqueuedAt
+        self.posted = posted
         self.body = body
         self.fail = fail
     }
@@ -60,12 +68,12 @@ final class MainActorWorkItem: Sendable {
 
     /// Moves a pending item to `phase` and hands back what it held; nil when something else
     /// claimed it first.
-    private func claim(_ phase: Phase) -> (timer: Task<Void, Never>?, board: MainTaskBoard?)? {
+    private func claim(_ phase: Phase) -> (timer: Task<Void, Never>?, board: MainTaskBoard?, ticket: TaskTrace.Ticket?)? {
         state.withLock { state in
             guard state.phase == .pending else { return nil }
             state.phase = phase
-            defer { state.timer = nil; state.pendingInput = nil }
-            return (state.timer, state.pendingInput)
+            defer { state.timer = nil; state.pendingInput = nil; state.ticket = nil }
+            return (state.timer, state.pendingInput, state.ticket)
         }
     }
 
@@ -76,16 +84,25 @@ final class MainActorWorkItem: Sendable {
         guard let claimed = claim(.running) else { return false }
         claimed.board?.inputDone()
         claimed.timer?.cancel()
-        body()
+        body(claimed.ticket)
         state.withLock { $0.phase = .finished }
         return true
     }
 
     /// Counts the item on `board` as a person's pending input until it runs or expires, so every
-    /// budgeted batch yields while it waits. Call before the item can be claimed (while queuing it).
+    /// budgeted batch yields while it waits. No effect once it was claimed (it expired meanwhile):
+    /// the check and the count are one critical section, so the claim always takes the count back.
     func countAsPendingInput(on board: MainTaskBoard) {
-        board.inputQueued()
-        state.withLock { $0.pendingInput = board }
+        state.withLock { state in
+            guard state.phase == .pending, state.pendingInput == nil else { return }
+            board.inputQueued()
+            state.pendingInput = board
+        }
+    }
+
+    /// Keeps the ticket of the item's `task.post`, which its queue wrote when it accepted the item, for its run.
+    func notePosted(_ ticket: TaskTrace.Ticket) {
+        state.withLock { $0.ticket = ticket }
     }
 
     /// Keeps the deadline timer so running the item cancels it. Cancels it

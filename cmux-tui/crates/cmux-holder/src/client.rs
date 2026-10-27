@@ -169,20 +169,37 @@ pub struct HolderClient {
     pending: VecDeque<Event>,
     /// The wire version the holder's WELCOME settled on.
     version: u16,
+    /// The [`wire::capability`] bits the holder's WELCOME granted.
+    granted: u32,
 }
 
 impl HolderClient {
-    /// Connect and authenticate; returns the terminals the holder runs.
+    /// Connect and authenticate, asking for every capability this build
+    /// serves ([`wire::capability::SUPPORTED`]); returns the terminals the
+    /// holder runs.
     pub fn connect(socket: &Path, token: &[u8; 32]) -> io::Result<(Self, Vec<Listed>)> {
-        Self::connect_as(socket, token, wire::VERSION)
+        Self::connect_offering(socket, token, wire::VERSION, Some(wire::capability::SUPPORTED))
     }
 
-    /// [`Self::connect`], offering wire version `version` in the HELLO: an
-    /// older daemon's link (a test of what an older build gets).
+    /// [`Self::connect`], offering wire version `version` and no capability
+    /// field in the HELLO: an older daemon's link (a test of what an older
+    /// build gets).
     pub fn connect_as(
         socket: &Path,
         token: &[u8; 32],
         version: u16,
+    ) -> io::Result<(Self, Vec<Listed>)> {
+        Self::connect_offering(socket, token, version, None)
+    }
+
+    /// [`Self::connect`], offering wire version `version` and, when `Some`,
+    /// asking for these [`wire::capability`] bits (`None`: the HELLO of a
+    /// daemon older than capability bits, without the field).
+    pub fn connect_offering(
+        socket: &Path,
+        token: &[u8; 32],
+        version: u16,
+        wanted: Option<u32>,
     ) -> io::Result<(Self, Vec<Listed>)> {
         let stream = UnixStream::connect(socket)?;
         wire::tune_socket(stream.as_raw_fd());
@@ -191,8 +208,13 @@ impl HolderClient {
             reader: wire::Reader::default(),
             pending: VecDeque::new(),
             version: wire::MIN_VERSION,
+            granted: 0,
         };
-        client.send(Kind::Hello, 0, &Out::default().u16(version).bytes(token).0, None)?;
+        let mut hello = Out::default().u16(version).bytes(token);
+        if let Some(wanted) = wanted {
+            hello = hello.u32(wanted);
+        }
+        client.send(Kind::Hello, 0, &hello.0, None)?;
         let deadline = Instant::now() + Duration::from_secs(10);
         let count = loop {
             let frame = client.frame(deadline)?;
@@ -200,7 +222,12 @@ impl HolderClient {
                 Some(Kind::Welcome) => {
                     let mut input = In(&frame.payload);
                     client.version = input.u16()?;
-                    break input.u32()?;
+                    let count = input.u32()?;
+                    // An older holder grants nothing: it sends no field.
+                    // Only bits this daemon asked for count.
+                    let granted = input.u32().unwrap_or(0);
+                    client.granted = granted & wanted.unwrap_or(0);
+                    break count;
                 }
                 Some(Kind::Error) => return Err(io::Error::other("holder refused the token")),
                 _ => continue,
@@ -216,10 +243,17 @@ impl HolderClient {
         Ok((client, listed))
     }
 
-    /// The authenticated socket, the bytes already read past the handshake
-    /// and the settled wire version (for [`crate::link::HolderLink`]).
-    pub(crate) fn into_parts(self) -> (UnixStream, wire::Reader, u16) {
-        (self.stream, self.reader, self.version)
+    /// The authenticated socket, the bytes already read past the handshake,
+    /// the settled wire version and the granted capability bits (for
+    /// [`crate::link::HolderLink`]).
+    pub(crate) fn into_parts(self) -> (UnixStream, wire::Reader, u16, u32) {
+        (self.stream, self.reader, self.version, self.granted)
+    }
+
+    /// The [`wire::capability`] bits the holder's WELCOME granted (0 from a
+    /// holder older than them).
+    pub fn granted(&self) -> u32 {
+        self.granted
     }
 
     /// End the link now, as a daemon's death does: the holder reads its

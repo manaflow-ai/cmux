@@ -2,7 +2,7 @@ import AppKit
 import CmuxNextCompat
 import CmuxNextDesign
 public import CmuxNextDevices
-import CmuxNextWakeups
+public import CmuxNextWakeups
 public import Observation
 
 /// The host's approval prompt for a device hub request (permission Ask):
@@ -31,8 +31,11 @@ public final class MacScreenApprovalPrompt {
     @ObservationIgnored private var watch: Task<Void, Never>?
     /// Shows and hides the panel; tests replace it.
     @ObservationIgnored var present: @MainActor (Bool) -> Void = { _ in }
+    /// The app's main-thread scheduler: the panel's content follows the prompt on its frames.
+    let mainWork: MainWorkScheduler
 
-    public init() {
+    public init(mainWork: MainWorkScheduler) {
+        self.mainWork = mainWork
         present = { [weak self] visible in self?.setPanelVisible(visible) }
     }
 
@@ -61,7 +64,7 @@ public final class MacScreenApprovalPrompt {
         answering = false
         expiry.cancel()
         if let next {
-            expiry.schedule(after: lifetime) { @MainActor [weak self] in
+            expiry.scheduleOnMain(after: lifetime) { [weak self] in
                 guard let self, current?.id == next.id else { return }
                 settled.insert(next.id)
                 update(self.hub()?.pendingRequests ?? [])
@@ -176,6 +179,8 @@ final class MacScreenApprovalView: MacScreenThemedView {
                                             insets: NSEdgeInsets(top: 16, left: 16, bottom: 16, right: 16))
     private var buttons: [MacScreenButton] = []
     private(set) var shown: Shown?
+    /// What the prompt shows (`render(_:)` on a change).
+    private var watch: FrameObservation<Shown>?
 
     init(prompt: MacScreenApprovalPrompt) {
         self.prompt = prompt
@@ -198,7 +203,14 @@ final class MacScreenApprovalView: MacScreenThemedView {
             trailing,
             bottom,
         ])
-        render()
+        // node-free: the panel floats over every app, outside any window or tab, and exists only while a request waits.
+        let watch = FrameObservation(owner: "mac-screen.approval", delivery: .visible(nil), on: prompt.mainWork) { [prompt] in
+            Shown(request: prompt.current, error: prompt.error, answering: prompt.answering)
+        } onChange: { [weak self] next in
+            self?.render(next)
+        }
+        self.watch = watch
+        render(watch.value)
     }
 
     override var isFlipped: Bool { true }
@@ -214,12 +226,7 @@ final class MacScreenApprovalView: MacScreenThemedView {
         return NSSize(width: Self.width, height: ceil(stack.fittingSize.height))
     }
 
-    private func render() {
-        let next = withObservationTracking {
-            Shown(request: prompt.current, error: prompt.error, answering: prompt.answering)
-        } onChange: { [weak self] in
-            Task { @MainActor [weak self] in self?.render() }
-        }
+    private func render(_ next: Shown) {
         guard next != shown else { return }
         let before = shown
         shown = next

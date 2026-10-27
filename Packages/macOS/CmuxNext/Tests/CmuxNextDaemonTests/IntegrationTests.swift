@@ -1,3 +1,4 @@
+import CmuxNextWakeups
 import Foundation
 import Testing
 @testable import CmuxNextDaemon
@@ -113,6 +114,7 @@ struct IntegrationTests {
 
         let base = ProcessInfo.processInfo.environment
         let launcher = DaemonLauncher(
+            work: BackgroundWork(label: "test.daemon-launcher"),
             configuration: .init(binary: binary, session: session, stateDirectory: root.appendingPathComponent("state")),
             environment: { LoginEnvironment.shared.daemonEnvironment(login: nil, base: base, overrides: [:]) }
         )
@@ -233,6 +235,7 @@ struct IntegrationTests {
         let login = ["PATH": loginPath, "SHELL": "/bin/sh", "HOME": home.path]
         let environment = LoginEnvironment.shared.daemonEnvironment(login: login, base: finder, overrides: [:])
         let launcher = DaemonLauncher(
+            work: BackgroundWork(label: "test.daemon-launcher"),
             configuration: .init(binary: binary, session: session, stateDirectory: root.appendingPathComponent("state")),
             environment: { environment })
         let ensured = try await launcher.ensure()

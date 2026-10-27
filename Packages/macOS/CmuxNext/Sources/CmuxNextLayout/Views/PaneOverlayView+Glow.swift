@@ -47,6 +47,17 @@ extension PaneOverlayView {
         attentionLayer.add(hold, forKey: "attention-dismiss-glow")
     }
 
+    /// The ring's resize rides a render-server spring (`PaneOverlayView+RenderSpring`): a shadow path
+    /// is a fixed outline that Core Animation does not spring, so a glowing ring drops it until the
+    /// spring lands (``layoutLayers()`` puts it back) and its glow follows the ring's presented border.
+    func releaseGlowOutline() {
+        guard attentionLayer.shadowPath != nil, attentionLayer.shadowOpacity > 0, attentionLayer.opacity > 0 else { return }
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        attentionLayer.shadowPath = nil
+        CATransaction.commit()
+    }
+
     /// The outline a border of `width` inside a rounded rect of `size` draws, in
     /// the layer's coordinates: the glow's shadow path, so Core Animation needs no
     /// offscreen pass to find it.

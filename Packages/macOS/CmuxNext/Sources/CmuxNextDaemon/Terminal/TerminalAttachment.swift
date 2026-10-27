@@ -1,5 +1,6 @@
 public import Foundation
 import CmuxNextCompat
+public import CmuxNextTrace
 import CmuxNextWakeups
 import os
 
@@ -95,6 +96,12 @@ public actor TerminalAttachment: TerminalByteChannel {
     /// - Parameter snapshotVersion: the view's GHOSTSNP version. When the
     ///   host has ``snapshotCapability`` the attach asks for snapshots; the
     ///   host still answers with a byte replay when its version differs.
+    /// - Parameter hangs: watches the reader's handling of each output line
+    ///   (``LineTransport``'s `daemon.line` scope); nil watches nothing.
+    /// - Parameter createIntent: the `create.tab` intent id of the new tab whose terminal this first attach
+    ///   shows (``NewTerminalTrace/FirstAttach``): its stages are that create's instants. 0: a restore or a
+    ///   reattach, which writes none.
+    /// - Parameter inputQueue: the view's serial input queue; the socket writer drains on it (nil: its own queue).
     public static func attach(
         endpoint: DaemonEndpoint,
         target: Target,
@@ -104,18 +111,20 @@ public actor TerminalAttachment: TerminalByteChannel {
         localHistory: Bool = false,
         images: Bool = false,
         clientName: String = "cmux-next-terminal",
-        device: TerminalSizingDevice? = nil
+        device: TerminalSizingDevice? = nil,
+        hangs: (any HangWatchScoping)? = nil,
+        createIntent: UInt64 = 0,
+        inputQueue: DispatchQueue? = nil
     ) async throws -> TerminalAttachment {
         DaemonLaunchTimings.shared.mark("terminal.attach_start")
-        #if DEBUG || CMUX_BENCH_HOOKS
-        if NewTerminalTrace.shared.isArmed { NewTerminalTrace.shared.mark(.attachStart, surface: target.surface.rawValue) }
-        #endif
-        let transport = try LineTransport(path: endpoint.socketPath, bridge: endpoint.bridge)
+        NewTerminalTrace.shared.attachEvent(.attachStart, surface: target.surface.rawValue, intent: createIntent)
+        let transport = try await LineTransport.open(path: endpoint.socketPath, bridge: endpoint.bridge, role: .terminalAttach,
+                                                     stats: endpoint.wireStats, hangs: hangs, writerTarget: inputQueue)
         let attachment = TerminalAttachment(transport: transport, surface: target.surface)
         do {
             try await attachment.open(target: target, size: size, claimGeometry: claimGeometry,
                                       snapshotVersion: snapshotVersion, localHistory: localHistory,
-                                      images: images, clientName: clientName, device: device)
+                                      images: images, clientName: clientName, device: device, createIntent: createIntent)
         } catch {
             transport.close()
             throw error
@@ -126,7 +135,7 @@ public actor TerminalAttachment: TerminalByteChannel {
     private init(transport: LineTransport, surface: SurfaceID) {
         self.transport = transport
         resolvedSurface = SurfaceBox(surface)
-        let queue = TerminalEventQueue()
+        let queue = TerminalEventQueue(recorder: transport.recorder)
         self.queue = queue
         events = AsyncStream(unfolding: { await queue.next() }, onCancel: { queue.cancel() })
     }
@@ -136,19 +145,20 @@ public actor TerminalAttachment: TerminalByteChannel {
 
     private func open(target: Target, size: CellSize, claimGeometry: Bool, snapshotVersion: UInt16?,
                       localHistory: Bool, images: Bool, clientName: String,
-                      device: TerminalSizingDevice?) async throws {
+                      device: TerminalSizingDevice?, createIntent: UInt64) async throws {
         let queue = queue
         let control = control
         let resolvedSurface = resolvedSurface
         let sequencer = SequencerBox()
+        let decoder = transport.decoder
         transport.start(
             onEvent: { name, line, _ in
                 var surface = resolvedSurface.value.withLock { $0 }
-                if surface == Self.unresolvedSurface, let named = Self.initialSurface(name: name, line: line) {
+                if surface == Self.unresolvedSurface, let named = Self.initialSurface(name: name, line: line, decoder: decoder) {
                     resolvedSurface.value.withLock { $0 = named }
                     surface = named
                 }
-                guard let decoded = Self.decodeAttachLine(name: name, line: line, surface: surface),
+                guard let decoded = Self.decodeAttachLine(name: name, line: line, surface: surface, decoder: decoder),
                       let event = sequencer.value.withLock({ $0.admit(decoded) })
                 else { return }
                 if case .sizeState(let state, let selfParticipant) = event {
@@ -159,8 +169,9 @@ public actor TerminalAttachment: TerminalByteChannel {
                 if case .closed = event {
                     queue.finish(event)
                 } else {
-                    if case .output = event { TypingLatencyProbe.shared.mark(.outputDecoded) }
+                    if case .output = event { TypingLatencyProbe.shared.outputDecoded(flow: decoded.flow) }
                     queue.push(event)
+                    if let flow = decoded.flow { queue.pushWithoutWaiting(.inputEcho(flow: flow)) } // rides behind its chunk
                 }
             },
             onClose: { reason in
@@ -181,7 +192,7 @@ public actor TerminalAttachment: TerminalByteChannel {
                 capabilities: DaemonCapability.advertised + (device == nil ? [] : [DaemonCapability.sharedSizing.rawValue]),
                 deviceKind: device?.kind, deviceName: device?.name)),
         ], timeout: DaemonConnection.defaultRequestTimeout)
-        let identity = try WireCoding.decodeResponse(IdentifyRequest.Response.self, from: replies[0].get().line)
+        let identity = try WireCoding.decodeResponse(IdentifyRequest.Response.self, from: replies[0].get())
         _ = try replies[1].get()
         let useIdentity = identity.supports("attach-identity-v1") && target.terminalResourceID != nil
             && target.generation == identity.generation
@@ -200,9 +211,7 @@ public actor TerminalAttachment: TerminalByteChannel {
         )
         // The reply carries the replay (up to 32 MiB): a longer, still bounded deadline.
         let response = try await DaemonConnection.perform(request, on: transport, timeout: .seconds(10))
-        #if DEBUG || CMUX_BENCH_HOOKS
-        if NewTerminalTrace.shared.isArmed { NewTerminalTrace.shared.mark(.attachReplied, surface: target.surface.rawValue) }
-        #endif
+        NewTerminalTrace.shared.attachEvent(.attachReplied, surface: target.surface.rawValue, intent: createIntent)
         control.value.withLock { control in
             control.lease = response.lease
             control.lastReported = size
@@ -224,9 +233,7 @@ public actor TerminalAttachment: TerminalByteChannel {
         }
         queue.arm()
         DaemonLaunchTimings.shared.mark("terminal.attach_end")
-        #if DEBUG || CMUX_BENCH_HOOKS
-        if NewTerminalTrace.shared.isArmed { NewTerminalTrace.shared.mark(.attachEnd, surface: target.surface.rawValue) }
-        #endif
+        NewTerminalTrace.shared.attachEvent(.attachEnd, surface: target.surface.rawValue, intent: createIntent)
     }
 
     /// Passes `state` on with this view's participant, newest generation only. The participant is
@@ -266,7 +273,7 @@ public actor TerminalAttachment: TerminalByteChannel {
             }) { id in
                 try WireCoding.encodeRequest(SendInputRequest(surface: surface, bytes: data, flow: flow), id: id)
             }
-            TypingLatencyProbe.shared.mark(.socketSubmit)
+            if let flow { TypingLatencyProbe.shared.mark(.socketSubmit, flow: flow) }
         } catch {
             logger.debug("input dropped after close: \(String(describing: error), privacy: .public)")
         }

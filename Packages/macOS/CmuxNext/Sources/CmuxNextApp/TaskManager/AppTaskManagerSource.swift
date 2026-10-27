@@ -1,3 +1,4 @@
+import CmuxNextBridge
 import CmuxNextResources
 import CmuxNextWakeups
 import Foundation
@@ -5,12 +6,19 @@ import Foundation
 /// The Task Manager's samples: every tab and the shared processes through
 /// ``AppResourceSource`` (``ResourceTarget/everything``), plus this Mac's
 /// cmux-tui daemons. Runs only while a Task Manager page is open.
+///
+/// With `memorySaved` (`taskManagerMemorySaved`) each sample also lists the pages the browser
+/// hibernation discarded (`TabContentCache.dormantTabs`), each with the bytes it recorded at the
+/// discard (`BrowserHibernation.savedBytes`), and hands its page readings to the hibernation, so a
+/// page discarded while the Task Manager is open has its number.
 @MainActor
 final class AppTaskManagerSource: TaskManagerSampleSource {
     private weak var services: AppServices?
+    let memorySaved: Bool
 
-    init(services: AppServices) {
+    init(services: AppServices, memorySaved: Bool = false) {
         self.services = services
+        self.memorySaved = memorySaved
     }
 
     /// The pids of this Mac's connected daemons.
@@ -24,7 +32,12 @@ final class AppTaskManagerSource: TaskManagerSampleSource {
         var resources = await services.resources.sample(.everything)
         let daemons = localDaemonPIDs.sorted().map { ProcessKey(pid: $0) }
         for (key, sample) in await Self.sampleLocal(daemons.map(\.pid)) { resources.samples[key] = sample }
-        return TaskManagerSampleSet(resources: resources, daemons: daemons)
+        guard memorySaved else { return TaskManagerSampleSet(resources: resources, daemons: daemons) }
+        let cache = services.cache
+        cache.hibernation?.noteMemory(resources.browserPageMemory)
+        let discarded = TaskManagerDiscardedItem.list(in: resources.tabs, isDiscarded: { cache.dormantTabs.contains($0) },
+                                                      savedBytes: cache.hibernation?.savedBytes ?? [:])
+        return TaskManagerSampleSet(resources: resources, daemons: daemons, discarded: discarded)
     }
 
     @concurrent

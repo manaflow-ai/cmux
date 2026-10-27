@@ -8,7 +8,9 @@ import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextIcons
 import CmuxNextLayout
+import CmuxNextPages
 import CmuxNextTabs
+import CmuxNextWakeups
 import Observation
 import CmuxNextFocus
 
@@ -33,9 +35,10 @@ final class PaneController: SurfacePresenter, PresentablePane {
     /// How near the layout reports this pane to the viewport.
     private(set) var presence: SurfacePresence = .hidden
     var isVisible: Bool { presence == .visible }
+    var showsNewTabs: Bool { view.window != nil && !isSuspended && ActionRunScope.viewChangeAllowed() } // a tab created now shows: create.tab begins (p09-observability 030)
     var pendingDock: Set<String> = [] // chats bound for a new chat dock, never in this strip (NewChatPlacement)
     /// A tab this app just created here; selected once the daemon reports it (`selectWhenReported`).
-    var pendingSelectSurface: SurfaceID?  // set by selectWhenReported* (AgentBesidePlacement)
+    var pendingSelectSurface: SurfaceID? { didSet { if let oldValue, oldValue != pendingSelectSurface { services.cache.createTabs.dropped(surface: oldValue.rawValue) } } } // set by selectWhenReported* (AgentBesidePlacement); one replaced before it is listed ends its create.tab wait unsampled
     /// Same, named by tab resource id (a reopened tab's restored view).
     private(set) var pendingSelectTab: String?
     private var observation: Task<Void, Never>?
@@ -51,6 +54,15 @@ final class PaneController: SurfacePresenter, PresentablePane {
     /// Its workspace draws nothing (`WorkspaceContentController.drawsNothing`): no strip observation runs and
     /// no content is shown; `resume` maps the strip once and shows the selection then (PL-script A2).
     private(set) var isSuspended = false
+    /// Its slice of the launch window's build behind the picture showed it, or the build ended (p08-startup-060).
+    var launchReleased = false
+    var waitsForLaunchEnd = false // the launch held its content; its afterStartup post is on order (PaneSelectionPresenter)
+    /// This pane in the visibility tree (p06-scheduler.md B), under its workspace's node: hidden while
+    /// suspended. Not ``isVisible``, which is the layout's viewport presence.
+    let visibilityNode: VisibilityNode
+    /// The selected tab's node, own-visible under ``visibilityNode`` (`selectTabNode`). Held here, so
+    /// the cache keeps it while this pane selects the tab (`TabContentCache.node(for:)`).
+    private var selectedTabNode: VisibilityNode?
     #if DEBUG
     private(set) var debugSnapshotRuns = 0 // this pane's strip maps (`structure()`), read by tests
     #endif
@@ -82,12 +94,18 @@ final class PaneController: SurfacePresenter, PresentablePane {
         self.services = services
         self.state = state
         isSuspended = workspace?.drawsNothing == true // a pane made in a parked workspace starts suspended
-        view = PaneContentView(stripModel: stripModel)
+        let own: Visibility = isSuspended ? .hidden : .visible
+        // Under its workspace's node (p06-scheduler-023); a pane outside a workspace (tests) is a root.
+        let parent: VisibilityNode? = workspace.flatMap { $0.visibilityNode }
+        visibilityNode = parent.map { VisibilityNode("pane:\(pane.id)", own: own, parent: $0) }
+            ?? VisibilityNode(root: "pane:\(pane.id)", own: own)
+        view = PaneContentView(stripModel: stripModel, reveal: services.launchReveal, input: services.inputTap, node: visibilityNode, deadlines: services.mainDeadlines)
         stripModel.intentHandler = { [weak self] intent in self?.handle(intent) }
         view.stripView.previewProvider = services.previews
+        view.stripView.hoverFrameInput = services.hoverFrameInput  // hover once per frame (`pointerFrameHover`)
         view.stripView.resourceSource = services.resources
         view.stripView.contextMenuProvider = { [weak self] target in self?.contextMenu(for: target) }
-        view.stripView.hoverCards = services.hoverCards
+        view.stripView.attachHoverCards(services.hoverCards, memory: services.memoryCoordinator, energy: services.cache.hibernation?.highEnergy) // p07-memory-005, p14-energy-125
         view.stripView.onHoverTab = { [weak self] id in self?.noteHover(id) }
         view.stripView.newTabShortcut = { [weak services] in services?.registry.shortcutDisplay(for: StripNewTab.action) }
         view.onResize = { [weak services, weak paneView = view] in
@@ -115,6 +133,8 @@ final class PaneController: SurfacePresenter, PresentablePane {
         DebugTabSwitch.forget(self)
         view.dropParked()
         view.detachContent()
+        visibilityNode.set(.hidden) // a tab still selected here is hidden; one that moved away is its new pane's
+        selectedTabNode = nil
         services.surfaceInvariant.noteChange()
     }
 
@@ -155,9 +175,12 @@ final class PaneController: SurfacePresenter, PresentablePane {
     func suspend() {
         guard !isSuspended else { return }
         isSuspended = true
+        if let currentTabKey { services.cache.createTabs.hidden(currentTabKey) } // create.tab: hidden before its frame, no sample
         observation?.cancel(); observation = nil
         tabItems.cancelAll() // a title or busy-dot change in a parked workspace maps no tab item
         services.presentation.cancel(self)
+        DebugTabSwitch.forget(self) // a switch whose content never showed is not timed across the hidden time
+        visibilityNode.set(.hidden)
     }
 
     /// Its workspace draws again: one strip map (the observation starts over, tracked), whose apply
@@ -166,6 +189,8 @@ final class PaneController: SurfacePresenter, PresentablePane {
         guard isSuspended else { return }
         isSuspended = false
         observe()
+        // After the strip map: its selection changes flipped no tab, so only the tab selected now flips.
+        visibilityNode.set(.visible)
     }
 
     private func compose(_ structure: Snapshot, refresh: Bool = false) -> Snapshot {
@@ -174,6 +199,9 @@ final class PaneController: SurfacePresenter, PresentablePane {
         if structure.keepsFirstTab, !structure.tabs.isEmpty { result.items[0].isClosable = false }
         return result
     }
+
+    /// The tabs the strip leaves out: a dock-bound chat (`dockBound`) or a tab on its way to the side (`OutboundTab`).
+    var stripHidden: Set<String> { dockBound.union(OutboundTab.hidden(in: self)) }
 
     func structure(_ file: StaticString = #fileID, _ line: UInt = #line) -> Snapshot {
         #if DEBUG
@@ -185,8 +213,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
         // This pane's own workspace record: reading its fields observes them
         // only, never the workspace list (a lookup by pane would).
         let ownWorkspace = workspace?.workspace ?? store.workspace(containing: pane.handle)
-        // A dock-bound chat (`dockBound`) or a tab on its way to the side (`OutboundTab`) stays hidden.
-        let hidden = dockBound.union(OutboundTab.hidden(in: self))
+        let hidden = stripHidden
         var local: [StripTabItem] = []
         for tab in state?.localBrowserTabs[paneKey] ?? [] where !hidden.contains(tab.id) {
             let page = services.cache.existingBrowser(tab.id)?.tab.state
@@ -248,7 +275,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
         item.isDormant = services.cache.dormantTabs.contains(tab.id)
         if tab.kind == .remoteTerminal {
             // Its terminal runs on another machine: that machine's name.
-            (item.machineBadge, item.machineName) = services.remoteTerminals.badge(for: tab)
+            (item.machineBadge, item.machineName) = RemoteTerminalService.badge(for: tab, machines: services.machines)
             item.icon = .icon(.terminal)
         } else if tab.kind != .browser {
             (item.machineBadge, item.machineName) = (machine, machine.flatMap { _ in services.machines.machineName(daemon.machineID) })
@@ -256,7 +283,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
         } else {
             // A browser tab names the machine whose localhost it sees.
             let engine: BrowserEngineKind = tab.browserEngine == BrowserEngineTag.cef.rawValue ? .cef : .webkit
-            let badge = services.remoteLocalhost.badge(for: tab, url: tab.url.flatMap(URL.init(string:)), engine: engine)
+            let badge = tab.url.flatMap(URL.init(string:)).flatMap { services.machines.mayHaveLocalhostBadge($0, daemon: daemon) ? services.remoteLocalhost.badge(for: tab, url: $0, engine: engine) : nil }
             (item.machineBadge, item.machineBadgeHelp, item.machineName) = (badge?.text, badge?.help, services.machines.tabColorName(daemon.machineID, badge: badge?.text))
             // Incognito tabs have only a placeholder record in the daemon.
             let incognito = services.cache.browserTabs.isIncognitoTab(tab.id)
@@ -297,9 +324,10 @@ final class PaneController: SurfacePresenter, PresentablePane {
             noteNeighbors()  // a reorder, close or new tab moves the neighbors
         }
         if stripModel.showsNewTabButton != snapshot.takesNewTabs { stripModel.showsNewTabButton = snapshot.takesNewTabs }
-        if !snapshot.items.isEmpty { LaunchReveal.shared.markReady(.tabs) }
+        if !snapshot.items.isEmpty { services.launchReveal.markReady(.tabs) }
         var selectNew = false
         if let pending = pendingSelectSurface, let tab = snapshot.tabs.first(where: { $0.surface == pending }) { // once listed (OutboundTab)
+            if !isSuspended { NewTerminalTrace.shared.event(.tabAdded, of: services.cache.createTabs.listed(surface: pending.rawValue, tab: tab.id), value: pending.rawValue) } // create.tab waits for its frame; a new terminal marks tab_added
             state?.selection.select(tab.id, in: paneKey)
             pendingSelectSurface = nil
             selectNew = true
@@ -318,7 +346,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
         if selectNew {
             // A tab this window created: show it now (focus is the
             // coordinator's expectation, not decided here).
-            showSelected()
+            showSelectionNow()
         } else if let selectedID, selectedID.rawValue != currentTabKey {
             presentSelection() // a close selected the neighbor
         } else {
@@ -342,9 +370,26 @@ final class PaneController: SurfacePresenter, PresentablePane {
     /// Selects `id` on the strip; a newly selected tab is viewed (its title attention dot goes).
     func setStripSelection(_ id: StripTabID?) {
         if stripModel.selectedID != id { stripModel.selectedID = id }
+        selectTabNode(id?.rawValue)
         guard stripSelection != id?.rawValue else { return }
         stripSelection = id?.rawValue
         if let key = id?.rawValue, services.cache.pageRequests.titleAttention.viewed(key) { remapsViewedTab = true }
+    }
+
+    /// A tab is visible when it is selected in a visible pane (p06-scheduler.md B): in the selection's
+    /// turn, the selected tab's node goes own-visible under this pane's node and the one it replaces
+    /// own-hidden, as Chromium's `BrowserView::OnActiveTabChanged` (chrome/browser/ui/views/frame/browser_view.cc)
+    /// hides the old WebContents and shows the new one in one task. A tab that another pane selected
+    /// since (it moved there) belongs to that pane: it is not hidden from here.
+    private func selectTabNode(_ key: String?) {
+        let next = key.map { services.cache.node(for: $0) }
+        if let shown = selectedTabNode, shown !== next, shown.parent === visibilityNode { shown.set(.hidden) }
+        selectedTabNode = next
+        guard let next else { return }
+        // A no-op when it is already here. It cannot throw: a tab's node is a child (`TabContentCache.node(for:)`)
+        // and a pane's node is never below a tab's.
+        try? next.attach(to: visibilityNode)
+        next.set(.visible)
     }
 
     /// Marks the workspace's focus topology changed when this pane's part of it changed: the
@@ -370,7 +415,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
     /// action run without view-change permission (a CLI, script or agent
     /// run without `focus: true`) creates the tab in the background.
     func selectWhenReported(surface: SurfaceID) {
-        guard ActionRunScope.viewChangeAllowed() else { return apply(snapshot()) }
+        guard ActionRunScope.viewChangeAllowed() else { services.cache.createTabs.dropped(surface: surface.rawValue); return apply(snapshot()) } // a background create: no create.tab sample
         pendingSelectSurface = surface
         apply(snapshot())
     }
@@ -395,20 +440,26 @@ final class PaneController: SurfacePresenter, PresentablePane {
 
     // MARK: Content
 
-    func showSelected() {
+    /// Shows the selection now, also while the launch holds this pane (``showSelected()`` is the held path):
+    /// for an action that needs the tab's live content, a CLI, socket or agent target or a tab this window created.
+    func showSelectionNow() {
         guard !isSuspended else { return } // `resume`'s apply shows the selection then
-        let key = stripModel.selectedID?.rawValue
+        let key = stripModel.selectedID?.rawValue, previous = currentTabKey, buildsAtLaunch = buildsContentAtLaunch
         if key != currentTabKey {
             InputJournal.shared.append(window: state?.id, .content(tab: key ?? "-", event: "show pane=\(paneKey) from=\(currentTabKey ?? "-")"))
             // Another tab's last page from the launch must not stay under this one.
-            view.clearLaunchImage()
+            view.clearLaunchImage(.noVisiblePane)
         }
         if let currentTabKey, currentTabKey != key { BenchSpans.measure("switch.withdraw") { services.cache.withdraw(currentTabKey, by: self) } }
         DebugTabSwitch.mark(self, "withdraw")
         // May replace a stale surface, displacing the view shown here.
         let content = BenchSpans.measure("switch.content") { key.flatMap(content(for:)) }
+        if buildsAtLaunch, content != nil { services.launchPanes.noteBuilt() }
         DebugTabSwitch.mark(self, "content")
-        if let content { DebugTabSwitch.kind(self, content.switchKind) }
+        if let content, let key { DebugTabSwitch.content(self, content, key: key) }
+        // The tab's node is the one `selectTabNode` made visible; a no-op when the content follows it already.
+        if let content, let key { content.followAppearance(services.appearance, node: services.cache.node(for: key)) }
+        if let content, let key { content.followVisibility(services.cache.node(for: key), services: services) }
         currentTabKey = key
         services.themes.applyPaneBackground(self) // a tab's own tint (no work while nothing is set)
         if let key, content != nil { BenchSpans.measure("switch.present") { services.cache.present(key, by: self, presence: presence) } }
@@ -416,10 +467,17 @@ final class PaneController: SurfacePresenter, PresentablePane {
         if view.stripView.window != nil { BenchSpans.measure("switch.strip") { view.stripView.syncFromModel() } } // strip + content: one transaction (L4)
         DebugTabSwitch.mark(self, "stripSync")
         BenchSpans.measure("switch.view") { _ = view.show(content?.view) }
-        DebugTabSwitch.mark(self, "view")
+        // A browser tab (its page made or not yet) shows its page's picture from the last quit over it (p08-startup-043).
+        switch content {
+        case .browser?, nil: if let key { services.cache.showLaunchPicture(key, in: view, hold: services.launchImageHold, reveal: services.launchReveal) }
+        default: break
+        }
+        DebugTabSwitch.contentShown(self, key: key)
+        if services.cache.createTabs.isWaiting { services.cache.createTabs.switched(from: previous, to: key, firstFrame: content?.createTabFirstFrame) } // create.tab: one hidden first ends unsampled
         // Terminals come in on their first frame (`LaunchSettle`), or at once with their frame from the last
-        // quit (`TerminalLaunchFrames`); other content (a page, an agent) is ready once shown.
-        if case .terminal(let terminal) = content, let key { if terminal.session.showLaunchFrame(key, beside: services.environment.sidebarSnapshotFile?.url.deletingLastPathComponent(), in: view.contentHost) { DebugTimings.markLaunch("terminal.launch_frame_shown") } } else if content != nil { LaunchReveal.shared.markReady(.pane) }
+        // quit (`TerminalLaunchFrames`); other content (a page, an agent) is ready once shown, and a page's
+        // first paint while shown is the launch's `first_page_frame`.
+        if case .terminal(let terminal) = content, let key { if terminal.session.showLaunchFrame(key, beside: services.environment.sidebarSnapshotFile?.url.deletingLastPathComponent(), in: view.contentHost, reveal: services.launchReveal) { DebugTimings.markLaunch("terminal.launch_frame_shown") } } else if let content { services.launchReveal.markReady(.pane); if let key { DebugTimings.markFirstPageFrame(of: content.view, node: services.cache.node(for: key)) } }
         // The content view exists now: the coordinator re-applies focus if
         // this pane has it (content is shown a frame after selection).
         if workspace?.isParked == false { BenchSpans.measure("switch.focus") { workspace?.focus.send(.contentPresented(pane: paneKey)) } }
@@ -444,13 +502,18 @@ final class PaneController: SurfacePresenter, PresentablePane {
         return tab.kind == .pty && !tab.dead
     }
 
+    /// The Chromium window this pane's page tabs share (p13-webui-063); nil while the pane is in no window.
+    var pageChromiumWindow: PageChromiumWindow? {
+        state.map { PageChromiumWindow(window: $0.id, pane: paneKey) }
+    }
+
     /// This pane is its workspace's focused pane.
     var isFocusedInWorkspace: Bool {
         workspace?.focus.state.pane == paneKey
     }
 
     func content(for key: String) -> TabContent? {
-        if key.hasPrefix(LocalPageTab.prefix) { return services.pages.view(for: key).map(TabContent.page) }
+        if key.hasPrefix(LocalPageTab.prefix) { return services.pages.view(for: key, in: pageChromiumWindow).map(TabContent.page) }
         if key.hasPrefix(LocalBrowserTab.prefix) {
             let local = state?.localBrowserTabs[paneKey].first { $0.id == key }
             // A local tab of an incognito window uses its off-the-record profile.
@@ -469,7 +532,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
         case .conversation where tab.agentSession != nil: return AgentTabContent(pane: self).content(key)
         case .conversation where tab.page != nil:
             return services.pages.view(forStoreTab: tab, in: daemon.store, local: daemon.isLocal,
-                                       window: state.flatMap { services.windows.controller(for: $0.id) })
+                                       window: state.flatMap { services.windows.controller(for: $0.id) }, pane: pageChromiumWindow)
                 .map(TabContent.page)
         case .conversation: return services.home.tabView(for: tab).map(TabContent.conversation)
         default:
@@ -486,16 +549,9 @@ final class PaneController: SurfacePresenter, PresentablePane {
         if let view = services.agentTabs.existingView(key) { return .agent(view) }
         if let notice = services.agentTabs.notices[services.agentTabs.resolve(key)] { return .notice(notice) }
         if let view = services.pages.existingView(key) { return .page(view) }
-        if let placeholder = services.remoteTerminals.existingPlaceholder(key) { return .placeholder(placeholder) }
+        if let placeholder = services.madeRemoteTerminals?.existingPlaceholder(key) { return .placeholder(placeholder) }
         if let home = services.home.existingTabView(key) { return .conversation(home) }
         return services.cache.existingBrowser(key).map(TabContent.browser)
-    }
-
-    /// True when showing the selection needs no new surface or page.
-    var selectedContentIsAlive: Bool {
-        guard let key = stripModel.selectedID?.rawValue else { return true }
-        return (key == currentTabKey && view.hostsContent) || services.cache.hasContent(for: key)
-            || services.agentTabs.existingView(key) != nil || services.pages.existingView(key) != nil
     }
 
     /// The layout reported this pane on screen, in the keep-alive band, or away.
@@ -509,8 +565,8 @@ final class PaneController: SurfacePresenter, PresentablePane {
         // the pane nears the viewport, so it is ready before it scrolls in.
         if presence != .hidden, stripModel.selectedID != nil, currentTabKey == nil || !view.hostsContent {
             // On screen: show now (a split's new pane draws with the layout
-            // change, no blank frame), within the one-surface-per-frame budget.
-            if presence == .visible {
+            // change, no blank frame), within the one-surface-per-frame budget; at launch the focused pane first.
+            if presence == .visible, !showsAfterFocusedAtLaunch {
                 services.presentation.showNow(self)
             } else {
                 services.presentation.setNeedsShowSelected(self)

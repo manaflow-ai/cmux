@@ -24,6 +24,7 @@
 //! The home folder is never a default: only the user's answer in the pane
 //! starts one chat there.
 
+use cmux_threads::checked::fs as files;
 use std::path::{Path, PathBuf};
 
 use serde_json::{Value, json};
@@ -90,7 +91,7 @@ fn safe_id(id: &str) -> bool {
 }
 
 fn canonical(path: &Path) -> PathBuf {
-    std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf())
+    files::canonicalize(path).unwrap_or_else(|_| path.to_path_buf())
 }
 
 /// `path` canonical when it is a start folder, else why not.
@@ -106,7 +107,7 @@ pub(crate) fn check(
     {
         return Err(Skip::Missing);
     }
-    let folder = std::fs::canonicalize(path).map_err(|_| Skip::Missing)?;
+    let folder = files::canonicalize(path).map_err(|_| Skip::Missing)?;
     if !folder.is_dir() {
         return Err(Skip::Missing);
     }
@@ -133,7 +134,7 @@ pub(crate) fn check(
 /// under the agent-home base named by a workspace id.
 fn named_agent_home(seed: &str, base: Option<&Path>) -> Option<PathBuf> {
     let base = canonical(base?);
-    let folder = std::fs::canonicalize(seed).ok()?;
+    let folder = files::canonicalize(seed).ok()?;
     let named = folder.file_name()?.to_str().is_some_and(safe_id);
     (named && folder.is_dir() && folder.parent() == Some(base.as_path())).then_some(folder)
 }
@@ -238,6 +239,7 @@ pub(crate) fn tab_folders(snapshot: &Value, workspace: &str) -> Vec<String> {
 
 impl Mux {
     /// `workspace.agent_start.get`.
+    #[track_caller]
     pub(crate) fn agent_start(
         &self,
         selectors: &crate::ResourceSelectors,

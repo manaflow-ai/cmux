@@ -8,6 +8,7 @@ import table from "./generated/strings.json";
 import { FilesPage } from "./FilesPage";
 import { MockFilesProvider } from "./mockProvider";
 import { FilesStore } from "./store";
+import { FilesOps } from "./types";
 import "../shared/pageBase.css";
 import "./styles.css";
 
@@ -17,7 +18,14 @@ export function mountFilesPage(root: HTMLElement, client: PageClient | null = de
   document.documentElement.lang = strings.language;
   document.title = strings.t("files.page.title");
   createRoot(root).render(<FilesPage store={store} strings={strings} />);
-  void store.start();
+  const scroller = () => root.querySelector<HTMLElement>(".files-scroll");
+  // Before the host discards the hidden page: the open folders, the selection and the scroll its
+  // next page goes back to, once its folders listed again (the next frame lays them out).
+  client?.handle(FilesOps.viewState, () => store.viewState(scroller()?.scrollTop ?? 0));
+  void store.start().then(() => {
+    const scroll = store.takeRestoredScroll();
+    if (scroll) requestAnimationFrame(() => scroller()?.scrollTo({ top: scroll }));
+  });
   // Coming back to the tab lists the open folders again: an agent may have changed them.
   document.addEventListener("visibilitychange", () => {
     if (document.visibilityState === "visible") void store.refresh();

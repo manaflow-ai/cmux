@@ -1,9 +1,13 @@
 public import AppKit
+import CmuxNextInputCore
 import GhosttyNextKit
 
 // Mouse, scroll, pressure, and cursor shape. Ghostty turns these into
 // selection or, when the program enabled a mouse mode, into mouse reports
-// that come back through `io_write_cb` (ghostty.h:1643-1655).
+// that come back through `io_write_cb` (ghostty.h:1643-1655). With the
+// feature `terminalPointerFrames`, moves, drags and mouse-reporting trackpad
+// scrolls reach Ghostty at most twice per frame (``TerminalPointerFrames``);
+// every other event delivers what is pending first.
 extension TerminalSurfaceView {
     public override func updateTrackingAreas() {
         if let trackingArea { removeTrackingArea(trackingArea) }
@@ -20,6 +24,7 @@ extension TerminalSurfaceView {
     public override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
     public override func mouseDown(with event: NSEvent) {
+        pointerFrames?.flush()
         session?.surfaceClicked()
         if !isFirstResponder { window?.makeFirstResponder(self) }
         // A Cmd-press on a URL a program broke onto rows is this view's (TerminalLinkPointer).
@@ -28,95 +33,135 @@ extension TerminalSurfaceView {
     }
 
     public override func mouseUp(with event: NSEvent) {
+        pointerFrames?.flush()
         previousPressureStage = 0
         defer {
             linkPressInCapture = false
-            if let surface { ghostty_surface_mouse_pressure(surface, 0, 0) }
+            mouse.pressure(stage: 0, pressure: 0)
         }
         if linkPointer.mouseUp(event) { return }
         sendButton(event, state: GHOSTTY_MOUSE_RELEASE, button: GHOSTTY_MOUSE_LEFT, phase: .followingPress)
     }
 
     public override func otherMouseDown(with event: NSEvent) {
+        pointerFrames?.flush()
         sendButton(event, state: GHOSTTY_MOUSE_PRESS, button: Self.button(for: event.buttonNumber))
     }
 
     public override func otherMouseUp(with event: NSEvent) {
+        pointerFrames?.flush()
         sendButton(event, state: GHOSTTY_MOUSE_RELEASE, button: Self.button(for: event.buttonNumber))
     }
 
     /// When the program captured the mouse the right button goes to it;
     /// otherwise AppKit shows ``menu(for:)``.
     public override func rightMouseDown(with event: NSEvent) {
+        pointerFrames?.flush()
         if sendButton(event, state: GHOSTTY_MOUSE_PRESS, button: GHOSTTY_MOUSE_RIGHT) { return }
         super.rightMouseDown(with: event)
     }
 
     public override func rightMouseUp(with event: NSEvent) {
+        pointerFrames?.flush()
         if sendButton(event, state: GHOSTTY_MOUSE_RELEASE, button: GHOSTTY_MOUSE_RIGHT) { return }
         super.rightMouseUp(with: event)
     }
 
-    public override func mouseMoved(with event: NSEvent) {
+    public override func mouseMoved(with event: NSEvent) { // perf-hot: 1ms terminal-pointer (every move over a terminal)
         linkPointer.movedWithoutButton()
+        if pointerFrames?.post(event, in: window) == true { return }
         sendPosition(event)
     }
-    public override func mouseDragged(with event: NSEvent) { sendPosition(event, phase: .followingPress) }
-    public override func rightMouseDragged(with event: NSEvent) { sendPosition(event) }
-    public override func otherMouseDragged(with event: NSEvent) { sendPosition(event) }
-    public override func mouseEntered(with event: NSEvent) { sendPosition(event) }
+
+    public override func mouseDragged(with event: NSEvent) { // perf-hot: 1ms terminal-pointer (every left drag event)
+        if pointerFrames?.post(event, in: window) == true { return }
+        sendPosition(event, phase: .followingPress)
+    }
+
+    public override func rightMouseDragged(with event: NSEvent) {
+        if pointerFrames?.post(event, in: window) == true { return }
+        sendPosition(event)
+    }
+
+    public override func otherMouseDragged(with event: NSEvent) {
+        if pointerFrames?.post(event, in: window) == true { return }
+        sendPosition(event)
+    }
+
+    public override func mouseEntered(with event: NSEvent) {
+        pointerFrames?.flush()
+        sendPosition(event)
+    }
 
     /// Moves Ghostty's pointer off-grid so link hover state clears.
     public override func mouseExited(with event: NSEvent) {
+        pointerFrames?.flush()
         linkPointer.exited()
-        guard let surface else { return }
-        ghostty_surface_mouse_pos(surface, -1, -1, GhosttyInput.mods(event.modifierFlags))
+        mouse.position(x: -1, y: -1, mods: GhosttyInput.mods(event.modifierFlags))
     }
 
-    public override func scrollWheel(with event: NSEvent) {
-        guard let surface else { return }
-        // The wheel goes with the real keys: a Cmd-hover's added Shift must not turn it sideways
-        // in a program that has the mouse.
-        if pointerFlags(event.modifierFlags) != event.modifierFlags {
-            let point = convert(event.locationInWindow, from: nil)
-            ghostty_surface_mouse_pos(surface, point.x, bounds.height - point.y, GhosttyInput.mods(event.modifierFlags))
+    /// A trackpad scroll while the program has the mouse waits for the frame, summed per phase
+    /// (``TerminalPointerFrames``); a scroll through the scrollback and a wheel's lines go at once.
+    public override func scrollWheel(with event: NSEvent) { // perf-hot: 1ms terminal-pointer (every scroll event)
+        if let pointerFrames, event.hasPreciseScrollingDeltas, scrollReportsToProgram(event),
+           pointerFrames.post(event, in: window) { return }
+        pointerFrames?.flush()
+        sendScroll(x: event.scrollingDeltaX, y: event.scrollingDeltaY, precise: event.hasPreciseScrollingDeltas,
+                   momentum: Self.momentum(event.momentumPhase), flags: event.modifierFlags,
+                   at: convert(event.locationInWindow, from: nil))
+    }
+
+    /// One delivery of ``TerminalPointerFrames``: a move or drag at its latest point, or a scroll
+    /// phase's summed distance, with the latest event's keys.
+    func deliverPointer(_ input: PointerCoalescedInput) { // perf-hot: 1ms terminal-pointer (each leading or trailing delivery)
+        guard window != nil else { return }
+        let latest = input.latest
+        let flags = NSEvent.ModifierFlags(rawValue: latest.modifierFlags.rawValue)
+        let point = convert(NSPoint(x: latest.location.x, y: latest.location.y), from: nil)
+        switch input.kind {
+        case .move:
+            sendPosition(at: point, flags: flags, phase: .move)
+        case .drag:
+            sendPosition(at: point, flags: flags, phase: latest.type == .leftMouseDragged ? .followingPress : .move)
+        case .scroll:
+            sendScroll(x: input.scrollDelta.x, y: input.scrollDelta.y, precise: latest.hasPreciseScrollingDeltas,
+                       momentum: Self.momentum(latest.scrollPhase), flags: flags, at: point)
         }
-        var deltaX = event.scrollingDeltaX
-        var deltaY = event.scrollingDeltaY
-        let precise = event.hasPreciseScrollingDeltas
-        if precise {
-            // Same trackpad gain Ghostty.app applies before
-            // `mouse-scroll-multiplier`, so scrolling feels identical.
-            deltaX *= 2
-            deltaY *= 2
-        }
-        ghostty_surface_mouse_scroll(surface, deltaX, deltaY, Self.scrollMods(precise: precise, phase: event.momentumPhase))
     }
 
     public override func pressureChange(with event: NSEvent) {
-        guard let surface else { return }
-        ghostty_surface_mouse_pressure(surface, UInt32(max(event.stage, 0)), Double(event.pressure))
+        sendPressure(stage: event.stage, pressure: event.pressure)
         // Force click (stage 2) opens Quick Look once per press.
         defer { previousPressureStage = event.stage }
-        guard previousPressureStage < 2, event.stage == 2,
+        guard surface != nil, previousPressureStage < 2, event.stage == 2,
               UserDefaults.standard.bool(forKey: "com.apple.trackpad.forceClick") else { return }
         quickLook(with: event)
     }
 
+    /// A force-touch stage and pressure: Ghostty applies it at its last pointer position, so the
+    /// moves and drags waiting for the frame go first.
+    func sendPressure(stage: Int, pressure: Float) {
+        pointerFrames?.flush()
+        mouse.pressure(stage: UInt32(max(stage, 0)), pressure: Double(pressure))
+    }
+
+    /// Ghostty looks up the word at its last pointer position: the waiting moves and drags go first.
     public override func quickLook(with event: NSEvent) {
+        pointerFrames?.flush()
         guard let surface else { return super.quickLook(with: event) }
-        var text = ghostty_text_s()
-        guard ghostty_surface_quicklook_word(surface, &text) else { return super.quickLook(with: event) }
-        defer { ghostty_surface_free_text(surface, &text) }
-        guard let pointer = text.text, text.text_len > 0 else { return super.quickLook(with: event) }
-        let word = String(decoding: UnsafeRawBufferPointer(start: pointer, count: Int(text.text_len)), as: UTF8.self)
+        // SAFETY: the view's live surface (TerminalSurfaceView.surface).
+        guard let read = unsafe GhosttyTextRead(quickLookWordOf: surface), !read.bytes.isEmpty else {
+            return super.quickLook(with: event)
+        }
         var attributes: [NSAttributedString.Key: Any] = [:]
-        if let fontPointer = ghostty_surface_quicklook_font(surface) {
-            attributes[.font] = Unmanaged<CTFont>.fromOpaque(fontPointer).takeRetainedValue()
+        // SAFETY: the view's live surface (TerminalSurfaceView.surface).
+        if let font = unsafe GhosttyTextRead.quickLookFont(surface) {
+            attributes[.font] = font
         }
         // Ghostty reports the word's top-left in points, top-left origin;
         // the baseline sits one cell lower.
-        let point = NSPoint(x: text.tl_px_x, y: bounds.height - text.tl_px_y - cellPointSize.height)
+        let point = NSPoint(x: read.topLeft.x, y: bounds.height - read.topLeft.y - cellPointSize.height)
+        let word = read.string
         showDefinition(for: NSAttributedString(string: word, attributes: attributes), at: point)
     }
 
@@ -178,27 +223,54 @@ extension TerminalSurfaceView {
     @discardableResult
     private func sendButton(_ event: NSEvent, state: ghostty_input_mouse_state_e, button: ghostty_input_mouse_button_e,
                             phase: TerminalPointerMods.Phase? = nil, position: Bool = true) -> Bool {
-        guard let surface else { return false }
         if position { sendPosition(event, phase: phase ?? .move) }
         let flags = phase.map { pointerMods(event.modifierFlags).flags(event.modifierFlags, phase: $0) } ?? event.modifierFlags
         return clipboardRequests.asUserClipboardWrite {
-            ghostty_surface_mouse_button(surface, state, button, GhosttyInput.mods(flags))
+            mouse.button(state, button, mods: GhosttyInput.mods(flags))
         }
     }
 
     private func sendPosition(_ event: NSEvent, phase: TerminalPointerMods.Phase = .move) {
-        guard let surface else { return }
-        let point = convert(event.locationInWindow, from: nil)
+        sendPosition(at: convert(event.locationInWindow, from: nil), flags: event.modifierFlags, phase: phase)
+    }
+
+    /// The pointer at `point` (view coordinates) with `flags` held.
+    private func sendPosition(at point: NSPoint, flags: NSEvent.ModifierFlags, phase: TerminalPointerMods.Phase) {
         // Ghostty expects points with a top-left origin.
-        ghostty_surface_mouse_pos(surface, point.x, bounds.height - point.y, GhosttyInput.mods(pointerFlags(event.modifierFlags, phase: phase)))
-        if phase == .move { linkPointer.moved(to: point, flags: event.modifierFlags) }
+        mouse.position(x: point.x, y: bounds.height - point.y, mods: GhosttyInput.mods(pointerFlags(flags, phase: phase)))
+        if phase == .move { linkPointer.moved(to: point, flags: flags) }
+    }
+
+    /// A scroll of (`x`, `y`) with the pointer at `point` (view coordinates) and `flags` held.
+    private func sendScroll(x: Double, y: Double, precise: Bool, momentum: ghostty_input_mouse_momentum_e,
+                            flags: NSEvent.ModifierFlags, at point: NSPoint) {
+        // The wheel goes with the real keys: a Cmd-hover's added Shift must not turn it sideways
+        // in a program that has the mouse.
+        if pointerFlags(flags) != flags {
+            mouse.position(x: point.x, y: bounds.height - point.y, mods: GhosttyInput.mods(flags))
+        }
+        // Same trackpad gain Ghostty.app applies before `mouse-scroll-multiplier`, so scrolling
+        // feels identical.
+        let gain = precise ? 2.0 : 1.0
+        mouse.scroll(x: x * gain, y: y * gain, mods: Self.scrollMods(precise: precise, momentum: momentum))
+    }
+
+    /// Whether the program gets this scroll as mouse reports, by ``TerminalMouseCapture``'s last
+    /// answer. A gesture's first event, or one with no phase, asks again, so a program that turned
+    /// reporting on or off is heard from the next events on.
+    private func scrollReportsToProgram(_ event: NSEvent) -> Bool {
+        let startsGesture = event.phase.contains(.began) || event.phase.contains(.mayBegin)
+            || (event.phase.isEmpty && event.momentumPhase.isEmpty)
+        if startsGesture { mouseCapture.refresh() }
+        return mouseCapture.programHasMouse
     }
 
     /// The pointer state ``TerminalPointerMods`` decides from. The capture check takes the
     /// terminal's lock, so it runs only with Command alone held (or during a link click).
     func pointerMods(_ flags: NSEvent.ModifierFlags) -> TerminalPointerMods {
         let asks = TerminalPointerMods.commandOnly(flags) || TerminalPointerMods.commandChord(flags) || linkPressInCapture
-        let captured = asks && surface.map { ghostty_surface_mouse_captured($0) } == true
+        // SAFETY: the view's live surface (TerminalSurfaceView.surface).
+        let captured = unsafe asks && surface.map { unsafe ghostty_surface_mouse_captured($0) } == true
         return TerminalPointerMods(captured: captured, overLink: session?.model.hoveredLink != nil, linkPress: linkPressInCapture)
     }
 
@@ -227,7 +299,16 @@ extension TerminalSurfaceView {
     /// Packed `ghostty_input_scroll_mods_t` (src/input/mouse.zig): bit 0 is
     /// precision, bits 1-3 the momentum phase.
     static func scrollMods(precise: Bool, phase: NSEvent.Phase) -> ghostty_input_scroll_mods_t {
-        let momentum: ghostty_input_mouse_momentum_e = switch phase {
+        scrollMods(precise: precise, momentum: momentum(phase))
+    }
+
+    static func scrollMods(precise: Bool, momentum: ghostty_input_mouse_momentum_e) -> ghostty_input_scroll_mods_t {
+        ghostty_input_scroll_mods_t((precise ? 1 : 0) | (Int32(momentum.rawValue) << 1))
+    }
+
+    /// Ghostty's momentum of an event's `momentumPhase`.
+    static func momentum(_ phase: NSEvent.Phase) -> ghostty_input_mouse_momentum_e {
+        switch phase {
         case .began: GHOSTTY_MOUSE_MOMENTUM_BEGAN
         case .stationary: GHOSTTY_MOUSE_MOMENTUM_STATIONARY
         case .changed: GHOSTTY_MOUSE_MOMENTUM_CHANGED
@@ -236,6 +317,15 @@ extension TerminalSurfaceView {
         case .mayBegin: GHOSTTY_MOUSE_MOMENTUM_MAY_BEGIN
         default: GHOSTTY_MOUSE_MOMENTUM_NONE
         }
-        return ghostty_input_scroll_mods_t((precise ? 1 : 0) | (Int32(momentum.rawValue) << 1))
+    }
+
+    /// Ghostty's momentum of a coalesced scroll: a momentum run (its began merged with its changes)
+    /// or the run's end; a scroll with the fingers down has none, as its events' `momentumPhase`.
+    static func momentum(_ phase: InputScrollPhase) -> ghostty_input_mouse_momentum_e {
+        switch phase {
+        case .momentum: GHOSTTY_MOUSE_MOMENTUM_CHANGED
+        case .momentumEnded: GHOSTTY_MOUSE_MOMENTUM_ENDED
+        case .none, .mayBegin, .began, .changed, .ended, .cancelled: GHOSTTY_MOUSE_MOMENTUM_NONE
+        }
     }
 }

@@ -512,31 +512,22 @@ fn in_app_bundle(path: &Path) -> bool {
 /// The first `X.Y.Z` that `<cli> --version` prints, within
 /// [`VERSION_TIMEOUT`]; `None` when it fails, hangs or prints none.
 fn version_of(cli: &Path) -> Option<String> {
+    use cmux_process::{Command, Stdio};
     use std::io::Read;
-    let mut child = std::process::Command::new(cli)
+    let mut child = Command::new(cli)
         .arg("--version")
         // The MCP server's proxied servers and their tokens stay with it.
         .env_remove("CMUX_MCP_UPSTREAMS")
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::null())
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
         .spawn()
         .ok()?;
-    let deadline = std::time::Instant::now() + VERSION_TIMEOUT;
-    loop {
-        match child.try_wait() {
-            Ok(Some(_)) => break,
-            Ok(None) if std::time::Instant::now() < deadline => {
-                // A bounded wait for one child, polled in 20 ms steps: std has
-                // no wait with a timeout, and the doctor is a one-shot command.
-                std::thread::sleep(std::time::Duration::from_millis(20));
-            }
-            _ => {
-                let _ = child.kill();
-                let _ = child.wait();
-                return None;
-            }
-        }
+    // wakeup-allow: cli-only `cmux agents doctor`'s one bound on an agent's --version; its exit ends the wait first
+    if !matches!(child.wait_timeout(VERSION_TIMEOUT), Ok(Some(_))) {
+        let _ = child.kill();
+        let _ = child.wait();
+        return None;
     }
     let mut text = String::new();
     child.stdout.take()?.take(4096).read_to_string(&mut text).ok()?;

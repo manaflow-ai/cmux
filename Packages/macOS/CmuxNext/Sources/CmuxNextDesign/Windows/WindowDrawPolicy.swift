@@ -61,8 +61,10 @@ public nonisolated struct SurfaceDrawInputs: Equatable, Sendable {
 /// terminals today) and for the blank-pane invariant.
 ///
 /// Content in a window draws while AppKit reports the window at least partly
-/// on screen (`occlusionState` contains `.visible`); nothing here guesses
-/// visibility, and key or active state plays no part. While the window is
+/// on screen (`occlusionState` contains `.visible`, not miniaturized): the
+/// rule of ``WindowVisibilitySource/appKitState(of:)``, read live, the same
+/// rule that feeds the window's node; nothing here guesses visibility, and
+/// key or active state plays no part. While the window is
 /// occluded, surfaces stop drawing (energy saving) and keep their state; when
 /// it is visible again each surface draws its current content at once
 /// (Ghostty's renderer draws on its `.visible` message).
@@ -72,10 +74,20 @@ public nonisolated struct SurfaceDrawInputs: Equatable, Sendable {
 /// start the app on a host where it is never in front) keep occluded windows
 /// drawing, so captures show content. The same rule as React pages
 /// (`PageWebView.rendersWhenCovered`). Users keep the energy saving.
+/// `CMUX_NEXT_BENCH_SHIPPING_DRAW=1` (idle-budget's shipping measurement
+/// mode) gives an automation launch the user's draw (``drawsOccludedWindows(_:)``),
+/// so an energy bench measures what users run. It changes only the draw:
+/// the launch stays an automation launch for notifications and attention
+/// (``isAutomationLaunch(_:)``).
 @MainActor
 public struct WindowDrawPolicy {
     public init() {}
-    /// Whether a launch with `environment` draws occluded windows.
+    /// The environment key of the shipping measurement mode's draw.
+    nonisolated public static let shippingDrawKey = "CMUX_NEXT_BENCH_SHIPPING_DRAW"
+
+    /// Whether a launch with `environment` is an automation launch of a DEBUG build (e2e scripts, GUI
+    /// proofs, benches). The draw rule starts from it; `DesktopNotifier` and the iPhone pairing's Dock
+    /// bounce read it too.
     nonisolated public static func isAutomationLaunch(_ environment: [String: String]) -> Bool {
         #if DEBUG
         return environment["CMUX_NEXT_NO_ACTIVATE"] == "1" || environment["CMUX_NEXT_SOCKET_MODE"] == "automation"
@@ -84,15 +96,47 @@ public struct WindowDrawPolicy {
         #endif
     }
 
-    /// Whether occluded windows draw in this launch (tests set it).
-    public internal(set) static var drawsWhenOccluded = isAutomationLaunch(ProcessInfo.processInfo.environment)
+    /// Whether a launch with `environment` draws occluded windows: an automation launch, unless it
+    /// asks for the user's draw (``shippingDrawKey``).
+    nonisolated public static func drawsOccludedWindows(_ environment: [String: String]) -> Bool {
+        isAutomationLaunch(environment) && environment[shippingDrawKey] != "1"
+    }
 
-    /// AppKit's answer: `occlusionState` contains `.visible`. Tests replace
-    /// it to drive occlude and un-occlude transitions without a screen.
-    static var onScreen: (NSWindow) -> Bool = { $0.occlusionState.contains(.visible) }
+    /// Whether occluded windows draw in this launch (tests set it).
+    public internal(set) static var drawsWhenOccluded = drawsOccludedWindows(ProcessInfo.processInfo.environment)
+
+    /// AppKit's live answer (``WindowVisibilitySource/appKitState(of:)``).
+    /// Tests replace it to drive occlude and un-occlude transitions without a
+    /// screen.
+    static var onScreen: (NSWindow) -> Bool = { WindowVisibilitySource.appKitState(of: $0).isVisible }
 
     /// Whether `window` is at least partly on screen now.
     public static func isOnScreen(_ window: NSWindow) -> Bool { onScreen(window) }
+
+    /// What ``WindowOcclusionRule`` reads about `window` now, AppKit's visibility through
+    /// ``isOnScreen(_:)``. A window covers others when it hides what is under it, as Chrome's
+    /// `-windowCanOccludeOtherWindows:` (web_contents_occlusion_checker_mac.mm) judges it.
+    public static func occlusionFacts(of window: NSWindow) -> WindowOcclusionFacts {
+        WindowOcclusionFacts(
+            id: ObjectIdentifier(window), frame: window.frame, level: window.level.rawValue,
+            isVisible: window.isVisible, isMiniaturized: window.isMiniaturized, systemVisible: isOnScreen(window),
+            isActive: window.isKeyWindow || window.isMainWindow, canBecomeActive: window.canBecomeKey || window.canBecomeMain,
+            paintsOpaque: window.alphaValue >= 1 && !window.ignoresMouseEvents
+                && (window.isOpaque || window.backgroundColor.alphaComponent >= 1),
+            ancestors: ancestors(of: window)
+        )
+    }
+
+    /// `window`'s `parentWindow` chain, nearest first.
+    private static func ancestors(of window: NSWindow) -> [ObjectIdentifier] {
+        var chain: [ObjectIdentifier] = []
+        var parent = window.parent
+        while let next = parent {
+            chain.append(ObjectIdentifier(next))
+            parent = next.parent
+        }
+        return chain
+    }
 
     /// Whether content in `window` may draw now (false without a window).
     public static func isDrawable(_ window: NSWindow?) -> Bool {

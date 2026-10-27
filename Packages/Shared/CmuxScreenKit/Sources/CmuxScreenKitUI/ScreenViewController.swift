@@ -308,7 +308,8 @@ public final class ScreenViewController: UIViewController, UIScrollViewDelegate,
     }
 
     /// A swipe that ends at fit moves one display (or snaps back); zoomed in,
-    /// panning stops at the display's edges.
+    /// panning stops at the display's edges. `targetContentOffset` is UIKit's in-out
+    /// CGPoint, valid for this call only: every write below goes through it during the call.
     public func scrollViewWillEndDragging(_ scrollView: UIScrollView, withVelocity velocity: CGPoint,
                                    targetContentOffset: UnsafeMutablePointer<CGPoint>) {
         // Stream mode: each display is its own video; a swipe at fit asks the Mac for the next one.
@@ -318,7 +319,8 @@ public final class ScreenViewController: UIViewController, UIScrollViewDelegate,
             var target = page
             if velocity.x > 0.3 || moved > view.bounds.width * 0.25 { target = min(page + 1, streamDisplays.count - 1) }
             if velocity.x < -0.3 || moved < -view.bounds.width * 0.25 { target = max(page - 1, 0) }
-            targetContentOffset.pointee = scrollView.contentOffset
+            // SAFETY: UIKit's target offset, valid for this call (see the doc comment).
+            unsafe targetContentOffset.pointee = scrollView.contentOffset
             DispatchQueue.main.async { [weak self] in
                 guard let self else { return }
                 if target != page { session.selectDisplay(target) }
@@ -328,7 +330,8 @@ public final class ScreenViewController: UIViewController, UIScrollViewDelegate,
         }
         let pages = allowsDisplayPaging && paged && screens.count > 1 && (atFit || !fitToDisplay)
         guard pages else {
-            if fitToDisplay { targetContentOffset.pointee = clamped(targetContentOffset.pointee, allowHorizontal: false) }
+            // SAFETY: UIKit's target offset, valid for this call (see the doc comment).
+            if fitToDisplay { unsafe targetContentOffset.pointee = clamped(targetContentOffset.pointee, allowHorizontal: false) }
             return
         }
         let home = centeredOffset(focusRect, scale: scrollView.zoomScale).x
@@ -336,7 +339,8 @@ public final class ScreenViewController: UIViewController, UIScrollViewDelegate,
         var target = page
         if velocity.x > 0.3 || moved > view.bounds.width * 0.25 { target = min(page + 1, screens.count - 1) }
         if velocity.x < -0.3 || moved < -view.bounds.width * 0.25 { target = max(page - 1, 0) }
-        targetContentOffset.pointee = scrollView.contentOffset
+        // SAFETY: UIKit's target offset, valid for this call (see the doc comment).
+        unsafe targetContentOffset.pointee = scrollView.contentOffset
         DispatchQueue.main.async { [weak self] in self?.show(page: target, animated: true) }
     }
 

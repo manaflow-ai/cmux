@@ -3,6 +3,7 @@
 use super::*;
 
 impl Mux {
+    #[track_caller]
     pub(super) fn spawn_surface_in_workspace(
         self: &Arc<Self>,
         workspace_key: &str,
@@ -13,6 +14,7 @@ impl Mux {
         self.spawn_surface_with(cwd, command, size, Some(workspace_key), None)
     }
 
+    #[track_caller]
     pub(super) fn spawn_surface_in_workspace_reserved(
         self: &Arc<Self>,
         workspace_key: &str,
@@ -24,6 +26,7 @@ impl Mux {
         self.spawn_surface_with(cwd, command, size, Some(workspace_key), Some(reservation))
     }
 
+    #[track_caller]
     pub(super) fn persist_terminal_cell_pixel_reconcile_failure(
         &self,
         terminal_id: &str,
@@ -45,6 +48,7 @@ impl Mux {
         Ok(())
     }
 
+    #[track_caller]
     pub(super) fn spawn_surface_with(
         self: &Arc<Self>,
         cwd: Option<String>,
@@ -481,6 +485,7 @@ impl Mux {
         Ok(surface)
     }
 
+    #[track_caller]
     pub(super) fn spawn_browser_surface_with_resource_identity(
         self: &Arc<Self>,
         url: String,

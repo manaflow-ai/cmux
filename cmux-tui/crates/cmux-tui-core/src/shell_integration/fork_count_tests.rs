@@ -88,7 +88,7 @@ fn skip(what: &str, why: &str) {
 #[cfg(target_os = "macos")]
 fn pinned(name: &str) -> PathBuf {
     let script = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../scripts/ci/pinned-shell.sh");
-    let output = std::process::Command::new("/bin/bash")
+    let output = cmux_process::Command::new("/bin/bash")
         .arg(&script)
         .arg(name)
         .output()
@@ -121,7 +121,7 @@ fn temp_base(name: &str) -> PathBuf {
 /// The PID of a process started now: the system's PID counter at this moment.
 #[cfg(not(target_os = "macos"))]
 fn probe_pid() -> u32 {
-    let mut child = std::process::Command::new("true").spawn().unwrap();
+    let mut child = cmux_process::Command::new("true").spawn().unwrap();
     let pid = child.id();
     child.wait().unwrap();
     pid
@@ -505,7 +505,7 @@ fn fork_count_bash_forks_nothing_at_startup_or_per_command_on_bash_5_3() {
     let Some(bash) = shell_path(Shell::Bash) else {
         return skip("bash", "an integrated bash is not installed");
     };
-    let version = std::process::Command::new(&bash)
+    let version = cmux_process::Command::new(&bash)
         .args(["-c", "printf '%s %s' \"${BASH_VERSINFO[0]}\" \"${BASH_VERSINFO[1]}\""])
         .output()
         .unwrap();

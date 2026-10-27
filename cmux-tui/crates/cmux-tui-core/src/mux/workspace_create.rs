@@ -6,6 +6,7 @@ impl Mux {
     /// Add an ordered workspace-registry entry without creating a PTY,
     /// screen, or pane. Detached GUI frontends use this when a user creates
     /// an empty workspace in Chrome.
+    #[track_caller]
     pub fn create_empty_workspace(
         &self,
         name: Option<String>,
@@ -16,6 +17,7 @@ impl Mux {
         self.create_empty_workspace_with_mutation(name, key, None, expected_revision, &mutation)
     }
 
+    #[track_caller]
     pub fn create_empty_workspace_with_mutation(
         &self,
         name: Option<String>,
@@ -41,6 +43,7 @@ impl Mux {
     /// or the kind row of an app workspace) is written in the same
     /// transaction, so no reader sees the workspace without it. The new
     /// workspace becomes the focused one.
+    #[track_caller]
     pub(super) fn create_empty_workspace_for_resource_effect(
         &self,
         name: Option<String>,
@@ -63,6 +66,7 @@ impl Mux {
     /// false the focused workspace stays the one it was (a programmatic
     /// `workspace.create` without `focus: true`). The first workspace of a
     /// session is focused either way.
+    #[track_caller]
     pub(super) fn create_empty_workspace_for_resource_effect_focus(
         &self,
         name: Option<String>,
@@ -86,6 +90,7 @@ impl Mux {
     }
 
     #[allow(clippy::too_many_arguments)]
+    #[track_caller]
     pub(super) fn create_empty_workspace_with_mutation_inner(
         &self,
         name: Option<String>,
@@ -201,8 +206,9 @@ impl Mux {
                 let marked = workspace_public_id.as_str().to_string();
                 let marked_key = key.clone();
                 let writes = mark.writes();
-                let write_mark =
-                    move |tx: &rusqlite::Transaction<'_>| mark.write(tx, &marked, &marked_key);
+                let write_mark = move |tx: &crate::workspace_registry::RegistryTransaction<'_>| {
+                    mark.write(tx, &marked, &marked_key)
+                };
                 registry.commit_for_resource_effect_with(
                     mutation,
                     &fingerprint,

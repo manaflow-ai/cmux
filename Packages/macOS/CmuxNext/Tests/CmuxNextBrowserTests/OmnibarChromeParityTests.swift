@@ -2,6 +2,7 @@ import AppKit
 @testable import CmuxNextBrowser
 import Foundation
 import Testing
+import CmuxNextWakeups
 
 /// Chrome omnibox parity (Lawrence 2026-10-19, u2573; PARITY.md in the
 /// omnibar-chrome-parity worktree): Enter hands the keyboard to the page,
@@ -14,7 +15,7 @@ struct OmnibarChromeParityTests {
     private func chrome(url: String = "https://example.com/") -> (BrowserChromeView, MockBrowserTab, NSWindow) {
         let engine = MockBrowserEngine()
         let tab = engine.makeMockTab(BrowserTabConfiguration(initialURL: URL(string: url)))
-        let chrome = BrowserChromeView(tab: tab)
+        let chrome = BrowserChromeView(tab: tab, mainWork: MainWorkScheduler(budget: MainFrameBudget()), node: nil)
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 900, height: 600), styleMask: [.titled], backing: .buffered, defer: false)
         chrome.frame = window.contentView!.bounds
         chrome.autoresizingMask = [.width, .height]
@@ -25,7 +26,7 @@ struct OmnibarChromeParityTests {
     }
 
     private func bar() -> (AddressBarView, NSWindow) {
-        let bar = AddressBarView()
+        let bar = AddressBarView(mainWork: MainWorkScheduler(budget: MainFrameBudget()))
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 700, height: 80), styleMask: [.titled], backing: .buffered, defer: false)
         bar.frame = NSRect(x: 10, y: 20, width: 600, height: 34)
         window.contentView!.addSubview(bar)

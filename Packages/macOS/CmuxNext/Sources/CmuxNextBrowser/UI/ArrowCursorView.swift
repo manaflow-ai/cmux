@@ -90,6 +90,7 @@ public class ArrowCursorView: NSView {
         for entry in rows {
             guard let row = entry.row, let window = row.window, window !== key, window.isVisible else { continue }
             let point = window.convertPoint(fromScreen: location)
+            // visibility-walk-allow: hit test of the pointer: the row AppKit shows under it sets the cursor, once per move while a child window has the key
             guard row.visibleRect.contains(row.convert(point, from: nil)), !row.isHiddenOrHasHiddenAncestor else { continue }
             // Nothing to set: the row's tracking area already set this cursor, and no other
             // handling of the move replaced it.
@@ -105,7 +106,7 @@ public class ArrowCursorView: NSView {
     }
 
     /// Whether `window` is the top window at `location` (screen coordinates). The window server
-    /// answers synchronously (`SLSCopyWindowRoutingRecordsForScreenLocation`), which blocked the
+    /// answers synchronously (its window routing records for the location), which blocked the
     /// main thread for about half of every pointer move over a browser toolbar on a loaded Mac
     /// (sample of the live app, 2026-10-21): callers ask only when the cursor is not already the
     /// row's. The answer is never kept, since any window of any app can move over the toolbar.
@@ -143,6 +144,7 @@ extension ArrowCursorView {
         for entry in rows {
             guard let row = entry.row, let window = row.window, window !== key, window.isVisible else { continue }
             let point = window.convertPoint(fromScreen: location)
+            // visibility-walk-allow: hit test of the pointer: the row AppKit shows under it sets the cursor again, after a pass while a child window has the key
             guard row.visibleRect.contains(row.convert(point, from: nil)), !row.isHiddenOrHasHiddenAncestor else { continue }
             guard NSCursor.current !== (row.trackedCursor ?? OmnibarPointer.cursor(.toolbar)).cursor else { return }
             guard isTopWindow(window, at: location) else { return }
@@ -172,6 +174,8 @@ private final class RowCursorTracker: NSResponder {
     weak var row: ArrowCursorView?
 
     override func mouseEntered(with event: NSEvent) { row?.setCursor(at: event.locationInWindow) }
+    // input-coalesce: native (only the cursor, which must follow every move as AppKit's own cursor rects do)
+    // local-monitor-allow: a cursor set from a coalesced move would show the wrong cursor until the frame
     override func mouseMoved(with event: NSEvent) { row?.setCursor(at: event.locationInWindow) }
     override func mouseExited(with event: NSEvent) {}
 }

@@ -2,7 +2,7 @@ import Foundation
 
 public struct CloseWorkspaceRequest: DaemonRequest {
     public typealias Response = WorkspaceMutationResult
-    public static let command = "close-workspace"
+    public static let commandName: DaemonCommandName = "close-workspace"
     public var workspace: WorkspaceRef
     /// Also end, in the same commit, each terminal whose tabs all close and
     /// that is not kept (`batch-close-v1`). Sent only when true.
@@ -25,7 +25,7 @@ public struct CloseWorkspaceRequest: DaemonRequest {
         self.mutation = mutation
     }
 
-    enum CodingKeys: String, CodingKey { case endTerminals, reason, ifEmpty }
+    enum CodingKeys: String, CodingKey { case endTerminals = "end_terminals", reason, ifEmpty = "if_empty" }
 
     public func encode(to encoder: any Encoder) throws {
         try WorkspaceRefFields(ref: workspace).encode(to: encoder)

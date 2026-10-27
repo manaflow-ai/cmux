@@ -6,6 +6,8 @@ import UniformTypeIdentifiers
 /// (``HomeAttachmentPasteboard``: the file URL, and an image's bytes); before then it is a file
 /// promise that fetches the bytes when the drop asks, so a drag never waits on the network.
 /// It is also the drag's source: a copy everywhere (Home's bytes stay where they are).
+/// Main actor through `NSDraggingSource`; the promise's delegate methods are nonisolated (AppKit
+/// asks them on the promise's operation queue) and read only the name and the resolver.
 final class HomeAttachmentDrag: NSObject, NSDraggingSource, NSFilePromiseProviderDelegate {
     /// The attachment's name, the dropped file's name.
     let name: String
@@ -17,7 +19,7 @@ final class HomeAttachmentDrag: NSObject, NSDraggingSource, NSFilePromiseProvide
     }
 
     /// The name as one plain file name ("file" when nothing is left).
-    var fileName: String {
+    nonisolated var fileName: String {
         let leaf = (name as NSString).lastPathComponent
         return leaf.isEmpty || leaf == "." || leaf == ".." ? "file" : leaf
     }
@@ -53,15 +55,16 @@ final class HomeAttachmentDrag: NSObject, NSDraggingSource, NSFilePromiseProvide
 
     // MARK: NSFilePromiseProviderDelegate
 
-    func filePromiseProvider(_ filePromiseProvider: NSFilePromiseProvider, fileNameForType fileType: String) -> String {
+    nonisolated func filePromiseProvider(_ filePromiseProvider: NSFilePromiseProvider, fileNameForType fileType: String) -> String {
         fileName
     }
 
-    func filePromiseProvider(_ filePromiseProvider: NSFilePromiseProvider, writePromiseTo url: URL,
-                             completionHandler: @escaping (Error?) -> Void) {
+    nonisolated func filePromiseProvider(_ filePromiseProvider: NSFilePromiseProvider, writePromiseTo url: URL,
+                                         completionHandler: @escaping @Sendable (Error?) -> Void) {
         let resolve = self.resolve
-        // task-owner: one fetch for the drop; ends when the file is written or refused
-        Task { @MainActor in
+        // task-owner: one fetch for the drop; ends when the file is written or refused. The resolver
+        // runs on the main actor; the copy is written off it.
+        Task {
             guard let file = await resolve() else {
                 completionHandler(CocoaError(.fileReadNoSuchFile))
                 return

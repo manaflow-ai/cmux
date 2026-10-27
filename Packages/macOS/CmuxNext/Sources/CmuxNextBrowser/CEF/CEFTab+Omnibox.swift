@@ -10,25 +10,24 @@ extension CEFTab: BrowserOmniboxKeywordProviding {
     }
 
     public func omniboxKeywordStarted(_ extensionID: String) {
-        guard let browserID, let shim = runtime.shim else { return }
-        runtime.omniboxKeywords.started(browser: browserID, extensionID: extensionID, shim: shim)
+        guard let browserID else { return }
+        runtime.omniboxKeywords.started(browser: browserID, extensionID: extensionID, runtime: runtime)
     }
 
     public func omniboxKeywordSuggestions(_ extensionID: String, text: String) async -> [BrowserSuggestion] {
-        guard let browserID, let shim = runtime.shim,
-              let keyword = omniboxKeywords().first(where: { $0.extensionID == extensionID }) else { return [] }
-        let json = await runtime.omniboxKeywords.suggestions(browser: browserID, extensionID: extensionID, text: text, shim: shim)
+        guard let browserID, let keyword = omniboxKeywords().first(where: { $0.extensionID == extensionID }) else { return [] }
+        let json = await runtime.omniboxKeywords.suggestions(browser: browserID, extensionID: extensionID, text: text, runtime: runtime)
         return CEFOmniboxKeywords.rows(json: json ?? "[]", keyword: keyword, text: text)
     }
 
     public func omniboxKeywordEntered(_ extensionID: String, text: String, disposition: OmnibarDisposition) {
-        guard let browserID, let shim = runtime.shim else { return }
+        guard let browserID else { return }
         runtime.omniboxKeywords.entered(browser: browserID, extensionID: extensionID, text: text,
-                                        disposition: disposition, shim: shim)
+                                        disposition: disposition, runtime: runtime)
     }
 
     public func omniboxKeywordEnded(_ extensionID: String) {
-        guard let browserID, let shim = runtime.shim else { return }
-        runtime.omniboxKeywords.ended(browser: browserID, extensionID: extensionID, shim: shim)
+        guard let browserID else { return }
+        runtime.omniboxKeywords.ended(browser: browserID, extensionID: extensionID, runtime: runtime)
     }
 }

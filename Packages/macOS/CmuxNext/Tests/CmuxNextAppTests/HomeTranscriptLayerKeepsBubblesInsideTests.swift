@@ -55,7 +55,7 @@ import Testing
                            createdAt: base.addingTimeInterval(1), delivery: .committed, messageID: MessageID("msg_2")),
         ]
         let home = HomeStore(source: MockHomeSource(options: .immediate))
-        let view = HomeNativeTranscriptView(store: home, conversation: id, me: me)
+        let view = HomeNativeTranscriptView(store: home, conversation: id, me: me, mainWork: linklessMainWork())
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: width, height: 700), styleMask: [.titled], backing: .buffered, defer: true)
         window.isReleasedWhenClosed = false
         let container = NSView(frame: NSRect(x: 0, y: 0, width: width, height: 700))

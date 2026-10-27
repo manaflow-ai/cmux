@@ -17,8 +17,6 @@ extension CEFRuntime {
 
     private func respond(token: Int32, with response: CEFPageResponse) {
         guard let shim else { return }
-        _ = response.body.withUnsafeBytes { bytes in
-            shim.pageResourceRespond(token, Int32(response.status), response.mimeType, bytes.baseAddress, bytes.count)
-        }
+        _ = shim.pageResourceRespond(token, Int32(response.status), response.mimeType, response.body)
     }
 }

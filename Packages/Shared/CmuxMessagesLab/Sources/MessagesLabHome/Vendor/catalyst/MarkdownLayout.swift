@@ -3,6 +3,8 @@ import UIKit
 #else
 import AppKit
 #endif
+import CmuxSafeConcurrency // cmux: Mutex (p10-stability-055)
+import os
 
 // Markdown layout (shared/MARKDOWN.md): a parsed document at a column width becomes
 // a display list in body-local points (origin = the bubble's top-left; text starts
@@ -73,10 +75,15 @@ struct MDAXNode {
     var children: [MDAXNode] = []
 }
 
-final class MarkdownLayout: Hashable, @unchecked Sendable {
+/// cmux: checked `Sendable` (p10-stability-055): the lines (attributed strings and CTLines) and boxes
+/// (an image box's CGImage) are held as one immutable shared value; everything else is a Sendable value.
+final class MarkdownLayout: Hashable, Sendable {
     let size: CGSize
-    let frags: [MDFrag]
-    let boxes: [MDBox]
+    var frags: [MDFrag] { drawn.value.frags }
+    var boxes: [MDBox] { drawn.value.boxes }
+    /// Shared with the draw threads (HomeShareable: its conformance is in HomeShared.swift).
+    struct Drawn { let frags: [MDFrag]; let boxes: [MDBox] }
+    private let drawn: HomeShared<Drawn>
     let regions: [MDRegion]
     /// Display text: what selection offsets index and what Copy returns.
     let plain: String
@@ -88,7 +95,7 @@ final class MarkdownLayout: Hashable, @unchecked Sendable {
     let proxy: TextLayout
 
     init(size: CGSize, frags: [MDFrag], boxes: [MDBox], regions: [MDRegion], plain: String, source: String, ax: [MDAXNode], identity: Int) {
-        self.size = size; self.frags = frags; self.boxes = boxes; self.regions = regions
+        self.size = size; drawn = HomeShared(Drawn(frags: frags, boxes: boxes)); self.regions = regions
         self.plain = plain; self.source = source; self.ax = ax; self.identity = identity
         let n = (plain as NSString).length
         proxy = TextLayout(text: plain, runs: [], lines: [TextLayout.Line(range: NSRange(location: 0, length: n), width: size.width)], width: size.width)
@@ -128,7 +135,8 @@ extension Markdown {
 /// never loads a URL and never reads a file for `![alt](src)`: it asks this provider, and shows
 /// the image only when the host returns one (an attachment, a local file the host allows).
 /// Without a provider (the default) an image is a link or the text "[Image: alt]".
-protocol MarkdownImageProvider: AnyObject {
+/// Sendable: layouts run on any thread and call it concurrently.
+protocol MarkdownImageProvider: AnyObject, Sendable {
     /// The image for `source` (the destination exactly as written), or nil. Called during layout,
     /// off the main thread: return only what the host already has, never fetch here. Answers
     /// must be stable per source (block layouts are cached by content and width).
@@ -136,12 +144,12 @@ protocol MarkdownImageProvider: AnyObject {
 }
 
 enum MarkdownImages {
-    private static let lock = NSLock()
-    private static weak var current: MarkdownImageProvider?
+    private struct Current: Sendable { weak var provider: MarkdownImageProvider? }
+    private static let current = OSAllocatedUnfairLock(initialState: Current())
     /// The host's provider (weak; nil by default). Set it before the first layout.
     static var provider: MarkdownImageProvider? {
-        get { lock.lock(); defer { lock.unlock() }; return current }
-        set { lock.lock(); current = newValue; lock.unlock() }
+        get { current.withLock { $0.provider } }
+        set { current.withLock { $0.provider = newValue } }
     }
     /// Largest image height in a bubble (points).
     static let maxHeight: CGFloat = 320
@@ -157,7 +165,7 @@ enum MarkdownImages {
 
 enum MarkdownLayoutEngine {
     /// Laid-out top-level blocks, keyed by block content and width (streams re-use all but the tail).
-    private static let cache = MDLRU<BlockKey, BlockLayout>(capacity: 2048)
+    private static let cache = MDLRU<BlockKey, HomeShared<LaidBlock>>(capacity: 2048)
     struct BlockKey: Hashable { var block: MDBlock; var width: CGFloat; var columns: [CGFloat]? = nil }
 
     /// A block laid out at y = 0, x = 0 (content-local).
@@ -170,6 +178,16 @@ enum MarkdownLayoutEngine {
         /// Rightmost drawn extent of content outside stretchable boxes.
         var extent: CGFloat = 0
         var ax: [MDAXNode] = []
+    }
+
+    /// cmux (p10-stability-055): a laid-out block as the cache shares it between the layout threads:
+    /// the filled `BlockLayout`, frozen (the builder was the cached object itself).
+    /// HomeShareable: its conformance is in HomeShared.swift.
+    struct LaidBlock {
+        let frags: [MDFrag], boxes: [MDBox], regions: [MDRegion], plain: String, height: CGFloat, extent: CGFloat, ax: [MDAXNode]
+        init(_ b: BlockLayout) {
+            frags = b.frags; boxes = b.boxes; regions = b.regions; plain = b.plain; height = b.height; extent = b.extent; ax = b.ax
+        }
     }
 
     /// `tableColumns`: fixed column widths for the first table (a long message's table continued
@@ -188,14 +206,15 @@ enum MarkdownLayoutEngine {
             var cols: [CGFloat]?
             if fixed != nil, case .table = b.kind { cols = fixed; fixed = nil }
             let key = BlockKey(block: MDBlock(kind: b.kind), width: maxWidth, columns: cols)
-            let bl: BlockLayout
-            if let c = cache.get(key) { bl = c } else {
-                bl = BlockLayout()
-                var w = Writer(out: bl, width: maxWidth)
+            let bl: LaidBlock
+            if let c = cache.get(key) { bl = c.value } else {
+                let out = BlockLayout()
+                var w = Writer(out: out, width: maxWidth)
                 w.fixedColumns = cols
                 w.block(b.kind, x: 0, width: maxWidth, depth: 0, listDepth: 0)
-                bl.height = w.y
-                cache.set(key, bl)
+                out.height = w.y
+                bl = LaidBlock(out)
+                cache.set(key, HomeShared(bl))
             }
             if let p = prev {
                 y += gap(p, b, nested: false)
@@ -378,9 +397,9 @@ enum MarkdownLayoutEngine {
                 // typesetter only chooses the break.
                 let sub = attr.attributedSubstring(from: range)
                 let line = CTLineCreateWithAttributedString(sub)
-                let lw = CGFloat(CTLineGetTypographicBounds(line, nil, nil, nil))
+                let lw = CGFloat(line.typographicWidth)
                 // A wrapped line's trailing space is not part of its drawn width.
-                let tw = CGFloat(CTLineGetTypographicBounds(line, nil, nil, nil)) - CGFloat(CTLineGetTrailingWhitespaceWidth(line))
+                let tw = CGFloat(line.typographicWidth) - CGFloat(CTLineGetTrailingWhitespaceWidth(line))
                 var lx = x
                 switch align {
                 case .center: lx = x + max(0, (w - tw) / 2)
@@ -412,8 +431,8 @@ enum MarkdownLayoutEngine {
             sub.enumerateAttribute(.mdStyle, in: NSRange(location: 0, length: sub.length)) { v, r, _ in
                 guard let raw = v as? UInt16 else { return }
                 let st = MDStyle(rawValue: raw)
-                let x0 = CTLineGetOffsetForStringIndex(f.line, r.location, nil)
-                let x1 = CTLineGetOffsetForStringIndex(f.line, NSMaxRange(r), nil)
+                let x0 = f.line.offset(forStringIndex: r.location)
+                let x1 = f.line.offset(forStringIndex: NSMaxRange(r))
                 if st.contains(.code) {
                     out.boxes.append(MDBox(rect: CGRect(x: f.origin.x + x0 - 1.5, y: f.origin.y + 1, width: x1 - x0 + 3, height: 14.5), kind: .inlineCode, region: f.region))
                 }
@@ -449,14 +468,14 @@ enum MarkdownLayoutEngine {
                 }
                 let sub = r.length > 0 ? attr.attributedSubstring(from: r) : NSAttributedString(string: "")
                 let line = CTLineCreateWithAttributedString(sub)
-                let lw = CGFloat(CTLineGetTypographicBounds(line, nil, nil, nil))
+                let lw = CGFloat(line.typographicWidth)
                 out.frags.append(MDFrag(attr: sub, line: line, origin: CGPoint(x: x + Markdown.codePadX, y: y), width: lw, baseline: Markdown.codeBaseline,
                                         range: NSRange(location: plainLen + r.location, length: r.length), region: rid, role: .code, links: []))
                 var lineW = lw
                 if more > 0 {
                     let label = NSAttributedString(string: "  " + Markdown.moreCharacters(more), attributes: [.font: Fixture.bodyFont, .mdRole: MDRole.more.rawValue])
                     let ml = CTLineCreateWithAttributedString(label)
-                    let mw = CGFloat(CTLineGetTypographicBounds(ml, nil, nil, nil))
+                    let mw = CGFloat(ml.typographicWidth)
                     out.frags.append(MDFrag(attr: label, line: ml, origin: CGPoint(x: x + Markdown.codePadX + lw, y: y), width: mw, baseline: Markdown.bodyBaseline,
                                             range: NSRange(location: plainLen + NSMaxRange(r), length: 0), region: rid, role: .more, links: []))
                     lineW += mw
@@ -507,7 +526,7 @@ enum MarkdownLayoutEngine {
                     let m = markerText(i, it)
                     let attr = NSAttributedString(string: m, attributes: [.font: markerFont, .kern: Fixture.bodyKern, .mdRole: MDRole.marker.rawValue])
                     let line = CTLineCreateWithAttributedString(attr)
-                    let mw = CGFloat(CTLineGetTypographicBounds(line, nil, nil, nil))
+                    let mw = CGFloat(line.typographicWidth)
                     out.frags.append(MDFrag(attr: attr, line: line, origin: CGPoint(x: x + ind - Markdown.markerGap - mw, y: y), width: mw, baseline: Markdown.bodyBaseline,
                                             range: NSRange(location: plainLen, length: (m as NSString).length), region: -1, role: .marker, links: []))
                     appendPlain(m + " ")
@@ -546,7 +565,7 @@ enum MarkdownLayoutEngine {
                         let line = CTLineCreateWithAttributedString(a)
                         let word = MarkdownLayoutEngine.longestWord(a, line)
                         // c < cols == every width array's count; written through checked slots.
-                        if let s = maxW.checkedIndex(c) { maxW[s] = max(maxW[s], CGFloat(CTLineGetTypographicBounds(line, nil, nil, nil)).rounded(.up)) }
+                        if let s = maxW.checkedIndex(c) { maxW[s] = max(maxW[s], CGFloat(line.typographicWidth).rounded(.up)) }
                         if let s = wordW.checkedIndex(c) { wordW[s] = max(wordW[s], word) }
                         if let s = minW.checkedIndex(c) { minW[s] = max(minW[s], min(140, word)) }
                     }
@@ -640,7 +659,7 @@ enum MarkdownLayoutEngine {
         let n = s.length
         func measure(_ lo: Int, _ hi: Int) {
             guard hi > lo else { return }
-            best = max(best, CTLineGetOffsetForStringIndex(line, hi, nil) - CTLineGetOffsetForStringIndex(line, lo, nil))
+            best = max(best, line.offset(forStringIndex: hi) - line.offset(forStringIndex: lo))
         }
         for i in 0..<n {
             let c = s.character(at: i)
@@ -684,27 +703,36 @@ extension Markdown {
 
 // MARK: - LRU
 
-final class MDLRU<K: Hashable, V>: @unchecked Sendable {
-    private var map: [K: (V, Int)] = [:]
-    private var tick = 0
-    private let lock = NSLock()
+/// cmux: checked `Sendable` (p10-stability-055): Sendable keys and values in one lock state (it was an
+/// unchecked class over an NSLock; its only user caches `HomeShared` blocks).
+final class MDLRU<K: Hashable & Sendable, V: Sendable>: Sendable {
+    private struct State: Sendable {
+        var map: [K: (V, Int)] = [:]
+        var tick = 0
+    }
+    // Lock carve-out: the layout threads look up and insert blocks; the eviction is a filter of at most `capacity`.
+    private let state = Mutex(State())
     let capacity: Int
     init(capacity: Int) { self.capacity = capacity }
     func get(_ k: K) -> V? {
-        lock.lock(); defer { lock.unlock() }
-        guard let v = map[k] else { return nil }
-        tick += 1; map.updateValue((v.0, tick), forKey: k) // dictionary write
-        return v.0
-    }
-    func set(_ k: K, _ v: V) {
-        lock.lock(); defer { lock.unlock() }
-        tick += 1
-        map.updateValue((v, tick), forKey: k) // dictionary write
-        if map.count > capacity {
-            // Drop the older half (amortized O(1) per insert).
-            let cut = map.values.map(\.1).sorted()[map.count / 2]
-            map = map.filter { $0.value.1 >= cut }
+        state.withLock { s -> V? in
+            guard let v = s.map[k] else { return nil }
+            s.tick += 1; s.map.updateValue((v.0, s.tick), forKey: k) // dictionary write
+            return v.0
         }
     }
-    var count: Int { lock.lock(); defer { lock.unlock() }; return map.count }
+    func set(_ k: K, _ v: V) {
+        let capacity = capacity
+        state.withLock { s in
+            s.tick += 1
+            s.map.updateValue((v, s.tick), forKey: k) // dictionary write
+            if s.map.count > capacity {
+                // Drop the older half (amortized O(1) per insert).
+                let ticks = s.map.values.map(\.1).sorted()
+                let cut = ticks[checked: s.map.count / 2] ?? 0 // checked (crash ratchet)
+                s.map = s.map.filter { $0.value.1 >= cut }
+            }
+        }
+    }
+    var count: Int { state.withLock { $0.map.count } }
 }

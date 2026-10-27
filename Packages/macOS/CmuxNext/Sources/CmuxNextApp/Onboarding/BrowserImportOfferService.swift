@@ -3,6 +3,8 @@ import CmuxNextBrowser
 import CmuxNextBrowserImport
 import CmuxNextDesign
 import CmuxNextImportCards
+import CmuxNextWakeups
+import CmuxNextCompat
 import Foundation
 
 /// The browser-data import offer (Lawrence 2026-10-09: no onboarding window
@@ -14,8 +16,8 @@ import Foundation
 /// profile; Not Now ends the offer for good, and so does any import that
 /// brought data over (`BrowserImportOfferState`). It reads no browser data
 /// itself: the installed browsers come from Launch Services, so it never
-/// raises a privacy prompt. Automation launches (`CMUX_NEXT_NO_ACTIVATE`)
-/// never see it unless `CMUX_NEXT_BROWSER_IMPORT_OFFER=1`.
+/// raises a privacy prompt. Isolated launches (`LaunchIsolation.isolated`:
+/// agents and benches) never see it unless `CMUX_NEXT_BROWSER_IMPORT_OFFER=1`.
 @MainActor
 final class BrowserImportOfferService {
     private weak var services: AppServices?
@@ -23,7 +25,8 @@ final class BrowserImportOfferService {
     private(set) var state: BrowserImportOfferState
     /// Browsers cmux can import from, most used first; nil until found.
     private(set) var browsers: [InstalledImportBrowser]?
-    private var finding: Task<Void, Never>?
+    /// The one Launch Services lookup runs on the system lane.
+    private var finding = false
     private var waiting: [@MainActor ([InstalledImportBrowser]) -> Void] = []
     /// One card per launch: a second tab never shows it.
     private(set) var shownThisLaunch = false
@@ -32,13 +35,16 @@ final class BrowserImportOfferService {
     /// The kinds Import checks in the Import from Browser window.
     static let kinds: Set<ImportDataKind> = [.bookmarks, .history, .passwords]
 
-    /// Finds the installed browsers' apps (any thread); tests pass their own.
-    private let locate: @Sendable () -> [(browser: ImportBrowser, app: URL)]
+    /// Finds the installed browsers' apps with the given Launch Services queries (on the system lane); tests pass
+    /// their own.
+    private let locate: @Sendable (any WorkspaceQuerying) -> [(browser: ImportBrowser, app: URL)]
     /// Pins whether the card may show (tests); nil follows the launch.
     var enabledOverride: Bool?
 
     init(services: AppServices?, defaults: UserDefaults = .standard,
-         locate: @escaping @Sendable () -> [(browser: ImportBrowser, app: URL)] = { InstalledImportBrowsers().locate() }) {
+         locate: @escaping @Sendable (any WorkspaceQuerying) -> [(browser: ImportBrowser, app: URL)] = { system in
+             InstalledImportBrowsers(appURL: { system.application(withBundleIdentifier: $0) }).locate()
+         }) {
         self.services = services
         self.defaults = defaults
         self.locate = locate
@@ -46,7 +52,7 @@ final class BrowserImportOfferService {
     }
 
     private var enabled: Bool {
-        enabledOverride ?? (ProcessInfo.processInfo.environment[Self.forceKey] == "1" || services?.environment.noActivate == false)
+        enabledOverride ?? (ProcessInfo.processInfo.environment[Self.forceKey] == "1" || services?.environment.isolatedLaunch == false)
     }
 
     /// Wires a new browser page's chrome (`TabContentCache.onBrowserEntryCreated`).
@@ -128,15 +134,18 @@ final class BrowserImportOfferService {
     func findBrowsers(then done: (@MainActor ([InstalledImportBrowser]) -> Void)? = nil) {
         if let browsers { done?(browsers); return }
         if let done { waiting.append(done) }
-        guard finding == nil else { return }
-        // task-owner: one Launch Services lookup per launch; ends after it
-        finding = Task { [weak self] in
-            guard let locate = self?.locate else { return }
-            let apps = await Task.detached { locate() }.value
-            let found = apps.map { InstalledImportBrowser(browser: $0.browser, icon: NSWorkspace.shared.icon(forFile: $0.app.path)) }
+        guard !finding, let queries = services?.workspaceQueries else { return }
+        finding = true
+        let locate = locate
+        // The apps and their icons, from Launch Services on the system lane; the answer comes back as one
+        // `visible` task (the card shows them), Chrome's PostTaskAndReply (base/task/thread_pool.h).
+        let installed = WorkspaceQuery<[InstalledImportBrowser]>(id: "browserImport.installedBrowsers", refreshes: false) { system in
+            locate(system).map { InstalledImportBrowser(browser: $0.browser, icon: system.fileIcon(atPath: $0.app.path)) }
+        }
+        queries.value(installed, priority: .bestEffort) { [weak self] found in
             guard let self else { return }
             browsers = found
-            finding = nil
+            finding = false
             let callbacks = waiting
             waiting = []
             for callback in callbacks { callback(found) }
@@ -146,7 +155,7 @@ final class BrowserImportOfferService {
 
 /// A browser on this Mac that cmux can import from, with its app icon
 /// (`InstalledImportBrowsers` finds them).
-struct InstalledImportBrowser {
+nonisolated struct InstalledImportBrowser: Sendable {
     let browser: ImportBrowser
     let icon: NSImage
 }

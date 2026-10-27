@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import CmuxNextWakeups
 import CoreGraphics
 import Foundation
@@ -64,8 +65,7 @@ enum AgentPaneCapture {
             kCGImageSourceCreateThumbnailWithTransform: true,
             kCGImageSourceThumbnailMaxPixelSize: maxSide,
         ]
-        guard let source = CGImageSourceCreateWithData(png as CFData, nil),
-              let image = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) else { return nil }
+        guard let image = blockingImageThumbnail(png, options: options) else { return nil }
         if let scaled = encode(image, as: .png), scaled.count <= maxBytes { return (scaled, "image/png") }
         if let jpeg = encode(image, as: .jpeg, quality: 0.85), jpeg.count <= maxBytes { return (jpeg, "image/jpeg") }
         return nil

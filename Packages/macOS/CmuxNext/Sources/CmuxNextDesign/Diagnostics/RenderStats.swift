@@ -158,6 +158,7 @@ public final class RenderStats {
     #if DEBUG || CMUX_BENCH_HOOKS
     private func queueHookWork(_ work: @escaping @MainActor (RenderStats) async -> Void) {
         let previous = hookWork
+        // main-hop-allow: debug and bench builds only: the one chain arms and disarms await in order; its scans and swaps run off main (@concurrent), its main parts only set the arm state and hook lists
         hookWork = Task {
             await previous?.value
             await work(self)
@@ -369,7 +370,7 @@ public final class RenderStats {
     }
 }
 
-private extension CAAnimation {
+extension CAAnimation {
     var loopsForever: Bool {
         repeatCount >= .greatestFiniteMagnitude || repeatDuration >= .greatestFiniteMagnitude
     }

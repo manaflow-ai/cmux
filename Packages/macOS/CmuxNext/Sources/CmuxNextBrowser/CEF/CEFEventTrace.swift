@@ -1,5 +1,5 @@
-#if DEBUG
-/// The last navigation events each Chromium browser sent (DEBUG builds, for
+#if DEBUG || CMUX_BENCH_HOOKS
+/// The last navigation events each Chromium browser sent (DEBUG and bench builds, for
 /// `debug.browser.page_status`): what changed a tab's page state, in order.
 @MainActor
 enum CEFEventTrace {

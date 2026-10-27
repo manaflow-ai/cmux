@@ -13,6 +13,8 @@ import java.util.Objects;
 /** Immutable graphics-status event. Protocol v10; streams: subscribe. */
 public final class GraphicsStatusEvent implements WireValue, DeltaStreamEvent, ProtocolEvent, SubscribeEvent {
     private final Field<Integer> attempts;
+    /** What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing. */
+    private final Field<EventCause> cause;
     private final Field<Integer> cellHeight;
     private final Field<Integer> cellWidth;
     private final Field<String> error;
@@ -23,6 +25,7 @@ public final class GraphicsStatusEvent implements WireValue, DeltaStreamEvent, P
 
     private GraphicsStatusEvent(Builder builder) {
         this.attempts = builder.attempts;
+        this.cause = builder.cause;
         this.cellHeight = builder.cellHeight;
         this.cellWidth = builder.cellWidth;
         this.error = builder.error;
@@ -36,6 +39,7 @@ public final class GraphicsStatusEvent implements WireValue, DeltaStreamEvent, P
     public static Builder builder() { return new Builder(); }
 
     public Field<Integer> attempts() { return attempts; }
+    public Field<EventCause> cause() { return cause; }
     public Field<Integer> cellHeight() { return cellHeight; }
     public Field<Integer> cellWidth() { return cellWidth; }
     public Field<String> error() { return error; }
@@ -52,6 +56,10 @@ public final class GraphicsStatusEvent implements WireValue, DeltaStreamEvent, P
         Object rawAttempts = Wire.optional(object, "attempts");
         if (!Wire.isMissing(rawAttempts)) {
             builder.attempts(Wire.uint16(rawAttempts, "GraphicsStatusEvent.attempts"));
+        }
+        Object rawCause = Wire.optional(object, "cause");
+        if (!Wire.isMissing(rawCause)) {
+            builder.cause(EventCause.fromWire(rawCause));
         }
         Object rawCellHeight = Wire.optional(object, "cell_height");
         if (!Wire.isMissing(rawCellHeight)) {
@@ -87,6 +95,7 @@ public final class GraphicsStatusEvent implements WireValue, DeltaStreamEvent, P
         LinkedHashMap<String, Object> object = new LinkedHashMap<>();
         object.put("event", "graphics-status");
         Wire.put(object, "attempts", attempts);
+        Wire.put(object, "cause", cause);
         Wire.put(object, "cell_height", cellHeight);
         Wire.put(object, "cell_width", cellWidth);
         Wire.put(object, "error", error);
@@ -100,17 +109,18 @@ public final class GraphicsStatusEvent implements WireValue, DeltaStreamEvent, P
     @Override
     public boolean equals(Object other) {
         if (!(other instanceof GraphicsStatusEvent that)) return false;
-        return Objects.equals(attempts, that.attempts) && Objects.equals(cellHeight, that.cellHeight) && Objects.equals(cellWidth, that.cellWidth) && Objects.equals(error, that.error) && Objects.equals(kind, that.kind) && Objects.equals(remaining, that.remaining) && Objects.equals(retryExhausted, that.retryExhausted) && Objects.equals(summary, that.summary);
+        return Objects.equals(attempts, that.attempts) && Objects.equals(cause, that.cause) && Objects.equals(cellHeight, that.cellHeight) && Objects.equals(cellWidth, that.cellWidth) && Objects.equals(error, that.error) && Objects.equals(kind, that.kind) && Objects.equals(remaining, that.remaining) && Objects.equals(retryExhausted, that.retryExhausted) && Objects.equals(summary, that.summary);
     }
 
     @Override
-    public int hashCode() { return Objects.hash(attempts, cellHeight, cellWidth, error, kind, remaining, retryExhausted, summary); }
+    public int hashCode() { return Objects.hash(attempts, cause, cellHeight, cellWidth, error, kind, remaining, retryExhausted, summary); }
 
     @Override
     public String toString() { return "GraphicsStatusEvent" + toWire(); }
 
     public static final class Builder {
         private Field<Integer> attempts = Field.omitted();
+        private Field<EventCause> cause = Field.omitted();
         private Field<Integer> cellHeight = Field.omitted();
         private Field<Integer> cellWidth = Field.omitted();
         private Field<String> error = Field.omitted();
@@ -122,6 +132,10 @@ public final class GraphicsStatusEvent implements WireValue, DeltaStreamEvent, P
 
         public Builder attempts(Integer value) {
             this.attempts = Field.of(value);
+            return this;
+        }
+        public Builder cause(EventCause value) {
+            this.cause = Field.of(value);
             return this;
         }
         public Builder cellHeight(Integer value) {

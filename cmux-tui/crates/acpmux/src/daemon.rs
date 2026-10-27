@@ -19,6 +19,8 @@ pub(crate) use router_owner::open_router_owner;
 pub(crate) use router_owner::router_owner_path;
 use router_owner::{ensure_router, release_router};
 mod notify;
+#[cfg(all(tokio_unstable, feature = "cmux-stability"))]
+mod poll_watch_lab;
 #[cfg(windows)]
 mod windows;
 
@@ -38,10 +40,9 @@ pub struct DaemonOptions {
     pub dev: bool,
 }
 
-/// The daemon's panic log, `$ACPMUX_HOME/panics.jsonl` (cmux-panic-log):
-/// a panic in a request task ends only that task and used to leave just
-/// two lines in `daemon.log` (the 2026-10-14 sort panic). The cmux-next
-/// app sends new lines to Sentry.
+/// The daemon's panic log, `$ACPMUX_HOME/panics.jsonl` (cmux-panic-log): a panic in a request task
+/// ends only that task and used to leave just two lines in `daemon.log` (the 2026-10-14 sort
+/// panic). The cmux-next app sends new lines to Sentry.
 pub fn panic_log_path() -> std::path::PathBuf {
     home().join("panics.jsonl")
 }
@@ -132,6 +133,8 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     // home with the process umask; narrow it before reading any of them.
     crate::config::private_state_dir(&home())?;
     install_panic_log();
+    #[cfg(all(tokio_unstable, feature = "cmux-stability"))]
+    poll_watch_lab::install();
     // Before the store, the sockets and any agent: launchd's soft limit is 256.
     #[cfg(unix)]
     open_file_limit::raise();
@@ -294,6 +297,9 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     let memory_store = config.store.mode == crate::config::StoreMode::Memory;
     // Only the session list before the ready line; the chat logs load right after it.
     let hub = Hub::new_deferred(config, store, mailbox);
+    // The kernel's memory pressure reaches the hub's consumers (`memory.rs`),
+    // with the `memoryAcpmuxPressure` feature on.
+    hub.memory().watch_if_enabled();
     // Temporary folders of sessions this daemon no longer has, before the
     // socket serves (`agent/session_tmp.rs`).
     #[cfg(unix)]
@@ -321,14 +327,19 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
             tracing::warn!("--person-key-fd: {e}");
         }
     }
+    // Periodic upkeep (catalog, harness health, upload sweep) shares one clock (`maintenance.rs`).
+    let phase = crate::maintenance::install_phase(&home().join(crate::maintenance::PHASE_FILE));
+    if let Err(e) = hub.maintenance.start(phase) {
+        tracing::warn!("the maintenance clock did not start, periodic upkeep is off: {e}");
+    }
     // The curated model catalog (`catalog/`): the last good copy now, then a fetch at
     // once and every 6 h. `ACPMUX_CATALOG_FETCH=0` keeps the stored or bundled copy.
     let fetch_catalog = !std::env::var("ACPMUX_CATALOG_FETCH").is_ok_and(|v| v == "0");
     let fetcher: Option<std::sync::Arc<dyn crate::catalog::Fetcher>> =
         fetch_catalog.then(|| std::sync::Arc::new(crate::catalog::HttpsFetcher::current()) as _);
     hub.catalog.attach(home().join("catalog"), fetcher);
-    if fetch_catalog {
-        tokio::spawn(hub.catalog.clone().run());
+    if let Err(e) = hub.catalog.schedule(&hub.maintenance, fetch_catalog) {
+        tracing::warn!("the periodic model catalog refresh is off: {e}");
     }
     // The app's pane sends no prompt before the folder's trust answer (`server/trust_gate.rs`).
     // Without a home directory no file can answer, so every folder waits (fails closed).
@@ -512,6 +523,7 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     tokio::select! {
         r = unix => { r??; }
         _ = shutdown => {}
+        _ = crate::daemon_lifecycle::run_for_daemon(hub.clone()) => {}
     }
     tracing::info!("shutting down");
     hub.stop_idle_reaper();

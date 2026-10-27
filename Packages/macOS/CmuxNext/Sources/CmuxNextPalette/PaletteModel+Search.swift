@@ -1,4 +1,5 @@
 import CmuxNextActions
+import CmuxNextSignposts
 
 extension PaletteModel {
     /// Asks every provider of a list page for items: immediate items land
@@ -107,6 +108,8 @@ extension PaletteModel {
     /// unranked rows at once (`searchEmpty`); for a real query the rows on
     /// screen stay until its result lands.
     func search(_ state: PageState) { // perf-hot: 4ms palette-key (every query key; ranking stays off main)
+        let slice = keySignposter.begin(.keyPaletteSearch, searchPass: .query)
+        defer { keySignposter.end(.keyPaletteSearch, slice, results: Self.rowCount(state.lastSections ?? [])) }
         let generation = state.generation
         switch state.kind {
         case .textInput(let spec):
@@ -165,8 +168,10 @@ extension PaletteModel {
                 )
                 guard let self, let state, result.generation == self.searchGeneration else { return }
                 self.searchTask = nil
-                self.deliver(Self.leading(queryItems?(request.query), state.resolve(result.sections)), to: state,
-                             generation: generation)
+                let slice = self.keySignposter.begin(.keyPaletteSearch, searchPass: .results)
+                let sections = Self.leading(queryItems?(request.query), state.resolve(result.sections))
+                self.deliver(sections, to: state, generation: generation)
+                self.keySignposter.end(.keyPaletteSearch, slice, results: Self.rowCount(state.lastSections ?? []))
                 if self.pendingClose {
                     self.pendingClose = false
                     self.handle(.closeItem)
@@ -189,6 +194,7 @@ extension PaletteModel {
             let items = await results(query)
             guard !Task.isCancelled, let self, let state, searchID == self.searchGeneration else { return }
             self.searchTask = nil
+            let slice = self.keySignposter.begin(.keyPaletteSearch, searchPass: .results)
             let words = query.split(whereSeparator: \.isWhitespace).map(String.init)
             // One block per section, in the order the sections first appear (linear: a search
             // can return thousands of terminal lines, and copying a section per row was quadratic).
@@ -202,6 +208,7 @@ extension PaletteModel {
             let sections = order.map { PaletteResultSection(section: $0, rows: rowsBySection[$0] ?? []) }
             if state === self.current { self.isLoading = false }
             self.deliver(sections, to: state, generation: generation)
+            self.keySignposter.end(.keyPaletteSearch, slice, results: Self.rowCount(state.lastSections ?? []))
             if self.pendingClose {
                 self.pendingClose = false
                 self.handle(.closeItem)
@@ -230,6 +237,12 @@ extension PaletteModel {
             }
         }
         return marked.sorted()
+    }
+
+    /// The rows of `sections` (a `key.palette_search` end's result count: the page's `lastSections`, which a
+    /// dropped delivery leaves as the rows still shown).
+    static func rowCount(_ sections: [PaletteResultSection]) -> Int {
+        sections.reduce(0) { $0 + $1.rows.count }
     }
 
     /// `sections` after the page's rows made from the query, if any.

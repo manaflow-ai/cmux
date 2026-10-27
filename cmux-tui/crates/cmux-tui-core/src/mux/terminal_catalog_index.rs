@@ -50,6 +50,9 @@ impl State {
             self.terminal_catalog_by_host.insert(identity.terminal_id, terminal_id.clone());
         }
         self.terminal_catalog.insert(terminal_id.clone(), surface.clone());
+        if let Some(wake) = self.catalog_insert_wake.get() {
+            wake.wake();
+        }
         Ok(())
     }
 

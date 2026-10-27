@@ -182,4 +182,11 @@ import Testing
         #expect(copy.keywords.contains("conversation"))
         #expect(copy.keywords.contains("markdown"))
     }
+
+    /// A script closes the window it names (`action.run closeWindow target window:<id>`), not only the
+    /// active one: the oracle's reset closes each window a case opened (p15-oracle-189).
+    @Test func closeWindowTakesAWindowTarget() throws {
+        let action = try #require(ActionCatalog.all.first { $0.id == "closeWindow" })
+        #expect(action.targets == [.window])
+    }
 }

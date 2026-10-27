@@ -1,6 +1,7 @@
 public import AppKit
 public import CmuxNextActions
 public import CmuxNextDevices
+public import CmuxNextWakeups
 import CmuxScreenKit
 import Foundation
 public import Observation
@@ -36,6 +37,11 @@ public final class MacScreenHubHost {
     @ObservationIgnored private var serveTask: Task<Void, Never>?
     @ObservationIgnored private var eventTask: Task<Void, Never>?
     @ObservationIgnored private let indicator = MacScreenShareIndicator()
+    /// The app's node in the visibility tree (the app sets it). A connected session votes on it, so
+    /// the windows the shared screen may show render while their own nodes read covered or the
+    /// displays sleep, and their pages still read hidden (a capture vote that stays hidden).
+    @ObservationIgnored public var sharedScreenNode: VisibilityNode?
+    @ObservationIgnored private var shareVote: VisibilityCaptureVote?
     @ObservationIgnored private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "mac-screen-hub-host")
     /// Makes the host for one session; tests replace it.
     @ObservationIgnored var makeHost: (_ name: String, _ viewOnly: Bool) -> ScreenStreamHost = { name, viewOnly in
@@ -133,6 +139,7 @@ public final class MacScreenHubHost {
         case .viewerConnected:
             session?.connected = true
             updateIndicator()
+            updateShareVote()
         case .viewerEnded:
             closeLocal()
         case let .sourceFailed(message):
@@ -205,11 +212,23 @@ public final class MacScreenHubHost {
         eventTask = nil
         session = nil
         updateIndicator()
+        updateShareVote()
     }
 
     private func end(_ id: String, reason: MacScreenHubReason, hub: DeviceHub) {
         // task-owner: one /end call; the hub pushes the end to both Macs
         Task { try? await hub.endSession(id, reason: reason.rawValue) }
+    }
+
+    /// A connected viewer holds one capture vote on ``sharedScreenNode``; the session's end releases it.
+    private func updateShareVote() {
+        if session?.connected == true {
+            guard shareVote == nil else { return }
+            shareVote = sharedScreenNode?.captureVote(reason: "mac-screen.share", stayHidden: true)
+        } else {
+            shareVote?.release()
+            shareVote = nil
+        }
     }
 
     private func updateIndicator() {

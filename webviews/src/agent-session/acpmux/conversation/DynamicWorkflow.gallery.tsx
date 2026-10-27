@@ -62,12 +62,8 @@ function agentsFor(phase: Phase) {
 function ProgressSparkline() {
   const points = WORKFLOW.sparkline.map((value, index) => `${index * 10},${42 - value}`).join(" ");
   return (
-    <svg
-      className="workflow-gallery__sparkline"
-      viewBox="0 0 100 44"
-      role="img"
-      aria-label="Workflow progress sparkline"
-    >
+    <svg className="workflow-gallery__sparkline" viewBox="0 0 100 44">
+      <title>Workflow progress sparkline</title>
       <polyline points={points} pathLength="1" />
       <circle cx="100" cy={42 - WORKFLOW.sparkline.at(-1)!} r="2.5" />
     </svg>
@@ -132,16 +128,12 @@ function WorkflowSummary({ compact = false }: { compact?: boolean }) {
         </div>
         <ProgressSparkline />
       </div>
-      <div
+      <progress
         className="workflow-gallery__progress"
-        role="progressbar"
         aria-label="Workflow agents done"
-        aria-valuenow={WORKFLOW.done}
-        aria-valuemin={0}
-        aria-valuemax={WORKFLOW.total}
-      >
-        <span style={{ width: `${(WORKFLOW.done / WORKFLOW.total) * 100}%` }} />
-      </div>
+        value={WORKFLOW.done}
+        max={WORKFLOW.total}
+      />
       <div className="workflow-gallery__phase-counts">
         {WORKFLOW.phases.map((phase) => (
           <span key={phase.id}>
@@ -277,7 +269,7 @@ function DetailSheet() {
     setTab(next);
     document.getElementById(`workflow-${next}-tab`)?.focus();
   };
-  const onTabKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+  const onTabKeyDown = (event: KeyboardEvent<HTMLButtonElement>) => {
     const order = ["workflow", "transcript"] as const;
     const current = order.indexOf(tab);
     const direction = getComputedStyle(event.currentTarget).direction === "rtl" ? -1 : 1;
@@ -300,7 +292,7 @@ function DetailSheet() {
         </div>
         <WorkflowControls state={workflowState} onStateChange={setWorkflowState} />
       </header>
-      <div className="workflow-gallery__tabs" role="tablist" aria-label="Workflow detail tabs" onKeyDown={onTabKeyDown}>
+      <div className="workflow-gallery__tabs" role="tablist" aria-label="Workflow detail tabs">
         <button
           id="workflow-workflow-tab"
           type="button"
@@ -309,6 +301,7 @@ function DetailSheet() {
           aria-controls="workflow-workflow-panel"
           tabIndex={tab === "workflow" ? 0 : -1}
           onClick={() => selectTab("workflow")}
+          onKeyDown={onTabKeyDown}
         >
           Workflow
         </button>
@@ -320,6 +313,7 @@ function DetailSheet() {
           aria-controls="workflow-transcript-panel"
           tabIndex={tab === "transcript" ? 0 : -1}
           onClick={() => selectTab("transcript")}
+          onKeyDown={onTabKeyDown}
         >
           Transcript
         </button>

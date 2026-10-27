@@ -59,6 +59,8 @@ public final class HomeSidebarView: NSView {
     let searchCapsule = HomeSearchCapsule()
     /// The header's frames at the last layout (tests, `debug.home.sidebar_fixture`).
     public private(set) var header = HomeSidebarHeaderLayout(width: 320, searchOpen: false)
+    /// ``searchOpen`` at the header's last layout.
+    private var laidOutSearchOpen = false
     /// A quiet line under the list (`HomeSidebarModel.note`).
     let noteLabel = ChromeLabel(labelWithString: "")
     /// "Message Requests (2)" under the list while there are requests (DESIGN 2.3); hidden otherwise.
@@ -73,6 +75,8 @@ public final class HomeSidebarView: NSView {
     public override init(frame: NSRect) {
         HomeReduceMotion.install()
         super.init(frame: frame)
+        // Reduce Motion changes still or restart the typing bubbles already pulsing (the list observes nothing itself).
+        HomeReduceMotion.follow(list)
         wantsLayer = true
         list.frame = bounds
         addSubview(list)
@@ -152,8 +156,8 @@ public final class HomeSidebarView: NSView {
         reshow()
         noteLabel.stringValue = model.note ?? ""
         if noteLabel.isHidden != (model.note == nil) {
-            noteLabel.isHidden = model.note == nil
             needsLayout = true
+            noteLabel.isHidden = model.note == nil
         }
         onContentChange()
     }
@@ -237,8 +241,8 @@ public final class HomeSidebarView: NSView {
         requestsButton.title = title
         requestsButton.setAccessibilityLabel(title)
         if requestsButton.isHidden != (count == 0) {
-            requestsButton.isHidden = count == 0
             needsLayout = true
+            requestsButton.isHidden = count == 0
             onContentChange()
         }
     }
@@ -293,7 +297,7 @@ public final class HomeSidebarView: NSView {
         field.setAccessibilityIdentifier("cmux.home.sidebar.search")
         field.onEditingChange = { [weak self] _ in self?.searchEditingChanged() }
         // An emptied field (its cancel button) closes the search over an avatar-only list once it stops editing.
-        field.onTextChange = { [weak self] in self?.list.headerView.needsLayout = true }
+        field.onTextChange = { [weak self] in self?.searchStateMayHaveChanged() }
         searchCapsule.onClick = { [weak self] in self?.openSearch() }
         compose.target = self
         compose.action = #selector(newMessage)
@@ -310,8 +314,15 @@ public final class HomeSidebarView: NSView {
     /// The search is open while the field edits or holds a query.
     var searchOpen: Bool { list.searchField.isEditing || !list.searchField.stringValue.isEmpty }
 
+    /// Typing, the cancel button or focus changed the field: the header lays out again only when the
+    /// search opened or closed (its layout's one input besides the width), never per keystroke.
+    private func searchStateMayHaveChanged() {
+        if searchOpen != laidOutSearchOpen { list.headerView.needsLayout = true }
+    }
+
     private func layoutHeader(_ bounds: CGRect) -> CGFloat {
-        let h = HomeSidebarHeaderLayout(width: bounds.width, searchOpen: searchOpen)
+        laidOutSearchOpen = searchOpen
+        let h = HomeSidebarHeaderLayout(width: bounds.width, searchOpen: laidOutSearchOpen)
         header = h
         dragStrip.frame = CGRect(x: 0, y: 0, width: bounds.width, height: h.listTop)
         let compactClosed = h.compact && !h.buttonsCovered
@@ -344,7 +355,7 @@ public final class HomeSidebarView: NSView {
     /// the avatar-only list the search opens over the band or closes.
     private func searchEditingChanged() {
         applySearchColors()
-        list.headerView.needsLayout = true
+        searchStateMayHaveChanged()
     }
 
     /// The capsule's fill and rim, and the field's text, placeholder and caret, in the theme scope:
@@ -392,7 +403,7 @@ public final class HomeSidebarView: NSView {
             list.clearSearch()
             if list.searchField.isEditing { window?.makeFirstResponder(nil) }
         }
-        list.headerView.needsLayout = true
+        searchStateMayHaveChanged()
     }
 
     /// Screenshots (`debug.home.sidebar_fixture`), each optional: the list's `width` (clamped as
@@ -414,6 +425,7 @@ public final class HomeSidebarView: NSView {
         }
         if let unread { unreadOnly = unread }
         if let search { debugSearch(search) }
+        // sync-layout: automation: the frames returned below are the laid-out ones.
         (split?.superview ?? self).layoutSubtreeIfNeeded()
         func frame(_ r: CGRect?) -> Any { r.map { [$0.minX, $0.minY, $0.width, $0.height].map(Double.init) } ?? NSNull() }
         let h = header

@@ -148,6 +148,7 @@ pub(crate) fn notify_dedupe_key(
 
 impl WorkspaceRegistry {
     /// Every stored local item, oldest first.
+    #[track_caller]
     pub(crate) fn feed_local_items(&self) -> anyhow::Result<Vec<Item>> {
         let db = self.connection.get();
         let mut statement = db.prepare(
@@ -169,6 +170,7 @@ impl WorkspaceRegistry {
     /// Run the ledger pass and the closed-content sweep, then load the local
     /// owner's items. A failed step is logged and the daemon opens with the
     /// stored items; the next open runs it again.
+    #[track_caller]
     pub(crate) fn open_feed_local(&mut self) -> anyhow::Result<Feed> {
         if let Err(error) = self.migrate_feed_local_from_ledger() {
             eprintln!("cmux-tui: local feed ledger pass failed, using the stored items: {error:#}");
@@ -182,6 +184,7 @@ impl WorkspaceRegistry {
     /// Read the unread items whose terminal is tombstoned, or whose tab
     /// (for an item without a terminal) is closed: a crash between a close
     /// and its feed read leaves them. Idempotent. Returns how many it read.
+    #[track_caller]
     pub(crate) fn sweep_closed_feed_local_items(&mut self) -> anyhow::Result<usize> {
         let terminals: HashSet<String> = self
             .live_terminal_public_ids()?
@@ -213,6 +216,7 @@ impl WorkspaceRegistry {
 
     /// The live tab that shows `terminal` and that tab's workspace, from
     /// the registry (the ledger keeps only the terminal).
+    #[track_caller]
     fn terminal_tab_context(&self, terminal: &TerminalPublicId) -> anyhow::Result<FeedContext> {
         let row = self
             .connection
@@ -238,6 +242,7 @@ impl WorkspaceRegistry {
 
     /// B4, on every open (at most 256 entries); see the module comment.
     /// Read is one-way. Returns how many items it added.
+    #[track_caller]
     pub(crate) fn migrate_feed_local_from_ledger(&mut self) -> anyhow::Result<usize> {
         let live = self.live_terminal_public_ids()?;
         let entries = self.durable_notifications(&live)?;
@@ -344,6 +349,7 @@ impl WorkspaceRegistry {
     }
 
     /// Notification id -> item id of every folded notification.
+    #[track_caller]
     pub(crate) fn feed_local_folded(&self) -> anyhow::Result<HashMap<String, String>> {
         let db = self.connection.get();
         let mut statement = db.prepare("SELECT notification_id, item_id FROM feed_local_folded")?;
@@ -352,6 +358,7 @@ impl WorkspaceRegistry {
     }
 
     /// Commit a handoff op's rows with one advisory journal record.
+    #[track_caller]
     pub(crate) fn commit_feed_local_handoff(
         &mut self,
         item: &Item,
@@ -377,6 +384,7 @@ impl WorkspaceRegistry {
     /// notifications no longer retained by committed receipts. `extra` runs
     /// in the same transaction (the local feed reads of the same tab).
     /// Returns how many ids were newly acknowledged.
+    #[track_caller]
     pub fn ack_notifications_durable(
         &mut self,
         notification_ids: &[String],

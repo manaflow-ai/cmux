@@ -41,7 +41,7 @@ import Testing
         runner.postFiles(priority, shutdown: .skipOnShutdown) { report.yield(Seen.here()) }
         var iterator = reports.makeAsyncIterator()
         let seen = try #require(await iterator.next())
-        #expect(seen.queue == "test.mbr.files.\(WorkPriority(priority))")
+        #expect(seen.queue.hasPrefix("test.mbr.files.\(WorkPriority(priority))."), "ran on \(seen.queue)")
         #expect(seen.qos == priority.qos.qosClass.rawValue)
     }
 
@@ -54,10 +54,10 @@ import Testing
         #expect(!files.queue.contains("cooperative") && !system.queue.contains("cooperative"))
     }
 
-    @Test func afterShutdownOnlyABlockShutdownItemRuns() async throws {
+    @Test func afterShutdownBeganOnlyABlockShutdownItemRuns() async throws {
         let work = BackgroundWork(label: "test.mbr")
         let runner: any MayBlockRunner = work
-        await work.shutdown()
+        work.beginShutdown()
         // The overloads without a shutdown argument are skipOnShutdown, so shutdown refuses them.
         await #expect(throws: CancellationError.self) { try await runner.runFiles(.userVisible) { 1 } }
         await #expect(throws: CancellationError.self) { try await runner.runSystem(.userVisible) { 1 } }
@@ -65,5 +65,26 @@ import Testing
         let asked = try await runner.runSystem(.bestEffort, shutdown: .blockShutdown) { 8 }
         #expect(saved == 7)
         #expect(asked == 8)
+        // Once shutdown has returned, nothing waits for a save: it is refused too.
+        await work.shutdown()
+        await #expect(throws: CancellationError.self) { try await runner.runFiles(.bestEffort, shutdown: .blockShutdown) { 1 } }
     }
+
+    #if DEBUG
+    @Test func aSlowBlockItemThroughTheRunnerIsRecordedAtItsCallersSite() async throws {
+        // Every read of the clock moves it 300 ms: each block item runs past the 250 ms limit.
+        let uptime = BackgroundWorkTaskTests.SteppingUptime(stepMilliseconds: 300)
+        let work = BackgroundWork(label: "test.mbr.overrun", uptimeNanos: { uptime.read() })
+        let runner: any MayBlockRunner = work
+        _ = try await runner.runFiles(.bestEffort, shutdown: .blockShutdown) { 1 }
+        _ = try await runner.runSystem(.bestEffort, shutdown: .blockShutdown) { 1 }
+        runner.postFiles(.bestEffort, shutdown: .blockShutdown) {}
+        // Shutdown returns after each item's done step, which follows its record.
+        await work.shutdown()
+        let sites = work.blockShutdownOverruns.map(\.site)
+        #expect(sites.count == 3, "\(sites)")
+        // The caller's line, never the adapter's (BackgroundWork+MayBlockRunner.swift).
+        #expect(sites.allSatisfy { $0.hasPrefix("CmuxNextWakeupsTests/MayBlockRunnerTests.swift:") }, "\(sites)")
+    }
+    #endif
 }

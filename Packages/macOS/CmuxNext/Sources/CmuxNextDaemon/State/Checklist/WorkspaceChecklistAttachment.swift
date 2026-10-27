@@ -20,11 +20,4 @@ public struct WorkspaceChecklistAttachment: Sendable, Hashable, Codable, Identif
         self.path = path
         self.name = name ?? URL(fileURLWithPath: path).lastPathComponent
     }
-
-    /// The attachment as `workspace_checklist.update` takes it (`WorkspaceChecklistAttachmentInput`).
-    public var json: JSONValue {
-        var object: [String: JSONValue] = ["path": .string(path), "name": .string(name)]
-        if let id { object["id"] = .string(id) }
-        return .object(object)
-    }
 }

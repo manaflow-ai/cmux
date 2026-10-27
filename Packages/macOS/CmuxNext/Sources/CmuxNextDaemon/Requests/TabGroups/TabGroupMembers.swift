@@ -4,7 +4,7 @@ import Foundation
 /// workspaces move into the group's pane in the same commit.
 public struct AddTabsToGroupRequest: DaemonRequest {
     public typealias Response = TabGroupResult
-    public static let command = "add-tabs-to-tab-group"
+    public static let commandName: DaemonCommandName = "add-tabs-to-tab-group"
     public static let requiredCapability: String? = DaemonCapability.tabGroups.rawValue
     public var group: TabGroupID
     /// Wire `surfaces`.
@@ -38,7 +38,7 @@ public struct AddTabsToGroupRequest: DaemonRequest {
 /// A group left without members disappears.
 public struct RemoveTabsFromGroupRequest: DaemonRequest {
     public typealias Response = TabGroupResult
-    public static let command = "remove-tabs-from-tab-group"
+    public static let commandName: DaemonCommandName = "remove-tabs-from-tab-group"
     public static let requiredCapability: String? = DaemonCapability.tabGroups.rawValue
     /// Wire `surfaces`.
     public var tabs: [SurfaceID]

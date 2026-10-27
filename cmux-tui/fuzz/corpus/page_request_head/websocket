@@ -1,0 +1,8 @@
+ˇGET /ws HTTP/1.1
+Host: localhost:7777
+Origin: http://localhost:7777
+Upgrade: websocket
+Connection: Upgrade
+Sec-WebSocket-Version: 13
+
+ÅÄ

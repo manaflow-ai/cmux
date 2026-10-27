@@ -7,6 +7,7 @@ import CmuxNextSettings
 @testable import CmuxNextTabs
 import Foundation
 import Testing
+import CmuxNextWakeups
 
 /// One vertical gap runs through a pane's chrome in every window style (Lawrence 2026-10-19, on
 /// Panes and Floating Panes: "between the tab and the omnibar and between the tab and the pane,
@@ -50,7 +51,7 @@ import Testing
         defer { load(nil) }
         load(style)
         let model = TabStripModel(tabs: (0..<2).map { TabItem(id: TabID("tab\($0)"), title: "Tab \($0)") }, selectedID: TabID("tab0"))
-        let strip = TabStripView(model: model)
+        let strip = TabStripView.testing(model: model)
         strip.dragsWindowFromEmptySpace = false
         let window = window(CGSize(width: 700, height: 200))
         defer { window.close() }
@@ -83,7 +84,7 @@ import Testing
         let tab = MockBrowserEngine(kind: .cef).makeMockTab(BrowserTabConfiguration(initialURL: URL(string: "https://example.com")))
         let window = window(CGSize(width: 1000, height: 600))
         defer { window.close() }
-        let chrome = BrowserChromeView(tab: tab)
+        let chrome = BrowserChromeView(tab: tab, mainWork: MainWorkScheduler(budget: MainFrameBudget()), node: nil)
         chrome.frame = NSRect(x: 0, y: 0, width: 1000, height: 600)
         window.contentView = chrome
         chrome.layoutSubtreeIfNeeded()
@@ -115,7 +116,7 @@ import Testing
         let tab = MockBrowserEngine(kind: .cef).makeMockTab(BrowserTabConfiguration(initialURL: URL(string: "https://example.com")))
         let window = window(CGSize(width: 1000, height: 600))
         defer { window.close() }
-        let chrome = BrowserChromeView(tab: tab)
+        let chrome = BrowserChromeView(tab: tab, mainWork: MainWorkScheduler(budget: MainFrameBudget()), node: nil)
         chrome.frame = NSRect(x: 0, y: 0, width: 1000, height: 600)
         window.contentView = chrome
         chrome.layoutSubtreeIfNeeded()

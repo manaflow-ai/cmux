@@ -132,11 +132,21 @@ public nonisolated struct ImageClassifier: Sendable {
 
     /// A personal term that is part of our product names or of the report's fixed vocabulary
     /// ("cmux", "nightly", "apple", "stall") says nothing a report does not already say, and must
-    /// not refuse every report.
+    /// not refuse every report. The input latency labels are not here: the leak scan accepts them
+    /// only as exact values at their own keys (``PrivacyLeakScanner/closedSetValues``), so a
+    /// name inside one ("mina" in `terminal`) still refuses an image or any other string.
     static func isOwnWord(_ term: String) -> Bool {
-        ["cmux next nightly", "ghosttykit", "chromium embedded framework", "metrickit", "watchdog", "stall", "hang",
-         "release", "apple", "intel", "ultra", "other", "arm64", "x86_64"].contains { $0.contains(term) }
+        ownVocabulary.contains { $0.contains(term) }
     }
+
+    /// Our product names and the report's fixed string values, lowercased. The launch temperatures
+    /// and completion reasons come from their enums, so a new case is covered ("lukewarm" holds the
+    /// name "luke", "visiblePaneTimedOut" the word "pane").
+    static let ownVocabulary: [String] = [
+        "cmux next nightly", "ghosttykit", "chromium embedded framework", "metrickit", "watchdog", "stall", "hang",
+        "release", "apple", "intel", "ultra", "other", "arm64", "x86_64",
+    ] + LaunchTemperature.allCases.map { $0.rawValue.lowercased() }
+        + LaunchCompletionReason.allCases.map { $0.rawValue.lowercased() }
 
     static func isUUID(_ value: String) -> Bool {
         value.range(of: #"^[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}$"#,
@@ -155,7 +165,8 @@ public nonisolated struct ImageClassifier: Sendable {
         if ["/System/Library/Frameworks/\(name).framework", "/System/Library/PrivateFrameworks/\(name).framework"]
             .contains(where: { manager.fileExists(atPath: $0) }) { return true }
         return ["/usr/lib/\(name)", "/usr/lib/system/\(name)"].contains {
-            _dyld_shared_cache_contains_path($0) || manager.fileExists(atPath: $0)
+            // SAFETY: the path is passed as a NUL-terminated temporary copy that lives for the call; dyld only reads it.
+            unsafe _dyld_shared_cache_contains_path($0) || manager.fileExists(atPath: $0)
         }
     }
 
@@ -165,7 +176,8 @@ public nonisolated struct ImageClassifier: Sendable {
         let full = NSFullUserName().split { !$0.isLetter && !$0.isNumber }.map(String.init)
         // gethostname, not ProcessInfo.hostName: the latter may wait on a DNS lookup.
         var buffer = [CChar](repeating: 0, count: 256)
-        let raw = gethostname(&buffer, buffer.count) == 0
+        // SAFETY: gethostname writes at most buffer.count bytes into `buffer`, a local array live for the call.
+        let raw = unsafe gethostname(&buffer, buffer.count) == 0
             ? String(decoding: buffer.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) }, as: UTF8.self) : ""
         let host = raw.split(separator: ".").map(String.init).filter { $0 != "local" }
         return [NSUserName(), NSHomeDirectory()] + full + host

@@ -1,5 +1,5 @@
+import CmuxNextCompat
 public import Foundation
-import os
 
 /// The app's one inline VS Code server: `serve-web` on 127.0.0.1, started on first use.
 ///
@@ -38,7 +38,7 @@ public actor VSCodeServeWebService {
     private var generation: UInt64 = 0
     // The running process for `terminateForAppExit()`, which the app calls synchronously while it
     // quits and cannot await the actor. A one-slot mirror set and cleared with `server`.
-    private nonisolated let exitSlot = OSAllocatedUnfairLock<(any VSCodeServeWebProcessHandle)?>(initialState: nil)
+    private nonisolated let exitSlot = Mutex<(any VSCodeServeWebProcessHandle)?>(nil)
 
     /// Creates the service. It starts nothing until the first request.
     /// - Parameters:
@@ -128,10 +128,12 @@ public actor VSCodeServeWebService {
 
     /// Ends the running server at once, for the app's `applicationWillTerminate`.
     public nonisolated func terminateForAppExit() {
-        exitSlot.withLock { handle in
-            handle?.terminate()
-            handle = nil
+        // Taken out first: the signal is sent with the lock free.
+        let handle = exitSlot.withLock { slot in
+            defer { slot = nil }
+            return slot
         }
+        handle?.terminate()
     }
 
     private func begin(vscode: URL) throws -> Launch {

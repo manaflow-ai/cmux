@@ -1,0 +1,14 @@
+{
+  "$schema": "../features.schema.json",
+  "name": "coldScrollbackCompression",
+  "owner": "PL-memory",
+  "description": "The daemon compresses the scrollback of a terminal that no client views and that printed nothing for 10 minutes, at utility priority and never under memory pressure; any access restores it first. Stays off until the kernel compressor measurement (p07-memory-112) shows a 2x gain.",
+  "defaults": { "dev": false, "nightly": false, "release": false },
+  "kind": "perfPath",
+  "expires": "2026-12-20",
+  "process": "daemon",
+  "params": [],
+  "stories": ["memory-hidden"],
+  "sticky": false,
+  "runtimeMutable": false
+}

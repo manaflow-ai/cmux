@@ -1,0 +1,19 @@
+{
+  "id": "split-latency",
+  "tier": "T1",
+  "description": "Daemon-side cost of a split in the app's request order (split-latency-bench.py --streams against the launched app's daemon, 15 splits): split reply, tree events, resync, warm round trip, view handshake, attach and first content (ms), and the connections, handshake round trips and bridge spawns each new terminal view costs the app and the bench's reference view (count).",
+  "command": ["scripts/cmux-next/split-latency-bench.py", "--story", "split-latency", "--streams", "--label", "lab"],
+  "session": "light",
+  "engine": "none",
+  "config": "bench",
+  "metrics": [
+    {"name": "split_latency\\.(split_reply|ev_pane_added|ev_layout_changed|list_workspaces|warm_rtt|attach_handshake|attach_reply|first_content_after_attach|app_path_sum)", "unit": "ms", "better": "lower"},
+    {"name": "split_latency\\.(bench_view_attach_handshake_rtts|bench_view_requests|bench_view_connections|app_view_connections|app_view_attach_handshake_rtts|app_view_bridge_spawns|app_view_lines_written|app_connections_per_view)", "unit": "count", "better": "lower"}
+  ],
+  "repeats": 1,
+  "seconds": 90,
+  "needs": ["debug:debug.daemon.wire"],
+  "hot_paths": ["daemon-request"],
+  "owner": "PL-daemon",
+  "component": "IPC>Daemon"
+}

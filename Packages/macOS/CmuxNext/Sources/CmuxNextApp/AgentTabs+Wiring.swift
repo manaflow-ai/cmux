@@ -1,6 +1,7 @@
 import CmuxNextAgentPane
 import CmuxNextCompat
 import CmuxNextDaemon
+import CmuxNextFeatures
 import CmuxNextHomeEngine
 import struct CmuxNextLayout.MainPaneLayout
 import Foundation
@@ -106,15 +107,20 @@ extension AgentTabStore {
 
     /// The agent tabs' view store of `services`, wired to every machine's tree and daemon.
     static func wired(to services: AppServices) -> AgentTabStore {
-        let tabs = AgentTabStore(build: services.environment.build, registry: services.registry, environment: services.agentPaneEnvironment ?? ProcessInfo.processInfo.environment, showcase: services.environment.showcase,
-                                 linkScheme: services.linkScheme, settings: services.settings, openPanel: services.openPanel)
-        tabs.launchImages = AgentPaneLaunchImages(beside: services.environment.sidebarSnapshotFile)
+        // The chats' places and chips rest beside the launch snapshot (cx-6bgzj); with no snapshot file (tests) none are kept.
         let state = services.environment.sidebarSnapshotFile?.url.deletingLastPathComponent()
+        let tabs = AgentTabStore(build: services.environment.build, registry: services.registry, work: services.work, webUI: services.webUI, input: services.inputTap, environment: services.agentPaneEnvironment ?? ProcessInfo.processInfo.environment, showcase: services.environment.showcase,
+                                 linkScheme: services.linkScheme, settings: services.settings, openPanel: services.openPanel, warmup: services.agentPageWarmup,
+                                 chromiumChat: services.agentChromiumChat,
+                                 mainWork: services.mainWork, chatStores: state.map { AgentPaneChatStores(directory: $0) } ?? .keepsNothing,
+                                 daemonFeatures: services.features.daemonEnvironment)
+        (tabs.launchImages, tabs.pullRequestReader) = (services.launchImages, services.pullRequests.reader)
+        tabs.pageShown = { [weak services] in services?.home.launchFeeds?.need() }  // the New Tab feeds right after the first frame
+        tabs.createTabs = services.cache.createTabs
         tabs.unsentDrafts = AgentUnsentDrafts(directory: state)
         tabs.pageChats.environments = state.map { SavedEnvironments(url: $0.appending(path: "environments.json")) }
         // The composer chips and shell commands chat pages held at the last quit (every relaunch's quit).
-        tabs.relaunchWake = AgentPaneRelaunchWake(directory: state)
-        tabs.wakeStates = tabs.relaunchWake.take()
+        tabs.relaunchWake = services.relaunchWake
         // The Chief home's acpmux: the Chief host's subagent tabs attach there.
         let chief = ChiefHomeAcpmux(home: ChiefHome.resolve(tag: services.environment.tag), local: tabs.host) { [weak services] in
             await MainActor.run { _ = services?.home.brain.ensure(asked: false) }

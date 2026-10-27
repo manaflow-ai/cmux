@@ -27,7 +27,7 @@ public struct BookmarkImportNode: Encodable, Sendable, Equatable {
 /// `nodes[0]`'s title and children.
 public struct ImportBookmarksRequest: DaemonRequest {
     public typealias Response = BookmarkImportResult
-    public static let command = "import-bookmarks"
+    public static let commandName: DaemonCommandName = "import-bookmarks"
     public static let requiredCapability: String? = DaemonCapability.bookmarks.rawValue
     public var browserProfileID: String
     public var parent: String

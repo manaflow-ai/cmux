@@ -1,7 +1,8 @@
 public import AppKit
+public import CmuxNextInputCore
 public import CmuxNextRemoteView
 
-#if DEBUG
+#if DEBUG || CMUX_BENCH_HOOKS
 /// Turns AppKit events into rb/1 input events (remote-tab-protocol.md
 /// section 6, JSON form), the opaque bytes of an rd service input event.
 public nonisolated struct RemoteBrowserInputEncoder {
@@ -58,6 +59,31 @@ public nonisolated struct RemoteBrowserInputEncoder {
             surface: surface)
     }
 
+    /// One frame delivery of merged moves, drags or mid-gesture scrolls at `point`: a move at the
+    /// latest point (a drag with the press's `clickCount`), or a wheel with the summed deltas and the
+    /// merged phase. A popup `surface` takes no wheel (nil), as for single events.
+    public static func pointer(_ input: PointerCoalescedInput, clickCount: Int, at point: CGPoint, surface: UInt32 = 0) -> RemoteRdJSON? {
+        let record = input.latest
+        let flags = NSEvent.ModifierFlags(rawValue: record.modifierFlags.rawValue)
+        if record.type == .scrollWheel {
+            guard surface == 0 else { return nil }
+            let phases = record.scrollPhase.appKitPhases
+            return wheel(dx: input.scrollDelta.x, dy: input.scrollDelta.y, precise: record.hasPreciseScrollingDeltas,
+                         phase: phases.phase, momentumPhase: phases.momentum, modifierFlags: flags, at: point)
+        }
+        // The AppKit button as `appKitButton` reads it: the type names left and right.
+        let move: (type: NSEvent.EventType, button: Int)
+        switch record.type {
+        case .mouseMoved: move = (.mouseMoved, 0)
+        case .leftMouseDragged: move = (.leftMouseDragged, 0)
+        case .rightMouseDragged: move = (.rightMouseDragged, 1)
+        case .otherMouseDragged: move = (.otherMouseDragged, max(2, record.buttonNumber))
+        default: return nil
+        }
+        return pointer(type: move.type, button: move.button, clickCount: move.type == .mouseMoved ? 0 : clickCount,
+                       modifierFlags: flags, at: point, surface: surface)
+    }
+
     /// Whether the host must get `event` even when newer input supersedes
     /// it: moves and mid-gesture wheel deltas may go, presses, releases,
     /// enter, leave and gesture edges may not.
@@ -70,6 +96,12 @@ public nonisolated struct RemoteBrowserInputEncoder {
         default:
             true
         }
+    }
+
+    /// ``mustDeliver(_:)`` of a frame delivery: wheel notches (no phase) carry deltas a newer notch
+    /// does not repeat, so they must arrive; moves, drags and mid-gesture scrolls may go.
+    public static func mustDeliver(_ input: PointerCoalescedInput) -> Bool {
+        input.kind == .scroll && input.latest.scrollPhase == InputScrollPhase.none
     }
 
     /// The AppKit button (0 left, 1 right, 2+ other): the event type decides

@@ -1,6 +1,7 @@
 // What a New Tab page already knew, for the next page that mounts (Leo 2026-10-18: closing or
 // opening a workspace re-mounted its page, which read every settled value again and jittered). Every
-// agent page shares one website data store (AgentPaneView.sharedDataStore), so this origin's
+// agent page shares one website data store (WebProcessGroups.dataStore on the page host's WebKit,
+// the one profile in Chromium), so this origin's
 // localStorage is the app run's: a page that mounts draws the last All chats first page on its
 // first frame (the machine chip's name comes with the page's context, #22211). The chat index's
 // pushes (`deviceChats`) stay the only reason to read the first page again; a blocked store only

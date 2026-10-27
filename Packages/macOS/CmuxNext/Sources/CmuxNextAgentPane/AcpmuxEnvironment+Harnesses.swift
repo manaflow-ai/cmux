@@ -1,3 +1,4 @@
+import CmuxNextCompat
 public import Foundation
 import Network
 
@@ -136,7 +137,7 @@ extension AcpmuxEnvironment {
 
     /// Whether `line` is a `_acpmux/harnesses_changed` notification.
     nonisolated static func isHarnessChange(_ line: Data) -> Bool {
-        guard let object = try? JSONSerialization.jsonObject(with: line) as? [String: Any] else { return false }
+        guard let object = try? JSONSerialization.blockingJSONObject(with: line) as? [String: Any] else { return false }
         return object["method"] as? String == "_acpmux/harnesses_changed"
     }
 }

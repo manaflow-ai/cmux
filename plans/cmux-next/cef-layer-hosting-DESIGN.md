@@ -1,6 +1,7 @@
 # Chromium pages in the cmux window's layer tree (layer hosting)
 
-Status: slice 1 in progress (2026-10-23, PL-cef-layer). Owner: PL-cef-layer. Resize sync:
+Status: slice 1 in progress (2026-10-23, PL-cef-layer); slice 4's default is behind the default-off feature
+`cefLayerHosting` (2026-10-26, p03-rendering-050; section 3, "Default"). Owner: PL-cef-layer. Resize sync:
 PL-motion-cef. Related: [perf-lead.md](perf-lead.md) issues 2, 4, 7, 13;
 [browser.md](browser.md) sections 2-3 and "Fork clip patches";
 [cef-out-of-process.md](cef-out-of-process.md) option B.
@@ -132,16 +133,36 @@ resize kept the live-resize wait for every later pane resize).
 
 ## 3. Features, status
 
+Default (p03-rendering-050, Track A). `CEFLayerHosting.hosting(override:fork:widget:)` decides per page window:
+
+| Page window | `browserResize.layerHosting` on (developer, benches) | Off (default), feature `cefLayerHosting` on | Off, feature off (default) |
+|---|---|---|---|
+| A pane's page (`Widget.page`), the app makes every Track A call (`TrackA.required`) | hosted | hosted | own window |
+| A pane's page, a Track A call missing | hosted | own window, `debug.cef` `tracker.hosting_without_track_a` + 1 | own window |
+| Docked DevTools (`Widget.devTools`), popup host (`Widget.popup`) | hosted | own window (per-widget fallback until task 056), `tracker.hosting_widget_fallbacks` + 1 | own window |
+| Any, below fork API 26 or in host mode | own window (host mode: the Chromium Host's context) | same | same |
+
+A Track A call is a capability the app uses, not a fork API number: `CEFRuntime.layerHostingTrackA` holds the calls
+it makes. Without the resize fence (task 043's transactions) a hosted page shows stale-size frames on each resize;
+without embedder visibility (task 058's caller) a page window that never orders in reads as occluded to Chromium
+and stops drawing. Neither app side is on the branch yet, so the feature hosts no page today. A refusal by the fork,
+or a context no `CALayerHost` can show, keeps that page in its own window (section 2) in every column.
+
+The feature's channel defaults stay off until rendering-DESIGN.md difference 2 holds the IOSurface and GPU bytes per
+hosted page (`bench_memory.py`) and the wakeups per visible page (`bench_idle.py`), and
+`cef-layer-verify.py --mode default` (no tunable, `CMUX_ENABLE_FEATURES=cefLayerHosting`) passes every row on a fork
+where the app makes both calls. Its `valid` row fails while `hosting_without_track_a` is not 0.
+
 | Feature | Expected with hosting | Status |
 |---|---|---|
-| Mouse, scroll, hover | page window (input target) as today | open (verify the explicit `ignoresMouseEvents` on a no-pixel window) |
-| Keyboard, IME, focus | page window is key, as today | open |
-| Context menus, select popups, bubbles | own windows, as today | open |
-| Accessibility | page window AX tree; `CmuxApplication` maps windows | open |
-| DevTools docked or in its own cmux window | its own page window over its own `CEFHostView` (`CEFDevToolsController.views.host`), so its own context: hosted from `opened` (end of that turn); a tunable change applies at the next open; close turns it off (`removeViews`) | code in, not run (fork API 26 build pending) |
-| Drag and drop | page window is the drag destination and source | open |
+| Mouse, scroll, hover | page window (input target) as today | open (verify the explicit `ignoresMouseEvents` on a no-pixel window); `cef-layer-verify.py` rows click, scroll |
+| Keyboard, IME, focus | page window is key, as today | open; `cef-layer-verify.py` row keys, `check-ime-input.py` |
+| Context menus, select popups, bubbles | own windows, as today | open; `cef-layer-verify.py` row context |
+| Accessibility | page window AX tree; `CmuxApplication` maps windows | open (AX Inspector dump of a hosted page, not run) |
+| DevTools docked or in its own cmux window | feature default: its own page window (per-widget fallback, `Widget.devTools`) until task 056. With `browserResize.layerHosting`: its own page window over its own `CEFHostView` (`CEFDevToolsController.views.host`), so its own context: hosted from `opened` (end of that turn); a tunable change applies at the next open; close turns it off (`removeViews`) | default: fallback, as today; hosted: code in, not run (fork API 26 build pending); `devtools-resize-live.py` |
+| Drag and drop | page window is the drag destination and source | open; `cef-layer-verify.py` row drag (in page); file drop in and link drag out not covered |
 | Full screen | host layer moves with the cmux window; tracker follows | open |
-| Popup windows | a popup host (`adoptPopup` placeholder window) asks like any pane host (`CEFPaneHost.windowCreated` makes no exception for `isPopupHost`); extension popup windows that attach later (API 13 trackers) are not hosted | open (not verified on screen) |
+| Popup windows | feature default: own window (per-widget fallback, `Widget.popup`) until task 056. With `browserResize.layerHosting`: a popup host (`adoptPopup` placeholder window) asks like any pane host; extension popup windows that attach later (API 13 trackers) are not hosted | default: fallback, as today; hosted: open (not verified on screen) |
 
 ## 4. Risks
 
@@ -165,4 +186,6 @@ resize kept the live-resize wait for every later pane resize).
    `removeChildWindow`/`addChildWindow`, `ShowInactive` and `setFrame display:YES` in the switch's turn (12 windows
    for a STRESS workspace). Measure input to commit for both directions with the `action.perform`/`action.commit`
    signposts, light and STRESS, then remove the show side (the input window stays ordered in, or moves off screen).
-4. Default on, after parity.
+4. Default on, after parity (p03-rendering-050): behind the feature `cefLayerHosting`, off on every channel until
+   task 043's fence and task 058's embedder visibility run in the app and the difference 2 numbers are in
+   (section 3, "Default").

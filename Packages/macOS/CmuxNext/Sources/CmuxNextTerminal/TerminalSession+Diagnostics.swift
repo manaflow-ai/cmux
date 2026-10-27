@@ -63,13 +63,20 @@ public struct TerminalSurfaceDiagnostics: Sendable, Equatable {
 }
 
 extension TerminalSession {
+    /// ``TerminalSurfaceDiagnostics/hasContent`` alone, one stored read: the launch's terminal
+    /// content signal (`VisiblePaneRefs`), read on each change while startup is held.
+    public var hasContent: Bool { surfaceHasContent }
+
     /// The grid Ghostty's last frame drew (``TerminalSurfaceDiagnostics/drawnGrid``) and the owner's
     /// locked grid, without the rest of ``diagnostics``: cheap enough to read every display frame.
     public var drawnAndOwnerGrid: (drawn: TerminalGridSize?, owner: TerminalGridSize?) {
         guard let surface = surfaceView.surface else { return (nil, nil) }
         var columns: UInt16 = 0, rows: UInt16 = 0
-        let drawn = ghostty_surface_drawn_grid(surface, &columns, &rows) ? TerminalGridSize(columns: Int(columns), rows: Int(rows)) : nil
-        let grid = ghostty_surface_grid(surface)
+        // SAFETY: the view's live surface (TerminalSurfaceView.surface); Ghostty writes one
+        // UInt16 into each local, alive for the call.
+        let drawn = unsafe ghostty_surface_drawn_grid(surface, &columns, &rows) ? TerminalGridSize(columns: Int(columns), rows: Int(rows)) : nil
+        // SAFETY: the view's live surface (TerminalSurfaceView.surface).
+        let grid = unsafe ghostty_surface_grid(surface)
         return (drawn, grid.locked ? TerminalGridSize(columns: Int(grid.columns), rows: Int(grid.rows)) : nil)
     }
 
@@ -82,13 +89,18 @@ extension TerminalSession {
             drawing: surface.lastOcclusionVisible,
             pause: surface.pause,
             grid: surface.currentGrid,
-            fitGrid: surface.surface.map { surface in
-                let size = ghostty_surface_size(surface)
+            // SAFETY: the view's live surface (TerminalSurfaceView.surface), read for this call.
+            fitGrid: unsafe surface.surface.map { surface in
+                // SAFETY: the view's live surface (TerminalSurfaceView.surface).
+                let size = unsafe ghostty_surface_size(surface)
                 return TerminalGridSize(columns: Int(size.columns), rows: Int(size.rows))
             },
-            drawnGrid: surface.surface.flatMap { surface in
+            // SAFETY: as above.
+            drawnGrid: unsafe surface.surface.flatMap { surface in
                 var columns: UInt16 = 0, rows: UInt16 = 0
-                guard ghostty_surface_drawn_grid(surface, &columns, &rows) else { return nil }
+                // SAFETY: the view's live surface (TerminalSurfaceView.surface); Ghostty writes one
+                // UInt16 into each local, alive for the call.
+                guard unsafe ghostty_surface_drawn_grid(surface, &columns, &rows) else { return nil }
                 return TerminalGridSize(columns: Int(columns), rows: Int(rows))
             },
             surfaceInHost: surface.superview === view,
@@ -101,8 +113,10 @@ extension TerminalSession {
             localHistoryMismatches: localHistoryMismatches,
             localSnapshots: localSnapshots,
             skippedImages: skippedImages,
-            renderCounters: surface.surface.map { surface in
-                let counters = ghostty_surface_render_counters(surface)
+            // SAFETY: as above.
+            renderCounters: unsafe surface.surface.map { surface in
+                // SAFETY: the view's live surface (TerminalSurfaceView.surface).
+                let counters = unsafe ghostty_surface_render_counters(surface)
                 return TerminalRenderCounters(frames: counters.frames, cellRebuilds: counters.cell_rebuilds,
                                               blendFrames: counters.blend_frames, frameUpdates: counters.frame_updates,
                                               fullPalette: counters.full_palette, fullConfig: counters.full_config,

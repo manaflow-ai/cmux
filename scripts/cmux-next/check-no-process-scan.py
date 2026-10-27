@@ -63,6 +63,8 @@ PATTERNS = [
     r"\bPROC_PIDVNODEPATHINFO\b",
     r"\bPROC_PIDLISTFDS\b",
     r"\bproc_pidfdinfo\b",
+    # The checked seams over the same calls (CmuxNextCompat ProcessInfo+Blocking.swift): a caller still counts.
+    r"\bblockingProc(ListPids|PidPath|PidFDInfo)\b",
     # Parent links: walking up or down a process tree.
     r"\b(pbi_ppid|e_ppid)\b",
     # Spawning a process lister, by any path, through env/sh, or as an argument.

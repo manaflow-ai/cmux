@@ -7,6 +7,10 @@ public import CmuxNextCompat
 /// its count, and Reset Counts. Debug builds only: a Nightly (to come) will send its sites to the opt-in hang
 /// reports and show nothing.
 ///
+/// A site nobody has looked at yet is a badge on the item (the number of new sites since the submenu last
+/// opened): Debug records instead of stopping at the call (p02-threads-006), so the badge and the
+/// unified-log fault are what make a new site loud. Opening the submenu clears it.
+///
 /// It is the delegate of the Debug menu that holds its item (``attach(to:)``), so the count is read
 /// when that menu opens and the rows when the submenu opens; nothing runs while they are closed.
 /// Reset Counts is the registered action `debug.blockingCalls.reset` (scripts/cmux-next/check-menu-actions.py:
@@ -22,6 +26,8 @@ public final class BlockingCallsMenu: NSObject, NSMenuDelegate {
     private let item: NSMenuItem
     private let submenu: NSMenu
     private let resetItem: () -> NSMenuItem?
+    /// How many sites the submenu showed when it last opened: the sites past it are new.
+    private var seenSites = 0
 
     /// Makes the menu over the composition root's detector handle. `resetItem` makes the Reset Counts
     /// row (the registry's item for `debug.blockingCalls.reset`); nil leaves the row out.
@@ -34,7 +40,7 @@ public final class BlockingCallsMenu: NSObject, NSMenuDelegate {
         submenu.delegate = self
         item.submenu = submenu
         item.representedObject = self  // the menu keeps this object alive
-        item.title = Self.title(detector.sites.count)
+        item.title = Self.title(Self.mainSites(detector).count)
         submenu.title = item.title
     }
 
@@ -49,8 +55,11 @@ public final class BlockingCallsMenu: NSObject, NSMenuDelegate {
 
     /// Refreshes the count (the Debug menu) or the site rows (the submenu) before a menu opens.
     public func menuNeedsUpdate(_ menu: NSMenu) {
-        let sites = detector.sites
+        let sites = Self.mainSites(detector)
         item.title = Self.title(sites.count)
+        if menu === submenu { seenSites = sites.count }
+        let unseen = sites.count - seenSites
+        item.badge = unseen > 0 ? NSMenuItemBadge(count: unseen) : nil
         guard menu === submenu else { return }
         menu.removeAllItems()
         for site in sites {
@@ -64,6 +73,11 @@ public final class BlockingCallsMenu: NSObject, NSMenuDelegate {
         // Inside this submenu the short title reads right; the palette shows the action's full title.
         reset.title = String(localized: "debug.blockingCalls.reset", defaultValue: "Reset Counts", bundle: .module)
         menu.addItem(reset)
+    }
+
+    /// The main-thread sites: the menu is the main thread's; pool sites are in `debug.blocking`.
+    private static func mainSites(_ detector: BlockingDetector) -> [BlockingSite] {
+        detector.sites.filter { $0.context == .main }
     }
 
     private static func title(_ count: Int) -> String {

@@ -19,6 +19,7 @@
 //! starts on first use and sleeps on a condition variable when nothing is
 //! queued.
 
+use cmux_threads::checked::fs as files;
 use std::collections::{BTreeSet, HashMap};
 use std::path::{Path, PathBuf};
 use std::sync::{Condvar, Mutex, OnceLock};
@@ -80,7 +81,7 @@ fn run() {
 
 /// Whether the record at `path` is still `record`'s terminal incarnation.
 fn still_this_incarnation(path: &Path, record: &TerminalHostRecord) -> bool {
-    let Ok(bytes) = std::fs::read(path) else { return false };
+    let Ok(bytes) = files::read(path) else { return false };
     let Ok(current) = serde_json::from_slice::<TerminalHostRecord>(&bytes) else { return false };
     current.terminal_id == record.terminal_id && current.incarnation == record.incarnation
 }

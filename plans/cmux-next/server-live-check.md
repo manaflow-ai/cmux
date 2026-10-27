@@ -21,7 +21,7 @@ The signed build must contain all three. Without them the steps below stop early
   again at signing from the final bundle id) in every DEV and NIGHTLY build that bundles
   `Contents/Resources/bin/cmux`; stable builds drop it. Label `<bundle id>.server`, `BundleProgram`
   `Contents/Resources/bin/cmux`, arguments `host run`, `RunAtLoad`, `KeepAlive`
-  {`SuccessfulExit`: false}, `ThrottleInterval` 10, `ProcessType` Standard, no environment and no
+  {`SuccessfulExit`: false}, `ThrottleInterval` 10, `ProcessType` Interactive (threading-model.md "Process roles"), no environment and no
   log path (`cmux host run` writes its own log). Without it **Make This Mac a Server** answers "This build does not include the server software yet.";
 - the helper (same script: `Contents/Library/LaunchDaemons/com.cmux.server.helper.plist` and
   `Contents/Resources/libexec/cmux-server-helper`), signed with the app's Team ID: release signing

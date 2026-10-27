@@ -1,7 +1,6 @@
 import AppKit
-import UniformTypeIdentifiers
 
-/// One tile: the thumbnail (the file's icon until it renders), the name
+/// One tile: the thumbnail (a photo or film symbol until it renders), the name
 /// under it, and a movie's length in a corner badge. Loads its picture
 /// lazily from the shared ``ThumbnailCache`` and drops the request when the
 /// tile scrolls away or shows another file.
@@ -97,8 +96,9 @@ final class FileGridCell: NSCollectionViewItem {
         view.layer?.backgroundColor = isSelected ? appearanceValues.selection.cgColor : nil
     }
 
+    /// What a tile shows until its thumbnail renders: the photo or film symbol, with no Launch Services icon
+    /// lookup on the main thread (a screenful of tiles asked it once per tile).
     private static func icon(for item: FileGridItem) -> NSImage {
-        let type = UTType(filenameExtension: item.url.pathExtension.lowercased()) ?? .data
-        return NSWorkspace.shared.icon(for: type)
+        NSImage(systemSymbolName: item.kind == .video ? "film" : "photo", accessibilityDescription: nil) ?? NSImage()
     }
 }

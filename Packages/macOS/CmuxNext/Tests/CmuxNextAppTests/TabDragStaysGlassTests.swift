@@ -19,7 +19,7 @@ import Testing
 
         let model = TabStripModel(tabs: (0..<5).map { TabItem(id: TabID("t\($0)"), title: "Tab \($0)") }, selectedID: TabID("t0"))
         model.intentHandler = { intent in if case .select(let id) = intent { model.selectedID = id } }
-        let strip = TabStripView(model: model)
+        let strip = TabStripView.testing(model: model)
         strip.dragsWindowFromEmptySpace = false
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 900, height: 40), styleMask: [.borderless], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false

@@ -8,23 +8,27 @@
 
 use super::*;
 use crate::Actor;
+use crate::diagnostics::LockCaller;
 use crate::panic_free::RecoverPoison;
 use crate::request_origin::{
-    CONFIRMATION_TTL_MS, HelloRole, LocalPeer, RequestOrigin, forbidden, mint_token, needs_user,
-    valid_sha256_hex,
+    CONFIRMATION_TTL_MS, HelloRole, LocalPeer, PeerProcess, RequestOrigin, forbidden, mint_token,
+    needs_user, valid_sha256_hex,
 };
 use crate::resource::RequestEnvelope;
+use cmux_threads::checked::fs as files;
 
 /// Applies the origin rules to one parsed `cmux.protocol/2` line, then
 /// validates and dispatches the same parse. The origin rules run before
 /// the envelope and catalog validation, so a refused origin learns nothing
-/// from validation.
+/// from validation. `span` is the request's latency span, which a request
+/// answered on a work item takes along.
 pub(super) fn handle_resource_line(
     mux: &Arc<Mux>,
     client: u64,
     message: &str,
     envelope: Result<RequestEnvelope, ResourceError>,
     writer: &MessageWriter,
+    span: &mut RequestSpan<'_>,
 ) -> bool {
     let mut envelope = match envelope {
         Ok(envelope) => envelope,
@@ -51,7 +55,7 @@ pub(super) fn handle_resource_line(
         .and_then(|actor| crate::resource_router::validate_resource_envelope(envelope, actor));
     crate::debug_spans::mark("origin.admitted");
     match admitted {
-        Ok(request) => handle_resource_connection_message(mux, client, request, writer),
+        Ok(request) => handle_resource_connection_message(mux, client, request, writer, span),
         Err(error) => {
             if operation == ResourceOperation::HistoryTrailRecord {
                 // The trail's failure log (cx-hnmbt.14): an origin refusal
@@ -187,6 +191,17 @@ pub(super) fn is_page(mux: &Mux, client: u64) -> bool {
     derived_origin(mux, client) == RequestOrigin::Page
 }
 
+/// Stores the caller class `record`'s origin derives on its writer, where
+/// its reader and dispatcher read it without the clients lock
+/// (`debug-daemon-locks`). Called wherever the origin's role or
+/// `verified_app` changes, under the clients lock.
+fn sync_lock_caller(record: &ClientRecord) {
+    record.writer.lock_caller.set(match record.origin.derive() {
+        RequestOrigin::User => LockCaller::Frontend,
+        RequestOrigin::Page | RequestOrigin::Agent | RequestOrigin::App => LockCaller::Automation,
+    });
+}
+
 /// The origin `client` derives; a client with no record is an agent.
 fn derived_origin(mux: &Mux, client: u64) -> RequestOrigin {
     let state = mux.control_clients.state.lock().recover_poison();
@@ -286,19 +301,20 @@ pub(super) fn set_scoped_page(mux: &Mux, client: u64, page: String) {
 /// The conversation events a page-bound connection of the Channels page
 /// hears (and `chief-changed`, its Chiefs, and `participant-avatar-changed`,
 /// the pictures it draws); every other page-bound connection hears none.
-static CHANNELS_SCOPED_EVENTS: std::sync::LazyLock<[String; 8]> = std::sync::LazyLock::new(|| {
-    [
-        "conversation-changed",
-        "conversation-typing",
-        "conversation-draft",
-        "conversation-run-changed",
-        "conversation-live",
-        "conversation-inbox-changed",
-        "chief-changed",
-        "participant-avatar-changed",
-    ]
-    .map(String::from)
-});
+pub(super) static CHANNELS_SCOPED_EVENTS: std::sync::LazyLock<[String; 8]> =
+    std::sync::LazyLock::new(|| {
+        [
+            "conversation-changed",
+            "conversation-typing",
+            "conversation-draft",
+            "conversation-run-changed",
+            "conversation-live",
+            "conversation-inbox-changed",
+            "chief-changed",
+            "participant-avatar-changed",
+        ]
+        .map(String::from)
+    });
 
 /// The subscribe events a page relay connection hears (page-router.json
 /// `events` of its page; none for a relay without a page), a page-bound
@@ -358,6 +374,11 @@ pub(super) fn set_hello(
     }
     record.origin.page = page;
     record.origin.verified_app = role == HelloRole::Main && signature_proved;
+    sync_lock_caller(record);
+    let verified_process = record.origin.verified_app.then(|| record.origin.peer_key.clone());
+    if let Some(Some(peer_key)) = verified_process {
+        state.reclassify_process(&peer_key);
+    }
     true
 }
 
@@ -367,15 +388,78 @@ pub(super) fn set_peer_identity_at_accept(
     client: u64,
     peer_key: Option<String>,
     peer_token: Option<cmux_link::app_caller::PeerToken>,
+    peer_uid: Option<u32>,
 ) {
     let local_peer = classify_local_peer(mux, peer_key.as_deref(), peer_session_id);
-    let mobile_host = peer_executable(peer_key.as_deref(), peer_token.as_ref())
-        .is_some_and(|path| is_bundled_mobile_host_path(&path));
+    let executable = peer_executable(peer_key.as_deref(), peer_token.as_ref());
+    let mobile_host = executable.as_deref().is_some_and(is_bundled_mobile_host_path);
+    // Windows sockets pass no descriptors: no peer there is direct.
+    #[cfg(unix)]
+    let peer_process = classify_peer_process(
+        peer_uid,
+        executable.as_deref(),
+        platform::effective_uid(),
+        daemon_executable(),
+    );
+    #[cfg(not(unix))]
+    let peer_process = {
+        let _ = peer_uid;
+        PeerProcess::Unverified
+    };
     let mut state = mux.control_clients.state.lock().recover_poison();
     if let Some(record) = state.clients.get_mut(&client) {
         record.origin.peer_key = peer_key;
         record.origin.local_peer = local_peer;
         record.origin.mobile_host = mobile_host;
+        record.origin.peer_process = peer_process;
+    }
+}
+
+/// cmux's own executables beside the daemon's that splice a far client's
+/// bytes onto this socket: the `cmux` CLI (`cmux relay`, `cmux link dial`),
+/// the SSH helper and the remote daemon. A peer that runs one of them, or
+/// the daemon's own executable, may be a byte bridge, so it is classed as
+/// one: the daemon cannot see the subcommand, and a bridge cannot carry
+/// descriptors (server/capabilities.rs `IpcPeer::Bridged`).
+#[cfg(unix)]
+const BYTE_BRIDGE_NAMES: [&str; 5] =
+    ["cmux", "cmux-tui", "cmux-tui-ssh", "cmux-remote", "cmux-relay"];
+
+/// The daemon's own executable, canonical; `None` when it cannot be read.
+#[cfg(unix)]
+fn daemon_executable() -> Option<&'static Path> {
+    static OWN: std::sync::OnceLock<Option<PathBuf>> = std::sync::OnceLock::new();
+    OWN.get_or_init(|| std::fs::canonicalize(std::env::current_exe().ok()?).ok()).as_deref()
+}
+
+/// Classifies the accepted peer from its kernel uid and executable. A peer
+/// with no uid, another uid (root), or no executable stays unverified.
+#[cfg(unix)]
+pub(super) fn classify_peer_process(
+    peer_uid: Option<u32>,
+    executable: Option<&Path>,
+    own_uid: u32,
+    daemon: Option<&Path>,
+) -> PeerProcess {
+    let (Some(uid), Some(executable)) = (peer_uid, executable) else {
+        return PeerProcess::Unverified;
+    };
+    if uid != own_uid {
+        return PeerProcess::Unverified;
+    }
+    let Ok(executable) = std::fs::canonicalize(executable) else {
+        return PeerProcess::Unverified;
+    };
+    let Some(daemon) = daemon else { return PeerProcess::Unverified };
+    let beside_daemon = executable.parent() == daemon.parent()
+        && executable
+            .file_name()
+            .and_then(|name| name.to_str())
+            .is_some_and(|name| BYTE_BRIDGE_NAMES.contains(&name));
+    if executable == daemon || beside_daemon {
+        PeerProcess::ByteBridge
+    } else {
+        PeerProcess::SameUser
     }
 }
 
@@ -391,12 +475,12 @@ const MOBILE_HOST_NAME: &str = "cmux-mobile-host";
 fn is_bundled_mobile_host_path(path: &Path) -> bool {
     static SIBLING: std::sync::OnceLock<Option<PathBuf>> = std::sync::OnceLock::new();
     let sibling = SIBLING.get_or_init(|| {
-        let own = std::fs::canonicalize(std::env::current_exe().ok()?).ok()?;
-        let sibling = std::fs::canonicalize(own.parent()?.join(MOBILE_HOST_NAME)).ok()?;
-        std::fs::metadata(&sibling).ok()?.is_file().then_some(sibling)
+        let own = files::canonicalize(std::env::current_exe().ok()?).ok()?;
+        let sibling = files::canonicalize(own.parent()?.join(MOBILE_HOST_NAME)).ok()?;
+        files::metadata(&sibling).ok()?.is_file().then_some(sibling)
     });
     let Some(sibling) = sibling else { return false };
-    std::fs::canonicalize(path).is_ok_and(|path| &path == sibling)
+    files::canonicalize(path).is_ok_and(|path| &path == sibling)
 }
 
 /// The executable of the accepted peer, read so that a process that reused
@@ -487,6 +571,10 @@ pub(super) fn set_install_proved(mux: &Mux, client: u64, install_id: &str) -> bo
     }
     record.origin.verified_app = true;
     record.origin.install_id = Some(install_id.to_string());
+    sync_lock_caller(record);
+    if let Some(peer_key) = record.origin.peer_key.clone() {
+        state.reclassify_process(&peer_key);
+    }
     true
 }
 
@@ -596,7 +684,9 @@ mod test_hooks {
 
     fn with_origin(mux: &Arc<Mux>, client: u64, change: impl FnOnce(&mut ConnectionOrigin)) {
         let mut state = mux.control_clients.state.lock().recover_poison();
-        change(&mut state.clients.get_mut(&client).expect("registered client").origin);
+        let record = state.clients.get_mut(&client).expect("registered client");
+        change(&mut record.origin);
+        sync_lock_caller(record);
     }
 
     pub(in crate::server) fn set_role_for_test(mux: &Arc<Mux>, client: u64, role: &str) {
@@ -610,6 +700,14 @@ mod test_hooks {
         verified: bool,
     ) {
         with_origin(mux, client, |origin| origin.verified_app = verified);
+    }
+
+    pub(in crate::server) fn set_peer_process_for_test(
+        mux: &Arc<Mux>,
+        client: u64,
+        peer: PeerProcess,
+    ) {
+        with_origin(mux, client, |origin| origin.peer_process = peer);
     }
 
     /// What accept sets for a connection from the bundled cmux-mobile-host.
@@ -664,26 +762,6 @@ mod pairing_gate_tests;
 #[path = "chief_profile_ws_tests.rs"]
 mod chief_profile_ws_tests;
 
-/// The peer executable is read only while the peer key or token still
-/// names the same process (review 2 finding 3): a stale pid version, as a
-/// process that reused the pid would have, reads nothing.
 #[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
-mod peer_executable_tests {
-    use super::peer_executable;
-    use crate::platform::transport::Stream;
-
-    #[test]
-    fn peer_executable_needs_the_peers_own_pid_version() {
-        let (ours, _theirs) = std::os::unix::net::UnixStream::pair().unwrap();
-        let key = Stream::peer_process_key(&ours);
-        let token = Stream::peer_token(&ours);
-        let own = std::fs::canonicalize(std::env::current_exe().unwrap()).unwrap();
-        let read = peer_executable(key.as_deref(), token.as_ref()).expect("our own executable");
-        assert_eq!(std::fs::canonicalize(read).unwrap(), own);
-        let key = key.unwrap();
-        let (pid, _) = key.split_once('.').unwrap();
-        let stale_key = format!("{pid}.1");
-        let stale_token = token.map(|token| token.with_pid_version_for_test(1));
-        assert_eq!(peer_executable(Some(&stale_key), stale_token.as_ref()), None);
-    }
-}
+#[path = "origin_gate_peer_executable_tests.rs"]
+mod peer_executable_tests;

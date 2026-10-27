@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import Darwin
 public import Foundation
 
@@ -88,7 +89,7 @@ nonisolated enum AcpmuxPathPolicy {
 
     static func checkNow(_ text: String, scope: Scope) -> Result<Checked, Refusal> {
         // Parsed every time: a substring test would miss an escaped key ("c\u0077d").
-        guard var object = (try? JSONSerialization.jsonObject(with: Data(text.utf8))) as? [String: Any] else {
+        guard var object = (try? JSONSerialization.blockingJSONObject(with: Data(text.utf8))) as? [String: Any] else {
             return .success(Checked(text: text, gestureRootsUsed: []))
         }
         let method = object["method"] as? String
@@ -198,7 +199,7 @@ nonisolated enum AcpmuxPathPolicy {
     /// Whether a page frame needs the disk check: it names a folder field at any depth, or it is a
     /// `session/new` (which gets a cwd when it names none). Parsed, never a substring test.
     public static func needsCheck(_ text: String) -> Bool {
-        needsCheck((try? JSONSerialization.jsonObject(with: Data(text.utf8))) as? [String: Any])
+        needsCheck((try? JSONSerialization.blockingJSONObject(with: Data(text.utf8))) as? [String: Any])
     }
 
     /// The same for a frame already parsed.
@@ -218,9 +219,11 @@ nonisolated enum AcpmuxPathPolicy {
     /// normalization-insensitive and realpath keeps the typed spelling), then NFC. Off the main
     /// actor (``check(_:roots:)``): it touches the disk.
     public static func canonical(_ path: String) -> String? {
-        guard path.hasPrefix("/"), !path.utf8.contains(0), let resolved = realpath(path, nil) else { return nil }
-        let real = String(cString: resolved)
-        free(resolved)
+        // SAFETY: realpath reads the NUL-terminated copy of `path` made for the call (no NUL inside, checked first)
+        // and returns a malloc'd NUL-terminated string or nil; it is copied once into `real`, then freed once.
+        guard path.hasPrefix("/"), !path.utf8.contains(0), let resolved = unsafe realpath(path, nil) else { return nil }
+        let real = unsafe String(cString: resolved)
+        unsafe free(resolved)
         var spelled = ""
         for component in real.split(separator: "/", omittingEmptySubsequences: true) {
             let typed = spelled + "/" + component
@@ -237,24 +240,27 @@ nonisolated enum AcpmuxPathPolicy {
         request.bitmapcount = u_short(ATTR_BIT_MAP_COUNT)
         request.commonattr = attrgroup_t(ATTR_CMN_NAME)
         var buffer = [UInt8](repeating: 0, count: 4 + 8 + Int(NAME_MAX) * 3 + 1)
-        let status = buffer.withUnsafeMutableBytes { raw in
-            getattrlist(path, &request, raw.baseAddress, raw.count, UInt32(FSOPT_NOFOLLOW))
+        // SAFETY: getattrlist reads `request` (a local attrlist) and the NUL-terminated copy of `path` made for the
+        // call, and writes at most raw.count bytes into the array's storage, which the closure lends for the call.
+        let status = unsafe buffer.withUnsafeMutableBytes { raw in
+            unsafe getattrlist(path, &request, raw.baseAddress, raw.count, UInt32(FSOPT_NOFOLLOW))
         }
         guard status == 0 else { return nil }
-        return buffer.withUnsafeBytes { raw -> String? in
-            // u_int32_t length, then attrreference_t {int32 offset (from the reference), u_int32 length}.
-            let reference = 4
-            let offset = Int(raw.loadUnaligned(fromByteOffset: reference, as: Int32.self))
-            let length = Int(raw.loadUnaligned(fromByteOffset: reference + 4, as: UInt32.self))
-            let start = reference + offset
-            guard length > 1, start >= 0, start + length <= raw.count else { return nil }
-            return String(decoding: raw[start..<(start + length - 1)], as: UTF8.self) // length counts the NUL
-        }
+        // u_int32_t length, then attrreference_t {int32 offset (from the reference), u_int32 length}, little-endian.
+        let word = { (at: Int) -> UInt32 in buffer[at..<(at + 4)].reversed().reduce(0) { $0 << 8 | UInt32($1) } }
+        let reference = 4
+        let offset = Int(Int32(bitPattern: word(reference)))
+        let length = Int(word(reference + 4))
+        let start = reference + offset
+        guard length > 1, start >= 0, start + length <= buffer.count else { return nil }
+        return String(decoding: buffer[start..<(start + length - 1)], as: UTF8.self) // length counts the NUL
     }
 
     static func isDirectory(_ path: String) -> Bool {
         var info = stat()
-        return stat(path, &info) == 0 && (info.st_mode & S_IFMT) == S_IFDIR
+        // SAFETY: stat reads the NUL-terminated copy of the path made for the call and writes one struct stat into
+        // `info`, a local.
+        return unsafe stat(path, &info) == 0 && (info.st_mode & S_IFMT) == S_IFDIR
     }
 
     /// Whether canonical `path` is canonical `root` or under it, by components.

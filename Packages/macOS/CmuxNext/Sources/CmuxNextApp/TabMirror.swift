@@ -1,5 +1,6 @@
 import CmuxNextCompat
 import CmuxNextDaemon
+import CmuxNextWakeups
 import os
 
 /// A tab the store just created, once its tree has it. The creation reply can come before the
@@ -12,17 +13,7 @@ enum TabMirror {
     /// Whether `locate` finds tab `key` within 10 s (at once when it already does); logs when not.
     static func reaches(_ key: String, in locate: @escaping Locate) async -> Bool {
         if locate(key) != nil { return true }
-        // concurrency-allow: the observation task exits on cancellation; this bounds a daemon mirror race
-        let reached = await withTaskGroup(of: Bool.self) { group -> Bool in
-            group.addTask { await waitFor(key, locate: locate) }
-            group.addTask {
-                // wakeup-allow: one-shot ten-second daemon mirror deadline
-                try? await Task.sleep(for: .seconds(10))
-                return false
-            }
-            defer { group.cancelAll() }
-            return await group.next() ?? false
-        }
+        let reached = await Deadline(.seconds(10)).value("TabMirror.reaches") { await waitFor(key, locate: locate) } ?? false
         if !reached { logger.error("tab \(key, privacy: .public) did not reach the store's tree within 10 s") }
         return reached
     }

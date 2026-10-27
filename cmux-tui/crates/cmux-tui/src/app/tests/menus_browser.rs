@@ -24,7 +24,10 @@ fn remote_command_k_uses_authoritative_screen_and_keyboard_modes() {
     let mut output = attach.replay.to_vec();
     while !output.windows(5).any(|window| window == b"ready") {
         match attach.stream.recv_timeout(Duration::from_millis(20)) {
-            Ok(cmux_tui_core::AttachFrame::Output(bytes)) => output.extend_from_slice(&bytes),
+            Ok(
+                cmux_tui_core::AttachFrame::Output(bytes)
+                | cmux_tui_core::AttachFrame::FlowOutput { output: bytes, .. },
+            ) => output.extend_from_slice(&bytes),
             Ok(cmux_tui_core::AttachFrame::OutputWithColors { output: bytes, .. }) => {
                 output.extend_from_slice(&bytes);
             }
@@ -75,7 +78,10 @@ fn remote_command_k_uses_authoritative_screen_and_keyboard_modes() {
     output.clear();
     while !output.windows(expected.len()).any(|window| window == expected) {
         match attach.stream.recv_timeout(Duration::from_millis(20)) {
-            Ok(cmux_tui_core::AttachFrame::Output(bytes)) => output.extend_from_slice(&bytes),
+            Ok(
+                cmux_tui_core::AttachFrame::Output(bytes)
+                | cmux_tui_core::AttachFrame::FlowOutput { output: bytes, .. },
+            ) => output.extend_from_slice(&bytes),
             Ok(cmux_tui_core::AttachFrame::OutputWithColors { output: bytes, .. }) => {
                 output.extend_from_slice(&bytes);
             }

@@ -28,6 +28,6 @@ struct AgentPaneFileRows {
 
     /// Copy: `file` (and an image's bytes) on the pasteboard.
     func copy(_ file: URL) async -> Bool {
-        copyItem(AgentPaneImageCopies.pasteboardItem(file, data: await AgentPaneImageCopies.imageBytes(file)))
+        copyItem(AgentPaneImageCopies.pasteboardItem(file, image: await AgentPaneImageCopies.pasteboardImage(file)))
     }
 }

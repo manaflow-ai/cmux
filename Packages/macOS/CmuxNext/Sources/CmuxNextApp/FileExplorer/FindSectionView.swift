@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextCompat
 import CmuxNextDesign
 import CmuxNextFilesUI
+import CmuxNextWakeups
 
 /// The right sidebar's Find section and the Find pane's view: a search field
 /// over the focused terminal's folder and one row per matching line. Return
@@ -17,23 +18,30 @@ final class FindSectionView: NSView, RightSidebarRefreshing, NSTableViewDataSour
     let table = FindResultsTableView()
     private let scroll = NSScrollView()
     private var results: [RipgrepMatch] = []
-    private var observation: Task<Void, Never>?
+    /// This view in the visibility tree: the results render only while it is on screen, and once on show.
+    let visibility = ViewVisibility("find")
+    var visibilityNode: VisibilityNode { visibility.node }
+    private var observation: VisibleObservation<([RipgrepMatch], FindSectionModel.State, URL?)>?
+    /// The result to select and the scroll to go back to when the next search finishes
+    /// (``restore(query:cursor:scroll:)``).
+    private var pendingCursor: String?
+    private var pendingScroll: CGPoint?
 
     /// - Parameters:
     ///   - model: The search (one per section or pane).
+    ///   - mainWork: The app's main-thread scheduler its observation runs on.
     ///   - rootFolder: The folder to search now (the focused terminal's, else home).
     ///   - effects: How a result opens, reveals and copies (the file explorer's).
-    init(model: FindSectionModel, rootFolder: @escaping @MainActor () -> URL, effects: any FileExplorerEffects) {
+    init(model: FindSectionModel, mainWork: MainWorkScheduler, rootFolder: @escaping @MainActor () -> URL, effects: any FileExplorerEffects) {
         self.model = model
         self.rootFolder = rootFolder
         self.effects = effects
         super.init(frame: NSRect(x: 0, y: 0, width: RightSidebarModel.width, height: 400))
         build()
-        observation = Task { [weak self] in
-            guard let model = self?.model else { return }
-            for await _ in ObservationStream({ [model] in (model.results, model.state, model.root) }) {
-                self?.render()
-            }
+        observation = VisibleObservation(visibility.node, owner: "FindSection.render", on: mainWork) { [model] in
+            (model.results, model.state, model.root)
+        } apply: { [weak self] _ in
+            self?.render()
         }
         refresh()
     }
@@ -41,10 +49,19 @@ final class FindSectionView: NSView, RightSidebarRefreshing, NSTableViewDataSour
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
-    // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
-    // Each handle here is Sendable and stops from any thread: a release off main cleans up too.
-    nonisolated deinit {
-        observation?.cancel()
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        visibility.place(in: window)
+    }
+
+    override func viewDidHide() {
+        super.viewDidHide()
+        visibilityNode.set(.hidden)
+    }
+
+    override func viewDidUnhide() {
+        super.viewDidUnhide()
+        visibilityNode.set(.visible)
     }
 
     /// Searches the focused terminal's folder each time the section shows (again, when it changed).
@@ -107,12 +124,35 @@ final class FindSectionView: NSView, RightSidebarRefreshing, NSTableViewDataSour
     @objc private func submit() {
         let model = model, text = field.stringValue
         // task-owner: one search; a newer one supersedes it (the model's generation).
+        // main-hop-allow: the person's Return; search is the model's main-actor async ripgrep run (RipgrepSearch runs off main); this task only starts it
         Task { await model.search(text) }
+    }
+
+    /// The selected result as ``cursor(of:)``: what a discarded Find tab keeps.
+    var cursor: String? {
+        guard let row = table.selectedRowIfValid, row < results.count else { return nil }
+        return Self.cursor(of: results[row])
+    }
+
+    /// A result's place: `path:line:column`.
+    static func cursor(of match: RipgrepMatch) -> String { "\(match.path):\(match.line):\(match.column)" }
+
+    /// Where the results list is scrolled: what a discarded Find tab keeps with its cursor.
+    var resultsScroll: CGPoint { scroll.documentVisibleRect.origin }
+
+    /// Searches for `query` again, then selects the result at `cursor` and scrolls the results back
+    /// to `scroll` once they show: a discarded Find tab shown again (FindPaneService).
+    func restore(query: String, cursor: String?, scroll: CGPoint? = nil) {
+        field.stringValue = query
+        pendingCursor = cursor
+        pendingScroll = scroll
+        submit()
     }
 
     private func render() {
         results = model.results
         table.reloadData()
+        selectPendingCursor()
         let root = model.root.map { ($0.path as NSString).abbreviatingWithTildeInPath } ?? FileExplorerStrings.noFolder
         switch model.state {
         case .idle: status.stringValue = root
@@ -121,6 +161,26 @@ final class FindSectionView: NSView, RightSidebarRefreshing, NSTableViewDataSour
             status.stringValue = limited ? FindInDirectoryStrings.limited(RipgrepSearch.limit) : FileExplorerStrings.matchCount(results.count)
         case .failed(let reason): status.stringValue = reason
         }
+    }
+
+    /// Selects the result and goes back to the scroll ``restore(query:cursor:scroll:)`` asked for,
+    /// once its search ends; with no saved scroll, the selected result scrolls into view.
+    private func selectPendingCursor() {
+        guard pendingCursor != nil || pendingScroll != nil else { return }
+        switch model.state {
+        case .idle, .searching: return
+        case .done, .failed: break
+        }
+        let cursor = pendingCursor, origin = pendingScroll
+        pendingCursor = nil
+        pendingScroll = nil
+        if let cursor, let row = results.firstIndex(where: { Self.cursor(of: $0) == cursor }) {
+            table.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
+            if origin == nil { table.scrollRowToVisible(row) }
+        }
+        guard let origin else { return }
+        scroll.contentView.scroll(to: origin)
+        scroll.reflectScrolledClipView(scroll.contentView)
     }
 
     private var selected: RipgrepMatch? {

@@ -212,6 +212,7 @@ final class TabGroupEditorPanel: ActiveAppKeyPanel, NSTextFieldDelegate {
             self.parent?.removeChildWindow(self)
             parent.addChildWindow(self, ordered: .above)
         }
+        // sync-layout: fittingSize below measures the card.
         glass?.layoutSubtreeIfNeeded()
         let size = glass?.fittingSize ?? .zero
         // Under the chip, on its leading edge (the one popup placement, `PopupAnchor`).

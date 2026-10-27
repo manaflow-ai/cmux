@@ -1,0 +1,25 @@
+{
+  "$comment": "p15-oracle-082: the repository the files fixture (scripts/cmux-next/oracle/action_fixtures/files.py) opens in the diff viewer, built by tests/oracle/fixtures/git/make_repo.py under the fixture's scratch folder. Two tracked files each have two unstaged edits 22 lines apart, so the diff shows two files of two hunks each: Next and Previous File and Hunk each have a place to go.",
+  "name": "diff",
+  "branch": "main",
+  "epoch": 1767225600,
+  "identity": {
+    "name": "cmux oracle",
+    "email": "oracle@localhost"
+  },
+  "origin": "diff.git",
+  "commits": [
+    {
+      "message": "fixture: two files",
+      "files": {
+        "src/alpha.txt": "alpha line 1\nalpha line 2\nalpha line 3\nalpha line 4\nalpha line 5\nalpha line 6\nalpha line 7\nalpha line 8\nalpha line 9\nalpha line 10\nalpha line 11\nalpha line 12\nalpha line 13\nalpha line 14\nalpha line 15\nalpha line 16\nalpha line 17\nalpha line 18\nalpha line 19\nalpha line 20\nalpha line 21\nalpha line 22\nalpha line 23\nalpha line 24\nalpha line 25\nalpha line 26\nalpha line 27\nalpha line 28\nalpha line 29\nalpha line 30\n",
+        "src/beta.txt": "beta line 1\nbeta line 2\nbeta line 3\nbeta line 4\nbeta line 5\nbeta line 6\nbeta line 7\nbeta line 8\nbeta line 9\nbeta line 10\nbeta line 11\nbeta line 12\nbeta line 13\nbeta line 14\nbeta line 15\nbeta line 16\nbeta line 17\nbeta line 18\nbeta line 19\nbeta line 20\nbeta line 21\nbeta line 22\nbeta line 23\nbeta line 24\nbeta line 25\nbeta line 26\nbeta line 27\nbeta line 28\nbeta line 29\nbeta line 30\n"
+      },
+      "pushed": true
+    }
+  ],
+  "dirty": {
+    "src/alpha.txt": "alpha line 1\nalpha line 2\nalpha line 3, edited\nalpha line 4\nalpha line 5\nalpha line 6\nalpha line 7\nalpha line 8\nalpha line 9\nalpha line 10\nalpha line 11\nalpha line 12\nalpha line 13\nalpha line 14\nalpha line 15\nalpha line 16\nalpha line 17\nalpha line 18\nalpha line 19\nalpha line 20\nalpha line 21\nalpha line 22\nalpha line 23\nalpha line 24\nalpha line 25, edited\nalpha line 26\nalpha line 27\nalpha line 28\nalpha line 29\nalpha line 30\n",
+    "src/beta.txt": "beta line 1\nbeta line 2\nbeta line 3\nbeta line 4, edited\nbeta line 5\nbeta line 6\nbeta line 7\nbeta line 8\nbeta line 9\nbeta line 10\nbeta line 11\nbeta line 12\nbeta line 13\nbeta line 14\nbeta line 15\nbeta line 16\nbeta line 17\nbeta line 18\nbeta line 19\nbeta line 20\nbeta line 21\nbeta line 22\nbeta line 23\nbeta line 24\nbeta line 25\nbeta line 26, edited\nbeta line 27\nbeta line 28\nbeta line 29\nbeta line 30\n"
+  }
+}

@@ -208,18 +208,18 @@ import CmuxNextWakeupsTestSupport
     /// override is process-global, and a lane that runs every suite in one process (the macOS 27
     /// lane, 2026-10-14) lets another suite change it while this one awaits the hover delay; the
     /// tooltip then reads that, not this test's value.
-    /// The change is posted on the main actor, where the test reads `changed`.
-    nonisolated final class OverrideWatch: @unchecked Sendable {
+    /// The pin raises the app's ``AppearanceSignals/Signal/reduceMotion`` on the main actor, where
+    /// the test reads `changed`.
+    @MainActor final class OverrideWatch {
         private(set) var changed = false
-        private var token: (any NSObjectProtocol)?
-        init(_ name: Notification.Name) {
-            token = NotificationCenter.default.addObserver(forName: name, object: nil, queue: nil) { [weak self] _ in
+        private var watch: AppearanceSignals.Subscription?
+        init() {
+            watch = DesignSettings.shared.signals.subscribe([.reduceMotion], owner: "TooltipSurfaceTests") { [weak self] in
                 self?.changed = true
             }
         }
         func stop() {
-            if let token { NotificationCenter.default.removeObserver(token) }
-            token = nil
+            watch = nil
         }
     }
 
@@ -237,7 +237,7 @@ import CmuxNextWakeupsTestSupport
         Motion.reduceMotionOverride = false
         // Another suite's window mid-resize would drop the rise (`Motion.isLiveResizing`).
         Motion.liveResizeOverride = false
-        let watch = OverrideWatch(Motion.reduceMotionDidChange)
+        let watch = OverrideWatch()
         defer {
             watch.stop()
             Motion.reduceMotionOverride = nil
@@ -303,7 +303,7 @@ import CmuxNextWakeupsTestSupport
     @Test(.enabled("a window with no screen applies its changes at once") { await Self.hasDisplay() })
     func underReduceMotionTheTooltipFadesWithNoRise() async throws {
         Motion.reduceMotionOverride = true
-        let watch = OverrideWatch(Motion.reduceMotionDidChange)
+        let watch = OverrideWatch()
         defer {
             watch.stop()
             Motion.reduceMotionOverride = nil

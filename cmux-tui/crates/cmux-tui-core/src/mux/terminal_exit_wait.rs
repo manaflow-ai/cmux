@@ -6,6 +6,7 @@ impl Mux {
     /// Read only public terminal completion state. The host UUID and
     /// incarnation remain an internal fencing mechanism and never enter the
     /// resource API result.
+    #[track_caller]
     pub(crate) fn terminal_exit_state(
         &self,
         terminal_id: &TerminalPublicId,
@@ -71,6 +72,7 @@ impl Mux {
     /// restart the store has no stream for an exited terminal; its exit
     /// snapshot (the final screen) answers instead, as it does for a cursor
     /// before the snapshot's coverage.
+    #[track_caller]
     pub(crate) fn terminal_output_read(
         &self,
         terminal_id: &TerminalPublicId,
@@ -150,6 +152,7 @@ impl Mux {
     /// compressed vt-replay blob. `None` whenever the runtime surface is
     /// unavailable (dead-host reconciliation, daemon restart) or any capture
     /// step fails; exit persistence never depends on it.
+    #[track_caller]
     pub(super) fn capture_terminal_exit_replay(
         &self,
         terminal_id: &str,
@@ -187,6 +190,7 @@ impl Mux {
         self.terminal_exit_waiters.subscribe(terminal_id)
     }
 
+    #[track_caller]
     pub(super) fn terminal_public_ids_for_hosted(
         registry: &WorkspaceRegistry,
         hosted: &[(String, Option<String>)],
@@ -218,6 +222,7 @@ impl Mux {
         }
     }
 
+    #[track_caller]
     pub(crate) fn wait_for_terminal_exit(
         &self,
         terminal_id: &TerminalPublicId,

@@ -1,0 +1,19 @@
+{
+  "id": "drag-daemon",
+  "tier": "T2",
+  "description": "Daemon cost of one drag value (perf-10x-drag-daemon.py): an ephemeral headless daemon of the measured build's cmux-tui answers set-split-ratio and set-viewport-pane-width one request in flight, as the app's drag coalescer sends them, while a second connection subscribes to events; the round trip of every request, the sustained rate and the error count per command.",
+  "command": ["scripts/measure/perf-10x-drag-daemon.py", "--n", "360"],
+  "session": "light",
+  "engine": "none",
+  "config": "bench",
+  "metrics": [
+    {"name": "drag_daemon\\.(set-split-ratio|set-viewport-pane-width)\\.rtt", "unit": "ms", "better": "lower"},
+    {"name": "drag_daemon\\.(set-split-ratio|set-viewport-pane-width)\\.rate", "unit": "per_s", "better": "higher"},
+    {"name": "drag_daemon\\.(set-split-ratio|set-viewport-pane-width)\\.errors", "unit": "count", "better": "lower"}
+  ],
+  "repeats": 3,
+  "seconds": 60,
+  "needs": [],
+  "owner": "PL-daemon",
+  "component": "Daemon>Requests"
+}

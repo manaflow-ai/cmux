@@ -5,6 +5,7 @@
 //! published but whose mutation is not yet in the session's
 //! `resource_mutations` ledger.
 
+use cmux_threads::checked::fs as files;
 use std::collections::{BTreeMap, HashMap};
 use std::fs;
 use std::io::{self, Write};
@@ -93,7 +94,10 @@ impl Store {
             .entry(self.root.clone())
             .or_default()
             .clone();
-        let _guard = lock.lock().unwrap_or_else(PoisonError::into_inner);
+        // A capture of the same root may hold it for a long run: wait
+        // outside the lane's count.
+        let _guard =
+            cmux_threads::work::will_block(|| lock.lock()).unwrap_or_else(PoisonError::into_inner);
         body()
     }
 
@@ -190,7 +194,7 @@ impl Store {
 
     pub(super) fn remove(&self, repository_id: &str, checkpoint_id: &str) -> io::Result<()> {
         let path = self.records(repository_id).join(format!("{checkpoint_id}.json"));
-        match fs::remove_file(path) {
+        match files::remove_file(path) {
             Err(error) if error.kind() != io::ErrorKind::NotFound => Err(error),
             _ => Ok(()),
         }
@@ -198,7 +202,7 @@ impl Store {
 
     /// Every record of a repository, in no particular order.
     pub(super) fn all(&self, repository_id: &str) -> io::Result<Vec<Stored>> {
-        let entries = match fs::read_dir(self.records(repository_id)) {
+        let entries = match files::read_dir(self.records(repository_id)) {
             Ok(entries) => entries,
             Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(Vec::new()),
             Err(error) => return Err(error),
@@ -229,7 +233,7 @@ impl Store {
     /// Every unfinished create.
     pub(super) fn all_pending(&self) -> io::Result<Vec<Pending>> {
         let mut pending = Vec::new();
-        for entry in fs::read_dir(self.root.join("journal"))? {
+        for entry in files::read_dir(self.root.join("journal"))? {
             let path = entry?.path();
             if path.extension().is_some_and(|extension| extension == "json")
                 && let Some(entry) = read_json::<Pending>(&path)?
@@ -245,7 +249,7 @@ impl Store {
     }
 
     pub(super) fn finish_pending(&self, idempotency_key: &str) -> io::Result<()> {
-        match fs::remove_file(self.journal_path(idempotency_key)) {
+        match files::remove_file(self.journal_path(idempotency_key)) {
             Err(error) if error.kind() != io::ErrorKind::NotFound => Err(error),
             _ => Ok(()),
         }
@@ -259,7 +263,7 @@ pub(super) struct Scratch {
 
 impl Drop for Scratch {
     fn drop(&mut self) {
-        let _ = fs::remove_dir_all(&self.path);
+        let _ = files::remove_dir_all(&self.path);
     }
 }
 
@@ -302,7 +306,7 @@ pub(in crate::git_ops) fn private_directory(path: &Path) -> io::Result<()> {
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        fs::set_permissions(path, fs::Permissions::from_mode(0o700))?;
+        files::set_permissions(path, fs::Permissions::from_mode(0o700))?;
     }
     Ok(())
 }
@@ -310,7 +314,7 @@ pub(in crate::git_ops) fn private_directory(path: &Path) -> io::Result<()> {
 pub(in crate::git_ops) fn read_json<T: serde::de::DeserializeOwned>(
     path: &Path,
 ) -> io::Result<Option<T>> {
-    match fs::read(path) {
+    match files::read(path) {
         Ok(bytes) => serde_json::from_slice(&bytes)
             .map(Some)
             .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error)),
@@ -326,21 +330,22 @@ pub(in crate::git_ops) fn write_json(path: &Path, value: &impl Serialize) -> io:
     let directory = path.parent().ok_or_else(|| io::Error::other("no parent directory"))?;
     let temporary = directory.join(format!(".{}.tmp", mint("write")));
     let result = (|| {
-        let mut options = fs::OpenOptions::new();
+        let mut options = fs::File::options();
         options.write(true).create_new(true);
         #[cfg(unix)]
         {
             use std::os::unix::fs::OpenOptionsExt;
             options.mode(0o600);
         }
-        let mut file = options.open(&temporary)?;
+        let mut file = files::open_with(&options, &temporary)?;
+        crate::request_path::note(crate::request_path::BlockingKind::FsWrite);
         file.write_all(&bytes)?;
-        file.sync_data()?;
+        files::sync_data(&file)?;
         drop(file);
-        fs::rename(&temporary, path)
+        files::rename(&temporary, path)
     })();
     if result.is_err() {
-        let _ = fs::remove_file(&temporary);
+        let _ = files::remove_file(&temporary);
     }
     result
 }

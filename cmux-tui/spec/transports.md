@@ -165,6 +165,81 @@ remote session messages, including render attach and VT replay responses, may
 use the separate 33,554,432-byte budget. Receivers reject an oversized message
 before decoding or allocating its payload.
 
+### Binary frames (cmux-ipc, not yet negotiated)
+
+The `cmux-ipc` crate defines binary frames that a local Unix connection will
+carry next to JSON lines once a client negotiates them. The daemon does not
+advertise or grant `ipc-frames-v2` until its reader reads frames
+(p05-ipc-061; [Framed IPC grants](#framed-ipc-grants)). Until then, a frame
+on any connection is a bad message. WebSocket, relay and bridged connections
+keep JSON lines only.
+
+A message that starts with byte `0xFF` is a frame; any other first byte starts
+a JSON line. `0xFF` never appears in UTF-8, so the two cannot be confused.
+Each frame is a 16-byte little-endian header and then `len` payload bytes:
+
+| Bytes | Field | Notes |
+| --- | --- | --- |
+| 0 | magic | `0xFF` |
+| 1 | kind | table below |
+| 2-3 | stream | u16; 0 is the connection's control sequence, other values are client-minted streams |
+| 4-7 | len | u32 payload bytes, at most 33,554,432 (32 MiB) |
+| 8-15 | aux | u64 whose meaning depends on the kind |
+
+| Kind | Value | aux |
+| --- | --- | --- |
+| OUTPUT, GRID, EVENT, SNAPSHOT, SNAPSHOT_MORE, REPLAY, RING, RING_ADVANCE | 1-8 | absolute PTY offset |
+| INPUT | 9 | flow id |
+| SHARED_BUFFER | 10 | byte size of the attached fd |
+| RING_ACK | 11 | the reader's parsed PTY offset (consumer cursor) |
+| REQUEST, REPLY, ERROR, TYPED_EVENT, CANCEL | 16-20 | request id u32, method id u16, priority hint u8, flags u8 |
+
+Values 0, 12-15 and 21-255 are unassigned. Priority hints are input 0,
+control 1, bulk 2, background 3. Call flags are binary `0x01`, fds `0x02`,
+flow `0x04`, urgent `0x08` and more `0x10`; MORE marks a message cut into
+chunks, the boundary where higher-priority frames may go first. Kinds 1-9 and
+11 never use stream 0.
+
+The receiver validates the header as soon as its 16 bytes arrive, before it
+reads or allocates the payload. A bad magic byte, an unassigned kind,
+priority or flag bit, a length over the limit, terminal data on stream 0, a
+frame before negotiation, a JSON line over 16,777,216 bytes or not UTF-8, or
+a close inside a frame is a bad message. The receiver stops reading and closes
+the connection with `bad_message` and the reason (`bad_magic`, `unknown_kind`,
+`oversize`, `data_on_control_stream`, `unknown_priority`, `unknown_flags`,
+`frames_not_negotiated`, `line_too_long`, `invalid_utf8`, `truncated`).
+Nothing after the bad byte is interpreted.
+
+#### Bulk payloads: SNAPSHOT, SNAPSHOT_MORE, REPLAY
+
+A snapshot viewer's `snapshot` events (READY, local-history READY, history and
+images chunks) go as SNAPSHOT frames and the `vt-state` replay as a REPLAY
+frame (p05-ipc-077). The payload of one event is:
+
+| Bytes | Field | Notes |
+| --- | --- | --- |
+| 0-3 | meta_len | u32 little endian |
+| 4.. | meta | one UTF-8 JSON object, `meta_len` bytes |
+| then | raw | `data_len` bytes, then `pending_len` bytes (REPLAY only, when present) |
+
+The meta is the event's JSON line without its base64 fields (`data`, and
+`pending` for `vt-state`), plus `data_len` and, when the replay has a pending
+sequence, `pending_len`. The raw bytes are what those fields decode to: a
+history chunk's raw DEFLATE, the GHOSTSNP READY prefix, the Kitty replay
+stream, the VT replay and its pending sequence. aux is the PTY offset of the
+READY or of the replay cut. A writer cuts a long event into chunks: a SNAPSHOT
+continues as SNAPSHOT_MORE frames with the same aux; a REPLAY continues as
+REPLAY frames with the same aux, because its payload bytes (the prefix, the
+meta and the synthesized VT replay) are not PTY bytes. The next OUTPUT starts
+at that same offset. The reader takes the offset from the first frame, appends chunks
+until it holds `4 + meta_len + data_len + pending_len` bytes, and then has the
+whole event. A frame that would pass the 32 MiB payload limit is not built;
+that event goes as its JSON line.
+
+Golden vectors for every kind, one mixed stream and each bad-message case are
+in `spec/fixtures/ipc-frames` with a `manifest.json` that describes them in
+plain fields. Every implementation decodes them the same way.
+
 ## Relay Stdio
 
 | Field | Value |
@@ -328,9 +403,264 @@ Repeated `subscribe` calls and repeated attachments create independent server st
 
 The server event broadcaster holds 4,096 events per subscriber. The connection writer also has a 256-message, 16 MiB regular queue and a separate 256-message, 16 MiB control reserve. Stream overflow discards that stream's queued events, emits one stream-scoped `overflow`, and can leave unrelated streams and command responses usable. Exhausting the control reserve or the two-second write deadline closes the connection.
 
+### Reply and event order
+
+Each connection has one control sequence (stream 0): command replies, the events of its `subscribe`
+stream, and the items of its `session.events` stream. The server writes them in one FIFO, in the
+order they were enqueued. Every other stream (attach output, journal reads, loopback forwards,
+agent-session attaches and other resource streams) keeps its own FIFO: its items are never
+reordered among themselves, but priority may move them relative to other streams. Each such stream
+rides a lane, and the writer takes lanes in this order: input streams, the control FIFO, bulk
+streams (attach output and the other streams today), background streams. The order has a
+starvation bound: a lower lane passed over for 8 items writes one, so an event flood never starves
+attach output; the bound never changes the order inside a FIFO. Streams of one lane take turns of 2
+items. On a connection that carries frames, a stream frame longer than the daemon's frame cut
+(`bulk_frame_max` in `identify` with `revisions`, 32 KiB unless `CMUX_IPC_BULK_FRAME_MAX` sets it)
+is written in chunks with the MORE flag or as SNAPSHOT then SNAPSHOT_MORE, so a reply waits for at
+most one chunk. These rules hold on the Unix socket and WebSocket transports:
+
+1. Control replies and control events share one FIFO.
+2. **Not in force until chrome-parity p05-ipc-120 lands.** After p05-ipc-120, a reply is enqueued
+   after every event its request emitted, so it is written after them. Today the request emits its
+   events into the subscriber mailbox before it returns, but the subscription's thread moves them
+   to the FIFO later, and the reply, enqueued as soon as the command returns, is usually written
+   first.
+3. Items of a stream stay in their stream's FIFO; a stream's overflow drops only its own items
+   and never a reply.
+4. Control-sequence items use their stream's queue budget and backpressure, never the control
+   reserve, so an event flood ends its subscription with `overflow` and never closes the connection.
+
+**Not in force until p05-ipc-120 lands (rule 2):** a client may use "events read before this
+reply" as a barrier, because every event the request emitted is in it. Today that barrier can miss
+the request's own events. The macOS app's `LineTransport.routedEventCount` (and the `eventBarrier`
+of a reply) counts only stream-0 lines: raw events and the lines of a stream the client registered
+on the control sequence (`session.events`). The lines of any other stream never move it, and on a
+connection without a stream handler the app drops them. Regression tests: `cargo test -p
+cmux-tui-core --lib reply_event_order` (the two `*_under_stream_flood_*` tests are ignored and red
+until p05-ipc-120; run them with `-- --include-ignored`) and `ReplyEventOrderTests` (CmuxNext).
+`new-tab` changes the tree, not a split layout, so its echo is `tree-changed`; `set-split-ratio`
+is the `layout-changed` case.
+
 A reconnect creates a new transport generation. Old pending ids, event buffers, and stream handles never cross generations. A client resends authentication, calls `identify`, registers subscriptions before fetching snapshots, checks generation values, and reattaches surfaces. Network loss uses capped exponential delay with jitter and one in-flight attempt. Static-token rejection is terminal. Reconnect-credential rejection discards that credential once and enters one pairing attempt. Pairing denial, expiry, or rate limiting requires user action.
 
 vNext adds client-generated `stream_id` to `subscribe` and `attach-surface`, echoes it on every event, and adds idempotent `cancel-stream`. Request timeout remains distinct from stream cancellation.
+
+## Framed IPC grants
+
+Status: grant rule only. The daemon advertises and grants a capability only
+after its transport is in the daemon. No transport is in the daemon yet, so
+`identify` lists none of the four and `set-client-info` grants none. The
+task that adds a transport also turns on its capability: p05-ipc-061 for
+`ipc-frames-v2`, the stream task for `attach-streams-v1` and `cancel-stream`,
+and the ring task for `terminal-output-ring-v1`
+(`plans/cmux-next/chrome-parity/p05-ipc.md`, sections 3.1 and 3.2). Mojo
+works the same way: it exposes an interface only after its implementation
+is bound.
+
+| Capability | What it enables | Requires |
+| --- | --- | --- |
+| `ipc-frames-v2` | 16-byte framed messages next to JSON lines, `SHARED_BUFFER` included | none |
+| `attach-streams-v1` | Client-minted streams on one connection. Their items stay JSON lines. | none |
+| `attach-frames-v1` | Attach output as `OUTPUT`, `GRID`, `SNAPSHOT` and `REPLAY` frames on a stream | `ipc-frames-v2`, `attach-streams-v1` |
+| `terminal-output-ring-v1` | The per-terminal shared-memory output ring (`RING`, `RING_ADVANCE`, `RING_ACK`) | `attach-frames-v1` |
+
+`identify` lists each capability that is in the daemon and that the
+connection can be granted in its current state. After the client declares an
+`api_revision` other than the daemon's, `identify` no longer lists the
+capabilities that need the same revision. A client gets a grant when it
+echoes the capability in `set-client-info` and its connection meets the rule
+below. The client must also get, or already hold, every capability in the
+Requires column. The daemon ignores a capability that it does not grant, as
+it does for any other capability, and the reply stays `{}`.
+
+| Connection | Grants |
+| --- | --- |
+| Direct local peer on the Unix socket, with `api_revision` equal to the daemon's (declared in `set-client-info`) | all four |
+| Direct local peer at any other revision, or with no declared revision | `attach-streams-v1` |
+| Bridge that the daemon identifies at accept | `attach-streams-v1` |
+| Unverified Unix peer | `attach-streams-v1` |
+| WebSocket | none |
+| Remote entry (`cmux link` peer) | none. The remote gate refuses them with `remote_denied`. |
+| Page relay (`client-hello role:page_relay`) or a page's connection | none |
+
+The daemon classifies a Unix peer at accept, from kernel facts only:
+
+- A direct local peer runs as the daemon's effective user (`SO_PEERCRED` or
+  `getpeereid`), and its executable is not one of cmux's byte bridges.
+- A bridge is this build's `cmux-mobile-host`, or a peer whose executable is
+  the daemon's own executable or `cmux`, `cmux-tui`, `cmux-tui-ssh`,
+  `cmux-remote` or `cmux-relay` in the daemon's folder. These executables
+  include `cmux relay`, `cmux link dial --service owner_session` and the
+  remote daemon's dialer. The daemon cannot see the subcommand, so every
+  connection from these executables counts as a bridge.
+- An unverified peer is one for which the kernel reports no user or no
+  executable, or reports a user other than the daemon's (root).
+
+Streams are JSON lines, so a bridge carries them, and the daemon's revision
+translation applies to them. Frames, the ring and shared buffers carry
+payloads that the daemon does not translate. They also pass descriptors over
+SCM_RIGHTS, which only a direct local peer can receive. This follows Mojo:
+platform handles pass only on a channel that can carry them
+(`mojo/core/channel_posix.cc`), and unversioned interfaces assume that both
+ends come from one build. A bridge that the daemon does not identify reaches
+it as a direct peer. The dialing client knows about the bridge, so it echoes
+only `attach-streams-v1` until the bridge can carry frames
+(`bridge-frames-v1`, p05-ipc-161).
+
+Each `set-client-info` first removes every grant that the connection's
+current state does not allow, for example after an `api_revision` other
+than the daemon's. To get the grant again, the client must echo the
+capability again in a later `set-client-info`. A later page-relay
+`client-hello` also ends every grant. The daemon checks a grant again each
+time the grant is used.
+
+### Attach frames
+
+Status: encoder only (p05-ipc-076). `attach-frames-v1` stays unbound until
+the outbound queue carries stream frames, so no connection gets these yet.
+
+On a stream granted `attach-frames-v1`, the byte attach events of
+`attach-surface` (see [events](events.md)) arrive as frames instead of JSON
+lines. The aux of every one is an absolute PTY offset: the count of output
+bytes the terminal published before the frame. The first `OUTPUT` of an
+attach starts at the offset the attach's replay was taken at.
+
+| Event | Frames | Payload |
+| --- | --- | --- |
+| `output` | `OUTPUT` at the offset of its first byte | the raw PTY bytes |
+| `output` with `colors` or `flow` | `OUTPUT`, then `EVENT` at the same offset | `EVENT`: the `output` event text without `data` |
+| `resized` | `GRID` at the current offset | `meta_len` (u32 LE), the `resized` event text without `replay` and `pending`, then the replay bytes, then the pending bytes |
+| `colors-changed`, `detached`, `overflow` | `EVENT` at the current offset | the event text |
+
+`OUTPUT` offsets are contiguous: each one starts where the previous one
+ended, also across the chunks of a long payload. A reader that sees a gap
+lost bytes and resyncs. The server does not skip bytes when its outbound
+byte budget is full: it waits and sends the same frame at the same offset,
+as it does for a JSON line. A `GRID` meta has `pending_len`, the byte count of
+the pending sequence at the end of the payload, only for a viewer that
+advertised `terminal-pending-sequence-v1` and only when the sequence is not
+empty. For any other viewer, the pending bytes end the replay, as in its
+`resized` line. Putting the payload bytes back as base64 gives the JSON
+event of the line path.
+
+## Framed IPC method attributes
+
+Status: schema only. No transport reads these attributes yet; JSON-line
+clients ignore them. The framed transport
+(`plans/cmux-next/chrome-parity/p05-ipc.md`, section 3) routes a frame by its
+method id and never parses the payload, so `sdk-schema.json` gives each
+command and event the facts that routing needs. This follows Mojo: ordinals are
+scoped to an interface (`mojo/public/tools/bindings/README.md`), and every
+message is validated before dispatch, so a field without a bound cannot appear
+in a binary layout.
+
+`families` (top level) maps a kebab-case family name to `{id, description,
+next_ordinal}`. `id` is one byte: commands use `0x01`-`0x5F`, events
+`0xC0`-`0xFE`, and `0x60`-`0xBF` is reserved for `resource-operations-v2.json`.
+Families are append-only: an id is never reused or renumbered.
+`next_ordinal` (optional, 0-256) is the next ordinal to give in the family:
+every ordinal below it was given once, so it stays reserved after its command
+or event is removed. Every id of the family must be below it. When `families` is present,
+every command needs `method_id`, `priority` and `durability`, and every event needs
+`event_id` and `priority`.
+
+Command attributes:
+
+| Attribute | Meaning |
+| --- | --- |
+| `method_id` | u16, `family << 8 \| ordinal`. Unique in its family; the family must be a declared command family. |
+| `priority` | `input`, `control`, `bulk` or `background`. The daemon uses its own table; a frame header hint that differs is `bad_message`. |
+| `priority_changed_reason` | Why `priority` changed. `api-compat-check` requires a new one on every `priority` change. |
+| `ordering` | `sequence` (default) or `independent`. Only a `read_only` command that is not `stream_scoped` may be `independent`. |
+| `durability` | `read_only`, `memory`, `reply_before_journal` or `reply_after_journal`. Required, no default. A `spawns_terminal` command is never `read_only`. |
+| `payload` | `json` (default) or `binary`. A binary payload needs `layout_version`. |
+| `layout_version` | 1-255, the first byte of a binary layout; bumped on every layout change. |
+| `stream_scoped` | The command runs on the stream that names its surface, in that stream's FIFO. A `read_only` one waits only for the items queued before it, then leaves the FIFO: later items do not wait for its reply. |
+| `crosses_stream_ok` | Why the command may pass items already queued on its target surface's stream. Excludes `stream_scoped`. |
+| `max_bytes` | Bound of the encoded request, 1 to 32 MiB (the frame length limit). |
+| `spawns_terminal` | The command can start a terminal host (the reply carries `starting:true` under F10). Set when any form of the command starts one. |
+| `coalesce` | `{key, additive}`: a queued unsent item with equal `key` fields is replaced; numeric `additive` fields are summed. |
+| `urgent` | Run first on the receiving sequence (Mojo `[SupportsUrgent]`). It never reorders the channel. Only `input` or `control`. |
+| `clients` | Non-empty subset of `macos`, `ios`, `cli`, `sdk`; absent means every client. The Rust method tables hold every framed method; the Swift method table (p05-ipc-023) holds only methods whose `clients` include `macos`, and the client generators will do the same (p05-ipc-020 for Swift, p05-ipc-048 for iOS). |
+
+Event attributes: `event_id` (u16 in a declared event family), `priority`,
+`priority_changed_reason` and `coalesce` (fields of the payload).
+
+Field attributes: `omit_nil` (an optional member is omitted instead of written
+as `null`; not allowed on a required member), `max_bytes` (UTF-8 bound of a
+string member, or of each item of an array of strings) and `default` (it must
+match the member type; `null` only on a `nullable` member).
+
+Stream barrier rule. A command whose request has a `surface`, `surfaces`,
+`terminal`, `terminal_id`, `terminal_ids` or `view` member can target a
+surface that has an open stream on the connection. Such a command must be
+`stream_scoped`, or give a `crosses_stream_ok` reason; otherwise it could pass
+input already queued on that stream.
+
+Binary layout rule. Every length-prefixed part of a binary request or result
+is bounded: a string member needs `max_bytes` (on an array of strings it
+bounds each item), an array needs `max_items`, an object cannot allow
+additional properties, and maps, `opaque_json`, untagged unions and recursive
+types have no binary layout.
+
+`bindings/codegen/validate.py` (through `ipc_meta.py`) enforces these rules
+whenever the SDK generator loads the schema.
+
+### Assigning method ids
+
+`sdk-schema.json` declares `families`, so every command has `method_id` and
+`priority` and every event has `event_id` and `priority` (queue Q6 of
+`scripts/cmux-next/ipc-census.py` is empty). `cmux-tui/scripts/assign-ipc-method-ids.py`
+writes them. Run it after adding a command or event; run it with `--check`
+to see that the schema is current. It never changes an existing id, family,
+`priority`, `ordering` or `durability`, so a second run gives no diff. It
+advances each family's `next_ordinal` and never lowers it, so an id is never
+given twice, even after its command is removed. `clients` and
+`spawns_terminal` follow their sources on every run, so `--check` fails when
+a source changed and the schema did not.
+
+`api-compat-check` (cmux-api-compat, `src/wire.rs`) compares the ids of
+`sdk-schema.json` and `resource-operations-v2.json` with the append-only
+ledger `spec/api-compat.wire.json` and refuses: an id or family byte given to
+a second name, live or removed, in either file (both files share one family
+byte space and one frame id space); a family or id outside its file's range,
+or in a family the file does not declare; a renumbered method, event or
+family; a name removed from a schema file while its ledger entry has no
+`"removed": "<why>"` tombstone, and a tombstoned name that comes back; a
+`priority` change without a `priority_changed_reason` that differs from the
+last recorded one; and a binary layout change (request, result or a type they
+reach) without a higher `layout_version`. A schema that stops stating a
+priority keeps the recorded one. After adding ids, run it with `--write` to
+record them. To remove a command, event or family, add the tombstone to its
+ledger entry by hand; that is the only hand edit. CI passes `--base <rev>`, so
+the rules start from the base's ledger: an entry dropped from it, or an id,
+priority or layout edited in it, is reported and the check fails until
+`--write` puts the entry back.
+
+In `resource-operations-v2.json` the same attributes are optional and typed by
+`resource-operations-v2.schema.json`: top-level `families` (ids `0x60`-`0xBF`)
+and, on a transported operation, `method_id`, `priority`,
+`priority_changed_reason`, `payload` and `layout_version`. A binary
+operation's layout covers its `params` and `result`. Local operations run in
+the app and have no wire attributes.
+
+| Attribute | Rule |
+| --- | --- |
+| family | Each wire name matches exactly one family in the script's table. A name that matches none or two stops the script. |
+| ordinal | The family's `next_ordinal`, in file order. The first command of a family has ordinal 0. |
+| `priority` | Commands: `input` for `send`, `send-key`, `paste-image`, `browser-key*`, `browser-mouse*`, `browser-wheel*`, `browser-insert-text`, `resize-attached-view`, `scroll-surface`, and an agent chat's `agent-session-prompt`, `agent-session-cancel` and `agent-session-permission` (the person's input to the attached session). Every command that writes a surface's PTY input has this one priority, because a client keeps call order only inside one priority. The other `agent-session-*` commands, their log pages and images included, are `control`. `bulk` only for reads: journal and history reads, attachment reads, `get-blob`, `fs.read` and `agent-transfer-read`. `fs.list` keeps a listing snapshot and `fs.stat` answers one fixed-size entry, so both are `control`. A write, such as an upload, `put-blob`, `fs.write` or `agent-transfer-write`, is `control`, so a later command that names what it wrote (the `fs.rename` of a written part, the `agent-transfer-finish` of written pages) cannot pass it. `background` for stats (`server-stats`, `machine-usage`, `terminal-resources`). All other commands are `control`. Events: `input` for `output`, `render-delta`, `render-state` and `frame`, which draw the terminal. `bulk` for `surface-output`. `background` for usage and inventory refreshes. All other events are `control`. |
+| `ordering` | `independent` only for three stats reads that do not see this connection's earlier requests: `server-stats`, `machine-usage` and `machine-listening-tcp`. A cloud command is never `independent`: it needs the lease that the connection set with `cloud-session-set`. `fs.read` and `fs.stat` are not `independent` either: they see the files that the connection's own `fs.write`, `fs.mkdir`, `fs.rename` and `fs.delete` changed. |
+| `durability` | `read_only` for reads, `memory` for state that the journal never records (input, streams, leases, presence, subscriptions), and `reply_after_journal` for `journal-frontend-event`, whose reply reports the commit, for `apps-set` and `apps-store`, which write `apps.json` before they reply, for `agent-cli-intents-record`, `-settle`, `-attach` and `agent-cli-update-job`, which reply after their SQLite commit so a restarted app finds the intent or job it was told about, and for `fs.write` and `fs.rename`, which answer after their fsync. The other `apps-*` commands are `memory`: every one of them registers the connection for app events, and mounts, runs, log follows and providers last only as long as the connection. `cancel-request` is `memory` too: it only cancels an in-flight `apps-run` or script cell of this connection and journals nothing. The `agent-session-*` commands are `memory` (attachments and what they send to acpmux, which keeps the session and the folder trust), except `agent-session-events` and `agent-session-media`, which are `read_only`, and `agent-session-start`, which binds the tab and is `reply_before_journal`. All other commands are `reply_before_journal` (F10). A command that changes state is never `read_only`, even when its name sounds like a read: `cloud-selfhost-info` writes the lease's account, `browser-host-provider` starts the browser host and `snapshot-request` admits a snapshot on its stream, so all three are `memory`. `fs.list` (its listing snapshot), access requests (a status read takes a delivered secret), script cells and sessions, and the chat move and agent CLI update steps that acpmux keeps are `memory` too. `agent-transfer-receive` and `-finish` are `memory` although they write a receive or landed chat record: the write is best effort (a failed save is only logged), so their reply does not report a commit. |
+| `stream_scoped` | Set on every command that names a surface, terminal or view, unless the script gives a `crosses_stream_ok` reason. Reasons exist for these command groups: commands that create a terminal by `terminal_id`, commands that open a stream, process-state reads, and list filters. |
+| `spawns_terminal` | The script's reviewed list of daemon commands that can start a terminal host: the creates (`new-tab`, `new-pane`, `split`, `new-workspace` and the rest), `run`, `restart-tab`, `create-surface-with-receipt`, `apply-layout`, `sidebar-plugin`, both saved-group reopens, `move-tab-to-split` and `move-tab-to-column`, which start one with `respawn`, and `agent-cli-update-job`, whose workspace runs the update in a terminal. The list must hold every Swift request type that conforms to `TerminalSpawningRequest`; the script stops otherwise. |
+| `clients` | `sdk` for every command. `macos` for the Swift wire names (census Q1) and the names a Swift client sends by name, listed in the script's `MACOS_CALL_SITES` (the `agent-session-*` commands of `AgentSessionAttachClient.swift`). `cli` for the names that the Rust CLI builds by hand (census Q14) and for the names it passes to a call helper (the script's `CLI_CALL_HELPER_SENDS`: `fs.*`, `agent-transfer-*`, `access-request*`). |
+
+`snapshot-request` is `stream_scoped`: it is ordered on its surface's stream.
+
+`wait-for` is `stream_scoped` and `read_only`: it starts after the items
+queued before it on its surface's stream, then waits for its match outside
+the FIFO. A `send` sent after it, which produces the match, is not queued
+behind the wait.
 
 ## HTTP
 

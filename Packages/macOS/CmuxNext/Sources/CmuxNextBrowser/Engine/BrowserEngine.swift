@@ -30,7 +30,40 @@ public nonisolated struct BrowserTabConfiguration: Hashable, Sendable {
     public var machineStore: BrowserMachineStore?
     /// Main-frame navigations this tab's store may hold.
     public var navigationGuard: BrowserNavigationGuard
+    /// Why the tab is made, which says when it may start Chromium during launch (``CEFLaunchDeferral``).
+    public var origin: BrowserTabOrigin
 
+    /// - Parameters:
+    ///   - id: The tab's id.
+    ///   - profile: Its browser profile.
+    ///   - initialURL: Loaded right after creation; nil leaves the tab blank.
+    ///   - zoom: Its starting zoom.
+    ///   - pane: The pane that shows it; nil gives it its own group.
+    ///   - machineStore: The remote-localhost derived store; nil for the profile's own.
+    ///   - navigationGuard: The main-frame navigations its store may hold.
+    ///   - origin: Why it is made (no default: every caller says, p08-startup.md 3D).
+    public init(
+        id: BrowserTabID = .random(),
+        profile: BrowserProfileID = .default,
+        initialURL: URL? = nil,
+        zoom: Double = 1,
+        pane: BrowserPaneID? = nil,
+        machineStore: BrowserMachineStore? = nil,
+        navigationGuard: BrowserNavigationGuard = .none,
+        origin: BrowserTabOrigin
+    ) {
+        self.id = id
+        self.profile = profile
+        self.initialURL = initialURL
+        self.zoom = zoom
+        self.pane = pane
+        self.machineStore = machineStore
+        self.navigationGuard = navigationGuard
+        self.origin = origin
+    }
+
+    /// The configuration of a tab the user opens (``BrowserTabOrigin/user``). Removed once no caller is left (p08-startup-114).
+    @available(*, deprecated, message: "BrowserTabConfiguration without origin means .user; pass origin (p08-startup Q8)")
     public init(
         id: BrowserTabID = .random(),
         profile: BrowserProfileID = .default,
@@ -40,13 +73,8 @@ public nonisolated struct BrowserTabConfiguration: Hashable, Sendable {
         machineStore: BrowserMachineStore? = nil,
         navigationGuard: BrowserNavigationGuard = .none
     ) {
-        self.id = id
-        self.profile = profile
-        self.initialURL = initialURL
-        self.zoom = zoom
-        self.pane = pane
-        self.machineStore = machineStore
-        self.navigationGuard = navigationGuard
+        self.init(id: id, profile: profile, initialURL: initialURL, zoom: zoom, pane: pane, machineStore: machineStore,
+                  navigationGuard: navigationGuard, origin: .user)
     }
 }
 
@@ -57,4 +85,6 @@ public nonisolated enum BrowserRestoreState: Hashable, Sendable {
     case webKit(Data)
     /// The Chromium fork's `cmux_tab_navigation_state` (API 7).
     case chromium(String)
+    /// A cmux page in a browser tab (`BrowserAppPage`): its address and view state, no engine history.
+    case appPage(BrowserAppPageState)
 }

@@ -35,12 +35,19 @@ extension KeyRouter {
     /// Chromium dispatches extension shortcuts from the Chromium toolbar that
     /// cmux hides, and never sees keys while the omnibar or find bar has the
     /// keyboard, so cmux routes them for the focused Chromium tab.
+    /// Chromium's pre-key hook looks up the profile's shortcuts only for a key this did not settle
+    /// (``extensionShortcutsLookedUp``): browser focus mode, or a pane's Chromium tab whose shortcuts it read.
     func runExtensionShortcut(_ event: NSEvent, focus: FocusState) -> Bool {
-        guard !focus.isBrowserFocusModeActive, let pane = focus.resolved.pane,
+        if focus.isBrowserFocusModeActive {
+            extensionShortcutsLookedUp.add(event)
+            return false
+        }
+        guard let pane = focus.resolved.pane,
               let paneController = services?.windows.controllers.lazy.compactMap({ $0.content?.paneController(key: pane) }).first,
               case .browser(let entry)? = paneController.currentContent,
-              let tab = entry.tab as? CEFTab,
-              let command = tab.extensionStore.command(matching: event) else { return false }
+              let tab = entry.tab as? CEFTab else { return false }
+        extensionShortcutsLookedUp.add(event)
+        guard let command = tab.extensionStore.command(matching: event) else { return false }
         return tab.extensionStore.run(command, in: tab)
     }
 
@@ -116,7 +123,10 @@ extension KeyRouter {
     func focus(for window: NSWindow?) -> (WindowController?, KeyWindowKind) {
         guard let services, let window else { return (nil, .other) }
         let controllers = services.windows.controllers
-        if let controller = controllers.first(where: { $0.window === window }) { return (controller, .content) }
+        if let controller = controllers.first(where: { $0.window === window }) {
+            // An overlay of the window's top layer has the keyboard: it gates keys as its panel did.
+            return (controller, (window as? ShellWindow)?.overlayHasKeyboard == true ? .textPanel : .content)
+        }
         // A popup window (or the Chromium page window in it) gates menu
         // chords like a panel over the window that opened it.
         if let popup = services.popups.window(containing: window) {
@@ -146,9 +156,9 @@ extension KeyRouter {
         let context = keyContext(for: controller.focus.state, facts: Facts())
         let bits = context.bits
         let shortcut = Shortcut(key.character, modifiers: key.shift ? [.shift] : [])
-        guard let winner = RegistryKeyBindings(registry).table.resolve([shortcut], in: context, isRunnable: { [registry] in
+        guard let winner = RegistryKeyBindings(registry).table.resolveWinner(CollectionOfOne(shortcut), in: context, isRunnable: { [registry] in
             RegistryKeyBindings(registry).canPerform($0, in: bits)
-        }).winner, registry.descriptor(for: winner.command)?.requires.contains(.browserFocused) == true else { return }
+        }), registry.descriptor(for: winner.command)?.requires.contains(.browserFocused) == true else { return }
         RegistryKeyBindings(registry).run(winner, keyContext: bits)
     }
 
@@ -170,6 +180,13 @@ extension KeyRouter {
 
     func pageOwnsAllKeys(_ tab: any BrowserTab) -> Bool {
         window(showing: tab)?.focus.state.isBrowserFocusModeActive ?? false
+    }
+
+    /// Asked first by Chromium's pre-key hook (`CEFRuntime.routeKey`): a decided key, or Chromium's copy of it, never runs
+    /// the dispatcher again, and only one whose extension shortcuts the dispatcher did not look up still looks them up.
+    func decidedKey(_ event: NSEvent) -> BrowserDecidedKey { // perf-hot: 0.5ms key-dispatch (every chord a Chromium page gets)
+        guard decided.contains(event) else { return .undecided }
+        return extensionShortcutsLookedUp.contains(event) ? .settled : .extensionShortcutOwed
     }
 
     /// Chromium's pre-key hook (`CEFTab.keyRouter`): a key the dispatcher

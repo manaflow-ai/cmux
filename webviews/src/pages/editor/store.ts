@@ -3,7 +3,7 @@
 // after a pause when `editor.autoSave` is "afterDelay", on page hide and on the host's
 // `cmux.editor.flush`, and a save whose text equals the text on disk is skipped. A disk change reloads
 // the file when there are no local edits and raises the conflict banner when there are.
-import { isPageError, type PageClient } from "../shared/pageClient";
+import { isPageError, PageKeepAlive, type PageClient } from "../shared/pageClient";
 import type { DiffViewerAppearance } from "../../appearance";
 import {
   EDITOR_CHANGES,
@@ -25,7 +25,7 @@ import {
 } from "./host";
 import { resolveEditorSettings } from "./settings";
 import { revealOf, type RevealPosition } from "./keys";
-import { createEditReporter } from "../shared/editReporter";
+import { createEditReporter, type PageViewStateAnswer } from "../shared/editReporter";
 
 export type SaveStatus = "saved" | "edited" | "saving" | "failed";
 
@@ -79,6 +79,10 @@ export interface CodeView {
   format?(): Promise<void>;
   /** Moves the cursor to `position` and centers its line (a Find result). */
   reveal?(position: RevealPosition): void;
+  /** Cursor, selections, scroll and folds, as plain data the view takes back (`restoreViewState`). */
+  saveViewState?(): unknown;
+  /** Puts back what `saveViewState` gave, on the same document; an unreadable value does nothing. */
+  restoreViewState?(state: unknown): void;
   /** VS Code's save options (`editor.trimTrailingWhitespace`, `editor.insertFinalNewline`). */
   prepareSave?(options: { trimTrailingWhitespace: boolean; insertFinalNewline: boolean }): Promise<void>;
 }
@@ -156,7 +160,11 @@ export class EditorStore {
   private recovered: string | null = null;
   /** Where the cursor goes once the file is in the view (the config's `reveal`, an early command). */
   private pendingReveal: RevealPosition | null = null;
+  /** What a discarded page of this tab showed (the config's `viewState`), until the file is in the view. */
+  private pendingViewState: unknown = null;
   private readonly reporter;
+  /** `user_edits` while the file holds edits not on disk: the host keeps the hidden page (p13-webui-032). */
+  private readonly keepAlive: PageKeepAlive;
 
   constructor(
     private readonly client: PageClient | null,
@@ -164,6 +172,7 @@ export class EditorStore {
     reportSchedule: Schedule = defaultSchedule,
   ) {
     this.reporter = createEditReporter(() => this.reportEdited(), reportSchedule);
+    this.keepAlive = new PageKeepAlive(client);
   }
 
   /** `cmux.editor.edited`: the host's unsaved state and recovery draft follow the view. */
@@ -187,6 +196,8 @@ export class EditorStore {
 
   private set(patch: Partial<EditorState>): void {
     this.state = { ...this.state, ...patch };
+    const { readOnly, status, conflict } = this.state;
+    this.keepAlive.set("user_edits", !readOnly && (status !== "saved" || conflict !== null));
     for (const listener of this.listeners) listener();
   }
 
@@ -245,6 +256,7 @@ export class EditorStore {
         ? config.recoveredText
         : null;
     this.pendingReveal = revealOf(config.reveal) ?? this.pendingReveal;
+    this.pendingViewState = config.viewState ?? null;
     const size = typeof config.size === "number" ? config.size : config.text.length;
     this.set({
       phase: "ready",
@@ -296,7 +308,20 @@ export class EditorStore {
       this.view.replaceText(recovered);
       this.edited();
     }
+    const viewState = this.pendingViewState;
+    this.pendingViewState = null;
+    if (viewState != null) this.view.restoreViewState?.(viewState);
     this.applyReveal();
+  }
+
+  /**
+   * `cmux.editor.viewState`: what the view shows (`view`), for the page the host makes after it
+   * discards this one, and whether the page holds edits not on disk (`dirty`): the host keeps such a
+   * tab. An edit not reported yet goes to the host first.
+   */
+  viewState(): PageViewStateAnswer {
+    this.reporter.flush();
+    return { dirty: !this.state.readOnly && this.isDirty(), view: this.view?.saveViewState?.() ?? null };
   }
 
   /**

@@ -3,6 +3,7 @@ import AppKit
 @testable import CmuxNextApp
 @testable import CmuxNextDaemon
 import CmuxNextFocus
+import CmuxNextWakeups
 import Foundation
 import Testing
 
@@ -50,7 +51,6 @@ struct NewTabHoldFocusTests {
         store.connectionState = .connected(identity)
         store.apply(snapshot: Self.tree())
         let controller = try #require(services.windows.openWindow(workspaces: ["hold-ws"], frame: CGRect(x: 200, y: 200, width: 1200, height: 760)))
-        let directory = FileManager.default.temporaryDirectory.appending(path: "new-tab-hold-\(UUID().uuidString)")
         var pageKey: String?
         defer {
             if let pageKey {
@@ -59,7 +59,6 @@ struct NewTabHoldFocusTests {
             }
             controller.teardown()
             controller.window?.close()
-            try? FileManager.default.removeItem(at: directory)
         }
         for _ in 0..<200 where controller.workspaceContent?.panes.count != 2 { try await Task.sleep(for: .milliseconds(10)) }
         let content = try #require(controller.workspaceContent)
@@ -76,17 +75,15 @@ struct NewTabHoldFocusTests {
         pageKey = key
 
         // The second pane's tab is a New Tab page whose field has not reported ready yet.
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        let file = directory.appending(path: "index.html")
-        try Data("<html><body><input></body></html>".utf8).write(to: file)
+        let file = try #require(AgentPageAppTestRoot.page)
         let model = AgentPaneModel(host: NoHost(), allowsTabConversion: true)
         model.becomeNewTab(AgentPaneNewTab(kind: .agent))
-        let page = try #require(AgentPaneView(model: model, source: .bundled(file)))
+        let page = try #require(AgentPaneView(model: model, work: BackgroundWork(label: "test.agent-pane"), source: .bundled(file), webUI: .agentTabsTestHost(), gestures: .testing()))
         page.frame = other.view.bounds
         other.view.addSubview(page)
         services.agentTabs.views[key] = page
         services.agentTabs.newTabPages[key] = (AgentPaneNewTab(kind: .agent),
-                                               NewTabPageHandler(open: { _, _ in }, jump: { _, _ in }, editShortcut: { _ in }))
+                                               NewTabPageHandler(open: { _, _ in }, jump: { _, _, _ in }, editShortcut: { _ in }))
         try #require(page.window === window && !page.isHiddenOrHasHiddenAncestor, "the page is not shown in the window")
 
         // The focus model still names the first pane.
@@ -97,7 +94,7 @@ struct NewTabHoldFocusTests {
         let router = services.keyRouter
         let input = router.newTabInputCoordinator
         input.holdLimit = .seconds(600)
-        input.scheduleDeadline = { _, _ in Task {} }
+        input.scheduleDeadline = { _, _ in DemandTimer(owner: "test.holdLimit") }
         let token = try #require(input.begin(for: other))
         input.didShow(in: window)
         let typed = [try Self.key("h", keyCode: 4, in: window), try Self.key("i", keyCode: 34, in: window)]
@@ -107,7 +104,7 @@ struct NewTabHoldFocusTests {
         // The field reports ready: the held keys go to it now, not at the hold's limit.
         input.acknowledge(token, in: window)
         #expect(!input.isHolding(in: window), "the hold kept the keys after the page's field was ready: \(input.log)")
-        #expect(window.firstResponder === page.webView, "the page's field never got the keyboard (first responder \(String(describing: window.firstResponder)))")
+        #expect(window.firstResponder === page.focusTarget, "the page's field never got the keyboard (first responder \(String(describing: window.firstResponder)))")
         #expect(input.log.contains { $0.hasPrefix("drained to field") }, "the held keys did not go to the page's field: \(input.log)")
         #expect(controller.focus.state.pane == other.paneKey, "the focus model still names the pane the keys were not typed for")
     }

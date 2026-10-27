@@ -1,7 +1,6 @@
 import CmuxNextActions
 public import CmuxNextSettings
 import Foundation
-import os
 
 /// `action.run` (plans/cmux-next/state-ownership.md 4).
 ///
@@ -129,7 +128,7 @@ extension ControlRouter {
         let executor = self.executor
         let progress = call.progress
         let wait = call.params["wait"]?.boolValue ?? true
-        let scope = progress.track(ControlCommandScope(idempotencyKey: key))
+        let scope = progress.track(ControlCommandScope.automation(idempotencyKey: key))
         let expired = ControlError.timeout(call.method, after: max(call.deadline - .now, .zero))
         // A later step of a composite call (`file.open`'s next path) follows steps that may have applied.
         let firstStep = !progress.hasStarted
@@ -261,7 +260,7 @@ extension ControlRouter {
     /// this hop, so each has opened its first ticket by the time it runs,
     /// and a task opens its next ticket before yielding the main actor.
     static func awaitIdle(_ scope: ControlCommandScope) async {
-        // wakeup-allow: each iteration waits for the scope's open commands to reply, never polls
+        // wakeup-allow: bounded: each iteration waits for the scope's open commands to reply, never polls
         while !Task.isCancelled {
             if await MainActor.run(body: { scope.isIdle }) { return }
             await scope.waitUntilIdle()
@@ -296,12 +295,4 @@ extension ControlRouter {
         }
         return resolved
     }
-}
-
-/// Tab switch timeline marks (cx-asb1): wall-clock ms, so a bench can line
-/// them up with the page's own clock. Debug level: nothing is written unless
-/// a `log stream --level debug` reads category "tab-switch".
-private let tabSwitchLog = Logger(subsystem: "com.cmuxterm.app.next", category: "tab-switch")
-private func tabSwitchMark(_ name: String) {
-    tabSwitchLog.debug("tab-switch \(name, privacy: .public) \(Date().timeIntervalSince1970 * 1_000, format: .fixed(precision: 3), privacy: .public)")
 }

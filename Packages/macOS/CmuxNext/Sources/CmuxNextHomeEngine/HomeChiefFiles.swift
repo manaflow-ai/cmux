@@ -1,3 +1,4 @@
+import CmuxNextCompat
 public import CmuxNextHome
 public import Foundation
 import CmuxNextDaemon
@@ -73,7 +74,7 @@ public nonisolated struct HomeChiefFiles: Sendable {
     private func object(_ file: URL) -> [String: Any] {
         // concurrency-allow: HomeChiefFiles runs only inside Task.detached, never on the main actor
         guard let data = try? Data(contentsOf: file),
-              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return [:] }
+              let object = try? JSONSerialization.blockingJSONObject(with: data) as? [String: Any] else { return [:] }
         return object
     }
 
@@ -131,8 +132,8 @@ public nonisolated struct HomeChiefFiles: Sendable {
     /// Throws when it is not a picture ImageIO reads, or a GIF over ``maximumGIFBytes``.
     public func pictureData(from source: URL) throws -> ChiefAvatarPicture {
         // concurrency-allow: HomeChiefFiles runs only inside Task.detached, never on the main actor
-        guard let image = CGImageSourceCreateWithURL(source as CFURL, nil), CGImageSourceGetCount(image) > 0,
-              let type = (CGImageSourceGetType(image) as String?).flatMap(UTType.init) else { throw CocoaError(.fileReadCorruptFile) }
+        guard let image = CheckedImageSource(blockingContentsOf: source), image.count > 0,
+              let type = image.type.flatMap(UTType.init) else { throw CocoaError(.fileReadCorruptFile) }
         if type.conforms(to: .gif) {
             let size = (try source.resourceValues(forKeys: [.fileSizeKey])).fileSize ?? 0
             guard size <= Self.maximumGIFBytes else { throw CocoaError(.fileReadTooLarge) }
@@ -142,7 +143,7 @@ public nonisolated struct HomeChiefFiles: Sendable {
                                         kCGImageSourceCreateThumbnailWithTransform: true,
                                         kCGImageSourceThumbnailMaxPixelSize: 512]
         let data = NSMutableData()
-        guard let still = CGImageSourceCreateThumbnailAtIndex(image, 0, options as CFDictionary),
+        guard let still = image.thumbnail(options: options),
               let destination = CGImageDestinationCreateWithData(data as CFMutableData, UTType.png.identifier as CFString, 1, nil)
         else { throw CocoaError(.fileReadCorruptFile) }
         CGImageDestinationAddImage(destination, still, nil)
@@ -220,8 +221,7 @@ public nonisolated struct HomeChiefFiles: Sendable {
     /// it is square or unreadable.
     static func squared(_ file: URL) -> URL? {
         // concurrency-allow: HomeChiefFiles runs only inside Task.detached, never on the main actor
-        guard let source = CGImageSourceCreateWithURL(file as CFURL, nil),
-              let image = CGImageSourceCreateImageAtIndex(source, 0, nil), image.width != image.height else { return nil }
+        guard let image = CheckedImageSource(blockingContentsOf: file)?.image(), image.width != image.height else { return nil }
         let side = min(image.width, image.height)
         guard let square = image.cropping(to: CGRect(x: (image.width - side) / 2, y: (image.height - side) / 2,
                                                      width: side, height: side)) else { return nil }

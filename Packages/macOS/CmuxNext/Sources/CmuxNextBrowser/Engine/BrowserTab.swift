@@ -1,4 +1,5 @@
 public import AppKit
+public import CmuxNextWakeups
 public import Foundation
 public import Observation
 
@@ -91,7 +92,10 @@ public protocol BrowserTab: AnyObject, Observable, Sendable {
     func fullPageSnapshot() async throws -> CGImage
 
     /// Every cookie of the tab's profile (automation). The default throws `unsupported`.
-    func cookies() async throws -> [BrowserCookie]
+    ///
+    /// - Parameter work: The app's lanes: an engine whose answer is a whole cookie jar to parse (Chromium's
+    ///   DevTools reply) parses it on their `.cpu` lane, never on the main thread.
+    func cookies(on work: BackgroundWork) async throws -> [BrowserCookie]
 
     /// Stores `cookie` in the tab's profile. The default throws `unsupported`.
     func setCookie(_ cookie: BrowserCookie) async throws
@@ -136,7 +140,7 @@ extension BrowserTab {
         throw BrowserTabError.snapshotUnavailable
     }
 
-    public func cookies() async throws -> [BrowserCookie] {
+    public func cookies(on work: BackgroundWork) async throws -> [BrowserCookie] {
         throw BrowserTabError.unsupported("cookies")
     }
 

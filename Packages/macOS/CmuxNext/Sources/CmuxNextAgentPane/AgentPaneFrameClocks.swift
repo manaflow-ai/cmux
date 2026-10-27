@@ -24,7 +24,7 @@ import CmuxNextWakeups
     private let timer = DemandTimer(owner: "agent-pane.transport.fallback")
 
     func schedule(after delay: Duration, _ action: @escaping @MainActor @Sendable () -> Void) {
-        timer.schedule(after: delay) { @MainActor in action() }
+        timer.scheduleOnMain(after: delay, action)
     }
 
     func cancel() { timer.cancel() }

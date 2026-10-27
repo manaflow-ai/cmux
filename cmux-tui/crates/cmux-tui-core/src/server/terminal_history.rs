@@ -13,49 +13,20 @@ use base64::Engine as _;
 use serde::Deserialize;
 use serde_json::{Value, json};
 
+use super::terminal_io_wire::{TerminalHistoryParams, TerminalReadRangeParams, wire_usize};
 use super::{get_surface, require_pty};
-use crate::{Mux, SurfaceId};
+use crate::Mux;
 
 /// Default and maximum page bytes of one `terminal-history` reply.
 pub const TERMINAL_HISTORY_DEFAULT_BYTES: usize = 1 << 20;
 pub const TERMINAL_HISTORY_MAX_BYTES: usize = 8 << 20;
 
+/// One end of a `terminal-read-range` range (schema `RowMarkerPoint`).
 #[derive(Debug, Deserialize)]
-pub(crate) struct TerminalHistoryParams {
-    surface: SurfaceId,
-    /// Marker of the newest row the caller already has; absent: the top of
-    /// the active area.
-    #[serde(default)]
-    before: Option<u64>,
-    /// The marker epoch the caller's markers belong to (from the snapshot
-    /// event or an earlier reply). Another epoch answers `range_evicted`.
-    marker_epoch: u64,
-    #[serde(default)]
-    max_bytes: Option<usize>,
-}
-
-/// One end of a `terminal-read-range` range.
-#[derive(Debug, Deserialize)]
+#[cfg_attr(test, derive(serde::Serialize))]
 pub(crate) struct RowMarkerPoint {
     row_marker: u64,
     col: u16,
-}
-
-#[derive(Debug, Deserialize)]
-pub(crate) struct TerminalReadRangeParams {
-    surface: SurfaceId,
-    from: RowMarkerPoint,
-    to: RowMarkerPoint,
-    /// `text` (default) or `vt`.
-    #[serde(default)]
-    format: Option<String>,
-    /// The marker epoch the caller's markers belong to (from the snapshot
-    /// event or an earlier reply). Another epoch answers `range_evicted`.
-    marker_epoch: u64,
-    /// Largest `text` in bytes (default 1 MiB, at most 8 MiB); a longer
-    /// range is cut at a character boundary and answers `truncated: true`.
-    #[serde(default)]
-    max_bytes: Option<usize>,
 }
 
 /// Cut `text` to at most `max_bytes` at a character boundary.
@@ -82,7 +53,7 @@ fn marker_error(error: ghostty_vt::MarkerError) -> anyhow::Error {
 pub(crate) fn history(mux: &Arc<Mux>, params: TerminalHistoryParams) -> anyhow::Result<Value> {
     let surface = get_surface(mux, params.surface)?;
     require_pty(&surface)?;
-    let max_bytes = params.max_bytes.unwrap_or(TERMINAL_HISTORY_DEFAULT_BYTES);
+    let max_bytes = params.max_bytes.map_or(TERMINAL_HISTORY_DEFAULT_BYTES, wire_usize);
     anyhow::ensure!(
         (1..=TERMINAL_HISTORY_MAX_BYTES).contains(&max_bytes),
         "invalid: max_bytes must be 1..={TERMINAL_HISTORY_MAX_BYTES}"
@@ -108,7 +79,7 @@ pub(crate) fn history(mux: &Arc<Mux>, params: TerminalHistoryParams) -> anyhow::
 pub(crate) fn read_range(mux: &Arc<Mux>, params: TerminalReadRangeParams) -> anyhow::Result<Value> {
     let surface = get_surface(mux, params.surface)?;
     require_pty(&surface)?;
-    let max_bytes = params.max_bytes.unwrap_or(TERMINAL_HISTORY_DEFAULT_BYTES);
+    let max_bytes = params.max_bytes.map_or(TERMINAL_HISTORY_DEFAULT_BYTES, wire_usize);
     anyhow::ensure!(
         (1..=TERMINAL_HISTORY_MAX_BYTES).contains(&max_bytes),
         "invalid: max_bytes must be 1..={TERMINAL_HISTORY_MAX_BYTES}"

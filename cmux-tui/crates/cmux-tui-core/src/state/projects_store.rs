@@ -2,6 +2,7 @@
 //! one row per project, keyed by canonical path, the project as JSON. The
 //! reducer is [`super::projects`]; this module loads and stores it.
 
+use cmux_threads::checked::fs as files;
 use rusqlite::{Connection, Transaction};
 use serde_json::{Value, json};
 
@@ -152,8 +153,8 @@ pub(crate) fn list_value(
 pub(crate) fn refusals() -> Refusals {
     let home = std::env::var("HOME").unwrap_or_default();
     // The home folder itself is not privacy-protected; resolving it reads nothing inside.
-    let home = std::fs::canonicalize(&home)
-        .map_or(home, |resolved| resolved.to_string_lossy().into_owned());
+    let home =
+        files::canonicalize(&home).map_or(home, |resolved| resolved.to_string_lossy().into_owned());
     let roots = [
         "Library/Application Support/cmux/agent-home",
         ".claude",

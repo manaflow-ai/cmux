@@ -174,6 +174,7 @@ final class PageWKWebView: WKWebView {
     }
 
     override func selectAll(_ sender: Any?) {
+        // MQ12 allowed while frozen: Select All goes to the focused page, and focus keeps a page from freezing.
         evaluateJavaScript(Self.selectAllScript, completionHandler: nil)
     }
 
@@ -220,6 +221,12 @@ final class PageWKWebView: WKWebView {
         static let perform = WKWebView.instancesRespond(to: #selector(NSDraggingDestination.performDragOperation(_:)))
     }
 
+    /// The page's keep reasons (its ``PageWebView``'s): a drop the host takes holds `fileDrop`
+    /// until ``PageFileDrop/open`` has read it.
+    weak var keepReasons: PageKeepReasons?
+    /// The host's read of the last drop it took (tests wait on it).
+    private(set) var dropRead: Task<Void, Never>?
+
     override func draggingEntered(_ sender: any NSDraggingInfo) -> NSDragOperation {
         dragAnswer = nil
         if droppedFile(sender) != nil { return .copy }
@@ -255,7 +262,7 @@ final class PageWKWebView: WKWebView {
             }
             return WebKitDrag.perform ? super.performDragOperation(sender) : false
         }
-        fileDrop.open(url)
+        dropRead = fileDrop.take(url, keep: keepReasons)
         return true
     }
 

@@ -4,6 +4,11 @@
 
 use super::*;
 
+mod cold_terminal;
+pub(crate) use cold_terminal::{
+    ColdFreeze, ScrollbackMemory, TerminalCell, TerminalSlot, ThawWake,
+};
+
 #[derive(Default)]
 pub(super) struct ReaderCompletion {
     finished: Mutex<bool>,
@@ -211,7 +216,8 @@ pub struct PtyTerminalRuntime {
     /// as the reader so the child wait cannot outlive terminal teardown.
     pub(super) reaper_thread: Mutex<Option<std::thread::JoinHandle<()>>>,
     pub(super) reaper_completion: Arc<ReaderCompletion>,
-    pub(super) term: RankedMutex<Box<Terminal>>,
+    /// Hot or compressed; every lock restores it first (cold_terminal.rs).
+    pub(super) term: TerminalCell,
     pub(super) stream_progress: Box<TerminalStreamProgress>,
     /// Generic metadata parsed from raw PTY output. This field has no agent
     /// or roster knowledge, so userland plugins can consume it through the
@@ -285,13 +291,20 @@ pub struct PtyTerminalRuntime {
     /// terminal lock, and [`Surface::attach_stream`] registers taps under
     /// the same lock, so a subscriber sees exactly the bytes applied
     /// after its replay snapshot — no gap, no duplication.
-    pub(super) taps: RankedMutex<Vec<AttachTap>>,
+    pub(super) taps: RankedMutex<AttachTaps>,
     /// A PTY color mutation awaiting bounded attach-stream fan-out.
     pub(super) attach_colors_pending: AtomicBool,
     /// A reset or cursor-semantic transition requires reapplying equal state:
     /// byte frontends may reset palettes or switch per-screen cursor storage
     /// even when the final effective values compare equal.
     pub(super) attach_colors_force_pending: AtomicBool,
+    /// The flow of the newest key press a `send` wrote on this terminal's
+    /// local PTY master (0: none since the last output took it): the
+    /// daemon's next read of that PTY carries it, once
+    /// (p09-observability-018). A hosted terminal's host and a holder
+    /// terminal's sink keep their own slot: the daemon does not read
+    /// their PTY.
+    pub(super) last_input_flow: crate::input_flow::InputFlowSlot,
     /// Published byte offset and grid generation for snapshot viewers.
     pub(super) snapshot_position: snapshot_attach::SnapshotStreamPosition,
     /// Last effective color state emitted to attach streams. This suppresses

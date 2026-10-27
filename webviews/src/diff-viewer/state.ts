@@ -21,6 +21,7 @@ import { readLocalViewerPrefs, sanitizeViewerPrefs, type ViewerPrefs } from "../
 import type { DiffViewerStatus } from "../status";
 import type { DiffViewerConfig, DiffViewerPayload } from "../types";
 import { canApplyDeferredHydration } from "./deferredHydration";
+import { diffViewStateOf } from "./viewState";
 import { diffItemPreloadLanguages, mergeLanguages, relanguagedItems, resolveDiffItemLanguage } from "./item-languages";
 
 export type AppState = {
@@ -140,6 +141,8 @@ export function initialAppState(config: DiffViewerConfig, initialStatus: DiffVie
       collapsed: false,
       ...defaultDiffViewerOptions(payload),
       ...seededOptions,
+      // A discarded page's tab-only options (Hide imports, Load full files, ...) come back with it.
+      ...diffViewStateOf(payload.viewState)?.options,
       layout: initialDiffViewerLayout(payload),
     } as DiffViewerOptions,
     optionsOpen: false,

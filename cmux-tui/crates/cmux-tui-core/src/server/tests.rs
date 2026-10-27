@@ -480,7 +480,10 @@ fn active_clear_lanes_across_connections(request_count: usize, retained_bytes: u
         let scheduler = &schedulers[index % schedulers.len()];
         let mut request = Some(Request {
             id: Some(json!(index)),
-            cmd: Command::ClearHistory { surface: surface.id, fallback_key: None },
+            cmd: Command::ClearHistory(terminal_io_wire::ClearHistoryParams {
+                surface: surface.id,
+                fallback_key: None,
+            }),
         });
         assert_eq!(
             scheduler.dispatch(mux.clone(), 0, &mut request, retained_bytes, writer.clone(),),
@@ -545,12 +548,17 @@ fn run_json_command(mux: &Arc<Mux>, request: Value) -> anyhow::Result<Value> {
     handle_command(mux, mux.local_test_client(0), command, &test_writer())
 }
 
+mod client_sizing;
+mod deferred_commands;
 mod detach_and_browser;
 mod event_shape_tests;
 mod host_size_policy;
 mod identify_and_protocol;
+mod kitty_share;
 mod layout_receipts_shutdown;
 mod outbound_and_scheduler;
+mod reply_event_order;
+mod request_thread_attach;
 mod resource_attach;
 mod resource_waits;
 mod session_streams;

@@ -7,6 +7,8 @@ import { LINK_CLOSED, subscribePageStreams } from "../shared/pageStreams";
 import {
   filterKinds,
   groupEntries,
+  HISTORY_FILTERS,
+  HISTORY_GROUPINGS,
   PAGE_LIMIT,
   reconcileSelection,
   siteHost,
@@ -47,6 +49,29 @@ export interface HistoryStoreOptions {
   newKey?: () => string;
 }
 
+/** The part of the History page's state that comes back after a discard. */
+export interface HistoryQuery {
+  text: string;
+  filter: HistoryFilter;
+  grouping: HistoryGrouping;
+}
+
+/**
+ * The fields of a discarded document's saved state (`PageClient.restore`) that are a valid query;
+ * the rest keep their defaults. Read once, when the store is made, before the first render.
+ */
+export function restoredQuery(state: unknown): Partial<HistoryQuery> {
+  if (!state || typeof state !== "object") return {};
+  const saved = state as Record<string, unknown>;
+  const query: Partial<HistoryQuery> = {};
+  if (typeof saved.text === "string") query.text = saved.text;
+  const filter = HISTORY_FILTERS.find((value) => value === saved.filter);
+  if (filter) query.filter = filter;
+  const grouping = HISTORY_GROUPINGS.find((value) => value === saved.grouping);
+  if (grouping) query.grouping = grouping;
+  return query;
+}
+
 export class HistoryStore {
   private snapshot: HistorySnapshot;
   private readonly listeners = new Set<() => void>();
@@ -63,6 +88,7 @@ export class HistoryStore {
       text: "",
       filter: "all",
       grouping: "day",
+      ...restoredQuery(client?.restore?.state),
       entries: [],
       groups: [],
       loading: client !== null,

@@ -84,6 +84,7 @@ impl Mux {
 
     /// Select a tab within a pane (default: the active pane) by index or
     /// relative delta.
+    #[track_caller]
     pub fn select_tab_as(
         self: &Arc<Self>,
         actor: &Actor,

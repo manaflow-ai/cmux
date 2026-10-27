@@ -11,7 +11,7 @@ public struct NewRemoteTerminalTabRequest: DaemonRequest {
             case tabResourceID = "tab_resource_id"
         }
     }
-    public static let command = "new-remote-terminal-tab"
+    public static let commandName: DaemonCommandName = "new-remote-terminal-tab"
     public static let requiredCapability: String? = DaemonCapability.remoteTerminalTabs.rawValue
     public var pane: PaneID?
     public var sessionID: String
@@ -30,6 +30,10 @@ public struct NewRemoteTerminalTabRequest: DaemonRequest {
         cols = size?.cols
         rows = size?.rows
     }
+
+    enum CodingKeys: String, CodingKey {
+        case pane, sessionID = "session_id", terminalID = "terminal_id", sessionName = "session_name", title, cols, rows
+    }
 }
 
 /// `update-remote-terminal-tab`: the last title, session name and bounded
@@ -39,7 +43,7 @@ public struct UpdateRemoteTerminalTabRequest: DaemonRequest {
         public var surface: SurfaceID
         public var changed: Bool
     }
-    public static let command = "update-remote-terminal-tab"
+    public static let commandName: DaemonCommandName = "update-remote-terminal-tab"
     public static let requiredCapability: String? = DaemonCapability.remoteTerminalTabs.rawValue
     /// The daemon's bound on `snapshot` (UTF-8 bytes).
     public static let snapshotLimit = 65_536
@@ -56,7 +60,7 @@ public struct UpdateRemoteTerminalTabRequest: DaemonRequest {
         self.snapshot = snapshot
     }
 
-    enum CodingKeys: String, CodingKey { case surface, title, sessionName, snapshot }
+    enum CodingKeys: String, CodingKey { case surface, title, sessionName = "session_name", snapshot }
     public func encode(to encoder: any Encoder) throws {
         var c = encoder.container(keyedBy: CodingKeys.self)
         try c.encode(surface, forKey: .surface)
@@ -83,7 +87,7 @@ public struct RemoteTerminalSnapshotRequest: DaemonRequest {
         public var surface: SurfaceID
         public var snapshot: String?
     }
-    public static let command = "remote-terminal-snapshot"
+    public static let commandName: DaemonCommandName = "remote-terminal-snapshot"
     public static let requiredCapability: String? = DaemonCapability.remoteTerminalTabs.rawValue
     public var surface: SurfaceID
 

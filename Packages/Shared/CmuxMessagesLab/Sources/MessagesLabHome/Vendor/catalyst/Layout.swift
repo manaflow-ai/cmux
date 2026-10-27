@@ -3,6 +3,8 @@ import UIKit
 #else
 import AppKit
 #endif
+import os // cmux: OSAllocatedUnfairLock
+import CmuxSafeConcurrency // cmux: Mutex (p10-stability-055)
 
 /// The render scale of the view whose work runs now on this thread (cx-3cb view-scale). Two window views can show at
 /// two backing scales at the same time (cmux Home: windows on a 2x and a 1x display), so the scale is the view's own
@@ -12,22 +14,38 @@ import AppKit
 /// `Fixture.withRenderScale(_:_:)` and the process fallback outside one. Work sent to another queue takes the scale
 /// with it (a task local does not follow DispatchQueue blocks): RowBitmaps, Pager, TiledBody, MorphBubble.prepare.
 enum RenderScaleScope {
-    /// The scope's scale for work inside a Swift task or off the main thread.
-    @TaskLocal static var scoped: CGFloat? = nil
+    /// cmux: what a scope binds (p10-stability-040): the view's scale (nil: the process fallback),
+    /// whether it draws the thread view's elevated rows (`Fixture.elevated`), and off the main thread
+    /// the palette its draw started with (`Fixture.palette`; main is where the palette changes).
+    struct Scope: Sendable {
+        var scale: CGFloat?
+        var elevated = false
+        var palette: Fixture.Palette?
+        func same(as other: Scope) -> Bool { scale == other.scale && elevated == other.elevated && palette === other.palette }
+    }
+    /// The scope for work inside a Swift task or off the main thread.
+    @TaskLocal static var scoped: Scope? = nil
     /// cmux: the scope's scale on the main thread outside any task (a layer's draw, a window
     /// move, a layout pass). A task local bound there lives in the thread's fallback storage, and an
     /// isolated deinit run inline under it (every main-actor class of a main-actor-default target
     /// has one) makes the macOS 15.4 to 15.x runtime free() a marker its task allocator made: cmux
     /// trapped under Chromium's allocator when Cmd-1 left Home (CMUXTERM-MACOS-44XN, macOS 15.8.1).
     // crash-allow: read and written only on the main thread (`with` and `current` check it).
-    nonisolated(unsafe) static var mainThreadScoped: CGFloat? = nil
+    nonisolated(unsafe) static var mainThreadScoped: Scope? = nil
 
+    /// The scope that runs now, nil outside any scope.
+    static var scope: Scope? { scoped ?? (Thread.isMainThread ? mainThreadScoped : nil) }
     /// The scale of the scope that runs now, nil outside any scope.
-    static var current: CGFloat? { scoped ?? (Thread.isMainThread ? mainThreadScoped : nil) }
+    static var current: CGFloat? { scope?.scale }
+    /// The scope draws the thread view's elevated rows.
+    static var elevated: Bool { scope?.elevated ?? false }
+    /// The palette an off-main scope's draw started with.
+    static var palette: Fixture.Palette? { scope?.palette }
 
-    /// Runs `body` in a scope of scale `s`, binding no task local where no task runs.
-    static func with<T>(_ s: CGFloat, _ body: () throws -> T) rethrows -> T {
-        if Thread.isMainThread, !withUnsafeCurrentTask(body: { $0 != nil }) {
+    /// Runs `body` in scope `s`, binding no task local where no task runs.
+    static func with<T>(_ s: Scope, _ body: () throws -> T) rethrows -> T {
+        // SAFETY: the task handle is only tested for nil inside the closure, never kept or used after it.
+        if Thread.isMainThread, !withUnsafeCurrentTask(body: { unsafe $0 != nil }) {
             let outer = mainThreadScoped
             mainThreadScoped = s
             defer { mainThreadScoped = outer }
@@ -40,9 +58,16 @@ enum RenderScaleScope {
 
 extension Fixture {
     /// Runs `body` with `Fixture.renderScale` = `s` on this thread (a scale of 0 or less: the current value).
-    static func withRenderScale<T>(_ s: CGFloat, _ body: () throws -> T) rethrows -> T {
-        guard s > 0, RenderScaleScope.current != s else { return try body() }
-        return try RenderScaleScope.with(s, body)
+    /// cmux: `elevated`: `body` draws the thread view's rows (`Fixture.elevated`). Off the main thread the
+    /// scope also keeps the palette of its start, so one draw reads one palette (p10-stability-040).
+    static func withRenderScale<T>(_ s: CGFloat, elevated: Bool = false, _ body: () throws -> T) rethrows -> T {
+        let outer = RenderScaleScope.scope ?? RenderScaleScope.Scope()
+        var inner = outer
+        if s > 0 { inner.scale = s }
+        if elevated { inner.elevated = true }
+        if inner.palette == nil, !Thread.isMainThread { inner.palette = Fixture.currentPalette }
+        guard !inner.same(as: outer) else { return try body() }
+        return try RenderScaleScope.with(inner, body)
     }
 }
 
@@ -88,7 +113,7 @@ struct TextLayout: Hashable {
             var w: CGFloat = 0, fit: CGFloat = 0
             if range.length > 0 {
                 let line = CTTypesetterCreateLine(ts, CFRange(location: range.location, length: range.length))
-                w = CGFloat(CTLineGetTypographicBounds(line, nil, nil, nil))
+                w = CGFloat(line.typographicWidth)
                 fit = w - CGFloat(CTLineGetTrailingWhitespaceWidth(line))
             }
             lines.append(Line(range: range, width: w, fit: fit))
@@ -184,7 +209,11 @@ struct Metrics: Hashable {
     var width: CGFloat
     /// The window's current layout width (main thread only). Off-main work
     /// takes the width as a parameter captured on main.
-    static var current = Metrics(width: Fixture.windowWidth)
+    /// cmux: held with Fixture's process fallbacks (a default argument reads it on any thread; p10-stability-040).
+    static var current: Metrics {
+        get { Fixture.fallbackMetrics }
+        set { Fixture.fallbackMetrics = newValue }
+    }
 
     var dx: CGFloat { width - Fixture.windowWidth }
     var rightEdge: CGFloat { Fixture.rightEdge + dx }
@@ -353,7 +382,7 @@ struct ThreadPreview: Hashable {
     /// takes the full quote column; the column scales with the bubble column (`Metrics.maxTextWidth`). It
     /// replaces the outlined 10 pt copy of macOS Messages' preview, which did not look like the quoted bubble.
     var isText: Bool { if case .text = part { return true }; return false }
-    static let textFont = UIFont.systemFont(ofSize: 12)
+    static var textFont: UIFont { HomeFonts.system(ofSize: 12) } // cmux: held by HomeFonts (was a non-Sendable global)
     /// The text's lines as drawn (text roots only; one line when it fits).
     var textLines: [String] = []
     /// cmux: bubble edge to text plus text to bubble edge: a bubble's padding (`Fixture.bubblePadX`) on each side.
@@ -423,8 +452,9 @@ struct ThreadPreview: Hashable {
         while head.last == " " { head.removeLast() }
         return head + "…"
     }
-    static let titleFont = UIFont.systemFont(ofSize: 12, weight: .semibold)
-    static let subFont = UIFont.systemFont(ofSize: 12)
+    // cmux: held by HomeFonts (were non-Sendable globals).
+    static var titleFont: UIFont { HomeFonts.system(ofSize: 12, weight: .semibold) }
+    static var subFont: UIFont { HomeFonts.system(ofSize: 12) }
     /// Title and second line of the card.
     var lines: (String, String) {
         switch part {
@@ -587,7 +617,7 @@ enum Sizing {
         let w = min(maxWidth, px / 2)
         return (w, w * py / px)
     }
-    static let linkTitleFont = UIFont.systemFont(ofSize: 11, weight: .semibold)
+    static var linkTitleFont: UIFont { HomeFonts.system(ofSize: 11, weight: .semibold) } // cmux: held by HomeFonts
     static func linkTitleLines(_ title: String, width: CGFloat) -> [String] {
         let tl = TextLayout.make(title, runs: [], maxWidth: width - 20, font: linkTitleFont)
         let ns = title as NSString
@@ -668,7 +698,7 @@ enum VectorAsset {
             rest = rest.suffix(from: r.upperBound)
             if tag.hasPrefix("<rect") {
                 let v = ["x", "y", "width", "height"].map { attr(tag, $0).flatMap(Double.init) ?? 0 }
-                shapes.append((CGPath(rect: CGRect(x: v[0], y: v[1], width: v[2], height: v[3]), transform: nil), color(attr(tag, "fill"))))
+                shapes.append((CGPath.rect(CGRect(x: v[0], y: v[1], width: v[2], height: v[3])), color(attr(tag, "fill"))))
             } else if tag.hasPrefix("<path"), let d = attr(tag, "d") {
                 shapes.append((path(d), color(attr(tag, "fill"))))
             }
@@ -721,7 +751,9 @@ enum VectorAsset {
 
 /// Row measurements keyed by (message id, part, content version, width).
 /// Filled off the main thread when pages load; the main thread only reads.
-final class MeasureCache: @unchecked Sendable {
+/// cmux: checked `Sendable` (p10-stability-055): the stores and counters are one lock state (they were
+/// vars under an NSLock in an unchecked class); measuring runs outside the lock, as before.
+final class MeasureCache: Sendable {
     static let shared = MeasureCache()
     /// `markdown`: the message's format (Message.format). A plain/markdown change under the same
     /// id and text (a host marking a message later, a local echo) is a new measurement.
@@ -730,14 +762,21 @@ final class MeasureCache: @unchecked Sendable {
     struct Key: Hashable { var id: ID; var part: Int; var version: Int; var width: CGFloat; var markdown: Bool; var scale: CGFloat }
     struct PartKey: Hashable { var id: ID; var part: Int; var version: Int; var markdown: Bool; var scale: CGFloat }
     struct Value { var size: CGSize; var text: TextLayout?; var width: CGFloat = 0; var estimated = false; var markdown: MarkdownLayout? = nil }
-    private var store: [Key: Value] = [:]
-    /// Streaming bubbles (ask 11): every chunk is a new text under one id; only their latest measurements are kept
-    /// (at most 16), never in `store` or `latest` (they grew by one text layout per chunk).
-    private var streamStore: [Key: Value] = [:]
-    /// The latest exact measurement of each part at any width (estimates).
-    private var latest: [PartKey: Value] = [:]
-    private let lock = NSLock()
-    private(set) var hits = 0, misses = 0, estimates = 0, reuses = 0
+    private struct State: Sendable {
+        var byKey: [Key: Value] = [:]
+        /// Streaming bubbles (ask 11): every chunk is a new text under one id; only their latest measurements are
+        /// kept (at most 16), never in `byKey` or `latest` (they grew by one text layout per chunk).
+        var streamStore: [Key: Value] = [:]
+        /// The latest exact measurement of each part at any width (estimates).
+        var latest: [PartKey: Value] = [:]
+        var hits = 0, misses = 0, estimates = 0, reuses = 0
+    }
+    // Lock carve-out: the measure threads and main look up and store measurements; no measuring under the lock.
+    private let state = Mutex(State())
+    var hits: Int { state.withLock { $0.hits } }
+    var misses: Int { state.withLock { $0.misses } }
+    var estimates: Int { state.withLock { $0.estimates } }
+    var reuses: Int { state.withLock { $0.reuses } }
 
     /// A part whose content changes in place is a new measurement: text a host
     /// replaces under the same message id (an optimistic send, then the stored
@@ -788,40 +827,41 @@ final class MeasureCache: @unchecked Sendable {
         let k = Key(id: m.id, part: pi, version: version, width: width, markdown: m.isMarkdown, scale: scale)
         let pk = PartKey(id: m.id, part: pi, version: version, markdown: m.isMarkdown, scale: scale)
         let streaming = StreamBubble.isStream(m.id)
-        lock.lock()
-        if let v = streaming ? streamStore[k] : store[k] { hits += 1; lock.unlock(); return v }
-        if streaming {
-            misses += 1
-            lock.unlock()
+        // cmux: one lookup under the lock decides the path; the measuring and scaling run outside it.
+        enum Found: Sendable { case hit(Value), measureStream, reused(Value), estimateFrom(Value), measure }
+        let found = state.withLock { s -> Found in
+            if let v = streaming ? s.streamStore[k] : s.byKey[k] { s.hits += 1; return .hit(v) }
+            if streaming { s.misses += 1; return .measureStream }
+            // Plain text that no width wrapped and that fits the new column: the same lines at the new
+            // width, exact (no Core Text, no estimate). A divider drag or live resize changes most
+            // short bubbles' widths only in this way.
+            if let old = s.latest[pk], let v = MeasureCache.sameLayout(old, at: width, part: part, scale: scale) { // the checked part
+                s.reuses += 1
+                s.byKey[k] = v
+                return .reused(v)
+            }
+            if estimate, let old = s.latest[pk] { s.estimates += 1; return .estimateFrom(old) }
+            s.misses += 1
+            return .measure
+        }
+        switch found {
+        case let .hit(v), let .reused(v): return v
+        case let .estimateFrom(old): return MeasureCache.scale(old, to: width, part: part, scale: scale)
+        case .measureStream:
             let v = MeasureCache.measure(m, part, width: width, scale: scale)
-            lock.lock()
-            if streamStore.count >= 16 { streamStore.removeAll() }
-            streamStore.updateValue(v, forKey: k)
-            lock.unlock()
+            state.withLock { s in
+                if s.streamStore.count >= 16 { s.streamStore.removeAll() }
+                s.streamStore.updateValue(v, forKey: k)
+            }
+            return v
+        case .measure:
+            let v = MeasureCache.measure(m, part, width: width, scale: scale)
+            state.withLock { s in
+                s.byKey.updateValue(v, forKey: k) // dictionary writes
+                s.latest.updateValue(v, forKey: pk)
+            }
             return v
         }
-        // Plain text that no width wrapped and that fits the new column: the same lines at the new
-        // width, exact (no Core Text, no estimate). A divider drag or live resize changes most
-        // short bubbles' widths only in this way.
-        if let old = latest[pk], let v = MeasureCache.sameLayout(old, at: width, part: part, scale: scale) { // the checked part
-            reuses += 1
-            store[k] = v
-            lock.unlock()
-            return v
-        }
-        if estimate, let old = latest[pk] {
-            estimates += 1
-            lock.unlock()
-            return MeasureCache.scale(old, to: width, part: part, scale: scale)
-        }
-        misses += 1
-        lock.unlock()
-        let v = MeasureCache.measure(m, part, width: width, scale: scale)
-        lock.lock()
-        store.updateValue(v, forKey: k) // dictionary writes
-        latest.updateValue(v, forKey: pk)
-        lock.unlock()
-        return v
     }
 
     /// Text keeps its total line length: lines = ceil(sum of line widths / new column).
@@ -888,16 +928,16 @@ final class MeasureCache: @unchecked Sendable {
         }
     }
 
-    var count: Int { lock.lock(); defer { lock.unlock() }; return store.count }
+    var count: Int { state.withLock { $0.byKey.count } }
 
     /// LRU-ish bound: drop measurements for messages outside the window.
     func trim(keeping ids: Set<ID>) {
-        lock.lock()
-        if store.count > 4 * ids.count + 2000 {
-            store = store.filter { ids.contains($0.key.id) }
-            latest = latest.filter { ids.contains($0.key.id) }
+        state.withLock { s in
+            if s.byKey.count > 4 * ids.count + 2000 {
+                s.byKey = s.byKey.filter { ids.contains($0.key.id) }
+                s.latest = s.latest.filter { ids.contains($0.key.id) }
+            }
         }
-        lock.unlock()
     }
 }
 
@@ -1237,15 +1277,14 @@ enum Format {
         f.dateFormat = "h:mm\u{202F}a"
         return f
     }()
-    private static var timeMemo: [Date: String] = [:]
-    private static let timeLock = NSLock()
+    // cmux: the memo behind a checked lock (it was a global under an NSLock; p10-stability-040).
+    // Lock carve-out: rows derive on the loader queue and on main; one dictionary read or write.
+    private static let timeMemo = OSAllocatedUnfairLock(initialState: [Date: String]())
     /// Memoized (receipt rows format the same times on every derive; ICU costs 0.1-0.3 ms per call).
     static func time(_ d: Date) -> String {
-        timeLock.lock()
-        if let s = timeMemo[d] { timeLock.unlock(); return s }
-        timeLock.unlock()
+        if let s = timeMemo.withLock({ $0.value(for: d) }) { return s }
         let s = timeFormatter.string(from: d)
-        timeLock.lock(); if timeMemo.count > 4096 { timeMemo.removeAll() }; timeMemo[d] = s; timeLock.unlock()
+        timeMemo.withLock { memo in if memo.count > 4096 { memo.removeAll() }; _ = memo.updateValue(s, forKey: d) } // dictionary write
         return s
     }
     private static let calendar: Calendar = { var c = Calendar(identifier: .gregorian); c.timeZone = Instant.zone; return c }()
@@ -1261,23 +1300,29 @@ enum Format {
     private static let monthDayYear = formatter("MMM d, yyyy")
     /// `day` per date for the day `now` is in: a width change derives every separator row
     /// again (Calendar work was about 1 % of main in a divider drag). Thread safe.
-    private static let dayLock = NSLock()
-    private static var dayMemo: [Date: String] = [:]
-    private static var dayMemoToday: DateInterval?
-    private static var dayMemoBundle: ObjectIdentifier?
+    // cmux: one checked lock for the memo and its day and bundle (they were globals under an NSLock).
+    // Lock carve-out: as `timeMemo`.
+    private struct DayMemo: Sendable {
+        var labels: [Date: String] = [:]
+        var today: DateInterval?
+        var bundle: ObjectIdentifier?
+    }
+    private static let dayMemo = OSAllocatedUnfairLock(initialState: DayMemo())
     /// The calendar day of `now` (day labels depend on `now` only through it).
     static func dayInterval(_ now: Date) -> DateInterval? { calendar.dateInterval(of: .day, for: now) }
     static func day(_ d: Date, now: Date) -> String {
         let bundle = ObjectIdentifier(MessagesLabLocalization.bundle)
-        dayLock.lock()
-        if dayMemoBundle == bundle, let today = dayMemoToday, now >= today.start, now < today.end, let s = dayMemo[d] { dayLock.unlock(); return s }
-        dayLock.unlock()
+        let hit = dayMemo.withLock { m -> String? in
+            guard m.bundle == bundle, let today = m.today, now >= today.start, now < today.end else { return nil }
+            return m.labels.value(for: d)
+        }
+        if let hit { return hit }
         let s = dayUncached(d, now: now)
         let today = calendar.dateInterval(of: .day, for: now)
-        dayLock.lock()
-        if dayMemoToday != today || dayMemoBundle != bundle { dayMemo.removeAll(); dayMemoToday = today; dayMemoBundle = bundle }
-        if dayMemo.count < 4096 { dayMemo[d] = s }
-        dayLock.unlock()
+        dayMemo.withLock { m in
+            if m.today != today || m.bundle != bundle { m.labels.removeAll(); m.today = today; m.bundle = bundle }
+            if m.labels.count < 4096 { _ = m.labels.updateValue(s, forKey: d) } // dictionary write
+        }
         return s
     }
     private static func dayUncached(_ d: Date, now: Date) -> String {
@@ -1300,12 +1345,12 @@ enum Format {
 /// `String(localized:)` without a bundle reads Bundle.main, so the code never uses it.
 enum MessagesLabLocalization {
     private final class Token {}
-    private static let lock = NSLock()
-    // cmux: the package's bundle (Bundle(for:) of a class in a linked package is the app's).
-    private static var current = Bundle.module
+    // cmux: the package's bundle (Bundle(for:) of a class in a linked package is the app's), behind a
+    // checked lock (it was a global under an NSLock). Lock carve-out: one Bundle, read off main by the rows.
+    private static let current = OSAllocatedUnfairLock(initialState: Bundle.module)
     static var bundle: Bundle {
-        get { lock.lock(); defer { lock.unlock() }; return current }
-        set { lock.lock(); current = newValue; lock.unlock() }
+        get { current.withLock { $0 } }
+        set { current.withLock { $0 = newValue } }
     }
     /// The string for `key` in the user's preferred language (of `bundle`); `english` when the
     /// catalog has no entry. `table`: nil is `Localizable`.

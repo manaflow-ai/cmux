@@ -1,7 +1,8 @@
 // Charts and diagrams in replies: a finished ```vega-lite or ```vega fence with a JSON spec, or a
 // finished ```mermaid fence, draws as SVG with the markdown page's renderers
-// (pages/markdown/diagrams.ts) and the markdown viewer's bundled libraries, which the pane's scheme
-// handler serves as same-origin scripts (`__lib/vega.js`, `__lib/ondine.js`, `__lib/mermaid.js`).
+// (pages/markdown/diagrams.ts) and the markdown viewer's bundled libraries, which the page host
+// serves as same-origin scripts (`__lib/vega.js`, `__lib/ondine.js`, `__lib/mermaid.js`,
+// AgentPageResources.swift).
 // Vega runs with its AST interpreter (no eval); Mermaid draws with Ondine (WebAssembly, no imports),
 // Mermaid 11 as fallback, and the SVG is cleaned before it is shown. The block draws once it nears the
 // viewport; Code shows the source. A source the renderer refuses shows the source and why.

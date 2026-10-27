@@ -30,12 +30,12 @@ fn foreground_cwd_lookup_reads_a_live_child_directory_and_fails_closed() {
         .unwrap()
         .join(format!("cmux-foreground-cwd-{}", std::process::id()));
     std::fs::create_dir_all(&target).unwrap();
-    let mut child = std::process::Command::new("/bin/sleep")
+    let mut child = cmux_process::Command::new("/bin/sleep")
         .arg("30")
         .current_dir(&target)
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
+        .stdin(cmux_process::Stdio::null())
+        .stdout(cmux_process::Stdio::null())
+        .stderr(cmux_process::Stdio::null())
         .spawn()
         .unwrap();
     let observed = process_cwd(child.id());
@@ -56,24 +56,14 @@ fn foreground_cwd_requires_a_controlling_terminal() {
     // The child starts its own session, so it deterministically has no
     // controlling terminal and the foreground lookup must fail closed
     // instead of inventing a directory.
-    use std::os::unix::process::CommandExt as _;
-    let mut command = std::process::Command::new("/bin/sleep");
-    command
+    let mut child = cmux_process::Command::new("/bin/sleep")
         .arg("30")
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null());
-    // SAFETY: setsid is async-signal-safe and the closure does not
-    // allocate between fork and exec.
-    unsafe {
-        command.pre_exec(|| {
-            if libc::setsid() == -1 {
-                return Err(io::Error::last_os_error());
-            }
-            Ok(())
-        });
-    }
-    let mut child = command.spawn().unwrap();
+        .stdin(cmux_process::Stdio::null())
+        .stdout(cmux_process::Stdio::null())
+        .stderr(cmux_process::Stdio::null())
+        .new_session()
+        .spawn()
+        .unwrap();
     let observed = foreground_process_group(child.id());
     child.kill().unwrap();
     child.wait().unwrap();

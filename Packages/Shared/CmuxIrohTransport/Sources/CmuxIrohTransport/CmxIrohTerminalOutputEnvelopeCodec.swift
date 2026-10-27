@@ -77,7 +77,6 @@ public struct CmxIrohTerminalOutputEnvelopeCodec: Sendable {
     }
 
     private static func append<T: FixedWidthInteger>(_ value: T, to data: inout Data) {
-        var bigEndian = value.bigEndian
-        withUnsafeBytes(of: &bigEndian) { data.append(contentsOf: $0) }
+        data.appendBigEndian(value)
     }
 }

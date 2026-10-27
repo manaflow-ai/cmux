@@ -7,6 +7,8 @@
 use super::MessageWriter;
 use super::OutboundStream;
 use crate::panic_free::JsonFields;
+use cmux_threads::checked::ipc_reply;
+use cmux_threads::checked::sync as waits;
 
 use super::INITIAL_BROWSER_RESIZE_TIMEOUT;
 use super::SHARED_SIZING_CAPABILITY;
@@ -224,7 +226,9 @@ pub(super) fn wait_for_initial_browser_resize(
     surface: SurfaceId,
     reservation: u64,
 ) -> anyhow::Result<()> {
-    match completion.recv_timeout(INITIAL_BROWSER_RESIZE_TIMEOUT) {
+    // The browser host sizes the surface: a cross-process round trip. Its
+    // callers run on work items (connection_frame.rs, resource_connection.rs).
+    match ipc_reply(|| waits::recv_timeout(completion, INITIAL_BROWSER_RESIZE_TIMEOUT)) {
         Ok(Ok(())) => Ok(()),
         Ok(Err(error)) => {
             anyhow::bail!(

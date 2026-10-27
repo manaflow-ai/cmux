@@ -1,0 +1,5 @@
+The perf lab owns measurement while this file exists (p12-perf-process task 026).
+scripts/cmux-next/perf-cron.py plan submits 0 parts, scripts/measure/perf-bench.sh
+(the nightly xbench entry) builds and measures nothing, and xbench.py exits 0
+unless the lab runs it with --perf-lab. Delete this file to give measurement
+back to the cron and the nightly.

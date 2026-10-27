@@ -1,17 +1,32 @@
 public import Foundation
-import Darwin
+import CmuxNextWakeups
 
 /// Lists and extracts a pack with the system `tar` (bsdtar: it reads xz and
 /// refuses absolute paths and `..` by itself; the installer checks again).
+///
+/// Each run goes through ``AsyncProcess``: the spawn never runs on the caller's
+/// thread or actor, tar runs at the caller's priority's `processQoS`, and its
+/// output is read without holding a thread, so a long listing never stalls it.
+/// tar always runs to its end: the installer sees a cancel through its own
+/// cancellation checks, never as an unpack failure, and never removes a folder
+/// while tar still writes into it.
 public struct TarChromiumRuntimeUnpacker: ChromiumRuntimeUnpacking {
     /// The tar executable.
     public var tool: URL
+    /// Called with tar's pid on the thread that spawned it (tests check that thread).
+    private let onLaunch: (@Sendable (Int32) -> Void)?
 
     /// Creates an unpacker.
     ///
     /// - Parameter tool: The tar to run; `/usr/bin/tar` by default.
     public init(tool: URL = URL(filePath: "/usr/bin/tar")) {
+        self.init(tool: tool, onLaunch: nil)
+    }
+
+    /// Creates an unpacker that reports each spawn to `onLaunch` (tests).
+    init(tool: URL, onLaunch: (@Sendable (Int32) -> Void)?) {
         self.tool = tool
+        self.onLaunch = onLaunch
     }
 
     public func entries(of archive: URL) async throws(ChromiumRuntimeInstallError) -> [String] {
@@ -23,48 +38,19 @@ public struct TarChromiumRuntimeUnpacker: ChromiumRuntimeUnpacking {
         _ = try await run(["-xf", archive.path, "-C", directory.path, "--no-same-owner"])
     }
 
+    /// Runs tar with `arguments` to its end; its standard output and error share one pipe, as one message.
     private func run(_ arguments: [String]) async throws(ChromiumRuntimeInstallError) -> String {
-        let process = Process()
-        process.executableURL = tool
-        process.arguments = arguments
-        let pipe = Pipe()
-        process.standardOutput = pipe
-        process.standardError = pipe
-        process.standardInput = FileHandle.nullDevice
-        let descriptor = pipe.fileHandleForReading.fileDescriptor
-        // Drain the pipe beside the process, keyed by the raw descriptor, so a
-        // long listing cannot fill the pipe and stall tar.
-        let reader = Task.detached { readAll(descriptor) }
-        let status: Int32
+        let request = ProcessRequest(tool, arguments, errorOutput: .merge, onCancel: .finish, onLaunch: onLaunch)
+        let outcome: ProcessOutcome
         do {
-            status = try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Int32, any Error>) in
-                process.terminationHandler = { continuation.resume(returning: $0.terminationStatus) }
-                do { try process.run() } catch {
-                    process.terminationHandler = nil
-                    continuation.resume(throwing: error)
-                }
-            }
+            outcome = try await AsyncProcess().run(request)
+        } catch ProcessFailure.launch(let message) {
+            throw .unpack(message)
         } catch {
-            try? pipe.fileHandleForWriting.close()
-            reader.cancel()
+            // A `.finish` run with no timeout throws only for its launch.
             throw .unpack(error.localizedDescription)
         }
-        try? pipe.fileHandleForWriting.close()
-        let output = String(decoding: await reader.value, as: UTF8.self)
-        guard status == 0 else { throw .unpack(output.trimmingCharacters(in: .whitespacesAndNewlines)) }
-        return output
-    }
-}
-
-/// Reads `descriptor` to its end (a blocking read on a detached task).
-private func readAll(_ descriptor: Int32) -> Data {
-    var data = Data()
-    var buffer = [UInt8](repeating: 0, count: 64 * 1024)
-    // wakeup-allow: a blocking read on a detached task; it ends at EOF (0) or on a read error.
-    while true {
-        let count = buffer.withUnsafeMutableBytes { read(descriptor, $0.baseAddress, $0.count) }
-        if count > 0 { data.append(contentsOf: buffer[0..<count]); continue }
-        if count < 0, errno == EINTR { continue }
-        return data
+        guard outcome.succeeded else { throw .unpack(outcome.text.trimmingCharacters(in: .whitespacesAndNewlines)) }
+        return outcome.text
     }
 }

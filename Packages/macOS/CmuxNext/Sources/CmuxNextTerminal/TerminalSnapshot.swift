@@ -3,17 +3,11 @@ import CoreImage
 import IOSurface
 import QuartzCore
 
-// Hover previews. Ghostty's Metal renderer presents each frame by setting an
-// IOSurface as this view's layer contents (renderer/metal/IOSurfaceLayer.zig),
-// so the latest frame is always available without asking Ghostty to draw.
+// Hover previews. The latest presented frame (``TerminalSurfaceView/presentedFrame``)
+// is always available without asking Ghostty to draw.
 extension TerminalSurfaceView {
-    /// The last presented frame, or nil before the first draw.
-    var presentedFrame: IOSurface? {
-        guard let contents = layer?.contents else { return nil }
-        let object = contents as CFTypeRef
-        guard CFGetTypeID(object) == IOSurfaceGetTypeID() else { return nil }
-        return unsafeDowncast(object, to: IOSurface.self)
-    }
+    /// The last presented frame, or nil before the first draw (``GhosttyFrameSource``).
+    var presentedFrame: IOSurface? { frameSource.presentedFrame }
 
     /// Downscaled copy of the last presented frame. One GPU blit; does not
     /// wake the renderer, so it is safe for surfaces that are occluded.
@@ -30,7 +24,7 @@ extension TerminalSurfaceView {
         guard let frame = beginFrameRead() else { return nil }
         defer { endFrameRead(frame) }
         let surface = SendableSurface(surface: frame)
-        return await Task.detached(priority: .utility) {
+        return await Task.detached(priority: Task.currentPriority) {
             TerminalSnapshotRenderer.render(surface, maxPixelSize: maxPixelSize)
         }.value
     }
@@ -38,11 +32,13 @@ extension TerminalSurfaceView {
 
 /// An IOSurface handed to the snapshot renderer. IOSurfaces are safe to read
 /// from any thread; the preview may show a frame Ghostty is replacing.
+// crash-allow: one immutable IOSurface reference; IOSurface is a kernel-backed buffer read here only through CoreImage
 struct SendableSurface: @unchecked Sendable {
     let surface: IOSurface
 }
 
 enum TerminalSnapshotRenderer {
+    // crash-allow: an immutable constant; Apple documents CIContext objects as immutable and safe to share among threads
     static nonisolated(unsafe) let context = CIContext(options: [.cacheIntermediates: false, .name: "cmux-next.terminal.snapshot"])
 
     /// CIContext is thread-safe.

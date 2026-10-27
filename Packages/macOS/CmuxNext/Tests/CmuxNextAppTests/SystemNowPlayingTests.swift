@@ -1,21 +1,36 @@
 import AppKit
 @testable import CmuxNextAgentPane
+import CmuxNextCompat
 @testable import CmuxNextNowPlaying
 import CmuxNextSidebar
+import CmuxNextTrace
+import CmuxNextWakeups
 import Foundation
 import Observation
 import Testing
 
 /// Other apps on the Now Playing card (Spotify, Music), read from macOS Now Playing through the
 /// MediaRemote adapter's JSON lines: full and diff payloads, cmux's own entries left out, the
-/// controls sent back as adapter commands, and the order among the card's sources.
+/// controls sent back as adapter commands, the order among the card's sources, and the adapter's
+/// life: started on the first need, stopped at once when a setting turns it off and a minute after
+/// the last surface stopped showing it.
 @MainActor @Suite struct SystemNowPlayingTests {
     final class FakeAdapter: SystemNowPlayingAdapter {
         var onUpdate: (@MainActor (SystemNowPlayingFeed.Update) -> Void)?
         var starts = 0, stops = 0
         var sent: [SystemNowPlayingCommand] = []
-        func start(onUpdate: @escaping @MainActor (SystemNowPlayingFeed.Update) -> Void) { starts += 1; self.onUpdate = onUpdate }
-        func stop() { stops += 1; onUpdate = nil }
+        /// A test sets it false to stand for a stream that gave up.
+        var isStreaming = false
+        func start(onUpdate: @escaping @MainActor (SystemNowPlayingFeed.Update) -> Void) {
+            starts += 1
+            self.onUpdate = onUpdate
+            isStreaming = true
+        }
+        func stop() {
+            stops += 1
+            onUpdate = nil
+            isStreaming = false
+        }
         func send(_ command: SystemNowPlayingCommand) { sent.append(command) }
         func emit(diff: Bool, _ payload: [String: Any]) {
             let line = try! JSONSerialization.data(withJSONObject: ["type": "data", "diff": diff, "payload": payload])
@@ -105,6 +120,33 @@ import Testing
         #expect(!process.isRunning, "the watch shell outlived the adapter")
     }
 
+    /// A stream that ends less than 10 s (trace clock) after its start is a quick exit: each one in a row
+    /// doubles the wait before the next start, the fifth gives up, and a run of 10 s or more clears the count.
+    @Test func quickExitsInARowBackOffAndThenGiveUp() {
+        let uptime = UptimeNanos(1_000_000_000_000)
+        var restarts = AdapterRestarts(clock: TraceClock(reader: .init(uptimeNanos: { uptime.nanos },
+                                                                       continuousNow: { ContinuousClock.now })))
+        let second: UInt64 = 1_000_000_000
+        func run(_ nanos: UInt64) -> Duration? {
+            restarts.started()
+            uptime.advance(nanos)
+            return restarts.exited(atNanos: uptime.nanos)
+        }
+
+        #expect(run(AdapterRestarts.quickExitNanos - 1) == .seconds(2))
+        #expect(restarts.quickExits == 1)
+        #expect(run(AdapterRestarts.quickExitNanos) == .seconds(1), "a 10 s run is not quick")
+        #expect(restarts.quickExits == 0)
+
+        #expect(run(2 * second) == .seconds(2))
+        #expect(run(0) == .seconds(4))
+        #expect(run(9 * second) == .seconds(8))
+        #expect(run(1) == .seconds(16))
+        #expect(run(second) == nil, "the fifth quick exit in a row gives up")
+        restarts.reset()
+        #expect(run(second) == .seconds(2), "a new start counts from zero")
+    }
+
     @Test func commandsAreTheAdaptersArguments() {
         #expect(SystemNowPlayingCommand.togglePlayPause.arguments == ["send", "2"])
         #expect(SystemNowPlayingCommand.next.arguments == ["send", "4"])
@@ -113,11 +155,32 @@ import Testing
         #expect(SystemNowPlayingCommand.seek(-3).arguments == ["seek", "0"])
     }
 
+    /// Counts the adapter's spawns; the launcher's fake `spawn` starts no process.
+    nonisolated final class SpawnCount: Sendable {
+        private let count = Mutex(0)
+        func add() { count.withLock { $0 += 1 } }
+        var value: Int { count.withLock { $0 } }
+    }
+
+    /// A source whose idle stop is a deadline on `rig`, which fires only when the test says.
+    static func source(_ adapter: any SystemNowPlayingAdapter, ignoring ignored: Set<String> = [],
+                       rig: MainDeadlineRig = MainDeadlineRig()) -> SystemNowPlaying {
+        SystemNowPlaying(adapter: adapter, ignoring: ignored, labels: Self.labels,
+                         idle: MainDeadline(owner: "test.NowPlaying.adapterIdleStop", workClass: .background, scheduler: rig.deadlines))
+    }
+
+    /// Whether the rig's one pending wake is the idle stop, `SystemNowPlaying.idleStop` from now.
+    static func idleStopIsDue(_ rig: MainDeadlineRig) -> Bool {
+        guard let next = rig.deadlines.nextFire else { return false }
+        return next >= SystemNowPlaying.idleStop && next <= SystemNowPlaying.idleStop + .seconds(1)
+    }
+
     @Test func anotherAppIsOnTheCardAndItsControlsGoBack() throws {
         let adapter = FakeAdapter()
-        let source = SystemNowPlaying(adapter: adapter, ignoring: ["com.cmux.next"], labels: Self.labels)
-        source.run(true)
-        source.run(true)
+        let rig = MainDeadlineRig()
+        let source = Self.source(adapter, ignoring: ["com.cmux.next"], rig: rig)
+        source.run(.shown)
+        source.run(.shown)
         #expect(adapter.starts == 1, "running twice started two streams")
         adapter.emit(diff: false, Self.spotify)
         let shown = try #require(source.nowPlaying)
@@ -128,10 +191,98 @@ import Testing
         source.perform(.previous)
         source.perform(.seek(30))
         #expect(adapter.sent == [.togglePlayPause, .next, .previous, .seek(30)])
-        source.run(false)
-        #expect(adapter.stops == 1 && source.nowPlaying == nil, "stopping kept the last track")
+        source.run(.idle)
+        #expect(source.nowPlaying == nil, "no surface shows Now Playing, and the track still shows")
         adapter.emit(diff: false, Self.spotify)
-        #expect(source.nowPlaying == nil, "a line after stopping showed")
+        #expect(source.nowPlaying == nil, "a line in the idle minute showed")
+        #expect(adapter.stops == 0, "the adapter stopped at once, not a minute after the last surface")
+        #expect(Self.idleStopIsDue(rig), "no idle stop a minute after the last surface")
+        rig.fireAndRun()
+        #expect(adapter.stops == 1, "the adapter outlived its idle stop")
+        // A line the stopped stream still had in flight (FakeAdapter.stop dropped its handler).
+        let late = try #require(SystemNowPlayingFeed.Update.decode(Self.line(diff: false, Self.spotify)))
+        source.receive(late)
+        source.run(.shown)
+        #expect(adapter.starts == 2 && source.nowPlaying == nil, "stopping kept the last track, or a line after the stop showed")
+    }
+
+    /// A setting that turns Now Playing off (the card and the New Tab player off, other apps off)
+    /// stops the adapter now: macOS Now Playing is not read a minute longer.
+    @Test func aSettingThatTurnsNowPlayingOffStopsTheAdapterAtOnce() {
+        let adapter = FakeAdapter()
+        let rig = MainDeadlineRig()
+        let source = Self.source(adapter, rig: rig)
+        source.run(.shown)
+        source.run(.off)
+        #expect(adapter.stops == 1, "turning Now Playing off kept the adapter running")
+        #expect(rig.deadlines.nextFire == nil, "turning Now Playing off armed an idle stop")
+        source.run(.shown)
+        source.run(.idle)
+        #expect(Self.idleStopIsDue(rig))
+        source.run(.off)
+        #expect(adapter.stops == 2 && rig.deadlines.nextFire == nil, "turning Now Playing off while idle waited for the idle stop")
+        source.run(.idle)
+        #expect(adapter.starts == 2, "a setting on with no surface showing started the adapter")
+    }
+
+    /// A stream that gave up (it kept exiting at once) starts again when a surface shows Now
+    /// Playing again within the idle minute, as turning Now Playing off and on always did.
+    @Test func aSurfaceThatComesBackStartsAStreamThatGaveUp() {
+        let adapter = FakeAdapter()
+        let rig = MainDeadlineRig()
+        let source = Self.source(adapter, rig: rig)
+        source.run(.shown)
+        adapter.isStreaming = false
+        source.run(.idle)
+        source.run(.shown)
+        #expect(adapter.starts == 2, "a surface that came back kept a stream that gave up")
+        source.run(.idle)
+        source.run(.shown)
+        #expect(adapter.starts == 2, "a surface that came back started a stream that runs again")
+    }
+
+    @Test func theNeedIsTheCardsAndTheNewTabPlayers() {
+        #expect(NowPlayingNeed(card: false, cardHidden: false, newTab: false) == .off)
+        #expect(NowPlayingNeed(card: false, cardHidden: true, newTab: false) == .off)
+        #expect(NowPlayingNeed(card: true, cardHidden: false, newTab: false) == .shown)
+        #expect(NowPlayingNeed(card: true, cardHidden: true, newTab: false) == .idle)
+        #expect(NowPlayingNeed(card: true, cardHidden: true, newTab: true) == .shown)
+        #expect(NowPlayingNeed(card: false, cardHidden: false, newTab: true) == .shown)
+    }
+
+    /// p07-memory-061: the adapter (a perl process) starts on the first need, never when the source
+    /// is made, keeps running through a need that comes back within a minute (no new spawn), and
+    /// stops one minute after the last need. The real adapter over a launcher whose spawn only counts.
+    @Test func thePerlAdapterStartsOnFirstNeedAndStopsAMinuteAfterTheLast() async throws {
+        let spawns = SpawnCount()
+        // Qualified: CmuxNextAgentPane's ProcessLauncher shadows CmuxNextWakeups' in this file.
+        let launcher = CmuxNextWakeups.ProcessLauncher(label: "com.cmuxterm.next.test.now-playing", priority: .userVisible,
+                                                       spawn: { _ in spawns.add() })
+        let adapter = MediaRemoteAdapterProcess(script: URL(fileURLWithPath: "/nonexistent/mediaremote-adapter.pl"),
+                                                framework: URL(fileURLWithPath: "/nonexistent/MediaRemoteAdapter.framework"),
+                                                launcher: launcher)
+        let rig = MainDeadlineRig()
+        let source = Self.source(adapter, rig: rig)
+        #expect(!adapter.isStreaming && spawns.value == 0, "the adapter launched before anything needed it")
+        source.run(.shown)
+        #expect(adapter.isStreaming, "the first need did not start the adapter")
+        try await Self.until { spawns.value == 1 }
+        #expect(spawns.value == 1)
+        // The surface goes and comes back within the minute: the same stream serves it.
+        source.run(.idle)
+        #expect(Self.idleStopIsDue(rig))
+        rig.advance(by: .seconds(30))
+        source.run(.shown)
+        #expect(rig.deadlines.nextFire == nil, "a need that came back kept the idle stop")
+        rig.fireAndRun()
+        #expect(adapter.isStreaming, "a need that came back did not keep the stream")
+        // The last need ends: the stream runs until the deadline, then stops.
+        source.run(.idle)
+        #expect(adapter.isStreaming, "the adapter stopped before its idle deadline")
+        #expect(Self.idleStopIsDue(rig), "the idle stop is not a minute after the last need")
+        rig.fireAndRun()
+        #expect(!adapter.isStreaming, "the adapter outlived its idle deadline")
+        #expect(spawns.value == 1, "a need within the minute spawned a second adapter")
     }
 
     @Observable final class Flag {
@@ -146,7 +297,8 @@ import Testing
 
     @Test func theAdapterRunsOnlyWhileTheCardIsOn() async throws {
         let adapter = FakeAdapter()
-        let system = SystemNowPlaying(adapter: adapter, ignoring: [], labels: Self.labels)
+        let rig = MainDeadlineRig()
+        let system = Self.source(adapter, rig: rig)
         let sources = NowPlayingSources(player: MusicPlayer(labels: Self.labels), tabs: FakeSource(), system: system, otherApps: { true })
         let model = SidebarModel()
         let flag = Flag(false)
@@ -161,14 +313,46 @@ import Testing
         try await Self.until { model.nowPlaying?.title == "Weightless" }
         #expect(model.nowPlaying?.title == "Weightless", "another app's track is not on the card")
         flag.on = false
-        try await Self.until { adapter.stops == 1 }
-        #expect(adapter.stops == 1 && model.nowPlaying == nil, "turning Now Playing off kept the stream or the card")
+        try await Self.until { model.nowPlaying == nil && adapter.stops == 1 }
+        #expect(model.nowPlaying == nil, "turning Now Playing off kept the card")
+        #expect(adapter.stops == 1, "turning Now Playing off kept the stream")
+        #expect(rig.deadlines.nextFire == nil, "turning Now Playing off waited for the idle stop")
+    }
+
+    /// The card put away until relaunch, with the New Tab player off, shows Now Playing nowhere:
+    /// the adapter stops a minute later and starts again on Show Media Card. A card hidden for one
+    /// track keeps it running, since other media brings that card back.
+    @Test func aCardHiddenUntilRelaunchStopsTheAdapterAMinuteLater() async throws {
+        let adapter = FakeAdapter()
+        let rig = MainDeadlineRig()
+        let system = Self.source(adapter, rig: rig)
+        let sources = NowPlayingSources(player: MusicPlayer(labels: Self.labels), tabs: FakeSource(), system: system, otherApps: { true })
+        let model = SidebarModel()
+        let dismissal = NowPlayingCardDismissal()
+        let feed = model.followNowPlaying(sources, dismissal: dismissal, enabled: { true })
+        defer { feed.cancel() }
+        try await Self.until { adapter.starts == 1 }
+        adapter.emit(diff: false, Self.spotify)
+        try await Self.until { model.nowPlaying?.title == "Weightless" }
+        #expect(dismissal.hideShown())
+        try await Self.until { model.nowPlaying == nil }
+        #expect(model.nowPlaying == nil, "the card hidden for its track still shows")
+        #expect(rig.deadlines.nextFire == nil && adapter.stops == 0, "a card hidden for one track stopped reading what plays")
+        dismissal.hideUntilRelaunch()
+        try await Self.until { Self.idleStopIsDue(rig) }
+        #expect(Self.idleStopIsDue(rig), "a card hidden until relaunch armed no idle stop")
+        #expect(adapter.stops == 0, "a card hidden until relaunch stopped the adapter at once")
+        rig.fireAndRun()
+        #expect(adapter.stops == 1, "a card hidden until relaunch kept the adapter past its idle stop")
+        dismissal.reset()
+        try await Self.until { adapter.starts == 2 }
+        #expect(adapter.starts == 2, "Show Media Card did not start the adapter again")
     }
 
     @Test func cmuxsOwnEntriesAreLeftOut() {
         let adapter = FakeAdapter()
-        let source = SystemNowPlaying(adapter: adapter, ignoring: ["com.cmux.next"], labels: Self.labels)
-        source.run(true)
+        let source = Self.source(adapter, ignoring: ["com.cmux.next"])
+        source.run(.shown)
         var own = Self.spotify
         own["bundleIdentifier"] = "com.cmux.next"
         adapter.emit(diff: false, own)
@@ -183,8 +367,8 @@ import Testing
 
     @Test func theArtworkIsASmallPNG() async throws {
         let adapter = FakeAdapter()
-        let source = SystemNowPlaying(adapter: adapter, ignoring: [], labels: Self.labels)
-        source.run(true)
+        let source = Self.source(adapter)
+        source.run(.shown)
         let bitmap = try #require(NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: 600, pixelsHigh: 600, bitsPerSample: 8,
                                                    samplesPerPixel: 4, hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB,
                                                    bytesPerRow: 0, bitsPerPixel: 0))
@@ -238,7 +422,8 @@ import Testing
     /// not; turning the setting on starts the stream and the track shows on both, off stops it.
     @Test func macOSNowPlayingStreamsOnlyWhileOtherAppsIsOn() async throws {
         let adapter = FakeAdapter()
-        let system = SystemNowPlaying(adapter: adapter, ignoring: [], labels: Self.labels)
+        let rig = MainDeadlineRig()
+        let system = Self.source(adapter, rig: rig)
         let otherApps = Flag(false)
         let sources = NowPlayingSources(player: MusicPlayer(labels: Self.labels), tabs: FakeSource(), system: system,
                                         otherApps: { otherApps.on })
@@ -260,7 +445,24 @@ import Testing
         #expect(model.nowPlaying?.title == "A Chrome video" && page.track?.title == "A Chrome video",
                 "other apps on, and another app's track is not on the card and the New Tab page")
         otherApps.on = false
-        try await Self.until { adapter.stops == 1 && model.nowPlaying == nil }
-        #expect(adapter.stops == 1 && model.nowPlaying == nil, "turning other apps off kept the stream or the card")
+        try await Self.until { model.nowPlaying == nil && page.track == nil && adapter.stops == 1 }
+        #expect(model.nowPlaying == nil && page.track == nil, "turning other apps off kept the card or the New Tab page")
+        #expect(adapter.stops == 1, "turning other apps off kept reading macOS Now Playing")
+        #expect(rig.deadlines.nextFire == nil, "turning other apps off waited for the idle stop")
+    }
+}
+
+/// The trace clock's uptime that a test moves.
+private nonisolated final class UptimeNanos: Sendable {
+    private let value: Mutex<UInt64>
+
+    init(_ nanos: UInt64) {
+        value = Mutex(nanos)
+    }
+
+    var nanos: UInt64 { value.withLock { $0 } }
+
+    func advance(_ nanos: UInt64) {
+        value.withLock { $0 += nanos }
     }
 }

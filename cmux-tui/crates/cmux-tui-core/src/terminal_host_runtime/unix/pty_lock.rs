@@ -14,6 +14,7 @@
 //! unlinked or replaced retries on the new file.
 
 use super::*;
+use cmux_threads::checked::fs as files;
 
 /// The lock file of `terminal_id`/`incarnation` beside `record_path` (any
 /// file in the host record directory).
@@ -32,24 +33,23 @@ pub(crate) struct PtyOwnershipLock {
 }
 
 fn open_lock_file(path: &Path, create: bool) -> std_io::Result<File> {
-    OpenOptions::new()
-        .read(true)
-        .write(true)
-        .create(create)
-        .mode(0o600)
-        .custom_flags(libc::O_CLOEXEC | libc::O_NOFOLLOW)
-        .open(path)
+    files::open_with(
+        File::options()
+            .read(true)
+            .write(true)
+            .create(create)
+            .mode(0o600)
+            .custom_flags(libc::O_CLOEXEC | libc::O_NOFOLLOW),
+        path,
+    )
 }
 
 /// Take the lock without blocking. Ok(false) when another holder has it.
 fn try_lock(file: &File) -> std_io::Result<bool> {
     loop {
-        // SAFETY: flock only changes the advisory lock of this valid,
-        // owned descriptor.
-        if unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } == 0 {
+        let Err(error) = files::advisory_lock(file, libc::LOCK_EX | libc::LOCK_NB) else {
             return Ok(true);
-        }
-        let error = std_io::Error::last_os_error();
+        };
         match error.raw_os_error() {
             Some(libc::EINTR) => continue,
             Some(code) if code == libc::EWOULDBLOCK || code == libc::EAGAIN => return Ok(false),
@@ -60,7 +60,7 @@ fn try_lock(file: &File) -> std_io::Result<bool> {
 
 /// Whether `file` is still the inode named by `path`.
 fn still_named(file: &File, path: &Path) -> bool {
-    match (file.metadata(), fs::symlink_metadata(path)) {
+    match (file.metadata(), files::symlink_metadata(path)) {
         (Ok(held), Ok(named)) => held.dev() == named.dev() && held.ino() == named.ino(),
         _ => false,
     }
@@ -111,7 +111,7 @@ pub(crate) fn remove_released(record_path: &Path, terminal_id: &str, incarnation
 fn remove_released_path(path: &Path) {
     let Ok(file) = open_lock_file(path, false) else { return };
     if matches!(try_lock(&file), Ok(true)) && still_named(&file, path) {
-        let _ = fs::remove_file(path);
+        let _ = files::remove_file(path);
     }
 }
 
@@ -121,7 +121,7 @@ fn remove_released_path(path: &Path) {
 /// Run only while this owner starts no replacement host: an acquirer that
 /// meets the sweep's brief lock fails instead of waiting.
 pub(crate) fn sweep_released_pty_locks(root: &Path) {
-    let Ok(entries) = fs::read_dir(root) else { return };
+    let Ok(entries) = files::read_dir(root) else { return };
     for entry in entries.flatten() {
         let path = entry.path();
         if path

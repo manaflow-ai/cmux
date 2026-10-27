@@ -1,5 +1,6 @@
 import AppKit
 @testable import CmuxNextDesign
+import CmuxNextInput
 @testable import CmuxNextSidebar
 import Testing
 import CmuxNextWakeupsTestSupport
@@ -76,8 +77,8 @@ import CmuxNextWakeupsTestSupport
 
         // The pointer moves from the row onto the card, then the wheel turns.
         coordinator.pointerMoved(to: CGPoint(x: card.midX, y: card.midY))
-        let delivered = coordinator.handleMonitoredEvent(try Self.scrollEvent(dy: -40))
-        #expect(delivered == nil, "the scroll on the card went on to the sidebar under it")
+        let delivered = coordinator.handleDismissalEvent(try Self.scrollEvent(dy: -40))
+        #expect(delivered == .consume, "the scroll on the card went on to the sidebar under it")
         #expect(coordinator.isShowing(shown.id), "a scroll on the card dismissed it (\(coordinator.machine.phase))")
         try await Self.tearDown(window, coordinator)
     }
@@ -99,7 +100,7 @@ import CmuxNextWakeupsTestSupport
         let frame = try #require(history.window).convertToScreen(history.convert(history.bounds, to: nil))
         coordinator.pointerMoved(to: CGPoint(x: frame.midX, y: frame.midY))
         #expect(card.contains(CGPoint(x: frame.midX, y: frame.midY)))
-        for _ in 0..<5 { _ = coordinator.handleMonitoredEvent(try Self.scrollEvent(dy: -40)) }
+        for _ in 0..<5 { _ = coordinator.handleDismissalEvent(try Self.scrollEvent(dy: -40)) }
         #expect(body.timeline.scrollOffset > 0, "the wheel did not scroll the history")
         #expect(coordinator.isShowing(shown.id), "scrolling the history dismissed the card")
         try await Self.tearDown(window, coordinator)
@@ -111,8 +112,8 @@ import CmuxNextWakeupsTestSupport
         let row = try #require(rows.first)
         _ = try await Self.showCard(list, coordinator, clock, row: row)
         // The pointer still on the row: the sidebar scrolls and the card goes.
-        let delivered = coordinator.handleMonitoredEvent(try Self.scrollEvent(dy: -40))
-        #expect(delivered != nil, "a scroll on the row was swallowed")
+        let delivered = coordinator.handleDismissalEvent(try Self.scrollEvent(dy: -40))
+        #expect(delivered == .pass, "a scroll on the row was swallowed")
         #expect(coordinator.machine.shownTarget == nil, "a scroll on the row kept the card")
         try await Self.tearDown(window, coordinator)
     }

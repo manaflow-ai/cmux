@@ -1,5 +1,5 @@
 use std::collections::BTreeMap;
-use std::sync::{Condvar, Mutex};
+use std::sync::{Condvar, Mutex, PoisonError};
 use std::time::{Duration, Instant};
 
 use crate::resource::TabPublicId;
@@ -89,6 +89,9 @@ pub(crate) struct BrowserProviderSnapshot {
 struct BrowserProviderState {
     registrations: BTreeMap<u64, BrowserProviderRegistration>,
     revision: u64,
+    /// Bumped by [`BrowserProviderRegistry::wake_waiters`]: a waiter that saw
+    /// it change re-checks its cancel predicate.
+    wakes: u64,
 }
 
 /// Connection-scoped CDP leases published by the native cmux-browser process.
@@ -108,7 +111,7 @@ impl BrowserProviderRegistry {
         client: u64,
         registration: BrowserProviderRegistration,
     ) -> anyhow::Result<BrowserProviderSnapshot> {
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
         for (other_client, existing) in &state.registrations {
             if *other_client == client {
                 continue;
@@ -134,7 +137,7 @@ impl BrowserProviderRegistry {
     }
 
     pub(crate) fn unregister(&self, client: u64) -> bool {
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
         if state.registrations.remove(&client).is_none() {
             return false;
         }
@@ -144,31 +147,53 @@ impl BrowserProviderRegistry {
     }
 
     pub(crate) fn snapshot(&self) -> Option<BrowserProviderSnapshot> {
-        Self::snapshot_locked(&self.state.lock().unwrap())
+        Self::snapshot_locked(&self.state.lock().unwrap_or_else(PoisonError::into_inner))
     }
 
     pub(crate) fn target(&self, tab_id: &TabPublicId) -> Option<BrowserProviderTargetLease> {
-        Self::target_locked(&self.state.lock().unwrap(), tab_id)
+        Self::target_locked(&self.state.lock().unwrap_or_else(PoisonError::into_inner), tab_id)
     }
 
+    /// Blocks until a provider publishes `tab_id`'s target, or `canceled`
+    /// turns true. It waits for an event only (Chromium's
+    /// base/synchronization/waitable_event.h model, no timed re-check):
+    /// whatever makes `canceled` true must call [`Self::wake_waiters`].
     pub(crate) fn wait_for_target(
         &self,
         tab_id: &TabPublicId,
         canceled: impl Fn() -> bool,
     ) -> Option<BrowserProviderTargetLease> {
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
         loop {
             if let Some(lease) = Self::target_locked(&state, tab_id) {
                 return Some(lease);
             }
+            let seen = (state.revision, state.wakes);
+            // Unlocked: the predicate can drop the last `Arc<Mux>`, and the
+            // mux's drop wakes this registry.
+            drop(state);
             if canceled() {
                 return None;
             }
-            let (next, _) = self.changed.wait_timeout(state, Duration::from_millis(250)).unwrap();
-            state = next;
+            state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
+            while (state.revision, state.wakes) == seen {
+                state = self.changed.wait(state).unwrap_or_else(PoisonError::into_inner);
+            }
         }
     }
 
+    /// Wakes every [`Self::wait_for_target`] and
+    /// [`Self::wait_for_revision_change`] to re-check its cancel predicate.
+    /// Call it after making that predicate true (surface death, mux shutdown,
+    /// mux drop).
+    pub(crate) fn wake_waiters(&self) {
+        let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
+        state.wakes = state.wakes.wrapping_add(1);
+        self.changed.notify_all();
+    }
+
+    /// Waits up to `timeout` (a retry backoff) for the registrations to
+    /// change. `false` only when `canceled`.
     pub(crate) fn wait_for_revision_change(
         &self,
         revision: u64,
@@ -176,22 +201,27 @@ impl BrowserProviderRegistry {
         timeout: Duration,
     ) -> bool {
         let deadline = Instant::now() + timeout;
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
         loop {
             if state.revision != revision {
                 return true;
             }
+            let wakes = state.wakes;
+            drop(state);
             if canceled() {
                 return false;
             }
-            let remaining = deadline.saturating_duration_since(Instant::now());
-            if remaining.is_zero() {
-                return true;
-            }
-            let (next, wait) = self.changed.wait_timeout(state, remaining).unwrap();
-            state = next;
-            if wait.timed_out() {
-                return true;
+            state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
+            while state.revision == revision && state.wakes == wakes {
+                let remaining = deadline.saturating_duration_since(Instant::now());
+                if remaining.is_zero() {
+                    return true;
+                }
+                state = self
+                    .changed
+                    .wait_timeout(state, remaining)
+                    .unwrap_or_else(PoisonError::into_inner)
+                    .0;
             }
         }
     }
@@ -236,5 +266,124 @@ impl BrowserProviderRegistry {
             revision: state.revision,
             clients: state.registrations.len(),
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+    use std::sync::mpsc::{RecvTimeoutError, channel};
+    use std::thread;
+    use std::time::Duration;
+
+    use super::*;
+
+    fn tab() -> TabPublicId {
+        TabPublicId::parse("tab_00000000000000000000000000000007".to_string()).unwrap()
+    }
+
+    fn registration(targets: BTreeMap<TabPublicId, String>) -> BrowserProviderRegistration {
+        BrowserProviderRegistration {
+            provider_id: "test-provider".to_string(),
+            endpoint: "ws://127.0.0.1:9/devtools/browser/test".to_string(),
+            authentication: BrowserProviderAuthentication::None,
+            hosting: BrowserProviderHosting::Daemon,
+            targets,
+        }
+    }
+
+    /// A tab waiting for a target no provider publishes checks its cancel
+    /// predicate once, then sleeps until `wake_waiters`: the 250 ms re-check
+    /// it had woke the daemon 4 times a second (idle_wakeups,
+    /// cmux_next_daemon_idle_unprovided_browser_tab).
+    #[test]
+    fn wait_for_target_checks_cancel_only_when_woken() {
+        let registry = Arc::new(BrowserProviderRegistry::default());
+        let canceled = Arc::new(AtomicBool::new(false));
+        let (checked_tx, checked) = channel();
+        let waiter = {
+            let registry = registry.clone();
+            let canceled = canceled.clone();
+            thread::spawn(move || {
+                registry.wait_for_target(&tab(), || {
+                    checked_tx.send(()).unwrap();
+                    canceled.load(Ordering::Acquire)
+                })
+            })
+        };
+        checked.recv().unwrap();
+        assert_eq!(
+            checked.recv_timeout(Duration::from_millis(700)),
+            Err(RecvTimeoutError::Timeout),
+            "the wait re-checked its cancel predicate on a timer"
+        );
+        canceled.store(true, Ordering::Release);
+        registry.wake_waiters();
+        assert_eq!(waiter.join().unwrap(), None);
+    }
+
+    /// The predicate may drop the last `Arc<Mux>`, whose drop calls
+    /// `wake_waiters`: that must neither deadlock nor be lost.
+    #[test]
+    fn wait_for_target_takes_a_wake_raised_by_its_own_cancel_check() {
+        let registry = Arc::new(BrowserProviderRegistry::default());
+        let checks = AtomicUsize::new(0);
+        let lease = registry.wait_for_target(&tab(), || {
+            if checks.fetch_add(1, Ordering::AcqRel) == 0 {
+                registry.wake_waiters();
+                false
+            } else {
+                true
+            }
+        });
+        assert_eq!(lease, None);
+        assert_eq!(checks.load(Ordering::Acquire), 2);
+    }
+
+    #[test]
+    fn wait_for_target_returns_the_target_a_provider_publishes() {
+        let registry = Arc::new(BrowserProviderRegistry::default());
+        let (checked_tx, checked) = channel();
+        let waiter = {
+            let registry = registry.clone();
+            thread::spawn(move || {
+                registry.wait_for_target(&tab(), || {
+                    let _ = checked_tx.send(());
+                    false
+                })
+            })
+        };
+        checked.recv().unwrap();
+        registry
+            .register(1, registration(BTreeMap::from([(tab(), "target-7".to_string())])))
+            .unwrap();
+        let lease = waiter.join().unwrap().expect("the published target");
+        assert_eq!(lease.target_id, "target-7");
+    }
+
+    #[test]
+    fn wait_for_revision_change_returns_false_once_canceled_and_woken() {
+        let registry = Arc::new(BrowserProviderRegistry::default());
+        let canceled = Arc::new(AtomicBool::new(false));
+        let (checked_tx, checked) = channel();
+        let waiter = {
+            let registry = registry.clone();
+            let canceled = canceled.clone();
+            thread::spawn(move || {
+                registry.wait_for_revision_change(
+                    0,
+                    || {
+                        let _ = checked_tx.send(());
+                        canceled.load(Ordering::Acquire)
+                    },
+                    Duration::from_secs(60),
+                )
+            })
+        };
+        checked.recv().unwrap();
+        canceled.store(true, Ordering::Release);
+        registry.wake_waiters();
+        assert!(!waiter.join().unwrap());
     }
 }

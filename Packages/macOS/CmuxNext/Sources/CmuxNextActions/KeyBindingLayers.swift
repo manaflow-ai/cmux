@@ -10,10 +10,14 @@ public nonisolated struct KeyBindingLayers: Hashable, Sendable {
     public var user: [KeyBinding]
     public var removals: [KeyBindingRemoval]
     /// `.ghosttyFallback` and `.ghostty` entries (`KeyBindingLoader.loadGhostty`).
-    public var ghostty: [KeyBinding]
+    public var ghostty: [KeyBinding] { didSet { usersGhosttyKeys = Self.usersKeys(ghostty, ghosttyClaims) } }
     /// Keys the user's Ghostty config maps to a terminal action or unbinds:
     /// no cmux default entry runs on them (cmux.json entries still do).
-    public var ghosttyClaims: [Shortcut]
+    public var ghosttyClaims: [Shortcut] { didSet { usersGhosttyKeys = Self.usersKeys(ghostty, ghosttyClaims) } }
+    /// The user's own Ghostty keys: ``ghosttyClaims`` and the keys of single-key
+    /// `.ghostty` entries (never a `.ghosttyFallback` default). Rebuilt when
+    /// either changes, so a terminal key looks it up in O(1).
+    public private(set) var usersGhosttyKeys: Set<Shortcut>
 
     public init(app: [KeyBinding] = [], user: [KeyBinding] = [], removals: [KeyBindingRemoval] = [], ghostty: [KeyBinding] = [],
                 ghosttyClaims: [Shortcut] = []) {
@@ -22,6 +26,15 @@ public nonisolated struct KeyBindingLayers: Hashable, Sendable {
         self.removals = removals
         self.ghostty = ghostty
         self.ghosttyClaims = ghosttyClaims
+        usersGhosttyKeys = Self.usersKeys(ghostty, ghosttyClaims)
+    }
+
+    private static func usersKeys(_ ghostty: [KeyBinding], _ claims: [Shortcut]) -> Set<Shortcut> {
+        var keys = Set(claims)
+        for entry in ghostty where entry.source == .ghostty && entry.keys.count == 1 {
+            keys.insert(entry.keys[0])
+        }
+        return keys
     }
 }
 

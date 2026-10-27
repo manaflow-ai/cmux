@@ -24,8 +24,7 @@ extension MessagesLabHomeView {
             guard case let .part(p)? = cell.spec?.kind, case .text = p.part else { continue }
             let layer = cell.bitmap
             guard !layer.isHidden, layer.contentsCenter == CGRect(x: 0, y: 0, width: 1, height: 1),
-                  let raw = layer.contents, CFGetTypeID(raw as AnyObject) == CGImage.typeID, layer.bounds.width >= 4 else { continue }
-            let image = unsafeDowncast(raw as AnyObject, to: CGImage.self)  // type checked above (ComposeAttachments' pattern)
+                  let image = layer.bitmapContents, layer.bounds.width >= 4 else { continue }
             bitmaps += 1
             let ratio = CGFloat(image.width) / layer.bounds.width  // image pixels per layer point
             ratioMin = min(ratioMin, ratio); ratioMax = max(ratioMax, ratio)

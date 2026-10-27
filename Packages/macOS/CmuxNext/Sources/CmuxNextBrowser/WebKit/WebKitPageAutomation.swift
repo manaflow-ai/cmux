@@ -59,10 +59,10 @@ struct WebKitPageAutomation {
             let tile = try await tab.snapshot()
             if context == nil {
                 scale = CGFloat(tile.width) / windowWidth
-                context = CGContext(data: nil, width: Int((plan.contentSize.width * scale).rounded(.up)),
-                                    height: Int((plan.contentSize.height * scale).rounded(.up)), bitsPerComponent: 8, bytesPerRow: 0,
-                                    space: CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB(),
-                                    bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
+                context = CGContext.ownedBitmap(width: Int((plan.contentSize.width * scale).rounded(.up)),
+                                                height: Int((plan.contentSize.height * scale).rounded(.up)),
+                                                space: CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB(),
+                                                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
             }
             guard let context else { throw BrowserTabError.snapshotUnavailable }
             // Core Graphics counts y from the bottom.

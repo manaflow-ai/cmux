@@ -13,7 +13,7 @@ struct TabStripSelectionBench {
     func selectionSteps(_ count: Int) {
         let items = (0..<count).map { TabItem(id: TabID("t\($0)"), title: "Tab number \($0)") }
         let model = TabStripModel(tabs: items, selectedID: items.first?.id)
-        let strip = TabStripView(model: model)
+        let strip = TabStripView.testing(model: model)
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1400, height: 60), styleMask: [.borderless],
                               backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false

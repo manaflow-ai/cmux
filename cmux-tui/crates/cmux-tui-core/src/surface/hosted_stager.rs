@@ -10,6 +10,12 @@ use super::*;
 #[derive(Debug)]
 pub(super) enum HostedTransition {
     Output(Vec<u8>),
+    /// [`Self::Output`] of the host's first PTY read after the key press
+    /// `flow` reached the PTY: its echo (`FLAG_INPUT_FLOW`).
+    FlowOutput {
+        output: Vec<u8>,
+        flow: u64,
+    },
     OutputWithColors {
         output: Vec<u8>,
         colors: TerminalColorOverrides,
@@ -54,6 +60,9 @@ pub(super) struct HostedFrameStager {
     protocol_version: u16,
     expected_sequence: u64,
     smart_renderer: bool,
+    /// The connection negotiated `FLAG_INPUT_FLOW`: an `Output` may carry
+    /// a key press's flow.
+    input_flow: bool,
     pending: Option<PendingHostedTransition>,
 }
 
@@ -73,8 +82,16 @@ impl HostedFrameStager {
             protocol_version,
             expected_sequence: sequence_boundary.wrapping_add(1),
             smart_renderer,
+            input_flow: false,
             pending: None,
         }
+    }
+
+    /// Accept `Output` frames that carry a key press's flow: the
+    /// connection negotiated `FLAG_INPUT_FLOW`.
+    pub(super) fn with_input_flow(mut self, input_flow: bool) -> Self {
+        self.input_flow = input_flow;
+        self
     }
 
     pub(super) fn push(&mut self, frame: Frame) -> Result<Option<HostedTransition>, &'static str> {
@@ -122,6 +139,12 @@ impl HostedFrameStager {
                 FLAG_COLORS_FOLLOW => {
                     self.pending = Some(PendingHostedTransition::Output(frame.payload));
                     Ok(None)
+                }
+                FLAG_INPUT_FLOW if self.input_flow => {
+                    let (output, flow) = split_flow_trailer(frame.flags, &frame.payload)
+                        .ok_or("short Output flow trailer")?;
+                    let output = output.to_vec();
+                    Ok(Some(HostedTransition::FlowOutput { output, flow }))
                 }
                 _ => Err("unknown Output flags"),
             },

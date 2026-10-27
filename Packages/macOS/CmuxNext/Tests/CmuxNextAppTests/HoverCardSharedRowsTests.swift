@@ -93,8 +93,9 @@ import Testing
     @Test(arguments: [true, false])
     func theGalleryShowsEveryKind(tabs: Bool) {
         let cards = tabs ? TabHoverCardGallery.cards() : WorkspaceHoverCardGallery.cards()
-        // The sidebar adds a chat that never left the home folder (no folder line, Leo 2026-10-21).
-        let count = tabs ? 5 : 6
+        // The tabs add a hidden browser tab using high energy (p14-energy-125); the sidebar a chat that never left
+        // the home folder (no folder line, Leo 2026-10-21).
+        let count = 6
         #expect(cards.count == count)
         #expect(Set(cards.map(\.name)).count == count)
     }

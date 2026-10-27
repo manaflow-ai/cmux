@@ -36,7 +36,8 @@ public struct DirectoryLister: DirectoryListing {
 
     /// The synchronous listing (also used by benchmarks).
     public static func listSync(_ folder: URL) throws -> [FileEntry] {
-        let fd = open(folder.path, O_RDONLY | O_DIRECTORY)
+        // SAFETY: open reads the NUL-terminated copy of the path made for the call.
+        let fd = unsafe open(folder.path, O_RDONLY | O_DIRECTORY)
         guard fd >= 0 else { throw FileBrowserError.unreadable(folder, errno) }
         defer { close(fd) }
 
@@ -48,30 +49,42 @@ public struct DirectoryLister: DirectoryListing {
             | attrgroup_t(bitPattern: ATTR_CMN_FLAGS)
         request.fileattr = attrgroup_t(bitPattern: ATTR_FILE_DATALENGTH)
 
-        let capacity = 256 * 1024
-        let buffer = UnsafeMutableRawPointer.allocate(byteCount: capacity, alignment: 16)
-        defer { buffer.deallocate() }
+        var buffer = [UInt8](repeating: 0, count: 256 * 1024)
         var entries: [FileEntry] = []
         var packageCache: [String: Bool] = [:]
-        // wakeup-allow: each pass blocks in getattrlistbulk for the next batch; 0 (the end) or an error ends it
+        // wakeup-allow: bounded: each pass blocks in getattrlistbulk for the next batch; 0 (the end) or an error ends it
         while true {
-            let count = getattrlistbulk(fd, &request, buffer, capacity, 0)
+            // SAFETY: getattrlistbulk reads `request`, a local, and writes at most bytes.count bytes into the array's
+            // own storage, lent for the call; nothing keeps the pointer after it.
+            let count = unsafe buffer.withUnsafeMutableBytes { bytes in
+                unsafe getattrlistbulk(fd, &request, bytes.baseAddress, bytes.count, 0)
+            }
             if count < 0 { throw FileBrowserError.unreadable(folder, errno) }
             if count == 0 { break }
-            var record = UnsafeRawPointer(buffer)
-            for _ in 0..<count {
-                let length = Int(record.loadUnaligned(as: UInt32.self))
-                if let entry = parse(record, in: folder, packages: &packageCache) { entries.append(entry) }
-                record += length
-            }
+            parseBatch(buffer, count: Int(count), in: folder, packages: &packageCache, into: &entries)
         }
         return entries
+    }
+
+    /// The entries of one `getattrlistbulk` batch: `count` records, one after another from the start of
+    /// `bytes`. A record whose length field is short or runs past the buffer ends the batch; one whose
+    /// attributes run past its own length is skipped.
+    static func parseBatch(_ bytes: [UInt8], count: Int, in folder: URL, packages: inout [String: Bool],
+                           into entries: inout [FileEntry]) {
+        var start = 0
+        for _ in 0..<count {
+            guard let record = AttributeRecordReader(bytes, at: start) else { return }
+            if let entry = parse(record, in: folder, packages: &packages) { entries.append(entry) }
+            start += record.length
+        }
     }
 
     /// One item through `lstat`, or nil when it is gone.
     public static func entrySync(at url: URL) -> FileEntry? {
         var info = stat()
-        guard lstat(url.path, &info) == 0 else { return nil }
+        // SAFETY: lstat reads the NUL-terminated copy of the path made for the call and writes one struct stat into
+        // `info`, a local live for the call.
+        guard unsafe lstat(url.path, &info) == 0 else { return nil }
         let kind: FileKind
         switch info.st_mode & S_IFMT {
         case S_IFDIR: kind = isPackage(url.lastPathComponent) ? .package : .folder
@@ -84,40 +97,46 @@ public struct DirectoryLister: DirectoryListing {
                          modified: date(info.st_mtimespec), created: date(info.st_birthtimespec), isHidden: hidden)
     }
 
-    private static func parse(_ record: UnsafeRawPointer, in folder: URL, packages: inout [String: Bool]) -> FileEntry? {
-        var cursor = record + MemoryLayout<UInt32>.size
-        let returned = cursor.loadUnaligned(as: attribute_set_t.self)
-        cursor += MemoryLayout<attribute_set_t>.size
-        let common = returned.commonattr
+    /// One record, in getattrlist(2)'s order: the length, the returned attribute_set_t, then each returned
+    /// attribute (name, type, creation and modification times, flags, then the data length). Nil when the
+    /// record has no name or an attribute runs past its end.
+    static func parse(_ record: AttributeRecordReader, in folder: URL, packages: inout [String: Bool]) -> FileEntry? {
+        var reader = record
+        // attribute_set_t: commonattr, volattr, dirattr, fileattr, forkattr.
+        guard let common = reader.read(attrgroup_t.self), reader.skip(8),
+              let fileAttributes = reader.read(attrgroup_t.self), reader.skip(4) else { return nil }
 
         guard common & attrgroup_t(bitPattern: ATTR_CMN_NAME) != 0 else { return nil }
-        let nameRef = cursor.loadUnaligned(as: attrreference_t.self)
-        let name = String(cString: (cursor + Int(nameRef.attr_dataoffset)).assumingMemoryBound(to: CChar.self))
-        cursor += MemoryLayout<attrreference_t>.size
+        // attrreference_t: the name's offset from the reference itself, then its length with the NUL.
+        let reference = reader.position
+        guard let nameOffset = reader.read(UInt32.self), let nameLength = reader.read(UInt32.self),
+              let name = reader.text(at: reference + Int(Int32(bitPattern: nameOffset)), length: Int(nameLength))
+        else { return nil }
 
         var type: fsobj_type_t = 0
         if common & attrgroup_t(bitPattern: ATTR_CMN_OBJTYPE) != 0 {
-            type = cursor.loadUnaligned(as: fsobj_type_t.self)
-            cursor += MemoryLayout<fsobj_type_t>.size
+            guard let value = reader.read(fsobj_type_t.self) else { return nil }
+            type = value
         }
         var created = timespec()
         if common & attrgroup_t(bitPattern: ATTR_CMN_CRTIME) != 0 {
-            created = cursor.loadUnaligned(as: timespec.self)
-            cursor += MemoryLayout<timespec>.size
+            guard let value = reader.readTime() else { return nil }
+            created = value
         }
         var modified = timespec()
         if common & attrgroup_t(bitPattern: ATTR_CMN_MODTIME) != 0 {
-            modified = cursor.loadUnaligned(as: timespec.self)
-            cursor += MemoryLayout<timespec>.size
+            guard let value = reader.readTime() else { return nil }
+            modified = value
         }
         var flags: UInt32 = 0
         if common & attrgroup_t(bitPattern: ATTR_CMN_FLAGS) != 0 {
-            flags = cursor.loadUnaligned(as: UInt32.self)
-            cursor += MemoryLayout<UInt32>.size
+            guard let value = reader.read(UInt32.self) else { return nil }
+            flags = value
         }
         var size: Int64 = 0
-        if returned.fileattr & attrgroup_t(bitPattern: ATTR_FILE_DATALENGTH) != 0 {
-            size = cursor.loadUnaligned(as: off_t.self)
+        if fileAttributes & attrgroup_t(bitPattern: ATTR_FILE_DATALENGTH) != 0 {
+            guard let value = reader.read(UInt64.self) else { return nil }
+            size = Int64(bitPattern: value)
         }
 
         let kind: FileKind

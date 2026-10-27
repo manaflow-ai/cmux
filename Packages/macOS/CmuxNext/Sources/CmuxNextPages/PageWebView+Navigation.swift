@@ -13,18 +13,18 @@ extension PageWebView {
 
     /// A new main-frame document committed (either engine).
     func documentCommitted() {
-        #if DEBUG || CMUX_BENCH_HOOKS
         traceMark(.committed)
-        #endif
         // A new document: the old one's subscriptions and host calls end with it, and it has not
         // painted yet.
         router.reset()
         _ = claimState.end()
         loaded = false
         paintedUptime = nil
+        traceOpenLoadStarted(.navigated)
         repaintsAtNextLayout = false
         let scripts = scripts
         router.send = { envelope in scripts.send(envelope) }
+        crash.committed(self)
     }
 
     /// The document finished loading (either engine).
@@ -34,5 +34,6 @@ extension PageWebView {
         applyTheme(force: true)
         applyLiveDocumentAttributes()
         resumeLoadWaiters()
+        onLoaded?()
     }
 }

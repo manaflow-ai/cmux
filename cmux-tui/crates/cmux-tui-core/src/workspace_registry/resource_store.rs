@@ -601,6 +601,7 @@ fn advance_agent_hook_apply_cursor_transaction(
 impl WorkspaceRegistry {
     /// Return the highest journal sequence committed with a hook projection. This recovery
     /// watermark is not an admission cursor: it advances only after the projection commits.
+    #[track_caller]
     pub fn agent_hook_apply_cursor(&self) -> anyhow::Result<u64> {
         self.connection
             .get()
@@ -612,6 +613,7 @@ impl WorkspaceRegistry {
             .map(|value| u64::try_from(value).context("agent hook apply cursor is negative"))?
     }
 
+    #[track_caller]
     pub fn advance_agent_hook_apply_cursor(&mut self, sequence: u64) -> anyhow::Result<()> {
         let db = self.connection.get();
         let tx = db.unchecked_transaction()?;
@@ -649,6 +651,7 @@ impl WorkspaceRegistry {
     // These fields mirror the durable retry key and payload columns. Keep the
     // storage boundary explicit so callers cannot accidentally omit a field.
     #[allow(clippy::too_many_arguments)]
+    #[track_caller]
     pub(crate) fn enqueue_agent_hook_pending(
         &mut self,
         producer_id: &str,
@@ -720,6 +723,7 @@ impl WorkspaceRegistry {
         Ok(())
     }
 
+    #[track_caller]
     pub(crate) fn purge_agent_hook_pending_for_terminal(
         &mut self,
         terminal_id: &TerminalPublicId,
@@ -731,6 +735,7 @@ impl WorkspaceRegistry {
         Ok(())
     }
 
+    #[track_caller]
     pub fn clear_agent_hook_pending(
         &mut self,
         producer_id: &str,
@@ -745,6 +750,7 @@ impl WorkspaceRegistry {
         Ok(())
     }
 
+    #[track_caller]
     fn record_agent_hook_pending_failure(
         &self,
         producer_id: &str,
@@ -768,6 +774,7 @@ impl WorkspaceRegistry {
     }
 
     #[cfg(test)]
+    #[track_caller]
     pub(crate) fn pending_agent_hook_projections(
         &self,
     ) -> anyhow::Result<Vec<PendingAgentHookProjection>> {
@@ -799,6 +806,7 @@ impl WorkspaceRegistry {
             .collect()
     }
 
+    #[track_caller]
     pub(crate) fn pending_agent_hook_projections_for_terminal(
         &self,
         terminal_id: &TerminalPublicId,
@@ -846,6 +854,7 @@ impl WorkspaceRegistry {
         Ok(pending)
     }
 
+    #[track_caller]
     pub(crate) fn pending_agent_hook_projections_page(
         &self,
         after: Option<PendingAgentHookCursor>,
@@ -901,6 +910,7 @@ impl WorkspaceRegistry {
         Ok((pending, next_cursor))
     }
 
+    #[track_caller]
     pub fn replay_resource_patch(
         &self,
         mutation: &WorkspaceMutation,
@@ -915,6 +925,7 @@ impl WorkspaceRegistry {
     }
 
     #[cfg(test)]
+    #[track_caller]
     pub(crate) fn commit_agent_projection(
         &mut self,
         mutation: &WorkspaceMutation,
@@ -937,6 +948,7 @@ impl WorkspaceRegistry {
     }
 
     #[allow(clippy::too_many_arguments)]
+    #[track_caller]
     pub(crate) fn commit_agent_projection_with_hook_state(
         &mut self,
         mutation: &WorkspaceMutation,
@@ -1103,6 +1115,7 @@ impl WorkspaceRegistry {
     /// Only the requested marks are written; eviction pruning is a separate
     /// exact step (`prune_notification_reads`) driven by committed creates.
     #[allow(clippy::too_many_arguments)]
+    #[track_caller]
     pub(crate) fn commit_notification_ack(
         &mut self,
         mutation: &WorkspaceMutation,
@@ -1180,6 +1193,7 @@ impl WorkspaceRegistry {
     /// is committed. A row can sit in the live ledger before its receipt
     /// commits; clearing such a row would mask a receipt that lands later, so
     /// a clear names only what is durable.
+    #[track_caller]
     pub(crate) fn committed_notification_ids(
         &self,
         candidates: &[NotificationPublicId],
@@ -1207,6 +1221,7 @@ impl WorkspaceRegistry {
     /// Mask cleared notifications from later rebuilds, drop their read marks and publish the
     /// delete deltas as one revision; `extra` (the local feed reads) writes in the same transaction.
     #[allow(clippy::too_many_arguments)]
+    #[track_caller]
     pub(crate) fn commit_notification_clear(
         &mut self,
         mutation: &WorkspaceMutation,
@@ -1284,6 +1299,7 @@ impl WorkspaceRegistry {
     /// receipts no longer retain. Returns the candidates still retained, so
     /// the caller keeps them queued. Retention here is the same query the
     /// projection rebuild uses, so memory and disk agree after a restart.
+    #[track_caller]
     pub(crate) fn prune_notification_reads(
         &mut self,
         candidates: &[NotificationPublicId],
@@ -1320,6 +1336,7 @@ impl WorkspaceRegistry {
         Ok(remaining)
     }
 
+    #[track_caller]
     pub fn terminal_resource_id(
         &self,
         terminal_id: &str,
@@ -1341,6 +1358,7 @@ impl WorkspaceRegistry {
 
     /// Return every live public terminal-to-host identity in one deterministic
     /// bulk read instead of resolving each terminal with a separate query.
+    #[track_caller]
     pub fn live_terminal_resource_ids(&self) -> anyhow::Result<Vec<(String, TerminalPublicId)>> {
         let db = self.connection.get();
         let mut statement = db.prepare(
@@ -1361,6 +1379,7 @@ impl WorkspaceRegistry {
     /// Resolve the immutable resource-to-host relationship, including after
     /// explicit close, so lifecycle reads can distinguish tombstones from
     /// identifiers that never existed.
+    #[track_caller]
     pub fn terminal_host_id(&self, public_id: &TerminalPublicId) -> anyhow::Result<Option<String>> {
         self.connection
             .get()
@@ -1375,6 +1394,7 @@ impl WorkspaceRegistry {
     }
 
     /// Resolve only a live resource-to-host relationship (never a tombstoned terminal).
+    #[track_caller]
     pub fn live_terminal_host_id(
         &self,
         public_id: &TerminalPublicId,
@@ -1393,6 +1413,7 @@ impl WorkspaceRegistry {
 
     /// A missing in-memory surface can be a startup race only while the durable terminal is
     /// launching, adopting, or running. Exited and tombstoned ones cannot recover a projection.
+    #[track_caller]
     pub fn agent_hook_terminal_retryable(
         &self,
         public_id: &TerminalPublicId,
@@ -1409,6 +1430,7 @@ impl WorkspaceRegistry {
         ))
     }
 
+    #[track_caller]
     pub fn resource_topology_snapshot(&self) -> anyhow::Result<ResourceTopologySnapshot> {
         load_resource_topology(
             &self.connection.get(),
@@ -1418,6 +1440,7 @@ impl WorkspaceRegistry {
     }
 
     #[allow(clippy::too_many_arguments)]
+    #[track_caller]
     pub fn commit_resource_patch(
         &mut self,
         mutation: &WorkspaceMutation,
@@ -1445,6 +1468,7 @@ impl WorkspaceRegistry {
     }
 
     #[allow(clippy::too_many_arguments)]
+    #[track_caller]
     pub(crate) fn commit_resource_patch_with_workspace_ledger(
         &mut self,
         mutation: &WorkspaceMutation,
@@ -1569,6 +1593,7 @@ impl WorkspaceRegistry {
     }
 
     #[allow(clippy::too_many_arguments)]
+    #[track_caller]
     pub fn commit_resource_projection(
         &mut self,
         mutation: &WorkspaceMutation,
@@ -1684,6 +1709,7 @@ impl WorkspaceRegistry {
     }
 
     #[cfg(test)]
+    #[track_caller]
     pub(crate) fn set_resource_patch_failure(&self, enabled: bool) -> anyhow::Result<()> {
         if enabled {
             self.connection.get().execute_batch(
@@ -1701,6 +1727,7 @@ impl WorkspaceRegistry {
     }
 
     #[cfg(test)]
+    #[track_caller]
     pub(crate) fn resource_mutation_count_for_test(&self) -> anyhow::Result<u64> {
         let count = self.connection.get().query_row(
             "SELECT COUNT(*) FROM resource_mutations",
@@ -1711,6 +1738,7 @@ impl WorkspaceRegistry {
     }
 
     #[cfg(test)]
+    #[track_caller]
     pub(crate) fn resource_agent_projection_count_for_test(&self) -> anyhow::Result<u64> {
         let count = self.connection.get().query_row(
             "SELECT COUNT(*) FROM resource_agent_projections",
@@ -1721,6 +1749,7 @@ impl WorkspaceRegistry {
     }
 
     #[cfg(test)]
+    #[track_caller]
     pub(crate) fn agent_hook_pending_retry_state_for_test(
         &self,
         producer_id: &str,
@@ -2502,6 +2531,7 @@ fn restate_repaired_panes(
     Ok(())
 }
 
+#[track_caller]
 fn apply_effective_resource_patch(
     transaction: &Transaction<'_>,
     patch: &ResourcePatch,

@@ -134,16 +134,14 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use std::fs::OpenOptions;
 use std::io::{self, Read, Write};
 use std::ops::Deref;
-#[cfg(unix)]
-use std::os::unix::process::CommandExt;
 use std::path::{Component, Path, PathBuf};
-use std::process::Child;
-use std::process::Command;
-use std::process::Stdio;
 use std::sync::mpsc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use crate::cli::BIN;
+#[cfg(all(test, unix))]
+use cmux_process::Command;
+use cmux_process::{Child, Stdio};
 use cmux_tui_core::SidebarPluginOptions;
 use cmux_tui_core::TRANSPORT_SAFE_CAPTURE_MEGAPIXELS;
 use cmux_tui_core::platform;
@@ -161,7 +159,6 @@ use ratatui::style::Color;
 use serde::{Deserialize, Deserializer};
 use serde_json::{Value, json};
 use unicode_segmentation::UnicodeSegmentation;
-use wait_timeout::ChildExt;
 
 use crate::localization::catalog;
 

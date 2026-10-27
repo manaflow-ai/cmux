@@ -1,3 +1,4 @@
+public import CmuxNextWakeups
 public import CoreGraphics
 
 /// Chromium's side of the automation calls of ``BrowserTab``: the full page through DevTools, the
@@ -8,8 +9,8 @@ extension CEFTab {
         try await CEFFullPageCapture(tab: self).run()
     }
 
-    public func cookies() async throws -> [BrowserCookie] {
-        try await CEFCookieStore(tab: self).cookies()
+    public func cookies(on work: BackgroundWork) async throws -> [BrowserCookie] {
+        try await CEFCookieStore(tab: self).cookies(on: work)
     }
 
     public func setCookie(_ cookie: BrowserCookie) async throws {

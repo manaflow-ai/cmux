@@ -41,6 +41,10 @@ public protocol OnboardingServices: AnyObject {
     /// own (`BrowserSourceProfile.id` to that profile's id): the row starts there.
     func earlierImportTargets() async -> [String: String]
 
+    /// The icon of each browser in `browsers` (its installed app's, else the app at its usual place), read off the
+    /// main thread; a browser with no app is left out.
+    func browserIcons(_ browsers: [(browser: ImportBrowser, app: URL?)]) async -> [ImportBrowser: NSImage]
+
     // Computer use
     /// The helper app's grants, or nil when this build has no computer use.
     var computerUsePermissions: (any ComputerUsePermissionSource)? { get }
@@ -56,6 +60,7 @@ public extension OnboardingServices {
     func importPasswordsFromCSV(into profile: String?) {}
     func importTargets() async -> [ImportTargetChoice] { [] }
     func earlierImportTargets() async -> [String: String] { [:] }
+    func browserIcons(_ browsers: [(browser: ImportBrowser, app: URL?)]) async -> [ImportBrowser: NSImage] { [:] }
 }
 
 /// A cmux browser profile an import row can go into.

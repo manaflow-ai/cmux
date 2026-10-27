@@ -65,19 +65,20 @@ public struct MobileWorkspaceLastTabStore: Sendable {
         var seq: UInt64
     }
 
-    // UserDefaults is Apple-documented thread-safe; OK to hold nonisolated.
-    // `nil` = in-memory only (previews/tests).
-    private nonisolated(unsafe) let defaults: UserDefaults?
+    /// Opens the backing store; `nil` = in-memory only (previews/tests).
+    /// `UserDefaults` is not `Sendable`, so this `Sendable` value holds a way
+    /// to open it, never the object.
+    private let defaults: (@Sendable () -> UserDefaults)?
     private var map: [String: Entry]
     private var nextSeq: UInt64
 
     /// Create a store backed by the given defaults.
-    /// - Parameter defaults: The persistence store for the last-tab map.
-    ///   Inject a suite-scoped `UserDefaults` in tests; the app passes
+    /// - Parameter defaults: Opens the persistence store for the last-tab
+    ///   map. Tests open a suite-scoped `UserDefaults`; the app opens
     ///   `.standard`; `nil` keeps the map in memory only.
-    public init(defaults: UserDefaults? = .standard) {
+    public init(defaults: (@Sendable () -> UserDefaults)? = { .standard }) {
         self.defaults = defaults
-        if let data = defaults?.data(forKey: Self.defaultsKey),
+        if let data = defaults?().data(forKey: Self.defaultsKey),
            let decoded = try? JSONDecoder().decode([String: Entry].self, from: data) {
             map = decoded
         } else {
@@ -121,7 +122,7 @@ public struct MobileWorkspaceLastTabStore: Sendable {
     private func persist() {
         guard let defaults else { return }
         if let data = try? JSONEncoder().encode(map) {
-            defaults.set(data, forKey: Self.defaultsKey)
+            defaults().set(data, forKey: Self.defaultsKey)
         }
     }
 }

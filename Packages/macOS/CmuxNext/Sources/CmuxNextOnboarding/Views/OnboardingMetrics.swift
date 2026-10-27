@@ -29,25 +29,3 @@ enum OnboardingLabel {
         return label
     }
 }
-
-/// Re-runs `render` whenever an observable property it read changes;
-/// changes in one main-actor turn coalesce into one render.
-@MainActor
-final class RenderLoop {
-    private let render: () -> Void
-    private var active = true
-
-    init(_ render: @escaping () -> Void) {
-        self.render = render
-        arm()
-    }
-
-    func cancel() { active = false }
-
-    private func arm() {
-        guard active else { return }
-        withObservationTracking(render) { [weak self] in
-            Task { @MainActor in self?.arm() }
-        }
-    }
-}

@@ -85,6 +85,7 @@ impl Terminal {
         unsafe {
             sys::ghostty_terminal_set(self.raw, sys::GHOSTTY_TERMINAL_OPT_CLIPBOARD_READ, callback)
         };
+        self.raw_settings.clipboard_reads_deferred = !callback.is_null();
     }
 
     /// Answers the deferred read `token`: `Some(text)` returns the text (at

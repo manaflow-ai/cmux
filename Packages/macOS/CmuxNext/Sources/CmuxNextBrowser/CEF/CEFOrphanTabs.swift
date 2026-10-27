@@ -116,6 +116,13 @@ final class CEFOrphanTabs {
         }
     }
 
+    /// `browser` waited in a spare window that closes before a tab took it (`CEFSpareWindow.drop`):
+    /// it moves into the last shown pane, as a tab in a window cmux does not host does on a fork
+    /// before API 8, and closes when no pane can take it.
+    func rehome(browser: Int32, disposition: BrowserNewTabDisposition, bounds: CGRect?) {
+        moveIntoShownPane(browser: browser, disposition: disposition, bounds: bounds)
+    }
+
     /// `browser` closed before cmux registered a tab for it: it must never
     /// be adopted.
     func closedUnregistered(_ browser: Int32) {
@@ -126,25 +133,28 @@ final class CEFOrphanTabs {
     /// Runs on the next main-actor turn: this is reached from
     /// OnAfterCreated, inside Chromium's tab insertion, where moving the tab
     /// to another tab strip would re-enter it.
-    private func moveIntoShownPane(browser: Int32, disposition: BrowserNewTabDisposition, preferred: CEFPaneHost? = nil) {
+    private func moveIntoShownPane(browser: Int32, disposition: BrowserNewTabDisposition, bounds: CGRect? = nil,
+                                   preferred: CEFPaneHost? = nil) {
         Task { @MainActor [weak self, weak preferred] in
-            self?.moveIntoShownPaneNow(browser: browser, disposition: disposition, preferred: preferred)
+            self?.moveIntoShownPaneNow(browser: browser, disposition: disposition, bounds: bounds, preferred: preferred)
         }
     }
 
-    private func moveIntoShownPaneNow(browser: Int32, disposition: BrowserNewTabDisposition, preferred: CEFPaneHost?) {
+    private func moveIntoShownPaneNow(browser: Int32, disposition: BrowserNewTabDisposition, bounds: CGRect?,
+                                      preferred: CEFPaneHost?) {
         // Chromium may have closed it meanwhile (a tab an extension opened
         // and removed at once): adopting it would leave a ghost tab.
         guard runtime.tabsByBrowser[browser] == nil, !ledger.isClosed(browser) else { return }
         let hosts = runtime.hosts
-        guard let shim = runtime.shim, runtime.forkAPIVersion >= 3,
+        guard let shim = runtime.shim, runtime.forkAPIVersion >= CEFPaneHost.tabMoveForkAPI,
               let host = preferred.flatMap({ $0.isLive ? $0 : nil }) ?? runtime.lastShownHost ?? hosts.values.first(where: { $0.isLive }),
               let anchor = host.anchorBrowser,
+              // The fork's answer in process; in host mode the post's (sent), as `CEFPaneHost.movePopupsIn`.
               shim.tabMoveToWindow(browser, anchor, -1) == 1 else {
             runtime.logger.error("CEF browser \(browser) in a window cmux does not host; closing it")
             runtime.shim?.close(browser)
             return
         }
-        host.adoptChromiumTab(browser: browser, disposition: disposition)
+        host.adoptChromiumTab(browser: browser, disposition: disposition, bounds: bounds)
     }
 }

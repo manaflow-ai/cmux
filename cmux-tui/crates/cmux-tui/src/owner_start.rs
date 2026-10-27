@@ -4,6 +4,34 @@ mod background_checks;
 mod crash_forward;
 mod memory_guard;
 mod owner_panic;
+pub(crate) mod poll_watch_lab;
+
+/// Debug builds only: the owner's hang log test trigger, once its mux
+/// exists (tests/owner_panic.rs).
+#[cfg(debug_assertions)]
+pub(crate) fn hang_for_test(headless: bool) {
+    if headless {
+        owner_panic::hang_for_test();
+    }
+}
+
+/// The QoS of the owner's main thread: it serves requests a person waits
+/// on, so UserInitiated (Chromium's kDefault in the `cmux_threads::qos`
+/// table), below the UserInteractive echo threads.
+const MAIN_THREAD_QOS: cmux_threads::ThreadQos = cmux_threads::ThreadQos::UserInitiated;
+
+/// Lists the calling thread as `main` in the thread registry at
+/// [`MAIN_THREAD_QOS`] and sets its QoS, so `cmux_threads::snapshot` (and
+/// `server.threads` on it, p02-threads task 203) shows it.
+/// Returns false, and changes nothing, when the thread is listed already.
+///
+/// Call it once the main thread starts no more threads: a macOS thread
+/// starts at its creator's class, and the owner's workers (journal
+/// maintenance, history search, the panic and memory watchers) run at
+/// their own lower classes, not at the main thread's.
+pub(crate) fn register_main_thread() -> bool {
+    cmux_threads::register_current("main", MAIN_THREAD_QOS)
+}
 
 /// Validate the owner's storage flags and raise its open-file soft limit.
 ///
@@ -18,6 +46,8 @@ mod owner_panic;
 pub(crate) fn prepare(args: &crate::Args) -> anyhow::Result<()> {
     if args.headless {
         owner_panic::install(&args.session);
+        #[cfg(all(tokio_unstable, feature = "cmux-stability"))]
+        poll_watch_lab::install(&args.session);
         // Earlier panics and memory alerts not sent yet (tester rollout #7),
         // then the memory guard (#9), which sends its alerts as they happen.
         let panic_log = owner_panic::log_path(&args.session);

@@ -238,6 +238,8 @@ fn role_is_required_and_a_bad_role_changes_nothing_and_closes_the_window() {
         ("missing", json!({})),
         ("unknown", json!({"role": "user"})),
         ("not-string", json!({"role": 7})),
+        // Present but null is malformed too (sdk-schema: not nullable).
+        ("null", json!({"role": null})),
     ] {
         let mux = mux(label);
         let mut client = Client::connect(&mux, label);
@@ -259,6 +261,8 @@ fn install_id_is_validated_in_step_one() {
         ("space", json!("bad id")),
         ("slash", json!("a/b")),
         ("number", json!(5)),
+        // Present but null is malformed too (sdk-schema: not nullable).
+        ("null", Value::Null),
     ] {
         let mux = mux(label);
         let mut client = Client::connect(&mux, label);
@@ -274,6 +278,36 @@ fn install_id_is_validated_in_step_one() {
     let reply = client.hello(json!({"role": "main", "install_id": longest}));
     assert_ok_connection_id(&reply, &mux);
     assert_nonce(&reply, true);
+}
+
+/// Step 2 needs `install_id` and `proof` as strings (spec/sdk-schema.json:
+/// not nullable): a null one is client_hello.refused even when the other
+/// member and the key would prove the install.
+#[test]
+fn step_two_refuses_a_null_install_id_or_proof() {
+    use cmux_local_auth::frontend_proof::{NONCE_LEN, hello_proof, unhex};
+    const KEY_HEX: &str = "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f";
+    let key = unhex::<32>(KEY_HEX).unwrap();
+    for (label, null_install_id, null_proof) in
+        [("null-install-id", true, false), ("null-proof", false, true), ("both-set", false, false)]
+    {
+        let mux = mux(label);
+        let frontend_key = FrontendKey::parse(&format!("cmuxik1 inst_s2 {KEY_HEX}")).unwrap();
+        assert!(install_frontend_key(&mux, frontend_key));
+        let mut client = Client::connect(&mux, label);
+        let started = client.hello(json!({"role": "main", "install_id": "inst_s2"}));
+        let nonce = unhex::<NONCE_LEN>(started["data"]["nonce"].as_str().unwrap()).unwrap();
+        let proof = hello_proof(&key, "inst_s2", &nonce);
+        let reply = client.hello(json!({
+            "install_id": if null_install_id { Value::Null } else { json!("inst_s2") },
+            "proof": if null_proof { Value::Null } else { json!(proof) },
+        }));
+        if null_install_id || null_proof {
+            assert_hello_error(&reply, "client_hello.refused");
+        } else {
+            assert_eq!(reply["data"]["verified"], true, "{reply}");
+        }
+    }
 }
 
 #[test]

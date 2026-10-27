@@ -1,6 +1,7 @@
 import CmuxHomeCore
 import CmuxNextDaemon
 import CmuxNextHomeEngine
+import CmuxNextWakeups
 import Foundation
 
 /// The Chief owner as the migration sees it: its Chief conversation (the
@@ -37,6 +38,7 @@ extension HomeService {
         let olds = ChiefMigration.oldChiefs(userHome: FileManager.default.homeDirectoryForCurrentUser, applicationSupport: support)
         let logger = logger
         let tool = BundledChiefMemoryTool.bundled()
+        let mainWork = services.mainWork
         chief.prepare = { [weak self] connection in
             // NIGHTLY's backup of the shared home exists first (taken before the owner started,
             // ChiefConversationOwner.adoption); without it the move waits for a later launch.
@@ -51,7 +53,7 @@ extension HomeService {
             }
             logger.info("chief migration: \(String(describing: outcome), privacy: .public)")
             let notice = ChiefMigration.notice(for: outcome)
-            await MainActor.run { self?.migrationNotice = notice }
+            mainWork.postFromAnyThread(.visible, owner: "HomeService.chiefMigration") { self?.migrationNotice = notice }
         }
     }
 

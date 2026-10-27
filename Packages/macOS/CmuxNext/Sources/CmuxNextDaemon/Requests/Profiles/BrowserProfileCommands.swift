@@ -16,7 +16,7 @@ public struct BrowserProfileResult: Decodable, Sendable, Equatable {
 /// `create-browser-profile`: an existing id returns the stored record.
 public struct CreateBrowserProfileRequest: DaemonRequest {
     public typealias Response = BrowserProfileResult
-    public static let command = "create-browser-profile"
+    public static let commandName: DaemonCommandName = "create-browser-profile"
     public static let requiredCapability: String? = DaemonCapability.browserProfiles.rawValue
     public var id: String?
     public var name: String
@@ -54,7 +54,7 @@ public struct CreateBrowserProfileRequest: DaemonRequest {
 /// `update-browser-profile`: absent keeps, `.clear` sends null.
 public struct UpdateBrowserProfileRequest: DaemonRequest {
     public typealias Response = BrowserProfileResult
-    public static let command = "update-browser-profile"
+    public static let commandName: DaemonCommandName = "update-browser-profile"
     public static let requiredCapability: String? = DaemonCapability.browserProfiles.rawValue
     public var id: String
     public var name: String?
