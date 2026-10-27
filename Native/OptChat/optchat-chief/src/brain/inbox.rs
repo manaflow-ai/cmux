@@ -120,6 +120,7 @@ impl Brain {
         let Some(main) = self.state.conversation.clone() else {
             return;
         };
+        self.recent.note(message);
         if message.author == self.settings.membership.participant {
             self.on_chief_reactions(&main, message);
             return;
@@ -206,7 +207,7 @@ impl Brain {
                 self.settle_acks();
             }
         } else if message.edited_at.is_some() {
-            let text = message_text(message);
+            let text = self.turn_text(message);
             for q in self.queue.iter_mut().filter(|q| is_it(q)) {
                 q.text = super::images::logged_text(&text, &q.images);
             }
@@ -263,6 +264,7 @@ impl Brain {
         match fetched {
             Ok((summary, messages, pending, from)) => {
                 for m in messages.iter().chain(pending.iter()) {
+                    self.recent.note(m);
                     if m.author == self.settings.membership.participant {
                         self.mux_messages.insert(m.id.clone());
                     }
@@ -288,6 +290,7 @@ impl Brain {
         }
         self.handled = message.seq;
         self.note_main_message(&message);
+        self.recent.note(&message);
         if message.author == self.settings.membership.participant {
             // a455: the Chief learns of a bubble posted in its name that it did not write.
             self.note_host_post(&message);
@@ -325,8 +328,10 @@ impl Brain {
                 }
                 _ => Vec::new(),
             };
+            // A reply names its target in one short first line (reply_context.rs).
+            let read = self.turn_text(&message);
             let logged =
-                super::files::logged_text(&super::images::logged_text(&text, &images), &files);
+                super::files::logged_text(&super::images::logged_text(&read, &images), &files);
             self.queue_with_images(
                 logged,
                 images,

@@ -28,8 +28,8 @@ pub use render::{
     view_line, zoom, RenderedView, ZoomError, BLOCK_LINES, LOOKBACK_BLOCKS, MARK_REACH,
 };
 pub use render::{
-    deleted, delta_line, delta_range, edit_of, frozen_text, retracted, turn_input, Frozen,
-    TurnInput, DELTA_HARD, DELTA_MAX,
+    deleted, delta_line, delta_range, edit_of, frozen_text, reply_marker, reply_tag, retracted,
+    turn_input, Frozen, TurnInput, DELTA_HARD, DELTA_MAX, REPLY_QUOTE,
 };
 
 /// Target size of one summary line, in UTF-8 bytes (section 3).
