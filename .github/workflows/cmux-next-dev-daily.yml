@@ -22,6 +22,7 @@ env:
 
 jobs:
   sign:
+    needs: rcodesign
     # The source run is checked again by id in the first step.
     if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
     name: Sign cmux NEXT DEV
@@ -34,7 +35,7 @@ jobs:
     # This job signs and runs no code from the app. verify runs the app's
     # sidecar without secrets; publish uploads only the archive it tested.
     environment: release
-    # Linux, with stock rcodesign (scripts/ci/rcodesign-sign-bundle-dev.sh): no
+    # Linux, with our rcodesign (scripts/ci/rcodesign-sign-bundle-dev.sh): no
     # macOS queue, and no keychain (the signer keeps the key in its own
     # temporary directory). The Mac jobs check its output: verify runs codesign
     # on the archive publish ships, and tip runs it before building the DMG.
@@ -212,9 +213,26 @@ jobs:
           echo "build=$build" >> "$GITHUB_OUTPUT"
           echo "Tip build $build, feed $TIP_FEED_URL, key $public_key"
 
-      - name: Install rcodesign
+      - name: Download the signer
         if: steps.source-artifact.outputs.archive != ''
-        run: ./scripts/ci/install-rcodesign.sh "$RUNNER_TEMP/rcodesign" >> "$GITHUB_ENV"
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: ${{ needs.rcodesign.outputs.artifact }}
+          path: ${{ runner.temp }}/rcodesign
+
+      # Only the binary the rcodesign job built, by its digest.
+      - name: Install the signer
+        if: steps.source-artifact.outputs.archive != ''
+        env:
+          SIGNER_SHA256: ${{ needs.rcodesign.outputs.sha256 }}
+        run: |
+          set -euo pipefail
+          signer="$RUNNER_TEMP/rcodesign/rcodesign"
+          [[ "$SIGNER_SHA256" =~ ^[0-9a-f]{64}$ ]] || { echo "the rcodesign job gave no digest" >&2; exit 1; }
+          echo "$SIGNER_SHA256  $signer" | sha256sum -c -
+          chmod 755 "$signer"
+          "$signer" --version
+          echo "RCODESIGN=$signer" >> "$GITHUB_ENV"
 
       # The app comes from a feat-cmux-next build. None of its code runs in
       # this job: the signer only reads and rewrites its files, and
@@ -956,22 +974,23 @@ jobs:
         run: |
           if [[ -n "${TIP_WORK_DIR:-}" ]]; then rm -rf "$TIP_WORK_DIR"; fi
 
-  rcodesign-dmg:
-    # Builds the patched DMG signer (scripts/ci/build-rcodesign-dmg.sh) from
-    # pinned source on every run, alongside sign, with no environment, secret or
-    # cache. tip-dmg runs it only after checking its sha256 against this job's
-    # output.
+  rcodesign:
+    # Our patched rcodesign (scripts/ci/build-rcodesign.sh), the one signer
+    # sign and tip-dmg use, built from pinned source with no environment or
+    # secret. The binary is cached under the hash of the build script and the
+    # patch (the nightly restores the same key); sign and tip-dmg run it only
+    # after checking its sha256 against this job's output.
     if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
-    name: Build the DMG signer
+    name: Build the signer
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-8vcpu-ubuntu-2404' }}
     timeout-minutes: 20
     permissions:
       contents: read
     outputs:
-      sha256: ${{ steps.build.outputs.sha256 }}
-      # A rerun of tip-dmg alone keeps this job's outputs from its own attempt,
-      # so the artifact name travels with them.
-      artifact: rcodesign-dmg-${{ github.run_attempt }}
+      sha256: ${{ steps.digest.outputs.sha256 }}
+      # A rerun of a consumer alone keeps this job's outputs from its own
+      # attempt, so the artifact name travels with them.
+      artifact: rcodesign-${{ github.run_attempt }}
     steps:
       - name: Checkout trusted build scripts
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -980,8 +999,16 @@ jobs:
           fetch-depth: 1
           persist-credentials: false
 
+      - name: Restore the signer
+        id: cache
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ${{ runner.temp }}/rcodesign
+          key: rcodesign-0.29.0-rust-1.95.0-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('scripts/ci/build-rcodesign.sh', 'scripts/ci/rcodesign-0.29.0-dmg.patch') }}
+
       # The runner image's rustup only; never a fetched installer script.
       - name: Set up Rust
+        if: steps.cache.outputs.cache-hit != 'true'
         run: |
           set -euo pipefail
           export PATH="$HOME/.cargo/bin:$PATH"
@@ -989,15 +1016,22 @@ jobs:
           rustup toolchain install 1.95.0 --profile minimal
           dirname "$(rustup which --toolchain 1.95.0 cargo)" >> "$GITHUB_PATH"
 
-      - name: Build rcodesign with the DMG patch
-        id: build
-        run: ./scripts/ci/build-rcodesign-dmg.sh "$RUNNER_TEMP/rcodesign-dmg" >> "$GITHUB_OUTPUT"
+      - name: Build rcodesign with our patch
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: ./scripts/ci/build-rcodesign.sh "$RUNNER_TEMP/rcodesign"
 
-      - name: Upload the DMG signer
+      - name: Digest the signer
+        id: digest
+        run: |
+          set -euo pipefail
+          "$RUNNER_TEMP/rcodesign/rcodesign" --version
+          echo "sha256=$(sha256sum "$RUNNER_TEMP/rcodesign/rcodesign" | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+
+      - name: Upload the signer
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: rcodesign-dmg-${{ github.run_attempt }}
-          path: ${{ runner.temp }}/rcodesign-dmg/rcodesign
+          name: rcodesign-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/rcodesign/rcodesign
           if-no-files-found: error
           retention-days: 1
 
@@ -1006,13 +1040,13 @@ jobs:
     # Advisory, as tip is: a red tip-dmg never makes the dispatcher re-publish
     # the same source run. A failure still shows red on the job.
     continue-on-error: true
-    needs: [sign, tip-dmg-build, rcodesign-dmg]
-    if: ${{ !cancelled() && needs.sign.result == 'success' && needs.sign.outputs.signed == 'true' && needs.sign.outputs.build != '' && needs.tip-dmg-build.outputs.fresh == 'true' && needs.rcodesign-dmg.result == 'success' }}
+    needs: [sign, tip-dmg-build, rcodesign]
+    if: ${{ !cancelled() && needs.sign.result == 'success' && needs.sign.outputs.signed == 'true' && needs.sign.outputs.build != '' && needs.tip-dmg-build.outputs.fresh == 'true' && needs.rcodesign.result == 'success' }}
     # No concurrency group (a group replaces a pending run, which the dev-build
     # rule forbids): tip-dmg runs side by side, and tip's compare-and-swap lets
     # the newest build win.
     environment: release
-    # Linux: rcodesign (rcodesign-dmg's build) signs, notarizes and staples the
+    # Linux: rcodesign (the rcodesign job's build) signs, notarizes and staples the
     # DMG (scripts/ci/rcodesign-notarize-dmg-dev.sh), and the full-DMG appcast is
     # one Ed25519 signature (scripts/ci/tip_appcast_linux.py), so the notary
     # wait never holds a Mac and no signing secret reaches one. tip-deltas
@@ -1041,7 +1075,7 @@ jobs:
       TIP_BUILD: ${{ needs.sign.outputs.build }}
       TIP_APPCAST: appcast-arm64.xml
       UNSIGNED_SHA256: ${{ needs.tip-dmg-build.outputs.dmg_sha256 }}
-      DMG_SIGNER_SHA256: ${{ needs.rcodesign-dmg.outputs.sha256 }}
+      SIGNER_SHA256: ${{ needs.rcodesign.outputs.sha256 }}
     steps:
       - name: Checkout trusted signing and feed scripts
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -1072,19 +1106,19 @@ jobs:
           [[ "$UNSIGNED_SHA256" =~ ^[0-9a-f]{64}$ ]] || { echo "tip-dmg-build gave no DMG digest" >&2; exit 1; }
           echo "$UNSIGNED_SHA256  tip-unsigned/$TIP_DMG_NAME" | sha256sum -c -
 
-      - name: Download the DMG signer
+      - name: Download the signer
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
-          name: ${{ needs.rcodesign-dmg.outputs.artifact }}
-          path: ${{ runner.temp }}/rcodesign-dmg
+          name: ${{ needs.rcodesign.outputs.artifact }}
+          path: ${{ runner.temp }}/rcodesign
 
-      # Only the binary rcodesign-dmg built, by its digest.
-      - name: Install the DMG signer
+      # Only the binary the rcodesign job built, by its digest.
+      - name: Install the signer
         run: |
           set -euo pipefail
-          signer="$RUNNER_TEMP/rcodesign-dmg/rcodesign"
-          [[ "$DMG_SIGNER_SHA256" =~ ^[0-9a-f]{64}$ ]] || { echo "rcodesign-dmg gave no digest" >&2; exit 1; }
-          echo "$DMG_SIGNER_SHA256  $signer" | sha256sum -c -
+          signer="$RUNNER_TEMP/rcodesign/rcodesign"
+          [[ "$SIGNER_SHA256" =~ ^[0-9a-f]{64}$ ]] || { echo "the rcodesign job gave no digest" >&2; exit 1; }
+          echo "$SIGNER_SHA256  $signer" | sha256sum -c -
           chmod 755 "$signer"
           "$signer" --version
           echo "RCODESIGN=$signer" >> "$GITHUB_ENV"
