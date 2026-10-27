@@ -47,9 +47,20 @@ struct PageWebViewDebugScrollTests {
 
     @Test func scrollOfNoMatchingElementIsNotAScroll() async throws {
         defer { try? FileManager.default.removeItem(at: root) }
-        let (view, _) = try await chromiumPage(answer: nil)
-        #expect(await view.debugScroll(".missing") == ["scrolled": false])
+        let (view, _) = try await chromiumPage(answer: #"{"reason":"no match"}"#)
+        #expect(await view.debugScroll(".missing") == ["scrolled": false, "reason": "no match"])
         view.close()
+    }
+
+    /// A match with no box (`display: none`) or one still out of view is never a scroll, so a capture
+    /// does not shoot the unchanged fold as a pass.
+    @Test func aHiddenOrClippedElementIsNotAScroll() async throws {
+        defer { try? FileManager.default.removeItem(at: root) }
+        for reason in ["not rendered", "not in view"] {
+            let (view, _) = try await chromiumPage(answer: #"{"reason":"\#(reason)"}"#)
+            #expect(await view.debugScroll(".card") == ["scrolled": false, "reason": .string(reason)])
+            view.close()
+        }
     }
 }
 #endif

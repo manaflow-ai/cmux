@@ -26,7 +26,8 @@ import Foundation
 // - `click` (`selector`, `context_menu`?): clicks (or right-clicks) the first element matching the CSS selector;
 // - `scroll` (`selector`, `block`? start | center | end | nearest, default start): scrolls the first
 //   matching element into view at once (every scroller that holds it): `{scrolled, top, height,
-//   viewport}`, or an error when nothing matches, so a capture step fails instead of shooting the fold;
+//   viewport}` once its box is in view; an error when nothing rendered matches or it is still out of view,
+//   so a capture step fails instead of shooting the fold;
 // - `hover` (`selector`): moves the mouse onto the first matching element (a capture slot's window
 //   never activates, so no pointer reaches its pages): `{hovered, native, x, y}`;
 // - `query` (`selector`): each matching element's data-* attributes, classes and text, in document order;
@@ -110,7 +111,12 @@ enum DebugPages {
                 return ["error": "block must be one of start, center, end, nearest"]
             }
             let scrolled = await page.debugScroll(selector, block: block)
-            return scrolled["scrolled"] == true ? scrolled : ["error": .string("no element matches \(selector)")]
+            guard scrolled["scrolled"] != true else { return scrolled }
+            // "no element matches" while the page has not drawn it yet (a card the host fills in later):
+            // a caller may wait; "not in view" is final.
+            let reason = scrolled["reason"]?.stringValue ?? "no match"
+            if reason == "not in view" { return ["error": .string("\(selector) is not in view after the scroll")] }
+            return ["error": .string("no element matches \(selector) (\(reason))")]
         case "query":
             return await page.debugQuery(params["selector"]?.stringValue ?? "*")
         case "route":

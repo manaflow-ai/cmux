@@ -175,21 +175,39 @@ extension PageWebView {
         return .object(hovered)
     }
 
-    /// Scrolls the first element matching `selector` into view at `block` (`start`, `center`,
-    /// `end` or `nearest`), at once (`behavior: instant`), scrolling every scroller that holds it,
-    /// so a capture can show content below the fold (Settings > Accounts' lower cards) with no wheel
-    /// or key event, which a capture slot's never-active window does not get. `{scrolled, top,
-    /// height, viewport}` in CSS pixels after the scroll (`top` is the element's top in the
-    /// viewport); `{scrolled: false}` when nothing matches.
+    /// Scrolls the first rendered element matching `selector` (one with a layout box: a match under
+    /// `display: none` is skipped) into view at `block` (`start`, `center`, `end` or `nearest`), at
+    /// once (`behavior: instant`), scrolling every scroller that holds it, so a capture can show
+    /// content below the fold (Settings > Accounts' lower cards) with no wheel or key event, which a
+    /// capture slot's never-active window does not get. `{scrolled: true, top, height, viewport}` in
+    /// CSS pixels when the element's box is in the viewport after the scroll (`top` is its top in the
+    /// viewport); else `{scrolled: false, reason}`: `no match`, `not rendered` (every match has no
+    /// box), or `not in view` (a clipping scroller or overlay kept it out).
     public func debugScroll(_ selector: String, block: String = "start") async -> JSONValue {
         let script = """
-        const el = document.querySelector(selector); if (!el) { return null; }
+        const all = [...document.querySelectorAll(selector)];
+        if (!all.length) { return JSON.stringify({ reason: 'no match' }); }
+        const el = all.find((e) => e.getClientRects().length > 0 && getComputedStyle(e).visibility !== 'hidden');
+        if (!el) { return JSON.stringify({ reason: 'not rendered' }); }
         el.scrollIntoView({ block, inline: 'nearest', behavior: 'instant' });
         const r = el.getBoundingClientRect();
+        // The middle of the part of its box inside the viewport must hit the element (a sticky header
+        // over its top edge is fine; a clipping scroller or a sheet over all of it is not).
+        const top = Math.max(r.top, 0), bottom = Math.min(r.bottom, window.innerHeight);
+        const left = Math.max(r.left, 0), right = Math.min(r.right, window.innerWidth);
+        const shown = bottom > top && right > left
+          && el.contains(document.elementFromPoint((left + right) / 2, (top + bottom) / 2));
+        if (!shown) { return JSON.stringify({ reason: 'not in view' }); }
         return JSON.stringify({ top: r.top, height: r.height, viewport: window.innerHeight });
         """
         guard let text = await callPageFunction(script, arguments: ["selector": selector, "block": block]) as? String,
-              case .object(var members)? = try? JSONValue.parse(Data(text.utf8)) else { return ["scrolled": false] }
+              case .object(var members)? = try? JSONValue.parse(Data(text.utf8)) else {
+            return ["scrolled": false, "reason": "page not loaded"]
+        }
+        guard members["reason"] == nil else {
+            members["scrolled"] = false
+            return .object(members)
+        }
         members["scrolled"] = true
         return .object(members)
     }
