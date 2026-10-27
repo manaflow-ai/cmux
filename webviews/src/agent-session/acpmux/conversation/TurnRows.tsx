@@ -326,18 +326,21 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
   // (turnRetry.ts): one at a time, and a refusal leaves its note on the card.
   const [retrying, setRetrying] = useState(false);
   const [retryNote, setRetryNote] = useState<RetryNote>();
-  const failedRetry =
-    failed && prompt && (retryFailed || retry)
+  // acpmux's retry needs no prompt: an attempt it sent (a hidden prompt row) that failed again
+  // still offers Retry. Without it, Retry sends the turn's prompt again, so it needs one.
+  const failedRetry = !failed
+    ? undefined
+    : retryFailed && row.retryable
       ? () => {
-          const rowId = row.retryRowId ?? "";
-          if (!retryFailed) return retry?.(rowId, prompt);
           setRetrying(true);
           setRetryNote(undefined);
-          void retryFailed(rowId, prompt)
+          void retryFailed(row.retryRowId, prompt)
             .then(setRetryNote, () => setRetryNote("retry.failed"))
             .finally(() => setRetrying(false));
         }
-      : undefined;
+      : retry && prompt && row.retryRowId
+        ? () => retry(row.retryRowId!, prompt)
+        : undefined;
   // A failure reads as the turn's answer does: its own block above the footer row, never squeezed
   // into it (Codex, Claude desktop). The row is one quiet line under the answer's left edge; it
   // shows on hover or keyboard focus, and always for a failed turn (VirtualTranscript marks the
@@ -351,7 +354,7 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
           route={route}
           switchModel={switchModel}
           compact={compact}
-          retry={row.retryRowId ? failedRetry : undefined}
+          retry={failedRetry}
           retrying={retrying}
           retryNote={retryNote}
         />

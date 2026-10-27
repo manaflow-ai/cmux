@@ -41,9 +41,10 @@ export type TurnActions = {
   promptImage?: (id: string) => Promise<string | undefined>;
   /// Send a turn's prompt again (the last turn's Retry), preserving its attachments.
   retry?: (rowId: string, prompt: string) => void;
-  /// A failed last turn's Retry (turnRetry.ts): acpmux's turn retry where it serves one, else
-  /// `retry`. Settles with the note a refusal leaves on the failure's card.
-  retryFailed?: (rowId: string, prompt: string) => Promise<RetryNote | undefined>;
+  /// A failed last turn's Retry (turnRetry.ts): acpmux's turn retry of the chat the row was drawn
+  /// for, else `retry` where the turn has a prompt to send (`rowId`, `prompt`). Settles with the
+  /// note a refusal leaves on the failure's card.
+  retryFailed?: (rowId: string | undefined, prompt: string | undefined) => Promise<RetryNote | undefined>;
   /// Retry with another model (cx-ncc.62): the chat harness's models, the one it runs, and the retry
   /// that moves the chat to the model picked and sends the prompt again there.
   retryWith?: {

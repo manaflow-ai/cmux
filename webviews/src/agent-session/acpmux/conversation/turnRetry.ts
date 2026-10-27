@@ -11,14 +11,15 @@ export type TurnRetryDeps = {
   /// The capabilities acpmux named; undefined from one that names none (Retry tries the method).
   capabilities: ReadonlySet<string> | undefined;
   request: (method: string, params: Record<string, unknown>) => Promise<unknown>;
-  /// The prompt sent again through the composer's send, as a prompt's Retry does.
-  resend: () => Promise<unknown>;
+  /// The prompt sent again through the composer's send, as a prompt's Retry does; undefined for a
+  /// turn with no prompt to send (an attempt acpmux sent, whose prompt row is hidden).
+  resend: (() => Promise<unknown>) | undefined;
 };
 
 /// Settles with the note a refusal leaves on the card, or undefined once the retry went. Only a
-/// daemon without the method, or one whose last turn did not fail (the pane's failed row is older),
-/// falls back to sending the prompt again; a busy, stopped or unanswered retry never sends a second
-/// prompt beside the one acpmux may be running.
+/// daemon without the method falls back to sending the prompt again. Every refusal says why and
+/// sends nothing: busy or stopped (an attempt runs), unanswered (acpmux may have taken it), and
+/// nothing failed (another retry, automatic or from another pane, already ran it to the end).
 export async function retryFailedTurn(deps: TurnRetryDeps): Promise<RetryNote | undefined> {
   const served = deps.capabilities === undefined || deps.capabilities.has(TURN_RETRY);
   if (deps.sessionId && served) {
@@ -27,9 +28,10 @@ export async function retryFailedTurn(deps: TurnRetryDeps): Promise<RetryNote | 
       return undefined;
     } catch (error) {
       const note = refusalNote(error);
-      if (note !== "unknown-method" && note !== "retry.nothingFailed" && note !== "ask") return note;
+      if (note !== "unknown-method" && note !== "ask") return note;
     }
   }
+  if (!deps.resend) return "retry.failed";
   try {
     await deps.resend();
     return undefined;
