@@ -7,6 +7,7 @@
 use super::*;
 use crate::agent::Attached;
 use crate::agent_host::{self, Liveness};
+use crate::no_panic::{JsonExt, LockExt};
 
 /// How long adoption waits for the next replayed entry of one host to be
 /// logged before it recovers from the log as it is.
@@ -251,7 +252,7 @@ impl Hub {
     }
 
     fn session_by_id(&self, id: &str) -> Option<Arc<Session>> {
-        self.sessions.lock().unwrap().get(id).cloned()
+        self.sessions.lock_or_recover().get(id).cloned()
     }
 
     fn mark_unadoptable(&self, session: &Arc<Session>, detail: Value) {
@@ -524,7 +525,9 @@ impl Hub {
                 ("in", "tool_call" | "tool_call_update" | "plan")
                     if current && work.turn.is_some() && !subagents_own =>
                 {
-                    work.doing.note(&e.msg["params"]["update"]);
+                    if let Some(update) = e.msg.pointer("/params/update") {
+                        work.doing.note(update);
+                    }
                 }
                 ("mux", "permission_request") if current => {
                     if let (Some(pid), Some(aid)) = (
@@ -575,12 +578,11 @@ impl Hub {
                         answered.insert(id.to_string());
                     }
                 }
-                ("in", kind)
-                    if current && e.msg.get("id").is_some() && e.msg.get("method").is_some() =>
-                {
-                    let id = e.msg["id"].clone();
-                    let params = e.msg.get("params").cloned();
-                    requests.push((id, kind.to_owned(), params, e.host_seq));
+                ("in", kind) if current && e.msg.get("method").is_some() => {
+                    if let Some(id) = e.msg.get("id") {
+                        let params = e.msg.get("params").cloned();
+                        requests.push((id.clone(), kind.to_owned(), params, e.host_seq));
+                    }
                 }
                 _ => {}
             }
@@ -646,7 +648,7 @@ impl Hub {
                     let ended = session.steer_end.subscribe();
                     // Its start as logged: a restart does not make it new.
                     let started_at = if work.turn_at > 0 { work.turn_at } else { now_ms() };
-                    *session.turn.lock().unwrap() = Some(TurnInfo {
+                    *session.turn.lock_or_recover() = Some(TurnInfo {
                         started_at,
                         client,
                         masked_preview: crate::secret_scan::mask(&prompt),
@@ -781,7 +783,7 @@ impl Hub {
         super::questions::normalize(&mut request, Self::preview_format(session));
         let (tx, rx) = oneshot::channel();
         let decision_nonce = super::person::new_nonce();
-        session.permissions.lock().unwrap().pending.insert(
+        session.permissions.lock_or_recover().pending.insert(
             permission_id.clone(),
             PendingPermission {
                 // The agent's own ask, judged like a fresh one (a re-adopted AskUserQuestion).
@@ -816,7 +818,7 @@ impl Hub {
                 json!({"permissionId": permission_id, "outcome": outcome}),
             );
             {
-                let state = s.permissions.lock().unwrap();
+                let state = s.permissions.lock_or_recover();
                 if state.pending.is_empty()
                     && s.status() == SessionStatus::Waiting
                     && !hub.secrets.waiting_in(&s.id)
@@ -887,15 +889,11 @@ async fn turn_answer(
     }
 }
 
-fn permission_answer(outcome: Value) -> Value {
-    let mut out = json!({"outcome": outcome});
-    if let Some(m) = out["outcome"].get("_meta").cloned() {
-        out["_meta"] = m;
-        if let Some(o) = out["outcome"].as_object_mut() {
-            o.remove("_meta");
-        }
+pub(super) fn permission_answer(mut outcome: Value) -> Value {
+    match outcome.as_object_mut().and_then(|o| o.remove("_meta")) {
+        Some(meta) => json!({"outcome": outcome, "_meta": meta}),
+        None => json!({"outcome": outcome}),
     }
-    out
 }
 
 fn response_result(msg: &Value) -> Result<Value, RpcError> {
@@ -1035,7 +1033,7 @@ impl Hub {
             "hostBuild": record.host_build.clone()
         });
         if meta.remote_origin {
-            started["remoteEnvPolicy"] = crate::agent::REMOTE_ENV_POLICY_ID.into();
+            started.set("remoteEnvPolicy", crate::agent::REMOTE_ENV_POLICY_ID.into());
         }
         self.append(session, "mux", "host_started", started);
         let attached = ChildAgent::attach_hosted(

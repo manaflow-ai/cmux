@@ -136,6 +136,8 @@ pub use permission_groups::PERMISSION_GROUP_OPERATIONS;
 pub use subsession_send::Delivery;
 mod drafts;
 pub(crate) mod outbox;
+#[cfg(test)]
+mod panic_free_tests;
 pub mod rules;
 mod transcript;
 mod transfer;
