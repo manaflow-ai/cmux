@@ -435,8 +435,9 @@ struct ThreadPreview: Hashable {
             let last = i == maxTextLines - 1 || i == tl.lines.count - 1
             guard !last || tl.lines.count <= maxTextLines && !cut else {
                 // The last allowed line: the rest of the text, cut to fit with "…" (tail truncation).
-                let rest = ns.substring(from: line.range.location)
-                lines.append(truncate(rest, maxWidth: maxWidth))
+                if let rest = ns.checkedSubstring(from: line.range.location) { // cmux: checked
+                    lines.append(truncate(rest, maxWidth: maxWidth))
+                }
                 break
             }
             guard let text = ns.checkedSubstring(line.range) else { break } // cmux: checked
@@ -454,7 +455,7 @@ struct ThreadPreview: Hashable {
         // A composed character is never split.
         var safe = cut // cmux: checked index
         if let at = ns.checkedIndex(cut) { safe = ns.rangeOfComposedCharacterSequence(at: at).location }
-        var head = ns.substring(to: safe)
+        var head = ns.checkedSubstring(to: safe) ?? "" // cmux: checked (safe is in 0 ... length)
         while head.last == " " { head.removeLast() }
         return head + "…"
     }

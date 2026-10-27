@@ -95,6 +95,6 @@ extension HomeMarkdown.Output {
             append(found.label, styles, link: found.link)
             at = found.range.location + found.range.length
         }
-        append(ns.substring(from: at), styles)
+        if let tail = ns.checkedSubstring(from: at) { append(tail, styles) }
     }
 }

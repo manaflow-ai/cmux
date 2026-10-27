@@ -332,7 +332,11 @@ final class BlockLayout: Sendable {
                 for (l, w) in zip(r.lines, r.widths) where l.location < from { lines.append(l); widths.append(w) } // no index math
             }
         }
-        let tail = from == 0 ? string : string.substring(from: from) as NSString
+        // cmux: checked; a reused head past this text lays out the whole text again.
+        var tail = string
+        if from > 0 {
+            if let rest = string.checkedSubstring(from: from) { tail = rest as NSString } else { from = 0; lines = []; widths = [] }
+        }
         let attr = NSAttributedString(string: tail as String, attributes: [.font: Fixture.bodyFont])
         let ts = CTTypesetterCreateWithAttributedString(attr)
         let len = tail.length

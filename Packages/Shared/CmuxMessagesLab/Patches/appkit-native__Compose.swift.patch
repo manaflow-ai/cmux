@@ -424,7 +424,7 @@
      static func fieldWidth(_ windowWidth: CGFloat) -> CGFloat { 526 + windowWidth - Fixture.windowWidth }
      static let font = Fixture.bodyFont
      /// `writingTools`' raw value for reports: -1 on macOS 14 (no Writing Tools).
-@@ -668,16 +876,32 @@
+@@ -668,16 +876,33 @@
      /// its text scrolls past it).
      func lines(_ text: String, windowWidth: CGFloat) -> Int {
          // One-entry memo: every compose update asks again for the same draft (a send asks for "").
@@ -449,20 +449,21 @@
 +        // memo's second-to-last line: a greedy break before it cannot move when text is appended. The
 +        // cost follows the change, not the draft (perf-lead.md issue 5, typing-frame-bench.py).
 +        let u = text as NSString
-+        var keep = 0, from = 0
++        var keep = 0, from = 0, rest = text
 +        if let m = linesMemo, m.width == w, u.length > (m.text as NSString).length, text.hasPrefix(m.text),
-+           let second = m.starts.dropLast().last {
++           let second = m.starts.dropLast().last, let suffix = u.checkedSubstring(from: second) { // cmux: checked
 +            keep = m.starts.count - 2
 +            from = second
++            rest = suffix
 +        }
-+        let tail = TextLayout.make(u.substring(from: from), runs: [], maxWidth: w, font: ComposeView.font).lines
++        let tail = TextLayout.make(rest, runs: [], maxWidth: w, font: ComposeView.font).lines
 +        let starts = Array((linesMemo?.starts ?? []).prefix(keep)) + tail.map { $0.range.location + from }
 +        linesMemo = (text, w, starts.count, starts)
 +        return starts.count
      }
      /// The field's tallest text part. Real Messages (compose-e2e messages, 2026-10-10, 628 pt
      /// wide): the glass stops at the same height in a 940, 740 and 600 pt window (a fixed height,
-@@ -688,9 +912,16 @@
+@@ -688,9 +913,16 @@
      /// The field's height for the draft in a window WIDTH pt wide (the attachment row on top).
      private func height(for text: String, width: CGFloat) -> CGFloat {
          if emptyAfterSend && text.isEmpty && chips.isEmpty { return ComposeMetrics.emptyAfterSend }
@@ -480,7 +481,7 @@
      /// The empty draft's one line at any text width from this (a space is about 4 pt wide).
      static let emptyLineMinWidth: CGFloat = 20
      private var emptyLinesMemo: (CGFloat, Int)?
-@@ -759,6 +990,7 @@
+@@ -759,6 +991,7 @@
          tv.textColor = Fixture.incomingText
          tv.insertionPointColor = Fixture.caret
          tv.installCaret()
@@ -488,7 +489,7 @@
          tv.textContainer?.lineFragmentPadding = 0
          // AppKit puts `textContainerInset.height` above and below the text when it sizes the
          // document; the container origin puts the text at the top inset.
-@@ -777,7 +1009,7 @@
+@@ -777,7 +1010,7 @@
          // tracking (which lagged through a live resize).
          tv.textContainer?.widthTracksTextView = false
          tv.textContainer?.heightTracksTextView = false
@@ -497,7 +498,7 @@
          tv.layerContentsPlacement = .topLeft
          tv.layer?.masksToBounds = true
          tv.layer?.contentsGravity = .topLeft
-@@ -800,6 +1032,7 @@
+@@ -800,6 +1033,7 @@
          tv.isAutomaticDashSubstitutionEnabled = NSSpellChecker.isAutomaticDashSubstitutionEnabled
          if #available(macOS 15, *) { tv.writingToolsBehavior = ComposeView.writingTools }
          tv.setAccessibilityLabel(Strings.placeholder)
@@ -505,7 +506,7 @@
  
          caret.backgroundColor = Fixture.caret.cgColor
          caret.isHidden = true
-@@ -845,6 +1078,8 @@
+@@ -845,6 +1079,8 @@
          if !nativeChrome { renderGlass(); buttons.setNeedsDisplay() }
          renderPlaceholder()
          renderChips()
@@ -514,7 +515,7 @@
      }
  
      /// The "+" button (opens the file picker).
-@@ -859,7 +1094,8 @@
+@@ -859,7 +1095,8 @@
      private func textFrame(height h: CGFloat) -> CGRect {
          let f = rect(height: h)
          let chipH: CGFloat = strip.height
@@ -524,7 +525,7 @@
      }
  
      /// What the last `place` laid out (field height, empty text, chip row height, size): a commit
-@@ -877,10 +1113,11 @@
+@@ -877,10 +1114,11 @@
          placeholderLayer.frame = CGRect(x: f.minX, y: f.minY + chipH, width: 300, height: 30)
          waveLayer.frame = CGRect(x: f.maxX - 30, y: ComposeView.waveY(f), width: 24, height: 30)
          chipsLayer.frame = CGRect(x: f.minX, y: f.minY, width: f.width, height: max(1, strip.height))
@@ -537,7 +538,7 @@
      }
  
      /// The audio glyph's layer top for the field F: centred in the field, as Messages' (its glyph
-@@ -927,8 +1164,8 @@
+@@ -927,8 +1165,8 @@
              let space = CGColorSpace(name: CGColorSpace.sRGB)
              for (stops, fromTop) in [(top, true), (bottom, false)] {
                  // an optional gradient draws nothing when it fails (CrashSafeGraphics).
@@ -548,7 +549,7 @@
                  c.drawLinearGradient(g, start: CGPoint(x: 0, y: fromTop ? 0 : h), end: CGPoint(x: 0, y: fromTop ? cap : h - cap), options: [])
              }
              c.restoreGState()
-@@ -950,11 +1187,11 @@
+@@ -950,11 +1188,11 @@
          fmt.opaque = false
          let ph = placeholder
          placeholderLayer.contents = UIGraphicsImageRenderer(size: CGSize(width: 300, height: 30), format: fmt).image { ctx in
@@ -562,7 +563,7 @@
              // Messages' glyph is ChatKit's AudioMessageEntryViewButton waveform at 20 pt
              // (fitted to the lossless stills): 5 capsules 1.818 pt wide, 3.636 pt apart,
              // 3.613 / 7.25 / 14.522 pt tall; centre 557.5 pt from the left of a 628 pt window.
-@@ -968,7 +1205,57 @@
+@@ -968,7 +1206,58 @@
      }
  
      private func renderChips() {
@@ -612,7 +613,8 @@
 +            var p = 0
 +            // cmux: checked reads (p10-stability-169)
 +            while let a = old.checkedCharacter(at: p), a == new.checkedCharacter(at: p) { p += 1 }
-+            if new.checkedCharacter(at: p) == 0xFFFC, new.substring(from: p + 1) == old.substring(from: p) {
++            if new.checkedCharacter(at: p) == 0xFFFC, let rest = new.checkedSubstring(from: p + 1),
++               rest == old.checkedSubstring(from: p) {
 +                return NSRange(location: p + 1, length: 0)
 +            }
 +        }
@@ -621,7 +623,7 @@
      }
  
      /// The attachment whose remove control is at p (window coordinates).
-@@ -994,13 +1281,20 @@
+@@ -994,13 +1283,20 @@
          let d = state.ui.draft
          let hadDraft = !text.isEmpty || !chips.isEmpty
          let tv = textView.view
@@ -646,7 +648,7 @@
              }
          }
          let newPlaceholder = state.ui.openThread != nil ? ComposeView.placeholders.reply : ComposeView.placeholders.field
-@@ -1017,8 +1311,7 @@
+@@ -1017,8 +1313,7 @@
          CATransaction.begin(); CATransaction.setDisableActions(true)
          // With an attachment Messages shows neither the placeholder nor the audio glyph
          // (compose-attach-image stills).
@@ -656,7 +658,7 @@
          CATransaction.commit()
          let h = height(for: d.text, width: bounds.width)
          let old = fieldHeight
-@@ -1055,6 +1348,7 @@
+@@ -1055,6 +1350,7 @@
              Animate.sampledUntilMinimum(veil, "opacity", Springs.fieldOpacity, base: 1, begin: begin)
              onSendPulse?(begin)
          }
@@ -664,7 +666,7 @@
      }
  
      /// The glass over a bubble still inside the field after the fill has
-@@ -1093,7 +1387,7 @@
+@@ -1093,7 +1389,7 @@
          // no trap on a NaN or huge size (crash ratchet)
          let wide = CrashGuard.int((size.width * scale).rounded(.up), in: 0...1 << 16), high = CrashGuard.int((size.height * scale).rounded(.up), in: 0...1 << 16)
          if rep.pixelsWide != wide || rep.pixelsHigh != high,

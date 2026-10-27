@@ -39,6 +39,22 @@ import Testing
         #expect(s.checkedCharacter(at: -1) == nil)
     }
 
+    /// `substring(from:)` and `substring(to:)` take an index in 0 ... length (`length` included, unlike
+    /// `checkedIndex`); outside it they raised NSRangeException, so the checked forms give nil.
+    @Test func stringSubstringFromAndToTakeTheEndIndex() {
+        let s = "a👍b" as NSString
+        #expect(s.checkedSubstring(from: 0) == "a👍b")
+        #expect(s.checkedSubstring(from: 1) == "👍b")
+        #expect(s.checkedSubstring(from: 4) == "")
+        #expect(s.checkedSubstring(to: 0) == "")
+        #expect(s.checkedSubstring(to: 3) == "a👍")
+        #expect(s.checkedSubstring(to: 4) == "a👍b")
+        for index in [-1, 5, Int.max, NSNotFound] {
+            #expect(s.checkedSubstring(from: index) == nil, "\(index)")
+            #expect(s.checkedSubstring(to: index) == nil, "\(index)")
+        }
+    }
+
     @Test func attributedRangeIndexSubstringAndAttributes() {
         let a = NSAttributedString(string: "ab", attributes: [.kern: 2])
         #expect(a.checkedRange(NSRange(location: 0, length: 2)) == NSRange(location: 0, length: 2))
@@ -105,7 +121,40 @@ import Testing
         #expect(a.checkedAttribute(.strikethroughStyle, at: 7) == nil)
     }
 
+    /// Triple-click's fallback when no block holds the offset: `paragraphRange(for:)` of a negative caret raised
+    /// NSRangeException before the check (`min(offset, length)` bounds only the end). Now it selects nothing.
+    @Test func markdownParagraphRangeOfANegativeOffsetSelectsNothing() {
+        let source = "one\n\ntwo"
+        let md = MarkdownLayoutEngine.layout(Markdown.parse(source), source: source, maxWidth: 300)
+        #expect(md.paragraphRange(at: -1) == NSRange(location: 0, length: 0))
+        #expect(md.paragraphRange(at: -5) == NSRange(location: 0, length: 0))
+        let past = md.paragraphRange(at: md.length + 5)
+        #expect(past.location >= 0 && NSMaxRange(past) <= md.length)
+    }
+
+    /// A span that starts before the text: the old guard checked only its end, so `addAttribute` of the span's
+    /// range raised NSRangeException. Now that span is skipped and the others are set as before.
+    @Test func markdownAttributedSkipsASpanBeforeTheText() {
+        let text = MDText(string: "bold", spans: [
+            MDSpan(location: -1, length: 2, style: .strong, link: nil),
+            MDSpan(location: 0, length: 4, style: .code, link: "https://example.com"),
+            MDSpan(location: 2, length: 9, style: .emphasis, link: nil),
+        ])
+        let a = MarkdownLayoutEngine.attributed(text, font: Fixture.bodyFont, role: .body, kern: 0)
+        #expect(a.string == "bold")
+        #expect(a.checkedAttribute(.mdStyle, at: 0) as? UInt16 == MDStyle.code.rawValue)
+        #expect(a.checkedAttribute(.mdStyle, at: 3) as? UInt16 == MDStyle.code.rawValue)
+        #expect(a.checkedAttribute(.link, at: 0) as? String == "https://example.com")
+        #expect(a.checkedAttribute(.font, at: 0) as? NSFont == Markdown.inlineCodeFont)
+    }
+
     // MARK: The rewritten readers give the answers they gave
+
+    @Test func appendLinkingBareKeepsTheTextAfterTheLastLink() {
+        var out = HomeMarkdown.Output()
+        out.appendLinkingBare("see https://example.com now", [])
+        #expect(out.text.hasSuffix(" now"))
+    }
 
     @Test func metaTagsReadBothQuoteStyles() {
         let html = #"<meta property="og:title" content="A &amp; B"><meta name='twitter:card' content='summary'>"#

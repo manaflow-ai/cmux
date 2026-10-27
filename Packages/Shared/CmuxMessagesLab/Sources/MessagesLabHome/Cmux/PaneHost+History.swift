@@ -96,7 +96,10 @@ extension FieldTextView {
             return (abs(head - start) < 1, abs(tail - end) < 1)
         }
         // No layout yet: hard line breaks only.
-        let before = ns.substring(to: sel.location), after = ns.substring(from: NSMaxRange(sel))
+        // A selection from another text (outside this one) is on no line of it.
+        guard let before = ns.checkedSubstring(to: sel.location), let after = ns.checkedSubstring(from: NSMaxRange(sel)) else {
+            return (false, false)
+        }
         return (!before.contains("\n"), !after.contains("\n"))
     }
 

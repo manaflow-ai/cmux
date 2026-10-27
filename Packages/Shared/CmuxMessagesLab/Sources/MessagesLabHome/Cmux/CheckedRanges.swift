@@ -19,7 +19,8 @@ extension NSString {
         range.isInside(length: length) ? range : nil
     }
 
-    /// `index` when it names a UTF-16 unit of the string (0 ..< length), else nil.
+    /// `index` when it names a UTF-16 unit of the string (0 ..< length), else nil. `substring(from:)` and
+    /// `substring(to:)` also take `length`; use ``checkedSubstring(from:)`` / ``checkedSubstring(to:)`` for those.
     func checkedIndex(_ index: Int) -> Int? {
         index >= 0 && index < length ? index : nil
     }
@@ -28,6 +29,18 @@ extension NSString {
     func checkedSubstring(_ range: NSRange) -> String? {
         guard let range = checkedRange(range) else { return nil }
         return substring(with: range)
+    }
+
+    /// The text from `index` to the end, or nil when `index` is outside 0 ... length (`substring(from:)` would
+    /// raise). `index == length` gives "".
+    func checkedSubstring(from index: Int) -> String? {
+        index >= 0 && index <= length ? substring(from: index) : nil
+    }
+
+    /// The text before `index`, or nil when `index` is outside 0 ... length (`substring(to:)` would raise).
+    /// `index == length` gives the whole string.
+    func checkedSubstring(to index: Int) -> String? {
+        index >= 0 && index <= length ? substring(to: index) : nil
     }
 
     /// The UTF-16 unit at `index`, or nil when `index` is outside the string (`character(at:)` would raise).

@@ -892,13 +892,14 @@ final class ComposeView: UIView {
         // memo's second-to-last line: a greedy break before it cannot move when text is appended. The
         // cost follows the change, not the draft (perf-lead.md issue 5, typing-frame-bench.py).
         let u = text as NSString
-        var keep = 0, from = 0
+        var keep = 0, from = 0, rest = text
         if let m = linesMemo, m.width == w, u.length > (m.text as NSString).length, text.hasPrefix(m.text),
-           let second = m.starts.dropLast().last {
+           let second = m.starts.dropLast().last, let suffix = u.checkedSubstring(from: second) { // cmux: checked
             keep = m.starts.count - 2
             from = second
+            rest = suffix
         }
-        let tail = TextLayout.make(u.substring(from: from), runs: [], maxWidth: w, font: ComposeView.font).lines
+        let tail = TextLayout.make(rest, runs: [], maxWidth: w, font: ComposeView.font).lines
         let starts = Array((linesMemo?.starts ?? []).prefix(keep)) + tail.map { $0.range.location + from }
         linesMemo = (text, w, starts.count, starts)
         return starts.count
@@ -1250,7 +1251,8 @@ final class ComposeView: UIView {
             var p = 0
             // cmux: checked reads (p10-stability-169)
             while let a = old.checkedCharacter(at: p), a == new.checkedCharacter(at: p) { p += 1 }
-            if new.checkedCharacter(at: p) == 0xFFFC, new.substring(from: p + 1) == old.substring(from: p) {
+            if new.checkedCharacter(at: p) == 0xFFFC, let rest = new.checkedSubstring(from: p + 1),
+               rest == old.checkedSubstring(from: p) {
                 return NSRange(location: p + 1, length: 0)
             }
         }
