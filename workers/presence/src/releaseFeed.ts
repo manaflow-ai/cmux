@@ -125,8 +125,11 @@ export class ReleaseFeedCore {
       await this.read();
     } else {
       const due = lastReadAt + POKE_COALESCE_MS;
+      // An object has one alarm. Anything but this window's due time is stale
+      // (armed for an earlier window whose read already ran) and is replaced,
+      // so the last poke always has a read at or after it.
       const armed = await this.host.getAlarm();
-      if (armed === null || armed > due) await this.host.setAlarm(due);
+      if (armed !== due) await this.host.setAlarm(due);
     }
     return { build: (await this.host.load())?.build ?? null };
   }

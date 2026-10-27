@@ -179,6 +179,21 @@ describe("release feed pokes", () => {
     expect(host.alarmAt).not.toBeNull();
   });
 
+  it("replaces a stale alarm so the last poke is never dropped", async () => {
+    const host = new FakeHost();
+    const core = new ReleaseFeedCore("tip", host);
+    const t0 = host.clock;
+    await core.poke();                                  // read at t0
+    host.clock = t0 + 1_000; await core.poke();         // arms t0+10s
+    host.clock = t0 + POKE_COALESCE_MS; await core.poke(); // reads before that alarm runs
+    host.feed = appcast(item("101"));
+    host.clock = t0 + POKE_COALESCE_MS + 1_000; await core.poke(); // new build, inside the new window
+    expect(host.alarmAt).toBe(t0 + 2 * POKE_COALESCE_MS);
+    host.clock = host.alarmAt!; host.alarmAt = null;
+    await core.alarm();
+    expect(host.stored?.build).toBe(101);
+  });
+
   it("skips the alarm read when a poke already read at its due time", async () => {
     const host = new FakeHost();
     const core = new ReleaseFeedCore("tip", host);
