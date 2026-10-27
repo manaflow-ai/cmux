@@ -165,7 +165,8 @@ enum RemoteBrowserPages {
         // A host on another machine: its loopback over the machine's daemon link.
         let carrier = record.machine.map { services.remoteLocalhost.browserCarrier(machine: $0, port: record.endpoint.port) }
         guard let tab = RemoteBrowserSession.makeTab(record: record, id: BrowserTabID(rawValue: key), profile: profile,
-                                                     viewer: "cmux-next", token: try? credential.get(), carrier: carrier),
+                                                     viewer: "cmux-next", token: try? credential.get(), carrier: carrier,
+                                                     mainWork: services.mainWork),
               let session = RemoteBrowserSession.session(of: tab) else { return nil }
         tab.pane.view.pointerFrames = services.remotePointerFrames
         let localHost = record.machine == nil ? localHosts[record.endpoint.port] : nil
