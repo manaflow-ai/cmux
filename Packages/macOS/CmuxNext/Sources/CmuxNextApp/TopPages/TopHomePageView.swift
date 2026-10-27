@@ -120,7 +120,7 @@ final class TopHomePageView: NSView {
         // A conversation shown before the page had a window takes the keyboard as `show` gives it in a window.
         guard focusesOnWindow, let window else { return }
         focusesOnWindow = false
-        if window.firstResponder === window || window.firstResponder == nil { focusPrimaryInput() }
+        focusPrimaryInputUnasked(in: window)
     }
 
     var visibilityNode: VisibilityNode { visibility.node }
@@ -350,7 +350,7 @@ final class TopHomePageView: NSView {
         host = view
         services.home.homeDidOpen(asked: true)
         if let window {
-            if window.firstResponder === window || window.firstResponder == nil { focusPrimaryInput() }
+            focusPrimaryInputUnasked(in: window)
         } else {
             focusesOnWindow = true
         }
@@ -380,6 +380,22 @@ final class TopHomePageView: NSView {
 
     /// A permalink: its conversation, and its message's thread at its branch (any depth).
     func show(_ link: HomeDockSelection) { show(ConversationID(link.conversation)); if let m = link.message, let host { HomePageTab.transcript(in: host)?.reveal(message: m) } }
+
+    /// A conversation nobody opened is shown (the default or the Chief's one, one shown before the page had a
+    /// window): Home's primary input takes the keyboard only while it is free for this page, now and when the
+    /// message box is installed (`NSWindow.keyboardIsFree(for:)`). In a pane that is the focus model's answer, so
+    /// a browser page focused beside Home keeps the keys (QA chrome-parity-v2-2-2 bug 1).
+    private func focusPrimaryInputUnasked(in window: NSWindow) {
+        guard window.keyboardIsFree(for: self) else { return }
+        if isComposingNewMessage {
+            if let target = newMessage?.focusTarget { window.makeFirstResponder(target) }
+            return
+        }
+        host?.takeKeyboardOnOpen { [weak self] in
+            guard let self, let window = self.window else { return false }
+            return window.keyboardIsFree(for: self)
+        }
+    }
 
     /// Home's primary input (the message box; To: on the New Message page) takes the keyboard:
     /// the message box at once or, while the shown conversation's first page loads, once it exists.

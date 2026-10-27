@@ -95,6 +95,24 @@ extension TabContent {
     }
 }
 
+extension NSWindow {
+    /// Whether a primary input inside `view` may take this window's keyboard when nobody asked for it
+    /// (a surface that shows content by itself: Home's default conversation, its message box installed).
+    /// Nothing in the window holds the keyboard (the window itself or nil is first responder) and, when
+    /// `view` is in a pane of a cmux window, its focus model keeps the keyboard in that pane's content.
+    /// The first responder alone cannot say it: a Chromium page that has the keys leaves the cmux window
+    /// itself first responder, and Home took them from a restored browser page (QA chrome-parity-v2-2-2
+    /// bug 1). Outside every pane (classic Home as a top page) the first responder rule alone decides.
+    /// - Parameter view: The surface's view, in this window.
+    /// - Returns: True when the surface may give its primary input the keyboard now.
+    @MainActor func keyboardIsFree(for view: NSView) -> Bool {
+        guard firstResponder === self || firstResponder == nil else { return false }
+        guard let controller = windowController as? WindowController,
+              case .content(let pane) = FocusResponderClassifier.classify(view, in: controller) else { return true }
+        return controller.focus.currentState().keepsKeyboard(inContentOf: pane)
+    }
+}
+
 extension KeyRouter {
     /// A key that types text: no Command or Control, and a character that
     /// is neither a control character nor a function key (arrows, Return,
