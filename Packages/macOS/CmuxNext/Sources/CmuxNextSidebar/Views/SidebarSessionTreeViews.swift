@@ -10,7 +10,6 @@ final class SidebarPullRequestBadgeView: NSView {
     private let glyph = NSImageView()
     private let count = SidebarRowView.label(font: SidebarStyle.subtitleFont)
     private(set) var badge: SidebarPullRequestBadge?
-    private var tracking: NSTrackingArea?
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -19,6 +18,7 @@ final class SidebarPullRequestBadgeView: NSView {
         [glyph, count].forEach(addSubview)
         setAccessibilityElement(false) // the row's label says it (`Strings.pullRequests`)
         isHidden = true
+        addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeInKeyWindow, .inVisibleRect], owner: self))
     }
 
     @available(*, unavailable)
@@ -62,14 +62,6 @@ final class SidebarPullRequestBadgeView: NSView {
 
     private var hoverCard: SidebarPullRequestCardController { .shared }
     private var pointedAt = false
-
-    override func updateTrackingAreas() {
-        super.updateTrackingAreas()
-        if let tracking { removeTrackingArea(tracking) }
-        let area = NSTrackingArea(rect: bounds, options: [.mouseEnteredAndExited, .activeInKeyWindow, .inVisibleRect], owner: self)
-        addTrackingArea(area)
-        tracking = area
-    }
 
     override func mouseEntered(with event: NSEvent) {
         guard let items = badge?.items, !items.isEmpty, SidebarPullRequestCardController.isEnabled else { return }

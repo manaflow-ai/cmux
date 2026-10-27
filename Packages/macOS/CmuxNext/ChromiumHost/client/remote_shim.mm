@@ -21,6 +21,7 @@
 #include "cmux_cef_shim.h"
 #include "cmux_page_path.h"
 #include "host_energy_saver.h"
+#include "host_locks.h"
 #include "host_print.h"
 #include "host_resize.h"
 #include "remote_shim_choosers.h"
@@ -230,6 +231,7 @@ bool SendFenceRight(uint32_t channel, uint32_t fence, uint64_t seq) {
 // or kEnergySaverHelloName; nullptr for an op every host takes.
 const char* OptionalExportName(uint16_t op) {
   if (op == cmux_host::kOpEnergySaver) return cmux_host::kEnergySaverHelloName;
+  if (op == kOpSetLockHandler) return cmux_host::kLocksHelloName;
   if (op == cmux_host::kOpPrintToPdf) return cmux_host::kPrintToPdfHelloName;
   if (op == cmux_host::kOpPagePrints || op == cmux_host::kOpPagePrintEnd) return cmux_host::kPagePrintsHelloName;
   for (const OptionalExport& entry : kOptionalExports) {
@@ -305,6 +307,8 @@ class Runtime {
     // A host starts with the saver off and applies this once initialize returned; it waits for
     // the HELLO, which says whether the host has the saver.
     if (energy_saver_ && energy_saver_->enabled) Route(EnergySaverMessage(*energy_saver_), std::nullopt);
+    // The same for cmux's lock handler: a new host's fork starts with none.
+    if (locks_.installed()) Route(LockHandlerMessage(true), std::nullopt);
     // A host starts with Chromium's print preview; this waits for the HELLO, which says whether it has the hook.
     if (page_prints_) Route(PagePrintsMessage(true), std::nullopt);
     Flush();
@@ -429,6 +433,24 @@ class Runtime {
     TlvWriter args;
     cmux_host::WriteEnergySaver(saver, &args);
     const bool sent = Post(cmux_host::kOpEnergySaver, 0, args);
+    return known && sent ? 1 : 0;
+  }
+
+  // cmux_shim_set_lock_handler (host_locks.h): cmux's fn stays here for every host of the
+  // session, and only its on/off goes to the attached host, which applies it only when its HELLO
+  // listed kLocksHelloName (otherwise it is refused here, as an optional op the host lacks). 1 when
+  // the attached host has the lock delegate and the op went out; 0 otherwise, as the in-process
+  // shim answers on a fork without the call. Before the HELLO the op waits for it and the answer
+  // is 0.
+  int SetLockHandler(cmux_host::LockFn fn, void* context) {
+    CMUX_REMOTE_ASSERT_MAIN();
+    const bool was_installed = locks_.installed();
+    locks_.Set(fn, context);
+    if (link_ != Link::kAttached || (!was_installed && !locks_.installed())) return 0;
+    const bool known = hello_;
+    TlvWriter args;
+    cmux_host::WriteLockHandler(locks_.installed(), &args);
+    const bool sent = Post(kOpSetLockHandler, 0, args);
     return known && sent ? 1 : 0;
   }
 
@@ -585,6 +607,12 @@ class Runtime {
     Message message;  // token: a verdict still to ask, 0 once asked
     bool keep = true;  // false: replaced while its verdict was unasked; sent once more, then dropped
   };
+
+  static Message LockHandlerMessage(bool installed) {
+    TlvWriter args;
+    cmux_host::WriteLockHandler(installed, &args);
+    return MakeMessage(kOpSetLockHandler, 0, args.Take());
+  }
 
   static Message PagePrintsMessage(bool enabled) {
     TlvWriter args;
@@ -746,6 +774,8 @@ class Runtime {
     print_tokens_.clear();
     host_exports_.clear();
     ReleaseFenceChannel();  // the inbox was this host's
+    // Last: cmux's lock fn frees its cursor and keys, and may call back into a detached shim.
+    locks_.HostGone();
   }
 
   void ReleaseFenceChannel() {
@@ -802,6 +832,11 @@ class Runtime {
         const std::string s1 = r.Str().value_or(std::string());
         const std::string s2 = r.Str().value_or(std::string());
         if (!r.ok() || !r.AtEnd()) return false;
+        // A lock push is cmux's lock fn's (host_locks.h), with no handler dropped.
+        if (kind == CMUX_SHIM_LOCK) {
+          locks_.Deliver(request, browser, static_cast<int>(a));
+          return true;
+        }
         // The chooser handlers' pushes go to cmux's handler fn, never to its event fn (host_choosers.h).
         if (choosers::IsHandlerEvent(kind)) return choosers::Deliver(kind, browser, request, a, b, s1);
         if (event_fn_) event_fn_(event_ctx_, kind, browser, request, a, b, s1.c_str(), s2.c_str());
@@ -915,6 +950,8 @@ class Runtime {
   std::unordered_set<std::string> host_exports_;
   // The app's last Energy Saver state (cmux_shim_set_energy_saver), for the whole session.
   std::optional<cmux_host::EnergySaver> energy_saver_;
+  // cmux's lock fn (cmux_shim_set_lock_handler), for the whole session, and the attached host's locks.
+  cmux_host::LockClient locks_;
   // The app's last cmux_remote_shim_set_page_prints, for the whole session.
   bool page_prints_ = false;
   std::unordered_map<uint16_t, void*> policies_;
@@ -1133,6 +1170,13 @@ CMUX_SHIM_EXPORT int cmux_shim_set_schedule_delayed(cmux_shim_schedule_delayed_f
 // (ChromiumHost/src/host_energy_saver.h, p14-energy-045).
 CMUX_SHIM_EXPORT int cmux_shim_set_energy_saver(int enabled, const char* exempt_scheme) {
   return R().SetEnergySaver(enabled, exempt_scheme);
+}
+
+// The Chromium Host runs the fork's lock delegate; cmux's fn hears its CMUX_SHIM_LOCK pushes
+// (host_locks.h, task p01-process-229).
+CMUX_SHIM_EXPORT int cmux_shim_set_lock_handler(void (*fn)(void* context, int event, int browser_id, int detail),
+                                                void* context) {
+  return R().SetLockHandler(fn, context);
 }
 
 // Per-tab attribution is in-process only: a tab's renderer is the Chromium Host's child, which the

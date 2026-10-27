@@ -68,8 +68,11 @@ pub(crate) fn project_layout_columns(columns: &mut Vec<LayoutColumn>) -> ColumnP
     for column in columns.iter_mut() {
         column.normalize_rows();
     }
-    if columns.len() == 1 && columns[0].rows.is_empty() && !is_lone_pinned(columns) {
-        let column = columns.pop().expect("one column");
+    if columns.len() == 1
+        && columns.first().is_some_and(|column| column.rows.is_empty())
+        && !is_lone_pinned(columns)
+        && let Some(column) = columns.pop()
+    {
         return ColumnProjection::Tree {
             root: column.root,
             creation_order_auto_layout: column.creation_order_auto_layout,

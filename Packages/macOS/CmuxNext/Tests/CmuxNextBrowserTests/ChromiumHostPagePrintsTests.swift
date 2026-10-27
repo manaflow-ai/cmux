@@ -201,8 +201,8 @@ import Testing
 
     /// PAGE_PRINT decodes and reaches the page prints through the runtime: a page with no tab ends at once.
     @Test func aPagePrintEventReachesThePagePrints() async throws {
-        #expect(CEFShimEvent(kind: 65, browser: 7, request: 0, a: 1 << 40, b: 0, s1: "", s2: "") == .pagePrint(browser: 7, request: 1 << 40))
-        #expect(CEFShimEvent(kind: 65, browser: 7, request: 0, a: 0, b: 0, s1: "", s2: "") == .unknown(kind: 65), "request 0 is no request")
+        #expect(CEFShimEvent(kind: 66, browser: 7, request: 0, a: 1 << 40, b: 0, s1: "", s2: "") == .pagePrint(browser: 7, request: 1 << 40))
+        #expect(CEFShimEvent(kind: 66, browser: 7, request: 0, a: 0, b: 0, s1: "", s2: "") == .unknown(kind: 66), "request 0 is no request")
         let (runtime, prints) = try await PrintHarness.hostRuntime()
 
         runtime.dispatch(.pagePrint(browser: 9, request: 12))

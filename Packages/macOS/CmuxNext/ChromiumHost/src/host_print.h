@@ -150,7 +150,7 @@ inline constexpr int32_t kPagePrintsVersion = 1;
 // The name a host whose fork has the print request hook lists in its HELLO.
 inline constexpr char kPagePrintsHelloName[] = "cmux_host_page_prints";
 // CMUX_SHIM_PAGE_PRINT (plans/cmux-next/chromium-host-ops.json, optional_events).
-inline constexpr int kEventPagePrint = 65;
+inline constexpr int kEventPagePrint = 66;
 // Requests waiting for cmux at once: a page waits in at most one (its
 // renderer is held in window.print()), so this is pages, not prints. One past
 // it ends at once.

@@ -22,6 +22,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 
+use crate::panic_free::JsonFields;
+
 #[path = "conversation_import.rs"]
 mod import;
 #[path = "conversation_inbox.rs"]
@@ -866,7 +868,7 @@ impl ConversationEvent {
                     "marked_unread": marked_unread,
                 });
                 if let Some(position) = pin_position {
-                    value["pin_position"] = json!(position);
+                    value.insert("pin_position", json!(position));
                 }
                 value
             }

@@ -1,3 +1,4 @@
+import CmuxNextWakeups
 import Foundation
 
 /// The Chromium Host's end while Chromium runs in it (``BrowserBackend/host``, p08-startup-046).
@@ -127,19 +128,22 @@ extension CEFRuntime {
         tab.host.recreateShown(tab)
     }
 
-    /// Puts a runtime that has not started in host mode (``adopt(stores:signInCallbacks:waitDeadlines:hostSupervisor:hostWidgets:hostDrags:hostResizeFence:hostPopupMenus:hostSuggestions:hostChoosers:hostFileDialogs:hostPrint:)``):
+    /// Puts a runtime that has not started in host mode (``adopt(stores:signInCallbacks:waitDeadlines:hostSupervisor:hostWidgets:hostDrags:hostResizeFence:hostPopupMenus:hostSuggestions:hostChoosers:hostFileDialogs:hostLocks:hostAppEvents:hostPrint:)``):
     /// its start attaches through `supervisor` (host widgets in cmux with `showsWidgets`, drops with `takesDrags`, page
     /// resizes fenced with `fencesResizes`, `<select>` popups as cmux menus with `drawsPopupMenus`, suggestions in cmux's
     /// list with `drawsSuggestions`, choosers in cmux with `drawsChoosers`, page file choosers answered by `fileDialogs`,
+    /// pointer and keyboard locks handled by cmux with `handlesLocks` (ending when `appEvents` reports resign-active),
     /// pages printed to PDF and shown in cmux's print panel with `printsPages`); every end of the host reaches
     /// ``hostWireEnded()`` through the start, and ``hostEnded(_:)`` when the supervisor reports it (``ChromiumHostExitReporting``).
     func adoptHost(_ supervisor: any ChromiumHostSupervising, showsWidgets: Bool = false, takesDrags: Bool = false,
                    fencesResizes: Bool = false, drawsPopupMenus: Bool = false, drawsSuggestions: Bool = false, drawsChoosers: Bool = false,
-                   fileDialogs: (any ChromiumFileDialogAnswering)? = nil, printsPages: Bool = false) {
+                   fileDialogs: (any ChromiumFileDialogAnswering)? = nil, handlesLocks: Bool = false,
+                   appEvents: AppEvents? = nil, printsPages: Bool = false) {
         hostStart = CEFHostStart(supervisor: supervisor, showsWidgets: showsWidgets, takesDrags: takesDrags,
                                  fencesResizes: fencesResizes, drawsPopupMenus: drawsPopupMenus, fileDialogs: fileDialogs)
         hostStart?.drawsSuggestions = drawsSuggestions
         hostStart?.drawsChoosers = drawsChoosers
+        hostStart?.locks = handlesLocks ? CEFHostLocks(runtime: self, appEvents: appEvents) : nil
         hostStart?.pagePrints = printsPages ? ChromiumHostPagePrints() : nil
         guard let reporting = supervisor as? any ChromiumHostExitReporting else { return }
         reporting.onHostEnded = { [weak self, weak reporting] exit in
