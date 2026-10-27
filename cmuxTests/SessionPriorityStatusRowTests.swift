@@ -36,7 +36,7 @@ struct SessionPriorityStatusRowTests {
         ].joined(separator: " · ")
         #expect(entry.value == expected)
         #expect(entry.key == "session_priority")
-        #expect(entry.priority == -5)
+        #expect(entry.priority == 50)
         #expect(entry.icon == "bolt.fill")
         #expect(entry.color == nil)
         #expect(entry.helpText == nil)
@@ -111,6 +111,39 @@ struct SessionPriorityStatusRowTests {
                 #expect(value.contains("%@"), "\(key) lacks %@")
             }
         }
+    }
+
+    /// A collapsed workspace row shows three status lines. With two Claude usage rows (`set-status
+    /// --priority 200`), the agent's own line and program status, the session priority row is
+    /// still one of them; an agent line that asks for attention (priority 100) outranks it.
+    @MainActor
+    @Test
+    func rowStaysVisibleBesideTwoUsageRowsAndTheClaudeStatus() throws {
+        let workspace = Workspace()
+        let panelId = try #require(workspace.focusedPanelId)
+        workspace.recordAgentPID(key: "claude_code", pid: 12_403, panelId: panelId, refreshPorts: false)
+        for key in ["claude_usage_a", "claude_usage_b"] {
+            workspace.statusEntries[key] = SidebarStatusEntry(key: key, value: "5h 7%", priority: 200)
+        }
+        workspace.statusEntries["claude_code"] = SidebarStatusEntry(key: "claude_code", value: "Idle", icon: "pause.circle.fill")
+        workspace.statusEntries["program_status"] = SidebarStatusEntry(
+            key: "program_status", value: "claude-code · done", priority: 1
+        )
+        workspace.statusEntries[SessionPriorityStatusRow.key] = row([.upToDate])
+
+        func collapsedKeys() -> Set<String> {
+            Set(SidebarWorkspaceSnapshotBuilder.visibleMetadataEntries(
+                workspace.sidebarStatusEntriesInDisplayOrder(),
+                isExpanded: false
+            ).map(\.key))
+        }
+
+        #expect(collapsedKeys() == ["claude_usage_a", "claude_usage_b", SessionPriorityStatusRow.key])
+
+        workspace.statusEntries["claude_code"] = SidebarStatusEntry(
+            key: "claude_code", value: "Needs input", icon: "bell.fill", priority: 100
+        )
+        #expect(collapsedKeys() == ["claude_usage_a", "claude_usage_b", "claude_code"])
     }
 
     @Test
