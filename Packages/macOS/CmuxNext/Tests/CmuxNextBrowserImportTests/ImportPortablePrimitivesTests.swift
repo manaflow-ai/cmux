@@ -105,9 +105,11 @@ struct ImportPortablePrimitivesTests {
     // MARK: LZ4Block
 
     @Test func lz4DecodesAnOverlappingMatch() {
-        // "abc", then a match of 12 at offset 3 (overlapping its own output), then the literal "X".
-        let block: [UInt8] = [0x38] + Array("abc".utf8) + [3, 0] + [0x10] + Array("X".utf8)
-        let expected = Array("abcabcabcabcabcX".utf8)
+        // "abc", then a match of 12 at offset 3 (overlapping its own output), then the literals "XXXXX": a block
+        // that follows lz4_Block_format.md (the last 5 bytes are literals, the last match starts 12 or more
+        // bytes before the end), as lz4's reference encoder writes for mozLz4, so both decoders take it.
+        let block: [UInt8] = [0x38] + Array("abc".utf8) + [3, 0] + [0x50] + Array("XXXXX".utf8)
+        let expected = Array("abcabcabcabcabcXXXXX".utf8)
         #expect(LZ4Block.decodeInSwift(block, size: expected.count) == expected)
         #expect(LZ4Block.decode(block, size: expected.count) == expected)
     }
