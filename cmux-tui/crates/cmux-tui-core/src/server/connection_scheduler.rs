@@ -10,7 +10,6 @@
 
 use super::MessageWriter;
 use crate::panic_free::RecoverPoison;
-use cmux_threads::checked::sync as waits;
 
 use super::CONNECTION_SURFACE_QUEUE_BYTE_CAPACITY;
 use super::CONNECTION_SURFACE_QUEUE_CAPACITY;
@@ -447,8 +446,12 @@ impl ConnectionSurfaceScheduler {
             && state.active_clear_surfaces.is_empty()
             && state.active_creations == 0;
         drop(state);
-        if drained && let Some(dispatcher) = self.dispatcher.lock().recover_poison().take() {
-            let _ = waits::join(dispatcher);
+        if drained {
+            // The dispatcher said it is done as its last act; its handle
+            // only reaps the thread, which ends on its own. The connection's
+            // reader disallows blocking and never joins it (a wait for
+            // another thread).
+            drop(self.dispatcher.lock().recover_poison().take());
         }
         drained
     }

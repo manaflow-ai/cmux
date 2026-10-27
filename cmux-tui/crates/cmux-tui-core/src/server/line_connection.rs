@@ -29,7 +29,6 @@ use crate::diagnostics::{IpcTransport, JsonParseScope};
 
 use super::connection_scheduler::connection_qos::ReaderClass;
 use super::*;
-use cmux_threads::checked::sync as waits;
 
 /// The grant that lets a connection send frames. p05-ipc-060 decides who
 /// gets it (a local Unix peer at this daemon's api_revision); this loop only
@@ -214,8 +213,13 @@ pub(super) fn serve_connection(
     let writer_close = writer.clone();
     let writer_ipc = mux.ipc_stats().clone();
     let writer_hangs = mux.echo_watch();
+    // The writer holds the connection's slot until it has written its last
+    // item, so the reader never joins it: a join is a wait for another
+    // thread, which a reader that disallows blocking may not make.
+    let writer_permit = connection_permit.clone();
     let Ok(writer_thread) = crate::echo_thread::spawn("mux-line-out", move || {
-        // mq14-allow: the writer thread waits for its own queue (a checked wait).
+        let _permit = writer_permit;
+        // mq14-allow: the writer's idle wait for its own queue (BoundedOutbound::recv).
         while let Some(item) = writer_outbound.recv() {
             // Each item's write is a 100 ms hang scope; the wait above is not.
             let _item = writer_hangs.item(WatchKind::LineOut);
@@ -246,9 +250,10 @@ pub(super) fn serve_connection(
     origin_gate::set_peer_identity_at_accept(&mux, client, peer);
     if !admission.registered(&mux, client) {
         // Refused before its first frame (the remote entry's revocation
-        // limits): nothing is read or dispatched.
+        // limits): nothing is read or dispatched. The writer ends on its own
+        // once the disconnect closes its queue.
         disconnect_client(&mux, client, false);
-        let _ = waits::join(writer_thread);
+        drop(writer_thread);
         return ConnectionEnd::Dropped;
     }
     let mut hello = client_hello::HelloGate::new(transport);
@@ -363,7 +368,9 @@ pub(super) fn serve_connection(
         let _ = surface_scheduler.close_and_wait(CONNECTION_SURFACE_SHUTDOWN_TIMEOUT);
     }
     disconnect_client(&mux, client, false);
-    let _ = waits::join(writer_thread);
+    // The disconnect closed the writer's queue: the writer writes what is
+    // left, shuts the socket down and releases its hold on the slot.
+    drop(writer_thread);
     drop(connection_permit);
     end
 }
