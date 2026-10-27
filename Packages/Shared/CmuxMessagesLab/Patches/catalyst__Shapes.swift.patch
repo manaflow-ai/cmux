@@ -33,6 +33,21 @@
          return p
      }
      /// `cornersOf`: the body takes the rounded rect of this size, scaled to `r` (an outgoing text balloon drawn a
+@@ -42,11 +45,11 @@
+         let path: UIBezierPath
+         if circularEnds, r.width > 0, r.height > 0, r.height / 2 < pillLimit * radius {
+             let q = min(r.width, r.height) / 2
+-            path = UIBezierPath(cgPath: CGPath(roundedRect: r, cornerWidth: q, cornerHeight: q, transform: nil))
++            path = UIBezierPath(cgPath: CGPath.roundedRect(r, cornerWidth: q, cornerHeight: q))
+         } else if let f = frame, f != r.size, f.width > 0, f.height > 0 {
+             let full = UIBezierPath(roundedRect: CGRect(origin: .zero, size: f), cornerRadius: min(radius, f.height / 2)).cgPath
+-            var xf = CGAffineTransform(translationX: r.minX, y: r.minY).scaledBy(x: r.width / f.width, y: r.height / f.height)
+-            path = full.copy(using: &xf).map { UIBezierPath(cgPath: $0) } ?? UIBezierPath(roundedRect: r, cornerRadius: min(radius, r.height / 2))
++            let xf = CGAffineTransform(translationX: r.minX, y: r.minY).scaledBy(x: r.width / f.width, y: r.height / f.height)
++            path = full.copy(applying: xf).map { UIBezierPath(cgPath: $0) } ?? UIBezierPath(roundedRect: r, cornerRadius: min(radius, r.height / 2))
+         } else {
+             path = UIBezierPath(roundedRect: r, cornerRadius: min(radius, r.height / 2))
+         }
 @@ -62,6 +65,22 @@
  }
  
@@ -102,7 +117,16 @@
          body()
      }
  
-@@ -203,8 +229,7 @@
+@@ -179,7 +205,7 @@
+         let cx = CrashGuard.int((m.center.minX * CGFloat(sw)).rounded(), in: 0...max(0, sw - 1))
+         let cy = CrashGuard.int((m.center.minY * CGFloat(sh)).rounded(), in: 0...max(0, sh - 1))
+         guard W >= sw - 1, H >= sh - 1,
+-              let g = CGContext(data: nil, width: W, height: H, bitsPerComponent: 8, bytesPerRow: W,
++              let g = CGContext.ownedBitmap(width: W, height: H, bitsPerComponent: 8, bytesPerRow: W,
+                                 space: CGColorSpaceCreateDeviceGray(), bitmapInfo: CGImageAlphaInfo.none.rawValue) else { return nil }
+         g.interpolationQuality = .none
+         g.setFillColor(gray: 0, alpha: 1)
+@@ -203,15 +229,14 @@
      /// `circularEnds`: a 1-line balloon with half-circle ends (BubblePath.make, RowDraw.circularEnds).
      private static func template(_ k: Kind, tail: Bool, scale s: CGFloat, narrow: [Int], frame f: CGRect, circularEnds: Bool) -> Template? {
          let key = Key(kind: k.rawValue, tail: tail, scale: s, narrow: narrow, circularEnds: circularEnds)
@@ -112,6 +136,14 @@
          let (cl, cr) = caps(k)
          let fh = templateHeight(k)
          let frame = narrow.isEmpty ? CGRect(x: 0, y: 0, width: 200, height: fh) : CGRect(x: f.minX, y: 0, width: f.width, height: fh)
+         let size = CGSize(width: frame.maxX + 2 * pad, height: fh + tailDrop + 2 * pad)
+         let w = CrashGuard.int((size.width * s).rounded(), in: 1...16_384), h = CrashGuard.int((size.height * s).rounded(), in: 1...16_384)
+         func context(_ width: Int) -> CGContext? {
+-            CGContext(data: nil, width: width, height: h, bitsPerComponent: 8, bytesPerRow: width * 4,
++            CGContext.ownedBitmap(width: width, height: h, bitsPerComponent: 8, bytesPerRow: width * 4,
+                       space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
+         }
+         guard let ctx = context(w) else { return nil }
 @@ -259,7 +284,10 @@
          let cy = h / 2
          let center = CGRect(x: CGFloat(cx) / CGFloat(w2), y: CGFloat(cy) / CGFloat(h), width: 1 / CGFloat(w2), height: 1 / CGFloat(h))
@@ -133,3 +165,23 @@
                                  .underlineStyle: NSUnderlineStyle.single.rawValue], range: NSRange(range, in: s))
          }
          let line = CTLineCreateWithAttributedString(attr)
+@@ -286,7 +314,7 @@
+ 
+     static func width(_ s: String, font: UIFont, kern: CGFloat = 0) -> CGFloat {
+         let attr = NSAttributedString(string: s, attributes: [.font: font, .kern: kern])
+-        return CGFloat(CTLineGetTypographicBounds(CTLineCreateWithAttributedString(attr), nil, nil, nil))
++        return CGFloat(CTLineCreateWithAttributedString(attr).typographicWidth)
+     }
+ }
+ 
+@@ -338,8 +366,8 @@
+         for (stops, fromTop) in [(rim.top, true), (rim.bottom, false)] {
+             // no force unwraps ; an empty rim or a failed gradient draws nothing.
+             guard let span = stops.last?.0 else { continue }
+-            let g = CGGradient(colorsSpace: space, colors: stops.map { white.withAlphaComponent($0.1).cgColor } as CFArray,
+-                               locations: stops.map { $0.0 / span })
++            let g = CGGradient.checked(colorsSpace: space, colors: stops.map { white.withAlphaComponent($0.1).cgColor },
++                                       locations: stops.map { $0.0 / span })
+             let y0 = fromTop ? rect.minY : rect.maxY
+             let y1 = fromTop ? rect.minY + span : rect.maxY - span
+             ctx.drawLinearGradient(g, start: CGPoint(x: 0, y: y0), end: CGPoint(x: 0, y: y1), options: [])

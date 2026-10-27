@@ -51,7 +51,7 @@ extension CEFPaneHost {
         runtime.register(tab, browser: browser)
         // The page may have loaded before this adoption (its address and
         // title events reached no tab): start from its current entry.
-        if let shim = runtime.shim, let json = shim.takeString(shim.tabNavigationEntries(browser)),
+        if let shim = runtime.shim, let json = shim.tabNavigationEntries(browser),
            let entry = CEFNavigationEntries(json: json)?.current {
             tab.handle(.address(browser: browser, url: entry.url))
             if !entry.title.isEmpty { tab.handle(.title(browser: browser, title: entry.title)) }
@@ -84,6 +84,8 @@ extension CEFPaneHost {
         window = .live(window: popupWindow)
         lastActivated = browser
         _ = shim.tabActivate(browser)
+        // Host mode: the window's pixels are its widget context, shown filling this host's view.
+        runtime.widgetHost?.place(.popupWindow, owner: browser, in: hostView)
         hostView.postGeometryChange()
         lifecycleTrace.record(tab.id, "popup-window-attached")
         runtime.notePopupWindow("window=\(popupWindow) attached")
@@ -141,9 +143,9 @@ extension CEFRuntime {
     /// features are.
     private func popupWindowBounds(_ window: Int32) -> CGRect? {
         guard let shim else { return nil }
-        var x: Int32 = 0, y: Int32 = 0, width: Int32 = 0, height: Int32 = 0
-        guard shim.popupWindowBounds(window, &x, &y, &width, &height) == 1 else { return nil }
-        return CGRect(x: CGFloat(x), y: CGFloat(y), width: CGFloat(width), height: CGFloat(height))
+        let read = shim.popupWindowBounds(window)
+        guard read.result == 1 else { return nil }
+        return CGRect(x: CGFloat(read.x), y: CGFloat(read.y), width: CGFloat(read.width), height: CGFloat(read.height))
     }
 }
 

@@ -49,6 +49,36 @@
       }
     },
     {
+      "id": "second-screen",
+      "op": "resource.call",
+      "target": {
+        "machine": "current",
+        "session": "current",
+        "workspace": "$step:fx-workspace#/value/workspace_id"
+      },
+      "args": {
+        "method": "screen.create",
+        "params": {
+          "name": "second"
+        },
+        "idempotencyKey": "screen-focus-ok.second-screen"
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "mutation_result"
+      }
+    },
+    {
+      "id": "second-focused",
+      "op": "settle",
+      "waitFor": {
+        "pointer": "/daemon/session/screens/1/focused",
+        "equals": true,
+        "maxMs": 5000
+      },
+      "settleMaxMs": 5000
+    },
+    {
       "id": "call",
       "op": "resource.call",
       "target": {
@@ -69,7 +99,50 @@
         "before",
         "settled"
       ],
-      "note": "every required field from its catalog type"
+      "note": "a new screen takes focus; focus goes back to the fixture screen"
+    },
+    {
+      "id": "first-focused",
+      "op": "settle",
+      "waitFor": {
+        "pointer": "/daemon/session/screens/0/focused",
+        "equals": true,
+        "maxMs": 5000
+      },
+      "settleMaxMs": 5000
+    },
+    {
+      "id": "second-unfocused",
+      "op": "settle",
+      "waitFor": {
+        "pointer": "/daemon/session/screens/1/focused",
+        "equals": false,
+        "maxMs": 5000
+      },
+      "settleMaxMs": 5000
+    },
+    {
+      "id": "retry",
+      "op": "resource.call",
+      "target": {
+        "machine": "current",
+        "session": "current",
+        "screen": "$step:fx-workspace#/value/screen_id"
+      },
+      "args": {
+        "method": "screen.focus",
+        "params": {},
+        "idempotencyKey": "screen-focus-ok.call"
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "mutation_result"
+      },
+      "checkpoint": [
+        "before",
+        "settled"
+      ],
+      "note": "I10: step call again with its idempotency key; the daemon replays its reply, adds no journal record and changes no facet"
     }
   ],
   "invariants": [

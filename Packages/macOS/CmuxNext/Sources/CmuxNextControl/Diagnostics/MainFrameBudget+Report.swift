@@ -20,7 +20,7 @@ extension MainFrameBudget {
     public var reportParts: (fields: [String: JSONValue], turns: MainTurnMeter.Snapshot) {
         let stats = stats
         var classes: [String: JSONValue] = [:]
-        for (index, workClass) in MainWorkClass.budgeted.enumerated() {
+        for (index, workClass) in Stats.classes.enumerated() {
             classes[workClass.description] = [
                 "budget_ms": .number(Double(Self.nanos(budgets.budget(workClass) ?? .zero)) / 1_000_000),
                 "tasks": JSONValue((stats.tasks[checked: index] ?? 0)),
@@ -50,7 +50,7 @@ extension MainFrameBudget {
     private static func starvationReport(_ starvation: RenderStarvationGuard) -> JSONValue {
         let stats = starvation.stats
         var held: [String: JSONValue] = [:]
-        for (index, workClass) in MainWorkClass.budgeted.enumerated() {
+        for (index, workClass) in MainFrameBudget.Stats.classes.enumerated() {
             held[workClass.description] = JSONValue(stats.heldTasks[checked: index] ?? 0)
         }
         return ["holds_work": .bool(starvation.holdsWork), "events": JSONValue(stats.events),
@@ -113,6 +113,7 @@ extension MainTaskBoard {
     public func mainBudgetReport(_ budget: MainFrameBudget, idle: IdleScheduler? = nil, reset: Bool) async -> JSONValue {
         let snapshot = ownerSnapshot()
         if reset { ledger.reset() }
+        // main-hop-allow: the scheduler's own report; a post would queue the read behind the classes it reports on
         let (parts, idleReport) = await MainActor.run {
             let parts = budget.reportParts
             let idleReport = idle?.report

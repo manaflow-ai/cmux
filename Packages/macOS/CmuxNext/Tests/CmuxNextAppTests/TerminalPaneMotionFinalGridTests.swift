@@ -31,7 +31,7 @@ import Testing
 
         init(_ tree: SplitNode, terminal pane: PaneID, size: NSSize = NSSize(width: 1200, height: 800)) {
             _ = NSApplication.shared
-            _ = GhosttyRuntime.shared
+            GhosttyRuntime.startedForTests()
             session = TerminalSession(io: io, mainWork: MainWorkScheduler(budget: MainFrameBudget()))
             provider.views[pane] = session.view
             model = LayoutModel(screens: [LayoutScreen(id: "s", name: "s", layout: .splits(tree))], activeScreenID: "s",

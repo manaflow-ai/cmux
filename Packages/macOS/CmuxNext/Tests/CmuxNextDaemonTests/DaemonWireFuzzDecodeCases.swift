@@ -1,4 +1,5 @@
 import CmuxFuzzSupport
+import CmuxNextIPC
 import Foundation
 @testable import CmuxNextDaemon
 
@@ -226,13 +227,18 @@ enum WireFuzzRawLineCase {
 
     static func check(_ line: Data) throws {
         _ = try? WireCoding.decoder().decode(LineTransport.Envelope.self, from: line)
+        try WireFuzzEnvelopeCase.checkScanAgrees(line)
         for name in eventNames {
             try WireFuzzEventCase.checkAny(name: name, line: line)
         }
         try WireFuzzReplyCase.checkDamaged(line, as: DaemonIdentity.self)
         try WireFuzzReplyCase.checkDamaged(line, as: EmptyResponse.self)
         try WireFuzzReplyCase.checkDamaged(line, as: ListAgentsRequest.Response.self)
-        var splitter = LineSplitter()
-        splitter.append(line) { _ in }
+        // The transport's reader on the raw bytes: messages or one typed refusal, never a trap.
+        var reader = FrameReader(limits: FrameReader.Limits(maxLine: LineTransport.maxLineBytes))
+        // SAFETY: push copies the bytes out of the storage the closure lends for the call.
+        unsafe line.withUnsafeBytes { unsafe reader.push($0) }
+        reader.markEndOfStream()
+        while (try? reader.next()) != nil {}
     }
 }

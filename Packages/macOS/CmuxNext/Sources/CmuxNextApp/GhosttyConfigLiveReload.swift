@@ -9,49 +9,35 @@ import CmuxNextWakeups
 final class GhosttyConfigLiveReload {
     private let files: @MainActor () -> [String]
     private let reload: @MainActor () -> Void
-    /// Ends the launch's in-memory config files (``GhosttyRuntime/endLaunchConfig()``) once the watch starts,
-    /// and says what the launch read.
-    private let endLaunch: @MainActor () -> GhosttyRuntime.LaunchConfig?
-    /// Asks whether the files the launch read changed on the disk since (``GhosttyConfigFiles/changed(reader:)``)
-    /// off the main thread, and answers on a later main turn.
-    private let checkLaunchFiles: @MainActor (GhosttyConfigFiles, @escaping @MainActor @Sendable (Bool) -> Void) -> Void
-    private let reloadTimer = DemandTimer(owner: "GhosttyConfigLiveReload.reload")
+    /// Coalesces a save's burst of file events into one reload. `visible`: terminals repaint with the new config.
+    private let reloadTimer: MainDeadline
+    private let mainWork: MainWorkScheduler
+    private let makeWatcher: (URL, @escaping @Sendable () -> Void) -> ConfigFileWatcher
     private var watchers: [ConfigFileWatcher] = []
+    /// The launch's watchers by path, marked at the launch call and armed after startup; nil when no launch arm is pending.
+    private var launchMarks: [String: ConfigFileWatcher]?
     private var started = false
 
     /// - Parameters:
-    ///   - files: The files to watch.
-    ///   - reload: Reloads the config from the disk.
-    ///   - endLaunch: Ends the launch's config files and says what the launch read.
-    ///   - checkLaunchFiles: Whether the launch's files changed on the disk, answered later; it never blocks the main thread.
+    ///   - deadlines: The app's deadline scheduler (`AppServices.mainDeadlines`): the reload debounce and each
+    ///     file event's hop to main run on its scheduler.
     ///   - onConfigChange: Registers a handler for every config change
     ///     (``GhosttyRuntime/addConfigChangeHandler(_:)``). A service: the loaded file graph can change
     ///     with any config change (a new `config-file` include, another theme), with or without a
     ///     terminal on screen; `rearm` does nothing while stopped.
+    ///   - makeWatcher: Makes the watcher of one file (tests pass one on a queue they can fence).
     init(
-        files: @escaping @MainActor () -> [String],
-        reload: @escaping @MainActor () -> Void,
-        endLaunch: @escaping @MainActor () -> GhosttyRuntime.LaunchConfig?,
-        checkLaunchFiles: @escaping @MainActor (GhosttyConfigFiles, @escaping @MainActor @Sendable (Bool) -> Void) -> Void,
-        onConfigChange: @MainActor (@escaping @MainActor () -> Void) -> Void
+        deadlines: MainDeadlineScheduler,
+        files: @escaping @MainActor () -> [String] = { GhosttyRuntime.shared.liveReloadConfigFiles },
+        reload: @escaping @MainActor () -> Void = { GhosttyRuntime.shared.reloadConfig() },
+        onConfigChange: @MainActor (@escaping @MainActor () -> Void) -> Void = { GhosttyRuntime.shared.addConfigChangeHandler($0) },
+        makeWatcher: @escaping (URL, @escaping @Sendable () -> Void) -> ConfigFileWatcher = { ConfigFileWatcher(url: $0, onChange: $1) }
     ) {
         self.files = files
         self.reload = reload
-        self.endLaunch = endLaunch
-        self.checkLaunchFiles = checkLaunchFiles
+        self.makeWatcher = makeWatcher
+        (reloadTimer, mainWork) = (MainDeadline(owner: "GhosttyConfigLiveReload.reload", workClass: .visible, scheduler: deadlines), deadlines.work)
         onConfigChange { [weak self] in self?.rearm() }
-    }
-
-    /// The app's live reload of the terminal runtime's config: the launch check stats the files on `work`'s files
-    /// lane and answers in `mainWork`'s visible class.
-    convenience init(runtime: GhosttyRuntime, work: BackgroundWork, mainWork: MainWorkScheduler) {
-        self.init(files: { runtime.liveReloadConfigFiles }, reload: { runtime.reloadConfig() },
-                  endLaunch: { runtime.endLaunchConfig() },
-                  checkLaunchFiles: { files, answer in
-                      work.run(.userVisible, mayBlock: .files) { files.changed() }
-                          .reply(on: mainWork, class: .visible, owner: "ghostty.configLaunchCheck") { answer($0) }
-                  },
-                  onConfigChange: { runtime.addConfigChangeHandler($0) })
     }
 
     // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
@@ -63,48 +49,65 @@ final class GhosttyConfigLiveReload {
         }
     }
 
-    /// ``start()`` right after the first frame (p08-startup-026): until then the launch's loads use the
-    /// config files read in `main`, and no file is watched.
-    func start(after startup: StartupScheduler) {
-        startup.post(.afterFirstFrame, "Ghostty.configLiveReload", on: .main) { [weak self] in self?.start() }
-    }
-
     func start() {
         guard !started else { return }
         started = true
-        // From the watch on, every load reads the disk, so a change it reports is loaded.
-        let launch = endLaunch()
+        launchMarks = nil
         rearm()
-        // A save between the launch's read and the watch armed above reported nothing: compare the launch's
-        // files with the disk now, and reload once when one changed. The disk path read in the launch turn,
-        // with no stamps to compare, so it reloads once.
-        switch launch {
-        case .memory(let files):
-            checkLaunchFiles(files) { [weak self] changed in
-                guard changed, let self, self.started else { return }
-                self.reload()
-            }
-        case .disk: reload()
-        case nil: break
+    }
+
+    /// Arms the watch after startup completes (Q13, p08-startup-086): nothing before it reads a config edit, as Chrome
+    /// posts non-critical launch work (chrome/browser/after_startup_task_utils.cc). Each file's state is marked now, off
+    /// main, and a file written, replaced, created or deleted since then reloads once when the watch arms.
+    func startAfterStartup(on startup: StartupScheduler) {
+        guard !started, launchMarks == nil else { return }
+        var marks: [String: ConfigFileWatcher] = [:]
+        for path in files() where marks[path] == nil {
+            let watcher = newWatcher(for: path)
+            watcher.mark()
+            marks[path] = watcher
         }
+        launchMarks = marks
+        startup.post(.afterStartup, "GhosttyConfigLiveReload.start", on: .main) { [weak self] in self?.startFromLaunchMarks() }
     }
 
     func stop() {
         started = false
+        launchMarks = nil
         reloadTimer.cancel()
         watchers.forEach { $0.stop() }
         watchers.removeAll()
+    }
+
+    private func startFromLaunchMarks() {
+        guard !started, let marks = launchMarks else { return }
+        started = true
+        launchMarks = nil
+        watchers = files().map { path in
+            guard let watcher = marks[path] else {
+                // A file the launch did not load (an include a launch reload added): read it once the watch exists.
+                let fresh = newWatcher(for: path)
+                fresh.start()
+                return fresh
+            }
+            watcher.startFromMark()
+            return watcher
+        }
     }
 
     private func rearm() {
         guard started else { return }
         watchers.forEach { $0.stop() }
         watchers = files().map { path in
-            let watcher = ConfigFileWatcher(url: URL(fileURLWithPath: path)) { [weak self] in
-                Task { @MainActor in self?.requestReload() }
-            }
+            let watcher = newWatcher(for: path)
             watcher.start(reportInitialChange: false)
             return watcher
+        }
+    }
+
+    private func newWatcher(for path: String) -> ConfigFileWatcher {
+        makeWatcher(URL(fileURLWithPath: path)) { [weak self, mainWork] in
+            mainWork.postFromAnyThread(.visible, owner: "GhosttyConfigLiveReload.fileChanged") { [weak self] in self?.requestReload() }
         }
     }
 
@@ -112,7 +115,7 @@ final class GhosttyConfigLiveReload {
         guard started, !reloadTimer.isScheduled else { return }
         // Atomic saves touch the file and its include directory. Coalesce the
         // burst, then let libghostty resolve the complete latest file graph.
-        reloadTimer.scheduleIfIdle(after: .milliseconds(75)) { @MainActor [weak self] in
+        reloadTimer.scheduleIfIdle(after: .milliseconds(75)) { [weak self] in
             guard let self, self.started else { return }
             self.reload()
         }

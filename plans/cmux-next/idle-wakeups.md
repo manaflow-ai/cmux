@@ -28,7 +28,7 @@ These are the only allowed ways to wake up. `scripts/cmux-next/check-concurrency
 | `ProcessUsage` | `proc_pid_rusage` CPU time and wakeups per process (app, helpers, daemon, hosts). |
 | `MainDeadline` (MainDeadline.swift, `TimerAlignment` in TimerAlignment.swift, `MainDeadlineScheduler` in MainDeadlineScheduler.swift; p06-scheduler task 011, landed) | The main-thread deadline: `MainDeadline(owner:, workClass:, alignment:, scheduler:)`. Its wake is an entry of the main thread's one `MainWakeUpQueue` timer; its action runs through `mainWork.post` in its class. `.precise` only under 36 ms (longer falls back to flexible); `.flexible`, the default, is no sooner than the deadline, snapped up to the next 8 ms boundary (32 ms in Energy Saver) below 1 s and to the whole second above; `.whenHidden(node)` aligns to 1 s while the node is hidden, and a repeating or self-re-arming deadline whose node has been hidden 5 minutes shares one wake a minute per node (or one 1 s-aligned wake when the node had none in the last minute). No alignment within 30 s of media activity or while the node is captured. A deadline that a person or a request waits on is never `.whenHidden`. `MainDeadlineScheduler.nextFire` feeds the idle deadline. |
 | `Deadline` (Deadline.swift, task 011, landed) | The timeout of a race (an await against a deadline), on the injected clock; it throws `Deadline.Exceeded`. |
-| `MainWakeUpQueue`, `AlignedWakeups` (MainWakeUpQueue.swift, AlignedWakeups.swift, tasks 011 and 012, landed) | One `CFRunLoopTimer` for every main-thread deadline, re-armed and never re-created, with a heap ordered by latest time. `AlignedWakeups` places deadlines on its boundaries, so 50 hidden deadlines in one second are 1 wakeup and 20 visible flexible deadlines in one 8 ms bucket are 1 wakeup. `DemandTimer` stays for off-main deadlines; `schedule(after:tolerance:)` has a tolerance by default. |
+| `MainWakeUpQueue`, `AlignedWakeups` (MainWakeUpQueue.swift, AlignedWakeups.swift, tasks 011 and 012, landed) | One `CFRunLoopTimer` for every main-thread deadline, re-armed and never re-created, with a heap ordered by latest time. `AlignedWakeups` places deadlines on its boundaries, so 50 hidden deadlines in one second are 1 wakeup and 20 visible flexible deadlines in one 8 ms bucket are 1 wakeup. `DemandTimer` stays for off-main deadlines; `schedule(after:tolerance:)` has a tolerance by default. Design, policy table and Energy Saver: section 9. |
 | `IdleScheduler` (IdleScheduler.swift, task 005, spec'd) | `mainWork.postIdle(owner:, maxDelay:) { deadline in }`. Long idle periods start after 50 ms of quiet (deadline at most 50 ms and never past the next `MainDeadline` fire); short periods use 2 ms or more left before vsync. An empty queue arms no timer (0 wakeups). Idle stops 10 s after the app or the task's node goes hidden. Use it for warmups, spare-window refills and snapshot writes instead of an idle poll. |
 | `CPUTimeBudgetPool` (CPUTimeBudgetPool.swift, task 210, spec'd) | Hidden-node work is charged to it: it refills 10 ms per second up to 100 ms, and a negative balance waits for the next aligned wake with budget. Media and capture are exempt. |
 | `VisibilityNode` (VisibilityNode.swift, task 020, landed) | The hidden state that `.whenHidden`, the wake-up budget, the CPU-time pool (task 210) and the frame clients read (`isVisible`, `hiddenSince`, `mediaActiveWithin(_:)`, `isCaptured`). Task 047 (spec'd) stops ticking a hidden node's frame client with `visibleOnly:`. |
@@ -99,7 +99,7 @@ Status: **fixed** (this work), **ok** (event-driven, one-shot, or stops itself),
 | HomeCache writes | Home | every owner event (typing, connection, recovery) | 250 ms later | **rewrote the whole cache with the same bytes** (358 KB/s idle on Home); then still woke the main actor 250 ms later and built and compared the full snapshot | fixed (2026-10-23): the mirror and the intent log count writes to what the cache holds (HomeChangeCount); only a moved count, a draft or a scroll anchor schedules a write, so typing, connection changes and recoveries start no Task and build no snapshot; no retained copy of the written snapshot; equal rows are not assigned (red/green HomeCacheIdleWriteTests.ephemeralOwnerEventsScheduleNoWrite). Review follow-up: an equal inbox refetch no longer moves the mirror's count (HomeMirrorEqualInboxTests); a real write is proportional to the change and off the main actor: HomeCache is an actor, the main actor hands it copy-on-write values, and the files are a small index plus one file per window, of which only the changed ones are rewritten (HomeCacheProportionalWriteTests). Second follow-up: the actor compared the encoded index bytes, and JSONEncoder writes keys and ConversationID-keyed dictionaries in hash order, so an equal state still rewrote home.json (the flaky aMessageInOneConversationRewritesOnlyItsWindow); it now compares the index value (sorted keys order only struct and String keys; the ConversationID-keyed dictionaries still encode in hash order, so the compare must stay a value compare) (red/green anEqualStateBuiltInAnotherOrderDoesNotRewriteTheIndex). Home disk B/s with agents active (light and STRESS) is not measured yet: the 358 KB/s row is not claimed until then |
 | Media observer page script (both engines, every frame of every page) | Browser | page load | never | **setInterval 1 s in every frame for the page's life**, idle or hidden | fixed (2026-10-23): the timer runs only while the frame's report plays or waits for the binding. Reports carry a per-document frame id and the tab keeps one per frame (BrowserMediaFrames), so one frame's null no longer erases another's paused report (what the 3 s re-send hid); pagehide drops the frame's report. Review follow-up: no DOM watch at all (the subtree MutationObserver kept while a paused report was live ran on every mutation of a busy page for hours): a removed paused element reports null at the next media event or show; a report waiting for the binding retries at most 10 looks, then at the next media event or show; a pagehide null that waits is retried too (red/green BrowserMediaObserverIdleTests, BrowserMediaFramesTests) |
 | Verification detector page script (both engines, top frame of https pages) | Browser | DOM change, 10 min after load | report / 10 min | **whole-page `innerText` (forced layout) up to 1/s on a hidden page; a missing binding retried at 4 Hz forever** | fixed (2026-10-23): a hidden page's changes are noted and checked once on show; a page found waiting before the binding exists keeps no timer and reads no text, and reports when CEFVerificationBridge calls its ready hook (once per document, at .finished, after that document's addBinding) or at the next show. There is no timed binding wait (an earlier 10 s cap was replaced by the ready hook). The 10-minute end disconnects the observer and the visibility listener (red/green VerificationDetectorHiddenTests, CEFVerificationBridgeCallsTests). Open: that background tabs of both engines really report `visibilityState: hidden` on macOS 14/15/26/27 is a runtime check for the batch run (JSC tests fake it) |
-| HostPressureMonitor read timer (cmuxterm-hq#2995) | HostPressure | 15 s timer (2 s leeway) for load, swap and acpmux's `host_pressure`, which have no event; memory pressure is a DispatchSource event | Runs only while the Debug toggle `hostPressure.enabled` (default off, cmux#22662) is on and at least one window can be seen. Each window's indicator unsubscribes when the toggle goes off or its window hides, minimizes, is fully occluded or closes (`HostPressureSampling`); the last unsubscribe, and app quit, call `stop()`, which cancels the source, timer and read. Cleanup: the indicator removes its window observers and cancels its toggle and level observations on leaving the window and in deinit | one timer for the app, not one per window: 4 wakeups a minute while a window with the toggle on is visible, 0 while off or hidden; one sysctl batch each; a missing acpmux verdict is retried every 20th read, not every read | reviewed |
+| HostPressureMonitor read timer (cmuxterm-hq#2995) | HostPressure | 15 s timer (2 s leeway) for load, swap and acpmux's `host_pressure`, which have no event; memory pressure is a DispatchSource event | Runs only while the feature `hostPressure` (default off, cmux#22662; the Debug toggle `hostPressure.enabled` overrides it at launch) is on and at least one window can be seen. Each window's indicator unsubscribes when its window hides, minimizes, is fully occluded or closes (`HostPressureSampling`); the last unsubscribe, and app quit, call `stop()`, which cancels the source, timer and read. Cleanup: the indicator removes its window observers and cancels its forced-level and level observations on leaving the window and in deinit | one timer for the app, not one per window: 4 wakeups a minute while a window with the feature on is visible, 0 while off or hidden; one sysctl batch each; a missing acpmux verdict is retried every 20th read, not every read | reviewed |
 
 ### Polling sites removed
 
@@ -194,7 +194,304 @@ Open:
 - The bench's first Chromium tab can miss the 2 s control deadline on a loaded machine (cold CefInitialize); the bench waits for a renderer but that also failed twice.
 - UNVERIFIED: fully covered window, window on another Space, app hidden, audio in a hidden tab; cmux-tui remote, browser-proxy and Windows paths (compiled on CI only).
 
-## 9. Hidden main wakes (p14-energy-095)
+## 9. Idle budget, wake coalescing and Energy Saver (p14-energy)
+
+This section is the design of the chrome-parity program p14-energy as built
+([chrome-parity/p14-energy.md](chrome-parity/p14-energy.md) is the full spec, with its done checks D1-D17 in
+sec. 5). It has five parts: one budget file that every idle measurement checks, Chrome's delay policy and leeway,
+one main-thread timer for every deadline, nothing periodic outside a short reviewed list, and an Energy Saver that
+follows Chrome's battery saver. [docs/energy-saver.md](../../docs/energy-saver.md) tells the person what the saver
+does. In the tables, "landed" means the task is on perf/chrome-parity; a task number alone is spec'd only.
+
+### 9.1 The budget file
+
+[`scripts/cmux-next/idle-budget.json`](../../scripts/cmux-next/idle-budget.json) (schema v2, p14-energy-002 and
+003) is the contract. `scripts/cmux-next/idle-budget.py` measures one or more sessions; with `--gate` it refuses
+every value over its limit. It is a check that the agent runs on the fleet in the program's test phase. It is not
+a CI gate, and no CI job runs it (Lawrence 2026-10-23).
+
+- Limits per process kind, and per session where a session overrides them: interrupt wakeups/s (`wakeups_per_s`,
+  the counter of Chrome's `GetIdleWakeupsPerSecond`, p14-energy-047), main run-loop wakes/s, CPU %, CPU and billed
+  energy (mW), GPU ms/s, disk bytes/s, log lines, threads and the Darwin process role. Sum rules (`app+daemon`, the
+  tree), ratio rules against Google Chrome (`ratio_to_chrome`, from the `chrome-static` session) and `goals`
+  (reported, not judged).
+- Kinds: every process of the tree has a kind (`kinds`: app, daemon, holder, terminal-host, acpmux, agent-harness,
+  the `cef-*` Chromium processes, the `webkit-*` processes, crashpad, crash-watcher, cua-helper and the others in
+  the file). A process with no kind fails `--gate`.
+- Sessions: light-webkit, light, light-hidden, minimized, occluded, home, tabs-static, stress-static, stress,
+  energy-saver, energy-saver-auto, signed-in, signed-in-display-sleep, app-quit, external-churn, agent-idle,
+  agent-working-visible, busy-hidden and chrome-static.
+- `--gate` refuses a Debug build and a run whose Energy Saver state (`debug.energy` at the two ends of the window)
+  is not the state that the session asks for. A run whose thermal state reached serious or critical is marked
+  `thermal_marked` (IDLE-BUDGET-THERMAL) and is not comparable. The gate does not refuse it.
+- Counters: since p14-energy-047 (2026-10-25) `wakeups_per_s` counts interrupt wakeups only. Earlier numbers,
+  Chrome's included, counted package-idle wakeups two times and are not comparable.
+- Measurement (p14-energy.md sec. 4, rule 10): a quiet host (`--max-load 4`), the median of 3 windows, Release with
+  `CMUX_BENCH_HOOKS`, the shipping occlusion draw, an activated app and Sentry on. Wakeups/s is the judged number;
+  CPU and mW count only on a quiet host.
+
+`allowed_periodic` lists the only periodic wakes that idle code may keep: at most 6 entries, each with a period of
+15 s or more, an owner and a reason. `wakeup-audit.py` checks these limits, and a `periodic` escape must name one
+of these owners (9.6). The list now:
+
+| Owner | Period | Why it stays |
+| --- | --- | --- |
+| `ErrorJournalService.harvest` | 300 s | It collects the crash and error reports that other processes write; p14-energy-066a moves it to `NSBackgroundActivityScheduler` |
+| `GitHubFeedSource.refresh` | 120 s | GitHub has no push for the feed; p14-energy-032 (landed) stops it while no cmux window shows, 066b moves it to `NSBackgroundActivityScheduler` |
+| `DeviceHubSocket.ping` | 30 s | The device hub keepalive (PROTOCOL.md); p14-energy-066c sends it only after silence |
+| `ControlEventBus.heartbeat` | 15 s | The `events.stream` `include_heartbeats` keepalive, only while a client asks for it and stays connected |
+
+### 9.2 Delay policy and leeway
+
+`DelayPolicy` (DelayPolicy.swift) and `WakeLeeway` (WakeLeeway.swift), p14-energy-011, landed. The policies are
+Chromium's (`base/task/delay_policy.h`): `flexibleNoSooner` (the default: never before the deadline, at most the
+leeway after it), `flexiblePreferEarly` (at most the leeway before the deadline, never after it: a lease renewal)
+and `precise`. Instants are `CLOCK_UPTIME_RAW` nanoseconds, the origin of Chromium's `TimeTicks` on macOS, so a
+grid boundary is the same instant for every queue of the app, and for the daemon (`cmux_tui_core::wake::Ticks`).
+A wake fires at the first grid boundary at or after its earliest time, but never after its latest time
+(`std::min(aligned, latest_time)` in `MessagePump::AdjustDelayedRunTime`).
+
+| Delay and policy | Policy used | Leeway | Grid |
+| --- | --- | --- | --- |
+| 0 or less | precise (due now) | 0 | none |
+| precise, below 36 ms | precise | 0 | none |
+| precise, 36 ms or more | flexibleNoSooner (`MaybeOverrideDelayPolicy`, `kDefaultMaxPreciseDelay`) | as flexible | as flexible |
+| flexible, below 1 s | as asked | 8 ms (`kDefaultLeeway`); 32 ms in Energy Saver | the same 8 or 32 ms, read at wake time |
+| flexible, 1 s or more | as asked | min(10% of the delay, 1 s) | one uptime second |
+| hidden (`MainWakeUpQueue.insertHidden`, `MainDeadline` `.whenHidden`) | flexibleNoSooner | 1 s | one uptime second |
+| the caller's own tolerance (`WakeLeeway.own`: the CEF pump's delayed requests) | flexibleNoSooner | the tolerance | the tolerance; Energy Saver does not change it |
+
+`Backoff` (p14-energy-015, landed) sleeps with a tolerance of max(8 ms, 10% of the step) and keeps its jitter;
+it has no 1 s cap. An off-main `DemandTimer` (p14-energy-012, landed) sleeps with
+`clock.sleep(for:tolerance:)` and the table's leeway. The Rust `wake::deadline` (p14-energy-020, landed) gives the
+same window from the same table, and `wake::EnergyMode` sets its 8 or 32 ms.
+
+### 9.3 MainWakeUpQueue
+
+`MainWakeUpQueue` (MainWakeUpQueue.swift, MainWakeUpHeap.swift, MainWakeUpTimer.swift; p14-energy-013, 023 and
+037, and p06-scheduler 011 and 012, landed) holds every main-thread deadline on one timer, so deadlines that are
+close share one wake. It copies the delayed work of Chromium's UI thread (`base/message_loop/message_pump_apple.mm`,
+`base/task/sequence_manager/wake_up_queue.h`):
+
+- One `CFRunLoopTimer` on the main run loop in common modes, made once and parked at a far fire date. Each arm is
+  `CFRunLoopTimerSetNextFireDate` with the tolerance set first. An arm to the date that is armed now is skipped
+  (`delayed_work_scheduled_at_`).
+- One heap of the pending entries (`MainWakeUpHeap`), ordered by latest time, in a `Mutex`. `insert` and `cancel`
+  work from any thread and re-arm the timer only when the fire date changes; an insert behind the top costs no
+  wake. Cancel is O(log n).
+- Fire date = min(the earliest flexible deadline aligned up to its grid, the earliest latest time). Precise entries
+  are never aligned. The sub-second grid is `EnergyPolicy.wakeAlignment` at wake time; an entry keeps the leeway
+  that it was inserted with, as Chrome keeps `PendingTask::latest_delayed_run_time`.
+- The timer's callout runs no entry. It queues one common-modes run-loop block, so a nested run loop in an entry
+  can not stop the timer (Chromium's `RunDelayedWorkTimer` signalled its work source for the same reason).
+- A fire runs the due entries in latest-time order for at most 2 ms (`fireBudget`). The entries that are still due
+  run in a continuation armed for now with no tolerance, after the pending input (Chrome's `RunWork` runs one
+  `DoWork` batch and signals its source again).
+- Hidden entries are in a second heap and run only in a fire at or after their whole uptime second (Blink's
+  `WakeUpBudgetPool`), so hidden work never rides a visible fire before its boundary.
+- Each fire writes one ledger record `MainWakeUpQueue` `fire`, and one record per owner that ran (`debug.wakeups`).
+  `debug.energy` shows the pending entries and `coalescedFires`, the wakes that ran more than one entry.
+
+Users: `MainDeadline` (p06-scheduler 011); `DemandTimer` made with `mainWork:` (p14-energy-014: a main-actor action
+runs from the fire with no pool thread, `scheduleOnMain` runs inline, p14-energy-133 moved the sync call sites); the
+CEF pump's delayed requests (p14-energy-016: the pump's work runs in its own run-loop block after the cmux entries
+of the same fire). No task and no pool thread take part. The thread row is in
+[threading-model.md](threading-model.md#threads-and-queues).
+
+### 9.4 Nothing periodic
+
+An idle loop becomes an event (a kqueue vnode or `NOTE_EXIT` source, pidfd, FSEvents, `NWPathMonitor`), a one-shot
+deadline (9.2, 9.3), `NSBackgroundActivityScheduler` for maintenance in the app, or in Rust a job on the process's
+one `MaintenanceClock` (`cmux_tui_core::wake`, p14-energy-020, landed; no job is registered on it yet, p14-energy-034
+moves acpmux's catalog refresh, health view and upload sweep to it). The clock runs every job on a 5-minute
+wall-clock grid with a 30 s leeway that the kernel sees (`NOTE_LEEWAY`; `PR_SET_TIMERSLACK` on Linux) and waits with
+no timeout while nothing is registered. Jobs that bound data loss after a crash (output store flush and snapshot,
+journal checkpoint and maintenance) are refused there: they stay dirty-triggered one-shot `wake::deadline`s. What
+can not become one of these goes into `allowed_periodic` (9.1).
+
+### 9.5 Energy Saver
+
+The saver is behind the Labs feature `energySaver`
+([schemas/features/features.d/energySaver.json](../../schemas/features/features.d/energySaver.json)), off by default
+in dev, nightly and release. While the feature is off the saver never turns on.
+
+Inputs. Only the composition root (`CmuxNextApp`) imports the service target `CmuxNextEnergy` (p14-energy-021,
+landed). `EnergyMonitor` holds `EnergyInputs`: Low Power Mode (`LowPowerMode`), the power source
+(`PowerSourceMonitor`, an IOPS run-loop source on the main run loop now; p14-energy-058 moves it to a utility queue
+that hops to main only on an edge), the battery charge (`BatteryLevel`: current over full capacity; a Mac with no
+battery has `hasBattery` false; read from the same IOPS snapshot as the power source) and the thermal state
+(`ThermalStateWatch`).
+`debug.energy.simulate` (Debug and bench builds, p14-energy-123) lays simulated inputs over these, because fleet
+Macs have no battery.
+
+Policy. `EnergyPolicyResolver` (p14-energy-022, landed) is pure: the `energy.saver` setting
+(`EnergySaverMode`) and the inputs give on or off and the reason.
+
+| `energy.saver` | On when | Reason |
+| --- | --- | --- |
+| `auto` (default) | Low Power Mode (plugged in too); or on battery below 20% (strictly, `kLowBatteryThresholdPercent`); or on battery with the thermal state serious or critical, held until the Mac cools to nominal or is plugged in | `lowPowerMode`, `battery`, `thermal` |
+| `onBattery` | The Mac runs on battery | `setting` |
+| `always` | Always | `setting` |
+| `off` | Never | none |
+
+"Turn Off Energy Saver for Now" (action `energy.saver.turnOffForNow`, p14-energy-025) keeps the saver off until the
+Mac's own power source goes from battery to AC, or until the setting changes (Chrome's
+`SetTemporaryBatterySaverDisabledForSession`). `energy.saver.turnOnNow` ends it before that. `EnergyPolicyDriver`
+(p14-energy-024) is the one writer of the app's one `EnergyPolicySource`, which `MainWorkScheduler` owns (`energy`)
+and every consumer reaches through its scheduler or an injected closure: there is no shared instance. The driver
+publishes nothing until it knows both the setting and the inputs. While the feature is off, Low Power Mode sets
+`EnergyPolicy.lowPowerFallback`, so the page consumers that followed Low Power Mode before the saver existed
+(`pageSaver`) keep doing so.
+
+`EnergyPolicy` (CmuxNextWakeups, p14-energy-023): `isSaver`, `reason`, `wakeAlignment` (8 ms, 32 ms),
+`ambientMaxFPS` (none, 30), `webFrameRate` (none, 30), `pollStretch` (1, 4), `suspended`, `screensAsleep`,
+`onBattery` and `lowPowerFallback`.
+
+| Consumer | Under the saver | Task | State |
+| --- | --- | --- | --- |
+| `MainWakeUpQueue`, `MainDeadline`, `DemandTimer` | Flexible sub-second wakes on a 32 ms grid with 32 ms leeway | 023, 012, 014 | landed |
+| `FrameScheduler` `.ambient` clients | At most 30 fps; they stop while the displays sleep. `.motion` clients (every client today) do not change | 028 | landed; no client opted in yet |
+| Motion loops (spin, step, sweep, breath, pulse) | The static glyph shows; movement and fades that the person starts do not change | 027 | landed |
+| Chromium (`cmux_cef_set_energy_saver`) | Frame sinks at 30 Hz except a page with input in the last 1 s and cmux's own `cmux-page` pages; wake leeway 32 ms (`OverrideAlignWakeUpsState`); `SetBatterySaverMode` on every child process | 029, 030 | landed in cmux; works with a fork pin that has the API (136); `debug.energy` `cef.energySaver` is `applied` (else `unsupported`) |
+| Chromium child wake alignment (`--enable-features=AlignWakeUps,BatterySaverModeAlignWakeUps`) | Children align their wakes | 040 | spec'd |
+| WebKit render rate, hibernation neighbor radius, page lifecycle | WebKit near 60 fps, no neighbor tab kept awake, hidden cmux pages freeze sooner (`pageSaver`) | 031 | landed |
+| Background polls: GitHub feed, error journal harvest, Cloud access asks, web updates | Each wait is 4 times longer | 032 | landed |
+| Sidebar footer indicator, hover card with the reason and "Turn Off for Now", palette actions | Shows only while the saver is on | 025, 026 | landed |
+| Hidden tabs that use much CPU | Freeze on the next wake (Chrome's `FreezingPolicy` CPU rule) | 039 | spec'd |
+| Daemon and acpmux (`energy.set`, `cmux energy`, MCP) | `wake::EnergyMode` flips; skippable maintenance runs at 4 times its period | 033, 034, 137 | spec'd (`EnergyMode` landed with 020) |
+| KeepAwake, ghostty-next animation wakes, webviews `data-cmux-energy`, sleep and screen sleep | Shared power source; animation wakes 33 ms or more; static ambient CSS; keepalives parked | 035, 114, 134, 120 | spec'd |
+| Settings page row and release-notes highlight | The row is hidden from the page and the palette until then | 129 | spec'd |
+
+The saver never changes the key-to-frame time of native UI, motion that the person starts, the frames of a
+Chromium page with input in the last 1 s, cmux's own Chromium pages or terminal output. WebKit browser tabs are the
+exception: WebKit has no input exemption, so under the saver every WebKit tab renders near 60 fps, the lowest rate
+of its render-rate feature, also the tab that the person types in (p14-energy-031). Done check D8 measures this (bench-typing for a
+native terminal and the Chromium composer, split-spring, a Chromium scroll in saver).
+
+### 9.6 Escape vocabulary
+
+Three static checks read the same rules:
+
+- `scripts/cmux-next/check-concurrency.sh` refuses a timer, raw display link, sleep or spin loop in
+  `Packages/macOS/CmuxNext/Sources` outside CmuxNextWakeups unless it has `// wakeup-allow: <reason>` (section 2).
+- The pre-push guardrail `wakeup-ext` (p14-energy-006, landed) refuses such a hit in added lines of the
+  app-linked Shared packages, CmuxUpdater, the cmux-tui crates' `src`, `webviews/src` and the CEF shim and Chromium
+  host C++/ObjC, with the closed vocabulary below.
+- `python3 -I scripts/cmux-next/wakeup-audit.py --strict` (p14-energy-005, landed) audits the full tree in the test
+  phase (done check D1); `--queue` prints the work list, with each hit's shape (`loop` or `oneshot`).
+
+An escape is `wakeup-allow: <word> <reason>` on the statement or in the comment block directly above it. The
+reason is required, and the word must match the shape of the code. A reviewer refuses an escape that only passes
+the check.
+
+| Word | Use it for | Code shape it needs |
+| --- | --- | --- |
+| `deadline` | A single deadline: a timeout, a debounce, a delayed show or hide | `oneshot`: it does not run again by itself |
+| `backoff` | Retry spacing after a real failure | Capped and jittered, through `Backoff`; the retry waits for an event first |
+| `bounded` | A loop or wait that ends: a compare-and-swap retry, a read until EAGAIN, a wait with a deadline | Each pass makes progress or blocks on an event, and a deadline or a count ends it |
+| `cli-only` | Code that runs only in a CLI process, never in the idle app or daemon | Not reached from the app, the daemon or a host |
+| `fixture` | Test fixtures, galleries and Debug stand-ins | Not in a shipping path |
+| `debug` | Diagnostics that a person starts (Debug menu, `debug.*` methods) | Off while nobody uses it |
+| `periodic <owner>` | A periodic wake that must stay | `<owner>` is in `allowed_periodic` (9.1) |
+
+`--strict` refuses any other word, an escape with no reason, and a `periodic` escape whose owner is not in
+`allowed_periodic`. A periodic loop does not get `tolerance:` to pass: it becomes an event, a deadline or a
+`MaintenanceClock` job (p14-energy.md sec. 4, rule 4). The guardrail `timer-class` (p06-scheduler 014) also refuses
+a new main-actor `DemandTimer` and new sleep loops (escape `// timer-class-allow: <why>`).
+
+### 9.7 Chrome references
+
+Paths are in chromium/src at main, read 2026-10-25 (p14-energy.md sec. 1 has the quotes).
+
+- Timer and pump: `base/message_loop/message_pump_apple.mm` (one `delayed_work_timer_`, tolerance before the fire
+  date, `RunWork` yields to input), `base/message_loop/message_pump.cc` (`AdjustDelayedRunTime`, `kAlignWakeUps`),
+  `base/message_loop/message_pump_kqueue.cc` (`NOTE_LEEWAY`).
+- Delayed work: `base/task/sequence_manager/wake_up_queue.h` (one wake for a thread's delayed work),
+  `base/task/delay_policy.h` (policies, `MaybeOverrideDelayPolicy`), `base/task/task_features.{h,cc}`
+  (`kDefaultLeeway` 8 ms, `kDefaultMaxPreciseDelay` 36 ms, `kTimerSlackMac`, `kRunTasksByBatches`),
+  `docs/threading_and_tasks.md` (`TaskPriority::BEST_EFFORT` for long delays).
+- Background pages: `third_party/blink/renderer/platform/scheduler/common/features.h` and
+  `throttling/wake_up_budget_pool.{h,cc}` (1 s wake-up budget, intensive throttling after 5 min).
+- Energy Saver: `chrome/browser/performance_manager/user_tuning/battery_saver_mode_manager.cc` (modes, 20%
+  threshold, the session off switch, `StartThrottlingAllFrameSinks(30 Hz)`),
+  `components/performance_manager/freezing/freezing_policy.cc` (`kFreezingHighCPUProportion`),
+  `content/child/child_thread_impl.cc` and `content/public/common/content_features.cc`
+  (`SetBatterySaverMode`, `kBatterySaverModeAlignWakeUps`, disabled by default).
+- Power and processes: `base/power_monitor/power_monitor.h`,
+  `components/power_monitor/battery_state_sampler_mac.cc` (IOPS notification, no timer on Mac),
+  `base/process/process_mac.cc` (`Process::SetPriority`), `base/process/process_metrics_apple.mm` (interrupt and
+  package-idle wakeups), `base/threading/hang_watcher.h` (one hang watcher per process).
+
+### 9.8 Where cmux differs from Chrome
+
+| Chrome | cmux | Why | Task |
+| --- | --- | --- | --- |
+| Every delayed task has an 8 ms leeway | Flexible delays of 1 s or more align to whole uptime seconds with min(10%, 1 s) of leeway | Most cmux deadlines are debounces, retries and timeouts of seconds, which an 8 ms grid never puts in one wake (Apple's Energy Efficiency Guide, Blink's 1 s pool) | 011, landed |
+| `kBatterySaverModeAlignWakeUps` (32 ms) is an experiment, disabled by default | 32 ms alignment is on whenever the saver is on | Fewer wakes in saver; flexible wakes only, never precise ones | 023 landed, 029/030 landed, 040 |
+| The saver turns on from the pref, the power source and the battery level | `auto` also turns on in Low Power Mode, and on battery when the Mac is serious or critical, held until nominal | The person asked macOS to save power; a hot Mac on battery drains fast. Thermal never turns it on while plugged in, so builds and benches do not change | 022, landed |
+| `StartThrottlingAllFrameSinks` throttles every frame sink | Pages with input in the last 1 s and cmux's own pages keep their frame rate; Chrome's own battery saver can not turn on inside CEF | Typing and scrolling are never slowed (D8); cmux is the one writer of the throttle | 029, 030, landed |
+| A batch of UI tasks runs for up to 8 ms (`kRunTasksByBatches`) | A queue fire runs for at most 2 ms, the CEF pump slice too | A quarter of a 120 Hz frame, so input runs between | 037, landed |
+| Blink runs throttled tasks that fall due in the 3 ms after a wake-up | Hidden entries wait for their own whole second | A hidden owner that re-arms runs at most once per second | p06-scheduler 012, landed |
+| No app-level polls | Background polls stretch 4 times in saver | cmux has polls that Chrome does not have | 032, landed |
+| Power notifications are handled on the UI thread | Power inputs arrive on a utility queue; main hears only an edge | Fewer main wakes on battery | 058 |
+| The browser process can not App Nap | The Chromium Host may App Nap while every page it hosts is hidden; idle agent harnesses of hidden sessions freeze | The same rule as `FreezingPolicy`, applied to processes Chrome does not have | 128, 117 |
+
+### 9.9 The built-in uBlock Origin (cef-extension, p14-energy-108)
+
+The built-in uBlock Origin 1.75.0 (Manifest V2, `fetch-ublock.sh`) runs its background page in one extension
+renderer, the `cef-extension` kind (budget 0.1 wakeups/s per process, tabs-static). Its timers are profiled with
+`cef-idle-probe.py --extension-timers` (with `--app`, in place of the trace and pump window, since its
+debugger pauses run on the browser main thread; window 120 s, at least 60 s) or `--cdp-port PORT` (any running
+Chromium, Chrome in chrome-static too): `extension_timers.py` sets DevTools' timer instrumentation breakpoints on
+the background target and counts each callback (a JS wake), each arm by the stack that armed it (the owner) and
+each `chrome.alarms` fire.
+
+Measured 2026-10-26 on Linux (no Mac here): Chrome for Testing 138.0.7204.183 (the last one that loads an MV2
+extension with `--load-extension`), the same staged uBlock Origin, headless, 11 static tabs from a local server,
+settled 120-150 s, no input. Fresh profile = first start of uBlock Origin; warm = a profile it ran in before.
+
+| Window | uBlock Origin JS wakes/s | extension process wakes/s (Linux context switches) | by thread |
+| --- | --- | --- | --- |
+| fresh, 660 s | 0.0515 (34 in 660 s) | 0.23 (300 s) | main 0.10, HangWatcher 0.10, IO 0.023, MemoryInfra 0.007 |
+| warm, 660 s | 0.0182 (12 in 660 s) | 0.157 (300 s) | HangWatcher 0.10, main 0.047, IO 0.01 |
+| warm, `--disable-features=EnableHangWatcher` | not profiled | 0.06 (300 s) | main 0.05, IO 0.01 |
+
+The JS owners (every one is code, none is a setting):
+
+| Owner (uBlock Origin 1.75.0 source) | Period | Rate with 11 tabs | When |
+| --- | --- | --- | --- |
+| `js/traffic.js` `gc` (behind-the-scene journal cache) | 30.011 s, re-arms itself | 0.033/s | until a tab opens or closes (the page-store token changes) |
+| `js/tab.js` `TabContext.onGC` (one per tab; `vAPI.tabs.get` to the browser) | 10 min per tab | 0.017/s | always, one per open tab |
+| `js/tab.js` `pageStoreJanitor` | 15 min | 0.0011/s | always |
+| alarm `assetUpdater` (`js/storage.js` `scheduleAssetUpdater`, hidden setting `autoUpdatePeriod` 1 h) | 1 h | 0.0003/s | always; a list is fetched only when its `updateAfter` (days) has passed |
+| `js/storage.js` `saveLocalSettings` (request counters), `selfieManager` | once, 3.6 min and 53 s after activity | 0 at idle | after page loads, after a list change |
+
+Results:
+
+- uBlock Origin itself is under the budget: 0.018-0.052 JS wakes/s with 11 tabs. Its asset updates already run on
+  the hourly `assetUpdater` alarm, and an update check with nothing due writes no cache (`js/assets.js`
+  `updateNext`: no list due, no fetch and no list written). The only idle write in the window was the one-shot request-counter save.
+- No admin setting can remove more. uBlock Origin reads admin settings only from `chrome.storage.managed`
+  (`js/vapi-background.js` `vAPI.adminStorage`), which Chromium fills from enterprise policy
+  (`chrome/browser/extensions/api/storage/managed_value_store_cache.cc`; on macOS a managed-preferences profile),
+  so a bundle can not ship them; and the owners above are not settings. Changing the staged code was not done: the
+  copy stays the unmodified release (SOURCE.txt) and the same build as Chrome's in chrome-static.
+- Remaining owner above 0.1/s: Chromium's `HangWatcher` thread (base/threading/hang_watcher.cc, `kEnableHangWatcher`,
+  `kMonitoringPeriod` 10 s), 0.10/s in the extension process alone. It runs in every Chromium child that has it on,
+  so each hidden renderer pays the same 0.1/s (D4's hidden-renderer limit is 0.1/s). It is a Q8 item, not a uBlock
+  Origin one: `--disable-features=EnableHangWatcher` removes it (0.157/s to 0.06/s above), and costs Chromium's own
+  hang dumps of its children; cmux's HangMonitor watches the app, not the Chromium children. The decision and the
+  switch belong to the Q8 slot that owns CEFSwitches.swift.
+- Option, not taken: uBlock Origin Lite (Manifest V3, `declarativeNetRequest`) in Energy Saver. It has no background
+  page: its service worker stops after 30 s idle (content/browser/service_worker/service_worker_version.cc), so its
+  idle cost is 0 and filtering runs in the network service. Costs: a different extension id
+  (ddkjiahejlhfcafbddmgiahcphecmpfh), so the person's uBlock Origin settings do not carry over; less filtering power
+  (no dynamic filtering, fewer scriptlets, lists fixed per release); and `--load-extension` is read at Chromium's
+  start, so a saver change needs a Chromium restart.
+- The macOS numbers (interrupt wakeups, the idle-budget `cef-extension` row) come from the test phase:
+  `idle-budget.py --sessions tabs-static,chrome-static` on a measure host.
+
+## 10. Hidden main wakes (p14-energy-095)
 
 speed-of-sound-DESIGN.md sec. 5/7 measured the Release app's main thread at 107 wakes/s while the app was hidden,
 more than in view (cmux20). This section names who wakes it. No source changes here; the fixes are Q9 tasks

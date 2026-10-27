@@ -11,12 +11,16 @@ import MessagesLabHome
 @MainActor
 final class HomeFileActions: HomeFileHost {
     private weak var services: AppServices?
-    private lazy var menu = FileActionsMenu(actions: .init(openInCmux: { [weak self] in self?.open($0) },
+    private lazy var menu = FileActionsMenu(apps: fileApps, actions: .init(openInCmux: { [weak self] in self?.open($0) },
                                                            revealInFiles: { [weak self] in self?.reveal($0) },
                                                            openAsText: { [weak self] in self?.openAsText($0) }))
 
+    /// Open With's apps, from the app's Launch Services answers (asked on the system lane).
+    private let fileApps: WorkspaceFileApps
+
     init(services: AppServices) {
         self.services = services
+        fileApps = WorkspaceFileApps(queries: services.workspaceQueries)
     }
 
     func open(_ file: URL) {

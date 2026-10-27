@@ -208,6 +208,8 @@ extension ScreenContentView {
         // A pan on the strip container keeps the strip laid out at its base; anything else lays it out at
         // the camera, and the container's translation goes back to zero (``presentPanOnContainer()``).
         if panBase != nil, !(isUserScrolling && pansOnContainer) { panBase = nil }
+        // The same for a row or scroll area pan on its container (``prepareScrollerLayout()``).
+        prepareScrollerLayout()
         let layoutOffset = self.layoutOffset
         laidOutStripOffset = layoutOffset
         let strip = geometry.viewShift(offset: layoutOffset)
@@ -232,7 +234,7 @@ extension ScreenContentView {
             if arriving.contains(pane), frame.rect == frame.targetRect { arriving.remove(pane) }
             let placed = shownRect(frame.rect, of: pane, strip: strip, scale: scale)
             // Before the frame moves: chrome that re-checks itself on the move reads the rest.
-            let rest = frame.targetRect.offsetBy(dx: (scrolls ? restStrip : 0) - areaOffset(of: pane), dy: -rowOffset(of: pane))
+            let rest = frame.targetRect.offsetBy(dx: (scrolls ? restStrip : 0) - areaLayoutOffset(of: pane), dy: -rowLayoutOffset(of: pane))
             let restOffset = CGVector(dx: rest.minX - placed.minX, dy: rest.minY - placed.minY)
             if host.restOffset != restOffset { host.restOffset = restOffset }
             // A new rest size (a split's new pane has none before its first one) on a running spring.
@@ -250,6 +252,7 @@ extension ScreenContentView {
                 // frames come from an empty viewport, and laying every pane out there broke Auto Layout
                 // constraints in each one (4.77 s for moveWorkspaceToNewWindow in STRESS); the window's
                 // layout pass lays them out once the root has its size.
+                // sync-layout: the strip and content commit with this frame's step, never a pass behind it.
                 if laysOutNow, placed.width >= 1, placed.height >= 1 { host.layoutSubtreeIfNeeded() }
                 changed = true
             } else if host.frame.origin != placed.origin {
@@ -283,6 +286,8 @@ extension ScreenContentView {
             changed = true
             context.stripClipsDidChange()
         }
+        // The rows' and scroll areas' containers: their range, an area's clip, and the translation a pan shows.
+        if placeScrollerContainers(strip: strip) { changed = true }
         let fronts = liftedFronts
         for host in placedHosts {
             if clipToStrip(host, fronts: fronts, force: force) { changed = true }
@@ -306,7 +311,7 @@ extension ScreenContentView {
         if gesturing, changed {
             userMotionActive = true
             context.userMotionStepped()
-        } else if !gesturing, userMotionActive, renderSpringsInFlight == 0, stripContainer.fling == nil {
+        } else if !gesturing, userMotionActive, renderSpringsInFlight == 0, !panFlingsInFlight {
             // The gesture ended: a fling springs on (advanceFrame ends the motion when it lands), else it ends now.
             // Render-server springs still running end it at their landing (`renderSpringLanded`).
             userMotionActive = false
@@ -322,16 +327,17 @@ extension ScreenContentView {
             || areaScrolls.values.contains(where: \.state.isGestureActive)
     }
 
-    /// Where a pane's spring rect `rect` shows in this view with the strip camera at `strip`: on the pixel
-    /// grid, each edge rounded on its own (two edges a whole number of pixels apart, a pane and the divider
-    /// beside it on the one spring, stay that far apart), less its scroll area's and its row column's offsets.
+    /// Where a pane's spring rect `rect` is laid out in this view with the strip camera at `strip`: on the
+    /// pixel grid, each edge rounded on its own (two edges a whole number of pixels apart, a pane and the
+    /// divider beside it on the one spring, stay that far apart), less its scroll area's and its row column's
+    /// offsets as laid out (a pan on their container shows the rest, ``rowLayoutOffset(of:)``).
     func shownRect(_ rect: CGRect, of pane: PaneID, strip: CGFloat, scale: CGFloat) -> CGRect {
-        rect.pixelEdges(scale).offsetBy(dx: (geometry.scrolls(pane: pane) ? strip : 0) - areaOffset(of: pane), dy: -rowOffset(of: pane))
+        rect.pixelEdges(scale).offsetBy(dx: (geometry.scrolls(pane: pane) ? strip : 0) - areaLayoutOffset(of: pane), dy: -rowLayoutOffset(of: pane))
     }
 
-    /// Where a divider's spring rect `rect` shows in this view with the strip camera at `strip`.
+    /// Where a divider's spring rect `rect` is laid out in this view with the strip camera at `strip`.
     func shownRect(_ rect: CGRect, of kind: DividerHandleView.Kind, strip: CGFloat, scale: CGFloat) -> CGRect {
-        rect.pixelEdges(scale).offsetBy(dx: (scrolls(kind) ? strip : 0) - areaOffset(of: kind), dy: -rowOffset(of: kind))
+        rect.pixelEdges(scale).offsetBy(dx: (scrolls(kind) ? strip : 0) - areaLayoutOffset(of: kind), dy: -rowLayoutOffset(of: kind))
     }
 
     /// Divider hover from the pointer and the current frames (`ScreenDividers`); `event` is a
@@ -363,9 +369,10 @@ extension CGRect {
 }
 
 extension ScreenContentView {
-    /// The local window of the scroll area holding a split divider, if any.
-    func areaWindow(of kind: DividerHandleView.Kind) -> CGRect? {
+    /// The local window of the scroll area holding a split divider, if any, as laid out with the strip
+    /// camera at `strip` (``laidOutAreaWindow(_:strip:)``).
+    func areaWindow(of kind: DividerHandleView.Kind, strip: CGFloat) -> CGRect? {
         guard case let .split(id) = kind, let area = baseGeometry.scrollAreaOfSplit[id] else { return nil }
-        return displayedAreaWindow(area)
+        return laidOutAreaWindow(area, strip: strip)
     }
 }

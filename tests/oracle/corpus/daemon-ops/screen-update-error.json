@@ -59,19 +59,33 @@
       "args": {
         "method": "screen.update",
         "params": {
-          "pinned": "true"
+          "pinned": true,
+          "color": "not a color"
         },
         "idempotencyKey": "screen-update-error.call"
       },
       "expect": {
         "outcome": "error",
-        "error": "validation.invalid"
+        "error": "validation.invalid",
+        "errorDetails": {
+          "reason": "color must be a palette token ([a-z][a-z0-9-]{0,31}) or #RRGGBB[AA]"
+        }
       },
       "checkpoint": [
         "before",
         "settled"
       ],
-      "note": "pinned breaks its catalog type (value must be a boolean); the daemon's catalog check refuses it"
+      "note": "a color that is no palette token and no hex color: validation.invalid, and the valid pinned of the same request is not written either"
+    },
+    {
+      "id": "not-pinned",
+      "op": "settle",
+      "waitFor": {
+        "pointer": "/daemon/session/screens/0/extra/pinned",
+        "predicate": "absent",
+        "maxMs": 5000
+      },
+      "settleMaxMs": 5000
     }
   ],
   "invariants": [

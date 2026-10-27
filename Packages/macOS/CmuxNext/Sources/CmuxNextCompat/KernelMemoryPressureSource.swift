@@ -128,7 +128,9 @@ public final class KernelMemoryPressureSource: MemoryPressureSource {
     private static func readSysctlLevel() -> Int32? {
         var level: Int32 = 0
         var size = MemoryLayout<Int32>.size
-        return sysctlbyname("kern.memorystatus_vm_pressure_level", &level, &size, nil, 0) == 0 ? level : nil
+        // SAFETY: sysctlbyname reads the NUL-terminated name made for the call and writes at most `size` bytes (one
+        // Int32) into `level` and the size it wrote into `size`; both are locals.
+        return unsafe sysctlbyname("kern.memorystatus_vm_pressure_level", &level, &size, nil, 0) == 0 ? level : nil
     }
 
     /// A memory pressure dispatch source on the main queue, active when it returns.

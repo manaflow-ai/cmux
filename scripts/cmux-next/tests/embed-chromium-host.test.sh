@@ -23,11 +23,18 @@ fail() { echo "FAIL: $*" >&2; exit 1; }
 scripts="$TMP/scripts"
 mkdir -p "$scripts" "$TMP/build" "$TMP/cache" "$TMP/bin"
 cp "$ROOT/scripts/cmux-next/embed-cef.sh" "$ROOT/scripts/cmux-next/cef-locale-allowlist.sh" \
-  "$ROOT/scripts/cmux-next/bundle-ublock.sh" "$scripts/"
-printf '{"chromium": "1.0"}\n' > "$scripts/cef-manifest.json"
+  "$ROOT/scripts/cmux-next/bundle-ublock.sh" "$ROOT/scripts/cmux-next/lipo-dsym.sh" "$scripts/"
+printf '{"chromium": "1.0", "debug_symbols": "Chromium Embedded Framework.dSYM.tar.xz"}\n' > "$scripts/cef-manifest.json"
 dist="$TMP/dist"
 mkdir -p "$dist/Chromium Embedded Framework.framework/Libraries" "$dist/Chromium Embedded Framework.framework/Resources"
 : > "$dist/Chromium Embedded Framework.framework/Chromium Embedded Framework"
+# The artifact's dSYM archive (tar reads it whatever its compression).
+cef_dwarf="Chromium Embedded Framework.dSYM/Contents/Resources/DWARF/Chromium Embedded Framework"
+mkdir -p "$TMP/cef-dsym/$(dirname "$cef_dwarf")"
+printf 'cef dwarf' > "$TMP/cef-dsym/$cef_dwarf"
+tar -cf "$dist/Chromium Embedded Framework.dSYM.tar.xz" -C "$TMP/cef-dsym" "Chromium Embedded Framework.dSYM"
+# A stand-in dSYM, as build-cef-shim.sh and build-chromium-host.sh write beside each binary.
+dsym_stub='d() { mkdir -p "$1.dSYM/Contents/Resources/DWARF"; printf "%s" "$2" > "$1.dSYM/Contents/Resources/DWARF/$(basename "$1")"; }'
 if ! command -v ditto >/dev/null; then
   printf '#!/usr/bin/env bash\nmkdir -p "$(dirname "$2")"; cp -R "$1" "$2"\n' > "$TMP/bin/ditto"
   chmod +x "$TMP/bin/ditto"
@@ -42,6 +49,8 @@ cat > "$scripts/build-cef-shim.sh" <<STUB
 #!/usr/bin/env bash
 mkdir -p "$TMP/shim"
 : > "$TMP/shim/libcmux_cef_shim.dylib"; : > "$TMP/shim/cmux-cef-helper"; : > "$TMP/shim/libcef_dll_wrapper.a"
+$dsym_stub
+d "$TMP/shim/libcmux_cef_shim.dylib" shim; d "$TMP/shim/cmux-cef-helper" helper
 printf shim-key > "$TMP/shim/.build-key"
 echo "$TMP/shim"
 STUB
@@ -51,6 +60,8 @@ echo "\${CMUX_CEF_ARCH:-} \$1 \$2" >> "$TMP/host-builds"
 [[ -f "$TMP/host-fails" ]] && { echo "error: stand-in host compile failed" >&2; exit 1; }
 mkdir -p "$TMP/host"; printf 'host binary' > "$TMP/host/cmux-chromium-host"; chmod +x "$TMP/host/cmux-chromium-host"; printf host-key > "$TMP/host/.build-key"
 printf 'remote shim' > "$TMP/host/libcmux_cef_shim_remote.dylib"
+$dsym_stub
+d "$TMP/host/cmux-chromium-host" host; d "$TMP/host/libcmux_cef_shim_remote.dylib" remote
 echo "$TMP/host"
 STUB
 chmod +x "$scripts/"*.sh
@@ -77,12 +88,32 @@ embed Debug
 [[ "$(cat "$TMP/host-builds")" == "arm64 $dist $TMP/shim" ]] || fail "the host was not built once against the arm64 artifact and shim build: $(cat "$TMP/host-builds")"
 [[ "$(cat "$host_app")" == "host binary" ]] || fail "the host is not the host build"
 [[ "$(cat "$remote_shim")" == "remote shim" ]] || fail "a Debug embed has not the host build's remote shim"
+# Each embedded binary's dSYM is beside the app, outside the bundle (p09-observability-085).
+kept_dsym() { cat "$TMP/build/$1.dSYM/Contents/Resources/DWARF/$1" 2>/dev/null; }
+for pair in libcmux_cef_shim.dylib=shim cmux-cef-helper=helper cmux-chromium-host=host libcmux_cef_shim_remote.dylib=remote; do
+  [[ "$(kept_dsym "${pair%%=*}")" == "${pair#*=}" ]] || fail "a Debug embed keeps no dSYM for ${pair%%=*}: $(ls "$TMP/build")"
+done
+[[ ! -e "$TMP/CEF-dSYMs" ]] || fail "a Debug embed unpacked Chromium's dSYM"
 
 # 2. Release on the same bundle: no host build, and the Debug host app is gone.
 rm -f "$TMP/host-builds"
 embed Release
 [[ ! -e "$host_app" ]] || fail "a Release embed keeps a Chromium host app"
 [[ ! -e "$remote_shim" ]] || fail "a Release embed keeps the remote shim"
+# The shim's dSYMs stay; the host's go with the host; Chromium's is unpacked beside the products.
+[[ "$(kept_dsym libcmux_cef_shim.dylib)" == shim && "$(kept_dsym cmux-cef-helper)" == helper ]] ||
+  fail "a Release embed lost the shim's dSYMs"
+[[ ! -e "$TMP/build/cmux-chromium-host.dSYM" && ! -e "$TMP/build/libcmux_cef_shim_remote.dylib.dSYM" ]] ||
+  fail "a Release embed keeps the dSYMs of a host it does not ship"
+[[ "$(cat "$TMP/CEF-dSYMs/arm64/$cef_dwarf" 2>/dev/null)" == "cef dwarf" ]] ||
+  fail "a Release embed did not keep Chromium's dSYM: $(cat "$TMP/embed-Release.log")"
+# A second Release build reuses the unpacked dSYM (the archive is not read again).
+cp "$dist/Chromium Embedded Framework.dSYM.tar.xz" "$TMP/cef-dsym.tar"
+printf 'not a tar' > "$dist/Chromium Embedded Framework.dSYM.tar.xz"
+embed Release
+[[ "$(cat "$TMP/CEF-dSYMs/arm64/$cef_dwarf" 2>/dev/null)" == "cef dwarf" ]] ||
+  fail "a Release embed read the dSYM archive again instead of the unpacked one: $(cat "$TMP/embed-Release.log")"
+mv "$TMP/cef-dsym.tar" "$dist/Chromium Embedded Framework.dSYM.tar.xz"
 [[ ! -e "$TMP/host-builds" ]] || fail "a Release embed built the Chromium host"
 [[ -d "$TMP/build/app.app/Contents/Frameworks/app Helper.app" ]] || fail "a Release embed lost the base helper"
 
@@ -113,6 +144,8 @@ embed Debug
 embed Debug CMUX_NEXT_SKIP_CEF=1
 [[ ! -e "$host_app" ]] || fail "a CMUX_NEXT_SKIP_CEF=1 embed keeps the Chromium host"
 [[ ! -e "$remote_shim" ]] || fail "a CMUX_NEXT_SKIP_CEF=1 embed keeps the remote shim"
+[[ -z "$(ls -d "$TMP/build/"*.dSYM 2>/dev/null)" ]] || fail "a CMUX_NEXT_SKIP_CEF=1 embed keeps dSYMs of binaries it removed"
+[[ ! -e "$TMP/CEF-dSYMs" ]] || fail "a CMUX_NEXT_SKIP_CEF=1 embed keeps Chromium's dSYM"
 : > "$TMP/host-fails"
 
 # 5. The same failing host with CMUX_NEXT_REQUIRE_CHROMIUM_HOST=1: the build fails.

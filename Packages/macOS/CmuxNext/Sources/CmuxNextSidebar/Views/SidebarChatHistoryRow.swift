@@ -42,6 +42,7 @@ final class SidebarChatHistoryHeader: NSView {
         }
     }
 
+    // visibility-walk-allow: sets the label's and chevron's tint only (no layout)
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         tint()
@@ -126,6 +127,7 @@ final class SidebarChatHistoryRow: NSView {
         }
     }
 
+    // visibility-walk-allow: sets the row's hover fill and its labels' colors only (no layout)
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         tint()

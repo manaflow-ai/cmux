@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextBrowser
 import CmuxNextCompat
 import CmuxNextDesign
+import CmuxNextInput
 import CmuxNextWakeups
 import os
 
@@ -21,12 +22,14 @@ final class WebAuthSessionWindow: NSObject, WebAuthSessionSurface, BrowserTabDel
     private let signInCallbacks: CEFSignInCallbacks
     private let contextMenus: BrowserContextMenuBuilder
     private let mainWork: MainWorkScheduler
+    private let inputTap: InputEventTap?
     /// Orders the panel in (`WindowActivation.show` in the app).
     private let present: @MainActor (NSWindow, WindowActivation.Intent) -> Void
     private let onEnd: (UUID) -> Void
     private var page: (any BrowserTab)?
     private var panel: BrowserPopupWindow?
-    private var observation: Task<Void, Never>?
+    /// The page URL check (``observeNavigation(_:)``).
+    private var navigationWatch: ServiceObservation<URL?>?
     private var ended = false
 
     init(
@@ -38,10 +41,12 @@ final class WebAuthSessionWindow: NSObject, WebAuthSessionSurface, BrowserTabDel
         signInCallbacks: CEFSignInCallbacks,
         contextMenus: BrowserContextMenuBuilder,
         mainWork: MainWorkScheduler,
+        inputTap: InputEventTap?,
         present: @escaping @MainActor (NSWindow, WindowActivation.Intent) -> Void,
         onEnd: @escaping (UUID) -> Void
     ) {
         self.mainWork = mainWork
+        self.inputTap = inputTap
         id = request.id
         url = request.url
         callback = request.callback
@@ -57,8 +62,9 @@ final class WebAuthSessionWindow: NSObject, WebAuthSessionSurface, BrowserTabDel
     }
 
     func start() {
-        let configuration = BrowserTabConfiguration(profile: ephemeralProfile ?? .default)
+        let configuration = BrowserTabConfiguration(profile: ephemeralProfile ?? .default, origin: .user)
         let host = host
+        // main-hop-allow: makeSignInPage is the host's main-actor async Chromium page make (over IPC); the task only shows the page it answers or ends the sign-in
         Task { [weak self] in
             do {
                 let page = try await host.makeSignInPage(configuration)
@@ -81,7 +87,7 @@ final class WebAuthSessionWindow: NSObject, WebAuthSessionSurface, BrowserTabDel
         if let cef = page as? CEFTab {
             signInCallbacks.set(Self.shimCallback(callback), on: cef) { [weak self] url in self?.shimStopped(url) }
         }
-        let panel = BrowserPopupWindow(page: page, frame: Self.frame(), readOnlyAddress: true, mainWork: mainWork)
+        let panel = BrowserPopupWindow(page: page, frame: Self.frame(), readOnlyAddress: true, mainWork: mainWork, inputTap: inputTap)
         panel.onEscape = { [weak self] in self?.close() }
         panel.onClose = { [weak self] in self?.end() }
         self.panel = panel
@@ -123,14 +129,15 @@ final class WebAuthSessionWindow: NSObject, WebAuthSessionSurface, BrowserTabDel
     }
 
     /// The last line when the shim could not know the callback: the session
-    /// ends as soon as the page reaches it.
+    /// ends as soon as the page reaches it. It ends the system's request, not a
+    /// view, so it is a service that runs whether the panel shows or not; the
+    /// page's own navigations are its program's, checked as one visible task.
     private func observeNavigation(_ page: any BrowserTab) {
-        observation = Task { [weak self, weak page] in
-            guard let page else { return }
-            for await url in ObservationStream({ page.state.url }) {
-                guard let self, let url else { continue }
-                if self.broker?.navigated(self.id, to: url) == true { page.stop() }
-            }
+        navigationWatch = ServiceObservation(.visible, owner: "WebAuthSessionWindow.navigation", on: mainWork) { [weak page] in
+            page?.state.url
+        } apply: { [weak self, weak page] url in
+            guard let self, !self.ended, let url, let page else { return }
+            if self.broker?.navigated(self.id, to: url) == true { page.stop() }
         }
     }
 
@@ -143,8 +150,8 @@ final class WebAuthSessionWindow: NSObject, WebAuthSessionSurface, BrowserTabDel
     private func end() {
         guard !ended else { return }
         ended = true
-        observation?.cancel()
-        observation = nil
+        navigationWatch?.cancel()
+        navigationWatch = nil
         panel = nil
         page?.close()
         page = nil

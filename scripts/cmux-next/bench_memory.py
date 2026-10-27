@@ -40,6 +40,7 @@ Usage:
       [--url URL] [--top 15] [--config JSON] [--fake-agent SCRIPT] [--out FILE.json]
   bench_memory.py --app BUNDLE --tabs 1,10,20 [--urls local|real|URL,URL,...] [--settle 30]
   bench_memory.py --app BUNDLE --hidden-workspaces 100 [--grace 960] [--mix terminal] [--terminal-host-model hosts|holder]
+      [--gpu-release off|on] [--thread-window 10]
   bench_memory.py --app BUNDLE --hidden-slope [--engine chromium|webkit] [--slope-counts 10,60] [--slope-samples 3]
       [--hibernate-after 1] [--tag TAG] [--session light] [--out DIR]
   bench_memory.py --app BUNDLE --pressure warning|critical [--pressure-window 10]
@@ -58,6 +59,18 @@ Phases (plans/cmux-next/chrome-parity/p07-memory.md, DC6 and DC10):
           --terminal-host-model holder (launch only); the table names the
           model the launch gave the app, says when the daemon started
           terminal hosts all the same, and says unknown-attach for an attached app.
+          It also gives the app threads per hidden terminal at both points
+          and how many of the hidden terminals' renderer and IO threads
+          (Ghostty names them) woke in --thread-window idle seconds after
+          each: none, once their compression timers are armed (p07-memory-078).
+          Run --gpu-release off, then on, for the numbers before and after the
+          GPU release (debug.memory's budget says whether the release is live).
+          The release is a debug tunable, so --gpu-release needs a bench build
+          (reload.sh --config bench) of a .dev or .debug bundle.
+
+Threads (p07-memory-078, DC8): every sample counts each process's threads
+(proc_taskinfo), per kind and per owner of the share (THREAD_OWNERS), and each
+--workspaces count gives the app threads per terminal it added.
   --pressure warning|critical [--pressure-window S]
           runs last. It sets the debug pressure override
           (debug.hibernation.pressure, DEBUG and bench-hook builds), follows
@@ -139,6 +152,7 @@ import uuid
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from bench_launch import PERF_LAB, BenchApp, RecordError, load_by_path, tag_of  # noqa: E402
+from bench_pane_scale import thread_times  # noqa: E402
 import cold_scrollback  # noqa: E402
 from daemon_teardown import daemon_status, request as daemon_request  # noqa: E402
 
@@ -177,6 +191,45 @@ def usage(pid: int):
     # phys_footprint (9), ... ri_lifetime_max_phys_footprint (30).
     cpu_ns = (buf[2] + buf[3]) * _timebase.numer // _timebase.denom
     return buf[8], buf[9], buf[30], cpu_ns, buf[4] + buf[5]
+
+
+# PROC_PIDTASKINFO: struct proc_taskinfo (sys/proc_info.h), 6 u64 then 12 i32; pti_threadnum is the 10th i32.
+PROC_PIDTASKINFO = 4
+TASKINFO_SIZE = 96
+TASKINFO_THREADNUM_OFFSET = 84
+
+
+def thread_count(pid: int) -> int | None:
+    """The process's thread count (proc_taskinfo.pti_threadnum), read from outside; None off macOS or once it is
+    gone."""
+    if sys.platform != "darwin":
+        return None
+    buf = ctypes.create_string_buffer(TASKINFO_SIZE)
+    if _libproc.proc_pidinfo(ctypes.c_int(pid), ctypes.c_int(PROC_PIDTASKINFO), ctypes.c_uint64(0), buf,
+                             ctypes.c_int(TASKINFO_SIZE)) != TASKINFO_SIZE:
+        return None
+    return int.from_bytes(buf.raw[TASKINFO_THREADNUM_OFFSET:TASKINFO_THREADNUM_OFFSET + 4], "little", signed=True)
+
+
+# Who owns each process kind's thread share (p07-memory.md DC8, threads <= 300): the app's (Ghostty's two threads per
+# surface included) is task 078's, the daemon's task 095's with PL-daemon.
+THREAD_OWNERS = (("app", "PL-memory 078"), ("tui-daemon", "PL-daemon 095"), ("terminal-", "PL-daemon 095"),
+                 ("cef-", "PL-cefhost"), ("acpmux-", "PL-acpmux"), ("webkit-", "PL-webui"))
+
+
+def thread_owner(kind: str) -> str:
+    """The owner of a process kind's threads (``THREAD_OWNERS``, the first prefix that matches); PL-memory for the
+    other bundled helpers."""
+    return next((owner for prefix, owner in THREAD_OWNERS if kind.startswith(prefix)), "PL-memory")
+
+
+def threads_by_owner(kinds: dict) -> dict[str, int]:
+    """{owner: threads} over a sample's kinds (``thread_owner``), most first."""
+    owners: dict[str, int] = {}
+    for kind, entry in kinds.items():
+        owner = thread_owner(kind)
+        owners[owner] = owners.get(owner, 0) + (entry.get("threads") or 0)
+    return dict(sorted(owners.items(), key=lambda item: -item[1]))
 
 
 def process_table():
@@ -315,7 +368,7 @@ def sample(app_pid: int, bundle: str, label: str, workspaces: int, measure: floa
             continue
         row = {"pid": pid, "kind": kind, "rss_mb": round(got[0] / MB, 1),
                "footprint_mb": round(got[1] / MB, 1), "footprint_bytes": got[1],
-               "max_footprint_mb": round(got[2] / MB, 1), "command": cmd[:160]}
+               "max_footprint_mb": round(got[2] / MB, 1), "threads": thread_count(pid), "command": cmd[:160]}
         if pid in start:
             row["cpu_pct"] = round(100 * (got[3] - start[pid][3]) / 1e9 / measure, 3)
             row["wakeups_per_s"] = round((got[4] - start[pid][4]) / measure, 2)
@@ -323,8 +376,10 @@ def sample(app_pid: int, bundle: str, label: str, workspaces: int, measure: floa
     rows.sort(key=lambda row: -row["footprint_mb"])
     kinds = {}
     for row in rows:
-        entry = kinds.setdefault(row["kind"], {"count": 0, "rss_mb": 0.0, "footprint_mb": 0.0, "footprint_bytes": 0})
+        entry = kinds.setdefault(row["kind"], {"count": 0, "rss_mb": 0.0, "footprint_mb": 0.0, "footprint_bytes": 0,
+                                               "threads": 0})
         entry["count"] += 1
+        entry["threads"] += row["threads"] or 0
         entry["footprint_bytes"] += row["footprint_bytes"]
         entry["rss_mb"] = round(entry["rss_mb"] + row["rss_mb"], 1)
         entry["footprint_mb"] = round(entry["footprint_mb"] + row["footprint_mb"], 1)
@@ -335,17 +390,24 @@ def sample(app_pid: int, bundle: str, label: str, workspaces: int, measure: floa
             "total_rss_mb": round(sum(r["rss_mb"] for r in rows), 1),
             "total_footprint_mb": round(sum(r["footprint_mb"] for r in rows), 1),
             "total_footprint_bytes": sum(r["footprint_bytes"] for r in rows),
+            "total_threads": sum(r["threads"] or 0 for r in rows),
+            "threads_by_owner": threads_by_owner(kinds),
             "kinds": dict(sorted(kinds.items(), key=lambda item: -item[1]["footprint_mb"])),
             "processes": rows}
 
 
 def print_sample(result, top: int):
     print(f"== {result['label']}: {result['workspaces']} workspaces, {len(result['processes'])} processes, "
-          f"footprint {result['total_footprint_mb']:.0f} MB, RSS {result['total_rss_mb']:.0f} MB")
-    print(f"   {'kind':<22}{'n':>4}{'footprint MB':>14}{'RSS MB':>10}{'CPU %':>9}{'wakeups/s':>11}")
+          f"footprint {result['total_footprint_mb']:.0f} MB, RSS {result['total_rss_mb']:.0f} MB, "
+          f"{result.get('total_threads', 0)} threads")
+    print(f"   {'kind':<22}{'n':>4}{'footprint MB':>14}{'RSS MB':>10}{'threads':>9}{'CPU %':>9}{'wakeups/s':>11}")
     for kind, entry in result["kinds"].items():
         print(f"   {kind:<22}{entry['count']:>4}{entry['footprint_mb']:>14.1f}{entry['rss_mb']:>10.1f}"
+              f"{entry.get('threads', 0):>9}"
               f"{entry.get('cpu_pct', float('nan')):>9.3f}{entry.get('wakeups_per_s', float('nan')):>11.2f}")
+    owners = result.get("threads_by_owner") or {}
+    if any(owners.values()):
+        print("   threads by owner (DC8): " + ", ".join(f"{owner} {count}" for owner, count in owners.items()))
     print(f"   top {top} processes by footprint:")
     for row in result["processes"][:top]:
         print(f"   {row['footprint_mb']:>8.1f} MB  RSS {row['rss_mb']:>7.1f}  max {row['max_footprint_mb']:>7.1f}  "
@@ -838,6 +900,74 @@ class MemoryReport:
         value = known_int(terminal.get("hidden_nonvolatile_iosurface_bytes")) if isinstance(terminal, dict) else None
         return None if value is None else round(value / MB, 2)
 
+    def terminal_surfaces(self) -> int | None:
+        """terminal.surfaces: the live terminal surfaces, shown or not (each has its own Ghostty threads)."""
+        terminal = self.raw.get("terminal")
+        return known_int(terminal.get("surfaces")) if isinstance(terminal, dict) else None
+
+    def gpu_release(self) -> bool | None:
+        """budget.gpu_resident_available: hidden terminals let their GPU memory go (feature terminalGPURelease on a
+        GhosttyNextKit pin with ghostty_surface_set_gpu_resident); None when the report does not say."""
+        budget = self.raw.get("budget")
+        value = budget.get("gpu_resident_available") if isinstance(budget, dict) else None
+        return value if isinstance(value, bool) else None
+
+
+# The threads Ghostty starts for each surface, by the name it gives them (ghostty-next src/renderer/Thread.zig and
+# src/termio/Thread.zig, pthread_setname_np): what one terminal adds to the app besides shared threads.
+SURFACE_THREADS = ("renderer", "io")
+
+
+def same_thread(read: dict, handle: int, name: str) -> bool:
+    """Whether `read` (a ``thread_times`` read) has the thread `handle` named `name`: the handle of a thread that
+    exited can come back on a thread of another name."""
+    return read.get(handle, (None,))[0] == name
+
+
+def terminal_threads(base: dict, end: dict, terminals: int | None, start: dict | None = None,
+                     window_s: float = 0) -> dict:
+    """App threads per added terminal, and with an idle window (`start`, `window_s`) which of their threads woke.
+
+    `base`, `start` and `end` are ``thread_times`` reads of the app: before the terminals opened, and at both ends of
+    the window. A surface thread (``SURFACE_THREADS``) not in `base` is an added terminal's. One whose CPU time grew
+    in the window woke: proc_threadinfo counts CPU time to the microsecond, and a wakeup of the renderer's event loop
+    runs longer than that. `terminals` is how many terminal surfaces were added (debug.memory), else one per added
+    renderer thread. A read's handle is the thread's pthread address, which a later thread can get once its thread
+    exits, so a thread is the one in an earlier read only when the name there is the same (``same_thread``)."""
+    added = {name: [handle for handle, (thread, _) in end.items()
+                    if thread == name and not same_thread(base, handle, name)]
+             for name in SURFACE_THREADS}
+    if not terminals or terminals < 0:
+        terminals = len(added["renderer"])
+    out = {"app_threads_base": len(base), "app_threads": len(end), "terminals": terminals,
+           "threads_per_terminal": round((len(end) - len(base)) / terminals, 2) if terminals else None}
+    if start is not None:
+        out["window_s"] = window_s
+    for name, handles in added.items():
+        row = {"threads": len(handles), "per_terminal": round(len(handles) / terminals, 2) if terminals else None}
+        if start is not None:
+            # A thread started inside the window counts from zero.
+            grew = [end[handle][1] - (start[handle][1] if same_thread(start, handle, name) else 0)
+                    for handle in handles]
+            row["woke"] = sum(1 for delta in grew if delta > 0)
+            row["cpu_us"] = round(sum(delta for delta in grew if delta > 0) / 1000, 1)
+        out[name] = row
+    return out
+
+
+def print_terminal_threads(label: str, threads: dict, gpu_release: bool | None):
+    """One line per `terminal_threads` result: threads per terminal and, with a window, the surface threads that
+    woke (0 for hidden terminals once their compression timers are armed)."""
+    gpu = {True: "on", False: "off", None: "unknown"}[gpu_release]
+    per = threads["threads_per_terminal"]
+    print(f"   app threads {label}: {threads['app_threads']} (base {threads['app_threads_base']}, "
+          f"{'n/a' if per is None else f'{per:.2f}'} per terminal of {threads['terminals']}); GPU release {gpu}")
+    for name in SURFACE_THREADS:
+        row = threads[name]
+        woke = f", woke in {threads['window_s']:.0f} s idle: {row['woke']} ({row['cpu_us']:.0f} us CPU)" \
+            if "woke" in row else ""
+        print(f"     {name} threads: {row['threads']}{woke}")
+
 
 def kind_deltas(base: dict, after: dict, per: int) -> dict:
     """{kind: {"processes_added", "mb_each"}}: footprint from `base` to `after` divided by `per`, plus a
@@ -856,13 +986,30 @@ def kind_deltas(base: dict, after: dict, per: int) -> dict:
 
 
 def hidden_workspaces_phase(app: App, count: int, grace: float, recipes: list[str], url: str, opened: list,
-                            chats, settle_and_sample, host_model: str) -> dict:
+                            chats, settle_and_sample, host_model: str, read_threads=None,
+                            thread_window: float = 0) -> dict:
     """DC6. Opens `count` workspaces of the mix, shows the first workspace again so all of them are hidden,
     samples after --settle and again `grace` seconds after they went hidden (past the parked idle timeout),
     and prints what one hidden workspace costs per process kind. `host_model` is the terminal host model the
-    launch gave the app (`unknown-attach` for an app this run did not launch)."""
+    launch gave the app (`unknown-attach` for an app this run did not launch).
+
+    With `read_threads` (the app's ``thread_times``) it also gives the app threads per hidden terminal at both
+    points (``terminal_threads``) and, over `thread_window` idle seconds after each, how many of the hidden terminals'
+    renderer and IO threads woke (p07-memory-078: none, GPU-released or not)."""
     app.run("workspace.selectFirst")
     base = settle_and_sample("hidden-base")
+    base_threads = read_threads() if read_threads else None
+    base_report = MemoryReport.read(app) if read_threads else None
+    base_surfaces = base_report.terminal_surfaces() if base_report else None
+
+    def hidden_threads(report: MemoryReport | None) -> dict:
+        surfaces = report.terminal_surfaces() if report else None
+        added = surfaces - base_surfaces if surfaces is not None and base_surfaces is not None else None
+        start = read_threads() if thread_window > 0 else None
+        if start is not None:
+            time.sleep(thread_window)  # test script: the idle window the hidden terminals' threads must sleep through
+        return terminal_threads(base_threads, read_threads(), added, start, thread_window)
+
     made = 0
     while made < count:
         workspace = open_workspace(app, recipes[made % len(recipes)], url, 2000 + made, chats)
@@ -883,6 +1030,9 @@ def hidden_workspaces_phase(app: App, count: int, grace: float, recipes: list[st
     if report is not None:
         phase["debug_memory_settled"] = report.workspaces()
         phase["hidden_iosurface_mb_settled"] = report.hidden_iosurface_mb()
+    if base_threads is not None:
+        phase["gpu_release"] = report.gpu_release() if report else None
+        phase["threads_settled"] = hidden_threads(report)
     after = settled
     if grace > 0:
         time.sleep(max(0.0, grace - (time.monotonic() - hidden_at)))  # test script: the hidden workspaces' grace
@@ -891,6 +1041,8 @@ def hidden_workspaces_phase(app: App, count: int, grace: float, recipes: list[st
         if report is not None:
             phase["debug_memory_after_grace"] = report.workspaces()
             phase["hidden_iosurface_mb_after_grace"] = report.hidden_iosurface_mb()
+        if base_threads is not None:
+            phase["threads_after_grace"] = hidden_threads(report)
     phase["after_grace"] = kind_deltas(base, after, made)
     print(f"== hidden workspaces: {made} of {count} hidden (mix {','.join(recipes)}), grace {grace:.0f} s, "
           f"terminal host model {phase['terminal_host_model']}"
@@ -910,6 +1062,9 @@ def hidden_workspaces_phase(app: App, count: int, grace: float, recipes: list[st
         iosurface = phase.get("hidden_iosurface_mb_after_grace", phase.get("hidden_iosurface_mb_settled"))
         shown = "unknown" if iosurface is None else f"{iosurface:.2f} MB"
         print(f"   hidden terminal IOSurface (non-volatile): {shown}")
+    for key, label in (("threads_settled", "settled"), ("threads_after_grace", "after grace")):
+        if key in phase:
+            print_terminal_threads(label, phase[key], phase["gpu_release"])
     sys.stdout.flush()
     return phase
 
@@ -1440,6 +1595,23 @@ def launch_env(cef_switches: str, host_model: str | None) -> dict:
     return env
 
 
+# The debug tunable the terminalGPURelease feature replaces (MemorySettings.terminalGPURelease). Launch reads it only
+# from the debug tunables file (DebugSettingsService.launchFile), never from cmux.json.
+GPU_RELEASE_TUNABLE = "memory.discard.terminalGPURelease"
+
+
+def gpu_release_env(gpu_release: str | None, folder: str) -> dict:
+    """The launch env for --gpu-release: a debug tunables file in `folder` that sets ``GPU_RELEASE_TUNABLE``, named
+    by CMUX_NEXT_DEBUG_TUNABLES_FILE as chromium-host-bench.py does. A bench build of a .dev or .debug bundle
+    reads it; {} without --gpu-release."""
+    if not gpu_release:
+        return {}
+    path = os.path.join(folder, "debug-tunables.json")
+    with open(path, "w") as handle:
+        json.dump({"version": 1, "values": {GPU_RELEASE_TUNABLE: gpu_release == "on"}}, handle)
+    return {"CMUX_NEXT_DEBUG_TUNABLES_FILE": path}
+
+
 def interrupted(_signum, _frame):
     raise KeyboardInterrupt
 
@@ -1451,6 +1623,10 @@ def check_args(parser: argparse.ArgumentParser, args) -> list[int]:
         parser.error("--grace needs --hidden-workspaces or --hidden-slope")
     if args.hidden_workspaces is not None and args.tabs:
         parser.error("--hidden-workspaces and --tabs are separate runs")
+    if args.gpu_release and args.socket:
+        parser.error(f"--gpu-release sets {GPU_RELEASE_TUNABLE} of an app this run launches, not of an attached one")
+    if args.thread_window < 0:
+        parser.error("--thread-window is a number of seconds >= 0")
     if args.terminal_host_model and args.socket:
         parser.error("--terminal-host-model sets the model of an app this run launches, not of an attached one")
     if args.hibernate_after is not None and (args.socket or args.hibernate_after <= 0):
@@ -1598,6 +1774,15 @@ def parse_args(argv=None):
                         help="launch: the daemon's terminal host model (CMUX_NEXT_TUI_TERMINAL_HOST_MODEL on the app, "
                              "which its daemon launch passes on as CMUX_TUI_TERMINAL_HOST_MODEL); default hosts, the "
                              "daemon's default. --hidden-workspaces names it")
+    parser.add_argument("--gpu-release", choices=("on", "off"),
+                        help="launch: the debug tunable memory.discard.terminalGPURelease, in a tunables file named "
+                             "by CMUX_NEXT_DEBUG_TUNABLES_FILE (hidden terminals let their GPU memory go). Needs a "
+                             "bench build (reload.sh --config bench) of a .dev or .debug bundle and a GhosttyNextKit "
+                             "pin with ghostty_surface_set_gpu_resident. Run off then on for the app threads per "
+                             "hidden terminal before and after (p07-memory-078)")
+    parser.add_argument("--thread-window", type=float, default=10, metavar="S",
+                        help="--hidden-workspaces: idle seconds after each sample in which the hidden terminals' "
+                             "renderer and IO threads must not wake; 0 counts threads only")
     parser.add_argument("--pressure", choices=("warning", "critical"),
                         help="pressure phase, last: set the debug pressure override (DEBUG and bench-hook builds) "
                              "and print released_mb, release_s and the managed consumers' footprint before")
@@ -1662,6 +1847,8 @@ def main(argv=None):
         if args.cold_scrollback is not None:
             config = merged(config, cold_scrollback_config(args.cold_scrollback))
         env = launch_env(args.cef_switches, args.terminal_host_model)
+        if args.gpu_release:
+            env.update(gpu_release_env(args.gpu_release, results_dir or tempfile.mkdtemp(prefix="bench-memory-")))
         if args.fake_agent:
             # The fake agent is a real ACP process: the bench env's agent-pane mock and launch denial would stop it.
             env.update({"CMUX_NEXT_AGENT_PANE_MOCK": None, "ACPMUX_AGENT_LAUNCH": None})
@@ -1707,6 +1894,9 @@ def main(argv=None):
                 result = settle_and_sample(f"tabs-{made}")
                 result["tabs"] = made
             counts = []
+        launch_threads = thread_times(app_pid) if counts else None
+        launch_memory = MemoryReport.read(app) if counts else None
+        launch_surfaces = launch_memory.terminal_surfaces() if launch_memory else None
         for count in counts:
             # The launch workspace counts as the first one.
             while len(opened) + 1 < count:
@@ -1714,14 +1904,21 @@ def main(argv=None):
                 if workspace is None:
                     break
                 opened.append(workspace)
-            settle_and_sample(f"idle-{count}")
+            result = settle_and_sample(f"idle-{count}")
+            memory = MemoryReport.read(app)
+            surfaces = memory.terminal_surfaces() if memory else None
+            added = surfaces - launch_surfaces if surfaces is not None and launch_surfaces is not None else None
+            result["terminal_threads"] = terminal_threads(launch_threads, thread_times(app_pid), added)
+            print_terminal_threads(f"at {count} workspaces", result["terminal_threads"],
+                                   memory.gpu_release() if memory else None)
         report["debug_memory"] = MemoryReport.read(app) is not None
         if not report["debug_memory"] and (args.hidden_workspaces is not None or args.pressure):
             print("bench-memory: this build has no debug.memory; the phases report process footprint only")
         if args.hidden_workspaces is not None:
             report["hidden_workspaces"] = hidden_workspaces_phase(app, args.hidden_workspaces, args.grace, recipes,
                                                                   args.url, opened, chats, settle_and_sample,
-                                                                  host_model)
+                                                                  host_model, lambda: thread_times(app_pid),
+                                                                  args.thread_window)
         if args.cold_scrollback is not None:
             if args.socket and args.cold_scrollback * cold_scrollback.SCROLLBACK_LIMIT_BYTES > 256 * MB:
                 print("bench-memory: an attached app keeps its own terminal.scrollback.maxTotalMemoryBytes "

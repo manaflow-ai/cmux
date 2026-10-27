@@ -52,6 +52,7 @@ final class ScreenshotsPageTab: BrowserTab {
 
     func reload() {
         // task-owner: one relist the page's model owns; it ends when every folder is listed
+        // main-hop-allow: Reload starts the model's own main-actor rescans (ScreenshotsModel.refresh schedules each folder's read, which lists off main); this task only awaits them
         Task { [model] in await model.refresh() }
     }
 

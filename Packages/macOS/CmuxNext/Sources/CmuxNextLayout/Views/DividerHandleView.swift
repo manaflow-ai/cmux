@@ -22,8 +22,10 @@ final class DividerHandleView: NSView {
         /// The pointer passed `point` at `time` before a later move of the same delivery: it feeds
         /// the release velocity only.
         case sampled(NSPoint, time: CFTimeInterval)
-        /// The divider goes to `point`, where the pointer was at `time`.
-        case moved(NSPoint, time: CFTimeInterval)
+        /// The pointer was at `point` at `time`: the real sample, which the velocity, snaps and the
+        /// release read. The divider is drawn at `shown`, the pointer resampled at the frame's time
+        /// (`input.resampleDrags`); nil draws it at `point`.
+        case moved(NSPoint, time: CFTimeInterval, shown: NSPoint? = nil)
         /// The pointer went up at `point` at `time`.
         case ended(NSPoint, time: CFTimeInterval)
         case doubleClick
@@ -52,6 +54,11 @@ final class DividerHandleView: NSView {
     var pointerFrames: () -> FrameInputCoalescers? = { nil }
     /// This drag's consumer of its window's coalescer, from mouse-down to mouse-up.
     private var frameDrag: PointerFrameConsumer?
+    /// A new drag's resampler for where the divider is drawn (``LayoutRootView/dragResampler``); nil
+    /// draws it at the real pointer. Read once per drag, on mouse-down, with frame-aligned input only.
+    var dragResampler: () -> DragResampler? = { nil }
+    /// This drag's resampler, from mouse-down to mouse-up.
+    private var resampler: DragResampler?
     /// The screen's uncovered rect and this handle's scroll area window when it was last placed
     /// (`applyPresentation`): its hidden state and cursor clip follow from them and the frame, so
     /// equal ones skip the work.
@@ -110,7 +117,7 @@ final class DividerHandleView: NSView {
     func setAxis(_ axis: SplitAxis) {
         guard self.axis != axis else { return }
         self.axis = axis
-        window?.invalidateCursorRects(for: self)
+        if isHovered { resizeCursor.set() }
         needsLayout = true
     }
 
@@ -144,14 +151,24 @@ final class DividerHandleView: NSView {
     override func setFrameSize(_ newSize: NSSize) {
         let old = frame.size
         super.setFrameSize(newSize)
-        if newSize != old { needsLayout = true }
+        if newSize != old {
+            needsLayout = true
+            placeCursorArea()
+        }
+    }
+
+    /// A clipped handle's cursor area is in its own coordinates, so a move changes where the clip falls.
+    override func setFrameOrigin(_ newOrigin: NSPoint) {
+        super.setFrameOrigin(newOrigin)
+        if cursorClip != nil { placeCursorArea() }
     }
 
     /// The part of the superview where the handle may take the pointer; nil for all of it. A strip
-    /// divider that runs on under a docked column stops where the dock begins: AppKit cursor rects
+    /// divider that runs on under a docked column stops where the dock begins: AppKit's tracking areas
     /// ignore the views above, so its whole frame showed a resize cursor over the docked pane.
+    /// The handle's cursor area follows it (``cursorArea``).
     var cursorClip: CGRect? {
-        didSet { if cursorClip != oldValue { window?.invalidateCursorRects(for: self) } }
+        didSet { placeCursorArea() }
     }
 
     /// Where the handle shows its resize cursor, in its own coordinates: its bounds within `cursorClip`.
@@ -161,21 +178,48 @@ final class DividerHandleView: NSView {
         return rect.isNull ? .zero : rect
     }
 
-    /// AppKit's cursor rect and tracking area rebuilds of this handle, cumulative (StripPanContainerTests:
-    /// a strip pan on the motion container makes none).
-    private(set) var cursorRectResets = 0
+    /// AppKit's tracking area rebuilds of this handle, cumulative (StripPanContainerTests: a strip pan on
+    /// the motion container makes none).
     private(set) var trackingAreaUpdates = 0
 
-    override func resetCursorRects() {
-        cursorRectResets += 1
+    /// The `.cursorUpdate` area: exactly ``cursorRectInBounds``, as the cursor rect was, so the pointer
+    /// crossing the clip edge enters or leaves it and AppKit asks the view under the pointer for its
+    /// cursor (a docked pane's, or this handle's resize cursor). Nil while that rect is empty.
+    private(set) var cursorArea: NSTrackingArea?
+
+    /// Places ``cursorArea`` at ``cursorRectInBounds`` when that rect changed: a tracking area swap, never
+    /// a rebuild of the window's cursor rects (p04-input-090), and nothing when the rect is the same.
+    private func placeCursorArea() {
         let rect = cursorRectInBounds
-        // Mid-spring the frame is at rest but the handle shows elsewhere: its landing brings the cursor back.
-        guard !rect.isEmpty, !isOnRenderSpring else { return }
-        if #available(macOS 15, *) {
-            addCursorRect(rect, cursor: axis == .horizontal ? .columnResize : .rowResize)
-        } else {
-            addCursorRect(rect, cursor: axis == .horizontal ? .resizeLeftRight : .resizeUpDown)
+        if let cursorArea {
+            guard cursorArea.rect != rect else { return }
+            removeTrackingArea(cursorArea)
+            self.cursorArea = nil
         }
+        guard !rect.isEmpty else { return }
+        let area = NSTrackingArea(rect: rect, options: [.cursorUpdate, .activeInKeyWindow], owner: self)
+        addTrackingArea(area)
+        cursorArea = area
+    }
+
+    /// The resize cursor across the handle's axis.
+    var resizeCursor: NSCursor {
+        if #available(macOS 15, *) { return axis == .horizontal ? .columnResize : .rowResize }
+        return axis == .horizontal ? .resizeLeftRight : .resizeUpDown
+    }
+
+    /// The cursor the handle shows at `point` (its own coordinates): the resize cursor within
+    /// ``cursorRectInBounds``; none mid-spring, where the frame is at rest but the handle shows
+    /// elsewhere (its landing hovers it and brings the cursor back, ``setHovered(_:)``).
+    func cursor(at point: CGPoint) -> NSCursor? {
+        guard !isOnRenderSpring, cursorRectInBounds.contains(point) else { return nil }
+        return resizeCursor
+    }
+
+    /// The pointer entered ``cursorArea`` (p04-input-090): no cursor rects, so a frame change during a
+    /// drag or a strip pan rebuilds none of the window's. Mid-spring it leaves the cursor alone.
+    override func cursorUpdate(with event: NSEvent) {
+        cursor(at: convert(event.locationInWindow, from: nil))?.set()
     }
 
     override func updateTrackingAreas() {
@@ -185,6 +229,7 @@ final class DividerHandleView: NSView {
         let area = NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeInKeyWindow, .inVisibleRect], owner: self)
         addTrackingArea(area)
         trackingArea = area
+        placeCursorArea()
     }
 
     /// The drawn line in the superview's coordinates. It is native UI that
@@ -218,8 +263,12 @@ final class DividerHandleView: NSView {
         return color.alpha > 0.001 && line.opacity > 0.001
     }
 
-    /// Set only by the owning screen's hover pass.
-    func setHovered(_ hovered: Bool) { isHovered = hovered }
+    /// Set only by the owning screen's hover pass. A handle that becomes hovered under a still pointer
+    /// (a spring landed, a layout moved it there) gets no cursor update: it shows its cursor now.
+    func setHovered(_ hovered: Bool) {
+        if hovered, !isHovered { resizeCursor.set() }
+        isHovered = hovered
+    }
 
     override func mouseEntered(with event: NSEvent) { onPointerChange?(event) }
     override func mouseExited(with event: NSEvent) { onPointerChange?(event) }
@@ -253,10 +302,9 @@ final class DividerHandleView: NSView {
     /// Chromium's compositor runs a layer's transform animation off the main thread (`cc/animation/animation_host.h`).
     /// A spring on a handle already springing retargets; the springs still running keep their velocity.
     /// `landed` runs once, when this call's springs ended or a newer call took over (`RenderSpring.Completion`),
-    /// after the handle's cursor rects follow its rest frame again.
+    /// after the handle shows its cursor at its rest frame again.
     func springToRest(_ move: SplitMotion.RenderMove, spring: RenderSpring, landed: @escaping @MainActor @Sendable () -> Void) {
         renderSpringsInFlight += 1
-        window?.invalidateCursorRects(for: self)
         let finish: RenderSpring.Completion = { [weak self] _ in
             self?.renderSpringLanded()
             landed()
@@ -302,10 +350,10 @@ final class DividerHandleView: NSView {
     /// The line's layer, for tests: it springs with the handle (``springToRest(_:spring:landed:)``).
     var lineLayer: CALayer { line }
 
-    /// One render-server spring call landed: after the last, the resize cursor shows at the rest frame.
+    /// One render-server spring call landed: after the last, the resize cursor shows at the rest frame
+    /// (``cursor(at:)``; the screen's hover pass after the landing sets it under a still pointer).
     private func renderSpringLanded() {
         renderSpringsInFlight -= 1
-        if renderSpringsInFlight == 0 { window?.invalidateCursorRects(for: self) }
     }
 
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
@@ -321,9 +369,10 @@ final class DividerHandleView: NSView {
         }
         isDragging = true
         endFrameDrag()
-        frameDrag = window.flatMap { pointerFrames()?.coalescer(for: $0) }?.consumer(owner: "DividerHandleView") { [weak self] input in
-            self?.deliver(input)
+        frameDrag = window.flatMap { pointerFrames()?.coalescer(for: $0) }?.frameTimedConsumer(owner: "DividerHandleView") { [weak self] input, frame in
+            self?.deliver(input, at: frame)
         }
+        resampler = frameDrag == nil ? nil : dragResampler()
         onDrag?(.began(event.locationInWindow))
     }
 
@@ -346,8 +395,9 @@ final class DividerHandleView: NSView {
     }
 
     /// One delivery of the frame-aligned drag: every point but the latest feeds the velocity, then
-    /// the divider moves to the latest. No allocation: the points are the delivery's own.
-    private func deliver(_ input: PointerCoalescedInput) { // perf-hot: 2ms resize-drag (each leading or trailing delivery)
+    /// the divider moves to the latest, drawn at the pointer resampled at `frame` while a resampler
+    /// runs. No allocation: the points are the delivery's own.
+    private func deliver(_ input: PointerCoalescedInput, at frame: PointerFrameTime) { // perf-hot: 2ms resize-drag (each leading or trailing delivery)
         guard isDragging else { return }
         let samples = input.samples
         if samples.count > 1 {
@@ -356,13 +406,16 @@ final class DividerHandleView: NSView {
             }
         }
         let latest = input.latest
-        onDrag?(.moved(NSPoint(x: latest.location.x, y: latest.location.y), time: latest.timestamp))
+        let shown = resampler?.points(for: input, at: frame).visualPoint
+        onDrag?(.moved(NSPoint(x: latest.location.x, y: latest.location.y), time: latest.timestamp,
+                       shown: shown.map { NSPoint(x: $0.x, y: $0.y) }))
     }
 
     /// Drops this drag's consumer and anything it still has pending.
     private func endFrameDrag() {
         frameDrag?.cancel()
         frameDrag = nil
+        resampler = nil
     }
 
     override func viewDidChangeEffectiveAppearance() {
