@@ -114,6 +114,25 @@ how long it may take (it plans the leases). Copy `journeys/p0/type.json` (the sm
 | `select_text` | `text`, `how`, `occurrence`, `mark` | selects TEXT where the pane shows it, with the pointer: `drag` (default: press on its first cell, drag to its last) or `double_click` (a word); the cells come from the pane's viewport text and grid (`debug.surfaces`) |
 | `clipboard_set` | `text` or `lines` (`format`, `count`, `start`) | set-up: puts the text on the Mac's general pasteboard (what Cmd+V reads; `pbcopy`) and reads it back; binds `${clip_sha}` (sha256) and `${clip_lines}` |
 | `file` | `path`, `text` or `lines` | set-up: writes a helper program to `/tmp/jr-*` (only there; not substituted, so it takes the run's values as arguments); removed when the journey ends |
+| `focused_terminal` | `timeout` | after a key that makes a terminal (Ctrl-\` New Terminal Tab, Cmd-D split, Home's Open a terminal): waits for a focused terminal pane showing a terminal not seen before, makes it current and waits for its first prompt |
+| `use` | `name` | makes the terminal named `name` current again; its pane is read from the topology now (after a move or a relaunch) |
+| `relaunch` | `how` (`quit`, `crash`), `mark` | ends the app and opens it again as a person does: `quit` presses Cmd-Q (a quit sheet gets its default, as Return); `crash` is `debug.crash.app` (SIGSEGV in the app). Then `open -g -n -a` the same bundle with its launch variables (the slot's HOME, socket, settings file), waits for the new process and the loaded topology, and finds every named terminal again. `mark` is the moment the old process ended |
+| `settings_file` | `set`, `unset`, `mark` | edits the app's own settings file (`CMUX_NEXT_CONFIG_FILE`, the slot's) as an editor does: `set` merges nested keys, `unset` removes dotted keys |
+| `remember_value` | `source`, `name` | keeps `daemon_cols`, `daemon_rows` or `app_cell_height` of the current terminal as `${name}` |
+| `fresh_app` | | the app must be the one capture-host launched from empty state with no journey before it (`not run` otherwise); the journey file says `"first_in_app": true`, so `run.py` starts a lease with it |
+| `outwait_hold` | | the next key waits out the creation hold after the last key (below); use it after a tab switch onto a terminal whose view may come later |
+
+Any step may say `"as": "NAME"`: the current terminal after it is named NAME, for `use` and for
+conditions that take `name`. `key` also takes `repeat` and `gap` (seconds between presses).
+
+A capture slot's window is never the key window (the app runs with `CMUX_NEXT_NO_ACTIVATE`).
+Keys typed while the app holds them for a terminal still being made (`CreationInputCoordinator`:
+after Cmd-D, Ctrl-\`, a restore; at most its 2 s `holdLimit`) are replayed through
+`NSApp.sendEvent`, which only reaches the key window, so in a slot they are lost. A person's
+window is key, so this is the slot's limit, not the app's. After `focused_terminal`, `relaunch`
+and `outwait_hold`, the next `type` or `key` therefore waits until 2.5 s after the key that made
+the terminal (checks do not wait). Typing ahead into a terminal still being made is not covered
+by journeys in a slot.
 
 `mark` names the moment of a step (for `type` with `enter`, the moment Return is pressed);
 `expect`'s `since` measures from it. Strings may use `${nonce}` (six digits, new each run, so
@@ -144,6 +163,16 @@ A negative condition (`*_lacks`, `daemon_history` with `lacks`, `app_rows` with 
 every poll and holds only when it holds together with the positive ones at the end (and through
 `settle`); a positive one holds once it has held. The capture minis share one pasteboard per login:
 `clipboard_set` reads its text back before the paste, and the `clipboard` check runs within a second.
+
+| `{"daemon_cwd": "PATH"}` or `{"daemon_cwd": {"name": N, "cwd": PATH}}` | daemon | the daemon's terminal list gives the terminal (current, or named N) that working directory (`/private/tmp` is `/tmp`) |
+| `{"daemon_grid": {"cols_lt": V, "rows_equals": V}}` | daemon | the terminal's grid in the daemon (`cols`, `rows` with `equals`, `lt`, `gt`, `lte`, `gte`) |
+| `{"daemon_pane_ready": {"tabs": N}}` | daemon | the current terminal's pane has at least N terminal tabs and each one's daemon screen shows text (a prompt) |
+| `{"app_cwd": ...}` | app | the topology's tab of the terminal shows that working directory (same forms as `daemon_cwd`) |
+| `{"app_layout": {"workspace": W, "windows": N, "panes": N, "tabs": N, "pane_tabs": N, "selected": true}}` | app | the current terminal's workspace in the topology has these counts; `selected`: its tab is its pane's selected tab |
+| `{"app_tab_pane": {"same_as": N}}` / `{"not_same_as": N}` | app | the current terminal's tab is (is not) in the same pane as terminal N |
+| `{"app_tab_gone": "N"}` | app | terminal N is in no tab of the topology |
+| `{"app_rpc": {"method": M, "params": P, "path": "a.b.0", "equals"\|"contains"\|"len"\|"len_gte"\|"gt"\|...: V}}` | app | one control-socket read; the value at `path` meets every rule |
+| `{"app_grid": {"cell_height_gt": V}}` | app | the pane's drawn grid (`cell_height`, `cell_width` with `equals`, `lt`, `gt`, ...) |
 
 `within` (seconds) makes a timing claim: each condition must first hold within that long of
 `since`, or it fails with the measured time. Frame checks are read after the other conditions
@@ -225,13 +254,15 @@ that is the author refuses the build.
 - Generated journeys: one per action catalog row, settings schema entry and keyboard shortcut
   (planned as a generator writing `journeys/generated/`; P0 is hand-written now).
 - Pointer journeys beyond window and divider drags and pane clicks (`ext_window.py`): tab drags,
-  sidebar clicks, the green button, selection with the mouse.
+  sidebar clicks, the green button.
 - Display and scale changes during a resize (`debug.simulate.display` exists; no step yet).
 - Pointer in the pane: the `mouse` and `select_text` steps cover wheel, clicks and text selection
   (scroll-paste group).
-- Quit and relaunch (session restore) inside a journey: `restore-journey.py` covers it today;
-  a `relaunch` step (`capture-host relaunch`) is not written.
-- Browser-pane journeys, sleep and wake.
+- Relaunch through `capture-host relaunch`: the driver runs on the mini, so its `relaunch` step opens
+  the bundle itself (as `restore-journey.py` does); `capture-host release` still ends every process
+  of the lease root. The full restore matrix (browser pages, agents, update and reboot variants)
+  stays in `restore-journey.py`.
+- Sleep and wake.
 - macOS 14 and 15: capture minis run the fleet's macOS; use `scripts/cmux-next/os-matrix.sh`.
 
 ## Why

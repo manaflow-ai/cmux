@@ -139,8 +139,21 @@ def select(specs, opts):
 
 
 def batches(specs):
+    """Journeys in leases of at most JOURNEY_SECONDS each. A `first_in_app` journey (first launch) needs the
+    app capture-host just launched from empty state, so each one starts a lease of its own and goes first."""
     out, current, used = [], [], 0
-    for spec in specs:
+    firsts = [s for s in specs if s.get("first_in_app")]
+    for first in firsts:
+        out.append([first])
+    rest = [s for s in specs if not s.get("first_in_app")]
+    # The rest fill the first-launch leases first, then new ones.
+    for batch in out:
+        used = batch[0]["budget_seconds"]
+        while rest and used + rest[0]["budget_seconds"] <= JOURNEY_SECONDS:
+            used += rest[0]["budget_seconds"]
+            batch.append(rest.pop(0))
+    used = 0
+    for spec in rest:
         if current and used + spec["budget_seconds"] > JOURNEY_SECONDS:
             out.append(current)
             current, used = [], 0
