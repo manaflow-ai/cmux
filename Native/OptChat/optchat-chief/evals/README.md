@@ -29,6 +29,18 @@ without a workspace. `--home DIR` picks the home's `optchat/` (default the
 default Chief), `--since 2w` the window, `--json` the output for diffs. Test:
 `python3 -m unittest test_chief_health` (from `measure/`).
 
+## Replays of a person's real messages
+
+`measure/replay_cases.py` turns messages from a real Chief memory into model
+cases for this runner, judged by rules only: dispatch fidelity (a spawn in the
+repo directory the person accepted, with their words and a Title line), feedback
+to action (a bug report becomes a spawn with their words) and rules stick (a
+rule taught earlier in the memory holds on a later dispatch, with a profile that
+lacks it). A message becomes a case only when Chief spawned for it then and the
+person's next message was not a correction. The cases hold real words, so the
+script refuses an output directory inside a git work tree: keep them private
+and run `evals/run.sh --cases DIR`. Test: `python3 -m unittest test_replay_cases`.
+
 ## Two kinds of case
 
 1. **Model cases**: one JSON file per case in `evals/cases/` (`<group>-<name>.json`).
