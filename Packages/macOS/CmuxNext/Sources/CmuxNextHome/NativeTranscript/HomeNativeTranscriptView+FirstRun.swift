@@ -21,6 +21,11 @@ extension HomeNativeTranscriptView {
         firstRun.setShortcuts(terminal: terminal, agent: agent, switching: switching)
     }
 
+    /// The first-run panel's "Bring your memory from …" row (what the host found on this Mac); nil removes it.
+    public func setFirstRunMemoryOffer(_ title: String?) {
+        firstRun.setMemoryOffer(title)
+    }
+
     /// The Chief's avatar as the host resolved it (its picture, else its text: the profile's, or
     /// 🫡 for a Chief with none, `HomeChiefAvatar.headerText`), on the header and the first-run hero.
     public func setChiefAvatar(picture: NSImage?, text: String?) {

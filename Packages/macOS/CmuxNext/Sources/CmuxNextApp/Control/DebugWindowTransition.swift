@@ -7,7 +7,7 @@ import CmuxNextSettings
 import CmuxNextTerminal
 import CmuxNextCompat
 
-#if DEBUG
+#if DEBUG || CMUX_BENCH_HOOKS
 /// `debug.window_transition` (DEBUG builds): what a window does while it
 /// enters or leaves full screen, or moves to another Space
 /// (scripts/cmux-next/fullscreen-transition.py).

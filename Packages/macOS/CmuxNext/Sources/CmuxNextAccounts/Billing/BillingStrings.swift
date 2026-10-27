@@ -2,7 +2,8 @@ package import Foundation
 
 /// User-facing messages of the `billing.*` control methods (`cmux billing`).
 /// Keys live in Resources/Billing.xcstrings (en, ja).
-package nonisolated enum BillingStrings {
+package nonisolated struct BillingStrings {
+    package nonisolated init() {}
     /// The bundle that holds `Resources/Billing.xcstrings` (this module's), for tests.
     package static var bundle: Bundle { .module }
     package static var liveOff: String { String(localized: "billing.error.liveOff", defaultValue: "Live checkout from cmux-next is not on yet. Open https://cmux.com/pricing to buy a plan.", table: "Billing", bundle: .module) }

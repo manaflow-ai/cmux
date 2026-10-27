@@ -54,6 +54,7 @@
   text-align: right;
   font-size: var(--text-detail);
   font-variant-numeric: tabular-nums;
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 /* A /context breakdown: each used category takes a step of the theme accent, largest first, so the
    bar reads as one color family over the glass; the autocompact buffer is a stronger tint of the text,
@@ -94,6 +95,7 @@
 .acpmux-context-breakdown__items {
   padding-left: 18px;
   font-size: var(--text-detail);
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 .acpmux-context-breakdown__items .acpmux-chat-inspector-row {
   height: 24px;
@@ -103,7 +105,8 @@
 .acpmux-context-pop.acpmux-context-pop--breakdown {
   --acpmux-inspector-row-radius: 6px;
   --acpmux-inspector-row-hover: color-mix(in srgb, var(--agent-text) 7%, transparent);
-  width: 288px;
+  width: 230px;
+  max-width: min(230px, calc(100vw - 24px));
 }
 .acpmux-context-pop .acpmux-chat-inspector-context__bar {
   margin: 8px 0 6px;

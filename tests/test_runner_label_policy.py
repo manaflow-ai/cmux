@@ -222,6 +222,17 @@ class TheReportSeesEveryRunnerVariable(unittest.TestCase):
         )
 
 
+class NightlyNextBuildVariable(unittest.TestCase):
+    def test_an_owned_side_or_dev_label_or_blacksmith_is_allowed(self) -> None:
+        name = "CI_NIGHTLY_NEXT_BUILD_RUNNER"
+        for label in ("glaeda-dev-std-xcode-26.6", "glaeda-side-std-xcode-26.6", "blacksmith-6vcpu-macos-26", ""):
+            with self.subTest(label=label):
+                self.assertEqual(drifted_runner_variables({name: label}), [])
+        for label in ("glaeda-std-xcode-26.6", "glaeda-runner-cmux7s-mac-mini-nightly-next", "self-hosted"):
+            with self.subTest(label=label):
+                self.assertTrue(drifted_runner_variables({name: label}))
+
+
 class SideLaneVariable(unittest.TestCase):
     def test_only_an_owned_side_label_is_allowed_beyond_the_policy(self) -> None:
         # CI_SIDE_LANE_RUNNER and CI_LIGHT_LANE_RUNNER are the picker-less side lanes' whole runs-on.
@@ -334,11 +345,12 @@ class NightlyRunnerVariable(unittest.TestCase):
                 )
         self.assertTrue(drifted_runner_variables({"MACOS_RUNNER_26_LARGE": "glaeda-runner-cmux15-glaeda"}))
 
-    def test_nightly_asks_for_the_trusted_pool_and_the_runner_together(self) -> None:
-        text = (ROOT / ".github" / "workflows" / "nightly.yml").read_text(encoding="utf-8")
-        self.assertIn("fromJSON(format('[\"{0}\", \"{1}\"]', vars.CI_SEED_TRUSTED_POOL, "
-                      "vars.CI_NIGHTLY_TRUSTED_RUNNER))", text)
-        self.assertIn("vars.CI_SEED_TRUSTED_POOL != '' && vars.CI_NIGHTLY_TRUSTED_RUNNER != ''", text)
+    def test_nightly_no_longer_asks_for_a_single_trusted_runner(self) -> None:
+        text = (ROOT / ".github/workflows/nightly.yml").read_text(encoding="utf-8")
+        self.assertIn("vars.CI_SIDE_LANE_RUNNER", text)
+        self.assertNotIn("vars.CI_NIGHTLY_TRUSTED_RUNNER", text)
+        self.assertNotIn("vars.CI_NIGHTLY_NEXT_TRUSTED_RUNNER", text)
+
 
 
 class NextNightlyTrustedLabels(unittest.TestCase):

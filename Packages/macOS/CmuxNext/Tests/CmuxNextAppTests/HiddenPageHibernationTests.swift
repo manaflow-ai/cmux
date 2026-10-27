@@ -1,7 +1,9 @@
 import AppKit
 @testable import CmuxNextApp
+import CmuxNextHibernation
 @testable import CmuxNextBridge
 @testable import CmuxNextBrowser
+import CmuxNextCompat
 import CmuxNextSettings
 import Foundation
 import Testing
@@ -44,10 +46,10 @@ import Testing
         let page = try await rig.page("typed", body: "<input id='note'>")
         rig.window.contentView = page.contentView
         rig.window.makeFirstResponder(page.webView)
-        _ = try await page.evaluate("document.getElementById('note').focus(); true", world: .page)
+        _ = try await page.evaluate("document.getElementById('note').focus(); true", world: .page, gesture: .agent)
         page.webView.insertText("draft")
         try await rig.until("the typing reached the page") {
-            (try? await page.evaluate("document.getElementById('note').value", world: .page)) == .string("draft")
+            (try? await page.evaluate("document.getElementById('note').value", world: .page, gesture: .agent)) == .string("draft")
         }
         rig.window.contentView = nil
         let key = try await rig.hide(page)
@@ -64,10 +66,10 @@ import Testing
         let page = try await rig.page("cleared", body: "<input id='note'>")
         rig.window.contentView = page.contentView
         rig.window.makeFirstResponder(page.webView)
-        _ = try await page.evaluate("document.getElementById('note').focus(); true", world: .page)
+        _ = try await page.evaluate("document.getElementById('note').focus(); true", world: .page, gesture: .agent)
         page.webView.insertText("draft")
         try await rig.until("the typing reached the page") {
-            (try? await page.evaluate("document.getElementById('note').value", world: .page)) == .string("draft")
+            (try? await page.evaluate("document.getElementById('note').value", world: .page, gesture: .agent)) == .string("draft")
         }
         rig.window.contentView = nil
         let key = try await rig.hide(page)
@@ -75,7 +77,7 @@ import Testing
         try #require(rig.exemption(key) == .formInput)
 
         // The draft is gone (sent, cleared): the next look lets the page hibernate.
-        _ = try await page.evaluate("document.getElementById('note').value = ''; true", world: .page)
+        _ = try await page.evaluate("document.getElementById('note').value = ''; true", world: .page, gesture: .agent)
         rig.hibernation.replan()
         try await rig.until("the page hibernated") { rig.isHibernated(key) }
         #expect(rig.exemption(key) == nil, "a hibernated page is still reported as kept")
@@ -93,7 +95,7 @@ import Testing
             <script>addEventListener('keydown', (e) => { window.pressed = e.isTrusted; }, true);</script>
             """)
         try await rig.pressDown(page)
-        _ = try await page.evaluate("document.getElementById('s').value = 'b'; true", world: .page)
+        _ = try await page.evaluate("document.getElementById('s').value = 'b'; true", world: .page, gesture: .agent)
         rig.window.contentView = nil
         let key = try await rig.hide(page)
         try await rig.until("the page hibernated or was kept") { rig.isHibernated(key) || rig.exemption(key) != nil }
@@ -137,7 +139,7 @@ import Testing
         defer { rig.close() }
         let page = try await rig.page("sent", body: "<div id='editor' contenteditable style='height: 200px'></div>")
         try await rig.type("draft", into: "editor", page)
-        _ = try await page.evaluate("document.getElementById('editor').textContent = ''; true", world: .page)
+        _ = try await page.evaluate("document.getElementById('editor').textContent = ''; true", world: .page, gesture: .agent)
         rig.window.contentView = nil
         let key = try await rig.hide(page)
         try await rig.until("the page hibernated or was kept") { rig.isHibernated(key) || rig.exemption(key) != nil }
@@ -283,7 +285,7 @@ import Testing
         _ = try await page.evaluate("""
             document.getElementById('name').value = 'Ada'; document.getElementById('notes').value = 'two\\nlines';
             window.scrollTo(0, 3000); true
-            """, world: .page)
+            """, world: .page, gesture: .agent)
         // WebKit writes the scroll position into the page's history item once scrolling has
         // stopped for a moment; a person's page hibernates minutes later.
         try await Task.sleep(for: .seconds(1))
@@ -303,7 +305,7 @@ import Testing
         try await rig.until("the woken page has its state back (it has \(seen))") {
             guard let woken = rig.services.cache.browsers[key]?.tab as? WebKitTab else { return false }
             if rig.window.contentView !== woken.contentView { rig.window.contentView = woken.contentView }
-            let value = try? await woken.evaluate(state, world: .page)
+            let value = try? await woken.evaluate(state, world: .page, gesture: .agent)
             seen = String(describing: value)
             return value == .string(shown ? #"["Ada","two\nlines",3000]"# : #"["","",3000]"#)
         }
@@ -345,7 +347,7 @@ import Testing
         init() throws {
             _ = NSApplication.shared
             services = AppServices(environment: AppEnvironment.current([:]))
-            hibernation = BrowserHibernation(cache: services.cache)
+            hibernation = BrowserHibernation(cache: services.cache, memoryPressure: MemoryPressureEvents(source: ManualMemoryPressureSource()))
             services.cache.hibernation = hibernation
             hibernation.apply(BrowserHibernationSetting(mode: .moderate))
             hibernation.pressureDidChange(.critical)
@@ -363,7 +365,7 @@ import Testing
             let page = services.cache.webKit.makeWebKitTab()
             page.load(url)
             try await until("\(name) loads") {
-                (try? await page.evaluate("document.readyState === 'complete' && document.title", world: .page)) == .string(name)
+                (try? await page.evaluate("document.readyState === 'complete' && document.title", world: .page, gesture: .agent)) == .string(name)
             }
             return page
         }
@@ -390,7 +392,7 @@ import Testing
                                                      characters: "\u{F701}", charactersIgnoringModifiers: "\u{F701}", isARepeat: false, keyCode: 125))
             page.webView.keyDown(with: down)
             try await until("the key reached the page") {
-                (try? await page.evaluate("window.pressed === true", world: .page)) == .bool(true)
+                (try? await page.evaluate("window.pressed === true", world: .page, gesture: .agent)) == .bool(true)
             }
         }
 
@@ -398,10 +400,10 @@ import Testing
         func type(_ text: String, into id: String, _ page: WebKitTab) async throws {
             window.contentView = page.contentView
             window.makeFirstResponder(page.webView)
-            _ = try await page.evaluate("document.getElementById('\(id)').focus(); true", world: .page)
+            _ = try await page.evaluate("document.getElementById('\(id)').focus(); true", world: .page, gesture: .agent)
             page.webView.insertText(text)
             try await until("the typing reached the editor") {
-                (try? await page.evaluate("document.getElementById('\(id)').textContent", world: .page)) == .string(text)
+                (try? await page.evaluate("document.getElementById('\(id)').textContent", world: .page, gesture: .agent)) == .string(text)
             }
         }
 

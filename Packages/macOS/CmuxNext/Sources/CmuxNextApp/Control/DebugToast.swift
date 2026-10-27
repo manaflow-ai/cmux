@@ -3,7 +3,7 @@ import CmuxNextActions
 import CmuxNextDesign
 import CmuxNextSettings
 
-#if DEBUG
+#if DEBUG || CMUX_BENCH_HOOKS
 /// `debug.toast`: the toasts of every window, for automation (R96), through
 /// the paths a person takes.
 /// - `{}` lists each window's toasts (id, message, action title, undo).
@@ -15,6 +15,11 @@ import CmuxNextSettings
 ///   active one by default) as Cmd-Z does.
 /// - `{press: "<toast id>", window?}` runs the action of the newest toast
 ///   with that id, as its button does.
+/// - `{close: "<toast id>", window?}` closes the newest toast with that id,
+///   as its close button does.
+/// - `{stop_all: {<chief.stop {all} answer>}, window?}` shows the Stop all
+///   agents toast for that answer, decoded as the daemon's is, until closed
+///   (captures of the toast with no Chief or subagents to stop).
 /// Every reply also has `undo_steps`: the sidebar and pin undo steps registered so far.
 @MainActor
 enum DebugToast {
@@ -52,8 +57,14 @@ enum DebugToast {
                 return true
             } ?? false)
         }
+        if let answer = params["stop_all"] {
+            result["stop_all"] = showStopAll(answer, in: window)
+        }
         if let toastID = params["press"]?.stringValue {
             result["pressed"] = .bool(window.map { CmuxToastCenter.shared.runAction(id: toastID, in: $0) } ?? false)
+        }
+        if let toastID = params["close"]?.stringValue {
+            result["closed"] = .bool(window.map { CmuxToastCenter.shared.close(id: toastID, in: $0) } ?? false)
         }
         var windows: [JSONValue] = []
         for controller in services.windows.controllers {
@@ -71,7 +82,21 @@ enum DebugToast {
     private static func report(_ toast: CmuxToast) -> JSONValue {
         let action: JSONValue = toast.action.map { .string($0.title) } ?? .null
         return .object(["id": .string(toast.id), "message": .string(toast.message), "action": action,
-                        "undo": .bool(toast.action?.isUndo == true)])
+                        "detail": toast.detail.map(JSONValue.string) ?? .null, "undo": .bool(toast.action?.isUndo == true)])
+    }
+
+    private static func showStopAll(_ answer: JSONValue, in window: NSWindow?) -> JSONValue {
+        guard let window else { return .object(["error": .string("no window")]) }
+        // JSONSerialization raises (not throws) on a top level that is not an object.
+        guard case .object = answer else { return .object(["error": .string("stop_all is not an object")]) }
+        do {
+            let data = try JSONSerialization.data(withJSONObject: answer.foundationObject)
+            let toast = try CmuxToast.stopAll(decoding: data, duration: CmuxToast.untilClosed)
+            CmuxToastCenter.shared.show(toast, in: window)
+            return .bool(true)
+        } catch {
+            return .object(["error": .string("not a chief.stop {all} answer: \(error)")])
+        }
     }
 }
 #endif

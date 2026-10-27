@@ -74,6 +74,8 @@ await requireBrowserLane("gallery-agent-pane-entries.test.ts", async () => {
     { entry: "bottom-stack", variant: "pr-queue", play: "steps" },
     { entry: "header-tools", variant: "pull-request-status", play: "steps" },
     { entry: "header-tools", variant: "pull-request-merge", play: "steps" },
+    // No header tool draws a box in any state; the open panel's toggle is lit by its ink (Leo 2026-10-25).
+    { entry: "header-tools", variant: "plain-icons", play: "error" },
     { entry: "dictation", variant: "hide", play: "steps" },
     { entry: "harness-health-notice", variant: "dismissed", play: "steps", shows: composerWithoutNotice },
     {

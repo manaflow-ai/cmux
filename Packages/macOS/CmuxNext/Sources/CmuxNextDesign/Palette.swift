@@ -113,6 +113,14 @@ public struct Palette {
     /// every unread mark, the sidebar's unread dot and the pane's unread ring by default. The
     /// same in every theme, so an unread mark reads the same everywhere.
     public static var notificationBlue: NSColor { NSColor(srgbRed: 57 / 255, green: 130 / 255, blue: 245 / 255, alpha: 1) }
+    /// The sidebar's unread or new status dot: `systemBlue`, so light and dark match and the color
+    /// means one thing in every row (Lawrence msg 11983).
+    public static var statusUnread: NSColor { .systemBlue }
+    /// The sidebar's needs-attention status dot (a permission prompt, a question, waiting on the
+    /// user): `systemOrange` (Lawrence msg 11983).
+    public static var statusAttention: NSColor { .systemOrange }
+    /// The sidebar's error status mark (failed, stopped with an error): `systemRed` (Lawrence msg 11983).
+    public static var statusError: NSColor { .systemRed }
     /// Needs attention (agent waiting for input): the theme's ANSI yellow.
     public static var attention: NSColor { color(\.attention, dynamic: PaletteDynamic.attention) }
     /// Errors: the theme's ANSI red.

@@ -79,6 +79,16 @@ import Testing
         }
     }
 
+    /// Background mode owns the staged installer so the app can replace it when a newer feed
+    /// item arrives. A persisted Sparkle silent-install preference would bypass that replacement
+    /// path and make Restart to Update install an older build first.
+    @Test func backgroundModeDisablesSparkleSilentInstallPath() {
+        let harness = Harness(automaticDownloads: true)
+        #expect(harness.defaults.bool(forKey: UpdateSettings.automaticallyUpdateKey))
+        harness.controller.installsUpdatesInBackground = true
+        #expect(!harness.defaults.bool(forKey: UpdateSettings.automaticallyUpdateKey))
+    }
+
     @Test func backgroundModeSkipsThePromptForAUserInitiatedCheckToo() {
         let harness = Harness()
         harness.controller.installsUpdatesInBackground = true
@@ -116,6 +126,30 @@ import Testing
         readyBox.choice = nil
         harness.controller.installStagedUpdate()
         #expect(readyBox.choice == nil)
+    }
+
+    /// Lawrence 2026-10-23 ("dyt we can just remove this"): a nightly's idle install held for
+    /// 9 busy agents and 5 commands showed a "Waiting to Relaunch" card. The hold now shows as the
+    /// staged update, so the person's click on it is an install they asked for: it relaunches at
+    /// once instead of failing as "install clicked with no staged update".
+    @Test func aClickOnAnIdleInstallHeldForBusyWorkRelaunchesNow() {
+        let harness = Harness()
+        let host = HeldBlockersHost()
+        harness.controller.driver.actionDelegate = host
+        let installs = CallCounterBox()
+        harness.controller.driver.relaunchIsAutomatic = true
+        #expect(harness.controller.driver.handleShouldPostponeRelaunch(item: item, installHandler: { installs.count += 1 }))
+        #expect(harness.controller.driver.relaunchGate.isWaiting)
+        #expect(harness.controller.stagedUpdate?.displayVersionString == "0.64.17",
+                "the held update has no version, so the rail hides it and nothing can relaunch it")
+
+        harness.controller.installStagedUpdate()
+
+        #expect(installs.count == 1, "the click did not relaunch the held install")
+        #expect(!harness.controller.driver.relaunchGate.isWaiting)
+        if case .error = harness.model.state {
+            Issue.record("the click on a held install became an error: \(harness.model.state)")
+        }
     }
 
     @Test func aClickDuringTheDownloadInstallsAsSoonAsItIsReady() {
@@ -287,4 +321,131 @@ import Testing
         find(harness, into: newer)
         #expect(newer.choice == .install)
     }
+}
+
+/// Host that answers whether it quits and reopens itself for an automatic install.
+@MainActor
+private final class ReopeningHost: UpdateActionDelegate {
+    var reopens: Bool
+    var asked: [String] = []
+    init(reopens: Bool) { self.reopens = reopens }
+    func updaterRequestsRetryCheckForUpdates() {}
+    func updaterWillRelaunchApplication() {}
+    func updaterRelaunchBlockers() -> UpdateRelaunchBlockers { .empty }
+    func updaterQuitsForAutomaticInstall(build: String) -> Bool {
+        asked.append(build)
+        return reopens
+    }
+}
+
+/// An automatic install whose host reopens itself never answers Sparkle's ready reply (Sparkle
+/// installs as the app exits, with no relaunch through LaunchServices); a click, or a host that
+/// does not reopen, installs and relaunches through Sparkle as before.
+@MainActor
+@Suite struct AutomaticInstallReopenTests {
+    private let item = SUAppcastItem(dictionary: [
+        "title": "cmux 0.64.17",
+        "pubDate": "Wed, 25 Mar 2026 12:00:00 +0000",
+        "enclosure": ["url": "https://example.com/cmux.zip", "length": "1024",
+                      "sparkle:version": "0.64.17", "sparkle:shortVersionString": "0.64.17"],
+    ])!
+
+    private func stage(_ harness: Harness, host: ReopeningHost, automatic: Bool) -> ChoiceBox {
+        let driver = harness.controller.driver
+        driver.actionDelegate = host
+        harness.controller.installsUpdatesInBackground = true
+        harness.controller.holdsUserInstalls = false
+        harness.controller.installsUpdatesWhenIdle = automatic
+        let sparkleState = unsafeBitCast(NSNull(), to: SPUUserUpdateState.self)
+        driver.showUpdateFound(with: item, state: sparkleState, reply: { _ in })
+        let ready = ChoiceBox()
+        driver.showReady(toInstallAndRelaunch: { choice in MainActor.assumeIsolated { ready.choice = choice } })
+        return ready
+    }
+
+    @Test func aHostThatReopensLeavesTheReplyForTheQuit() {
+        let harness = Harness()
+        let host = ReopeningHost(reopens: true)
+        let ready = stage(harness, host: host, automatic: true)
+        #expect(host.asked == ["0.64.17"])
+        #expect(ready.choice == nil, "Sparkle must not relaunch: it installs as the app exits")
+        #expect(harness.controller.stagedUpdate == nil)
+        #expect(!harness.controller.driver.relaunchIsAutomatic)
+
+        // The quit was refused: the update is staged again (Sparkle's reply still held), once.
+        harness.controller.restageAfterDeclinedQuit()
+        #expect(ready.choice == nil, "a refused quit never relaunches through Sparkle (that activates)")
+        #expect(harness.controller.stagedUpdate?.versionString == "0.64.17")
+        guard case .installing(let staged) = harness.model.state, staged.isAutoUpdate else {
+            Issue.record("expected the staged state, got \(harness.model.state)")
+            return
+        }
+        harness.controller.restageAfterDeclinedQuit()
+        // The user's click then installs and relaunches through Sparkle.
+        harness.controller.installStagedUpdate()
+        #expect(ready.choice == .install)
+        #expect(host.asked == ["0.64.17"], "a click never asks the host to reopen")
+    }
+
+    /// The user came into the app before the quit: Sparkle installs and relaunches, once.
+    @Test func aHeldInstallRelaunchesThroughSparkleWhenTheUserComesIn() {
+        let harness = Harness()
+        let host = ReopeningHost(reopens: true)
+        let ready = stage(harness, host: host, automatic: true)
+        #expect(ready.choice == nil)
+        harness.controller.relaunchHeldInstallThroughSparkle()
+        #expect(ready.choice == .install)
+        ready.choice = nil
+        harness.controller.relaunchHeldInstallThroughSparkle()
+        harness.controller.restageAfterDeclinedQuit()
+        #expect(ready.choice == nil, "once")
+        #expect(harness.controller.stagedUpdate == nil)
+    }
+
+    @Test func aHostThatDoesNotReopenRelaunchesThroughSparkle() {
+        let harness = Harness()
+        let host = ReopeningHost(reopens: false)
+        let ready = stage(harness, host: host, automatic: true)
+        #expect(host.asked == ["0.64.17"])
+        #expect(ready.choice == .install)
+    }
+
+    @Test func aClickNeverAsksTheHostToReopen() {
+        let harness = Harness()
+        let host = ReopeningHost(reopens: true)
+        let ready = stage(harness, host: host, automatic: false)
+        harness.controller.installStagedUpdate()
+        #expect(host.asked.isEmpty)
+        #expect(ready.choice == .install, "a clicked install relaunches through Sparkle, which activates")
+    }
+
+    @Test func aHostWithTheRelaunchGateIsNotAsked() {
+        let harness = Harness()
+        let host = ReopeningHost(reopens: true)
+        let driver = harness.controller.driver
+        driver.actionDelegate = host
+        harness.controller.installsUpdatesInBackground = true
+        harness.controller.installsUpdatesWhenIdle = true
+        let sparkleState = unsafeBitCast(NSNull(), to: SPUUserUpdateState.self)
+        driver.showUpdateFound(with: item, state: sparkleState, reply: { _ in })
+        let ready = ChoiceBox()
+        driver.showReady(toInstallAndRelaunch: { choice in MainActor.assumeIsolated { ready.choice = choice } })
+        #expect(host.asked.isEmpty)
+        #expect(ready.choice == .install)
+    }
+}
+
+/// Host that reports busy agents and running commands, as the nightly did when the card showed.
+@MainActor
+private final class HeldBlockersHost: UpdateActionDelegate {
+    func updaterRequestsRetryCheckForUpdates() {}
+    func updaterPrepareAutomaticInstall() -> Bool { true }
+    func updaterWillRelaunchApplication() {}
+    func updaterRelaunchBlockers() -> UpdateRelaunchBlockers {
+        UpdateRelaunchBlockers(busyAgentCount: 9, runningCommandCount: 5)
+    }
+}
+
+private final class CallCounterBox: @unchecked Sendable {
+    var count = 0
 }

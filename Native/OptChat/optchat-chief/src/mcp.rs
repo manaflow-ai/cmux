@@ -10,9 +10,10 @@ use serde_json::{Value, json};
 
 use crate::prompt::{
     CONTROL_DESCRIPTION, DATE_DESCRIPTION, ESCALATE_AUTH_DESCRIPTION, PEER_TELL_DESCRIPTION,
-    PEERS_DESCRIPTION, REACT_DESCRIPTION, REPLY_DESCRIPTION, SEND_DESCRIPTION, SLEEP_DESCRIPTION,
-    SPAWN_CWD_DESCRIPTION, SPAWN_DESCRIPTION, STOP_DESCRIPTION, TELL_DESCRIPTION,
-    TRANSCRIPT_DESCRIPTION, VERSION_DESCRIPTION, ZOOM_AGENT_DESCRIPTION, ZOOM_DESCRIPTION,
+    PEERS_DESCRIPTION, REACT_DESCRIPTION, REMEMBER_DESCRIPTION, REPLY_DESCRIPTION,
+    SEND_DESCRIPTION, SLEEP_DESCRIPTION, SPAWN_CWD_DESCRIPTION, SPAWN_DESCRIPTION,
+    STOP_DESCRIPTION, TELL_DESCRIPTION, TRANSCRIPT_DESCRIPTION, VERSION_DESCRIPTION,
+    ZOOM_AGENT_DESCRIPTION, ZOOM_DESCRIPTION,
 };
 use crate::tools::{self, Call};
 
@@ -114,6 +115,10 @@ pub fn tools_granted(subagent: bool, grant: &crate::chief_profile::Grant) -> Val
             "note": {"type": "string", "description": "What to do when you wake: shown to you in the wake message."},
             "until": {"type": "string", "enum": ["time", "event"], "description": "time (default): wake at the time whatever happens. event: a user message or subagent report that comes first replaces the wake."}},
           "required": ["seconds"], "additionalProperties": false}}));
+        list.push(json!({"name": "remember", "description": REMEMBER_DESCRIPTION,
+         "inputSchema": {"type": "object", "properties": {
+            "text": {"type": "string", "minLength": 1, "maxLength": crate::remember::REMEMBER_MAX, "description": "The preference as one short rule in the person's own terms, e.g. \"Reply in one short bullet list.\""}},
+          "required": ["text"], "additionalProperties": false}}));
     }
     Value::Array(list)
 }
@@ -217,6 +222,7 @@ pub fn handle(message: &Value, backend: &dyn Backend) -> Option<Value> {
                     | Call::Transcript { .. }
                     | Call::Stop
                     | Call::Sleep(_)
+                    | Call::Remember { .. }
                     | Call::Control(_)
                     | Call::Profile { .. }
                     | Call::Chiefs { .. }

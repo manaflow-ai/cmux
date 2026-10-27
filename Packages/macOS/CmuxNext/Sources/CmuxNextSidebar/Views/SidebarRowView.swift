@@ -143,6 +143,8 @@ class SidebarRowView: NSView {
     /// The leading icon the row's view draws now for debug.sidebar_rows `icon`
     /// (`symbol`, `swatch`, `emoji`, `favicon`, `agentMark`); nil when it draws none.
     var debugIcon: String? { nil }
+    /// The row draws the archived look (plans/cmux-next/archiving-DESIGN.md).
+    var debugArchived: Bool { false }
     /// The address of the favicon the row draws (a link row), for proofs.
     var debugIconAddress: String? { nil }
 

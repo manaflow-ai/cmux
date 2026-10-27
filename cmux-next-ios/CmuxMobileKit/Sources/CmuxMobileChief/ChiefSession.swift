@@ -522,9 +522,12 @@ public final class ChiefSession {
 
     /// Sends a message to Chief: now when Chief has connected, else into the
     /// outbox, which goes out when it connects (never dropped silently).
-    public func send(_ message: ConversationComposeMessage) {
+    /// `asksForAlerts`: the composer's first send asks for notification
+    /// permission (Chief's replies alert); a live call's send doesn't, so no
+    /// system prompt lands over the call screen.
+    public func send(_ message: ConversationComposeMessage, asksForAlerts: Bool = true) {
         guard !message.isEmpty else { return }
-        ChiefAlerts.shared.requestPermissionIfUndetermined()
+        if asksForAlerts { ChiefAlerts.shared.requestPermissionIfUndetermined() }
         if store.meID != nil, store.connection == .connected {
             store.sendWhenConnected(message)
             return

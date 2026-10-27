@@ -101,11 +101,9 @@ enum RemoteGroupHandlers {
         }
     }
 
-    /// Sends the document ops that make the machine section of daemon session `session` a remote group.
-    static func mark(session: String) {
-        guard let store = SidebarDocStore.current, SidebarDocWiring.isActive else { return }
-        let ops = SidebarDocHostGroupPlan(session: session, records: store.records).ops
-        guard !ops.isEmpty else { return }
-        store.send(ops: ops, title: RemoteStrings.newGroupTitle, undoable: false)
+    /// Makes the machine section of daemon session `session` a remote group; nothing for an unnamed session.
+    /// New Remote Group, New Cloud Workspace and a new Cloud machine call it: a Cloud machine's workspaces sit in one group.
+    static func mark(session: String?) {
+        if let session, SidebarDocWiring.isActive { SidebarDocStore.current?.markHostGroup(session: session, title: RemoteStrings.newGroupTitle) }
     }
 }

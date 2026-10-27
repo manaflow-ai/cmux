@@ -137,7 +137,7 @@ binds to your cmux workspace, or to the focused workspace outside cmux.
   are inlined; refs and locators work inside them.
 - An open dialog or file chooser prints first, under the header.
 - Printing a snapshot shows its diff against the previous snapshot of the
-  same tab when that is shorter (for a large page, 30% shorter), else the
+  same document in the tab (a navigation to a new document starts over) when that is shorter (for a large page, 30% shorter), else the
   full tree. `.tree` and `.diff` are always there. Diff lines start with `+`
   (added), `-` (removed) or `~` (changed, new version); unchanged ancestors
   are shown for context.

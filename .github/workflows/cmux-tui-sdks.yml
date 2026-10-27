@@ -656,6 +656,7 @@ jobs:
         if: ${{ steps.headless-cache.outputs.cache-hit != 'true' }}
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
+          cache-bin: false
           workspaces: cmux-tui -> target
           shared-key: cmux-tui-headless-debug
           cache-workspace-crates: "true"
@@ -726,7 +727,7 @@ jobs:
       - name: Setup Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
-          bun-version: "1.4.2"
+          bun-version: "1.4.4"
 
       # Ubuntu 24.04 lets only AppArmor-profiled programs make an unprivileged user
       # namespace; bwrap needs one, so the runner VM lifts that restriction.

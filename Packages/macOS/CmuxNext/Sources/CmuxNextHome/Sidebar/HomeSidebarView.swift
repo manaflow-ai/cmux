@@ -382,7 +382,7 @@ public final class HomeSidebarView: NSView {
         }
     }
 
-    #if DEBUG
+    #if DEBUG || CMUX_BENCH_HOOKS
     /// Screenshots: true gives the search field the keyboard (it opens over an avatar-only list), false
     /// ends the search and takes the keyboard back.
     public func debugSearch(_ open: Bool) {

@@ -132,7 +132,7 @@ const nameOf = (head: Head, id: string) => head.participants.find((p) => p.id ==
  * thread), then the text, with mentions shown as @name and attachments as one line each. Empty
  * when the message carries nothing a model can read.
  */
-export const formatMessage = (head: Head, m: Message, opts: { readonly files?: boolean } = {}): string => {
+export const formatMessage = (head: Head, m: Message, opts: { readonly files?: boolean; readonly owner?: string } = {}): string => {
   const lines: Array<string> = []
   for (const part of m.parts) {
     if (part.type === "text") {
@@ -149,15 +149,37 @@ export const formatMessage = (head: Head, m: Message, opts: { readonly files?: b
   const kind = head.kind ?? "group"
   const where = head.title?.trim() ? head.title.trim() : kind
   const thread = m.thread_root ? " · in a thread" : ""
-  return `[${where} · ${kind} · ${nameOf(head, m.author)}${thread}] ${lines.join("\n")}`
+  // In a shared conversation the Chief must tell its owner from everyone else (CHIEF-DONE B3: the owner's
+  // requests run, anyone else's keep the approval rule); the owner's own Chief line has only the owner
+  // until the owner shares it with teammates (cmux#25569).
+  const owner = (kind !== "chief" || sharedChief(head)) && opts.owner !== undefined && m.author === opts.owner ? " (your owner)" : ""
+  return `[${where} · ${kind} · ${nameOf(head, m.author)}${owner}${thread}] ${lines.join("\n")}`
 }
+
+/**
+ * The inbox kind of a Chief's conversation its owner shared with teammates (cmux#25569). It reads like
+ * the Chief's own line (the main timeline), but the reply quotes the message it answers, so each person
+ * sees which of their messages the Chief answered.
+ */
+export const SHARED_CHIEF = "chief_shared"
+
+/** More than one person is in this Chief's conversation (its owner shared it). */
+export const sharedChief = (head: Head): boolean =>
+  head.kind === "chief" && head.participants.filter((p) => p.kind === "human" && p.left_at === undefined).length > 1
+
+/** The kind a message is queued under (cb_inbox.kind, then cb_turn.trigger_kind). */
+export const inboxKind = (head: Head): string => (sharedChief(head) ? SHARED_CHIEF : (head.kind ?? "group"))
+
+/** The Chief's line, shared or not, or a DM: replies stay on the main timeline. */
+export const oneLine = (kind: string): boolean => kind === "chief" || kind === SHARED_CHIEF || kind === "dm"
 
 /**
  * Where the reply goes: in a channel or group, the thread of the message answered (its own thread,
  * or the thread it is in); in the chief's line or a DM, the main timeline unless that message was
- * already in a thread.
+ * already in a thread; in a shared chief's line, the main timeline as a reply to the message answered.
  */
 export const replyTarget = (kind: string, message: string, threadRoot: string | null): { reply_to?: string; thread_root?: string } => {
+  if (kind === SHARED_CHIEF) return { reply_to: message, ...(threadRoot ? { thread_root: threadRoot } : {}) }
   if (kind === "chief" || kind === "dm") return threadRoot ? { reply_to: message, thread_root: threadRoot } : {}
   return { reply_to: message, thread_root: threadRoot ?? message }
 }
@@ -173,4 +195,26 @@ export const clipReply = (text: string) => {
   let out = [...text]
   while (enc.encode(out.join("")).length > REPLY_BYTES - 16) out = out.slice(0, Math.floor(out.length * 0.9))
   return `${out.join("")}\n[... cut]`
+}
+
+/** cmux public ids the last reply pass links: prefix -> deeplink kind (DeepLink `.workspace`, `.tab`, `.pane`). */
+const ID_KINDS: Readonly<Record<string, string>> = { ws: "workspace", tab: "tab", pane: "pane" }
+/** Code fences, code spans and Markdown links: left as written. */
+const KEEP = /```[\s\S]*?(?:```|$)|`[^`\n]*`|\[[^\]\n]*\]\([^)\n]*\)/g
+const BARE_ID = /(^|[\s(*_"'|>])((ws|tab|pane)_[0-9a-f]{32})(?![A-Za-z0-9_/-])/g
+
+/**
+ * The last pass over a Cloud Chief reply (optchat-chief reply_links.rs, Lawrence 2026-10-26: "reply with links to
+ * stuff properly"): a bare cmux id (`ws_…`, `tab_…`, `pane_…`) becomes its `cmux://` link. Code, existing links and
+ * URLs stay. Paths are not linked: the Chief's files are on its VM, not the person's Mac.
+ */
+export const linkIds = (text: string): string => {
+  const link = (part: string) => part.replace(BARE_ID, (_m, pre: string, id: string, kind: string) => `${pre}[${ID_KINDS[kind]}](cmux://${ID_KINDS[kind]}/${id})`)
+  let out = ""
+  let at = 0
+  for (const m of text.matchAll(KEEP)) {
+    out += link(text.slice(at, m.index)) + m[0]
+    at = m.index + m[0].length
+  }
+  return out + link(text.slice(at))
 }

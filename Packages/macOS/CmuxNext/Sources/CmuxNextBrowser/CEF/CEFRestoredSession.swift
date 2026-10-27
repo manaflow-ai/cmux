@@ -21,8 +21,8 @@ struct CEFRestoredSessionHost: BrowserRestoredSessionHost {
         tab.machine.apply(.historyChanged(canGoBack: canGoBack, canGoForward: canGoForward))
     }
     func currentScrollY() async -> Double? { await tab.currentScrollY() }
-    func evaluate(_ script: String, world: BrowserScriptWorld) async throws -> BrowserJSValue {
-        try await tab.evaluate(script, world: world)
+    func evaluate(_ script: String, world: BrowserScriptWorld, gesture: BrowserScriptGesture) async throws -> BrowserJSValue {
+        try await tab.evaluate(script, world: world, gesture: gesture)
     }
     func load(_ url: URL) { tab.load(url) }
 }

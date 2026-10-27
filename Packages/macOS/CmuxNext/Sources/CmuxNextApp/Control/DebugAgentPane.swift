@@ -1,4 +1,4 @@
-#if DEBUG
+#if DEBUG || CMUX_BENCH_HOOKS
 import AppKit
 import CmuxNextActions
 import CmuxNextAgentPane
@@ -17,7 +17,8 @@ import WebKit
 /// `action`: `seed_rows` (`count`, default 5000; `fixture: "worked-turn"`
 /// seeds a turn that edits three files instead, for the changes view, and `"short"` one-line
 /// turns answered "ok N", for the thread minimap's density, and `"incoming"` received agent
-/// messages, for the received-message card), `fling` (`seconds`,
+/// messages, for the received-message card, and `"shared"` a shared chat, for chat multiplayer's
+/// authors, answered-by, header faces and typing line), `fling` (`seconds`,
 /// default 3; `nominal_ms`; `wait` returns the stats when the fling ends),
 /// `fling_stats`, `perf_stats` (`raw` adds every frame), `load_seed` (`turns`, default 5000:
 /// a mock session of heavy turns opened through the real client; needs `--showcase`'s mock
@@ -34,7 +35,7 @@ import WebKit
 /// `select_session` (`session`), `pick_folder` (`cwd`: the folder chip's pick), `answer_permission` (`option`, `allow`,
 /// `decision`), `open_changes` (the latest turn's changes view),
 /// `models` (the harness's models), `set_model` (`model`, `effort`), `layout_watch` (`ms`, `tolerance`; layoutWatch.ts),
-/// `readiness` (page body, transcript and composer metrics), `engine` (`cef` or `webkit:<reason>`), `focus_composer`, `click` (`selector`
+/// `readiness` (page body, transcript and composer metrics), `engine` (`cef` or `webkit:<reason>`), `focus_composer`, `composer_focused`, `click` (`selector`
 /// or `text`: a native click on that element, DebugAgentPaneClick), `pid` (the WebContent process, for profiling), or
 /// `full_rate` (`enabled` turns full-rate rendering on or off on the live
 /// page; returns whether it is on), or `inspector` (`open` sets its visibility;
@@ -98,6 +99,15 @@ enum DebugAgentPane {
             // Which engine shows the chat (the `agent.chromium` spike measures both).
             return .object(["pane": .string(pane), "engine": .string(view.engineName)])
         }
+        if action == "composer_focused" {
+            // Read only: whether the chat's composer has the page's caret (Cmd-L in a chat, keyboard-parity-e2e.py).
+            let script = """
+                const field = document.querySelector('.acpmux-composer [contenteditable="true"], .acpmux-composer textarea');
+                return !!field && document.activeElement === field;
+                """
+            let focused = (try? await view.callPageScript(script)) as? Bool ?? false
+            return .object(["pane": .string(pane), "focused": .bool(focused)])
+        }
         if action == "focus_composer" {
             // The chat's pane takes the app's focus, the chat the keyboard and its composer the caret, in
             // either engine, for typing benches (focus elsewhere would take the keyboard back).
@@ -134,7 +144,7 @@ enum DebugAgentPane {
             }
             return .object(fields)
         }
-        #if DEBUG
+        #if DEBUG || CMUX_BENCH_HOOKS
         if action == "remote_approvals" {
             // cx-kvmz T2: the "Remote approvals are off" notice as a person sees it; `press` clicks its restart.
             let pressed = params["press"]?.boolValue == true ? view.pressRemoteApprovalsRestart() : false
@@ -194,7 +204,7 @@ enum DebugAgentPane {
             return await toggleInspector(view, open: params["open"]?.boolValue, pane: pane)
         }
         guard let function = functions[action] else {
-            return .object(["error": .string("unknown action; use seed_rows, fling, fling_stats, perf_stats, typing_stats, reset_typing, close_menus, open_menu, acp_log, acp_log_export, chat_state, send_prompt, new_chat, select_session, pick_folder, answer_permission, open_changes, set_model, models, stream, layout_watch, readiness, engine, focus_composer, click, pid, full_rate, gesture_state or inspector")])
+            return .object(["error": .string("unknown action; use seed_rows, fling, fling_stats, perf_stats, typing_stats, reset_typing, close_menus, open_menu, acp_log, acp_log_export, chat_state, send_prompt, new_chat, select_session, pick_folder, answer_permission, open_changes, set_model, models, stream, layout_watch, readiness, engine, focus_composer, composer_focused, click, pid, full_rate, gesture_state or inspector")])
         }
         do {
             let result = try await view.callPageScript(script, arguments: ["fn": function, "args": arguments(action, params)])

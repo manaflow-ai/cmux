@@ -300,6 +300,33 @@ impl<H: Http> CloudClient<H> {
         Answer::Http { status, body: answer }
     }
 
+    /// A GitHub token for this machine (`POST /v1/integrations/github/token`
+    /// as its `vm` install, the machine's team). Only a 401 or an `auth.*`
+    /// 403 drops the cached bearer and retries once: a `policy.denied` is
+    /// the answer, not a stale bearer.
+    pub fn github_token(&mut self, ask: &super::github::TokenAsk, now_wall_ms: u64) -> Answer {
+        let url = self.url(super::github::TOKEN_PATH);
+        let body = ask.api_body(&self.bound.team);
+        let send = |client: &mut Self| -> Option<(u16, Value)> {
+            let token = client.token(now_wall_ms).ok()?;
+            client.http.post(&url, &body, Some(&token)).ok()
+        };
+        let Some((mut status, mut answer)) = send(self) else { return Answer::Transport };
+        let stale = status == 401
+            || (status == 403
+                && answer
+                    .field("error")
+                    .field("code")
+                    .as_str()
+                    .is_some_and(|c| c.starts_with("auth.")));
+        if stale {
+            self.cached = None;
+            let Some(again) = send(self) else { return Answer::Transport };
+            (status, answer) = again;
+        }
+        Answer::Http { status, body: answer }
+    }
+
     /// One op on `/v1/ops`. A 401 or 403 drops the cached token and retries
     /// once.
     pub fn op(&mut self, request: &OpRequest, now_wall_ms: u64) -> Answer {

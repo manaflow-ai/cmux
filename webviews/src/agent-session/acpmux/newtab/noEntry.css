@@ -12,12 +12,12 @@
   --tooltip-rise: 0px;
   --ui-enter-duration: 0s;
 }
-/* The composer's menus, the effort slider's track and the drop sheet run on tokens the host sets
-   inline or on the surface itself, so these name their open animation directly. The drop pill only
-   ever enters, so it is stopped in every phase: a drop turns the mounted overlay `landing`, and a
-   rule that let go of the pill there replayed its entrance under the sheet's exit. The sheet's
-   landing (its exit into the composer) keeps its motion. */
-:root[data-new-tab] :is(.acpmux-menu, .acpmux-slash-menu, .acpmux-mp, .acpmux-effort-track, .acpmux-drop-pill),
+/* Popups and menus open in one frame on every page (ui/popupSurface.css). The drop sheet runs on
+   tokens of its own, so this names its open animation directly. The drop pill only ever enters, so
+   it is stopped in every phase: a drop turns the mounted overlay `landing`, and a rule that let go
+   of the pill there replayed its entrance under the sheet's exit. The sheet's landing (its exit into
+   the composer) keeps its motion. */
+:root[data-new-tab] .acpmux-drop-pill,
 :root[data-new-tab] .acpmux-drop-overlay:not([data-phase="landing"]) .acpmux-drop-sheet {
   animation: none;
 }

@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextBrowser
+import CmuxNextBrowserTabs
 import CmuxNextDaemon
 
 // Incognito workspaces on a daemon with state resources are `ephemeral`
@@ -38,7 +39,7 @@ enum EphemeralWorkspaces {
             guard let connection = daemon.connection else { return }
             do {
                 let created = try await connection.state.createWorkspace(name: nil, ephemeral: true, terminal: true, focus: true)
-                await daemon.store.applied(through: await connection.eventSequence())
+                await daemon.appliedThroughReply(on: connection, after: "create incognito workspace")
                 guard let workspace = daemon.store.workspace(resourceID: created.workspaceID) else { return }
                 manager.claimNew(workspaceID: workspace.id, window: windowID)
                 let tab = workspace.screens.flatMap(\.panes).lazy.flatMap(\.tabs).first { $0.resourceID == created.tabID }

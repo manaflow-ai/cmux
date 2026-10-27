@@ -44,20 +44,33 @@ extension WorkspaceRowView {
         return parts.isEmpty ? nil : parts.joined(separator: ", ")
     }
 
-    /// Places the badge (one glyph or the stack) left of `trailing`, centered on `cy`; returns the
-    /// new trailing edge. Never on the leading icon.
+    /// Places the row's one trailing mark on the trailing column (`SidebarStyle+TrailingColumn`, the
+    /// x the group header's chevron and every band item's dot center on) and returns it with the x
+    /// where the controls left of the column end; nil when the row shows no mark.
     ///
-    /// With `columnCenterX` (nothing else sits at the row's end), the last glyph centers on the
-    /// trailing column instead, the x the group header's chevron centers on, so every row's dot
-    /// and spinner share one line (Lawrence 2026-10-20); the whole column slot stays reserved.
-    func layoutRowBadge(trailing: CGFloat, cy: CGFloat, columnCenterX: CGFloat? = nil) -> CGFloat {
-        guard !rowBadge.isHidden else { return trailing }
-        // Whole points, so each glyph in its cell lands on the pixel grid at 1x and 2x.
-        let side = rowBadge.cellSide, width = rowBadge.preferredWidth
-        let x = columnCenterX.map { $0 - width + side / 2 } ?? trailing - width
-        rowBadge.frame = NSRect(x: x.rounded(.down), y: (cy - side / 2).rounded(), width: width, height: side)
-        let slotStart = columnCenterX.map { $0 - SidebarStyle.trailingSlotSide / 2 } ?? rowBadge.frame.minX
-        return min(rowBadge.frame.minX, slotStart) - Metrics.space2
+    /// The mark is the badge (one glyph or the stack, its last glyph on the column), else the agent
+    /// mark that stands in for the status, else the status glyph (the `trailing` badge style).
+    /// Lawrence 2026-10-20: every row's dot and spinner share one line; msg 11914: whatever else the
+    /// row shows (the disclosure, a count, the keycap, the hover close and more) sits left of it,
+    /// so a selected row's dot does not move. Never on the leading icon.
+    func layoutColumnMark(cy: CGFloat, rowWidth: CGFloat, markReplacesStatus: Bool) -> (view: NSView, trailing: CGFloat)? {
+        let column = SidebarStyle.trailingColumnCenterX(rowWidth: rowWidth)
+        let view: NSView
+        if !rowBadge.isHidden {
+            // Whole points, so each glyph in its cell lands on the pixel grid at 1x and 2x.
+            let side = rowBadge.cellSide, width = rowBadge.preferredWidth
+            rowBadge.frame = NSRect(x: (column - width + side / 2).rounded(.down), y: (cy - side / 2).rounded(), width: width, height: side)
+            view = rowBadge
+        } else if markReplacesStatus {
+            agentMark.frame = statusGlyphFrame(trailing: column + SidebarStyle.statusGlyphSize / 2, centerY: cy)
+            view = agentMark
+        } else if activity.showsGlyph {
+            activity.frame = statusGlyphFrame(trailing: column + SidebarStyle.statusGlyphSize / 2, centerY: cy)
+            view = activity
+        } else {
+            return nil
+        }
+        return (view, min(view.frame.minX, SidebarStyle.trailingColumnStart(rowWidth: rowWidth)) - Metrics.space2)
     }
 
     /// The row's backdrop for the badges' cutout rings: `fill` over the sidebar's background.

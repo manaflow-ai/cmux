@@ -126,9 +126,14 @@ export function installGutterSelect(
   thread: HTMLElement,
   onReaderScroll: () => void = () => {},
   hold: (rows: HeldRow[] | undefined) => void = () => {},
+  surface: HTMLElement | null = null,
 ): { release(): void; remove(): void } {
   const doc = scroller.ownerDocument;
   const win = doc.defaultView ?? window;
+  // The floating composer is a sibling overlay of the scroller. Listen on their shared surface so a
+  // blank location strip can start the same drag as the scroller's spacer, while keeping controls
+  // (and the composer card) in charge of their own presses.
+  const eventSurface = surface ?? scroller;
   type Drag = {
     startX: number;
     startY: number;
@@ -285,11 +290,29 @@ export function installGutterSelect(
     // A press that only closes an open composer menu does nothing else (menuPressGuard.ts).
     if (swallowsPress(doc)) return;
     // Only the empty gutter: the scroller, its spacer and the thread's own box, never a row, the
-    // minimap, Find's bar or anything else drawn in the scroller.
+    // minimap, Find's bar or anything else drawn in the scroller. The one overlay exception is the
+    // blank composer location strip; its controls remain interactive and are filtered below.
     const target = event.target;
-    if (target !== scroller && target !== thread && target !== thread.parentElement) return;
+    const directTranscriptTarget = target === scroller || target === thread || target === thread.parentElement;
+    const targetElement = target instanceof Element ? target : undefined;
+    const strip = targetElement?.closest<HTMLElement>(".acpmux-composer-strip");
+    const stripPress = Boolean(
+      strip &&
+      eventSurface.contains(strip) &&
+      !targetElement?.closest(
+        'button, a[href], input, textarea, select, label, summary, [contenteditable="true"], [role="button"], [role="link"], [role="menuitem"], [role="option"], [role="textbox"], [role="combobox"], [role="listbox"], [role="menu"], [role="dialog"]',
+      ),
+    );
+    if (!directTranscriptTarget && !stripPress) return;
     const geometry = measure(scroller, thread);
-    if (!geometry || !inGutter(event.clientX, geometry)) return;
+    if (!geometry) return;
+    // A spacer band under the last row is still part of the transcript, even when the x coordinate is
+    // inside the centered column. The bottom stack's child strip is the overlay equivalent.
+    const inBottomBand =
+      event.clientY >= geometry.view.bottom &&
+      event.clientX >= geometry.view.left &&
+      event.clientX < geometry.view.right - geometry.lane;
+    if (!inGutter(event.clientX, geometry) && !inBottomBand && !stripPress) return;
     const point = clampIntoColumn(event.clientX, event.clientY, geometry);
     const caret = caretAt(doc, point.x, point.y);
     // No text to start at (a hit beside a blank gap): the native press goes ahead untouched, and
@@ -318,7 +341,7 @@ export function installGutterSelect(
     win.addEventListener("blur", stop);
     scroller.addEventListener("scroll", onScroll, { passive: true });
   };
-  scroller.addEventListener("mousedown", onDown);
+  eventSurface.addEventListener("mousedown", onDown, true);
   /// Ends a drag without extending it, and lets every held row go.
   const end = () => {
     drag = undefined;
@@ -328,7 +351,7 @@ export function installGutterSelect(
   return {
     release: end,
     remove: () => {
-      scroller.removeEventListener("mousedown", onDown);
+      eventSurface.removeEventListener("mousedown", onDown, true);
       end();
     },
   };

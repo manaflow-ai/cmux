@@ -33,37 +33,39 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
     var installsInBackground = false
     /// With background installs: whether a found update downloads without a click.
     var downloadsInBackground = true
+    /// The automatic install whose app quits for it (``UpdateActionDelegate/updaterQuitsForAutomaticInstall(build:)``):
+    /// Sparkle's held reply, kept until the app ends so a refused quit can stage it again.
+    var quitInstall: (item: SUAppcastItem, install: () -> Void, cancel: (() -> Void)?)?
     /// Replaces the baked feed when set (``UpdateController/feedOverride``).
     var feedOverride: String?
     /// The release ring whose `sparkle:channel` tags are accepted (``UpdateController/ring``).
     var ring: UpdateRing = .nightly
     /// Builds at or below this are not offered (``UpdateController/skipsBuildsThrough``).
     var skipsBuildsThrough: String?
-    /// Holds back a fresh update without deltas for one scheduled check
-    /// (``UpdateController/pendingDeltaWindow``); nil offers every update at once.
-    var pendingDeltaWait: PendingDeltaWait?
-    /// The current time, for ``pendingDeltaWait`` (replaced by tests).
-    var now: () -> Date = Date.init
     /// The update a background check accepted, and its held install once it is ready.
     var backgroundItem: SUAppcastItem?
     var stagedInstall: (() -> Void)?
     /// Cancels the held installer (Skip on the ready prompt: no skipped version is recorded).
     var stagedCancel: (() -> Void)?
     var installsWhenStaged = false
-    /// NIGHTLY hosts may install a staged update automatically once it is ready. The relaunch
-    /// still passes through the quiet-input and live-session gate below.
+    /// NIGHTLY hosts may install a staged update automatically once it is ready. Hosts that keep
+    /// their daemon and sessions alive across an app relaunch set `holdsUserInstalls = false`;
+    /// that contract also makes automatic installs immediate.
     var installsWhenIdle = false
     /// The install just handed to Sparkle came from the idle policy, not from the user, so its
     /// relaunch is subject to the quiet-input and daemon-mirror holds. Read once by
     /// ``handleShouldPostponeRelaunch(installHandler:)``.
     var relaunchIsAutomatic = false
-    /// Whether an install the user asked for waits for busy agents and running commands.
-    /// cmux-next turns it off: its click hides every window first, and the daemon keeps the
-    /// sessions across the relaunch, so only automatic installs wait.
+    /// Whether this host uses the relaunch gate. cmux-next turns it off because its daemon keeps
+    /// terminals, agents and running turns across the app relaunch. The flag applies to automatic
+    /// installs too; a staged update must never wait behind live work on that host.
     var holdsUserInstalls = true
     /// The update Sparkle's own silent driver staged (`willInstallUpdateOnQuit`), which never
     /// reaches ``backgroundItem``; read only while its "Restart to Complete Update" state holds.
     var quitInstallItem: SUAppcastItem?
+    /// The update whose relaunch the gate holds, so the host still names it as the staged
+    /// update a click installs; read only while that held state is the model's.
+    var heldRelaunchItem: SUAppcastItem?
     /// Holds a ready update's relaunch while agents are mid-turn or commands are running.
     let relaunchGate: UpdateRelaunchGate
 
@@ -120,11 +122,6 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
         log.append("show update found: \(appcastItem.displayVersionString)")
         if let skip = skipsBuildsThrough, appcastItem.versionString.compare(skip, options: .numeric) != .orderedDescending {
             log.append("not offering \(appcastItem.versionString): a rollback left it (skips through \(skip))")
-            setState(.idle)
-            return reply(.dismiss)
-        }
-        if !isUserInitiatedCheck, pendingDeltaWait?.shouldHold(appcastItem, now: now()) == true {
-            log.append("not offering \(appcastItem.versionString) yet: its deltas are not listed; the next check takes it")
             setState(.idle)
             return reply(.dismiss)
         }
@@ -229,17 +226,24 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
     /// Sparkle asks this before every install that relaunches cmux: Install and Relaunch,
     /// Restart Now on the install-on-quit prompt, and a resumed install after Later. Returns
     /// `true` to hold the relaunch until `installHandler` is invoked (see ``UpdateRelaunchGate``).
-    /// Only an idle-policy install (``relaunchIsAutomatic``) waits for quiet input or an
-    /// unconfirmed daemon mirror; anything the user started is held only by agents and commands.
-    func handleShouldPostponeRelaunch(installHandler: @escaping () -> Void) -> Bool {
+    /// Hosts that preserve sessions set `holdsUserInstalls` to false, which bypasses every
+    /// blocker, including automatic-install idle checks.
+    func handleShouldPostponeRelaunch(item: SUAppcastItem? = nil, installHandler: @escaping () -> Void) -> Bool {
         let automatic = relaunchIsAutomatic
         relaunchIsAutomatic = false
         var isAutoUpdate = false
         if case .installing(let installing) = model.state { isAutoUpdate = installing.isAutoUpdate }
-        guard automatic || holdsUserInstalls else { return false }
+        // A session-preserving host can relaunch while agents and commands are live. Keep this
+        // decision before reading the host mirror so a stale/unavailable mirror cannot turn an
+        // app update into the old "Waiting to Relaunch" card.
+        guard holdsUserInstalls else {
+            log.append("update relaunch is immediate; the daemon preserves live sessions (automatic=\(automatic))")
+            return false
+        }
         let reported = currentRelaunchBlockers()
         let blockers = automatic ? reported : reported.forUserInstall
         guard !blockers.isEmpty else { return false }
+        heldRelaunchItem = item
         holdRelaunch(isAutoUpdate: isAutoUpdate, automatic: automatic, install: installHandler)
         return true
     }

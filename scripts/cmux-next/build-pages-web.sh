@@ -33,6 +33,7 @@ SPLIT_STRINGS="settings"
 SHIKI_PAGES="home-channels"
 
 command -v bun >/dev/null 2>&1 || { echo "error: bun is required to build the pages" >&2; exit 1; }
+"$ROOT/scripts/check-webviews-bun-version.sh"
 
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT

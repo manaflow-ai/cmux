@@ -71,7 +71,10 @@ above so there is one press-drag-release implementation.
 
 `Popover`, `Tooltip`, `Dialog`, and `Sheet` all portal into the `UiProvider` container, return focus
 to their trigger, close on Escape, and use Ghostty theme tokens. Tooltips wait 500 ms on the first
-hover and move immediately to a neighbor. Menus have no fade-in; overlays only use a short fade-out.
+hover and move immediately to a neighbor. Menus and popovers (Menu, Popover, Select, Combobox,
+ContextMenu, and every `.ui-popup`) open in one frame with no fade, scale or slide, and fade only as
+they close (Leo 2026-10-24: "When you open it up, no animation. When you close it, animation for
+closing... No fade in ever for any of these."). `test/popover-instant-open.test.ts` holds this.
 
 ## Layers and transparency
 

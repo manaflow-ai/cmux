@@ -1,0 +1,5632 @@
+{
+  "version": 1,
+  "count": 510,
+  "sections": [
+    {
+      "id": "general",
+      "title": "General",
+      "rows": [
+        {
+          "key": "agentPane.attachmentView",
+          "title": "Attachment View",
+          "help": "How pictures and files show in the composer and in sent messages. Inline puts each one in the text where you added it; Strip shows them in a row. The message and its order stay the same.",
+          "kind": "choice",
+          "default": "inline",
+          "group": "Agent Chat",
+          "values": [
+            "inline",
+            "strip"
+          ]
+        },
+        {
+          "key": "agentPane.editedFiles.maxRows",
+          "title": "Edited Files Shown",
+          "help": "",
+          "kind": "number",
+          "default": 5,
+          "group": "Agent Chat",
+          "range": {
+            "min": 1,
+            "max": 50,
+            "unit": "count"
+          }
+        },
+        {
+          "key": "agentPane.editedFiles.scope",
+          "title": "Edited Files Card Covers",
+          "help": "",
+          "kind": "choice",
+          "default": "turn",
+          "group": "Agent Chat",
+          "values": [
+            "turn",
+            "session"
+          ]
+        },
+        {
+          "key": "agentPane.editedFiles.show",
+          "title": "Edited Files Card",
+          "help": "The card that lists a turn's edited files, with Undo and View changes.",
+          "kind": "choice",
+          "default": "always",
+          "group": "Agent Chat",
+          "values": [
+            "always",
+            "collapsed",
+            "never"
+          ]
+        },
+        {
+          "key": "agentPane.images.remote",
+          "title": "Web Images in Replies",
+          "help": "A web image loads from its site, which then sees that you read the reply.",
+          "kind": "choice",
+          "default": "click",
+          "group": "Agent Chat",
+          "values": [
+            "click",
+            "never",
+            "always"
+          ]
+        },
+        {
+          "key": "agentPane.links.outsideRoots",
+          "title": "Files Outside the Project",
+          "help": "What a file link in a reply does when the file is outside the chat's folders. Keys and .env files never open.",
+          "kind": "choice",
+          "default": "open",
+          "group": "Agent Chat",
+          "values": [
+            "confirm",
+            "text",
+            "open"
+          ]
+        },
+        {
+          "key": "agentPane.needsYou.enabled",
+          "title": "Needs You",
+          "help": "A badge in the chat header counts what your agents wait on; a click lists every ask with its answers. New agent tabs.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Agent Chat"
+        },
+        {
+          "key": "agentPane.scrollToBottomOnSend",
+          "title": "Scroll to Bottom When I Send",
+          "help": "When off, sending while you are reading up keeps your place and shows new messages below.",
+          "kind": "toggle",
+          "default": true,
+          "group": "Agent Chat"
+        },
+        {
+          "key": "agentPane.showContextUsage",
+          "title": "Show Context Usage",
+          "help": "The ring beside the model that fills as the chat uses its context window.",
+          "kind": "toggle",
+          "default": true,
+          "group": "Agent Chat"
+        },
+        {
+          "key": "agentPane.showDictation",
+          "title": "Show Dictation Button",
+          "help": "The microphone beside Send in every composer, including the New Tab page.",
+          "kind": "toggle",
+          "default": true,
+          "group": "Agent Chat"
+        },
+        {
+          "key": "agentPane.spellChecking",
+          "title": "Check Spelling While Typing",
+          "help": "Underlines misspellings and offers system suggestions in the composer.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Agent Chat"
+        },
+        {
+          "key": "agentPane.zoom",
+          "title": "Agent Chat Zoom",
+          "help": "The display size for agent chat. Cmd-0 resets it.",
+          "kind": "number",
+          "default": 1,
+          "group": "Agent Chat",
+          "range": {
+            "min": 0.5,
+            "max": 2,
+            "unit": "fraction"
+          }
+        },
+        {
+          "key": "agents.chats.discovery",
+          "title": "Discover Chat Folders",
+          "help": "Find harness chat folders automatically. When off, only the listed folders are used.",
+          "kind": "toggle",
+          "default": true,
+          "group": "Chats"
+        },
+        {
+          "key": "agents.chats.enabled",
+          "title": "Enable Chats",
+          "help": "Show chats stored on this device. Nothing is uploaded.",
+          "kind": "toggle",
+          "default": true,
+          "group": "Chats"
+        },
+        {
+          "key": "agents.chats.roots",
+          "title": "Chat Folders",
+          "help": "Add absolute paths to harness data folders. Protected folders are refused. Your organization can add locked folders.",
+          "kind": "folder_list",
+          "default": [],
+          "group": "Chats"
+        },
+        {
+          "key": "agents.defaultPermissionMode",
+          "title": "Permission Mode for New Chats",
+          "help": "What a new chat may do without asking. A mode you pick in a chat applies to that chat only.",
+          "kind": "choice",
+          "default": "fullAccess",
+          "group": "Agent Chat",
+          "values": [
+            "fullAccess",
+            "standard",
+            "ask"
+          ]
+        },
+        {
+          "key": "agents.subsessions.answerQuestions",
+          "title": "Let Sessions Answer Their Sub-sessions' Questions",
+          "help": "When an agent in a sub-session asks a question, the session that started it can answer, and the answer shows who gave it. Permission requests always wait for you. Off: only you answer.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Sub-sessions"
+        },
+        {
+          "key": "agents.subsessions.enabled",
+          "title": "Let Agents Start Sub-sessions",
+          "help": "An agent can start other agent sessions to work on parts of a task in parallel. They show under its session in the sidebar.",
+          "kind": "toggle",
+          "default": true,
+          "group": "Sub-sessions"
+        },
+        {
+          "key": "agents.subsessions.maxChildren",
+          "title": "Open Sub-sessions per Session",
+          "help": "The most sub-sessions one session can have open at the same time. Closing a sub-session frees its place.",
+          "kind": "number",
+          "default": 50,
+          "group": "Sub-sessions",
+          "range": {
+            "min": 1,
+            "max": 1000,
+            "unit": "count"
+          }
+        },
+        {
+          "key": "agents.subsessions.maxDepth",
+          "title": "Deepest Nesting",
+          "help": "How many levels of sub-sessions can start under a session. 1 lets a session start sub-sessions that cannot start their own.",
+          "kind": "number",
+          "default": 10,
+          "group": "Sub-sessions",
+          "range": {
+            "min": 1,
+            "max": 100,
+            "unit": "count"
+          }
+        },
+        {
+          "key": "agents.subsessions.maxRunning",
+          "title": "Running Sub-sessions per Session",
+          "help": "The most sub-sessions one session runs at the same time. More wait their turn and start as running ones finish. Running ones are never stopped when you lower it.",
+          "kind": "number",
+          "default": 16,
+          "group": "Sub-sessions",
+          "range": {
+            "min": 1,
+            "max": 1000,
+            "unit": "count"
+          }
+        },
+        {
+          "key": "agents.trust.autoTrust",
+          "title": "Trust My Own Folders Without Asking",
+          "help": "Agents start in folders under your project roots, and in repositories owned by your organizations, without asking. Other folders ask first.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Folder Trust"
+        },
+        {
+          "key": "agents.trust.ownOrgs",
+          "title": "Trusted GitHub Owners",
+          "help": "A repository is trusted when all of its GitHub remotes belong to these users or organizations.",
+          "kind": "string_list",
+          "default": [],
+          "group": "Folder Trust"
+        },
+        {
+          "key": "agents.trust.projectRoots",
+          "title": "Trusted Project Roots",
+          "help": "Everything inside these folders is trusted. Use full paths or ~/ paths.",
+          "kind": "folder_list",
+          "default": [],
+          "group": "Folder Trust"
+        },
+        {
+          "key": "announcements.enabled",
+          "title": "Show Announcements",
+          "help": "Short cards from the cmux team above Settings, shown when the pointer is over the sidebar.",
+          "kind": "toggle",
+          "default": true,
+          "group": "Announcements"
+        },
+        {
+          "key": "announcements.fetch",
+          "title": "Download Announcements",
+          "help": "Off: cmux never asks the network for announcements. The request carries no identifiers.",
+          "kind": "toggle",
+          "default": true,
+          "group": "Announcements"
+        },
+        {
+          "key": "app.globalHotKey",
+          "title": "Global Hot Key",
+          "help": "Show/Hide All Windows (⌃⌥⌘.) works while another app is in front.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Window"
+        },
+        {
+          "key": "app.hideDockIconWithoutWindows",
+          "title": "Hide Dock Icon When No Windows Are Open",
+          "help": "cmux keeps running in the menu bar, out of the Dock and the app switcher, until a window opens.",
+          "kind": "toggle",
+          "default": true,
+          "group": "Window"
+        },
+        {
+          "key": "app.quitBehavior",
+          "title": "When Quitting",
+          "help": "Terminals run in cmux-tui and keep running after cmux quits unless you end them.",
+          "kind": "choice",
+          "default": "ask",
+          "group": "Quitting",
+          "values": [
+            "ask",
+            "keep",
+            "end-keep-layout",
+            "end-everything"
+          ]
+        },
+        {
+          "key": "app.startAgentGlobalHotKey",
+          "title": "Start Agent from Any App",
+          "help": "Start Agent (⌃⌥⌘Space) works while another app is in front. Change its key in Keyboard Shortcuts.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Window"
+        },
+        {
+          "key": "app.warnBeforeClosingAgentSession",
+          "title": "Warn Before Closing a Working Agent",
+          "help": "",
+          "kind": "toggle",
+          "default": true,
+          "group": "Tabs"
+        },
+        {
+          "key": "app.warnBeforeClosingTab",
+          "title": "Warn Before Closing a Running Program",
+          "help": "",
+          "kind": "toggle",
+          "default": true,
+          "group": "Tabs"
+        },
+        {
+          "key": "appearance.metrics.tabMaxWidth",
+          "title": "Maximum Tab Width",
+          "help": "Widest a tab gets when the strip has room.",
+          "kind": "number",
+          "default": null,
+          "group": "Tabs",
+          "range": {
+            "min": 120,
+            "max": 320,
+            "unit": "points"
+          }
+        },
+        {
+          "key": "appearance.metrics.tabMinActiveWidth",
+          "title": "Minimum Selected Tab Width",
+          "help": "When the strip is crowded, every tab shrinks evenly to this width, and the selected tab stays at least this wide.",
+          "kind": "number",
+          "default": null,
+          "group": "Tabs",
+          "range": {
+            "min": 32,
+            "max": 320,
+            "unit": "points"
+          }
+        },
+        {
+          "key": "appearance.metrics.tabMinInactiveWidth",
+          "title": "Minimum Tab Width",
+          "help": "Narrowest the other tabs get before the strip scrolls. Never wider than the selected tab's minimum.",
+          "kind": "number",
+          "default": null,
+          "group": "Tabs",
+          "range": {
+            "min": 16,
+            "max": 320,
+            "unit": "points"
+          }
+        },
+        {
+          "key": "appearance.metrics.tabPinnedWidth",
+          "title": "Pinned Tab Width",
+          "help": "Width of a pinned tab.",
+          "kind": "number",
+          "default": null,
+          "group": "Tabs",
+          "range": {
+            "min": 24,
+            "max": 120,
+            "unit": "points"
+          }
+        },
+        {
+          "key": "browser.toolbarPosition",
+          "title": "Browser Toolbar Position",
+          "help": "Where the address bar row of browser and Markdown panes sits. At the bottom, its suggestions and menus open upward.",
+          "kind": "choice",
+          "default": "top",
+          "group": "Tabs",
+          "values": [
+            "top",
+            "bottom"
+          ]
+        },
+        {
+          "key": "computerUse.driver",
+          "title": "Computer Use Driver",
+          "help": "Legacy runs the current cmux Computer Use helper. Upstream runs the new helper built on the upstream Cua Driver; macOS asks for its permissions separately.",
+          "kind": "choice",
+          "default": "legacy",
+          "group": "Computer Use",
+          "values": [
+            "legacy",
+            "upstream"
+          ]
+        },
+        {
+          "key": "computerUse.enabled",
+          "title": "Computer Use",
+          "help": "Lets agents see and use your apps through the signed cmux Computer Use helper. macOS asks for Accessibility and Screen Recording when you first allow them.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Computer Use"
+        },
+        {
+          "key": "files.textEditor",
+          "title": "Text Editor",
+          "help": "The app Open in Text Editor uses for a path: an app name, a bundle ID or the path of an app. Empty uses the app that opens source code.",
+          "kind": "text",
+          "default": "",
+          "group": "Files"
+        },
+        {
+          "key": "freeModel.enabled",
+          "title": "Free AI Model Without Sign-In",
+          "help": "Lets agents use the free cmux AI model while you are signed out. The first time an agent uses it, cmux proves to the Cloud service that this is a real Mac. Sign in for more models and higher limits.",
+          "kind": "toggle",
+          "default": true,
+          "group": "AI Models"
+        },
+        {
+          "key": "history.closed.maxAgeDays",
+          "title": "Keep Recently Closed Items For",
+          "help": "Each machine deletes closed items that are older. 0 keeps them however old they are.",
+          "kind": "number",
+          "default": 0,
+          "group": "History",
+          "range": {
+            "min": 0,
+            "max": 3650,
+            "unit": "days"
+          }
+        },
+        {
+          "key": "history.closed.maxGroups",
+          "title": "Recently Closed Items to Keep",
+          "help": "Each machine deletes its oldest closed tabs, screens, workspaces and windows past this many. 0 keeps them all.",
+          "kind": "number",
+          "default": 0,
+          "group": "History",
+          "range": {
+            "min": 0,
+            "max": 10000,
+            "unit": "count"
+          }
+        },
+        {
+          "key": "history.commandRetentionDays",
+          "title": "Keep Terminal Commands For",
+          "help": "Each machine deletes recorded commands that are older.",
+          "kind": "number",
+          "default": 30,
+          "group": "History",
+          "range": {
+            "min": 1,
+            "max": 3650,
+            "unit": "days"
+          }
+        },
+        {
+          "key": "history.terminalCommands",
+          "title": "Record Terminal Commands",
+          "help": "Lists finished shell commands in History. Command lines can contain secrets.",
+          "kind": "toggle",
+          "default": false,
+          "group": "History"
+        },
+        {
+          "key": "layout.centerFocusedColumn",
+          "title": "Center Focused Column",
+          "help": "",
+          "kind": "choice",
+          "default": "never",
+          "group": "Columns",
+          "values": [
+            "never",
+            "always",
+            "on-overflow"
+          ]
+        },
+        {
+          "key": "layout.closeFocus",
+          "title": "Focus After Closing a Pane",
+          "help": "Which pane gets focus when the focused pane closes.",
+          "kind": "choice",
+          "default": "previousNeighbor",
+          "group": "Columns",
+          "values": [
+            "previousNeighbor",
+            "mostRecent"
+          ]
+        },
+        {
+          "key": "layout.columnWidthPresets",
+          "title": "Column Width Presets",
+          "help": "Widths a column cycles through, as fractions of the visible strip width.",
+          "kind": "number_list",
+          "default": [
+            1,
+            0.6667,
+            0.5,
+            0.3333
+          ],
+          "group": "Columns"
+        },
+        {
+          "key": "layout.defaultColumnWidth",
+          "title": "Fixed Column Width",
+          "help": "A share of the window width, for Fixed Width new columns.",
+          "kind": "number",
+          "default": 0.5,
+          "group": "Columns",
+          "range": {
+            "min": 0.1,
+            "max": 1,
+            "unit": "fraction"
+          }
+        },
+        {
+          "key": "layout.dockColumnEdge",
+          "title": "Dock Column Edge",
+          "help": "",
+          "kind": "choice",
+          "default": "nearest",
+          "group": "Columns",
+          "values": [
+            "nearest",
+            "right",
+            "left",
+            "top",
+            "bottom"
+          ]
+        },
+        {
+          "key": "layout.dockColumnMode",
+          "title": "Dock Column Mode",
+          "help": "",
+          "kind": "choice",
+          "default": "docked",
+          "group": "Columns",
+          "values": [
+            "docked",
+            "overlay"
+          ]
+        },
+        {
+          "key": "layout.focusFollowsMouse",
+          "title": "Focus Follows Mouse",
+          "help": "Moving the pointer onto a pane or scrolling over it focuses that pane. Off keeps focus where you type until you click. Momentum and the first second after typing never move focus.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Columns"
+        },
+        {
+          "key": "layout.frameOrientation",
+          "title": "Dock Corners",
+          "help": "",
+          "kind": "choice",
+          "default": "columnMajor",
+          "group": "Columns",
+          "values": [
+            "columnMajor",
+            "rowMajor"
+          ]
+        },
+        {
+          "key": "layout.linkPlacement",
+          "title": "Open Links and Files",
+          "help": "Where a link or file you open from a terminal, an agent chat, Home or a page appears. Split Right uses the pane on the right, or makes one.",
+          "kind": "choice",
+          "default": "split-right",
+          "group": "Columns",
+          "values": [
+            "split-right",
+            "new-column",
+            "same-pane"
+          ]
+        },
+        {
+          "key": "layout.mainPane",
+          "title": "Main Pane",
+          "help": "Agent Chats keeps an agent chat as the main pane: links, files, subagents and side chats it opens appear as tabs in a column on its right, and closing that column gives the chat its full width back.",
+          "kind": "choice",
+          "default": "agent-chats",
+          "group": "Columns",
+          "values": [
+            "agent-chats",
+            "off"
+          ]
+        },
+        {
+          "key": "layout.minimumPaneHeight",
+          "title": "Minimum Pane Height",
+          "help": "",
+          "kind": "number",
+          "default": 64,
+          "group": "Columns",
+          "range": {
+            "min": 32,
+            "max": 600,
+            "unit": "points"
+          }
+        },
+        {
+          "key": "layout.minimumPaneWidth",
+          "title": "Minimum Pane Width",
+          "help": "",
+          "kind": "number",
+          "default": 200,
+          "group": "Columns",
+          "range": {
+            "min": 80,
+            "max": 800,
+            "unit": "points"
+          }
+        },
+        {
+          "key": "layout.newColumnWidth",
+          "title": "New Column Sizing",
+          "help": "",
+          "kind": "choice",
+          "default": "matchCurrent",
+          "group": "Columns",
+          "values": [
+            "matchCurrent",
+            "fitScreen",
+            "fixed"
+          ]
+        },
+        {
+          "key": "layout.newPanePlacement",
+          "title": "New Terminals and Browsers",
+          "help": "Open a Tab adds a tab to the focused pane. Split Automatically splits the largest pane, like New Pane (Auto Layout).",
+          "kind": "choice",
+          "default": "tab",
+          "group": "Columns",
+          "values": [
+            "tab",
+            "split"
+          ]
+        },
+        {
+          "key": "layout.rows",
+          "title": "Rows",
+          "help": "Off hides New Row and fits a column's existing rows into it without scrolling.",
+          "kind": "toggle",
+          "default": true,
+          "group": "Columns"
+        },
+        {
+          "key": "layout.scrollAreas",
+          "title": "Scroll Areas",
+          "help": "Side-by-side panes that do not fit scroll sideways instead of shrinking, also in docked columns.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Columns"
+        },
+        {
+          "key": "layout.scrollModifier",
+          "title": "Scroll Columns and Rows With",
+          "help": "Command + Scroll moves columns and rows from anywhere, and a plain scroll always scrolls the pane under the pointer. Without a modifier, a sideways scroll moves columns unless the pane scrolls sideways itself, and rows scroll only over the gaps between them.",
+          "kind": "choice",
+          "default": "command",
+          "group": "Columns",
+          "values": [
+            "command",
+            "none"
+          ]
+        },
+        {
+          "key": "layout.splitSizing",
+          "title": "Split Sizing",
+          "help": "Even gives every pane in the column the same size after a split.",
+          "kind": "choice",
+          "default": "even",
+          "group": "Columns",
+          "values": [
+            "even",
+            "halve"
+          ]
+        },
+        {
+          "key": "layout.stripMargin",
+          "title": "Strip Margin",
+          "help": "Space between the window edge and the columns.",
+          "kind": "number",
+          "default": 0,
+          "group": "Columns",
+          "range": {
+            "min": 0,
+            "max": 40,
+            "unit": "points"
+          }
+        },
+        {
+          "key": "layout.stripScrollbar",
+          "title": "Column Scroll Bar",
+          "help": "A thin bar under the columns that shows and moves the visible range.",
+          "kind": "choice",
+          "default": "system",
+          "group": "Columns",
+          "values": [
+            "system",
+            "auto",
+            "always",
+            "off"
+          ]
+        },
+        {
+          "key": "layout.tileBrowsers",
+          "title": "Split for Browsers Too",
+          "help": "With Split Automatically, new browsers also get their own pane instead of a tab.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Columns"
+        },
+        {
+          "key": "navigation.history.scope",
+          "title": "Back and Forward Steps",
+          "help": "Workspaces: Go Back and Go Forward move between workspaces and top pages, and return to the tab each one last had focused. Everything: they also step through tabs and panes inside a workspace.",
+          "kind": "choice",
+          "default": "workspaces",
+          "group": "History",
+          "values": [
+            "workspaces",
+            "everything"
+          ]
+        },
+        {
+          "key": "navigation.historyScope",
+          "title": "Back and Forward",
+          "help": "What Go Back and Go Forward walk: places in this workspace, in this window, or the focused page's own history.",
+          "kind": "choice",
+          "default": "workspace",
+          "group": "History",
+          "values": [
+            "workspace",
+            "window",
+            "surface"
+          ]
+        },
+        {
+          "key": "newTerminal.opensWorkspace",
+          "title": "New Terminal Opens a Workspace",
+          "help": "Create a new workspace in the current space instead of a tab. Hold Option to reverse this for one click.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Tabs"
+        },
+        {
+          "key": "palette.scopes.commands.prefix",
+          "title": "Commands Prefix",
+          "help": "Typed into an empty query, this character enters the scope. A prefix you assign moves from any other scope.",
+          "kind": "choice",
+          "default": ">",
+          "group": "Command Palette",
+          "values": [
+            "@",
+            "#",
+            ">",
+            ",",
+            "?",
+            "!",
+            "/",
+            ";",
+            ":",
+            "%",
+            "&",
+            "+",
+            "=",
+            "~",
+            "$",
+            "^",
+            "*",
+            ".",
+            "none"
+          ]
+        },
+        {
+          "key": "palette.scopes.scopes.prefix",
+          "title": "Scope List Prefix",
+          "help": "Typed into an empty query, this character enters the scope. A prefix you assign moves from any other scope.",
+          "kind": "choice",
+          "default": "?",
+          "group": "Command Palette",
+          "values": [
+            "@",
+            "#",
+            ">",
+            ",",
+            "?",
+            "!",
+            "/",
+            ";",
+            ":",
+            "%",
+            "&",
+            "+",
+            "=",
+            "~",
+            "$",
+            "^",
+            "*",
+            ".",
+            "none"
+          ]
+        },
+        {
+          "key": "palette.scopes.settings.prefix",
+          "title": "Settings Prefix",
+          "help": "Typed into an empty query, this character enters the scope. A prefix you assign moves from any other scope.",
+          "kind": "choice",
+          "default": ",",
+          "group": "Command Palette",
+          "values": [
+            "@",
+            "#",
+            ">",
+            ",",
+            "?",
+            "!",
+            "/",
+            ";",
+            ":",
+            "%",
+            "&",
+            "+",
+            "=",
+            "~",
+            "$",
+            "^",
+            "*",
+            ".",
+            "none"
+          ]
+        },
+        {
+          "key": "palette.scopes.tabs.prefix",
+          "title": "Tabs Prefix",
+          "help": "Typed into an empty query, this character enters the scope. A prefix you assign moves from any other scope.",
+          "kind": "choice",
+          "default": "@",
+          "group": "Command Palette",
+          "values": [
+            "@",
+            "#",
+            ">",
+            ",",
+            "?",
+            "!",
+            "/",
+            ";",
+            ":",
+            "%",
+            "&",
+            "+",
+            "=",
+            "~",
+            "$",
+            "^",
+            "*",
+            ".",
+            "none"
+          ]
+        },
+        {
+          "key": "palette.scopes.workspaces.prefix",
+          "title": "Workspaces Prefix",
+          "help": "Typed into an empty query, this character enters the scope. A prefix you assign moves from any other scope.",
+          "kind": "choice",
+          "default": "#",
+          "group": "Command Palette",
+          "values": [
+            "@",
+            "#",
+            ">",
+            ",",
+            "?",
+            "!",
+            "/",
+            ";",
+            ":",
+            "%",
+            "&",
+            "+",
+            "=",
+            "~",
+            "$",
+            "^",
+            "*",
+            ".",
+            "none"
+          ]
+        },
+        {
+          "key": "picker.pinned",
+          "title": "Pinned Folders",
+          "help": "The picker lists these folders under Locations, after Home and Downloads. Use full paths or ~/ paths.",
+          "kind": "folder_list",
+          "default": [],
+          "group": "Folder Picker"
+        },
+        {
+          "key": "screenshots.findTools",
+          "title": "Find Screenshot Apps",
+          "help": "The Screenshots pane also shows the folders of screenshot apps it finds, such as CleanShot X, Shottr and Kap.",
+          "kind": "toggle",
+          "default": true,
+          "group": "Screenshots"
+        },
+        {
+          "key": "screenshots.folders",
+          "title": "More Screenshot Folders",
+          "help": "The Screenshots pane also shows the pictures and videos in these folders. Use full paths or ~/ paths.",
+          "kind": "folder_list",
+          "default": [],
+          "group": "Screenshots"
+        },
+        {
+          "key": "sessions.allowFullAccess",
+          "title": "Allow Full-Access Modes",
+          "help": "Off, cmux won't switch an agent into a mode that skips approvals.",
+          "kind": "toggle",
+          "default": true,
+          "group": "Agent Sessions"
+        },
+        {
+          "key": "sessions.keepAwake",
+          "title": "Keep Mac Awake While Agents Work",
+          "help": "Stops idle sleep while an agent on this Mac is working. Your display can still turn off, and closing the lid still puts the Mac to sleep.",
+          "kind": "choice",
+          "default": "pluggedIn",
+          "group": "Agent Sessions",
+          "values": [
+            "off",
+            "pluggedIn",
+            "always"
+          ]
+        },
+        {
+          "key": "sessions.promptSuggestions",
+          "title": "Suggest Follow-Up Tasks",
+          "help": "Agents can suggest next tasks, which you start as child chats beside the current one. Agents started after the change get it.",
+          "kind": "toggle",
+          "default": true,
+          "group": "Agent Sessions"
+        },
+        {
+          "key": "sessions.resumeAgents",
+          "title": "Resume Agents After Restart",
+          "help": "Terminal agents reopen their session after a crash or restart.",
+          "kind": "toggle",
+          "default": true,
+          "group": "Agent Sessions"
+        },
+        {
+          "key": "sidebar.groupByComputer",
+          "title": "Group Workspaces by Computer",
+          "help": "Off: one list of workspaces, and a workspace on another computer names it under its title. On: a section per computer.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Sidebar"
+        },
+        {
+          "key": "sidebar.workspaceIcons",
+          "title": "Workspace Icons",
+          "help": "An icon for each workspace title. \"*\" sets the icon of every other workspace; an empty icon hides it.",
+          "kind": "string_map",
+          "default": {},
+          "group": "Sidebar"
+        },
+        {
+          "key": "tabs.barOrder",
+          "title": "Tab Bar and Browser Toolbar",
+          "help": "In a browser pane with the tab bar and the address bar on the same edge: the tab bar above the address bar, or below it.",
+          "kind": "choice",
+          "default": "aboveToolbar",
+          "group": "Tabs",
+          "values": [
+            "aboveToolbar",
+            "belowToolbar"
+          ]
+        },
+        {
+          "key": "tabs.barPosition",
+          "title": "Tab Bar Position",
+          "help": "Where each pane's tab bar sits. Bottom also shows the standard title bar, so the window buttons never cover a pane.",
+          "kind": "choice",
+          "default": "top",
+          "group": "Tabs",
+          "values": [
+            "top",
+            "bottom"
+          ]
+        },
+        {
+          "key": "tabs.cmdWClosesPinnedTabs",
+          "title": "Cmd-W Closes Pinned Tabs",
+          "help": "When off, Cmd-W on a pinned tab selects the next tab and keeps the pinned tab. Close a pinned tab from its menu.",
+          "kind": "toggle",
+          "default": true,
+          "group": "Tabs"
+        },
+        {
+          "key": "tabs.newTabNowPlaying",
+          "title": "Show Now Playing on New Tab",
+          "help": "A player for what is playing, on the New Tab page.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Tabs"
+        },
+        {
+          "key": "tabs.newTabPosition",
+          "title": "New Tab Position",
+          "help": "Where Cmd-T and the + button put the new tab. New Tab to the Right in a tab's menu always puts it after that tab.",
+          "kind": "choice",
+          "default": "afterCurrent",
+          "group": "Tabs",
+          "values": [
+            "afterCurrent",
+            "end",
+            "start"
+          ]
+        },
+        {
+          "key": "tabs.newTabTemplate",
+          "title": "New Tab Template",
+          "help": "The layout of the New Tab page. Terminal skips the page and opens a terminal. The dots at the bottom of the page also change it.",
+          "kind": "choice",
+          "default": "minimal",
+          "group": "Tabs",
+          "values": [
+            "minimal",
+            "cards",
+            "default",
+            "composer",
+            "threads",
+            "console",
+            "classic",
+            "terminal"
+          ]
+        },
+        {
+          "key": "tabs.newTabWidgets.actions",
+          "title": "Show Quick Actions on New Tab",
+          "help": "Chats that need you, and New Terminal, New Browser Tab and New Chat.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Tabs"
+        },
+        {
+          "key": "tabs.newTabWidgets.chats",
+          "title": "Show Recent Chats on New Tab",
+          "help": "Your recent chats under the composer. The palette finds any chat.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Tabs"
+        },
+        {
+          "key": "tabs.newTabWidgets.clock",
+          "title": "Show Clock on New Tab",
+          "help": "A quiet local time display beside the composer.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Tabs"
+        },
+        {
+          "key": "tabs.newTabWidgets.greeting",
+          "title": "Ask What to Work On on New Tab",
+          "help": "A headline over the composer that asks what to work on, with the project as a picker.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Tabs"
+        },
+        {
+          "key": "tabs.newTabWidgets.machines",
+          "title": "Show Machines on New Tab",
+          "help": "Your machines and whether each is online.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Tabs"
+        },
+        {
+          "key": "tabs.newTabWidgets.order",
+          "title": "New Tab Widget Order",
+          "help": "The order of the widgets on New Tab. Right-click New Tab and choose Edit New Tab to drag them.",
+          "kind": "string_list",
+          "default": [
+            "projects",
+            "actions",
+            "chats"
+          ],
+          "group": "Tabs"
+        },
+        {
+          "key": "tabs.newTabWidgets.projects",
+          "title": "Show Projects on New Tab",
+          "help": "A card of this Mac and its recent projects over the composer.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Tabs"
+        },
+        {
+          "key": "tabs.newTabWidgets.quote",
+          "title": "Show Quote of the Day on New Tab",
+          "help": "A bundled public-domain quote, changing daily.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Tabs"
+        },
+        {
+          "key": "tabs.newTabWidgets.styleDots",
+          "title": "Show Template Dots on New Tab",
+          "help": "Dots under the page that switch its template.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Tabs"
+        },
+        {
+          "key": "tabs.newTabWidgets.timer",
+          "title": "Show Stopwatch on New Tab",
+          "help": "A small elapsed-time stopwatch beside the composer.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Tabs"
+        },
+        {
+          "key": "tabs.newTabWidgets.warmGreeting",
+          "title": "Show Warm Greeting on New Tab",
+          "help": "A time-of-day greeting such as Good afternoon.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Tabs"
+        },
+        {
+          "key": "tabs.newTabWidgets.weather",
+          "title": "Show Weather on New Tab",
+          "help": "The current weather and today's high and low, for the city below or your time zone's city.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Tabs"
+        },
+        {
+          "key": "tabs.newTabWidgets.weatherCity",
+          "title": "Weather City",
+          "help": "A city for the weather widget. Empty uses your time zone's city.",
+          "kind": "text",
+          "default": "",
+          "group": "Tabs"
+        },
+        {
+          "key": "tabs.overflow",
+          "title": "Tab Overflow",
+          "help": "Shrink narrows every tab to the minimum width before the strip scrolls. Scroll keeps tabs wide and scrolls sooner.",
+          "kind": "choice",
+          "default": "shrink",
+          "group": "Tabs",
+          "values": [
+            "shrink",
+            "scroll"
+          ]
+        },
+        {
+          "key": "tabs.plusButton",
+          "title": "New Tab Button",
+          "help": "On Hover shows each tab bar's + only while the pointer is over that tab bar.",
+          "kind": "choice",
+          "default": "hover",
+          "group": "Tabs",
+          "values": [
+            "hover",
+            "always"
+          ]
+        },
+        {
+          "key": "tabs.swapCmdTAndCmdN",
+          "title": "Swap Cmd-T and Cmd-N",
+          "help": "When on, Cmd-T opens a workspace in the current group and Cmd-N opens a tab. When off, Cmd-T opens a tab, or a workspace when an agent chat or a pane without tabs is focused.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Tabs"
+        },
+        {
+          "key": "tabs.terminalFirst",
+          "title": "cmux Classic Mode",
+          "help": "New tabs (Cmd-T, the tab bar's +), splits (Cmd-D, Cmd-Shift-D), new workspaces (Cmd-N, the sidebar's +) and new windows open a terminal, as in cmux classic, instead of the New Tab page. To open the New Tab page while this is on, right-click or press and hold the tab bar's +, or run New Tab Page from the command palette (Cmd-Shift-P). Cmd-I still opens an agent chat and Cmd-Shift-L a browser tab.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Tabs"
+        },
+        {
+          "key": "tasks.layout",
+          "title": "Tasks Layout",
+          "help": "Inbox lists what needs you first, with the task beside it. Changes apply at once.",
+          "kind": "choice",
+          "default": "inbox",
+          "group": "Tasks",
+          "values": [
+            "list",
+            "board",
+            "inbox"
+          ]
+        },
+        {
+          "key": "updates.channel",
+          "title": "Update Channel",
+          "help": "Canary and Dev get builds before they reach Nightly. Stable gets only builds that have run a week without problems, so switching to it may mean no updates for a while.",
+          "kind": "choice",
+          "default": "nightly",
+          "group": "Updates",
+          "values": [
+            "stable",
+            "nightly",
+            "canary",
+            "dev"
+          ]
+        },
+        {
+          "key": "updates.checkAutomatically",
+          "title": "Check for Updates Automatically",
+          "help": "",
+          "kind": "toggle",
+          "default": true,
+          "group": "Updates"
+        },
+        {
+          "key": "updates.checkIntervalSeconds",
+          "title": "Check Every",
+          "help": "",
+          "kind": "number",
+          "default": 3600,
+          "group": "Updates",
+          "range": {
+            "min": 900,
+            "max": 604800,
+            "unit": "seconds"
+          }
+        },
+        {
+          "key": "updates.downloadAutomatically",
+          "title": "Download and Install Updates Automatically",
+          "help": "Off: cmux still checks for updates and shows Update Available; one click downloads and installs it. On by default in NIGHTLY and DEV builds.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Updates"
+        },
+        {
+          "key": "updates.idleInstallMaxWaitSeconds",
+          "title": "Install Within",
+          "help": "A downloaded nightly installs by itself once agents and commands finish and you stop typing, and never waits longer than this. Terminals and agents carry on after the restart.",
+          "kind": "number",
+          "default": 600,
+          "group": "Updates",
+          "range": {
+            "min": 60,
+            "max": 7200,
+            "unit": "seconds"
+          }
+        },
+        {
+          "key": "updates.idleInstallQuietSeconds",
+          "title": "Quiet Time Before Installing",
+          "help": "How long the keyboard and mouse must be idle before a downloaded nightly installs by itself.",
+          "kind": "number",
+          "default": 60,
+          "group": "Updates",
+          "range": {
+            "min": 5,
+            "max": 600,
+            "unit": "seconds"
+          }
+        },
+        {
+          "key": "updates.installOnQuit",
+          "title": "Install Updates When Quitting",
+          "help": "A downloaded update installs as cmux quits. Terminals keep running.",
+          "kind": "toggle",
+          "default": true,
+          "group": "Updates"
+        },
+        {
+          "key": "updates.keepPreviousVersions",
+          "title": "Keep Previous Versions",
+          "help": "Earlier builds kept so you can roll back. Uses almost no disk until files change.",
+          "kind": "number",
+          "default": 1,
+          "group": "Updates",
+          "range": {
+            "min": 0,
+            "max": 5,
+            "unit": "count"
+          }
+        },
+        {
+          "key": "updates.meteredNetwork",
+          "title": "On Metered Networks",
+          "help": "While downloads wait, a found update shows on Settings and one click downloads it.",
+          "kind": "choice",
+          "default": "defer-low-data",
+          "group": "Updates",
+          "values": [
+            "defer-low-data",
+            "defer-expensive",
+            "download"
+          ]
+        },
+        {
+          "key": "updates.notify",
+          "title": "When an Update Is Ready",
+          "help": "",
+          "kind": "choice",
+          "default": "badge",
+          "group": "Updates",
+          "values": [
+            "badge",
+            "silent"
+          ]
+        },
+        {
+          "key": "updates.showWhatsNew",
+          "title": "Show What's New After Updates",
+          "help": "After an update, a card at the bottom of the sidebar links to What's New until you open or dismiss it.",
+          "kind": "toggle",
+          "default": true,
+          "group": "Updates"
+        },
+        {
+          "key": "updates.web",
+          "title": "Web UI Updates",
+          "help": "Every Merge: changes to the web UI arrive minutes after they land, without waiting for the next app update. Off: the web UI this app shipped with.",
+          "kind": "choice",
+          "default": "every-merge",
+          "group": "Updates",
+          "values": [
+            "every-merge",
+            "nightly",
+            "off"
+          ]
+        },
+        {
+          "key": "window.titlebar",
+          "title": "Titlebar",
+          "help": "Minimal has no titlebar strip; the top row moves the window.",
+          "kind": "choice",
+          "default": "minimal",
+          "group": "Window",
+          "values": [
+            "minimal",
+            "standard"
+          ]
+        },
+        {
+          "key": "window.titlebarButtons",
+          "title": "Titlebar Buttons",
+          "help": "On Hover hides Back and Forward until the pointer is over the top row. The sidebar button always shows.",
+          "kind": "choice",
+          "default": "hover",
+          "group": "Window",
+          "values": [
+            "hover",
+            "always"
+          ]
+        },
+        {
+          "key": "workspaces.autoArchive.idleDays",
+          "title": "Idle For",
+          "help": "A workspace counts as idle when you have not opened it and nothing in it changed for this many days. Pinned workspaces, running commands and workspaces that need you never archive.",
+          "kind": "number",
+          "default": 3,
+          "group": "Auto-Archive",
+          "range": {
+            "min": 1,
+            "max": 365,
+            "unit": "days"
+          }
+        },
+        {
+          "key": "workspaces.autoArchive.style",
+          "title": "Idle Workspaces",
+          "help": "What cmux does with workspaces you have not used for a while. Archived workspaces stay in their group, dimmed and last, and come back when you open them.",
+          "kind": "choice",
+          "default": "suggest",
+          "group": "Auto-Archive",
+          "values": [
+            "suggest",
+            "quiet",
+            "groups",
+            "manual",
+            "off"
+          ]
+        },
+        {
+          "key": "workspaces.autoName",
+          "title": "Name Workspaces from Tabs",
+          "help": "A workspace you have not named shows its front tab's name: a page's title, an agent chat's title, or a terminal's title or folder. Your own name always wins.",
+          "kind": "toggle",
+          "default": true,
+          "group": "Sidebar"
+        },
+        {
+          "key": "workspaces.newPlacement",
+          "title": "New Workspace Position",
+          "help": "Where Cmd-N, the + button and the CLI put a new workspace in the sidebar. Pinned workspaces stay above it.",
+          "kind": "choice",
+          "default": "top",
+          "group": "Sidebar",
+          "values": [
+            "top",
+            "afterCurrent",
+            "bottom"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "appearance",
+      "title": "Appearance",
+      "rows": [
+        {
+          "key": "agentPane.display.code.family",
+          "title": "Chat Code Font",
+          "help": "The font of code in the chat. Empty uses the Markdown viewer's code font, then the terminal font.",
+          "kind": "font_family",
+          "default": null,
+          "group": "Agent Chat"
+        },
+        {
+          "key": "agentPane.display.code.scale",
+          "title": "Chat Code Size",
+          "help": "Code as a share of the chat's text size. Empty uses the Markdown viewer's.",
+          "kind": "number",
+          "default": null,
+          "group": "Agent Chat",
+          "range": {
+            "min": 0.6,
+            "max": 1.25,
+            "unit": "fraction"
+          }
+        },
+        {
+          "key": "agentPane.display.environment.placement",
+          "title": "Session Info Chip",
+          "help": "Left puts it in a row below the tab row; Right keeps it in the header (or leads the tab-row tools); Off hides it.",
+          "kind": "choice",
+          "default": "left",
+          "group": "Agent Chat",
+          "values": [
+            "left",
+            "right",
+            "off"
+          ]
+        },
+        {
+          "key": "agentPane.display.font.lineHeight",
+          "title": "Chat Line Height",
+          "help": "",
+          "kind": "number",
+          "default": 1.625,
+          "group": "Agent Chat",
+          "range": {
+            "min": 1.2,
+            "max": 2.4,
+            "unit": "fraction"
+          }
+        },
+        {
+          "key": "agentPane.display.font.preset",
+          "title": "Chat Font",
+          "help": "",
+          "kind": "choice",
+          "default": "markdown",
+          "group": "Agent Chat",
+          "values": [
+            "markdown",
+            "system",
+            "serif",
+            "mono"
+          ]
+        },
+        {
+          "key": "agentPane.display.font.size",
+          "title": "Chat Font Size",
+          "help": "",
+          "kind": "number",
+          "default": 14,
+          "group": "Agent Chat",
+          "range": {
+            "min": 10,
+            "max": 28,
+            "unit": "points"
+          }
+        },
+        {
+          "key": "agentPane.display.fullWidth",
+          "title": "Chat Full Width",
+          "help": "The chat fills the whole pane instead of the text width.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Agent Chat"
+        },
+        {
+          "key": "agentPane.display.inspector.placement",
+          "title": "Session Info",
+          "help": "Where the Session Info panel opens at the right of the chat. Push narrows the chat beside it; Overlay lies over the chat.",
+          "kind": "choice",
+          "default": "overlay",
+          "group": "Agent Chat",
+          "values": [
+            "push",
+            "overlay"
+          ]
+        },
+        {
+          "key": "agentPane.display.minimap",
+          "title": "Chat Minimap",
+          "help": "What runs down the chat's edge: the rail, one tick per prompt; the full map, every message at its place with a box for what is on screen; or nothing.",
+          "kind": "choice",
+          "default": "compact",
+          "group": "Agent Chat",
+          "values": [
+            "compact",
+            "full",
+            "off"
+          ]
+        },
+        {
+          "key": "agentPane.display.vscodeMinimap",
+          "title": "VS Code Minimap",
+          "help": "A small picture of the whole chat at its right edge, as in VS Code. Click or drag it to scroll.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Agent Chat"
+        },
+        {
+          "key": "agentPane.display.width",
+          "title": "Chat Text Width",
+          "help": "The widest the chat's column gets. On a wider pane the chat stays centered.",
+          "kind": "number",
+          "default": 800,
+          "group": "Agent Chat",
+          "range": {
+            "min": 480,
+            "max": 4000,
+            "unit": "points"
+          }
+        },
+        {
+          "key": "app.uiScale",
+          "title": "Interface Scale",
+          "help": "",
+          "kind": "number",
+          "default": 1,
+          "group": "Density and Motion",
+          "range": {
+            "min": 0.85,
+            "max": 1.5,
+            "unit": "fraction"
+          }
+        },
+        {
+          "key": "appearance.accent",
+          "title": "Accent",
+          "help": "The color of selection, focus and the Send button. Theme Color takes the theme's own hue, such as Rose Pine's iris.",
+          "kind": "choice",
+          "default": "neutral",
+          "group": "App Theme",
+          "values": [
+            "neutral",
+            "theme",
+            "art",
+            "red",
+            "green",
+            "yellow",
+            "blue",
+            "magenta",
+            "cyan"
+          ]
+        },
+        {
+          "key": "appearance.appTheme",
+          "title": "App Theme",
+          "help": "Colors for cmux's own pages. Every bundled theme works here, and each color meets WCAG AA contrast.",
+          "kind": "theme",
+          "default": "followTerminal",
+          "group": "App Theme"
+        },
+        {
+          "key": "appearance.background",
+          "title": "Background",
+          "help": "Choose a public-domain painting, your desktop wallpaper, or a macOS system wallpaper behind the window material.",
+          "kind": "choice",
+          "default": "none",
+          "group": "Window Background",
+          "values": [
+            "none",
+            "daily",
+            "desktop",
+            "david-death-of-marat",
+            "velde-small-ship-storm",
+            "bosch-ascent-blessed",
+            "goya-witches-flight",
+            "martin-pandemonium",
+            "moran-burning-philadelphia",
+            "goya-burial-sardine",
+            "arbo-wild-hunt",
+            "altdorfer-battle-of-issus",
+            "munch-madonna",
+            "klee-fish-magic",
+            "friedrich-forest-moonlight",
+            "bosch-garden-left",
+            "rembrandt-storm-galilee",
+            "cole-voyage-manhood",
+            "munch-scream",
+            "bruegel-fall-rebel-angels",
+            "wright-vesuvius",
+            "gerome-botsaris",
+            "martin-joshua",
+            "velde-gale",
+            "hogai-nio",
+            "bosch-garden-central",
+            "martin-great-day-wrath",
+            "bonheur-wounded-eagle",
+            "cole-voyage-old-age",
+            "friedrich-abbey-oakwood",
+            "goya-sleep-of-reason",
+            "bosch-garden-fragment",
+            "spilliaert-vertigo",
+            "rothaug-melpomene",
+            "aivazovsky-ship-stormy-seas",
+            "cabanel-fallen-angel",
+            "spilliaert-woman-shoreline",
+            "el-greco-view-of-toledo",
+            "rembrandt-prodigal-son",
+            "velazquez-las-meninas",
+            "matejko-stanczyk",
+            "sargent-madame-x",
+            "millais-joan-of-arc",
+            "cot-storm",
+            "rembrandt-night-watch",
+            "vigee-lebrun-madame-grand",
+            "waterhouse-lady-shalott",
+            "fragonard-swing",
+            "rubens-st-francis-xavier",
+            "vermeer-pearl-earring",
+            "danielson-gambogi-self",
+            "beard-his-majesty",
+            "marc-foxes",
+            "degas-green-dancers",
+            "modigliani-nude-divan",
+            "raphael-sistine-madonna",
+            "bouguereau-virgin-lilies",
+            "wood-american-gothic",
+            "steinlen-chat-noir",
+            "degas-blue-dancers",
+            "botticelli-primavera",
+            "van-gogh-cafe-terrace",
+            "matisse-red-room",
+            "kandinsky-deepened-impulse",
+            "friedrich-wanderer",
+            "klimt-adele",
+            "mucha-job",
+            "van-gogh-starry-night",
+            "klimt-tree-of-life",
+            "klimt-the-kiss",
+            "van-gogh-starry-night-rhone",
+            "delacroix-liberty",
+            "van-gogh-sunflowers",
+            "klimt-mada-primavesi",
+            "schiele-kneeling-orange",
+            "van-gogh-sunflowers-munich",
+            "michelangelo-sistine-ceiling",
+            "mondrian-composition-red-plane",
+            "lemoyne-apotheosis-hercules",
+            "schiele-moa",
+            "aivazovsky-ninth-wave",
+            "popova-painterly-architectonic",
+            "bruegel-tower-babel",
+            "botticelli-birth-of-venus",
+            "kandinsky-yellow-red-blue",
+            "kandinsky-composition-viii",
+            "kramskoi-unknown-woman",
+            "michelangelo-creation-of-adam",
+            "hokusai-great-wave",
+            "holbein-ambassadors",
+            "brueghel-wooden-vessel",
+            "dahl-dresden-moonlight",
+            "bosschaert-wan-li-vase",
+            "cot-springtime",
+            "ruysch-flowers",
+            "van-gogh-flowering-plum",
+            "toulmouche-reluctant-bride",
+            "rosso-musical-angel",
+            "grimshaw-blackman-street",
+            "waterhouse-ophelia",
+            "biard-magdalena-bay",
+            "renoir-vase-roses",
+            "roerich-himalayas",
+            "velde-close-hauled",
+            "sohlberg-flower-meadow",
+            "dahl-cloud-study",
+            "friedrich-two-men-moon",
+            "monet-waterlily-pond",
+            "hesselbom-dusk",
+            "toulmouche-vanity",
+            "hiroshige-zoshigaya",
+            "monet-water-lilies",
+            "monet-water-lilies-1907",
+            "bierstadt-storm-rockies",
+            "korovin-place-opera",
+            "klimt-garden-sunflowers",
+            "redon-butterflies",
+            "aivazovsky-winter-landscape",
+            "aivazovsky-along-coast",
+            "grimshaw-silver-moonlight",
+            "monet-water-lilies-setting-sun",
+            "hiroshige-hota-coast",
+            "durer-praying-hands",
+            "cole-voyage-childhood",
+            "monet-impression-sunrise",
+            "monet-woman-parasol",
+            "velde-cannon-shot",
+            "cross-pink-cloud",
+            "laurence-mckinley",
+            "van-gogh-irises",
+            "kramskoi-christ-in-the-desert",
+            "turner-temeraire",
+            "leonardo-vitruvian-man",
+            "bruegel-hunters-snow",
+            "cole-voyage-youth",
+            "friedrich-monk-by-the-sea",
+            "van-gogh-wheat-field-cypresses",
+            "monet-cliff-pourville",
+            "van-gogh-almond-blossom",
+            "van-gogh-fishing-boats",
+            "hokusai-umezawa",
+            "whistler-falling-rocket",
+            "dore-fall-of-satan",
+            "dore-wolves-sheep",
+            "dore-leviathan",
+            "dore-paradise-lost-book-vi",
+            "dore-moses-tables",
+            "dore-empyrean",
+            "dore-raven",
+            "system:/System/Library/Desktop Pictures/Solid Colors/Blue.heic",
+            "file:/Users/Shared/Harbor.png",
+            "folder:/Users/Shared/Wallpapers"
+          ]
+        },
+        {
+          "key": "appearance.backgroundBlur",
+          "title": "Material",
+          "help": "Unset, the window follows Ghostty's background-opacity and background-blur.",
+          "kind": "choice",
+          "default": null,
+          "group": "Window Background",
+          "values": [
+            "frosted",
+            "glass",
+            "glass-clear",
+            "none"
+          ]
+        },
+        {
+          "key": "appearance.backgroundOpacity",
+          "title": "Opacity",
+          "help": "How much of the theme color covers the material behind the window.",
+          "kind": "number",
+          "default": null,
+          "group": "Window Background",
+          "range": {
+            "min": 0,
+            "max": 1,
+            "unit": "fraction"
+          }
+        },
+        {
+          "key": "appearance.backgroundRotation",
+          "title": "Change Picture",
+          "help": "How often a shuffled background turns to its next picture.",
+          "kind": "choice",
+          "default": "daily",
+          "group": "Window Background",
+          "values": [
+            "15m",
+            "hourly",
+            "daily"
+          ]
+        },
+        {
+          "key": "appearance.borders",
+          "title": "Borders",
+          "help": "None removes every border, hairline and separator in the app.",
+          "kind": "choice",
+          "default": "default",
+          "group": "Density and Motion",
+          "values": [
+            "default",
+            "none"
+          ]
+        },
+        {
+          "key": "appearance.chromeStyle",
+          "title": "Window Style",
+          "help": "The look of the window: whether panes sit in one rounded card, and where lines are drawn. Separation, Sidebar Background and the sidebar border still win when you set them.",
+          "kind": "choice",
+          "default": "flat-sidebar-line",
+          "group": "Panes",
+          "values": [
+            "default",
+            "card",
+            "card-outlined",
+            "flat",
+            "flat-sidebar-line",
+            "bare",
+            "panes",
+            "two-tone",
+            "floating"
+          ]
+        },
+        {
+          "key": "appearance.colorTransition.bezierX1",
+          "title": "Bezier X1",
+          "help": "A control point of the Custom (Bezier) curve, as in CSS cubic-bezier().",
+          "kind": "number",
+          "default": 0.42,
+          "group": "Color Changes",
+          "range": {
+            "min": 0,
+            "max": 1,
+            "unit": "fraction"
+          }
+        },
+        {
+          "key": "appearance.colorTransition.bezierX2",
+          "title": "Bezier X2",
+          "help": "A control point of the Custom (Bezier) curve, as in CSS cubic-bezier().",
+          "kind": "number",
+          "default": 0.58,
+          "group": "Color Changes",
+          "range": {
+            "min": 0,
+            "max": 1,
+            "unit": "fraction"
+          }
+        },
+        {
+          "key": "appearance.colorTransition.bezierY1",
+          "title": "Bezier Y1",
+          "help": "A control point of the Custom (Bezier) curve, as in CSS cubic-bezier().",
+          "kind": "number",
+          "default": 0,
+          "group": "Color Changes",
+          "range": {
+            "min": -1,
+            "max": 2,
+            "unit": "fraction"
+          }
+        },
+        {
+          "key": "appearance.colorTransition.bezierY2",
+          "title": "Bezier Y2",
+          "help": "A control point of the Custom (Bezier) curve, as in CSS cubic-bezier().",
+          "kind": "number",
+          "default": 1,
+          "group": "Color Changes",
+          "range": {
+            "min": -1,
+            "max": 2,
+            "unit": "fraction"
+          }
+        },
+        {
+          "key": "appearance.colorTransition.colorSpace",
+          "title": "Color Blend Space",
+          "help": "OKLab blends with even lightness. sRGB mixes the red, green and blue channels.",
+          "kind": "choice",
+          "default": "oklab",
+          "group": "Color Changes",
+          "values": [
+            "oklab",
+            "srgb"
+          ]
+        },
+        {
+          "key": "appearance.colorTransition.curve",
+          "title": "Color Change Curve",
+          "help": "How a color change moves over its duration. Spring uses Spring Response and Spring Damping; Custom uses the four Bezier values.",
+          "kind": "choice",
+          "default": "easeOut",
+          "group": "Color Changes",
+          "values": [
+            "easeOut",
+            "easeInOut",
+            "linear",
+            "spring",
+            "cubicBezier"
+          ]
+        },
+        {
+          "key": "appearance.colorTransition.duration",
+          "title": "Color Change Duration",
+          "help": "How long a color change takes. 0 changes colors at once.",
+          "kind": "number",
+          "default": 200,
+          "group": "Color Changes",
+          "range": {
+            "min": 0,
+            "max": 2000,
+            "unit": "milliseconds"
+          }
+        },
+        {
+          "key": "appearance.colorTransition.enabled",
+          "title": "Animate Color Changes",
+          "help": "Workspace, theme and color changes blend from the old colors to the new ones. Off: they change at once.",
+          "kind": "toggle",
+          "default": true,
+          "group": "Color Changes"
+        },
+        {
+          "key": "appearance.colorTransition.reduceMotion",
+          "title": "With Reduce Motion",
+          "help": "What color changes do while Reduce Motion is on in macOS.",
+          "kind": "choice",
+          "default": "crossfade",
+          "group": "Color Changes",
+          "values": [
+            "crossfade",
+            "instant",
+            "full"
+          ]
+        },
+        {
+          "key": "appearance.colorTransition.springDamping",
+          "title": "Spring Damping",
+          "help": "1 arrives smoothly with no overshoot. Above 1 is slower; below 1 arrives sooner.",
+          "kind": "number",
+          "default": 1,
+          "group": "Color Changes",
+          "range": {
+            "min": 0.1,
+            "max": 2,
+            "unit": "fraction"
+          }
+        },
+        {
+          "key": "appearance.colorTransition.springResponse",
+          "title": "Spring Response",
+          "help": "Seconds a spring color change takes to reach its new colors.",
+          "kind": "number",
+          "default": 0.3,
+          "group": "Color Changes",
+          "range": {
+            "min": 0.05,
+            "max": 2,
+            "unit": "seconds"
+          }
+        },
+        {
+          "key": "appearance.customDensities",
+          "title": "Custom Densities",
+          "help": "",
+          "kind": "text",
+          "default": [],
+          "group": "Density and Motion"
+        },
+        {
+          "key": "appearance.customDensity",
+          "title": "Custom Density",
+          "help": "",
+          "kind": "text",
+          "default": null,
+          "group": "Density and Motion"
+        },
+        {
+          "key": "appearance.density",
+          "title": "Density",
+          "help": "Row height, padding, corners, icons and text size together. Compact is the default.",
+          "kind": "choice",
+          "default": "compact",
+          "group": "Density and Motion",
+          "values": [
+            "ultraCompact",
+            "compact",
+            "cozy",
+            "comfortable",
+            "spacious"
+          ]
+        },
+        {
+          "key": "appearance.experimentalControls",
+          "title": "Experimental Appearance Controls",
+          "help": "Applies Hue and Saturation to the window's tint. Off, they have no effect.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Window Background"
+        },
+        {
+          "key": "appearance.focusIndicator",
+          "title": "Focused Pane",
+          "help": "How the focused pane stands out: its border, subtler tabs in the other panes, both or neither.",
+          "kind": "choice",
+          "default": "tabs",
+          "group": "Density and Motion",
+          "values": [
+            "border",
+            "tabs",
+            "both",
+            "none"
+          ]
+        },
+        {
+          "key": "appearance.hue",
+          "title": "Hue",
+          "help": "Shift the tint color around the hue wheel.",
+          "kind": "number",
+          "default": 0.5,
+          "group": "Appearance Tuning",
+          "range": {
+            "min": 0,
+            "max": 1,
+            "unit": "fraction"
+          }
+        },
+        {
+          "key": "appearance.inactiveWindowDim",
+          "title": "Dim Inactive Windows",
+          "help": "How much more theme color covers a window while another one is in front. 0 keeps the same look.",
+          "kind": "number",
+          "default": 0,
+          "group": "Window Background",
+          "range": {
+            "min": 0,
+            "max": 1,
+            "unit": "fraction"
+          }
+        },
+        {
+          "key": "appearance.metrics.chromeFontSize",
+          "title": "Interface Size",
+          "help": "Text size of tabs, the sidebar and other controls. Terminal text has its own size.",
+          "kind": "number",
+          "default": null,
+          "group": "Density and Motion",
+          "range": {
+            "min": 10,
+            "max": 16,
+            "unit": "points"
+          }
+        },
+        {
+          "key": "appearance.metrics.columnGap",
+          "title": "Column Gap",
+          "help": "",
+          "kind": "number",
+          "default": null,
+          "group": "Density and Motion",
+          "range": {
+            "min": 0,
+            "max": 24,
+            "unit": "points"
+          }
+        },
+        {
+          "key": "appearance.metrics.dividerHitWidth",
+          "title": "Divider Drag Width",
+          "help": "",
+          "kind": "number",
+          "default": null,
+          "group": "Density and Motion",
+          "range": {
+            "min": 1,
+            "max": 24,
+            "unit": "points"
+          }
+        },
+        {
+          "key": "appearance.metrics.dividerThickness",
+          "title": "Divider Thickness",
+          "help": "",
+          "kind": "number",
+          "default": null,
+          "group": "Density and Motion",
+          "range": {
+            "min": 0,
+            "max": 6,
+            "unit": "points"
+          }
+        },
+        {
+          "key": "appearance.metrics.sidebarWidth",
+          "title": "Sidebar Width",
+          "help": "",
+          "kind": "number",
+          "default": null,
+          "group": "Density and Motion",
+          "range": {
+            "min": 160,
+            "max": 420,
+            "unit": "points"
+          }
+        },
+        {
+          "key": "appearance.metrics.titlebarHeight",
+          "title": "Titlebar Height",
+          "help": "",
+          "kind": "number",
+          "default": null,
+          "group": "Density and Motion",
+          "range": {
+            "min": 24,
+            "max": 56,
+            "unit": "points"
+          }
+        },
+        {
+          "key": "appearance.paneBackgrounds",
+          "title": "Pane Backgrounds",
+          "help": "One background behind the whole window, or a copy in each pane. A pane's own background (right-click a pane) shows either way.",
+          "kind": "choice",
+          "default": "shared",
+          "group": "Window Background",
+          "values": [
+            "shared",
+            "perPane"
+          ]
+        },
+        {
+          "key": "appearance.saturation",
+          "title": "Saturation",
+          "help": "Increase or reduce the tint color intensity.",
+          "kind": "number",
+          "default": 1,
+          "group": "Appearance Tuning",
+          "range": {
+            "min": 0,
+            "max": 2,
+            "unit": "fraction"
+          }
+        },
+        {
+          "key": "appearance.sidebarSurface",
+          "title": "Sidebar Background",
+          "help": "Same as Main Pane gives the sidebar the main pane's background. Separate shades the sidebar darker than the main pane.",
+          "kind": "choice",
+          "default": "same",
+          "group": "Sidebar",
+          "values": [
+            "same",
+            "separate"
+          ]
+        },
+        {
+          "key": "appearance.statusIndicator.animation",
+          "title": "Status Indicators",
+          "help": "Static draws a still, distinct shape for each state. Reduce Motion always uses Static.",
+          "kind": "choice",
+          "default": "animated",
+          "group": "Loading Indicator",
+          "values": [
+            "animated",
+            "static"
+          ]
+        },
+        {
+          "key": "appearance.statusIndicator.color",
+          "title": "Color",
+          "help": "",
+          "kind": "color",
+          "default": null,
+          "group": "Loading Indicator"
+        },
+        {
+          "key": "appearance.statusIndicator.honorStatusStyle",
+          "title": "Let Statuses Choose Their Style",
+          "help": "A status that asks for a style (cmux status set --style) uses it.",
+          "kind": "toggle",
+          "default": true,
+          "group": "Loading Indicator"
+        },
+        {
+          "key": "appearance.statusIndicator.showAgentWorkingOnTabs",
+          "title": "Show Agent Working on Tabs",
+          "help": "Three dots take the tab's icon place while an agent works.",
+          "kind": "toggle",
+          "default": true,
+          "group": "Loading Indicator"
+        },
+        {
+          "key": "appearance.statusIndicator.showPageLoading",
+          "title": "Show Page Loading on Tabs",
+          "help": "A spinner takes a browser tab's icon place while its page loads.",
+          "kind": "toggle",
+          "default": true,
+          "group": "Loading Indicator"
+        },
+        {
+          "key": "appearance.statusIndicator.size",
+          "title": "Size",
+          "help": "",
+          "kind": "number",
+          "default": 1,
+          "group": "Loading Indicator",
+          "range": {
+            "min": 0.5,
+            "max": 1.5,
+            "unit": "fraction"
+          }
+        },
+        {
+          "key": "appearance.statusIndicator.style",
+          "title": "Style",
+          "help": "How sidebar rows, tabs and panes show work in progress.",
+          "kind": "choice",
+          "default": "arc",
+          "group": "Loading Indicator",
+          "values": [
+            "arc",
+            "native",
+            "dot",
+            "braille",
+            "none"
+          ]
+        },
+        {
+          "key": "appearance.statusIndicator.thickness",
+          "title": "Line Width",
+          "help": "",
+          "kind": "number",
+          "default": 1.5,
+          "group": "Loading Indicator",
+          "range": {
+            "min": 0.5,
+            "max": 4,
+            "unit": "points"
+          }
+        },
+        {
+          "key": "appearance.surfaces.agentPane.color",
+          "title": "Agent Chat Color",
+          "help": "",
+          "kind": "color",
+          "default": null,
+          "group": "Surfaces"
+        },
+        {
+          "key": "appearance.surfaces.agentPane.opacity",
+          "title": "Agent Chat Opacity",
+          "help": "",
+          "kind": "number",
+          "default": null,
+          "group": "Surfaces",
+          "range": {
+            "min": 0,
+            "max": 1,
+            "unit": "fraction"
+          }
+        },
+        {
+          "key": "appearance.surfaces.browserChrome.color",
+          "title": "Browser Toolbar Color",
+          "help": "",
+          "kind": "color",
+          "default": null,
+          "group": "Surfaces"
+        },
+        {
+          "key": "appearance.surfaces.browserChrome.opacity",
+          "title": "Browser Toolbar Opacity",
+          "help": "",
+          "kind": "number",
+          "default": null,
+          "group": "Surfaces",
+          "range": {
+            "min": 0,
+            "max": 1,
+            "unit": "fraction"
+          }
+        },
+        {
+          "key": "appearance.surfaces.diff.color",
+          "title": "Diff Viewer Color",
+          "help": "",
+          "kind": "color",
+          "default": null,
+          "group": "Surfaces"
+        },
+        {
+          "key": "appearance.surfaces.diff.opacity",
+          "title": "Diff Viewer Opacity",
+          "help": "",
+          "kind": "number",
+          "default": null,
+          "group": "Surfaces",
+          "range": {
+            "min": 0,
+            "max": 1,
+            "unit": "fraction"
+          }
+        },
+        {
+          "key": "appearance.surfaces.docks.color",
+          "title": "Docked Columns Color",
+          "help": "",
+          "kind": "color",
+          "default": null,
+          "group": "Surfaces"
+        },
+        {
+          "key": "appearance.surfaces.docks.opacity",
+          "title": "Docked Columns Opacity",
+          "help": "",
+          "kind": "number",
+          "default": null,
+          "group": "Surfaces",
+          "range": {
+            "min": 0,
+            "max": 1,
+            "unit": "fraction"
+          }
+        },
+        {
+          "key": "appearance.surfaces.editor.color",
+          "title": "Code Editor Color",
+          "help": "",
+          "kind": "color",
+          "default": null,
+          "group": "Surfaces"
+        },
+        {
+          "key": "appearance.surfaces.editor.opacity",
+          "title": "Code Editor Opacity",
+          "help": "",
+          "kind": "number",
+          "default": null,
+          "group": "Surfaces",
+          "range": {
+            "min": 0,
+            "max": 1,
+            "unit": "fraction"
+          }
+        },
+        {
+          "key": "appearance.surfaces.home.color",
+          "title": "Home Color",
+          "help": "",
+          "kind": "color",
+          "default": null,
+          "group": "Surfaces"
+        },
+        {
+          "key": "appearance.surfaces.home.opacity",
+          "title": "Home Opacity",
+          "help": "",
+          "kind": "number",
+          "default": null,
+          "group": "Surfaces",
+          "range": {
+            "min": 0,
+            "max": 1,
+            "unit": "fraction"
+          }
+        },
+        {
+          "key": "appearance.surfaces.internalPage.color",
+          "title": "Internal Pages Color",
+          "help": "",
+          "kind": "color",
+          "default": null,
+          "group": "Surfaces"
+        },
+        {
+          "key": "appearance.surfaces.internalPage.opacity",
+          "title": "Internal Pages Opacity",
+          "help": "",
+          "kind": "number",
+          "default": null,
+          "group": "Surfaces",
+          "range": {
+            "min": 0,
+            "max": 1,
+            "unit": "fraction"
+          }
+        },
+        {
+          "key": "appearance.surfaces.markdown.color",
+          "title": "Markdown Editor Color",
+          "help": "",
+          "kind": "color",
+          "default": null,
+          "group": "Surfaces"
+        },
+        {
+          "key": "appearance.surfaces.markdown.opacity",
+          "title": "Markdown Editor Opacity",
+          "help": "",
+          "kind": "number",
+          "default": null,
+          "group": "Surfaces",
+          "range": {
+            "min": 0,
+            "max": 1,
+            "unit": "fraction"
+          }
+        },
+        {
+          "key": "appearance.surfaces.newTabPage.color",
+          "title": "New Tab Page Color",
+          "help": "",
+          "kind": "color",
+          "default": null,
+          "group": "Surfaces"
+        },
+        {
+          "key": "appearance.surfaces.newTabPage.opacity",
+          "title": "New Tab Page Opacity",
+          "help": "",
+          "kind": "number",
+          "default": null,
+          "group": "Surfaces",
+          "range": {
+            "min": 0,
+            "max": 1,
+            "unit": "fraction"
+          }
+        },
+        {
+          "key": "appearance.surfaces.settings.color",
+          "title": "Settings Color",
+          "help": "",
+          "kind": "color",
+          "default": null,
+          "group": "Surfaces"
+        },
+        {
+          "key": "appearance.surfaces.settings.opacity",
+          "title": "Settings Opacity",
+          "help": "",
+          "kind": "number",
+          "default": null,
+          "group": "Surfaces",
+          "range": {
+            "min": 0,
+            "max": 1,
+            "unit": "fraction"
+          }
+        },
+        {
+          "key": "appearance.surfaces.sidebar.color",
+          "title": "Sidebar Color",
+          "help": "",
+          "kind": "color",
+          "default": null,
+          "group": "Surfaces"
+        },
+        {
+          "key": "appearance.surfaces.sidebar.opacity",
+          "title": "Sidebar Opacity",
+          "help": "",
+          "kind": "number",
+          "default": null,
+          "group": "Surfaces",
+          "range": {
+            "min": 0,
+            "max": 1,
+            "unit": "fraction"
+          }
+        },
+        {
+          "key": "appearance.surfaces.splitDivider.color",
+          "title": "Split Divider Color",
+          "help": "",
+          "kind": "color",
+          "default": null,
+          "group": "Surfaces"
+        },
+        {
+          "key": "appearance.surfaces.splitDivider.opacity",
+          "title": "Split Divider Opacity",
+          "help": "",
+          "kind": "number",
+          "default": null,
+          "group": "Surfaces",
+          "range": {
+            "min": 0,
+            "max": 1,
+            "unit": "fraction"
+          }
+        },
+        {
+          "key": "appearance.surfaces.tabBar.color",
+          "title": "Tab Bar Color",
+          "help": "",
+          "kind": "color",
+          "default": null,
+          "group": "Surfaces"
+        },
+        {
+          "key": "appearance.surfaces.tabBar.opacity",
+          "title": "Tab Bar Opacity",
+          "help": "",
+          "kind": "number",
+          "default": null,
+          "group": "Surfaces",
+          "range": {
+            "min": 0,
+            "max": 1,
+            "unit": "fraction"
+          }
+        },
+        {
+          "key": "appearance.surfaces.terminal.color",
+          "title": "Terminal Color",
+          "help": "",
+          "kind": "color",
+          "default": null,
+          "group": "Surfaces"
+        },
+        {
+          "key": "appearance.surfaces.terminal.opacity",
+          "title": "Terminal Opacity",
+          "help": "",
+          "kind": "number",
+          "default": null,
+          "group": "Surfaces",
+          "range": {
+            "min": 0,
+            "max": 1,
+            "unit": "fraction"
+          }
+        },
+        {
+          "key": "appearance.theme",
+          "title": "Theme",
+          "help": "Colors for cmux and its terminals. A space, workspace or terminal theme overrides it.",
+          "kind": "theme",
+          "default": null,
+          "group": "App Theme"
+        },
+        {
+          "key": "appearance.themeEdits",
+          "title": "Theme Edits",
+          "help": "Your color changes to a theme, such as \"Rose Pine/background\": \"#1f1d2e\". The theme itself never changes; remove an entry to reset that color.",
+          "kind": "string_map",
+          "default": {},
+          "group": "App Theme"
+        },
+        {
+          "key": "appearance.wallpaperTint",
+          "title": "Tint with Desktop Wallpaper",
+          "help": "The glass takes the colors of your desktop picture and follows it when the picture or Space changes.",
+          "kind": "toggle",
+          "default": true,
+          "group": "Window Background"
+        },
+        {
+          "key": "diff.colors",
+          "title": "Diff Colors",
+          "help": "",
+          "kind": "choice",
+          "default": "theme",
+          "group": "Diff Viewer",
+          "values": [
+            "theme",
+            "muted",
+            "standard"
+          ]
+        },
+        {
+          "key": "diff.diffIndicators",
+          "title": "Change Markers",
+          "help": "",
+          "kind": "choice",
+          "default": "bars",
+          "group": "Diff Viewer",
+          "values": [
+            "bars",
+            "classic",
+            "none"
+          ]
+        },
+        {
+          "key": "diff.expandUnchanged",
+          "title": "Expand Unchanged Lines",
+          "help": "",
+          "kind": "toggle",
+          "default": false,
+          "group": "Diff Viewer"
+        },
+        {
+          "key": "diff.groupByKind",
+          "title": "Group Files by Kind",
+          "help": "",
+          "kind": "toggle",
+          "default": false,
+          "group": "Diff Viewer"
+        },
+        {
+          "key": "diff.hideWhitespace",
+          "title": "Hide White Space",
+          "help": "",
+          "kind": "toggle",
+          "default": false,
+          "group": "Diff Viewer"
+        },
+        {
+          "key": "diff.layout",
+          "title": "Layout",
+          "help": "",
+          "kind": "choice",
+          "default": "auto",
+          "group": "Diff Viewer",
+          "values": [
+            "auto",
+            "split",
+            "unified"
+          ]
+        },
+        {
+          "key": "diff.lineNumbers",
+          "title": "Line Numbers",
+          "help": "",
+          "kind": "toggle",
+          "default": true,
+          "group": "Diff Viewer"
+        },
+        {
+          "key": "diff.showBackgrounds",
+          "title": "Change Backgrounds",
+          "help": "",
+          "kind": "toggle",
+          "default": true,
+          "group": "Diff Viewer"
+        },
+        {
+          "key": "diff.showBulkActions",
+          "title": "Stage All and Revert All Bar",
+          "help": "",
+          "kind": "toggle",
+          "default": true,
+          "group": "Diff Viewer"
+        },
+        {
+          "key": "diff.wordDiffs",
+          "title": "Highlight Word Changes",
+          "help": "",
+          "kind": "toggle",
+          "default": true,
+          "group": "Diff Viewer"
+        },
+        {
+          "key": "diff.wordWrap",
+          "title": "Wrap Lines",
+          "help": "",
+          "kind": "toggle",
+          "default": false,
+          "group": "Diff Viewer"
+        },
+        {
+          "key": "focus.inactiveTabStyle",
+          "title": "Unfocused Pane Tabs",
+          "help": "How the other panes' tabs draw subtler when Focused Pane marks tabs: Fade dims them, Tonal steps their text down, Quiet keeps only a faint selected pill.",
+          "kind": "choice",
+          "default": "fade",
+          "group": "Density and Motion",
+          "values": [
+            "fade",
+            "tonal",
+            "quiet"
+          ]
+        },
+        {
+          "key": "focusRing.color",
+          "title": "Color",
+          "help": "",
+          "kind": "color",
+          "default": null,
+          "group": "Focus Ring"
+        },
+        {
+          "key": "focusRing.contrast",
+          "title": "Contrast",
+          "help": "",
+          "kind": "choice",
+          "default": "subtle",
+          "group": "Focus Ring",
+          "values": [
+            "subtle",
+            "standard",
+            "strong"
+          ]
+        },
+        {
+          "key": "focusRing.enabled",
+          "title": "Show Focus Ring",
+          "help": "",
+          "kind": "toggle",
+          "default": false,
+          "group": "Focus Ring"
+        },
+        {
+          "key": "focusRing.showWhenSinglePane",
+          "title": "Show With One Pane",
+          "help": "",
+          "kind": "toggle",
+          "default": false,
+          "group": "Focus Ring"
+        },
+        {
+          "key": "focusRing.style",
+          "title": "Style",
+          "help": "",
+          "kind": "choice",
+          "default": "ring",
+          "group": "Focus Ring",
+          "values": [
+            "ring",
+            "glow",
+            "none"
+          ]
+        },
+        {
+          "key": "focusRing.width",
+          "title": "Width",
+          "help": "",
+          "kind": "number",
+          "default": 1,
+          "group": "Focus Ring",
+          "range": {
+            "min": 0.5,
+            "max": 8,
+            "unit": "points"
+          }
+        },
+        {
+          "key": "layout.paneBorder",
+          "title": "Border",
+          "help": "",
+          "kind": "choice",
+          "default": "subtle",
+          "group": "Panes",
+          "values": [
+            "subtle",
+            "none"
+          ]
+        },
+        {
+          "key": "layout.paneBorderColor",
+          "title": "Border Color",
+          "help": "",
+          "kind": "color",
+          "default": null,
+          "group": "Panes"
+        },
+        {
+          "key": "layout.paneBorderWidth",
+          "title": "Border Width",
+          "help": "",
+          "kind": "number",
+          "default": null,
+          "group": "Panes",
+          "range": {
+            "min": 0.5,
+            "max": 4,
+            "unit": "points"
+          }
+        },
+        {
+          "key": "layout.paneCornerRadius",
+          "title": "Corner Radius",
+          "help": "",
+          "kind": "number",
+          "default": null,
+          "group": "Panes",
+          "range": {
+            "min": 0,
+            "max": 20,
+            "unit": "points"
+          }
+        },
+        {
+          "key": "layout.panePadding",
+          "title": "Padding",
+          "help": "",
+          "kind": "number",
+          "default": null,
+          "group": "Panes",
+          "range": {
+            "min": 0,
+            "max": 16,
+            "unit": "points"
+          }
+        },
+        {
+          "key": "layout.paneSeparation",
+          "title": "Separation",
+          "help": "How panes are told apart. None draws no border or divider at all; dragging between panes still resizes them. Default: dividers inside the curved main pane, borders otherwise.",
+          "kind": "choice",
+          "default": null,
+          "group": "Panes",
+          "values": [
+            "none",
+            "dividers",
+            "borders",
+            "cards"
+          ]
+        },
+        {
+          "key": "markdown.code.family",
+          "title": "Code Font",
+          "help": "The font of code blocks and inline code. Empty uses the terminal font. The agent chat uses it too unless it has its own.",
+          "kind": "font_family",
+          "default": null,
+          "group": "Markdown Viewer"
+        },
+        {
+          "key": "markdown.code.scale",
+          "title": "Code Font Size",
+          "help": "Code as a share of the text size. A monospaced font looks bigger than the text font at the same size, so code is a little smaller by default.",
+          "kind": "number",
+          "default": 0.875,
+          "group": "Markdown Viewer",
+          "range": {
+            "min": 0.6,
+            "max": 1.25,
+            "unit": "fraction"
+          }
+        },
+        {
+          "key": "markdown.font.lineHeight",
+          "title": "Line Height",
+          "help": "",
+          "kind": "number",
+          "default": 1.6,
+          "group": "Markdown Viewer",
+          "range": {
+            "min": 1,
+            "max": 2.4,
+            "unit": "fraction"
+          }
+        },
+        {
+          "key": "markdown.font.preset",
+          "title": "Font",
+          "help": "",
+          "kind": "choice",
+          "default": "system",
+          "group": "Markdown Viewer",
+          "values": [
+            "system",
+            "serif",
+            "mono"
+          ]
+        },
+        {
+          "key": "markdown.font.size",
+          "title": "Default Font Size",
+          "help": "The text size every markdown viewer opens at. Cmd-= and Cmd-- change it in one viewer; Cmd-0 goes back to this size.",
+          "kind": "number",
+          "default": 16,
+          "group": "Markdown Viewer",
+          "range": {
+            "min": 8,
+            "max": 40,
+            "unit": "points"
+          }
+        },
+        {
+          "key": "markdown.layout.fullWidth",
+          "title": "Full Width",
+          "help": "Text fills the whole pane instead of the text width.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Markdown Viewer"
+        },
+        {
+          "key": "markdown.layout.width",
+          "title": "Text Width",
+          "help": "The widest a line of text gets, in characters (30 to 1000). On a wider window the text stays centered with margins. Wide tables and code scroll sideways in their own box.",
+          "kind": "number",
+          "default": 72,
+          "group": "Markdown Viewer",
+          "range": {
+            "min": 30,
+            "max": 1000,
+            "unit": "count"
+          }
+        },
+        {
+          "key": "markdown.remoteImages",
+          "title": "Load Web Images Automatically",
+          "help": "Web image sites can see your address and when you open a document. When off, each document asks before loading its web images.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Markdown Viewer"
+        },
+        {
+          "key": "markdown.spacing.paragraph",
+          "title": "Paragraph Spacing",
+          "help": "The gap after each paragraph, as a share of the text size.",
+          "kind": "number",
+          "default": 1,
+          "group": "Markdown Viewer",
+          "range": {
+            "min": 0,
+            "max": 3,
+            "unit": "fraction"
+          }
+        },
+        {
+          "key": "markdown.tables",
+          "title": "Wide Tables",
+          "help": "",
+          "kind": "choice",
+          "default": "scroll",
+          "group": "Markdown Viewer",
+          "values": [
+            "scroll",
+            "wrap"
+          ]
+        },
+        {
+          "key": "markdown.theme",
+          "title": "Page Theme",
+          "help": "",
+          "kind": "choice",
+          "default": "app",
+          "group": "Markdown Viewer",
+          "values": [
+            "app",
+            "light",
+            "dark"
+          ]
+        },
+        {
+          "key": "sidebar.border",
+          "title": "Border",
+          "help": "A line on the sidebar's edge. Off, the edge shows a line only while you hover or drag it.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Sidebar"
+        },
+        {
+          "key": "sidebar.borderWidth",
+          "title": "Border Width",
+          "help": "",
+          "kind": "number",
+          "default": null,
+          "group": "Sidebar",
+          "range": {
+            "min": 0.5,
+            "max": 4,
+            "unit": "points"
+          }
+        },
+        {
+          "key": "sidebar.bottomBandMaxShare",
+          "title": "Bottom Sections Height",
+          "help": "The share of the sidebar the bottom sections fill before they scroll.",
+          "kind": "number",
+          "default": 0.25,
+          "group": "Sidebar",
+          "range": {
+            "min": 0.1,
+            "max": 0.9,
+            "unit": "fraction"
+          }
+        },
+        {
+          "key": "sidebar.cards.tips",
+          "title": "Show Tips",
+          "help": "A \"Did you know\" card above the account button shows one cmux feature a day that you have not used yet. Each tip shows only once.",
+          "kind": "toggle",
+          "default": true,
+          "group": "Sidebar"
+        },
+        {
+          "key": "sidebar.cmd9",
+          "title": "Command-9",
+          "help": "Goes to the last item, as in browsers, or to the ninth.",
+          "kind": "choice",
+          "default": "last",
+          "group": "Sidebar",
+          "values": [
+            "last",
+            "ninth"
+          ]
+        },
+        {
+          "key": "sidebar.density",
+          "title": "Sidebar Density",
+          "help": "Comfortable rows keep one line on taller rows with more space around them. Expanded rows show each workspace's status or folder under its name, how long ago it changed, and its pull request and computer.",
+          "kind": "choice",
+          "default": "compact",
+          "group": "Sidebar",
+          "values": [
+            "compact",
+            "comfortable",
+            "expanded"
+          ]
+        },
+        {
+          "key": "sidebar.detailedStatusIcons",
+          "title": "Detailed Status Icons",
+          "help": "Workspace rows show a separate icon for working, waiting for input, error and done. Off, a row shows a spinner while it works and a blue dot when it is ready for you.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Sidebar"
+        },
+        {
+          "key": "sidebar.groupBy",
+          "title": "Group Projects By",
+          "help": "",
+          "kind": "choice",
+          "default": "none",
+          "group": "Sidebar",
+          "values": [
+            "none",
+            "folder"
+          ]
+        },
+        {
+          "key": "sidebar.groupHeader.memberCount",
+          "title": "Show Group Member Count",
+          "help": "A collapsed group shows how many workspaces it holds after its name. Off, it shows only its loading spinner.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Sidebar"
+        },
+        {
+          "key": "sidebar.groupHeader.unreadCount",
+          "title": "Show Group Unread Count",
+          "help": "A collapsed group shows how many unread notifications its workspaces have. Off, it shows only its loading spinner.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Sidebar"
+        },
+        {
+          "key": "sidebar.hoverCards.delay",
+          "title": "Hover Card Delay",
+          "help": "How long the pointer rests on a workspace or a tab before its card opens. While a card shows, the next one opens at once.",
+          "kind": "number",
+          "default": 250,
+          "group": "Sidebar",
+          "range": {
+            "min": 0,
+            "max": 5000,
+            "unit": "milliseconds"
+          }
+        },
+        {
+          "key": "sidebar.hoverCards.enabled",
+          "title": "Show Hover Cards",
+          "help": "A card with details opens when the pointer rests on a workspace or a tab.",
+          "kind": "toggle",
+          "default": true,
+          "group": "Sidebar"
+        },
+        {
+          "key": "sidebar.hoverCards.groups.delay",
+          "title": "Group Card Delay",
+          "help": "How long the pointer rests on a group before its summary card opens.",
+          "kind": "number",
+          "default": 600,
+          "group": "Sidebar",
+          "range": {
+            "min": 0,
+            "max": 5000,
+            "unit": "milliseconds"
+          }
+        },
+        {
+          "key": "sidebar.hoverCards.groups.maxMembers",
+          "title": "Group Card Members",
+          "help": "The most members a group's card lists by name.",
+          "kind": "number",
+          "default": 8,
+          "group": "Sidebar",
+          "range": {
+            "min": 1,
+            "max": 50,
+            "unit": "count"
+          }
+        },
+        {
+          "key": "sidebar.hoverCards.groups.order",
+          "title": "Group Card Leads With",
+          "help": "Which part of a group's card comes first.",
+          "kind": "choice",
+          "default": "status",
+          "group": "Sidebar",
+          "values": [
+            "status",
+            "members",
+            "activity"
+          ]
+        },
+        {
+          "key": "sidebar.hoverCards.groups.sections.activity",
+          "title": "Group Card: Latest Activity",
+          "help": "Show the member that changed last, and when.",
+          "kind": "toggle",
+          "default": true,
+          "group": "Sidebar"
+        },
+        {
+          "key": "sidebar.hoverCards.groups.sections.git",
+          "title": "Group Card: Branches",
+          "help": "Show the members' git branches.",
+          "kind": "toggle",
+          "default": true,
+          "group": "Sidebar"
+        },
+        {
+          "key": "sidebar.hoverCards.groups.sections.members",
+          "title": "Group Card: Members",
+          "help": "Show the member count and the members' names.",
+          "kind": "toggle",
+          "default": true,
+          "group": "Sidebar"
+        },
+        {
+          "key": "sidebar.hoverCards.groups.sections.ports",
+          "title": "Group Card: Ports",
+          "help": "Show the members' listening ports.",
+          "kind": "toggle",
+          "default": true,
+          "group": "Sidebar"
+        },
+        {
+          "key": "sidebar.hoverCards.groups.sections.status",
+          "title": "Group Card: Status",
+          "help": "Show how many members work, wait, failed or have unread items.",
+          "kind": "toggle",
+          "default": true,
+          "group": "Sidebar"
+        },
+        {
+          "key": "sidebar.hoverCards.groups.tabGroups",
+          "title": "Cards on Tab Groups",
+          "help": "A summary card opens when the pointer rests on a tab group's chip.",
+          "kind": "toggle",
+          "default": true,
+          "group": "Sidebar"
+        },
+        {
+          "key": "sidebar.hoverCards.groups.workspaceGroups",
+          "title": "Cards on Workspace Groups",
+          "help": "A summary card opens when the pointer rests on a workspace group's header.",
+          "kind": "toggle",
+          "default": true,
+          "group": "Sidebar"
+        },
+        {
+          "key": "sidebar.hoverCards.layout",
+          "title": "Workspace Card Layout",
+          "help": "What a workspace's hover card shows: its history of prompts and waits, its details, or both.",
+          "kind": "choice",
+          "default": "timeline",
+          "group": "Sidebar",
+          "values": [
+            "timeline",
+            "compact",
+            "log",
+            "classic",
+            "minimal"
+          ]
+        },
+        {
+          "key": "sidebar.hoverCards.maxRows",
+          "title": "Workspace Card History Lines",
+          "help": "The most prompts, waits and finished turns a workspace's card lists. The list scrolls.",
+          "kind": "number",
+          "default": 20,
+          "group": "Sidebar",
+          "range": {
+            "min": 1,
+            "max": 100,
+            "unit": "count"
+          }
+        },
+        {
+          "key": "sidebar.hoverCards.sections.git",
+          "title": "Show Branch in Workspace Cards",
+          "help": "The workspace's branch and pull request.",
+          "kind": "toggle",
+          "default": true,
+          "group": "Sidebar"
+        },
+        {
+          "key": "sidebar.hoverCards.sections.ports",
+          "title": "Show Ports in Workspace Cards",
+          "help": "The ports the workspace listens on.",
+          "kind": "toggle",
+          "default": true,
+          "group": "Sidebar"
+        },
+        {
+          "key": "sidebar.hoverCards.sections.prompts",
+          "title": "Show Prompts in Workspace Cards",
+          "help": "Each prompt you sent and when, in the card's history.",
+          "kind": "toggle",
+          "default": true,
+          "group": "Sidebar"
+        },
+        {
+          "key": "sidebar.hoverCards.sections.timings",
+          "title": "Show Running Times in Workspace Cards",
+          "help": "How long the workspace has worked or waited, and how long its command has run.",
+          "kind": "toggle",
+          "default": true,
+          "group": "Sidebar"
+        },
+        {
+          "key": "sidebar.hoverCards.sections.waiting",
+          "title": "Show Waits in Workspace Cards",
+          "help": "When an agent waited for your input or finished its turn, in the card's history.",
+          "kind": "toggle",
+          "default": true,
+          "group": "Sidebar"
+        },
+        {
+          "key": "sidebar.minimal",
+          "title": "Minimal Mode",
+          "help": "Workspace rows show only their icon, name and unread mark, and section titles become thin lines.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Sidebar"
+        },
+        {
+          "key": "sidebar.minimalMode",
+          "title": "Hide Bands Until Hover",
+          "help": "Hides the chosen sections until the pointer is over the sidebar.",
+          "kind": "choice",
+          "default": "off",
+          "group": "Sidebar",
+          "values": [
+            "off",
+            "bottom",
+            "top",
+            "both"
+          ]
+        },
+        {
+          "key": "sidebar.noFade",
+          "title": "Show Whole Sidebar Without Fade",
+          "help": "The sidebar's edges stop fading and the whole list shows. It also hides the bottom profile and search bar. Off, the edges fade and the bar shows.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Sidebar"
+        },
+        {
+          "key": "sidebar.nowPlaying.enabled",
+          "title": "Show Now Playing",
+          "help": "A player for what is playing, at the bottom of the sidebar.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Sidebar"
+        },
+        {
+          "key": "sidebar.nowPlaying.otherApps",
+          "title": "Include Other Apps in Now Playing",
+          "help": "Also show what plays in other apps, such as Spotify, Music or another browser. Off: only what plays in cmux.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Sidebar"
+        },
+        {
+          "key": "sidebar.numbering",
+          "title": "Command-Number Shortcuts",
+          "help": "Every item: Home is Command-1, the App Store Command-2, the first workspace Command-3. Workspaces only: the first workspace is Command-1.",
+          "kind": "choice",
+          "default": "allItems",
+          "group": "Sidebar",
+          "values": [
+            "allItems",
+            "workspacesOnly"
+          ]
+        },
+        {
+          "key": "sidebar.pinnedBandsScroll",
+          "title": "Scroll Tall Sections",
+          "help": "Off: the top and bottom sections never scroll and the workspace list gets smaller.",
+          "kind": "toggle",
+          "default": true,
+          "group": "Sidebar"
+        },
+        {
+          "key": "sidebar.priorityView.enabled",
+          "title": "Priority View",
+          "help": "A bell at the top of the sidebar shows every agent chat on every machine, the ones waiting on you first, then finished, failed, working and idle.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Sidebar"
+        },
+        {
+          "key": "sidebar.priorityView.shown",
+          "title": "Show Priority View",
+          "help": "The sidebar bell's state while the Priority view is on. Off, the sidebar is unchanged.",
+          "kind": "toggle",
+          "default": true,
+          "group": "Sidebar"
+        },
+        {
+          "key": "sidebar.sectionLook",
+          "title": "Section Look",
+          "help": "How the sections above and below the workspace list draw.",
+          "kind": "choice",
+          "default": "quiet",
+          "group": "Sidebar",
+          "values": [
+            "quiet",
+            "card",
+            "tray",
+            "lines",
+            "linesIcons"
+          ]
+        },
+        {
+          "key": "sidebar.sessionTree",
+          "title": "Session Tree",
+          "help": "Lists a workspace that another workspace's agent started under it, and shows each row's pull requests and the first rows' Command-number keys.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Sidebar"
+        },
+        {
+          "key": "sidebar.showChats",
+          "title": "Show All Chats on New Tab",
+          "help": "On the New Tab page, the Threads and Console styles list every coding agent chat on this computer, newest first. Off, they show the recent chats only.",
+          "kind": "toggle",
+          "default": true,
+          "group": "Sidebar"
+        },
+        {
+          "key": "sidebar.showColors",
+          "title": "Show Workspace Colors",
+          "help": "Workspaces and groups draw their colors in the sidebar. Off, the sidebar draws no colors and keeps the colors you set.",
+          "kind": "toggle",
+          "default": true,
+          "group": "Sidebar"
+        },
+        {
+          "key": "sidebar.showLocalMachine",
+          "title": "Mark This Mac's Workspaces",
+          "help": "With workspaces on more than one computer, a workspace on another computer shows that computer's icon in its color. On, this Mac's workspaces show its icon too.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Sidebar"
+        },
+        {
+          "key": "sidebar.showProfileControl",
+          "title": "Show Profile Button",
+          "help": "",
+          "kind": "toggle",
+          "default": true,
+          "group": "Sidebar"
+        },
+        {
+          "key": "sidebar.showProjects",
+          "title": "Show Projects",
+          "help": "",
+          "kind": "toggle",
+          "default": true,
+          "group": "Sidebar"
+        },
+        {
+          "key": "sidebar.showSearchButton",
+          "title": "Show Search Button",
+          "help": "A magnifying glass after the profile button searches workspaces, tabs, history, agent chats, settings and commands. Off, Search stays in the command palette.",
+          "kind": "toggle",
+          "default": true,
+          "group": "Sidebar"
+        },
+        {
+          "key": "sidebar.showSpaces",
+          "title": "Show Spaces",
+          "help": "",
+          "kind": "toggle",
+          "default": true,
+          "group": "Sidebar"
+        },
+        {
+          "key": "sidebar.showTimestamps",
+          "title": "Show Timestamps",
+          "help": "Workspace rows show when they last changed: a time today, else an age such as 3d. Off, rows show no times; the hover card still does.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Sidebar"
+        },
+        {
+          "key": "sidebar.showWorkspaceTabs",
+          "title": "Show Workspace Tabs",
+          "help": "Lists tabs beneath each workspace in the sidebar.",
+          "kind": "toggle",
+          "default": true,
+          "group": "Sidebar"
+        },
+        {
+          "key": "sidebar.side",
+          "title": "Sidebar Side",
+          "help": "The window edge the sidebar sits on. On the right, the window buttons sit over the tab bar.",
+          "kind": "choice",
+          "default": "left",
+          "group": "Sidebar",
+          "values": [
+            "left",
+            "right"
+          ]
+        },
+        {
+          "key": "sidebar.spacesPosition",
+          "title": "Spaces Position",
+          "help": "Where the spaces dots sit in the sidebar: under the window buttons or above the Settings row.",
+          "kind": "choice",
+          "default": "bottom",
+          "group": "Sidebar",
+          "values": [
+            "top",
+            "bottom"
+          ]
+        },
+        {
+          "key": "sidebar.spacesVisibility",
+          "title": "Show Spaces",
+          "help": "On Hover shows the spaces only while the pointer is over the sidebar, like its other buttons.",
+          "kind": "choice",
+          "default": "hover",
+          "group": "Sidebar",
+          "values": [
+            "hover",
+            "always"
+          ]
+        },
+        {
+          "key": "sidebar.stepping",
+          "title": "Next and Previous Item",
+          "help": "What Command-Control-] and Command-Control-[ step through.",
+          "kind": "choice",
+          "default": "allItems",
+          "group": "Sidebar",
+          "values": [
+            "allItems",
+            "workspacesOnly"
+          ]
+        },
+        {
+          "key": "sidebar.steppingWraps",
+          "title": "Wrap Around",
+          "help": "Past the last item, the next item is the first again.",
+          "kind": "toggle",
+          "default": true,
+          "group": "Sidebar"
+        },
+        {
+          "key": "sidebar.style",
+          "title": "Sidebar Style",
+          "help": "Rail shrinks the sidebar to a thin strip with a mark for each workspace. Point at the strip to open the full sidebar over your work.",
+          "kind": "choice",
+          "default": "standard",
+          "group": "Sidebar",
+          "values": [
+            "standard",
+            "rail"
+          ]
+        },
+        {
+          "key": "sidebar.topBandMaxShare",
+          "title": "Top Sections Height",
+          "help": "The share of the sidebar the top sections fill before they scroll.",
+          "kind": "number",
+          "default": 0.3333333333333333,
+          "group": "Sidebar",
+          "range": {
+            "min": 0.1,
+            "max": 0.9,
+            "unit": "fraction"
+          }
+        },
+        {
+          "key": "sidebar.workspaceRow.agentStatus",
+          "title": "Agent Status",
+          "help": "The status agents and hooks report, one line each.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Workspace Rows"
+        },
+        {
+          "key": "sidebar.workspaceRow.branch",
+          "title": "Git Branch",
+          "help": "",
+          "kind": "toggle",
+          "default": false,
+          "group": "Workspace Rows"
+        },
+        {
+          "key": "sidebar.workspaceRow.directory",
+          "title": "Folder",
+          "help": "",
+          "kind": "toggle",
+          "default": false,
+          "group": "Workspace Rows"
+        },
+        {
+          "key": "sidebar.workspaceRow.icon",
+          "title": "Icon",
+          "help": "The icon or emoji you chose for a workspace.",
+          "kind": "toggle",
+          "default": true,
+          "group": "Workspace Rows"
+        },
+        {
+          "key": "sidebar.workspaceRow.lastActivity",
+          "title": "Last Activity",
+          "help": "",
+          "kind": "toggle",
+          "default": false,
+          "group": "Workspace Rows"
+        },
+        {
+          "key": "sidebar.workspaceRow.log",
+          "title": "Log",
+          "help": "The newest line agents and scripts log: cmux workspace log append <text>.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Workspace Rows"
+        },
+        {
+          "key": "sidebar.workspaceRow.notification",
+          "title": "Latest Notification",
+          "help": "The text of the workspace's newest unread notification.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Workspace Rows"
+        },
+        {
+          "key": "sidebar.workspaceRow.ports",
+          "title": "Ports",
+          "help": "Set by a hook: cmux workspace status set ports <text>.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Workspace Rows"
+        },
+        {
+          "key": "sidebar.workspaceRow.process",
+          "title": "Running Program",
+          "help": "The terminal's title, which the shell or program sets.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Workspace Rows"
+        },
+        {
+          "key": "sidebar.workspaceRow.progress",
+          "title": "Progress",
+          "help": "A progress bar under the row and the busy mark of running work.",
+          "kind": "toggle",
+          "default": true,
+          "group": "Workspace Rows"
+        },
+        {
+          "key": "sidebar.workspaceRow.pullRequest",
+          "title": "Pull Request",
+          "help": "Set by a hook: cmux workspace status set pr <text>.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Workspace Rows"
+        },
+        {
+          "key": "sidebar.workspaceRow.secondLineOrder",
+          "title": "Second Line Order",
+          "help": "The order of the shown items under the workspace name.",
+          "kind": "string_list",
+          "default": [
+            "notification",
+            "directory",
+            "branch",
+            "process",
+            "agentStatus",
+            "ports",
+            "lastActivity"
+          ],
+          "group": "Workspace Rows"
+        },
+        {
+          "key": "sidebar.workspaceRow.tabCount",
+          "title": "Tab Count",
+          "help": "",
+          "kind": "toggle",
+          "default": false,
+          "group": "Workspace Rows"
+        },
+        {
+          "key": "sidebar.workspaceRow.working",
+          "title": "Agent Working",
+          "help": "A mark while an agent works in the workspace.",
+          "kind": "toggle",
+          "default": true,
+          "group": "Workspace Rows"
+        },
+        {
+          "key": "status.inferCommandBusy",
+          "title": "Show Running Commands",
+          "help": "A shell command that runs a while shows as busy.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Loading Indicator"
+        },
+        {
+          "key": "status.inferCommandBusyAfter",
+          "title": "Show After",
+          "help": "",
+          "kind": "number",
+          "default": 3,
+          "group": "Loading Indicator",
+          "range": {
+            "min": 0,
+            "max": 600,
+            "unit": "seconds"
+          }
+        },
+        {
+          "key": "tabs.commandDigits",
+          "title": "Command-1 to 9 Select",
+          "help": "Workspaces: Command-1 to 9 go to sidebar items and Control-1 to 9 to tabs. Tabs: Command-1 to 9 go to the focused pane's tabs and Control-1 to 9 to workspaces.",
+          "kind": "choice",
+          "default": "workspaces",
+          "group": "Sidebar",
+          "values": [
+            "workspaces",
+            "tabs"
+          ]
+        },
+        {
+          "key": "ui.animations.bounce",
+          "title": "Animation Bounce",
+          "help": "None stops tabs, rows and panes exactly at their place. Subtle lets them settle with a small bounce.",
+          "kind": "choice",
+          "default": "none",
+          "group": "Density and Motion",
+          "values": [
+            "none",
+            "subtle"
+          ]
+        },
+        {
+          "key": "ui.animations.cursor",
+          "title": "Animate the Agent Cursor",
+          "help": "The agent cursor glides between points and shows click ripples. Off: it jumps and shows no ripple.",
+          "kind": "toggle",
+          "default": true,
+          "group": "Motion"
+        },
+        {
+          "key": "ui.animations.enabled",
+          "title": "Play Animations",
+          "help": "Off turns every animation in cmux off: rows, tabs, panes, menus, cards, the agent cursor, spinners and cmux web pages change at once. On, the switches below choose area by area.",
+          "kind": "toggle",
+          "default": true,
+          "group": "Motion"
+        },
+        {
+          "key": "ui.animations.feedback",
+          "title": "Animate Highlights and Colors",
+          "help": "Hover and press highlights, focus fades and theme color changes ease in. Off: they change at once.",
+          "kind": "toggle",
+          "default": true,
+          "group": "Motion"
+        },
+        {
+          "key": "ui.animations.home",
+          "title": "Animate Home and Chats",
+          "help": "The Chief chat, its bubbles, the composer and the Home list move and fade. Off: they change at once.",
+          "kind": "toggle",
+          "default": true,
+          "group": "Motion"
+        },
+        {
+          "key": "ui.animations.hoverCards",
+          "title": "Animate Hover Cards",
+          "help": "Hover cards and tooltips fade and slide in. Off: they show and hide at once.",
+          "kind": "toggle",
+          "default": true,
+          "group": "Motion"
+        },
+        {
+          "key": "ui.animations.indicators",
+          "title": "Animate Spinners and Progress",
+          "help": "Spinners turn, status dots pulse and attention flashes blink. Off: they show a still glyph.",
+          "kind": "toggle",
+          "default": true,
+          "group": "Motion"
+        },
+        {
+          "key": "ui.animations.newTab",
+          "title": "Animate New Tabs",
+          "help": "A new tab grows into its place in the tab bar. Off shows it there at once.",
+          "kind": "toggle",
+          "default": true,
+          "group": "Density and Motion"
+        },
+        {
+          "key": "ui.animations.newWorkspace",
+          "title": "Animate New Workspaces",
+          "help": "A new workspace row opens in the sidebar. Off shows it there at once.",
+          "kind": "toggle",
+          "default": true,
+          "group": "Density and Motion"
+        },
+        {
+          "key": "ui.animations.overlays",
+          "title": "Animate Menus and Cards",
+          "help": "Menus, popovers, the command palette, sheets, toasts, notices, find bars and cards fade and slide in and out. Off: they show and hide at once.",
+          "kind": "toggle",
+          "default": true,
+          "group": "Motion"
+        },
+        {
+          "key": "ui.animations.panes",
+          "title": "Animate Panes and Windows",
+          "help": "Splits, closes, zooms, dividers, focus rings, drop zones and windows open, close and move with motion. Off: they change at once.",
+          "kind": "toggle",
+          "default": true,
+          "group": "Motion"
+        },
+        {
+          "key": "ui.animations.sidebar",
+          "title": "Animate the Sidebar",
+          "help": "Rows and groups slide when they reorder, open, close, pin or move to the top, and the sidebar slides when it shows or hides. Off: they change at once.",
+          "kind": "toggle",
+          "default": true,
+          "group": "Motion"
+        },
+        {
+          "key": "ui.animations.tabs",
+          "title": "Animate Tabs",
+          "help": "Tabs grow, shrink and slide when they open, close, reorder or collapse into a group. Off: the tab bar changes at once.",
+          "kind": "toggle",
+          "default": true,
+          "group": "Motion"
+        },
+        {
+          "key": "ui.animations.web",
+          "title": "Animate cmux Web Pages",
+          "help": "Transitions and animations in cmux's own pages, such as agent chats, New Tab and Markdown. Off: they end at once. Websites are not changed.",
+          "kind": "toggle",
+          "default": true,
+          "group": "Motion"
+        },
+        {
+          "key": "ui.animationSpeed",
+          "title": "Animations",
+          "help": "",
+          "kind": "choice",
+          "default": "fast",
+          "group": "Density and Motion",
+          "values": [
+            "fast",
+            "normal",
+            "off"
+          ]
+        },
+        {
+          "key": "ui.calm",
+          "title": "Calm Mode",
+          "help": "Calm: nothing slides, springs or spins, hover cards stay closed and the pointer leaves no highlight on tabs, rows and buttons. Still: Calm, and every animation is instant. Your other motion and hover card settings come back when it is off.",
+          "kind": "choice",
+          "default": "off",
+          "group": "Motion",
+          "values": [
+            "off",
+            "calm",
+            "still"
+          ]
+        },
+        {
+          "key": "ui.paneAnimations",
+          "title": "Animate Panes",
+          "help": "Splits, closes, moves, zooms, column scrolls and screen switches slide into place. Off: they change at once.",
+          "kind": "toggle",
+          "default": true,
+          "group": "Density and Motion"
+        },
+        {
+          "key": "ui.reducedBackgrounds",
+          "title": "Plain Backgrounds",
+          "help": "Draws windows in the plain theme color, without paintings, wallpapers or glass. Your background choices stay as they are and come back when you turn it off.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Window Background"
+        },
+        {
+          "key": "window.trafficLightClearance",
+          "title": "Traffic Light Clearance",
+          "help": "Space kept free for the window's close, minimize and zoom buttons.",
+          "kind": "number",
+          "default": 72,
+          "group": "Window",
+          "range": {
+            "min": 0,
+            "max": 160,
+            "unit": "points"
+          }
+        }
+      ]
+    },
+    {
+      "id": "terminal",
+      "title": "Terminal",
+      "rows": [
+        {
+          "key": "terminal.fontFamily",
+          "title": "Font Family",
+          "help": "A monospaced font installed on this Mac.",
+          "kind": "font_family",
+          "default": null,
+          "group": "Font"
+        },
+        {
+          "key": "terminal.fontSize",
+          "title": "Font Size",
+          "help": "",
+          "kind": "number",
+          "default": null,
+          "group": "Font",
+          "range": {
+            "min": 4,
+            "max": 96,
+            "unit": "points"
+          }
+        },
+        {
+          "key": "terminal.linkOpener.default",
+          "title": "Open Program Links In",
+          "help": "Where a URL goes when a program in a terminal opens a browser, such as aws login or gh auth login: cmux, system, chrome, safari, arc, firefox, edge, brave, app:<name>, a profile after @ (chrome@Profile 1), or command:<command> to let your script decide. A BROWSER you set yourself wins.",
+          "kind": "text",
+          "default": "cmux",
+          "group": "Opening Links"
+        },
+        {
+          "key": "terminal.linkOpener.rules",
+          "title": "Program Link Rules",
+          "help": "Checked in order before the default; the first match wins. Write <match> -> <target>: caller:aws matches the program that opened the URL, and text, * wildcards or re: match the URL. Example: caller:gh github.com -> safari",
+          "kind": "string_list",
+          "default": [],
+          "group": "Opening Links"
+        }
+      ]
+    },
+    {
+      "id": "editor",
+      "title": "Code Editor",
+      "rows": [
+        {
+          "key": "editor.acceptSuggestionOnEnter",
+          "title": "Return Accepts a Suggestion",
+          "help": "",
+          "kind": "choice",
+          "default": "on",
+          "group": "Editing",
+          "values": [
+            "on",
+            "smart",
+            "off"
+          ]
+        },
+        {
+          "key": "editor.autoClosingBrackets",
+          "title": "Close Brackets",
+          "help": "",
+          "kind": "toggle",
+          "default": true,
+          "group": "Editing"
+        },
+        {
+          "key": "editor.autoClosingQuotes",
+          "title": "Close Quotes",
+          "help": "",
+          "kind": "toggle",
+          "default": true,
+          "group": "Editing"
+        },
+        {
+          "key": "editor.autoSave",
+          "title": "Save Automatically",
+          "help": "",
+          "kind": "choice",
+          "default": "afterDelay",
+          "group": "Saving",
+          "values": [
+            "afterDelay",
+            "off"
+          ]
+        },
+        {
+          "key": "editor.autoSaveDelay",
+          "title": "Pause Before Saving",
+          "help": "",
+          "kind": "number",
+          "default": 1000,
+          "group": "Saving",
+          "range": {
+            "min": 100,
+            "max": 60000,
+            "unit": "milliseconds"
+          }
+        },
+        {
+          "key": "editor.bracketPairColorization.enabled",
+          "title": "Color Bracket Pairs",
+          "help": "",
+          "kind": "toggle",
+          "default": true,
+          "group": "Display"
+        },
+        {
+          "key": "editor.cursorBlinking",
+          "title": "Cursor Blinking",
+          "help": "",
+          "kind": "choice",
+          "default": "blink",
+          "group": "Cursor",
+          "values": [
+            "blink",
+            "smooth",
+            "phase",
+            "expand",
+            "solid"
+          ]
+        },
+        {
+          "key": "editor.cursorSmoothCaretAnimation",
+          "title": "Animate Cursor Movement",
+          "help": "",
+          "kind": "choice",
+          "default": "off",
+          "group": "Cursor",
+          "values": [
+            "off",
+            "explicit",
+            "on"
+          ]
+        },
+        {
+          "key": "editor.cursorStyle",
+          "title": "Cursor Style",
+          "help": "",
+          "kind": "choice",
+          "default": "line",
+          "group": "Cursor",
+          "values": [
+            "line",
+            "block",
+            "underline",
+            "line-thin",
+            "block-outline",
+            "underline-thin"
+          ]
+        },
+        {
+          "key": "editor.cursorSurroundingLines",
+          "title": "Lines Kept Around the Cursor",
+          "help": "",
+          "kind": "number",
+          "default": 0,
+          "group": "Cursor",
+          "range": {
+            "min": 0,
+            "max": 50,
+            "unit": "count"
+          }
+        },
+        {
+          "key": "editor.detectIndentation",
+          "title": "Detect Indentation",
+          "help": "Tab size and spaces follow the file's own indentation.",
+          "kind": "toggle",
+          "default": true,
+          "group": "Indentation and Wrapping"
+        },
+        {
+          "key": "editor.emptySelectionClipboard",
+          "title": "Copy the Line When Nothing Is Selected",
+          "help": "",
+          "kind": "toggle",
+          "default": true,
+          "group": "Editing"
+        },
+        {
+          "key": "editor.find.seedSearchStringFromSelection",
+          "title": "Find Starts With",
+          "help": "",
+          "kind": "choice",
+          "default": "always",
+          "group": "Editing",
+          "values": [
+            "always",
+            "selection",
+            "never"
+          ]
+        },
+        {
+          "key": "editor.folding",
+          "title": "Code Folding",
+          "help": "",
+          "kind": "toggle",
+          "default": true,
+          "group": "Display"
+        },
+        {
+          "key": "editor.fontFamily",
+          "title": "Font Family",
+          "help": "Empty uses the terminal font.",
+          "kind": "font_family",
+          "default": null,
+          "group": "Font"
+        },
+        {
+          "key": "editor.fontLigatures",
+          "title": "Font Ligatures",
+          "help": "",
+          "kind": "toggle",
+          "default": false,
+          "group": "Font"
+        },
+        {
+          "key": "editor.fontSize",
+          "title": "Font Size",
+          "help": "Empty uses the terminal font size. Cmd-= and Cmd-- change it in one editor.",
+          "kind": "number",
+          "default": null,
+          "group": "Font",
+          "range": {
+            "min": 6,
+            "max": 72,
+            "unit": "points"
+          }
+        },
+        {
+          "key": "editor.fontWeight",
+          "title": "Font Weight",
+          "help": "",
+          "kind": "choice",
+          "default": "normal",
+          "group": "Font",
+          "values": [
+            "normal",
+            "bold",
+            "300",
+            "500",
+            "600"
+          ]
+        },
+        {
+          "key": "editor.formatOnSave",
+          "title": "Format on Save",
+          "help": "Runs the language's formatter when one is installed.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Saving"
+        },
+        {
+          "key": "editor.guides.bracketPairs",
+          "title": "Bracket Pair Guides",
+          "help": "",
+          "kind": "toggle",
+          "default": false,
+          "group": "Display"
+        },
+        {
+          "key": "editor.guides.indentation",
+          "title": "Indentation Guides",
+          "help": "",
+          "kind": "toggle",
+          "default": true,
+          "group": "Display"
+        },
+        {
+          "key": "editor.importFrom",
+          "title": "Take Defaults From",
+          "help": "cmux reads that editor's settings and keybindings files and never changes them. A setting you make here wins.",
+          "kind": "choice",
+          "default": "auto",
+          "group": "Defaults from Other Editors",
+          "values": [
+            "auto",
+            "vscode",
+            "cursor",
+            "windsurf",
+            "vscodium",
+            "zed",
+            "none"
+          ]
+        },
+        {
+          "key": "editor.insertFinalNewline",
+          "title": "End Files with a Newline on Save",
+          "help": "",
+          "kind": "toggle",
+          "default": false,
+          "group": "Saving"
+        },
+        {
+          "key": "editor.insertSpaces",
+          "title": "Insert Spaces",
+          "help": "Tab inserts spaces. Off inserts a tab character.",
+          "kind": "toggle",
+          "default": true,
+          "group": "Indentation and Wrapping"
+        },
+        {
+          "key": "editor.letterSpacing",
+          "title": "Letter Spacing",
+          "help": "",
+          "kind": "number",
+          "default": 0,
+          "group": "Font",
+          "range": {
+            "min": -5,
+            "max": 20,
+            "unit": "points"
+          }
+        },
+        {
+          "key": "editor.lineHeight",
+          "title": "Line Height",
+          "help": "0 computes it from the font size. A value under 8 multiplies the font size.",
+          "kind": "number",
+          "default": 0,
+          "group": "Font",
+          "range": {
+            "min": 0,
+            "max": 150,
+            "unit": "points"
+          }
+        },
+        {
+          "key": "editor.lineNumbers",
+          "title": "Line Numbers",
+          "help": "",
+          "kind": "choice",
+          "default": "on",
+          "group": "Display",
+          "values": [
+            "on",
+            "off",
+            "relative",
+            "interval"
+          ]
+        },
+        {
+          "key": "editor.linkedEditing",
+          "title": "Rename Matching Tags Together",
+          "help": "",
+          "kind": "toggle",
+          "default": false,
+          "group": "Editing"
+        },
+        {
+          "key": "editor.matchBrackets",
+          "title": "Highlight Matching Brackets",
+          "help": "",
+          "kind": "choice",
+          "default": "always",
+          "group": "Display",
+          "values": [
+            "always",
+            "near",
+            "never"
+          ]
+        },
+        {
+          "key": "editor.minimap.enabled",
+          "title": "Minimap",
+          "help": "",
+          "kind": "toggle",
+          "default": false,
+          "group": "Display"
+        },
+        {
+          "key": "editor.mouseWheelZoom",
+          "title": "Zoom with Command and the Scroll Wheel",
+          "help": "",
+          "kind": "toggle",
+          "default": false,
+          "group": "Display"
+        },
+        {
+          "key": "editor.multiCursorModifier",
+          "title": "Add a Cursor With",
+          "help": "The key you hold while you click to add a cursor.",
+          "kind": "choice",
+          "default": "alt",
+          "group": "Cursor",
+          "values": [
+            "alt",
+            "ctrlCmd"
+          ]
+        },
+        {
+          "key": "editor.quickSuggestions",
+          "title": "Suggest While Typing",
+          "help": "",
+          "kind": "toggle",
+          "default": false,
+          "group": "Editing"
+        },
+        {
+          "key": "editor.renderControlCharacters",
+          "title": "Show Control Characters",
+          "help": "",
+          "kind": "toggle",
+          "default": true,
+          "group": "Display"
+        },
+        {
+          "key": "editor.renderLineHighlight",
+          "title": "Current Line Highlight",
+          "help": "",
+          "kind": "choice",
+          "default": "line",
+          "group": "Display",
+          "values": [
+            "none",
+            "gutter",
+            "line",
+            "all"
+          ]
+        },
+        {
+          "key": "editor.renderWhitespace",
+          "title": "Show Whitespace",
+          "help": "",
+          "kind": "choice",
+          "default": "selection",
+          "group": "Display",
+          "values": [
+            "none",
+            "boundary",
+            "selection",
+            "trailing",
+            "all"
+          ]
+        },
+        {
+          "key": "editor.rulers",
+          "title": "Rulers",
+          "help": "Columns where a vertical line shows.",
+          "kind": "number_list",
+          "default": [],
+          "group": "Display"
+        },
+        {
+          "key": "editor.scrollBeyondLastLine",
+          "title": "Scroll Past the Last Line",
+          "help": "",
+          "kind": "toggle",
+          "default": false,
+          "group": "Display"
+        },
+        {
+          "key": "editor.smoothScrolling",
+          "title": "Smooth Scrolling",
+          "help": "",
+          "kind": "toggle",
+          "default": false,
+          "group": "Display"
+        },
+        {
+          "key": "editor.stickyScroll.enabled",
+          "title": "Sticky Scroll",
+          "help": "The lines that open the scopes around the top line stay at the top while you scroll.",
+          "kind": "toggle",
+          "default": true,
+          "group": "Display"
+        },
+        {
+          "key": "editor.tabSize",
+          "title": "Tab Size",
+          "help": "",
+          "kind": "number",
+          "default": 4,
+          "group": "Indentation and Wrapping",
+          "range": {
+            "min": 1,
+            "max": 16,
+            "unit": "count"
+          }
+        },
+        {
+          "key": "editor.trimTrailingWhitespace",
+          "title": "Remove Trailing Spaces on Save",
+          "help": "",
+          "kind": "toggle",
+          "default": false,
+          "group": "Saving"
+        },
+        {
+          "key": "editor.wordBasedSuggestions",
+          "title": "Suggest Words from the File",
+          "help": "",
+          "kind": "toggle",
+          "default": true,
+          "group": "Editing"
+        },
+        {
+          "key": "editor.wordWrap",
+          "title": "Word Wrap",
+          "help": "Opt-Z turns it on and off.",
+          "kind": "choice",
+          "default": "off",
+          "group": "Indentation and Wrapping",
+          "values": [
+            "off",
+            "on",
+            "wordWrapColumn",
+            "bounded"
+          ]
+        },
+        {
+          "key": "editor.wordWrapColumn",
+          "title": "Wrap Column",
+          "help": "",
+          "kind": "number",
+          "default": 80,
+          "group": "Indentation and Wrapping",
+          "range": {
+            "min": 10,
+            "max": 1000,
+            "unit": "count"
+          }
+        }
+      ]
+    },
+    {
+      "id": "browser",
+      "title": "Browser",
+      "rows": [
+        {
+          "key": "browser.agentMouse.maxMoveMs",
+          "title": "Longest Agent Pointer Move",
+          "help": "The longest time one agent pointer move takes with human motion. Short moves take less.",
+          "kind": "number",
+          "default": 350,
+          "group": "Agent Input",
+          "range": {
+            "min": 60,
+            "max": 1000,
+            "unit": "milliseconds"
+          }
+        },
+        {
+          "key": "browser.agentMouse.motion",
+          "title": "Agent Pointer Motion",
+          "help": "How an agent moves the pointer in browser tabs. Human moves along a curved path and rests before each click, as a person does, so pages see hover and timing like a person's. Instant jumps to the target and clicks at once.",
+          "kind": "choice",
+          "default": "human",
+          "group": "Agent Input",
+          "values": [
+            "human",
+            "instant"
+          ]
+        },
+        {
+          "key": "browser.builtInAdBlocker",
+          "title": "Built-in uBlock Origin",
+          "help": "The full uBlock Origin blocks ads and trackers in Chromium tabs. Takes effect after cmux restarts.",
+          "kind": "toggle",
+          "default": true,
+          "group": "Extensions"
+        },
+        {
+          "key": "browser.customSearchEngine.search",
+          "title": "Custom Search Address",
+          "help": "Used when Search Engine is Custom. Put {searchTerms} where the typed text goes.",
+          "kind": "url",
+          "default": "",
+          "group": "Address Bar"
+        },
+        {
+          "key": "browser.customSearchEngine.suggest",
+          "title": "Custom Suggestions Address",
+          "help": "Optional. Answers in the OpenSearch suggestions format, with {searchTerms} for the typed text.",
+          "kind": "url",
+          "default": "",
+          "group": "Address Bar"
+        },
+        {
+          "key": "browser.defaultEngine",
+          "title": "Browser Engine",
+          "help": "Browser tabs and cmux pages, such as History and Apps, open in this engine.",
+          "kind": "choice",
+          "default": "chromium",
+          "group": "Engine",
+          "values": [
+            "chromium",
+            "webkit"
+          ]
+        },
+        {
+          "key": "browser.enabled",
+          "title": "Enable cmux Browser",
+          "help": "When off, cmux opens no browser tabs for web pages and every link opens in your default browser.",
+          "kind": "toggle",
+          "default": true,
+          "group": "Opening Links"
+        },
+        {
+          "key": "browser.freezeHiddenTabs",
+          "title": "Freeze Hidden Tabs",
+          "help": "Saves power: a hidden Chromium tab stops running until you show it. Pinned tabs and Never Hibernate hosts stay awake.",
+          "kind": "choice_or_number",
+          "default": 30,
+          "group": "Memory"
+        },
+        {
+          "key": "browser.hibernatePinnedTabs",
+          "title": "Hibernate Pinned Tabs",
+          "help": "",
+          "kind": "toggle",
+          "default": false,
+          "group": "Memory"
+        },
+        {
+          "key": "browser.hibernation",
+          "title": "Hibernate Hidden Tabs",
+          "help": "Frees memory; history and position are kept.",
+          "kind": "choice_or_number",
+          "default": null,
+          "group": "Memory"
+        },
+        {
+          "key": "browser.hibernationExclusions",
+          "title": "Never Hibernate",
+          "help": "Hosts such as mail.google.com or *.example.com.",
+          "kind": "host_list",
+          "default": [],
+          "group": "Memory"
+        },
+        {
+          "key": "browser.hostsToOpenInEmbeddedBrowser",
+          "title": "Hosts to Open in Embedded Browser",
+          "help": "Only these hosts open in cmux, such as example.com or *.example.com. Empty opens every host in cmux.",
+          "kind": "host_list",
+          "default": [],
+          "group": "Opening Links"
+        },
+        {
+          "key": "browser.import.enabled",
+          "title": "Import from Other Browsers",
+          "help": "Offers to bring bookmarks, history, passwords and sign-ins over from other browsers: Import from Browser in the File menu and the palette, and the import cards in Settings. Off hides them and nothing imports by itself. Data already imported stays.",
+          "kind": "toggle",
+          "default": true,
+          "group": "Import"
+        },
+        {
+          "key": "browser.keepNeighborTabsAwake",
+          "title": "Keep Neighbor Tabs Awake",
+          "help": "Tabs on each side of the shown tab stay loaded and running, so switching to them is instant. 0 turns it off. Memory pressure and Low Power Mode turn it off.",
+          "kind": "number",
+          "default": 1,
+          "group": "Memory",
+          "range": {
+            "min": 0,
+            "max": 3,
+            "unit": "count"
+          }
+        },
+        {
+          "key": "browser.links.cmdClick",
+          "title": "Command-Click",
+          "help": "In Chromium tabs, Download keeps Chrome's default.",
+          "kind": "choice",
+          "default": "linkPlacement",
+          "group": "Links",
+          "values": [
+            "linkPlacement",
+            "backgroundTab",
+            "foregroundTab",
+            "newWindow",
+            "currentTab",
+            "download"
+          ]
+        },
+        {
+          "key": "browser.links.cmdShiftClick",
+          "title": "Shift-Command-Click",
+          "help": "Shift-middle-click does the same.",
+          "kind": "choice",
+          "default": "foregroundTab",
+          "group": "Links",
+          "values": [
+            "linkPlacement",
+            "backgroundTab",
+            "foregroundTab",
+            "newWindow",
+            "currentTab",
+            "download"
+          ]
+        },
+        {
+          "key": "browser.links.middleClick",
+          "title": "Middle-Click",
+          "help": "Chromium tabs use the Command-Click setting.",
+          "kind": "choice",
+          "default": "backgroundTab",
+          "group": "Links",
+          "values": [
+            "linkPlacement",
+            "backgroundTab",
+            "foregroundTab",
+            "newWindow",
+            "currentTab",
+            "download"
+          ]
+        },
+        {
+          "key": "browser.links.optionClick",
+          "title": "Option-Click",
+          "help": "Chromium tabs always download.",
+          "kind": "choice",
+          "default": "download",
+          "group": "Links",
+          "values": [
+            "linkPlacement",
+            "backgroundTab",
+            "foregroundTab",
+            "newWindow",
+            "currentTab",
+            "download"
+          ]
+        },
+        {
+          "key": "browser.links.shiftClick",
+          "title": "Shift-Click",
+          "help": "In Chromium tabs, Download keeps Chrome's default.",
+          "kind": "choice",
+          "default": "newWindow",
+          "group": "Links",
+          "values": [
+            "linkPlacement",
+            "backgroundTab",
+            "foregroundTab",
+            "newWindow",
+            "currentTab",
+            "download"
+          ]
+        },
+        {
+          "key": "browser.newTabPage",
+          "title": "New Tab Page",
+          "help": "An address such as https://example.com. Empty opens a blank page.",
+          "kind": "url",
+          "default": "",
+          "group": "Engine"
+        },
+        {
+          "key": "browser.omnibar.backgroundOpacity",
+          "title": "Address Bar Opacity",
+          "help": "How much the address bar covers a see-through window. At 0 it is as see-through as the window, but never so clear that its text stops being readable.",
+          "kind": "number",
+          "default": 0,
+          "group": "Address Bar",
+          "range": {
+            "min": 0,
+            "max": 1,
+            "unit": "fraction"
+          }
+        },
+        {
+          "key": "browser.omnibar.calculator",
+          "title": "Calculator Answers",
+          "help": "Shows the answer to arithmetic you type. Return copies it.",
+          "kind": "toggle",
+          "default": true,
+          "group": "Address Bar"
+        },
+        {
+          "key": "browser.omnibar.cornerRadius",
+          "title": "Address Bar Corners",
+          "help": "Match Theme uses the standard bar radius. Capsule rounds the ends fully.",
+          "kind": "choice_or_number",
+          "default": "theme",
+          "group": "Address Bar"
+        },
+        {
+          "key": "browser.omnibar.glass",
+          "title": "Address Bar Glass",
+          "help": "The material of the address bar. Transparent draws no fill. Clear glass shows more of what is behind it. Off uses the flat theme color.",
+          "kind": "choice",
+          "default": "off",
+          "group": "Address Bar",
+          "values": [
+            "transparent",
+            "regular",
+            "clear",
+            "off"
+          ]
+        },
+        {
+          "key": "browser.omnibar.glassTint",
+          "title": "Glass Tint",
+          "help": "The color over the glass, from the terminal theme. Accent is the theme's own accent color, or gray when the theme has none.",
+          "kind": "choice",
+          "default": "background",
+          "group": "Address Bar",
+          "values": [
+            "background",
+            "accent",
+            "none"
+          ]
+        },
+        {
+          "key": "browser.omnibar.glassTintStrength",
+          "title": "Tint Strength",
+          "help": "",
+          "kind": "number",
+          "default": 0.35,
+          "group": "Address Bar",
+          "range": {
+            "min": 0,
+            "max": 1,
+            "unit": "fraction"
+          }
+        },
+        {
+          "key": "browser.omnibar.inlineAutocomplete",
+          "title": "Complete Addresses Inline",
+          "help": "Completes a site you typed before or visit often.",
+          "kind": "toggle",
+          "default": true,
+          "group": "Address Bar"
+        },
+        {
+          "key": "browser.omnibar.maxRows",
+          "title": "Suggestions Shown",
+          "help": "",
+          "kind": "number",
+          "default": 8,
+          "group": "Address Bar",
+          "range": {
+            "min": 3,
+            "max": 15,
+            "unit": "count"
+          }
+        },
+        {
+          "key": "browser.omnibar.remoteSuggestions",
+          "title": "Search Suggestions",
+          "help": "Sends what you type to the search engine for suggestions. Never addresses, files or local hosts.",
+          "kind": "toggle",
+          "default": true,
+          "group": "Address Bar"
+        },
+        {
+          "key": "browser.omnibar.shadow",
+          "title": "Address Bar Shadow",
+          "help": "A soft shadow under the glass address bar.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Address Bar"
+        },
+        {
+          "key": "browser.omnibar.showFullURLs",
+          "title": "Always Show Full URLs",
+          "help": "Shows the whole address, with https:// and www., when you are not editing it.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Address Bar"
+        },
+        {
+          "key": "browser.omnibox.color",
+          "title": "Address Bar Color",
+          "help": "",
+          "kind": "color",
+          "default": null,
+          "group": "Address Bar"
+        },
+        {
+          "key": "browser.omnibox.popupColor",
+          "title": "Suggestions Color",
+          "help": "",
+          "kind": "color",
+          "default": null,
+          "group": "Address Bar"
+        },
+        {
+          "key": "browser.omnibox.popupHoverColor",
+          "title": "Highlighted Suggestion Color",
+          "help": "",
+          "kind": "color",
+          "default": null,
+          "group": "Address Bar"
+        },
+        {
+          "key": "browser.openLinksInCmuxBrowser",
+          "title": "Open Links in cmux Browser",
+          "help": "When off, links you click in terminals, agent chats, Home and cmux pages open in your default browser. Shift-Command-click opens a link in the other browser.",
+          "kind": "toggle",
+          "default": true,
+          "group": "Opening Links"
+        },
+        {
+          "key": "browser.passwords.allowExport",
+          "title": "Allow Password Export",
+          "help": "Lets the Passwords page write every saved password to a plain-text CSV file, after you confirm with Touch ID or your password.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Passwords"
+        },
+        {
+          "key": "browser.passwords.generate",
+          "title": "Suggest Strong Passwords",
+          "help": "Offers a generated password when a site asks for a new one, and saves it.",
+          "kind": "toggle",
+          "default": true,
+          "group": "Passwords"
+        },
+        {
+          "key": "browser.passwords.offerToSave",
+          "title": "Offer to Save Passwords",
+          "help": "A browser tab asks to save a sign-in you submit. Tabs an agent drives never ask.",
+          "kind": "toggle",
+          "default": true,
+          "group": "Passwords"
+        },
+        {
+          "key": "browser.remoteLocalhost",
+          "title": "Open localhost on the Workspace's Machine",
+          "help": "",
+          "kind": "toggle",
+          "default": true,
+          "group": "Remote Machines"
+        },
+        {
+          "key": "browser.searchEngine",
+          "title": "Search Engine",
+          "help": "The address bar searches here and asks it for suggestions.",
+          "kind": "choice",
+          "default": "google",
+          "group": "Address Bar",
+          "values": [
+            "google",
+            "duckduckgo",
+            "bing",
+            "brave",
+            "kagi",
+            "custom"
+          ]
+        },
+        {
+          "key": "browser.showAgentCursor",
+          "title": "Show Agent Cursor",
+          "help": "When an agent drives a browser tab, show its cursor, clicks and typed keys on the page. Password fields show dots.",
+          "kind": "toggle",
+          "default": true,
+          "group": "Agent Input"
+        },
+        {
+          "key": "browser.showBookmarksBar",
+          "title": "Show Bookmarks Bar",
+          "help": "A row of bookmarks under each browser toolbar.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Bookmarks"
+        },
+        {
+          "key": "browser.siteEngines",
+          "title": "Site Engines",
+          "help": "Sites that always open in one engine: a site, such as spotify.com, and chromium or webkit. Spotify, Netflix and other protected media sites open in WebKit, because their media does not play in Chromium.",
+          "kind": "string_map",
+          "default": {
+            "amazon.com/gp/video": "webkit",
+            "disneyplus.com": "webkit",
+            "hulu.com": "webkit",
+            "max.com": "webkit",
+            "music.apple.com": "webkit",
+            "netflix.com": "webkit",
+            "primevideo.com": "webkit",
+            "spotify.com": "webkit",
+            "tv.apple.com": "webkit"
+          },
+          "group": "Engine"
+        },
+        {
+          "key": "browser.toolbar.back",
+          "title": "Back Button",
+          "help": "",
+          "kind": "toggle",
+          "default": true,
+          "group": "Toolbar"
+        },
+        {
+          "key": "browser.toolbar.downloads",
+          "title": "Downloads Button",
+          "help": "",
+          "kind": "toggle",
+          "default": true,
+          "group": "Toolbar"
+        },
+        {
+          "key": "browser.toolbar.extensions",
+          "title": "Extensions Button",
+          "help": "",
+          "kind": "toggle",
+          "default": true,
+          "group": "Toolbar"
+        },
+        {
+          "key": "browser.toolbar.forward",
+          "title": "Forward Button",
+          "help": "",
+          "kind": "toggle",
+          "default": true,
+          "group": "Toolbar"
+        },
+        {
+          "key": "browser.toolbar.home",
+          "title": "Home Button",
+          "help": "",
+          "kind": "toggle",
+          "default": false,
+          "group": "Toolbar"
+        },
+        {
+          "key": "browser.toolbar.media",
+          "title": "Media Controls Button",
+          "help": "",
+          "kind": "toggle",
+          "default": true,
+          "group": "Toolbar"
+        },
+        {
+          "key": "browser.toolbar.menu",
+          "title": "Menu Button",
+          "help": "",
+          "kind": "toggle",
+          "default": true,
+          "group": "Toolbar"
+        },
+        {
+          "key": "browser.toolbar.profile",
+          "title": "Profile Button",
+          "help": "",
+          "kind": "toggle",
+          "default": true,
+          "group": "Toolbar"
+        },
+        {
+          "key": "browser.toolbar.reload",
+          "title": "Reload Button",
+          "help": "",
+          "kind": "toggle",
+          "default": true,
+          "group": "Toolbar"
+        },
+        {
+          "key": "browser.toolbarButtons",
+          "title": "Toolbar Buttons",
+          "help": "Buttons shown next to the address bar. The rest are in the More menu, where Show in Toolbar pins them back.",
+          "kind": "string_list",
+          "default": [
+            "media",
+            "zoom",
+            "downloads"
+          ],
+          "group": "Toolbar"
+        },
+        {
+          "key": "browser.urlsToAlwaysOpenExternally",
+          "title": "URLs to Always Open Externally",
+          "help": "Links that match open in your default browser. Text matches anywhere in the URL, * and ? are wildcards, and re: starts a regular expression.",
+          "kind": "string_list",
+          "default": [],
+          "group": "Opening Links"
+        },
+        {
+          "key": "browser.verificationAutofill.enabled",
+          "title": "Fill Codes from Verification Emails",
+          "help": "When a site emails you a code or link, its tab offers it. Only on the sender's own site, never filled without your click, and never stored.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Passwords"
+        },
+        {
+          "key": "media.pictureInPicture.enabled",
+          "title": "Picture in Picture",
+          "help": "Offer Picture in Picture for a web page's video in menus, the command palette and the media controls. A site's own video controls are not affected.",
+          "kind": "toggle",
+          "default": true,
+          "group": "Media"
+        }
+      ]
+    },
+    {
+      "id": "home",
+      "title": "Home",
+      "rows": [
+        {
+          "key": "chief.reactionClassifier.harness",
+          "title": "Reaction Classifier Harness",
+          "help": "The agent harness the reaction classifier runs on, for example claude or codex. Empty uses the Chief's Claude route.",
+          "kind": "text",
+          "default": "",
+          "group": "Reactions"
+        },
+        {
+          "key": "chief.reactionClassifier.model",
+          "title": "Reaction Classifier Model",
+          "help": "The model that decides whether a reaction starts a turn. Claude Haiku by default: it is fast and cheap.",
+          "kind": "text",
+          "default": "claude-haiku-5-5",
+          "group": "Reactions"
+        },
+        {
+          "key": "chief.reactionClassifier.prompt",
+          "title": "Reaction Classifier Instructions",
+          "help": "What the classifier is told when it decides. Empty uses the built-in instructions.",
+          "kind": "text",
+          "default": "",
+          "group": "Reactions"
+        },
+        {
+          "key": "chief.reactionsCanWake",
+          "title": "Reactions Can Wake the Chief",
+          "help": "A reaction you put on a Chief message can start a turn when it asks for one, such as a question mark on a question or a thumbs down on a plan. A cheap model decides first, so a reaction that needs no answer never shows the typing dots. Off, reactions are only noted.",
+          "kind": "toggle",
+          "default": true,
+          "group": "Reactions"
+        },
+        {
+          "key": "diagnostics.hangReports",
+          "title": "Send Hang Reports",
+          "help": "Nightly builds send a daily report of hangs and slow frames: call stacks of cmux and macOS code, timings, your app and macOS versions, your Mac's chip and memory size, and rounded counts of open windows and tabs. It never includes file names, web addresses, terminal text, names or anything you type. View Hang Report shows exactly what is sent.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Hang Reports"
+        },
+        {
+          "key": "home.attachments.keepLocation",
+          "title": "Keep Location in Photos and Videos",
+          "help": "When off, location data is removed from photos and videos before they are attached.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Attachments"
+        },
+        {
+          "key": "home.channelsEnabled",
+          "title": "Channels",
+          "help": "Show Channels below Home in the sidebar. You can also turn it on or off from the command palette.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Sidebar"
+        },
+        {
+          "key": "home.chiefBubbleStyle",
+          "title": "Bubble Style",
+          "help": "iMessage shows your messages in blue and the Chief's in gray. Theme uses your theme's accent and surface colors.",
+          "kind": "choice",
+          "default": "imessage",
+          "group": "Chief Chat",
+          "values": [
+            "imessage",
+            "theme"
+          ]
+        },
+        {
+          "key": "home.chiefEngine",
+          "title": "Engine",
+          "help": "Which Chief Home opens. Auto uses this Mac's Chief while it runs here, else the Hosted Chief in the cloud.",
+          "kind": "choice",
+          "default": "auto",
+          "group": "Engine",
+          "values": [
+            "auto",
+            "local",
+            "hosted"
+          ]
+        },
+        {
+          "key": "home.chiefPetEnabled",
+          "title": "Show Chief Pet",
+          "help": "A small Chief floats over every app and shows agent events above it. Drag it anywhere; click it to message the Chief or reply to a session. While it shows, ⌃⌥⌘C opens its reply box from any app.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Chief Pet"
+        },
+        {
+          "key": "home.chiefPetMascot",
+          "title": "Character",
+          "help": "",
+          "kind": "choice",
+          "default": "orb",
+          "group": "Chief Pet",
+          "values": [
+            "orb",
+            "orb-spark",
+            "orb-hood",
+            "machine",
+            "machine-cyan",
+            "machine-blue",
+            "moon",
+            "moon-blue",
+            "fox",
+            "mochi"
+          ]
+        },
+        {
+          "key": "home.server",
+          "title": "Server",
+          "help": "Direct messages and group chats use cmux Cloud by default. A self-hosted server is reached over Tailscale by its MagicDNS name, for example http://mini.tail1234.ts.net:7320. No password is sent: the server knows you by your Tailscale login.",
+          "kind": "choice_or_url",
+          "default": "hosted",
+          "group": "Messages Server"
+        }
+      ]
+    },
+    {
+      "id": "keyboard",
+      "title": "Keyboard",
+      "rows": [
+        {
+          "key": "macScreen.systemShortcuts",
+          "title": "Send System Shortcuts to the Remote Mac",
+          "help": "While a Mac Screen tab has the keyboard, shortcuts like ⌘Tab, ⌘Space, Mission Control and ⌘Q go to the other Mac. Needs Accessibility.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Mac Screen"
+        },
+        {
+          "key": "shortcuts.showModifierHoldHints",
+          "title": "Show Shortcuts When Holding a Modifier",
+          "help": "Hold Command or Control for 0.30 seconds to show shortcut hints.",
+          "kind": "toggle",
+          "default": true,
+          "group": "Shortcut Hints"
+        }
+      ]
+    },
+    {
+      "id": "notifications",
+      "title": "Notifications",
+      "rows": [
+        {
+          "key": "feed.agentPermissionPrompts",
+          "title": "Send Agent Permission Requests to the Feed",
+          "help": "Each request's tool and command summary goes to your own cmux feed, so your iPhone can answer it.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Feed"
+        },
+        {
+          "key": "feed.github.enabled",
+          "title": "Connect GitHub",
+          "help": "Uses your gh login to read notifications and review requests on this Mac. Sign in with gh auth login first.",
+          "kind": "toggle",
+          "default": false,
+          "group": "GitHub Inbox"
+        },
+        {
+          "key": "feed.github.pollIntervalSeconds",
+          "title": "Refresh Interval",
+          "help": "Seconds between GitHub refreshes. Refresh in the Inbox runs immediately.",
+          "kind": "number",
+          "default": 120,
+          "group": "GitHub Inbox",
+          "range": {
+            "min": 60,
+            "max": 900,
+            "unit": "seconds"
+          }
+        },
+        {
+          "key": "feed.mirrorNotifications.agents",
+          "title": "Copy Agent Notifications to the Feed",
+          "help": "Notifications from agents and cmux notify go to your cmux account's feed and can reach your iPhone.",
+          "kind": "toggle",
+          "default": true,
+          "group": "Feed"
+        },
+        {
+          "key": "feed.mirrorNotifications.terminal",
+          "title": "Copy Terminal Notifications to the Feed",
+          "help": "Notifications that programs send through the terminal can contain secrets. Off sends nothing to your cmux account.",
+          "kind": "choice",
+          "default": "off",
+          "group": "Feed",
+          "values": [
+            "off",
+            "title",
+            "full"
+          ]
+        },
+        {
+          "key": "notifications.attention.agentChatBlinkCount",
+          "title": "Agent Chat Blinks",
+          "help": "",
+          "kind": "number",
+          "default": 1,
+          "group": "Attention Ring",
+          "range": {
+            "min": 1,
+            "max": 10,
+            "unit": "count"
+          }
+        },
+        {
+          "key": "notifications.attention.agentChats",
+          "title": "Ring Agent Chat Panes",
+          "help": "Ring an agent chat's pane when its turn ends, until you click or type in it.",
+          "kind": "choice",
+          "default": "none",
+          "group": "Attention Ring",
+          "values": [
+            "glow",
+            "ring",
+            "none"
+          ]
+        },
+        {
+          "key": "notifications.attention.blinkCount",
+          "title": "Blinks",
+          "help": "",
+          "kind": "number",
+          "default": 2,
+          "group": "Attention Ring",
+          "range": {
+            "min": 1,
+            "max": 10,
+            "unit": "count"
+          }
+        },
+        {
+          "key": "notifications.attention.color",
+          "title": "Color",
+          "help": "",
+          "kind": "color",
+          "default": null,
+          "group": "Attention Ring"
+        },
+        {
+          "key": "notifications.attention.duration",
+          "title": "Pulse Duration",
+          "help": "",
+          "kind": "number",
+          "default": 3,
+          "group": "Attention Ring",
+          "range": {
+            "min": 0.3,
+            "max": 30,
+            "unit": "seconds"
+          }
+        },
+        {
+          "key": "notifications.attention.flash",
+          "title": "Flash the Pane When Read",
+          "help": "Clicking an unread pane, typing in it or jumping to it flashes its ring as it goes.",
+          "kind": "toggle",
+          "default": true,
+          "group": "Attention Ring"
+        },
+        {
+          "key": "notifications.attention.flashOnTyping",
+          "title": "Flash When Typing Reads It",
+          "help": "",
+          "kind": "toggle",
+          "default": true,
+          "group": "Attention Ring"
+        },
+        {
+          "key": "notifications.attention.moveToTop",
+          "title": "Move the Workspace to the Top",
+          "help": "A notification moves its workspace to the top of the unpinned rows, unless you are looking at its pane.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Attention Ring"
+        },
+        {
+          "key": "notifications.attention.persist",
+          "title": "Keep Ring Until Read",
+          "help": "",
+          "kind": "toggle",
+          "default": true,
+          "group": "Attention Ring"
+        },
+        {
+          "key": "notifications.attention.showOnSidebar",
+          "title": "Mark the Sidebar Row",
+          "help": "",
+          "kind": "toggle",
+          "default": true,
+          "group": "Attention Ring"
+        },
+        {
+          "key": "notifications.attention.showOnTab",
+          "title": "Mark the Tab",
+          "help": "",
+          "kind": "toggle",
+          "default": true,
+          "group": "Attention Ring"
+        },
+        {
+          "key": "notifications.attention.style",
+          "title": "Style",
+          "help": "",
+          "kind": "choice",
+          "default": "steady",
+          "group": "Attention Ring",
+          "values": [
+            "blink",
+            "pulse",
+            "steady",
+            "none"
+          ]
+        },
+        {
+          "key": "notifications.attention.terminals",
+          "title": "Ring Terminal Panes",
+          "help": "",
+          "kind": "choice",
+          "default": "glow",
+          "group": "Attention Ring",
+          "values": [
+            "glow",
+            "ring",
+            "none"
+          ]
+        },
+        {
+          "key": "notifications.attention.width",
+          "title": "Width",
+          "help": "",
+          "kind": "number",
+          "default": 2,
+          "group": "Attention Ring",
+          "range": {
+            "min": 0.5,
+            "max": 8,
+            "unit": "points"
+          }
+        },
+        {
+          "key": "notifications.desktop",
+          "title": "macOS Banners",
+          "help": "",
+          "kind": "choice",
+          "default": "unlessFocused",
+          "group": "Banners and Sound",
+          "values": [
+            "unlessFocused",
+            "always",
+            "whenInactive",
+            "never"
+          ]
+        },
+        {
+          "key": "notifications.dismissal",
+          "title": "Clear Notification When",
+          "help": "",
+          "kind": "choice",
+          "default": "click",
+          "group": "Dismissal",
+          "values": [
+            "keystroke",
+            "click",
+            "focus",
+            "explicit",
+            "timeout",
+            "never"
+          ]
+        },
+        {
+          "key": "notifications.dockBadge",
+          "title": "Unread Count on Dock Icon",
+          "help": "",
+          "kind": "toggle",
+          "default": true,
+          "group": "Banners and Sound"
+        },
+        {
+          "key": "notifications.dockBounce",
+          "title": "Bounce Dock Icon",
+          "help": "When a notification alerts while cmux isn't the active app.",
+          "kind": "choice",
+          "default": "once",
+          "group": "Banners and Sound",
+          "values": [
+            "off",
+            "once",
+            "untilActive"
+          ]
+        },
+        {
+          "key": "notifications.quietHours",
+          "title": "Quiet Hours",
+          "help": "No banners or sounds between these times.",
+          "kind": "time_range",
+          "default": null,
+          "group": "Banners and Sound"
+        },
+        {
+          "key": "notifications.showPreviews",
+          "title": "Show Message in Banners",
+          "help": "Whether a banner shows what the agent said, or only where and what state.",
+          "kind": "choice",
+          "default": "whenUnlocked",
+          "group": "Banners and Sound",
+          "values": [
+            "always",
+            "whenUnlocked",
+            "never"
+          ]
+        },
+        {
+          "key": "notifications.sound",
+          "title": "Sound",
+          "help": "",
+          "kind": "sound",
+          "default": "default",
+          "group": "Banners and Sound"
+        },
+        {
+          "key": "notifications.sounds.cooldownSeconds",
+          "title": "Burst Cooldown",
+          "help": "Many notifications at once sound once. An agent asking for input still sounds. 0 turns it off.",
+          "kind": "number",
+          "default": 1.5,
+          "group": "Sounds",
+          "range": {
+            "min": 0,
+            "max": 60,
+            "unit": "seconds"
+          }
+        },
+        {
+          "key": "notifications.sounds.events.bell",
+          "title": "Terminal Notification",
+          "help": "",
+          "kind": "sound",
+          "default": null,
+          "group": "Sounds"
+        },
+        {
+          "key": "notifications.sounds.events.error",
+          "title": "Error",
+          "help": "",
+          "kind": "sound",
+          "default": null,
+          "group": "Sounds"
+        },
+        {
+          "key": "notifications.sounds.events.finished",
+          "title": "Agent Finished",
+          "help": "",
+          "kind": "sound",
+          "default": null,
+          "group": "Sounds"
+        },
+        {
+          "key": "notifications.sounds.events.message",
+          "title": "cmux notify Message",
+          "help": "",
+          "kind": "sound",
+          "default": null,
+          "group": "Sounds"
+        },
+        {
+          "key": "notifications.sounds.events.needsInput",
+          "title": "Agent Needs Input",
+          "help": "",
+          "kind": "sound",
+          "default": null,
+          "group": "Sounds"
+        },
+        {
+          "key": "notifications.sounds.volume",
+          "title": "Volume",
+          "help": "Sounds cmux plays itself. A banner's default sound follows the system alert volume.",
+          "kind": "number",
+          "default": 1,
+          "group": "Sounds",
+          "range": {
+            "min": 0,
+            "max": 1,
+            "unit": "fraction"
+          }
+        },
+        {
+          "key": "notifications.sounds.when",
+          "title": "Play Sounds",
+          "help": "",
+          "kind": "choice",
+          "default": "unlessViewed",
+          "group": "Sounds",
+          "values": [
+            "unlessViewed",
+            "whenInactive",
+            "always"
+          ]
+        },
+        {
+          "key": "notifications.sources.agent.dismissal",
+          "title": "Agents",
+          "help": "",
+          "kind": "choice",
+          "default": null,
+          "group": "Dismissal",
+          "values": [
+            "keystroke",
+            "click",
+            "focus",
+            "explicit",
+            "timeout",
+            "never"
+          ]
+        },
+        {
+          "key": "notifications.sources.cli.dismissal",
+          "title": "cmux notify",
+          "help": "",
+          "kind": "choice",
+          "default": null,
+          "group": "Dismissal",
+          "values": [
+            "keystroke",
+            "click",
+            "focus",
+            "explicit",
+            "timeout",
+            "never"
+          ]
+        },
+        {
+          "key": "notifications.sources.terminal.dismissal",
+          "title": "Terminal Programs",
+          "help": "",
+          "kind": "choice",
+          "default": null,
+          "group": "Dismissal",
+          "values": [
+            "keystroke",
+            "click",
+            "focus",
+            "explicit",
+            "timeout",
+            "never"
+          ]
+        },
+        {
+          "key": "notifications.suppressWhileTypingSeconds",
+          "title": "Quiet After Typing",
+          "help": "A pane typed into this recently is marked read at once. 0 turns it off.",
+          "kind": "number",
+          "default": 0,
+          "group": "Banners and Sound",
+          "range": {
+            "min": 0,
+            "max": 60,
+            "unit": "seconds"
+          }
+        },
+        {
+          "key": "notifications.timeoutSeconds",
+          "title": "Timeout",
+          "help": "Used when a source clears after a timeout.",
+          "kind": "number",
+          "default": 30,
+          "group": "Dismissal",
+          "range": {
+            "min": 1,
+            "max": 86400,
+            "unit": "seconds"
+          }
+        },
+        {
+          "key": "status.runNotifyMinimumSeconds",
+          "title": "Notify When a Run Takes",
+          "help": "cmux status run notifies when the command took at least this long.",
+          "kind": "number",
+          "default": 10,
+          "group": "Banners and Sound",
+          "range": {
+            "min": 0,
+            "max": 3600,
+            "unit": "seconds"
+          }
+        },
+        {
+          "key": "status.runNotifyWhenVisible",
+          "title": "Notify Even When the Terminal Is Visible",
+          "help": "",
+          "kind": "toggle",
+          "default": false,
+          "group": "Banners and Sound"
+        }
+      ]
+    },
+    {
+      "id": "accounts",
+      "title": "Accounts",
+      "rows": [
+        {
+          "key": "mobile.allowIPhoneConnections",
+          "title": "Allow iPhone Connections",
+          "help": "Lets the cmux app on your iPhone open this Mac's workspaces, terminals and agent chats while you are signed in with the same account.",
+          "kind": "toggle",
+          "default": false,
+          "group": "iPhone"
+        },
+        {
+          "key": "mobile.terminalSizing",
+          "title": "Terminal Size When Shared",
+          "help": "Decides the size of a terminal while this Mac and a phone show it at once. A device that gets a larger terminal than it fits scrolls sideways or shows empty space; text never wraps wrong. Set the priority order in the cmux app on your iPhone.",
+          "kind": "choice",
+          "default": "smallest",
+          "group": "iPhone",
+          "values": [
+            "smallest",
+            "mac",
+            "latest",
+            "priority"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "machines",
+      "title": "Machines",
+      "rows": [
+        {
+          "key": "appearance.machineColors",
+          "title": "Machine Color",
+          "help": "The color of each machine's sidebar rows and tab badges, by machine name: \"#RRGGBB\", or an accent name (red, green, yellow, purple, cyan, orange, pink, blue) that follows the theme. A machine without one gets a color from its name.",
+          "kind": "string_map",
+          "default": {},
+          "group": "Machine Colors"
+        },
+        {
+          "key": "phone.allowConnections",
+          "title": "Let Your Phone Use This Mac",
+          "help": "So your phone can find this Mac, cmux registers with its servers this Mac's name, device ID and platform, the app's bundle ID, version and build channel, the Mac's relay address and connection key, and your account and team IDs. Workspace names, folders, full paths and terminal output go only over the encrypted link to your phone. None of that, and no branch name or repo URL, is sent to cmux servers. Exception: while “Show This Mac's Workspaces on Your Phone While It's Off” is on, cmux servers store each workspace's ID, resource ID, short ID, name, name revision, group, color, icon, pinned state, unread mark, unread count and whether it is active.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Phone Access"
+        },
+        {
+          "key": "phone.cloudReplica",
+          "title": "Show This Mac's Workspaces on Your Phone While It's Off",
+          "help": "cmux stores this Mac's workspace names, colors and unread counts so your phone can show them while the Mac is off. A workspace name can be a folder's name. No paths, tab titles or terminal output. Turning this off deletes the copy.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Phone Access"
+        },
+        {
+          "key": "phone.keepAwake",
+          "title": "Keep Mac Awake for Your Phone",
+          "help": "A sleeping Mac can't be reached from your phone until it wakes. Closing the lid still puts the Mac to sleep.",
+          "kind": "choice",
+          "default": "pluggedIn",
+          "group": "Phone Access",
+          "values": [
+            "off",
+            "pluggedIn",
+            "always"
+          ]
+        },
+        {
+          "key": "phone.startSessions",
+          "title": "Let Your Phone Start New Workspaces",
+          "help": "Off, your phone can still follow, type into and answer what's already running.",
+          "kind": "toggle",
+          "default": true,
+          "group": "Phone Access"
+        },
+        {
+          "key": "ssh.linkAllowedHosts",
+          "title": "Always Allowed SSH Link Hosts",
+          "help": "An ssh:// link from another app connects to these hosts without asking. Remove a host to be asked again. Saved machines and acpmux peers never ask.",
+          "kind": "string_list",
+          "default": [],
+          "group": "SSH Links"
+        }
+      ]
+    },
+    {
+      "id": "advanced",
+      "title": "Advanced",
+      "rows": [
+        {
+          "key": "labs.classicHome",
+          "title": "Classic Home",
+          "help": "Show Home as a full page instead of a workspace with the Chief docked on the left. Takes effect after cmux restarts.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Labs"
+        },
+        {
+          "key": "labs.previewFeatures",
+          "title": "Show Preview Features",
+          "help": "Unfinished surfaces, such as the agent session's coverage label and Pull requests view.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Labs"
+        }
+      ]
+    },
+    {
+      "id": "development",
+      "title": "Development",
+      "rows": [
+        {
+          "key": "deviceHub.url",
+          "title": "Device Hub Address",
+          "help": "Overrides the device hub this build signs its devices in to, for Mac Screen sharing between your devices. Leave it empty to use the built-in hub.",
+          "kind": "url",
+          "default": "",
+          "group": "Device Hub"
+        },
+        {
+          "key": "macScreen.debug.relayOnly",
+          "title": "Relay Only",
+          "help": "Mac Screen tabs connect through the TURN relay only, never directly, to check the relay path. Tabs that are connected reconnect.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Mac Screen"
+        }
+      ]
+    }
+  ]
+}

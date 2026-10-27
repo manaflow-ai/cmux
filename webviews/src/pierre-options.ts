@@ -43,6 +43,8 @@ export type DiffViewerOptions = {
   layout: "split" | "unified" | "auto";
   lineNumbers: boolean;
   showBackgrounds: boolean;
+  /** The floating Stage all / Revert all bar (`diff.showBulkActions`, Settings only). */
+  showBulkActions: boolean;
   wordDiffs: boolean;
   wordWrap: boolean;
 };
@@ -159,9 +161,12 @@ export function codeViewUnsafeCSS(): string {
     [data-interactive-lines] [data-line] {
       cursor: text;
     }
-    /* The file header is never transparent (Lawrence): it paints the
-       backdrop composited onto the theme color at full alpha, so scrolled
-       code never shows through it, even over a see-through window. Its
+    /* Over an opaque window the file header paints the backdrop composited onto
+       the theme color at full alpha, so scrolled code never shows through it
+       (Lawrence). Over an image or a see-through window it is a clear film
+       (--cmux-diff-header-bg, a 5% text tint) with a plain blur(20px)
+       (styles.css): WebKit frosts the code under it; Chromium cannot blur behind
+       the page, so there the code shows through the film. Its
        content is the slotted FileHeader (renderCustomHeader), so the row's
        height is fixed to the virtualizer's diffHeaderHeight metric. */
     [data-diffs-header] {
@@ -169,8 +174,17 @@ export function codeViewUnsafeCSS(): string {
       min-height: 0;
       display: flex;
       align-items: stretch;
-      background-color: var(--cmux-diff-solid-bg);
+      background-color: var(--cmux-diff-header-bg, var(--cmux-diff-solid-bg));
+      -webkit-backdrop-filter: var(--cmux-diff-glass-filter, none);
+      backdrop-filter: var(--cmux-diff-glass-filter, none);
       border-bottom: 1px solid var(--cmux-diff-border);
+    }
+    /* Reduce Transparency: no frost (the host's data-reduce-transparency clears the variable too). */
+    @media (prefers-reduced-transparency: reduce) {
+      [data-diffs-header] {
+        -webkit-backdrop-filter: none;
+        backdrop-filter: none;
+      }
     }
     [data-line-type='change-addition']:where([data-column-number], [data-gutter-buffer]) {
       color: var(--cmux-diff-number-addition);
@@ -241,7 +255,7 @@ export function fileTreeUnsafeCSS(): string {
       display: block;
       height: 100%;
       min-height: 0;
-      background-color: var(--cmux-diff-files-bg, var(--cmux-diff-solid-bg));
+      background-color: var(--cmux-diff-files-layer-bg, var(--cmux-diff-files-bg, var(--cmux-diff-solid-bg)));
       /* Icon hues from the terminal theme (styles.css \`--cmux-file-icon-*\`), as in file headers. */
       --trees-icon-gray: var(--cmux-file-icon-gray);
       --trees-icon-red: var(--cmux-file-icon-red);
@@ -263,7 +277,7 @@ export function fileTreeUnsafeCSS(): string {
       height: 100%;
       min-height: 0;
       overflow: auto;
-      background-color: var(--cmux-diff-files-bg, var(--cmux-diff-solid-bg));
+      background-color: var(--cmux-diff-files-layer-bg, var(--cmux-diff-files-bg, var(--cmux-diff-solid-bg)));
       padding-inline-start: 0;
       padding-inline-end: 0;
       scrollbar-gutter: stable;
@@ -307,9 +321,33 @@ export function fileTreeUnsafeCSS(): string {
     [data-item-git-status='renamed'] {
       --trees-item-git-status-color: var(--cmux-tree-modified);
     }
+    /* Over an image or a see-through window a status-colored name loses contrast against the
+       backdrop, so it is mixed toward the text color there (--cmux-diff-tree-name-strength,
+       styles.css): the same hue, brighter in a dark theme, darker in a light one. Elsewhere the
+       strength is 100%, the status color itself. */
+    /* A shortened name's marker covers the hidden text: over glass the solid backdrop
+       (--cmux-diff-truncate-marker-bg), since the tree's own surfaces are clear there. */
+    [data-type='item'] {
+      --truncate-marker-background-color: var(--cmux-diff-truncate-marker-bg, var(--trees-bg));
+    }
+    [data-item-git-status] > [data-item-section='content'] {
+      color: color-mix(
+        in oklab,
+        var(--trees-item-git-status-color) var(--cmux-diff-tree-name-strength, 100%),
+        var(--cmux-diff-fg)
+      );
+    }
     [data-file-tree-sticky-overlay-content] {
-      background-color: var(--cmux-diff-files-bg, var(--cmux-diff-solid-bg)) !important;
+      background-color: var(--cmux-diff-files-sticky-bg, var(--cmux-diff-files-bg, var(--cmux-diff-solid-bg))) !important;
+      -webkit-backdrop-filter: var(--cmux-diff-glass-filter, none);
+      backdrop-filter: var(--cmux-diff-glass-filter, none);
       box-shadow: 0 1px 0 var(--trees-border-color);
+    }
+    @media (prefers-reduced-transparency: reduce) {
+      [data-file-tree-sticky-overlay-content] {
+        -webkit-backdrop-filter: none;
+        backdrop-filter: none;
+      }
     }
     ${PIERRE_TREES_SCROLLER_CSS}
   `;

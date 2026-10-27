@@ -83,3 +83,60 @@ ${script.slice(gateStart, gateEnd)}
   }, 20000);
 
 });
+
+// A pid the kernel reuses after a terminal host or the daemon exits must never pass for it: the
+// host check compares start times, and stop_child signals only a process that is still the daemon.
+// Real processes under /proc and pidfd: Linux only.
+const describeOnLinux = process.platform === "linux" ? describe : describe.skip;
+describeOnLinux("Cloud daemon upgrade and reused pids", () => {
+  const sleeper = (args: string) => `python3 -c 'import time; time.sleep(30)' ${args} & `;
+  async function runFixture(body: string): Promise<string> {
+    const root = mkdtempSync(path.join(tmpdir(), "cmux-upgrade-pids-"));
+    const run = path.join(root, "run");
+    mkdirSync(run);
+    try {
+      const fixture = `flock() { return 0; }\n${functions}\n${body}`;
+      const result = await runChild("/bin/sh", ["-c", fixture, "fixture", "target-sha", "target-commit", run], { timeout: 15000 });
+      expect(result.status).toBe(0);
+      return result.stdout;
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  }
+
+  test("a host whose pid now belongs to another process is not counted as surviving", async () => {
+    const out = await runFixture(`${sleeper("")}host=$!
+s=$(proc_start "$host")
+host_alive "$host:$s" && echo same-process-alive
+host_alive "$host:$((s + 1))" || echo reused-pid-lost
+LOST=""; for p in "$host:$((s + 1))"; do host_alive "$p" || LOST="$LOST \${p%%:*}"; done; echo "lost=[\${LOST# }]"
+kill "$host"
+`);
+    expect(out).toContain("same-process-alive");
+    expect(out).toContain("reused-pid-lost");
+    expect(out).toMatch(/lost=\[\d+\]/);
+  }, 20000);
+
+  test("stop_child signals only the daemon, never a process that took its pid", async () => {
+    const out = await runFixture(`${sleeper("")}other=$!
+${sleeper("server start --session cloud")}daemon=$!
+stop_child "$other"; kill -0 "$other" 2>/dev/null && echo other-untouched
+stop_child "$daemon"; wait "$daemon" 2>/dev/null; kill -0 "$daemon" 2>/dev/null || echo daemon-stopped
+kill "$other" 2>/dev/null || true
+`);
+    expect(out).toContain("other-untouched");
+    expect(out).toContain("daemon-stopped");
+  }, 20000);
+});
+
+describe("Cloud daemon upgrade from the app", () => {
+  // The cmux NEXT app runs this same script on machines too old to update in place
+  // (CloudLegacyMachineUpdate.swift); its copy is an app resource and must not drift.
+  test("the app's copy of the guest script is this script", () => {
+    const appCopy = readFileSync(
+      path.join(import.meta.dirname, "../../Packages/macOS/CmuxNext/Sources/CmuxNextApp/Resources/cmux-tui-upgrade.sh"),
+      "utf8",
+    );
+    expect(appCopy).toBe(script);
+  });
+});

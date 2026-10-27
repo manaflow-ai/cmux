@@ -160,7 +160,7 @@ await requireBrowserLane("ui-a11y.test.ts", async () => {
 
   /** axe violations at this state, the waiver's nodes counted apart. */
   async function axe(page: Page, state: string, log: AxeLog) {
-    // Judge the settled state: a popup's open fade (ui-popup-fade, 120 ms) still running when axe
+    // Judge the settled state: a fade (a dialog's or tooltip's, 120 ms) still running when axe
     // samples reads as low contrast on every row. Finite animations only (a loop never finishes).
     await page.evaluate(() =>
       Promise.all(

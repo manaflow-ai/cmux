@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import CryptoKit
 public import Foundation
 
@@ -51,16 +52,18 @@ public struct CloudPaths: Sendable {
         try? FileManager.default.removeItem(at: linkDeviceFingerprint(machineID: machineID))
     }
 
+    /// Makes the root and link-state folders (0700). Disk I/O: off the main thread (``CloudDeviceID`` reads
+    /// the install id on the files lane at launch).
     func prepare() throws {
         for directory in [root, linkState] {
-            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+            try FileManager.checked.createDirectory(at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
         }
     }
 
     /// Writes `text` atomically with mode 0600.
     func writeSecret(_ text: String, to url: URL) throws {
         let temporary = url.appendingPathExtension("tmp")
-        FileManager.default.createFile(atPath: temporary.path, contents: Data(text.utf8), attributes: [.posixPermissions: 0o600])
+        _ = FileManager.checked.createFile(atPath: temporary.path, contents: Data(text.utf8), attributes: [.posixPermissions: 0o600])
         guard rename(temporary.path, url.path) == 0 else {
             throw CocoaError(.fileWriteUnknown, userInfo: [NSFilePathErrorKey: url.path])
         }
@@ -79,16 +82,41 @@ public struct CloudPaths: Sendable {
         return key
     }
 
-    /// `mac-<uuid>`, created once per installation.
+    /// `mac-<uuid>`, created once per installation. Blocking disk I/O: call it off the main thread.
+    ///
+    /// Callers that read it for the first time at once (the App's launch read on the files lane, a
+    /// main-thread caller before that read ends, the tunnel hub) all return the same id: the first id
+    /// written wins (``createSecretIfAbsent(_:at:)``) and every caller returns the file's id.
     public func loadOrCreateDeviceID() throws -> String {
-        if let text = try? String(contentsOf: deviceIDFile, encoding: .utf8) {
-            let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-            if !trimmed.isEmpty { return trimmed }
-        }
+        if let id = readDeviceID() { return id }
         let id = "mac-\(UUID().uuidString.lowercased())"
         // Read before any Cloud sign-in (agent tabs' install id): the directory may not exist yet.
         try prepare()
+        try createSecretIfAbsent(id + "\n", at: deviceIDFile)
+        if let written = readDeviceID() { return written }
+        // An empty file (a write cut short by an older build) is replaced, as before.
         try writeSecret(id + "\n", to: deviceIDFile)
         return id
+    }
+
+    /// The id in `device-id`, or nil when there is no file or it is empty.
+    private func readDeviceID() -> String? {
+        guard let text = try? String(blockingContentsOf: deviceIDFile, encoding: .utf8) else { return nil }
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
+    /// Writes `text` with mode 0600 at `url` unless a file is already there: a hard link to a complete
+    /// temporary file (its own name per call), so a reader never sees a part of it and a second writer
+    /// never replaces the first one's file.
+    func createSecretIfAbsent(_ text: String, at url: URL) throws {
+        let temporary = url.appendingPathExtension("\(UUID().uuidString).tmp")
+        guard FileManager.checked.createFile(atPath: temporary.path, contents: Data(text.utf8), attributes: [.posixPermissions: 0o600]) else {
+            throw CocoaError(.fileWriteUnknown, userInfo: [NSFilePathErrorKey: temporary.path])
+        }
+        defer { unlink(temporary.path) }
+        guard link(temporary.path, url.path) == 0 || errno == EEXIST else {
+            throw CocoaError(.fileWriteUnknown, userInfo: [NSFilePathErrorKey: url.path])
+        }
     }
 }

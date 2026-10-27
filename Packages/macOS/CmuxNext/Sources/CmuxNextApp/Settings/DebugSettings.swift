@@ -9,7 +9,7 @@ import CmuxNextSettings
 // `debug.page cmux.settings`.
 extension AppControl {
     func registerSettingsDebugMethods(_ services: AppServices) {
-        #if DEBUG
+        #if DEBUG || CMUX_BENCH_HOOKS
         service?.router.register([
             .mainActor("debug.tunables") { [weak services] call in
                 guard let services else { return .value(.null) }
@@ -27,7 +27,7 @@ extension AppControl {
     }
 }
 
-#if DEBUG
+#if DEBUG || CMUX_BENCH_HOOKS
 /// `debug.menu_item {"title": "Settings…"}`: the first enabled main-menu item with that title (any
 /// submenu), performed through its menu (`performActionForItem`, the click path). Every menu is
 /// validated first, as opening it does, so titles that follow their target (Pin Tab or Unpin Tab)

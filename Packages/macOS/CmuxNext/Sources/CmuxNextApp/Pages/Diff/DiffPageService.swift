@@ -141,7 +141,6 @@ final class DiffPageService: InternalPageProvider {
         tabs[key].flatMap { $0.repository?.root == repository ? $0.turn : nil }
     }
 
-
     /// The tab opens as a store tab where the pane's daemon holds page tabs
     /// (page-tabs-v1), so it moves between panes and columns like any daemon
     /// tab (`created` gets its surface); else as an app-only tab.
@@ -192,8 +191,6 @@ final class DiffPageService: InternalPageProvider {
     func pageView(_ key: String) -> PageWebView? { tabs[key]?.page }
 
     func provider(_ key: String) -> DiffPageProvider? { tabs[key]?.provider }
-
-    var openKeys: [String] { tabs.keys.sorted() }
 
     // MARK: Tab host
 

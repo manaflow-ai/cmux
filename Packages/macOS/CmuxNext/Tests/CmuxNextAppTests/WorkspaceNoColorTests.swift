@@ -65,9 +65,12 @@ struct WorkspaceNoColorTests {
         #expect(group.tint.wire == "none", "a group stored with no color does not draw a picked palette color")
     }
 
-    @Test func removeAllWorkspaceColorsIsOnTheRowMenuAndInThePalette() throws {
-        let (_, menu) = Self.workspaceMenu()
-        #expect(Self.rows(menu).contains { ActionRegistry.menuRun(of: $0)?.id == "workspace.removeAllColors" })
+    /// Leo 2026-10-23 trimmed the workspace row menu: Remove All Workspace Colors is on a group's
+    /// menu and in the palette, not on every row.
+    @Test func removeAllWorkspaceColorsIsOnTheGroupMenuAndInThePalette() throws {
+        let catalog = ContextMenuCatalog.shared
+        #expect(catalog.referencedIDs(catalog.entries(for: .workspaceGroup)).contains("workspace.removeAllColors"))
+        #expect(!catalog.referencedIDs(catalog.entries(for: .workspaceRow)).contains("workspace.removeAllColors"))
         let descriptor = try #require(ActionRegistry.standard().descriptor(for: "workspace.removeAllColors"))
         #expect(descriptor.surfaces.contains(.palette))
     }

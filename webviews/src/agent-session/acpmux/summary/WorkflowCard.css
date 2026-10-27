@@ -1,0 +1,70 @@
+/* A Claude workflow's card in the transcript (WorkflowCard.tsx): a hairline box with three fixed
+   lines, so its height never changes as it runs. */
+.acpmux-workflow-card {
+  /* Its own height wherever it sits (a flex column would stretch it). */
+  flex: none;
+  align-self: flex-start;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: min(100%, 360px);
+  box-sizing: border-box;
+  margin: 4px 0;
+  padding: 8px 16px 12px;
+  border: 1px solid var(--agent-hairline, color-mix(in oklab, currentColor 12%, transparent));
+  border-radius: 10px;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: start;
+  transition: background-color var(--acpmux-motion-hover, 80ms) var(--acpmux-motion-ease, ease-out);
+}
+.acpmux-workflow-card:hover:not(:disabled) {
+  background: color-mix(in oklab, currentColor 5%, transparent);
+}
+.acpmux-workflow-card:focus-visible {
+  outline: 1.5px solid var(--agent-text);
+  outline-offset: -1.5px;
+}
+.acpmux-workflow-card__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  line-height: 20px;
+}
+.acpmux-workflow-card__head > svg {
+  flex: none;
+  color: var(--agent-muted);
+}
+.acpmux-workflow-card__name {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.acpmux-workflow-card__meta {
+  display: flex;
+  gap: 8px;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  color: var(--agent-muted);
+  font-size: var(--text-detail);
+  font-variant-numeric: tabular-nums;
+  line-height: 18px;
+  letter-spacing: var(--text-detail--letter-spacing);
+}
+/* One line of dots: a run of many agents is cut at the card's edge, never a second line. */
+.acpmux-workflow-card .acpmux-workflow-card__dots {
+  flex-wrap: nowrap;
+  overflow: hidden;
+  /* One dot tall: a run of many is cut at the edge, never a second line. */
+  max-height: var(--acpmux-workflow-dot);
+  padding: 0;
+  margin-top: 2px;
+}
+.acpmux-workflow-card .acpmux-workflow-card__dots > .acpmux-workflow-dot {
+  flex: none;
+}

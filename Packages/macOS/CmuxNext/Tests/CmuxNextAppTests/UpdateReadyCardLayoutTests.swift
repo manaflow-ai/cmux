@@ -6,6 +6,7 @@ import CmuxNextSettings
 import CmuxNextWakeups
 import Foundation
 import Testing
+import CmuxNextWakeupsTestSupport
 
 /// The Update Ready card and its popup (Leo 2026-10-13, cx-5dvig). At the sidebar's default width
 /// the card's text is whole (it read "1.0.0 nightly 3845050 · Oct 13, 2..."), the card does not

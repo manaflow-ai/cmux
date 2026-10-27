@@ -2,6 +2,10 @@ import AppKit
 public import Foundation
 public import WebKit
 import CmuxNextCompat
+import CmuxNextDesign
+import os
+
+private let processLogger = Logger(subsystem: "com.cmuxterm.app.next", category: "webkit")
 
 // MARK: - Navigation
 
@@ -126,6 +130,8 @@ extension WebKitTab: WKNavigationDelegate {
         forgetNavigation(navigation)
         apply(.finished(id))
         pageDidFinish()
+        // The load ended: a document with no contentful paint (an empty body) shows as it is.
+        removeStandIn()
         syncHistory()
         refreshFavicon()
     }
@@ -137,7 +143,7 @@ extension WebKitTab: WKNavigationDelegate {
         // is a newer navigation taking this one's place, and that one's commit
         // decides: handing the page area back here would draw white over a
         // document that has not painted yet. `stop()` settles its own case.
-        if !failure.isBenignInterruption { pageDidFinish() }
+        if !failure.isBenignInterruption { pageDidFinish(); removeStandIn() }
         guard let id = navigationID(for: navigation, creating: false) else { return }
         forgetNavigation(navigation)
         apply(.failed(id, failure))
@@ -152,7 +158,7 @@ extension WebKitTab: WKNavigationDelegate {
         // keeps no background for good (`WebKitTab+LoadingBackground`). A
         // benign interruption is a newer navigation taking this one's place,
         // and that one's commit decides, as in `didFail`.
-        if !failure.isBenignInterruption { pageDidFinish() }
+        if !failure.isBenignInterruption { pageDidFinish(); removeStandIn() }
         guard let id = navigationID(for: navigation, creating: false) else { return }
         forgetNavigation(navigation)
         apply(.failed(id, failure))
@@ -167,6 +173,10 @@ extension WebKitTab: WKNavigationDelegate {
         // putting the tab back in the stuck state this is here to prevent.
         pageBaseHold.cancel()
         setDrawsPageBackground(true)
+        removeStandIn()
+        // The sad tab shows; the page reloads only when the person presses Reload.
+        let tabID = id.rawValue
+        processLogger.error("web content process ended tab=\(tabID, privacy: .public); no automatic reload")
         apply(.processExited(BrowserProcessExit(reason: .crashed)))
     }
 
@@ -290,19 +300,21 @@ extension WebKitTab: WKUIDelegate {
         initiatedByFrame frame: WKFrameInfo,
         completionHandler: @escaping @MainActor ([URL]?) -> Void
     ) {
-        let panel = NSOpenPanel()
-        panel.allowsMultipleSelection = parameters.allowsMultipleSelection
-        panel.canChooseDirectories = parameters.allowsDirectories
-        panel.canChooseFiles = true
-        panel.resolvesAliases = true
-        let finish: (NSApplication.ModalResponse) -> Void = { response in
-            completionHandler(response == .OK ? panel.urls : nil)
+        // Files an agent offered (`browser.page.upload`) answer first; `[]` (a chooser they cannot fill) cancels.
+        if let offered = agentFiles.answer(multiple: parameters.allowsMultipleSelection,
+                                           folder: parameters.allowsDirectories, save: false) {
+            completionHandler(offered.isEmpty ? nil : offered)
+            return
         }
-        if let window = webView.window {
-            panel.beginSheetModal(for: window, completionHandler: finish)
-        } else {
-            panel.begin(completionHandler: finish)
+        // The one file-input path (WebFileInputAnswering) every WebKit view shares: in the app the made-ahead panel.
+        // A tab whose engine is gone ends the input as a cancel.
+        guard let engine else {
+            completionHandler(nil)
+            return
         }
+        engine.fileInput.answerFileInput(allowsMultipleSelection: parameters.allowsMultipleSelection,
+                                         allowsDirectories: parameters.allowsDirectories,
+                                         window: webView.window, completion: completionHandler)
     }
 
     static func displayOrigin(_ origin: WKSecurityOrigin) -> String {
@@ -327,7 +339,7 @@ extension WebKitTab: WKScriptMessageHandler {
         // Entering hides the chrome: only in answer to the user (a script
         // could otherwise hide the address bar and draw a fake one).
         if on, !((webView as? WebKitWebView)?.hadRecentUserInput() ?? false) {
-            webView.evaluateJavaScript(PaneFullscreenScript.exitScript, completionHandler: nil)
+            WebKitGestureFreeEvaluation(webView: webView).run(PaneFullscreenScript.exitScript, in: .page)
             return
         }
         apply(.contentFullscreenChanged(on))

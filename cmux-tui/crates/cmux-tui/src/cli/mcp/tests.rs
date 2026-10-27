@@ -34,6 +34,13 @@ struct Fake {
     /// The app's `feed.list` and `snapshot.get` take this long, and fail
     /// when it is longer than the caller's timeout.
     app_delay: Option<Duration>,
+    /// What `Backend::caller` answers: `None` for a client with no caller
+    /// identity, `Some(Null)` for one the app cannot place.
+    caller: Option<Value>,
+    /// The app's `beside` with `caller`: the column right of the chat.
+    beside: Value,
+    /// What `Backend::focus` answers.
+    focus: Option<Value>,
     sent: RefCell<Vec<Value>>,
 }
 
@@ -298,6 +305,16 @@ impl Backend for Fake {
             "mutation": mutation,
         }));
         Ok(json!({"session": "default", "output": "ok\n", "truncated": false, "error": null}))
+    }
+
+    fn identity(&self) -> Result<Option<Value>, CallFailure> {
+        self.sent.borrow_mut().push(json!({"kind": "caller"}));
+        Ok(self.caller.clone().map(|caller| json!({"caller": caller, "beside": self.beside})))
+    }
+
+    fn focus(&self) -> Result<Option<Value>, CallFailure> {
+        self.sent.borrow_mut().push(json!({"kind": "focus"}));
+        Ok(self.focus.clone())
     }
 
     fn acpmux(
@@ -1361,6 +1378,7 @@ fn render_shows_a_page_in_the_chat_without_reaching_an_owner() {
 mod agent_events;
 mod agent_wait;
 
+mod caller_scope;
 mod catalog;
 mod machine_catalog;
 

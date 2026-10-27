@@ -5,8 +5,9 @@ use super::*;
 /// The steers of a session's running turn that Send now can hurry (`Session::steer_now`).
 #[derive(Default)]
 pub(super) struct SteerNow {
-    /// Sent to the agent and not answered yet: it reads them when its current step ends.
-    pub(super) waiting: std::collections::HashSet<String>,
+    /// Sent to the agent and not answered yet: it reads them when its current step ends. Each
+    /// with the person who sent it (`author.rs`), `None` for the owner.
+    pub(super) waiting: std::collections::HashMap<String, Option<String>>,
     /// Queued prompts sent now: their steer stops the agent's current step.
     pub(super) step: std::collections::HashSet<String>,
 }
@@ -23,9 +24,22 @@ pub struct Session {
     /// so the log and fan-out always see sequences in order.
     pub(super) append_lock: StdMutex<()>,
     pub(super) loading: AtomicBool,
+    /// The generations of the agents whose `session/load` (or Claude fork prime) replays
+    /// history: from the load's start until the inbound loop reaches that agent's
+    /// [`crate::agent::Inbound::ReplayDone`], its agent messages are history, never the chat's
+    /// newest reply (`ReplayHold` in `lifecycle.rs`). A start abandoned mid-load leaves its
+    /// agent's generation here, so what that agent still had queued stays out even after the
+    /// next agent's load begins. None is ever dropped unended: only such an abandoned start
+    /// (one past the agent start budget) leaves one behind, a few bytes for the session's life.
+    pub(super) replaying: StdMutex<Vec<u64>>,
     /// The log's records past the saved `lastSeq` are counted (`Hub::catch_up`).
     /// False from a deferred daemon start until the first append or the log load.
     pub(super) caught_up: AtomicBool,
+    /// Whether its log is read after a deferred daemon start (`log_load.rs`): once, by the
+    /// background pass or the first request for it, under this lock. `log_loaded` mirrors it
+    /// for reads that take no lock.
+    pub(super) log_load: StdMutex<bool>,
+    pub(super) log_loaded: AtomicBool,
     pub(super) turn_lock: Mutex<()>,
     pub(super) turn: StdMutex<Option<TurnInfo>>,
     pub(super) queued: AtomicU64,
@@ -48,6 +62,10 @@ pub struct Session {
     /// 0 while it is not. The lane's `input` since (cx-v9k2f): later records,
     /// a draft save or a second ask do not move it.
     pub(super) input_since: AtomicU64,
+    /// Since when work the session started still runs past its own turn (a
+    /// background subagent, a working sub-session), in ms; 0 while none does
+    /// (`work_below.rs`).
+    pub(super) work_below_since: StdMutex<u64>,
     /// Agent permission requests read but not yet past their group
     /// (`permission_groups::AskInFlight`); `asks_landed` fires when the
     /// last one lands. A group is not shown while one is on its way.
@@ -68,6 +86,10 @@ pub struct Session {
     /// launched yet, 1: with, 2: without), so forum rules follow the launch,
     /// not a profile reloaded since (`hub/tools.rs`).
     pub(super) launched_with_tools: std::sync::atomic::AtomicU8,
+    /// The profile env its running agent was started with (`Hub::ensure_child`): its family
+    /// defaults, preset, session env and route included. The read-only shell probe judges a
+    /// command in it (`permissions.rs`); None until this daemon starts an agent for it.
+    pub(super) launch_env: StdMutex<Option<std::collections::BTreeMap<String, String>>>,
     /// The chat's route changed during a turn: restart the harness on it when
     /// the turn ends (`route_switch.rs`).
     pub(super) route_switch: AtomicBool,
@@ -101,6 +123,15 @@ pub struct Session {
     /// Set when the chat is closed (`kill`) until its agent starts again: its host may still
     /// hold its record while it ends, and it is not running (`policy_mode.rs` `follow_policy`).
     pub(super) closing: AtomicBool,
+    /// How many times the chat was stopped (`kill`). A start reads it when its request came
+    /// (`Hub::child_for_since`); a stop since then ends that start and keeps the chat closed.
+    pub(super) stops: AtomicU64,
+    /// How many times its turn was stopped (`cancel.rs`): a prompt whose model-sized copies were
+    /// made meanwhile is not written (`turns.rs`).
+    pub(super) cancels: AtomicU64,
+    /// Status writes under way: each sets the status, then logs it (`Hub::write_status`). Log
+    /// retention leaves a chat alone while one is (`retention.rs` `untouched`).
+    pub(super) status_writes: AtomicU64,
     /// Bumps on every status, permission and turn change; waits gate on it.
     pub(super) state_seq: AtomicU64,
     /// Clients attached right now (TUI, web, CLI streams).
@@ -123,6 +154,26 @@ pub struct Session {
     /// requests, its harness's model lines; not its own bookkeeping, `tap.rs`
     /// `from_the_model`); a turn that hears none is silent (`silent_turn.rs`).
     pub(super) heard: AtomicU64,
+    /// The hub clock's time (`Hub::clock_now`, ns) of the running turn's last sign of its model,
+    /// or of its prompt going out if none since; an adopted turn's comes from its log, so it may
+    /// be before this daemon started (negative). A turn that hears nothing for `stalledTurnEndMs`
+    /// from it ends (`stalled_turn.rs`).
+    pub(super) heard_at: std::sync::atomic::AtomicI64,
+    /// The hub clock's time before which a turn held at its stalled deadline is not looked at
+    /// again (`stalled_turn.rs`); 0 for none.
+    pub(super) stalled_recheck: AtomicU64,
+    /// The running turn's tool calls that have not ended (`stalled_turn.rs`): a turn quiet
+    /// inside one gets longer before it counts as stalled.
+    pub(super) open_tools: StdMutex<std::collections::HashSet<String>>,
+    /// The turn whose stalled count runs: its prompt was written (`stalled_turn.rs`). None
+    /// before that, so a turn whose prompt has not reached its agent is never stalled.
+    pub(super) stalled_counted: StdMutex<Option<String>>,
+    /// Bumps on every sign of the model and every new or held count (`stalled_turn.rs`): a
+    /// stalled end decided at one value is not carried out at another.
+    pub(super) stalled_gen: AtomicU64,
+    /// Unix ms of the agent's last sign of its model at work (as `heard`); 0: none since load.
+    /// A running turn quiet since then, with no tool call in flight, stalls (`views.rs`).
+    pub(super) last_model_at: AtomicU64,
     /// The turn that logged `turn_silent` and has not heard its model since (`silent_turn.rs`).
     pub(super) silent_turn: StdMutex<Option<String>>,
     /// The hub clock's time (`Hub::clock_now`) of the last record or
@@ -134,16 +185,27 @@ pub struct Session {
     pub(super) floor: remote_floor::FloorState,
     /// The subagents the agent reported, for attributing their updates.
     pub(super) subagents: StdMutex<crate::subagents::SubagentTree>,
+    /// Claude Code runs a turn, from its `system/init` to its `result`: one acpmux prompted, or
+    /// one it started itself for a task notification, which acpmux never prompted and
+    /// `turn` does not show (`subagent_retry.rs` waits for its end).
+    pub(super) harness_turn: AtomicBool,
     /// The commands its harness runs in the background (`processes.rs`).
     pub(super) processes: StdMutex<processes::ProcessTable>,
     /// Tool calls that run `gh pr create`, and the URL each printed so far, until they end
     /// (`pull_requests.rs`).
     pub(super) pr_creates: StdMutex<std::collections::HashMap<String, Option<String>>>,
+    /// Its agent's `start_session` tool calls that run, with their input (`lineage.rs`).
+    pub(super) start_calls: StdMutex<std::collections::HashMap<String, Value>>,
     /// The places typing into it, and who sent its prompts (`composers.rs`).
     pub(super) composers: StdMutex<super::composers::Composers>,
 }
 
 impl Session {
+    /// Lifts the replay hold of the agent of this generation (`Session::replaying`).
+    pub(super) fn end_replay(&self, agent: u64) {
+        self.replaying.lock().unwrap_or_else(|e| e.into_inner()).retain(|g| *g != agent);
+    }
+
     /// Notes whether the session now waits on the person: `input_since` is when it began
     /// (the lane's `input` since, cx-v9k2f), 0 while it does not.
     pub(super) fn mark_waiting(&self, waiting: bool) {
@@ -267,6 +329,9 @@ pub(super) struct Applied {
     /// (`opencode_ask.rs`); false for an agent host reached again after a
     /// daemon restart, which a narrower policy restarts (`policy_mode.rs`).
     pub opencode_asks: bool,
+    /// The mode acpmux had put the last agent in (`SessionMeta::mode_set_by_cmux`):
+    /// marked again only once acpmux puts this agent in it (`restore_mode_mark`).
+    pub replay_mark: Option<String>,
 }
 
 /// `sessions` newest first. Each session's `updated_at` is read once: other

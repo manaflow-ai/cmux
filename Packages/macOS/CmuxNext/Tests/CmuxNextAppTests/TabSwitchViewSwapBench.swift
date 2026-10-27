@@ -98,7 +98,7 @@ struct TabSwitchViewSwapBench {
 
         let parked = InternalPageView(key: "local-page:markdown:bench", page: InternalPageID(rawValue: "markdown"), content: await loadedWebView())
         let unparked = wrap(await loadedWebView(), in: Unparked(frame: pane.contentHost.bounds))
-        let browserTab = WebKitEngine().makeWebKitTab()
+        let browserTab = WebKitEngine(fileInput: NoFileInput(), stores: .inMemory()).makeWebKitTab()
         defer { browserTab.close() }
         let browser = BrowserChromeView(tab: browserTab)
 

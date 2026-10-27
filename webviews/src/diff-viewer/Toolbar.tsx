@@ -241,9 +241,9 @@ function ViewOptionsMenuRows({
         <span className="menu-segment-controls">
           {(
             [
-              { value: "unified", icon: "unified", label: label("layoutUnified") },
-              { value: "split", icon: "split", label: label("layoutSplit") },
               { value: "auto", icon: "auto", label: label("layoutAuto") },
+              { value: "split", icon: "split", label: label("layoutSplit") },
+              { value: "unified", icon: "unified", label: label("layoutUnified") },
             ] as const
           ).map((option) => (
             <button

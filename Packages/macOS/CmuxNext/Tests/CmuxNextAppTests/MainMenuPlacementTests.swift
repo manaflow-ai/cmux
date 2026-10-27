@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextCompat
 import CmuxNextPalette
 @testable import CmuxNextApp
 import Testing
@@ -39,7 +40,7 @@ import Testing
     @Test func compactMainMenuPlacementsStayInTheirTopMenu() {
         _ = NSApplication.shared
         let registry = ActionRegistry.standard()
-        let bar = MainMenu.make(registry: registry)
+        let bar = MainMenu.make(registry: registry, blocking: .forProcess())
         var missing: [String] = []
         for (placement, ids) in MainMenu.compactActionIDs {
             guard let menu = Self.topMenu(placement, in: bar) else {
@@ -69,7 +70,7 @@ import Testing
     @Test func compactMenuCountsMatchAudit() {
         _ = NSApplication.shared
         let registry = ActionRegistry.standard()
-        let bar = MainMenu.make(registry: registry)
+        let bar = MainMenu.make(registry: registry, blocking: .forProcess())
         let counts = ActionMainMenu.allCases.reduce(into: [ActionMainMenu: Int]()) { result, menu in
             result[menu] = Self.topMenu(menu, in: bar)?.items.filter { !$0.isSeparatorItem }.count ?? 0
         }
@@ -86,7 +87,7 @@ import Testing
     @Test func appMenuStartsWithOneAbout() throws {
         _ = NSApplication.shared
         let registry = ActionRegistry.standard()
-        let app = try #require(MainMenu.make(registry: registry).items.first?.submenu)
+        let app = try #require(MainMenu.make(registry: registry, blocking: .forProcess()).items.first?.submenu)
         let about = try #require(registry.title(for: "about"))
         #expect(app.items.filter { $0.title == about }.count == 1, "About rows: \(app.items.map(\.title))")
         #expect(app.items.first?.representedObject as? String == "about", "first row: \(app.items.first?.title ?? "none")")

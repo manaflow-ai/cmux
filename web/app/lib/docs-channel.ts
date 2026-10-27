@@ -47,7 +47,7 @@ export function docsPathAvailableInChannel(
   pathname: string,
 ): boolean {
   const releasePath = pathname.replace(/\/docs\/nightly(?=\/|$)/, "/docs");
-  return channel === "nightly" || !/\/docs\/base(?=\/|$)/.test(releasePath);
+  return channel === "nightly" || !/\/docs\/(?:base|next)(?=\/|$)/.test(releasePath);
 }
 
 export function docsChannelUrl(
@@ -59,7 +59,7 @@ export function docsChannelUrl(
   const releasePath = pathname.replace(/\/docs\/nightly(?=\/|$)/, "/docs");
   const releaseFallback = docsPathAvailableInChannel("release", releasePath)
     ? releasePath
-    : releasePath.replace(/\/docs\/base(?=\/|$)/, "/docs/getting-started");
+    : releasePath.replace(/\/docs\/(?:base|next)(?:\/.*)?$/, "/docs/getting-started");
   const targetPath = channel === "nightly"
     ? releasePath.replace(/\/docs(?=\/|$)/, "/docs/nightly")
     : releaseFallback;

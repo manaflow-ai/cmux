@@ -1,4 +1,5 @@
 public import Foundation
+public import CmuxNextCompat
 
 /// The environment the app hands the daemon and its terminals.
 ///
@@ -86,29 +87,34 @@ public struct TerminalEnvironment: Sendable {
     /// truthful. The app passes this as an override, which wins over the
     /// login shell's `TERM`/`COLORTERM`/`TERM_PROGRAM` (those stay excluded).
     ///
-    /// - `TERM=xterm-ghostty` with `TERMINFO=<resources>/../terminfo` when
-    ///   that entry exists, else `xterm-256color` (Ghostty's own fallback).
-    ///   Prompt themes branch on the name: oh-my-zsh `half-life` uses the
-    ///   theme palette under `xterm-ghostty` but the fixed 256-color cube
-    ///   under `*256color`.
+    /// - `TERM=xterm-256color`, unless the `xterm-ghostty` terminfo entry is
+    ///   installed in a system terminfo directory (`hasInstalledGhosttyTerminfo`),
+    ///   then `xterm-ghostty`. The bundled entry never selects it: ssh targets,
+    ///   VMs and containers lack it, and `clear`/`htop` fail there with
+    ///   "unknown terminal type". `TERMINFO` is not set.
     /// - `COLORTERM=truecolor`: 24-bit SGR is parsed and drawn losslessly.
     /// - `TERM_PROGRAM=ghostty`, `TERM_PROGRAM_VERSION`: feature detection
     ///   (neovim and others).
     /// - `GHOSTTY_RESOURCES_DIR`: themes and shell-integration lookups.
+    /// Whether `xterm-ghostty` is in a terminfo directory ncurses searches by default.
+    public static func hasInstalledGhosttyTerminfo(
+        home: String = NSHomeDirectory(),
+        fileExists: (String) -> Bool = { FileManager.checked.fileExists(atPath: $0) }
+    ) -> Bool {
+        let roots = [home + "/.terminfo", "/usr/share/terminfo", "/usr/lib/terminfo", "/etc/terminfo", "/lib/terminfo",
+                     "/opt/homebrew/share/terminfo", "/usr/local/share/terminfo"]
+        return roots.contains { fileExists($0 + "/78/xterm-ghostty") || fileExists($0 + "/x/xterm-ghostty") }
+    }
+
     public func ghostty(
         resourcesDirectory: String?,
         version: String?,
-        fileExists: (String) -> Bool = { FileManager.default.fileExists(atPath: $0) }
+        fileExists: (String) -> Bool = { FileManager.checked.fileExists(atPath: $0) }
     ) -> [String: String] {
         var env = ["TERM": "xterm-256color", "COLORTERM": "truecolor", "TERM_PROGRAM": "ghostty"]
         if let version, !version.isEmpty { env["TERM_PROGRAM_VERSION"] = version }
-        guard let resourcesDirectory, !resourcesDirectory.isEmpty else { return env }
-        env["GHOSTTY_RESOURCES_DIR"] = resourcesDirectory
-        let terminfo = ((resourcesDirectory as NSString).deletingLastPathComponent as NSString).appendingPathComponent("terminfo")
-        if fileExists((terminfo as NSString).appendingPathComponent("78/xterm-ghostty")) {
-            env["TERM"] = "xterm-ghostty"
-            env["TERMINFO"] = terminfo
-        }
+        if Self.hasInstalledGhosttyTerminfo(fileExists: fileExists) { env["TERM"] = "xterm-ghostty" }
+        if let resourcesDirectory, !resourcesDirectory.isEmpty { env["GHOSTTY_RESOURCES_DIR"] = resourcesDirectory }
         return env
     }
 

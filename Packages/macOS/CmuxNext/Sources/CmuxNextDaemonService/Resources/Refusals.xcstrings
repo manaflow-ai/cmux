@@ -19916,6 +19916,137 @@
         }
       }
     },
+    "handlers.refusal.closeAimedAtClosedPane": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "That pane closed. Press again to close a tab in this pane."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "そのペインは閉じました。このペインのタブを閉じるには、もう一度押してください。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تم إغلاق ذلك الجزء. اضغط مرة أخرى لإغلاق علامة تبويب في هذا الجزء."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Taj panel je zatvoren. Pritisnite ponovo da zatvorite karticu u ovom panelu."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Den rude blev lukket. Tryk igen for at lukke en fane i denne rude."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dieser Bereich wurde geschlossen. Drücke erneut, um einen Tab in diesem Bereich zu schließen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ese panel se cerró. Pulsa de nuevo para cerrar una pestaña de este panel."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ce volet s’est fermé. Appuyez de nouveau pour fermer un onglet de ce volet."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Quel riquadro è stato chiuso. Premi di nuovo per chiudere una scheda in questo riquadro."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ផ្ទាំងនោះបានបិទហើយ។ ចុចម្ដងទៀត ដើម្បីបិទផ្ទាំងមួយនៅក្នុងផ្ទាំងនេះ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "해당 패널이 닫혔습니다. 이 패널의 탭을 닫으려면 다시 누르세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Den ruten ble lukket. Trykk igjen for å lukke en fane i denne ruten."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ten panel został zamknięty. Naciśnij ponownie, aby zamknąć kartę w tym panelu."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Esse painel foi fechado. Pressione novamente para fechar uma aba neste painel."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Эта панель закрыта. Нажмите ещё раз, чтобы закрыть вкладку в этой панели."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "บานหน้าต่างนั้นปิดแล้ว กดอีกครั้งเพื่อปิดแท็บในบานหน้าต่างนี้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O bölme kapandı. Bu bölmedeki bir sekmeyi kapatmak için yeniden basın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Цю панель закрито. Натисніть ще раз, щоб закрити вкладку в цій панелі."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ngăn đó đã đóng. Nhấn lại để đóng một tab trong ngăn này."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "该窗格已关闭。再按一次可关闭此窗格中的标签页。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "該窗格已關閉。再按一次即可關閉此窗格中的分頁。"
+          }
+        }
+      }
+    },
     "handlers.refusal.pinnedTabKept": {
       "extractionState": "manual",
       "localizations": {
@@ -20738,7 +20869,7 @@
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Start kann nicht geschlossen werden."
+            "value": "Home kann nicht geschlossen werden."
           }
         },
         "es": {

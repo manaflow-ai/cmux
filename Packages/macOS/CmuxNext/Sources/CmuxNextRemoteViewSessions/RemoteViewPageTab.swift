@@ -108,7 +108,7 @@ public final class RemoteViewPageTab: BrowserTab {
         return image
     }
 
-    public func evaluate(_ script: String, world: BrowserScriptWorld) async throws -> BrowserJSValue { throw BrowserTabError.closed }
+    public func evaluate(_ script: String, world: BrowserScriptWorld, gesture: BrowserScriptGesture) async throws -> BrowserJSValue { throw BrowserTabError.closed }
     public func find(_ text: String, direction: BrowserFindDirection, caseSensitive: Bool) async -> BrowserFindResult { .none }
     public func clearFind() {}
     public func setZoom(_ zoom: Double) {}

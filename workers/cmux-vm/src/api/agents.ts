@@ -64,6 +64,18 @@ export class ClientSession extends Schema.Class<ClientSession>("ClientSession")(
   createdAt: Schema.String,
 }) {}
 
+/** A live client session as listed: everything but the token, which is shown once at creation. */
+export class ClientSessionSummary extends Schema.Class<ClientSessionSummary>("ClientSessionSummary")({
+  id: ClientSessionId,
+  vmId: Schema.String,
+  linuxUser: Schema.String,
+  createdAt: Schema.String,
+}) {}
+
+export class ClientSessionList extends Schema.Class<ClientSessionList>("ClientSessionList")({
+  sessions: Schema.Array(ClientSessionSummary),
+}) {}
+
 const AgentKeyPath = Schema.Struct({ keyId: Schema.String });
 const VmPath = Schema.Struct({ vmId: Schema.String });
 const SessionPath = Schema.Struct({ vmId: Schema.String, sessionId: Schema.String });
@@ -124,6 +136,23 @@ export class AgentsGroupDefinition extends HttpApiGroup.make("agents")
           description:
             "Mint a provider access token scoped to this VM and one Linux user. Requires the vm:exec scope. The token works only on this VM, " +
             "is shown once, and is revoked when the VM is deleted or the session is revoked. Another tenant's or another agent's VM is 404.",
+        }),
+      ),
+  )
+  .add(
+    HttpApiEndpoint.get("listClientSessions", "/v1/vms/:vmId/client-sessions")
+      .setPath(VmPath)
+      .setHeaders(GroupTeamHeaders)
+      .addSuccess(ClientSessionList)
+      .addError(NotFound)
+      .addError(QuotaExceeded)
+      .addError(ServiceUnavailable)
+      .annotateContext(
+        OpenApi.annotations({
+          summary: "List a VM's live client sessions",
+          description:
+            "List the live (not revoked) client sessions of this VM, oldest first: id, Linux user and creation time. Tokens are never returned; " +
+            "they are shown once when the session is created. Requires the vm:exec scope. Another tenant's or another agent's VM is 404.",
         }),
       ),
   )

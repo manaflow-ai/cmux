@@ -73,6 +73,8 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     /// This page's file chooser (its web view holds the UI delegate weakly).
     private var fileChooser: PageOpenPanel?
     var loaded = false
+    /// The tab closed (``close()``): its web view is retired and never loads again.
+    var isClosed = false
     var loadWaiters: [CheckedContinuation<Void, Never>] = []
     var shouldFocusOnAttach = false
     /// The page's popup past the window's edge (PageWebView+Popup.swift), made on first use.
@@ -321,7 +323,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         router.popup = { [weak self] op, params in self?.popup(op, params: params) ?? .object(["shown": .bool(false)]) }
         router.contextMenu = { [weak self] params in await self?.contextMenu(params) ?? .object(["picked": .null]) }
         router.userGestureEvent = { [weak self] in self?.recentUserGestureEvent() }
-        #if DEBUG
+        #if DEBUG || CMUX_BENCH_HOOKS
         // Automation launches (no activation, a GUI host whose windows macOS reports occluded):
         // WebKit stops drawing an occluded window, so captures saw an empty page. DEBUG only;
         // users keep WebKit's occlusion throttling.
@@ -341,7 +343,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         if engineDecision.engine == .cef, let hosting = chromium {
             startChromium(hosting: hosting)
         } else {
-            #if DEBUG
+            #if DEBUG || CMUX_BENCH_HOOKS
             traceMark(.navigationStart)
             #endif
             webView.load(URLRequest(url: descriptor.url(route: route)))
@@ -350,7 +352,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
 
     /// The current document painted its first frame (``PagePaintProbe``, either engine).
     func notePainted() {
-        #if DEBUG
+        #if DEBUG || CMUX_BENCH_HOOKS
         traceMark(.pagePainted)
         #endif
         paintedUptime = ProcessInfo.processInfo.systemUptime

@@ -15,6 +15,8 @@ export interface ContextMenuItem {
   symbol?: string;
   ariaLabel?: string;
   disabled?: boolean;
+  /** A toggle action; false still renders as a checkbox menu item. */
+  checked?: boolean;
   destructive?: boolean;
   separatorBefore?: boolean;
   onSelect(): void;
@@ -60,6 +62,7 @@ function nativeRows(items: readonly ContextMenuItem[]): NativeMenuRow[] | null {
       label,
       ...(item.symbol ? { symbol: item.symbol } : {}),
       ...(item.disabled ? { disabled: true } : {}),
+      ...(item.checked !== undefined ? { checked: item.checked } : {}),
     });
   }
   return rows;
@@ -229,6 +232,13 @@ export function ContextMenu({
         const shown = items;
         native({ items: rows, point: at }).then(
           (reply) => {
+            // An older legacy bridge can acknowledge an unknown method with a successful null
+            // value. That is not a native-menu dismissal (`{ picked: null }`); fall back to the
+            // page menu so a right-click never disappears without an actionable surface.
+            if (!reply || typeof reply !== "object" || !("picked" in reply)) {
+              setPoint(at);
+              return;
+            }
             const chosen = shown.find((item) => item.id === pickedId(reply));
             if (chosen) run(chosen);
             else close(true);
@@ -275,7 +285,8 @@ export function ContextMenu({
                     {item.separatorBefore ? <hr className="ui-separator" /> : null}
                     <button
                       type="button"
-                      role="menuitem"
+                      role={item.checked === undefined ? "menuitem" : "menuitemcheckbox"}
+                      aria-checked={item.checked}
                       className={cx("ui-menu-item", item.destructive && "ui-menu-item-destructive")}
                       disabled={item.disabled}
                       aria-label={item.ariaLabel ?? (typeof item.label === "string" ? item.label : undefined)}
@@ -285,7 +296,11 @@ export function ContextMenu({
                     >
                       {/* A text label truncates with its full text as a tooltip; a composed label
                           (text plus a shortcut) keeps its own flex layout. */}
-                      {item.icon ? (
+                      {item.checked !== undefined ? (
+                        <span className="ui-menu-icon" aria-hidden="true" style={MENU_ICON}>
+                          {item.checked ? "✓" : null}
+                        </span>
+                      ) : item.icon ? (
                         <span className="ui-menu-icon" aria-hidden="true" style={MENU_ICON}>
                           {item.icon}
                         </span>

@@ -46,6 +46,8 @@ export const policyKeySchemas = {
   "github.requireOrgAdmin": Schema.Boolean,
   /** Extra limit on repositories: a list (empty = no extra limit), or "none" to deny every repository. */
   "github.repoAllowList": Schema.Union([Schema.Literal("none"), Schema.Array(RepoPattern).check(Schema.isMaxLength(500))]),
+  /** Installation tokens from POST /v1/integrations/github/token may carry `workflows: write` (edit .github/workflows). */
+  "github.allowWorkflows": Schema.Boolean,
   "integrations.allowedProviders": Schema.Union([Schema.Literal("all"), Schema.Array(IntegrationProvider)]),
   "mcp.server": Schema.Literals(["user_choice", "disabled"]),
   "mcp.remoteTransport": Schema.Boolean,
@@ -97,6 +99,7 @@ export const policyProductDefaults: { readonly [K in PolicyKey]?: (typeof policy
   "github.repoScope": "linking_user_repos",
   "github.requireOrgAdmin": false,
   "github.repoAllowList": [],
+  "github.allowWorkflows": false,
   "integrations.allowedProviders": "all",
   "mcp.server": "user_choice",
   "mcp.remoteTransport": false,

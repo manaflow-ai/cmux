@@ -40,10 +40,7 @@ public final class WebKitInspectorWatch: NSObject {
     /// Reads the inspector's visibility now and once more on the next turn.
     public func refresh() {
         read()
-        CFRunLoopPerformBlock(CFRunLoopGetMain(), CFRunLoopMode.commonModes.rawValue) { [weak self] in
-            MainActor.assumeIsolated { self?.read() } // main-proof: a CFRunLoopGetMain() block runs on the main thread
-        }
-        CFRunLoopWakeUp(CFRunLoopGetMain())
+        MainRunLoopBlock.perform { [weak self] in self?.read() }
     }
 
     private func read() {

@@ -103,9 +103,18 @@ export default agentPaneEntry({
       snapshot: reply("Show the chart", `The chart:\n\n![Chart](${WEB_IMAGE})`),
     },
     "video-thumbnail": {
-      note: "A video in a reply: its poster frame, a glass play button and its length; a click plays it, Open in tab opens it beside the chat.",
+      note: "Before hover intent: a video in a reply shows its poster frame, a glass play button and its length.",
       chipHost: HOST,
       snapshot: reply("Record the login tests", `The recording of the six login tests:\n\n![Login tests](${VIDEO})`),
+    },
+    "video-hover-intent": {
+      note: "After hover intent: the muted preview starts after a deliberate 250 ms rest and the poster eases back; motion-off users stay on the poster.",
+      chipHost: HOST,
+      snapshot: reply("Record the login tests", `The recording of the six login tests:\n\n![Login tests](${VIDEO})`),
+      play: async (ctx) => {
+        await ctx.hover({ selector: ".cv-media__poster" });
+        await ctx.waitFor(() => ctx.document.querySelector('.cv-media__frame[data-previewing="true"]'));
+      },
     },
     "web-video-thumbnail": {
       note: "A nightly reel link alone on its line with images.remote = always: the host's checked copy draws as the same thumbnail.",

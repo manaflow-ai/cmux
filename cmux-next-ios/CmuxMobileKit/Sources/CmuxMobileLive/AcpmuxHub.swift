@@ -34,6 +34,12 @@ public final class AcpmuxHub {
     @ObservationIgnored public var approver: Approver?
     /// The daemon run that approvals bind (`initialize` `_meta.acpmux.personInstance`).
     @ObservationIgnored private var personInstance: String?
+    /// This phone's Full-access setting (Settings > Devices on the Mac) covers this connection
+    /// (`initialize` `_meta.acpmux.fullAccess`; false when the Mac's acpmux does not say). The
+    /// mode menus then offer the harness's Full access mode too; acpmux still decides each
+    /// switch. acpmux sends no notice when the setting changes: a refusal turns it off here,
+    /// and the next connection reads it again.
+    public private(set) var fullAccess = false
 
     /// The phone's approval signer for the linked Mac.
     public struct Approver: Sendable {
@@ -88,6 +94,7 @@ public final class AcpmuxHub {
         if let old = connection { Task { await old.close() } }
         connection = nil
         isReady = false
+        fullAccess = false
         for entry in sources.values { entry.source?.linkDown() }
         guard let channel else { return }
         let connection = AcpmuxConnection(channel: channel)
@@ -106,6 +113,7 @@ public final class AcpmuxHub {
                 "clientCapabilities": .object([:]),
             ]))
             personInstance = initialized["_meta"]?["acpmux"]?["personInstance"]?.stringValue
+            fullAccess = initialized["_meta"]?["acpmux"]?["fullAccess"] == .bool(true)
             let watched = try await connection.request("_acpmux/watch", .object(["enabled": .bool(true)]))
             var next: [String: AcpmuxSession] = [:]
             for value in watched["sessions"]?.arrayValue ?? [] {
@@ -300,6 +308,14 @@ public final class AcpmuxHub {
         _ = try await request("_acpmux/permission_respond", params)
     }
 
+    /// acpmux refused a request for this phone's Full-access setting (`remote.full_access_required`:
+    /// turned off on the Mac since this connection's `initialize`): every chat's menu hides the
+    /// Full access mode again.
+    func fullAccessRefused() {
+        fullAccess = false
+        for entry in sources.values { entry.source?.fullAccessChanged(false) }
+    }
+
     private func handle(_ notification: AcpmuxConnection.Notification) {
         let params = notification.params
         let sessionID = params["sessionId"]?.stringValue
@@ -435,10 +451,20 @@ public final class AcpmuxSessionSource: AgentSessionSource {
                     ]))
                 }
             } catch {
+                if AcpmuxSessionSource.isFullAccessRefusal(error) { hub.fullAccessRefused() }
                 self.emit(.clientError(AcpmuxSessionSource.message(error)))
             }
         }
     }
+
+    /// acpmux's refusal of what the Mac's mobile host sent marked `requireFullAccess` for this
+    /// phone (`server/remote_guard.rs`): its Full-access setting does not cover it.
+    nonisolated static func isFullAccessRefusal(_ error: any Error) -> Bool {
+        (error as? AcpmuxConnection.RPCError)?.reason == "remote.full_access_required"
+    }
+
+    /// This phone's Full-access setting, for the chat's mode menus.
+    func fullAccessChanged(_ on: Bool) { emit(.fullAccess(on)) }
 
     /// ACP prompt content: the text, then per attachment
     /// - an image: an `image` block (base64 data and its MIME type);
@@ -647,6 +673,7 @@ public final class AcpmuxSessionSource: AgentSessionSource {
                 return "This iPhone can't approve on the Mac yet. Allow it in the Mac's Settings → Mobile, or approve on the Mac."
             case "trust.pending", "trust.untrusted": return "Trust this folder on your Mac first."
             case "remote.lasting_grant_refused": return "From an iPhone you can allow once or deny. Allow for this chat on the Mac."
+            case "remote.full_access_required": return "Full access is off for this iPhone. Turn it on in Settings > Devices on the Mac."
             default:
                 if error.message.hasPrefix("no pending permission") { return "Already answered on your Mac." }
                 // An agent's raw JSON error (a model the account lacks) reads as a sentence.
@@ -660,6 +687,8 @@ public final class AcpmuxSessionSource: AgentSessionSource {
         attached = false
         attaching = false
         emit(.status(.disconnected))
+        // Only a connection's own `initialize` says Full access covers it (`attach` sends it again).
+        fullAccessChanged(false)
     }
 
     func linkUp() {
@@ -703,6 +732,8 @@ public final class AcpmuxSessionSource: AgentSessionSource {
             // records missed while the link was down). Records after the reply are live.
             beginHistory()
             for record in page { receive(record: record) }
+            // This connection's Full-access setting, before the modes it widens.
+            emit(.fullAccess(hub.fullAccess))
             // The session's models, modes and options as acpmux keeps them now (D4: a running
             // chat had no model menu, as they only came with later updates). After the page:
             // a pick (set_model, set_mode, set_config_option) writes no record, so an older

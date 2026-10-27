@@ -2,6 +2,7 @@ import AppKit
 @testable import CmuxNextApp
 import CmuxNextBridge
 @testable import CmuxNextBrowser
+import CmuxNextCompat
 import CmuxNextDesign
 @testable import CmuxNextSettings
 import Foundation
@@ -135,7 +136,7 @@ import Testing
     /// Records `setFrozen` calls for one page.
     @MainActor final class Recorder: BrowserFreezing {
         var calls: [Bool] = []
-        func setFrozen(_ frozen: Bool) { calls.append(frozen) }
+        func setFrozen(_ frozen: Bool) -> Bool { calls.append(frozen); return true }
     }
 
     /// The app's tab content cache and hibernation with one pane; hidden pages freeze at once.
@@ -152,7 +153,7 @@ import Testing
         init(freezes: Bool = true) throws {
             _ = NSApplication.shared
             services = AppServices(environment: AppEnvironment.current([:]))
-            hibernation = BrowserHibernation(cache: services.cache, lowPower: lowPower)
+            hibernation = BrowserHibernation(cache: services.cache, memoryPressure: MemoryPressureEvents(source: ManualMemoryPressureSource()), lowPower: lowPower)
             services.cache.hibernation = hibernation
             hibernation.apply(BrowserHibernationSetting(mode: .off, freezeSeconds: freezes ? 0.05 : nil))
             hibernation.start()
@@ -171,7 +172,7 @@ import Testing
                 let page = services.cache.webKit.makeWebKitTab()
                 page.load(url)
                 try await until("\(name) loads") {
-                    (try? await page.evaluate("document.readyState === 'complete' && document.title", world: .page)) == .string(name)
+                    (try? await page.evaluate("document.readyState === 'complete' && document.title", world: .page, gesture: .agent)) == .string(name)
                 }
                 let key = page.id.rawValue
                 recorders[key] = Recorder()

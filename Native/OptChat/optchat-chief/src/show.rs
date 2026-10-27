@@ -84,7 +84,7 @@ pub fn block(report: &str) -> Option<String> {
     for (old, new) in &shown.ranges {
         match &shown.repo {
             Some(repo) => lines.push(format!(
-                "- diff {old}..{new}: cmux browser right navigate --url https://github.com/{repo}/compare/{old}...{new} --agent \"<your name>\""
+                "- diff {old}..{new}: cmux browser right navigate https://github.com/{repo}/compare/{old}...{new} --agent \"<your name>\""
             )),
             None => lines.push(format!(
                 "- diff {old}..{new}: cmux tab create terminal --pane <pane_…> with `git log -p {old}..{new}` in the repo"
@@ -93,7 +93,7 @@ pub fn block(report: &str) -> Option<String> {
     }
     for page in &shown.pages {
         lines.push(format!(
-            "- page {page}: cmux browser right navigate --url {page} --agent \"<your name>\""
+            "- page {page}: cmux browser right navigate {page} --agent \"<your name>\""
         ));
     }
     for file in &shown.files {

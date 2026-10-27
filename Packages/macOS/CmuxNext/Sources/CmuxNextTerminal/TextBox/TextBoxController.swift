@@ -75,7 +75,7 @@ package final class TextBoxController {
     package func submit() -> Bool {
         installed?.commitText()
         guard let input = model.takeInput() else { return false }
-        if installed?.textView.string.isEmpty == false { installed?.textView.string = "" }
+        if installed?.textView.string.isEmpty == false { installed?.textView.replaceText("") }
         sink.paste(input)
         sink.pressReturn()
         return true
@@ -86,7 +86,7 @@ package final class TextBoxController {
         installed?.commitText()
         model.insert(paths: paths)
         if let installed, installed.textView.string != model.text {
-            installed.textView.string = model.text
+            installed.textView.replaceText(model.text)
             installed.textView.setSelectedRange(NSRange(location: (model.text as NSString).length, length: 0))
         }
     }

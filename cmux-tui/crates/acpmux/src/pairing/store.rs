@@ -100,6 +100,10 @@ pub struct Device {
     pub ticket: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub revoked_ms: Option<u64>,
+    /// The person let this machine run chats in Full access (`super::full_access`).
+    /// Off unless set: a record saved before the setting existed reads as off.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub full_access: bool,
 }
 
 impl Device {
@@ -111,7 +115,15 @@ impl Device {
             "created_at": crate::server::iso(self.created_ms),
             "ticket_id": self.ticket,
             "revoked_at": self.revoked_ms.map(crate::server::iso),
+            "full_access": self.full_access,
         })
+    }
+
+    /// Whether the setting covers this record now: a live `client` machine
+    /// or `phone` with it on. A read-only or daemon-role record never drives
+    /// chats here.
+    pub fn grants_full_access(&self) -> bool {
+        self.full_access && self.revoked_ms.is_none() && self.role.drives_chats()
     }
 }
 
@@ -274,6 +286,7 @@ impl Store {
             created_ms: now_ms,
             ticket,
             revoked_ms: None,
+            full_access: false,
         };
         self.devices.push(device.clone());
         Ok(device)
@@ -292,6 +305,70 @@ impl Store {
             }
         }
         found.filter(|d| d.revoked_ms.is_none())
+    }
+
+    /// `Pairing::issue_phone`: a new `phone` record named `name`. It replaces
+    /// the live phone record of that name (removed here, its id returned so
+    /// its connections close) and takes its Full-access setting, so a phone
+    /// the app issues a credential for at each launch keeps one record. A
+    /// live record of another role keeps its name (`name_taken`).
+    pub fn issue_phone(
+        &mut self,
+        name: &str,
+        token: &str,
+        id: &str,
+        now_ms: u64,
+    ) -> Result<(Device, Option<String>), RpcError> {
+        let old = self
+            .devices
+            .iter()
+            .position(|d| d.revoked_ms.is_none() && d.name == name && d.role == Role::Phone);
+        // Names are unique among live records: set the old one aside for the issue's check.
+        if let Some(at) = old {
+            self.devices[at].revoked_ms = Some(now_ms);
+        }
+        let mut device = match self.issue(name, Role::Phone, token, id, None, now_ms) {
+            Ok(device) => device,
+            Err(e) => {
+                if let Some(at) = old {
+                    self.devices[at].revoked_ms = None;
+                }
+                return Err(e);
+            }
+        };
+        let Some(at) = old else { return Ok((device, None)) };
+        let previous = self.devices.remove(at);
+        device.full_access = previous.full_access;
+        if let Some(new) = self.devices.iter_mut().find(|d| d.id == id) {
+            new.full_access = previous.full_access;
+        }
+        Ok((device, Some(previous.id)))
+    }
+
+    /// Turn the Full-access setting of the live device with id or name `key`
+    /// on or off. Only a `client` machine or a `phone` drives chats here, so
+    /// only one can have it on; turning it off is always accepted.
+    pub fn set_full_access(&mut self, key: &str, on: bool) -> Result<Device, RpcError> {
+        let at = self
+            .devices
+            .iter()
+            .position(|d| d.id == key && d.revoked_ms.is_none())
+            .or_else(|| self.devices.iter().position(|d| d.name == key && d.revoked_ms.is_none()))
+            .ok_or_else(|| {
+                RpcError::not_found(format!("no paired machine {key:?}; see `cmux host ticket ls`"))
+                    .with_data(json!({"reason": "not_found"}))
+            })?;
+        let d = &mut self.devices[at];
+        if on && !d.role.drives_chats() {
+            return Err(RpcError::invalid_params(format!(
+                "{} is paired {}: only a client machine or a phone drives chats here, so only one can run them in Full access",
+                d.name,
+                d.role.as_str()
+            ))
+            .with_data(json!({"reason": "full_access_role"})));
+        }
+        d.full_access = on;
+        Ok(d.clone())
     }
 
     /// Revoke the ticket or device with id `key`, or the live device named

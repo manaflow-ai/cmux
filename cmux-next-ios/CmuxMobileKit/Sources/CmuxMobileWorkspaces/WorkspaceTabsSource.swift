@@ -86,7 +86,7 @@ public final class WorkspaceTabsSource: TabsDataSource {
         _ = store.takeFocusOnOpen(workspaceID)
     }
 
-    private var macName: String {
+    var macName: String {
         guard let macID = workspace?.macID else { return "Mac" }
         return store.teams.flatMap(\.macs).first { $0.id == macID }?.name ?? "Mac"
     }
@@ -211,6 +211,16 @@ public final class WorkspaceTabsSource: TabsDataSource {
                 navigation: TabsKitNavigationState(canGoBack: true, canGoForward: model?.canGoForward ?? false,
                                                    isLoading: model?.isLoading ?? false, progress: model?.progress ?? 1),
                 features: .web
+            )
+        case .simulator:
+            // A Mac phone tab: no address or page history; Back leaves the workspace.
+            return TabsKitTab(
+                id: tab.id, kind: .web, title: tab.title, subtitle: "Simulator",
+                systemImage: tab.isPinned ? "pin.fill" : "iphone",
+                address: .title(tab.title, subtitle: "Simulator on \(macName)"),
+                navigation: TabsKitNavigationState(canGoBack: true),
+                features: [.history, .pageMenu],
+                statusBarStyle: .lightContent
             )
         }
     }
@@ -544,7 +554,7 @@ public final class WorkspaceTabsSource: TabsDataSource {
         switch tab.kind {
         case .agent: surface(tabID).composerFocused = true
         case .terminal: terminal.focusInput(for: tab, in: workspace)
-        case .browser: break
+        case .browser, .simulator: break
         }
         if !store.isPending(workspaceID) { focusOnOpen = false }
     }
@@ -564,6 +574,11 @@ public final class WorkspaceTabsSource: TabsDataSource {
     func browser(_ tab: WorkspaceTab) -> any BrowserTabState {
         if let model = streamed.model(tab: tab.id, url: tab.url, macID: store.workspace(id: workspaceID)?.macID) { return model }
         return localBrowser(tab)
+    }
+
+    /// A Mac phone tab's simulator, streamed while linked (nil otherwise).
+    func simulator(_ tab: WorkspaceTab) -> StreamedBrowserModel? {
+        streamed.simulatorModel(tab: tab.id, macID: store.workspace(id: workspaceID)?.macID)
     }
 
     func localBrowser(_ tab: WorkspaceTab) -> BrowserTabModel {
@@ -597,6 +612,7 @@ public final class WorkspaceTabsSource: TabsDataSource {
         if !inactive.isEmpty { terminal.overviewWillAppear(inactive: inactive) }
         guard let id = activeTabID else { return }
         if let tab = workspaceTab(id), tab.kind == .browser { browser(tab).takeSnapshot() }
+        if let tab = workspaceTab(id), tab.kind == .simulator { simulator(tab)?.takeSnapshot() }
         if let tab = workspaceTab(id), tab.kind == .terminal { terminal.overviewWillAppear(active: tab) }
     }
 
@@ -1113,6 +1129,17 @@ public final class WorkspaceTabsSource: TabsDataSource {
                 [leave],
                 [close],
             ].filter { !$0.isEmpty }
+        case .simulator:
+            let model = simulator(tab)
+            return [
+                [
+                    TabsKitMenuItem(title: "Home", systemImage: "circle", isEnabled: model != nil) { model?.pressButton("home") },
+                    TabsKitMenuItem(title: "Lock", systemImage: "lock", isEnabled: model != nil) { model?.pressButton("lock") },
+                ],
+                edit,
+                [leave],
+                [close],
+            ].filter { !$0.isEmpty }
         }
     }
 }
@@ -1175,6 +1202,15 @@ struct WorkspaceTabPage: View {
                 BrowserPage(model: source.localBrowser(tab), insets: insets, isZoomGestureActive: context.isZoomGestureActive,
                             reportScroll: { context.reportScroll(fingerDelta: $0) })
             }
+        case .simulator:
+            if let model = source.simulator(tab) {
+                StreamedSimulatorPage(model: model, insets: insets)
+            } else {
+                Text("Connect to \(source.macName) to see this simulator.")
+                    .font(.callout).foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .background(Color.black)
+            }
         }
     }
 
@@ -1215,6 +1251,8 @@ struct WorkspaceTabAccessory: View {
                     isZoomGestureActive: context.isZoomGestureActive, reportScroll: { context.reportScroll(fingerDelta: $0) }))
             case .browser:
                 EmptyView()
+            case .simulator:
+                if let model = source.simulator(tab) { StreamedSimulatorAccessory(model: model) }
             }
         }
     }
@@ -1277,6 +1315,13 @@ struct WorkspaceTabCard: View {
                     StreamedBrowserCard(model: model)
                 } else {
                     BrowserCard(model: source.localBrowser(tab), insets: insets)
+                }
+            case .simulator:
+                if let model = source.simulator(tab) {
+                    StreamedBrowserCard(model: model, placeholder: "iphone", fit: true)
+                } else {
+                    Image(systemName: "iphone").font(.system(size: 72, weight: .light)).foregroundStyle(.tertiary)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
             }
     }

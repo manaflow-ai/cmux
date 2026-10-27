@@ -214,7 +214,7 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
                                stamp: stamp, identifier: "home.chief", place: .cloud) { cloudTileMenu }
                 case .macChief:
                     sessionRow(sources.mac, name: String(localized: "Chief"), tag: chiefTag(main: !sources.isCloudReady, place: macTag),
-                               stamp: stamp, identifier: "home.chief.mac", place: .mac) { EmptyView() }
+                               stamp: stamp, identifier: "home.chief.mac", place: .mac) { callChiefItem }
                 }
             }
             if let problem = feed.problem, !searching {
@@ -331,8 +331,9 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
     }
 
     /// The Mac's row menu, the actions that are the person's list state:
-    /// Pin or Unpin, Mark as Read or Mark as Unread.
+    /// Pin or Unpin, Mark as Read or Mark as Unread; Chief's row also calls Chief.
     @ViewBuilder private func rowMenu(_ row: MacHomeRow) -> some View {
+        if isMacChief(row) { callChiefItem }
         Button(row.isPinned ? "Unpin" : "Pin", systemImage: row.isPinned ? "pin.slash" : "pin") {
             theme.haptics.selection()
             feed.setPinned(!row.isPinned, row.id)
@@ -344,8 +345,15 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
         }
     }
 
+    /// A live voice call with Chief (``ChiefCallLauncher``).
+    private var callChiefItem: some View {
+        Button("Call Chief", systemImage: "phone") { ChiefCallLauncher.shared.call() }
+            .accessibilityIdentifier("home.chief.call")
+    }
+
     @ViewBuilder private var cloudTileMenu: some View {
         let cloud = sources.cloud
+        callChiefItem
         if cloud.conversationID != nil {
             Button(cloud.isMuted ? "Show Alerts" : "Hide Alerts", systemImage: cloud.isMuted ? "bell" : "bell.slash") {
                 cloud.setMuted(!cloud.isMuted)

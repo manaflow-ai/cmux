@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "cb12b489fcaad8bfa7cd1979fdcc27eaff578f0f3540c961896abdc0c61eeea0";
+inline constexpr std::string_view kProtocolIrSha256 = "ab9b63f6ea5a42684b2e68a16f00c86609765793d0fafdccdc139656f146deef";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -47,6 +47,7 @@ struct ClientSize;
 enum class ClientTransport;
 enum class CloseReason;
 struct CloseTerminalResult;
+struct CloudConversationPresenceParticipant;
 struct ColorHex;
 enum class ColumnMoveDirection;
 struct ColumnPin;
@@ -281,6 +282,7 @@ struct CloudAttachmentUploadResult;
 struct CloudConversationHistoryRequest;
 struct CloudConversationLiveRequest;
 struct CloudConversationOpRequest;
+struct CloudConversationPresenceRequest;
 struct CloudConversationRunRequest;
 struct CloudConversationRunsRequest;
 struct CloudConversationSnapshotRequest;
@@ -580,6 +582,7 @@ struct ClientDetachedEvent;
 struct ClientListInvalidatedEvent;
 struct CloudConversationChangedEvent;
 struct CloudConversationLiveEvent;
+struct CloudConversationPresenceEvent;
 struct CloudConversationResyncedEvent;
 struct CloudConversationRunChangedEvent;
 struct CloudConversationTypingEvent;
@@ -1674,6 +1677,25 @@ struct CloudConversationOpRequest {
     std::optional<JsonValue> op{};
     Field<std::string> origin{};
     friend bool operator==(const CloudConversationOpRequest&, const CloudConversationOpRequest&) = default;
+};
+
+struct CloudConversationPresenceParticipant {
+    std::string participant{};
+    bool viewing{};
+    friend bool operator==(const CloudConversationPresenceParticipant&, const CloudConversationPresenceParticipant&) = default;
+};
+
+struct CloudConversationPresenceEvent {
+    std::optional<std::string> account{};
+    std::string conversation{};
+    std::vector<CloudConversationPresenceParticipant> participants{};
+    friend bool operator==(const CloudConversationPresenceEvent&, const CloudConversationPresenceEvent&) = default;
+};
+
+struct CloudConversationPresenceRequest {
+    std::string conversation{};
+    bool viewing{};
+    friend bool operator==(const CloudConversationPresenceRequest&, const CloudConversationPresenceRequest&) = default;
 };
 
 struct CloudConversationResyncedEvent {
@@ -4786,6 +4808,7 @@ struct SendRequest {
     Field<Base64> bytes{};
     Field<SendExpectAgent> expect_agent{};
     Field<std::string> expect_foreground{};
+    Field<std::uint64_t> flow{};
     std::optional<bool> paste{};
     std::optional<bool> submit{};
     Field<Id> surface{};
@@ -6167,6 +6190,12 @@ template <>
 struct Codec<CloseTerminalResult> {
     static Result<Json> encode(const CloseTerminalResult& value);
     static Result<CloseTerminalResult> decode(const Json& value);
+};
+
+template <>
+struct Codec<CloudConversationPresenceParticipant> {
+    static Result<Json> encode(const CloudConversationPresenceParticipant& value);
+    static Result<CloudConversationPresenceParticipant> decode(const Json& value);
 };
 
 template <>
@@ -7571,6 +7600,12 @@ template <>
 struct Codec<CloudConversationOpRequest> {
     static Result<Json> encode(const CloudConversationOpRequest& value);
     static Result<CloudConversationOpRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<CloudConversationPresenceRequest> {
+    static Result<Json> encode(const CloudConversationPresenceRequest& value);
+    static Result<CloudConversationPresenceRequest> decode(const Json& value);
 };
 
 template <>
@@ -9365,6 +9400,12 @@ template <>
 struct Codec<CloudConversationLiveEvent> {
     static Result<Json> encode(const CloudConversationLiveEvent& value);
     static Result<CloudConversationLiveEvent> decode(const Json& value);
+};
+
+template <>
+struct Codec<CloudConversationPresenceEvent> {
+    static Result<Json> encode(const CloudConversationPresenceEvent& value);
+    static Result<CloudConversationPresenceEvent> decode(const Json& value);
 };
 
 template <>
