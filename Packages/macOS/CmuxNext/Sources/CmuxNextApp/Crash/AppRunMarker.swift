@@ -104,6 +104,9 @@ final class AppRunMarker {
     /// How the previous run ended when it did not quit as asked (stability.unclean_exit, task 109); nil after a
     /// normal or requested quit, or on a first launch.
     let previousExit: HistogramID.UncleanExit?
+    /// The previous run when it ended with no handler of its own (killed, or the Mac shut down), so no crash report
+    /// covers it; its fatal-hang record, if any, is reported (p09-observability-110). Nil after a quit, a crash or none.
+    let previousUnreported: PreviousRun?
     private var signalFile: URL { directory.appending(path: "run.signal") }
     private var exceptionFile: URL { directory.appending(path: "run.exception") }
     private var crashKeysFile: URL { directory.appending(path: "run.crashkeys") }
@@ -127,6 +130,7 @@ final class AppRunMarker {
         let previous = Self.readPrevious(marker: root.appending(path: "run.json"), signal: root.appending(path: "run.signal"),
                                          exception: root.appending(path: "run.exception"))
         previousExit = previous?.uncleanExit(bootSession: bootSession)
+        previousUnreported = previousExit == nil || previousExit == .crash ? nil : previous
         let recovered = previous?.forRecovery(bootSession: bootSession)
         recovery = LaunchRecovery.decide(previous: recovered)
         marker = PreviousRun(pid: getpid(), launched: now, recovery: LaunchRecovery.watchesForLoop(previous: recovered),

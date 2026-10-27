@@ -59,6 +59,23 @@ enum WatchdogReporting {
         }
         // ~/Library/Logs/<bundle id>/hangs, listed in Debug Settings > Hangs.
         watchdog.episodes = HangFileTunables.recorder(bundleID: Bundle.main.bundleIdentifier)
+        // A hang the app does not survive (p09-observability-110): the previous run's record goes out now, and this
+        // run's is kept on disk while each hang lasts.
+        let bundleID = services.environment.launch.bundleID, markerFolder = AppRunMarker.standardDirectory(bundleID: bundleID)
+        if let marker = services.crashRecovery.marker {
+            reporter.reportPreviousFatalHang(in: markerFolder, run: marker.previousUnreported.map { (pid: $0.pid, launched: $0.launched) },
+                                             traceDirectory: TraceBlackBoxFileSteps.appDirectory(bundleID: bundleID),
+                                             hangReportsOptIn: UserDefaults.standard.object(forKey: HangReportsController.consentKey) is Date,
+                                             work: services.work)
+        }
+        if services.crashRecovery.marker != nil, reporter.isStarted, services.features.isEnabled(.fatalHangReports) {
+            let fatal = FatalHangRecorder(directory: markerFolder, release: reporter.policy.release, dist: reporter.policy.dist)
+            watchdog.fatalHangs = MainThreadWatchdog.FatalHangSink(began: { hang, start in
+                fatal.began(startUptimeNanos: start, elapsedNanos: Self.nanos(hang.duration), addresses: hang.addresses, phase: hang.phase,
+                            attribution: .init(owner: hang.attribution.owner, taskClass: hang.attribution.taskClass,
+                                               location: hang.attribution.location, turnNanos: hang.attribution.turnNanos))
+            }, progressed: { fatal.progressed(elapsedNanos: $0) }, ended: { fatal.ended() })
+        }
         let lagSpikes = LagSpikeReporter(reporter: reporter)
         lagSpikes.setContextProvider {
             // The watchdog's run-loop observer on the main run loop reads it; never off main.
