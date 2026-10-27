@@ -1,4 +1,7 @@
 import CmuxMobileAgentChat
+import CmuxMobileFeed
+import CmuxMobileModel
+import CmuxMobileTransport
 import CoreImage
 import CoreImage.CIFilterBuiltins
 import CryptoKit
@@ -152,3 +155,54 @@ import Testing
         #expect(invites.pending() != nil)
     }
 }
+
+#if os(iOS)
+/// The coordinator takes a code only for a space this account is in and only while it is live;
+/// a taken code is held for its Mac's challenge, and that Mac is the one the team's Macs focus.
+@MainActor
+@Suite(.serialized) struct PairInviteCoordinatorTests {
+    func coordinator(_ store: AppStore) -> LiveCoordinator {
+        let host = "svc-\(UUID().uuidString.prefix(8).lowercased()).cmuxMobile.test"
+        ServiceStub.install(host: host) { _ in nil }
+        let directory = FileManager.default.temporaryDirectory.appending(path: "cmux-mobile-invite-\(UUID().uuidString)")
+        let secrets = MemorySecretStore()
+        return LiveCoordinator(
+            store: store,
+            api: LiveAPI(baseURL: URL(string: "https://\(host)")!, session: ServiceStub.session()) { _ in "token" },
+            identity: DeviceIdentity(link: UUID().uuidString, presence: UUID().uuidString),
+            userID: "user-a", deviceName: "iPhone", transport: .webRTC, dialer: MockDialer(fail: true),
+            feedStore: FeedStore(items: []),
+            keys: PhoneKeys(userID: "user-a", service: "test.invite.\(UUID())", store: secrets, enclave: false),
+            snapshots: LiveSnapshotStore(directory: directory), secrets: secrets,
+            readMarks: FeedReadMarks(url: directory.appending(path: "read.json"))
+        )
+    }
+
+    @Test func aCodeForThisAccountsSpaceIsHeldForItsMac() throws {
+        let key = "cmuxMobile.live.mac.t1"
+        UserDefaults.standard.removeObject(forKey: key)
+        defer { UserDefaults.standard.removeObject(forKey: key) }
+        let store = AppStore(teams: [Team(id: "t1", name: "One")], activeTeamID: "t1", workspaces: [], feed: [],
+                             tabMemory: .inMemory())
+        let live = coordinator(store)
+        defer { live.stop() }
+        let invite = try #require(PairInvite(text: PairInviteTests.url(mac: "m1", team: "t1")))
+        #expect(live.accept(invite))
+        #expect(live.pairing?.invites.pending(mac: "m1") == invite)
+        #expect(UserDefaults.standard.string(forKey: key) == "m1")
+    }
+
+    @Test func aCodeForAnotherSpaceOrAnExpiredOneIsRefused() throws {
+        let store = AppStore(teams: [Team(id: "t1", name: "One")], activeTeamID: "t1", workspaces: [], feed: [],
+                             tabMemory: .inMemory())
+        let live = coordinator(store)
+        defer { live.stop() }
+        let stranger = try #require(PairInvite(text: PairInviteTests.url(mac: "m9", team: "t9")))
+        #expect(!live.accept(stranger))
+        let old = try #require(PairInvite(text: PairInviteTests.url(mac: "m1", team: "t1"),
+                                          now: Date().addingTimeInterval(-PairInvite.lifetime - 1)))
+        #expect(!live.accept(old))
+        #expect(live.pairing?.invites.pending() == nil)
+    }
+}
+#endif
