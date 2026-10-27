@@ -373,7 +373,7 @@ impl Hub {
         view: &FullAccessView,
     ) -> Result<(), RpcError> {
         if off.off() && runs_full_access(view).is_some() {
-            self.stop_full_access_agent(session).await;
+            self.stop_full_access_agent(session, true).await;
             return Err(super::start_mode::full_access_off());
         }
         Ok(())
@@ -1330,7 +1330,7 @@ mod tests {
             host_incarnation: None,
             persisted: None,
         };
-        hub.stop_full_access_agent(&chat).await;
+        hub.stop_full_access_agent(&chat, true).await;
         let next = hub.child_for(&chat).await.expect("an agent");
         assert_ne!(first.generation, next.generation, "the stopped agent was handed out again");
         chat.inbound_tx.send(report).await.unwrap();
@@ -1344,6 +1344,38 @@ mod tests {
         );
         let current = chat.child.lock().await.clone().expect("the next agent");
         assert_eq!(current.generation, next.generation);
+    }
+
+    /// Review 1 of #26257: a stop for the person's own off (MDM unset) retires nothing, as before:
+    /// a report the stopped agent still had queued is applied as it was on base.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn a_stop_for_the_persons_own_off_retires_nothing() {
+        let (hub, chat, _) = two_chats_on(&[], false).await;
+        let first = hub.child_for(&chat).await.expect("an agent");
+        let report = Inbound::Notification {
+            method: crate::rpc::method::SESSION_UPDATE.to_owned(),
+            params: Some(json!({"sessionId": "own",
+                                "update": {"sessionUpdate": "current_mode_update",
+                                           "currentModeId": "strict"}})),
+            agent: first.generation,
+            host_seq: None,
+            host_incarnation: None,
+            persisted: None,
+        };
+        let epoch = chat.floor.report_epoch.load(Ordering::SeqCst);
+        hub.stop_full_access_agent(&chat, false).await;
+        assert_eq!(chat.floor.retired_through.load(Ordering::SeqCst), 0, "a stop retired an agent");
+        assert_eq!(chat.floor.report_epoch.load(Ordering::SeqCst), epoch, "a stop moved the epoch");
+        hub.child_for(&chat).await.expect("an agent");
+        chat.inbound_tx.send(report).await.unwrap();
+        let (done, drained) = tokio::sync::oneshot::channel();
+        chat.inbound_tx.send(Inbound::Barrier(done)).await.unwrap();
+        drained.await.unwrap();
+        assert_eq!(
+            crate::web_modes::mode_of(&chat.meta()).as_deref(),
+            Some("strict"),
+            "with MDM unset a stopped agent's queued report was dropped"
+        );
     }
 
     /// Review 2 of #26034: under MDM's off, an agent whose end is pending is not handed out by
