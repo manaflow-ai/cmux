@@ -192,7 +192,7 @@ extension BrowserTabOpen {
             }
             let route = try await ops("cloud.browser.open", .object(["machine": .string(machine), "port": .number(Double(port)), "host": .string(host)]),
                                       UUID().uuidString.lowercased(), .script)
-            let request = try request(route: pageJSON(route), machineName: name)
+            let request = try await request(route: pageJSON(route), machineName: name)
             guard request.machine == machine else { throw Refusal.proxyInvalid }
             return CloudBrowserRoute.Answer(proxyPort: request.proxyPort, credential: request.credential)
         }
