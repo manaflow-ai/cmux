@@ -159,3 +159,27 @@ test("releases the browse guard after switching environment kind", async () => {
   await act(async () => rejectBrowse[1]!(new Error("Folder access was denied.")));
   expect(container.querySelector('[role="alert"]')?.textContent).toContain("Folder access was denied.");
 });
+
+test("back from Add Project cannot apply its deferred browse to the environment", async () => {
+  const container = installDom();
+  let resolveBrowse!: (folder: string) => void;
+  await renderPanel(container, (request) => {
+    expect(request?.deferPick).toBe(true);
+    return new Promise((resolve) => {
+      resolveBrowse = resolve;
+    });
+  });
+  await act(async () => container.querySelector<HTMLButtonElement>(".acpmux-location-button")!.click());
+  const pick = async (label: string) => {
+    const item = [...document.querySelectorAll("li")].find((node) => node.textContent?.includes(label));
+    expect(item).toBeTruthy();
+    await act(async () => item!.click());
+  };
+  await pick("Add project");
+  await pick("This Mac");
+  await pick("Local folder");
+  expect(document.querySelector('[data-add-project-step="source"]')).toBeTruthy();
+  await act(async () => document.querySelector<HTMLButtonElement>(".acpmux-add-project-heading button")!.click());
+  await act(async () => resolveBrowse("/Users/you/src/stale"));
+  expect(container.querySelector('.acpmux-env-select[title="/Users/you/src/cmux"]')).toBeTruthy();
+});

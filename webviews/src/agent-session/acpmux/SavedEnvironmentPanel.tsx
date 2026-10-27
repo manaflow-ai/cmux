@@ -175,6 +175,7 @@ export function SavedEnvironmentPanel({
                 // Another machine's folders are its own: a switch starts with none.
                 if (kind !== draft.kind) {
                   browseRequest.current += 1;
+                  setBrowsing(false);
                   setBrowseFailed(false);
                   setError(undefined);
                   setDraft(({ id: kept, name: named }) => ({

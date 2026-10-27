@@ -1027,9 +1027,6 @@ export function NewTabScreen(props: Props) {
     setBrowseError(undefined);
     saved.pick(undefined);
     touch();
-    setPicked(true);
-    setNone(false);
-    setProject(next?.folder);
     setMachine(next);
     field.current?.focus();
     requestAnimationFrame(() => field.current?.focus());
