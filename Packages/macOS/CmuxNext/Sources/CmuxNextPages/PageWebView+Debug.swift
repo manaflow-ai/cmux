@@ -199,6 +199,20 @@ extension PageWebView {
         const el = all.find(drawn);
         if (!el) { return JSON.stringify({ reason: 'not rendered' }); }
         el.scrollIntoView({ block, inline: 'nearest', behavior: 'instant' });
+        // At `start`, a sticky bar over the scroller's top (Settings' search and section tabs) would
+        // cover the element's own title: scroll back by what covers its top edge.
+        const s0 = el.getBoundingClientRect();
+        const over = block === 'start' && document.elementFromPoint(s0.left + s0.width / 2, Math.max(s0.top, 0) + 2);
+        if (over && !el.contains(over) && !over.contains(el)) {
+          let scroller = el.parentElement;
+          while (scroller && !(/(auto|scroll)/.test(getComputedStyle(scroller).overflowY) && scroller.scrollHeight > scroller.clientHeight)) {
+            scroller = scroller.parentElement;
+          }
+          let cover = over;
+          while (cover.parentElement && !cover.parentElement.contains(el)) { cover = cover.parentElement; }
+          const by = cover.getBoundingClientRect().bottom - s0.top + 8;
+          if (by > 0) { (scroller || document.scrollingElement).scrollBy({ top: -by, behavior: 'instant' }); }
+        }
         const r = el.getBoundingClientRect();
         // The part of its box that shows: inside the viewport and every clipping ancestor (a nested
         // scroller). Its middle must hit the element, so a sheet over all of it fails; a sticky
