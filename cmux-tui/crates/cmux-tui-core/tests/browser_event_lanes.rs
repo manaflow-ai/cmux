@@ -9,9 +9,11 @@ use std::os::unix::net::UnixStream;
 use std::thread;
 use std::time::{Duration, Instant};
 
+mod support;
 use base64::Engine as _;
 use cmux_tui_core::{BrowserStatus, Mux, SurfaceOptions, server};
 use serde_json::{Value, json};
+use support::DaemonMuxOps;
 use tungstenite::{Message, accept};
 
 const SURFACES: usize = 20;
