@@ -69,9 +69,15 @@ nonisolated struct ChromiumHostLauncher: ChromiumHostLaunching {
     /// collectable, which follows the event at once), so hosts never wait on each other for long.
     /// userInitiated: the exit restarts the page a person is looking at.
     private let exitQueue = DispatchQueue(label: "com.cmuxterm.chromium-host.exit", qos: .userInitiated)
+    /// The host's spawn priority: user-blocking, which sets no QoS clamp on the host
+    /// (``MayBlockPriority/spawnClamp`` is nil), so the host's main thread runs at the user-interactive
+    /// QoS it sets itself (browser_host_main.mm, task p01-process-222). `posix_spawnattr_set_qos_class_np`
+    /// is only a clamp and refuses user-interactive, so the spawn names no class.
+    static let priority: MayBlockPriority = .userBlocking
+
     /// Spawns hosts off the main thread, on the user-blocking launcher (Chrome's process launcher,
     /// content/browser/child_process_launcher_helper.cc): the host draws the page a person is looking at.
-    private let launcher = ChildProcessLauncher(label: "com.cmuxterm.next.child-launcher.chromium-host", priority: .userBlocking)
+    private let launcher = ChildProcessLauncher(label: "com.cmuxterm.next.child-launcher.chromium-host", priority: Self.priority)
 
     init() {}
 
