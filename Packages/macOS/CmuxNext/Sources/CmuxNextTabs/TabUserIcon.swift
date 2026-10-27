@@ -27,28 +27,28 @@ public struct TabUserIcon {
 }
 
 /// Drawn emoji and known symbol names, cached (a tab strip snapshot runs on
-/// every model change, so neither is recomputed per snapshot).
+/// every model change, so neither is recomputed per snapshot). Each is a memory
+/// consumer (``TabImageMemo``: `tab-user-emoji`, `tab-user-symbol-names`) the app
+/// registers through ``TabIconMemoryConsumers``.
 final class TabUserIconImages {
     static let shared = TabUserIconImages()
-    private var emoji: [String: TabImage] = [:]
-    private var symbols: [String: Bool] = [:]
+    let emojiImages: TabImageMemo<TabImage>
+    let symbolNames: TabImageMemo<Bool>
     private static let limit = 256
 
+    /// - Parameter clock: Times how long a drawn emoji or a looked-up name stays in use; tests pass their own.
+    init(clock: any Clock<Duration> = ContinuousClock()) {
+        emojiImages = TabImageMemo(name: "tab-user-emoji", capacity: Self.limit,
+                                   bytes: { TabImageMemo<CGImage>.pixelBytes($0.cgImage) }, clock: clock)
+        symbolNames = TabImageMemo(name: "tab-user-symbol-names", capacity: Self.limit, bytes: { _ in 0 }, clock: clock)
+    }
+
     func draws(symbol name: String) -> Bool {
-        if let known = symbols[name] { return known }
-        let draws = NSImage(systemSymbolName: name, accessibilityDescription: nil) != nil
-        if symbols.count >= Self.limit { symbols.removeAll() }
-        symbols[name] = draws
-        return draws
+        symbolNames.value(for: name) { NSImage(systemSymbolName: name, accessibilityDescription: nil) != nil } ?? false
     }
 
     func emoji(_ text: String) -> TabImage? {
-        if let cached = emoji[text] { return cached }
-        guard let image = Self.draw(text, pixels: TabUserIcon.emojiPixels) else { return nil }
-        let tabImage = TabImage(image)
-        if emoji.count >= Self.limit { emoji.removeAll() }
-        emoji[text] = tabImage
-        return tabImage
+        emojiImages.value(for: text) { Self.draw(text, pixels: TabUserIcon.emojiPixels).map(TabImage.init) }
     }
 
     /// `text` in the system emoji font, centered on a clear square of `pixels`.

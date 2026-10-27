@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+public import CmuxNextCompat
 public import Darwin
 public import Foundation
 import os
@@ -56,19 +57,13 @@ public final class ComputerUseHelperV2 {
     private var controlLog: Task<Void, Never>?
     private var generation = 0
 
-    /// This app's signing team. Ad-hoc development builds have no team and
-    /// retain the same-executable-path peer rule.
-    nonisolated static let ownTeam: String? = {
-        var code: SecCode?
-        guard SecCodeCopySelf([], &code) == errSecSuccess, let code else { return nil }
-        var staticCode: SecStaticCode?
-        guard SecCodeCopyStaticCode(code, [], &staticCode) == errSecSuccess, let staticCode else { return nil }
-        var info: CFDictionary?
-        guard SecCodeCopySigningInformation(staticCode, SecCSFlags(rawValue: kSecCSSigningInformation), &info)
-                == errSecSuccess, let info = info as? [String: Any] else { return nil }
-        let team = info[kSecCodeInfoTeamIdentifier as String] as? String
-        return team?.isEmpty == false ? team : nil
-    }()
+    /// The app's lanes (BackgroundWork), set at launch: the acpmux admission (signature reads of the
+    /// acpmux binary) runs on their system lane. Unwired, the helper admits no acpmux bridge.
+    public var lanes: (any MayBlockRunner)?
+
+    /// This app's signing team, read on the system lane at launch. Ad-hoc development builds have no
+    /// team and retain the same-executable-path peer rule.
+    private let signingTeam: SigningTeamInstall
 
     /// The code-signing identifier read from an executable. A raced path can
     /// at worst produce a requirement the real helper does not satisfy: the
@@ -77,15 +72,38 @@ public final class ComputerUseHelperV2 {
         var code: SecStaticCode?
         guard SecStaticCodeCreateWithPath(executable as CFURL, [], &code) == errSecSuccess, let code else { return nil }
         var info: CFDictionary?
-        guard SecCodeCopySigningInformation(code, SecCSFlags(rawValue: kSecCSSigningInformation), &info)
+        guard blockingSecCodeCopySigningInformation(code, SecCSFlags(rawValue: kSecCSSigningInformation), &info)
                 == errSecSuccess, let info = info as? [String: Any] else { return nil }
         return info[kSecCodeInfoIdentifier as String] as? String
+    }
+
+    /// This app's acpmux resolved once for one helper start, with the admission of its bridges.
+    nonisolated struct ResolvedAcpmux: Sendable {
+        let executable: URL
+        let socketPath: String
+        let hashes: [String]
+        let requirement: String?
+    }
+
+    /// Resolves `acpmux` and reads its admission for `team` (this app's) on `lanes`' system lane (both
+    /// read the binary's signature); nil when there is no acpmux or no lanes.
+    nonisolated static func resolveAcpmux(_ acpmux: @escaping @Sendable () -> (executable: URL, socketPath: String)?,
+                                          team: String?, on lanes: (any MayBlockRunner)?) async -> ResolvedAcpmux? {
+        guard let lanes else { return nil }
+        // The helper starts for a person who turned Computer Use on, and waits for this.
+        return try? await lanes.runSystem(.userBlocking) {
+            acpmux().map { found in
+                let admission = Self.acpmuxAdmission(executable: found.executable, teamIdentifier: team)
+                return ResolvedAcpmux(executable: found.executable, socketPath: found.socketPath,
+                                      hashes: admission.hashes, requirement: admission.requirement)
+            }
+        }
     }
 
     /// Release helpers check every bridge's live audit token against its exact
     /// identifier and this app's team. Only ad-hoc development uses a
     /// mutable-path cdhash.
-    nonisolated static func acpmuxAdmission(executable: URL, teamIdentifier: String? = ownTeam,
+    nonisolated static func acpmuxAdmission(executable: URL, teamIdentifier: String?,
                                             identifier: (URL) -> String? = codeIdentifier,
                                             hash: (URL) -> Data? = cdhash)
         -> (hashes: [String], requirement: String?) {
@@ -105,7 +123,8 @@ public final class ComputerUseHelperV2 {
          spawner: any ComputerUseHelperV2Spawning = DisclaimedHelperSpawner(),
          clock: any Clock<Duration> = ContinuousClock(),
          readyTimeout: Duration = .seconds(10),
-         exitGrace: Duration = .seconds(2)) {
+         exitGrace: Duration = .seconds(2),
+         signingTeam: SigningTeamInstall = .process) {
         self.directory = directory
         self.helperApp = helperApp
         self.acpmux = acpmux
@@ -113,6 +132,7 @@ public final class ComputerUseHelperV2 {
         self.clock = clock
         self.readyTimeout = readyTimeout
         self.exitGrace = exitGrace
+        self.signingTeam = signingTeam
     }
 
     var socketPath: String { directory + "/" + Self.socketFileName }
@@ -175,19 +195,23 @@ public final class ComputerUseHelperV2 {
         let executable = app.appending(path: "Contents/MacOS/\(Self.helperExecutableName)")
         let spawned: ComputerUseHelperV2Child
         do {
-            spawned = try spawner.spawn(executable: executable, environment: Self.environment(),
-                                        logPath: directory + "/helper.log")
+            spawned = try await spawner.spawn(executable: executable, environment: Self.environment(),
+                                              logPath: directory + "/helper.log")
         } catch {
+            // Turned off (or applied again) during the spawn: the newer apply owns the state.
+            guard current == generation else { return }
             return unavailable("the helper did not start: \(error)")
         }
+        guard current == generation else {
+            spawned.closeInput()
+            spawner.terminate(spawned.pid)
+            return
+        }
         let secret = Self.makeSecret()
-        let acpmux = self.acpmux()
-        let admission: (hashes: [String], requirement: String?) = acpmux.map {
-            Self.acpmuxAdmission(executable: $0.executable)
-        } ?? (hashes: [], requirement: nil)
+        let resolved = await Self.resolveAcpmux(acpmux, team: signingTeam.team, on: lanes)
         await spawned.send(Self.line(["type": "configure", "socket": socketPath, "secret": Self.hex(secret),
-                                "acpmux_cdhashes": admission.hashes,
-                                "acpmux_requirement": admission.requirement.map { $0 as Any } ?? NSNull()]))
+                                "acpmux_cdhashes": resolved?.hashes ?? [],
+                                "acpmux_requirement": resolved?.requirement.map { $0 as Any } ?? NSNull()]))
         let readySocket = await Self.readySocket(of: spawned, within: readyTimeout, clock: clock)
         guard current == generation else {
             spawned.closeInput()
@@ -213,14 +237,21 @@ public final class ComputerUseHelperV2 {
         }
         helperV2Logger.notice("cmux Computer Use helper v2 started pid=\(spawned.pid, privacy: .public)")
         // An acpmux daemon that already runs (it outlives the app) is registered now.
-        if let acpmux { await registerAcpmuxDaemon(acpmuxSocket: acpmux.socketPath) }
+        if let resolved { await registerAcpmuxDaemon(acpmuxSocket: resolved.socketPath, executable: resolved.executable) }
     }
 
     /// Registers the acpmux daemon listening on `acpmuxSocket`, after checking
-    /// it runs this app's acpmux executable. Its descendants (agent MCP
-    /// bridges) may then use the helper.
+    /// it runs this app's acpmux executable (resolved on the system lane). Its
+    /// descendants (agent MCP bridges) may then use the helper.
     public func registerAcpmuxDaemon(acpmuxSocket: String) async {
-        guard let child, let executable = acpmux()?.executable,
+        guard child != nil, let lanes else { return }
+        let acpmux = self.acpmux
+        guard let executable = try? await lanes.runSystem(.userBlocking, { acpmux()?.executable }) else { return }
+        await registerAcpmuxDaemon(acpmuxSocket: acpmuxSocket, executable: executable)
+    }
+
+    private func registerAcpmuxDaemon(acpmuxSocket: String, executable: URL) async {
+        guard let child,
               let stamp = await Self.daemonStamp(socketPath: acpmuxSocket, executable: executable) else { return }
         await child.send(Self.line(["type": "register_acpmux", "pid": Int(stamp.pid),
                               "start_sec": Int(stamp.startSeconds), "start_usec": Int(stamp.startMicroseconds)]))
@@ -240,8 +271,8 @@ public final class ComputerUseHelperV2 {
         controlLog = nil
         child.closeInput()
         let spawner = self.spawner
-        // wakeup-allow: one bounded grace before SIGTERM when the helper is stopped.
-        try? await clock.sleep(for: exitGrace)
+        // wakeup-allow: deadline of the grace before SIGTERM: a step stop() awaits in order, not a DemandTimer
+        try? await clock.sleep(for: exitGrace, tolerance: WakeLeeway.window(delay: exitGrace).tolerance)
         if kill(child.pid, 0) == 0 { spawner.terminate(child.pid) }
     }
 
@@ -283,7 +314,7 @@ public final class ComputerUseHelperV2 {
         var code: SecStaticCode?
         guard SecStaticCodeCreateWithPath(url as CFURL, [], &code) == errSecSuccess, let code else { return nil }
         var info: CFDictionary?
-        guard SecCodeCopySigningInformation(code, [], &info) == errSecSuccess,
+        guard blockingSecCodeCopySigningInformation(code, [], &info) == errSecSuccess,
               let dictionary = info as? [String: Any] else { return nil }
         return dictionary[kSecCodeInfoUnique as String] as? Data
     }
@@ -356,7 +387,7 @@ public final class ComputerUseHelperV2 {
         // Its own Logger: the file-level one is main-actor isolated.
         let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "computer-use-v2")
         for await line in lines {
-            guard let object = (try? JSONSerialization.jsonObject(with: line)) as? [String: Any],
+            guard let object = (try? JSONSerialization.blockingJSONObject(with: line)) as? [String: Any],
                   let type = object["type"] as? String, type != "result" else { continue }
             let text = String(decoding: line.prefix(512), as: UTF8.self)
             logger.notice("cmux Computer Use helper v2 control pid=\(pid, privacy: .public) \(text, privacy: .public)")
@@ -369,14 +400,14 @@ public final class ComputerUseHelperV2 {
         await withTaskGroup(of: String?.self) { group in
             group.addTask {
                 for await line in child.lines {
-                    if let object = (try? JSONSerialization.jsonObject(with: line)) as? [String: Any],
+                    if let object = (try? JSONSerialization.blockingJSONObject(with: line)) as? [String: Any],
                        object["type"] as? String == "ready" { return object["socket"] as? String }
                 }
                 return nil
             }
             group.addTask {
-                // wakeup-allow: one bounded ready deadline per helper start, cancelled as soon as the helper answers.
-                try? await clock.sleep(for: within)
+                // wakeup-allow: deadline of the helper's ready line: a task-group race with the read, not a DemandTimer
+                try? await clock.sleep(for: within, tolerance: WakeLeeway.window(delay: within).tolerance)
                 return nil
             }
             let first = await group.next() ?? nil

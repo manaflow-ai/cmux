@@ -1,4 +1,6 @@
 public import CmuxNextSettings
+import struct CmuxNextDaemon.POSIXErrorText
+import struct CmuxNextDaemon.UnixSocketAddress
 import Darwin
 import Foundation
 
@@ -44,32 +46,22 @@ public struct ControlPeerClient {
     private static func exchange(path: String, method: String, params: [String: JSONValue],
                                 timeoutMilliseconds: Int) throws -> JSONValue {
         let descriptor = socket(AF_UNIX, SOCK_STREAM, 0)
-        guard descriptor >= 0 else { throw Failure.socket(String(cString: strerror(errno))) }
+        guard descriptor >= 0 else { throw Failure.socket(POSIXErrorText(errno).description) }
         defer { close(descriptor) }
         var timeout = timeval(tv_sec: timeoutMilliseconds / 1_000,
                               tv_usec: Int32(clamping: (timeoutMilliseconds % 1_000) * 1_000))
         var noSigPipe: Int32 = 1 // a peer that hangs up fails the write with EPIPE instead of signalling
-        guard setsockopt(descriptor, SOL_SOCKET, SO_NOSIGPIPE, &noSigPipe, socklen_t(MemoryLayout<Int32>.size)) == 0,
-              setsockopt(descriptor, SOL_SOCKET, SO_SNDTIMEO, &timeout, socklen_t(MemoryLayout<timeval>.size)) == 0,
-              setsockopt(descriptor, SOL_SOCKET, SO_RCVTIMEO, &timeout, socklen_t(MemoryLayout<timeval>.size)) == 0 else {
-            throw Failure.socket(String(cString: strerror(errno)))
+        // SAFETY: each setsockopt reads the size it is given from a local of exactly that type (`noSigPipe`, an
+        // Int32; `timeout`, a timeval), live for the call.
+        guard unsafe setsockopt(descriptor, SOL_SOCKET, SO_NOSIGPIPE, &noSigPipe, socklen_t(MemoryLayout<Int32>.size)) == 0,
+              unsafe setsockopt(descriptor, SOL_SOCKET, SO_SNDTIMEO, &timeout, socklen_t(MemoryLayout<timeval>.size)) == 0,
+              unsafe setsockopt(descriptor, SOL_SOCKET, SO_RCVTIMEO, &timeout, socklen_t(MemoryLayout<timeval>.size)) == 0 else {
+            throw Failure.socket(POSIXErrorText(errno).description)
         }
-        var address = sockaddr_un()
-        address.sun_family = sa_family_t(AF_UNIX)
-        guard path.utf8.count < MemoryLayout.size(ofValue: address.sun_path) else { throw Failure.socket("path too long") }
-        withUnsafeMutableBytes(of: &address.sun_path) { bytes in
-            // sockaddr_un() is zero-filled and the path is shorter than sun_path (checked above),
-            // so the byte after it is already the NUL terminator.
-            bytes.copyBytes(from: path.utf8)
-        }
-        let connected = withUnsafePointer(to: &address) {
-            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
-                Darwin.connect(descriptor, $0, socklen_t(MemoryLayout<sockaddr_un>.size))
-            }
-        }
-        guard connected == 0 else {
+        guard let address = UnixSocketAddress(path: path) else { throw Failure.socket("path too long") }
+        guard address.connect(descriptor) == 0 else {
             if errno == EAGAIN || errno == EWOULDBLOCK || errno == ETIMEDOUT { throw Failure.timeout }
-            throw Failure.socket(String(cString: strerror(errno)))
+            throw Failure.socket(POSIXErrorText(errno).description)
         }
 
         let request = JSONValue.object([
@@ -83,9 +75,10 @@ public struct ControlPeerClient {
         var inbound = Data()
         var byte = [UInt8](repeating: 0, count: 16 * 1024)
         while inbound.count <= 4 * 1024 * 1024 {
-            let count = read(descriptor, &byte, byte.count)
+            // SAFETY: read writes at most byte.count bytes into the array's own storage, lent for the call.
+            let count = unsafe read(descriptor, &byte, byte.count)
             if count > 0 {
-                inbound.append(byte, count: count)
+                inbound.append(contentsOf: byte.prefix(count))
                 if let newline = inbound.firstIndex(of: 0x0A) {
                     let line = inbound.prefix(upTo: newline)
                     if line.starts(with: Data("ERROR:".utf8)) { throw Failure.refused(String(decoding: line, as: UTF8.self)) }
@@ -108,15 +101,21 @@ public struct ControlPeerClient {
 
     private static func writeAll(_ data: Data, descriptor: Int32) throws {
         var offset = 0
-        try data.withUnsafeBytes { bytes in
-            guard let base = bytes.baseAddress else { return }
-            while offset < bytes.count {
-                let count = Darwin.write(descriptor, base.advanced(by: offset), bytes.count - offset)
+        // SAFETY: `bytes` is Data's contiguous storage, valid only inside this closure, which never lets a pointer out.
+        let failure: Int32? = unsafe data.withUnsafeBytes { bytes -> Int32? in
+            guard let base = unsafe bytes.baseAddress else { return nil }
+            while unsafe offset < bytes.count {
+                // SAFETY: 0 <= offset < bytes.count, so the write covers the bytes.count - offset bytes left, from
+                // base + offset to the buffer's end.
+                let count = unsafe Darwin.write(descriptor, base.advanced(by: offset), bytes.count - offset)
                 if count > 0 { offset += count; continue }
                 if count < 0, errno == EINTR { continue }
-                if count < 0, errno == EAGAIN || errno == EWOULDBLOCK || errno == ETIMEDOUT { throw Failure.timeout }
-                throw Failure.socket(String(cString: strerror(errno)))
+                return count < 0 ? errno : EIO
             }
+            return nil
         }
+        guard let failure else { return }
+        if failure == EAGAIN || failure == EWOULDBLOCK || failure == ETIMEDOUT { throw Failure.timeout }
+        throw Failure.socket(POSIXErrorText(failure).description)
     }
 }

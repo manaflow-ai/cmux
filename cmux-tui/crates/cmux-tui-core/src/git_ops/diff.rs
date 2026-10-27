@@ -1,8 +1,9 @@
 //! `git.diff`: one scope's changed files, with line counts and, on request,
 //! each file's patch cut to a byte budget.
 
+use cmux_threads::checked::fs as files;
+use files::File;
 use std::collections::{HashMap, HashSet};
-use std::fs::{File, OpenOptions};
 use std::io::Read;
 use std::path::{Component, Path};
 
@@ -11,6 +12,7 @@ use cmux_git::run::GitOutput;
 use serde_json::{Map, Value, json};
 
 use super::{Repository, clamp, git_failed, parse};
+use crate::panic_free::JsonFields;
 use crate::resource::ResourceError;
 
 const OPERATION: &str = "git.diff";
@@ -67,16 +69,16 @@ impl ChangedFile {
             "deletions":clamp(self.deletions),
         });
         if let Some(previous_path) = &self.previous_path {
-            value["previous_path"] = json!(previous_path);
+            value.insert("previous_path", json!(previous_path));
         }
         if self.binary {
-            value["binary"] = json!(true);
+            value.insert("binary", json!(true));
         }
         if let Some(patch) = &self.patch {
-            value["patch"] = json!(patch);
+            value.insert("patch", json!(patch));
         }
         if self.patch_truncated {
-            value["patch_truncated"] = json!(true);
+            value.insert("patch_truncated", json!(true));
         }
         value
     }
@@ -86,13 +88,13 @@ pub(super) fn read(
     repository: &Repository,
     fields: &Map<String, Value>,
 ) -> Result<Value, ResourceError> {
-    // The operation runs git to completion on this request thread.
+    // git runs to completion here, on a work item (`answer`).
     crate::request_path::note(crate::request_path::BlockingKind::ChildProcess);
     let scope = fields.get("scope").and_then(Value::as_str).unwrap_or("uncommitted");
     pathspecs(fields)?;
     let comparison = comparison(repository, scope)?;
     let mut value = report(repository, &comparison, OPERATION, fields)?;
-    value["scope"] = json!(scope);
+    value.insert("scope", json!(scope));
     Ok(value)
 }
 
@@ -173,13 +175,13 @@ fn report(
         "files_omitted":clamp(files_omitted as u64),
     });
     if let Some(head) = &comparison.head {
-        value["head"] = json!(head);
+        value.insert("head", json!(head));
     }
     if let Some(base) = &comparison.base {
-        value["base"] = json!(base);
+        value.insert("base", json!(base));
     }
     if untracked_skipped > 0 {
-        value["untracked_skipped"] = json!(clamp(untracked_skipped as u64));
+        value.insert("untracked_skipped", json!(clamp(untracked_skipped as u64)));
     }
     Ok(value)
 }
@@ -322,7 +324,7 @@ fn untracked(root: &Path, path: String) -> ChangedFile {
     if handle.take(MAX_UNTRACKED_FILE_BYTES).read_to_end(&mut bytes).is_err() {
         return file;
     }
-    if bytes[..bytes.len().min(BINARY_PROBE_BYTES)].contains(&0) {
+    if bytes.iter().take(BINARY_PROBE_BYTES).any(|byte| *byte == 0) {
         file.binary = true;
         return file;
     }
@@ -333,14 +335,14 @@ fn untracked(root: &Path, path: String) -> ChangedFile {
 
 /// Opens a regular file without following a link or waiting on a FIFO.
 fn open_regular(path: &Path) -> Option<File> {
-    let mut options = OpenOptions::new();
+    let mut options = File::options();
     options.read(true);
     #[cfg(unix)]
     {
         use std::os::unix::fs::OpenOptionsExt;
         options.custom_flags(libc::O_NONBLOCK | libc::O_NOFOLLOW);
     }
-    let handle = options.open(path).ok()?;
+    let handle = files::open_with(&options, path).ok()?;
     let metadata = handle.metadata().ok()?;
     (metadata.is_file() && metadata.len() <= MAX_UNTRACKED_FILE_BYTES).then_some(handle)
 }

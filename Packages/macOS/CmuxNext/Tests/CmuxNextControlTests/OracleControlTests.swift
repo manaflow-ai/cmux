@@ -55,6 +55,32 @@ import Testing
         #expect(failure(notAList)?.code == "invalid_params")
     }
 
+    /// A facet that hashes a path field after the request's `paths` are rewritten (the history facet's title).
+    private struct PathTitle: OracleFacetProvider {
+        var facet: OracleFacet { .history }
+        var capture: OracleFacetCapture { capturing(paths: .unchanged) }
+        func capturing(paths: OraclePaths) -> OracleFacetCapture {
+            .mainActor { () throws(OracleFacetError) -> OracleValue in .string(paths.hash("/Users/me/.cache/o/1/case")) }
+        }
+    }
+
+    /// The runner names the case root and home as it gives them to normalize.py: a root inside the home is `$ROOT`.
+    @Test func theRequestsPathsAreRewrittenBeforeTheHash() async throws {
+        let router = router(OracleFacets([PathTitle()]))
+        let paths: JSONValue = ["root": ["/Users/me/.cache/o/1"], "home": ["/Users/me"]]
+        let reply = try await snapshot(router, ["facets": ["history"], "paths": paths]).get()
+        #expect(reply == ["history": .string(OracleValue.sha256("$ROOT/case"))])
+        let plain = try await snapshot(router, ["facets": ["history"]]).get()
+        #expect(plain == ["history": .string(OracleValue.sha256("/Users/me/.cache/o/1/case"))])
+    }
+
+    @Test func pathsNormalizeWouldRefuseAreInvalidParams() async {
+        for paths: JSONValue in [["root": ["/"]], ["root": ["/a"], "home": ["/a"]], ["root": "/a"], ["web": ["http://x"]], "/a"] {
+            let reply = await snapshot(router(OracleFacets([PathTitle()])), ["facets": ["history"], "paths": paths])
+            #expect(failure(reply)?.code == "invalid_params", "\(paths)")
+        }
+    }
+
     @Test func aFailingProviderIsAnInternalErrorNamingItsFacet() async {
         let facets = OracleFacets([
             OracleFacetSource(.terminals, .background { () async throws(OracleFacetError) -> OracleValue in

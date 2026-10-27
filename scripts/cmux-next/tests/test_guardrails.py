@@ -30,6 +30,7 @@ Not a CI job (Lawrence 2026-10-23: no new CI gates): run it yourself after a cha
 from __future__ import annotations
 
 import collections
+import difflib
 import importlib.util
 import os
 import subprocess
@@ -127,6 +128,54 @@ SEAMS = [
     "try blockingSMAppServiceUnregister(service)",
     "_ = blockingAuthorizationCopyRights(auth, &rights, nil, flags, nil)",
     "try process.blockingRun()",
+    # the task 127 seams: POSIX files, waitpid, FileHandle, ImageIO, SQLite, kernel and directory queries, LAContext
+    "let fd = blockingOpen(path, O_RDONLY)",
+    "_ = blockingPread(fd, buffer, count, 0)",
+    "_ = blockingPwrite(fd, buffer, count, 0)",
+    "_ = blockingFsync(fd)",
+    "_ = blockingFlock(fd, LOCK_EX)",
+    "_ = blockingFtruncate(fd, 0)",
+    "_ = blockingRename(from, to)",
+    "_ = blockingUnlink(path)",
+    "_ = blockingStat(path, &info)",
+    "_ = blockingLstat(path, &info)",
+    "free(blockingRealpath(path, nil))",
+    "_ = blockingAccess(path, R_OK)",
+    "_ = blockingChmod(path, 0o700)",
+    "_ = blockingMkdir(path, 0o700)",
+    "_ = blockingRmdir(path)",
+    "_ = blockingWaitpid(pid, &status, 0)",
+    "var result = blockingWaitid(P_PID, id_t(pid), &info, WEXITED | WNOWAIT)",
+    "let handle = try FileHandle.blockingForReading(from: url)",
+    "let handle = try FileHandle.blockingForWriting(to: url)",
+    "let handle = try FileHandle.blockingForUpdating(url)",
+    "_ = try handle.blockingSeekToEnd()",
+    "try handle.blockingSeek(toOffset: 0)",
+    "try handle.blockingSynchronize()",
+    "let source = blockingImageSource(url: url as CFURL)",
+    "let count = blockingImageSourceCount(source)",
+    "let properties = blockingImageSourceCopyProperties(source, at: 0)",
+    "let image = blockingImageSourceCreateImage(source, at: 0, options: options)",
+    "let thumbnail = blockingImageSourceCreateThumbnail(source, at: 0, options: options)",
+    "let destination = blockingImageDestination(url: url as CFURL, type: type, count: 1)",
+    "_ = blockingImageDestinationFinalize(destination)",
+    "_ = blockingSQLiteOpen(path, &db, flags)",
+    "_ = blockingSQLitePrepare(db, sql, -1, &statement, nil)",
+    "_ = blockingSQLiteStep(statement)",
+    "_ = blockingSQLiteExec(db, sql)",
+    "blockingSQLiteClose(db)",
+    "blockingSQLiteCloseV2(to)",
+    "let step = blockingSQLiteBackupStep(backup, -1)",
+    "_ = blockingSysctl(&mib, 2, &value, &size, nil, 0)",
+    "_ = blockingSysctlByName(\"hw.memsize\", &value, &size, nil, 0)",
+    "_ = blockingProcPidInfo(pid, PROC_PIDTBSDINFO, 0, &info, size)",
+    "guard blockingProcPidPath(pid, &buffer, UInt32(buffer.count)) > 0 else { return nil }",
+    "_ = blockingProcPidFDInfo(pid, fd.proc_fd, PROC_PIDFDSOCKETINFO, &info, size)",
+    "let needed = blockingProcListPids(UInt32(PROC_UID_ONLY), uid, nil, 0)",
+    "_ = blockingProcPidRusage(pid, RUSAGE_INFO_V4, pointer)",
+    "let entry = blockingGetpwuid(getuid())",
+    "let entry = blockingGetpwnam(name)",
+    "let available = context.blockingCanEvaluatePolicy(.deviceOwnerAuthentication, error: &error)",
 ]
 
 # Lines no blocking rule refuses anywhere: async overloads, look-alikes, non-blocking calls of the same APIs.
@@ -739,6 +788,184 @@ class RawBlockingExtTests(unittest.TestCase):
         counts = dict(line.rsplit(" ", 1) for line in out.strip().splitlines())
         self.assertGreaterEqual(int(counts["raw-blocking-ext"]), 600, out)
 
+
+# awaited-low-priority (p02-threads-113): a low-priority task whose value main-actor code awaits.
+AWAITED_RULE = next(rule for rule in guardrails.RULES if rule.id == "awaited-low-priority")
+AWAITED_REV = "d842bcdc673"  # origin/perf/chrome-parity when the rule landed
+AWAITED_COUNT = 21  # threading-inventory.py --rev d842bcdc673 --rule awaited-low-priority --count
+STORED_HANDLE = """final class Store {
+    private var lastWrite: Task<Void, Never>?
+
+    func save() {
+        lastWrite = Task.detached(priority: .utility) {
+            write()
+        }
+    }
+
+    func flush() async {
+%s
+    }
+}
+"""
+
+
+def awaited(changes: list) -> list[tuple[str, int]]:
+    """(file name, line) of each awaited-low-priority hit in CHANGES."""
+    guardrails.load_blocking_context({}, "head")
+    guardrails.BLOCKING_CONTEXT.update(threading_doc=DOC, manifest=MANIFEST)
+    return [(h.path.rsplit("/", 1)[-1], h.number) for h in AWAITED_RULE.find(changes, collections.Counter())]
+
+
+def awaited_in(directory: str, text: str) -> list[int]:
+    return [line for _, line in awaited([change(f"{directory}/Added.swift", text)])]
+
+
+class AwaitedLowPriorityTests(unittest.TestCase):
+    def test_a_stored_handle_awaited_in_main_actor_code_is_refused(self):
+        for await_line in ("        await lastWrite?.value", "        _ = await self.lastWrite?.result",
+                           "        if let task = lastWrite { await task.value }; await lastWrite?.value"):
+            with self.subTest(await_line=await_line):
+                self.assertEqual(awaited_in(UI, STORED_HANDLE % await_line), [5])
+
+    def test_a_stored_handle_awaited_in_an_extension_of_the_type_is_refused(self):
+        text = (STORED_HANDLE % "") + "\nextension Store {\n    func drain() async {\n        await lastWrite?.value\n    }\n}\n"
+        self.assertEqual(awaited_in(UI, text), [5])
+
+    def test_a_property_initializer_awaited_by_a_method_is_refused(self):
+        text = ("final class Loader {\n    private let names = Task(priority: .background) { list() }\n\n"
+                "    func show() async {\n        render(await names.value)\n    }\n}\n")
+        self.assertEqual(awaited_in(UI, text), [2])
+
+    def test_an_awaited_at_once_low_task_is_refused(self):
+        for statement in ("let data = await Task.detached(priority: .utility) { read() }.value",
+                          "return try await Task.detached(priority: .low) {\n        try read()\n    }.value",
+                          "guard await Task.detached(priority: .utility, operation: { check() }).value else { return }",
+                          "let names = await work.task(.bestEffort) { await list() }.value",
+                          "let names = await\n        Task<[String], Never>(priority: TaskPriority.background) { list() }.value"):
+            with self.subTest(statement=statement):
+                text = in_function(statement, "func f() async throws {")
+                self.assertEqual(len(awaited_in(UI, text)), 1, text)
+
+    def test_a_local_handle_awaited_later_in_its_function_is_refused(self):
+        text = ("func f() async {\n    let page = work.task(.idle) { await fetch() }\n    prepare()\n"
+                "    let result = await page.result\n    use(result)\n}\n")
+        self.assertEqual(awaited_in(UI, text), [2])
+
+    def test_an_await_in_a_main_actor_task_or_main_actor_run_is_refused(self):
+        inherited = ("@MainActor func f() {\n    let task = Task.detached(priority: .utility) { read() }\n"
+                     "    Task {\n        if let value = await task.value { show(value) }\n    }\n}\n")
+        self.assertEqual(awaited_in(SERVICE, inherited), [2])
+        hopped = ("func f() async {\n    let task = Task.detached(priority: .utility) { read() }\n"
+                  "    await MainActor.run {\n        Task { await show(task.value) }\n    }\n}\n")
+        self.assertEqual(awaited_in(SERVICE, hopped), [2])
+
+    def test_fire_and_forget_low_tasks_are_not_refused(self):
+        for text in ("func f() {\n    Task.detached(priority: .utility) { write() }\n}\n",
+                     "func f() {\n    _ = work.task(.bestEffort) { await upload() }\n}\n",
+                     STORED_HANDLE % "        lastWrite?.cancel()",
+                     "func f() -> Task<Void, Never> {\n    return Task.detached(priority: .utility) { write() }\n}\n",
+                     "func f() {\n    let task = Task(priority: .background) { write() }\n    keep(task)\n}\n"):
+            with self.subTest(text=text):
+                self.assertEqual(awaited_in(UI, text), [])
+
+    def test_awaited_work_at_the_waiters_priority_is_not_refused(self):
+        for statement in ("let data = await Task.detached(priority: .userInitiated) { read() }.value",
+                          "let data = await Task(priority: .high) { read() }.value",
+                          "let data = try await work.task(.userBlocking) { try await read() }.value",
+                          "let data = await work.task(.userVisible) { await read() }.value"):
+            with self.subTest(statement=statement):
+                self.assertEqual(awaited_in(UI, in_function(statement, "func f() async throws {")), [])
+        self.assertEqual(awaited_in(UI, (STORED_HANDLE % "        await lastWrite?.value").replace(
+            "priority: .utility", "priority: .userInitiated")), [])
+
+    def test_an_await_off_the_main_actor_is_not_refused(self):
+        statement = "let data = await Task.detached(priority: .utility) { read() }.value"
+        self.assertEqual(awaited_in(SERVICE, in_function(statement, "func f() async {")), [])
+        self.assertEqual(awaited_in(UI, in_function(statement, "nonisolated func f() async {")), [])
+        self.assertEqual(awaited_in(UI, in_function(statement, "@concurrent func f() async {")), [])
+        self.assertEqual(awaited_in(UI, "actor Cache {\n" + in_function(statement, "func f() async {") + "}\n"), [])
+        detached = "func f() {\n    Task.detached(priority: .userInitiated) {\n        " + statement + "\n    }\n}\n"
+        self.assertEqual(awaited_in(UI, detached), [])
+        escaping = "func f() {\n    handler = { [weak self] in\n        " + statement + "\n    }\n}\n"
+        self.assertEqual(awaited_in(UI, escaping), [])
+
+    def test_a_same_named_local_of_another_function_is_not_its_handle(self):
+        text = ("func a() {\n    let task = Task.detached(priority: .utility) { write() }\n    keep(task)\n}\n\n"
+                "func b(task: Task<Int, Never>) async {\n    _ = await task.value\n}\n")
+        self.assertEqual(awaited_in(UI, text), [])
+
+    def test_the_escape_passes(self):
+        text = in_function("// priority-allow: fixture, nothing waits on a frame for it\n"
+                           "    let data = await Task.detached(priority: .utility) { read() }.value",
+                           "func f() async {")
+        self.assertEqual(awaited_in(UI, text), [])
+
+    def test_a_push_that_only_adds_the_await_refuses_the_old_creation_line(self):
+        base = (STORED_HANDLE % "        lastWrite?.cancel()").split("\n")
+        head = (STORED_HANDLE % "        lastWrite?.cancel()\n        await lastWrite?.value").split("\n")
+        path = f"{UI}/Store.swift"
+        pushed = guardrails.FileChange(path, head, [guardrails.Added(path, 12, head[11])], base_lines=base)
+        self.assertEqual(awaited([pushed]), [("Store.swift", 5)])
+        unrelated = (STORED_HANDLE % "        lastWrite?.cancel()\n        log()").split("\n")
+        other = guardrails.FileChange(path, unrelated, [guardrails.Added(path, 12, unrelated[11])], base_lines=base)
+        self.assertEqual(awaited([other]), [])
+
+    def pushed(self, directory: str, base_text: str, head_text: str) -> list[tuple[str, int]]:
+        """awaited() of the push from BASE_TEXT to HEAD_TEXT at DIRECTORY/Store.swift, read from its -U0 diff."""
+        path = f"{directory}/Store.swift"
+        base, head = base_text.split("\n"), head_text.split("\n")
+        diff = "\n".join(difflib.unified_diff(base, head, f"a/{path}", f"b/{path}", n=0, lineterm=""))
+        pushed = guardrails.parse_diff(f"diff --{'g' + 'it'} a/{path} b/{path}\n{diff}\n")[path]
+        pushed.head_lines, pushed.base_lines = head, base
+        return awaited([pushed])
+
+    def test_a_push_that_moves_an_old_await_of_a_stored_handle_onto_main_refuses_the_old_creation_line(self):
+        head = STORED_HANDLE % "        await lastWrite?.value"
+        base = head.replace("    func flush() async {", "    nonisolated func flush() async {")
+        self.assertEqual(awaited_in(UI, base), [])
+        self.assertEqual(self.pushed(UI, base, head), [("Store.swift", 5)])
+
+    def test_a_push_that_moves_an_old_await_at_once_onto_main_refuses_it(self):
+        head = ("final class Reader {\n    func load() async {\n        prepare()\n        log()\n"
+                "        let data = await Task.detached(priority: .utility) { read() }.value\n"
+                "        use(data)\n    }\n}\n")
+        for attribute in ("nonisolated ", "@concurrent "):
+            with self.subTest(attribute=attribute):
+                base = head.replace("    func load()", f"    {attribute}func load()")
+                self.assertEqual(awaited_in(UI, base), [])
+                self.assertEqual(self.pushed(UI, base, head), [("Store.swift", 5)])
+        on_its_own_line = head.replace("    func load()", "    @concurrent\n    func load()").replace(
+            "        prepare()\n", "")
+        self.assertEqual(awaited_in(UI, on_its_own_line), [])
+        for edit, creation in (("", 4), ("    // was @concurrent\n", 5)):
+            with self.subTest(edit=edit):
+                head_text = on_its_own_line.replace("    @concurrent\n", edit)
+                self.assertEqual(self.pushed(UI, on_its_own_line, head_text), [("Store.swift", creation)])
+        wrapped = head.replace("        log()\n", "        Task.detached {\n").replace(
+            "        use(data)\n", "        use(data) }\n")
+        self.assertEqual(awaited_in(UI, wrapped), [])
+        self.assertEqual(self.pushed(UI, wrapped, head), [("Store.swift", 5)])
+
+    def test_a_push_that_turns_an_actor_into_a_main_actor_class_refuses_the_old_creation_line(self):
+        base = (STORED_HANDLE % "        await lastWrite?.value").replace("final class Store {", "actor Store {")
+        head = base.replace("actor Store {", "@MainActor final class Store {")
+        self.assertEqual(awaited_in(SERVICE, base), [])
+        self.assertEqual(self.pushed(SERVICE, base, head), [("Store.swift", 5)])
+        nonisolated = base.replace("actor Store {", "nonisolated final class Store {")
+        self.assertEqual(awaited_in(UI, nonisolated), [])
+        self.assertEqual(self.pushed(UI, nonisolated, nonisolated.replace("nonisolated final", "final")),
+                         [("Store.swift", 5)])
+
+    def test_inventory_records_the_count_at_the_reference_rev(self):
+        probe = subprocess.run(["git", "-C", str(REPO), "cat-file", "-e", f"{AWAITED_REV}^{{commit}}"],
+                               capture_output=True)
+        if probe.returncode != 0:
+            self.skipTest(f"{AWAITED_REV} is not in this clone")
+        out = subprocess.run([sys.executable, "-I", str(SCRIPTS / "threading-inventory.py"), "--repo", str(REPO),
+                              "--rev", AWAITED_REV, "--rule", "awaited-low-priority", "--count"],
+                             capture_output=True, text=True, check=True).stdout
+        counts = dict(line.rsplit(" ", 1) for line in out.strip().splitlines())
+        self.assertEqual(int(counts["awaited-low-priority"]), AWAITED_COUNT, out)
 
 
 if __name__ == "__main__":

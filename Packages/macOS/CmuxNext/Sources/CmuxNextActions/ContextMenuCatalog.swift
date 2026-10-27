@@ -34,13 +34,13 @@ public nonisolated struct ContextMenuCatalog: Sendable {
                 if let label = placement.label { labels[placement.context, default: [:]][descriptor.id] = label }
             }
         }
-        menus = Dictionary(uniqueKeysWithValues: rows.map { context, rows in
+        menus = Dictionary(rows.map { context, rows in
             let entries = Self.topLevel(rows)
             return (context, ContextMenuEssentials.menus[context].map { ContextMenuEssentials.apply($0, to: entries) } ?? entries)
-        })
-        selectionMenus = Dictionary(uniqueKeysWithValues: ContextMenuEssentials.selectionMenus.map { context, essentials in
+        }, uniquingKeysWith: { first, _ in first })
+        selectionMenus = Dictionary(ContextMenuEssentials.selectionMenus.map { context, essentials in
             (context, ContextMenuEssentials.apply(essentials, to: Self.topLevel(rows[context] ?? [])))
-        })
+        }, uniquingKeysWith: { first, _ in first })
         self.labels = labels
     }
 

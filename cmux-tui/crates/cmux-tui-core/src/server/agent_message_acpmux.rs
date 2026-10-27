@@ -5,6 +5,8 @@
 //! requires for `_acpmux/prompt_withdraw`, and never starts acpmux.
 
 use crate::panic_free::JsonFields;
+use crate::server::request_hang_watch::ipc_reply;
+use cmux_threads::checked::sync as waits;
 use std::sync::mpsc::sync_channel;
 use std::time::Duration;
 
@@ -87,18 +89,20 @@ impl crate::mux::Mux {
         });
         // The turn's own answer comes when it ends; the link closes first.
         let caller = link.clone();
-        let spawned = std::thread::Builder::new()
-            .name("mux-agent-message-prompt".into())
-            .stack_size(PROMPT_THREAD_STACK_BYTES)
-            .spawn(move || {
+        let spawned = crate::thread_qos::spawn_raisable(
+            "mux-agent-message-prompt",
+            crate::thread_qos::ThreadType::Utility.qos(),
+            Some(PROMPT_THREAD_STACK_BYTES),
+            move || {
                 let answer = caller.call("session/prompt", params, ACCEPT_TIMEOUT);
                 let _ = heard.try_send(Heard::Answered(answer));
-            });
+            },
+        );
         if spawned.is_err() {
             link.close();
             return Handover::Unreachable;
         }
-        let handover = match hearing.recv_timeout(ACCEPT_TIMEOUT) {
+        let handover = match ipc_reply(|| waits::recv_timeout(&hearing, ACCEPT_TIMEOUT)) {
             Ok(Heard::Accepted | Heard::Answered(Ok(_))) => Handover::Delivered,
             // A session moving to another machine takes prompts again later.
             Ok(Heard::Answered(Err(LinkError::Rpc(message, data))))

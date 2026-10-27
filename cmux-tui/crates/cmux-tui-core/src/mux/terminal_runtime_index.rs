@@ -1,6 +1,7 @@
 //! Terminal runtime indexes in state: checked surface and runtime inserts and removals, terminal matching, and runtime placement lookups.
 
 use super::*;
+use std::sync::PoisonError;
 
 pub(super) fn insert_surface_checked(
     state: &mut State,
@@ -241,7 +242,7 @@ impl Mux {
     /// under the state lock and returned without it: for runtime-wide work
     /// that does host I/O (`trace-start` reaching every terminal host).
     pub(crate) fn surface_runtimes(&self) -> Vec<Arc<Surface>> {
-        unique_surface_runtimes(&self.state.lock().unwrap())
+        unique_surface_runtimes(&self.state.lock().unwrap_or_else(PoisonError::into_inner))
     }
 }
 

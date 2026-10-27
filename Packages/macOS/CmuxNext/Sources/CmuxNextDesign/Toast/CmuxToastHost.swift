@@ -46,6 +46,7 @@ public final class CmuxToastOverlayHost: CmuxToastHosting, CmuxToastReanchoring 
     }
 
     public func show(_ toast: CmuxToastView, in window: NSWindow, slot: Int, appearing: Bool, windowGone: @escaping () -> Void) {
+        // sync-layout: the toast's wrapped message sets its fitting size, which sizes the overlay below.
         toast.layoutSubtreeIfNeeded()
         let size = toast.fittingSize
         toast.translatesAutoresizingMaskIntoConstraints = true
@@ -53,6 +54,7 @@ public final class CmuxToastOverlayHost: CmuxToastHosting, CmuxToastReanchoring 
         let options = OverlayOptions(kind: .toast, anchor: anchor(for: toast, slot: slot, in: window),
                                      passesThroughClicks: false)
         let handle = WindowOverlayHost.host(for: window).present(toast, options: options)
+        handle.name = toast.toast.id
         handle.onDismiss = windowGone
         handles[ObjectIdentifier(toast)] = (handle, window, toast, slot)
         // This window's avoided views now move this host's toasts there (and no other window's).

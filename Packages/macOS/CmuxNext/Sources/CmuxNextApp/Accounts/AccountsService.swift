@@ -3,6 +3,7 @@ public import CmuxNextAccounts
 import CmuxNextCloud
 import CmuxNextCodeRouter
 import CmuxNextDaemon
+import CmuxNextWakeups
 import Foundation
 import os
 import CmuxNextCompat
@@ -29,12 +30,14 @@ final class AccountsService: AccountsServices {
     /// False once the Keychain salt failed: `acct_…` handles then last for
     /// this launch only (`accounts.list` says `handles_stable: false`).
     private(set) var handlesStable = true
-    private var activation: MainActorObservation?
+    /// The app's one become-active observer (``AppEvents``) re-detects sign-ins made in another app.
+    private var activation: EventSubscription?
     let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.accounts")
 
     static let fixtureHomeKey = "CMUX_NEXT_ACCOUNTS_HOME"
 
-    init(services: AppServices) {
+    /// `keys`: where pasted keys are kept (tests pass a fake); nil is the Keychain item of this build.
+    init(services: AppServices, keys: (any ProviderKeyStoring)? = nil) {
         self.services = services
         let environment = ProcessInfo.processInfo.environment
         #if DEBUG
@@ -45,9 +48,9 @@ final class AccountsService: AccountsServices {
         fixtureHome = environment[Self.fixtureHomeKey].flatMap { $0.isEmpty ? nil : URL(fileURLWithPath: $0, isDirectory: true) }
         let bundleID = services.environment.launch.bundleID
         let storeID = fixtureHome == nil ? bundleID : "\(bundleID ?? "cmux").fixture"
-        keys = KeychainProviderKeyStore(service: KeychainProviderKeyStore.service(bundleID: storeID))
+        self.keys = keys ?? KeychainProviderKeyStore(service: KeychainProviderKeyStore.service(bundleID: storeID))
         labels = AccountLabelerStore(provider: KeychainAccountLabelSalt(service: KeychainAccountLabelSalt.service(bundleID: storeID)))
-        activation = MainActorObservation(NSApplication.didBecomeActiveNotification) { [weak self] in
+        activation = services.appEvents.subscribe(NSApplication.didBecomeActiveNotification, owner: "AccountsService.activation") { [weak self] in
             self?.model.appDidBecomeActive()
         }
     }
@@ -56,7 +59,7 @@ final class AccountsService: AccountsServices {
     /// (keys exported in shell rc files count); only presence is used.
     func detectionEnvironment() async -> DetectionEnvironment {
         let keys = keys
-        let saved = await Task.detached { keys.savedProviders() }.value
+        let saved = (try? await services.work.run(.userVisible, mayBlock: .system) { keys.savedProviders() }) ?? []
         let labeler = await labeler()
         if let fixtureHome {
             return DetectionEnvironment(home: fixtureHome, environment: ProcessInfo.processInfo.environment, files: LiveFileReader(),
@@ -114,7 +117,7 @@ final class AccountsService: AccountsServices {
         guard let client else { throw CodeRouterError.notSignedIn }
         let resolver = CredentialResolver(environment: await detectionEnvironment(), keys: keys)
         // File and Keychain reads stay off the main actor.
-        let credential = try await Task.detached { try resolver.credential(for: provider, pasted: pasted) }.value
+        let credential = try await services.work.run(.userBlocking, mayBlock: .system) { try resolver.credential(for: provider, pasted: pasted) }
         try await client.add(credential)
         logger.info("connected \(provider.rawValue, privacy: .public) to CodeRouter")
     }
@@ -141,12 +144,30 @@ final class AccountsService: AccountsServices {
         openPage(url)
     }
 
-    func saveKey(_ key: String, for provider: AIProvider) throws {
-        if let showcaseMock { try showcaseMock.saveKey(key, for: provider) } else { try keys.save(key, for: provider) }
+    /// The Keychain write runs on the system lane (it waits for securityd), never on main; `done` gets its
+    /// error on main through the scheduler.
+    func saveKey(_ key: String, for provider: AIProvider, done: @escaping @MainActor @Sendable ((any Error)?) -> Void) {
+        if let showcaseMock { return showcaseMock.saveKey(key, for: provider, done: done) }
+        let keys = keys
+        services.work.run(.userBlocking, mayBlock: .system) { Self.failure { try keys.save(key, for: provider) } }
+            .reply(on: services.mainWork, class: .visible, owner: "accounts.saveKey") { done($0) }
     }
 
-    func deleteSavedKey(for provider: AIProvider) throws {
-        if let showcaseMock { try showcaseMock.deleteSavedKey(for: provider) } else { try keys.delete(for: provider) }
+    func deleteSavedKey(for provider: AIProvider, done: @escaping @MainActor @Sendable ((any Error)?) -> Void) {
+        if let showcaseMock { return showcaseMock.deleteSavedKey(for: provider, done: done) }
+        let keys = keys
+        services.work.run(.userBlocking, mayBlock: .system) { Self.failure { try keys.delete(for: provider) } }
+            .reply(on: services.mainWork, class: .visible, owner: "accounts.deleteSavedKey") { done($0) }
+    }
+
+    /// A Keychain call's error, nil when it succeeded.
+    private nonisolated static func failure(_ body: () throws -> Void) -> (any Error)? {
+        do {
+            try body()
+            return nil
+        } catch {
+            return error
+        }
     }
 
     /// Types `line` and Return into a new terminal tab of the focused pane,

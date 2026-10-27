@@ -1,6 +1,6 @@
 --- a/Sources/MessagesLabHome/Vendor/catalyst/LinkPreviews.swift
 +++ b/Sources/MessagesLabHome/Vendor/catalyst/LinkPreviews.swift
-@@ -4,22 +4,19 @@
+@@ -4,23 +4,23 @@
  import AppKit
  #endif
  import ImageIO
@@ -20,6 +20,7 @@
 -/// only when a message is sent or received (Store.apply), never while
 -/// scrolling or paging. A failure or a `timeout` gives `done(nil)`: the
 -/// caller shows the domain card.
+-final class LinkPreviews: LinkPreviewFetching {
 +/// <title> tags and the image; ImageIO downsamples the image (at most 600 px
 +/// wide, its colour profile kept) into the caches directory and the link part
 +/// points at it. Every network request, including redirects and the image,
@@ -29,10 +30,14 @@
 +/// fetch, and fetches start only when a message is sent or received
 +/// (Store.apply), never while scrolling or paging. A failure or a `timeout`
 +/// gives `done(nil)`: the caller shows the domain card.
- final class LinkPreviews: LinkPreviewFetching {
++/// cmux: main-actor, as its `fetch` precondition says (an isolated conformance); the page parsers
++/// are nonisolated (they run on the fetcher's queue; p10-stability-040).
++@MainActor
++final class LinkPreviews: @MainActor LinkPreviewFetching {
      static let shared = LinkPreviews()
      var timeout: TimeInterval = 8
-@@ -28,7 +25,10 @@
+     private var cache: [String: LinkMetadata?] = [:]
+@@ -28,14 +28,17 @@
      /// Fetches running now (tests).
      var inFlight: Int { waiting.count }
      private let dir: URL = {
@@ -44,7 +49,15 @@
          try? FileManager.default.createDirectory(at: d, withIntermediateDirectories: true)
          return d
      }()
-@@ -56,7 +56,6 @@
+     private var index: URL { dir.appendingPathComponent("index.json") }
+ 
+     /// A "no title" answer is kept this long (a later fix or a page change can then get one).
+-    static let negativeTTL: TimeInterval = 24 * 3600
++    nonisolated static let negativeTTL: TimeInterval = 24 * 3600
+     private var negativeAt: [String: Double] = [:]
+     init() {
+         if let d = try? Data(contentsOf: index), let saved = try? JSONDecoder().decode([String: Saved].self, from: d) {
+@@ -56,7 +59,6 @@
          dispatchPrecondition(condition: .onQueue(.main))
          if let hit = cache[url] {
              done(hit)
@@ -52,7 +65,50 @@
              return
          }
          if waiting[url] != nil { waiting[url]?.append(done); return } // no force unwrap
-@@ -160,117 +159,29 @@
+@@ -102,7 +104,7 @@
+     var lastRefusal: [String: LinkGuard.Refusal] = [:]
+ 
+     /// `<meta property|name="…" content="…">` (either attribute order), entities decoded.
+-    static func metaTags(_ html: String) -> [String: String] {
++    nonisolated static func metaTags(_ html: String) -> [String: String] {
+         var out: [String: String] = [:]
+         // no try! ; a pattern that fails to compile reads no tags.
+         guard let re = try? NSRegularExpression(pattern: "<meta\\s+[^>]*>", options: [.caseInsensitive]),
+@@ -123,7 +125,7 @@
+     }
+     /// "GitHub - manaflow-ai/cmux: …" shows as "manaflow-ai/cmux: …" (Messages,
+     /// link-and-text take): a leading or trailing site name with a separator goes.
+-    static func stripSite(_ t: String, _ site: String?) -> String {
++    nonisolated static func stripSite(_ t: String, _ site: String?) -> String {
+         guard let site, !site.isEmpty else { return t }
+         for sep in [" - ", " | ", " · ", " — ", ": "] {
+             if t.hasPrefix(site + sep) { return String(t.dropFirst(site.count + sep.count)) }
+@@ -132,13 +134,13 @@
+         return t
+     }
+ 
+-    static func titleTag(_ html: String) -> String? {
++    nonisolated static func titleTag(_ html: String) -> String? {
+         guard let re = try? NSRegularExpression(pattern: "<title[^>]*>([^<]*)</title>", options: [.caseInsensitive]),
+               let m = re.firstMatch(in: html, range: NSRange(location: 0, length: min((html as NSString).length, 400_000))) else { return nil }
+         let t = decode((html as NSString).substring(with: m.range(at: 1))).trimmingCharacters(in: .whitespacesAndNewlines)
+         return t.isEmpty ? nil : t
+     }
+-    static func decode(_ s: String) -> String {
++    nonisolated static func decode(_ s: String) -> String {
+         guard s.contains("&") else { return s }
+         var t = s
+         for (k, v) in [("&amp;", "&"), ("&quot;", "\""), ("&#39;", "'"), ("&#x27;", "'"), ("&apos;", "'"), ("&lt;", "<"), ("&gt;", ">"), ("&nbsp;", " ")] {
+@@ -148,7 +150,7 @@
+     }
+ 
+     /// A stable file name per URL (String.hashValue changes per launch).
+-    static func fnv1a(_ s: String) -> UInt64 {
++    nonisolated static func fnv1a(_ s: String) -> UInt64 {
+         var h: UInt64 = 0xcbf29ce484222325
+         for b in s.utf8 { h = (h ^ UInt64(truncatingIfNeeded: b)) &* 0x100000001b3 /* a byte widens exactly */ }
+         return h
+@@ -160,116 +162,28 @@
          let cbs = waiting.removeValue(forKey: url) ?? []
          cbs.forEach { $0(meta) }
          save()
@@ -173,10 +229,9 @@
 -        fallbackRunning = nil
 -        visibilityChanged()
 -    }
- 
-+    /// The removed system fallback is never an allowed transport, whatever the guarded result.
-+    static func fallbackAllowed(_: LinkGuard.Refusal?) -> Bool { false }
 +
++    /// The removed system fallback is never an allowed transport, whatever the guarded result.
++    nonisolated static func fallbackAllowed(_: LinkGuard.Refusal?) -> Bool { false }
+ 
      private func save() {
          var out: [String: Saved] = [:]
-         for (k, v) in cache {

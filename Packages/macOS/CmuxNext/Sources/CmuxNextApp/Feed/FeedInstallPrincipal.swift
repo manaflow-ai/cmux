@@ -1,4 +1,6 @@
 import CmuxNextCloud
+import CmuxNextCompat
+import CmuxNextWakeups
 import Foundation
 import Observation
 
@@ -14,23 +16,34 @@ final class FeedInstallPrincipal {
     private(set) var installID: String?
     @ObservationIgnored private let identity: MacInstallIdentity
     @ObservationIgnored private let baseURL: URL
-    @ObservationIgnored private var refreshing: Task<Void, Never>?
+    @ObservationIgnored private let work: BackgroundWork
+    @ObservationIgnored private let mainWork: MainWorkScheduler
+    /// A token mint is in flight (one at a time).
+    @ObservationIgnored private var refreshing = false
 
-    init(identity: MacInstallIdentity, baseURL: URL) {
+    init(identity: MacInstallIdentity, baseURL: URL, work: BackgroundWork, mainWork: MainWorkScheduler) {
         self.identity = identity
         self.baseURL = baseURL
+        self.work = work
+        self.mainWork = mainWork
     }
 
     /// Mints (or reuses) an install token and records its install id; a
-    /// failure (signed out, no network) leaves the id unknown.
+    /// failure (signed out, no network) leaves the id unknown. The mint runs
+    /// off main; the id lands in one background task (nobody waits on it: the
+    /// handoff driver turns on when it changes).
     func refresh() {
-        guard refreshing == nil else { return }
-        // task-owner: FeedInstallPrincipal.refreshing: one token mint; it clears itself when it settles.
-        refreshing = Task { [weak self, identity] in
+        guard !refreshing else { return }
+        refreshing = true
+        let mainWork = mainWork
+        // task-owner: one token mint; its reply clears `refreshing`.
+        work.task(.bestEffort) { [identity, weak self] in
             let token = try? await identity.installToken()
-            guard let self else { return }
-            installID = token.flatMap(Self.install(ofToken:))
-            refreshing = nil
+            mainWork.postFromAnyThread(.background, owner: "FeedInstallPrincipal.refresh") { [weak self] in
+                guard let self else { return }
+                installID = token.flatMap(Self.install(ofToken:))
+                refreshing = false
+            }
         }
     }
 
@@ -58,7 +71,7 @@ final class FeedInstallPrincipal {
         // The install token never goes through the shared, caching session.
         let (data, response) = try await CloudAPIClient.noStoreTransport.data(for: request)
         if (response as? HTTPURLResponse)?.statusCode == 401 { await identity.invalidate() }
-        guard let reply = try JSONSerialization.jsonObject(with: data) as? [String: Any] else { throw FeedServiceError.badReply }
+        guard let reply = try JSONSerialization.blockingJSONObject(with: data) as? [String: Any] else { throw FeedServiceError.badReply }
         if let error = reply["error"] as? [String: Any] {
             throw FeedServiceError.owner(code: error["code"] as? String ?? "error", message: error["message"] as? String ?? "")
         }
@@ -84,7 +97,7 @@ final class FeedInstallPrincipal {
         var payload = parts[1].replacingOccurrences(of: "-", with: "+").replacingOccurrences(of: "_", with: "/")
         payload += String(repeating: "=", count: (4 - payload.count % 4) % 4)
         guard let data = Data(base64Encoded: payload),
-              let claims = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let claims = try? JSONSerialization.blockingJSONObject(with: data) as? [String: Any],
               let install = claims["inst"] as? String, !install.isEmpty else { return nil }
         return install
     }

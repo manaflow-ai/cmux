@@ -19,19 +19,23 @@ public final class MessagesLabHomeView: NSView {
     /// - Parameters:
     ///   - store: the app's HomeStore (one per daemon session; the view never creates one).
     ///   - wake: the engine clock's one-shot timer (CmuxNext: DemandTimer).
+    ///   - frames: the pane's display frames (CmuxNext: a client of its window's FrameScheduler); the
+    ///     default is a display link of the view's own, for hosts without a frame scheduler.
     ///   - diagrams: draws ```` ```mermaid ```` fences as diagram bubbles (CmuxNext: the
     ///     JavaScriptCore Ondine renderer); nil keeps them as text.
     ///   - replies: how an agent's running reply shows: ``HomeReplyDisplay/wholeMessages`` (default:
     ///     typing dots, then each message whole) or the older token-by-token stream bubble.
     public init(store: HomeStore, conversation: ConversationID, me: ParticipantID, wake: any ChatWakeScheduler,
+                frames: any FrameTickSource = DisplayLinkFrameTicks(),
                 diagrams: (any HomeDiagramRendering)? = nil, replies: HomeReplyDisplay = .wholeMessages) {
         MessagesLabHomeView.liveFormatting()
         HomeMarkdownPolicy.install()
-        // Before the projection maps its first messages, so a diagram never shows as text first.
+        // Before the projection maps its first messages, so they split at their fences (a fence shows
+        // as text only until the engine has loaded, HomeDiagramRowProvider.part).
         if let diagrams { HomeDiagramRowProvider.install(diagrams) }
         // An agent's pipe tables as full-width table and plan cards (Leo 2026-10-20).
         HomeTableRowProvider.install()
-        controller = ChatController(wake: wake)
+        controller = ChatController(wake: wake, frames: frames)
         // Link cards fetch their preview (title, image) for links the user or an agent sent (README).
         projection = HomeProjection(store: store, conversation: conversation, me: me, controller: controller,
                                     linkPreviews: HomeLinkPreviews(), replies: replies)
@@ -39,17 +43,14 @@ public final class MessagesLabHomeView: NSView {
         wantsLayer = true
         addSubview(controller.host)
         projection.start()
-        // Reduce Motion changes (the system setting or the host's pin) still or restart the loops
-        // already running (MessagesLabHomeView+Motion.swift).
-        motionObservers = observeReduceMotion()
     }
 
-    /// The Reduce Motion observers (weak: a closed view's turn is a no-op).
-    private var motionObservers: [any NSObjectProtocol] = []
     /// An open came before the message field existed: the field takes the keyboard when it is
     /// installed, if the keyboard is still on `openKeyboardFrom` (the responder then) or nowhere.
     private var openKeyboardWaits = false
     private weak var openKeyboardFrom: NSResponder?
+    /// Whether the waiting open may still take the keyboard (the host's rule; ``takeKeyboardOnOpen(while:)``).
+    private var openKeyboardAllowed: @MainActor () -> Bool = { true }
     private var opensOnInstall = false
 
     @available(*, unavailable)
@@ -369,15 +370,20 @@ public final class MessagesLabHomeView: NSView {
     /// is still loading the field does not exist yet; it takes the keyboard once installed, unless
     /// the keyboard moved somewhere else in between (a click in another field, a text selection).
     /// Never brings the window forward.
-    public func takeKeyboardOnOpen() {
+    /// - Parameter allowed: Whether the field may take the keyboard, asked when it does (now, or when the
+    ///   field is installed). The host passes its focus rule when nobody opened the conversation (its default one
+    ///   shown by itself): another pane of the window may have the keyboard although no view of the window
+    ///   holds it (a page in its own window).
+    public func takeKeyboardOnOpen(while allowed: @escaping @MainActor () -> Bool = { true }) {
         guard !ChatController.noFocus, let window else { return }
         if let field = controller.demo?.compose.textView.view {
             openKeyboardWaits = false
-            if window.firstResponder !== field { window.makeFirstResponder(field) }
+            if window.firstResponder !== field, allowed() { window.makeFirstResponder(field) }
             return
         }
         openKeyboardWaits = true
         openKeyboardFrom = window.firstResponder
+        openKeyboardAllowed = allowed
         guard !opensOnInstall else { return }
         opensOnInstall = true
         controller.onInstalled.append { [weak self] _ in self?.finishOpenKeyboard() }
@@ -387,7 +393,7 @@ public final class MessagesLabHomeView: NSView {
     private func finishOpenKeyboard() {
         guard openKeyboardWaits else { return }
         openKeyboardWaits = false
-        guard let window, let field = controller.demo?.compose.textView.view else { return }
+        guard let window, let field = controller.demo?.compose.textView.view, openKeyboardAllowed() else { return }
         let now = window.firstResponder
         guard now == nil || now === window || (openKeyboardFrom != nil && now === openKeyboardFrom) else { return }
         window.makeFirstResponder(field)

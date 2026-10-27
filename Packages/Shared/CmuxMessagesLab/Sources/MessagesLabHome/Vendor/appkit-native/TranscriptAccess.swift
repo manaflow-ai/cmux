@@ -56,6 +56,7 @@ extension ChatController {
         }
     }
 
+    @MainActor  // cmux: the window and the elements are AppKit's (main actor); its caller is the document view
     func accessibilityElements(parent: NSView) -> [NSAccessibilityElement] {
         guard let store, let window = host.window else { return [] }
         let time = DateFormatter()
@@ -106,6 +107,7 @@ struct TextPosition: Equatable { var key: String; var offset: Int }
 /// selected row draws its own part of the highlight in its cell
 /// (RowCell.selectionHighlight), so the highlight moves with its row's motions,
 /// recomputed when the transcript scrolls or changes.
+@MainActor  // cmux: it reads the pane's views and window, as its ChatController
 final class TranscriptSelection {
     /// cmux: MessagesLab 30495be: the transcript's accessibility elements, one per visible message id.
     var axElements: [ID: MessageAccessibilityElement] = [:]
@@ -113,7 +115,8 @@ final class TranscriptSelection {
     /// Screen blend of P3 (2.6, 37.7, 85): over the incoming bubble (59, 59, 61) it gives
     /// Messages' highlight (61, 88, 126) and over its text (225) the selected text
     /// (225, 229, 235) (lossless still selected-text.png).
-    static let highlightFill = Fixture.p3(2.6, 37.7, 85).cgColor
+    // cmux: nonisolated and computed: RowCell's (nonisolated) init sets it on its highlight layer.
+    nonisolated static var highlightFill: CGColor { Fixture.p3(2.6, 37.7, 85).cgColor }
     private(set) var anchor: TextPosition?
     private(set) var focus: TextPosition?
     private var downPoint: CGPoint?
@@ -202,8 +205,8 @@ final class TranscriptSelection {
             // cmux: the shared bubble outline (BubblePath.balloon), moved from the cell into the demo view.
             let frame = RowDraw.bodyRect(spec)
             let origin = cell.convert(frame.origin, to: demo)
-            var move = CGAffineTransform(translationX: origin.x - frame.minX, y: origin.y - frame.minY)
-            return BubblePath.balloon(frame: frame, row: p).cgPath.copy(using: &move)
+            let move = CGAffineTransform(translationX: origin.x - frame.minX, y: origin.y - frame.minY)
+            return BubblePath.balloon(frame: frame, row: p).cgPath.copy(applying: move)
         }
         return nil
     }
@@ -257,7 +260,7 @@ final class TranscriptSelection {
     /// the bubble and off the glyphs (scrawl 2026-10-18, "highlighting ... is broken").
     /// Markdown rows use their MarkdownLayout, long rows their tiled layout, plain rows
     /// their TextLayout; offsets are the display string's in every case.
-    static func geometry(_ spec: RowSpec) -> RowTextGeometry? {
+    nonisolated static func geometry(_ spec: RowSpec) -> RowTextGeometry? {  // cmux: nonisolated: pure (no state); MessagesWindowView.flashQuote, which is nonisolated, calls it
         guard case let .part(p) = spec.kind, SelText.isText(p.part) else { return nil }
         return p.geometry(width: spec.width)
     }
@@ -301,7 +304,7 @@ final class TranscriptSelection {
     }
 
     /// The offset in one row for a point in the same coordinates as `body`.
-    static func position(at p: CGPoint, body: CGRect, key: String, geometry g: RowTextGeometry) -> TextPosition {
+    nonisolated static func position(at p: CGPoint, body: CGRect, key: String, geometry g: RowTextGeometry) -> TextPosition {  // cmux: nonisolated: pure (no state); MessagesWindowView.flashQuote, which is nonisolated, calls it
         if p.y < body.minY { return TextPosition(key: key, offset: 0) }
         if p.y > body.maxY { return TextPosition(key: key, offset: g.length) }
         let local = CGPoint(x: p.x - body.minX, y: p.y - body.minY)
@@ -345,7 +348,7 @@ final class TranscriptSelection {
     /// Highlight rects of one row's selected range, in the coordinates of `body`, only the
     /// lines inside `visible` (same coordinates). Drawn from the row's own geometry, so a
     /// markdown, plain or long row highlights exactly its drawn glyphs, inside its bubble.
-    static func highlightRects(_ sel: NSRange, body: CGRect, geometry g: RowTextGeometry, visible: ClosedRange<CGFloat>) -> [CGRect] {
+    nonisolated static func highlightRects(_ sel: NSRange, body: CGRect, geometry g: RowTextGeometry, visible: ClosedRange<CGFloat>) -> [CGRect] {  // cmux: nonisolated: pure (no state); MessagesWindowView.flashQuote, which is nonisolated, calls it
         let v0 = visible.lowerBound - body.minY, v1 = visible.upperBound - body.minY
         guard v1 >= 0, v0 <= body.height else { return [] }
         return g.selectionRects(sel, visible: max(0, v0)...max(0, v1)).compactMap { rect in

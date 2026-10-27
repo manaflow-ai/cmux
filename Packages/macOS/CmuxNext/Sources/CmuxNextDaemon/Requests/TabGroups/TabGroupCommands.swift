@@ -60,7 +60,7 @@ public struct ListTabGroupsRequest: DaemonRequest {
     public struct Response: Decodable, Sendable, Equatable {
         public var groups: [TabGroupSnapshot]
     }
-    public static let command = "list-tab-groups"
+    public static let commandName: DaemonCommandName = "list-tab-groups"
     public static let requiredCapability: String? = DaemonCapability.tabGroups.rawValue
     public init() {}
 }

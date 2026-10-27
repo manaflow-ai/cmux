@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextFocusUI
 import CmuxNextLayout
 import CmuxNextSignposts
+import CmuxNextWakeups
 import CoreGraphics
 import Testing
 
@@ -59,7 +60,7 @@ struct ScrollFrameTimingTests {
             context = InputDispatchContext(scrollFrames: recorder)
             model.followsDesignMetrics = false
             model.scrollModifierOverride = .command
-            root = LayoutRootView(model: model, contentProvider: provider)
+            root = LayoutRootView(model: model, contentProvider: provider, mainWork: MainWorkScheduler(budget: MainFrameBudget()))
             // The App's wiring (WorkspaceContentController): the layout's take reaches the dispatch context.
             root.onScrollTaken = { [context] in context.noteLayoutTookScroll() }
             window.contentView = root

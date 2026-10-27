@@ -21,7 +21,7 @@ struct PaneMotionWorkTests {
         var moving = true
         while moving, frames < 240 {
             // A pane counts as changed in a frame when its host's frame or alpha changed in it...
-            let hosts = screen.subviews.compactMap { $0 as? PaneHostView }
+            let hosts = screen.stackedSubviews.compactMap { $0 as? PaneHostView }
             let before = Dictionary(uniqueKeysWithValues: hosts.map { (ObjectIdentifier($0), ($0.frame, $0.alphaValue)) })
             let coversBefore = screen.panesAbove()
             let overlay = harness.root.overlayHostsPlaced, clips = screen.stripClipsComputed
@@ -38,7 +38,7 @@ struct PaneMotionWorkTests {
             // The lower bound: whatever the sync skipped, every displayed pane's ring sits on its host.
             for host in hosts where host.chrome.superview != nil && !host.isHidden {
                 let ring = harness.root.convert(host.bounds, from: host)
-                if host.chrome.frame != ring || (host.stripClipInput.map { $0.size != host.frame.size } ?? false) { stale += 1 }
+                if host.chrome.frame != ring || (host.stripClipInput.map { $0.clipsHost && $0.size != host.frame.size } ?? false) { stale += 1 }
             }
             worstOverlay = max(worstOverlay, harness.root.overlayHostsPlaced - overlay - moved)
             worstClips = max(worstClips, screen.stripClipsComputed - clips - moved)
@@ -56,7 +56,7 @@ struct PaneMotionWorkTests {
         let harness = PaneMotionBench.Harness(PaneMotionBench.grid(6, 5), focused: PaneID("p0-0"))
         _ = await harness.frame()
         let screen = try #require(harness.root.screenViews.values.first)
-        let hosts = screen.subviews.compactMap { $0 as? PaneHostView }
+        let hosts = screen.stackedSubviews.compactMap { $0 as? PaneHostView }
         let sizes = Dictionary(uniqueKeysWithValues: hosts.map { (ObjectIdentifier($0), $0.frame.size) })
         let before = Dictionary(uniqueKeysWithValues: hosts.map { (ObjectIdentifier($0), $0.clipLayouts) })
         var origins = Set<ObjectIdentifier>()
@@ -86,7 +86,7 @@ struct PaneMotionWorkTests {
         let transaction = LayoutTransactionID.make()
         var worstClips = 0, worstOverlay = 0
         for step in 1...20 {
-            let hosts = screen.subviews.compactMap { $0 as? PaneHostView }
+            let hosts = screen.stackedSubviews.compactMap { $0 as? PaneHostView }
             let before = Dictionary(uniqueKeysWithValues: hosts.map { (ObjectIdentifier($0), $0.frame) })
             let clips = screen.stripClipsComputed, overlay = harness.root.overlayHostsPlaced
             harness.model.setSplitRatio(SplitID("s0-0"), ratio: 0.2 + 0.005 * Double(step), transaction: transaction, phase: .changed)

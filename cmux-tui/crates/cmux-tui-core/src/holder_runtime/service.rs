@@ -3,6 +3,7 @@
 //! holder crash.
 
 use cmux_process::Stdio;
+use cmux_threads::checked::fs as files;
 use std::collections::HashMap;
 use std::io::{self, Write};
 use std::os::fd::OwnedFd;
@@ -10,9 +11,10 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::{Arc, Mutex, OnceLock, RwLock, Weak};
 
-use cmux_holder::link::{HolderLink, LinkEnd, TerminalSink};
-use cmux_holder::wire::TraceStart;
+use cmux_holder::link::{FrameWatch, HolderLink, LinkEnd, SPAWN_TIMEOUT, TerminalSink};
+use cmux_holder::wire::{Kind, TraceStart};
 use cmux_holder::{Listed, SpawnRequest};
+use cmux_trace::crash_keys::{self, HolderLink as CrashKeyLink};
 
 use super::{HolderSink, HolderTerminal};
 
@@ -36,7 +38,45 @@ struct LinkSlot {
     /// when its link is published, as the CLOSEs do. Changed only under
     /// [`HolderService::trace_control`].
     trace: Option<TraceStart>,
+    /// The mux's child reaper, which reaps a holder this daemon starts
+    /// ([`HolderService::use_reaper`]); weak, so a dropped mux's reaper
+    /// stops.
+    reaper: Option<Weak<cmux_threads::reaper::Reaper>>,
 }
+
+/// The holder link's hang tier: a frame its reader thread routes (a
+/// terminal's output into its parser's queue, a spawn's answer) busy this
+/// long is written to the hang log with the reader's stack (the request
+/// watchdog's `holder-link` scope). Every terminal's output waits behind it.
+pub(crate) const HOLDER_LINK_HANG: std::time::Duration = std::time::Duration::from_secs(1);
+
+/// The frame kinds the holder sends, by wire value.
+pub(crate) fn holder_frame_name(kind: u32) -> &'static str {
+    match u16::try_from(kind).ok().and_then(Kind::from_u16) {
+        Some(Kind::Spawned) => "spawned",
+        Some(Kind::Adopted) => "adopted",
+        Some(Kind::Data) => "data",
+        Some(Kind::Gap) => "gap",
+        Some(Kind::Exit) => "exit",
+        Some(Kind::Error) => "error",
+        Some(Kind::Pong) => "pong",
+        Some(_) => "other",
+        None => "unknown",
+    }
+}
+
+/// Every frame the link's reader routes is a `holder-link` scope of the
+/// process's request watchdog, and a hang the holder reports about its own
+/// loop goes to the process's hang log.
+const HOLDER_FRAME_WATCH: FrameWatch = FrameWatch {
+    enter: |kind| {
+        crate::server::process_enter(crate::server::WatchKind::HolderLink, u32::from(kind))
+    },
+    exit: crate::server::process_exit,
+    hang: |report| {
+        crate::server::process_report_holder_hang(&report.site, report.deadline_ms, report.busy_ms);
+    },
+};
 
 /// The holder of one terminal host root (one daemon session).
 pub(crate) struct HolderService {
@@ -109,6 +149,12 @@ impl HolderService {
         });
         services.insert(host_root.to_path_buf(), service.clone());
         Ok(service)
+    }
+
+    /// Reap every holder this service starts from now on with `reaper` (the
+    /// mux's, `Mux::reaper`), not with a wait thread of its own.
+    pub(crate) fn use_reaper(&self, reaper: &Arc<cmux_threads::reaper::Reaper>) {
+        self.link.lock().recover_poison().reaper = Some(Arc::downgrade(reaper));
     }
 
     /// Whether a holder of `host_root` may run: its socket exists. Asking
@@ -219,6 +265,7 @@ impl HolderService {
         let pending: Vec<(u32, u32)> = {
             let mut slot = self.link.lock().recover_poison();
             slot.link = Some(link.clone());
+            crash_keys::set_holder_link(CrashKeyLink::Linked);
             slot.pending_close.iter().map(|(chan, grace_ms)| (*chan, *grace_ms)).collect()
         };
         for (chan, grace_ms) in pending {
@@ -350,7 +397,11 @@ impl HolderService {
 
     /// Stop tracking `chan` (its terminal ended or its surface left).
     pub(crate) fn untrack(&self, chan: u32) {
-        self.live.lock().recover_poison().remove(&chan);
+        {
+            let mut live = self.live.lock().recover_poison();
+            live.remove(&chan);
+            note_terminal_count(&live);
+        }
         let link = {
             let mut slot = self.link.lock().recover_poison();
             slot.pending_close.remove(&chan);
@@ -385,8 +436,27 @@ impl HolderService {
             service: self.clone(),
             replay: Mutex::new(None),
         });
-        self.live.lock().recover_poison().insert(chan, Arc::downgrade(&terminal));
+        {
+            let mut live = self.live.lock().recover_poison();
+            live.insert(chan, Arc::downgrade(&terminal));
+            note_terminal_count(&live);
+        }
         terminal
+    }
+
+    /// Names a link that went down on the crash-key page ([`CrashKeyLink`]),
+    /// unless a link published meanwhile is open: a link end the reader
+    /// thread reports after another thread reconnected is not the current
+    /// link's. Under the slot lock, as [`Self::publish`] stores `Linked`, so
+    /// the page holds the state of the link the slot holds. Whether it
+    /// named it.
+    fn note_link_down(&self, state: CrashKeyLink) -> bool {
+        let slot = self.link.lock().recover_poison();
+        let down = !slot.link.as_ref().is_some_and(|link| link.is_open());
+        if down {
+            crash_keys::set_holder_link(state);
+        }
+        down
     }
 
     /// End every live terminal as lost: no holder can stream it.
@@ -463,7 +533,7 @@ impl HolderService {
 
     fn connect(self: &Arc<Self>) -> io::Result<(Arc<HolderLink>, Vec<Listed>)> {
         let weak = Arc::downgrade(self);
-        HolderLink::connect(
+        HolderLink::connect_watched(
             &self.socket,
             &self.token,
             Box::new(move |end| {
@@ -474,19 +544,24 @@ impl HolderService {
                     // take turns for ever. This daemon is on its way out.
                     eprintln!("cmux-tui: another daemon took the terminal holder");
                     service.superseded.store(true, Ordering::Release);
+                    service.note_link_down(CrashKeyLink::Superseded);
                     return;
                 }
                 // The holder died: start a new one and hand it every master.
+                service.note_link_down(CrashKeyLink::Lost);
                 let _ =
                     std::thread::Builder::new().name("holder-restart".into()).spawn(move || {
                         if let Err(error) = service.link() {
                             // No holder streams their output any more: their
                             // terminals end as lost (the shells may still run).
                             eprintln!("cmux-tui: restart the terminal holder: {error}");
+                            service.note_link_down(CrashKeyLink::Failed);
                             service.lose_all();
                         }
                     });
             }),
+            SPAWN_TIMEOUT,
+            HOLDER_FRAME_WATCH,
         )
     }
 
@@ -528,6 +603,8 @@ impl HolderService {
             if std::env::var_os(crate::host_exe::HOLDER_ENV).is_none_or(|value| value.is_empty()) {
                 command.args(crate::terminal_host_runtime::host_owner_args());
             }
+            // The spawn and the holder's handshake reply.
+            crate::request_path::note(crate::request_path::BlockingKind::HostWait);
             let started = command.spawn().and_then(|child| self.handshake(child));
             match started {
                 Ok(()) => return Ok(()),
@@ -563,7 +640,8 @@ impl HolderService {
     /// Hand a just-started holder its token and wait for its `ready`. A
     /// holder that answers anything else, or nothing in time, is killed and
     /// reaped; one that is ready is reaped whenever it exits while this
-    /// daemon runs.
+    /// daemon runs: by the mux's reaper ([`Self::use_reaper`]), else by a
+    /// `holder-reaper` thread.
     fn handshake(&self, mut child: cmux_process::Child) -> io::Result<()> {
         match first_line(&mut child, &self.token) {
             Ok(line) if line.trim() == "ready" => {}
@@ -578,9 +656,22 @@ impl HolderService {
                 });
             }
         }
-        let _ = std::thread::Builder::new().name("holder-reaper".into()).spawn(move || {
-            let _ = child.wait();
-        });
+        let reaper = self.link.lock().recover_poison().reaper.as_ref().and_then(Weak::upgrade);
+        let unwatched = match reaper {
+            // The holder is a child of this process: the reaper reaps it.
+            Some(reaper) => reaper.watch(child.id(), Box::new(drop)).err().map(|u| u.into_error()),
+            None => Some(io::Error::other("no child reaper")),
+        };
+        if let Some(error) = unwatched {
+            eprintln!("cmux-tui: the terminal holder's exit has its own wait thread ({error})");
+            let _ = cmux_threads::spawn(
+                "holder-reaper",
+                cmux_threads::qos::ThreadQos::Utility,
+                move || {
+                    let _ = child.wait();
+                },
+            );
+        }
         Ok(())
     }
 }
@@ -588,6 +679,12 @@ impl HolderService {
 /// The grace a CLOSE gives the shell of an abandoned terminal before
 /// SIGKILL: a shell's usual hang-up grace.
 const ABANDONED_CLOSE_GRACE_MS: u32 = 2000;
+
+/// Names the terminals the holder runs for this daemon on the crash-key page:
+/// the size of `live`, stored under its lock so the page holds the last count.
+fn note_terminal_count(live: &HashMap<u32, Weak<HolderTerminal>>) {
+    crash_keys::set(crash_keys::Key::TerminalCount, live.len() as u64);
+}
 
 /// Write `token` to a just-started holder's stdin and read the first line
 /// it prints (`ready` once it listens), waiting at most
@@ -634,12 +731,12 @@ fn socket_path(host_root: &Path) -> io::Result<PathBuf> {
     // SAFETY: getuid cannot fail.
     let uid = unsafe { libc::getuid() };
     let dir = PathBuf::from(format!("/tmp/cmux-hd-{uid}"));
-    match std::fs::DirBuilder::new().mode(0o700).create(&dir) {
+    match files::create_dir_with(files::DirBuilder::new().mode(0o700), &dir) {
         Ok(()) => {}
         Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {}
         Err(error) => return Err(error),
     }
-    let meta = std::fs::symlink_metadata(&dir)?;
+    let meta = files::symlink_metadata(&dir)?;
     if !meta.is_dir() || meta.uid() != uid || meta.permissions().mode() & 0o077 != 0 {
         return Err(io::Error::other(format!("{} is not a private directory", dir.display())));
     }
@@ -656,9 +753,9 @@ fn fnv1a(bytes: &[u8]) -> u64 {
 /// A restarted daemon of the session reads it to reach the same holder.
 fn load_or_create_token(host_root: &Path) -> io::Result<[u8; 32]> {
     use std::os::unix::fs::OpenOptionsExt;
-    std::fs::create_dir_all(host_root)?;
+    files::create_dir_all(host_root)?;
     let path = host_root.join("holder.token");
-    if let Ok(text) = std::fs::read_to_string(&path)
+    if let Ok(text) = files::read_to_string(&path)
         && let Some(token) = parse_hex(text.trim())
     {
         return Ok(token);
@@ -668,15 +765,13 @@ fn load_or_create_token(host_root: &Path) -> io::Result<[u8; 32]> {
         .as_bytes();
     let hex: String = token.iter().map(|byte| format!("{byte:02x}")).collect();
     let temporary = path.with_extension("tmp");
-    let mut file = std::fs::OpenOptions::new()
-        .write(true)
-        .create(true)
-        .truncate(true)
-        .mode(0o600)
-        .open(&temporary)?;
+    let mut file = files::open_with(
+        files::File::options().write(true).create(true).truncate(true).mode(0o600),
+        &temporary,
+    )?;
     file.write_all(hex.as_bytes())?;
-    file.sync_all()?;
-    std::fs::rename(&temporary, &path)?;
+    files::sync_all(&file)?;
+    files::rename(&temporary, &path)?;
     Ok(token)
 }
 
@@ -692,7 +787,7 @@ fn parse_hex(hex: &str) -> Option<[u8; 32]> {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use std::os::fd::AsRawFd;
     use std::os::unix::net::{UnixListener, UnixStream};
     use std::time::Duration;
@@ -702,7 +797,7 @@ mod tests {
     use super::*;
 
     /// The next frame the link sent on `stream`; panics when it ends.
-    pub(super) fn next_frame(stream: &UnixStream, reader: &mut wire::Reader, what: &str) -> Frame {
+    pub(crate) fn next_frame(stream: &UnixStream, reader: &mut wire::Reader, what: &str) -> Frame {
         loop {
             if let Some(frame) = reader.next_frame().unwrap() {
                 return frame;
@@ -721,7 +816,7 @@ mod tests {
 
     /// [`welcome`] granting `granted` capability bits (`None`: a holder
     /// older than them, whose WELCOME has no such field).
-    pub(super) fn welcome_granting(
+    pub(crate) fn welcome_granting(
         stream: &UnixStream,
         reader: &mut wire::Reader,
         listed: &[(u32, [u8; 16])],
@@ -744,7 +839,7 @@ mod tests {
     }
 
     /// A service on a stand-in holder's socket (no holder is launched).
-    pub(super) fn stand_in_service(socket: PathBuf) -> Arc<HolderService> {
+    pub(crate) fn stand_in_service(socket: PathBuf) -> Arc<HolderService> {
         Arc::new(HolderService {
             socket,
             token: [0x44; 32],
@@ -831,5 +926,97 @@ mod tests {
         drop(service);
         drop(second);
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// p09-observability-098 review: the reader thread reports a link's end
+    /// after it marked the link closed, and another thread may reconnect in
+    /// between. That late end must not name the new, open link lost on the
+    /// crash-key page; with no open link it does.
+    #[test]
+    fn a_late_link_end_never_names_an_open_link_down() {
+        let stamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |elapsed| elapsed.subsec_nanos());
+        let dir = std::env::temp_dir().join(format!("chl-{}-{stamp}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let socket = dir.join("h.sock");
+        let listener = UnixListener::bind(&socket).unwrap();
+        let stand_in = std::thread::spawn(move || {
+            let (stream, _) = listener.accept().unwrap();
+            stream.set_read_timeout(Some(Duration::from_secs(20))).unwrap();
+            let mut reader = wire::Reader::default();
+            welcome(&stream, &mut reader, &[]);
+            loop {
+                let frame = next_frame(&stream, &mut reader, "the test's SIGNAL");
+                if Kind::from_u16(frame.kind) == Some(Kind::Signal) && frame.chan == 999 {
+                    return stream;
+                }
+            }
+        });
+
+        let service = stand_in_service(socket);
+        assert!(service.note_link_down(CrashKeyLink::Lost), "no link at all is down");
+        let link = service.link().expect("the stand-in holder");
+        assert!(
+            !service.note_link_down(CrashKeyLink::Lost),
+            "an end reported while the current link is open is an older link's"
+        );
+        link.signal(999, 0).unwrap();
+        let stream = stand_in.join().expect("the stand-in saw the test's SIGNAL");
+
+        // No restart may launch a holder once the stand-in's link ends.
+        service.superseded.store(true, Ordering::Release);
+        drop(link);
+        drop(service);
+        drop(stream);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// p02-threads-237: a holder the daemon starts is reaped by the mux's
+    /// one child reaper once it exits, with no `holder-reaper` thread.
+    #[test]
+    fn a_ready_holder_is_reaped_by_the_mux_reaper_with_no_thread_of_its_own() {
+        let work = cmux_threads::work::Work::new(cmux_threads::work::WorkConfig {
+            label: "hrpw".to_owned(),
+            ..cmux_threads::work::WorkConfig::default()
+        })
+        .unwrap();
+        let reaper = Arc::new(cmux_threads::reaper::Reaper::new("hrp", Arc::new(work)).unwrap());
+        let service = stand_in_service(PathBuf::from("/nonexistent/holder-reaper.sock"));
+        service.use_reaper(&reaper);
+        // A stand-in holder: reads its token, says `ready`, then runs on.
+        let child = cmux_process::Command::new("/bin/sh")
+            .args(["-c", "read _; echo ready; exec sleep 30"])
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .spawn()
+            .unwrap();
+        let pid = libc::pid_t::try_from(child.id()).unwrap();
+        service.handshake(child).expect("the holder is ready");
+        let holder_reapers =
+            cmux_threads::snapshot().iter().filter(|thread| thread.name == "holder-reaper").count();
+        assert_eq!(holder_reapers, 0, "the holder got a wait thread of its own");
+        assert_eq!(reaper.stats().watching, 1, "the mux reaper does not watch the holder");
+
+        // SAFETY: kill(2) takes no pointers; `pid` is an unreaped child.
+        assert_eq!(unsafe { libc::kill(pid, libc::SIGKILL) }, 0);
+        // The reaper's work item reaps it: then no wait sees the pid (ECHILD).
+        // The test only looks (WNOWAIT), so it never reaps the holder itself.
+        let deadline = std::time::Instant::now() + Duration::from_secs(20);
+        let (_never, tick) = std::sync::mpsc::channel::<()>();
+        loop {
+            // SAFETY: a zeroed siginfo_t is valid output storage.
+            let mut info: libc::siginfo_t = unsafe { std::mem::zeroed() };
+            let flags = libc::WEXITED | libc::WNOHANG | libc::WNOWAIT;
+            // SAFETY: waitid writes one siginfo_t, returns at once, reaps nothing.
+            if unsafe { libc::waitid(libc::P_PID, pid as libc::id_t, &mut info, flags) } < 0 {
+                assert_eq!(io::Error::last_os_error().raw_os_error(), Some(libc::ECHILD));
+                break;
+            }
+            assert!(std::time::Instant::now() < deadline, "the holder was never reaped");
+            let _ = tick.recv_timeout(Duration::from_millis(10));
+        }
+        assert_eq!(reaper.stats().exits, 1);
     }
 }

@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextDesign
 import CmuxNextFileGrid
 import CmuxNextFiles
 @testable import CmuxNextScreenshots
@@ -83,6 +84,50 @@ import Testing
         try await commands.pendingUndo?.value
         #expect(await files.putBack == [shot.url])
     }
+
+    /// p02-threads-132: a pane in no window never spins a nested modal loop (`runModal`). Rename has
+    /// no sheet to show, so it asks nothing and renames nothing.
+    @Test(.timeLimit(.minutes(1))) func renameInNoWindowAsksNothing() async throws {
+        let folder = try TemporaryFolder()
+        let file = try folder.write("a.png")
+        let dialogs = CmuxDialogCenter(host: SilentDialogHost())
+        let commands = ScreenshotsCommands(workspace: RecordingWorkspace(), files: FileOperator(), dialogs: dialogs)
+
+        commands.perform(.rename, on: [Self.item(file)], in: nil)
+        await commands.pendingRename?.value
+
+        #expect(dialogs.records.isEmpty)
+        #expect(FileManager.default.fileExists(atPath: file.path))
+    }
+
+    /// p02-threads-132: a failed Move to Trash in no window says so in an app-scope cmux dialog
+    /// that nothing waits for, not in an app-modal alert loop.
+    @Test(.timeLimit(.minutes(1))) func trashFailureInNoWindowShowsAnAppDialog() async {
+        let dialogs = CmuxDialogCenter(host: SilentDialogHost())
+        let commands = ScreenshotsCommands(workspace: RecordingWorkspace(), files: RecordingFiles(trashError: .failed("disk gone")),
+                                           dialogs: dialogs)
+        let shot = Self.item(URL(fileURLWithPath: "/s/a.png"))
+
+        let opened: CmuxDialogCenter.Record = await withCheckedContinuation { continuation in
+            var resumed = false
+            _ = dialogs.observe { event in
+                guard case .opened(let record) = event, !resumed else { return }
+                resumed = true
+                continuation.resume(returning: record)
+            }
+            commands.perform(.trash, on: [shot], in: nil)
+        }
+
+        #expect(opened.scope == "app")
+        #expect(opened.spec.identifier == "cmux.dialog.screenshots.message")
+        #expect(opened.spec.buttons.map(\.id) == ["ok"])
+    }
+}
+
+/// Places no dialog: the tests read the center's records.
+@MainActor final class SilentDialogHost: CmuxDialogHosting {
+    func show(_ dialog: CmuxDialogView, in scope: CmuxDialogScope, scopeGone: @escaping () -> Void) {}
+    func hide(_ dialog: CmuxDialogView) {}
 }
 
 /// A window that answers each sheet at once: it types `newName` into the sheet's text field and
@@ -121,12 +166,18 @@ import Testing
     func reveal(_ urls: [URL]) { revealed += urls }
 }
 
-/// Records trash and put back; every other operation is refused.
+/// Records trash and put back (trash fails with `trashError` when set); every other operation is refused.
 actor RecordingFiles: FileOperating {
     var trashed: [URL] = []
     var putBack: [URL] = []
+    private let trashError: FileBrowserError?
+
+    init(trashError: FileBrowserError? = nil) {
+        self.trashError = trashError
+    }
 
     func trash(_ urls: [URL]) async throws -> [TrashedItem] {
+        if let trashError { throw trashError }
         trashed += urls
         return urls.map { TrashedItem(original: $0, trashed: URL(fileURLWithPath: "/.Trash").appendingPathComponent($0.lastPathComponent)) }
     }

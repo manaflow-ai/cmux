@@ -40,6 +40,9 @@ extension TerminalAttachment {
         var colors: TerminalColors?
         /// Present on a snapshot attach.
         var generation: UInt64?
+        /// The key press this output echoes (`send` carried it and the PTY read stamped it); absent
+        /// from a daemon without exact flows or when no press was open.
+        var flow: UInt64?
     }
 
     /// `snapshot {phase, generation, offset, version, cols?, rows?, colors?, data}`.
@@ -154,7 +157,8 @@ extension TerminalAttachment {
                 let output = try decoder.decode(Output.self, from: line)
                 decoder.recorder?.outputCopied(output.data.count)  // base64 out of the line, even if dropped below
                 guard scoped(output.surface) else { return nil }
-                return DecodedAttachLine(event: .output(output.data, colors: output.colors), generation: output.generation)
+                return DecodedAttachLine(event: .output(output.data, colors: output.colors), generation: output.generation,
+                                         flow: output.flow)
             case "resized":
                 let state = try decoder.decode(VTState.self, from: line)
                 guard scoped(state.surface) else { return nil }

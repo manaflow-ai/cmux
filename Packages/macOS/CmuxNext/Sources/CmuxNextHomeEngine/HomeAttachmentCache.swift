@@ -1,9 +1,12 @@
 import CmuxHomeCore
+import CmuxNextCompat
 import CmuxNextDaemon
 import Foundation
 import ImageIO
 import UniformTypeIdentifiers
 
+// memory: fixed it keeps no bytes in memory: each fetch makes one, holds a directory URL and a byte
+// count, and returns a file URL; the cached bytes are files on disk, bounded by `limit`.
 /// Fetched attachment variants on disk, one file per hash and variant, for
 /// the Home sources whose owner reads bytes by hash through the daemon (the
 /// local owner and the Cloud proxy). An owner has no thumbnail service, so a
@@ -87,12 +90,11 @@ nonisolated struct HomeAttachmentCache: Sendable {
 
     /// A JPEG whose longer side is at most `maxPixel`, EXIF orientation applied.
     static func thumbnailJPEG(of url: URL, maxPixel: Int) throws -> Data {
-        guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
-              let image = CGImageSourceCreateThumbnailAtIndex(source, 0, [
+        guard let image = CheckedImageSource(blockingContentsOf: url)?.thumbnail(options: [
                   kCGImageSourceCreateThumbnailFromImageAlways: true,
                   kCGImageSourceCreateThumbnailWithTransform: true,
                   kCGImageSourceThumbnailMaxPixelSize: max(1, maxPixel),
-              ] as CFDictionary) else { throw HomeRejection.invalid("thumbnail_failed") }
+              ]) else { throw HomeRejection.invalid("thumbnail_failed") }
         let data = NSMutableData()
         guard let destination = CGImageDestinationCreateWithData(data, UTType.jpeg.identifier as CFString, 1, nil) else {
             throw HomeRejection.invalid("thumbnail_failed")

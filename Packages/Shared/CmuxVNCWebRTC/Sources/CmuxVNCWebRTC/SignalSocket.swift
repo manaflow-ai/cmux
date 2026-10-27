@@ -11,10 +11,9 @@ struct SignalMessage: Codable, Sendable {
     var peer: Bool?
 }
 
-/// The room's WebSocket for one role.
-// crash-allow: its only stored state is a `let` URLSessionWebSocketTask, which is thread-safe.
-final class SignalSocket: @unchecked Sendable {
-    // @unchecked: URLSessionWebSocketTask is thread-safe; nothing else is mutable.
+/// The room's WebSocket for one role. Its one stored property is a `let`
+/// URLSessionWebSocketTask, which Foundation declares Sendable.
+final class SignalSocket: Sendable {
     private let task: URLSessionWebSocketTask
 
     /// Requests carry the room secret (a header) and the answers TURN

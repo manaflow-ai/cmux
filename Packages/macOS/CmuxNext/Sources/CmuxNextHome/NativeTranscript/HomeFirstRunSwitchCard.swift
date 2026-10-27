@@ -47,7 +47,7 @@ final class HomeFirstRunSwitchCard: NSView {
         setAccessibilityRole(.group)
         setAccessibilityLabel(HomeStrings.switchKeysHeader)
         applyFonts()
-        apply(nil)
+        show(nil)
     }
 
     required init?(coder: NSCoder) { nil }
@@ -57,8 +57,15 @@ final class HomeFirstRunSwitchCard: NSView {
     @objc private func hideClicked() { onHide() }
     @objc private func openSettingsClicked() { onOpenSettings() }
 
-    /// Shows `keys` (nil or no lines hides the card).
+    /// Shows `keys` (nil or no lines hides the card); the same keys again change nothing.
     func apply(_ keys: HomeSwitchKeys?) {
+        guard keys != self.keys else { return }
+        needsLayout = true
+        show(keys)
+    }
+
+    /// Rebuilds the lines, the note and the button for `keys`.
+    private func show(_ keys: HomeSwitchKeys?) {
         self.keys = keys
         for line in lineViews { line.label.removeFromSuperview(); line.keys.removeFromSuperview() }
         lineViews = (keys?.lines ?? []).map { line in
@@ -79,16 +86,15 @@ final class HomeFirstRunSwitchCard: NSView {
         applyFonts()
         applyColors()
         invalidateIntrinsicContentSize()
-        needsLayout = true
     }
 
     func applyScale(_ scale: CGFloat) {
         guard self.scale != scale else { return }
+        needsLayout = true
         self.scale = scale
         surface.layer?.cornerRadius = HomeFirstRunRow.cornerRadius * scale
         applyFonts()
         invalidateIntrinsicContentSize()
-        needsLayout = true
     }
 
     /// Colours from the theme (caller runs inside `performWithTheme`).

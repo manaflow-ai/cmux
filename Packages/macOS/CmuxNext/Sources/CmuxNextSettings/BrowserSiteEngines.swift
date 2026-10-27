@@ -30,7 +30,7 @@ public nonisolated struct BrowserSiteEngines: Sendable, Hashable {
     ]
 
     /// Every protected-media site on WebKit.
-    public static let fallback = BrowserSiteEngines(rules: Dictionary(uniqueKeysWithValues: protectedMediaSites.map { ($0, .webkit) }))
+    public static let fallback = BrowserSiteEngines(rules: Dictionary(protectedMediaSites.map { ($0, .webkit) }, uniquingKeysWith: { first, _ in first }))
 
     /// - Parameter rules: Site pattern to engine; patterns are normalized (lowercase, no scheme,
     ///   no `*.`, no trailing `/`), and one that is empty after that is dropped.

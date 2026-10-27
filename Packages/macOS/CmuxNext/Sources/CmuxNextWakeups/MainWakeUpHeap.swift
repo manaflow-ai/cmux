@@ -19,9 +19,10 @@ struct MainWakeUpHeap<Payload> {
         let earliest: UInt64
         /// The entry must run by here.
         let latest: UInt64
-        /// It snaps to the heap's ``MainWakeUpHeap/alignment`` at wake time instead of its window's grid:
-        /// a flexible window on the sub-second alignment grid (``WakeLeeway``'s table). Whole-second and
-        /// hidden windows (``WakeLeeway/hidden(delay:)``, a 1 s grid) keep their own.
+        /// It snaps to the heap's ``MainWakeUpHeap/alignment`` at wake time instead of its window's grid
+        /// (``WakeLeeway/followsAlignment``): a flexible window on the sub-second alignment grid
+        /// (``WakeLeeway``'s table). Whole-second, hidden (``WakeLeeway/hidden(delay:)``, a 1 s grid) and
+        /// own-tolerance (``WakeLeeway/own(tolerance:delay:)``) windows keep their own.
         let followsAlignment: Bool
         let owner: String
         let payload: Payload
@@ -32,7 +33,7 @@ struct MainWakeUpHeap<Payload> {
             self.window = window
             self.earliest = window.earliest(deadline: deadline)
             self.latest = window.latest(deadline: deadline)
-            self.followsAlignment = window.policy != .precise && window.grid < WakeLeeway.wholeSecondDelay
+            self.followsAlignment = window.followsAlignment
             self.owner = owner
             self.payload = payload
         }
@@ -107,16 +108,12 @@ struct MainWakeUpHeap<Payload> {
     private mutating func remove(at index: Int) -> Entry {
         let removed = entries[index]
         positions[removed.id] = nil
-        let last = entries.count - 1
-        if index != last {
-            entries[index] = entries[last]
-            positions[entries[index].id] = index
-        }
-        entries.removeLast()
-        if index < entries.count {
-            siftDown(index)
-            siftUp(index)
-        }
+        // The last entry fills the hole, unless the hole was the last slot.
+        guard let last = entries.popLast(), index < entries.count else { return removed }
+        entries[index] = last
+        positions[last.id] = index
+        siftDown(index)
+        siftUp(index)
         return removed
     }
 

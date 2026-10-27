@@ -1,0 +1,294 @@
+--- a/Sources/MessagesLabHome/Vendor/catalyst/MediaCache.swift
++++ b/Sources/MessagesLabHome/Vendor/catalyst/MediaCache.swift
+@@ -4,6 +4,8 @@
+ import AppKit
+ #endif
+ import ImageIO
++import CmuxSafeConcurrency // cmux: Mutex (p10-stability-055)
++import os
+ 
+ /// Decoded images for row drawing (Images.load), bounded by bytes, and image sizes from
+ /// metadata (no decode). shared/LONG-MESSAGES.md, media-heavy conversations.
+@@ -13,74 +15,133 @@
+ /// - Thread safe: the row bitmap queue decodes; the main thread asks `isCached`
+ ///   before it draws a row itself (a row whose image is not decoded waits for its
+ ///   off-main bitmap, at its final size from metadata, so no height changes).
+-final class MediaCache: @unchecked Sendable {
++/// cmux: checked `Sendable` (p10-stability-055): the images (as `HomeShared` values), sizes, budget and
++/// counters are one lock state (they were vars under an NSLock in an unchecked class); decoding runs
++/// outside the lock, as before.
++final class MediaCache: Sendable { // memory: consumer via MessagesLabMemoryConsumer (CmuxNextHome)
+     static let shared = MediaCache()
+     /// Rows draw media at most 500 pt wide at 3x (map snapshots); photos at most 300 pt.
+     static let maxPixels = 2048
+-    var budget: Int = {
++    /// cmux: `--image-cache-mb` in bytes, the lab's bench flag: it keeps the cap over the host's share
++    /// (`setBudget(bytes:)`, p07-memory-081); a trim still frees.
++    static let labBudget: Int? = {
+         let a = ProcessInfo.processInfo.arguments
+-        let mb = a.firstIndex(of: "--image-cache-mb").flatMap { a.dropFirst($0 + 1).first }.flatMap { Int.init($0) } ?? 96 // no index math
+-        return min(max(mb, 1), 1 << 20) << 20 // a huge value cannot overflow the shift
++        let mb = a.firstIndex(of: "--image-cache-mb").flatMap { a.dropFirst($0 + 1).first }.flatMap { Int.init($0) } // no index math
++        return mb.map { min(max($0, 1), 1 << 20) << 20 } // a huge value cannot overflow the shift
+     }()
+-    private let lock = NSLock()
+-    private var map: [String: (UIImage, Int, Int)] = [:]
+-    private var sizes: [String: CGSize] = [:]
+-    private var tick = 0
+-    private(set) var bytes = 0
+-    // Stats (bench).
+-    private(set) var decodes = 0, downsampled = 0, inFlight = 0, maxInFlight = 0, evicted = 0
+-    private(set) var decodeMsTotal = 0.0, decodeMsMax = 0.0
++    /// cmux: the cap until the host sizes the cache, without the flag (MessagesLab's 96 MB).
++    static let defaultBudget = 96 << 20
++    private struct Entry: Sendable { var image: HomeShared<UIImage>; var bytes: Int; var tick: Int }
++    private struct State: Sendable {
++        var budget: Int = MediaCache.labBudget ?? MediaCache.defaultBudget
++        var map: [String: Entry] = [:]
++        var sizes: [String: CGSize] = [:]
++        var tick = 0
++        var bytes = 0
++        // Stats (bench).
++        var decodes = 0, downsampled = 0, inFlight = 0, maxInFlight = 0, evicted = 0
++        var decodeMsTotal = 0.0, decodeMsMax = 0.0
++    }
++    // Lock carve-out: the row bitmap queue and main look up and store decoded images; no decode under the lock.
++    private let state = Mutex(State())
++    var budget: Int {
++        get { state.withLock { $0.budget } }
++        set { state.withLock { $0.budget = newValue } }
++    }
++    var bytes: Int { state.withLock { $0.bytes } }
++
++    /// cmux: the host's cap (p07-memory-081); `--image-cache-mb` keeps its own. Lowering it frees nothing: the next
++    /// store trims to it.
++    func setBudget(bytes: Int) {
++        let cap = MediaCache.labBudget ?? max(0, bytes)
++        state.withLock { $0.budget = cap }
++    }
++
++    /// cmux: frees the least recently drawn images until at most `fraction` of the bytes held now remain (0 frees
++    /// every one), off main (p07-memory-081). A row on screen keeps the bitmap it drew; its next draw decodes again.
++    func trim(toFraction fraction: Double) {
++        let freed = state.withLock { s -> [HomeShared<UIImage>] in
++            let target = s.bytes.trimTarget(fraction)
++            var freed: [HomeShared<UIImage>] = []
++            guard s.bytes > target else { return freed }
++            for (k, e) in s.map.sorted(by: { $0.value.tick < $1.value.tick }) {
++                if s.bytes <= target { break }
++                s.map.removeValue(forKey: k); s.bytes -= e.bytes; freed.append(e.image); s.evicted += 1
++            }
++            return freed
++        }
++        if !freed.isEmpty { Reclaimer.release(bitmaps: freed) }
++    }
+ 
+     func cached(_ key: String) -> UIImage? {
+-        lock.lock(); defer { lock.unlock() }
+-        guard let e = map[key] else { return nil }
+-        tick += 1
+-        map.updateValue((e.0, e.1, tick), forKey: key) // dictionary write
+-        return e.0
++        state.withLock { s -> HomeShared<UIImage>? in
++            guard var e = s.map[key] else { return nil }
++            s.tick += 1
++            e.tick = s.tick
++            s.map.updateValue(e, forKey: key) // dictionary write
++            return e.image
++        }?.value
+     }
+-    func isCached(_ key: String) -> Bool { lock.lock(); defer { lock.unlock() }; return map.keys.contains(key) }
++    func isCached(_ key: String) -> Bool { state.withLock { $0.map.keys.contains(key) } }
+ 
+     func store(_ key: String, _ img: UIImage) {
+         let b = img.cgImage.map { $0.bytesPerRow * $0.height } ?? 0
+-        lock.lock()
+-        if let old = map[key] { bytes -= old.1 }
+-        tick += 1
+-        map.updateValue((img, b, tick), forKey: key) // dictionary write
+-        bytes += b
+-        var freed: [UIImage] = []
+-        if bytes > budget {
+-            for (k, e) in map.sorted(by: { $0.value.2 < $1.value.2 }) {
+-                if bytes <= budget * 4 / 5 { break }
+-                map.removeValue(forKey: k); bytes -= e.1; freed.append(e.0); evicted += 1
++        let image = HomeShared(img)
++        let freed = state.withLock { s -> [HomeShared<UIImage>] in
++            if let old = s.map[key] { s.bytes -= old.bytes }
++            s.tick += 1
++            s.map.updateValue(Entry(image: image, bytes: b, tick: s.tick), forKey: key) // dictionary write
++            s.bytes += b
++            var freed: [HomeShared<UIImage>] = []
++            if s.bytes > s.budget {
++                for (k, e) in s.map.sorted(by: { $0.value.tick < $1.value.tick }) {
++                    if s.bytes <= s.budget * 4 / 5 { break }
++                    s.map.removeValue(forKey: k); s.bytes -= e.bytes; freed.append(e.image); s.evicted += 1
++                }
+             }
++            return freed
+         }
+-        lock.unlock()
+-        if !freed.isEmpty { Reclaimer.release(freed) }
++        if !freed.isEmpty { Reclaimer.release(bitmaps: freed) }
++    }
++
++    /// cmux: a hidden transcript released its rows (MessagesWindowView.releaseRows): the decoded images of `refs` at
++    /// `scale` (Images.load's keys) go, freed off main.
++    func evict(refs: Set<String>, scale: CGFloat) {
++        guard !refs.isEmpty else { return }
++        let at = "@" + String(describing: scale)
++        let freed = state.withLock { s -> [HomeShared<UIImage>] in
++            var freed: [HomeShared<UIImage>] = []
++            for ref in refs {
++                guard let e = s.map.removeValue(forKey: ref + at) else { continue }
++                s.bytes -= e.bytes
++                freed.append(e.image)
++            }
++            return freed
++        }
++        if !freed.isEmpty { Reclaimer.release(bitmaps: freed) }
+     }
+ 
+     /// Pixel size from the file's metadata (no decode), cached.
+     func pixelSize(_ url: URL) -> CGSize? {
+         let k = url.absoluteString
+-        lock.lock()
+-        if let s = sizes[k] { lock.unlock(); return s }
+-        lock.unlock()
++        if let s = state.withLock({ $0.sizes[k] }) { return s }
+         guard let src = CGImageSourceCreateWithURL(url as CFURL, [kCGImageSourceShouldCache: false] as CFDictionary),
+               let p = CGImageSourceCopyPropertiesAtIndex(src, 0, nil) as? [CFString: Any],
+               let w = (p.value(for: kCGImagePropertyPixelWidth) as? NSNumber)?.doubleValue, // dictionary reads
+               let h = (p.value(for: kCGImagePropertyPixelHeight) as? NSNumber)?.doubleValue else { return nil }
+         let orient = (p.value(for: kCGImagePropertyOrientation) as? NSNumber)?.intValue ?? 1
+         let s = orient >= 5 ? CGSize(width: h, height: w) : CGSize(width: w, height: h)
+-        lock.lock(); sizes[k] = s; lock.unlock()
++        state.withLock { $0.sizes[k] = s }
+         return s
+     }
+ 
+     /// Decode a raster asset at `assetScale` points per pixel: downsampled above `maxPixels`.
+     func decode(_ url: URL, scale: CGFloat) -> UIImage? {
+         let t0 = CACurrentMediaTime()
+-        lock.lock(); inFlight += 1; maxInFlight = max(maxInFlight, inFlight); lock.unlock()
++        state.withLock { s in s.inFlight += 1; s.maxInFlight = max(s.maxInFlight, s.inFlight) }
+         defer {
+             let ms = (CACurrentMediaTime() - t0) * 1000
+-            lock.lock(); inFlight -= 1; decodes += 1; decodeMsTotal += ms; decodeMsMax = max(decodeMsMax, ms); lock.unlock()
++            state.withLock { s in s.inFlight -= 1; s.decodes += 1; s.decodeMsTotal += ms; s.decodeMsMax = max(s.decodeMsMax, ms) }
+         }
+         if let px = pixelSize(url), max(px.width, px.height) > CGFloat(MediaCache.maxPixels),
+            let src = CGImageSourceCreateWithURL(url as CFURL, [kCGImageSourceShouldCache: false] as CFDictionary),
+@@ -89,7 +150,7 @@
+                kCGImageSourceCreateThumbnailWithTransform: true,
+                kCGImageSourceShouldCacheImmediately: true,
+                kCGImageSourceThumbnailMaxPixelSize: MediaCache.maxPixels] as CFDictionary) {
+-            lock.lock(); downsampled += 1; lock.unlock()
++            state.withLock { $0.downsampled += 1 }
+             // The point size keeps the aspect; callers size rows from `pixelSize`, not from this image.
+             return UIImage(cgImage: cg, scale: scale, orientation: .up)
+         }
+@@ -97,12 +158,13 @@
+         return UIImage(cgImage: cg, scale: scale, orientation: .up).preparingForDisplay() ?? UIImage(cgImage: cg, scale: scale, orientation: .up)
+     }
+ 
+-    var count: Int { lock.lock(); defer { lock.unlock() }; return map.count }
++    var count: Int { state.withLock { $0.map.count } }
+     var stats: [String: Any] {
+-        lock.lock(); defer { lock.unlock() }
+-        return ["imageCacheMB": Double(bytes / 10_486) / 100, "imageCacheBudgetMB": budget >> 20, "imagesCached": map.count,
+-                "decodes": decodes, "downsampled": downsampled, "decodeMsMean": decodes > 0 ? (decodeMsTotal / Double(decodes) * 10).rounded() / 10 : 0,
+-                "decodeMsMax": (decodeMsMax * 10).rounded() / 10, "maxDecodesInFlight": maxInFlight, "evicted": evicted]
++        let s = state.withLock { $0 }
++        return ["imageCacheMB": Double(s.bytes / 10_486) / 100, "imageCacheBudgetMB": s.budget >> 20, "imagesCached": s.map.count,
++                "decodes": s.decodes, "downsampled": s.downsampled,
++                "decodeMsMean": s.decodes > 0 ? (s.decodeMsTotal / Double(s.decodes) * 10).rounded() / 10 : 0,
++                "decodeMsMax": (s.decodeMsMax * 10).rounded() / 10, "maxDecodesInFlight": s.maxInFlight, "evicted": s.evicted]
+     }
+ }
+ 
+@@ -137,16 +199,14 @@
+ }
+ 
+ extension VectorAsset {
+-    private static let siblingLock = NSLock()
+-    private static var siblings: [String: Bool] = [:]
++    /// cmux: rows ask on the main thread and the render queues: the lock owns the cache.
++    private static let siblings = OSAllocatedUnfairLock<[String: Bool]>(initialState: [:])
+     /// Whether `name.png` has a `name.svg` beside it (cached file check, no parse).
+     static func hasSibling(_ ref: String) -> Bool {
+         guard !ref.hasPrefix("file:"), ref.hasSuffix(".png") else { return false }
+-        siblingLock.lock()
+-        if let v = siblings[ref] { siblingLock.unlock(); return v }
+-        siblingLock.unlock()
++        if let v = siblings.withLock({ $0[ref] }) { return v }
+         let v = FileManager.default.fileExists(atPath: Fixtures.assetURL(String(ref.dropLast(4)) + ".svg").path)
+-        siblingLock.lock(); siblings[ref] = v; siblingLock.unlock()
++        siblings.withLock { $0[ref] = v }
+         return v
+     }
+ }
+@@ -163,9 +223,12 @@
+         q.name = "media.thumbs"
+         return q
+     }()
++    // Main thread only; only the decode runs on thumbQueue.
+     private static var thumbs: [String: CGImage] = [:]
+     private static var thumbOrder: [String] = []
+-    private static var thumbPending = Set<String>()
++    /// cmux: pending refs with every waiting request's completion, kept on main (they hold layers; only the ref
++    /// crosses to thumbQueue).
++    private static var thumbPending: [String: [() -> Void]] = [:]
+     static var thumbsMade = 0, thumbMsTotal = 0.0, thumbMsMax = 0.0
+     static let thumbCapacity = 2000
+ 
+@@ -174,14 +237,17 @@
+ 
+     /// Main thread: make the thumbnail off main if it is missing. `done` runs on main.
+     static func requestThumb(_ ref: String, _ done: (() -> Void)? = nil) {
+-        guard thumbs[ref] == nil, !thumbPending.contains(ref) else { return }
+-        thumbPending.insert(ref)
++        guard thumbs[ref] == nil else { return }
++        if thumbPending[ref] != nil { // already decoding: this request waits for the same thumbnail
++            if let done { thumbPending[ref]?.append(done) }
++            return
++        }
++        thumbPending[ref] = done.map { [$0] } ?? []
+         let url = Fixtures.assetURL(ref)
+         thumbQueue.addOperation {
+             let t0 = CACurrentMediaTime()
+-            var img: CGImage?
+-            if let src = CGImageSourceCreateWithURL(url as CFURL, [kCGImageSourceShouldCache: false] as CFDictionary) {
+-                img = CGImageSourceCreateThumbnailAtIndex(src, 0, [
++            let img = CGImageSourceCreateWithURL(url as CFURL, [kCGImageSourceShouldCache: false] as CFDictionary).flatMap { src in
++                CGImageSourceCreateThumbnailAtIndex(src, 0, [
+                     kCGImageSourceCreateThumbnailFromImageIfAbsent: true,
+                     kCGImageSourceCreateThumbnailWithTransform: true,
+                     kCGImageSourceShouldCacheImmediately: true,
+@@ -189,7 +255,7 @@
+             }
+             let ms = (CACurrentMediaTime() - t0) * 1000
+             DispatchQueue.main.async {
+-                thumbPending.remove(ref)
++                let done = thumbPending.removeValue(forKey: ref) ?? []
+                 thumbsMade += 1; thumbMsTotal += ms; thumbMsMax = max(thumbMsMax, ms)
+                 guard let img else { return }
+                 thumbs[ref] = img
+@@ -198,7 +264,7 @@
+                     for k in thumbOrder.prefix(thumbOrder.count - thumbCapacity) { thumbs[k] = nil }
+                     thumbOrder.removeFirst(thumbOrder.count - thumbCapacity)
+                 }
+-                done?()
++                done.forEach { $0() }
+             }
+         }
+     }
+@@ -266,7 +332,7 @@
+     static let enabled = !ProcessInfo.processInfo.arguments.contains("--no-media-prefetch")
+     static let precommit = !ProcessInfo.processInfo.arguments.contains("--no-precommit")
+     func update(_ r: RowRecycler) {
+-        guard ScrollPrefetcher.enabled, RowBitmaps.prerenderEnabled else { return }
++        guard ScrollPrefetcher.enabled else { return } // cmux: no RowBitmaps.prerenderEnabled
+         let y = r.bounds.minY, t = r.clock()
+         if t < r.pageJumpUntil {
+             // A track-click page: the jump is no velocity, and the page code prepares its rows.

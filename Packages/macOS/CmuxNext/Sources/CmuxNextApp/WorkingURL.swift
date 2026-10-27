@@ -1,4 +1,5 @@
 import CmuxNextAgentPane
+import CmuxNextCompat
 import CmuxNextDaemon
 import Foundation
 
@@ -13,7 +14,7 @@ enum WorkingURL {
         guard let text else { return nil }
         let detector = try? NSDataDetector(types: NSTextCheckingResult.CheckingType.link.rawValue)
         let range = NSRange(text.startIndex..., in: text)
-        let links = detector?.matches(in: text, range: range).compactMap(\.url) ?? []
+        let links = detector?.blockingRegexMatches(in: text, range: range).compactMap(\.url) ?? []
         for url in links.reversed() {
             guard ["http", "https"].contains(url.scheme?.lowercased() ?? ""), let host = url.host()?.lowercased(),
                   localHosts.contains(host) || host.hasSuffix(".localhost"),
@@ -28,8 +29,7 @@ enum WorkingURL {
     /// An agent's cwd comes from its page: use it only as an absolute path
     /// to a directory on this Mac (a remote agent's folder is not one).
     static func isDirectory(_ path: String, fileManager: FileManager = .default) -> Bool {
-        var directory: ObjCBool = false
-        return path.hasPrefix("/") && fileManager.fileExists(atPath: path, isDirectory: &directory) && directory.boolValue
+        path.hasPrefix("/") && fileManager.directoryExists(atPath: path)
     }
 }
 

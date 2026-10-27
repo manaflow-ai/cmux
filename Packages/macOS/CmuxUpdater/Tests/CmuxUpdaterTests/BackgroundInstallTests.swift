@@ -1,11 +1,10 @@
 import Foundation
-@preconcurrency import Sparkle
 import Testing
 @testable import CmuxUpdater
 
 @MainActor
 @Suite struct BackgroundInstallTests {
-    private let item = SUAppcastItem(dictionary: [
+    private let item = UpdateAppcastItem(dictionary: [
         "title": "cmux 0.64.17",
         "pubDate": "Wed, 25 Mar 2026 12:00:00 +0000",
         "enclosure": [
@@ -17,9 +16,7 @@ import Testing
     ])!
 
     private func find(_ harness: Harness, into box: ChoiceBox) {
-        // Sparkle owns this state, but UpdateDriver only needs the appcast item and reply here.
-        let sparkleState = unsafeBitCast(NSNull(), to: SPUUserUpdateState.self)
-        harness.controller.driver.showUpdateFound(with: item, state: sparkleState, reply: { choice in
+        harness.controller.driver.showUpdateFound(with: item, reply: { choice in
             MainActor.assumeIsolated { box.choice = choice }
         })
     }
@@ -192,8 +189,7 @@ import Testing
     @Test func sparklesSilentInstallNamesTheStagedUpdate() {
         let harness = Harness()
         harness.controller.installsUpdatesInBackground = true
-        let updater = unsafeBitCast(NSNull(), to: SPUUpdater.self)
-        _ = harness.controller.driver.updater(updater, willInstallUpdateOnQuit: item, immediateInstallationBlock: {})
+        _ = harness.controller.driver.handleWillInstallUpdateOnQuit(item, immediateInstallHandler: {})
         #expect(harness.controller.stagedUpdate?.versionString == "0.64.17")
         #expect(harness.controller.stagedUpdate?.displayVersionString == "0.64.17")
 

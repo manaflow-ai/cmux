@@ -9,7 +9,8 @@ mod systemd;
 mod windows;
 
 pub use launchd::{
-    APP_BUNDLE_PROGRAM, app_service_agent_plist, launch_agent_plist, launch_daemon_plist,
+    APP_BUNDLE_PROGRAM, LaunchdJob, app_service_agent_plist, launch_agent_plist,
+    launch_daemon_plist,
 };
 pub use systemd::{
     systemd_app_server_template, systemd_system_unit, systemd_update_path_unit,

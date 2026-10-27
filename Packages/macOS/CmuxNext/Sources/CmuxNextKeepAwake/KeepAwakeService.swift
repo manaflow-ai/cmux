@@ -2,6 +2,7 @@ import CmuxNextBridge
 import CmuxNextCompat
 public import CmuxNextDaemon
 public import CmuxNextSettings
+public import CmuxNextWakeups
 import Foundation
 
 /// Holds off idle system sleep while an agent on this Mac works
@@ -17,7 +18,15 @@ public final class KeepAwakeService {
     }
     private var activity: (any NSObjectProtocol)?
     /// The setting and agent-work observation; app lifetime, cancelled never.
-    private var observation: Task<Void, Never>?
+    private var observation: ServiceObservation<Inputs?>?
+
+    /// What the hold follows from the settings file and the agents: one value, so the hold never
+    /// drops between the fields.
+    nonisolated struct Inputs: Equatable, Sendable {
+        var agents: SessionKeepAwakeSetting
+        var phone: PhoneKeepAwakeSetting
+        var agentsWorking: Bool
+    }
 
     /// A service with nothing asking (the app's is ``shared``; tests make their own).
     public init() {}
@@ -25,21 +34,28 @@ public final class KeepAwakeService {
     /// Whether the idle-sleep hold is taken now.
     public var isHolding: Bool { activity != nil }
 
-    /// Follows the setting and local agent work. Call once the settings
+    /// Follows the setting and local agent work on `mainWork`. Call once the settings
     /// controller exists; a second call does nothing. The power source comes
     /// from the App (``setOnBattery(_:)``).
-    public func start(settings: SettingsController, store: DaemonStore) {
+    public func start(settings: SettingsController, store: DaemonStore, on mainWork: MainWorkScheduler) {
+        follow(on: mainWork) {
+            // The defaults before the first load are not the person's choice: nothing applies until it.
+            guard settings.loadCount >= 1 else { return nil }
+            let sessions = settings.snapshot.sessions
+            return Inputs(agents: sessions.keepAwake, phone: sessions.phoneKeepAwake,
+                          agentsWorking: KeepAwakeService.agentsWorking(store))
+        }
+    }
+
+    /// Follows `read` (nil: not known yet). `background`: the hold shows nothing on screen, and a
+    /// person's settings edit still applies in their turn (ServiceObservation's person cause).
+    func follow(on mainWork: MainWorkScheduler, read: @escaping @MainActor () -> Inputs?) {
         guard observation == nil else { return }
-        observation = Task { [weak self] in
-            await settings.waitForLoad(atLeast: 1)
-            for await (sessions, working) in ObservationStream({
-                (settings.snapshot.sessions, KeepAwakeService.agentsWorking(store))
-            }) {
-                // One write, so the hold never drops between the fields.
-                guard var next = self?.policy else { return }
-                (next.agents, next.phone, next.agentsWorking) = (sessions.keepAwake, sessions.phoneKeepAwake, working)
-                self?.policy = next
-            }
+        observation = ServiceObservation(.background, owner: "KeepAwakeService.inputs", on: mainWork, read: read) { [weak self] inputs in
+            guard let self, let inputs else { return }
+            var next = policy
+            (next.agents, next.phone, next.agentsWorking) = (inputs.agents, inputs.phone, inputs.agentsWorking)
+            policy = next
         }
     }
 

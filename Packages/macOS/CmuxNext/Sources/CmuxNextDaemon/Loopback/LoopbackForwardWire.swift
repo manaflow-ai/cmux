@@ -6,7 +6,7 @@ import Foundation
 /// `loopback-open`: a TCP stream to the daemon machine's own loopback.
 struct LoopbackOpenRequest: DaemonRequest {
     typealias Response = LoopbackOpenResponse
-    static let command = "loopback-open"
+    static let commandName: DaemonCommandName = "loopback-open"
     static let requiredCapability: String? = DaemonCapability.loopbackForward.rawValue
     var stream: UInt64
     var host: String

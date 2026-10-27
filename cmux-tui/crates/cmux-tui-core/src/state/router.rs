@@ -261,6 +261,9 @@ fn strip_request(request: &ParsedResourceRequest) -> Result<StripRequest, Resour
     ))
 }
 
+/// The router's read closure on the registry connection: a checked
+/// `sqlite` scope at the handler's line (`RegistryConnection::get`), every
+/// function between here and the connection `#[track_caller]`.
 #[track_caller]
 fn read<T>(
     mux: &Mux,
@@ -1093,3 +1096,7 @@ fn screen_change(
         _ => ScreenChange::GroupRemove { screens: strings(fields, "screens") },
     })
 }
+
+#[cfg(test)]
+#[path = "router_blocking_tests.rs"]
+mod blocking_tests;

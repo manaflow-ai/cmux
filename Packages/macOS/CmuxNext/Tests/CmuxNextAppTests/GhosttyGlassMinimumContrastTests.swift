@@ -1,5 +1,6 @@
 import AppKit
 @testable import CmuxNextTerminal
+import CmuxNextWakeups
 import GhosttyNextKit
 import IOSurface
 import Testing
@@ -55,7 +56,7 @@ import Testing
     /// it presents.
     static func renderText(config text: String) async throws -> TextPixelSample {
         _ = NSApplication.shared
-        _ = GhosttyRuntime.shared // runs ghostty_init, which config_new needs
+        GhosttyRuntime.startedForTests()
         // A fresh config keeps the runner's own Ghostty config out.
         let config = try #require(ghostty_config_new())
         text.withCString { ghostty_config_load_string(config, $0, UInt(text.utf8.count), "cmux-next-test") }
@@ -63,7 +64,7 @@ import Testing
         let theme = GhosttyThemeConfig(config: config, themeName: "cmux-next-test", colors: nil)
 
         let io = ScriptedTerminalIO()
-        let session = TerminalSession(io: io)
+        let session = TerminalSession(io: io, mainWork: MainWorkScheduler(budget: MainFrameBudget()))
         try #require(session.surfaceView.surface != nil, "libghostty created no surface")
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 480, height: 240), styleMask: [.borderless],
                               backing: .buffered, defer: false)
