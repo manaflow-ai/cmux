@@ -36,6 +36,12 @@ pub(crate) const TABLE: &[crate::FeatureDef] = &[
         process: crate::Process::Daemon,
     },
     crate::FeatureDef {
+        name: "mcpCatalogHost",
+        defaults: crate::Defaults { dev: false, nightly: false, release: false },
+        kind: crate::Kind::PerfPath,
+        process: crate::Process::Daemon,
+    },
+    crate::FeatureDef {
         name: "memoryAcpmuxPressure",
         defaults: crate::Defaults { dev: false, nightly: false, release: false },
         kind: crate::Kind::Labs,
@@ -86,6 +92,8 @@ pub mod feature {
         ENERGY_SAVER = "energySaver",
         /// The acpmux daemon and a headless cmux-tui owner exit after 10 minutes with no client, no live agent, no live terminal (own or holder-owned) and no owning app; an app that reconnects within the 10 minutes keeps them.
         LEFTOVER_DAEMON_IDLE_EXIT = "leftoverDaemonIdleExit",
+        /// Every agent chat's cmux MCP server becomes a small stdio relay to one shared cmux MCP host per app build, which keeps the app's action catalog once instead of once per agent; the host exits 5 minutes after its last agent leaves.
+        MCP_CATALOG_HOST = "mcpCatalogHost",
         /// acpmux and its TUI follow system memory pressure: at warning they empty caches rebuilt on demand (parsed login files, idle chats' error tails, the TUI's transcript layout); at critical they also drop live model lists and each chat's prompt outcomes past its newest 8.
         MEMORY_ACPMUX_PRESSURE = "memoryAcpmuxPressure",
         /// Daemon Kitty image total sized from installed RAM (64 MiB at 8 GB, 512 MiB at 64 GB) and shared by visibility: a terminal on screen keeps its grant, hidden ones get the rest, least recently shown lose images first; critical pressure clears decoded pixel copies.
