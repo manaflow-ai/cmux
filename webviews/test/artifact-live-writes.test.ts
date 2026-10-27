@@ -111,3 +111,53 @@ test("a fence still updates when a page prepend and new tail arrive together", (
   expect(source.read(rows.sorted()).artifact.code).toContain("Second");
   source.dispose();
 });
+
+test("a written preview hands cached and replaced producers over once, then consumes every delta", () => {
+  const cached = [row("first", 1, [write("<p>First</p>")])];
+  const source = new ArtifactLiveSource({ kind: "html", lang: "html", path, code: "<p>First</p>" }, cached);
+  const first = new OrderedRows();
+  put(first, cached[0]!, 1);
+  put(first, row("concurrent", 1, [write("<p>Second</p>")]), 2);
+  for (let i = 0; i < 2000; i++) put(first, { id: `tail-${i}`, version: 1, at: i, kind: "assistant" }, i + 3);
+  expect(source.read(first.sorted()).artifact.code).toBe("<p>Second</p>");
+  put(first, row("concurrent", 2, [write("<p>Third</p>")]), 2003);
+  expect(source.read(first.sorted()).artifact.code).toBe("<p>Third</p>");
+  const second = new OrderedRows();
+  put(second, row("current", 1, [write("<p>Reconnected</p>")]), 2004);
+  expect(source.read(second.sorted()).artifact.code).toBe("<p>Reconnected</p>");
+  put(first, row("concurrent", 3, [write("<p>Old producer</p>")]), 2005);
+  expect(source.read(first.sorted()).artifact.code).toBe("<p>Reconnected</p>");
+  put(second, row("current", 2, [write("<p>Live again</p>")]), 2006);
+  expect(source.read(second.sorted()).artifact.code).toBe("<p>Live again</p>");
+  source.dispose();
+});
+
+test("a fence uses event revisions across a bounded-tail rebuild and producer replacement", () => {
+  const text = (body: string) => "```markdown\n# Notes\n\n" + body + "\n```";
+  const fence = (version: number, body: string): AcpmuxRow => ({
+    id: "fence",
+    version,
+    at: 1,
+    kind: "assistant",
+    text: text(body),
+  });
+  const rows = new OrderedRows();
+  put(rows, fence(100, "First"), 1000);
+  const source = new ArtifactLiveSource(
+    { kind: "markdown", lang: "md", code: "# Notes\n\nFirst", identity: "fence\u00000", revision: 100 },
+    rows.sorted(),
+  );
+  rows.clear();
+  put(rows, fence(1, "After bounded rebuild"), 1001);
+  expect(source.read(rows.sorted()).artifact.code).toContain("After bounded rebuild");
+  const next = new OrderedRows();
+  put(next, fence(1, "After reconnect"), 1002);
+  const connected = source.read(next.sorted()).artifact;
+  expect(connected.code).toContain("After reconnect");
+  expect(connected.revision).toBeGreaterThan(100);
+  put(rows, fence(101, "Late old producer"), 1003);
+  expect(source.read(rows.sorted()).artifact.code).toContain("After reconnect");
+  put(next, fence(2, "Keeps streaming"), 1004);
+  expect(source.read(next.sorted()).artifact.code).toContain("Keeps streaming");
+  source.dispose();
+});

@@ -487,3 +487,55 @@ test("the panel names the document, copies when saving fails, and hands focus ba
   expect(window.document.activeElement).toBe(opener);
   opener.remove();
 });
+
+test("the unavailable highlighter keeps a fence's live source identity", async () => {
+  const { createRoot } = await import("react-dom/client");
+  const { HighlightedCode } = await import("../src/agent-session/acpmux/conversation/HighlightedCode");
+  const { ArtifactContext } = await import("../src/agent-session/acpmux/conversation/artifactPreview");
+  const opened: unknown[] = [];
+  act(() => root?.unmount());
+  root = createRoot(host);
+  act(() =>
+    root!.render(
+      <ArtifactContext.Provider value={(artifact) => opened.push(artifact)}>
+        <HighlightedCode lang="markdown" code="# Notes" artifactIdentity="reply\u00000" artifactRevision={4} />
+      </ArtifactContext.Provider>,
+    ),
+  );
+  act(() => button("Open preview")!.click());
+  expect(opened).toEqual([expect.objectContaining({ identity: "reply\u00000", revision: 4 })]);
+});
+
+test("nested quoted and list fences keep recursive identities that resolve the matching source", async () => {
+  const { createRoot } = await import("react-dom/client");
+  const { Markdown } = await import("../src/agent-session/acpmux/conversation/Markdown");
+  const { ArtifactContext } = await import("../src/agent-session/acpmux/conversation/artifactPreview");
+  const { artifactForIdentity } = await import("../src/agent-session/acpmux/conversation/artifactVersions");
+  const sources = [
+    "> ```markdown\n> # Notes\n>\n> First\n> ```\n",
+    "- Document\n\n  ```markdown\n  # Notes\n\n  First\n  ```\n",
+  ];
+  for (const text of sources) {
+    const opened: { identity?: string }[] = [];
+    act(() => root?.unmount());
+    root = createRoot(host);
+    act(() =>
+      root!.render(
+        <ArtifactContext.Provider value={(artifact) => opened.push(artifact)}>
+          <Markdown artifactIdentity="nested" artifactRevision={2} plainCode>
+            {text}
+          </Markdown>
+        </ArtifactContext.Provider>,
+      ),
+    );
+    act(() => button("Open preview")!.click());
+    const identity = opened[0]?.identity;
+    expect(identity).toBeDefined();
+    expect(
+      artifactForIdentity(
+        [{ id: "nested", version: 3, kind: "assistant", text: text.replace("First", "Second") }],
+        identity!,
+      )?.code,
+    ).toContain("Second");
+  }
+});
