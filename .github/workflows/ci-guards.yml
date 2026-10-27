@@ -927,9 +927,9 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_quota_hold_gate.py
 
-      - name: Validate the PR size advisory and its exclusion allowlist
+      - name: Validate the PR size check and its exclusion allowlist
         if: ${{ !cancelled() && matrix.group == 'ci' }}
-        run: python3 tests/test_ci_pr_size_advisory.py
+        run: python3 tests/test_ci_pr_size.py
 
       - name: Validate pr-checks skips advisory jobs only on base-only updates
         if: ${{ !cancelled() && matrix.group == 'ci' }}
@@ -1687,6 +1687,10 @@ jobs:
       - name: Validate compile jobs run on the 16 or 32 vCPU size
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_linux_compile_runners.py
+
+      - name: Validate Blacksmith Linux labels fail over to another Blacksmith size
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_blacksmith_linux_failover.py
 
       - name: Validate the macOS cross-compile shadow jobs stay compare-only
         if: ${{ !cancelled() && matrix.group == 'ci' }}

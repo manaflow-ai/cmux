@@ -1,6 +1,22 @@
-CREATE TYPE "run_status" AS ENUM ('queued', 'running', 'cancelling', 'succeeded', 'failed', 'cancelled');--> statement-breakpoint
-CREATE TYPE "run_attempt_status" AS ENUM ('queued', 'leased', 'running', 'succeeded', 'failed', 'cancelled', 'expired');--> statement-breakpoint
-CREATE TYPE "run_event_kind" AS ENUM ('run.created', 'attempt.queued', 'attempt.started', 'attempt.heartbeat', 'attempt.output', 'attempt.artifact', 'attempt.succeeded', 'attempt.failed', 'run.cancel_requested', 'run.completed');--> statement-breakpoint
+DO $$ BEGIN
+  CREATE TYPE "run_status" AS ENUM ('queued', 'running', 'cancelling', 'succeeded', 'failed', 'cancelled');
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;--> statement-breakpoint
+DO $$ BEGIN
+  CREATE TYPE "run_attempt_status" AS ENUM ('queued', 'leased', 'running', 'succeeded', 'failed', 'cancelled', 'expired');
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;--> statement-breakpoint
+DO $$ BEGIN
+  CREATE TYPE "run_event_kind" AS ENUM ('run.created', 'attempt.queued', 'attempt.started', 'attempt.heartbeat', 'attempt.output', 'attempt.artifact', 'attempt.succeeded', 'attempt.failed', 'run.cancel_requested', 'run.completed');
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;--> statement-breakpoint
+-- Replay-safe: the enums above and the tables below are created only where they do not exist yet.
+-- A database with main's Run model (main's 20261017150000_run_api and the migrations after it)
+-- already has runs, run_attempts, run_events and run_artifacts in main's shape, so none of the
+-- statements below run there, the indexes on next-only columns included. On a fresh database they
+-- run unchanged and create exactly what this migration always created.
+DO $$ BEGIN
+IF to_regclass('public.runs') IS NULL THEN
 CREATE TABLE "runs" (
   "id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
   "user_id" text NOT NULL,
@@ -19,10 +35,10 @@ CREATE TABLE "runs" (
   "updated_at" timestamp with time zone DEFAULT now() NOT NULL,
   CONSTRAINT "runs_desired_attempts_check" CHECK ("desired_attempts" between 1 and 32),
   CONSTRAINT "runs_provider_check" CHECK ("provider" in ('cloud-vm'))
-);--> statement-breakpoint
-CREATE UNIQUE INDEX "runs_user_idempotency_key_unique" ON "runs" ("user_id", "idempotency_key") WHERE "idempotency_key" is not null;--> statement-breakpoint
-CREATE INDEX "runs_user_created_idx" ON "runs" ("user_id", "created_at", "id");--> statement-breakpoint
-CREATE INDEX "runs_status_updated_idx" ON "runs" ("status", "updated_at");--> statement-breakpoint
+);
+CREATE UNIQUE INDEX "runs_user_idempotency_key_unique" ON "runs" ("user_id", "idempotency_key") WHERE "idempotency_key" is not null;
+CREATE INDEX "runs_user_created_idx" ON "runs" ("user_id", "created_at", "id");
+CREATE INDEX "runs_status_updated_idx" ON "runs" ("status", "updated_at");
 CREATE TABLE "run_attempts" (
   "id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
   "run_id" uuid NOT NULL REFERENCES "runs"("id") ON DELETE CASCADE,
@@ -49,11 +65,11 @@ CREATE TABLE "run_attempts" (
   "created_at" timestamp with time zone DEFAULT now() NOT NULL,
   "updated_at" timestamp with time zone DEFAULT now() NOT NULL,
   CONSTRAINT "run_attempts_lease_generation_check" CHECK ("lease_generation" >= 0)
-);--> statement-breakpoint
-CREATE UNIQUE INDEX "run_attempts_run_ordinal_unique" ON "run_attempts" ("run_id", "ordinal");--> statement-breakpoint
-CREATE INDEX "run_attempts_lease_idx" ON "run_attempts" ("status", "lease_expires_at");--> statement-breakpoint
-CREATE INDEX "run_attempts_terminal_retention_idx" ON "run_attempts" ("status", "terminal_retain_until", "cleanup_lease_expires_at");--> statement-breakpoint
-CREATE INDEX "run_attempts_run_status_idx" ON "run_attempts" ("run_id", "status");--> statement-breakpoint
+);
+CREATE UNIQUE INDEX "run_attempts_run_ordinal_unique" ON "run_attempts" ("run_id", "ordinal");
+CREATE INDEX "run_attempts_lease_idx" ON "run_attempts" ("status", "lease_expires_at");
+CREATE INDEX "run_attempts_terminal_retention_idx" ON "run_attempts" ("status", "terminal_retain_until", "cleanup_lease_expires_at");
+CREATE INDEX "run_attempts_run_status_idx" ON "run_attempts" ("run_id", "status");
 CREATE TABLE "run_events" (
   "id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
   "run_id" uuid NOT NULL REFERENCES "runs"("id") ON DELETE CASCADE,
@@ -64,11 +80,11 @@ CREATE TABLE "run_events" (
   "kind" "run_event_kind" NOT NULL,
   "payload" jsonb DEFAULT '{}'::jsonb NOT NULL,
   "created_at" timestamp with time zone DEFAULT now() NOT NULL
-);--> statement-breakpoint
-CREATE UNIQUE INDEX "run_events_run_sequence_unique" ON "run_events" ("run_id", "sequence");--> statement-breakpoint
-CREATE UNIQUE INDEX "run_events_attempt_external_unique" ON "run_events" ("attempt_id", "external_id") WHERE "attempt_id" is not null and "external_id" is not null;--> statement-breakpoint
-CREATE UNIQUE INDEX "run_events_attempt_sequence_unique" ON "run_events" ("attempt_id", "attempt_sequence") WHERE "attempt_id" is not null and "attempt_sequence" is not null;--> statement-breakpoint
-CREATE INDEX "run_events_run_cursor_idx" ON "run_events" ("run_id", "sequence", "id");--> statement-breakpoint
+);
+CREATE UNIQUE INDEX "run_events_run_sequence_unique" ON "run_events" ("run_id", "sequence");
+CREATE UNIQUE INDEX "run_events_attempt_external_unique" ON "run_events" ("attempt_id", "external_id") WHERE "attempt_id" is not null and "external_id" is not null;
+CREATE UNIQUE INDEX "run_events_attempt_sequence_unique" ON "run_events" ("attempt_id", "attempt_sequence") WHERE "attempt_id" is not null and "attempt_sequence" is not null;
+CREATE INDEX "run_events_run_cursor_idx" ON "run_events" ("run_id", "sequence", "id");
 CREATE TABLE "run_artifacts" (
   "id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
   "run_id" uuid NOT NULL REFERENCES "runs"("id") ON DELETE CASCADE,
@@ -82,6 +98,8 @@ CREATE TABLE "run_artifacts" (
   "created_at" timestamp with time zone DEFAULT now() NOT NULL,
   CONSTRAINT "run_artifacts_size_check" CHECK ("size_bytes" >= 0 and "size_bytes" <= 536870912),
   CONSTRAINT "run_artifacts_digest_check" CHECK ("digest" ~ '^sha256:[0-9a-fA-F]{64}$')
-);--> statement-breakpoint
-CREATE UNIQUE INDEX "run_artifacts_attempt_name_unique" ON "run_artifacts" ("attempt_id", "name");--> statement-breakpoint
+);
+CREATE UNIQUE INDEX "run_artifacts_attempt_name_unique" ON "run_artifacts" ("attempt_id", "name");
 CREATE INDEX "run_artifacts_run_idx" ON "run_artifacts" ("run_id", "created_at", "id");
+END IF;
+END $$;
