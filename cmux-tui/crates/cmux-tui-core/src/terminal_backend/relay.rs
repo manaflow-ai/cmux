@@ -13,13 +13,11 @@
 //! - client to app: bytes from the socket become data frames within the
 //!   app's credit.
 //!
-//! Both pumps carry the person's daemon connection for the far session:
-//! its keys go out on `cmux-link-in` and their echo comes back on
-//! `cmux-link-out`. They run at the echo path class, as `holder-link` does
-//! for a held terminal (Chromium runs the IO thread every input event
-//! crosses at `ThreadType::kDisplayCritical`,
-//! base/threading/platform_thread.h). Their waits are the link's condition
-//! variable and the socket, so they do not disallow blocking.
+//! Both pumps run at the request class, not the echo path class: every
+//! byte they move also crosses the app server's stdio threads
+//! (`cmux-app-server-w:{name}`, `cmux-app-server:{name}`), which have no
+//! class, so raising only the pumps would not put the relayed echo on the
+//! echo path class (plans/cmux-next/threading-model.md).
 
 use crate::panic_free::RecoverPoison;
 use std::collections::HashMap;
@@ -44,9 +42,8 @@ pub(crate) type ClientGone = Arc<dyn Fn(&str) + Send + Sync>;
 const CHUNK: usize = 64 * 1024;
 /// Longest socket path most platforms accept (`sun_path` is 104 on macOS).
 const MAX_SOCKET_PATH: usize = 100;
-/// The class of `cmux-link-in` and `cmux-link-out` (closed user-interactive
-/// list, plans/cmux-next/threading-model.md).
-const PUMP_QOS: ThreadQos = crate::echo_thread::ECHO_PATH_QOS;
+/// The class of `cmux-link-in` and `cmux-link-out` (Chromium `kDefault`).
+const PUMP_QOS: ThreadQos = crate::thread_qos::ThreadType::Interactive.qos();
 /// The class of `cmux-link-accept`: the person's connect waits for it, no
 /// key echo does (the daemon's own accept threads, `mux-server`).
 const ACCEPT_QOS: ThreadQos = crate::thread_qos::ThreadType::Interactive.qos();

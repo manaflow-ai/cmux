@@ -202,7 +202,7 @@ fn every_role_runs_at_its_class_in_its_body() {
 /// its body) and the kernel's report agree. A watcher holding a ranked lock
 /// is raised for that moment, and a row is listed before its class is set,
 /// so a single read may see neither.
-fn new_rows_at_rest(
+pub(crate) fn new_rows_at_rest(
     name: &str,
     before: &[Option<u64>],
     class: ThreadQos,

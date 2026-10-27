@@ -86,4 +86,4 @@ pub fn set(thread_type: ThreadType) -> QosChange {
 
 #[cfg(test)]
 #[path = "thread_qos_tests.rs"]
-mod tests;
+pub(crate) mod tests;
