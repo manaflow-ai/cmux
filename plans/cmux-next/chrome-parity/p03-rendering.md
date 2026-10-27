@@ -1356,7 +1356,7 @@ every task that changes behavior or performance and is not repeated per row.
 - Acceptance: counter test: `createWithActiveCGDisplays` not called with the flag; standalone behavior unchanged.
 - Test phase: zig build test (initialized submodule).
 - Size M. Queue: MQ-displaylinks.
-- As built (ghostty-next branch cp/p03-rendering-082, b7770f381, draft PR manaflow-ai/ghostty-next#59; 083 writes
+- As built (ghostty-next branch cp/p03-rendering-082, 7436f3b9a, draft PR manaflow-ai/ghostty-next#59; 083 writes
   against this):
   - `ghostty_surface_config_s` gets `bool vsync_external`, `ghostty_surface_vsync_wanted_cb vsync_wanted_cb`,
     `void* vsync_userdata`, after `io_write_userdata` (64-bit offsets 112, 120, 128; size 136).
@@ -1377,7 +1377,10 @@ every task that changes behavior or performance and is not repeated per row.
     its display's clock (083).
   - Pacing lives in `ghostty-next/src/renderer/vsync.zig` (`Pacer`). Standalone, the link is made, run and stopped
     as before; the "vsync external" tests count the link factory (0 calls of `createWithActiveCGDisplays` with the
-    flag). The gitlink and the GhosttyNextKit pin do not move here: 082 rides pin 1 (task 079).
+    flag). The flag reaches the renderer as `renderer.Options.vsync_external`, which `Surface.zig` sets from the
+    embedded surface only (`apprt.runtime == apprt.embedded`, so a renamed field fails the lib build). The test
+    "renderer external vsync: ..." runs `renderer.Renderer`'s own sync with its real link factory and counts 0
+    link creates. The gitlink and the GhosttyNextKit pin do not move here: 082 rides pin 1 (task 079).
 
 #### p03-rendering-083 cmux drives surfaces from VSyncHub
 - Files: `.../CmuxNextTerminal/TerminalVSync.swift` (new), `TerminalSurfaceView.swift`, `GhosttyRuntimeCallbacks.swift`.
