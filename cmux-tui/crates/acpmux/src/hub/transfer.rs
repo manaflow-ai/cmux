@@ -137,8 +137,7 @@ impl Hub {
         bundle: &Path,
         name: Option<String>,
     ) -> Result<Arc<Session>, RpcError> {
-        let session = self.import_into(bundle, name, false, None, false, false).await?;
-        Ok(session)
+        self.import_into(bundle, name, false, None, false, false).await
     }
 
     /// `import`; a `live` one (a chat moved here, `transfer_in.rs`) has its queue back before
@@ -175,8 +174,7 @@ impl Hub {
                 return Err(RpcError::invalid_params(format!("session name {n:?} is taken")));
             }
         }
-        // Claim the id so a concurrent import of the same bundle fails
-        // instead of writing the store and log a second time.
+        // Claim the id so a concurrent import of the same bundle fails, never writing twice.
         let _reservation = {
             let sessions = self.sessions.lock().unwrap();
             let mut importing = self.importing.lock().unwrap();
@@ -212,7 +210,9 @@ impl Hub {
             return Err(e.with_data(json!({"reason": "cwd_missing", "cwd": meta.cwd})));
         }
         meta.status = SessionStatus::Idle;
-        // A family lives on one daemon: a moved-in sub-session is a root here.
+        // An older daemon's approve-all that could be vmHost's asks (`policy_source.rs`), judged
+        // before a family, which lives on one daemon, makes a moved-in sub-session a root here.
+        super::policy_source::settle_imported_grant(&mut meta);
         meta.subsession = None;
         meta.lineage = None;
         self.prepare_harness_state(&meta, replace_durable)

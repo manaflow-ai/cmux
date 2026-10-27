@@ -724,7 +724,7 @@ impl Hub {
     }
 
     pub(super) fn load_from_store(self: &Arc<Self>, deferred: bool) {
-        let Ok(metas) = self.store.list().inspect_err(|e| tracing::warn!("store list failed: {e}"))
+        let Ok(mut metas) = self.store.list().inspect_err(|e| tracing::warn!("store list: {e}"))
         else {
             return;
         };
@@ -741,10 +741,10 @@ impl Hub {
                 adopting: hosted.clone(),
                 hosted: hosted.clone(),
             };
+        // An older daemon's approve-all that could be vmHost's asks now (`policy_source.rs`).
+        self.settle_legacy_grants(&mut metas);
         let mut sessions = self.sessions.lock().unwrap();
         for mut meta in metas {
-            // An older daemon's approve-all that could be vmHost's asks now (`policy_source.rs`).
-            self.clear_legacy_grant_at_load(&mut meta);
             // An agent whose host still runs keeps its saved status until adoption reaches it:
             // it works on meanwhile, never shown idle (claude-sr2, 2026-10-26).
             let kept = deferred
