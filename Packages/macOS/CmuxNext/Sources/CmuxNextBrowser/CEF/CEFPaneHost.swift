@@ -201,6 +201,7 @@ final class CEFPaneHost {
     func conceal(_ tab: CEFTab) {
         lifecycleTrace.record(tab.id, "host-conceal wasShown=\(visibleTab === tab)")
         guard visibleTab === tab else { return }
+        hostedPageView?.exclusiveAccess.showing(nil) // a hidden page's fullscreen and locks end, as Chrome's (task 229)
         visibleTab = nil
         suggestionsFollowShownBrowser(nil)
     }
@@ -443,6 +444,9 @@ final class CEFPaneHost {
     }
 
     func removed(_ tab: CEFTab) {
+        // A closed page's fullscreen zoom, locks and hidden cursor end with it (task 229); a moved one exits its own.
+        if tab.isClosed || tab.browserID == nil { tab.contentFullscreenEnded() }
+        if visibleTab === tab { hostedPageView?.exclusiveAccess.showing(nil) }
         tabs.removeAll { $0 === tab }
         if windowTab === tab { windowTab = nil }
         if visibleTab === tab { visibleTab = nil }

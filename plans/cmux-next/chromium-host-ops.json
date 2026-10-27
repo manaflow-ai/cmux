@@ -986,7 +986,7 @@
       "args": [
         {
           "name": "fn",
-          "type": "void (*)(void* context, int event, int browser_id, int escape_locked)",
+          "type": "void (*)(void* context, int event, int browser_id, int detail)",
           "function_pointer": true
         },
         {
@@ -1000,7 +1000,7 @@
       "refresh_events": [],
       "pending_keys": [],
       "reply_event": null,
-      "reason": "Function-pointer arg. The client keeps fn and calls it on main with the POINTER_LOCK_REQUESTED, POINTER_UNLOCKED, KEYBOARD_LOCK_REQUESTED and KEYBOARD_UNLOCKED events the host pushes; the host installs its own fork handler (host_dispatch.mm), so only the handler on/off crosses the wire (task 229)."
+      "reason": "Function-pointer arg. The client (HOST/client/remote_shim.mm, host_locks.h LockClient) keeps fn and calls it on main with the POINTER_LOCK_REQUESTED, POINTER_UNLOCKED, KEYBOARD_LOCK_REQUESTED and KEYBOARD_UNLOCKED calls the host pushes as CMUX_SHIM_LOCK; the host installs its own fork handler (host_dispatch.mm HandleLockHandler), so only the handler on/off crosses the wire, as kOpSetLockHandler with i32 installed, sent to a host whose HELLO lists kLocksHelloName and again to every later host; when a host ends, fn hears the unlock of every lock it may have held (task 229)."
     },
     {
       "name": "cmux_shim_browser_pointer_lock_answer",
@@ -4806,6 +4806,12 @@
       "value": 60,
       "refreshes": [],
       "reason": "A field's suggestions as data (fork API 31's suggestion handler, tasks 172 and 061): SHOW, SELECT, HIDE and ANNOUNCE for the page view's suggestion list (ChromiumHostSuggestionList), as Chrome's AutofillPopupController drives its view."
+    },
+    {
+      "kind": "CMUX_SHIM_LOCK",
+      "value": 61,
+      "refreshes": [],
+      "reason": "Host mode only: one call of the fork's lock delegate (task 227) while cmux's lock handler is installed: request = cmux_shim_lock_event_t, a = its detail. The remote shim calls cmux's lock fn with it (host_locks.h LockClient), never cmux's event fn; cmux locks its cursor and keys as Chrome's app shim view does (RenderWidgetHostNSView SetCursorLocked, LockKeyboard; task 229)."
     }
   ],
   "optional_exports": [

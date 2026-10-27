@@ -63,6 +63,10 @@
 //                                              that display's, task 221); held as
 //                                              kOpBrowserAccessibilityToken is, the newest
 //                                              one only
+//   kOpSetLockHandler                           i32 installed (host_locks.h, task 229): the
+//                                              host's own lock handler goes into the fork
+//                                              or out of it once initialize returned; a
+//                                              host whose fork lacks it changes nothing
 // Every preinit op comes before kOpInitialize (the remote shim queues them,
 // task 014); everything else after it.
 //
@@ -80,6 +84,9 @@
 //   kOpEvent   CMUX_SHIM_WHEEL_ACK: the fork's ack of one of a page's wheels,
 //              with that wheel's input seq (host_wheel_ack.h); the HELLO lists
 //              kWheelAcksHelloName when the fork has the handler
+//   kOpEvent   CMUX_SHIM_LOCK: one call of the fork's lock delegate while
+//              cmux's handler is installed (host_locks.h); the HELLO lists
+//              kLocksHelloName when the fork has the delegate
 //
 // Everything here runs on the host's main thread (Chromium's UI thread), so
 // it holds no lock (p01-process section 4, rule 1).
@@ -101,6 +108,7 @@
 #include "chromium_host_tlv.h"
 #include "chromium_host_wire.h"
 #include "host_energy_saver.h"
+#include "host_locks.h"
 #include "host_mirror.h"
 #include "host_page_activity.h"
 #include "host_resize.h"
@@ -241,6 +249,9 @@ class HostContext {
   // fork's cmux_wheel_ack_t. Forwards CMUX_SHIM_WHEEL_ACK with the input seq
   // of the browser's oldest unacked wheel (WheelSent).
   static void OnWheelAck(void* ctx, int browser_id, const void* ack);
+  // The host's handler in the fork's lock delegate (SetLockHandler); ctx is
+  // this HostContext. Forwards CMUX_SHIM_LOCK with cmux's id of the browser.
+  static void OnLock(void* ctx, int event, int browser_id, int detail);
   // The input dispatch gave Chromium's `chromium_id` the wheel of input seq
   // `seq` through the fork's wheel call (a momentum wheel when `momentum`):
   // the fork's first ack of that browser after the acks of the wheels sent
@@ -315,6 +326,11 @@ class HostContext {
   // kEnergySaverHelloName); nullptr takes kOpEnergySaver and changes nothing.
   void SetEnergySaver(EnergySaverFn energy_saver) { energy_saver_ = energy_saver; }
 
+  // The host shim's cmux_shim_set_lock_handler when its fork has the lock
+  // delegate (browser_host_main.mm, before Attach, which then lists
+  // kLocksHelloName); nullptr takes kOpSetLockHandler and changes nothing.
+  void SetLockHandler(SetLockHandlerFn set_lock_handler) { set_lock_handler_ = set_lock_handler; }
+
   // What the shown page count holds (browser_host_main.mm, before Attach):
   // the count goes to it after each kOpBrowserSetPageVisibility, at each
   // browser's close and once initialize returned; nullptr holds nothing.
@@ -369,6 +385,8 @@ class HostContext {
   bool HandlePageResize(const control::Message& message);
   // kOpEnergySaver: false for a malformed op.
   bool HandleEnergySaver(const control::Message& message);
+  // kOpSetLockHandler: false for a malformed op.
+  bool HandleLockHandler(const control::Message& message);
   // Keeps `token`'s size for the next op that opens its view (view_sizes_).
   void RememberViewSize(uint64_t token, int32_t width, int32_t height);
   // Watches `chromium_id`'s text input in the fork: its result (0 refused).
@@ -468,6 +486,7 @@ class HostContext {
   SetWheelAckHandlerFn set_wheel_ack_handler_ = nullptr;
   WheelAcks wheel_acks_;
   EnergySaverFn energy_saver_ = nullptr;
+  SetLockHandlerFn set_lock_handler_ = nullptr;
   // Text input watches of minted ids whose creation has not come, by the
   // minted id: the watch tokens Bind arms and answers. Bounded with
   // pending_binds_ (AwaitsCreation).

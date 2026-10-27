@@ -265,9 +265,26 @@ nonisolated extension Feature {
         runtimeMutable: false
     )
 
+    /// In host mode, a Chromium page's pointer lock and keyboard lock are cmux's: the focused page hides and holds cmux's cursor and, in its fullscreen, gets cmux's shortcuts (Ghostty's split keys and Quit aside); Escape ends the locks and the fullscreen. Needs a Chromium fork at API 31.
+    public static let chromiumHostLocks = Feature(
+        index: 15,
+        name: "chromiumHostLocks",
+        owner: "PL-cef-layer",
+        description: "In host mode, a Chromium page's pointer lock and keyboard lock are cmux's: the focused page hides and holds cmux's cursor and, in its fullscreen, gets cmux's shortcuts (Ghostty's split keys and Quit aside); Escape ends the locks and the fullscreen. Needs a Chromium fork at API 31.",
+        kind: .labs,
+        process: .app,
+        chromiumFeature: nil,
+        defaults: FeatureDefaults(dev: false, nightly: false, release: false),
+        expires: nil,
+        params: [],
+        stories: [],
+        sticky: false,
+        runtimeMutable: false
+    )
+
     /// In host mode, a Chromium page's select lists open as cmux menus over the page, and the Chromium host never shows a menu of its own; needs a Chromium fork at API 31.
     public static let chromiumHostPopupMenus = Feature(
-        index: 15,
+        index: 16,
         name: "chromiumHostPopupMenus",
         owner: "PL-cef-layer",
         description: "In host mode, a Chromium page's select lists open as cmux menus over the page, and the Chromium host never shows a menu of its own; needs a Chromium fork at API 31.",
@@ -284,7 +301,7 @@ nonisolated extension Feature {
 
     /// In host mode, a page's resize holds its window's frame on a Core Animation fence until the page draws at the new size, for one display frame at most; a later page shows its last frame on its background.
     public static let chromiumHostResizeFence = Feature(
-        index: 16,
+        index: 17,
         name: "chromiumHostResizeFence",
         owner: "PL-cef-layer",
         description: "In host mode, a page's resize holds its window's frame on a Core Animation fence until the page draws at the new size, for one display frame at most; a later page shows its last frame on its background.",
@@ -301,7 +318,7 @@ nonisolated extension Feature {
 
     /// In host mode, a page's autofill, password and datalist suggestions show in a cmux list under the field, which follows the field's keys and takes clicks, a delete button and VoiceOver; needs a Chromium fork at API 31.
     public static let chromiumHostSuggestions = Feature(
-        index: 17,
+        index: 18,
         name: "chromiumHostSuggestions",
         owner: "PL-cef-layer",
         description: "In host mode, a page's autofill, password and datalist suggestions show in a cmux list under the field, which follows the field's keys and takes clicks, a delete button and VoiceOver; needs a Chromium fork at API 31.",
@@ -318,7 +335,7 @@ nonisolated extension Feature {
 
     /// In host mode, Chromium's extension popups, side panel, DevTools, popup windows and date and datalist popups show in cmux panels and panes from their layer contexts, with input sent to the host.
     public static let chromiumHostWidgets = Feature(
-        index: 18,
+        index: 19,
         name: "chromiumHostWidgets",
         owner: "PL-cef-layer",
         description: "In host mode, Chromium's extension popups, side panel, DevTools, popup windows and date and datalist popups show in cmux panels and panes from their layer contexts, with input sent to the host.",
@@ -335,7 +352,7 @@ nonisolated extension Feature {
 
     /// Chromium keeps its spare renderer only for a profile whose browser tab opened a web page, so Home with no browser tab and cmux pages start no spare renderer.
     public static let chromiumSpareAfterFirstTab = Feature(
-        index: 19,
+        index: 20,
         name: "chromiumSpareAfterFirstTab",
         owner: "PL-webui",
         description: "Chromium keeps its spare renderer only for a profile whose browser tab opened a web page, so Home with no browser tab and cmux pages start no spare renderer.",
@@ -352,7 +369,7 @@ nonisolated extension Feature {
 
     /// Each Chromium tab takes its visibility from its visibility tree node through the fork (API 37): a hidden or occluded tab is hidden or occluded to Blink in the node's turn, a capture keeps it painting, and the freeze follows the hide.
     public static let chromiumTabVisibility = Feature(
-        index: 20,
+        index: 21,
         name: "chromiumTabVisibility",
         owner: "PL-cef-tab",
         description: "Each Chromium tab takes its visibility from its visibility tree node through the fork (API 37): a hidden or occluded tab is hidden or occluded to Blink in the node's turn, a capture keeps it painting, and the freeze follows the hide.",
@@ -369,7 +386,7 @@ nonisolated extension Feature {
 
     /// Chromium puts the open instances of a shareable cmux page (New Tab and every agent chat) in one live renderer of up to 8 pages, as Chrome does for New Tab Pages; different pages share only once their hosts carry their group. Needs fork API 32 and renderer paths.
     public static let cmuxPageRendererSharing = Feature(
-        index: 21,
+        index: 22,
         name: "cmuxPageRendererSharing",
         owner: "PL-memory",
         description: "Chromium puts the open instances of a shareable cmux page (New Tab and every agent chat) in one live renderer of up to 8 pages, as Chrome does for New Tab Pages; different pages share only once their hosts carry their group. Needs fork API 32 and renderer paths.",
@@ -386,7 +403,7 @@ nonisolated extension Feature {
 
     /// The daemon compresses the scrollback of a terminal that no client views and that printed nothing for 10 minutes, at utility priority and never under memory pressure; any access restores it first. Stays off until the kernel compressor measurement (p07-memory-112) shows a 2x gain.
     public static let coldScrollbackCompression = Feature(
-        index: 22,
+        index: 23,
         name: "coldScrollbackCompression",
         owner: "PL-memory",
         description: "The daemon compresses the scrollback of a terminal that no client views and that printed nothing for 10 minutes, at utility priority and never under memory pressure; any access restores it first. Stays off until the kernel compressor measurement (p07-memory-112) shows a 2x gain.",
@@ -403,7 +420,7 @@ nonisolated extension Feature {
 
     /// Each hibernated browser page keeps its last frame as a JPEG in its own 64 MB store, so every hibernated tab wakes to its picture; off keeps decoded frames in the shared 32 MB preview cache, where only the last few fit.
     public static let compressedSnapshots = Feature(
-        index: 23,
+        index: 24,
         name: "compressedSnapshots",
         owner: "PL-memory",
         description: "Each hibernated browser page keeps its last frame as a JPEG in its own 64 MB store, so every hibernated tab wakes to its picture; off keeps decoded frames in the shared 32 MB preview cache, where only the last few fit.",
@@ -421,7 +438,7 @@ nonisolated extension Feature {
 
     /// The control socket binds on a background lane at launch with the mode the launch settings read gives, and serves once its method groups register after the first frame, instead of binding on the main thread when the launch settles.
     public static let controlSocketEarlyBind = Feature(
-        index: 24,
+        index: 25,
         name: "controlSocketEarlyBind",
         owner: "Performance Lead",
         description: "The control socket binds on a background lane at launch with the mode the launch settings read gives, and serves once its method groups register after the first frame, instead of binding on the main thread when the launch settles.",
@@ -438,7 +455,7 @@ nonisolated extension Feature {
 
     /// The crash report and panic log forwarders (DiagnosticReports listing, panic logs, finding acpmux) start in one best-effort files-lane job after startup completes, behind the fence; the previous run's reports are still sent this launch. Crash handlers install at launch.
     public static let crashForwardersAfterStartup = Feature(
-        index: 25,
+        index: 26,
         name: "crashForwardersAfterStartup",
         owner: "Performance Lead",
         description: "The crash report and panic log forwarders (DiagnosticReports listing, panic logs, finding acpmux) start in one best-effort files-lane job after startup completes, behind the fence; the previous run's reports are still sent this launch. Crash handlers install at launch.",
@@ -455,7 +472,7 @@ nonisolated extension Feature {
 
     /// Daemon requests run at their cause's class: verified-app requests at user-initiated, CLI, script, agent and page requests at utility, raised while they wait for or hold a daemon lock.
     public static let daemonRequestQos = Feature(
-        index: 26,
+        index: 27,
         name: "daemonRequestQos",
         owner: "Performance Lead",
         description: "Daemon requests run at their cause's class: verified-app requests at user-initiated, CLI, script, agent and page requests at utility, raised while they wait for or hold a daemon lock.",
@@ -472,7 +489,7 @@ nonisolated extension Feature {
 
     /// After Next or Previous Tab or Sidebar Item from a key, the sleeping browser page of the item one more step that way wakes in the background, so a held key finds it awake; a step the other way drops those wakes. Never in Low Power Mode on battery or under memory pressure.
     public static let directionalPrewarm = Feature(
-        index: 27,
+        index: 28,
         name: "directionalPrewarm",
         owner: "PL-switch",
         description: "After Next or Previous Tab or Sidebar Item from a key, the sleeping browser page of the item one more step that way wakes in the background, so a held key finds it awake; a step the other way drops those wakes. Never in Low Power Mode on battery or under memory pressure.",
@@ -489,7 +506,7 @@ nonisolated extension Feature {
 
     /// The daemon event drain applies in the frame only up to the last change a person or the app caused; later program and agent changes apply in budgeted tasks of their class, one whole transaction at a time.
     public static let drainCauseSplit = Feature(
-        index: 28,
+        index: 29,
         name: "drainCauseSplit",
         owner: "Performance Lead",
         description: "The daemon event drain applies in the frame only up to the last change a person or the app caused; later program and agent changes apply in budgeted tasks of their class, one whole transaction at a time.",
@@ -506,7 +523,7 @@ nonisolated extension Feature {
 
     /// Energy Saver turns on as the energy.saver setting asks (Low Power Mode, low battery or a hot Mac on battery by default) and makes cmux draw fewer frames and wake less often.
     public static let energySaver = Feature(
-        index: 29,
+        index: 30,
         name: "energySaver",
         owner: "Performance Lead",
         description: "Energy Saver turns on as the energy.saver setting asks (Low Power Mode, low battery or a hot Mac on battery by default) and makes cmux draw fewer frames and wake less often.",
@@ -2075,6 +2092,7 @@ nonisolated extension Feature {
         .chromiumAdBlockerAtFirstTab,
         .chromiumHostDragIn,
         .chromiumHostFileDialogs,
+        .chromiumHostLocks,
         .chromiumHostPopupMenus,
         .chromiumHostResizeFence,
         .chromiumHostSuggestions,
@@ -2197,6 +2215,7 @@ nonisolated extension Feature {
         .chromiumAdBlockerAtFirstTab,
         .chromiumHostDragIn,
         .chromiumHostFileDialogs,
+        .chromiumHostLocks,
         .chromiumHostPopupMenus,
         .chromiumHostResizeFence,
         .chromiumHostSuggestions,

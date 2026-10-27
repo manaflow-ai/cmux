@@ -249,10 +249,11 @@ final class CEFRuntime {
     func adopt(stores: BrowserSharedStores, signInCallbacks: CEFSignInCallbacks, waitDeadlines: MainWakeUpQueue? = nil,
                hostSupervisor: (any ChromiumHostSupervising)? = nil, hostWidgets: Bool = false, hostDrags: Bool = false,
                hostResizeFence: Bool = false, hostPopupMenus: Bool = false, hostSuggestions: Bool = false,
-               hostFileDialogs: (any ChromiumFileDialogAnswering)? = nil) {
+               hostFileDialogs: (any ChromiumFileDialogAnswering)? = nil, hostLocks: Bool = false, hostAppEvents: AppEvents? = nil) {
         if let hostSupervisor, hostStart == nil, state == .idle {
             adoptHost(hostSupervisor, showsWidgets: hostWidgets, takesDrags: hostDrags, fencesResizes: hostResizeFence,
-                      drawsPopupMenus: hostPopupMenus, drawsSuggestions: hostSuggestions, fileDialogs: hostFileDialogs)
+                      drawsPopupMenus: hostPopupMenus, drawsSuggestions: hostSuggestions, fileDialogs: hostFileDialogs, handlesLocks: hostLocks,
+                      appEvents: hostAppEvents)
         }
         self.signInCallbacks = signInCallbacks
         if let waitDeadlines { wakeUps = waitDeadlines }
@@ -493,6 +494,8 @@ final class CEFRuntime {
     private func initialize(_ library: CEFRuntimeBoot, inputs: CEFStartInputs, environment: [String: String]) throws(BootError) {
         // First, so a runtime with no callback slot starts nothing.
         let token = try registeredCallbackToken()
+        // SAFETY: the token's bits, which the shim only hands back; CEFRuntime.from resolves them in the registry.
+        let context = unsafe token.context
         let inHostMode = switch library {
         case .host: true
         case .inProcess: false
@@ -505,7 +508,7 @@ final class CEFRuntime {
         if case .inProcess = library, shim.prepareApplication() != 1 { throw .application }
         self.shim = shim
         if case .host = library {
-            showHostNativeUI(shim, forkAPIVersion: shim.forkAPIVersion())
+            unsafe showHostNativeUI(shim, forkAPIVersion: shim.forkAPIVersion(), context: context) // the token, as below
             answerHostFileDialogs(shim)
         }
         if case .inProcess(let loaded) = library {
@@ -557,8 +560,6 @@ final class CEFRuntime {
         switchArguments = arguments
         let locale = library.locale
         logger.info("CEF locale \(locale.locale, privacy: .public), accept-languages \(locale.acceptLanguages, privacy: .public)")
-        // SAFETY: the token's bits, which the shim only hands back; CEFRuntime.from resolves them in the registry.
-        let context = unsafe token.context
         // The shim sets `external_message_pump` from this callback: in process only, where the app pumps.
         // SAFETY: a C function of `cmux_shim_schedule_fn`; its context is `context`, the runtime's token.
         let schedule: CEFShimLibrary.ScheduleFn? = if case .inProcess = library { unsafe cefScheduleCallback } else { nil }

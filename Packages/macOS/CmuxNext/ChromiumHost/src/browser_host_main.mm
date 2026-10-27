@@ -524,6 +524,9 @@ int main(int argc, char* argv[]) {
   // cmux_shim_load bound the fork's cmux_cef_set_energy_saver (p14-energy-029) when it has
   // it; without it the HELLO lists no saver and kOpEnergySaver changes nothing.
   if (cmux_shim::fork_api().set_energy_saver) host.SetEnergySaver(&cmux_shim_set_energy_saver);
+  // The fork's lock delegate (API 31, task 227): cmux locks its own cursor and keys for the page
+  // (host_locks.h, task 229); without it the HELLO lists no locks and cmux asks for none.
+  if (cmux_shim::fork_api().set_lock_handler) host.SetLockHandler(&cmux_shim_set_lock_handler);
   host.SetPageShowActivity(&page_activity);
   // Main thread only, like `host`. The input ring (task 041) attaches its
   // dispatch here (AttachInput) and hands each frame to AddInput; until then

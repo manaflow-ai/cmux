@@ -1,3 +1,4 @@
+import CmuxNextWakeups
 import Foundation
 
 /// The Chromium Host's end while Chromium runs in it (``BrowserBackend/host``, p08-startup-046).
@@ -72,10 +73,12 @@ extension CEFRuntime {
     /// ``hostEnded(_:)`` when the supervisor reports them (``ChromiumHostExitReporting``).
     func adoptHost(_ supervisor: any ChromiumHostSupervising, showsWidgets: Bool = false, takesDrags: Bool = false,
                    fencesResizes: Bool = false, drawsPopupMenus: Bool = false, drawsSuggestions: Bool = false,
-                   fileDialogs: (any ChromiumFileDialogAnswering)? = nil) {
+                   fileDialogs: (any ChromiumFileDialogAnswering)? = nil, handlesLocks: Bool = false,
+                   appEvents: AppEvents? = nil) {
         hostStart = CEFHostStart(supervisor: supervisor, showsWidgets: showsWidgets, takesDrags: takesDrags,
                                  fencesResizes: fencesResizes, drawsPopupMenus: drawsPopupMenus, fileDialogs: fileDialogs)
         hostStart?.drawsSuggestions = drawsSuggestions
+        hostStart?.locks = handlesLocks ? CEFHostLocks(runtime: self, appEvents: appEvents) : nil
         guard let reporting = supervisor as? any ChromiumHostExitReporting else { return }
         reporting.onHostEnded = { [weak self] exit in self?.hostEnded(exit) }
     }
