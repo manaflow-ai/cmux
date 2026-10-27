@@ -22,12 +22,14 @@ export function finishedPromptUpload(
   size: number,
   begin: () => Promise<unknown>,
   status: () => Promise<PromptUploadState>,
+  signal?: AbortSignal,
 ): Promise<FinishedPromptUpload> {
   return new Promise((resolve, reject) => {
     let settled = false;
     const cleanup = () => {
       waiting.get(token)?.delete(receive);
       if (!waiting.get(token)?.size) waiting.delete(token);
+      signal?.removeEventListener("abort", aborted);
     };
     const fail = (error: unknown) => {
       if (settled) return;
@@ -54,13 +56,21 @@ export function finishedPromptUpload(
       cleanup();
       resolve({ uploadId: state.uploadId, size, offset: size });
     };
+    const aborted = () => fail(Object.assign(new Error("Upload cancelled"), { code: "upload.cancelled" }));
     const listeners = waiting.get(token) ?? new Set();
     listeners.add(receive);
     waiting.set(token, listeners);
+    signal?.addEventListener("abort", aborted, { once: true });
+    if (signal?.aborted) {
+      aborted();
+      return;
+    }
     try {
       begin()
-        .then(() => status())
-        .then(receive, fail);
+        .then(() => (settled ? undefined : status()))
+        .then((state) => {
+          if (state) receive(state);
+        }, fail);
     } catch (error) {
       fail(error);
     }

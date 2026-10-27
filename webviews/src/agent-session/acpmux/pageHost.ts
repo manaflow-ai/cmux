@@ -153,11 +153,22 @@ export function applyHostEvent(event: HostEvent): void {
   }
 }
 
-const subscribed = new WeakSet<PageClient>();
+const subscribed = new WeakMap<PageClient, Promise<void>>();
 
 /// Subscribes to host events once per client, after the page installed `cmuxAcpmuxBridge`.
 export async function startHostEvents(page: PageClient): Promise<void> {
-  if (subscribed.has(page)) return;
-  subscribed.add(page);
-  await page.subscribe<HostEvent>(HOST_EVENTS, (event) => applyHostEvent(event));
+  let ready = subscribed.get(page);
+  if (!ready) {
+    ready = page
+      .subscribe<HostEvent>(HOST_EVENTS, (event) => applyHostEvent(event))
+      .then(
+        () => undefined,
+        (error) => {
+          subscribed.delete(page);
+          throw error;
+        },
+      );
+    subscribed.set(page, ready);
+  }
+  await ready;
 }
