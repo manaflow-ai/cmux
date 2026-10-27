@@ -19,6 +19,7 @@ public actor CloudCodexBroker {
     private var previousModeByMachine: [String: Data?] = [:]
     private var loadedPreviousMode: Set<String> = []
     private var installedAccess: [String: Data] = [:]
+    private var pendingStageFiles: [String: (String, String)] = [:]
     private var accessRemovalAttempted: Set<String> = []
     private var targets: [String: CloudCodexBrokerTarget] = [:]
     private var targetGenerations: [String: Int] = [:]
@@ -141,6 +142,12 @@ public actor CloudCodexBroker {
         pendingRevocations.insert(target.machineID)
         await lockTarget(target.machineID)
         defer { unlockTarget(target.machineID) }
+        if let stages = pendingStageFiles[target.machineID] {
+            guard (try? await target.isLive()) == true else { throw CloudCodexBrokerError.targetOffline }
+            try await target.removeFile(stages.0)
+            try await target.removeFile(stages.1)
+            pendingStageFiles.removeValue(forKey: target.machineID)
+        }
         // A registration awaiting its first grant owns no VM auth files.
         guard let installed = installedAccess[target.machineID] else {
             previousModeByMachine.removeValue(forKey: target.machineID)
@@ -281,6 +288,7 @@ public actor CloudCodexBroker {
             try await ensureScope()
             guard targets[target.machineID] != nil, targetGenerations[target.machineID] == generation else { throw CloudCodexBrokerError.cancelled }
             stagingAttempted = true
+            pendingStageFiles[target.machineID] = (stageAccess, stageMode)
             try await target.writeFile(stageAccess, data, 0o600)
             try await ensureScope()
             guard targets[target.machineID] != nil, targetGenerations[target.machineID] == generation else { throw CloudCodexBrokerError.cancelled }
@@ -292,8 +300,8 @@ public actor CloudCodexBroker {
             try await target.commitFiles(stageAccess, Self.accessPath, stageMode, Self.modePath)
             committed = true
             try await ensureScope()
-            try? await target.removeFile(stageAccess)
-            try? await target.removeFile(stageMode)
+            try await target.removeFile(stageAccess)
+            try await target.removeFile(stageMode)
             try await ensureScope()
             guard targets[target.machineID] != nil, targetGenerations[target.machineID] == generation else { throw CloudCodexBrokerError.cancelled }
         } catch {
@@ -307,6 +315,7 @@ public actor CloudCodexBroker {
                     if !committed { installedAccess[target.machineID] = priorInstallation }
                 } catch {
                     // Retain transport until revocation can reconcile this installation.
+                    installedAccess[target.machineID] = priorInstallation
                     pendingRevocations.insert(target.machineID)
                     reconciliationFailed = true
                 }
@@ -321,8 +330,8 @@ public actor CloudCodexBroker {
             // Cleanup must complete even when the initiating task was cancelled.
             let cleanup = Task {
                 if stagingAttempted {
-                    try? await target.removeFile(stageAccess)
-                    try? await target.removeFile(stageMode)
+                    try await target.removeFile(stageAccess)
+                    try await target.removeFile(stageMode)
                 }
                 if committed {
                     try await target.removeFile(Self.accessPath)
@@ -336,6 +345,7 @@ public actor CloudCodexBroker {
                     installedAccess.removeValue(forKey: target.machineID)
                     accessRemovalAttempted.remove(target.machineID)
                 }
+                pendingStageFiles.removeValue(forKey: target.machineID)
             }
             catch { throw CloudCodexBrokerError.remoteDeliveryFailed }
             if reconciliationFailed { throw CloudCodexBrokerError.remoteDeliveryFailed }
