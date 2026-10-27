@@ -6,7 +6,7 @@ import CmuxNextCompat
 /// the runtime writes it on the main actor as a host attaches and ends, and every ``ChromiumHelperProcess`` listing
 /// reads it where it runs (the busy watchdog's thread, the memory sampler, the Energy Saver's work lane) without
 /// waiting for the main thread. One atomic word: no lock.
-public final class ChromiumHelperParent: Sendable {
+public nonisolated final class ChromiumHelperParent: Sendable {
     /// The parent's pid; 0 for none.
     private let stored: Atomic<Int32>
 
