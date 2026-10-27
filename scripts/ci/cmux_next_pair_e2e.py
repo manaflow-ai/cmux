@@ -217,7 +217,8 @@ def main():
             f.write(f"CMUX_UITEST_STACK_EMAIL={email}\nCMUX_UITEST_STACK_PASSWORD={password}\n")
         if os.path.exists(sock):
             os.unlink(sock)  # this run's own tag
-        exe = os.path.join(a.mac_app, "Contents/MacOS", info["CFBundleExecutable"])
+        plist = plistlib.load(open(os.path.join(a.mac_app, "Contents/Info.plist"), "rb"))
+        exe = os.path.join(a.mac_app, "Contents/MacOS", plist["CFBundleExecutable"])
         app_out = Stream([exe], os.path.join(a.out, "mac-app.log"), env=env)
         app = app_out.proc
         streams.append(app_out)
