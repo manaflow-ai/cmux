@@ -16,7 +16,7 @@ import os
 /// Stop conditions: it exits ``settle`` after the last event it took once nothing is pending (open events AppKit
 /// delivers after `applicationDidFinishLaunching` still go), at ``deadline`` from a main-actor task, and at
 /// ``hardDeadline`` from a timer off the main thread, so a blocked send cannot hold it.
-@MainActor public final class SingleInstanceHandoff: NSObject, NSApplicationDelegate {
+@MainActor final class SingleInstanceHandoff: NSObject, NSApplicationDelegate {
     private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "launch")
     static let settle: Duration = .milliseconds(300)
     static let retry: Duration = .milliseconds(250)
@@ -36,7 +36,7 @@ import os
     }
 
     /// Runs the hand-off to the owner of `lock`; never returns.
-    public static func run(lock: URL, activates: Bool) -> Never {
+    static func run(lock: URL, activates: Bool) -> Never {
         logger.notice("launch: another copy of this app holds \(lock.path, privacy: .public); handing off and exiting before Chromium or the session start")
         guard activates else {
             logger.notice("launch: an agent launch of a second copy forwards nothing (the running copy would come forward); exiting")
@@ -55,13 +55,13 @@ import os
     }
 
     /// This launch's documents and URLs (AppKit routes both `odoc` and `GURL` here).
-    public func application(_ application: NSApplication, open urls: [URL]) {
+    func application(_ application: NSApplication, open urls: [URL]) {
         pending += urls
         reopenPending = false
         if launched { attempt() }
     }
 
-    public func applicationDidFinishLaunching(_ notification: Notification) {
+    func applicationDidFinishLaunching(_ notification: Notification) {
         launched = true
         Task { [weak self] in
             try? await Task.sleep(for: Self.deadline)
@@ -144,6 +144,13 @@ import os
         do { try process.run() } catch {
             logger.error("launch: reopen failed: \(String(describing: error), privacy: .public)")
         }
+    }
+}
+
+public extension SingleInstanceGuard {
+    /// Hands this launch to the copy that owns `lock` and exits (``SingleInstanceHandoff``); never returns.
+    @MainActor static func handOff(lock: URL, activates: Bool) -> Never {
+        SingleInstanceHandoff.run(lock: lock, activates: activates)
     }
 }
 
