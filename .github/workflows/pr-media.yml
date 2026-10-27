@@ -52,7 +52,10 @@ env:
 jobs:
   plan:
     name: Pick tours
-    if: ${{ github.repository_owner == 'manaflow-ai' && (github.event_name == 'workflow_dispatch' || github.event.workflow_run.event == 'pull_request' && github.event.workflow_run.head_repository.full_name == github.repository) }}
+    # vars.CI_QUOTA_HOLD=1 pauses media from CI completions while the
+    # GITHUB_TOKEN budget is reserved for the nightly
+    # (tests/test_ci_quota_hold_gate.py); a dispatch still runs.
+    if: ${{ github.repository_owner == 'manaflow-ai' && (github.event_name == 'workflow_dispatch' || vars.CI_QUOTA_HOLD != '1' && github.event.workflow_run.event == 'pull_request' && github.event.workflow_run.head_repository.full_name == github.repository) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["ubuntu-24.04","blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: reads the pull request and mostly waits; keeps CI's Linux pool free; CI_TRUSTED_RUNNER picks Blacksmith (default) or GitHub-hosted
     # CI has completed, so its reads return at once.
     timeout-minutes: 10
@@ -226,7 +229,11 @@ jobs:
     needs: [plan, tour]
     if: ${{ !cancelled() && needs.plan.result == 'success' && needs.plan.outputs.tours != '' && needs.plan.outputs.tours != '[]' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["ubuntu-24.04","blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: trusted contents and pull-request write token; CI_TRUSTED_RUNNER picks Blacksmith (default) or GitHub-hosted
-    timeout-minutes: 10
+    # Room for the OCR install and a tesseract read of every shot and gif.
+    timeout-minutes: 30
+    # The private-terms list lives in this environment, which admits only the
+    # protected branches; a workflow_run run is on the default branch.
+    environment: pr-media
     concurrency:
       group: pr-media-publish-${{ needs.plan.outputs.pr }}
       cancel-in-progress: false
@@ -240,11 +247,15 @@ jobs:
         with:
           ref: ${{ github.event.repository.default_branch }}
           persist-credentials: false
-          # pr-media.py refuses to upload without its privacy check.
+          # pr-media.py refuses to upload without its privacy check, and in
+          # Actions outside .github/actions/pr-media-publish.
           sparse-checkout: |
+            .github/actions/pr-media-publish
             scripts/ci/pr_media.py
-            scripts/ci/pr_media_privacy.py
+            scripts/ci/pr_media_gate.py
             scripts/ci/pr_media_ocr.swift
+            scripts/ci/pr_media_ocr_tesseract.py
+            scripts/ci/pr_media_privacy.py
             scripts/pr-media.py
           sparse-checkout-cone-mode: false
 
@@ -255,17 +266,23 @@ jobs:
           path: ${{ runner.temp }}/media
           merge-multiple: true
 
+      # The action installs tesseract, proves the check refuses its canary
+      # picture, then runs the publisher; pr-media.py's privacy check
+      # (scripts/ci/pr_media_privacy.py) reads every shot and gif before it is
+      # written. pr-media-privacy.yml still rescans the branch with Vision.
       - name: Upload the media and update the dogfood comment
+        uses: ./.github/actions/pr-media-publish
         env:
-          GH_TOKEN: ${{ github.token }}
           REPOSITORY: ${{ github.repository }}
           PR: ${{ needs.plan.outputs.pr }}
           HEAD_SHA: ${{ needs.plan.outputs.head_sha }}
           TOURS: ${{ needs.plan.outputs.tours }}
-          # pr-media.py's privacy check (scripts/ci/pr_media_privacy.py): this
-          # Linux runner reads text only and leaves images to pr-media-privacy.yml.
-          PR_MEDIA_PRIVATE_TERMS: ${{ secrets.PR_MEDIA_PRIVATE_TERMS }}
-          PR_MEDIA_AGENT_AUTHORS: ${{ vars.PR_MEDIA_AGENT_AUTHORS }}
-        run: |
-          set -euo pipefail
-          python3 scripts/ci/pr_media.py publish --media "$RUNNER_TEMP/media"
+        with:
+          private-terms: ${{ secrets.PR_MEDIA_PRIVATE_TERMS }}
+          agent-authors: ${{ vars.PR_MEDIA_AGENT_AUTHORS }}
+          github-token: ${{ github.token }}
+          script: scripts/ci/pr_media.py
+          args: |
+            publish
+            --media
+            ${{ runner.temp }}/media

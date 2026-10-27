@@ -567,7 +567,20 @@ The queue janitor treats an owned label as one more macOS pool. A stale pull
 request run (category b: closed, merged or superseded) is cancelled there on
 every sweep whatever the queue, which frees minis for current work. The other
 categories cancel only while more than `CI_JANITOR_QUEUE_THRESHOLD` jobs queue
-on a pool the run holds, owned pools included. With `CI_PR_POOL_OWNED=1` the
+on a pool the run holds, owned pools included. A lost runner assignment
+(category e: a job queued with no runner for 30 minutes while a newer job on
+exactly its labels was taken, read from GitHub alone, and no other job of its
+run is still unfinished unless lost itself) is cancelled whatever the queue.
+Two cases on 2026-10-21 set the pattern: job 119450713364 (run
+39631559018, glaeda-side-std-xcode-26.6) and job 119458409272 (PR #23694's
+run 39667716636, `cmux-next swift test` on glaeda-gui-std-xcode-26.6), each
+queued for hours with no runner while newer jobs on its labels started. At an
+open pull request's head, a later sweep re-runs the run's failed jobs once
+(and, for ci.yml, dispatches ci-ui-tests.yml for the new attempt), unless a
+newer run of the workflow at that head took over. The janitor leaves an
+attempt a bot started alone at an open pull request's head, so it never
+preempts or extends the owned-pool rescue's attempts, and it never touches
+pushes to main, `rc/*` or feat-cmux-next. With `CI_PR_POOL_OWNED=1` the
 janitor also lists the artifacts of each in-flight attempt-1, same-repository
 pull request CI run or main full-suite dispatch (one request per run, more only past 100 artifacts) to
 read its marker's peak into `committed`. A run's other macOS jobs do not rule
@@ -971,13 +984,21 @@ Blacksmith is overflow, so when it stops starting jobs the fix is to stop
 sending overflow there, not to reroute a lane. `ci-cloud-overflow-probe.yml`
 does that automatically (`scripts/ci/cloud_overflow_switch.py`). Every 10
 minutes its `probe` job asks for one Blacksmith label and prints a line, and
-its `watch` job, on GitHub-hosted Linux, waits for the probe:
+its `watch` job waits for the probe. The watch never runs on GitHub-hosted
+Ubuntu: while overflow is on it takes `blacksmith-16vcpu-ubuntu-2404` (a size
+the probe does not ask for), and while it is off it takes
+`blacksmith-6vcpu-macos-26`, so it can always put overflow back. On
+2026-10-27 a watch on hosted Ubuntu queued 94 minutes behind the switch's own
+failover and held the workflow's concurrency group, so every later run was
+evicted with nothing decided.
 
 - **The probe waits `CI_CLOUD_PROBE_MINUTES` (default 5, 2 to 20) with no
   runner.** Overflow goes off. The switch first writes the
   `CI_CLOUD_OVERFLOW_SAVED` record (each variable's value before, its
   failover, when and which run), then points the variables at their
-  failovers: `LINUX_RUNNER` and `CI_TRUSTED_RUNNER` to `ubuntu-24.04`, `MACOS_RUNNER_15`, `_26`,
+  failovers: `LINUX_RUNNER` to `blacksmith-16vcpu-ubuntu-2404` and
+  `CI_TRUSTED_RUNNER` to `blacksmith-2vcpu-ubuntu-2404` (another Blacksmith
+  size; never GitHub-hosted Ubuntu), `MACOS_RUNNER_15`, `_26`,
   `_26_LARGE`, `_PR` and `_DUAL_XCODE` to the std owned pool of the lane's
   Xcode pin (`glaeda-std-xcode-<version>` from `CMUX_CI_XCODE_APP_PR`),
   `MACOS_RUNNER_DISPLAY` to its gui label, `MACOS_RUNNER_IOS` to
@@ -997,14 +1018,16 @@ its `watch` job, on GitHub-hosted Linux, waits for the probe:
 - **The probe starts.** If the record exists, each variable it changed is put
   back (a variable changed by hand since is left alone and named) and the
   record is deleted. While the record exists the probe asks for the label it
-  names, not `LINUX_RUNNER`, which is GitHub-hosted then.
+  names, not `LINUX_RUNNER`, which names the failover size then.
 
 The lane switches (`CI_PR_POOL_OWNED`, `CI_E2E_OWNED_UI`, `CI_IOS_OWNED` and
 the other `CI_OWNED_*`) are never touched: minis first does not change, only
 where overflow lands. `CI_CLOUD_FAILOVER` (JSON, variable name to value, `""`
 to leave one alone) overrides a failover, for example
 `{"MACOS_RUNNER_15": "macos-15"}`; it may name only the variables above and
-`MACOS_RUNNER_TESTS`, never a `blacksmith-*` label. While the record exists,
+`MACOS_RUNNER_TESTS`, never GitHub-hosted Ubuntu and never a `blacksmith-*`
+label except another Blacksmith Linux size for `LINUX_RUNNER` or
+`CI_TRUSTED_RUNNER`. While the record exists,
 `check_repo_variables.py` accepts exactly the failover values it lists.
 
 Writing variables needs a token no workflow permission grants. The workflow

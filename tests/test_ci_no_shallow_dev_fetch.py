@@ -41,7 +41,7 @@ SHALLOW_CHECK = re.compile(r"is-shallow-repository|is_shallow|isShallow|shallow_
 # Scripts whose depth-limited fetches target a repository the script created
 # itself (git init into a temp or cache directory), never the caller's clone.
 OWN_REPOSITORY = {
-    "web/services/runs/sourceVerification.ts": "builds a command that fetches into a fresh `git init` workspace",
+    "web/services/runs/legacy/sourceVerification.ts": "builds a command that fetches into a fresh `git init` workspace",
 }
 
 

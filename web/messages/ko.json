@@ -2181,6 +2181,7 @@
           "canonicalAgentScratch": "Use a cmux-owned scratch directory for native agent panels, organized per session."
         },
         "app": {
+          "equalizeSplitsOnDividerDoubleClick": "활성화하면 분할 구분선을 두 번 클릭할 때 해당 행이나 열의 창이 같은 크기로 조정됩니다. 다른 행과 열의 크기는 유지됩니다.",
           "confirmQuit": "cmux가 종료 전에 확인을 요청하는 시점을 제어합니다. DEV 빌드는 이 설정과 관계없이 항상 즉시 종료됩니다. 기존 app.warnBeforeQuit도 boolean 대체값으로 계속 허용됩니다.",
           "windowTitleTemplate": "선택적 NSWindow 제목 템플릿입니다. 비워 두면 현재 디렉터리 대체 동작을 포함해 cmux의 기존 기본 제목 동작을 유지합니다. 지원되는 자리표시자: '{windowId}', '{windowToken}', '{activeWorkspace}', '{activeDirectory}', '{defaultTitle}', '{appName}'.",
           "devWindowDisplay": "새 창을 열 때 DEBUG 빌드에서만 사용하는 디스플레이 이름입니다. 빈 값은 시스템 기본값을 사용합니다.",
@@ -5520,6 +5521,8 @@
     "errorInvalidCode": "유효하지 않은 코드입니다. 이메일을 확인하고 다시 시도하세요.",
     "errorInvalidTotp": "유효하지 않은 2단계 인증 코드입니다.",
     "errorSignUpNotAllowed": "지금은 새 계정을 만들 수 없습니다.",
+    "errorEmailUnverified": "이 이메일에는 이미 계정이 있지만 주소가 아직 인증되지 않았습니다. 가입할 때 사용한 방법으로 로그인한 다음 이메일을 인증하면 로그인 코드를 사용할 수 있습니다.",
+    "useEmailPasswordInstead": "이메일과 비밀번호로 로그인",
     "errorPasskey": "패스키 로그인이 완료되지 않았습니다. 다시 시도하거나 다른 방법을 사용하세요.",
     "errorGeneric": "문제가 발생했습니다. 다시 시도하세요."
   },

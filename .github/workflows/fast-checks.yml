@@ -1,0 +1,253 @@
+name: Fast checks
+run-name: Fast checks ${{ inputs.source_sha }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_sha:
+        description: Exact scratch snapshot commit
+        required: true
+      command:
+        description: Shell-quoted command from the fast checks client
+        required: true
+      directory:
+        description: Worktree-relative working directory
+        default: '.'
+      setup:
+        type: choice
+        options: [none, webviews, playwright, rust]
+        default: none
+      timeout:
+        description: Command deadline in seconds, at most 10800
+        default: '3600'
+
+# Same read-only checkout scope as the existing Linux test jobs. No secrets,
+# environment, provider credentials or write token is passed to test commands.
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    if: github.repository == 'manaflow-ai/cmux'
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-32vcpu-ubuntu-2404' }}
+    timeout-minutes: 195
+    defaults:
+      run:
+        working-directory: .fast-checks-checkout
+    env:
+      CARGO_TARGET_DIR: /home/runner/.cache/fast-checks/target
+      CARGO_HOME: /home/runner/.cache/fast-checks/cargo
+      BUN_INSTALL_CACHE_DIR: /home/runner/.cache/fast-checks/bun
+      PLAYWRIGHT_BROWSERS_PATH: /home/runner/.cache/fast-checks/browsers
+      ZIG_GLOBAL_CACHE_DIR: /home/runner/.cache/fast-checks/zig
+      CMUX_GHOSTTY_VT_ZIG_CPU: baseline
+    steps:
+      - name: Validate request
+        env:
+          SOURCE_SHA: ${{ inputs.source_sha }}
+          COMMAND_TIMEOUT: ${{ inputs.timeout }}
+        working-directory: ${{ github.workspace }}
+        run: |
+          [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$COMMAND_TIMEOUT" =~ ^[0-9]{1,5}$ ]]
+          (( 10#$COMMAND_TIMEOUT >= 1 && 10#$COMMAND_TIMEOUT <= 10800 ))
+
+      # Reuse Git objects and tracked files, but remove all prior untracked
+      # outputs on checkout. Package caches stay on their separate disk below.
+      - name: Mount warm checkout
+        uses: useblacksmith/stickydisk@3f6be1451e3cad893b778bc93495c80452a5da26 # v1.7.2
+        with:
+          key: cmux-fast-checks-checkout-v1
+          path: ${{ github.workspace }}/.fast-checks-checkout
+          commit: on-change
+
+      - name: Sanitize persistent checkout metadata
+        working-directory: ${{ github.workspace }}/.fast-checks-checkout
+        run: |
+          # Keep the sticky disk's Git object store for fetch speed, but never
+          # trust metadata written by a prior command or source snapshot.
+          if [[ -L .git || ( -e .git && ! -d .git ) ]]; then
+            rm -rf -- .git
+          elif [[ -d .git ]]; then
+            # -P is required here: -L would follow a linked objects directory
+            # and could miss the link, preserving an attacker-controlled store.
+            if find -P .git -type l -print -quit | grep -q .; then
+              rm -rf -- .git
+            else
+              rm -rf .git/hooks .git/logs .git/refs
+              rm -f .git/config .git/index .git/packed-refs .git/objects/info/alternates
+              cat > .git/config <<'EOF'
+          [core]
+            repositoryformatversion = 0
+            filemode = true
+            bare = false
+            logallrefupdates = true
+            hooksPath = /dev/null
+          [remote "origin"]
+            url = https://github.com/manaflow-ai/cmux
+            fetch = +refs/heads/*:refs/remotes/origin/*
+          EOF
+            fi
+          fi
+
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ inputs.source_sha }}
+          path: .fast-checks-checkout
+          persist-credentials: false
+          clean: true
+
+      # This cache namespace is private to fast checks. Release/signing jobs
+      # never read it. Concurrent callers fork snapshots without a global queue.
+      - name: Mount package and compilation caches
+        uses: useblacksmith/stickydisk@3f6be1451e3cad893b778bc93495c80452a5da26 # v1.7.2
+        with:
+          key: cmux-fast-checks-v1
+          path: /home/runner/.cache/fast-checks
+          commit: on-change
+
+      - name: Read repository Bun pin
+        if: inputs.setup == 'webviews' || inputs.setup == 'playwright'
+        id: bun-pin
+        run: |
+          python3 - <<'PY'
+          import json, os, re
+          # Older source branches use the ci-web.yml pin without devEngines.
+          pin = json.load(open('webviews/package.json')).get('devEngines', {}).get(
+              'packageManager', {'name': 'bun', 'version': '1.3.14'})
+          assert pin['name'] == 'bun' and re.fullmatch(r'\d+\.\d+\.\d+', pin['version'])
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
+              print('version=' + pin['version'], file=output)
+          PY
+
+      - name: Set up Bun
+        if: inputs.setup == 'webviews' || inputs.setup == 'playwright'
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: ${{ steps.bun-pin.outputs.version }}
+
+      - name: Set up Node
+        if: inputs.setup == 'webviews' || inputs.setup == 'playwright'
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: '24.22.1'
+
+      - name: Install webview dependencies
+        if: inputs.setup == 'webviews' || inputs.setup == 'playwright'
+        working-directory: ${{ github.workspace }}/.fast-checks-checkout/webviews
+        run: bun install --frozen-lockfile
+
+      - name: Prepare full webview tests
+        if: inputs.setup == 'webviews'
+        run: |
+          if [[ -x scripts/cmux-next/build-web-bundles.sh ]]; then
+            ./scripts/cmux-next/build-web-bundles.sh --force
+          fi
+          if [[ -x webviews/node_modules/.bin/playwright ]]; then
+            cd webviews
+            ./node_modules/.bin/playwright install --with-deps --only-shell chromium webkit
+          fi
+
+      - name: Install gallery dependencies and browsers
+        if: inputs.setup == 'playwright'
+        run: |
+          if [[ -f scripts/gallery-matrix/package.json ]]; then
+            cd scripts/gallery-matrix
+            bun install --frozen-lockfile
+          else
+            cd webviews
+            if [[ ! -x node_modules/.bin/playwright ]]; then
+              echo 'setup: playwright requires Playwright dependencies in the source snapshot.' >&2
+              exit 2
+            fi
+          fi
+          bunx --no-install playwright install --with-deps chromium webkit
+          echo 'CMUX_GALLERY_IN_VM=1' >> "$GITHUB_ENV"
+
+      - name: Initialize Rust native dependencies
+        if: inputs.setup == 'rust'
+        run: |
+          bash scripts/ci/init-submodule.sh ghostty
+          export GHOSTTY_ZIG_SOURCE=ghostty
+          if [[ "$(git ls-files --stage -- ghostty-next)" == 160000* ]]; then
+            export GHOSTTY_ZIG_SOURCE=ghostty-next
+            bash scripts/ci/init-submodule.sh ghostty-next
+          fi
+          echo "GHOSTTY_ZIG_SOURCE=$GHOSTTY_ZIG_SOURCE" >> "$GITHUB_ENV"
+          sudo apt-get update
+          sudo apt-get install -y clang libclang-dev pkg-config
+          ./scripts/install-zig-ci.sh
+
+      - name: Set up pinned Rust
+        if: inputs.setup == 'rust'
+        uses: ./.fast-checks-checkout/.github/actions/setup-cmux-tui-rust
+
+      - name: Run fast checks
+        env:
+          FAST_CHECKS_COMMAND: ${{ inputs.command }}
+          FAST_CHECKS_DIRECTORY: ${{ inputs.directory }}
+          FAST_CHECKS_TIMEOUT: ${{ inputs.timeout }}
+          FAST_CHECKS_SOURCE: ${{ inputs.source_sha }}
+        run: |
+          umask 022
+          python3 - <<'PY'
+          import json, os, pathlib, signal, subprocess, time
+          root = pathlib.Path.cwd().resolve()
+          directory = (root / os.environ['FAST_CHECKS_DIRECTORY']).resolve()
+          directory.relative_to(root)
+          actual = subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip()
+          assert actual == os.environ['FAST_CHECKS_SOURCE'], (actual, os.environ['FAST_CHECKS_SOURCE'])
+          tree = subprocess.check_output(['git', 'rev-parse', 'HEAD^{tree}'], text=True).strip()
+          started_at = time.time()
+          start = time.monotonic()
+          command = subprocess.Popen(
+              ['timeout', '--signal=TERM', '--kill-after=30s',
+               os.environ['FAST_CHECKS_TIMEOUT'] + 's', 'bash', '-c',
+               os.environ['FAST_CHECKS_COMMAND']],
+              cwd=directory, start_new_session=True)
+          command_pgid = command.pid
+          try:
+              code = command.wait()
+          finally:
+              # The command owns this process group. Reap any child that kept
+              # the checkout open without name-based kills or touching the
+              # runner/action processes.
+              try:
+                  os.killpg(command_pgid, signal.SIGTERM)
+              except ProcessLookupError:
+                  pass
+          after = subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip()
+          result = dict(source_sha=actual, source_tree=tree, head_after=after,
+              command_started_at=started_at, command_seconds=round(time.monotonic() - start, 3), exit_code=code,
+              command_pgid=command_pgid, run_id=os.environ['GITHUB_RUN_ID'], cpu_count=os.cpu_count())
+          print('FAST_CHECKS_RECEIPT=' + json.dumps(result), flush=True)
+          pathlib.Path(os.environ['RUNNER_TEMP'], 'fast-checks.json').write_text(json.dumps(result))
+          raise SystemExit(code if actual == after else 2)
+          PY
+
+      # The checkout is mounted below the runner workspace, so the runner's
+      # own cwd cannot keep the mount busy during sticky-disk post cleanup.
+      # Capture holders before that post action and leave the mount from /.
+      - name: Inspect checkout mount holders
+        if: always()
+        working-directory: ${{ github.workspace }}
+        run: |
+          mount_path="${{ github.workspace }}/.fast-checks-checkout"
+          cd /
+          if command -v mountpoint >/dev/null 2>&1 && mountpoint -q "$mount_path"; then
+            {
+              echo "checkout mount holders: $mount_path"
+              sudo fuser -vm "$mount_path" || true
+              sudo lsof +f -- "$mount_path" || true
+            } > "$RUNNER_TEMP/fast-checks-checkout-holders.log" 2>&1 || true
+            cat "$RUNNER_TEMP/fast-checks-checkout-holders.log"
+          fi
+
+      - name: Save exact-source timing receipt
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: fast-checks-receipt
+          path: ${{ runner.temp }}/fast-checks.json
+          if-no-files-found: ignore
+          retention-days: 7

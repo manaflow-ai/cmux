@@ -40,6 +40,13 @@ public protocol AccountFlow: AccountTeamManagement {
     /// indefinite spinner when this is `true`.
     var signInIsSlow: Bool { get }
 
+    /// Localized title for the most recent failed sign-in, when the host has
+    /// one to show in the account card.
+    var signInFailureTitle: String? { get }
+
+    /// Localized recovery guidance for the most recent failed sign-in.
+    var signInFailureRecovery: String? { get }
+
     /// Launches the host's sign-in flow. The package shows the user a
     /// progress indicator while ``isWorkingOnAuth`` is `true` and
     /// re-reads ``currentIdentity`` when the flow resolves.
@@ -108,6 +115,8 @@ public enum AccountPlanBillingSource: Sendable, Equatable {
 
 extension AccountFlow {
     public func prefetchProUpgrade() {}
+    public var signInFailureTitle: String? { nil }
+    public var signInFailureRecovery: String? { nil }
 
     public var planTier: CmuxPlanTier? { isProActive ? .pro : nil }
 

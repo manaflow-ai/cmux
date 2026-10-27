@@ -155,11 +155,16 @@ CLA_SIGNATURES_PATH_PATTERN = %r{\Asignatures/version[0-9]+(?:\.[0-9]+)?/cla\.js
 # The privileged workflow is an explicit reviewed policy, not an extensible
 # script. Its candidate structure is checked as data, and every policy change
 # requires trusted review without a fragile follow-up hash bump.
-EXPECTED_GUARD_WORKFLOW_DIGEST = "9ffdce443e15c05f7771cd548686f913e2f3b78a59491da4d5004805c53f0a41"
+# The App-token guard (the GUARD_APP_TOKEN_STEP layout below). The previous
+# pin, 9ffdce443e15c05f7771cd548686f913e2f3b78a59491da4d5004805c53f0a41, was
+# the #13871 guard; any other bytes, earlier ones included, need a trusted
+# review. tests/test_cla_guard_metadata_routing.py keeps this equal to the
+# workflow's digest.
+EXPECTED_GUARD_WORKFLOW_DIGEST = "0aeffcf9241fbc59bd9aa744a882ddbd8c7555ca87985502b4f9545c59a31b26"
 # The guard workflow remains pinned to its reviewed immutable bytes. The CLA
 # policy itself is validated structurally, then authorized by an exact-head
 # trusted review.
-EXPECTED_GUARD_SCRIPT_DIGEST = "288d7dd67993fe090d498014b2a52078f33e6b3db31103a437cee6145719ea52"
+EXPECTED_GUARD_SCRIPT_DIGEST = "11456f449bfcc09d5e19706527ce081a46f93eb357b97099d7bd267ae0ce2c28"
 # Migration marker for the base v2 guard validator. That validator requires
 # the literal EXPECTED_WORKFLOW_DIGEST while it checks this candidate. The v3
 # validator does not use this inert marker for policy authorization.
@@ -339,6 +344,44 @@ GUARD_VALIDATE_ENV = {
   "PR_NUMBER" => "${{ github.event.pull_request.number }}",
   "BASE_SHA" => "${{ github.event.pull_request.base.sha }}",
   "HEAD_SHA" => "${{ github.event.pull_request.head.sha }}"
+}.freeze
+# The App-token layout (2026-10-26): the validator's reads go on the
+# manaflow-glaeda-route App's own budget, because GITHUB_TOKEN's core budget,
+# shared by every workflow, ran out hourly and the guard then rejected every
+# pull request. One extra step, after the runner identity and the checkout
+# verification and before validation, mints the token with this exact
+# reviewed shape: the pinned action, read-only contents and pull-requests for
+# this repository only, and continue-on-error so a failed mint never fails the
+# guard. The App key appears only as that action's input. The validation step
+# reads the minted token, or GITHUB_TOKEN when the mint was skipped or failed,
+# and its shell is unchanged, so no PR-fetched byte runs with either token.
+GUARD_APP_TOKEN_ACTION = "actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1".freeze
+GUARD_APP_KEY_EXPRESSION = "${{ secrets.GLAEDA_ROUTE_APP_KEY }}".freeze
+GUARD_APP_READ_TOKEN_EXPRESSION = "${{ steps.glaeda-token.outputs.token || secrets.GITHUB_TOKEN }}".freeze
+GUARD_APP_TOKEN_STEP = {
+  "name" => "Mint the glaeda-route read token",
+  "id" => "glaeda-token",
+  "if" => "vars.GLAEDA_ROUTE_APP_ID != ''",
+  "continue-on-error" => true,
+  "timeout-minutes" => 1,
+  "uses" => GUARD_APP_TOKEN_ACTION,
+  "with" => {
+    "app-id" => "${{ vars.GLAEDA_ROUTE_APP_ID }}",
+    "private-key" => GUARD_APP_KEY_EXPRESSION,
+    "owner" => "${{ github.repository_owner }}",
+    "repositories" => "${{ github.event.repository.name }}",
+    "permission-contents" => "read",
+    "permission-pull-requests" => "read"
+  }.freeze
+}.freeze
+GUARD_APP_VALIDATE_ENV = GUARD_VALIDATE_ENV.merge("GH_TOKEN" => GUARD_APP_READ_TOKEN_EXPRESSION).freeze
+# Every secret or token reference in the App-token layout, with its only
+# allowed value. The action name itself matches the token pattern, so it is
+# listed too.
+GUARD_APP_SECRET_VALUES = {
+  (%w[jobs validate steps] + [3] + %w[uses]).freeze => GUARD_APP_TOKEN_ACTION,
+  (%w[jobs validate steps] + [3] + %w[with private-key]).freeze => GUARD_APP_KEY_EXPRESSION,
+  (%w[jobs validate steps] + [4] + %w[env GH_TOKEN]).freeze => GUARD_APP_READ_TOKEN_EXPRESSION
 }.freeze
 GUARD_VERIFY_RUN = <<~'SH'.strip.freeze
   set -euo pipefail
@@ -1408,6 +1451,19 @@ def guard_step_layout(target, step_count)
       allowed_secret_paths: GUARD_ALLOWED_SECRET_PATHS
     }
   when GUARD_HOSTED_TRIGGER
+    if step_count == 5
+      # The App-token layout: GUARD_APP_TOKEN_STEP sits between the checkout
+      # verification and the validation step.
+      return {
+        verification_index: 2,
+        app_token_index: 3,
+        validation_index: 4,
+        hosted: true,
+        allowed_secret_paths: GUARD_APP_SECRET_VALUES.keys,
+        secret_values: GUARD_APP_SECRET_VALUES,
+        validate_env: GUARD_APP_VALIDATE_ENV
+      }
+    end
     fail!("hosted guard workflow steps are malformed") unless step_count == 4
     {
       verification_index: 2,
@@ -1488,9 +1544,10 @@ def walk_paths(value, path = [], &block)
   end
 end
 
-def assert_exact_secret_paths(document, allowed_paths: ALLOWED_SECRET_PATHS)
+def assert_exact_secret_paths(document, allowed_paths: ALLOWED_SECRET_PATHS, secret_values: nil)
   expected = {}
   allowed_paths.each { |path| expected[path] = GITHUB_TOKEN_EXPRESSION }
+  expected = secret_values.to_h { |path, value| [path.to_a, value] } unless secret_values.nil?
   actual = {}
   walk_paths(document) do |path, value|
     next unless value.is_a?(String) && value.match?(
@@ -1502,7 +1559,7 @@ def assert_exact_secret_paths(document, allowed_paths: ALLOWED_SECRET_PATHS)
   fail!("workflow token references are not the reviewed contract") unless actual == expected
 end
 
-def assert_safe_expression_fields(document, name, allowed_secret_paths: ALLOWED_SECRET_PATHS, reviewed_guard_name: false)
+def assert_safe_expression_fields(document, name, allowed_secret_paths: ALLOWED_SECRET_PATHS, reviewed_guard_name: false, secret_values: nil)
   walk_paths(document) do |path, value|
     next unless value.is_a?(String) && value.match?(EXPRESSION_MARKER)
 
@@ -1515,8 +1572,13 @@ def assert_safe_expression_fields(document, name, allowed_secret_paths: ALLOWED_
       fail!("#{name} may not reference the GitHub token or serialized context")
     end
     if value.match?(/\bsecrets\b/i)
+      expected_secret = if secret_values.nil?
+        GITHUB_TOKEN_EXPRESSION if allowed_secret_paths.include?(path)
+      else
+        secret_values[path]
+      end
       fail!("#{name} has an unapproved secret expression") unless
-        allowed_secret_paths.include?(path) && value == GITHUB_TOKEN_EXPRESSION
+        !expected_secret.nil? && value == expected_secret
     end
   end
 end
@@ -1605,6 +1667,24 @@ def run_guard_contract_regression_matrix!
   expect_failure.call("runner guard without ready trigger") do
     guard_step_layout(GUARD_TRIGGER, 4)
   end
+app_layout = guard_step_layout(GUARD_HOSTED_TRIGGER, 5)
+fail!("App-token guard layout regression failed") unless
+  app_layout == {
+    verification_index: 2,
+    app_token_index: 3,
+    validation_index: 4,
+    hosted: true,
+    allowed_secret_paths: GUARD_APP_SECRET_VALUES.keys,
+    secret_values: GUARD_APP_SECRET_VALUES,
+    validate_env: GUARD_APP_VALIDATE_ENV
+  }
+checks += 1
+expect_failure.call("App-token step without the runner guard") do
+  guard_step_layout(GUARD_TRIGGER, 5)
+end
+expect_failure.call("hosted guard with an extra step") do
+  guard_step_layout(GUARD_HOSTED_TRIGGER, 6)
+end
 
   verification = { "env" => GUARD_VERIFY_ENV.dup, "run" => GUARD_VERIFY_RUN }
   assert_exact_environment(verification, GUARD_VERIFY_ENV, "regression guard verification")
@@ -1747,6 +1827,93 @@ def run_guard_contract_regression_matrix!
     )
     validate_guard_workflow(hosted_guard_document.call(CLA_TRUSTED_RUNNER_EXPRESSION, weakened), authorize: false)
   end
+# The App-token layout: the reviewed mint step at index 3 and the validation
+# step reading its token with the GITHUB_TOKEN fallback. Anything else that
+# would widen the token, swap the action, move the key or drop the fallback
+# is rejected.
+app_guard_document = lambda do |mint = GUARD_APP_TOKEN_STEP, validate_env = GUARD_APP_VALIDATE_ENV, runner = CLA_TRUSTED_RUNNER_EXPRESSION|
+  document = YAML.safe_load(hosted_guard_document.call(runner, ephemeral_identity))
+  document["jobs"]["validate"]["steps"].insert(3, Marshal.load(Marshal.dump(mint)))
+  document["jobs"]["validate"]["steps"][4]["env"] = Marshal.load(Marshal.dump(validate_env))
+  YAML.dump(document)
+end
+CLA_RUNNERS.each do |runner|
+  validate_guard_workflow(app_guard_document.call(GUARD_APP_TOKEN_STEP, GUARD_APP_VALIDATE_ENV, runner), authorize: false)
+  checks += 1
+end
+changed_mint = lambda do |&change|
+  mint = Marshal.load(Marshal.dump(GUARD_APP_TOKEN_STEP))
+  change.call(mint)
+  mint
+end
+[
+  ["write contents", changed_mint.call { |m| m["with"]["permission-contents"] = "write" }],
+  ["write pull requests", changed_mint.call { |m| m["with"]["permission-pull-requests"] = "write" }],
+  ["added issues write", changed_mint.call { |m| m["with"]["permission-issues"] = "write" }],
+  ["added actions read", changed_mint.call { |m| m["with"]["permission-actions"] = "read" }],
+  ["added workflows write", changed_mint.call { |m| m["with"]["permission-workflows"] = "write" }],
+  ["no permission inputs (the App's full grant)", changed_mint.call do |m|
+    m["with"].delete("permission-contents")
+    m["with"].delete("permission-pull-requests")
+  end],
+  ["every repository", changed_mint.call { |m| m["with"].delete("repositories") }],
+  ["PR-controlled repository", changed_mint.call { |m| m["with"]["repositories"] = "${{ github.event.pull_request.head.repo.name }}" }],
+  ["other App key", changed_mint.call { |m| m["with"]["private-key"] = "${{ secrets.OTHER_APP_KEY }}" }],
+  ["unpinned action", changed_mint.call { |m| m["uses"] = "actions/create-github-app-token@v3" }],
+  ["other action sha", changed_mint.call { |m| m["uses"] = "actions/create-github-app-token@0000000000000000000000000000000000000000" }],
+  ["third-party action", changed_mint.call { |m| m["uses"] = "tibdex/github-app-token@3beb63f4bd073e61482598c45c71c1019b59b73a" }],
+  ["repository-local action", changed_mint.call { |m| m["uses"] = "./.github/actions/app-token" }],
+  ["mint failure fails the guard", changed_mint.call { |m| m.delete("continue-on-error") }],
+  ["unbounded mint", changed_mint.call { |m| m.delete("timeout-minutes") }],
+  ["other step id", changed_mint.call { |m| m["id"] = "token" }],
+  ["PR-controlled condition", changed_mint.call { |m| m["if"] = "github.event.pull_request.head.repo.fork == false" }],
+  ["mint step shell", changed_mint.call { |m| m["run"] = "true" }],
+  ["mint step env", changed_mint.call { |m| m["env"] = { "KEY" => "${{ secrets.GLAEDA_ROUTE_APP_KEY }}" } }],
+  ["string continue-on-error", changed_mint.call { |m| m["continue-on-error"] = "true" }]
+].each do |name, mint|
+  expect_failure.call("App-token mint step: #{name}") do
+    validate_guard_workflow(app_guard_document.call(mint), authorize: false)
+  end
+end
+[
+  ["App key in the validation step", GUARD_APP_VALIDATE_ENV.merge("GH_TOKEN" => GUARD_APP_KEY_EXPRESSION)],
+  ["App key beside the token", GUARD_APP_VALIDATE_ENV.merge("APP_KEY" => GUARD_APP_KEY_EXPRESSION)],
+  ["no GITHUB_TOKEN fallback", GUARD_APP_VALIDATE_ENV.merge("GH_TOKEN" => "${{ steps.glaeda-token.outputs.token }}")],
+  ["fallback first", GUARD_APP_VALIDATE_ENV.merge("GH_TOKEN" => "${{ secrets.GITHUB_TOKEN || steps.glaeda-token.outputs.token }}")],
+  ["other step's token", GUARD_APP_VALIDATE_ENV.merge("GH_TOKEN" => "${{ steps.other.outputs.token || secrets.GITHUB_TOKEN }}")],
+  ["the old env with a mint step", GUARD_VALIDATE_ENV]
+].each do |name, validate_env|
+  expect_failure.call("App-token validation env: #{name}") do
+    validate_guard_workflow(app_guard_document.call(GUARD_APP_TOKEN_STEP, validate_env), authorize: false)
+  end
+end
+expect_failure.call("App-token env without the mint step") do
+  document = YAML.safe_load(hosted_guard_document.call(CLA_TRUSTED_RUNNER_EXPRESSION, ephemeral_identity))
+  document["jobs"]["validate"]["steps"][3]["env"] = GUARD_APP_VALIDATE_ENV.dup
+  validate_guard_workflow(YAML.dump(document), authorize: false)
+end
+expect_failure.call("App-token step before the runner guard") do
+  document = YAML.safe_load(app_guard_document.call)
+  steps = document["jobs"]["validate"]["steps"]
+  steps.insert(1, steps.delete_at(3))
+  validate_guard_workflow(YAML.dump(document), authorize: false)
+end
+expect_failure.call("App-token step after validation") do
+  document = YAML.safe_load(app_guard_document.call)
+  steps = document["jobs"]["validate"]["steps"]
+  steps.push(steps.delete_at(3))
+  validate_guard_workflow(YAML.dump(document), authorize: false)
+end
+expect_failure.call("App-token step in place of the checkout verification") do
+  document = YAML.safe_load(app_guard_document.call)
+  document["jobs"]["validate"]["steps"][2] = Marshal.load(Marshal.dump(GUARD_APP_TOKEN_STEP))
+  validate_guard_workflow(YAML.dump(document), authorize: false)
+end
+expect_failure.call("App-token layout with write job permissions") do
+  document = YAML.safe_load(app_guard_document.call)
+  document["jobs"]["validate"]["permissions"]["pull-requests"] = "write"
+  validate_guard_workflow(YAML.dump(document), authorize: false)
+end
   # The selector is admitted as an expression only as a job runs-on value.
   assert_safe_expression_fields({ "jobs" => { "a" => { "runs-on" => CLA_TRUSTED_RUNNER_EXPRESSION } } }, "regression")
   checks += 1
@@ -2869,6 +3036,7 @@ def validate_guard_workflow(raw, authorize: true, pr_author_id: nil)
   layout = guard_step_layout(target, guard_steps.length)
   assert_step_keys(guard_steps[0], "guard checkout step", %w[name uses with])
   assert_hosted_runner_guard_step(guard_steps[1], "guard workflow") if layout[:hosted]
+  assert_guard_app_token_step(guard_steps.fetch(layout[:app_token_index])) if layout.key?(:app_token_index)
   verification_step = guard_steps.fetch(layout[:verification_index])
   validation_step = guard_steps.fetch(layout[:validation_index])
   assert_step_keys(verification_step, "guard checkout verification step", %w[name env run])
@@ -2889,22 +3057,28 @@ def validate_guard_workflow(raw, authorize: true, pr_author_id: nil)
   )
   fail!("guard validation step has an unexpected name") unless
     validation_step["name"] == "Run trusted CLA regression matrix and validate policy as data"
-  assert_exact_environment(validation_step, GUARD_VALIDATE_ENV, "guard validation step")
+  assert_exact_environment(validation_step, layout.fetch(:validate_env, GUARD_VALIDATE_ENV), "guard validation step")
   assert_exact_normalized_run(
     validation_step["run"],
     GUARD_VALIDATE_RUN,
     GUARD_VALIDATE_RUN_HASH,
     "guard validation step run"
   )
-  assert_exact_secret_paths(document, allowed_paths: layout[:allowed_secret_paths])
-  assert_safe_expression_fields(document, "guard workflow", allowed_secret_paths: layout[:allowed_secret_paths], reviewed_guard_name: true)
+  assert_exact_secret_paths(document, allowed_paths: layout[:allowed_secret_paths], secret_values: layout[:secret_values])
+  assert_safe_expression_fields(
+    document, "guard workflow",
+    allowed_secret_paths: layout[:allowed_secret_paths], reviewed_guard_name: true, secret_values: layout[:secret_values]
+  )
   assert_safe_run_values(document)
   uses = []
   walk(document) { |key, value| uses << value if key == "uses" && value.is_a?(String) }
   uses.each do |reference|
     fail!("guard workflow may not use repository-local actions") if reference.start_with?("./")
-    fail!("guard workflow uses an unapproved action") unless reference == "actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd"
   end
+  # The checkout, and in the App-token layout the pinned App-token action, each exactly once.
+  expected_uses = ["actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd"]
+  expected_uses << GUARD_APP_TOKEN_ACTION if layout.key?(:app_token_index)
+  fail!("guard workflow uses an unapproved action") unless uses == expected_uses
   if authorize && digest != EXPECTED_GUARD_WORKFLOW_DIGEST
     require_trusted_review!(
       ENV.fetch("GH_REPO"), ENV.fetch("PR_NUMBER"), ENV.fetch("HEAD_SHA"), pr_author_id
@@ -2912,6 +3086,15 @@ def validate_guard_workflow(raw, authorize: true, pr_author_id: nil)
   end
 rescue Psych::Exception
   fail!("guard workflow YAML is invalid")
+end
+
+def assert_guard_app_token_step(step)
+  assert_step_keys(step, "guard App token step", GUARD_APP_TOKEN_STEP.keys)
+  GUARD_APP_TOKEN_STEP.each do |key, value|
+    fail!("guard App token step #{key} is not the reviewed value") unless step[key].eql?(value)
+  end
+  fail!("guard App token step with is not the reviewed inputs") unless
+    step["with"].is_a?(Hash) && step["with"].keys.sort == GUARD_APP_TOKEN_STEP["with"].keys.sort
 end
 
 def validate_guard_script(raw, pr_author_id: nil)
@@ -3031,6 +3214,11 @@ def validate_guard_script(raw, pr_author_id: nil)
     "GUARD_VALIDATE_RUN_HASH",
     "GUARD_ALLOWED_SECRET_PATHS",
     "GUARD_HOSTED_ALLOWED_SECRET_PATHS",
+    "GUARD_APP_TOKEN_STEP",
+    "GUARD_APP_SECRET_VALUES",
+    "GUARD_APP_VALIDATE_ENV",
+    "def assert_guard_app_token_step",
+    "uses == expected_uses",
     "GITHUB_CONTEXT_IN_RUN",
     "TOKEN_ENV_IN_RUN",
     "TRUSTED_REVIEW_STATES",

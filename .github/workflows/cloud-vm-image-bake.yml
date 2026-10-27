@@ -1,0 +1,59 @@
+name: Cloud VM image bake
+
+# The implementation lives on feat-cmux-next (plans/cmux-next/vm-image.md 4.11).
+# GitHub dispatches only a workflow the default branch registers, so this inert
+# copy lets a maintainer run the bake on the cmux-next dev Freestyle account
+# (environment cmux-next-vm-image-dev, which allows only feat-cmux-next):
+#
+#   gh workflow run cloud-vm-image-bake.yml -R manaflow-ai/cmux \
+#     --ref feat-cmux-next -f mode=bake
+#
+# Add -f team_vm=true to bake the team VM image (TEAM_VM_SNAPSHOT) instead of
+# the personal Cloud image (CLOUD_FREESTYLE_SNAPSHOT).
+#
+# A dispatch runs the file at --ref, so feat-cmux-next's inputs and jobs win;
+# these inputs only mirror them for the Actions form.
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: bake = one bake + smoke; repro = two bakes + SBOM/file-hash diff
+        required: true
+        default: bake
+        type: choice
+        options:
+          - bake
+          - repro
+      clones:
+        description: Smoke clones (latency sample size; at least 2 for the identity checks)
+        required: false
+        default: "5"
+        type: string
+      keep_snapshot:
+        description: Keep the baked snapshot as the dev channel candidate (VMs are still deleted)
+        required: false
+        default: false
+        type: boolean
+      probes:
+        description: Also run the VM agent bind probe (dev API) and the sm->md resize probe
+        required: false
+        default: false
+        type: boolean
+      agent_tools:
+        description: Bake the agent tools (browser role baked, on-demand agent display and computer use, tool dir for acpmux; dev snapshots only, bead cx-h8n)
+        required: false
+        default: false
+        type: boolean
+      team_vm:
+        description: Bake the team VM image (TEAM_VM_SNAPSHOT; adds the team files root /srv/team, bead cx-cemg); the smoke checks /srv/team and the candidate records var TEAM_VM_SNAPSHOT
+        required: false
+        default: false
+        type: boolean
+
+permissions: {}
+
+jobs:
+  registration:
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    steps:
+      - run: echo "Cloud VM image bake is implemented on feat-cmux-next; dispatch it with --ref feat-cmux-next"

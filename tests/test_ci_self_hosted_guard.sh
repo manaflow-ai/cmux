@@ -25,6 +25,40 @@ TMUX_CORPUS_FILE="$ROOT_DIR/.github/workflows/tmux-corpus.yml"
 IOS_FILE="$ROOT_DIR/.github/workflows/test-ios.yml"
 CLA_GUARD_FILE="$ROOT_DIR/.github/workflows/cla-policy-guard.yml"
 
+# Every check runs, in its own subshell, even when an earlier one fails, and
+# each reports under its own name: one red check can neither skip nor hide
+# another (tests/test_ci_guard_check_isolation.py).
+# - A failed check prints `test runner-guard/<check> ... FAILED`, a test name
+#   scripts/ci/base_red_excuse.py (gh-merge-green) always compares with the
+#   base's, so a check red on the base never excuses a different one, and
+#   `error:` lines for its findings.
+# - With CMUX_GUARD_CHECK_RESULTS set, each outcome is appended there as
+#   "<passed 0|1><TAB><check>" lines; the guard runner (run_ci_guards.py, where
+#   it reads them) reports them as separate results for guards_new_reds.py.
+FAILED_CHECKS=()
+run_check() {
+  local label="$*" rc out line name
+  label="${label//$ROOT_DIR\//}"
+  out="$(mktemp)"
+  set +e
+  ( set -e; "$@" ) > "$out" 2>&1
+  rc=$?
+  set -e
+  cat "$out"
+  if [ "$rc" -ne 0 ]; then
+    FAILED_CHECKS+=("$label")
+    while IFS= read -r line; do
+      case "$line" in FAIL:*) echo "error: $label: $line" ;; esac
+    done < "$out"
+    name="${label//[^A-Za-z0-9_.-]/_}"
+    echo "test runner-guard/$name ... FAILED"
+  fi
+  rm -f "$out"
+  if [ -n "${CMUX_GUARD_CHECK_RESULTS:-}" ]; then
+    printf '%s\t%s\n' "$([ "$rc" -eq 0 ] && echo 1 || echo 0)" "$label" >> "$CMUX_GUARD_CHECK_RESULTS"
+  fi
+}
+
 check_cla_guard_runner() {
   # The guard parses attacker-controlled YAML with a trusted token, so only an
   # ephemeral runner may take it: GitHub-hosted ubuntu-24.04, or a one-job
@@ -1220,10 +1254,12 @@ check_tmux_terminal_nightly_isolation() {
 }
 
 check_no_github_hosted_runners() {
-  # Nightly workflows (*nightly*.yml, *notarization*.yml) may name these
-  # GitHub-hosted images: they never route to Blacksmith (user decision
-  # 2026-10-19, tests/test_ci_nightly_off_blacksmith.py).
-  local nightly_hosted="(^|[^A-Za-z0-9_-])'?(ubuntu-24[.]04(-arm)?|macos-(15|26)|windows-2025)'?([^A-Za-z0-9_.-]|$)"
+  # Nightly workflows (*nightly*.yml, *notarization*.yml) may still name these
+  # GitHub-hosted Linux and Windows images. Never a GitHub-hosted Mac: nightly
+  # macOS jobs take the owned minis or Blacksmith (Leo, 2026-10-27: "THE GITHUB
+  # HOSTED MACS / ARE THE SLOWEST THINGS / THEY PREVIOUSLY WREN'T EVEN UNDER
+  # CONSIDERATINO").
+  local nightly_hosted="(^|[^A-Za-z0-9_-])'?(ubuntu-24[.]04(-arm)?|windows-2025)'?([^A-Za-z0-9_.-]|$)"
   # A GitHub billing block or a GitHub-hosted outage must never stop CI, so no
   # job in manaflow-ai may select a GitHub-hosted runner (ubuntu-*, macos-*,
   # windows-*). Jobs run on Blacksmith labels, the CI_TRUSTED_RUNNER selector
@@ -1254,8 +1290,6 @@ check_no_github_hosted_runners() {
     # PyPI trusted publishing accepts only GitHub-hosted runners too.
     "coderouter-publish-pypi.yml:    runs-on: ubuntu-latest # github-hosted-required: PyPI trusted publishing needs a GitHub-hosted runner"
     "cmux-tui-build-package.yml:    runs-on: ubuntu-latest # github-hosted-required: artifact attestations need GitHub OIDC"
-    # Detects a Blacksmith outage, so it must run where Blacksmith is not.
-    "ci-cloud-overflow-probe.yml:    runs-on: ubuntu-24.04 # github-hosted-required: must run while Blacksmith starts nothing"
     # validate-cla-policy.rb pins these to ubuntu-24.04 until #17453 lands.
     "cla.yml:    runs-on: ubuntu-24.04 # github-hosted-required: write token on fork pull requests"
     "cla-policy-guard.yml:    runs-on: ubuntu-24.04"
@@ -1264,9 +1298,6 @@ check_no_github_hosted_runners() {
     # Registry provenance and trusted publishing accept only GitHub-hosted runners.
     "coderouter-publish-npm.yml:    runs-on: ubuntu-latest # github-hosted-required: npm provenance needs a GitHub-hosted runner"
     "coderouter-publish-pypi.yml:    runs-on: ubuntu-latest # github-hosted-required: PyPI trusted publishing needs a GitHub-hosted runner"
-    # Dispatch-only Intel compatibility leg; Blacksmith has no Intel macOS image.
-    # GitHub retired macos-14, so it is no longer an exception (#17068).
-    "ci-macos-compat.yml:          - os: macos-15-intel"
   )
   local probe
   for probe in 'runs-on: ubuntu-24.04' 'runs-on: ubuntu-latest # github-hosted-required: x' \
@@ -1289,14 +1320,21 @@ check_no_github_hosted_runners() {
     fi
   done
 
+  # A nightly workflow may not name a GitHub-hosted Mac, not even as a fallback.
+  for probe in 'runs-on: macos-26' "runs-on: \${{ vars.X || 'macos-15' }}"; do
+    if ! printf '%s\n' "$probe" | sed -E "s/$nightly_hosted//g; s/$fork_branch//g" | grep -Eq "$hosted"; then
+      echo "FAIL: GitHub-hosted runner guard self-test let a nightly workflow keep a GitHub-hosted Mac: $probe"
+      exit 1
+    fi
+  done
+
   local line file content stripped exception allowed failed=0
   while IFS= read -r line; do
     file="${line%%:*}"
     content="${line#*:*:}"
     [[ "$content" =~ ^[[:space:]]*# ]] && continue
-    # Nightly workflows never run on Blacksmith (user decision 2026-10-19,
-    # tests/test_ci_nightly_off_blacksmith.py): compiles stay on the trusted
-    # minis, everything else takes an ephemeral GitHub-hosted image.
+    # Nightly workflows may name hosted Linux and Windows images; their macOS
+    # jobs take the trusted minis or Blacksmith (tests/test_ci_nightly_off_blacksmith.py).
     if [[ "$(basename "$file")" == *nightly*.yml || "$(basename "$file")" == *notarization*.yml ]]; then
       content="$(printf '%s\n' "$content" | sed -E "s/$nightly_hosted//g")"
     fi
@@ -1637,39 +1675,40 @@ PYTHON
   echo "PASS: owned pool labels reach jobs only through the pull request pool picker"
 }
 
-check_cla_guard_runner
+run_check check_cla_guard_runner
 
 # ci-macos.yml jobs
-check_no_github_hosted_runners
-check_no_self_hosted_fleet_runners
-check_owned_pools_route_through_picker
-check_macos_runner "$CI_MACOS_FILE" "app-host-unit-tests"
-check_macos_runner "$CI_MACOS_FILE" "macos-compile-admission"
-check_macos_runner "$CI_MACOS_FILE" "tests-build-and-lag"
-check_macos_runner "$CI_MACOS_FILE" "release-build"
-check_release_build_runner_disk_capacity
-check_display_runner_identity_guard "$CI_MACOS_FILE" "tests-build-and-lag"
+run_check check_no_github_hosted_runners
+run_check check_no_self_hosted_fleet_runners
+run_check check_owned_pools_route_through_picker
+run_check check_macos_runner "$CI_MACOS_FILE" "app-host-unit-tests"
+run_check check_macos_runner "$CI_MACOS_FILE" "macos-compile-admission"
+run_check check_macos_runner "$CI_MACOS_FILE" "tests-build-and-lag"
+run_check check_macos_runner "$CI_MACOS_FILE" "release-build"
+run_check check_release_build_runner_disk_capacity
+run_check check_display_runner_identity_guard "$CI_MACOS_FILE" "tests-build-and-lag"
+run_check check_build_lag_deriveddata_cache_path
 
 # build-ghosttykit.yml (routed through the MACOS_RUNNER_BACKGROUND repo var)
-check_macos_runner "$GHOSTTYKIT_FILE" "build-ghosttykit"
+run_check check_macos_runner "$GHOSTTYKIT_FILE" "build-ghosttykit"
 
 # ci-macos-compat.yml (matrix.os routed through the MACOS_RUNNER_* repo vars)
-check_macos_runner "$COMPAT_FILE" "compat-tests"
+run_check check_macos_runner "$COMPAT_FILE" "compat-tests"
 
 # test-e2e.yml is manual, so keep the supported GUI runner choices but cancel
 # duplicate queued runs for the same ref/filter/runner.
-check_e2e_runner_fallbacks
-check_ios_runner_routing
+run_check check_e2e_runner_fallbacks
+run_check check_ios_runner_routing
 
-check_xcode_selection
-check_release_build_signal
-check_release_build_disk_cleanup
-check_release_helper_artifact_from_package_lane
-check_runtime_regressions_collapsed
-check_signing_intermediate_imports
-check_signing_intermediate_helper_behavior
-check_sentry_cli_install_portability
-check_sentry_cli_helper_behavior
+run_check check_xcode_selection
+run_check check_release_build_signal
+run_check check_release_build_disk_cleanup
+run_check check_release_helper_artifact_from_package_lane
+run_check check_runtime_regressions_collapsed
+run_check check_signing_intermediate_imports
+run_check check_signing_intermediate_helper_behavior
+run_check check_sentry_cli_install_portability
+run_check check_sentry_cli_helper_behavior
 
 pr_workflow_events() {
   # Prints the pull request events a workflow triggers on, for the mapping,
@@ -2051,11 +2090,9 @@ check_background_macos_lane() {
   # branch and the exact compatibility-leg exceptions below.
   local lane_expr="vars.MACOS_RUNNER_BACKGROUND || 'blacksmith-6vcpu-macos-15'"
   local hosted_mac='(^|[^A-Za-z0-9_-])macos-(latest|[0-9]+)(-(intel|large|xlarge|arm64))?([^A-Za-z0-9_-]|$)'
-  # The Intel compatibility leg needs a hosted image that no paid provider
-  # offers. Exact lines only. macos-14 is retired (#17068).
-  local -a hosted_exceptions=(
-    "ci-macos-compat.yml:          - os: macos-15-intel"
-  )
+  # No exceptions: no job runs on a GitHub-hosted Mac
+  # (tests/test_ci_no_github_hosted_macos.py). Exact lines only if one returns.
+  local -a hosted_exceptions=()
   local failed=0 probe
 
   # Self-test: bare or other-variable hosted labels are caught; the lane
@@ -2090,7 +2127,7 @@ check_background_macos_lane() {
     [[ "$rel" == *nightly*.yml || "$rel" == *notarization*.yml ]] && continue
     printf '%s\n' "$content" | strip_background_lane_expr | grep -Eq "$hosted_mac" || continue
     allowed=0
-    for exception in "${hosted_exceptions[@]}"; do
+    for exception in ${hosted_exceptions[@]+"${hosted_exceptions[@]}"}; do
       if [[ "$rel:$content" == "$exception" ]]; then allowed=1; break; fi
     done
     [[ "$allowed" -eq 1 ]] && continue
@@ -2128,17 +2165,23 @@ check_background_macos_lane() {
   echo "PASS: the MACOS_RUNNER_BACKGROUND lane falls back to Blacksmith on non-blocking workflows; hosted macOS only in fork branches and compat legs"
 }
 
-check_dmg_signing_uses_build_keychain
-check_create_dmg_uses_run_local_npm_prefix
-check_gui_smoke_unsupported_launch_handling
-check_no_ci_xctest_skips
-check_no_ci_swift_package_skips
-check_web_db_behavior_tests
-check_web_test_runner_behavior
-check_tmux_terminal_nightly_isolation
-check_pr_macos_workflows_cancel_superseded_runs
-check_ios_only_tests_stay_under_ios
-check_no_paid_overflow_fallbacks
-check_macos_runner_identity_env_tracks_routing
-check_macos_xcode_pin_tracks_pull_request_lane
-check_background_macos_lane
+run_check check_dmg_signing_uses_build_keychain
+run_check check_create_dmg_uses_run_local_npm_prefix
+run_check check_gui_smoke_unsupported_launch_handling
+run_check check_no_ci_xctest_skips
+run_check check_no_ci_swift_package_skips
+run_check check_web_db_behavior_tests
+run_check check_web_test_runner_behavior
+run_check check_tmux_terminal_nightly_isolation
+run_check check_pr_macos_workflows_cancel_superseded_runs
+run_check check_ios_only_tests_stay_under_ios
+run_check check_no_paid_overflow_fallbacks
+run_check check_macos_runner_identity_env_tracks_routing
+run_check check_macos_xcode_pin_tracks_pull_request_lane
+run_check check_background_macos_lane
+
+if [ "${#FAILED_CHECKS[@]}" -ne 0 ]; then
+  echo "FAIL: ${#FAILED_CHECKS[@]} runner guard check(s) failed:"
+  printf '  %s\n' "${FAILED_CHECKS[@]}"
+  exit 1
+fi

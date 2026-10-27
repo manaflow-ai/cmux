@@ -2181,6 +2181,7 @@
           "canonicalAgentScratch": "Use a cmux-owned scratch directory for native agent panels, organized per session."
         },
         "app": {
+          "equalizeSplitsOnDividerDoubleClick": "នៅពេលបើក ការចុចពីរដងលើបន្ទាត់បែងចែកធ្វើឱ្យផ្ទាំងនៅក្នុងជួរដេក ឬជួរឈររបស់វាមានទំហំស្មើគ្នា។ ជួរដេក និងជួរឈរផ្សេងទៀតរក្សាទំហំដដែល។",
           "confirmQuit": "កំណត់ពេលដែល cmux ស្នើសុំការបញ្ជាក់មុនពេលចាកចេញ។ កំណែ DEV តែងតែចាកចេញភ្លាមៗ ដោយមិនគិតពីការកំណត់នេះទេ។ app.warnBeforeQuit ចាស់នៅតែត្រូវបានទទួលយកជាជម្រើសបម្រុង boolean។",
           "windowTitleTemplate": "គំរូចំណងជើង NSWindow ជាជម្រើស។ ទុកទទេ ដើម្បីរក្សាឥរិយាបថចំណងជើងលំនាំដើមដែលមានស្រាប់របស់ cmux រួមទាំង fallback ទៅថតបច្ចុប្បន្ន។ Placeholder ដែលគាំទ្រ៖ '{windowId}', '{windowToken}', '{activeWorkspace}', '{activeDirectory}', '{defaultTitle}', '{appName}'។",
           "devWindowDisplay": "ឈ្មោះអេក្រង់ដែលប្រើតែក្នុង build DEBUG ពេលបើកបង្អួចថ្មី។ តម្លៃទទេប្រើលំនាំដើមរបស់ប្រព័ន្ធ។",
@@ -5521,6 +5522,8 @@
     "errorInvalidCode": "លេខកូដនេះមិនត្រឹមត្រូវ។ សូមពិនិត្យអ៊ីមែល ហើយព្យាយាមម្តងទៀត។",
     "errorInvalidTotp": "លេខកូដផ្ទៀងផ្ទាត់ពីរជំហាននេះមិនត្រឹមត្រូវ។",
     "errorSignUpNotAllowed": "មិនអាចបង្កើតគណនីថ្មីបាននៅពេលនេះទេ។",
+    "errorEmailUnverified": "អ៊ីមែលនេះមានគណនីរួចហើយ ប៉ុន្តែអាសយដ្ឋាននេះមិនទាន់បានផ្ទៀងផ្ទាត់នៅឡើយទេ។ សូមចូលតាមវិធីដែលអ្នកបានចុះឈ្មោះ បន្ទាប់មកផ្ទៀងផ្ទាត់អ៊ីមែលរបស់អ្នក ដើម្បីប្រើលេខកូដចូល។",
+    "useEmailPasswordInstead": "ចូលដោយប្រើអ៊ីមែល និងពាក្យសម្ងាត់",
     "errorPasskey": "ការចូលដោយ passkey មិនបានបញ្ចប់ទេ។ សូមព្យាយាមម្តងទៀត ឬប្រើវិធីផ្សេង។",
     "errorGeneric": "មានបញ្ហាកើតឡើង។ សូមព្យាយាមម្តងទៀត។"
   },

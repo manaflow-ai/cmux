@@ -219,7 +219,9 @@ def main() -> int:
             print(f"Uploaded {args.file} to s3://{args.bucket}/{args.key} ({response.status})")
             return 0
     except urllib.error.HTTPError as error:
-        if args.write_once and error.code == 412:
+        # 412: the object exists; 409: R2 refused a concurrent write to the key.
+        # Either way the bytes now there decide, as for an existing object.
+        if args.write_once and error.code in (409, 412):
             try:
                 if _read_existing_object(
                     args,

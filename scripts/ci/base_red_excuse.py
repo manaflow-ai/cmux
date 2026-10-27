@@ -83,6 +83,18 @@ merge-base, the base tip, and the run already going at the tip or the command
 that dispatches one. It never dispatches: that is a write starting a whole CI
 run, and every lane asking at once would start one each.
 
+A base commit's verdict for a job is its newest run of it that has one: a commit
+often runs a job twice, and a workflow_dispatch DEV run skips the checks job its
+push run failed (2026-10-24: e8697614's skipped check hid the push run's red).
+
+With `--pull N`, a red the base comparison did not excuse (the base fixed it after
+the head's run, or prints it differently) is still not the PR's when every failed
+step of the job names files, none of them (nor the step's own script) is a file the
+PR changes, and a base commit or run read had the job red. It fails closed: a failing
+test (it names the test, not the bug), an error line or a red step naming no file, a
+PR changing check code, workflows, baselines or allowlists, and a file list GitHub
+cut short are never excused this way.
+
 Exit 0: excused (audit lines on stdout); 1: not excused; 3: GitHub rate-limited
 a read (the reset time on stderr).
 """
@@ -107,7 +119,10 @@ AGGREGATES = frozenset({"ci-status"})
 HOOK_REFUSAL = "glaeda-cmux-runner-hook: refused"
 VERDICTS = frozenset({"success", "failure"})
 # Base commits tried before the tip and before the merge-base when they have no verdict.
-LOOKBACK = 5
+# Each is read only while the ones after it have none, so a wider window costs nothing
+# when the tip has a verdict (2026-10-24: two pushes still running and a dispatch run per
+# commit used up five).
+LOOKBACK = 10
 TESTS = (
     re.compile(r"✘ Test (.+?\)) (?:recorded an issue|failed)"),  # Swift Testing
     re.compile(r"Test Case '-\[(\S+ \S+)\]' failed"),  # XCTest
@@ -129,8 +144,62 @@ STAMP = re.compile(r"^﻿?\d{4}-\d\d-\d\dT[\d:.]+Z ?")
 CRASH = re.compile(r"exited with unexpected signal code (\d+)|the test helper died on signal (\d+)")
 # Checks whose every finding must be the base's (gh-merge-green never waives them).
 LINT = re.compile(r"god[ -]?files?|l10n|locali[sz]ation|concurrency", re.IGNORECASE)
-# Per-run noise in what a step prints: mktemp names and commit or object hashes.
-RUN_NOISE = re.compile(r"\btmp\.[A-Za-z0-9]{6,}|\b[0-9a-f]{7,40}\b")
+# Per-run noise in what a step prints: mktemp names, a temporary folder's own name
+# (Python's mkdtemp: /tmp/cmux-prepush-foe40iki), and commit or object hashes.
+RUN_NOISE = re.compile(r"\btmp\.[A-Za-z0-9]{6,}|(?<=/tmp/)[^/\s'\"]+|(?<=/T/)[^/\s'\"]+|\b[0-9a-f]{7,40}\b")
+# A Python set of strings an assertion says something is missing from (`'X' not found in
+# {...}`): its order changes every run (PYTHONHASHSEED) and its items with the tree (every
+# package folder), so it is masked there and only there; what is missing is still compared.
+STRING_SET = re.compile(r"(?<=not found in )\{'[^'\n]*'(?:, '[^'\n]*')*\}")
+# Why a red is still not the pull request's when its failed steps name only files it does
+# not change (outside_the_diff). A path token is taken whole; it names a file when it has a
+# folder and an extension, or is a bare file name with a source or config extension (so
+# docs.example.com is not one).
+TOKEN = re.compile(r"[^\s'\"`()<>\[\]{},;|=]+")
+# A quoted file name, which may hold spaces ('webviews/src/My File.ts').
+QUOTED = re.compile(r"['\"`]([^'\"`\n]*\.[A-Za-z][A-Za-z0-9]{0,9})['\"`]")
+FILE_EXTENSIONS = frozenset(
+    "swift m mm h c cc cpp hpp rs zig go py rb js mjs cjs jsx ts tsx mts cts css scss html vue svelte json "
+    "jsonc toml yaml yml plist xcstrings strings xib storyboard sh bash zsh md txt tsv csv lock lockb "
+    "xcconfig entitlements pbxproj resolved png jpg jpeg gif svg pdf ttf otf wasm".split())
+# Any line that says a test failed: it names the test, not the file with the bug.
+TEST_MARK = re.compile(r"\bfail\w*|\(fail\)|\bnot ok\b|assert|traceback|panic|✘|✗|✕|×|did not pass|not passed|unsuccessful|\bbroken\b|\bregress", re.IGNORECASE)
+# Any warning, in any case: a warning never pins a red to files.
+ANY_WARNING = re.compile(r"##\[warning\]|\bwarn(?:ing)?s?\b", re.IGNORECASE)
+# A URL, with or without its scheme: a scheme, `//host`, or a first segment shaped like a host
+# name (`docs.example.com/a.ts`). A repository folder with a dot in it reads as one too, which
+# only refuses (fails closed).
+URL_LIKE = re.compile(r"^[A-Za-z][\w+-]*:(?!\d)|[A-Za-z][\w+.-]*:/|^//|^[\w.-]+:\d+/|"
+                      r"^[\w-]+(?:\.[\w-]+)*\.[A-Za-z]{2,}(?::\d+)?/", re.IGNORECASE)
+# Any line that reports an error; each must name a file.
+ERRORISH = re.compile(r"##\[error\]|\berrors?\b|\bfatal\b|\bexceptions?\b", re.IGNORECASE)
+# A pull request may be excused by files only when every file it changes is source a check
+# reads, never what decides how checks run or what files build to. Check code, workflows,
+# baselines and allowlists decide what a check reports without the report naming them, and
+# build inputs (manifests, lockfiles, project, container and tool config, any dotfile) change
+# what every file builds to; a test, spec, fixture, snapshot or mock (cmuxTests/, tests_v2/,
+# webviews/test/, *.test.ts) changes what a test job reports. Rather than list every such
+# input, only source-type files outside dot folders are allowed, minus those.
+SOURCE_EXTENSIONS = frozenset(
+    "swift m mm h c cc cpp hpp rs zig go py rb js mjs cjs jsx ts tsx mts cts css scss html vue svelte md "
+    "png jpg jpeg gif svg pdf webp ico ttf otf xcstrings strings xib storyboard".split())
+GUARDED = re.compile(
+    r"^(?:\.github|config)/|(?:^|/)build[-_]support/|test|spec|fixture|snapshot|mock|(?:^|/)scripts/|(?:^|/)\.|baseline|allowlist|(?:^|/)(?:Package\.swift|"
+    r"[^/]*\.config\.[cm]?[jt]s|build\.zig|build\.rs|setup\.py|conftest\.py|noxfile\.py|Rakefile|Fastfile)$",
+    re.IGNORECASE)
+
+
+def guarded(path: str) -> bool:
+    """Whether a changed file can change what a check reports without the report naming it."""
+    name = path.rsplit("/", 1)[-1]
+    extension = name.rsplit(".", 1)[-1].lower() if "." in name.strip(".") else ""
+    return bool(GUARDED.search(path)) or extension not in SOURCE_EXTENSIONS
+
+
+EXIT_LINE = re.compile(r"##\[error\]Process completed with exit code")
+RED_CHECK = re.compile(r"##\[error\]red check: ")
+# GitHub lists at most 3000 files of a pull request.
+MAX_PR_FILES = 3000
 # check-l10n.sh prints its first 200 errors, then this.
 CUT_SHORT = re.compile(r"^\.\.\. \d+ more$")
 ANSI = re.compile(r"\x1b\[[0-9;]*m|\^\[\[[0-9;]*m")
@@ -258,21 +327,29 @@ def printed(job: dict, log: str) -> Counter[str]:
             failed.add(step)
     found: Counter[str] = Counter()
     echo: set[str] = set()
+    opened: set[str] = set()
     for step, raw in lines:
         if step not in failed:
             continue
         text = ANSI.sub("", STAMP.sub("", raw.lstrip("\ufeff"))).strip()
-        if text.startswith("##[group]"):
+        if text.startswith("##[group]Run ") and step not in opened:
+            # A step's first `Run` group is its own script; a later one (a composite action's
+            # inner step) is output like any nested group.
             echo.add(step)
+            opened.add(step)
             continue
         if text.startswith("##[endgroup]"):
             echo.discard(step)
             continue
+        # Only a step's own `Run` echo is its script: a nested group (a script's own
+        # `##[group]test x: failed`) is output, so a finding inside one is compared too.
+        text = text.removeprefix("##[group]")
         if step in echo or not text or WARNING.search(text) or GENERIC.search(text):
             continue
         if CUT_SHORT.match(text):
             raise Refused(f"'{job.get('name')}': step '{step}' printed output cut short ({text}); "
                           "the findings it hid cannot be compared with the base")
+        text = STRING_SET.sub("{…}", text)
         found[re.sub(r"(?<![A-Za-z0-9_])\d+", "#", RUN_NOISE.sub("…", text.replace("##[error]", "").strip()))] += 1
     return found
 
@@ -342,12 +419,13 @@ def reported_red(log: str) -> list[str]:
     found, echo = [], False
     for text in lines_of(log):
         text = ANSI.sub("", text)
-        if text.startswith("##[group]"):
+        if text.startswith("##[group]Run "):
             echo = True
         elif text.startswith("##[endgroup]"):
             echo = False
-        elif not echo and AGGREGATE_LINE.match(text):
-            found.append(text.rsplit(":", 1)[0])
+        elif not echo and AGGREGATE_LINE.match(text.removeprefix("##[group]")):
+            # A nested group is output, not the step's script: a red it reports is judged too.
+            found.append(text.removeprefix("##[group]").rsplit(":", 1)[0])
     return sorted(set(found))
 
 
@@ -417,6 +495,142 @@ def head_jobs(repo: str, sha: str, runs: list[int], checks: list[str], github) -
     return list(jobs.values())
 
 
+def verdict_checks(repo: str, sha: str, github) -> dict:
+    """Per check name on a base commit, the newest GitHub Actions run of it with a verdict, else
+    the newest. A commit often runs a job twice, and the newer can have none: a workflow_dispatch
+    DEV run skips the cmux-next checks job its push run failed (2026-10-24: e8697614's skipped
+    check 121029429698 hid push run 40146316318's red, so the base had "no verdict")."""
+    ranked: dict[str, tuple[tuple[bool, int], dict]] = {}
+    for page in github.json(f"repos/{repo}/commits/{sha}/check-runs?per_page=100", paginate=True):
+        for check in page.get("check_runs") or []:
+            # A third-party app cannot provide compile or test evidence.
+            if check.get("app", {}).get("slug") != "github-actions":
+                continue
+            rank = (check.get("status") == "completed" and check.get("conclusion") in VERDICTS, check["id"])
+            if check["name"] not in ranked or rank > ranked[check["name"]][0]:
+                ranked[check["name"]] = (rank, check)
+    return {name: check for name, (_, check) in ranked.items()}
+
+
+def changed_files(repo: str, pr: int, github) -> set[str]:
+    """Every path the pull request changes, both ends of a rename included."""
+    files = []
+    for page in github.json(f"repos/{repo}/pulls/{pr}/files?per_page=100", paginate=True):
+        files.extend(page if isinstance(page, list) else [page])
+    if len(files) >= MAX_PR_FILES:
+        raise Refused(f"#{pr} changes {len(files)} files, as many as GitHub lists; which it changes is unknown")
+    return {path for entry in files for path in (entry.get("filename"), entry.get("previous_filename")) if path}
+
+
+def touched(path: str, changed: set[str]) -> str | None:
+    """The changed file a named path may be: the same, or one a suffix of the other (a bare
+    file name, an absolute runner path), so a doubt counts as changed."""
+    for name in changed:
+        # A bare name matches any changed file ending in it: a token cut at a space
+        # (`My File.ts` read as `File.ts`) still counts as the changed file.
+        if path == name or name.endswith(path if "/" not in path else "/" + path) or path.endswith("/" + name):
+            return name
+    return None
+
+
+def without_files(text: str) -> str:
+    """The line with every file it names blanked out."""
+    for path in sorted(file_paths(text), key=len, reverse=True):
+        text = text.replace(path, " ")
+    return text
+
+
+def file_paths(text: str) -> set[str]:
+    """The files a line names, each token taken whole (`assets/Foo@2x.png`, never `2x.png`)."""
+    found = set()
+    for token in TOKEN.findall(text) + QUOTED.findall(text):
+        # Windows paths (the cmux-tui Windows lane prints `src\foo.rs`, or `C:\a\cmux\src\foo.rs`)
+        # compare with forward slashes, the drive letter dropped (the suffix match finds the file).
+        token = re.sub(r"^[A-Za-z]:(?=[\\/])", "", token).replace("\\", "/")
+        if URL_LIKE.search(token):
+            continue  # a URL is somewhere else, not a file of this repository
+        token = re.sub(r":\d+(?::\d+)?:?$", "", token.rstrip(".:")).removeprefix("./")
+        name = token.rsplit("/", 1)[-1]
+        if "." not in name.strip("."):
+            continue
+        extension = name.rsplit(".", 1)[-1].lower()
+        if ("/" in token and re.fullmatch(r"[a-z][a-z0-9]{0,9}", extension)) or extension in FILE_EXTENSIONS:
+            found.add(token)
+    return found
+
+
+def outside_the_diff(job: dict, log: str, changed: set[str]) -> list[str]:
+    """The files a red job's failed steps name, when none is one the pull request changes.
+
+    Raises Refused when a failed step cannot be pinned to files: any line saying a test
+    failed (it names the test, not where the bug is), an error line naming no file, or a
+    step whose output (warnings aside) names none. A step's own script and env (its
+    `##[group]Run` echo) and its warnings must be outside the diff too, but never pin a red
+    to files by themselves: a step naming files only there refuses. A pull request changing check code, workflows, baselines, allowlists or build inputs
+    is never excused this way. The summary step that only lists the other steps' reds
+    (`red check: X`) is skipped."""
+    name = job.get("name", "")
+    if guarded_paths := sorted(path for path in changed if guarded(path)):
+        raise Refused(f"it changes check code, a baseline or a build input ({guarded_paths[0]}), which can move "
+                      "a finding without the finding naming it")
+    lines = step_lines(log)
+    blocks = {step for step, _ in lines if step.startswith(f"{UNKNOWN_STEP} ")}
+    if blocks and len(blocks) != ran_steps(job):
+        raise Refused(f"its log names no steps and has {len(blocks)} `Run` groups for {ran_steps(job)} steps")
+    # A log with no step names has blocks, not the API's step names: its red blocks are those that
+    # logged an error (each continue-on-error lint, and the step that fails the job, does).
+    failed = set() if blocks else {step["name"] for step in job.get("steps") or []
+                                   if step.get("conclusion") not in (None, "success", "skipped")}
+    failed |= {step for step, raw in lines if "##[error]" in raw}
+    echo: dict[str, list[str]] = {}
+    output: dict[str, list[str]] = {}
+    in_echo: set[str] = set()
+    for step, raw in lines:
+        if step not in failed:
+            continue
+        text = ANSI.sub("", STAMP.sub("", raw.lstrip("﻿"))).strip()
+        if text.startswith("##[group]Run ") and step not in echo:
+            # Only the step's first `Run` group is its script; a later one is output.
+            in_echo.add(step)
+            echo.setdefault(step, []).append(text[len("##[group]Run "):])
+        elif text.startswith("##[endgroup]") and step in in_echo:
+            in_echo.discard(step)
+        elif text:
+            # Only a step's own `Run` echo is its script; a nested group (a script's own
+            # `##[group]test x: failed`) is output and is read like the rest.
+            (echo if step in in_echo else output).setdefault(step, []).append(text)
+    named: list[str] = []
+    pinned = 0
+    for step in sorted(failed):
+        said = [text for text in output.get(step, []) if not text.startswith("##[endgroup]")]
+        errors = [text for text in said if ERRORISH.search(text) and not EXIT_LINE.search(text)
+                  and not WARNING.search(text)]
+        if errors and all(RED_CHECK.search(text) for text in errors):
+            continue  # the summary step: each step it lists is judged on its own
+        # Test language is looked for outside file names: `webviews/src/panic.ts` is not a panic.
+        if failing := [text for text in said
+                       if any(pattern.search(text) for pattern in TESTS) or CRASH.search(text)
+                       or TEST_MARK.search(without_files(text))]:
+            raise Refused(f"step '{step}' says a test failed ({failing[0][:160]}), which names the test, "
+                          "not the file with the bug")
+        if unpinned := [text for text in errors if not file_paths(text)]:
+            raise Refused(f"step '{step}' has an error naming no file: {unpinned[0][:200]}")
+        # The findings are what the step printed, warnings aside; its script, env and warnings
+        # only widen what must be outside the diff, never pin the red to files themselves.
+        paths = {found for text in said if not ANY_WARNING.search(text) for found in file_paths(text)}
+        if not paths:
+            raise Refused(f"step '{step}' failed naming no file outside its warnings and script")
+        for path in sorted({found for text in said + echo.get(step, []) for found in file_paths(text)}):
+            if hit := touched(path, changed):
+                raise Refused(f"step '{step}' names {path}, which this pull request changes ({hit})")
+        pinned += 1
+        # Name what the errors name; a step whose findings print no error line (NO-SWIFTUI) names them all.
+        named.extend(sorted({found for text in errors for found in file_paths(text)} or paths))
+    if not pinned:
+        raise Refused(f"'{name}' has no failed step to pin to files")
+    return named
+
+
 class Head:
     """One failed head job and the signature every base candidate is compared with."""
 
@@ -482,6 +696,8 @@ class Base:
         self._run_workflow: dict[int, int | None] = {}
         self._logs: dict[int, str] = {}
         self.notes: list[str] = []
+        # Per head job name, the first base commit or run read where that job was red.
+        self.reds: dict[str, str] = {}
         self.tip_is_merge_base = False
         self.tip: str | None = None
         self.merge_base: str | None = None
@@ -543,7 +759,7 @@ class Base:
     def checks(self, commit: str) -> dict:
         if commit not in self._checks:
             try:
-                self._checks[commit] = latest_checks(self.repo, commit, self.github)
+                self._checks[commit] = verdict_checks(self.repo, commit, self.github)
             except RateLimited:
                 raise
             except Refused as error:
@@ -622,9 +838,15 @@ class Base:
 
     def workflow_runs(self, workflow) -> list[dict]:
         if workflow not in self._workflow_runs:
-            listed = self.github.json(
-                f"repos/{self.repo}/actions/workflows/{workflow}/runs?branch={self.base}&status=completed&per_page=20")
-            runs = [run for run in listed.get("workflow_runs") or []
+            listing = f"repos/{self.repo}/actions/workflows/{workflow}/runs?branch={self.base}&status=completed&per_page=20"
+            # Dispatched runs are read on their own too: a job that base pushes skip (feat-cmux-next's
+            # Swift suite) gets its base verdict only from a dispatched run, such as the scheduled tip
+            # Swift suite, which twenty pushes on a busy base would push out of the first listing.
+            listed = {}
+            for page in (self.github.json(listing), self.github.json(f"{listing}&event=workflow_dispatch")):
+                for run in page.get("workflow_runs") or []:
+                    listed.setdefault(run.get("id"), run)
+            runs = [run for run in listed.values()
                     if run.get("event") not in ("pull_request", "pull_request_target")
                     and run.get("conclusion") != "skipped"]
             # Newest first by creation, which GitHub returns but does not document: the newest run
@@ -720,6 +942,7 @@ def judge_on_commits(head: Head, base: Base) -> tuple[str | None, list[str], boo
                 if job.get("conclusion") != "failure":
                     found.append(f"green on {where} ({job.get('name')}{how}: {job_url(base.repo, job)})")
                     continue
+                base.reds.setdefault(head.name, f"{where} ({job_url(base.repo, job)})")
                 if why := head.mismatch(job, base.log(job), f"{where} ({job_url(base.repo, job)})"):
                     found.append(why)
                     continue
@@ -770,6 +993,7 @@ def judge_on_workflow_runs(head: Head, base: Base, workflow, path: str = "") -> 
             if job.get("conclusion") != "failure":
                 reasons.append(f"'{head.name}' is not red on {where} ({job.get('conclusion')}{how}); fix it on this head")
                 continue
+            base.reds.setdefault(head.name, f"{where} ({job_url(base.repo, job)})")
             if why := head.mismatch(job, base.log(job), where):
                 reasons.append(f"'{head.name}': {why}")
                 continue
@@ -787,9 +1011,10 @@ def judge_on_workflow_runs(head: Head, base: Base, workflow, path: str = "") -> 
 
 
 def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: list[str] = (),
-          lookback: int = LOOKBACK) -> list[str]:
+          lookback: int = LOOKBACK, pr: int | None = None) -> list[str]:
     """Audit lines for every excused failure; raises Refused naming every one that is not."""
     audit: list[str] = []
+    changed: set[str] | None = None
     refusals: list[str] = []
     evidence = Base(repo, base, sha, github, lookback)
     jobs = head_jobs(repo, sha, runs, list(checks), github)
@@ -864,6 +1089,26 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
         tried = [f"{base} commits: {'; '.join(commit_reasons)}"] if commit_reasons else []
         if run_reason:
             tried.append(run_reason)
+        if pr is not None:
+            # A red the base fixed after the head's run, or one printed differently, is still not
+            # this PR's when every file its failed steps name is outside the diff and the base had
+            # the job red too (2026-10-24: #24997's web bundles red named only base files).
+            red_at = evidence.reds.get(name)
+            try:
+                if red_at is None:
+                    raise Refused(f"no {base} commit or run read has it red")
+                if changed is None:
+                    changed = changed_files(repo, pr, github)
+                named = outside_the_diff(job, head_log, changed)
+            except RateLimited:
+                raise
+            except (Refused, ValueError, KeyError, TypeError, AttributeError) as why:
+                # An unreadable file list refuses too, but keeps the base comparison's reasons.
+                tried.append(f"not outside the diff of #{pr}: {why or type(why).__name__}")
+            else:
+                audit.append(f"excused '{name}': its failed steps name only files #{pr} does not change "
+                             f"({'; '.join(named)[:400]}), and {base} has it red at {red_at}")
+                continue
         if not had_verdict and not run_verdict:
             # No verdict at all implies none on the base tip line, so the run search above set workflow.
             tried.append(dispatch_hint(evidence, workflow, path))
@@ -904,9 +1149,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--sha", required=True)
     parser.add_argument("--run", type=int, action="append", default=[], help="a failed workflow run on the head")
     parser.add_argument("--check", action="append", default=[], help="a red required check on the head")
+    parser.add_argument("--pull", dest="pr", type=int,
+                        help="the pull request, so a red naming only files it does not change is excused")
     args = parser.parse_args(argv)
     try:
-        audit = judge(args.repo, args.base, args.sha, args.run, GitHub(), checks=args.check)
+        audit = judge(args.repo, args.base, args.sha, args.run, GitHub(), checks=args.check, pr=args.pr)
     except RateLimited as error:
         print(f"rate-limited: {error}", file=sys.stderr)
         return 3

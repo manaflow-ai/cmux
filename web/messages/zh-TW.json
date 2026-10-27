@@ -2181,6 +2181,7 @@
           "canonicalAgentScratch": "Use a cmux-owned scratch directory for native agent panels, organized per session."
         },
         "app": {
+          "equalizeSplitsOnDividerDoubleClick": "啟用後，按兩下窗格分隔線會將其所在列或欄的窗格調整為相同大小。其他列和欄維持原有大小。",
           "confirmQuit": "控制 cmux 在退出前何時要求確認。無論此設定為何，DEV 建置都會立即退出。舊的 app.warnBeforeQuit 仍會作為布林後備值接受。",
           "windowTitleTemplate": "可選的 NSWindow 標題範本。留空會保留 cmux 既有的預設標題行為，包括回退到目前目錄。支援的預留位置：'{windowId}'、'{windowToken}'、'{activeWorkspace}'、'{activeDirectory}'、'{defaultTitle}'、'{appName}'。",
           "devWindowDisplay": "僅在 DEBUG 建置中開啟新視窗時使用的顯示器名稱。空值會使用系統預設值。",
@@ -5522,6 +5523,8 @@
     "errorInvalidCode": "驗證碼無效。請檢查電子郵件後再試一次。",
     "errorInvalidTotp": "雙重驗證碼無效。",
     "errorSignUpNotAllowed": "目前無法建立新帳號。",
+    "errorEmailUnverified": "此電子郵件已有帳號，但地址尚未驗證。請使用註冊時的方式登入，然後驗證電子郵件，即可使用登入驗證碼。",
+    "useEmailPasswordInstead": "使用電子郵件和密碼登入",
     "errorPasskey": "通行密鑰登入未完成。請再試一次或改用其他方式。",
     "errorGeneric": "發生問題，請再試一次。"
   },

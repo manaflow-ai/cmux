@@ -14,7 +14,9 @@ runs-on. This test reads them from the working tree and from the other branch
 from main's copy of the rescue (the working tree on main, origin/main on
 feat-cmux-next, since that is the copy that runs). It fails when an owned
 workflow of either branch is not listed, and when a listed one is owned in
-neither. The other branch is read with `git show`; under GitHub Actions the
+neither (only a warning for a workflow main does not have: main's list cannot
+change in the commit that moves a feat-cmux-next-only workflow off the minis,
+and a stale entry is harmless). The other branch is read with `git show`; under GitHub Actions the
 test fetches it (one shallow, blob-less fetch, then the files it reads) and
 fails if it still cannot read it. Off CI a missing ref only skips that branch.
 
@@ -113,7 +115,7 @@ class OwnedPoolSources(unittest.TestCase):
         cls.other = sources.Tree(ROOT, cls.ref) if has_ref(cls.ref) else None
         here = sources.Tree(ROOT)
         cls.trees = [here] + ([cls.other] if cls.other is not None else [])
-        rescue_tree = cls.other if on_feat() else here
+        rescue_tree = cls.rescue_tree = cls.other if on_feat() else here
         source = rescue_tree.read(sources.RESCUE_SCRIPT) if rescue_tree is not None else None
         cls.watched = sources.watched_paths(source) if source is not None else None
         cls.unrescued = sources.unrescued_paths(source) if source is not None else frozenset()
@@ -144,19 +146,32 @@ class OwnedPoolSources(unittest.TestCase):
         if self.watched is None or self.other is None:
             self.skipTest("both branches are needed to call an entry stale")
         found = set().union(*(set(owned) for owned in self.owned.values()))
-        stale = sorted((self.watched | self.unrescued) - found)
-        self.assertFalse(stale, f"{sources.RESCUE_SCRIPT} lists workflows that take no owned pool on main or "
-                                f"feat-cmux-next any more; remove them: {stale}")
+        stale = (self.watched | self.unrescued) - found
+        # A feat-cmux-next-only workflow moved off the minis leaves its entry in main's list, which no
+        # commit can change together with it (the entry cannot go first either: main's own run would
+        # find the workflow owned and unwatched). A stale entry only watches a run with no owned job.
+        on_main = set(self.rescue_tree.workflows())
+        feat_only = sorted(stale - on_main)
+        if feat_only:
+            print(f"::warning title=owned pool sources::{sources.RESCUE_SCRIPT} on main lists "
+                  f"feat-cmux-next-only workflows that take no owned pool any more; remove them in a pull "
+                  f"request to main: {feat_only}", file=sys.stderr)
+        self.assertFalse(sorted(stale & on_main), f"{sources.RESCUE_SCRIPT} lists workflows that take no owned "
+                                                  f"pool on main or feat-cmux-next any more; remove them")
         self.assertFalse(self.watched & self.unrescued, "a workflow is both watched and left to a person")
 
     def test_the_markers_come_from_the_pool_code(self) -> None:
-        markers = sources.Markers(sources.Tree(ROOT))
-        self.assertEqual(markers.literal, "glaeda-")
-        for variable in ("CI_PR_POOL_OWNED", "CI_SIDE_LANE_RUNNER", "CI_LIGHT_LANE_RUNNER", "CI_SEED_TRUSTED_POOL",
-                         "CI_NIGHTLY_TRUSTED_RUNNER"):
-            self.assertIn(variable, markers.variables)
-        self.assertNotIn("LINUX_RUNNER", markers.variables)
-        self.assertNotIn("MACOS_RUNNER_26", markers.variables)
+        # Both branches' policies: feat-cmux-next's drifted_runner_variables() also names LINUX_RUNNER and the
+        # hosted-Mac fallbacks in a no-hosted-Mac guard, which once made ~130 workflows look owned on every PR.
+        for tree in self.trees:
+            with self.subTest(tree=str(tree)):
+                markers = sources.Markers(tree)
+                self.assertEqual(markers.literal, "glaeda-")
+                for variable in ("CI_PR_POOL_OWNED", "CI_SIDE_LANE_RUNNER", "CI_LIGHT_LANE_RUNNER",
+                                 "CI_SEED_TRUSTED_POOL", "CI_NIGHTLY_TRUSTED_RUNNER"):
+                    self.assertIn(variable, markers.variables)
+                for hosted in ("LINUX_RUNNER", "MACOS_RUNNER_15", "MACOS_RUNNER_26", "NIGHTLY_NEXT_TRAIN_RUNNER"):
+                    self.assertNotIn(hosted, markers.variables)
 
     def test_a_runs_on_is_owned_by_a_label_a_pool_variable_or_a_picker_output(self) -> None:
         markers = sources.Markers(sources.Tree(ROOT))

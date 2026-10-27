@@ -950,6 +950,11 @@ export const vmWorkflowErrorResponders = {
     if (nested && isVmOperationUnsupportedError(nested)) {
       return vmUnsupportedOperationResponse(nested, context.locale);
     }
+    // Unconfirmed cleanup wraps the create's own failure; the machine it left
+    // is what the caller must hear about, ahead of whatever caused it.
+    if (isProviderCreateCleanupError(error.cause)) {
+      return vmCreateCleanupPendingResponse(context.locale);
+    }
     if (providerArtifactUnavailable(error.cause)) {
       return vmArtifactUnavailableResponse(error, context.locale);
     }
@@ -967,9 +972,6 @@ export const vmWorkflowErrorResponders = {
     }
     if (providerCauseIs(error.cause, ProviderTlsRuleLimitError)) {
       return vmNetworkRuleCapacityResponse(error, context.locale);
-    }
-    if (isProviderCreateCleanupError(error.cause)) {
-      return vmCreateCleanupPendingResponse(context.locale);
     }
     const guestInstall = guestCliInstallFailure(error.cause);
     if (guestInstall) {
@@ -1828,9 +1830,10 @@ function sanitizedProviderMessage(message: string): string {
   if (/timeout|timed out|aborted/i.test(normalized)) return "request timed out";
   if (/rate[_\s-]*limit|too many requests/i.test(normalized)) return "rate limited";
   if (/not found|deleted/i.test(normalized)) return "VM not found";
-  return normalized
-    .replace(/freestyle/gi, "Cloud VM")
-    .slice(0, 240);
+  // Unknown provider text may contain URLs, tenant identifiers, request
+  // metadata, or credentials. Keep it out of the API response; the original
+  // error remains available to server-side telemetry.
+  return "";
 }
 
 function sanitizedProviderCode(code: string): string {
@@ -1840,7 +1843,7 @@ function sanitizedProviderCode(code: string): string {
   if (normalized.includes("timeout") || normalized.includes("aborted")) return "provider_timeout";
   if (normalized.includes("rate")) return "provider_rate_limited";
   if (normalized.includes("not_found") || normalized.includes("deleted")) return "provider_not_found";
-  return normalized.slice(0, 80);
+  return "provider_error";
 }
 
 function inferredProviderCode(message: string | null): string | null {
