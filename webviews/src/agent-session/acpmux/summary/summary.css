@@ -210,19 +210,10 @@ html[data-pr-dock="tight"] .acpmux-pr-dock{gap:4px}
   flex: none;
   font-size: var(--text-detail);
 }
-.acpmux-message-with-prs {
-  display: flex;
-  align-items: flex-end;
-  gap: 8px;
-}
-.acpmux-message-with-prs > .cv-md {
-  min-width: 0;
-  flex: 1;
-}
-.acpmux-message-with-prs > .acpmux-pr-dock {
-  flex: 0 1 40%;
-  height: var(--cv-md-leading, 24px);
-}
+.cv-inline-tail{display:inline-flex;align-items:baseline;gap:8px;max-width:100%;vertical-align:baseline}
+.cv-inline-tail>span:first-child{min-width:0;overflow-wrap:anywhere}
+.cv-inline-tail>.acpmux-pr-dock{flex:0 1 220px;width:220px;max-width:45vw;height:1lh;vertical-align:baseline}
+.cv-codeblock__actions:has(>.acpmux-pr-dock){min-width:0;flex:1;justify-content:flex-end}
 /* Keep the links visible while the existing action buttons retain their hover behavior. */
 .acpmux-turnSummary .cv-turn-actions:has(> .acpmux-pr-dock) {
   opacity: 1;

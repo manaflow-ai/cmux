@@ -349,12 +349,7 @@ import { ChatHeaderTools, HEADER_ACTIONS, menuGroups, type ChatMenuItem } from "
 import { EnvironmentLine, environmentOpener } from "./header/EnvironmentLine";
 import { headerState, setHeaderState, useHeaderState } from "./header/headerState";
 import { setTabRow, tabRowStyle, useTabRow, useTabRowTools } from "./header/tabRow";
-import {
-  MessageWithPullRequests,
-  RowPullRequests,
-  pullRequestRow,
-  useTranscriptPullRequests,
-} from "./summary/PullRequestDock";
+import { RowPullRequests, pullRequestRow, useTranscriptPullRequests } from "./summary/PullRequestDock";
 import { SubagentPaneFooter } from "./subagents/SubagentPaneFooter";
 import { RecapCard, useRecapCard } from "./RecapCard";
 import { HarnessStatusCard } from "./HarnessStatusCard";
@@ -1019,14 +1014,12 @@ const MessageRow = memo(
       );
     }
     return (
-      <MessageWithPullRequests>
-        <RevealedMarkdown
-          text={row.text ?? ""}
-          streaming={row.streaming === true}
-          githubRepository={githubRepository}
-          messageAt={row.at}
-        />
-      </MessageWithPullRequests>
+      <RevealedMarkdown
+        text={row.text ?? ""}
+        streaming={row.streaming === true}
+        githubRepository={githubRepository}
+        messageAt={row.at}
+      />
     );
   },
   (previous, next) =>

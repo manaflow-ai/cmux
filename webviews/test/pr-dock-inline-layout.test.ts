@@ -37,7 +37,11 @@ await requireBrowserLane("pr-dock-inline-layout.test.ts", () => {
         const dock = page.locator(".acpmux-pr-dock");
         await dock.waitFor();
         if (process.env.CMUX_PR_DOCK_CAPTURE)
-          await page.screenshot({ path: `${process.env.CMUX_PR_DOCK_CAPTURE}/closed-${width}.png` });
+          await page.screenshot({
+            type: "jpeg",
+            quality: 75,
+            path: `${process.env.CMUX_PR_DOCK_CAPTURE}/closed-${width}.jpg`,
+          });
         expect(await dock.evaluate((node) => !!node.closest(".cv-turn-actions"))).toBe(true);
         expect(await dock.locator(".acpmux-pr-dock__bar").count()).toBeGreaterThan(0);
         expect(await dock.locator(".acpmux-pr-dock__bar").count()).toBeLessThanOrEqual(2);
@@ -58,7 +62,11 @@ await requireBrowserLane("pr-dock-inline-layout.test.ts", () => {
           4 - (await dock.locator(".acpmux-pr-dock__bar").count()),
         );
         if (process.env.CMUX_PR_DOCK_CAPTURE)
-          await page.screenshot({ path: `${process.env.CMUX_PR_DOCK_CAPTURE}/open-${width}.png` });
+          await page.screenshot({
+            type: "jpeg",
+            quality: 75,
+            path: `${process.env.CMUX_PR_DOCK_CAPTURE}/open-${width}.jpg`,
+          });
         await page.keyboard.press("Escape");
         expect(await more.getAttribute("aria-expanded")).toBe("false");
         expect(await more.evaluate((node) => node === document.activeElement)).toBe(true);
@@ -67,4 +75,43 @@ await requireBrowserLane("pr-dock-inline-layout.test.ts", () => {
         await page.close();
       }
     });
+  for (const variant of ["no-footer", "received", "one-first", "tight"])
+    for (const width of [760, 320])
+      test(`${variant} at ${width}px keeps content and pills within the message`, async () => {
+        const page = await browser.newPage({ viewport: { width, height: 660 } });
+        try {
+          const { port } = vite.httpServer!.address() as { port: number };
+          await page.goto(`http://127.0.0.1:${port}${galleryFrame("agent-pane.pr-dock", { variant, width })}`);
+          await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");
+          await page.locator(".acpmux-pr-dock").waitFor();
+          if (process.env.CMUX_PR_DOCK_CAPTURE)
+            await page.screenshot({
+              type: "jpeg",
+              quality: 75,
+              path: `${process.env.CMUX_PR_DOCK_CAPTURE}/${variant}-${width}.jpg`,
+            });
+          const boxes = await page.locator(".acpmux-pr-dock").evaluate((node) => {
+            const row = node.closest(".acpmux-row")!.getBoundingClientRect();
+            return [...node.querySelectorAll("a,button")].map((child) => {
+              const rect = child.getBoundingClientRect();
+              return { left: rect.left >= row.left, right: rect.right <= row.right + 1 };
+            });
+          });
+          for (const box of boxes) expect(box).toEqual({ left: true, right: true });
+          if (variant === "no-footer") {
+            const widths = await page.locator(".acpmux-assistant").evaluate((node) => {
+              const md = node.querySelector(".cv-md")!;
+              return {
+                body: md.getBoundingClientRect().width,
+                paragraph: md.querySelector(".cv-p")!.getBoundingClientRect().width,
+                code: md.querySelector(".cv-codeblock")!.getBoundingClientRect().width,
+              };
+            });
+            expect(widths.paragraph).toBe(widths.body);
+            expect(widths.code).toBe(widths.body);
+          }
+        } finally {
+          await page.close();
+        }
+      });
 });

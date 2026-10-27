@@ -42,18 +42,6 @@ export function pullRequestRow(rows: readonly AcpmuxRow[]): string | undefined {
   }
 }
 
-/// With no action row, keep the links at the right of the message's last line.
-export function MessageWithPullRequests({ children }: { children: ReactNode }) {
-  const prs = useContext(RowPullRequests);
-  if (!prs?.length) return children;
-  return (
-    <div className="acpmux-message-with-prs">
-      {children}
-      <PullRequestDock />
-    </div>
-  );
-}
-
 export function PullRequestDock() {
   const prs = useContext(RowPullRequests);
   if (!prs?.length) return null;

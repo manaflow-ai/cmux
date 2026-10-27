@@ -44,7 +44,14 @@ export default agentPaneEntry({
     },
     "no-footer": {
       note: "While the answer streams, links sit right of its last line without an action row.",
-      snapshot: chat([activity(four, 5), assistant("Four PRs are ready for review.", 2, { streaming: true })]),
+      snapshot: chat([
+        activity(four, 5),
+        assistant(
+          "The uploader retries transient failures while preserving the existing response and its error details. This earlier paragraph keeps the full message width.\n\n```ts\nconst response = await uploadWithRetry(payload, { attempts: 3, delay: 250 });\n```\n\nFour PRs are ready for review.",
+          2,
+          { streaming: true },
+        ),
+      ]),
     },
     one: {
       note: "One PR is a single link with no disclosure or remove button.",
