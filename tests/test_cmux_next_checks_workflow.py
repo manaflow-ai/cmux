@@ -1084,9 +1084,13 @@ printf '%064d  cmux-tui-aarch64-apple-darwin\\n' 3
 RESET_STALE_SUBMODULES = "scripts/ci/reset-stale-submodules.sh"
 
 
+# The Blacksmith outage failover reads a variable but only ever picks GitHub-hosted ubuntu-24.04.
+OVERFLOW_FAILOVER = "vars.CI_CLOUD_OVERFLOW_SAVED && 'ubuntu-24.04' || "
+
+
 def can_run_on_owned_runner(job: dict) -> bool:
     """A runs-on that reads a repository variable can resolve to a mini (glaeda-*)."""
-    return "vars." in str(job.get("runs-on", ""))
+    return "vars." in str(job.get("runs-on", "")).replace(OVERFLOW_FAILOVER, "")
 
 
 class ReusedWorkspaceSubmodules(unittest.TestCase):
@@ -1318,7 +1322,8 @@ class FastTierBuildsLibghosttyVt(unittest.TestCase):
         self.assertTrue(runs_on.startswith("${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || "), runs_on)
         self.assertIn("github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404'", runs_on)
         self.assertTrue(runs_on.endswith("'blacksmith-32vcpu-ubuntu-2404' }}"), runs_on)
-        self.assertNotIn("vars.", runs_on, "an ephemeral Linux VM, never a reused mini")
+        self.assertIn(OVERFLOW_FAILOVER + "'blacksmith-32vcpu-ubuntu-2404'", runs_on)
+        self.assertNotIn("vars.", runs_on.replace(OVERFLOW_FAILOVER, ""), "an ephemeral Linux VM, never a reused mini")
         # The same gate, except that the Mac half also follows the route (MacFastTierFollowsTheRoute).
         self.assertEqual(cargo["if"], mac["if"].replace(" && needs.path_route.outputs.macos != 'false'", ""))
         self.assertNotEqual(cargo["if"], mac["if"])

@@ -1005,6 +1005,15 @@ on the stalled pool again. When the switch puts `LINUX_RUNNER` back, they
 return to their size. `tests/test_ci_linux_compile_runners.py` pins each
 selector.
 
+A runs-on that names a Blacksmith Linux label literally and reads neither
+variable puts `vars.CI_CLOUD_OVERFLOW_SAVED && 'ubuntu-24.04' ||` before
+that final label, so it also takes the hosted fallback while the record
+exists; an unset record is falsy and the Blacksmith label wins. On
+2026-10-27 those jobs got no runner for the whole outage.
+`tests/test_ci_blacksmith_linux_failover.py` fails on a new one. Nightly,
+notarization, dev-daily and release or publish workflows are not covered
+yet.
+
 The lane switches (`CI_PR_POOL_OWNED`, `CI_E2E_OWNED_UI`, `CI_IOS_OWNED` and
 the other `CI_OWNED_*`) are never touched: minis first does not change, only
 where overflow lands. `CI_CLOUD_FAILOVER` (JSON, variable name to value, `""`
