@@ -42,10 +42,18 @@ import os
     }
 
     /// What the provider follows; a change of any starts one update.
-    private nonisolated struct Inputs: Equatable, Sendable {
+    nonisolated struct Inputs: Equatable, Sendable {
         var enabled: Bool
         var managed: Bool
         var signedIn: Bool
+    }
+
+    /// What the provider is told, in order: one start with the first inputs, one update per change, and a stop
+    /// when the follow ends.
+    nonisolated enum Step: Equatable, Sendable {
+        case start(Inputs)
+        case update(Inputs)
+        case stop
     }
 
     /// Starts the provider and follows the setting and the sign-in while the returned token is
@@ -60,7 +68,7 @@ import os
         let bin = bundle.resourceURL?.appendingPathComponent("bin", isDirectory: true)
         guard let acpmux = AcpmuxEnvironment.resolve(build: build, bundledBinDirectory: bin,
                                                      environment: ProcessInfo.processInfo.environment),
-              let scheme = apiBaseURL.scheme, let host = apiBaseURL.host else { return }
+              let scheme = apiBaseURL.scheme, let host = apiBaseURL.host else { return nil }
         // Scheme, host and port only; the relay accepts only a known cmux API origin.
         let origin = "\(scheme)://\(host)" + (apiBaseURL.port.map { ":\($0)" } ?? "")
         let provider = FreeTierAttestProvider(
@@ -70,20 +78,31 @@ import os
             keys: KeychainAttestKeyStore(service: "com.cmuxterm.next.free-tier.app-attest.\(bundle.bundleIdentifier ?? "unknown")",
                                          account: "key"),
             logger: Logger(subsystem: "com.cmuxterm.app.next", category: "free-tier"))
-        let settings = settings, signedIn = signedIn
+        return Self.follow(settings: settings, signedIn: signedIn, on: work) { step in
+            switch step {
+            case .start(let inputs):
+                await provider.start(origin: origin, enabled: inputs.enabled, managed: inputs.managed, signedIn: inputs.signedIn)
+            case .update(let inputs):
+                await provider.update(enabled: inputs.enabled, managed: inputs.managed, signedIn: inputs.signedIn)
+            case .stop:
+                await provider.stop()
+            }
+        }
+    }
+
+    /// Follows the setting and the sign-in in a `background` service observation on `work`, and hands each change,
+    /// in order and coalesced to the newest, to `run` in one task off main. The returned token holds the follow.
+    static func follow(settings: SettingsController?, signedIn: @escaping @MainActor () -> Bool, on work: MainWorkScheduler,
+                       run: @escaping @Sendable (Step) async -> Void) -> AnyObject {
         let (changes, feed) = AsyncStream.makeStream(of: Inputs.self, bufferingPolicy: .bufferingNewest(1))
         // task-owner: lives as long as the follow (the app's lifetime); one provider start, then one update per change
         Task { @concurrent in
             var started = false
             for await inputs in changes {
-                if started {
-                    await provider.update(enabled: inputs.enabled, managed: inputs.managed, signedIn: inputs.signedIn)
-                } else {
-                    started = true
-                    await provider.start(origin: origin, enabled: inputs.enabled, managed: inputs.managed, signedIn: inputs.signedIn)
-                }
+                await run(started ? .update(inputs) : .start(inputs))
+                started = true
             }
-            await provider.stop()
+            await run(.stop)
         }
         return ServiceObservation(.background, owner: "FreeTierAttestStarter.inputs", on: work) {
             Inputs(enabled: settings?.snapshot.freeModel.enabled ?? true, managed: settings?.managedKeys["freeModel.enabled"] != nil,

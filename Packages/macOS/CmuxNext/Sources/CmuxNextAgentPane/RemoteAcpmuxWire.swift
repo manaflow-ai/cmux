@@ -273,7 +273,7 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
     /// The parents of the children the daemon listed or changed, for the sidebar's session tree
     /// and the Subagents rows' open (``RemoteAgentSessionLinks``): read here, off main, and noted in one
     /// automation task (agents on that machine started them; Chrome's PostTaskAndReplyWithResult).
-    private func noteLinks(_ summaries: [[String: Any]]) {
+    func noteLinks(_ summaries: [[String: Any]]) {
         let parents = summaries.compactMap { summary -> [String: String]? in
             guard let child = summary["sessionId"] as? String else { return nil }
             var link = ["sessionId": child]

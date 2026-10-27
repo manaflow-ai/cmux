@@ -66,16 +66,8 @@ extension AgentPaneView {
     @objc private func restartWithApprovals(_ sender: NSButton) {
         guard let approvals = remoteApprovals, let notice = remoteApprovalsNotice else { return }
         sender.isEnabled = false
-        // The restart (ssh or Cloud, then the machine's daemon) runs off main; its answer is the rest of the
-        // person's click, one userBlocking task (Chrome's PostTaskAndReplyWithResult onto the UI thread).
-        let work = model.deadlines.work
-        let answered: @MainActor @Sendable (AgentPaneRemoteApprovals.Failure?) -> Void = { [weak self, weak notice, weak sender] failure in
+        approvals.restartAnswering(on: model.deadlines.work) { [weak self, weak notice, weak sender] failure in
             self?.restartAnswered(failure, approvals: approvals, notice: notice, sender: sender)
-        }
-        // task-owner: one keyed restart per click; the notice it updates belongs to this pane
-        Task { @concurrent in
-            let failure = await approvals.restart()
-            work.postFromAnyThread(.userBlocking, owner: "agentPane.remoteApprovals.restart") { answered(failure) }
         }
     }
 
@@ -86,6 +78,25 @@ extension AgentPaneView {
         sender?.isEnabled = true
         if let detail = notice.arrangedSubviews.dropFirst().first as? any ShownText {
             detail.stringValue = Self.remoteApprovalsRestartFailed(approvals.label, failure)
+        }
+    }
+}
+
+extension AgentPaneRemoteApprovals {
+    /// The person's restart click: the restart (ssh or Cloud, then the machine's daemon) runs off main, and its
+    /// answer is the rest of the click, one userBlocking task on `work` (Chrome's PostTaskAndReplyWithResult onto
+    /// the UI thread).
+    ///
+    /// - Parameters:
+    ///   - work: The app's one main-thread scheduler.
+    ///   - answered: Gets the restart's failure (nil on success) on the main actor.
+    @MainActor func restartAnswering(on work: MainWorkScheduler,
+                                     _ answered: @escaping @MainActor @Sendable (Failure?) -> Void) {
+        let restart = restart
+        // task-owner: one keyed restart per click; its answer is posted to the pane that asked
+        Task { @concurrent in
+            let failure = await restart()
+            work.postFromAnyThread(.userBlocking, owner: "agentPane.remoteApprovals.restart") { answered(failure) }
         }
     }
 }
