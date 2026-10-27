@@ -41,6 +41,10 @@ public final class MainDeadline {
     /// A ``TimerAlignment/whenHidden(_:)`` deadline's subscriptions to its node: a visibility flip (a capture vote
     /// that does not stay hidden flips it) and media starting or stopping place the pending wake again.
     private var subscriptions: [VisibilitySubscription] = []
+    #if DEBUG || CMUX_BENCH_HOOKS
+    /// Its record in the arm census (startup-queue.py arms, p08-startup-085) until its first wake.
+    private var census = ArmCensusEntry()
+    #endif
 
     private struct Pending {
         /// When it is due (uptime ns on the scheduler's queue).
@@ -120,6 +124,9 @@ public final class MainDeadline {
     private func plan(after delay: Duration, repeating: Bool, interval: Duration?,
                       _ action: @escaping @MainActor () -> Void) {
         cancel()
+        #if DEBUG || CMUX_BENCH_HOOKS
+        census.armed(in: scheduler.armCensus, .mainDeadline, owner: owner, site: ArmCensus.Site(file: file, line: line))
+        #endif
         place(due: Self.instant(after: delay, from: scheduler.now), repeating: repeating, interval: interval, action)
     }
 
@@ -149,6 +156,9 @@ public final class MainDeadline {
     func wakeDidFire(_ generation: UInt64) {
         guard generation == self.generation, pending?.handle != nil else { return }
         pending?.handle = nil
+        #if DEBUG || CMUX_BENCH_HOOKS
+        census.fired(in: scheduler.armCensus)
+        #endif
         let work = scheduler.work
         var node = MainTaskPost.NodeState.none
         if let owningNode = alignment.node { node = MainTaskPost.NodeState(owningNode.effective) }

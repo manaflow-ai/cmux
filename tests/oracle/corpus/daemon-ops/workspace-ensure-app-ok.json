@@ -38,7 +38,7 @@
       "args": {
         "method": "workspace.ensure_app",
         "params": {
-          "app": "oracle"
+          "app": "cmux/notes"
         },
         "idempotencyKey": "workspace-ensure-app-ok.call"
       },
@@ -50,7 +50,7 @@
         "before",
         "settled"
       ],
-      "note": "every required field from its catalog type"
+      "note": "the first call makes the app's one workspace with its app tab (state/app_workspaces.rs)"
     },
     {
       "id": "retry",
@@ -62,7 +62,7 @@
       "args": {
         "method": "workspace.ensure_app",
         "params": {
-          "app": "oracle"
+          "app": "cmux/notes"
         },
         "idempotencyKey": "workspace-ensure-app-ok.call"
       },
@@ -83,5 +83,8 @@
   "teardown": [
     "stop the case daemon",
     "verify the socket and state root are gone"
+  ],
+  "untested": [
+    "no app is installed on the case daemon: first-party packages come from the app bundle, else apps/first-party beside the binary, and the oracle build has neither (first_party_dir.rs resolve); p15-oracle-248 stages the built first-party packages under the case root and points the debug-assertion daemon at them (CMUX_APPS_FIRST_PARTY_DIR), so cmux/notes is installed and enabled by default (apps/catalog.rs)"
   ]
 }

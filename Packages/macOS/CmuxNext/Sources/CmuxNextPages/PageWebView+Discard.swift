@@ -175,7 +175,7 @@ extension PageWebView {
         // for a page that was not discarded.
         if let chromiumRecovery { return chromiumRecovery.pageShown() }
         if engineDecision.engine == .cef, let chromiumHost {
-            startChromium(hosting: chromiumHost)
+            startChromium(hosting: chromiumHost, origin: .user) // it reloads as it shows: a person's
             return
         }
         let webView = webKit.view

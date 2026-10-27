@@ -48,6 +48,9 @@ public final class ChromiumHostPageView: NSView {
     let inputTarget: InputTarget
     /// Names this view on the Chromium Host wire for a parent NSView* argument (host mode); 0 in process.
     var wireToken: UInt64 = 0
+    /// The kind of page window in-process layer hosting shows here (`CEFLayerHosting.Widget.name`), for
+    /// `debug.cef` `tracker.hosted_pages_by_widget`; nil for host mode's views. Set before the view enters a window.
+    var hostedWidget: String?
     /// The view's size or screen place changed (only when the rect differs from the last one reported).
     var onGeometry: ((ChromiumHostGeometry) -> Void)? {
         didSet { observeWindow() }
@@ -132,6 +135,8 @@ public final class ChromiumHostPageView: NSView {
     var accessibilityWindowClose: EventSubscription?
     /// Drags from outside into the page (ChromiumHostPageView+Drag.swift); none until ``takeDrags(through:)``.
     let dragDestination = ChromiumHostDragDestination()
+    /// The shown page's pointer lock, keyboard lock and fullscreen (task 229).
+    let exclusiveAccess = ChromiumHostExclusiveAccess(cursor: .system)
     /// The page's autofill, password and `<datalist>` suggestions, drawn by cmux (task 061).
     lazy var suggestions = ChromiumHostSuggestionList(view: self)
     /// The window's part of the page's visibility (ChromiumHostPageView+Visibility.swift): hidden
@@ -174,7 +179,6 @@ public final class ChromiumHostPageView: NSView {
     /// The input seq of the last wheel frame this view sent, 0 before any: WHEEL_ACKs of a gesture's own
     /// wheels carry later seqs (task p01-process-234).
     private(set) var lastWheelSeq: UInt32 = 0
-    private var tracking: NSTrackingArea?
     #endif
 
     private var lastGeometry: ChromiumHostGeometry?
@@ -207,6 +211,12 @@ public final class ChromiumHostPageView: NSView {
         wantsLayer = true
         autoresizingMask = [.width, .height]
         addSubview(surface)
+        #if DEBUG || CMUX_BENCH_HOOKS
+        if inputTarget == .view {
+            addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseMoved, .mouseEnteredAndExited, .activeInKeyWindow, .inVisibleRect],
+                                           owner: self))
+        }
+        #endif
         pageVisibilityWatch = pageNode.subscribe(owner: "ChromiumHostPageView.pageVisibility") { [weak self] visibility in
             self?.onPageVisibility?(ChromiumHostPageVisibility(visibility))
         }
@@ -237,6 +247,7 @@ public final class ChromiumHostPageView: NSView {
     }
 
     private func firstResponderChanged(_ focused: Bool) {
+        if !focused { exclusiveAccess.focusLost() }
         onFocusChange?(focused)
         #if DEBUG || CMUX_BENCH_HOOKS
         _ = sink?(ChromiumHostFrame(.focus, v: [focused ? 1 : 0]))
@@ -298,9 +309,9 @@ public final class ChromiumHostPageView: NSView {
     public override func viewWillMove(toWindow newWindow: NSWindow?) {
         super.viewWillMove(toWindow: newWindow)
         if window == nil, newWindow != nil {
-            CEFHostView.trackerStats.hostedPages += 1
+            CEFHostView.trackerStats.countHostedPage(widget: hostedWidget, delta: 1)
         } else if window != nil, newWindow == nil {
-            CEFHostView.trackerStats.hostedPages -= 1
+            CEFHostView.trackerStats.countHostedPage(widget: hostedWidget, delta: -1)
         }
     }
 
@@ -309,6 +320,7 @@ public final class ChromiumHostPageView: NSView {
         observeWindow()
         observeVisibility()
         observeScreen()
+        followWindowForExclusiveAccess()
         // Another window: the page is placed again, at the view's origin in that window.
         screenInfo = nil
         placedScreenInfo = nil
@@ -321,6 +333,7 @@ public final class ChromiumHostPageView: NSView {
         if window == nil {
             lastGeometry = nil
             keyDowns.removeAll()
+            exclusiveAccess.showing(nil)
             onLeftWindow?()
         } else {
             presentedRectDidChange()
@@ -381,17 +394,6 @@ public final class ChromiumHostPageView: NSView {
 extension ChromiumHostPageView {
     // MARK: Mouse
 
-    /// The page's pointer area (``updateTrackingAreas()``, ChromiumHostPageView+Cursor.swift).
-    func updatePointerArea() {
-        if let tracking { removeTrackingArea(tracking) }
-        tracking = nil
-        guard inputTarget == .view else { return }
-        let area = NSTrackingArea(rect: .zero, options: [.mouseMoved, .mouseEnteredAndExited, .activeInKeyWindow, .inVisibleRect],
-                                  owner: self, userInfo: nil)
-        addTrackingArea(area)
-        tracking = area
-    }
-
     public override func mouseDown(with event: NSEvent) {
         window?.makeFirstResponder(self)
         mouse(event, phase: 1, button: 0)
@@ -425,6 +427,7 @@ extension ChromiumHostPageView {
 
     /// A down ends an open composition first, keeping its text (``textInputMouseDown()``).
     func mouse(_ event: NSEvent, phase: Int32, button: Int32) {
+        if exclusiveAccess.takesMove(event, phase: phase) { return }
         if phase == 1 { textInputMouseDown() }
         let point = pagePoint(event)
         let buttons = Self.pressedButtons()
