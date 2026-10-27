@@ -37,7 +37,6 @@ extension PaneContentView {
             // ~10 s `CHAT_DRAW_HOLD_MS` after its handshake), so a daemon slow enough to miss it
             // reveals the page while it is itself still blank. That narrows Leo's dark gap rather
             // than closing it; closing it means moving one of the two budgets.
-            guard launchImageMayClear?() ?? true else { return }
             clearLaunchImage()
         }
     }
