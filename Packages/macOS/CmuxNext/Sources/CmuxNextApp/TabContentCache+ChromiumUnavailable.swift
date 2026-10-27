@@ -3,16 +3,17 @@ import CmuxNextDaemon
 import Foundation
 import os
 
-/// A restored Chromium tab in a process whose Chromium failed to start is shown as "Chromium unavailable", with
-/// Reload to try again; its URL never loads in WebKit. WebKit has none of Chromium's cookies, so a signed-in page
-/// came back signed out (github.com/login?return_to=…) and looked like a reload (field log, 2026-10-26).
+/// A Chromium tab in a process whose Chromium failed to start is shown as "Chromium unavailable", with Reload to
+/// try again; its URL never loads in WebKit. WebKit has none of Chromium's cookies, so a signed-in page came back
+/// signed out (github.com/login?return_to=…) and looked like a reload (field log, 2026-10-26). A new tab never
+/// gets here as Chromium once the failure is known: the engine resolver gives it WebKit when it opens.
 nonisolated enum ChromiumUnavailableRestore {
     /// Whether a Chromium record that cannot get Chromium for `reason` waits in place instead of loading in
     /// WebKit. Only a start failure: a build without Chromium (`notBundled`) or one still downloading it keeps
-    /// the WebKit fallback and its notice, and a tab opened in this process chose its engine when it opened.
-    static func holds(_ reason: CEFUnavailableReason, restored: Bool) -> Bool {
-        guard restored, case .startFailed = reason else { return false }
-        return true
+    /// the WebKit fallback and its notice.
+    static func holds(_ reason: CEFUnavailableReason) -> Bool {
+        if case .startFailed = reason { return true }
+        return false
     }
 }
 
@@ -20,9 +21,9 @@ extension TabContentCache {
     private static let unavailableLogger = Logger(subsystem: "com.cmuxterm.app.next", category: "browser.engine")
 
     /// The page of Chromium record `tab` when Chromium is unavailable for `reason`: the "Chromium unavailable"
-    /// stand-in for a restored tab whose Chromium failed to start, else the WebKit fallback.
+    /// stand-in when Chromium failed to start, else the WebKit fallback.
     func chromiumUnavailable(_ tab: TabModel, url: URL?, reason: CEFUnavailableReason) -> BrowserEntry {
-        guard ChromiumUnavailableRestore.holds(reason, restored: !browserTabs.wasOpenedHere(tab)) else {
+        guard ChromiumUnavailableRestore.holds(reason) else {
             return fallBack(tab, url: url, reason: reason)
         }
         let key = tab.id

@@ -20,12 +20,20 @@ import Testing
                              browserRenderer: "frontend", browserEngine: "cef"))
     }
 
-    @Test func onlyAStartFailureOfARestoredTabHoldsTheTab() {
-        #expect(ChromiumUnavailableRestore.holds(.startFailed("CefInitialize failed"), restored: true))
-        #expect(!ChromiumUnavailableRestore.holds(.startFailed("CefInitialize failed"), restored: false), "a tab opened here chose its engine")
-        #expect(!ChromiumUnavailableRestore.holds(.notBundled, restored: true), "a build without Chromium keeps its WebKit fallback")
-        #expect(!ChromiumUnavailableRestore.holds(.downloading(fraction: nil), restored: true))
-        #expect(!ChromiumUnavailableRestore.holds(.downloadFailed("offline"), restored: true))
+    @Test func onlyAStartFailureHoldsTheTab() {
+        #expect(ChromiumUnavailableRestore.holds(.startFailed("CefInitialize failed")))
+        #expect(!ChromiumUnavailableRestore.holds(.notBundled), "a build without Chromium keeps its WebKit fallback")
+        #expect(!ChromiumUnavailableRestore.holds(.downloading(fraction: nil)))
+        #expect(!ChromiumUnavailableRestore.holds(.downloadFailed("offline")))
+    }
+
+    @Test func aBuildWithoutChromiumStillOpensTheTabInWebKit() throws {
+        let cache = cache(.notBundled)
+        let tab = restoredChromiumTab(63)
+        defer { cache.release(tab.id) }
+        let entry = try #require(cache.browser(for: tab))
+        #expect(!(entry.tab is DeferredBrowserTab))
+        #expect(entry.tab.engineKind == .webkit)
     }
 
     @Test func aRestoredChromiumTabWaitsInsteadOfLoadingInWebKit() throws {
