@@ -530,6 +530,8 @@ impl JournalIngressState {
         self.queue_space_changed.notify_all();
     }
 
+    /// The caller donates to the writer already: it waits for space to
+    /// queue an event whose receipt it then waits for.
     fn wait_for_queue_space_until(&self, observed: u64, deadline: Instant) -> Result<(), String> {
         let mut epoch = self.queue_space_epoch.lock().recover_poison();
         while *epoch == observed {
@@ -557,6 +559,8 @@ impl JournalIngressState {
     }
 
     fn wait_for_queue_space_change(&self, observed: u64) -> Result<(), String> {
+        // A producer blocked on a full lane waits for the writer to drain it.
+        let _donated = self.request_waits.donate();
         let mut epoch = self.queue_space_epoch.lock().recover_poison();
         while *epoch == observed {
             if let Some(error) = self.admission_error() {
@@ -697,7 +701,9 @@ impl JournalIngressSender {
             &self.durable_sender
         };
         let Some(sender) = sender else { return Ok(()) };
-        let _wait = self.state.request_waits.enter();
+        let wait = self.state.request_waits.enter();
+        // This thread blocks on the writer from here to its receipt.
+        let _donated = wait.donate();
         let (completion, result) = receipt::sync_channel(1);
         let commit_fence = Arc::new(AtomicU8::new(COMMIT_PENDING));
         self.enqueue_until(
@@ -744,7 +750,9 @@ impl JournalIngressSender {
         let Some(sender) = &self.durable_sender else {
             anyhow::bail!("session journal writer is unavailable")
         };
-        let _wait = self.state.request_waits.enter();
+        let wait = self.state.request_waits.enter();
+        // This thread blocks on the writer from here to its receipt.
+        let _donated = wait.donate();
         let (completion, result) = receipt::sync_channel(1);
         let deadline = Instant::now() + journal_durable_wait();
         let commit_fence = Arc::new(AtomicU8::new(COMMIT_PENDING));
@@ -1131,6 +1139,9 @@ fn run(mux: Weak<Mux>, receivers: JournalIngressReceivers) {
                     return;
                 };
                 let _class = writer_qos::enter_attempt(&mux, &receivers.state.request_waits);
+                // Threads blocked on this attempt raise it to their class
+                // until the attempt ends (after its receipts).
+                let _donated = receivers.state.request_waits.writer_attempt();
                 // The whole iteration runs as the journal writer: any registry
                 // lock taken here is counted and asserted (a request thread
                 // holds the registry while it waits for this batch). It ends

@@ -81,8 +81,14 @@ impl PendingRegistryReceipt {
         site: &'static std::panic::Location<'static>,
     ) -> Option<Result<RegistryReceipt, String>> {
         crate::request_path::note_at(crate::request_path::BlockingKind::JournalWait, site);
-        // wakeup-allow: deadline the caller's own timeout, forwarded unchanged
-        let taken = match self.receiver.recv_timeout(timeout) {
+        let received = {
+            // The blocked request donates its class to the writer attempt
+            // that answers (`writer_qos`).
+            let _donated = self.wait.as_ref().map(RequestWait::donate);
+            // wakeup-allow: deadline the caller's own timeout, forwarded unchanged
+            self.receiver.recv_timeout(timeout)
+        };
+        let taken = match received {
             Ok(result) => Some(result),
             Err(RecvTimeoutError::Timeout) => None,
             Err(RecvTimeoutError::Disconnected) => {
@@ -133,6 +139,8 @@ impl JournalIngressSender {
             return EffectSend::NotQueued(intent);
         }
         let wait = self.state.request_waits.enter();
+        // This thread blocks on the writer from here to its receipt.
+        let donated = wait.donate();
         let (completion, result) = sync_channel(1);
         let deadline = Instant::now() + journal_durable_wait();
         let commit_fence = Arc::new(AtomicU8::new(COMMIT_PENDING));
@@ -169,6 +177,7 @@ impl JournalIngressSender {
             site,
         );
         self.state.stats.receipt_waited(waited.elapsed());
+        drop(donated);
         match outcome {
             Err(error) if error.downcast_ref::<JournalCommitIndeterminate>().is_some() => {
                 EffectSend::Indeterminate(error, PendingRegistryReceipt::counted(result, wait))

@@ -282,6 +282,13 @@ impl Mux {
         self.request_qos.set_for_test(enabled);
     }
 
+    /// The overrides threads blocked on the journal writer started on it,
+    /// and the ones refused (`journal_ingress::writer_qos`).
+    #[cfg(test)]
+    pub(crate) fn journal_writer_donations_for_test(&self) -> cmux_threads::BoostCounts {
+        self.journal_ingress.writer_donations()
+    }
+
     pub(crate) fn request_stats(&self) -> &Arc<crate::diagnostics::RequestStats> {
         &self.request_stats
     }
