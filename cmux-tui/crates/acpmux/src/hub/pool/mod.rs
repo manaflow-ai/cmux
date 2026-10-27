@@ -637,6 +637,8 @@ impl Hub {
                 Take::Ready(mut p) => {
                     #[cfg(debug_assertions)]
                     self.claim_gap_report(&p);
+                    #[cfg(debug_assertions)]
+                    self.claim_off_seam();
                     // A dead or wedged host is ended; the session starts on
                     // a fresh host (`spawn_hosted_child`).
                     let asked = std::time::Instant::now();
@@ -994,6 +996,31 @@ impl Hub {
         if words.next() == Some("unset") {
             self.pool_reported(&p.session_id, &p.reported_off);
             self.update_start_mode_state(None, |s| s.full_access_managed = None);
+        }
+    }
+
+    /// Debug builds only: while the file `ACPMUX_TEST_POOL_CLAIM_OFF_FILE` names exists, MDM's off
+    /// begins and is unset again while a chat claims a pooled agent, after the claim took it out
+    /// of the pool and before its liveness check (review 69 of #23322).
+    fn claim_off_seam(&self) {
+        let Some(file) = std::env::var_os("ACPMUX_TEST_POOL_CLAIM_OFF_FILE") else { return };
+        if std::path::Path::new(&file).exists() {
+            self.update_start_mode_state(None, |s| s.full_access_managed = Some(false));
+            self.update_start_mode_state(None, |s| s.full_access_managed = None);
+        }
+    }
+
+    /// Debug builds only: while the file `ACPMUX_TEST_POOL_TAKE_OFF_FILE` names exists, MDM's off
+    /// is pushed and then unset as a chat takes the pooled agent it claimed, past the take's
+    /// checks (review 69 of #23322).
+    pub(super) fn take_off_seam(self: &Arc<Self>) {
+        let Some(file) = std::env::var_os("ACPMUX_TEST_POOL_TAKE_OFF_FILE") else { return };
+        if std::path::Path::new(&file).exists() {
+            let hub = self.clone();
+            tokio::spawn(async move {
+                hub.apply_full_access_push(Some(false)).await;
+                hub.apply_full_access_push(None).await;
+            });
         }
     }
 
