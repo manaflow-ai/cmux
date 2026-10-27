@@ -152,14 +152,17 @@ async fn an_answer_the_form_does_not_offer_cancels() {
 }
 
 /// Claude Code withdrew the form (its tool call ended): the form is
-/// forgotten, the hub is sent nothing, and an answer that still comes to its
-/// card sends Claude Code nothing, so nothing waits on it.
+/// forgotten, the matching ACP request is cancelled, and an answer that still
+/// comes to its card sends Claude Code nothing, so nothing waits on it.
 #[tokio::test]
 async fn a_withdrawn_form_is_forgotten() {
     let t = Translator::new("acp-1".into(), "default", "haiku", "default");
     let (id, _) = asked(&t, &deploy_form()).await.expect("a question");
     let withdraw = json!({"type": "control_cancel_request", "request_id": "e1"});
-    assert!(t.inbound(&withdraw).await.is_empty());
+    assert_eq!(
+        t.inbound(&withdraw).await,
+        vec![Message::notification(method::CANCEL_REQUEST, json!({"requestId": id.clone()}))]
+    );
     let late = Message::Response {
         id,
         result: Some(json!({"outcome": {"outcome": "selected", "optionId": "reject_once"}})),
@@ -169,6 +172,42 @@ async fn a_withdrawn_form_is_forgotten() {
     assert!(lines.is_empty(), "{lines:?}");
     assert!(t.take_stdin_replies().await.is_empty());
     // A withdrawal of a request it does not know is ignored.
+    assert!(t.inbound(&withdraw).await.is_empty());
+}
+
+/// Claude's permission request uses the same control id map as elicitation.
+/// Withdrawal must cancel its ACP request and clear every reply map, so a
+/// late hub answer cannot reach Claude after it has moved on.
+#[tokio::test]
+async fn a_withdrawn_permission_is_cancelled_and_late_answer_is_dropped() {
+    let t = Translator::new("acp-1".into(), "default", "haiku", "default");
+    let ask = json!({"type": "control_request", "request_id": "p1", "request": {
+        "subtype": "can_use_tool", "tool_name": "Write", "tool_use_id": "toolu_1",
+        "input": {"file_path": "/repo/notes.md", "content": "new\n"}
+    }});
+    let id = t
+        .inbound(&ask)
+        .await
+        .into_iter()
+        .find_map(|m| match m {
+            Message::Request { id, method: m, .. } if m == method::SESSION_REQUEST_PERMISSION => {
+                Some(id)
+            }
+            _ => None,
+        })
+        .expect("a permission request");
+    let withdraw = json!({"type": "control_cancel_request", "request_id": "p1"});
+    assert_eq!(
+        t.inbound(&withdraw).await,
+        vec![Message::notification(method::CANCEL_REQUEST, json!({"requestId": id.clone()}))]
+    );
+    let late = Message::Response {
+        id,
+        result: Some(json!({"outcome": {"outcome": "selected", "optionId": "allow_once"}})),
+        error: None,
+    };
+    assert!(matches!(t.outbound(&late).await, Outbound::Lines(lines) if lines.is_empty()));
+    assert!(t.take_stdin_replies().await.is_empty());
     assert!(t.inbound(&withdraw).await.is_empty());
 }
 
@@ -191,6 +230,28 @@ async fn an_answer_before_the_withdrawal_goes_out_once() {
     };
     let Outbound::Lines(lines) = t.outbound(&again).await else { panic!("expected lines") };
     assert!(lines.is_empty(), "{lines:?}");
+}
+
+/// Direct inbound and outbound translation can interleave after an answer
+/// claims its control id, before it takes the input and permission payloads.
+#[tokio::test]
+async fn a_withdrawal_preserves_the_payload_a_winning_answer_claimed() {
+    let t = Translator::new("acp-1".into(), "default", "haiku", "default");
+    let input = json!({"file_path": "/repo/notes.md", "content": "new\n"});
+    let rules =
+        json!([{"type": "addRules", "behavior": "allow", "destination": "session", "rules": []}]);
+    let ask = json!({"type": "control_request", "request_id": "p1", "request": {
+        "subtype": "can_use_tool", "tool_name": "Write", "input": input,
+        "permission_suggestions": rules,
+    }});
+    assert!(asked(&t, &ask).await.is_some());
+    // Pause at the ownership transfer in outbound.rs: its answer has the
+    // control id, while its payloads are still waiting to be read.
+    assert!(t.control_out.lock().await.remove("p1").is_some());
+    let withdraw = json!({"type": "control_cancel_request", "request_id": "p1"});
+    assert!(t.inbound(&withdraw).await.is_empty());
+    assert_eq!(t.inputs.lock().await.get("p1"), Some(&input));
+    assert_eq!(t.suggestions.lock().await.get("p1"), Some(&rules));
 }
 
 /// "No answer" leaves an optional number out: typed, it is no number anyway.

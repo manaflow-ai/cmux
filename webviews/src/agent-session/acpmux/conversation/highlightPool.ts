@@ -2,8 +2,8 @@
 // started from `highlight-worker.js` beside the bundled page (Pierre's worker with the pane's
 // trimmed shiki, built by scripts/cmux-next/build-agent-pane-web.sh). A worker takes its policy from its own response,
 // so both hosts serve it with one that allows no network (AgentPaneSchemeHandler, PageCSP).
-// The dev server serves no built worker: there, and if the workers fail to start, Pierre
-// highlights on the main thread, still under the limits in highlightLimits.ts.
+// The dev server serves no built worker. Transcript code cards stay plain there or after a worker
+// failure, so Pierre's main-thread fallback cannot interrupt a streaming reply (HighlightedCode.tsx).
 import { WorkerPoolManager } from "@pierre/diffs/worker";
 import type { SupportedLanguages } from "@pierre/diffs";
 import { AGENT_DIFF_THEME, AGENT_DIFF_THEME_LIGHT, registerAgentDiffTheme } from "../diffTheme";
@@ -63,7 +63,7 @@ function watchedWorkerFactory(base: string): () => Worker {
         mark("failed");
         if (warned) return;
         warned = true;
-        console.warn(`agent pane: ${reason}; code highlights on the main thread`);
+        console.warn(`agent pane: ${reason}; transcript code stays plain`);
       },
     }) as unknown as Worker;
 }

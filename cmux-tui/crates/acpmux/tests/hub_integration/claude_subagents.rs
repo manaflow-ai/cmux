@@ -87,6 +87,7 @@ async fn a_claude_subagent_asking_after_the_turn_ended_reaches_the_person() {
 /// manaflow-ai/cmux#25230: a chat whose turn ended while a background subagent it started still
 /// runs is working (its status dot, its lane) until that subagent ends between turns, and
 /// watchers hear both changes; then it is done. A background launch that fails never holds it.
+#[cfg(unix)]
 #[tokio::test]
 async fn a_chat_works_until_its_background_subagent_ends() {
     let root = std::env::temp_dir().join(format!("acpmux-bgwork-{}", uuid::Uuid::now_v7()));
