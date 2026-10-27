@@ -3031,6 +3031,34 @@
       "title_table" : "ActionCatalog"
     },
     {
+      "cli" : "guiOnly",
+      "cli_name" : "action session-move-from-build",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "session.moveFromBuild",
+      "main_menu" : null,
+      "mcp" : "guiOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.workspace",
+        "order" : 101,
+        "title" : "Workspace",
+        "title_key" : "category.workspace",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Move Sessions from Another cmux Build…",
+      "title_key" : "action.session.moveFromBuild",
+      "title_table" : "ActionCatalog"
+    },
+    {
       "cli" : "offered",
       "cli_name" : "workspace new-above",
       "context_menu" : "offered",
@@ -33864,6 +33892,62 @@
     },
     {
       "cli" : "guiOnly",
+      "cli_name" : "action sidebar-no-fade-on",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "sidebarBackground"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "sidebar.noFade.on",
+      "main_menu" : null,
+      "mcp" : "guiOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.sidebar",
+        "order" : 107,
+        "title" : "Sidebar",
+        "title_key" : "category.sidebar",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Show Whole Sidebar (No Fade)",
+      "title_key" : "action.sidebar.noFade.on",
+      "title_table" : "SidebarSectionActions"
+    },
+    {
+      "cli" : "guiOnly",
+      "cli_name" : "action sidebar-no-fade-off",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "sidebarBackground"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "sidebar.noFade.off",
+      "main_menu" : null,
+      "mcp" : "guiOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.sidebar",
+        "order" : 107,
+        "title" : "Sidebar",
+        "title_key" : "category.sidebar",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Restore Sidebar Fade",
+      "title_key" : "action.sidebar.noFade.off",
+      "title_table" : "SidebarSectionActions"
+    },
+    {
+      "cli" : "guiOnly",
       "cli_name" : "action sidebar-group-by-none",
       "context_menu" : "offered",
       "context_menus" : [
@@ -41834,14 +41918,40 @@
           }
         },
         {
+          "enabled_when" : "can_perform",
+          "id" : "sidebar.noFade.on",
+          "kind" : "action",
+          "order" : 14,
+          "visible_when" : {
+            "debug_only" : false,
+            "feature" : null,
+            "requires" : [
+
+            ]
+          }
+        },
+        {
+          "enabled_when" : "can_perform",
+          "id" : "sidebar.noFade.off",
+          "kind" : "action",
+          "order" : 15,
+          "visible_when" : {
+            "debug_only" : false,
+            "feature" : null,
+            "requires" : [
+
+            ]
+          }
+        },
+        {
           "kind" : "separator",
-          "order" : 14
+          "order" : 16
         },
         {
           "enabled_when" : "can_perform",
           "id" : "toggleSidebar",
           "kind" : "action",
-          "order" : 15,
+          "order" : 17,
           "visible_when" : {
             "debug_only" : false,
             "feature" : null,
@@ -41854,7 +41964,7 @@
           "enabled_when" : "can_perform",
           "id" : "appStore.show",
           "kind" : "action",
-          "order" : 16,
+          "order" : 18,
           "visible_when" : {
             "debug_only" : false,
             "feature" : "apps",

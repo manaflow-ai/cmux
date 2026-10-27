@@ -1,5 +1,5 @@
-//! E1 write-open supervision; no production caller until G2.
-//! Activation also requires F: every mutation must hold the same process-wide
+//! Filesystem supervision; no production caller until G2.
+//! Every mutation holds the same process-wide
 //! mutex and per-uid flock through resolve/check/perform, across all supervisors.
 //! Bwrap supplies read-only mounts and masks; this is not a standalone sandbox.
 //! Activation requires A2 to reject mounts under writable roots that are not
@@ -29,6 +29,7 @@ use std::{
 };
 
 mod locking;
+mod mutations;
 
 type Result<T> = std::result::Result<T, i32>;
 fn error() -> i32 {
@@ -265,6 +266,19 @@ fn resolve_inner(
         }
         let metadata = stat(pin.as_raw_fd())?;
         if metadata.st_mode & S_IFMT == S_IFLNK {
+            // Mutation operations address a directory entry without following it.
+            if queue.is_empty() && flags & (O_PATH | O_NOFOLLOW) == (O_PATH | O_NOFOLLOW) {
+                if directory_required {
+                    return Err(ENOTDIR);
+                }
+                return Ok(Resolved {
+                    parent: stack.pop().ok_or(EACCES)?,
+                    name,
+                    logical: target.to_str().ok_or(EACCES)?.into(),
+                    object: None,
+                    directory_required,
+                });
+            }
             if queue.is_empty() && flags & O_NOFOLLOW != 0 {
                 return Err(ELOOP);
             }
@@ -603,16 +617,24 @@ pub(crate) fn run(notify_fd: OwnedFd, policy: WritePolicy, stop: OwnedFd) -> io:
             Err(ECANCELED) => return Ok(()),
             Err(errno) => return Err(io::Error::from_raw_os_error(errno)),
         };
-        if let Err(errno) = emulate(fd, &request, &policy, stop.as_raw_fd()) {
-            let reply = seccomp_notif_resp { id: request.id, val: 0, error: -errno, flags: 0 };
-            unsafe {
-                response.as_mut_ptr().cast::<seccomp_notif_resp>().write(reply);
-            }
-            if unsafe { ioctl(fd, SECCOMP_IOCTL_NOTIF_SEND, response.as_ptr()) } < 0
-                && error() != ENOENT
-            {
-                return Err(io::Error::last_os_error());
-            }
+        let result = if arguments(&request.data).is_ok() {
+            emulate(fd, &request, &policy, stop.as_raw_fd()).map(|()| None)
+        } else {
+            mutations::emulate(fd, &request, &policy, stop.as_raw_fd())
+        };
+        let (value, errno) = match result {
+            Ok(None) => continue,
+            Ok(Some(value)) => (value, 0),
+            Err(errno) => (0, errno),
+        };
+        let reply = seccomp_notif_resp { id: request.id, val: value, error: -errno, flags: 0 };
+        unsafe {
+            response.as_mut_ptr().cast::<seccomp_notif_resp>().write(reply);
+        }
+        if unsafe { ioctl(fd, SECCOMP_IOCTL_NOTIF_SEND, response.as_ptr()) } < 0
+            && error() != ENOENT
+        {
+            return Err(io::Error::last_os_error());
         }
     }
 }
@@ -1107,6 +1129,7 @@ mod tests {
 
 #[cfg(test)]
 mod notification_tests {
+    include!("supervisor/review_tests.rs");
     use super::*;
     use crate::{
         hub::remote_sandbox::PROFILE,
@@ -1205,6 +1228,9 @@ mod notification_tests {
         static SERIAL: std::sync::Mutex<()> = std::sync::Mutex::new(());
         let _guard = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
         let fixture = Fixture::new();
+        if case == 210 {
+            fs::remove_dir_all(fixture.0.join(".git")).unwrap();
+        }
         if case == 200 {
             let fifo = CString::new(fixture.0.join("fifo").to_str().unwrap()).unwrap();
             assert_eq!(unsafe { mkfifo(fifo.as_ptr(), 0o600) }, 0);
@@ -1373,6 +1399,9 @@ mod notification_tests {
     /// Finite syscall cases; SIGALRM bounds blocking opens and the race worker.
     unsafe fn child_case(case: u8, paths: &[CString]) -> i32 {
         unsafe {
+            if case >= 210 {
+                return review_case(case);
+            }
             if case == 1 {
                 return 0;
             }
