@@ -850,5 +850,48 @@ class PrePushGateTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
 
+
+class SwiftFormatCacheTests(unittest.TestCase):
+    """The gate lints throwaway trees (base and head under a fresh temporary folder per run), and SwiftFormat keys
+    its cache by absolute path, so a persistent cache can never hit: it only grows (335 MB on a busy machine, ~50 s
+    to read and rewrite on every call, even for one file). The lint must keep no cache file and still report."""
+
+    def test_linting_a_throwaway_tree_keeps_no_cache_and_still_reports(self):
+        spec = importlib.util.spec_from_file_location("cmux_next_prepush_gate_sf", SOURCE / GATE)
+        gate = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(gate)
+        with tempfile.TemporaryDirectory() as tmp:
+            tools, tree = Path(tmp) / "tools", Path(tmp) / "head"
+            tools.mkdir()
+            (tree / "Sources").mkdir(parents=True)
+            (tree / "Sources" / "A.swift").write_text("let a = 1 \n")
+            # A stand-in SwiftFormat: like the real one, it writes the cache file it is given (unless `ignore`)
+            # and prints one finding per file.
+            fake = Path(tmp) / "swiftformat"
+            fake.write_text(
+                "#!/usr/bin/env python3\n"
+                "import sys\n"
+                "args = sys.argv[1:]\n"
+                "cache = args[args.index('--cache') + 1] if '--cache' in args else None\n"
+                "if cache != 'ignore':\n"
+                "    open(cache or 'default.cache', 'a').write('entry\\n')\n"
+                "for path in [a for a in args if a.endswith('.swift')]:\n"
+                "    print(f'{path}:1:10: error: (trailingSpace) Remove trailing space at end of a line.', file=sys.stderr)\n"
+                "sys.exit(1)\n")
+            fake.chmod(0o755)
+            saved = os.environ.get("CMUX_LINT_TOOLS_DIR")
+            os.environ["CMUX_LINT_TOOLS_DIR"] = str(tools)
+            try:
+                out = gate.swiftformat(fake, tree / "swiftformat.conf", tree, ["Sources/A.swift"])
+            finally:
+                if saved is None:
+                    os.environ.pop("CMUX_LINT_TOOLS_DIR", None)
+                else:
+                    os.environ["CMUX_LINT_TOOLS_DIR"] = saved
+            self.assertIn("Sources/A.swift:1:10", out)
+            self.assertEqual(sorted(p.name for p in tools.iterdir()), [], "the lint left a cache file in the tools folder")
+            self.assertFalse((tree / "default.cache").exists(), "the lint fell back to a default cache file")
+
+
 if __name__ == "__main__":
     unittest.main()
