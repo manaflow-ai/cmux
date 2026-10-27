@@ -256,7 +256,7 @@ part of the name.
 |---|---|---|---|---|---|---|
 | `mux-server`, `mux-ws-server` (accept; `ACCEPT_THREAD_QOS`, server/listen.rs, websocket_listener.rs) | Accepting local and WebSocket connections | `accept` | user-initiated | as today: every connection, the person's too, waits on accept (p02-threads-211) | yes | Max 64 connections; over: `server.busy` |
 | `mux-conn`, `mux-remote-conn` (one reader per connection) | Line read and request dispatch inline; blocking disallowed | Its socket (`read`, the client's QoS); request work that may block goes to `work` | default (`CONNECTION_READER_QOS`) | user-interactive for the app's UI connection, utility for automation (CLI, MCP, hook, agent, page, remote), user-initiated until the hello (task 224; done under `daemonRequestQos`) | yes | Per connection 256 requests / 16 MiB (over: error, not run) |
-| `mux-control-dispatch` (one per connection), `mux-surface-control` (clear-history workers), `mux-ws-conn` (one per WebSocket connection: reads frames and runs their requests); `spawn_request_thread`, server/connection_scheduler.rs | Requests the connection's scheduler moves off the reader | Store locks (`LockHolder`, timed; owner boost by task 226), `work` replies. Blocking disallowed (`cmux_threads::disallow_blocking`): a checked blocking call is a recorded site and, in Debug, a panic (`CMUX_DAEMON_BLOCKING=record` turns it off) | user-initiated (`REQUEST_THREAD_QOS`, p02-threads-211) | as today; automation clients utility (task 224; done under `daemonRequestQos`); `mux-surface-control` becomes a `work` item (task 230) | yes | Rules D1-D8 in perf-lead.md |
+| `mux-control-dispatch` (one per connection), `mux-ws-conn` (one per WebSocket connection: reads frames and runs their requests); `spawn_request_thread`, server/connection_scheduler.rs | Requests the connection's scheduler moves off the reader | Store locks (`LockHolder`, timed; owner boost by task 226), `work` replies. Blocking disallowed (`cmux_threads::disallow_blocking`): a checked blocking call is a recorded site and, in Debug, a panic (`CMUX_DAEMON_BLOCKING=record` turns it off) | user-initiated (`REQUEST_THREAD_QOS`, p02-threads-211) | as today; automation clients utility (task 224; done under `daemonRequestQos`); clear-history runs as a System-lane `work` item at its cause's priority, blocking disallowed (task 230) | yes | Rules D1-D8 in perf-lead.md |
 | `mux-surface-operation` (cmux-tui `pty_input.rs`) | One surface operation off the PTY input scheduler | Store locks (`LockHolder`) | not set | a `work` item at the priority of the request it serves (task 230) | no | One thread per operation today |
 | `mux-line-out`, `mux-attach-out`, `mux-render-attach-out` | Writing queued bytes to one connection | Its socket (`write`); the producer queue (`Condvar`, producers user-interactive) | user-interactive | user-interactive (closed list) | yes | Outbound 256 per stream, 4096 per connection (over: the largest stream ends); write timeout 2 s |
 | `mux-pty-input` | Writing keys to PTYs | The PTY (`write`); the shell runs at default | user-interactive | user-interactive (closed list) | yes | One bounded scheduler; per-surface order, byte writes batched, motion coalesced |
@@ -264,7 +264,7 @@ part of the name.
 | `surface-frames` (one per process) | Frame production for every surface (one thread, not one per terminal) | Its condition variable, no timer at idle | user-interactive | user-interactive (closed list) | yes | One thread |
 | `surface-<id>-wait`, `terminal-host-reaper`, `holder-reaper`, `mux-terminal-reap` | Reaping one child | `waitpid` | not set | one `mux-reaper` at utility on kqueue (macOS) or pidfd (Linux), 0 per-child threads (task 237) | no | One thread per child today |
 | `mux-terminal-work` (8 workers) | Terminal jobs; registry commits of `mux/resource_effects.rs` intents go through the journal writer (next row) | Disk; the journal writer | user-initiated (`TERMINAL_WORK_QOS`, p02-threads-212) | as today | yes | 1024 queued jobs; a job that does not fit runs inline |
-| `mux-<lane>-<fg/be/idle>`, `mux-launch` (`cmux_threads::work`) | Work that may block, by lane | Disk (files), system calls (sys), nothing (cpu) | `fg` user-initiated, `be` utility, `idle` background; `mux-launch` user-initiated | same | yes | [Lanes](#lanes) |
+| `mux-<lane>-<fg/be/idle>`, `mux-launch`, `mux-delay` (`cmux_threads::work`) | Work that may block, by lane; `mux-delay` holds items posted with a delay (`Work::post_delayed`, Chrome's `DelayedTaskManager`) until due; a delayed item never blocks shutdown (a delayed block item is a skip item, as Chrome's `TaskTracker` refuses delayed tasks at shutdown), and the launcher starts `mux-delay` when the first poster's nice is above user-initiated. One-shot request work (`Mux::post_request_wait`: Cloud, Chief inspect and control, agent start/attach/call/trust/transfer/update/inventory/CLI job, URL open, loopback open, browser-runtime start, scripts, tab restart, one-shot browser CDP bootstrap; clear-history is a System-lane item with blocking disallowed), per-terminal retries (`Mux::post_mux_retry`: adoption, template completion, exit detach, host-record cleanup), per-terminal deadlines (`Mux::post_mux_work_after`: respawn backoff, grid hold end, creating-input expiry) and browser-runtime stop run here, not on a thread each (p02-threads 230). Adoption tries also hold one of 8 `Mux::terminal_replays` permits (Chrome's `PostJob` max concurrency); a try past them parks with no thread, and its handshake and replay run inside `will_block`, so a 60-host start takes no System-lane slot from other UserVisible or UserBlocking work | Disk (files), system calls (sys), nothing (cpu); a wait on another process or the network inside `will_block`, outside the lane's limits; `mux-delay` its condition variable, no timeout with nothing delayed | `fg` user-initiated, `be` utility, `idle` background; `mux-launch`, `mux-delay` user-initiated | same | yes | [Lanes](#lanes); an item runs at the priority of the request it serves (`EventCause::work_priority`: the app's requests UserBlocking, the rest UserVisible) |
 | `mux-session-journal-writer` (+ `-fanout`, `-hooks`, `-reaper`), `journal-hook-worker-<index>`, `journal-hook-stdin`, `sqlite-wal-sync` | Durable session journal; hook delivery (`journal-hook-stdin` writes one hook child's input) | Disk; SQLite (`LockHolder` chokepoints, task 225); `journal-hook-stdin`: the hook child's stdin pipe | writer declared user-initiated; with `daemonRequestQos` on, a commit attempt no request waits on runs at utility (a `WorkQos`, so a ranked lock it takes raises it), and an attempt stays user-initiated while a request waits on the writer: a receipt it has not taken (an indeterminate registry receipt counts until its answer is taken) or space in a full lane (`journal_ingress/writer_qos.rs`, p02-threads-212); receipts carry the writer's class (`cmux_threads::sync`), so a receipt sent below its request is a `priority-inversion` site; `-fanout`, `-hooks`, `-reaper`, the hook workers, `journal-hook-stdin` and `sqlite-wal-sync` utility (`cmux_threads::spawn`, p02-threads-212; they take no terminal or registry lock) | as today (the registry lock's owner boost is task 226) | yes | `sync_channel(1024)` terminal, `(256)` durable: the producer waits for space; durable wait deadline 30 s |
 | `mux-output-store-writer`, `cmux-journal-maintenance`, `journal-retention` | Terminal output store snapshots and segments; journal maintenance; coalesced reconnect checkpoints | Disk; SQLite; a terminal slot lock (output store snapshot) and the workspace registry (output store prune, checkpoints) | default (`cmux_threads::spawn`, `request_qos::UPKEEP_THREAD_QOS`); with `daemonRequestQos` on each pass runs at utility as a `WorkQos` (`RequestQos::enter_upkeep_pass`, p02-threads-212), so a terminal or registry lock the pass holds raises it to user-initiated (`LockBoost`) and a PTY reader or request never waits behind a utility holder | as today | yes | One pass at a time per thread |
 | `mux-request-watchdog` (one per process; p05-ipc-006, cmux-tui-core server/request_watchdog.rs; the daemon's one hang watcher, p10-stability-032) | The hang scopes of requests, journal writer commits and holder-link frames, with one append to `owner-hangs-<session>.jsonl` per hang (at its 2 s or 1 s tier). Requests running past 250 ms: every connection frame from its arrival until its handler returns (v2 operations, sniffed handlers, remote-relay frames) and every `cmd` the connection's scheduler runs on another thread; one `slow_requests` entry each with its final duration (server-stats) and a `slow-request` debug-spans line. `wait-for` and other waits by design are counted in `expected_waits`, not recorded | `park` / `park_timeout`, no timer while idle. A request claims one of 256 slots with atomics; only the first request while disarmed unparks the thread, and a run that ends slow before a scan hands its end over through its slot. Armed, it wakes only on a 250 ms grid, records overruns and finished-slow runs, and disarms on a tick with nothing left to watch and no new request. An overrun still running is recorded with its thread's stack (p05-ipc-008: it stops that thread, `thread_suspend` on macOS, SIGURG on Linux, < 1 ms p95, nothing allocated while it is stopped; frame pointers are walked on macOS and in Linux builds with `-C force-frame-pointers=yes`, otherwise only the pc is kept, `stack_truncated`); a run first seen after it ended gets `run-ended`, no stack | utility (`cmux_threads::spawn`; a failed start is counted in `spawn_failures` and retried by the next arm) | as today | yes | 0 wakes at idle; at most 1 wake per 250 ms (4/s) plus one, under any request spacing; 128-entry ring; a request past 256 busy slots is counted as unwatched, never blocked; Linux captures run one at a time, each waits at most 50 ms for the signal's answer |
@@ -276,7 +276,7 @@ part of the name.
 | `mux-ws-out`, `mux-events-out` (cmd_subscribe.rs, websocket_listener.rs) | Writing to one WebSocket client; one event subscription's stream | Its socket (`write`); the event bus | user-initiated (`REQUEST_THREAD_QOS`, p02-threads-211) | as today; utility for automation clients (task 224) | yes | Event bus 4096 per subscriber, then disconnect |
 | `mux-events-<generation>` (cmux-tui `app/mux_ingress.rs`) | The TUI front end's event stream | Its socket (`read`) | not set | user-initiated (task 229) | no | One per connection generation |
 | `holder-link` (cmux-holder `link.rs`; cmux-holder-v3 `link.rs`) | Routing each held terminal's output to its surface | The holder socket (holder: see below) | cmux-holder: user-interactive (`LINK_READER_QOS`, `ThreadType::InputCritical`, p04-input-060); cmux-holder-v3: not set | user-interactive (closed list): the echo of a held terminal waits on it; cmux-holder-v3 moves with task 218 | cmux-holder: yes; cmux-holder-v3: no | 1 MiB link queue, 512 KiB credit window |
-| `browser-surface-<id>-worker`, `-events`, `-bootstrap`; `browser-host-*` | One browser surface's CDP traffic | Sockets to the browser host | not set | user-initiated (task 215); one-shot bootstrap becomes a `work` item (task 230) | no | Per surface |
+| `browser-surface-<id>-worker`, `-events`, `-bootstrap`; `browser-host-*` | One browser surface's CDP traffic | Sockets to the browser host | not set | user-initiated (task 215); a one-shot CDP bootstrap is a `work` request wait (task 230); a provider bootstrap (`-bootstrap`, a loop that waits with no bound for the provider's target and retries until the surface dies) stays a thread | no | Per surface |
 | `chief-*`, `mux-agent-*`, `acpmux-*` watchers, `machine-*`, `cmux-apps-*`, `cmux-app-server:<name>`, `cmux-app-host:<name>`, other named one-shots (`mux-url-open`, `mux-cloud-request`, `mux-launch-snapshot` and about 60 more) | Agents, machines, apps and one-shot requests | Sockets, child processes, disk | not set | loops: utility unless a person waits on them (tasks 213-218); one-shots: `work` items at the priority of the request they serve (task 230) | no | Per loop |
 | tokio runtimes (acpmux, link, remote, cloud conversations, coderouter, server pairing) | Async I/O of that subsystem | Sockets on the runtime | not set, unnamed workers | named and registered through `cmux_threads::tokio::builder(name, qos)` (task 228); acpmux workers default, blocking pool utility, at most 16 | no | Per runtime |
 
@@ -321,9 +321,21 @@ Per-terminal threads must not grow. Today a terminal costs at most these threads
 | Terminal host (daemon side) | 2 or 3 | `surface-<id>-host`, `surface-<id>-host-frames`, `terminal-host-reaper` |
 | Terminal host (host process, one per terminal) | 4 echo threads plus about 6 lifecycle threads | `terminal-host-pty`, `-parser`, `-client`, `-client-input`; `-child`, `-exit`, `-signals`, `-terminate`, `-clipboard`, `-record-mirror`, `-publication-sync` |
 
-Target: task 237 removes every per-child wait thread (one `mux-reaper` per process) and task 230 turns
-per-terminal one-shots (`terminal-adopt-<id>`, `template-complete-<id>`, `terminal-exit-detach-<id>`) into
-`work` items, so a daemon-PTY terminal costs 1 thread. A change that adds a thread per terminal, per tab or per
+Task 230 turned the per-terminal one-shots (`terminal-adopt-<id>`, `template-complete-<id>`,
+`terminal-exit-detach-<id>`, `terminal-clean-<id>`, `terminal-respawn-<id>`, `terminal-restart-<id>`,
+`terminal-grid-hold`, `creating-input-expiry`) into `work` items, retries and delayed items: a start's adoptions wait
+for ready with no thread, and at most 8 replay at once (`Mux::terminal_replays` permits, inside `will_block`).
+Per-id threads kept on purpose, each a loop or a wait with no bound that would hold a `will_block` slot of the
+System lane (64 per lane, `MAX_BLOCKED`) for as long as it lasts:
+
+| Thread | Why it stays a thread |
+|---|---|
+| `terminal-unadoptable-<id>` | Waits with no timeout on the host's live-marker lease until an unadoptable host exits (as long as the host lives) |
+| `browser-surface-<id>-bootstrap` (provider bootstrap only) | Waits with no bound for the provider to register its target, then retries until the surface dies |
+| `mux-resource-terminal-wait` (one per `terminal.wait` / `terminal.wait_exit`) | A wait with no timeout when the request names none; up to 64 server-wide (`RESOURCE_WAITS_SERVER_CAPACITY`), as many as the System lane's `MAX_BLOCKED`, so as work items they could take every out-of-count slot. It becomes a terminal-state observer, not a work item |
+
+Target: task 237 removes every per-child wait thread
+(one `mux-reaper` per process), so a daemon-PTY terminal costs 1 thread. A change that adds a thread per terminal, per tab or per
 request needs a row here and a measured reason; a one-shot is a `work` item, not a thread.
 
 ## Process task roles and spawn QoS
@@ -456,7 +468,7 @@ Request classes (p06-scheduler-035, `cmux_tui_platform::qos`, `crate::request_qo
 feature `daemonRequestQos`): a request runs at the class of its cause. A verified-app request runs at userInitiated, an
 automation request (CLI, script, agent, page, remote, or an app line whose `origin` claim narrows it) at utility, on the
 `mux-conn` reader, the `mux-control-dispatch` dispatcher, a `mux-surface-control` clear worker, a creation job and
-commit on the `mux-terminal-work` pool, the `cmux-script` and `mux-agent-start` job threads, and the app and script
+commit on the `mux-terminal-work` pool, the `cmux-script` and `mux-agent-start` work items, and the app and script
 routers' calls; one `CauseScope` enters the cause and the class together, and the thread gets its own class back when
 the request ends. A thread lowered to utility is raised to userInitiated before it waits for any ranked lock (registry,
 connection, state, `pty.*`, leaf) and while it holds one (`HeldRank::acquire` takes the `LockBoost` before the wait; the
@@ -746,6 +758,90 @@ children, provider write, mobile unix-lane, agent-activity socket, updates netwo
 remote-view transport and mock host, remote-fetch, import-history-sync, acpmux, chief-settle and fixture video
 queues, each at the QoS listed above. Watchers run at utility; a queue that a visible pane or a waiting caller
 needs runs at user-initiated. None goes to user-interactive.
+
+## QoS audit (MQ-15, p02-threads-302)
+
+`scripts/cmux-next/qos-audit.py` reads what runs and judges it against the thread parts of RUN-3 and RUN-4
+(chrome-parity/p02-threads.md). Each finding is one task, `p02-threads-R-qos-<process>-<kind>-<thread>`, with
+its evidence rows and the spawn sites that spell the name (`qos-tasks.json`). The id stays the same on a rerun.
+Chrome keeps the same facts per thread (`ThreadType` to QoS in `base/threading/platform_thread_apple.mm`, thread
+type and priority in chrome://tracing metadata).
+
+- App: `qos-audit.py app --app "$NX_APP" --daemon-socket <socket>` (fleet GUI Mac, Debug or bench build)
+  builds STRESS (perf-stress-session.py). It reads `debug.threads` and `debug.surfaces` with the window visible,
+  then with the app hidden (`showHideAllWindows`), then shows the app again. It finds: `mismatch` (`match`
+  false), `hidden-tier` (hidden phase: a Ghostty surface thread not at utility), `hidden-workspace-tier`,
+  `undeclared-cmux`, `undeclared-library`, `interactive-outside-closed-list` (a cmux thread at user-interactive
+  that the closed list above does not name), `queue-problem`, `undeclared-queue`, `queue-log-overflow` and
+  `task-role`. `hidden-workspace-tier` is the visible phase's check of a hidden workspace in a shown window
+  (STRESS has 59): Ghostty names its threads without the surface, so the audit counts. Each by-visibility row
+  (renderer, io) may have at most as many threads above utility as surfaces draw (`debug.surfaces` `drawing`, the
+  visibility `ghostty_surface_set_occlusion` gave). `--daemon-socket` also reads the app's daemon in both phases.
+  There it judges the app's UI connection (`ui-connection`): the person's readers must rest at user-interactive
+  and their request threads at user-initiated. `unseen` means no verified app connection was found.
+- Daemon: `qos-audit.py daemon --bin <cmux-tui> --base-peak <base qos-peak.json>` starts a headless daemon with
+  `daemonRequestQos` on and the blocking detector in record mode. It builds STRESS (60 workspaces, 14 panes of 2
+  terminals in the measured one, 10 busy terminals) and runs perf-10x-lifecycle's op mix (bench-lifecycle.py's
+  creates and closes, 3 warm-up and 40 rounds) on a second connection. During the rounds it reads
+  `server-threads` and the process's OS threads by id (Linux `/proc/<pid>/task`, macOS `proc_pidinfo`). From the
+  daemon's start to the last round, a thread of the script counts the daemon's OS threads every millisecond. The
+  peak is the highest count, so the threads that live only during a create or a close count. Threads shorter
+  than the interval can still be missed. The whole run repeats 3 times, each with a new daemon. The base binary
+  gets the same runs with `--peak-only`. It finds: `unregistered` (an OS thread with no row; `main` is the first
+  thread: the pid on Linux, the lowest thread id on macOS; `unnamed` is a thread that never set its name),
+  `mismatch` (`matches` false), `automation-class` (an automation connection's reader or request thread not
+  resting at utility), `interactive-outside-closed-list` and `peak-threads` (the head's highest peak not below the
+  base's lowest). Run it at nice 0. A Linux daemon inherits the script's nice and cannot lower it again, so the
+  script refuses to start under `nice -n`.
+- Each connection thread's `server-threads` row names its connection (`connection`: client id, transport,
+  origin, peer pid, class). The audit decides from those facts which connection is the person's: origin `user`,
+  or `agent` from the verified app's process. It does not use the daemon's class, so a connection the daemon
+  classed wrongly is still judged by what it is.
+- The verdict has one part per check. RUN-3: `run3_visible`, `run3_hidden_workspaces`, `run3_hidden`. RUN-4:
+  `run4_daemon_threads`, `run4_ui_connection` (app mode with `--daemon-socket`), `run4_automation`, `run4_peak`
+  (daemon mode). A RUN is true only when all its parts are true, false when one fails, otherwise null. A partial
+  read never passes. `qos-audit.py judge` reads saved replies again. Exit 0 means every part the run covers
+  passes, 1 means a finding is open, 2 means a part the run covers was not read (`missing`) or a read failed.
+  RUN-3 (b) queue literals and RUN-4's crate deny attributes and clippy are static checks (threading-inventory.py,
+  task 219); the audit does not read them.
+
+Run 2, Linux daemon only (2026-10-27, 360-core Linux VM, nice 0, Debug `cmux-tui` of this branch on
+perf/chrome-parity 3bbdf9d3d6a, with the `connection` field; base feat-cmux-next 772cdfc45ac). The run used the
+millisecond sampler, 3 runs per side, perf-10x-lifecycle's op mix and about 22 s and 17,500 counts per run. Peaks:
+head 490, 506, 501; base 504, 497, 487. The ranges overlap, so RUN-4's peak part fails: the head is not lower
+than the base. Run 1 read the count only between rounds and gave 383 against 389. That method missed the threads
+of a create or a close, so its "passes" did not hold. RUN-4 also fails on 21 thread findings: 2 mismatches and 19
+unregistered threads. `run4_automation` passes: the script's automation connections ask for utility. On Linux
+their nice stays 0, which is the `mismatch` rows below. `run4_ui_connection` is not read because a headless
+daemon has no app. The up to 143 `terminal-host-r` threads are the per-child `terminal-host-reaper` (task 237).
+Linux cuts names to 15 characters. The deny attributes are on no daemon crate root (task 219 has not landed).
+The fleet run is still open: app STRESS visible and hidden with `--daemon-socket` (RUN-3, and RUN-4's UI
+connection), and the macOS daemon. Until it is done, this task does not pass.
+
+| Task (`p02-threads-R-qos-daemon-` + suffix) | Thread | Seen | Spawn site |
+|---|---|---|---|
+| `peak-threads-process` | the process | head peaks 490, 506, 501; base 504, 497, 487 | the threads per terminal (`terminal-host-reaper`, task 237) and the lifecycle's one-shot threads |
+| `mismatch-mux-conn` | `mux-conn` | desired utility, applied default: `RestingClass::follow` asks the registry slot for utility before `WorkQos::enter`, which does not lower a class the process cannot raise again (Linux nice without CAP_SYS_NICE) | server/connection_qos.rs, server/listen.rs |
+| `mismatch-mux-control-dispatch` | `mux-control-dispatch` | desired utility, applied user-initiated, same cause | server/connection_qos.rs, server/connection_scheduler.rs |
+| `unregistered-main` | daemon main thread | no row | cmux-tui/src/main.rs |
+| `unregistered-unnamed` | a thread with no name of its own | no row | (by stack) |
+| `unregistered-tokio-rt-worker` | an unnamed tokio worker, idle phase | no row; task 228 runtimes name theirs | (by stack) |
+| `unregistered-background-chec` | `background-checks` | no row | cmux-tui/src/owner_start/background_checks.rs |
+| `unregistered-client-log` | `client-log` | no row | cmux-tui/src/client_log.rs |
+| `unregistered-memory-guard` | `memory-guard` | no row | cmux-tui/src/owner_start/memory_guard.rs |
+| `unregistered-headless-signal` | `headless-signal` | no row | cmux-tui/src/headless.rs |
+| `unregistered-cmux-config-wat` | `cmux-config-watch` (2) | no row | cmux-config/src/watch/inotify.rs, portable.rs |
+| `unregistered-notify-rs-inoti` | `notify-rs inotify` (the notify crate's watcher thread) | no row | a `notify` watcher of cmux-config or cmux-tui-core |
+| `unregistered-mux-project-sou` | `mux-project-sources` | no row | cmux-tui-core/src/state/project_watch.rs |
+| `unregistered-mux-agent-chat` | `mux-agent-chat-*` | no row | cmux-tui-core/src/mux/agent_chat_notices.rs |
+| `unregistered-cmux-journal-pl` | `cmux-journal-plugin*` | no row | cmux-tui-core/src/journal_plugin.rs |
+| `unregistered-mux-cloud-io` | `mux-cloud-io` | no row | cmux-tui/src/cloud_conversations_backend.rs |
+| `unregistered-mux-host-replic` | `mux-host-replica*` (up to 3) | no row | cmux-tui-core/src/server/cloud_host_replica.rs |
+| `unregistered-mux-deadline-n` | `mux-deadline-<n>` | no row | cmux-tui-core/src/mux/deadline_fanout.rs |
+| `unregistered-mux-idle-close` | `mux-idle-close` | no row | cmux-tui-core/src/mux/idle_close.rs |
+| `unregistered-mux-launch-snap` | `mux-launch-snapshot` | no row | cmux-tui-core/src/server/launch_snapshot.rs |
+| `unregistered-terminal-host-r` | `terminal-host-reaper` (up to 143) | one thread per child | terminal_host_runtime/sys/unix/spawned_host.rs (task 237) |
+| `unregistered-terminal-host-c` | `terminal-host-close` or `-child` (up to 8, during lifecycle closes) | no row | mux/host_close.rs, terminal_host_runtime/shared/host_start.rs |
 
 ## Reviewed blocking allowances
 

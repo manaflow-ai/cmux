@@ -54,8 +54,10 @@ public struct MainWork: Sendable {
     /// The running task as the hook sees its jobs (a task's job is the task).
     static func currentJob() -> UInt? {
         withUnsafeCurrentTask { task in
-            // SAFETY: UnownedJob is one pointer, the task's address; it is compared, never dereferenced.
-            task.map { unsafe unsafeBitCast($0.unownedJobValue, to: UInt.self) }
+            // SAFETY: UnsafeCurrentTask holds one reference, the running AsyncTask, and an AsyncTask is
+            // the Job the enqueue hook gets as its UnownedJob, at the same address. unsafeBitCast traps if
+            // the sizes ever differ; the address is compared, never dereferenced or retained.
+            task.map { unsafe unsafeBitCast($0, to: UInt.self) }
         }
     }
 }

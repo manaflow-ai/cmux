@@ -48,6 +48,8 @@ public final class GhosttyRuntime {
     var reloadRequests = 0
     /// A ``reloadConfig()`` came before the first config landed (``start(loadingOn:then:)`` runs it then).
     var reloadAfterStart = false
+    /// cmux's Kitty graphics budget per screen (``setImageStorageBytesPerScreen(_:)``), bounded from the start.
+    var imageStorageBytesPerScreen = GhosttyRuntime.defaultImageStorageBytesPerScreen
     /// Bumps on every config change (reload, conditional theme switch), after the new config is in
     /// place. Visible views observe it; hidden ones read it when they show.
     public let configRevision = GhosttyConfigRevision()
@@ -62,14 +64,12 @@ public final class GhosttyRuntime {
     /// Messages from the last config load (unknown keys, bad values).
     public internal(set) var configDiagnostics: [String] = []
 
-    /// Frontend-level actions that have no surface target (for example
-    /// `quit` or `new_window` from an app-scoped keybind). Return true when
-    /// handled.
+    /// Frontend-level actions that have no surface target (for example `quit` or `new_window` from an
+    /// app-scoped keybind). Return true when handled.
     public var appActionHandler: ((TerminalHostAction) -> Bool)?
 
-    /// Fires after a config change so hosts can re-read derived values such
-    /// as ``backgroundColor``, and after a soft reload so surfaces with their
-    /// own theme take it back.
+    /// Fires after a config change so hosts can re-read derived values such as ``backgroundColor``, and
+    /// after a soft reload so surfaces with their own theme take it back.
     public var onConfigChange: (() -> Void)?
     /// The services' handlers (``addConfigChangeHandler(_:)``), in the order added.
     private var configChangeHandlers: [@MainActor () -> Void] = []
@@ -102,6 +102,8 @@ public final class GhosttyRuntime {
     /// Energy Saver's edges to libghostty (``followEnergySaver(on:)``); nil before that call, and always
     /// for a GhosttyNextKit pin without `ghostty_app_set_energy_saver`.
     private var energySaver: GhosttyEnergySaver?
+    /// Puts resized terminals' drawn frames into their size's commit; nil: they land when drawn.
+    public var hostFramePresenter: TerminalHostFramePresenter?
 
     /// Runs `ghostty_init` when `main` did not (tests); the app starts at ``start(with:)``. The app has one
     /// runtime, ``shared``; a test makes its own only to check one that never started.
@@ -217,7 +219,7 @@ public final class GhosttyRuntime {
         config = unsafe fresh
         hostKeybindCache.binds = nil
         // Themed configs were built on the old files: each keeps serving until its rebuild lands.
-        themeConfigs.invalidate(loader: configLoader) { GhosttyConfigInputs.current(theme: $0) }
+        themeConfigs.invalidate(loader: configLoader) { configInputs(theme: $0) }
         onConfigChange?()
         configRevision.bump()
         for handler in configChangeHandlers { handler() }

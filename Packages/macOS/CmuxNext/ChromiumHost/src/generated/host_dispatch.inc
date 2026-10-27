@@ -206,8 +206,10 @@ enum Op : uint16_t {
   kOpBrowserImeCommitText = 196,  // optional
   kOpBrowserImeFinishComposing = 197,  // optional
   kOpBrowserImeCancelComposition = 198,  // optional
+  kOpTabCopySurface = 199,  // optional
+  kOpTabSendMouseMove = 200,  // optional
 };
-inline constexpr uint16_t kOpCount = 198;
+inline constexpr uint16_t kOpCount = 200;
 inline constexpr uint16_t kOpEvent = 0x8001;  // host -> cmux: one shim event
 inline constexpr uint16_t kOpReply = 0x8002;  // host -> cmux: an async op's result
 inline constexpr uint16_t kOpMirror = 0x8003;  // host -> cmux: a mirror value
@@ -215,7 +217,7 @@ inline constexpr uint16_t kOpAck = 0x8004;  // host -> cmux: a token's op ran
 inline constexpr int kEventKindCount = 60;
 inline constexpr char kShimAbiID[] = "423f0fc54a39bbdefe004c29cbb6e2bcbaa8a3d3623bb8a584a0ee4ad82fb8e9";
 // Both sides' HELLO carries it: the op ids, classes and wire types of this generation.
-inline constexpr char kWireID[] = "7304fab0f0017e94749bd638e1928fef65ebbfe55fa0e3e51c448532b08d02c6";
+inline constexpr char kWireID[] = "d64e28605743f24acd2a0820eb6e42cec93501bb7b433183e0e2f5de92bb4ed1";
 inline constexpr int32_t kMaxRecords = 65536;
 inline constexpr int32_t kMaxOutCapacity = 65536;
 
@@ -241,6 +243,8 @@ inline constexpr OptionalExport kOptionalExports[] = {
     {kOpBrowserImeCommitText, "cmux_shim_browser_ime_commit_text"},
     {kOpBrowserImeFinishComposing, "cmux_shim_browser_ime_finish_composing"},
     {kOpBrowserImeCancelComposition, "cmux_shim_browser_ime_cancel_composition"},
+    {kOpTabCopySurface, "cmux_shim_tab_copy_surface"},
+    {kOpTabSendMouseMove, "cmux_shim_tab_send_mouse_move"},
 };
 
 // Hand-written in HOST/src: install the host's own handler and push its policy.
@@ -1911,6 +1915,33 @@ inline bool DispatchOp(HostContext& ctx, uint16_t op, uint32_t wire_token, TlvRe
       if (!r.ok() || !r.AtEnd()) return false;
       const auto optional_fn = reinterpret_cast<void (*)(int)>(ctx.OptionalExport(kOpBrowserImeCancelComposition));
       if (optional_fn != nullptr) optional_fn(ctx.Browser(arg_browser_id));
+      ctx.Ack(wire_token);
+      return true;
+    }
+    case kOpTabCopySurface: {
+      const auto arg_browser_id = r.I32();
+      const auto arg_reply = r.I32();
+      const auto arg_max_width = r.I32();
+      const auto arg_max_height = r.I32();
+      const auto arg_format = r.I32();
+      const auto arg_jpeg_quality = r.I32();
+      if (!r.ok() || !r.AtEnd()) return false;
+      const auto optional_fn = reinterpret_cast<int (*)(int, int, int, int, int, int)>(ctx.OptionalExport(kOpTabCopySurface));
+      const int call_result = optional_fn != nullptr ? optional_fn(ctx.Browser(arg_browser_id), arg_reply, arg_max_width, arg_max_height, arg_format, arg_jpeg_quality) : 0;
+      TlvWriter reply_w;
+      reply_w.I32(call_result);
+      ctx.Reply(wire_token, reply_w);
+      return true;
+    }
+    case kOpTabSendMouseMove: {
+      const auto arg_browser_id = r.I32();
+      const auto arg_x = r.F64();
+      const auto arg_y = r.F64();
+      const auto arg_modifiers = r.I32();
+      if (!r.ok() || !r.AtEnd()) return false;
+      const auto optional_fn = reinterpret_cast<int (*)(int, double, double, int)>(ctx.OptionalExport(kOpTabSendMouseMove));
+      const int call_result = optional_fn != nullptr ? optional_fn(ctx.Browser(arg_browser_id), arg_x, arg_y, arg_modifiers) : 0;
+      (void)call_result;
       ctx.Ack(wire_token);
       return true;
     }

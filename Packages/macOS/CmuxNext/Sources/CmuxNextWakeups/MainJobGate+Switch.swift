@@ -7,7 +7,7 @@ import os
 /// held jobs go first.
 ///
 /// ```swift
-/// let jobGate = MainJobGateSwitch(pending: pending, wakeUps: mainWork.wakeUps)
+/// let jobGate = MainJobGateSwitch(pending: pending, holding: mainWork)
 /// jobGate.follow(on: mainWork) { settings.loadCount >= 1 ? settings.snapshot.mainJobGate.enabled : nil }
 /// // Around each event's route (CmuxApplication):
 /// let outer = jobGate.beginDispatch()

@@ -1,5 +1,6 @@
 import CmuxNextCompat
 import CmuxNextSettings
+public import CmuxNextWakeups
 import Foundation
 
 /// Suggested tasks and nested child chats (cx-lo9yf) on the agent pages: whether agents suggest
@@ -12,7 +13,10 @@ public final class AgentPaneSuggestedTasks {
     public static let shared = AgentPaneSuggestedTasks()
     /// The pages pushed so far, held weakly, for the pushes on a change.
     private let views = NSHashTable<AgentPaneView>.weakObjects()
-    private var observation: Task<Void, Never>?
+    /// Follows ``isOn`` for the pages and the next daemon: a service, whose flag must change while no page shows.
+    private var observation: ServiceObservation<Bool>?
+    /// The app's one main-thread scheduler, from ``follow(on:)`` or the first page's model.
+    private var work: MainWorkScheduler?
     /// `sessions.promptSuggestions`, read through Observation (the App reads its settings snapshot).
     public var setting: @MainActor () -> Bool = { SessionSettings.promptSuggestionsDefault } {
         // Written now, not only by the observation: a daemon started before its first pass
@@ -37,16 +41,23 @@ public final class AgentPaneSuggestedTasks {
 
     /// The switch, read now, as a page host event; `view` then also gets every change.
     func event(for view: AgentPaneView) -> AgentPageEvent {
+        follow(on: view.model.deadlines.work)
         views.add(view)
-        follow()
         return .suggestedTasks(isOn)
     }
 
     /// Pushes the switch, read now, to `view`'s page; `view` then also gets every change.
     func push(to view: AgentPaneView) {
+        follow(on: view.model.deadlines.work)
         views.add(view)
-        follow()
         send(to: view)
+    }
+
+    /// Follows the switch on `work`, the app's one main-thread scheduler (`AppServices.mainWork`): the App calls it
+    /// once it has its settings, and a page's first push does when the App has not.
+    public func follow(on work: MainWorkScheduler) {
+        if self.work == nil { self.work = work }
+        follow()
     }
 
     private func send(to view: AgentPaneView) {
@@ -59,15 +70,16 @@ public final class AgentPaneSuggestedTasks {
         MainActor.assumeIsolated { observation?.cancel() }
     }
 
+    /// Starts the observation once a scheduler is known. Its first apply, in this call, reaches only the pages
+    /// pushed before (a caller adds its page after it), so no page gets the value twice.
     private func follow() {
-        guard observation == nil else { return }
-        // task-owner: app-lifetime; event-driven (Observation on the setting and the tunable key)
-        observation = Task { [weak self] in
-            for await on in ObservationStream({ [weak self] in self?.isOn ?? false }) {
-                guard let self else { return }  // a released instance never writes the shared flag
-                Self.forNextDaemon.set(on)
-                for view in views.allObjects { send(to: view) }
-            }
+        guard observation == nil, let work else { return }
+        observation = ServiceObservation(.visible, owner: "AgentPaneSuggestedTasks.isOn", on: work) { [weak self] in
+            self?.isOn ?? false
+        } apply: { [weak self] on in
+            guard let self else { return }  // a released instance never writes the shared flag
+            Self.forNextDaemon.set(on)
+            for view in views.allObjects { send(to: view) }
         }
     }
 }
