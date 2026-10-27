@@ -902,6 +902,7 @@ final class AppServices {
         let inputDispatch = inputDispatch
         (NSApp as? CmuxApplication)?.inputDispatch = inputDispatch
         (NSApp as? CmuxApplication)?.inputLatency = inputLatency
+        popups.textInputStage = inputLatency.textInput
         #if DEBUG || CMUX_BENCH_HOOKS
         cache.webKit.pageInputTiming = WebPageInputTiming(tracker: inputLatency.tracker)  // WebKit pages' presented stage (p04-input-099)
         #endif
