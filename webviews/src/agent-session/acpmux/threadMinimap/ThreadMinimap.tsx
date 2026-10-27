@@ -838,6 +838,7 @@ export function ThreadMinimap({
           ref={card}
           id={cardId}
           x={placement.left + ROW_WIDTH}
+          railLeft={placement.left}
           y={cardTop}
           // Out of the scroller: its edge mask would keep the card's blur from the rows (PreviewCard.tsx).
           scroller={scroller.current}
