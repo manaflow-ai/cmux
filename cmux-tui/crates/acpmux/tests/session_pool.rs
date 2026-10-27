@@ -726,6 +726,15 @@ async fn under_an_mdm_off_a_pooled_agent_that_reported_full_access_at_start_is_n
             ],
             "reported bypassPermissions under an empty session id (review 70)",
         ),
+        (
+            "fablanknew",
+            &[
+                ("FAKE_NO_MODES", "1"),
+                ("FAKE_STARTUP_MODE", "bypassPermissions"),
+                ("FAKE_NEW_RESULT_SID", ""),
+            ],
+            "reported bypassPermissions and answered with an empty session id (review 74)",
+        ),
     ] {
         let (_daemon, _rpc, kept) = prewarmed_under_an_off(tag, env).await;
         assert!(!kept, "a pooled agent that {why} was kept under the MDM off");
@@ -779,24 +788,28 @@ async fn under_an_mdm_off_a_report_held_past_the_take_keeps_the_agent_from_the_c
     );
 }
 
-/// MDM forces `sessions.allowFullAccess` off (#23322, review 46): a ready pooled agent that
-/// reports full access while it waits ends then, though no chat takes it.
+/// MDM forces `sessions.allowFullAccess` off (#23322, reviews 46 and 74): a ready pooled agent that
+/// reports full access while it waits ends then, though no chat takes it, and though its
+/// `session/new` answer named a blank session id.
 #[tokio::test(flavor = "multi_thread")]
 async fn under_an_mdm_off_a_ready_pooled_agent_that_reports_full_access_ends() {
-    let env = [("FAKE_NO_MODES", "1"), ("FAKE_LATE_MODE", "bypassPermissions")];
-    let (_daemon, mut rpc, kept) = prewarmed_under_an_off("falate", &env).await;
-    assert!(kept, "fakeb reports nothing until it is ready, so it is kept then");
-    let deadline = Instant::now() + Duration::from_secs(10);
-    loop {
-        let status = rpc.call("_acpmux/status", json!({})).await;
-        if !fakeb_ready(&status) {
-            break;
+    let late = [("FAKE_NO_MODES", "1"), ("FAKE_LATE_MODE", "bypassPermissions")];
+    let blank = [late[0], late[1], ("FAKE_NEW_RESULT_SID", "")];
+    for (tag, env) in [("falate", &late[..]), ("falateblank", &blank[..])] {
+        let (_daemon, mut rpc, kept) = prewarmed_under_an_off(tag, env).await;
+        assert!(kept, "{tag}: fakeb reports nothing until it is ready, so it is kept then");
+        let deadline = Instant::now() + Duration::from_secs(10);
+        loop {
+            let status = rpc.call("_acpmux/status", json!({})).await;
+            if !fakeb_ready(&status) {
+                break;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "{tag}: a ready pooled agent that reported full access stayed under the MDM off: {status}"
+            );
+            tokio::time::sleep(Duration::from_millis(100)).await;
         }
-        assert!(
-            Instant::now() < deadline,
-            "a ready pooled agent that reported full access stayed under the MDM off: {status}"
-        );
-        tokio::time::sleep(Duration::from_millis(100)).await;
     }
 }
 

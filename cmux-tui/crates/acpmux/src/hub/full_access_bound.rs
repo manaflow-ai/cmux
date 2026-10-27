@@ -419,6 +419,10 @@ mod tests {
         reports.note(&full(json!("fake-2")));
         assert!(!reports.of(Some("fake-1")), "another session's report counted for this one");
         assert!(reports.of(Some("fake-2")));
+        // Review 74: a harness session with a blank id is not known, so any report counts.
+        for blank in ["", "  "] {
+            assert!(reports.of(Some(blank)), "a report did not count for the blank id {blank:?}");
+        }
     }
 
     /// claude-sr2's bound: a forced off wins over the person's on; a forced on, or nothing

@@ -1290,6 +1290,9 @@ def main():
                 until = pause.monotonic() + 30
                 while os.path.exists(hold) and pause.monotonic() < until:
                     pause.sleep(0.05)
+            # FAKE_NEW_RESULT_SID=<sid>: the answer names <sid> (empty allowed) as its session.
+            if "FAKE_NEW_RESULT_SID" in os.environ:
+                result["sessionId"] = os.environ["FAKE_NEW_RESULT_SID"]
             send({"jsonrpc": "2.0", "id": rid, "result": result})
             # FAKE_LATE_MODE=<id>: half a second after it answers, the harness reports that mode.
             if os.environ.get("FAKE_LATE_MODE"):

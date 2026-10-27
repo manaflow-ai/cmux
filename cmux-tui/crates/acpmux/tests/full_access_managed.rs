@@ -110,6 +110,9 @@ fn home(name: &str) -> PathBuf {
             // `self-reporter` whose report comes after 300 other updates.
             "self-busy": {"argv": ["python3", FAKE_AGENT], "env": {"FAKE_NO_MODES": "1",
                           "FAKE_STARTUP_NOISE": "300", "FAKE_STARTUP_MODE": "bypassPermissions"}},
+            // `self-reporter` whose `session/new` answer names an empty session id (review 74).
+            "self-blank-new": {"argv": ["python3", FAKE_AGENT], "env": {"FAKE_NO_MODES": "1",
+                               "FAKE_STARTUP_MODE": "bypassPermissions", "FAKE_NEW_RESULT_SID": ""}},
             // `self-reporter` whose report names an empty session id (review 70).
             "self-blank": {"argv": ["python3", FAKE_AGENT], "env": {"FAKE_NO_MODES": "1",
                            "FAKE_STARTUP_MODE": "bypassPermissions", "FAKE_STARTUP_SID": ""}},
@@ -573,10 +576,10 @@ const PROBES: &[Case] = &[
     ),
 ];
 
-/// The profiles whose harness is in full access as its session starts (reviews 32, 41, 46 and
-/// 70: `self-blank` reports it under an empty session id).
+/// The profiles whose harness is in full access as its session starts (reviews 32, 41, 46, 70
+/// and 74: `self-blank` reports it under an empty session id, `self-blank-new` answers with one).
 const STARTS_IN_FULL_ACCESS: &[&str] =
-    &["self-full", "self-reporter", "self-masked", "self-busy", "self-blank"];
+    &["self-full", "self-reporter", "self-masked", "self-busy", "self-blank", "self-blank-new"];
 
 /// Runs `cases` one at a time and names every one that fails.
 async fn run(cases: &[Case]) {
