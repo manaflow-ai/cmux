@@ -349,7 +349,12 @@ import { ChatHeaderTools, HEADER_ACTIONS, menuGroups, type ChatMenuItem } from "
 import { EnvironmentLine, environmentOpener } from "./header/EnvironmentLine";
 import { headerState, setHeaderState, useHeaderState } from "./header/headerState";
 import { setTabRow, tabRowStyle, useTabRow, useTabRowTools } from "./header/tabRow";
-import { PullRequestDock } from "./summary/PullRequestDock";
+import {
+  MessageWithPullRequests,
+  RowPullRequests,
+  pullRequestRow,
+  useTranscriptPullRequests,
+} from "./summary/PullRequestDock";
 import { SubagentPaneFooter } from "./subagents/SubagentPaneFooter";
 import { RecapCard, useRecapCard } from "./RecapCard";
 import { HarnessStatusCard } from "./HarnessStatusCard";
@@ -1014,12 +1019,14 @@ const MessageRow = memo(
       );
     }
     return (
-      <RevealedMarkdown
-        text={row.text ?? ""}
-        streaming={row.streaming === true}
-        githubRepository={githubRepository}
-        messageAt={row.at}
-      />
+      <MessageWithPullRequests>
+        <RevealedMarkdown
+          text={row.text ?? ""}
+          streaming={row.streaming === true}
+          githubRepository={githubRepository}
+          messageAt={row.at}
+        />
+      </MessageWithPullRequests>
     );
   },
   (previous, next) =>
@@ -1607,6 +1614,7 @@ const RowFrame = React.memo(function RowFrame({
   onRowKeyDown,
   onCopyRow,
   copyable,
+  pullRequests,
   referenceScope,
   children,
 }: {
@@ -1643,6 +1651,7 @@ const RowFrame = React.memo(function RowFrame({
   onRowKeyDown: (index: number, event: React.KeyboardEvent<HTMLElement>) => void;
   onCopyRow: (id: string) => Promise<void>;
   copyable: boolean;
+  pullRequests?: React.ContextType<typeof RowPullRequests>;
   /// What the child row draws from, compared instead of `children` (a new element every render).
   contentType: unknown;
   controls?: string;
@@ -1730,7 +1739,9 @@ const RowFrame = React.memo(function RowFrame({
           {...copyTabStop}
         />
       )}
-      <ReferenceScopeContext.Provider value={referenceScope ?? null}>{children}</ReferenceScopeContext.Provider>
+      <ReferenceScopeContext.Provider value={referenceScope ?? null}>
+        <RowPullRequests.Provider value={pullRequests}>{children}</RowPullRequests.Provider>
+      </ReferenceScopeContext.Provider>
     </article>
   );
 }, sameRowFrame);
@@ -2099,6 +2110,8 @@ export function VirtualTranscript({
   showMinimap?: boolean;
 }) {
   const t = useT();
+  const pullRequests = useTranscriptPullRequests(sourceRows ?? rows, githubRepository);
+  const prRow = pullRequests.length ? pullRequestRow(rows) : undefined;
   // Debug measurement (acpmuxPerf): off until the first debug call.
   const renderStart = acpmuxPerf.enabled ? performance.now() : 0;
   acpmuxPerf.span("vt.renders", 1);
@@ -4043,6 +4056,7 @@ export function VirtualTranscript({
                       onFocus={rowFocus}
                       onRowKeyDown={handleRowKeyDown}
                       copyable={transcriptHasFloatingCopy(row)}
+                      pullRequests={row.id === prRow ? pullRequests : undefined}
                       onCopyRow={copyRow}
                       contentType={Component}
                       controls={controls}
@@ -8866,13 +8880,6 @@ function AcpmuxPane() {
   ) : (
     !reviewing && (
       <>
-        <PullRequestDock
-          key={snapshot.sessionId}
-          rows={snapshot.rows}
-          repository={githubRepository ?? undefined}
-          sessionId={snapshot.sessionId}
-          onOpenChanges={inspector.reveal ? () => inspector.reveal!("changes") : undefined}
-        />
         {recapCard.recap && (
           <RecapCard
             recap={recapCard.recap}

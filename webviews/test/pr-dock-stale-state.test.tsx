@@ -8,6 +8,33 @@ import { afterAll, beforeAll, expect, spyOn, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
 
+import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
+import {
+  PullRequestDock,
+  RowPullRequests,
+  useTranscriptPullRequests,
+} from "../src/agent-session/acpmux/summary/PullRequestDock";
+
+function TestDock({
+  rows,
+  repository,
+}: {
+  rows: readonly AcpmuxRow[];
+  repository?: string;
+  sessionId?: string;
+  onOpenChanges?: () => void;
+}) {
+  const prs = useTranscriptPullRequests(rows, repository);
+  return (
+    <RowPullRequests.Provider value={prs}>
+      <output data-pr-count>
+        {prs.length} {prs.length === 1 ? "PR" : "PRs"}
+      </output>
+      <PullRequestDock />
+    </RowPullRequests.Provider>
+  );
+}
+
 const scope = globalThis as Record<string, unknown>;
 const keys = [
   "window",
@@ -83,127 +110,32 @@ const live = (url: string, number: number, state: string) => ({
   checkList: [],
 });
 
-test("an open bar names no stale Open; the chat's merged and closed pull requests keep no bar", async () => {
+test("a PR remains linked after merging, with no stale state label or removable attachment", async () => {
   const { createRoot } = await import("react-dom/client");
-  const { PullRequestDock } = await import("../src/agent-session/acpmux/summary/PullRequestDock");
-  const rows = [
-    {
-      kind: "activity",
-      id: "a1",
-      version: 1,
-      items: [
-        tool("t1", 'gh pr create --title "Add retry"', "https://github.com/acme/uploader/pull/41"),
-        tool(
-          "t2",
-          'gh pr create --title "Document retry"',
-          "https://github.com/acme/a-very-long-repository-name/pull/42",
-        ),
-        tool("t3", 'gh pr create --title "Drop the old client"', "https://github.com/acme/uploader/pull/43"),
-        tool("t4", "gh pr merge 41"),
-        tool("t5", "gh pr close 43"),
-      ],
-    },
-  ];
-  const root = createRoot(container());
-  await act(async () => root.render(<PullRequestDock rows={rows as never} sessionId="s1" />));
-  expect(bars()).toEqual([["#42", null, "a-very-long-repository-name"]]);
-  act(() => root.unmount());
-});
-
-test("a bar drops once the header reports its pull request merged; an open one stays", async () => {
-  const { createRoot } = await import("react-dom/client");
-  const { PullRequestDock } = await import("../src/agent-session/acpmux/summary/PullRequestDock");
   const { setHeaderState } = await import("../src/agent-session/acpmux/header/headerState");
-  const url = "https://github.com/manaflow-ai/cmux/pull/23621";
+  const url = "https://github.com/acme/uploader/pull/41";
   const rows = [
-    {
-      kind: "activity",
-      id: "a1",
-      version: 1,
-      items: [tool("t1", 'gh pr create --title "Add retry"', url)],
-    },
+    { kind: "activity", id: "a", version: 1, items: [tool("create", 'gh pr create --title "Retry"', url)] },
   ];
-  setHeaderState({ pullRequest: live(url, 23621, "open") });
   const root = createRoot(container());
-  await act(async () => root.render(<PullRequestDock rows={rows as never} sessionId="s2" />));
-  expect(bars()).toEqual([["#23621", "Open", "cmux"]]);
-  await act(async () => setHeaderState({ pullRequest: live(url, 23621, "merged") }));
-  expect(bars()).toEqual([]);
-  expect(dom.window.document.querySelector(".acpmux-pr-dock")).toBeNull();
+  await act(async () => root.render(<TestDock rows={rows as never} />));
+  expect(bars()).toEqual([["#41", null, "uploader"]]);
+  await act(async () => setHeaderState({ pullRequest: live(url, 41, "merged") }));
+  expect(bars()).toEqual([["#41", null, "uploader"]]);
+  expect(dom.window.document.querySelector(".acpmux-pr-dock__bar")?.getAttribute("data-state")).toBe("merged");
+  expect(dom.window.document.querySelector(".acpmux-pr-dock__dismiss")).toBeNull();
   act(() => root.unmount());
   setHeaderState({ pullRequest: null });
 });
 
-test("the default dock is a compact count that opens Session Info changes", async () => {
-  const { createRoot } = await import("react-dom/client");
-  const { PullRequestDock } = await import("../src/agent-session/acpmux/summary/PullRequestDock");
-  delete dom.window.document.documentElement.dataset.prDock;
-  const rows = [
-    {
-      kind: "activity",
-      id: "a3",
-      version: 1,
-      items: [
-        tool("t6", 'gh pr create --title "Add retry"', "https://github.com/acme/uploader/pull/51"),
-        tool("t7", 'gh pr create --title "Document retry"', "https://github.com/acme/uploader/pull/52"),
-      ],
-    },
-  ];
-  let opened = 0;
-  const root = createRoot(container());
-  await act(async () =>
-    root.render(<PullRequestDock rows={rows as never} sessionId="s3" onOpenChanges={() => (opened += 1)} />),
-  );
-  expect(dom.window.document.querySelector(".acpmux-pr-dock")?.getAttribute("data-mode")).toBe("compact");
-  expect(dom.window.document.querySelector(".acpmux-pr-dock__count")?.textContent).toContain("2 PRs");
-  await act(async () => (dom.window.document.querySelector(".acpmux-pr-dock__count") as HTMLButtonElement).click());
-  expect(opened).toBe(1);
-  const disclosure = dom.window.document.querySelector<HTMLButtonElement>(".acpmux-pr-dock__disclosure");
-  expect(disclosure).not.toBeNull();
-  await act(async () => disclosure!.click());
-  expect(bars().map((bar) => bar[0])).toEqual(["#52", "#51"]);
-  await act(async () => dom.window.document.querySelector<HTMLButtonElement>(".acpmux-pr-dock__dismiss")!.click());
-  expect(bars().map((bar) => bar[0])).toEqual(["#51"]);
-  // Dismissal hides a shortcut, not a session change.
-  expect(dom.window.document.querySelector(".acpmux-pr-dock__count")?.textContent).toBe("2 PRs");
-  await act(async () =>
-    root.render(
-      <PullRequestDock
-        rows={[{ ...rows[0], version: 2, items: [...rows[0].items, tool("t8", "gh pr merge 51")] }] as never}
-        sessionId="s3"
-        onOpenChanges={() => undefined}
-      />,
-    ),
-  );
-  expect(dom.window.document.querySelector(".acpmux-pr-dock__count")?.textContent).toBe("2 PRs");
-  act(() => root.unmount());
-  const oneRoot = createRoot(container());
-  await act(async () =>
-    oneRoot.render(
-      <PullRequestDock
-        rows={[{ ...rows[0], items: [rows[0].items[0]] } as never]}
-        sessionId="s4"
-        onOpenChanges={() => undefined}
-      />,
-    ),
-  );
-  expect(dom.window.document.querySelector(".acpmux-pr-dock__count")?.textContent).toBe("1 PR");
-  expect(
-    (dom.window.document.querySelector(".acpmux-pr-dock__count") as HTMLButtonElement).getAttribute("aria-label"),
-  ).toBe("1 PR");
-  act(() => oneRoot.unmount());
-  delete dom.window.document.documentElement.dataset.prDock;
-});
-
 test("the compact count follows Changes for touched PRs and verified mentions arriving in replies", async () => {
   const { createRoot } = await import("react-dom/client");
-  const { PullRequestDock } = await import("../src/agent-session/acpmux/summary/PullRequestDock");
   const { setHeaderState } = await import("../src/agent-session/acpmux/header/headerState");
   const rows = [{ kind: "activity", id: "touch", version: 1, items: [tool("read", "gh pr view 61 -R acme/uploader")] }];
   const root = createRoot(container());
   const render = (text: string) =>
     root.render(
-      <PullRequestDock
+      <TestDock
         rows={[...rows, { kind: "assistant", id: "reply", text }] as never}
         repository="acme/uploader"
         sessionId="mentions"
@@ -212,7 +144,7 @@ test("the compact count follows Changes for touched PRs and verified mentions ar
     );
   setHeaderState({ pullRequest: live("https://github.com/acme/uploader/pull/62", 62, "open") });
   await act(async () => render("Working on the follow-up"));
-  const count = () => dom.window.document.querySelector(".acpmux-pr-dock__count")?.textContent;
+  const count = () => dom.window.document.querySelector("[data-pr-count]")?.textContent;
   expect(count()).toBe("1 PR");
   await act(async () => render("See #62 for details"));
   expect(count()).toBe("2 PRs");
@@ -229,7 +161,6 @@ test.each(["reply", "thought"])(
     const { createRoot } = await import("react-dom/client");
     const { OrderedRows, appendThought } = await import("../src/agent-session/acpmux/direct");
     const parser = await import("../src/agent-session/acpmux/summary/transcriptPullRequests");
-    const { PullRequestDock } = await import("../src/agent-session/acpmux/summary/PullRequestDock");
     const { setHeaderState } = await import("../src/agent-session/acpmux/header/headerState");
     const rows = new OrderedRows();
     rows.set("created", {
@@ -251,7 +182,7 @@ test.each(["reply", "thought"])(
     const root = createRoot(container());
     const render = (repository = "acme/uploader") =>
       root.render(
-        <PullRequestDock
+        <TestDock
           rows={rows.sorted()}
           repository={repository}
           sessionId="stream-cache"
@@ -273,16 +204,16 @@ test.each(["reply", "thought"])(
         await act(async () => render());
       }
       expect(parse).toHaveBeenCalledTimes(1);
-      expect(dom.window.document.querySelector(".acpmux-pr-dock__count")?.textContent).toBe("1 PR");
+      expect(dom.window.document.querySelector("[data-pr-count]")?.textContent).toBe("1 PR");
       // A new verified mention must invalidate; caching cannot make the count stale.
       reply = { ...reply, version: reply.version + 1, text: `${reply.text} See #72` };
       rows.set(reply.id, reply);
       await act(async () => render());
       expect(parse).toHaveBeenCalledTimes(2);
-      expect(dom.window.document.querySelector(".acpmux-pr-dock__count")?.textContent).toBe("2 PRs");
+      expect(dom.window.document.querySelector("[data-pr-count]")?.textContent).toBe("2 PRs");
       await act(async () => render("acme/other"));
       expect(parse).toHaveBeenCalledTimes(3);
-      expect(dom.window.document.querySelector(".acpmux-pr-dock__count")?.textContent).toBe("1 PR");
+      expect(dom.window.document.querySelector("[data-pr-count]")?.textContent).toBe("1 PR");
     } finally {
       act(() => root.unmount());
       setHeaderState({ pullRequest: null });
