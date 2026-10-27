@@ -49,8 +49,9 @@
 //!   bounded store of spent nonces ([`SPENT_LIMIT`] entries, [`SPENT_TTL`]) refuses it again. A
 //!   prompt the next daemon adopts gets a new nonce under the new run (`permission_reissued`, also
 //!   a `permission_pending`). A restarted daemon has a new instance, so an old proof proves
-//!   nothing. A proof never covers question answers, a group's allow, a policy, a rule or a mode:
-//!   those widen and stay the person's own. A keyed daemon is not dumpable (`daemon.rs`), so an
+//!   nothing. A question's answers, and their annotations, count only under
+//!   [`decision_answers_proof`]. A proof never
+//!   covers a group's allow, a policy, a rule or a mode: those widen and stay the person's own. A keyed daemon is not dumpable (`daemon.rs`), so an
 //!   agent it starts cannot read the key from its memory.
 //! - Through a peer (slice 2a, 2b): a daemon that only mirrors a peer's session cannot check a
 //!   proof made with the peer's key, so it forwards every answer for that session (allow, deny,
@@ -505,19 +506,35 @@ impl PersonGate {
     /// option and nonce on this daemon run (constant time), with a nonce that
     /// has not counted yet. It spends nothing: the answer spends the nonce
     /// when it counts ([`Self::spend_decision`]).
+    #[allow(clippy::too_many_arguments)]
     pub fn decision_proves(
         &self,
         session: &str,
         permission: &str,
         option: &str,
         nonce: &str,
+        answers: Option<&Value>,
+        annotations: Option<&Value>,
         proof: &str,
     ) -> bool {
         let key = self.key.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone();
         let instance = self.instance();
-        let Some(expected) =
-            key.and_then(|k| decision_proof(&k, instance, session, permission, option, nonce))
-        else {
+        let annotations = annotations.filter(|a| !a.is_null());
+        let Some(expected) = key.and_then(|k| match answers.filter(|a| !a.is_null()) {
+            // Annotations go only with answers: no proof covers them alone.
+            None if annotations.is_some() => None,
+            None => decision_proof(&k, instance, session, permission, option, nonce),
+            Some(a) => decision_answers_proof(
+                &k,
+                instance,
+                session,
+                permission,
+                option,
+                nonce,
+                a,
+                annotations,
+            ),
+        }) else {
             return false;
         };
         cmux_local_auth::tokens_match(proof, &expected) && !self.spent(nonce)
@@ -545,6 +562,31 @@ impl PersonGate {
             signed,
             super::approvers::unix_now(),
         ) && !self.spent(nonce)
+    }
+
+    /// `approver_proves`, and the answer counting: its nonce spent while the approver is still
+    /// enrolled (`ApproverSet::verifies_then`), so a revocation that has returned stops it.
+    /// Called under the prompt's lock by the answer that counts.
+    pub fn approver_spends(
+        &self,
+        session: &str,
+        permission: &str,
+        option: &str,
+        nonce: &str,
+        answers: Option<&Value>,
+        signed: &Value,
+    ) -> bool {
+        self.approvers.verifies_then(
+            self.instance(),
+            session,
+            permission,
+            option,
+            nonce,
+            answers,
+            signed,
+            super::approvers::unix_now(),
+            || self.spend_decision(nonce),
+        )
     }
 
     fn spent(&self, nonce: &str) -> bool {
@@ -656,6 +698,8 @@ pub fn person_proof(key: &str, transport: &str, nonce: &str, connection: &str) -
     )))
 }
 
+mod decision_answers;
+pub use decision_answers::decision_answers_proof;
 /// The bytes a decision proof covers.
 fn decision_message(parts: [&str; 5]) -> Vec<u8> {
     let mut message = b"acpmux-person-decision-v1".to_vec();
@@ -915,7 +959,7 @@ impl Hub {
                     return Ok(());
                 };
                 let default = self.config.read().await.permission_policy;
-                if asks(self.policy_for(&s, default)) {
+                if asks(Self::stored_policy_for(&s, default)) {
                     Ok(())
                 } else {
                     Err(person_required(
@@ -1017,8 +1061,8 @@ impl Hub {
     }
 
     /// Whether a relayed allow carries the person's decision proof for the
-    /// pending prompt it answers (module docs, cx-0q7o). Question answers
-    /// are never covered by a proof.
+    /// pending prompt it answers (module docs, cx-0q7o), over its answers and
+    /// annotations too.
     fn person_decided(&self, params: &Value, option: &Value) -> bool {
         let meta = params.pointer("/_meta/acpmux");
         let field = |f: &str| meta.and_then(|m| m.get(f)).and_then(Value::as_str);
@@ -1027,9 +1071,6 @@ impl Hub {
         else {
             return false;
         };
-        if params.get("answers").is_some_and(|v| !v.is_null()) {
-            return false;
-        }
         let Some(s) = crate::server::session_key(params).ok().and_then(|k| self.resolve(k).ok())
         else {
             return false;
@@ -1041,7 +1082,32 @@ impl Hub {
             p.decision_nonce.clone()
         };
         cmux_local_auth::tokens_match(nonce, &pending_nonce)
-            && self.person.decision_proves(&s.id, pid, option, nonce, proof)
+            && self.person.decision_proves(
+                &s.id,
+                pid,
+                option,
+                nonce,
+                params.get("answers"),
+                params.get("annotations"),
+                proof,
+            )
+    }
+
+    /// What a `_acpmux/permission_respond` with `params` does, for the
+    /// Web's asking rule (`Hub::web_answer_check`): whether it only narrows
+    /// (a cancel, or a reject the pending prompt offered) and whether its
+    /// allow carries the person's decision proof or an approver's signature
+    /// that counts now. The answer checks both again under the prompt's lock.
+    pub(crate) fn answer_shape(&self, params: &Value) -> (bool, bool) {
+        let Some(option) = params.get("optionId").filter(|v| !v.is_null()) else {
+            return (true, false);
+        };
+        let answered_by = params
+            .pointer(&format!("/_meta/acpmux/{ANSWERED_BY_FIELD}"))
+            .is_some_and(|v| !v.is_null());
+        let proved = self.person_decided(params, option)
+            || (!answered_by && self.approver_decided(params, option));
+        (self.option_rejects(params, option), proved)
     }
 
     /// Whether `option` is a reject the pending permission offered. Unknown

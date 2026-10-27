@@ -605,8 +605,8 @@ test("Changes reads every pull request's title, state and checks from the App's 
     await render(
       container,
       chat([
-        activity([ran("glaeda-gh wait pr manaflow-ai/cmuxterm-hq#2681 --sha abc")], 3),
-        activity([ran("glaeda-gh status pr manaflow-ai/glaeda#1546")], 2),
+        activity([ran("gh pr update-branch 2681 -R manaflow-ai/cmuxterm-hq")], 3),
+        activity([ran("gh pr merge 1546 -R manaflow-ai/glaeda")], 2),
         assistant("Both are in; glaeda #9 is the issue it fixes.", 1),
       ]),
     );
@@ -627,8 +627,8 @@ test("Changes reads every pull request's title, state and checks from the App's 
     expect(rows[0]!.querySelector(".acpmux-chat-inspector-pr__checks")?.textContent).toBe("2 failing");
     expect(rows[0]!.querySelector(".acpmux-diff-counts")?.textContent).toBe("+608-8");
     expect(meta(changes)).toBe("2");
-    // One registration for the whole list, then the host's cache: never a GitHub read per row.
-    expect(calls.filter((method) => method === "link.inspect")).toHaveLength(1);
+    // The list and the visible rows' hover-card site metadata each register as a batch.
+    expect(calls.filter((method) => method === "link.inspect")).toHaveLength(2);
   } finally {
     setChipHost(undefined);
     resetPullRequestStore();
@@ -649,11 +649,11 @@ test("a folded Changes registers nothing with the host and asks it nothing", asy
     await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
     expect(section(container, "changes")).not.toBeNull();
     expect(calls).toEqual([]);
-    // Opened: one registration for the list, then the host's cache.
+    // Opened: the list and row hover-card metadata register, then the host's PR cache.
     await act(async () => setInspectorSection("changes", true));
     await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
     await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
-    expect(calls).toEqual(["link.inspect", "pr.inspect"]);
+    expect(calls).toEqual(["link.inspect", "link.inspect", "pr.inspect"]);
   } finally {
     setInspectorSection("changes", true);
     setChipHost(undefined);

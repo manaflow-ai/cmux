@@ -14,7 +14,7 @@ extension UpdatesSettings {
     public nonisolated static let checkIntervalRange: ClosedRange<Double> = 900...604_800
     /// `updates.downloadAutomatically`.
     public nonisolated static let downloadAutomaticallyPath = ["updates", "downloadAutomatically"]
-    public nonisolated static let downloadAutomaticallyDefault = true
+    public nonisolated static let downloadAutomaticallyDefault = false
     /// `updates.meteredNetwork`: What automatic downloads do on a metered link.
     public nonisolated static let meteredNetworkPath = ["updates", "meteredNetwork"]
     public nonisolated static let meteredNetworkDefault: UpdatesMeteredSetting = .deferLowData
@@ -23,7 +23,7 @@ extension UpdatesSettings {
     public nonisolated static let webDefault: UpdatesWebSetting = .everyMerge
     /// `updates.installOnQuit`.
     public nonisolated static let installOnQuitPath = ["updates", "installOnQuit"]
-    public nonisolated static let installOnQuitDefault = true
+    public nonisolated static let installOnQuitDefault = false
     /// `updates.notify`: How a ready update makes itself known: the control on the Settings item, or nothing (installs on quit). The old card value (the update card, removed 2026-10-05) loads as badge.
     public nonisolated static let notifyPath = ["updates", "notify"]
     public nonisolated static let notifyDefault: UpdatesNotifySetting = .badge
@@ -36,7 +36,7 @@ extension UpdatesSettings {
     public nonisolated static let showWhatsNewDefault = true
     /// `updates.idleInstallMaxWaitSeconds`: Nightly idle install (#20295): the longest it waits for agent turns, foreground commands and input before installing anyway; the relaunch keeps every terminal and agent.
     public nonisolated static let idleInstallMaxWaitPath = ["updates", "idleInstallMaxWaitSeconds"]
-    public nonisolated static let idleInstallMaxWaitDefault: Double = 900
+    public nonisolated static let idleInstallMaxWaitDefault: Double = 600
     public nonisolated static let idleInstallMaxWaitRange: ClosedRange<Double> = 60...7200
     /// `updates.idleInstallQuietSeconds`: Nightly idle install (#20295): how long keyboard and pointer input must be quiet before it installs.
     public nonisolated static let idleInstallQuietPath = ["updates", "idleInstallQuietSeconds"]
@@ -96,8 +96,8 @@ nonisolated enum UpdateSettingsSchema {
                 UpdatesSettings.downloadAutomaticallyPath,
                 section: .general,
                 group: group,
-                title: SettingsText.keyed("settings.updates.downloadAutomatically", "Download Updates Automatically"),
-                help: SettingsText.keyed("settings.updates.downloadAutomatically.help", "Off: a found update waits, and one click downloads and installs it."),
+                title: SettingsText.keyed("settings.updates.downloadAutomatically", "Download and Install Updates Automatically"),
+                help: SettingsText.keyed("settings.updates.downloadAutomatically.help", "Off: cmux still checks for updates and shows Update Available; one click downloads and installs it. On by default in NIGHTLY and DEV builds."),
                 kind: .toggle,
                 default: .bool(UpdatesSettings.downloadAutomaticallyDefault),
                 keywords: ["update", "download", "background", "metered"]

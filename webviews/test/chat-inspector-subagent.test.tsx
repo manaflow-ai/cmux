@@ -111,7 +111,7 @@ test("the subagent's panel lists its worktree, its tokens and its own edits; the
       <ChatInspector
         summary={subagentSummary(CHAT, sub, treeRows)}
         rows={treeRows}
-        made={sessionSummary(treeRows, "acme/atlas-web")}
+        made={sessionSummary(treeRows, "acme/atlas-web", TREE)}
         transcriptTasks={sessionSummary(treeRows).backgroundTasks}
         agent={sub}
         onOpenOutput={(path) => opened.push(path)}
@@ -130,7 +130,12 @@ test("the subagent's panel lists its worktree, its tokens and its own edits; the
 
   await act(async () =>
     root!.render(
-      <ChatInspector summary={CHAT} rows={chatRows} made={sessionSummary(chatRows, "acme/atlas-web")} agents={[sub]} />,
+      <ChatInspector
+        summary={CHAT}
+        rows={chatRows}
+        made={sessionSummary(chatRows, "acme/atlas-web", CHAT.cwd)}
+        agents={[sub]}
+      />,
     ),
   );
   expect(text()).toContain("feat/retries");

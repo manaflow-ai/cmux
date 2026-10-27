@@ -50,6 +50,18 @@ pub fn main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
     if args.first().is_some_and(|a| a == crate::agent_host::HOST_ARG) {
         return crate::agent_host::host::main();
     }
+    #[cfg(target_os = "linux")]
+    if args.first().is_some_and(|a| a == "__remote-sandbox-canary-unix") {
+        return crate::linux_sandbox::keeper::canary_unix(&args[1..]).map_err(anyhow::Error::msg);
+    }
+    #[cfg(target_os = "linux")]
+    if args.first().is_some_and(|a| a == "__remote-sandbox-init") {
+        crate::linux_sandbox::init::main(args.into_iter().skip(1).collect());
+    }
+    #[cfg(target_os = "linux")]
+    if args.first().is_some_and(|a| a == "__remote-sandbox-keeper") {
+        crate::linux_sandbox::keeper::main(args.into_iter().skip(1).collect());
+    }
     if let Some(home) = invocation.home.clone() {
         crate::config::set_home_override(home);
     }

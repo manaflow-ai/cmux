@@ -757,6 +757,47 @@ async fn only_the_sender_changes_a_waiting_prompt() {
     );
 }
 
+/// The queue list names a teammate's waiting prompt's author (`author {id, name}`), so a pane that
+/// opens the chat cold, past the `queued` record, still knows the row is theirs: in the session
+/// summary and in `_acpmux/composers`, kept by her own edit. The owner's and an agent's list null.
+#[tokio::test]
+async fn the_queue_list_names_a_persons_prompt_and_no_one_else() {
+    let hub = hub();
+    let mut c = Client::open(&hub);
+    let session = c.new_session(json!({"harness": "fake"})).await;
+    c.busy(&session).await;
+    let agent = provenance(&session);
+    let mut waits = Vec::new();
+    for (id, author, p) in
+        [("p-ana", Some(ana()), None), ("p-owner", None, None), ("p-agent", None, Some(&agent))]
+    {
+        waits.push(c.queue(by(prompt(&session, id, id, p), author.as_ref())).await);
+    }
+    let listed = |hub: &Arc<Hub>| {
+        let s = hub.resolve(&session).unwrap();
+        (hub.session_summary(&s)["queue"].clone(), hub.composers_view(&s)["queue"].clone())
+    };
+    let her = json!({"id": "tailnet:ana@example.com", "name": "Ana"});
+    for (summary, composers) in [listed(&hub), {
+        let edit = json!({"sessionId": session, "promptId": "p-ana", "op": "update",
+                          "text": "her rewrite", "_meta": {"acpmux": {}}});
+        c.call("_acpmux/queue_edit", by(edit, Some(&ana()))).await;
+        listed(&hub)
+    }] {
+        for queue in [&summary, &composers] {
+            let ids: Vec<&Value> =
+                queue.as_array().unwrap().iter().map(|q| &q["promptId"]).collect();
+            assert_eq!(ids, [&json!("p-ana"), &json!("p-owner"), &json!("p-agent")], "{queue}");
+            assert_eq!(queue[0]["author"], her, "{queue}");
+            assert_eq!(queue[1]["author"], Value::Null, "the owner's: {queue}");
+            assert_eq!(queue[2]["author"], Value::Null, "an agent's: {queue}");
+            assert_eq!(queue[2]["fromAgent"], "builder", "{queue}");
+        }
+    }
+    c.cancel(&session).await;
+    c.reply_to(waits[2]).await;
+}
+
 /// First answer wins: Ana's answer is recorded with her name, and Bo's, which came second, is
 /// told who answered and how. A name never stands in for the person's proof: an allow from a
 /// client that is not the person is refused whoever it names.

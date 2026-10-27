@@ -9,6 +9,7 @@ the real one, so no web test runs here.
 """
 
 import os
+import json
 import pathlib
 import shutil
 import subprocess
@@ -50,6 +51,20 @@ if grep -q -e '"dev",' -e 'createServer(' -e 'vite.config.gallery-dev.ts' -e 'vi
   rmdir "$DEV_RUNNING/$$"
 fi
 case "$file" in
+  *retry-hang*)
+    if [ -f "$BUN_CALLS.retry" ]; then sleep 60; fi
+    touch "$BUN_CALLS.retry"
+    echo "(fail) first attempt assertion"; exit 1 ;;
+  *notice-flood*)
+    printf '::notice title=browser-flood::%*s\n' 350000 ''
+    exit 0 ;;
+  *flood*)
+    # One very long line models a browser diagnostic burst; the assertion at the end must still
+    # survive the runner's bounded public display and the retry's raw artifact copy.
+    printf '%*s' 2000000 '' | tr ' ' F
+    printf '\n(fail) inspector-dead-clicks sentinel\n'
+    exit 1 ;;
+  *fail-slow*) sleep 1; echo "(fail) a slow broken test"; exit 1 ;;
   *hang*) sleep 60 ;;
   *slow*) sleep 3; echo "(pass) $file" ;;
   *fail*) echo "(fail) a broken test"; exit 1 ;;
@@ -141,6 +156,116 @@ class PerFileRunner(unittest.TestCase):
         self.assertRegex(output, r"TIMEOUT[^\n]*test/hang\.test\.tsx")
         self.assertNotRegex(output, r"(FAIL|TIMEOUT)[^\n]*test/a\.test\.ts")
         self.assertNotRegex(output, r"(FAIL|TIMEOUT)[^\n]*src/b\.test\.tsx")
+
+    def test_a_declared_long_file_cannot_exceed_the_runner_hard_limit(self):
+        result, elapsed, calls = self.run_runner(
+            ["test/slow.test.ts"],
+            contents={"test/slow.test.ts": "// cmux-web-test-timeout: 3000\n"},
+            extra_env={"CMUX_WEB_TEST_MAX_FILE_TIMEOUT": "1"},
+        )
+        output = result.stdout + result.stderr
+        self.assertNotEqual(result.returncode, 0, output)
+        self.assertLess(elapsed, 3, output)
+        self.assertIn("TIMEOUT test/slow.test.ts", output)
+        self.assertEqual(calls, ["./test/slow.test.ts"])
+
+    def test_a_timed_out_file_reports_once_without_a_serial_retry(self):
+        result, _, calls = self.run_runner(
+            ["test/hang.test.ts"], extra_env={"CMUX_WEB_TEST_RETRIES": "1"}
+        )
+        output = result.stdout + result.stderr
+        self.assertNotEqual(result.returncode, 0, output)
+        self.assertEqual(calls, ["./test/hang.test.ts"], output)
+        self.assertIn("TIMEOUT test/hang.test.ts", output)
+
+    def test_serial_retries_have_a_shared_time_budget(self):
+        files = [f"test/{index}-fail-slow.test.ts" for index in range(4)]
+        result, _, calls = self.run_runner(
+            files,
+            extra_env={"CMUX_WEB_TEST_RETRIES": "60", "CMUX_WEB_TEST_RETRY_BUDGET": "1"},
+        )
+        output = result.stdout + result.stderr
+        self.assertNotEqual(result.returncode, 0, output)
+        self.assertLess(len(calls), 8, output)
+        for file in files:
+            self.assertIn(f"FAIL {file}", output)
+        self.assertIn("retry budget exhausted", output)
+
+    def test_a_retry_cannot_outlive_the_remaining_shared_budget(self):
+        results_path = pathlib.Path(self.enterContext(tempfile.TemporaryDirectory())) / "results.json"
+        result, elapsed, calls = self.run_runner(
+            ["test/retry-hang.test.ts"],
+            contents={"test/retry-hang.test.ts": "// cmux-web-test-timeout: 4\n"},
+            extra_env={"CMUX_WEB_TEST_RETRIES": "1", "CMUX_WEB_TEST_RETRY_BUDGET": "1",
+                       "CMUX_WEB_TEST_RESULTS": str(results_path)},
+        )
+        output = result.stdout + result.stderr
+        self.assertNotEqual(result.returncode, 0, output)
+        self.assertLess(elapsed, 3, output)
+        self.assertEqual(calls, ["./test/retry-hang.test.ts"] * 2)
+        self.assertIn("TIMEOUT test/retry-hang.test.ts", output)
+
+        self.assertEqual(json.loads(results_path.read_text()), {
+            "test/retry-hang.test.ts > first attempt assertion": False,
+        }, "an incomplete retry must preserve the named first failure")
+
+    def test_a_flood_is_bounded_but_raw_retry_logs_and_named_failure_are_kept(self):
+        raw_logs = pathlib.Path(self.enterContext(tempfile.TemporaryDirectory()))
+        results_path = raw_logs / "results.json"
+        result, _, calls = self.run_runner(
+            ["test/inspector-dead-clicks-flood.test.ts"],
+            extra_env={
+                "CMUX_WEB_TEST_RETRIES": "1",
+                "CMUX_WEB_TEST_LOG_DISPLAY_BYTES": "4096",
+                "CMUX_WEB_TEST_RAW_LOG_DIR": str(raw_logs / "raw"),
+                "CMUX_WEB_TEST_RESULTS": str(results_path),
+            },
+        )
+        output = result.stdout + result.stderr
+        self.assertNotEqual(result.returncode, 0, output)
+        self.assertEqual(calls, ["./test/inspector-dead-clicks-flood.test.ts"] * 2)
+        self.assertLess(len(output.encode()), 12_000, output)
+        self.assertIn("output truncated; complete log is in the configured webviews raw-log artifact", output)
+        self.assertIn("(fail) inspector-dead-clicks sentinel", output)
+        self.assertEqual(
+            json.loads(results_path.read_text()),
+            {"test/inspector-dead-clicks-flood.test.ts > inspector-dead-clicks sentinel": False},
+        )
+        logs = list((raw_logs / "raw").glob("*.log"))
+        self.assertEqual(len(logs), 1, logs)
+        raw = logs[0].read_bytes()
+        self.assertGreater(len(raw), 4_000_000, len(raw))
+        self.assertIn(b"(fail) inspector-dead-clicks sentinel", raw)
+
+    def test_a_passing_annotation_flood_is_bounded(self):
+        result, _, calls = self.run_runner(
+            ["test/browser-notice-flood.test.ts"],
+            extra_env={"CMUX_WEB_TEST_LOG_DISPLAY_BYTES": "4096"},
+        )
+        output = result.stdout + result.stderr
+        self.assertEqual(result.returncode, 0, output)
+        self.assertEqual(calls, ["./test/browser-notice-flood.test.ts"])
+        self.assertLess(len(output.encode()), 12_000, output)
+        self.assertIn("::notice title=browser-flood", output)
+        self.assertIn("output truncated; complete log remains in the runner's per-file log", output)
+
+    def test_retry_budget_expiring_during_limit_lookup_starts_no_retry(self):
+        system_head = shutil.which("head")
+        def delay_limit_lookup(web):
+            head = web.parent / "bin/head"
+            head.write_text("#!/usr/bin/env bash\n"
+                            'if [ -f "$BUN_CALLS.retry" ] && [ ! -f "$BUN_CALLS.delayed" ]; then\n'
+                            '  touch "$BUN_CALLS.delayed"; sleep 2\nfi\n'
+                            f'exec "{system_head}" "$@"\n')
+            head.chmod(0o755)
+        self.web_hook = delay_limit_lookup
+        result, _, calls = self.run_runner(
+            ["test/retry-hang.test.ts"],
+            contents={"test/retry-hang.test.ts": "// cmux-web-test-timeout: 4\n"},
+            extra_env={"CMUX_WEB_TEST_RETRIES": "1", "CMUX_WEB_TEST_RETRY_BUDGET": "1"},
+        )
+        self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(calls, ["./test/retry-hang.test.ts"], result.stdout + result.stderr)
 
     def test_passing_files_pass(self):
         result, _, calls = self.run_runner(["test/a.test.ts", "src/b.test.tsx"])

@@ -6,12 +6,25 @@
 
 #[path = "support/daemon_env.rs"]
 mod daemon_env;
+#[path = "durable_agents/queue_edit_parts.rs"]
+mod queue_edit_parts;
 #[path = "durable_agents/queue_restore.rs"]
 mod queue_restore;
+#[path = "durable_agents/restart_reattach.rs"]
+mod restart_reattach;
 #[path = "durable_agents/stalled_turn.rs"]
 mod stalled_turn;
-// This process runs stand-in agents (the fake agents under tests/).
-const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in();
+// This process runs stand-in agents (the fake agents under tests/). The restart harness's sizes
+// and budget (`restart_reattach.rs`) are test-runner knobs that hold no credential.
+const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in().keep(&[
+    "ACPMUX_REATTACH_LIVE",
+    "ACPMUX_REATTACH_IDLE",
+    "ACPMUX_REATTACH_CLOSED",
+    "ACPMUX_REATTACH_RECORDS",
+    "ACPMUX_REATTACH_SCAN_DELAY_MS",
+    "ACPMUX_REATTACH_BUDGET_MS",
+    "ACPMUX_REATTACH_OPEN_BUDGET_MS",
+]);
 
 use serde_json::{Value, json};
 use std::io::{BufRead, BufReader};
@@ -1556,6 +1569,8 @@ async fn queue_survives_restart(daemon: &mut Daemon, stop: fn(&mut Daemon), held
         assert_eq!(queue, ["q-1", "q-2"], "the queue did not survive the restart: {attached:#}");
         assert_eq!(attached["session"]["queued"], 2, "{attached:#}");
     } else {
+        // The lost turn's continuation goes first (`restart_resume.rs`), then the queue.
+        let queue: Vec<&str> = queue.into_iter().skip_while(|id| id.contains("~resume-")).collect();
         assert!(["q-1", "q-2"].ends_with(&queue), "the queue came back out of order: {attached:#}");
     }
 
@@ -1942,8 +1957,9 @@ async fn a_narrower_policy_reaches_an_agent_whose_host_is_not_adopted_yet() {
 /// `_acpmux/info` with `waitLogs: false` answers while a restarted daemon still reads the chat
 /// logs, and says so (`logsLoading`). The app daemon's callers give info 2 s (cmux-tui-core
 /// `agent_message_acpmux.rs`, `agent_session_link.rs`) and read only what the session list
-/// holds; a large log store takes longer to read. Without the flag info still waits for the logs
-/// (#22916). `ACPMUX_TEST_DELAY_LOAD_LOGS_MS` holds the second daemon's log load.
+/// holds; a large log store takes longer to read. Without the flag info still waits for the
+/// chat's log (#22916), which it reads itself instead of waiting for every other chat's
+/// (`hub/log_load.rs`). `ACPMUX_TEST_DELAY_LOAD_LOGS_MS` holds the second daemon's log load.
 #[tokio::test]
 async fn info_answers_while_the_chat_logs_load() {
     const HOLD: Duration = Duration::from_secs(6);
@@ -1965,6 +1981,229 @@ async fn info_answers_while_the_chat_logs_load() {
     assert_eq!(early["logsLoading"], true, "info did not say the logs are loading: {early:#}");
 
     let waited = rpc.call("_acpmux/info", json!({"sessionId": session})).await;
-    assert!(started.elapsed() >= HOLD, "info answered before the logs were read: {waited:#}");
-    assert_eq!(waited["logsLoading"], false, "{waited:#}");
+    assert!(started.elapsed() < HOLD, "info waited for the whole log load: {waited:#}");
+    assert_eq!(waited["logsLoading"], false, "info answered before its log was read: {waited:#}");
+}
+
+/// Review 31 of #23322: a switch into full access that MDM's off overtook stops the agent within a
+/// bound, also when its host never takes the terminate (its link stopped reading; the debug seam
+/// `ACPMUX_TEST_STALL_HOST_TERMINATE`). The host is then ended by its nonce, and the switch answers.
+#[tokio::test]
+async fn a_full_access_stop_is_bounded_when_the_host_never_takes_the_terminate() {
+    const KEY: &str = "7a0e1f2a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6";
+    let mut daemon =
+        Daemon::with_env("stallterm", "ask", &[("ACPMUX_TEST_STALL_HOST_TERMINATE", "1")]);
+    daemon.sigterm();
+    daemon.key = Some(KEY.to_owned());
+    let fake = json!({"argv": ["python3", FAKE], "env": {"FAKE_PLAN_MODE": "1",
+                      "FAKE_FULL_ACCESS": "1", "FAKE_SET_MODE_DELAY_MS": "1500"}});
+    let config =
+        json!({"harnesses": {"fake": fake}, "defaultHarness": "fake", "permissionPolicy": "ask"});
+    std::fs::write(daemon.home.join("config.json"), config.to_string()).unwrap();
+    daemon.start();
+    let session = new_session(&daemon).await;
+    // The person: only they set a mode that does not ask (`hub/person.rs`).
+    let mut rpc = daemon.rpc().await;
+    let init = rpc.call("initialize", json!({"protocolVersion": 1})).await;
+    let challenge = &init["_meta"]["acpmux"]["personChallenge"];
+    let proof = acpmux::hub::person::person_proof(
+        KEY,
+        acpmux::hub::person::TRANSPORT_UNIX,
+        challenge["nonce"].as_str().unwrap_or_else(|| panic!("{init}")),
+        challenge["connection"].as_str().unwrap(),
+    )
+    .unwrap();
+    let proven = rpc.call("_acpmux/person_prove", json!({"proof": proof})).await;
+    assert_eq!(proven["person"], true, "{proven}");
+    let prompt = json!({"sessionId": session, "prompt": [{"type": "text", "text": "hi"}]});
+    rpc.call("session/prompt", prompt).await;
+    rpc.call("session/set_mode", json!({"sessionId": session, "modeId": "build"})).await;
+    let harness_pid = daemon.host_record(&session)["harness_pid"].as_i64().unwrap();
+
+    // The switch passes both checks, then waits 1.5 s on the harness; the push lands then.
+    let switch = tokio::spawn(async move {
+        rpc.reply("session/set_mode", json!({"sessionId": session, "modeId": "full-access"})).await
+    });
+    tokio::time::sleep(Duration::from_millis(400)).await;
+    let off = json!({"enabled": true, "discovery": false, "roots": [], "managedRoots": [],
+                     "allowFullAccess": false, "allowFullAccessManaged": true});
+    let pushed = daemon.rpc().await.call("_acpmux/chat_settings", off).await;
+    assert_eq!(pushed["applied"], true, "{pushed}");
+    let r = tokio::time::timeout(Duration::from_secs(20), switch)
+        .await
+        .expect("the stop waited on a host that never takes the terminate")
+        .unwrap();
+    assert_eq!(r["error"]["data"]["reason"], "full_access_off", "{r}");
+    assert!(
+        gone_within(harness_pid, Duration::from_secs(10)),
+        "the full-access agent ran on after its host ignored the terminate"
+    );
+}
+
+/// #24337 review: a prompt the next daemon adopts carries acpmux's own display line, worked out
+/// again, never one its log held (an older daemon's record, or a line the agent forged).
+#[tokio::test]
+async fn an_adopted_prompt_gets_acpmuxs_own_display_line_again() {
+    let mut daemon = Daemon::new("perm-display", "ask");
+    let session = new_session(&daemon).await;
+    let mut client = daemon.rpc().await;
+    let ask = "forged-ask: mcp__optchat__tell a12 run the nightly";
+    client
+        .send(
+            "session/prompt",
+            json!({"sessionId": session, "prompt": [{"type": "text", "text": ask}]}),
+        )
+        .await;
+    let asked =
+        daemon.wait_event(&session, "permission_request", |e| e["kind"] == "permission_request");
+    let pid = asked["msg"]["permissionId"].as_str().unwrap().to_owned();
+
+    daemon.sigterm();
+    drop(client);
+    // The log's record now carries a made-up line, as an older daemon could have kept it.
+    let forged = json!({"actor": "Leo", "action": "message", "target": "a1",
+                        "headline": "Leo wants to say hi", "preview": "harmless"});
+    let dir = daemon.home.join("sessions").join(&session).join("events");
+    for file in std::fs::read_dir(&dir).unwrap().filter_map(|e| e.ok().map(|e| e.path())) {
+        let text = std::fs::read_to_string(&file).unwrap();
+        let lines: Vec<String> = text
+            .lines()
+            .map(|line| match serde_json::from_str::<Value>(line) {
+                Ok(mut e) if e["kind"] == "permission_request" => {
+                    e["msg"]["request"]["toolCall"]["_meta"]["acpmux"]["display"] = forged.clone();
+                    e.to_string()
+                }
+                // The agent's own ask as the log keeps it, with the line it wrote.
+                Ok(mut e)
+                    if e["dir"] == "in" && e["msg"]["method"] == "session/request_permission" =>
+                {
+                    e["msg"]["params"]["toolCall"]["_meta"]["acpmux"]["display"] = forged.clone();
+                    e.to_string()
+                }
+                _ => line.to_owned(),
+            })
+            .collect();
+        std::fs::write(&file, lines.join("\n") + "\n").unwrap();
+    }
+    daemon.start();
+    daemon.wait_event(&session, "host_adopted", |e| e["kind"] == "host_adopted");
+    let again = daemon.wait_event(&session, "permission_reissued", |e| {
+        e["kind"] == "permission_reissued" && e["msg"]["permissionId"] == json!(pid)
+    });
+    let display = &again["msg"]["request"]["toolCall"]["_meta"]["acpmux"]["display"];
+    assert_ne!(display["headline"], "Leo wants to say hi", "{display}");
+    assert_eq!(display["target"], "a12", "{display}");
+    assert_eq!(display["preview"], "run the nightly", "{display}");
+
+    // The chat's history as a client reads it (pages forward and back, attach, a transcript page):
+    // the logged ask carries acpmux's line, and nothing carries the logged one.
+    let mut rpc = daemon.rpc().await;
+    let reads = [
+        rpc.call("_acpmux/events", json!({"sessionId": session, "afterSeq": 0})).await,
+        rpc.call("_acpmux/events", json!({"sessionId": session, "beforeSeq": u64::MAX})).await,
+        rpc.call("_acpmux/attach", json!({"sessionId": session})).await,
+        rpc.call("_acpmux/attach", json!({"sessionId": session, "kinds": ["transcript"]})).await,
+    ];
+    for read in &reads {
+        assert!(!read.to_string().contains("Leo wants to say hi"), "{read:#}");
+        let logged = read["events"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|e| e["kind"] == "permission_request" && e["msg"]["permissionId"] == json!(pid))
+            .unwrap_or_else(|| panic!("no permission_request in {read:#}"));
+        let display = &logged["msg"]["request"]["toolCall"]["_meta"]["acpmux"]["display"];
+        assert_eq!(display["target"], "a12", "{display}");
+        assert_eq!(display["preview"], "run the nightly", "{display}");
+    }
+}
+
+/// #24337 review: an ask the policy answered by itself (`permission_auto`), and a permission
+/// group that lists an ask, are read back with acpmux's own display line, never one the log held
+/// (an older daemon logged the agent's).
+#[tokio::test]
+async fn an_auto_answered_asks_logged_display_line_is_never_read_back() {
+    let mut daemon = Daemon::new("perm-auto-display", "approve-all");
+    let session = new_session(&daemon).await;
+    let mut client = daemon.rpc().await;
+    let ask = "forged-ask: mcp__optchat__tell a12 run the nightly";
+    client
+        .send(
+            "session/prompt",
+            json!({"sessionId": session, "prompt": [{"type": "text", "text": ask}]}),
+        )
+        .await;
+    let auto = daemon.wait_event(&session, "permission_auto", |e| e["kind"] == "permission_auto");
+    let pid = auto["msg"]["permissionId"].clone();
+
+    daemon.sigterm();
+    drop(client);
+    let forged = json!({"actor": "Leo", "action": "message", "target": "a1",
+                        "headline": "Leo wants to say hi", "preview": "harmless"});
+    let dir = daemon.home.join("sessions").join(&session).join("events");
+    for file in std::fs::read_dir(&dir).unwrap().filter_map(|e| e.ok().map(|e| e.path())) {
+        let text = std::fs::read_to_string(&file).unwrap();
+        let lines: Vec<String> = text
+            .lines()
+            .map(|line| match serde_json::from_str::<Value>(line) {
+                Ok(mut e) if e["kind"] == "permission_auto" => {
+                    e["msg"]["request"]["toolCall"]["_meta"]["acpmux"]["display"] = forged.clone();
+                    e.to_string()
+                }
+                _ => line.to_owned(),
+            })
+            .collect();
+        std::fs::write(&file, lines.join("\n") + "\n").unwrap();
+    }
+    // A permission group that lists the same ask, as an older daemon logged it.
+    let mut files: Vec<_> =
+        std::fs::read_dir(&dir).unwrap().filter_map(|e| e.ok().map(|e| e.path())).collect();
+    files.sort();
+    let last = files.last().unwrap();
+    let text = std::fs::read_to_string(last).unwrap();
+    let records: Vec<Value> = text.lines().filter_map(|l| serde_json::from_str(l).ok()).collect();
+    let seq = records.iter().filter_map(|e| e["seq"].as_u64()).max().unwrap() + 1;
+    let at = records.iter().filter_map(|e| e["at"].as_u64()).max().unwrap();
+    let mut request = records
+        .iter()
+        .find(|e| e["kind"] == "permission_auto")
+        .map(|e| e["msg"]["request"].clone())
+        .unwrap();
+    request["toolCall"]["_meta"]["acpmux"]["display"] = forged.clone();
+    let group = json!({"seq": seq, "at": at, "dir": "mux", "kind": "permission_group",
+        "msg": {"group": {"groupId": "g-forged", "sessionId": session, "revision": 1,
+                          "state": "resolved", "decisions": [],
+                          "items": [{"permissionId": pid, "request": request, "state": "resolved"}]}}});
+    std::fs::write(last, format!("{}{}\n", text, group)).unwrap();
+    daemon.start();
+    let mut rpc = daemon.rpc().await;
+    let reads = [
+        rpc.call("_acpmux/events", json!({"sessionId": session, "afterSeq": 0})).await,
+        rpc.call("_acpmux/events", json!({"sessionId": session, "beforeSeq": u64::MAX})).await,
+        rpc.call("_acpmux/attach", json!({"sessionId": session})).await,
+        rpc.call("_acpmux/attach", json!({"sessionId": session, "kinds": ["transcript"]})).await,
+    ];
+    for read in &reads {
+        assert!(!read.to_string().contains("Leo wants to say hi"), "{read:#}");
+        let logged = read["events"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|e| e["kind"] == "permission_auto" && e["msg"]["permissionId"] == pid)
+            .unwrap_or_else(|| panic!("no permission_auto in {read:#}"));
+        let display = &logged["msg"]["request"]["toolCall"]["_meta"]["acpmux"]["display"];
+        assert_eq!(display["target"], "a12", "{display}");
+        assert_eq!(display["preview"], "run the nightly", "{display}");
+    }
+    // The group is in the history, carrying acpmux's line for its ask.
+    let page = &reads[0];
+    let group = page["events"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|e| e["kind"] == "permission_group")
+        .unwrap_or_else(|| panic!("no permission_group in {page:#}"));
+    let display =
+        &group["msg"]["group"]["items"][0]["request"]["toolCall"]["_meta"]["acpmux"]["display"];
+    assert_eq!(display["target"], "a12", "{display}");
 }

@@ -413,6 +413,7 @@ async fn a_host_update_and_a_self_update_of_one_host_never_run_at_once() {
     let opts = UpdateOptions {
         binary_dir: Some(peer.home.join("binaries")),
         if_idle: false,
+        keep_newer: false,
         caller: None,
     };
 
