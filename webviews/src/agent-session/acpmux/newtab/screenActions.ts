@@ -52,7 +52,8 @@ export function newTabScreenActions(deps: {
               : undefined;
           // `chat.new` resolves to the chat it started; none (a refused or held start): no send.
           ignore(
-            callNative("chat.new", { harness, ...(folder ? { cwd: folder } : {}), peer }).then((started) =>
+            callNative("chat.new", { harness, ...(folder ? { cwd: folder } : {}), ...(model ? { model } : {}), peer }).then(
+              (started) =>
               started ? send() : undefined,
             ),
           );

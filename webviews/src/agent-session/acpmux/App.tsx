@@ -7268,6 +7268,7 @@ function AcpmuxPane() {
               folder,
               peer ? String(peer) : undefined,
               noProject === true,
+              peer && model ? String(model) : undefined,
             );
             await persistSession(started);
             return started;

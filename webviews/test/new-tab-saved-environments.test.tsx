@@ -417,3 +417,26 @@ test("a start the SSH machine held without a chat sends the prompt nowhere", asy
   expect(calls.some((call) => call.method === "chat.new")).toBe(true);
   expect(calls.some((call) => call.method === "chat.send")).toBe(false);
 });
+
+test("a chat started on another machine starts on the model the page showed", async () => {
+  const { newTabScreenActions } = await import("../src/agent-session/acpmux/newtab/screenActions");
+  const calls: Call[] = [];
+  const noop = () => {};
+  const actions = newTabScreenActions({
+    callNative: async (method, params) => {
+      calls.push({ method, ...(params ? { params } : {}) });
+      return method === "chat.new" ? "session-1" : undefined;
+    },
+    leave: noop,
+    selectSession: noop,
+    showAllChats: noop,
+    runShell: noop,
+  });
+  actions.onAsk("claude", "tail the logs", undefined, "claude-opus-5-5", undefined, undefined, { peer: "devbox" });
+  await settle();
+  expect(calls.find((call) => call.method === "chat.new")?.params).toEqual({
+    harness: "claude",
+    model: "claude-opus-5-5",
+    peer: "devbox",
+  });
+});

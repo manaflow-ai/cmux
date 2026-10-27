@@ -81,11 +81,12 @@ export function environmentReady(environment: Environment): boolean {
 /// The picker's sections: this Mac; the person's own machines; Cloud machines and VM pools. acpmux
 /// keeps no label for a peer, so a pool is read from its names: a `wss://`/`ws://` peer (cmux Cloud)
 /// or a Cloud chat's host, and every SSH peer whose name is a shared stem and a number
-/// (`gcp-codex-lane-1`, `gcp-codex-lane-2`), at least two of them. Any other SSH peer is the
-/// person's own (`big-red`, `cmux16`).
+/// (`gcp-codex-lane-1`, `gcp-codex-lane-2`, `gcp-codex-lane-3`), at least three of them. Any other
+/// SSH peer is the person's own (`big-red`, `cmux16`, and a pair such as `build-mini-1`/`-2`).
 export type EnvironmentSection = "local" | "mine" | "fleet";
 const SECTION_ORDER: readonly EnvironmentSection[] = ["local", "mine", "fleet"];
 const POOL_NAME = /^(.*\D)[-_.]?\d+$/;
+const POOL_MIN = 3;
 
 export function environmentSections(environments: readonly Environment[]): Map<string, EnvironmentSection> {
   const stems = new Map<string, number>();
@@ -100,7 +101,7 @@ export function environmentSections(environments: readonly Environment[]): Map<s
       if (environment.kind === "local") return [environment.id, "local"];
       if (environment.kind === "cloud") return [environment.id, "fleet"];
       const stem = stemOf(environment);
-      return [environment.id, stem && (stems.get(stem) ?? 0) > 1 ? "fleet" : "mine"];
+      return [environment.id, stem && (stems.get(stem) ?? 0) >= POOL_MIN ? "fleet" : "mine"];
     }),
   );
 }
@@ -232,7 +233,8 @@ type Host = { peer?: string | undefined; host?: string | undefined; hostKind?: s
 /// chat's peer, else a Cloud chat's host), then `extra`, each once, never this one (`local`). A peer's transport names its
 /// kind (`peerKinds`): an `ssh://` peer is SSH, any other, or a Cloud chat's host acpmux no longer
 /// lists, is Cloud. A peer carries what acpmux last said of its connection (`peerConnected`) and
-/// its link state (`peerStates`); a Cloud chat's host carries neither. The composer's computers and the New Tab machines widget both
+/// its link state (`peerStates`); a Cloud chat's host carries neither. A chat's peer acpmux no
+/// longer lists (removed, or a daemon that has not said yet) is not connected: listed, no pick. The composer's computers and the New Tab machines widget both
 /// list these.
 export function knownMachines(
   peers: readonly string[],
@@ -244,11 +246,13 @@ export function knownMachines(
 ): Environment[] {
   const machines: Environment[] = [];
   const seen = new Set<string>();
+  const listedPeers = new Set(peers);
   const add = (id: string, label: string, cloudHost: boolean) => {
     if (id === "local" || seen.has(id)) return;
     seen.add(id);
-    const connected = cloudHost ? undefined : peerConnected[id];
-    const state = cloudHost ? undefined : peerStates[id];
+    const listed = cloudHost || listedPeers.has(id);
+    const connected = cloudHost ? undefined : listed ? peerConnected[id] : false;
+    const state = cloudHost || !listed ? undefined : peerStates[id];
     machines.push({
       id,
       label,

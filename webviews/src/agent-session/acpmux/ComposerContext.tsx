@@ -156,10 +156,11 @@ export function ComposerContext({
     () => availableComputers(summary, sessions, peers, peerKinds, localName, peerConnected, peerStates),
     [summary, sessions, peers, peerKinds, peerConnected, peerStates, localName],
   );
-  // The plain Computer menu lists them in the picker's sections and order (environments.ts).
+  // The plain Computer menu lists them in the picker's sections and order (environments.ts), one
+  // line each; a machine a chat cannot start on yet says its state on a second line.
   const menuComputers = useMemo(() => {
     const sections = environmentSections(computers);
-    return orderEnvironments(computers).map((computer) => {
+    return orderEnvironments(computers).map(({ detail: _kind, ...computer }) => {
       const ready = environmentReady(computer);
       return {
         ...computer,

@@ -126,6 +126,7 @@ export function newSessionParams(
   host: Pick<AcpmuxHostConfig, "cwd" | "adopt"> & { peer?: string },
   harness?: string,
   noProject = false,
+  model?: string,
 ): Record<string, unknown> {
   if (host.adopt)
     return {
@@ -139,6 +140,8 @@ export function newSessionParams(
       acpmux: {
         harness,
         ...(host.peer ? { peer: host.peer } : {}),
+        // The model the page showed, for a chat on another machine (acpmux `model_request`).
+        ...(model ? { model } : {}),
         // Do not work in a project: the host starts the chat in its agent-home folder, not the
         // workspace's (AcpmuxPathPolicy), and strips this before acpmux sees it.
         ...(noProject ? { noProject: true } : {}),
@@ -5225,14 +5228,22 @@ export class AcpmuxDirectClient {
   }
   /// A new session, in `cwd` when given; otherwise in the inherited cwd, then where acpmux defaults.
   /// `noProject` starts it in no project: the host's agent-home folder, never the inherited cwd.
-  create(harness?: string, cwd?: string, peer?: string, noProject = false): Promise<string | undefined> {
+  /// `model`: the model to start on (a chat on another machine starts on the one the page showed).
+  create(
+    harness?: string,
+    cwd?: string,
+    peer?: string,
+    noProject = false,
+    model?: string,
+  ): Promise<string | undefined> {
     const started = (async () => {
       const sessionId = await this.startSession(
         harness,
         cwd,
         peer,
-        () => void this.create(harness, cwd, peer, noProject).catch(() => undefined),
+        () => void this.create(harness, cwd, peer, noProject, model).catch(() => undefined),
         noProject,
+        model,
       );
       return sessionId ? this.select(sessionId) : undefined;
     })();
@@ -5253,9 +5264,10 @@ export class AcpmuxDirectClient {
     peer?: string,
     again?: () => void,
     noProject = false,
+    model?: string,
   ): Promise<string | undefined> {
     const result = await this.newSession(
-      newSessionParams(cwd ? { cwd, peer } : noProject ? { peer } : { ...this.host, peer }, harness, noProject),
+      newSessionParams(cwd ? { cwd, peer } : noProject ? { peer } : { ...this.host, peer }, harness, noProject, model),
       again,
     );
     // The inherited cwd is the first default chat's; later ones start where acpmux defaults.

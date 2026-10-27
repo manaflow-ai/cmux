@@ -806,3 +806,35 @@ test("an open machine list reads the machines again until it closes", async () =
     globalThis.clearInterval = realClearInterval;
   }
 });
+
+test("a numbered pair is the person's own; three or more of one stem are a pool", async () => {
+  const { environmentSections } = await import("../src/agent-session/acpmux/environments");
+  const ssh = (name: string) => ({ id: name, label: name, kind: "ssh" as const, connected: true, state: "connected" });
+  const sections = environmentSections(
+    ["build-mini-1", "build-mini-2", "cmux16", "lane-1", "lane-2", "lane-3"].map(ssh),
+  );
+  expect(Object.fromEntries(sections)).toEqual({
+    "build-mini-1": "mine",
+    "build-mini-2": "mine",
+    cmux16: "mine",
+    "lane-1": "fleet",
+    "lane-2": "fleet",
+    "lane-3": "fleet",
+  });
+});
+
+test("a chat's machine the daemon no longer lists is shown not connected, and is no pick", async () => {
+  const { knownMachines, environmentReady } = await import("../src/agent-session/acpmux/environments");
+  const machines = knownMachines(
+    ["listed"],
+    [{ peer: "removed", host: "removed" }, { peer: "listed", host: "listed" }],
+    { listed: "ssh" },
+    [],
+    { listed: true },
+    { listed: "connected" },
+  );
+  expect(machines.map((machine) => [machine.id, machine.connected, environmentReady(machine)])).toEqual([
+    ["listed", true, true],
+    ["removed", false, false],
+  ]);
+});
