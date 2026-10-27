@@ -7054,6 +7054,14 @@ struct CMUXCLI {
             try runAgentHibernation(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput)
         case "claude-account":
             try runClaudeAccount(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput)
+        case "session-priority":
+            try runSessionPriority(
+                commandArgs: commandArgs,
+                client: client,
+                jsonOutput: jsonOutput,
+                idFormat: idFormat,
+                windowOverride: windowId
+            )
 
         case "vpn":
             try runVPNCommand(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput)
@@ -21572,6 +21580,8 @@ struct CMUXCLI {
             """
         case "claude-account":
             return Self.claudeAccountHelp
+        case "session-priority":
+            return Self.sessionPriorityHelp
         case "restore-session":
             return String(localized: "cli.restoreSession.help", defaultValue: """
             Usage: cmux restore-session

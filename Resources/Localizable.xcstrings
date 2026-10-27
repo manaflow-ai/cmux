@@ -675001,6 +675001,655 @@
           }
         }
       }
+    },
+    "cli.sessionPriority.difficultySet": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OK %1$@ difficulty %2$@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OK %1$@ الصعوبة %2$@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OK %1$@ Schwierigkeit %2$@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OK %1$@ dificultad %2$@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OK %1$@ difficulté %2$@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OK %1$@ 難易度 %2$@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OK %1$@ 난이도 %2$@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OK %1$@ 难度 %2$@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OK %1$@ 難度 %2$@"
+          }
+        }
+      }
+    },
+    "cli.sessionPriority.error.invalidDifficulty": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Invalid difficulty: %@. Expected easy, normal, hard or auto."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "صعوبة غير صالحة: %@. المتوقع: easy أو normal أو hard أو auto."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ungültige Schwierigkeit: %@. Erwartet: easy, normal, hard oder auto."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dificultad no válida: %@. Se esperaba easy, normal, hard o auto."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Difficulté non valide : %@. Attendu : easy, normal, hard ou auto."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無効な難易度: %@。easy、normal、hard、auto のいずれかを指定してください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "잘못된 난이도: %@. easy, normal, hard 또는 auto여야 합니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无效的难度：%@。应为 easy、normal、hard 或 auto。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無效的難度：%@。應為 easy、normal、hard 或 auto。"
+          }
+        }
+      }
+    },
+    "cli.sessionPriority.error.invalidManual": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Invalid value: %@. Expected on or off."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "قيمة غير صالحة: %@. المتوقع: on أو off."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ungültiger Wert: %@. Erwartet: on oder off."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Valor no válido: %@. Se esperaba on u off."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Valeur non valide : %@. Attendu : on ou off."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無効な値: %@。on または off を指定してください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "잘못된 값: %@. on 또는 off여야 합니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无效的值：%@。应为 on 或 off。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無效的值：%@。應為 on 或 off。"
+          }
+        }
+      }
+    },
+    "cli.sessionPriority.error.unknownSubcommand": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unknown session-priority subcommand: %@. Try: status, difficulty, manual"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أمر فرعي غير معروف لـ session-priority: %@. جرّب: status أو difficulty أو manual"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unbekannter session-priority-Unterbefehl: %@. Versuche: status, difficulty, manual"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Subcomando de session-priority desconocido: %@. Prueba: status, difficulty, manual"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sous-commande session-priority inconnue : %@. Essayez : status, difficulty, manual"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "不明な session-priority サブコマンド: %@。使用できるもの: status, difficulty, manual"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "알 수 없는 session-priority 하위 명령: %@. 사용 가능: status, difficulty, manual"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未知的 session-priority 子命令：%@。可用：status、difficulty、manual"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未知的 session-priority 子指令：%@。可用：status、difficulty、manual"
+          }
+        }
+      }
+    },
+    "cli.sessionPriority.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "status: list the window's workspaces in priority order with their tier, difficulty and the effort and model cmux wants their Claude sessions to run at, plus what each pane is doing about it. This is the default.\n\ndifficulty <easy|normal|hard|auto>: set a workspace's difficulty. auto clears the override so cmux infers it again.\n\nmanual <on|off>: tell cmux a person is driving this workspace's Claude sessions (on), so it leaves their effort alone, or hand them back (off).\n\nWithout --workspace the calling terminal's workspace is used, or the selected workspace outside cmux."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "status: يعرض مساحات عمل النافذة بترتيب الأولوية مع مستواها وصعوبتها والجهد والنموذج اللذين يريد cmux تشغيل جلسات Claude بهما، إضافة إلى ما يفعله كل جزء بشأن ذلك. هذا هو الافتراضي.\n\ndifficulty <easy|normal|hard|auto>: يضبط صعوبة مساحة العمل. يزيل auto التجاوز ليستنتجها cmux من جديد.\n\nmanual <on|off>: يخبر cmux أن شخصًا يتحكم في جلسات Claude الخاصة بمساحة العمل هذه (on) فيترك جهدها كما هو، أو يعيدها إليه (off).\n\nبدون --workspace تُستخدم مساحة عمل الطرفية المستدعية، أو مساحة العمل المحددة خارج cmux."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "status: listet die Workspaces des Fensters nach Priorität auf, mit Stufe, Schwierigkeit sowie dem Aufwand und Modell, mit dem cmux ihre Claude-Sitzungen laufen lassen will, und was jedes Pane dazu gerade tut. Das ist der Standard.\n\ndifficulty <easy|normal|hard|auto>: legt die Schwierigkeit eines Workspace fest. auto entfernt die Überschreibung, sodass cmux sie wieder selbst ableitet.\n\nmanual <on|off>: teilt cmux mit, dass eine Person die Claude-Sitzungen dieses Workspace steuert (on), damit cmux deren Aufwand unverändert lässt, oder gibt sie zurück (off).\n\nOhne --workspace wird der Workspace des aufrufenden Terminals verwendet, außerhalb von cmux der ausgewählte Workspace."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "status: muestra los espacios de trabajo de la ventana por orden de prioridad, con su nivel, dificultad, el esfuerzo y el modelo con los que cmux quiere ejecutar sus sesiones de Claude, y lo que hace cada panel al respecto. Es la opción predeterminada.\n\ndifficulty <easy|normal|hard|auto>: establece la dificultad de un espacio de trabajo. auto elimina la anulación para que cmux la deduzca de nuevo.\n\nmanual <on|off>: indica a cmux que una persona dirige las sesiones de Claude de este espacio de trabajo (on), para que no toque su esfuerzo, o se las devuelve (off).\n\nSin --workspace se usa el espacio de trabajo de la terminal que llama o, fuera de cmux, el espacio de trabajo seleccionado."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "status : liste les espaces de travail de la fenêtre par ordre de priorité, avec leur niveau, leur difficulté, l'effort et le modèle avec lesquels cmux veut exécuter leurs sessions Claude, et ce que fait chaque panneau à ce sujet. C'est la valeur par défaut.\n\ndifficulty <easy|normal|hard|auto> : définit la difficulté d'un espace de travail. auto supprime le remplacement pour que cmux la déduise à nouveau.\n\nmanual <on|off> : indique à cmux qu'une personne pilote les sessions Claude de cet espace de travail (on), pour qu'il laisse leur effort inchangé, ou les lui rend (off).\n\nSans --workspace, l'espace de travail du terminal appelant est utilisé, ou l'espace de travail sélectionné en dehors de cmux."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "status: ウィンドウ内のワークスペースを優先度順に表示します。階層、難易度、cmux がその Claude セッションを動かしたい負荷レベルとモデル、そして各ペインがそれに対して何をしているかを含みます。これが既定です。\n\ndifficulty <easy|normal|hard|auto>: ワークスペースの難易度を設定します。auto は上書きを解除し、cmux が再び推定します。\n\nmanual <on|off>: このワークスペースの Claude セッションを人が操作していることを cmux に伝え(on)、負荷レベルに手を加えないようにします。または操作を cmux に戻します(off)。\n\n--workspace を省略すると、呼び出したターミナルのワークスペースを使います。cmux の外では選択中のワークスペースを使います。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "status: 창의 워크스페이스를 우선순위 순으로 나열하며, 각 워크스페이스의 등급, 난이도, cmux가 해당 Claude 세션을 실행하려는 노력 수준과 모델, 그리고 각 패널이 이에 대해 하고 있는 일을 보여 줍니다. 기본값입니다.\n\ndifficulty <easy|normal|hard|auto>: 워크스페이스의 난이도를 설정합니다. auto는 재정의를 지워 cmux가 다시 추론하게 합니다.\n\nmanual <on|off>: 사람이 이 워크스페이스의 Claude 세션을 직접 다루고 있음을 cmux에 알려(on) 노력 수준을 건드리지 않게 하거나, 다시 넘겨줍니다(off).\n\n--workspace를 생략하면 호출한 터미널의 워크스페이스를 사용하고, cmux 밖에서는 선택된 워크스페이스를 사용합니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "status：按优先级列出窗口中的工作区，包含其层级、难度、cmux 希望其 Claude 会话使用的投入程度和模型，以及每个窗格对此的处理状态。这是默认值。\n\ndifficulty <easy|normal|hard|auto>：设置工作区的难度。auto 会清除覆盖，让 cmux 重新推断。\n\nmanual <on|off>：告知 cmux 有人正在操作此工作区的 Claude 会话（on），让 cmux 不改动其投入程度，或将其交还（off）。\n\n未指定 --workspace 时，使用调用方终端所在的工作区；在 cmux 之外则使用所选的工作区。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "status：依優先順序列出視窗中的工作區，包含其層級、難度、cmux 希望其 Claude 工作階段使用的投入程度與模型，以及每個窗格對此的處理狀況。這是預設值。\n\ndifficulty <easy|normal|hard|auto>：設定工作區的難度。auto 會清除覆寫，讓 cmux 重新推斷。\n\nmanual <on|off>：告知 cmux 有人正在操作此工作區的 Claude 工作階段（on），讓 cmux 不更動其投入程度，或將其交還（off）。\n\n未指定 --workspace 時，使用呼叫端終端機所在的工作區；在 cmux 之外則使用所選的工作區。"
+          }
+        }
+      }
+    },
+    "cli.sessionPriority.manualSet": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OK %1$@ manual %2$@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OK %1$@ يدوي %2$@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OK %1$@ manuell %2$@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OK %1$@ modo manual %2$@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OK %1$@ manuel %2$@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OK %1$@ 手動 %2$@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OK %1$@ 수동 %2$@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OK %1$@ 手动 %2$@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OK %1$@ 手動 %2$@"
+          }
+        }
+      }
+    },
+    "cli.sessionPriority.off": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "off"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "متوقف"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "aus"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "desactivado"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "désactivé"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "オフ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "꺼짐"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "关闭"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "關閉"
+          }
+        }
+      }
+    },
+    "cli.sessionPriority.on": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "on"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مفعّل"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "an"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "activado"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "activé"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "オン"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "켜짐"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "开启"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "開啟"
+          }
+        }
+      }
+    },
+    "cli.sessionPriority.status.manual": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "manual"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يدوي"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "manuell"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "modo manual"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "manuel"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "手動"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "수동"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "手动"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "手動"
+          }
+        }
+      }
+    },
+    "cli.sessionPriority.usage": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usage: cmux session-priority [status] [--window <id|ref|index>] [--json]\n       cmux session-priority difficulty <easy|normal|hard|auto> [--workspace <id|ref|index>] [--window <id|ref|index>] [--json]\n       cmux session-priority manual <on|off> [--workspace <id|ref|index>] [--window <id|ref|index>] [--json]"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الاستخدام: cmux session-priority [status] [--window <id|ref|index>] [--json]\n       cmux session-priority difficulty <easy|normal|hard|auto> [--workspace <id|ref|index>] [--window <id|ref|index>] [--json]\n       cmux session-priority manual <on|off> [--workspace <id|ref|index>] [--window <id|ref|index>] [--json]"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verwendung: cmux session-priority [status] [--window <id|ref|index>] [--json]\n       cmux session-priority difficulty <easy|normal|hard|auto> [--workspace <id|ref|index>] [--window <id|ref|index>] [--json]\n       cmux session-priority manual <on|off> [--workspace <id|ref|index>] [--window <id|ref|index>] [--json]"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uso: cmux session-priority [status] [--window <id|ref|index>] [--json]\n       cmux session-priority difficulty <easy|normal|hard|auto> [--workspace <id|ref|index>] [--window <id|ref|index>] [--json]\n       cmux session-priority manual <on|off> [--workspace <id|ref|index>] [--window <id|ref|index>] [--json]"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Utilisation : cmux session-priority [status] [--window <id|ref|index>] [--json]\n       cmux session-priority difficulty <easy|normal|hard|auto> [--workspace <id|ref|index>] [--window <id|ref|index>] [--json]\n       cmux session-priority manual <on|off> [--workspace <id|ref|index>] [--window <id|ref|index>] [--json]"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使い方: cmux session-priority [status] [--window <id|ref|index>] [--json]\n       cmux session-priority difficulty <easy|normal|hard|auto> [--workspace <id|ref|index>] [--window <id|ref|index>] [--json]\n       cmux session-priority manual <on|off> [--workspace <id|ref|index>] [--window <id|ref|index>] [--json]"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사용법: cmux session-priority [status] [--window <id|ref|index>] [--json]\n       cmux session-priority difficulty <easy|normal|hard|auto> [--workspace <id|ref|index>] [--window <id|ref|index>] [--json]\n       cmux session-priority manual <on|off> [--workspace <id|ref|index>] [--window <id|ref|index>] [--json]"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "用法： cmux session-priority [status] [--window <id|ref|index>] [--json]\n       cmux session-priority difficulty <easy|normal|hard|auto> [--workspace <id|ref|index>] [--window <id|ref|index>] [--json]\n       cmux session-priority manual <on|off> [--workspace <id|ref|index>] [--window <id|ref|index>] [--json]"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "用法： cmux session-priority [status] [--window <id|ref|index>] [--json]\n       cmux session-priority difficulty <easy|normal|hard|auto> [--workspace <id|ref|index>] [--window <id|ref|index>] [--json]\n       cmux session-priority manual <on|off> [--workspace <id|ref|index>] [--window <id|ref|index>] [--json]"
+          }
+        }
+      }
+    },
+    "cli.sessionPriority.status.header": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session priority: %1$@, urgent: %2$@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أولوية الجلسات: %1$@، عاجل: %2$@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sitzungspriorität: %1$@, dringend: %2$@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "prioridad de sesiones: %1$@, urgentes: %2$@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "priorité des sessions : %1$@, urgent : %2$@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "セッション優先度: %1$@、緊急: %2$@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "세션 우선순위: %1$@, 긴급: %2$@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "会话优先级：%1$@，紧急：%2$@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "工作階段優先順序：%1$@，緊急：%2$@"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

@@ -1457,6 +1457,7 @@
 		37708E13930225D14409F461 /* CMUXCLI+Screenshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = 50748DE10A0E397E5C77A025 /* CMUXCLI+Screenshot.swift */; };
 		A24420164F7D1D02F89B3E69 /* CMUXCLI+SemanticNotifications.swift in Sources */ = {isa = PBXBuildFile; fileRef = 11AE8B73B8979F37F85EB754 /* CMUXCLI+SemanticNotifications.swift */; };
 		C0DE5E5500000000000000A1 /* CMUXCLI+SessionMove.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE5E5500000000000000A2 /* CMUXCLI+SessionMove.swift */; };
+		5A1C0DE10A0B4C3D2E1F9A01 /* CMUXCLI+SessionPriority.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A1C0DE10A0B4C3D2E1F9A02 /* CMUXCLI+SessionPriority.swift */; };
 		C0DE64950000000000000001 /* CMUXCLI+SessionsList.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE64950000000000000002 /* CMUXCLI+SessionsList.swift */; };
 		C0DE64960000000000000005 /* CMUXCLI+SessionsListClaudeWorkflow.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE64960000000000000006 /* CMUXCLI+SessionsListClaudeWorkflow.swift */; };
 		C0DE64950000000000000007 /* CMUXCLI+SessionsListForkDiagnostics.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE64950000000000000008 /* CMUXCLI+SessionsListForkDiagnostics.swift */; };
@@ -6345,6 +6346,7 @@
 		50748DE10A0E397E5C77A025 /* CMUXCLI+Screenshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+Screenshot.swift"; sourceTree = "<group>"; };
 		11AE8B73B8979F37F85EB754 /* CMUXCLI+SemanticNotifications.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+SemanticNotifications.swift"; sourceTree = "<group>"; };
 		C0DE5E5500000000000000A2 /* CMUXCLI+SessionMove.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+SessionMove.swift"; sourceTree = "<group>"; };
+		5A1C0DE10A0B4C3D2E1F9A02 /* CMUXCLI+SessionPriority.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+SessionPriority.swift"; sourceTree = "<group>"; };
 		C0DE64950000000000000002 /* CMUXCLI+SessionsList.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+SessionsList.swift"; sourceTree = "<group>"; };
 		C0DE64960000000000000006 /* CMUXCLI+SessionsListClaudeWorkflow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+SessionsListClaudeWorkflow.swift"; sourceTree = "<group>"; };
 		C0DE64950000000000000008 /* CMUXCLI+SessionsListForkDiagnostics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+SessionsListForkDiagnostics.swift"; sourceTree = "<group>"; };
@@ -13139,6 +13141,7 @@
 				2C636D86CB494560BBF6953B /* ChiefDispatchPlan.swift */,
 				C0023A973E2D4196E338ED78 /* CMUXCLI+ClaudeHookPaneDirectory.swift */,
 				DD21873B034B3306A2342EC7 /* CMUXCLI+ClaudeAccount.swift */,
+				5A1C0DE10A0B4C3D2E1F9A02 /* CMUXCLI+SessionPriority.swift */,
 			);
 			path = CLI;
 			sourceTree = "<group>";
@@ -18357,6 +18360,7 @@
 				37708E13930225D14409F461 /* CMUXCLI+Screenshot.swift in Sources */,
 				A24420164F7D1D02F89B3E69 /* CMUXCLI+SemanticNotifications.swift in Sources */,
 					C0DE5E5500000000000000A1 /* CMUXCLI+SessionMove.swift in Sources */,
+				5A1C0DE10A0B4C3D2E1F9A01 /* CMUXCLI+SessionPriority.swift in Sources */,
 					C0DE64950000000000000001 /* CMUXCLI+SessionsList.swift in Sources */,
 					C0DE64960000000000000005 /* CMUXCLI+SessionsListClaudeWorkflow.swift in Sources */,
 					C0DE64950000000000000007 /* CMUXCLI+SessionsListForkDiagnostics.swift in Sources */,

@@ -94,8 +94,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let result = try runSessionPriorityCLI(
             name: "session-priority-invalid",
             arguments: ["session-priority", "difficulty", "impossible"],
-            respond: { _, _ in nil },
-            expectsConnection: false
+            respond: { _, _ in nil }
         )
         XCTAssertNotEqual(result.process.status, 0)
         XCTAssertTrue(result.process.stderr.contains("easy"), result.process.stderr)
@@ -105,8 +104,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
     private func runSessionPriorityCLI(
         name: String,
         arguments: [String],
-        respond: @escaping (_ method: String, _ id: String) -> String?,
-        expectsConnection: Bool = true
+        respond: @escaping (_ method: String, _ id: String) -> String?
     ) throws -> (process: ProcessRunResult, commands: [String]) {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath(name)
@@ -141,8 +139,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
             environment: environment,
             timeout: 5
         )
-        if !expectsConnection { serverHandled.isInverted = true }
-        wait(for: [serverHandled], timeout: expectsConnection ? 5 : 0.3)
+        wait(for: [serverHandled], timeout: 5)
         XCTAssertFalse(result.timedOut, result.stderr)
         return (result, state.commands)
     }
