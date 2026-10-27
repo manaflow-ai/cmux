@@ -1,4 +1,5 @@
 import CmuxNextCompat
+import CmuxNextWakeups
 import CoreServices
 import Foundation
 
@@ -16,14 +17,18 @@ private nonisolated let fileTreeWatchCallbacks = CallbackRegistry<FileTreeWatchS
     private let latency: CFTimeInterval
     private let started: (@Sendable () -> Void)?
     private let continuation: AsyncStream<Void>.Continuation
+    /// The watch's record in the arm census (Debug and bench builds; nothing in Release).
+    private let census: ArmCensusWatch
     private let queue = DispatchQueue(label: "cmux.files.tree-fsevents", qos: .utility)
     private var stream: FSEventStreamRef?
     private var token: CallbackToken?
 
-    init(paths: [String], latency: CFTimeInterval, started: (@Sendable () -> Void)?, continuation: AsyncStream<Void>.Continuation) {
+    init(paths: [String], latency: CFTimeInterval, started: (@Sendable () -> Void)?, census: ArmCensusWatch,
+         continuation: AsyncStream<Void>.Continuation) {
         self.paths = paths
         self.latency = latency
         self.started = started
+        self.census = census
         self.continuation = continuation
     }
 
@@ -46,6 +51,7 @@ private nonisolated let fileTreeWatchCallbacks = CallbackRegistry<FileTreeWatchS
             self.token = token
             unsafe FSEventStreamSetDispatchQueue(created, queue)
             unsafe FSEventStreamStart(created)
+            census.armed()
             started?()
         }
     }
@@ -65,6 +71,7 @@ private nonisolated let fileTreeWatchCallbacks = CallbackRegistry<FileTreeWatchS
     }
 
     fileprivate func deliver(_ paths: [String]) {
+        census.fired()
         guard paths.contains(where: FileTreeWatcher.counts) else { return }
         continuation.yield()
     }

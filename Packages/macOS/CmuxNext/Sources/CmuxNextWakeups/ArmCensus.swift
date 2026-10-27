@@ -2,12 +2,14 @@
 import CmuxNextCompat
 import Foundation
 
-/// The launch's arm census (plans/cmux-next/chrome-parity/p08-startup.md, task 085, queue Q13): each timer, deadline
-/// and folder watch armed before startup completed, with its owner, the site that made it and its first fire, so
-/// `startup-queue.py arms` names the launch arms that template 086 moves to an afterStartup post.
+/// The launch's arm census (plans/cmux-next/chrome-parity/p08-startup.md, task 085, queue Q13): each timer, deadline,
+/// watcher and system observer armed before startup completed, with its owner, the site that made it and its first
+/// fire, so `startup-queue.py arms` names the launch arms that template 086 moves to an afterStartup post.
 ///
-/// One record per armed object (a ``DemandTimer``, a ``MainDeadline``, a ``FolderChanges`` stream): its first arm
-/// while the census records, how many times it was armed until its first fire or ``close()``, and its first fire,
+/// One record per armed object: a ``DemandTimer``, a ``MainDeadline``, a one-shot ``AlignedWakeups`` deadline, a
+/// ``FolderChanges`` stream, an ``AppEvents`` channel on a system center, and each watch whose owner keeps an
+/// ``ArmCensusWatch`` (ConfigFileWatcher, FolderWatcher, FileTreeWatcher, ControlSocketPathWatch, RetryWake and the
+/// crash forwarders). Its first arm while the census records, how many times it was armed until its first fire or ``close()``, and its first fire,
 /// written whenever that comes (the bench reads launch to +10 s). An object records once: after its first fire it
 /// never records again. Chrome keeps the same facts per delayed task, the `posted_from` location and the queue time
 /// (base/pending_task.h, read by base/task/common/task_annotator.cc), and a timer's first run is its task's run.
@@ -30,16 +32,7 @@ public final class ArmCensus: Sendable {
     public static let capacity = 4_096
 
     /// What was armed.
-    public enum Kind: String, Sendable, CaseIterable {
-        /// A ``DemandTimer`` deadline.
-        case timer
-        /// A ``MainDeadline`` on the main thread's wake-up queue.
-        case mainDeadline = "main_deadline"
-        /// A file-system watch (``FolderChanges``).
-        case watcher
-        /// A system notification observer (NSWorkspace, distributed).
-        case observer
-    }
+    public typealias Kind = ArmCensusKind
 
     /// The source line that made the armed object.
     public struct Site: Sendable, CustomStringConvertible {

@@ -26,17 +26,21 @@ Mac and reads what the launch recorded. Each hit names its queue and the task te
               whose census was not armed or whose hook did not install is left out with a warning; a task the
               census counted and did not keep is a warning.
   arms        Q13, template 086. From `debug.startup` and `debug.startup.arms` (task 085; a live run arms the census
-              with CMUX_NEXT_ARM_CENSUS=1): each timer (DemandTimer), main deadline (MainDeadline) and folder watch
-              (FolderChanges) armed before --until-mark, by kind, owner and creating site, with its median arm and
-              first-fire times and how often it was armed before its first fire. A run whose census was not armed is
-              left out with a warning; arms past the census's capacity are a warning.
+              with CMUX_NEXT_ARM_CENSUS=1): each arm made before --until-mark, by kind, owner and creating site, with
+              its median arm and first-fire times and how often it was armed before its first fire. A live run reads
+              the census --settle-s (10) seconds after --until-mark, so first fires to +10 s are in it. Recorded:
+              timers (DemandTimer), main deadlines (MainDeadline, AlignedWakeups.schedule), watchers (FolderChanges,
+              ConfigFileWatcher, FolderWatcher, FileTreeWatcher, ControlSocketPathWatch, RetryWake, the crash
+              forwarders) and system observers (AppEvents on the NSWorkspace and distributed centers). Not yet: the
+              other direct NSWorkspace/distributed observers and DispatchSource/FSEvents watchers (task 116). A run
+              whose census was not armed is left out with a warning; arms past the census's capacity are a warning.
 
 Usage:
   startup-queue.py gaps warm.json --min-ms 5 [--json out.json]
   startup-queue.py blocking raw.json                     analyze a saved capture (any host)
   startup-queue.py blocking --app "$NX_APP" --runs 5 --temperature warm|cold [--raw raw.json] [--json out.json]
   startup-queue.py profile run1/ run2/ ...               or --app: N `trace.py record --scenario launch-<temp>`
-  startup-queue.py mainjobs|globaljobs|arms --app "$NX_APP" --runs 5
+  startup-queue.py mainjobs|globaljobs|arms --app "$NX_APP" --runs 5 [--settle-s 10]
 
 Fleet guard: --app runs only on macOS with a fleet marker, never on a person's Mac; elsewhere it exits 2 before it
 starts anything. Markers: CMUX_CI_STEP_KEY (`cmux-ci run`) or GITHUB_ACTIONS=true (lib/fleet-only.sh's rule), and
@@ -96,6 +100,7 @@ import statistics
 import subprocess
 import sys
 import tempfile
+import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 FIRST_FRAME = "first_window_frame_committed"
@@ -125,6 +130,9 @@ LIVE_ENV = {"CMUX_NEXT_NO_ACTIVATE": "0"}
 # 082's global-job census is off unless armed, so the startup benches measure a launch without it).
 MODE_ENV = {"globaljobs": {"CMUX_NEXT_GLOBAL_JOB_CENSUS": "1"}, "arms": {"CMUX_NEXT_ARM_CENSUS": "1"}}
 MODE_METHOD = {"globaljobs": "debug.startup.global_jobs", "arms": "debug.startup.arms"}
+# How long a live run of a mode keeps the app running after --until-mark before it reads the app (--settle-s): the arm
+# census writes each first fire whenever it comes, so arms reads the launch to +10 s (test_phase of task 085).
+MODE_SETTLE_S = {"arms": 10.0}
 # Initializer frames (the frame under swift_once names its owner; a C++ or ObjC static initializer).
 STATIC_INIT = ("one-time initialization function for", "static initializer for", "_GLOBAL__sub_I",
                "__cxx_global_var_init", "globalinit_")
@@ -729,9 +737,10 @@ def query(bench, tag, method, required=True):
 
 
 def collect(bench, app, runs, temperature, until_mark, timeout, method, purge_cache=purge, extra_method=None,
-            extra_env=None):
-    """N launches; each is read with `method` once `until_mark` arrived on the mark pipe, then quit. With
-    `extra_method` that method's result is merged in and `method` may be missing; `extra_env` is added to each launch.
+            extra_env=None, settle_s=0.0, sleep=time.sleep):
+    """N launches; each is read with `method` once `until_mark` arrived on the mark pipe and `settle_s` more seconds
+    passed, then quit. With `extra_method` that method's result is merged in and `method` may be missing;
+    `extra_env` is added to each launch.
 
     At the end it stops only the tag's processes it started (a warm daemon that ran before is left running; a
     cold run stops the daemon before each launch, as cold means) and removes its scratch folders."""
@@ -752,6 +761,8 @@ def collect(bench, app, runs, temperature, until_mark, timeout, method, purge_ca
                 if not launch.wait_for(until_mark, timeout):
                     raise QueueError(f"run {index + 1}: {until_mark} never arrived within {timeout:g} s "
                                      "(pass --until-mark for a build without it)")
+                if settle_s > 0:
+                    sleep(settle_s)
                 result = query(bench, tag, method, required=extra_method is None)
                 if extra_method:
                     result = {**result, **query(bench, tag, extra_method)}
@@ -792,6 +803,9 @@ def parse(argv):
     parser.add_argument("--temperature", choices=["warm", "cold"], default="warm")
     parser.add_argument("--timeout", type=float, default=60.0, help="seconds per launch to reach --until-mark")
     parser.add_argument("--until-mark", default=COMPLETE)
+    parser.add_argument("--settle-s", type=float,
+                        help="--app: seconds the app keeps running after --until-mark before it is read (default: "
+                             "10 for arms, so first fires after completion are recorded; 0 for the other modes)")
     parser.add_argument("--first-frame-mark", default=FIRST_FRAME)
     parser.add_argument("--mode-filter", help="gaps: only this bench-startup mode (cold, warm, ...)")
     parser.add_argument("--min-ms", type=float, default=5.0, help="gaps: the smallest median gap kept")
@@ -808,9 +822,16 @@ def parse(argv):
     args = parser.parse_args(argv)
     if bool(args.app) == bool(args.inputs):
         parser.error("give saved input files or --app, not both and not neither")
+    if args.settle_s is not None and args.settle_s < 0:
+        parser.error("--settle-s must be 0 or more")
     if args.app and args.mode == "gaps":
         parser.error("gaps reads bench-startup.py --json files (run bench-startup.py for new ones)")
     return args
+
+
+def settle_seconds(args):
+    """--settle-s, or the mode's default (MODE_SETTLE_S)."""
+    return MODE_SETTLE_S.get(args.mode, 0.0) if args.settle_s is None else args.settle_s
 
 
 def live_inputs(args, env, system):
@@ -823,7 +844,8 @@ def live_inputs(args, env, system):
     bench = load_bench_startup()
     bench.require_gui_session("startup-queue")
     runs = collect(bench, args.app, args.runs, args.temperature, args.until_mark, args.timeout, method_of(args.mode),
-                   extra_method=MODE_METHOD.get(args.mode), extra_env=MODE_ENV.get(args.mode))
+                   extra_method=MODE_METHOD.get(args.mode), extra_env=MODE_ENV.get(args.mode),
+                   settle_s=settle_seconds(args))
     if args.raw:
         with open(args.raw, "w") as out:
             json.dump({"mode": args.mode, "app": os.path.basename(args.app), "runs": runs}, out, indent=1)

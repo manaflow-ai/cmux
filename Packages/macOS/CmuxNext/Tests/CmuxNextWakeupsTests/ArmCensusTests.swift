@@ -181,6 +181,127 @@ struct ArmCensusTests {
         #expect(await changes.next() != nil)
         #expect(ledger.armCensus.snapshot().arms.only?.firstFireNanos != nil)
     }
+
+    /// A missing folder is watched through its parent; the parent's own write wakes the process (the ledger's
+    /// `stand-in`) and yields nothing, and that wake is the watch's first fire in the census too.
+    @Test func aStandInWakeIsTheFolderWatchsFirstFire() async throws {
+        let parent = FileManager.default.temporaryDirectory.resolvingSymlinksInPath()
+            .appendingPathComponent("arm-census-stand-in-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: parent, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: parent) }
+        let ledger = WakeupLedger()
+        ledger.armCensus.start(processStartNanos: 0)
+        let stream = FolderChanges(folders: [parent.appendingPathComponent("Backgrounds", isDirectory: true)], ledger: ledger).events()
+        // task-owner: the test's consumer, so the watch loop runs; cancelled at the end of the test
+        let consumer = Task { for await _ in stream {} }
+        defer { consumer.cancel() }
+        try await waitUntil { !ledger.armCensus.snapshot().arms.isEmpty }
+        #expect(ledger.armCensus.snapshot().arms.only?.firstFireNanos == nil)
+
+        try Data("{}".utf8).write(to: parent.appendingPathComponent("unsent-prompts.json"), options: .atomic)
+        try await waitUntil { (ledger.snapshot().first { $0.owner == "FolderChanges" && $0.reason == "stand-in" }?.count ?? 0) >= 1 }
+        #expect(ledger.snapshot().first { $0.owner == "FolderChanges" && $0.reason == "change" } == nil, "nothing yielded")
+        let arm = try #require(ledger.armCensus.snapshot().arms.only)
+        #expect(arm.kind == .watcher)
+        #expect(arm.firstFireNanos != nil, "the stand-in wake is a wake of the watch")
+    }
+
+    @Test func aWatchRecordsItsFirstArmItsArmsBeforeTheFirstFireAndThatFire() throws {
+        let uptime = FakeUptime(0)
+        let ledger = WakeupLedger(uptime: { uptime.now })
+        ledger.armCensus.start(processStartNanos: 0)
+        let watch = ArmCensusWatch(ledger: ledger, .watcher, owner: "test.watch", line: 70)
+        uptime.now = 5 * Self.ms
+        watch.armed()
+        let copy = watch  // a copy is the same watch
+        uptime.now = 7 * Self.ms
+        copy.armed()
+        uptime.now = 9 * Self.ms
+        watch.fired()
+        uptime.now = 11 * Self.ms
+        watch.armed()
+        copy.fired()
+
+        let arm = try #require(ledger.armCensus.snapshot().arms.only)
+        #expect(arm.kind == .watcher)
+        #expect(arm.owner == "test.watch")
+        #expect(arm.site.description.hasSuffix("ArmCensusTests.swift:70"))
+        #expect(arm.armedNanos == 5 * Self.ms)
+        #expect(arm.count == 2, "an arm after the first fire is not counted")
+        #expect(arm.firstFireNanos == 9 * Self.ms, "the first fire only")
+    }
+
+    @Test func aWatchRecordsNothingBeforeTheStartOrOnceItFiredUnrecorded() {
+        let ledger = WakeupLedger()
+        let early = ArmCensusWatch(ledger: ledger, .watcher, owner: "test.before-start")
+        early.armed()
+        ledger.armCensus.start(processStartNanos: 0)
+        early.fired()
+        early.armed()
+        let late = ArmCensusWatch(ledger: ledger, .watcher, owner: "test.after-close")
+        ledger.armCensus.close()
+        late.armed()
+        late.fired()
+        #expect(ledger.armCensus.snapshot().arms.isEmpty)
+    }
+
+    @Test func aSystemObserverRecordsOncePerNameUnderItsFirstSubscriberAndItsFirstPost() throws {
+        let uptime = FakeUptime(0)
+        let ledger = WakeupLedger(uptime: { uptime.now })
+        ledger.armCensus.start(processStartNanos: 0)
+        let center = NotificationCenter()
+        let name = Notification.Name("test.screens-did-sleep")
+        let events = AppEvents(center: center, observerLedger: ledger)
+        uptime.now = 3 * Self.ms
+        let first = events.subscribe(name, owner: "test.first", line: 140) {}
+        let second = events.subscribe(name, owner: "test.second") {}
+        // The app's own center records nothing.
+        let local = AppEvents(center: center)
+        let unrecorded = local.subscribe(Notification.Name("test.local"), owner: "test.local") {}
+        #expect(ledger.armCensus.snapshot().arms.only?.firstFireNanos == nil)
+
+        uptime.now = 20 * Self.ms
+        center.post(name: name, object: nil)
+        uptime.now = 30 * Self.ms
+        center.post(name: name, object: nil)
+        center.post(name: Notification.Name("test.local"), object: nil)
+
+        let arm = try #require(ledger.armCensus.snapshot().arms.only, "one observer per name, none for the app's center")
+        #expect(arm.kind == .observer)
+        #expect(arm.owner == "test.screens-did-sleep (test.first)")
+        #expect(arm.site.description.hasSuffix("ArmCensusTests.swift:140"), "the line that subscribed, not the fan-out's")
+        #expect(arm.armedNanos == 3 * Self.ms)
+        #expect(arm.firstFireNanos == 20 * Self.ms)
+        withExtendedLifetime((first, second, unrecorded)) {}
+    }
+
+    @Test func aMainDeadlineScheduledDirectlyRecordsItsSiteAndFirstFire() throws {
+        let rig = Rig()
+        rig.census.start(processStartNanos: 0)
+        let wakeups = AlignedWakeups(queue: rig.queue)
+        rig.uptime.now = 15 * Self.ms
+        wakeups.schedule(owner: "test.reply-timeout", after: .milliseconds(30), line: 160) {}
+        let cancelled = wakeups.schedule(owner: "test.cancelled", after: .milliseconds(30)) {}
+        wakeups.cancel(cancelled)
+        rig.fire()
+
+        let arms = rig.census.snapshot().arms
+        #expect(arms.map(\.owner) == ["test.reply-timeout", "test.cancelled"])
+        #expect(arms.map(\.kind) == [.mainDeadline, .mainDeadline])
+        #expect(arms.first?.site.description.hasSuffix("ArmCensusTests.swift:160") == true)
+        #expect(arms.first?.armedNanos == 15 * Self.ms)
+        #expect((arms.first?.firstFireNanos ?? 0) >= 45 * Self.ms, "its fire, no sooner than its deadline")
+        #expect(arms.last?.firstFireNanos == nil, "a cancelled deadline never fires")
+    }
+
+    /// Waits (bounded, 5 s) until `condition` holds: the watch loop runs on its own task.
+    private func waitUntil(_ condition: () -> Bool) async throws {
+        for _ in 0..<500 {
+            if condition() { return }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        Issue.record("the condition did not hold in 5 s")
+    }
 }
 
 private extension Array {

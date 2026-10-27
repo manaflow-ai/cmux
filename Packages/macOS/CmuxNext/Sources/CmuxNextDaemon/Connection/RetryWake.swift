@@ -53,6 +53,8 @@ public final class RetryWake: Sendable {
     private let probe: RetryWakeProbe
     private let queue = DispatchQueue(label: "com.cmuxterm.next.retry-wake", qos: .userInitiated)
     private let state = Mutex<State>(State())
+    /// The vnode watch's record in the launch's arm census (Debug and bench builds, p08-startup-085).
+    private let census: ArmCensusWatch
 
     /// The folder the vnode watch is on.
     private struct WatchedFolder {
@@ -81,15 +83,18 @@ public final class RetryWake: Sendable {
     /// - Parameters:
     ///   - owner: The name its wakeups are recorded under.
     ///   - ledger: Where its wakeups are recorded.
-    public convenience init(owner: String, ledger: WakeupLedger = .shared) {
-        self.init(owner: owner, ledger: ledger, probe: RetryWakeProbe())
+    ///   - file: The line that made it, named by the arm census (leave the default).
+    ///   - line: See `file`.
+    public convenience init(owner: String, ledger: WakeupLedger = .shared, file: StaticString = #fileID, line: UInt = #line) {
+        self.init(owner: owner, ledger: ledger, probe: RetryWakeProbe(), file: file, line: line)
     }
 
     /// `probe`: tests act at the points a race needs (``RetryWakeProbe``).
-    init(owner: String, ledger: WakeupLedger = .shared, probe: RetryWakeProbe) {
+    init(owner: String, ledger: WakeupLedger = .shared, probe: RetryWakeProbe, file: StaticString = #fileID, line: UInt = #line) {
         self.owner = owner
         self.ledger = ledger
         self.probe = probe
+        census = ArmCensusWatch(ledger: ledger, .watcher, owner: owner, file: file, line: line)
     }
 
     deinit {
@@ -251,6 +256,7 @@ public final class RetryWake: Sendable {
                 source.cancel()
                 return
             }
+            census.armed()
             if Self.folderMoved(toward: file, from: folder) { continue }
             fileChanged()
             return
@@ -260,6 +266,7 @@ public final class RetryWake: Sendable {
     /// A vnode event on the watched folder: move the watch when the folder
     /// toward the file changed, else fire when the file changed.
     private func directoryChanged() {
+        census.fired()
         let watched = state.withLock { state -> (file: String, folder: WatchedFolder)? in
             guard let file = state.file, let folder = state.folder else { return nil }
             return (file, folder)

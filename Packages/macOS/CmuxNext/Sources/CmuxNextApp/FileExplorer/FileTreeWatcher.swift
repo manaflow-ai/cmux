@@ -1,6 +1,7 @@
 import CoreServices
 import Foundation
 import CmuxNextFilesUI
+import CmuxNextWakeups
 
 /// FSEvents under a few folders, delivered as an `AsyncStream` (no polling):
 /// the Files tree's folder and its repository's `.git` folder. FSEvents
@@ -12,16 +13,24 @@ nonisolated struct FileTreeWatcher: FileTreeWatching {
     var latency: CFTimeInterval
     /// Called once the FSEvents stream runs (tests wait for it before changing a file).
     var started: (@Sendable () -> Void)?
+    /// The line that made the watcher: each of its watches is in the arm census under it (Debug and bench builds,
+    /// startup-queue.py arms, p08-startup-085).
+    private let file: StaticString
+    private let line: UInt
 
-    init(latency: CFTimeInterval = 0.2, started: (@Sendable () -> Void)? = nil) {
+    init(latency: CFTimeInterval = 0.2, started: (@Sendable () -> Void)? = nil, file: StaticString = #fileID, line: UInt = #line) {
         self.latency = latency
         self.started = started
+        self.file = file
+        self.line = line
     }
 
     func changes(under folders: [URL]) -> AsyncStream<Void> {
         AsyncStream(bufferingPolicy: .bufferingNewest(1)) { continuation in
             let paths = folders.map { FolderWatcherPath.real($0) }
-            let box = FileTreeWatchStream(paths: paths, latency: latency, started: started, continuation: continuation)
+            let box = FileTreeWatchStream(paths: paths, latency: latency, started: started,
+                                          census: ArmCensusWatch(.watcher, owner: "FileTreeWatcher", file: file, line: line),
+                                          continuation: continuation)
             continuation.onTermination = { _ in box.stop() }
             box.start()
         }

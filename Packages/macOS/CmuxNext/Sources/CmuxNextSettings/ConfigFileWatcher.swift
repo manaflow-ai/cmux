@@ -1,4 +1,5 @@
 import CmuxNextCompat
+import CmuxNextWakeups
 public import Foundation
 
 /// Watches one file for changes with kernel vnode events (no polling).
@@ -16,12 +17,17 @@ public import Foundation
 /// watch's opens and stats run there, never on the caller's thread (the main
 /// thread), as Chrome's `FilePathWatcher` sets up its kqueue on a sequence that may
 /// block (base/files/file_path_watcher_kqueue.cc).
+///
+/// In Debug and bench builds the watch is in the launch's arm census (startup-queue.py arms, p08-startup-085): its
+/// first arm and its first event, under the line that made the watcher.
 public final class ConfigFileWatcher: @unchecked Sendable { // crash-allow: the sources and what they watch change only on the serial `queue` (arm, disarm, the event handlers) and in deinit; `run` is a Mutex, the rest is immutable
     public let url: URL
     private let queue: DispatchQueue
     private let onChange: @Sendable () -> Void
     /// Which start is current: set by the caller's start and stop, read on the queue.
     private let run = Mutex(Run())
+    /// The watch's record in the arm census (nothing in Release).
+    private let census: ArmCensusWatch
     // Queue-confined state.
     private var fileSource: (any DispatchSourceFileSystemObject)?
     private var directorySource: (any DispatchSourceFileSystemObject)?
@@ -34,16 +40,24 @@ public final class ConfigFileWatcher: @unchecked Sendable { // crash-allow: the 
         var running = false
     }
 
-    public convenience init(url: URL, onChange: @escaping @Sendable () -> Void) {
-        self.init(url: url, queue: DispatchQueue(label: "com.cmuxterm.next.settings.watcher", qos: .utility), onChange: onChange)
+    /// - Parameters:
+    ///   - url: The file watched.
+    ///   - file: The line that made the watcher, named by the arm census (leave the default).
+    ///   - line: See `file`.
+    ///   - onChange: Runs on the watcher's queue after each change.
+    public convenience init(url: URL, file: StaticString = #fileID, line: UInt = #line, onChange: @escaping @Sendable () -> Void) {
+        self.init(url: url, queue: DispatchQueue(label: "com.cmuxterm.next.settings.watcher", qos: .utility),
+                  file: file, line: line, onChange: onChange)
     }
 
     /// A watcher whose arm, events and `onChange` run on `queue`, a serial queue (tests hold it to
-    /// order a save before the arm).
-    init(url: URL, queue: DispatchQueue, onChange: @escaping @Sendable () -> Void) {
+    /// order a save before the arm); `ledger`'s arm census records the watch.
+    init(url: URL, queue: DispatchQueue, ledger: WakeupLedger = .shared, file: StaticString = #fileID, line: UInt = #line,
+         onChange: @escaping @Sendable () -> Void) {
         self.url = url
         self.queue = queue
         self.onChange = onChange
+        census = ArmCensusWatch(ledger: ledger, .watcher, owner: "ConfigFileWatcher", file: file, line: line)
     }
 
     deinit {
@@ -95,6 +109,7 @@ public final class ConfigFileWatcher: @unchecked Sendable { // crash-allow: the 
     private func arm(_ generation: UInt64, changedSince: timespec?) {
         guard run.withLock({ $0.generation == generation }) else { return }
         rearm()
+        census.armed()
         if let changedSince, !changed(since: changedSince) { return }
         report()
     }
@@ -144,6 +159,7 @@ public final class ConfigFileWatcher: @unchecked Sendable { // crash-allow: the 
     }
 
     private func directoryChanged() {
+        census.fired()
         let before = fileIdentity
         rearm()
         let after = fileIdentity
@@ -154,6 +170,7 @@ public final class ConfigFileWatcher: @unchecked Sendable { // crash-allow: the 
     }
 
     private func fileChanged(_ events: DispatchSource.FileSystemEvent) {
+        census.fired()
         if !events.isDisjoint(with: [.delete, .rename, .revoke]) {
             fileSource?.cancel()
             fileSource = nil

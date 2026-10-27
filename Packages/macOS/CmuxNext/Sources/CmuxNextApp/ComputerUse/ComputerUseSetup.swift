@@ -342,7 +342,7 @@ extension ComputerUseSetup {
             },
             appEvents: services.appEvents,
             // raw-observer-allow: the app's one fan-out of distributed notices (Accessibility trust), one observer per name for the whole app
-            distributedEvents: AppEvents(center: DistributedNotificationCenter.default()),
+            distributedEvents: AppEvents(center: DistributedNotificationCenter.default(), observerLedger: .shared),
             deadlines: services.mainDeadlines, work: work, queries: services.workspaceQueries)
         setup.start()
         return setup

@@ -61,6 +61,11 @@ public struct FolderChanges: Sendable {
             while !Task.isCancelled {
                 var iterator = armed.events.makeAsyncIterator()
                 guard let event = await iterator.next() else { break }
+                #if DEBUG || CMUX_BENCH_HOOKS
+                // Every event woke the process, a stand-in's own write included: the census's first fire is the
+                // first wake the ledger counts, under `change` or `stand-in`.
+                census.fired(in: ledger.armCensus)
+                #endif
                 let now = Set(targets.map(nearestExistingFolder(of:)))
                 let moved = now != armed.paths || event.flags.contains(.delete) || event.flags.contains(.rename)
                 if !moved, !targets.contains(event.path) {
@@ -76,9 +81,6 @@ public struct FolderChanges: Sendable {
                     census.armed(in: ledger.armCensus, .watcher, owner: "FolderChanges", site: site)
                     #endif
                 }
-                #if DEBUG || CMUX_BENCH_HOOKS
-                census.fired(in: ledger.armCensus)
-                #endif
                 ledger.record("FolderChanges", reason: "change")
                 continuation.yield()
             }

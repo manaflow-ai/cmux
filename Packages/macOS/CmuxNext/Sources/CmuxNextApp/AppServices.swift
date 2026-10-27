@@ -133,7 +133,7 @@ final class AppServices {
     /// The app's one fan-out of `NSWorkspace.shared.notificationCenter` notices; ``appearance``
     /// observes the display options through it (`observeGlass`) and ``appVisibility`` the display sleeps.
     // raw-observer-allow: the AppEvents fan-out itself, one observer per workspace notice for the whole app
-    let workspaceEvents = AppEvents(center: NSWorkspace.shared.notificationCenter)
+    let workspaceEvents = AppEvents(center: NSWorkspace.shared.notificationCenter, observerLedger: .shared)
     /// The app's node in the visibility tree (hidden app, sleeping displays), every window's
     /// node's parent (`WindowVisibilitySource`, p06-scheduler-022).
     private(set) lazy var appVisibility = AppVisibilitySource(

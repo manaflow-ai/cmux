@@ -664,6 +664,37 @@ class CollectTests(unittest.TestCase):
         self.assertEqual({env.get("CMUX_NEXT_ARM_CENSUS") for _, _, env in bench.launched}, {"1"},
                          "the priming launch and the measured one")
 
+    def test_a_settle_window_runs_between_the_mark_and_the_census_read(self):
+        # The census writes first fires after completion: the read waits --settle-s past the mark, so a launch arm
+        # that first fires by +10 s is not reported as never firing.
+        events = []
+        census = {"arms": [], "arm_census": {"armed": True, "closed": True, "dropped": 0, "capacity": 4096}}
+
+        def reply(method):
+            events.append(("query", method))
+            return {"ok": True, "result": census} if method == "debug.startup.arms" else {"ok": False}
+
+        bench = FakeBench(reply)
+        sq.collect(bench, "/x/cmux DEV t1.app", 2, "warm", "startup_complete", 5, sq.method_of("arms"),
+                   extra_method=sq.MODE_METHOD["arms"], extra_env=sq.MODE_ENV["arms"], settle_s=10.0,
+                   sleep=lambda seconds: events.append(("settle", seconds)))
+        self.assertEqual(events, [("settle", 10.0), ("query", "debug.startup"), ("query", "debug.startup.arms")] * 2)
+
+    def test_arms_settles_ten_seconds_by_default_and_other_modes_do_not(self):
+        self.assertEqual(sq.settle_seconds(sq.parse(["arms", "--app", "/x/cmux DEV t.app"])), 10.0)
+        self.assertEqual(sq.settle_seconds(sq.parse(["arms", "--app", "/x/cmux DEV t.app", "--settle-s", "0"])), 0.0)
+        self.assertEqual(sq.settle_seconds(sq.parse(["globaljobs", "--app", "/x/cmux DEV t.app"])), 0.0)
+        self.assertEqual(sq.settle_seconds(sq.parse(["mainjobs", "--app", "/x/cmux DEV t.app", "--settle-s", "2.5"])), 2.5)
+        with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+            sq.parse(["arms", "--app", "/x/cmux DEV t.app", "--settle-s", "-1"])
+
+    def test_no_settle_reads_at_the_mark(self):
+        slept = []
+        bench = FakeBench(lambda method: {"ok": True, "result": {"compiled_in": True, "sites": []}})
+        sq.collect(bench, "/x/cmux DEV t1.app", 1, "warm", "startup_complete", 5, "debug.blocking",
+                   sleep=slept.append)
+        self.assertEqual(slept, [])
+
     def test_a_missing_mark_names_until_mark(self):
         bench = FakeBench(lambda method: {"result": {}})
         with contextlib.redirect_stderr(io.StringIO()) as err, self.assertRaises(SystemExit):

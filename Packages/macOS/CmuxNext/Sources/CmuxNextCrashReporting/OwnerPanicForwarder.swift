@@ -1,6 +1,7 @@
 public import Foundation
 public import Sentry
 import CmuxNextCompat
+import CmuxNextWakeups
 import os
 
 /// Sends a cmux Rust process's panic log to Sentry (cx-urd.59).
@@ -31,20 +32,26 @@ public final class OwnerPanicForwarder: Sendable {
     private let queue = DispatchQueue(label: "com.cmuxterm.app.next.owner-panic-forwarder", qos: .utility)
     private let watcher = Mutex<(any DispatchSourceFileSystemObject)?>(nil)
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "crash")
+    /// The folder watch's record in the launch's arm census (Debug and bench builds, p08-startup-085).
+    private let census: ArmCensusWatch
 
     /// - Parameters:
     ///   - log: The panic log to read.
     ///   - stateFile: Where the read offset is kept (one per log).
     ///   - sends: The user's telemetry choice; false marks lines read without sending.
     ///   - source: Which process wrote `log`; the owner by default.
+    ///   - file: The line that made it, named by the arm census (leave the default).
+    ///   - line: See `file`.
     ///   - capture: Sends one event (Sentry in the app, a recorder in tests).
     public init(log: URL, stateFile: URL, sends: Bool, source: RustPanicSource = .owner,
+                file: StaticString = #fileID, line: UInt = #line,
                 capture: @escaping @Sendable (Event) -> Void = { SentrySDK.capture(event: $0, scope: Scope()) }) {
         self.log = log
         self.stateFile = stateFile
         self.sends = sends
         self.source = source
         self.capture = capture
+        census = ArmCensusWatch(.watcher, owner: "OwnerPanicForwarder", file: file, line: line)
     }
 
     /// The owner's log for `session` under `stateRoot` (the parent of the
@@ -133,10 +140,14 @@ public final class OwnerPanicForwarder: Sendable {
         guard descriptor >= 0 else { return }
         let source = DispatchSource.makeFileSystemObjectSource(fileDescriptor: descriptor, eventMask: [.write, .rename],
                                                                queue: queue)
-        source.setEventHandler { [weak self] in self?.forwardNew() }
+        source.setEventHandler { [weak self] in
+            self?.census.fired()
+            self?.forwardNew()
+        }
         source.setCancelHandler { close(descriptor) }
         watcher.withLock { $0 = source }
         source.resume()
+        census.armed()
     }
 
     private func loadState() -> State? {

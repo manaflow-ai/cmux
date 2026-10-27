@@ -1,6 +1,7 @@
 public import Foundation
 public import Sentry
 import CmuxNextCompat
+import CmuxNextWakeups
 import os
 
 /// Sends the crash reports macOS writes for this app's helper processes
@@ -44,9 +45,12 @@ public final class SystemCrashForwarder: Sendable {
     private let queue = DispatchQueue(label: "com.cmuxterm.app.next.crash-forwarder", qos: .utility)
     private let watcher = Mutex<(any DispatchSourceFileSystemObject)?>(nil)
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "crash")
+    /// The folder watch's record in the launch's arm census (Debug and bench builds, p08-startup-085).
+    private let census: ArmCensusWatch
 
+    /// `file` and `line` name the line that made it in the arm census (leave the defaults).
     public init(directory: URL = SystemCrashForwarder.standardDirectory, stateFile: URL, bundlePath: String,
-                mainExecutable: String?, sends: Bool = true,
+                mainExecutable: String?, sends: Bool = true, file: StaticString = #fileID, line: UInt = #line,
                 // A clean scope: the app's breadcrumbs and contexts do not describe a helper's crash.
                 capture: @escaping @Sendable (Event) -> Void = { SentrySDK.capture(event: $0, scope: Scope()) }) {
         self.directory = directory
@@ -55,6 +59,7 @@ public final class SystemCrashForwarder: Sendable {
         self.mainExecutable = mainExecutable
         self.sends = sends
         self.capture = capture
+        census = ArmCensusWatch(.watcher, owner: "SystemCrashForwarder", file: file, line: line)
     }
 
     /// Sends every helper report written since the last run, now and each
@@ -122,10 +127,14 @@ public final class SystemCrashForwarder: Sendable {
         guard descriptor >= 0 else { return }
         let source = DispatchSource.makeFileSystemObjectSource(fileDescriptor: descriptor, eventMask: [.write, .rename],
                                                                queue: queue)
-        source.setEventHandler { [weak self] in self?.forwardNew(now: Date()) }
+        source.setEventHandler { [weak self] in
+            self?.census.fired()
+            self?.forwardNew(now: Date())
+        }
         source.setCancelHandler { close(descriptor) }
         watcher.withLock { $0 = source }
         source.resume()
+        census.armed()
     }
 
     private func loadState() -> State? {
