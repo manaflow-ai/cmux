@@ -28,6 +28,7 @@ import hashlib
 import io
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -265,7 +266,10 @@ class Workflow(unittest.TestCase):
         upload = next(s for s in self.job["steps"] if s.get("name") == "Upload the REF capture manifest")
         self.assertLessEqual(decide["timeout-minutes"], 1)
         self.assertTrue(upload["continue-on-error"])
-        self.assertLessEqual(40 + capture["timeout-minutes"] + upload["timeout-minutes"], self.job["timeout-minutes"] - 10,
+        # The job's limit may be an expression (60 on an owned Mac, 90 hosted): hold the capture to the smaller.
+        limit = self.job["timeout-minutes"]
+        limit = limit if isinstance(limit, int) else min(int(n) for n in re.findall(r"\b\d+\b", limit))
+        self.assertLessEqual(40 + capture["timeout-minutes"] + upload["timeout-minutes"], limit - 10,
                              "a capture that starts by job minute 40 ends, upload included, well inside the job's limit")
         self.assertIn("(( $(date +%s) - started > 40 * 60 ))", capture["run"])
         self.assertIn("actions/runs/$GITHUB_RUN_ID/attempts/$GITHUB_RUN_ATTEMPT/jobs", capture["run"],
