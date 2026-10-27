@@ -54,6 +54,26 @@ struct HomePendingTerminalFocusTests {
             let holder = Holder(frame: NSRect(x: 0, y: 0, width: 10, height: 10))
             host.addSubview(holder)
             defer { holder.removeFromSuperview() }
+            @MainActor func state() -> String {
+                let focus = window.focus.state
+                return "responder \(String(describing: shell.firstResponder)), focus \(focus.resolved.kind) pane \(focus.pane ?? "-") generation \(focus.generation)"
+            }
+            @MainActor func type(_ text: String) throws {
+                for character in text {
+                    let event = try Self.key(character, in: shell)
+                    if !services.keyRouter.interceptKeyDown(event, in: shell) { shell.sendEvent(event) }
+                }
+            }
+
+            // Control, nothing pending: the app's own focus of Home's pane lands the keyboard in the box, and a typed key
+            // goes there (the paths the pending terminal must stop; without this the checks below prove nothing).
+            try #require(shell.makeFirstResponder(holder) && shell.firstResponder === holder, "the test view did not take the keyboard")
+            window.focus.send(.focusPane(dockKey, source: .programmatic))
+            try #require(shell.firstResponder === box, "control: Home's pane focus did not land in the box: \(state())")
+            try #require(shell.makeFirstResponder(holder) && shell.firstResponder === holder, "the test view did not take the keyboard")
+            try type("x")
+            try #require(box.string == "x", "control: a typed key did not reach the box: \"\(box.string)\", \(state())")
+            box.string = ""
             try #require(shell.makeFirstResponder(holder) && shell.firstResponder === holder, "the test view did not take the keyboard")
 
             // The journey's request: a script's new workspace with one terminal, shown in this window.
@@ -62,13 +82,10 @@ struct HomePendingTerminalFocusTests {
 
             // In the same turn, before the daemon made the terminal: the app focuses Home's pane again by itself.
             window.focus.send(.focusPane(dockKey, source: .programmatic))
-            #expect(shell.firstResponder !== box, "Home's message box took the keyboard while a new terminal was pending")
+            #expect(shell.firstResponder !== box, "Home's message box took the keyboard while a new terminal was pending: \(state())")
             // The keys typed for the new terminal, as the app dispatches them (the router first, then the window).
-            for character in "echo ok" {
-                let event = try Self.key(character, in: shell)
-                if !services.keyRouter.interceptKeyDown(event, in: shell) { shell.sendEvent(event) }
-            }
-            #expect(box.string.isEmpty, "keys typed for the new terminal went to Home's message box: \"\(box.string)\"")
+            try type("echo ok")
+            #expect(box.string.isEmpty, "keys typed for the new terminal went to Home's message box: \"\(box.string)\", \(state())")
 
             // The new terminal shows in the window and has the keyboard; the box never got a key.
             try await PasswordManagerRouteTests.until({
