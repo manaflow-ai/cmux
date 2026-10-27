@@ -193,11 +193,12 @@ extension TerminalEventQueue {
     }
 
     /// Terminal content a later READY replaces: output, its echo marks and older snapshots. Size, color and
-    /// scroll states and the end of the stream are kept, in order.
+    /// scroll states, output-resume markers and the end of the stream are kept, in order: a dropped marker
+    /// is never resumed, and live output would stay held off the view's lane.
     static func isSupersededByReady(_ event: TerminalChannelEvent) -> Bool {
         switch event {
         case .output, .inputEcho, .snapshot, .replay, .resized: true
-        case .colorsChanged, .scrollChanged, .sizeState, .closed: false
+        case .outputResume, .colorsChanged, .scrollChanged, .sizeState, .closed: false
         }
     }
 }

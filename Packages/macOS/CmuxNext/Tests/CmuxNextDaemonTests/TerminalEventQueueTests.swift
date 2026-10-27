@@ -281,6 +281,22 @@ import Testing
         #expect(resync.calls == 1)
     }
 
+    /// An output-resume marker survives the READY that ends a resync: a dropped marker is never resumed,
+    /// and live output would stay held off the view's lane.
+    @Test func anOutputResumeMarkerSurvivesTheResyncReady() async {
+        let resync = FakeResync()
+        let queue = await Self.attachedStreamQueue(resync)
+        for byte in UInt8(1)...3 { queue.push(Self.chunk(byte)) }
+        #expect(queue.resyncPhase == .awaitingReady)
+
+        let marker = TerminalOutputMarker(sequence: 1) { _ in }
+        queue.pushWithoutWaiting(.outputResume(marker))
+        queue.push(Self.ready(generation: 2))
+        #expect(await queue.next() == .outputResume(marker))
+        #expect(await queue.next() == Self.ready(generation: 2))
+        #expect(resync.calls == 1)
+    }
+
     /// The per-view connection keeps the parking reader: the default policy never drops.
     @Test func theLegacyPolicyNeverDrops() async {
         let queue = TerminalEventQueue(highWater: 10, lowWater: 4, mergeLimit: 1, recorder: nil)
