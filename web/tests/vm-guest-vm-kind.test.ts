@@ -493,9 +493,10 @@ describe("an exec with cancelOnInterrupt", () => {
     let markAborted!: () => void;
     const abortedOnce = new Promise<void>((resolve) => { markAborted = resolve; });
     let requests = 0;
-    // Never answers; the client going away closes the response.
-    const server = createServer((_request, response) => {
+    // Never answers; the client going away aborts the request (and closes the response).
+    const server = createServer((request, response) => {
       requests += 1;
+      request.on("aborted", () => markAborted());
       response.on("close", () => markAborted());
     });
     await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
