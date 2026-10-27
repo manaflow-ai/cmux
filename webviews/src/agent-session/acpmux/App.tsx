@@ -7422,6 +7422,9 @@ function AcpmuxPane() {
             restorePrompt(String(text ?? ""), []);
             composerHandle.current?.focus();
           },
+          "chat.quotePrompt": async ({ text }) => {
+            composerHandle.current?.quoteReply(String(text ?? ""));
+          },
           "chat.history": () => client.loadOlder(),
           // Find in Chat (the app's Find commands on an agent pane).
           "chat.find": async ({ text }) => findRef.current?.show(typeof text === "string" ? text : undefined),

@@ -8,7 +8,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import { Composer } from "../src/pages/home-channels/Composer";
-import { quoteSelection } from "../src/pages/home-channels/quoteSelection";
+import { QUOTE_EVENT, quoteSelection } from "../src/pages/home-channels/quoteSelection";
 import table from "../src/pages/home-channels/generated/strings.json";
 import { createStrings } from "../src/pages/shared/i18n";
 
@@ -55,6 +55,13 @@ function installDom(): Document {
     cancelAnimationFrame: (id: number) => clearTimeout(id),
     IS_REACT_ACT_ENVIRONMENT: true,
   });
+  // ProseMirror scrolls a focused insertion into view; jsdom has no layout.
+  const box = () => new dom!.window.DOMRect(0, 0, 100, 20);
+  Object.assign(dom.window.Range.prototype, {
+    getClientRects: () => Object.assign([box()], { item: () => box() }),
+    getBoundingClientRect: box,
+  });
+  dom.window.scrollBy = () => {};
   return dom.window.document;
 }
 
@@ -170,4 +177,61 @@ test("several quotes keep the draft and the order they were picked", async () =>
     "First quote",
     "Second quote",
   ]);
+});
+
+function editorHandle(host: HTMLElement) {
+  type Field = HTMLElement & {
+    acpmuxMarkdownField?: import("../src/agent-session/acpmux/MarkdownField").MarkdownFieldHandle;
+  };
+  return [...host.querySelectorAll<Field>("*")].find((node) => node.acpmuxMarkdownField)!.acpmuxMarkdownField!;
+}
+
+async function quoteAtComposer(host: HTMLElement, text: string) {
+  await act(async () =>
+    host.querySelector(".hc-composer")!.dispatchEvent(new dom!.window.CustomEvent(QUOTE_EVENT, { detail: text })),
+  );
+}
+
+test("a focused caret inserts the quote between draft parts, with the reply outside the quote", async () => {
+  const doc = installDom();
+  const main = await composer(doc, "lg-main-compose", "before after");
+  const editor = editorHandle(main);
+  await act(async () => {
+    editor.focus();
+    editor.writeText("before after", 7, 7);
+  });
+  await quoteAtComposer(main, "Selected message");
+  expect([...content(main).children].map((node) => node.tagName)).toEqual(["P", "BLOCKQUOTE", "P", "P"]);
+  await act(async () => editor.insertTyped("My reply "));
+  expect(content(main).firstElementChild?.textContent).toBe("before ");
+  expect(content(main).querySelector("blockquote")?.textContent).toBe("Selected message");
+  expect(content(main).children[2]?.textContent).toBe("My reply ");
+  expect(content(main).lastElementChild?.textContent).toBe("after");
+});
+
+test("an unfocused quote appends outside an existing quote, and one Undo restores the draft", async () => {
+  const doc = installDom();
+  const main = await composer(doc, "lg-main-compose", "**Draft**\n\n> Earlier quote");
+  const editor = editorHandle(main);
+  await quoteAtComposer(main, "New quote");
+  expect(content(main).querySelector("strong")?.textContent).toBe("Draft");
+  expect(content(main).querySelectorAll("blockquote").length).toBe(2);
+  expect(content(main).querySelector("blockquote blockquote")).toBeNull();
+  expect(content(main).lastElementChild?.tagName).toBe("P");
+  await act(async () => editor.undo());
+  expect(content(main).querySelectorAll("blockquote").length).toBe(1);
+  expect(editor.value()).toBe("**Draft**\n\n> Earlier quote");
+});
+
+test("a selected draft is retained instead of replaced by the quote", async () => {
+  const doc = installDom();
+  const main = await composer(doc, "lg-main-compose", "Keep the whole draft");
+  const editor = editorHandle(main);
+  await act(async () => {
+    editor.focus();
+    editor.selectAll();
+  });
+  await quoteAtComposer(main, "New quote");
+  expect(content(main).firstElementChild?.textContent).toBe("Keep the whole draft");
+  expect(content(main).querySelector("blockquote")?.textContent).toBe("New quote");
 });

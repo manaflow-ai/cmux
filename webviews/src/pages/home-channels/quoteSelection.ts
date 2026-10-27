@@ -1,6 +1,6 @@
 // Quote in Reply (the app's native menu on selected message text, POLISH.md right-click contract):
 // the page command `quoteSelection` puts the selection into the open composer as a Markdown quote,
-// ahead of what is already typed. An open thread's composer takes it, else the conversation's; an
+// after what is already typed. An open thread's composer takes it, else the conversation's; an
 // inline edit never does, and text selected inside a composer or any other field is never quoted. The composer
 // (Composer.tsx) takes the text through QUOTE_EVENT.
 

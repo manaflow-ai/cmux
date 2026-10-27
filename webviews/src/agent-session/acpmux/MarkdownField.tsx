@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useImperativeHandle, useLayoutEffect, useRef } from "react";
 import { PASTE_FILE_CHARS } from "./pastedText";
+import { insertReplyQuote } from "./quoteReply";
 import { pasteIsOnlyFileNames } from "./attachments";
 import { COMPOSER_READY_EVENT } from "./composerFocus";
 import { liftInlineImages, withoutMarkdownImages } from "./inlineImages";
@@ -45,6 +46,8 @@ export type MarkdownFieldHandle = {
   /// False when the editor is not made yet (it mounts a moment after the field): nothing changed,
   /// and the caller sets the field's `value` instead.
   type(markdown: string): boolean;
+  /// Inserts a reply quote at the focused selection, otherwise after the draft; leaves a reply paragraph.
+  quoteReply(markdown: string): boolean;
   /// The prompt as plain text (blocks joined by newlines) and the selection's offsets into it,
   /// for dictation, which splices words at the cursor.
   text(): PlainPrompt;
@@ -869,6 +872,14 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
             const end = current.state.doc.content.size;
             current.dispatch(current.state.tr.setSelection(TextSelection.near(current.state.doc.resolve(end), -1)));
           }
+          return true;
+        },
+        quoteReply: (markdown) => {
+          const made = editor.current,
+            current = view.current;
+          if (!made || !current) return false;
+          refocus.current = null;
+          insertReplyQuote(made, current, markdown);
           return true;
         },
         text: () => {

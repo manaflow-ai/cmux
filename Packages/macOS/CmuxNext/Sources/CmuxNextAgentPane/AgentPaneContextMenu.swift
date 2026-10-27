@@ -180,8 +180,8 @@ enum AgentPaneContextMenu {
             // Selected text gets the selection menu alone (macOS adds Services last).
             let quote = Self.quote(selection)
             let selected = edits + [
-                AgentPaneMenuAction.item(AgentPaneMenuStrings.quoteInReply, symbol: "text.quote") { actions.edit(quote) },
-                AgentPaneMenuAction.item(AgentPaneMenuStrings.askAboutThis, symbol: "questionmark.bubble") { actions.edit(quote + AgentPaneMenuStrings.askAboutThisPrompt) },
+                AgentPaneMenuAction.item(AgentPaneMenuStrings.quoteInReply, symbol: "text.quote") { actions.page("chat.quotePrompt", ["text": quote]) },
+                AgentPaneMenuAction.item(AgentPaneMenuStrings.askAboutThis, symbol: "questionmark.bubble") { actions.page("chat.quotePrompt", ["text": quote + AgentPaneMenuStrings.askAboutThisPrompt]) },
             ]
             let find = [AgentPaneMenuAction.item(AgentPaneMenuStrings.searchTheWeb, symbol: "magnifyingglass") { actions.search(selection) }] + (lookUp.map { [$0] } ?? [])
             add([selected, find, inspectElement.map { [$0] } ?? inspect.map { [$0] } ?? []], to: menu)

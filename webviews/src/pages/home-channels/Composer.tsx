@@ -232,7 +232,7 @@ export function Composer({
     setPop({ kind: "emoji", anchor });
     loadEmoji().then(setEmoji, () => setPop(undefined));
   };
-  // Quote in Reply (quoteSelection.ts): the quote goes ahead of what is typed, and typing goes on after
+  // Quote in Reply (quoteSelection.ts): the quote follows the draft (or its focused caret), and typing goes on after
   // it. A composer that cannot send (offline, a thread I cannot post in) takes none.
   const disabledRef = useRef(disabled);
   disabledRef.current = disabled;
@@ -242,8 +242,11 @@ export function Composer({
     const take = (event: Event) => {
       const text = (event as CustomEvent<string>).detail;
       if (!text || disabledRef.current) return;
-      setValue((current) => quoteMarkdown(text) + current);
-      editor.current?.focus();
+      const markdown = quoteMarkdown(text);
+      if (!editor.current?.quoteReply(markdown)) {
+        setValue((current) => (current.trim() ? current.trimEnd() + "\n\n" + markdown : markdown));
+        editor.current?.focus();
+      }
     };
     node.addEventListener(QUOTE_EVENT, take);
     return () => node.removeEventListener(QUOTE_EVENT, take);
