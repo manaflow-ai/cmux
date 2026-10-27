@@ -5126,133 +5126,133 @@
       }
     },
     "browser.engine.unavailable.restoredTab": {
-      "comment": "A restored browser tab's notice when Chromium could not start: the page is not loaded in WebKit (no Chromium cookies there). Reload retries.",
+      "comment": "A browser tab's notice when Chromium could not start in this process: the page is not loaded in WebKit (no Chromium cookies there); a restart of cmux is needed.",
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Chromium unavailable. This tab stays closed instead of opening signed out in WebKit. Reload to try again."
+            "value": "Chromium unavailable: this tab isn’t loaded, because WebKit would open it signed out. Quit and reopen cmux to load it."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chromium غير متاح. تبقى علامة التبويب هذه مغلقة بدل فتحها في WebKit بدون تسجيل الدخول. أعد التحميل للمحاولة مرة أخرى."
+            "value": "Chromium غير متاح: لم تُحمَّل علامة التبويب هذه لأن WebKit سيفتحها بدون تسجيل الدخول. أغلق cmux وأعد فتحه لتحميلها."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chromium nije dostupan. Ova kartica ostaje zatvorena umjesto da se otvori odjavljena u WebKitu. Ponovo učitajte da pokušate ponovo."
+            "value": "Chromium nije dostupan: ova kartica nije učitana jer bi je WebKit otvorio odjavljenu. Zatvorite i ponovo otvorite cmux da je učitate."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chromium er ikke tilgængelig. Fanen forbliver lukket i stedet for at åbne logget ud i WebKit. Genindlæs for at prøve igen."
+            "value": "Chromium er ikke tilgængelig: fanen er ikke indlæst, fordi WebKit ville åbne den logget ud. Afslut og åbn cmux igen for at indlæse den."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chromium ist nicht verfügbar. Dieser Tab bleibt geschlossen, statt abgemeldet in WebKit zu öffnen. Neu laden, um es erneut zu versuchen."
+            "value": "Chromium nicht verfügbar: Dieser Tab wird nicht geladen, weil WebKit ihn abgemeldet öffnen würde. Beende cmux und öffne es erneut, um ihn zu laden."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chromium no está disponible. Esta pestaña sigue cerrada en lugar de abrirse sin sesión en WebKit. Recarga para volver a intentarlo."
+            "value": "Chromium no está disponible: esta pestaña no se carga porque WebKit la abriría sin sesión. Sal de cmux y vuelve a abrirlo para cargarla."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chromium est indisponible. Cet onglet reste fermé plutôt que de s’ouvrir déconnecté dans WebKit. Rechargez pour réessayer."
+            "value": "Chromium indisponible : cet onglet n’est pas chargé, car WebKit l’ouvrirait déconnecté. Quittez puis rouvrez cmux pour le charger."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chromium non è disponibile. Questa scheda resta chiusa invece di aprirsi senza accesso in WebKit. Ricarica per riprovare."
+            "value": "Chromium non disponibile: questa scheda non viene caricata perché WebKit la aprirebbe senza accesso. Esci e riapri cmux per caricarla."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chromium を使用できません。このタブは WebKit でサインアウトした状態で開かず、閉じたままにしています。再読み込みしてもう一度お試しください。"
+            "value": "Chromium を使用できません。WebKit ではサインアウトした状態で開くため、このタブは読み込んでいません。読み込むには cmux を終了して開き直してください。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chromium មិនអាចប្រើបានទេ។ ផ្ទាំងនេះនៅតែបិទ ជំនួសឱ្យការបើកក្នុង WebKit ដោយមិនបានចូល។ ផ្ទុកឡើងវិញ ដើម្បីសាកល្បងម្តងទៀត។"
+            "value": "Chromium មិនអាចប្រើបាន៖ ផ្ទាំងនេះមិនត្រូវបានផ្ទុកទេ ព្រោះ WebKit នឹងបើកវាដោយមិនបានចូល។ ចាកចេញ ហើយបើក cmux ម្តងទៀត ដើម្បីផ្ទុកវា។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chromium을 사용할 수 없습니다. 이 탭은 WebKit에서 로그아웃된 상태로 열리지 않고 닫힌 채로 유지됩니다. 다시 시도하려면 새로고침하세요."
+            "value": "Chromium을 사용할 수 없음: WebKit에서는 로그아웃된 상태로 열리므로 이 탭을 불러오지 않았습니다. 불러오려면 cmux를 종료한 후 다시 여세요."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chromium er ikke tilgjengelig. Fanen forblir lukket i stedet for å åpne utlogget i WebKit. Last inn på nytt for å prøve igjen."
+            "value": "Chromium er ikke tilgjengelig: fanen er ikke lastet inn, fordi WebKit ville åpnet den utlogget. Avslutt og åpne cmux igjen for å laste den inn."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chromium jest niedostępny. Ta karta pozostaje zamknięta zamiast otworzyć się bez logowania w WebKit. Załaduj ponownie, aby spróbować jeszcze raz."
+            "value": "Chromium jest niedostępny: ta karta nie została załadowana, bo WebKit otworzyłby ją bez logowania. Zamknij i ponownie otwórz cmux, aby ją załadować."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "O Chromium não está disponível. Esta aba fica fechada em vez de abrir sem login no WebKit. Recarregue para tentar de novo."
+            "value": "Chromium indisponível: esta aba não foi carregada porque o WebKit a abriria sem login. Saia e abra o cmux de novo para carregá-la."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chromium недоступен. Эта вкладка остаётся закрытой, чтобы не открываться в WebKit без входа. Перезагрузите, чтобы попробовать снова."
+            "value": "Chromium недоступен: вкладка не загружена, потому что WebKit открыл бы её без входа. Закройте и снова откройте cmux, чтобы загрузить её."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ใช้ Chromium ไม่ได้ แท็บนี้จึงยังปิดอยู่แทนที่จะเปิดใน WebKit โดยไม่ได้ลงชื่อเข้าใช้ โหลดซ้ำเพื่อลองอีกครั้ง"
+            "value": "ใช้ Chromium ไม่ได้: ไม่ได้โหลดแท็บนี้ เพราะ WebKit จะเปิดโดยไม่ได้ลงชื่อเข้าใช้ ออกจาก cmux แล้วเปิดใหม่เพื่อโหลด"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chromium kullanılamıyor. Bu sekme WebKit'te oturum kapalı açılmak yerine kapalı kalır. Yeniden denemek için yeniden yükleyin."
+            "value": "Chromium kullanılamıyor: WebKit oturum kapalı açacağı için bu sekme yüklenmedi. Yüklemek için cmux'tan çıkıp yeniden açın."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chromium недоступний. Ця вкладка лишається закритою, щоб не відкриватися у WebKit без входу. Перезавантажте, щоб спробувати знову."
+            "value": "Chromium недоступний: вкладку не завантажено, бо WebKit відкрив би її без входу. Закрийте й знову відкрийте cmux, щоб завантажити її."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chromium không khả dụng. Tab này vẫn đóng thay vì mở trong WebKit khi chưa đăng nhập. Tải lại để thử lại."
+            "value": "Chromium không khả dụng: tab này chưa được tải vì WebKit sẽ mở nó khi chưa đăng nhập. Thoát và mở lại cmux để tải."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chromium 不可用。此标签页保持关闭，不会以未登录状态在 WebKit 中打开。重新加载以重试。"
+            "value": "Chromium 不可用：此标签页未加载，因为 WebKit 会以未登录状态打开它。退出并重新打开 cmux 以加载。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chromium 無法使用。此分頁維持關閉，不會以未登入狀態在 WebKit 中開啟。重新載入以再試一次。"
+            "value": "Chromium 無法使用：此分頁未載入，因為 WebKit 會以未登入狀態開啟它。結束並重新開啟 cmux 以載入。"
           }
         }
       }

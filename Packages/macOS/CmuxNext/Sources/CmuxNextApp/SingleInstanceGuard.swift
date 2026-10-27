@@ -20,17 +20,17 @@ nonisolated struct SingleInstanceGuard: Equatable, Sendable {
     enum Decision: Equatable, Sendable {
         /// Start normally (this process owns the claim, or is not guarded).
         case launch
-        /// Another copy owns the claim: forward to `owner` and exit. `activates` is false for an agent launch
-        /// (`CMUX_NEXT_NO_ACTIVATE=1`), which then forwards nothing (an open would bring the owner forward).
-        case handOff(owner: pid_t, activates: Bool)
+        /// Another copy owns the claim: forward to it and exit, never start. `activates` is false for an agent
+        /// launch (`CMUX_NEXT_NO_ACTIVATE=1`), which then forwards nothing (an open would bring the owner forward).
+        case handOff(activates: Bool)
     }
 
     /// The outcome of trying to take the claim.
     enum Claim: Equatable, Sendable {
         /// This process holds it.
         case held
-        /// Another live process holds it; `owner` is its pid when it was recorded.
-        case taken(owner: pid_t?)
+        /// Another live process holds it.
+        case taken
         /// No claim could be tried (no Application Support directory, a file error): launch as before.
         case unavailable
     }
@@ -46,11 +46,10 @@ nonisolated struct SingleInstanceGuard: Equatable, Sendable {
         return !UpdateTrack.isDevelopmentBundle(bundleIdentifier) && environment[Self.allowKey] != "1"
     }
 
-    /// The decision for this launch given the claim's outcome. A taken claim whose owner never recorded its pid
-    /// launches: there is no one to hand to, and refusing would lose the launch.
+    /// The decision for this launch given the claim's outcome: a taken claim never starts a second copy.
     func decide(_ claim: Claim) -> Decision {
-        guard isGuarded, case .taken(let owner?) = claim, owner > 0, owner != getpid() else { return .launch }
-        return .handOff(owner: owner, activates: environment["CMUX_NEXT_NO_ACTIVATE"] != "1")
+        guard isGuarded, claim == .taken else { return .launch }
+        return .handOff(activates: environment["CMUX_NEXT_NO_ACTIVATE"] != "1")
     }
 }
 
@@ -66,41 +65,52 @@ extension SingleInstanceGuard {
         applicationSupport?.appending(path: bundleIdentifier).appending(path: "instance.lock")
     }
 
-    /// Takes the claim at `url`, keeping the descriptor open (close-on-exec) for the life of the process. A taken
-    /// lock's owner pid is read back for up to `ownerWait` microseconds (the owner writes it right after it locks).
-    static func claim(at url: URL, ownerWait: useconds_t = 500_000) -> Claim {
+    /// Takes the claim at `url`, keeping the descriptor open (close-on-exec) for the life of the process, and
+    /// records this pid in it (``owner(at:)``).
+    static func claim(at url: URL) -> Claim {
         try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
         let fd = open(url.path, O_RDWR | O_CREAT | O_CLOEXEC, 0o600)
         guard fd >= 0 else { return .unavailable }
-        if flock(fd, LOCK_EX | LOCK_NB) == 0 {
-            let pid = Data("\(getpid())\n".utf8)
-            _ = ftruncate(fd, 0)
-            _ = pid.withUnsafeBytes { pwrite(fd, $0.baseAddress, $0.count, 0) }
-            return .held  // fd stays open: the claim lasts until this process ends
+        guard flock(fd, LOCK_EX | LOCK_NB) == 0 else {
+            let lockError = errno
+            close(fd)
+            return lockError == EWOULDBLOCK ? .taken : .unavailable
         }
-        let lockError = errno
-        defer { close(fd) }
-        guard lockError == EWOULDBLOCK else { return .unavailable }
-        var waited: useconds_t = 0
-        while true {
-            if let owner = ownerPID(fd) { return .taken(owner: owner) }
-            guard waited < ownerWait else { return .taken(owner: nil) }
-            usleep(25_000)
-            waited += 25_000
-        }
+        let pid = Data("\(getpid())\n".utf8)
+        _ = ftruncate(fd, 0)
+        _ = pid.withUnsafeBytes { pwrite(fd, $0.baseAddress, $0.count, 0) }
+        return .held  // fd stays open: the claim lasts until this process ends
     }
 
-    private static func ownerPID(_ fd: Int32) -> pid_t? {
+    /// Whether nobody holds the claim at `url` now (its owner ended).
+    static func isFree(at url: URL) -> Bool {
+        let fd = open(url.path, O_RDONLY | O_CLOEXEC)
+        guard fd >= 0 else { return true }
+        defer { close(fd) }
+        return flock(fd, LOCK_EX | LOCK_NB) == 0  // released with the close
+    }
+
+    /// The pid the claim's owner recorded, nil before it wrote it (it writes right after it locks).
+    static func owner(at url: URL) -> pid_t? {
+        let fd = open(url.path, O_RDONLY | O_CLOEXEC)
+        guard fd >= 0 else { return nil }
+        defer { close(fd) }
         var buffer = [UInt8](repeating: 0, count: 32)
         let count = pread(fd, &buffer, buffer.count, 0)
         guard count > 0, let text = String(bytes: buffer[0..<count], encoding: .utf8),
-              let pid = pid_t(text.trimmingCharacters(in: .whitespacesAndNewlines)), pid > 0 else { return nil }
+              let pid = pid_t(text.trimmingCharacters(in: .whitespacesAndNewlines)), pid > 0, pid != getpid() else { return nil }
         return pid
+    }
+
+    /// This launch's lock file, nil when it is not guarded.
+    var lockURL: URL? {
+        guard isGuarded, let bundleIdentifier else { return nil }
+        return Self.lockURL(bundleIdentifier: bundleIdentifier)
     }
 
     /// The decision for this launch; takes the claim when this launch is guarded.
     func resolve() -> Decision {
-        guard isGuarded, let bundleIdentifier, let url = Self.lockURL(bundleIdentifier: bundleIdentifier) else { return .launch }
-        return decide(Self.claim(at: url))
+        guard let lockURL else { return .launch }
+        return decide(Self.claim(at: lockURL))
     }
 }

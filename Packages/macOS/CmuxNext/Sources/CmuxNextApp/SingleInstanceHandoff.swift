@@ -2,48 +2,52 @@ import AppKit
 import os
 
 /// A second copy's hand-off (``SingleInstanceGuard``): a plain `NSApplication` that takes this launch's open
-/// events, sends them to the owner's pid, brings the owner forward, and exits. It never makes `CmuxApplication`,
-/// a window, a session, the daemon connection or CEF.
+/// events, sends them to the claim owner's pid, brings the owner forward, and exits. It never makes
+/// `CmuxApplication`, a window, a session, the daemon connection or CEF.
 ///
-/// Events go to the owner's pid, never through LaunchServices by app URL: both copies run from the same bundle, so
-/// an open by URL could come back here. If the owner is gone when they are sent (it quit in between), this launch
-/// is reopened through LaunchServices with its URLs once this process has exited. An agent launch
-/// (`CMUX_NEXT_NO_ACTIVATE=1`) forwards nothing: any open would bring the owner forward.
+/// Events go to the owner's pid (read from the claim, ``SingleInstanceGuard/owner(at:)``), never through
+/// LaunchServices by app URL: both copies run from the same bundle, so an open by URL could come back here. Each
+/// event waits for the owner's reply (its handler ran); one that is not answered stays pending and is sent again
+/// until ``deadline``. If the owner is gone with events still pending (it quit in between), this launch reopens
+/// through LaunchServices with them once this process has exited. An agent launch (`CMUX_NEXT_NO_ACTIVATE=1`)
+/// forwards nothing: any open would bring the owner forward.
 ///
-/// Stop conditions: it exits ``settle`` after the last event it took (so open events AppKit delivers after
-/// `applicationDidFinishLaunching` still go), and at most ``deadline`` after launch, from a timer off the main
-/// thread, so a blocked send cannot hold it.
+/// Stop conditions: it exits ``settle`` after the last event it took once nothing is pending (open events AppKit
+/// delivers after `applicationDidFinishLaunching` still go), at ``deadline`` from a main-actor task, and at
+/// ``hardDeadline`` from a timer off the main thread, so a blocked send cannot hold it.
 @MainActor final class SingleInstanceHandoff: NSObject, NSApplicationDelegate {
     private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "launch")
-    /// The longest this process lives.
-    static let deadline: TimeInterval = 5
-    /// The quiet time after launch (and after each later open event) before it exits.
-    static let settle: TimeInterval = 0.3
+    static let settle: Duration = .milliseconds(300)
+    static let retry: Duration = .milliseconds(250)
+    static let deadline: Duration = .seconds(4)
+    static let hardDeadline: TimeInterval = 6
 
-    private let owner: pid_t
+    private let lock: URL
+    /// URLs not yet answered by the owner.
     private var pending: [URL] = []
-    private var sentAny = false
+    /// A bare launch's `rapp` still to send.
+    private var reopenPending = true
     private var launched = false
-    private var finishing: DispatchWorkItem?
+    private var finishing: Task<Void, Never>?
 
-    private init(owner: pid_t) {
-        self.owner = owner
+    private init(lock: URL) {
+        self.lock = lock
     }
 
-    /// Runs the hand-off to `owner`; never returns.
-    static func run(to owner: pid_t, activates: Bool) -> Never {
-        logger.notice("launch: another copy of this app runs (pid \(owner, privacy: .public)); handing off and exiting before Chromium or the session start")
+    /// Runs the hand-off to the owner of `lock`; never returns.
+    static func run(lock: URL, activates: Bool) -> Never {
+        logger.notice("launch: another copy of this app holds \(lock.path, privacy: .public); handing off and exiting before Chromium or the session start")
         guard activates else {
             logger.notice("launch: an agent launch of a second copy forwards nothing (the running copy would come forward); exiting")
             exit(0)
         }
-        DispatchQueue.global().asyncAfter(deadline: .now() + deadline) { exit(0) }
+        DispatchQueue.global().asyncAfter(deadline: .now() + hardDeadline) { exit(0) }
         // No saved windows of this copy: its restoration store would take over the running copy's.
         UserDefaults.standard.setVolatileDomain(["ApplePersistenceIgnoreState": true], forName: UserDefaults.argumentDomain)
         let app = NSApplication.shared
         // No Dock icon; an accessory may still be active, so it can hand activation to the owner.
         app.setActivationPolicy(.accessory)
-        let handoff = SingleInstanceHandoff(owner: owner)
+        let handoff = SingleInstanceHandoff(lock: lock)
         app.delegate = handoff
         withExtendedLifetime(handoff) { app.run() }
         exit(0)
@@ -52,67 +56,90 @@ import os
     /// This launch's documents and URLs (AppKit routes both `odoc` and `GURL` here).
     func application(_ application: NSApplication, open urls: [URL]) {
         pending += urls
-        guard launched else { return }
-        forward()
-        scheduleFinish()
+        reopenPending = false
+        if launched { attempt() }
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         launched = true
-        forward()
-        scheduleFinish()
+        Task { [weak self] in
+            try? await Task.sleep(for: Self.deadline)
+            self?.giveUp()
+        }
+        attempt()
     }
 
-    private func scheduleFinish() {
+    /// Sends what is pending; then exits after the settle time, or tries again shortly.
+    private func attempt() {
         finishing?.cancel()
-        let work = DispatchWorkItem { [weak self] in MainActor.assumeIsolated { self?.finish() } }
-        finishing = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + Self.settle, execute: work)
+        let owner = SingleInstanceGuard.owner(at: lock)
+        if let owner {
+            if !pending.isEmpty {
+                let urls = pending
+                if send(SingleInstanceHandoffEvents.events(for: urls), to: owner) {
+                    pending.removeAll { urls.contains($0) }
+                    Self.logger.notice("launch: handed \(urls.count, privacy: .public) URL(s) to pid \(owner, privacy: .public)")
+                }
+            } else if reopenPending, send([.reopen], to: owner) {
+                reopenPending = false
+            }
+        }
+        let done = pending.isEmpty && !reopenPending
+        finishing = Task { [weak self] in
+            try? await Task.sleep(for: done ? Self.settle : Self.retry)
+            guard !Task.isCancelled, let self else { return }
+            if done { self.finish(owner: owner) } else { self.attempt() }
+        }
     }
 
-    /// Nothing more arrived: a bare launch brings the owner forward (`rapp`), then this process exits.
-    private func finish() {
-        if !sentAny { send([.reopen], urls: []) }
-        if let running = NSRunningApplication(processIdentifier: owner) {
+    /// Sends `events` to `owner`, each waiting for its reply; false when one was not answered.
+    private func send(_ events: [SingleInstanceHandoffEvents.Event], to owner: pid_t) -> Bool {
+        for event in events {
+            do {
+                _ = try SingleInstanceHandoffEvents.descriptor(event, to: owner).sendEvent(options: [.waitForReply], timeout: 1)
+            } catch {
+                Self.logger.error("launch: hand-off event to pid \(owner, privacy: .public) not answered: \(String(describing: error), privacy: .public)")
+                return false
+            }
+        }
+        return true
+    }
+
+    private func finish(owner: pid_t?) {
+        if let owner, let running = NSRunningApplication(processIdentifier: owner) {
             NSApp.yieldActivation(to: running)
             running.activate()
         }
         exit(0)
     }
 
-    private func forward() {
-        let urls = pending
-        pending = []
-        guard !urls.isEmpty else { return }
-        send(SingleInstanceHandoffEvents.events(for: urls), urls: urls)
-        sentAny = true
-    }
-
-    private func send(_ events: [SingleInstanceHandoffEvents.Event], urls: [URL]) {
-        var failed = false
-        for event in events {
-            do {
-                try SingleInstanceHandoffEvents.descriptor(event, to: owner).sendEvent(options: [.noReply], timeout: 1)
-            } catch {
-                failed = true
-                Self.logger.error("launch: hand-off event to pid \(self.owner, privacy: .public) failed: \(String(describing: error), privacy: .public)")
-            }
+    /// The deadline with events still pending. The owner ended (the claim is free): the launch reopens through
+    /// LaunchServices. The claim is held but its recorded owner is gone (a leaked descriptor, not a copy of the
+    /// app): the launch reopens past the guard (`CMUX_NEXT_ALLOW_SECOND_INSTANCE=1`), so cmux never becomes
+    /// unlaunchable. The owner is alive but never answered: the launch is dropped, logged.
+    private func giveUp() {
+        guard !pending.isEmpty || reopenPending else { return }
+        let owner = SingleInstanceGuard.owner(at: lock)
+        if SingleInstanceGuard.isFree(at: lock) {
+            Self.logger.notice("launch: the running copy exited during the hand-off; reopening this launch")
+            Self.reopenAfterExit(bundle: Bundle.main.bundleURL, urls: pending, pastGuard: false)
+        } else if let owner, kill(owner, 0) != 0, errno == ESRCH {
+            Self.logger.error("launch: the claim is held but its owner pid \(owner, privacy: .public) is gone; reopening past the guard")
+            Self.reopenAfterExit(bundle: Bundle.main.bundleURL, urls: pending, pastGuard: true)
+        } else {
+            Self.logger.error("launch: the running copy never answered; \(self.pending.count, privacy: .public) URL(s) not handed off")
         }
-        Self.logger.notice("launch: handed \(urls.count, privacy: .public) URL(s) to pid \(self.owner, privacy: .public)")
-        guard failed, kill(owner, 0) != 0, errno == ESRCH else { return }
-        // The owner quit in between: this launch reopens through LaunchServices once this process has exited.
-        Self.logger.notice("launch: pid \(self.owner, privacy: .public) exited during the hand-off; reopening this launch")
-        Self.reopenAfterExit(bundle: Bundle.main.bundleURL, urls: urls)
         exit(0)
     }
 
-    /// `open -a <bundle> <urls>` from a child that waits (at most 5 s) for this process to exit first, so
-    /// LaunchServices starts a new copy instead of routing back here.
-    private static func reopenAfterExit(bundle: URL, urls: [URL]) {
-        let script = "p=$0; a=$1; shift; i=0; while /bin/kill -0 \"$p\" 2>/dev/null && [ $i -lt 100 ]; do /bin/sleep 0.05; i=$((i+1)); done; exec /usr/bin/open -a \"$a\" \"$@\""
+    /// `open -a <bundle> <urls>` from a child that waits on this process's exit (`caffeinate -w`, the kernel's
+    /// exit event, as `RollbackSwap.relaunchCommand`), so LaunchServices starts a new copy instead of this one.
+    private static func reopenAfterExit(bundle: URL, urls: [URL], pastGuard: Bool) {
+        let env = pastGuard ? ["--env", "\(SingleInstanceGuard.allowKey)=1"] : []
         let process = Process()
         process.executableURL = URL(filePath: "/bin/sh")
-        process.arguments = ["-c", script, String(getpid()), bundle.path] + urls.map { $0.isFileURL ? $0.path : $0.absoluteString }
+        process.arguments = ["-c", "p=$0; shift; /usr/bin/caffeinate -w \"$p\"; exec /usr/bin/open \"$@\"",
+                             String(getpid()), "-a", bundle.path] + env + urls.map { $0.isFileURL ? $0.path : $0.absoluteString }
         do { try process.run() } catch {
             logger.error("launch: reopen failed: \(String(describing: error), privacy: .public)")
         }

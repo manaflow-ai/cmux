@@ -37,8 +37,9 @@ public struct CmuxNextApp {
         Self.prepareLaunchEnvironment()
         // A second copy of this bundle for this user hands off to the running one and exits, before it
         // reads the relaunch-focus record or a session and before CEF (SingleInstanceGuard).
-        if case .handOff(let owner, let activates) = SingleInstanceGuard.current.resolve() {
-            SingleInstanceHandoff.run(to: owner, activates: activates)
+        let instance = SingleInstanceGuard.current
+        if case .handOff(let activates) = instance.resolve(), let lock = instance.lockURL {
+            SingleInstanceHandoff.run(lock: lock, activates: activates)
         }
         // Pure launch work (action catalog, string tables) overlaps AppKit's start.
         LaunchWarmup.start()
