@@ -1,7 +1,7 @@
 // Use recorded full contents, never read a path from disk or mistake an edit hunk for a document.
 import { useContext, useMemo } from "react";
 import type { AcpmuxActivity, AcpmuxRow } from "../model";
-import { pathKey } from "../model";
+import { pathKey, toolCanonical } from "../model";
 import { useT } from "../i18n";
 import { ArtifactContext, type Artifact } from "./artifactPreview";
 
@@ -17,7 +17,8 @@ export function toolArtifacts(tool: Tool): Artifact[] {
     try {
       const input = JSON.parse(tool.inputSummary ?? "null");
       const path = input?.file_path ?? input?.path;
-      if (typeof path === "string" && typeof input?.content === "string") full.push({ path, newText: input.content });
+      if (typeof path === "string" && typeof input?.content === "string")
+        full.push({ path, canonical: toolCanonical(tool, path), newText: input.content });
     } catch {
       /* A truncated or non-JSON input is not a document. */
     }
