@@ -3,6 +3,7 @@
 //! landing 3a): each names the actor it acts as.
 
 use super::*;
+use std::sync::PoisonError;
 
 impl Mux {
     /// Close a pane and every tab in it.
@@ -90,8 +91,10 @@ impl Mux {
             Map::from_iter([("direction".into(), Value::String(direction.into()))]),
         )?;
         let public_id = PanePublicId::parse(
-            commit.result["pane"]
-                .as_str()
+            commit
+                .result
+                .get("pane")
+                .and_then(Value::as_str)
                 .context("pane focus result omitted its pane id")?
                 .to_string(),
         )?;
@@ -108,7 +111,7 @@ impl Mux {
     pub fn focus_pane_as(self: &Arc<Self>, actor: &Actor, pane: PaneId) -> bool {
         let layout_changed = self.with_state(|state| {
             let (workspace, screen) = state.screen_of(pane)?;
-            let screen = &state.workspaces[workspace].screens[screen];
+            let screen = state.screen_at(workspace, screen).ok()?;
             (screen.active_pane != pane
                 && (screen.root.contains_stack_pane(screen.active_pane)
                     || screen.root.contains_stack_pane(pane)))
@@ -169,14 +172,13 @@ impl Mux {
                 let source_screen = (source_pane != pane
                     && state.panes.get(&source_pane)?.tabs.len() == 1)
                     .then(|| {
-                        state.screen_of(source_pane).map(|(workspace, screen)| {
-                            state.workspaces[workspace].screens[screen].id
-                        })
+                        let (workspace, screen) = state.screen_of(source_pane)?;
+                        Some(state.screen_at(workspace, screen).ok()?.id)
                     })
                     .flatten();
                 Some((
-                    state.workspaces[workspace].public_id.to_string(),
-                    state.workspaces[workspace].screens[screen].public_id.to_string(),
+                    state.workspace_at(workspace).ok()?.public_id.to_string(),
+                    state.screen_at(workspace, screen).ok()?.public_id.to_string(),
                     state.resource_indexes.pane_ids.get(&pane)?.to_string(),
                     source_screen,
                 ))
@@ -260,32 +262,20 @@ impl Mux {
         }
         let notifications = self.tree_decorations();
         let renamed = {
-            let state = self.state.lock().unwrap();
-            let Some(wi) = state
+            let state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
+            let Some(workspace) = state
                 .workspaces
                 .iter()
-                .enumerate()
-                .find_map(|(wi, workspace)| {
-                    workspace
-                        .screens
-                        .iter()
-                        .position(|screen| screen.id == target)
-                        .map(|si| (wi, si))
-                })
-                .map(|(wi, _)| wi)
+                .find(|workspace| workspace.screens.iter().any(|screen| screen.id == target))
+                .map(|workspace| workspace.id)
             else {
                 return false;
             };
-            let entity = crate::server::tree_entity_json(
-                &state,
-                &notifications,
-                TreeDeltaKind::ScreenRenamed,
-                target,
-            )
-            .expect("renamed screen is present in tree snapshot");
+            let entity =
+                committed_tree_entity(&state, &notifications, TreeDeltaKind::ScreenRenamed, target);
             TreeDelta {
                 kind: TreeDeltaKind::ScreenRenamed,
-                workspace: state.workspaces[wi].id,
+                workspace,
                 screen: Some(target),
                 pane: None,
                 surface: None,
@@ -324,7 +314,7 @@ impl Mux {
         // entry still carries the renamed tab.
         let notifications = self.tree_decorations();
         let delta = {
-            let state = self.state.lock().unwrap();
+            let state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
             (|| {
                 let pane = state.pane_of(target)?;
                 let (wi, si) = state.screen_of(pane)?;
@@ -336,8 +326,8 @@ impl Mux {
                 )?;
                 Some(TreeDelta {
                     kind: TreeDeltaKind::TabRenamed,
-                    workspace: state.workspaces[wi].id,
-                    screen: Some(state.workspaces[wi].screens[si].id),
+                    workspace: state.workspace_at(wi).ok()?.id,
+                    screen: Some(state.screen_at(wi, si).ok()?.id),
                     pane: Some(pane),
                     surface: Some(target),
                     index: None,
@@ -363,7 +353,7 @@ impl Mux {
         delta: Option<isize>,
     ) {
         let screen = {
-            let state = self.state.lock().unwrap();
+            let state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
             let active = state.active_workspace;
             let Some(ws) = state.workspaces.get(active) else { return };
             let len = ws.screens.len();
@@ -377,7 +367,8 @@ impl Mux {
             } else {
                 ws.active_screen
             };
-            ws.screens[selected].id
+            let Some(screen) = ws.screens.get(selected) else { return };
+            screen.id
         };
         let Some(selectors) = self.ordinary_screen_selectors(screen) else { return };
         if self
@@ -403,7 +394,7 @@ impl Mux {
         delta: Option<isize>,
     ) {
         let workspace = {
-            let state = self.state.lock().unwrap();
+            let state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
             let len = state.workspaces.len();
             if len == 0 {
                 return;
@@ -415,7 +406,8 @@ impl Mux {
             } else {
                 state.active_workspace
             };
-            state.workspaces[selected].id
+            let Some(workspace) = state.workspaces.get(selected) else { return };
+            workspace.id
         };
         let Some(selectors) = self.ordinary_workspace_selectors(workspace) else { return };
         if self
@@ -445,8 +437,8 @@ impl Mux {
                 return None;
             }
             Some((
-                state.workspaces[second.0].public_id.to_string(),
-                state.workspaces[second.0].screens[second.1].public_id.to_string(),
+                state.workspace_at(second.0).ok()?.public_id.to_string(),
+                state.screen_at(second.0, second.1).ok()?.public_id.to_string(),
                 state.resource_indexes.pane_ids.get(&target)?.to_string(),
             ))
         }) else {
@@ -480,7 +472,7 @@ impl Mux {
             let target = pane.or_else(|| state.active_pane()).context("no active pane")?;
             let (workspace, screen) =
                 state.screen_of(target).with_context(|| format!("unknown pane {target}"))?;
-            let current = state.workspaces[workspace].screens[screen].zoomed_pane;
+            let current = state.screen_at(workspace, screen)?.zoomed_pane;
             let next = match mode {
                 ZoomMode::Toggle if current == Some(target) => None,
                 ZoomMode::Toggle | ZoomMode::On => Some(target),

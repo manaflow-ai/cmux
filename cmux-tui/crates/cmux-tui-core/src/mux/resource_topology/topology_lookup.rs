@@ -24,7 +24,7 @@ pub(in crate::mux) fn new_workspace_position(
         .map(|(position, _)| position)
         .collect::<Vec<_>>();
     match (index, members.last()) {
-        (Some(index), Some(_)) if index < members.len() => members[index],
+        (Some(index), Some(_)) if let Some(position) = members.get(index) => *position,
         (_, Some(last)) if group.is_some() || index.is_some() => last + 1,
         _ => state.workspaces.len(),
     }
@@ -114,9 +114,13 @@ pub(super) fn set_active_screen(
     }
 }
 
-pub(super) fn registry_workspace(state: &State, index: usize, session: &str) -> RegistryWorkspace {
-    let workspace = &state.workspaces[index];
-    RegistryWorkspace {
+pub(super) fn registry_workspace(
+    state: &State,
+    index: usize,
+    session: &str,
+) -> Result<RegistryWorkspace, StaleTopology> {
+    let workspace = state.workspace_at(index)?;
+    Ok(RegistryWorkspace {
         id: workspace.id,
         public_id: workspace.public_id.clone(),
         key: workspace.key.clone(),
@@ -124,7 +128,7 @@ pub(super) fn registry_workspace(state: &State, index: usize, session: &str) -> 
         name_source: workspace.name_source,
         name_revision: workspace.name_revision,
         group_key: session.to_string(),
-    }
+    })
 }
 
 pub(super) fn upsert(sequence: usize, resource: &str, id: &str, value: Value) -> Value {
@@ -157,7 +161,7 @@ pub(super) fn workspace_value(
         .iter()
         .position(|workspace| &workspace.public_id == id)
         .with_context(|| format!("workspace {id} is not live"))?;
-    let workspace = &state.workspaces[index];
+    let workspace = state.workspace_at(index)?;
     Ok(json!({
         "id":id,
         "session_id":topology.session_id,
@@ -193,7 +197,7 @@ pub(super) fn pane_value_with_zoom(
     zoomed: bool,
 ) -> anyhow::Result<Value> {
     let mut value = pane_value(state, pane, topology)?;
-    value["zoomed"] = json!(zoomed);
+    set_field(&mut value, "zoomed", json!(zoomed))?;
     Ok(value)
 }
 
@@ -220,8 +224,11 @@ pub(super) fn tab_value(
     Ok(tab.public_value(pane.active_tab.as_ref() == Some(&tab.public_id)))
 }
 
-pub(super) fn target_location_screen(state: &State, location: (usize, usize)) -> ScreenId {
-    state.workspaces[location.0].screens[location.1].id
+pub(super) fn target_location_screen(
+    state: &State,
+    location: (usize, usize),
+) -> Result<ScreenId, StaleTopology> {
+    Ok(state.screen_at(location.0, location.1)?.id)
 }
 
 pub(super) fn delete_delta(sequence: usize, resource: &str, id: &str) -> Value {

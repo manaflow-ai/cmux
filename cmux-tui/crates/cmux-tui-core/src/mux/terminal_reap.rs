@@ -19,6 +19,7 @@ use std::thread::JoinHandle;
 
 use super::*;
 use crate::state::kept_tab_store::{KeptTab, kept_title};
+use std::sync::PoisonError;
 
 /// Default reap grace period for a terminal with no placement.
 pub const DEFAULT_TERMINAL_REAP_GRACE: Duration = Duration::from_secs(30);
@@ -145,7 +146,10 @@ impl Mux {
     /// zero placements until `terminal.close` or `close-terminal`.
     #[track_caller]
     pub fn set_terminal_keep(&self, terminal_id: &str, keep: bool) -> anyhow::Result<()> {
-        self.workspace_registry.lock().unwrap().set_terminal_keep(terminal_id, keep)?;
+        self.workspace_registry
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .set_terminal_keep(terminal_id, keep)?;
         if !keep {
             self.wake_terminal_reaper();
         }
@@ -155,11 +159,16 @@ impl Mux {
     /// Whether one hosted terminal is marked `keep`.
     #[track_caller]
     pub fn terminal_keep(&self, terminal_id: &str) -> anyhow::Result<bool> {
-        self.workspace_registry.lock().unwrap().terminal_keep(terminal_id)
+        self.workspace_registry
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .terminal_keep(terminal_id)
     }
 
     fn wake_terminal_reaper(&self) {
-        if let Some(events) = self.terminal_reaper_events.lock().unwrap().as_ref() {
+        if let Some(events) =
+            self.terminal_reaper_events.lock().unwrap_or_else(PoisonError::into_inner).as_ref()
+        {
             events.wake();
         }
     }
@@ -169,7 +178,7 @@ impl Mux {
     #[track_caller]
     pub(crate) fn reapable_terminals(&self) -> anyhow::Result<HashSet<String>> {
         let mut unplaced = {
-            let state = self.state.lock().unwrap();
+            let state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
             let placed_runtimes: HashSet<SurfaceId> =
                 state.surfaces.values().filter_map(|view| view.terminal_runtime_id()).collect();
             let mut unplaced = HashSet::new();
@@ -191,7 +200,8 @@ impl Mux {
             return Ok(unplaced);
         }
         let kept = {
-            let mut registry = self.workspace_registry.lock().unwrap();
+            let mut registry =
+                self.workspace_registry.lock().unwrap_or_else(PoisonError::into_inner);
             if let Err(error) = registry.prune_terminal_keep() {
                 self.report_internal_diagnostic(format!("terminal keep prune failed: {error}"));
             }
@@ -210,7 +220,7 @@ impl Mux {
     #[track_caller]
     pub(crate) fn reap_unplaced_terminal(&self, terminal_id: &str) -> anyhow::Result<ReapOutcome> {
         let (runtime_view, public_id) = {
-            let state = self.state.lock().unwrap();
+            let state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
             let found = state.terminal_catalog.iter().find(|(_, runtime)| {
                 self.resource_terminal_host_identity(runtime)
                     .is_some_and(|identity| identity.terminal_id == terminal_id)
@@ -352,7 +362,12 @@ impl Mux {
         // Reconnects of terminals that are about to end must not schedule a
         // session checkpoint (nx-scale S4); see mux/journal_retention.rs.
         let _teardown = self.begin_terminal_teardown();
-        let terminals = self.workspace_registry.lock().unwrap().terminal_snapshot()?.terminals;
+        let terminals = self
+            .workspace_registry
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .terminal_snapshot()?
+            .terminals;
         // The workspace store records every kept tab before any terminal
         // ends, so no exit can remove one (invariant 3 of
         // plans/cmux-next/OWNERSHIP-PRINCIPLES.md).
@@ -428,7 +443,13 @@ impl Mux {
         // after the handoff, so the host would outlive the call. Before
         // reporting success, prove every host of this session ended.
         #[cfg(any(unix, windows))]
-        if let Some(root) = self.surface_options.lock().unwrap().terminal_host_root.clone() {
+        if let Some(root) = self
+            .surface_options
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .terminal_host_root
+            .clone()
+        {
             let survivors =
                 end_surviving_terminal_hosts(&root, Instant::now() + END_TERMINALS_SURVIVOR_WAIT);
             anyhow::ensure!(
@@ -457,8 +478,8 @@ impl Mux {
         // Tab ids and process ids under the locks; directories after.
         let mut placed = Vec::new();
         {
-            let registry = self.workspace_registry.lock().unwrap();
-            let state = self.lock_state_pinned(&registry).unwrap();
+            let registry = self.workspace_registry.lock().unwrap_or_else(PoisonError::into_inner);
+            let state = self.lock_state_pinned(&registry).unwrap_or_else(PoisonError::into_inner);
             for terminal in terminals {
                 if terminal.lifecycle == TerminalLifecycle::Tombstoned {
                     continue;
@@ -520,11 +541,16 @@ impl Mux {
         if by_content.is_empty() {
             return Ok(Vec::new());
         }
-        let terminals = self.workspace_registry.lock().unwrap().terminal_snapshot()?.terminals;
+        let terminals = self
+            .workspace_registry
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .terminal_snapshot()?
+            .terminals;
         let mut chosen = Vec::new();
         let mut parked_surfaces = Vec::new();
         {
-            let registry = self.workspace_registry.lock().unwrap();
+            let registry = self.workspace_registry.lock().unwrap_or_else(PoisonError::into_inner);
             for terminal in terminals {
                 if !matches!(
                     terminal.lifecycle,
@@ -569,8 +595,8 @@ impl Mux {
     #[track_caller]
     fn forget_kept_tabs_of(&self, terminal_ids: &[String]) -> anyhow::Result<()> {
         let tab_ids = {
-            let registry = self.workspace_registry.lock().unwrap();
-            let state = self.lock_state_pinned(&registry).unwrap();
+            let registry = self.workspace_registry.lock().unwrap_or_else(PoisonError::into_inner);
+            let state = self.lock_state_pinned(&registry).unwrap_or_else(PoisonError::into_inner);
             let mut tab_ids = Vec::new();
             for terminal_id in terminal_ids {
                 if let Some(public_id) = registry.terminal_resource_id(terminal_id)? {
@@ -600,7 +626,7 @@ impl Mux {
             let registry = self.workspace_registry.lock().unwrap_or_else(PoisonError::into_inner);
             let public_id = registry.terminal_resource_id(&terminal.terminal_id)?;
             drop(registry);
-            let state = self.state.lock().unwrap();
+            let state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
             public_id.and_then(|public_id| state.terminal_catalog.get(&public_id).cloned())
         };
         match runtime {
@@ -718,7 +744,7 @@ impl TerminalReaper {
 
     fn signal_stop(&self) {
         self.stop.store(true, Ordering::Release);
-        self.events.lock().unwrap().close();
+        self.events.lock().unwrap_or_else(PoisonError::into_inner).close();
     }
 }
 
@@ -737,7 +763,7 @@ pub fn start_terminal_reaper(mux: &Arc<Mux>) -> std::io::Result<TerminalReaper> 
     let weak = Arc::downgrade(mux);
     let thread_stop = stop.clone();
     let shared_events = events.clone();
-    let mut thread_events = events.lock().unwrap().clone();
+    let mut thread_events = events.lock().unwrap_or_else(PoisonError::into_inner).clone();
     let thread = std::thread::Builder::new().name("mux-terminal-reap".into()).spawn(move || {
         let mut schedule = ReapSchedule::default();
         loop {
@@ -765,7 +791,8 @@ pub fn start_terminal_reaper(mux: &Arc<Mux>) -> std::io::Result<TerminalReaper> 
                     // loop checks `stop` again before it next waits.
                     let Some(mux) = weak.upgrade() else { break };
                     thread_events = mux.subscribe_terminal_reaper();
-                    *shared_events.lock().unwrap() = thread_events.clone();
+                    *shared_events.lock().unwrap_or_else(PoisonError::into_inner) =
+                        thread_events.clone();
                 }
             }
         }
@@ -777,7 +804,7 @@ pub fn start_terminal_reaper(mux: &Arc<Mux>) -> std::io::Result<TerminalReaper> 
     let thread = match thread {
         Ok(thread) => thread,
         Err(error) => {
-            mux.terminal_reaper_events.lock().unwrap().take();
+            mux.terminal_reaper_events.lock().unwrap_or_else(PoisonError::into_inner).take();
             return Err(error);
         }
     };
@@ -795,7 +822,8 @@ impl Mux {
     /// and keep a handle so keep and grace changes can wake it.
     fn subscribe_terminal_reaper(&self) -> MuxEventReceiver {
         let events = self.subscribers.subscribe_terminal_topology();
-        *self.terminal_reaper_events.lock().unwrap() = Some(events.clone());
+        *self.terminal_reaper_events.lock().unwrap_or_else(PoisonError::into_inner) =
+            Some(events.clone());
         events
     }
 }

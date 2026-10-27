@@ -1,6 +1,7 @@
 //! Workspace reordering: revision-checked moves and the mutation path.
 
 use super::*;
+use std::sync::PoisonError;
 
 impl Mux {
     /// Reorder a workspace as `actor`. The active workspace follows the
@@ -14,7 +15,7 @@ impl Mux {
         expected_revision: Option<u64>,
     ) -> anyhow::Result<Option<(u64, bool)>> {
         {
-            let state = self.state.lock().unwrap();
+            let state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
             let Some(old_index) = state.workspace_index(workspace) else {
                 return Ok(None);
             };
@@ -62,16 +63,17 @@ impl Mux {
             "index": index,
         });
         let notifications = self.tree_decorations();
-        let mut registry = self.workspace_registry.lock().unwrap();
+        let mut registry = self.workspace_registry.lock().unwrap_or_else(PoisonError::into_inner);
         if let Some(commit) = registry.replay(mutation, &fingerprint)? {
             return workspace_mutation_result(&commit);
         }
         let (delta, result) = {
-            let mut state = self.lock_state_pinned(&registry).unwrap();
+            let mut state =
+                self.lock_state_pinned(&registry).unwrap_or_else(PoisonError::into_inner);
             Self::require_workspace_revision(&state, expected_revision)?;
             let old_idx = resolve_workspace_index(&state, workspace, requested_key)?;
-            let workspace_id = state.workspaces[old_idx].id;
-            let key = state.workspaces[old_idx].key.clone();
+            let workspace_id = state.workspace_at(old_idx)?.id;
+            let key = state.workspace_at(old_idx)?.key.clone();
             // Protocol v7 uses insertion-point semantics. Once the source is
             // removed, insertion points to its right shift left by one.
             let new_idx = if index > old_idx { index.saturating_sub(1) } else { index };
@@ -108,13 +110,12 @@ impl Mux {
             state.workspace_revision = commit.revision;
             state.resource_revision = resource_revision;
             let workspace_revision = commit.revision;
-            let entity = crate::server::tree_entity_json(
+            let entity = committed_tree_entity(
                 &state,
                 &notifications,
                 TreeDeltaKind::WorkspaceMoved,
                 workspace_id,
-            )
-            .expect("moved workspace is present in tree snapshot");
+            );
             (
                 TreeDelta {
                     kind: TreeDeltaKind::WorkspaceMoved,

@@ -45,8 +45,8 @@ pub(super) fn run_placement_for_surface(state: &State, surface: SurfaceId) -> Op
     Some(RunPlacement {
         surface,
         pane,
-        screen: state.workspaces[workspace_index].screens[screen_index].id,
-        workspace: state.workspaces[workspace_index].id,
+        screen: state.screen_at(workspace_index, screen_index).ok()?.id,
+        workspace: state.workspace_at(workspace_index).ok()?.id,
     })
 }
 
@@ -79,7 +79,7 @@ pub(super) fn terminal_exit_snapshot_in_state(
         "running": false,
     });
     if let Some(cwd) = surface.and_then(|surface| surface.published_directory()) {
-        snapshot["cwd"] = serde_json::json!(cwd);
+        set_field(&mut snapshot, "cwd", serde_json::json!(cwd))?;
     }
     Ok(snapshot)
 }
