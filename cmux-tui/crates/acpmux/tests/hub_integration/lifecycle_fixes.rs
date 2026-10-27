@@ -526,3 +526,38 @@ async fn an_agent_that_never_answers_its_start_fails_with_a_deadline() {
     assert!(answered["stopReason"].is_string(), "{answered}");
     let _ = std::fs::remove_file(&gate);
 }
+
+/// A launch warmer must distinguish a failed harness load from an intentional trust skip.
+#[tokio::test]
+async fn launch_warm_reports_a_failed_agent_load() {
+    let env = BTreeMap::from([("FAKE_LOAD_ERROR".to_owned(), "thread held by another agent".to_owned())]);
+    let (hub, mut client) = setup_env(PermissionPolicy::ApproveAll, env).await;
+    let made = client
+        .request(method::SESSION_NEW, json!({"cwd": cwd(), "mcpServers": []}))
+        .await
+        .unwrap();
+    let id = made["sessionId"].as_str().unwrap().to_owned();
+    let session = hub.resolve(&id).unwrap();
+    hub.detach_child(&session).await;
+    let result = client.request(method::MUX_WARM, json!({"sessionIds": [id]})).await.unwrap();
+    assert_eq!(result["warmed"], json!([]), "{result}");
+    assert_eq!(result["failed"][0]["sessionId"], made["sessionId"], "{result}");
+    assert!(result["failed"][0]["error"].is_object(), "{result}");
+    hub.shutdown_all().await;
+}
+
+#[tokio::test]
+async fn launch_warm_reports_success_without_failures() {
+    let (hub, mut client) = setup(PermissionPolicy::ApproveAll).await;
+    let made = client
+        .request(method::SESSION_NEW, json!({"cwd": cwd(), "mcpServers": []}))
+        .await
+        .unwrap();
+    let result = client
+        .request(method::MUX_WARM, json!({"sessionIds": [made["sessionId"]]}))
+        .await
+        .unwrap();
+    assert_eq!(result["warmed"][0]["sessionId"], made["sessionId"], "{result}");
+    assert_eq!(result["failed"], json!([]), "{result}");
+    hub.shutdown_all().await;
+}

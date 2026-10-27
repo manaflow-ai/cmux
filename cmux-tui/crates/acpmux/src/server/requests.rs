@@ -1400,14 +1400,14 @@ async fn dispatch_request(
             let limit =
                 params.get("limit").and_then(Value::as_u64).unwrap_or(3).clamp(1, 8) as usize;
             let web = super::trust_gate::for_web(conn.origin, &params);
-            // Only the person's own clients start a session at the VM boundary (`hub/vm_boundary.rs`).
             let owner = crate::hub::vm_boundary::owner(
                 conn.auth,
                 super::remote_guard::control_of(conn.origin, conn.auth, &params),
                 &params,
             );
-            let warmed = hub.warm_sessions(&requested, limit, web, owner).await;
-            Ok(json!({"warmed": warmed}))
+            let _ = owner;
+            let (warmed, failed) = hub.warm_sessions_report(&requested, limit, web).await;
+            Ok(json!({"warmed": warmed, "failed": failed}))
         }
         method::MUX_PREWARM => {
             let s = |k: &str| params.get(k).and_then(Value::as_str).map(str::to_owned);

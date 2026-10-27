@@ -86,6 +86,7 @@ nonisolated enum AcpmuxDaemonLauncher {
                                    onSpawn: @Sendable (pid_t) -> Void) async throws -> AcpmuxWebEndpoint {
         // cmux NEXT's one-time adoption of its old acpmux home ends before any daemon starts (cx-is1kf.9).
         await AcpmuxEnvironment.adoptBuildHomes()
+        try Task.checkCancellation()
         guard AcpmuxServerPeer.executableSignedByAppTeam(environment.executable) else {
             throw Failure.untrustedExecutable(environment.executable.path)
         }
@@ -162,6 +163,7 @@ nonisolated enum AcpmuxDaemonLauncher {
         // arguments without argv[0], but the shell requires its executable name
         // in argv[0] before `-c` and the script.
         let spawnArguments = ["/bin/sh"] + arguments(for: environment)
+        try Task.checkCancellation()
         let spawnStatus = try Self.withCStringArray(spawnArguments) { argv in
             try Self.withCStringArray(variables.map { "\($0.key)=\($0.value)" }) { envp in
                 "/bin/sh".withCString { executable in

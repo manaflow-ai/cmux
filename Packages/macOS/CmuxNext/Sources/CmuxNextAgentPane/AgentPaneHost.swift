@@ -202,6 +202,20 @@ public actor AcpmuxHost: AgentPaneHostProviding {
     /// One `_acpmux/warm` per session: the daemon warms one session per folder in a call, so
     /// two chats in one folder would leave the second stopped.
     public func warm(sessionIds: [String]) async throws {
+        try await withTaskCancellationHandler {
+            try await warmSessions(sessionIds)
+        } onCancel: {
+            // task-owner: one cancellation hop into this actor. Launch warming is cancelled only
+            // when its owning app store ends or quits; all panes of that store are ending too.
+            Task { await self.cancelWarmStartup() }
+        }
+    }
+
+    private func cancelWarmStartup() {
+        for task in inFlight.values { task.cancel() }
+    }
+
+    private func warmSessions(_ sessionIds: [String]) async throws {
         try Task.checkCancellation()
         guard !sessionIds.isEmpty else { return }
         _ = try await endpoint(startsDaemon: true)
@@ -212,7 +226,10 @@ public actor AcpmuxHost: AgentPaneHostProviding {
             try Task.checkCancellation()
             let params: [String: any Sendable] = ["sessionIds": [session], "limit": 1]
             do {
-                _ = try await AcpmuxStatusClient.call(socketPath: socket, method: "_acpmux/warm", params: params, deadline: .seconds(60))
+                let result = try await AcpmuxStatusClient.call(socketPath: socket, method: "_acpmux/warm", params: params, deadline: .seconds(60))
+                if let failed = result["failed"] as? [[String: Any]], !failed.isEmpty {
+                    throw AcpmuxStatusClient.Failure.rpc("agent launch failed for session \(session)")
+                }
             } catch {
                 try Task.checkCancellation()
                 failure = error
@@ -499,6 +516,7 @@ public actor AcpmuxHost: AgentPaneHostProviding {
             throw failure(environment, .other, detail: String(describing: error))
         }
         do {
+            try Task.checkCancellation()
             let endpoint = try await AcpmuxDaemonLauncher.launch(environment)
             // A signed daemon ignores the spawn key: it takes the key by this app's signature.
             if let status = await Self.startedStatus(environment), status.serves(home: environment.home) {

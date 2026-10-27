@@ -17,6 +17,17 @@ impl Hub {
         web: bool,
         owner: bool,
     ) -> Vec<Value> {
+        self.warm_sessions_report(requested, limit, web).await.0
+    }
+
+    /// The same warm operation with explicit agent-start failures. Intentional trust/protected
+    /// folder skips are neither warmed nor failed. Existing callers may keep using `warm_sessions`.
+    pub async fn warm_sessions_report(
+        self: &Arc<Self>,
+        requested: &[String],
+        limit: usize,
+        web: bool,
+    ) -> (Vec<Value>, Vec<Value>) {
         // `sessions()` is newest first already; filtering keeps that order.
         let candidates: Vec<_> = self
             .sessions()
@@ -25,7 +36,12 @@ impl Hub {
             .collect();
         let mut seen_cwds = std::collections::HashSet::new();
         let mut warmed = Vec::new();
+        let mut failed = Vec::new();
         for session in candidates {
+            // Watched transcripts intentionally start no harness until Take Over.
+            if session.meta().watching.is_some() {
+                continue;
+            }
             let cwd = session.meta().cwd.to_string_lossy().into_owned();
             if !seen_cwds.insert(cwd.clone()) || warmed.len() >= limit {
                 continue;
@@ -45,11 +61,12 @@ impl Hub {
                 tracing::info!(session = %session.id, "not warmed: the folder has no Trust answer");
                 continue;
             }
-            if self.child_for(&session).await.is_ok() {
-                warmed.push(json!({"sessionId": session.id, "cwd": cwd}));
+            match self.child_for(&session).await {
+                Ok(_) => warmed.push(json!({"sessionId": session.id, "cwd": cwd})),
+                Err(error) => failed.push(json!({"sessionId": session.id, "error": error})),
             }
         }
-        warmed
+        (warmed, failed)
     }
 
     /// Whether the folder-trust gate lets `session`'s agent work: always when
