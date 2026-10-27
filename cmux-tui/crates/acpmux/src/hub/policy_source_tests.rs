@@ -316,13 +316,18 @@ async fn a_cleared_chats_live_agent_moves_to_an_asking_mode() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn a_cleared_chats_agent_that_does_not_move_is_stopped() {
-    let (hub, s) = live_chat(&["FAKE_SET_MODE_SILENT=1"]).await;
+    // It answers its start's mode change, then none (`FAKE_SET_MODE_SILENT_FILE`).
+    let silent = std::env::temp_dir().join(format!("acpmux-ps-silent-{}", uuid::Uuid::now_v7()));
+    let gate = format!("FAKE_SET_MODE_SILENT_FILE={}", silent.display());
+    let (hub, s) = live_chat(&[gate.as_str()]).await;
+    std::fs::write(&silent, "").unwrap();
     cleared_in_bypass(&hub, &s);
     assert_eq!(hub.hold_cleared_grants().await, 1, "it never answered its mode change");
     assert!(s.child.lock().await.is_none(), "its agent was stopped");
     assert_eq!(mode(&s).as_deref(), Some("default"), "its next start asks");
     assert_ne!(s.status(), SessionStatus::Closed, "the chat stays open");
     let _ = hub.kill(&s, true).await;
+    let _ = std::fs::remove_file(&silent);
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]

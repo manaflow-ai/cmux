@@ -1179,7 +1179,10 @@ def main():
         rid = msg.get("id")
         params = msg.get("params") or {}
         # FAKE_SET_MODE_SILENT=1: never answer session/set_mode, while staying alive.
-        if m == "session/set_mode" and os.environ.get("FAKE_SET_MODE_SILENT") == "1":
+        # FAKE_SET_MODE_SILENT_FILE=PATH: the same while PATH exists.
+        silent_file = os.environ.get("FAKE_SET_MODE_SILENT_FILE")
+        if m == "session/set_mode" and (os.environ.get("FAKE_SET_MODE_SILENT") == "1"
+                                        or (silent_file and os.path.exists(silent_file))):
             continue
         if m == "initialize" and os.environ.get("FAKE_DIE_AT_START"):
             sys.stderr.write(os.environ["FAKE_DIE_AT_START"] + "\n")
