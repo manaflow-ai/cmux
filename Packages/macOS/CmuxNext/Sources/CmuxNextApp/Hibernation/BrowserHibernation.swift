@@ -14,6 +14,13 @@ import os
 /// (plans/cmux-next/tab-lifecycle.md). Configured by
 /// `browser.hibernation`; "off" disables it completely.
 ///
+/// A page never reloads unless the person asks (Leo, 2026-10-26: "why does cmux-next's browser
+/// keep refreshing and reloading?"). A discarded page reloads when it wakes, so by default hidden
+/// pages only freeze (they keep their memory and state) and nothing is discarded on its own; the
+/// timeout and memory pressure discard only once cmux.json sets `browser.hibernation`
+/// (`BrowserHibernationSetting.discardsAutomatically`). Every discard and every restore is logged
+/// at notice level with its cause, so a reload in the field can be traced.
+///
 /// Triggers are events only: a page hides (a one-shot deadline for the
 /// earliest page to reach its threshold), the memory pressure dispatch
 /// source, a settings change, or the user's Hibernate Tab action. There is
@@ -55,8 +62,8 @@ final class BrowserHibernation {
     /// whatever the memory pressure, so a page does not close under a script
     /// or between two calls of one task.
     static let agentGrace: Double = 30
-    /// History and snapshot captured by the probe, used by the `release` effect.
-    private var prepared: [String: (state: BrowserRestoreState, snapshot: HibernationSnapshots.Picture?)] = [:]
+    /// History and snapshot captured by the probe, and why the page goes, used by the `release` effect.
+    private var prepared: [String: (state: BrowserRestoreState, snapshot: HibernationSnapshots.Picture?, cause: String)] = [:]
     /// Hibernated pages' pictures (`HibernationTunables.compressedSnapshots`), and their wakes (`debug.surfaces`).
     let snapshots = HibernationSnapshots()
     var wakeLog = HibernationWakes()
@@ -191,7 +198,7 @@ final class BrowserHibernation {
     func pressureDidChange(_ level: MemoryPressureLevel) {
         guard level != pressure else { return }
         pressure = level
-        logger.info("memory pressure \(level.rawValue, privacy: .public)")
+        logger.notice("memory pressure \(level.rawValue, privacy: .public)")
         onPressureChange?(level)
         agentPages?.update(setting: setting, pressure: pressure)
         refreshNeighbors(replans: false)
@@ -423,7 +430,10 @@ final class BrowserHibernation {
         let plan = HibernationPlanner.plan(setting, pressure: pressure, candidates: candidates)
         exemptions.merge(plan.exemptions) { $1 }
         if !plan.due.isEmpty { refreshMemoryIfNeeded() }
-        for key in plan.due { prepare(key) }
+        for key in plan.due {
+            let hiddenFor = hiddenAt[key].map { Int((now - $0).seconds) } ?? 0
+            prepare(key, cause: pressure == .normal ? "timeout hidden=\(hiddenFor)s" : "memory-pressure=\(pressure.rawValue) hidden=\(hiddenFor)s")
+        }
         if let next = [plan.nextCheck, graceEnds].compactMap(\.self).min() {
             deadline.schedule(after: .milliseconds(Int64(next * 1000) + 50)) { @MainActor [weak self] in self?.replan() }
         } else {
@@ -526,7 +536,9 @@ final class BrowserHibernation {
         var candidate = HibernationPlanner.Candidate(
             key: key, hiddenFor: hiddenFor, host: tab.state.url?.host(), isPinned: isPinned(key),
             hasDevTools: (tab as? any BrowserDevToolsHosting)?.devTools.isOpen ?? false, isCapturing: capturing,
-            canRestore: (tab as? any BrowserHibernationSource)?.supportsHibernation ?? false,
+            // A page whose renderer ended shows the crash notice until the person reloads it: a
+            // discard would drop the notice and its restore would load the page by itself.
+            canRestore: tab.state.processExit == nil && ((tab as? any BrowserHibernationSource)?.supportsHibernation ?? false),
             showsFormSubmission: (tab as? any BrowserHibernationSource)?.showsFormSubmission ?? false
         )
         candidate.recentFocusCount = recentFocusCount(key, now: now)
@@ -546,13 +558,13 @@ final class BrowserHibernation {
         let facts = candidate(key, entry: entry, hiddenFor: 0)
         guard facts.canRestore else { return .unsupported }
         guard !facts.showsFormSubmission else { exemptions[key] = .formSubmission; return .formSubmission }
-        prepare(key, user: true)
+        prepare(key, user: true, cause: "user")
         return nil
     }
 
     /// Probes the page, captures its history and snapshot, then hibernates
     /// it if it is still hidden with the same generation.
-    private func prepare(_ key: String, user: Bool = false) {
+    private func prepare(_ key: String, user: Bool = false, cause: String) {
         guard let cache, let entry = cache.browsers[key], let source = entry.tab as? any BrowserHibernationSource,
               let generation = cache.lifecycle.record(key)?.generation, probing.insert(key).inserted else { return }
         let tab = entry.tab
@@ -587,10 +599,16 @@ final class BrowserHibernation {
             case .stale:
                 cache.trace(key, "hibernate probe dropped (stale)")
                 return
-            case .keep(let reason) where exemption == nil:
-                self.exemptions[key] = reason
+            case .keep(let reason):
+                // The page's own answer (form input, audio) is the reason it reports, else why the
+                // check kept it.
+                self.exemptions[key] = exemption ?? reason
+                if exemption != nil { self.probeKeptAt[key] = .now }
+                // The probe thawed the page and the replans meanwhile skipped it: plan again so it
+                // freezes. No `.keep` reason (neighbor, hover, agent grace, the setting) makes it due.
+                self.replan()
                 return
-            case .keep, .go:
+            case .go:
                 break
             }
             if let exemption {
@@ -598,11 +616,12 @@ final class BrowserHibernation {
                 self.probeKeptAt[key] = .now
                 return
             }
-            guard let state = source.hibernationState() else {
+            // Its renderer ended while the probe ran: it keeps the crash notice.
+            guard tab.state.processExit == nil, let state = source.hibernationState() else {
                 self.exemptions[key] = .unsupported
                 return
             }
-            self.prepared[key] = (state, snapshot)
+            self.prepared[key] = (state, snapshot, cause)
             cache.applyLifecycle(cache.lifecycle.send(.hibernate(key)))
         }
     }
@@ -636,17 +655,22 @@ final class BrowserHibernation {
         // A probe that kept the page before no longer applies (`debug.surfaces`).
         exemptions[key] = nil
         hibernatedCount += 1
-        logger.info("hibernated \(key, privacy: .public) \(token.description, privacy: .public)")
+        // Notice, not info: the field log keeps it, so a page that reloads on its next show can be traced.
+        logger.notice("discarded \(key, privacy: .public) cause=\(saved.cause, privacy: .public) \(token.description, privacy: .public); it reloads from its saved history when it wakes")
     }
 
     /// Whether hidden page `key` may still be discarded, checked again after each await of `prepare`:
     /// `.stale` when it is no longer this hidden page (shown, hidden again or closed); `.keep` when it
-    /// became a neighbor, was hovered, or an agent called it while the probe ran (the person's
-    /// Hibernate Tab, `user`, still applies to those).
+    /// became a neighbor, was hovered, an agent called it while the probe ran, or the setting no
+    /// longer discards on its own (the person's Hibernate Tab, `user`, still applies to those).
     private func discardCheck(_ key: String, tab: any BrowserTab, generation: UInt64, user: Bool) -> DiscardCheck {
         guard let cache, cache.browsers[key]?.tab === tab, cache.lifecycle.record(key)?.generation == generation,
               cache.lifecycle.phase(key) == .mountedHidden else { return .stale }
         if user { return .go }
+        // The setting changed while the probe ran: an automatic discard started under a timeout
+        // the person has since removed (or turned off) does not happen.
+        if !setting.isEnabled { return .keep(.disabled) }
+        if !setting.discardsAutomatically { return .keep(.keepsState) }
         if awakeNeighbors.contains(key) || hoverLeft(key, now: .now) != nil { return .keep(.neighbor) }
         if let used = agentUsedAt[key], (ContinuousClock.now - used).seconds < Self.agentGrace { return .keep(.agentDriving) }
         return .go

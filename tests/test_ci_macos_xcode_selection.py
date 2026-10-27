@@ -42,16 +42,17 @@ EXEMPT = {
         "Zig-only Ghostty CLI helper, built against the macOS 15 image's SDK 15 "
         "default like the helper in ci-macos.yml",
     ("nightly.yml", "build-nightly-ghostty-cli-helper"):
-        "Zig-only Ghostty CLI helper, built against the macOS 15 image's SDK 15 "
-        "default like the helper in ci-macos.yml",
+        "Zig-only Ghostty CLI helper, built with the submodule's Zig against "
+        "the macOS 26 runner's default SDK; its cache key names that SDK",
     ("relay-tls.yml", "system-keychain"):
         "runs the relay TLS verifier under Xcode 16.2 / Swift 6, below the "
         "floor on purpose",
     ("remote-daemon.yml", "remote-daemon-macos-tests"): "Go only; no Xcode",
     ("cmux-tui.yml", "lint"): "Rust only; no Xcode",
     ("cmux-tui.yml", "test"): "Rust only; no Xcode",
-    ("cmux-tui-artifacts.yml", "cmux-next-daemon-tests"):
-        "Rust only; no Xcode (the cmux_next_ tests gating the tree publication)",
+    ("cmux-next-daemon-macos-shadow.yml", "cmux-next-daemon-macos-shadow"):
+        "Rust only; no Xcode (the macOS-only daemon tests, a non-blocking shadow "
+        "of the Linux promotion gate)",
     ("cmux-tui.yml", "cdp-browser-smoke"): "Rust only; no Xcode",
     ("cmux-tui.yml", "macos"):
         "Rust and Zig only (cargo clippy/test with libghostty-vt from Zig); no "

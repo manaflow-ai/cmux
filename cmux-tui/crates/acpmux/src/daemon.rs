@@ -9,6 +9,7 @@ use serde_json::Value;
 use std::sync::Arc;
 use std::time::Duration;
 
+pub(crate) mod exe_path;
 mod lock;
 #[cfg(unix)]
 mod open_file_limit;
@@ -160,6 +161,7 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     // home folder: nothing the daemon or a child does relative to its cwd may
     // walk the user's folders (LAUNCH-NO-TCC-PROMPTS).
     let _ = std::env::set_current_dir(home());
+    exe_path::check_run(opts.ready_fd)?;
     let lock = home().join("daemon.lock");
     let _lock_file = match acquire_lock(&lock) {
         Ok(lock) => lock,
@@ -479,8 +481,8 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
         let hub = hub.clone();
         tokio::spawn(async move {
             // Debug builds only: `ACPMUX_TEST_DELAY_LOAD_LOGS_MS` holds the chat-log
-            // load, as a large log store does, so integration tests can ask in that
-            // window. Bounded; release builds have no seam.
+            // load and adoption, as a large log store did, so integration tests can ask in
+            // that window. Bounded; release builds have no seam.
             #[cfg(debug_assertions)]
             if let Some(ms) = std::env::var("ACPMUX_TEST_DELAY_LOAD_LOGS_MS")
                 .ok()
@@ -488,10 +490,23 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
             {
                 tokio::time::sleep(Duration::from_millis(ms.min(10_000))).await;
             }
-            // The chat logs (tails, cut-off turns, queues), before adoption as before.
-            hub.load_logs_async().await;
-            // Agents that outlived the previous daemon come back first.
-            hub.adopt_agent_hosts().await;
+            // Agents that outlived the previous daemon come back first: their chats' logs
+            // (tails, queues), then adoption. Every other chat's log is read in the background
+            // after it, or first by a request for that chat (`hub/log_load.rs`).
+            {
+                let _adopted = crate::hub::AdoptionReady(&hub.adoption_ready);
+                hub.load_live_logs_async().await;
+                hub.adopt_agent_hosts().await;
+                hub.settle_unadopted().await;
+            }
+            {
+                let hub = hub.clone();
+                tokio::spawn(async move {
+                    hub.load_logs_async().await;
+                    // Once every log is read: a pass reads only chats whose log is loaded.
+                    let _worker = hub.retention_worker();
+                });
+            }
             // A chat a machine's Full-access setting moved out of its policy's mode goes back:
             // a revoke the previous daemon saved may not have reached it (`crate::pairing`).
             hub.hold_policies_again().await;
@@ -645,6 +660,7 @@ pub async fn start_keyed(fd: i32) -> Result<String> {
     use std::io::Read;
     use std::os::fd::FromRawFd;
     not_dumpable().context("make the launcher not dumpable before it reads the person key")?;
+    exe_path::check_start()?;
     let path = socket_path();
     if Client::connect(&path).await.is_ok() {
         return Err(anyhow!(
@@ -916,6 +932,7 @@ where
     F: Fn() -> Fut,
     Fut: std::future::Future<Output = Result<T>>,
 {
+    exe_path::check_start()?;
     let deadline = tokio::time::Instant::now() + HANDOVER_BUDGET;
     loop {
         let ready = start_daemon().await?;
@@ -1063,6 +1080,9 @@ async fn start_daemon() -> Result<String> {
 }
 
 fn not_ready(path: &std::path::Path, ready: &str, error: &anyhow::Error) -> anyhow::Error {
+    if let Some(refused) = exe_path::refused_line(ready) {
+        return anyhow!("{refused}");
+    }
     let why = if ready.trim().is_empty() {
         "exited before it was ready"
     } else {
@@ -1084,27 +1104,8 @@ fn open_daemon_log(path: &std::path::Path) -> Result<std::fs::File> {
 }
 
 #[cfg(all(test, unix))]
-mod state_file_tests {
-    use super::*;
-
-    #[test]
-    fn daemon_log_refuses_a_symlink() {
-        let dir = std::env::temp_dir().join(format!(
-            "acpmux-log-link-{}-{}",
-            std::process::id(),
-            uuid::Uuid::now_v7()
-        ));
-        std::fs::create_dir_all(&dir).unwrap();
-        let target = dir.join("outside");
-        let log = dir.join("daemon.log");
-        std::fs::write(&target, "outside").unwrap();
-        std::os::unix::fs::symlink(&target, &log).unwrap();
-
-        assert!(open_daemon_log(&log).is_err(), "the daemon opened a linked log");
-        assert_eq!(std::fs::read_to_string(&target).unwrap(), "outside");
-        let _ = std::fs::remove_dir_all(&dir);
-    }
-}
+#[path = "daemon/state_file_tests.rs"]
+mod state_file_tests;
 
 /// Start `<exe> [prefix] daemon run --ready-fd N` in its own session and
 /// return the read end of its readiness pipe. With `key`, the daemon also

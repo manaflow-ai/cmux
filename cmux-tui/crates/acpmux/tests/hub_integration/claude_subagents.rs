@@ -84,6 +84,61 @@ async fn a_claude_subagent_asking_after_the_turn_ended_reaches_the_person() {
     let _ = std::fs::remove_dir_all(root);
 }
 
+/// manaflow-ai/cmux#25230: a chat whose turn ended while a background subagent it started still
+/// runs is working (its status dot, its lane) until that subagent ends between turns, and
+/// watchers hear both changes; then it is done. A background launch that fails never holds it.
+#[tokio::test]
+async fn a_chat_works_until_its_background_subagent_ends() {
+    let root = std::env::temp_dir().join(format!("acpmux-bgwork-{}", uuid::Uuid::now_v7()));
+    let claude = root.join("claude");
+    std::fs::create_dir_all(&claude).unwrap();
+    let gate = root.join("gate");
+    let path = std::ffi::CString::new(gate.as_os_str().as_encoded_bytes()).unwrap();
+    // SAFETY: valid NUL-terminated path.
+    assert_eq!(unsafe { libc::mkfifo(path.as_ptr(), 0o600) }, 0);
+    let (hub, mut c) = claude_setup(&claude, &[]).await;
+    let s = c.request(method::SESSION_NEW, json!({"cwd": cwd(), "mcpServers": []})).await.unwrap();
+    let id = s["sessionId"].as_str().unwrap().to_owned();
+    let session = hub.resolve(&id).unwrap();
+    let records = || {
+        hub.events(&id, 0, 10_000)
+            .unwrap()
+            .into_iter()
+            .filter(|e| e.kind == "subagents_working")
+            .count()
+    };
+    let mut events = hub.subscribe();
+
+    let said = format!("bg-agent-gate: {}", gate.display());
+    let prompt = json!({"sessionId": id, "prompt": [{"type": "text", "text": said}]});
+    c.request(method::SESSION_PROMPT, prompt).await.unwrap();
+    let s = hub.session_summary(&session);
+    assert!(s["turn"].is_null(), "its own turn ended: {s}");
+    assert_eq!(s["lastTurn"]["status"], "completed", "{s}");
+    assert!(s["subagentsWorkingSince"].is_u64(), "{s}");
+    assert_eq!(s["indicator"], "working", "the subagent still runs: {s}");
+    assert_eq!(s["lane"]["state"], "working", "{s}");
+    assert_eq!(s["lane"]["since"], s["subagentsWorkingSince"], "{s}");
+    assert_eq!(records(), 1, "watchers heard it start");
+
+    // The subagent ends while the chat is idle.
+    let g = gate.clone();
+    tokio::task::spawn_blocking(move || std::fs::write(g, b"go")).await.unwrap().unwrap();
+    wait_for(&mut events, "the subagent never ended", || records() == 2).await;
+    let s = hub.session_summary(&session);
+    assert!(s["subagentsWorkingSince"].is_null(), "{s}");
+    assert_eq!(s["indicator"], "done", "its subagent ended: {s}");
+    assert_eq!(s["lane"]["state"], "idle", "{s}");
+
+    // A background launch that fails never ran: the chat is done after its turn.
+    let prompt = json!({"sessionId": id, "prompt": [{"type": "text", "text": "bg-agent-fail"}]});
+    c.request(method::SESSION_PROMPT, prompt).await.unwrap();
+    let s = hub.session_summary(&session);
+    assert!(s["subagentsWorkingSince"].is_null(), "{s}");
+    assert_eq!(s["indicator"], "done", "{s}");
+    let _ = std::fs::remove_dir_all(root);
+}
+
 /// Waits until `done` holds: checked now and again after each log line the
 /// hub broadcasts (no polling); panics with `what` after 10 s.
 async fn wait_for(

@@ -61,6 +61,29 @@ enum SidebarHiddenSections {
             try write(showHiddenPaths.map { ($0, true) }, invocation, context)
         }
         bindBand(into: registry, context: context)
+        bindNoFade(into: registry, context: context)
+    }
+
+    /// `sidebar.noFade`: Show Whole Sidebar (No Fade) while the edges fade, Restore Sidebar Fade
+    /// while they do not. Each writes the setting, so cmux.json and Settings show the same switch.
+    private static func bindNoFade(into registry: ActionRegistry, context: AppActionContext) {
+        let noFade = { @MainActor @Sendable in context.services.settings?.snapshot.sidebarSections.noFade ?? false }
+        registry.bindEffect("sidebar.noFade.on") { invocation in writeNoFade(true, invocation, context) }
+        registry.bindEffect("sidebar.noFade.off") { invocation in writeNoFade(false, invocation, context) }
+        ActionTargetVisibility.hide("sidebar.noFade.on", in: registry) { _ in noFade() }
+        ActionTargetVisibility.hide("sidebar.noFade.off", in: registry) { _ in !noFade() }
+    }
+
+    /// Writes `sidebar.noFade` on the input's turn; a refused write (a managed key) reports why.
+    private static func writeNoFade(_ on: Bool, _ invocation: ActionInvocation, _ context: AppActionContext) -> ActionEffect {
+        do {
+            try write([(SidebarSectionsSetting.noFadePath, on)], invocation, context)
+            return .done
+        } catch let failure as ActionFailure {
+            return .refused(failure.message)
+        } catch {
+            return .refused(error.localizedDescription)
+        }
     }
 
     /// The bottom band's pieces (cx-wab7m): Hide on the piece's own menu while it shows, Show on

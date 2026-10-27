@@ -60,6 +60,8 @@ from pathlib import Path
 MANIFEST = "scripts/ci/generated-files.json"
 BASELINE = "scripts/ci/generated-files-baseline.txt"
 OUTPUTS = "scripts/cmux-next/generated_outputs.py"
+# What generated_outputs.py reads beside itself; load_exports writes it next to the module.
+SETTINGS_EXPORTS = "scripts/cmux-next/settings-exports.txt"
 
 HEADER_BYTES = 2048
 HEADER_LINES = 6
@@ -158,13 +160,19 @@ def parse_rules(manifest_text: str, baseline_text: str, exports) -> Rules:
                  list(exports))
 
 
-def load_exports(source: str | None):
-    """generated_outputs.OUTPUTS (from its source text) as (patterns, input regex) pairs; none without it."""
+def load_exports(source: str | None, settings_exports: str | None = None):
+    """generated_outputs.OUTPUTS (from its source text) as (patterns, input regex) pairs; none without it.
+
+    The module is run from a temporary directory, not the checkout, so every file it reads beside
+    itself has to be written there too, at the same revision as the source: generated_outputs.py
+    reads settings-exports.txt, the one list of the settings exports (#23915)."""
     if source is None:
         return []
     with tempfile.TemporaryDirectory() as tmp:
         module_path = Path(tmp) / "generated_outputs_for_guard.py"
         module_path.write_text(source, encoding="utf-8")
+        if settings_exports is not None:
+            (Path(tmp) / "settings-exports.txt").write_text(settings_exports, encoding="utf-8")
         spec = importlib.util.spec_from_file_location("generated_outputs_for_guard", module_path)
         module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(module)
@@ -190,7 +198,7 @@ def rules_at(repo: Path, rev: str, exports=None) -> Rules | None:
     if manifest is None:
         return None
     if exports is None:
-        exports = load_exports(show(repo, rev, OUTPUTS))
+        exports = load_exports(show(repo, rev, OUTPUTS), show(repo, rev, SETTINGS_EXPORTS))
     return parse_rules(manifest, show(repo, rev, BASELINE) or "", exports)
 
 
@@ -366,7 +374,9 @@ def main(argv: list[str]) -> int:
     if args.command == "baseline":
         manifest = (repo / MANIFEST).read_text(encoding="utf-8")
         outputs = repo / OUTPUTS
-        exports = load_exports(outputs.read_text(encoding="utf-8") if outputs.is_file() else None)
+        listed = repo / SETTINGS_EXPORTS
+        exports = load_exports(outputs.read_text(encoding="utf-8") if outputs.is_file() else None,
+                               listed.read_text(encoding="utf-8") if listed.is_file() else None)
         rules = parse_rules(manifest, "", exports)
         print("# Generated files git still tracks that no \"committed\" generator in generated-files.json covers.")
         print("# Shrink only: a cutover removes lines; nothing adds one (generated_files_guard.py).")

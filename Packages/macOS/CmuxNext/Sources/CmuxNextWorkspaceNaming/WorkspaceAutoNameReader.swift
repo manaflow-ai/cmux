@@ -4,8 +4,8 @@ public import Foundation
 
 /// Reads what `WorkspaceAutoName` needs from the app's live sources: the
 /// setting, the Debug Settings variant and a front tab's names. Reading in an
-/// observation tracks each source, so the sidebar row and the one-time
-/// rename follow a chat getting its title, a page loading or a terminal's
+/// observation tracks each source, so the sidebar row and the persisted
+/// name follow a chat getting its title, a page loading or a terminal's
 /// title changing. The app supplies what only it knows: the setting, its New
 /// Tab pages, its rendered browser pages and `TabMoves.nameInput`.
 @MainActor

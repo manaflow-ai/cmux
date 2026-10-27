@@ -21,11 +21,16 @@ if [[ "${CMUX_CI_REQUIRED_MACOS_SDK_MAJOR:-}" == "export-settings" ]]; then
   (cd "$package_path" && CMUX_SWIFT_BIN_PATH="$bin_path" "$compile_catalogs")
   CMUX_UPDATE_MDM_SCHEMA=1 swift test ${swift_test_debug_info_args[@]+"${swift_test_debug_info_args[@]}"} --package-path "$package_path" --skip-build --filter ManagedPreferencesManifestTests
   CMUX_UPDATE_ACTION_SURFACES=1 swift test ${swift_test_debug_info_args[@]+"${swift_test_debug_info_args[@]}"} --package-path "$package_path" --skip-build --filter SettingsSchemaExportTests
-  # Every file the two exporters write, and the source stamp of the schema
-  # (defaults_guard.py check-fresh compares it with the CmuxNextSettings sources).
-  for file in docs/mdm/com.manaflow.cmux.json docs/mdm/com.manaflow.cmux.plist docs/mdm/com.manaflow.cmux.intune.plist \
-    docs/mdm/cmux-example.mobileconfig docs/mdm/managed-preferences.md \
-    schemas/settings/settings-schema.json schemas/settings-export/settings-schema.sources.sha256; do
+  # Every file the two exporters write, from scripts/cmux-next/settings-exports.txt: the one list,
+  # so an export added there reaches this artifact without a second edit here (review of #23915).
+  settings_exports=()
+  while IFS= read -r file; do settings_exports+=("$file"); done < <(
+    sed -e 's/#.*//' -e '/^[[:space:]]*$/d' "$script_dir/../cmux-next/settings-exports.txt")
+  (( ${#settings_exports[@]} )) || {
+    echo "scripts/cmux-next/settings-exports.txt lists no export" >&2
+    exit 1
+  }
+  for file in "${settings_exports[@]}"; do
     echo "BEGIN_ARTIFACT:$file"
     base64 < "$file" | tr -d "\n"
     echo

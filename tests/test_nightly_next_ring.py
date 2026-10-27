@@ -10,6 +10,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from nightly_workflow_text import nightly_text
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts/ci/nightly_next_ring.py"
@@ -231,7 +232,7 @@ class WorkflowTests(unittest.TestCase):
     """The writers of the cmux NEXT feed tag new builds and promote them as described."""
 
     def test_new_builds_are_tagged_from_the_dev_ring_switch(self):
-        text = NIGHTLY_YML.read_text()
+        text = nightly_text()
         ring_expr = "vars.NIGHTLY_NEXT_DEV_RING == 'on' && 'cmux-next-dev' || 'cmux-next'"
         tags = re.findall(r"^\s+SPARKLE_CHANNEL: (.*)$", text, re.MULTILINE)
         # First publication, its deltas and a recovered build follow the switch;
@@ -241,13 +242,13 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(tags.count("cmux-next"), 1, tags)
 
     def test_the_delta_feed_is_retagged_from_verdicts_before_it_is_published(self):
-        text = NIGHTLY_YML.read_text()
+        text = nightly_text()
         job = text[text.index("\n  republish-nightly-deltas:"):text.index("\n  published-in:")]
         retag = job.index("nightly_next_ring.py retag")
-        self.assertLess(retag, job.index("publish-release-assets.py"))
+        self.assertLess(retag, job.index('python3 "$publisher"'))
 
     def test_the_old_feed_copies_nightly_first_then_dev(self):
-        text = NIGHTLY_YML.read_text()
+        text = nightly_text()
         job = text[text.index("\n  legacy-identity-target:"):text.index("\n  sign-nightly-identity-legacy:")]
         target = job.index("nightly-next-legacy-target.py")
         self.assertLess(job.index("nightly_next_ring.py select --feed next-all.xml"), target)
@@ -256,7 +257,7 @@ class WorkflowTests(unittest.TestCase):
         self.assertLess(job.index('elif [ "$DEV_RING" = on ]; then\n            cp next-all.xml next.xml'), target)
 
     def test_the_old_feed_is_merged_from_verdicts_before_its_guard(self):
-        text = NIGHTLY_YML.read_text()
+        text = nightly_text()
         job = text[text.index("\n  publish-nightly-identity-legacy:"):]
         merge = job.index("nightly_next_ring.py legacy --new")
         self.assertLess(merge, job.index('nightly-next-guard.py appcast "legacy-out/$LEGACY_APPCAST"'))
@@ -265,21 +266,21 @@ class WorkflowTests(unittest.TestCase):
     def test_signing_and_publishing_skip_the_same_builds(self):
         # A Dev item above the old feed's Nightly must not hold back an older
         # Nightly build in either job (else Nightly installs stay stuck).
-        text = NIGHTLY_YML.read_text()
+        text = nightly_text()
         rule = [
             'nightly_next_ring.py select --feed "$RUNNER_TEMP/old-feed.xml" --out "$RUNNER_TEMP/old-nightly.xml" --channel cmux-next',
             'grep -q "<sparkle:version>${NIGHTLY_BUILD}</sparkle:version>" "$RUNNER_TEMP/old-feed.xml"',
             '{ [ -n "$current" ] && [ "$NIGHTLY_BUILD" -le "$current" ]; }',
         ]
         for start, end in (("\n  sign-nightly-identity-legacy:", "Initialize cmux-next notices submodule"),
-                           ("\n  publish-nightly-identity-legacy:", "name: Select Xcode")):
+                           ("\n  publish-nightly-identity-legacy:", "name: Download the stapled cmux NIGHTLY DMG")):
             begin = text.index(start)
             step = text[text.index("name: Skip a build the old feed already has", begin):text.index(end, begin)]
             for line in rule:
                 self.assertIn(line, step, start)
 
     def test_a_pending_build_the_old_feed_lists_is_not_continued(self):
-        text = NIGHTLY_YML.read_text()
+        text = nightly_text()
         job = text[text.index("\n  legacy-identity-target:"):text.index("\n  sign-nightly-identity-legacy:")]
         stale = job.index('grep -q "<sparkle:version>${pending_build}</sparkle:version>" old-all.xml')
         self.assertLess(stale, job.index("pending_args=(--pending-meta"))
@@ -305,7 +306,7 @@ class LegacyPublishedTests(unittest.TestCase):
     """Run 40239403743 published cmux NEXT while every legacy job skipped: a rate-limited
     requirement read was taken for a refusal, and continue-on-error kept the run quiet."""
 
-    WORKFLOW = NIGHTLY_YML.read_text()
+    WORKFLOW = nightly_text()
 
     def job(self, name: str) -> str:
         match = re.search(rf"\n  {name}:\n(.*?)(?=\n  [a-z0-9-]+:\n|\Z)", self.WORKFLOW, re.S)

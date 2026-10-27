@@ -57,6 +57,8 @@ pub enum PeerNotice {
     Notification {
         method: String,
         params: Value,
+        /// The link it came on (`Peer::link_epoch` when it was read).
+        link: u64,
     },
 }
 
@@ -92,6 +94,8 @@ pub struct Peer {
     trust_gate: AtomicBool,
     /// Whether the peer takes `_acpmux/file_put` (`hub/file_uploads.rs`).
     file_put: AtomicBool,
+    /// It lists `filePutChunks` (`hub/file_uploads.rs`).
+    file_put_chunks: AtomicBool,
     /// Whether the peer serves `_acpmux/media_open` and `_acpmux/media_range` (`hub/media_read.rs`).
     media_read: AtomicBool,
     /// Bumped each time a connection to the peer ends (and at `stop`): what the peer kept for
@@ -101,6 +105,10 @@ pub struct Peer {
     subagent_transcript: AtomicBool,
     /// Whether the peer saves a message's attachments (`attach.rs`).
     send_attach: AtomicBool,
+    /// The peer lists `promptUploads` (`prompt_uploads.rs`).
+    prompt_uploads: AtomicBool,
+    /// The peer lists `uploadResume` (`hub/file_uploads.rs`).
+    upload_resume: AtomicBool,
     /// The peer token was held back: the transport is plain `ws://` to a
     /// host that is not loopback (`carries_peer_token`). Logged once.
     withheld: AtomicBool,
@@ -123,10 +131,16 @@ pub struct Peer {
     timings: LinkTimings,
     /// When the hub last saved this peer's sessions (`hub/peer_cache.rs`).
     pub(crate) cache_saved_at: AtomicU64,
+    /// The sessions this instance's link purged before its list (`hub/purge_tombstones.rs`).
+    pub(crate) purge_tombstones: crate::hub::purge_tombstones::PurgeTombstones,
     /// The peer's last `_acpmux/host_health` and when it came (`peer_health.rs`).
     health: StdMutex<Option<(u64, Value)>>,
     /// An ask for it is out.
     health_asking: AtomicBool,
+    /// The pending key of the handshake's `_acpmux/watch`. The reader publishes that reply's
+    /// list itself, before it reads the next frame, so a `session_changed` the peer sent after
+    /// the reply reaches the hub after the list, never before it.
+    watch_key: StdMutex<Option<String>>,
 }
 
 impl Peer {
@@ -156,10 +170,13 @@ impl Peer {
             person_instance: StdMutex::new(None),
             trust_gate: AtomicBool::new(false),
             file_put: AtomicBool::new(false),
+            file_put_chunks: AtomicBool::new(false),
             media_read: AtomicBool::new(false),
             link_epoch: AtomicU64::new(0),
             subagent_transcript: AtomicBool::new(false),
             send_attach: AtomicBool::new(false),
+            prompt_uploads: AtomicBool::new(false),
+            upload_resume: AtomicBool::new(false),
             withheld: AtomicBool::new(false),
             presented: StdMutex::new(None),
             admitting: AtomicBool::new(false),
@@ -171,8 +188,10 @@ impl Peer {
             link: StdMutex::new(Link::default()),
             timings: LinkTimings::from_env(),
             cache_saved_at: AtomicU64::new(0),
+            purge_tombstones: Default::default(),
             health: StdMutex::new(None),
             health_asking: AtomicBool::new(false),
+            watch_key: StdMutex::new(None),
         })
     }
 
@@ -403,6 +422,11 @@ impl Peer {
         self.file_put.load(Ordering::SeqCst)
     }
 
+    /// Whether the peer takes uploads in chunks (`file_put_begin`/`_chunk`/`_finish`/`_cancel`).
+    pub fn supports_file_put_chunks(&self) -> bool {
+        self.file_put_chunks.load(Ordering::SeqCst)
+    }
+
     /// Whether the peer said at its last handshake that it serves the media reader.
     pub fn supports_media_read(&self) -> bool {
         self.media_read.load(Ordering::SeqCst)
@@ -426,6 +450,17 @@ impl Peer {
     /// Whether the peer said at its last handshake that it saves a message's attachments.
     pub fn supports_send_attach(&self) -> bool {
         self.send_attach.load(Ordering::SeqCst)
+    }
+
+    /// Whether the peer said at its last handshake that it reads uploaded files a message names.
+    pub fn supports_prompt_uploads(&self) -> bool {
+        self.prompt_uploads.load(Ordering::SeqCst)
+    }
+
+    /// Whether the peer said at its last handshake that it answers upload status and checks a
+    /// finish's `sha256` (`hub/file_uploads.rs`).
+    pub fn supports_upload_resume(&self) -> bool {
+        self.upload_resume.load(Ordering::SeqCst)
     }
 
     pub fn summary(&self) -> Value {
@@ -464,9 +499,20 @@ impl Peer {
     }
 
     pub async fn request(&self, m: &str, params: Value) -> Result<Value, RpcError> {
+        self.request_on(m, params, None).await
+    }
+
+    /// `request` on the link of epoch `epoch` only, when the caller read it before (it labels
+    /// what the answer holds with it, `hub/peer_snapshot.rs`): unreachable once that link ended.
+    pub async fn request_on(
+        &self,
+        m: &str,
+        params: Value,
+        epoch: Option<u64>,
+    ) -> Result<Value, RpcError> {
         // Read before the check: `run` moves the epoch on before it fails what
         // waits, so a request that is registered after that sees the change.
-        let epoch = self.link_epoch();
+        let epoch = epoch.unwrap_or_else(|| self.link_epoch());
         if !self.connected.load(Ordering::SeqCst) || self.admitting.load(Ordering::SeqCst) {
             return Err(self.unreachable_error());
         }
@@ -489,6 +535,9 @@ impl Peer {
         let (tx, rx) = oneshot::channel();
         let key = Value::from(id).to_string();
         self.pending.lock().await.insert(key.clone(), tx);
+        if m == method::MUX_WATCH {
+            *self.watch_key.lock_or_recover() = Some(key.clone());
+        }
         // A request that times out, or whose caller stops waiting, takes its
         // entry with it rather than leaving it until the connection drops.
         let _forget = ForgetPending { pending: self.pending.clone(), key: Some(key) };
@@ -514,10 +563,20 @@ impl Peer {
         };
         match answer {
             // A full disk the peer reports is the peer's, not this machine's (`recovery.rs`).
-            Ok(Ok(r)) => r.map_err(|mut e| {
-                crate::recovery::annotate_peer(&mut e, &self.name);
-                e
-            }),
+            // No display line of the peer's own reaches this daemon's clients, on any route that
+            // returns a peer's reply or its error's data (`hub::drop_display_lines`).
+            Ok(Ok(r)) => r
+                .map(|mut result| {
+                    crate::hub::drop_display_lines(&mut result);
+                    result
+                })
+                .map_err(|mut e| {
+                    crate::recovery::annotate_peer(&mut e, &self.name);
+                    if let Some(data) = e.data.as_mut() {
+                        crate::hub::drop_display_lines(data);
+                    }
+                    e
+                }),
             Ok(Err(_)) => {
                 Err(RpcError::internal(format!("peer {} dropped the request", self.name)))
             }
@@ -713,23 +772,17 @@ impl Peer {
                     .is_some_and(|features| features.iter().any(|f| f.as_str() == Some(feature)))
             };
             me.file_put.store(lists(crate::hub::FILE_PUT_FEATURE), Ordering::SeqCst);
+            let chunks = lists(crate::hub::file_uploads::CHUNKS_FEATURE);
+            me.file_put_chunks.store(chunks, Ordering::SeqCst);
             me.media_read.store(lists(crate::hub::MEDIA_READ_FEATURE), Ordering::SeqCst);
             me.subagent_transcript
                 .store(lists(crate::hub::SUBAGENT_TRANSCRIPT_FEATURE), Ordering::SeqCst);
             me.send_attach.store(lists(crate::attach::FEATURE), Ordering::SeqCst);
-            let watch = me.request(method::MUX_WATCH, json!({"enabled": true})).await?;
-            let sessions = watch
-                .get("sessions")
-                .and_then(Value::as_array)
-                .into_iter()
-                .flatten()
-                .filter(|session| !is_mirrored_session(session))
-                .cloned()
-                .collect();
-            let _ = me
-                .notices
-                .send((me.name.clone(), me.generation, PeerNotice::Sessions(sessions)))
-                .await;
+            me.prompt_uploads.store(lists(crate::prompt_uploads::FEATURE), Ordering::SeqCst);
+            let resume = lists(crate::hub::file_uploads::RESUME_FEATURE);
+            me.upload_resume.store(resume, Ordering::SeqCst);
+            // The reader published the reply's list (`watch_key`), so Connected follows it.
+            me.request(method::MUX_WATCH, json!({"enabled": true})).await?;
             me.with_link(|l| l.ready(crate::store::now_ms()));
             let _ = me.notices.send((me.name.clone(), me.generation, PeerNotice::Connected)).await;
             let attached: Vec<String> = me.attached.lock_or_recover().iter().cloned().collect();
@@ -803,9 +856,19 @@ impl Peer {
                     let Ok(msg) = Message::parse(&text) else { continue };
                     match msg {
                         Message::Response { id, result, error } => {
-                            if let Some(tx) = self.pending.lock().await.remove(&id.to_string()) {
-                                let _ = tx.send(match error { Some(e) => Err(e), None => Ok(result.unwrap_or(Value::Null)) });
+                            let key = id.to_string();
+                            // Not held while a notice waits for room: a caller registers under it.
+                            let tx = self.pending.lock().await.remove(&key);
+                            let Some(tx) = tx else { continue };
+                            let reply = match error { Some(e) => Err(e), None => Ok(result.unwrap_or(Value::Null)) };
+                            let watch = self.watch_key.lock_or_recover().take_if(|k| *k == key).is_some();
+                            if let (true, Ok(list)) = (watch, &reply) {
+                                let notice = PeerNotice::Sessions(watch_sessions(list));
+                                if self.notices.send((self.name.clone(), self.generation, notice)).await.is_err() {
+                                    break Ok(());
+                                }
                             }
+                            let _ = tx.send(reply);
                         }
                         Message::Notification { method: m, params } => {
                             let p = params.unwrap_or(Value::Null);
@@ -825,7 +888,7 @@ impl Peer {
                                     seq: p.get("seq").and_then(Value::as_u64).unwrap_or(0),
                                 }
                             } else {
-                                PeerNotice::Notification { method: m, params: p }
+                                PeerNotice::Notification { method: m, params: p, link: self.link_epoch() }
                             };
                             if self.notices.send((self.name.clone(), self.generation, notice)).await.is_err() {
                                 break Ok(());
@@ -858,6 +921,18 @@ impl Peer {
         handshake.abort();
         result
     }
+}
+
+/// The sessions an `_acpmux/watch` reply lists, without the rows the peer itself mirrors.
+fn watch_sessions(reply: &Value) -> Vec<Value> {
+    reply
+        .get("sessions")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter(|session| !is_mirrored_session(session))
+        .cloned()
+        .collect()
 }
 
 /// The waits before each reread of a remote that has no peer token yet
@@ -1209,5 +1284,89 @@ mod frame_epoch_tests {
         }
         assert!(!seen.iter().any(|t| t.contains("\"stale\"")), "a stale frame went out: {seen:?}");
         serving.abort();
+    }
+}
+
+#[cfg(test)]
+mod watch_order_tests {
+    use super::*;
+    use tokio_tungstenite::WebSocketStream;
+    use tokio_tungstenite::tungstenite::{Message as Frame, protocol::Role};
+
+    /// A `session_changed` the peer sends right after its `_acpmux/watch` reply is newer than
+    /// the reply's list, so it reaches the hub after the list: a purge of a listed session
+    /// leaves no row behind, where a list that came second put the purged row back.
+    #[tokio::test]
+    async fn a_purge_sent_right_after_the_watch_reply_lands_after_its_list() {
+        let dir = cmux_unix_socket::short_test_dir("acpmux-po");
+        let mut cfg = crate::config::Config::default();
+        cfg.store.mode = crate::config::StoreMode::Local;
+        let store = crate::store::open(&cfg.store, dir.path()).unwrap();
+        let hub = crate::hub::Hub::new(cfg, store);
+        let (tx, mut rx) = mpsc::channel(64);
+        let peer = Peer::new("box", "ws://127.0.0.1:9", None, None, tx);
+        hub.peers.lock().unwrap().insert("box".to_owned(), peer.clone());
+
+        let (ours, theirs) = tokio::io::duplex(1 << 16);
+        let client = WebSocketStream::from_raw_socket(ours, Role::Client, None).await;
+        let mut server = WebSocketStream::from_raw_socket(theirs, Role::Server, None).await;
+        let mut out_rx = peer.out_rx.lock().await.take().unwrap();
+        let link = peer.clone();
+        let serving = tokio::spawn(async move { link.serve(client, &mut out_rx).await });
+        // The peer answers every request; its watch reply lists m1, and the purge of m1
+        // follows it in the same write.
+        let fake = tokio::spawn(async move {
+            let row = json!({"sessionId": "m1", "name": "lane", "status": "idle", "updatedAt": 5});
+            while let Some(Ok(frame)) = server.next().await {
+                let Frame::Text(text) = frame else { continue };
+                let msg: Value = serde_json::from_str(&text).unwrap();
+                let Some(id) = msg.get("id").cloned() else { continue };
+                let watch = msg["method"] == method::MUX_WATCH;
+                let result = if watch { json!({"sessions": [row]}) } else { json!({}) };
+                let reply = json!({"jsonrpc": "2.0", "id": id, "result": result});
+                if !watch {
+                    server.send(Frame::Text(reply.to_string().into())).await.unwrap();
+                    continue;
+                }
+                let purge = json!({"jsonrpc": "2.0", "method": method::MUX_SESSION_CHANGED,
+                    "params": {"kind": "purged", "seq": 2, "session": {"sessionId": "m1"}}});
+                server.feed(Frame::Text(reply.to_string().into())).await.unwrap();
+                server.send(Frame::Text(purge.to_string().into())).await.unwrap();
+            }
+        });
+
+        let mut seen = Vec::new();
+        let (mut connected, mut purged) = (false, false);
+        while !(connected && purged) {
+            let (_, _, notice) = tokio::time::timeout(Duration::from_secs(5), rx.recv())
+                .await
+                .expect("the handshake settles and the purge comes")
+                .expect("the link stays open");
+            connected |= matches!(notice, PeerNotice::Connected);
+            purged |=
+                matches!(&notice, PeerNotice::SessionChanged { kind, .. } if kind == "purged");
+            seen.push(notice);
+        }
+        let at = |want: fn(&PeerNotice) -> bool| seen.iter().position(want).unwrap();
+        let list = at(|n| matches!(n, PeerNotice::Sessions(_)));
+        let purge = at(|n| matches!(n, PeerNotice::SessionChanged { .. }));
+        let ready = at(|n| matches!(n, PeerNotice::Connected));
+        assert!(list < purge, "the list came after a newer purge: {seen:?}");
+        assert!(list < ready, "connected before the list: {seen:?}");
+
+        // The hub applies them in the order the link gave them; a second Connected is a
+        // barrier: once it settled, every notice before it was applied.
+        let mut settled = peer.settled();
+        for notice in seen.into_iter().chain([PeerNotice::Connected]) {
+            hub.peer_notices.send(("box".to_owned(), peer.generation, notice)).await.unwrap();
+        }
+        tokio::time::timeout(Duration::from_secs(5), settled.wait_for(|n| *n >= 2))
+            .await
+            .expect("the hub applies the notices")
+            .unwrap();
+        let rows = hub.remote_sessions();
+        assert!(rows.is_empty(), "the purged row came back: {rows:?}");
+        serving.abort();
+        fake.abort();
     }
 }
