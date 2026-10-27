@@ -193,7 +193,10 @@ pub(super) fn serve_connection(
     if write_half.set_write_timeout(Some(STREAM_WRITE_TIMEOUT)).is_err() {
         return ConnectionEnd::Dropped;
     }
-    let outbound = Arc::new(BoundedOutbound::with_chunk_bytes(mux.bulk_frame_max()));
+    // A local socket's producers write inline while the queue is idle
+    // (task 140); the socket is nonblocking from here on.
+    let inline = bounded_outbound::socket_inline_writer(&*stream, mux.ipc_stats());
+    let outbound = Arc::new(BoundedOutbound::with_inline_writer(mux.bulk_frame_max(), inline));
     let writer = MessageWriter::new_with_render_service(
         QueuedSink { outbound: outbound.clone(), control: Some(SinkControl::Unix(control)) },
         render_service,
@@ -204,17 +207,16 @@ pub(super) fn serve_connection(
     let writer_hangs = mux.echo_watch();
     let Ok(writer_thread) = crate::echo_thread::spawn("mux-line-out", move || {
         // mq14-allow: the writer thread waits for its own queue (a checked wait).
-        while let Some(item) = writer_outbound.recv() {
+        while let Some(pending) = writer_outbound.recv_pending() {
             // Each item's write is a 100 ms hang scope; the wait above is not.
             let _item = writer_hangs.item(WatchKind::LineOut);
-            match &item {
-                OutboundItem::Text(text) => writer_ipc.line_sent(text.len() + 1),
-                OutboundItem::Frame(header, _) | OutboundItem::Chunk { header, .. } => {
-                    writer_ipc.frame_sent(header.kind(), header.frame_len());
-                }
-                OutboundItem::Flush(_) => {}
+            if pending.written == 0 {
+                pending.item.count_sent(&writer_ipc);
             }
-            if write_line_outbound_item(&mut writer_ipc.counted(&mut *write_half), item).is_err() {
+            let mut socket = bounded_outbound::WaitingWrite::new(&mut *write_half);
+            if bounded_outbound::write_pending(&mut writer_ipc.counted(&mut socket), pending)
+                .is_err()
+            {
                 writer_outbound.close();
                 let _ = write_half.shutdown(Shutdown::Both);
                 break;
@@ -386,6 +388,9 @@ impl ConnectionInput {
         let read = loop {
             match self.read() {
                 Err(error) if error.kind() == std::io::ErrorKind::Interrupted => {}
+                Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                    self.wait_readable()?;
+                }
                 result => break result,
             }
         };
@@ -418,6 +423,18 @@ impl ConnectionInput {
     #[cfg(not(unix))]
     fn read(&mut self) -> std::io::Result<usize> {
         self.messages.read_from(&mut self.stream)
+    }
+
+    /// Waits for bytes on a socket the inline writer made nonblocking.
+    #[cfg(unix)]
+    fn wait_readable(&self) -> Result<(), ConnectionEnd> {
+        let fd = self.stream.socket_fd().ok_or(ConnectionEnd::Dropped)?;
+        bounded_outbound::wait_readable(fd).map_err(|_| ConnectionEnd::Dropped)
+    }
+
+    #[cfg(not(unix))]
+    fn wait_readable(&self) -> Result<(), ConnectionEnd> {
+        Err(ConnectionEnd::Dropped)
     }
 
     #[cfg(unix)]

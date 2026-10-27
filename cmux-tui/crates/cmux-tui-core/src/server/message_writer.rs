@@ -557,3 +557,7 @@ impl MessageWriter {
         self.close_with(false);
     }
 }
+
+#[cfg(all(test, unix))]
+#[path = "message_writer_inline_tests.rs"]
+mod inline_tests;

@@ -106,6 +106,9 @@ final class LineTransport: Sendable {
             child = nil
         }
         Self.sizeBuffers(fd)
+        // Nonblocking: a write off the main thread goes to the socket on its caller's thread when the writer is
+        // idle (FrameWriter's inline path, p05-ipc-140); the reader waits for bytes with poll.
+        _ = fcntl(fd, F_SETFL, fcntl(fd, F_GETFL) | O_NONBLOCK)
         socket = Mutex(Socket(fd: fd))
         writer = SocketWriter(fd: fd, label: "com.cmuxterm.next.daemon.write", qos: role.writerQoS, target: writerTarget, hangs: hangs)
         recorder?.connectionOpened(role, bridged: opened != nil)
@@ -369,8 +372,9 @@ final class LineTransport: Sendable {
             let count = unsafe chunk.withUnsafeMutableBytes { unsafe Darwin.read(fd, $0.baseAddress, $0.count) }
             if count == 0 { break }
             if count < 0 {
-                if errno == EINTR { continue }
-                closeDetail = "read: \(POSIXErrorText(errno))"
+                let code = errno
+                if code == EINTR || (code == EAGAIN && Self.waitReadable(fd)) { continue }
+                closeDetail = "read: \(POSIXErrorText(code))"
                 break
             }
             recorder?.bytesRead(count)
@@ -400,6 +404,20 @@ final class LineTransport: Sendable {
         writer.close()
         closeDescriptor()
         onClose(reason)
+    }
+
+    /// Waits on the reader thread until the nonblocking socket has bytes, an end or an error; the next read
+    /// reports which. False when the wait itself failed.
+    private static func waitReadable(_ fd: Int32) -> Bool {
+        var poller = pollfd(fd: fd, events: Int16(clamping: POLLIN), revents: 0)
+        // wakeup-allow: bounded: an event wait with no timeout; the daemon's bytes, its EOF or the owner's shutdown end it
+        while true {
+            // concurrency-allow: runs only on this connection's dedicated reader thread (readLoop), never the main thread or the cooperative pool.
+            // SAFETY: poll reads and writes the one pollfd it is given, a local live for the call.
+            let ready = unsafe poll(&poller, 1, -1)
+            if ready > 0 { return poller.revents & Int16(clamping: POLLNVAL) == 0 }
+            if ready < 0, errno != EINTR { return false }
+        }
     }
 
     /// Stream-0 events routed so far; a reply captures it as its barrier.

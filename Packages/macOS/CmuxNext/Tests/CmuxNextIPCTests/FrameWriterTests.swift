@@ -207,6 +207,105 @@ import Testing
         #expect(echoed == 0x2A)
     }
 
+    // MARK: - Inline fast path (p05-ipc-140)
+
+    @Test func anIdleWriterSendsAThousandInputFramesOnTheCallersThread() throws {
+        let sink = InlineSink(expectedBytes: 1_000 * 3)
+        // The drain runs on a suspended target: a message that hopped to it would never be sent.
+        let target = DispatchQueue(label: "test.frame-writer.inline")
+        target.suspend()
+        let writer = FrameWriter(sink: sink, label: "com.cmuxterm.next.daemon.write", qos: .userInitiated, target: target)
+        defer {
+            writer.close()
+            target.resume()
+        }
+
+        for index in 0 ..< 1_000 {
+            #expect(writer.enqueue(Data([0x49, UInt8(index % 256), UInt8(index / 256)]), priority: .input) == nil)
+        }
+
+        #expect(sink.inlineSends == 1_000, "an input frame waited for the drain queue")
+        #expect(sink.drainSends == 0)
+        #expect(writer.queuedBytes == 0)
+        let wire = sink.bytes
+        try #require(wire.count == 3_000)
+        for index in 0 ..< 1_000 {
+            #expect(wire[index * 3 + 1] == UInt8(index % 256) && wire[index * 3 + 2] == UInt8(index / 256))
+        }
+    }
+
+    @Test func whatAFullSocketDoesNotTakeIsSentFirstThenTheQueueInPriorityOrder() throws {
+        let sink = InlineSink(expectedBytes: 8 + 2 + 2, inlineBudget: [3])
+        let target = DispatchQueue(label: "test.frame-writer.inline-rest")
+        target.suspend()
+        let writer = FrameWriter(sink: sink, label: "com.cmuxterm.next.daemon.write", qos: .userInitiated, target: target)
+        defer { writer.close() }
+
+        // The socket takes 3 bytes inline; the 5 left wait ahead of everything enqueued after them.
+        #expect(writer.enqueue(Data("abcdefgh".utf8), priority: .bulk) == nil)
+        #expect(sink.inlineSends == 1)
+        #expect(writer.enqueue(Data("XY".utf8), priority: .control) == nil)
+        #expect(writer.enqueue(Data("i2".utf8), priority: .input) == nil)
+        #expect(sink.inlineSends == 1, "a message was sent inline while the rest of another waited")
+        #expect(writer.queuedBytes == 5 + 2 + 2)
+        target.resume()
+        try #require(sink.waitUntilFinished(), "the writer did not deliver every byte")
+
+        #expect(String(decoding: sink.bytes, as: UTF8.self) == "abcdefgh" + "i2" + "XY")
+        #expect(sink.drainSendSizes == [5, 4], "the rest is a step of its own, then input and control share one")
+    }
+
+    @Test func aMessageTheSocketHadNoRoomForKeepsItsDescriptorsAndItsTurn() throws {
+        let sink = InlineSink(expectedBytes: 2 + 2, inlineBudget: [0])
+        let target = DispatchQueue(label: "test.frame-writer.inline-fds")
+        target.suspend()
+        let writer = FrameWriter(sink: sink, label: "com.cmuxterm.next.daemon.write", qos: .userInitiated, target: target)
+        defer { writer.close() }
+        var ends: [Int32] = [-1, -1]
+        try #require(pipe(&ends) == 0)
+        defer { Darwin.close(ends[0]) }
+
+        #expect(writer.enqueue(Data("c1".utf8), priority: .control, fds: [ends[1]]) == nil)
+        #expect(writer.enqueue(Data("c2".utf8), priority: .control) == nil)
+        target.resume()
+        try #require(sink.waitUntilFinished(), "the writer did not deliver every byte")
+
+        #expect(String(decoding: sink.bytes, as: UTF8.self) == "c1c2", "the message lost its place in its FIFO")
+        #expect(sink.drainFdCounts.first == 1, "the descriptors did not ride the message's first byte")
+    }
+
+    @MainActor @Test func theMainThreadOnlyEnqueuesAndNeverSends() throws {
+        let sink = InlineSink(expectedBytes: 100 * 2)
+        let writer = FrameWriter(sink: sink, label: "com.cmuxterm.next.daemon.write", qos: .userInitiated)
+        defer { writer.close() }
+
+        for _ in 0 ..< 100 {
+            #expect(writer.enqueue(Data("m!".utf8), priority: .input) == nil)
+        }
+        try #require(sink.waitUntilFinished(), "the writer did not deliver every byte")
+
+        #expect(sink.inlineSends == 0, "the main thread sent inline")
+        #expect(sink.sendsOnMainThread == 0, "a send ran on the main thread")
+        #expect(sink.drainSends > 0)
+    }
+
+    @Test func aNonblockingSocketSinkSendsInlineAndQueuesWhenFull() throws {
+        var pair: [Int32] = [-1, -1]
+        try #require(socketpair(AF_UNIX, SOCK_STREAM, 0, &pair) == 0)
+        defer { pair.forEach { Darwin.close($0) } }
+        try #require(fcntl(pair[0], F_SETFL, fcntl(pair[0], F_GETFL) | O_NONBLOCK) == 0)
+        let sink = SocketFrameSink(fd: pair[0])
+
+        let small = Data("hello".utf8)
+        #expect(small.withUnsafeBytes { sink.sendWithoutWaiting($0, fds: []) } == .success(small.count))
+        // More than the socket holds: a prefix goes, then nothing, and the call never waits.
+        let large = Data(repeating: 0x5A, count: 16 << 20)
+        let first = large.withUnsafeBytes { sink.sendWithoutWaiting($0, fds: []) }
+        let firstSent = try first.get()
+        #expect(firstSent > 0 && firstSent < large.count)
+        #expect(large.withUnsafeBytes { sink.sendWithoutWaiting($0, fds: []) } == .success(0))
+    }
+
     /// One `recvmsg` of `count` bytes and the `SCM_RIGHTS` descriptors that came with them (Darwin's `cmsghdr`
     /// layout, as SocketFrameSink writes it).
     private static func receive(_ fd: Int32, count: Int) throws -> ([UInt8], [Int32]) {
@@ -293,4 +392,67 @@ private nonisolated final class GatedSink: FrameSink {
 
     /// The byte count of each send, in order.
     var sendSizes: [Int] { recorded.withLock { $0.sendSizes } }
+}
+
+/// A ``FrameSink`` that sends inline: each inline call takes the next budget of `inlineBudget` (everything once
+/// the list runs out), and the drain's sends take everything. It records the bytes in wire order and which path
+/// and thread sent them.
+private nonisolated final class InlineSink: FrameSink {
+    private struct Recorded {
+        var bytes: [UInt8] = []
+        var inlineSends = 0
+        var drainSendSizes: [Int] = []
+        var drainFdCounts: [Int] = []
+        var sendsOnMainThread = 0
+        var budgets: [Int]
+    }
+
+    private let finished = DispatchSemaphore(value: 0)
+    private let expectedBytes: Int
+    private let recorded: Mutex<Recorded>
+
+    init(expectedBytes: Int, inlineBudget: [Int] = []) {
+        self.expectedBytes = expectedBytes
+        recorded = Mutex(Recorded(budgets: inlineBudget))
+    }
+
+    func send(_ bytes: UnsafeRawBufferPointer, fds: [Int32]) -> Result<Int, FrameWriter.Failure> {
+        record(bytes, inline: false, fds: fds)
+        return .success(bytes.count)
+    }
+
+    func sendWithoutWaiting(_ bytes: UnsafeRawBufferPointer, fds: [Int32]) -> Result<Int, FrameWriter.Failure> {
+        let budget = recorded.withLock { recorded -> Int in
+            recorded.budgets.isEmpty ? bytes.count : recorded.budgets.removeFirst()
+        }
+        let sent = min(budget, bytes.count)
+        record(UnsafeRawBufferPointer(rebasing: bytes[0 ..< sent]), inline: true, fds: fds)
+        return .success(sent)
+    }
+
+    private func record(_ bytes: UnsafeRawBufferPointer, inline: Bool, fds: [Int32]) {
+        let onMain = pthread_main_np() != 0
+        let total = recorded.withLock { recorded -> Int in
+            recorded.bytes.append(contentsOf: bytes)
+            if inline {
+                recorded.inlineSends += 1
+            } else {
+                recorded.drainSendSizes.append(bytes.count)
+                recorded.drainFdCounts.append(fds.count)
+            }
+            if onMain { recorded.sendsOnMainThread += 1 }
+            return recorded.bytes.count
+        }
+        if total == expectedBytes { finished.signal() }
+    }
+
+    /// True once the expected byte count arrived (within 10 s).
+    func waitUntilFinished() -> Bool { finished.wait(timeout: .now() + 10) == .success }
+
+    var bytes: [UInt8] { recorded.withLock { $0.bytes } }
+    var inlineSends: Int { recorded.withLock { $0.inlineSends } }
+    var drainSends: Int { recorded.withLock { $0.drainSendSizes.count } }
+    var drainSendSizes: [Int] { recorded.withLock { $0.drainSendSizes } }
+    var drainFdCounts: [Int] { recorded.withLock { $0.drainFdCounts } }
+    var sendsOnMainThread: Int { recorded.withLock { $0.sendsOnMainThread } }
 }

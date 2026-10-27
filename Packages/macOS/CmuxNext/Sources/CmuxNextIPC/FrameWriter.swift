@@ -21,6 +21,13 @@ public import Foundation
 /// order. A bulk or background message is always a drain step of its own, so the step in flight is never more than
 /// one BULK_FRAME_MAX chunk of bulk.
 ///
+/// Inline fast path (task 140): a caller off the main thread whose message finds nothing queued and nothing in
+/// flight writes it itself with the sink's ``FrameSink/sendWithoutWaiting(_:fds:)``, with no hop to the drain
+/// queue. What the socket does not take (EAGAIN, a partial send) is queued ahead of everything else for the
+/// drain. Main-thread callers always enqueue: the main thread never calls `sendmsg`. This is Mojo's
+/// `ChannelPosix::Write`, which writes on the calling thread while `outgoing_messages_` is empty and leaves the
+/// rest to the IO thread.
+///
 /// Only the drain queue's thread waits on the socket. Past ``limit`` queued bytes ``enqueue(_:priority:fds:)``
 /// fails with ``Failure/backlog(queued:)`` instead of buffering without bound.
 public final class FrameWriter: Sendable {
@@ -106,18 +113,78 @@ public final class FrameWriter: Sendable {
             return nil
         }
         let limit = limit
-        let (failure, startDrain) = state.withLock { state -> (Failure?, Bool) in
-            if let failure = state.failure { return (failure, false) }
-            guard !state.closed else { return (.closed, false) }
-            guard state.queuedBytes + bytes.count <= limit else { return (.backlog(queued: state.queuedBytes), false) }
+        let mayWriteNow = pthread_main_np() == 0
+        let (failure, next) = state.withLock { state -> (Failure?, Next) in
+            if let failure = state.failure { return (failure, .queued) }
+            guard !state.closed else { return (.closed, .queued) }
+            guard state.queuedBytes + bytes.count <= limit else { return (.backlog(queued: state.queuedBytes), .queued) }
+            if mayWriteNow, !state.draining {
+                // Nothing queued and nothing in flight: this caller owns the socket until it hands off.
+                state.draining = true
+                return (nil, .writeNow)
+            }
             state.append(Message(bytes: bytes, fds: fds), priority: priority)
-            guard !state.draining else { return (nil, false) }
+            guard !state.draining else { return (nil, .queued) }
             state.draining = true
-            return (nil, true)
+            return (nil, .startDrain)
         }
         if failure != nil { Self.closeDescriptors(fds) }
-        if startDrain { queue.async { [self] in drain() } }
+        switch next {
+        case .queued: break
+        case .startDrain: queue.async { [self] in drain() }
+        case .writeNow: return writeNow(Message(bytes: bytes, fds: fds), priority: priority)
+        }
         return failure
+    }
+
+    /// What ``enqueue(_:priority:fds:)`` does after its turn under the lock: nothing more (queued or refused),
+    /// start the drain, or send the message itself.
+    private enum Next {
+        case queued, startDrain, writeNow
+    }
+
+    /// The inline send of a message that found the writer idle: one send that never waits. The rest, or the
+    /// whole message when the socket had no room, waits ahead of everything enqueued meanwhile; the drain starts
+    /// when anything waits.
+    private func writeNow(_ message: Message, priority: MethodPriority) -> Failure? {
+        let result = message.bytes.withUnsafeBytes { sink.sendWithoutWaiting($0, fds: message.fds) }
+        let sent: Int
+        switch result {
+        case .success(let count):
+            sent = count
+        case .failure(let failure):
+            Self.closeDescriptors(message.fds)
+            let dropped = state.withLock { state -> [Int32] in
+                state.failure = failure
+                state.draining = false
+                return state.removeAll()
+            }
+            Self.closeDescriptors(dropped)
+            return failure
+        }
+        // Descriptors ride the first byte: once any byte left, they went with it.
+        if sent > 0 { Self.closeDescriptors(message.fds) }
+        let rest = sent < message.bytes.count
+            ? Message(bytes: message.bytes.subdata(in: message.bytes.startIndex + sent ..< message.bytes.endIndex),
+                      fds: sent > 0 ? [] : message.fds)
+            : nil
+        let (startDrain, dropped) = state.withLock { state -> (Bool, [Int32]) in
+            if let rest {
+                guard !state.closed else {
+                    state.draining = false
+                    return (false, rest.fds)
+                }
+                if sent > 0 { state.setPartial(rest) } else { state.prepend(rest, priority: priority) }
+            }
+            guard state.hasQueued, !state.closed else {
+                state.draining = false
+                return (false, [])
+            }
+            return (true, [])
+        }
+        Self.closeDescriptors(dropped)
+        if startDrain { queue.async { [self] in drain() } }
+        return nil
     }
 
     /// The drain queue's QoS (tests).
@@ -220,6 +287,15 @@ extension FrameWriter {
             slots.append(message)
         }
 
+        mutating func prepend(_ message: Message) {
+            if head > 0 {
+                head -= 1
+                slots[head] = message
+            } else {
+                slots.insert(message, at: 0)
+            }
+        }
+
         mutating func popFirst() -> Message? {
             guard head < slots.count else { return nil }
             let message = slots[head]
@@ -247,6 +323,8 @@ extension FrameWriter {
     private struct State {
         /// Indexed by ``MethodPriority/rawValue``: input, control, bulk, background.
         private var lanes = [Lane](repeating: Lane(), count: MethodPriority.allCases.count)
+        /// The unsent rest of a message an inline send wrote in part: the next step sends it alone.
+        private var partial: Message?
         private(set) var queuedBytes = 0
         var draining = false
         var closed = false
@@ -257,12 +335,30 @@ extension FrameWriter {
             queuedBytes += message.bytes.count
         }
 
+        /// A message an inline send could not start: first of its priority, as it was called first.
+        mutating func prepend(_ message: Message, priority: MethodPriority) {
+            lanes[Int(priority.rawValue)].prepend(message)
+            queuedBytes += message.bytes.count
+        }
+
+        mutating func setPartial(_ message: Message) {
+            partial = message
+            queuedBytes += message.bytes.count
+        }
+
+        var hasQueued: Bool { partial != nil || peekHighest() != nil }
+
         /// The next drain step: the head of the highest non-empty FIFO. When that head is input or control, the
         /// following input and control heads join it in priority order while they fit in `budget`, stopping at a
         /// message with descriptors (its descriptors must ride its own first byte). A bulk or background head is
         /// sent alone: one chunk is the preemption boundary (p05-ipc.md section 3.2). nil, and draining ends,
         /// when there is nothing to send.
         mutating func takeBatch(budget: Int) -> Batch? {
+            if !closed, failure == nil, let rest = partial {
+                partial = nil
+                queuedBytes -= rest.bytes.count
+                return Batch(messages: [rest.bytes], fds: rest.fds, byteCount: rest.bytes.count)
+            }
             guard !closed, failure == nil, let first = popHighest() else {
                 draining = false
                 return nil
@@ -286,7 +382,8 @@ extension FrameWriter {
 
         mutating func removeAll() -> [Int32] {
             queuedBytes = 0
-            var fds: [Int32] = []
+            var fds: [Int32] = partial?.fds ?? []
+            partial = nil
             for index in lanes.indices { fds += lanes[index].removeAll() }
             return fds
         }
