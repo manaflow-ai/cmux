@@ -295,7 +295,9 @@ jobs:
           # "Team is not yet configured for notarization" from 2026-10-07 12:34Z).
           NIGHTLY_NEXT_NOTARY_PAUSED: ${{ vars.NIGHTLY_NEXT_NOTARY_PAUSED || '' }}
           # The one nightly-next writer (cx-f76kf): `mac` (this workflow, also when the
-          # variable is unset), `linux` (the HQ Linux pipeline) or `none` (stop the line).
+          # variable is unset; the vars context gives '' then, so an empty value reads as
+          # unset here and the final gate, reading it live, refuses it), `linux` (the HQ
+          # Linux pipeline) or `none` (stop the line).
           # Anything but `mac` here: no build and nothing published; publish-nightly reads
           # it again live before the first write. The transition-week NIGHTLY_NEXT_HOLD
           # (cx-f76kf, until 2026-10-23) is retired: `none` stops the line.

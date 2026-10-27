@@ -773,7 +773,14 @@ class WriterGateTests(unittest.TestCase):
         result = run_gate({})
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertNotIn("refused", result.output)
-        self.assertIn("NIGHTLY_NEXT_WRITER read live: <unset>; this pipeline publishes nightly-next", result.stdout)
+        self.assertIn("NIGHTLY_NEXT_WRITER is unset, which means mac", result.stdout)
+
+    def test_a_value_that_looks_like_unset_refuses(self):
+        # Only a 404 means unset; no value read live can stand in for it.
+        for writer in ("<unset>", "unset"):
+            with self.subTest(writer=writer):
+                self.assert_refused(run_gate({"NIGHTLY_NEXT_WRITER": writer}), "not mac")
+        self.assert_refused(run_gate({"NIGHTLY_NEXT_WRITER": ""}), "'<empty>', not mac")
 
     def test_the_retired_hold_is_not_read(self):
         # Even an unreadable or set NIGHTLY_NEXT_HOLD no longer stops a publication.

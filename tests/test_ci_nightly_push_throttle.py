@@ -464,7 +464,9 @@ def test_nightly_next_builds_for_publication_only_as_the_mac_writer() -> None:
     padded = run_decide(event="push", ref="refs/heads/nightly-next", tag_age_hours=0.1,
                         extra_env=dict(NEXT_ENV, NIGHTLY_NEXT_WRITER=" mac\n"))
     assert should_build(padded)
-    # Unset is mac.
+    # Unset is mac. The vars context gives '' for a variable that does not
+    # exist, so decide cannot tell it from an empty value; the final gate,
+    # which reads the variable live, refuses an empty one before any write.
     unset = run_decide(event="push", ref="refs/heads/nightly-next", tag_age_hours=0.1,
                        extra_env=dict(NEXT_ENV, NIGHTLY_NEXT_WRITER=""))
     assert should_build(unset)
