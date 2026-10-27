@@ -36,6 +36,7 @@ extension PageHostPool {
             follow(shown)
         }
         let noteWindow: @MainActor (Notification) -> NSWindow? = { $0.object as? NSWindow }
+        // raw-observer-allow: the follow needs the window that became key, the notice's sender; an AppEvents call carries no sender
         windowObservers.append(MainActorObservation(NSWindow.didBecomeKeyNotification, center: center, read: noteWindow) { [weak self] window in
             guard let window, self != nil else { return }
             // node-free: the pool serves every window; its spare is never shown.
@@ -44,6 +45,7 @@ extension PageHostPool {
                 self.follow(window)
             }
         })
+        // raw-observer-allow: the drop needs the closing window, the notice's sender, to compare with the target; an AppEvents call carries no sender
         windowObservers.append(MainActorObservation(NSWindow.willCloseNotification, center: center, read: noteWindow) { [weak self] window in
             guard let window, self != nil else { return }
             // node-free: the pool serves every window; its spare is never shown.
