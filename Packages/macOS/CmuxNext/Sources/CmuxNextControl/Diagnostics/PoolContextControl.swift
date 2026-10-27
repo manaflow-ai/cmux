@@ -139,7 +139,7 @@ public struct PoolContextControl: Sendable {
     func raiseRunningItem() async throws -> (before: ThreadReading, after: ThreadReading) {
         let pipe = Pipe()
         let reader = pipe.fileHandleForReading
-        let (started, starts) = AsyncStream.makeStream(of: ThreadReading.self)
+        let (started, starts) = AsyncStream.makeStream(of: ThreadReading.self, bufferingPolicy: .bufferingNewest(1))
         let handle = work.runHandle(.bestEffort, mayBlock: .system) { () throws -> ThreadReading in
             starts.yield(.calling())
             starts.finish()
