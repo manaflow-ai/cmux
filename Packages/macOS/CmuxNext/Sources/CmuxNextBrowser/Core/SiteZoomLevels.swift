@@ -60,6 +60,11 @@ public final class SiteZoomLevels {
 
     private var requested: Set<BrowserProfileID> = []
     private var pending: [BrowserProfileID: Task<Void, Never>] = [:]
+    /// Profiles with a file that has not merged yet: a write now would replace the stored hosts it has not seen,
+    /// so their saves wait for the merge.
+    private var unread: Set<BrowserProfileID> = []
+    /// Of ``unread``, the ones set meanwhile: the merge writes each once, the file's levels and the new ones.
+    private var heldSaves: Set<BrowserProfileID> = []
 
     /// The read of `profile`'s file, started now when it has not been; nil once it landed or with no file.
     @discardableResult
@@ -67,12 +72,13 @@ public final class SiteZoomLevels {
         guard !requested.contains(profile) else { return pending[profile] }
         requested.insert(profile)
         guard let file = file(for: profile) else { return nil }
+        unread.insert(profile)
         // task-owner: the profile's one read (`pending`); load() awaits it.
         // main-hop-allow: the read runs on the files lane (or SiteZoomFile's actor); the resume merges it into this store's few-entry table and tells its followers
         let task = Task { [weak self, files] in
-            let stored: [String: Double]
+            let stored: [String: Double]?
             if let files {
-                stored = (try? await files.run(.userVisible) { SiteZoomFile.readNow(file) }) ?? [:]
+                stored = try? await files.run(.userVisible) { SiteZoomFile.readNow(file) }
             } else {
                 stored = await SiteZoomFile.read(file)
             }
@@ -82,12 +88,17 @@ public final class SiteZoomLevels {
         return task
     }
 
-    /// `profile`'s file arrived: levels set before it win over the file, and followers re-apply what it brings.
-    private func merge(_ stored: [String: Double], into profile: BrowserProfileID) {
+    /// `profile`'s file arrived: levels set before it win over the file, a save held for it writes both, and
+    /// followers re-apply what it brings. A nil `stored` (shutdown dropped the read) leaves the profile unread,
+    /// so nothing replaces a file that was never read.
+    private func merge(_ stored: [String: Double]?, into profile: BrowserProfileID) {
+        pending[profile] = nil
+        guard let stored else { return }
         var table = stored
         table.merge(levels[profile] ?? [:]) { _, current in current }
         levels[profile] = table
-        pending[profile] = nil
+        unread.remove(profile)
+        if heldSaves.remove(profile) != nil { save(table, profile: profile) }
         for host in stored.keys { notify(profile, host) }
     }
 
@@ -105,7 +116,11 @@ public final class SiteZoomLevels {
 
     private func save(_ table: [String: Double], profile: BrowserProfileID) {
         guard let file = file(for: profile) else { return }
-        if let files {  // in order behind the reads and writes before it
+        guard !unread.contains(profile) else {
+            heldSaves.insert(profile)
+            return
+        }
+        if let files {  // in order behind the writes before it; the read merged already
             files.post(.bestEffort, shutdown: .blockShutdown) { SiteZoomFile.writeNow(table, to: file) }
             return
         }
