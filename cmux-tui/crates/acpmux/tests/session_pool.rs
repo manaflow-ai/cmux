@@ -731,7 +731,7 @@ fn blip_at_claim(daemon: &Daemon) {
 /// unset. It ran in full access while the off held, out of reach of the push's drain.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_full_access_pooled_agent_claimed_through_an_mdm_off_is_not_taken() {
-    let (daemon, mut rpc, _) = full_access_entry_claimed_through_an_off("faclaim").await;
+    let (daemon, mut rpc, _) = full_access_entry_claimed_through_an_off("fablip").await;
     let home = daemon.home.clone();
     blip_at_claim(&daemon);
     let (session, _) = new_session(&mut rpc, &home, "fakeb").await;
