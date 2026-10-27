@@ -23,7 +23,7 @@ extension UpdatesSettings {
     public nonisolated static let webDefault: UpdatesWebSetting = .everyMerge
     /// `updates.installOnQuit`.
     public nonisolated static let installOnQuitPath = ["updates", "installOnQuit"]
-    public nonisolated static let installOnQuitDefault = true
+    public nonisolated static let installOnQuitDefault = false
     /// `updates.notify`: How a ready update makes itself known: the control on the Settings item, or nothing (installs on quit). The old card value (the update card, removed 2026-10-05) loads as badge.
     public nonisolated static let notifyPath = ["updates", "notify"]
     public nonisolated static let notifyDefault: UpdatesNotifySetting = .badge
