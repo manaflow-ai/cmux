@@ -375,9 +375,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 settings.loadCount >= 1 ? settings.snapshot.savedPicture : nil
             }, on: services.mainWork))
         }
-        // A page's chat clicks and All chats pages work from its first frame; the feeds come after it (p08-startup-027).
+        // A page's chat clicks and All chats pages work from its first frame; the feeds come after it (p08-startup-027),
+        // and the chat indicators' acpmux watches too, sooner when a window or an agent page shows them (p08-startup-097).
         AgentPageChats.wirePager(services.agentTabs, environment: acpmux, opener: services.chatsOpener)
         services.home.postLaunchFeeds(startup: order.startup)
+        services.chatsFeed?.postLaunchIndicators(for: services, startup: order.startup)
         // The GitHub connection is deliberately off by default. Changes in
         // Settings apply to the one feed owner and never create a second
         // inbox store.

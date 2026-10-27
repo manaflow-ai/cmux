@@ -115,7 +115,7 @@ extension AgentTabStore {
                                  mainWork: services.mainWork, chatStores: state.map { AgentPaneChatStores(directory: $0) } ?? .keepsNothing,
                                  daemonFeatures: services.features.daemonEnvironment)
         (tabs.launchImages, tabs.pullRequestReader) = (services.launchImages, services.pullRequests.reader)
-        tabs.pageShown = { [weak services] in services?.home.launchFeeds?.need() }  // the New Tab feeds right after the first frame
+        tabs.pageShown = { [weak services] in if let services { ChatsFeed.pageShown(in: services) } }  // the New Tab feeds and indicators right after the first frame
         tabs.createTabs = services.cache.createTabs
         tabs.unsentDrafts = AgentUnsentDrafts(directory: state)
         tabs.pageChats.environments = state.map { SavedEnvironments(url: $0.appending(path: "environments.json")) }

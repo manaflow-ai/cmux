@@ -230,13 +230,6 @@ extension AgentChatUploads {
         return removed
     }
 
-    /// ``sweep(_:now:)`` of ``root`` off the main thread (at launch).
-    static func sweepInBackground() {
-        guard let root else { return }
-        // task-owner: one sweep of the Chat Uploads folder; nothing waits for it
-        Task.detached(priority: .utility) { sweep(root, now: Date()) }
-    }
-
     /// ``remove(session:in:)`` under ``root`` off the main thread (acpmux deleted the chat).
     static func removeInBackground(session: String) {
         guard let root else { return }

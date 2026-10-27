@@ -1,6 +1,7 @@
 import CmuxNextAgentActivity
 import CmuxNextAgentPane
 import CmuxNextCompat
+import CmuxNextLaunch
 import CmuxNextWakeups
 import Foundation
 
@@ -15,7 +16,10 @@ final class ChatsFeed {
     var chats: [AcpmuxChat] { store.chats }
     private(set) var isEnabled = true
     private(set) var isReady = false
-    private let socket: String
+    /// acpmux's socket.
+    let socket: String
+    /// The launch's indicator watches (``postLaunchIndicators(for:startup:)``, p08-startup-097); nil until posted.
+    var launchIndicators: ChatIndicatorLaunch?
     private var observers: [(owner: () -> AnyObject?, changed: @MainActor () -> Void)] = []
     private var subscription: AgentActivityLineConnection?
     private var directoryWatch: (any DispatchSourceFileSystemObject)?

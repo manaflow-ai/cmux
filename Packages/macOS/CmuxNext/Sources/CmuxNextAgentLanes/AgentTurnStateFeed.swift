@@ -8,12 +8,12 @@ import os
 /// Every local acpmux session's turn state for the working and needs-input
 /// indicators (`AgentTurnStateStore`): one long-lived `_acpmux/watch`
 /// connection whose `_acpmux/session_changed` pushes keep it current, so
-/// nothing polls. It starts with the app's Chats feed (`ChatsFeed.started`).
+/// nothing polls. The launch starts it after the first frame (`ChatsFeed.postLaunchIndicators`).
 /// When the socket is absent it waits for a directory change on the socket's
 /// path; a lost connection clears the states and reconnects with `Backoff`.
 @MainActor
 public final class AgentTurnStateFeed {
-    /// The app's one feed (nil until `ChatsFeed.started` makes it).
+    /// The app's one feed (nil until the launch's indicator watches start it, `ChatsFeed.postLaunchIndicators`).
     public static var shared: AgentTurnStateFeed?
     /// Each drain's line count and main-actor time (the App's `debug.timings`, cx-9c8m.6).
     public static var drained: ((Int, Duration) -> Void)?
