@@ -82,6 +82,36 @@ import Testing
         #expect(read.identity == Self.identity)
     }
 
+    /// A writer that stores and scopes keys on one thread while another thread adopts the page loses no store and
+    /// brings no ended scope back: once both end, the file holds every word the page holds.
+    @Test func storesMadeDuringTheAdoptionAllReachTheFile() throws {
+        let directory = try TraceRingCheck.temporaryDirectory()
+        defer { try? FileManager.default.removeItem(atPath: directory) }
+        for round in 0 ..< 100 {
+            let pid = UInt32(20_000 + round)
+            let page = CrashKeyPage(identity: .init(pid: pid, role: .app))
+            DispatchQueue.concurrentPerform(iterations: 2) { lane in
+                guard lane == 0 else {
+                    _ = page.adopt(directory: directory)
+                    return
+                }
+                // Runs before, through and after the adoption: until 256 stores went in after it ended.
+                var stored: UInt64 = 0, afterAdoption = 0
+                while afterAdoption < 256, stored < 2_000_000 {
+                    stored += 1
+                    page.set(.daemonPID, stored)
+                    page.withKey(.actionIndex, stored) { page.set(.mainTaskOwner, stored) }
+                    if page.isFileBacked { afterAdoption += 1 }
+                }
+            }
+            let path = directory + "/" + CrashKeyPage.fileName(role: .app, pid: pid)
+            let read = try #require(CrashKeyPage.read(atPath: path), "round \(round): no page in the file")
+            #expect(read.words == page.snapshot().words, "round \(round): a store made during the adoption missed the file")
+            #expect(read[.actionIndex] == 0, "round \(round): a scoped key came back after its scope ended")
+            #expect(read[.daemonPID] == read[.mainTaskOwner], "round \(round): the last stores differ")
+        }
+    }
+
     @Test func aFailedAdoptionKeepsTheHeapPageAndCountsIt() {
         let page = CrashKeyPage(identity: Self.identity)
         page.set(.windowCount, 1)

@@ -9,7 +9,7 @@ import MachO
 /// (``TraceRuntime/attach(_:)``), which owns it from then on, so every `runtime.write` of the process
 /// records into it from the first frame; nothing opens, truncates or maps a file on the caller's thread. The
 /// three file steps are separate blocking calls that the owner runs on BackgroundWork `.files`. The process's
-/// crash-key page (``crashKeys``) starts on the heap beside the ring and moves into its file with it:
+/// crash-key page (``crashKeys``) starts on the heap beside the ring and is mirrored into its file with it:
 ///
 /// 1. ``adoptFile()``: moves the ring into `<directory>/<role>-<pid>.blackbox.cmxtrace` (``TraceRingFile``),
 ///    renaming the role's spare file when one is ready, and the page into `<role>-<pid>.crashkeys`.
@@ -40,7 +40,7 @@ public final class TraceBlackBox: Sendable {
     public let ring: TraceRing
     /// The runtime that owns ``ring``.
     public let runtime: TraceRuntime
-    /// The runtime's crash-key page (``TraceRuntime/attachCrashKeys(_:)``): the heap, then its file.
+    /// The runtime's crash-key page (``TraceRuntime/attachCrashKeys(_:)``): the heap, mirrored into its file.
     public let crashKeys: CrashKeyPage
     /// The pid in the file names.
     public let pid: UInt32

@@ -6,9 +6,15 @@ import Darwin
 
 /// A process's crash-key page (plans/cmux-next/chrome-parity/p09-observability.md, task 078): one 4 KiB page
 /// of 64-bit words at the fixed ``CrashKeySlot`` offsets, written with relaxed stores while the process runs.
-/// It starts on the heap; ``adopt(directory:)`` moves it into a `MAP_SHARED` file off the main thread, so what
-/// the process stored last stays in the page cache when it crashes, aborts or is killed, and the next launch
-/// decodes it (``read(atPath:)``; tasks 079 and 110).
+/// The page lives on the heap and never moves; ``adopt(directory:)`` maps a `MAP_SHARED` file off the main thread
+/// and mirrors the page into it, so what the process stored last stays in the page cache when it crashes, aborts
+/// or is killed, and the next launch decodes it (``read(atPath:)``; tasks 079 and 110).
+///
+/// A key is stored into the heap page first, then into the file once one is mapped. Until the file holds a full
+/// copy, a store runs a sequentially consistent fence between its heap store and its load of the mapping, and
+/// the adoption runs one between publishing the mapping and reading the heap words: either the adoption copies
+/// the store, or the store sees the mapping and writes the file itself. A key has one writer at a time (the
+/// thread that runs its scope), as Chrome's crash keys do.
 ///
 /// Chrome keeps each crash key in static storage that exists before the crash and that Crashpad reads from the
 /// dead process (components/crash/core/common/crash_key.h); setting one is a store, never an allocation, and
@@ -21,7 +27,7 @@ import Darwin
 ///
 /// ```swift
 /// let keys = CrashKeyPage(identity: .init(role: .app))       // composition root, before the first window
-/// keys.set(.daemonPID, UInt64(pid))                           // any thread, one relaxed store
+/// keys.set(.daemonPID, UInt64(pid))                           // any thread: relaxed stores, no lock
 /// lanes.files { keys.adopt(directory: blackBoxDirectory) }    // off main, once
 /// ```
 public final class CrashKeyPage: Sendable {
@@ -61,10 +67,12 @@ public final class CrashKeyPage: Sendable {
         "\(role.fileStem)-\(pid).crashkeys"
     }
 
-    /// The page the writers store into: the heap page, then the file's mapping. Every store loads it with acquire,
-    /// so a store after the swap lands after the adoption's copy.
-    @usableFromInline let active = Atomic<UInt>(0)
-    private let heap: UInt
+    /// The heap page from `init`: every key is stored here first and read from here; it never moves.
+    @usableFromInline let heap: UInt
+    /// The file's mapping the keys are mirrored into: 0 before ``adopt(directory:)`` maps one, its address with
+    /// bit 0 set while the adoption copies the heap page in, the bare address once the copy is done (the mapping
+    /// is page aligned, so bit 0 is free).
+    @usableFromInline let mirror = Atomic<UInt>(0)
     /// 0 on the heap, 1 adopting, 2 in the file.
     private let adoption = Atomic<Int>(0)
     private let adoptFailureCount = Atomic<Int>(0)
@@ -82,12 +90,11 @@ public final class CrashKeyPage: Sendable {
         for (index, value) in header.enumerated() {
             AtomicPointerSlot(words + index).store(value, ordering: .relaxed)
         }
-        active.store(heap, ordering: .releasing)
     }
 
     deinit {
         // Every store goes through this instance, so none can run now.
-        if adoption.load(ordering: .acquiring) == 2, let file = UnsafeMutableRawPointer(bitPattern: active.load(ordering: .relaxed)) {
+        if let file = UnsafeMutableRawPointer(bitPattern: mirror.load(ordering: .acquiring) & ~1) {
             munmap(file, Self.byteCount)
         }
         UnsafeMutableRawPointer(bitPattern: heap)?.deallocate()
@@ -95,16 +102,17 @@ public final class CrashKeyPage: Sendable {
 
     // MARK: - Keys
 
-    /// Stores `value` in the first word of `slot` (one relaxed store).
+    /// Stores `value` in the first word of `slot`: a relaxed store into the heap page, and one into the file once
+    /// it is mapped (``store(_:_:)``).
     @inlinable @inline(__always)
     public func set(_ slot: CrashKeySlot, _ value: UInt64) {
-        word(Int(slot.rawValue)).store(value, ordering: .relaxed)
+        store(Int(slot.rawValue), value)
     }
 
     /// The value in the first word of `slot` (0 when never set).
     @inlinable @inline(__always)
     public func value(_ slot: CrashKeySlot) -> UInt64 {
-        word(Int(slot.rawValue)).load(ordering: .relaxed)
+        heapWord(Int(slot.rawValue)).load(ordering: .relaxed)
     }
 
     /// Stores the bucket of `count` (``countBucket(_:)``) in a count slot (``CrashKeySlot/windowCount`` through
@@ -151,12 +159,11 @@ public final class CrashKeyPage: Sendable {
         set(.hangInProgressStart, 0)
         let images = min(imageUUIDWords.count, CrashKeySlot.hangInProgressImages.wordCount)
         for index in 0 ..< CrashKeySlot.hangInProgressImages.wordCount {
-            word(Int(CrashKeySlot.hangInProgressImages.rawValue) + index)
-                .store(index < images ? imageUUIDWords[index] : 0, ordering: .relaxed)
+            store(Int(CrashKeySlot.hangInProgressImages.rawValue) + index, index < images ? imageUUIDWords[index] : 0)
         }
         let count = min(frames.count, Self.hangFrameCapacity)
         for index in 0 ..< Self.hangFrameCapacity {
-            word(Int(CrashKeySlot.hangInProgressFrames.rawValue) + index).store(index < count ? frames[index] : 0, ordering: .relaxed)
+            store(Int(CrashKeySlot.hangInProgressFrames.rawValue) + index, index < count ? frames[index] : 0)
         }
         set(.hangInProgressFrameCount, UInt64(count))
         set(.hangInProgressStart, startNanos)
@@ -176,10 +183,10 @@ public final class CrashKeyPage: Sendable {
     /// The adoptions that failed (no directory, no file, no mapping); the page stays on the heap.
     public var adoptFailures: Int { adoptFailureCount.load(ordering: .relaxed) }
 
-    /// Moves the page into `role-pid.crashkeys` in `directory` (mode 0700, made when missing): creates the file
+    /// Mirrors the page into `role-pid.crashkeys` in `directory` (mode 0700, made when missing): creates the file
     /// with its block allocated (a store into a sparse page on a full disk would end the process with SIGBUS, as
-    /// Chrome's `MemoryMappedFile` notes), maps it `MAP_SHARED`, copies the heap words in and points the writers at
-    /// it; a key stored on the heap while it copied is carried over after the swap.
+    /// Chrome's `MemoryMappedFile` notes), maps it `MAP_SHARED`, publishes the mapping to the writers, then copies
+    /// each heap word in (``copy(_:into:)``), so a key stored at any point of the adoption reaches the file.
     /// Blocking file work: run it on BackgroundWork `.files`, never on main. One-shot: a second call returns nil.
     ///
     /// - Returns: The file's path, or nil (counted in ``adoptFailures`` when the file work failed).
@@ -193,29 +200,43 @@ public final class CrashKeyPage: Sendable {
             adoption.store(0, ordering: .releasing)
             return nil
         }
+        let file = UInt(bitPattern: mapping)
+        // Pairs with the fence in `store(_:_:)`: a writer stored before this fence (the copy below reads it), or
+        // loads the mapping after it and stores into the file itself.
+        mirror.store(file | 1, ordering: .sequentiallyConsistent)
+        atomicFence(ordering: .sequentiallyConsistent)
         let target = mapping.assumingMemoryBound(to: UInt64.self)
-        var copied = [UInt64](repeating: 0, count: Self.wordCount)
         for index in 0 ..< Self.wordCount {
-            copied[index] = AtomicPointerSlot(source + index).load(ordering: .relaxed)
-            AtomicPointerSlot(target + index).store(copied[index], ordering: .relaxed)
+            Self.copy(AtomicPointerSlot(source + index), into: AtomicPointerSlot(target + index))
         }
-        active.store(UInt(bitPattern: mapping), ordering: .releasing)
-        // A key stored on the heap during the copy moves too, unless the file already has a newer store.
-        for index in 0 ..< Self.wordCount {
-            let late = AtomicPointerSlot(source + index).load(ordering: .relaxed)
-            if late != copied[index] {
-                AtomicPointerSlot(target + index).compareExchange(expected: copied[index], desired: late, ordering: .relaxed)
-            }
-        }
+        // Every word is in the file: from here a store skips the fence.
+        mirror.store(file, ordering: .releasing)
         adoption.store(2, ordering: .releasing)
         return path
+    }
+
+    /// Copies one heap word into its file word, again while the heap holds another value after a fence (a store
+    /// raced the copy; the retry ends at the first copy no store interleaves, like a compare-exchange loop). A
+    /// writer whose heap store comes after the copy's read changes the heap (copied again); a writer whose file
+    /// store comes before the copy's store is ordered before that fence, so the check reads its heap store.
+    private static func copy(_ source: AtomicPointerSlot, into target: AtomicPointerSlot) {
+        var copied = source.load(ordering: .relaxed)
+        target.store(copied, ordering: .relaxed)
+        atomicFence(ordering: .sequentiallyConsistent)
+        var now = source.load(ordering: .relaxed)
+        while now != copied {
+            copied = now
+            target.store(copied, ordering: .relaxed)
+            atomicFence(ordering: .sequentiallyConsistent)
+            now = source.load(ordering: .relaxed)
+        }
     }
 
     // MARK: - Reading
 
     /// The page's words now, with relaxed loads.
     public func snapshot() -> Snapshot {
-        let words = (0 ..< Self.wordCount).map { word($0).load(ordering: .relaxed) }
+        let words = (0 ..< Self.wordCount).map { heapWord($0).load(ordering: .relaxed) }
         return Snapshot(identity: identity, words: words)
     }
 
@@ -250,11 +271,26 @@ public final class CrashKeyPage: Sendable {
 
     // MARK: - Internals
 
+    /// Stores `value` in word `index` of the heap page, then of the file's mapping when there is one. Until the
+    /// adoption's copy is done (no mapping yet, or bit 0 set), a sequentially consistent fence orders the heap
+    /// store before the reload of ``mirror``; the adoption's side is in ``adopt(directory:)``.
     @inlinable @inline(__always)
-    func word(_ index: Int) -> AtomicPointerSlot {
-        // `active` is the heap page from `init`, then the file's mapping; both stay while `self` lives, and every
-        // index is a slot's word (below 512).
-        AtomicPointerSlot(UnsafeMutablePointer<UInt64>(bitPattern: active.load(ordering: .acquiring)).unsafelyUnwrapped + index)
+    func store(_ index: Int, _ value: UInt64) {
+        heapWord(index).store(value, ordering: .relaxed)
+        var file = mirror.load(ordering: .acquiring)
+        if file == 0 || file & 1 != 0 {
+            atomicFence(ordering: .sequentiallyConsistent)
+            file = mirror.load(ordering: .acquiring)
+        }
+        // The mapping stays while `self` lives, and every index is a slot's word (below 512).
+        guard let target = UnsafeMutablePointer<UInt64>(bitPattern: file & ~1) else { return }
+        AtomicPointerSlot(target + index).store(value, ordering: .relaxed)
+    }
+
+    @inlinable @inline(__always)
+    func heapWord(_ index: Int) -> AtomicPointerSlot {
+        // The heap page from `init` stays while `self` lives, and every index is a slot's word (below 512).
+        AtomicPointerSlot(UnsafeMutablePointer<UInt64>(bitPattern: heap).unsafelyUnwrapped + index)
     }
 
     private static func header(_ identity: Identity) -> [UInt64] {
@@ -290,35 +326,6 @@ public final class CrashKeyPage: Sendable {
             }
             return mapping
         }
-    }
-}
-
-/// Sets a crash key for the life of the value and puts the value it replaced back when it ends (Chrome's
-/// `ScopedCrashKeyString`, components/crash/core/common/crash_key.h). Noncopyable, so it ends once.
-///
-/// ```swift
-/// let scope = ScopedCrashKey(keys, .inCEFPump, 1)
-/// pump()
-/// scope.end()                                  // or at the end of the scope
-/// ```
-public struct ScopedCrashKey: ~Copyable {
-    private let page: CrashKeyPage
-    private let slot: CrashKeySlot
-    private let outer: UInt64
-
-    /// Sets `slot` to `value` on `page`.
-    public init(_ page: CrashKeyPage, _ slot: CrashKeySlot, _ value: UInt64) {
-        self.page = page
-        self.slot = slot
-        outer = page.value(slot)
-        page.set(slot, value)
-    }
-
-    /// Puts the outer value back now.
-    public consuming func end() {}
-
-    deinit {
-        page.set(slot, outer)
     }
 }
 

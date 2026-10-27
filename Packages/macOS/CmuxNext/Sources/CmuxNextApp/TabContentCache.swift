@@ -34,10 +34,10 @@ final class TabContentCache {
     /// `terminalPointerFrames`); nil: each pointer event reaches Ghostty at once.
     let terminalPointerFrames: FrameInputCoalescers?
     let mainWork: MainWorkScheduler
-    var terminals: [String: TerminalEntry] = [:]
+    var terminals: [String: TerminalEntry] = [:] { didSet { pageRequests.services?.crashKeys?.noteTerminals(terminals.count) } }
     var browsers: [String: BrowserEntry] = [:] {
         didSet {
-            guard browsers.count != oldValue.count else { return }
+            pageRequests.services?.crashKeys?.noteBrowsers(in: browsers.values.lazy.map { $0.tab }); guard browsers.count != oldValue.count else { return }
             pageRequests.media.tabsChanged()
             if browsers.count < oldValue.count { tabRenderers.keep(only: Set(browsers.keys)) }
         }

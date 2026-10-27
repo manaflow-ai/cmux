@@ -1,3 +1,4 @@
+import CmuxNextTrace
 import CmuxNextWakeups
 
 /// Chromium's state in the app's crash keys (p10-stability-207, ``CrashKeySlots/Key/cefState``): a crash
@@ -12,14 +13,25 @@ extension CEFRuntime {
         noteCrashKeyState()
     }
 
-    /// Stores ``state`` in the crash keys (each state change).
+    /// Stores ``state`` in the crash keys (each state change), and the fork's API version once Chromium is ready.
     func noteCrashKeyState() {
-        crashKeys?.set(.cefState, state.crashKeyValue)
+        crashKeys?.noteCEF(state, forkAPIVersion: forkAPIVersion)
     }
 
     /// Quit began to close Chromium's browsers (before `CefShutdown`).
     func noteCrashKeyShuttingDown() {
         crashKeys?.set(.cefState, CrashKeySlots.CEFState.shuttingDown.rawValue)
+    }
+}
+
+extension CrashKeySlots {
+    /// Names Chromium's `state` in ``Key/cefState`` and, when it is ready, the cmux fork's API version in the
+    /// crash-key page's ``CrashKeySlot/cefAPIVersion`` (p09-observability-078): a report says which Chromium the
+    /// app ran. The version stays after a later failure or shutdown.
+    func noteCEF(_ state: CEFRuntime.State, forkAPIVersion: @autoclosure () -> Int32) {
+        set(.cefState, state.crashKeyValue)
+        guard state == .ready else { return }
+        page.set(.cefAPIVersion, UInt64(clamping: forkAPIVersion()))
     }
 }
 

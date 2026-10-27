@@ -65,9 +65,8 @@ public final class TraceRuntime: Sendable {
     /// The address of the histogram store ``attachMetrics(_:)`` attached (retained once and never released, as
     /// the ring), 0 until its owner attaches one.
     let metricsAddress = Atomic<UInt64>(0)
-    /// The address of the crash-key page ``attachCrashKeys(_:)`` attached (retained once and never released, as
-    /// the ring), 0 until its owner attaches one.
-    let crashKeysAddress = Atomic<UInt64>(0)
+    /// The crash-key page ``attachCrashKeys(_:)`` attached; none until its owner attaches one.
+    let crashKeyPage = AttachedCrashKeyPage()
 
     /// A runtime for a process of kind `role`, with every category off and no ring yet.
     ///

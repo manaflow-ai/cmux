@@ -706,8 +706,8 @@ final class AppServices {
         // on; the ring file opens on `.files`, never on main.
         traceBlackBox = environment.marksRun ? TraceBlackBoxFileSteps.startApp(bundleID: environment.launch.bundleID, work: work) : nil
         // Its crash-key page names the main thread's running task from here on (p09-observability-078).
-        if let page = traceBlackBox?.blackBox.crashKeys { mainWork.budget.board.attachCrashKeys(page) }
-        (self.wireStats, self.inputTap) = (wireStats, inputTap)
+        if let page = traceBlackBox?.blackBox.crashKeys { mainWork.budget.board.attachCrashKeys(page); crashKeys?.page.attach(page) }
+        (self.wireStats, self.inputTap) = (wireStats, inputTap); inputTap.crashKeys = crashKeys  // its last input time names the page
         hoverCards = HoverCardCoordinator(input: inputTap, changes: overlayChanges)
         _ = CmuxDialogCenter.shared.observe { [overlayChanges] _ in overlayChanges.signal() } // an app dialog's host has no window
         (self.launchImages, self.relaunchWake, self.launchImageHold) = (launchImages, relaunchWake, launchImageHold)

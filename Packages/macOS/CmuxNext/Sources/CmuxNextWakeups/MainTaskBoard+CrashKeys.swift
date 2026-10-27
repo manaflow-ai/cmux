@@ -23,8 +23,8 @@ final class MainTaskCrashKeyOwner: Sendable {
     /// The owners whose key is kept.
     static var capacity: Int { 4096 }
 
-    /// The attached page (retained once by ``attach(_:)``, released in `deinit`); 0 until then.
-    private let pageAddress = Atomic<UInt>(0)
+    /// The page the owners are named in, from ``attach(_:)`` on.
+    private let page = AttachedCrashKeyPage()
     /// The key table's address (``capacity`` words), kept as an integer so the class is `Sendable` with no
     /// unchecked claim; every access goes through ``AtomicPointerSlot``.
     private let keysAddress: UInt
@@ -36,21 +36,12 @@ final class MainTaskCrashKeyOwner: Sendable {
     }
 
     deinit {
-        if let page = UnsafeRawPointer(bitPattern: pageAddress.load(ordering: .acquiring)) {
-            Unmanaged<CrashKeyPage>.fromOpaque(page).release()
-        }
         UnsafeMutablePointer<UInt64>(bitPattern: keysAddress)?.deallocate()
     }
 
     /// Names owners in `page` from now on; false when a page was attached already (the first one stays).
     func attach(_ page: CrashKeyPage) -> Bool {
-        let retained = Unmanaged.passRetained(page)
-        guard pageAddress.compareExchange(expected: 0, desired: UInt(bitPattern: retained.toOpaque()),
-                                          ordering: .acquiringAndReleasing).exchanged else {
-            retained.release()
-            return false
-        }
-        return true
+        self.page.attach(page)
     }
 
     /// Keeps the stable key of owner `name`, interned at `index` (ignored past ``capacity``).
@@ -62,9 +53,8 @@ final class MainTaskCrashKeyOwner: Sendable {
     /// Stores the key of the owner at `index` (0: no task runs) in the attached page; nothing without a page.
     @inline(__always)
     func name(_ index: UInt32) {
-        guard let page = UnsafeRawPointer(bitPattern: pageAddress.load(ordering: .acquiring)) else { return }
         let key = index != 0 && Int(index) < Self.capacity ? slot(Int(index)).load(ordering: .relaxed) : 0
-        Unmanaged<CrashKeyPage>.fromOpaque(page)._withUnsafeGuaranteedRef { $0.set(.mainTaskOwner, key) }
+        page.set(.mainTaskOwner, key)
     }
 
     @inline(__always)
