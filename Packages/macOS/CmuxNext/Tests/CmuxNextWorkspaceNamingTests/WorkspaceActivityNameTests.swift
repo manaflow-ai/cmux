@@ -1,3 +1,4 @@
+import CmuxNextActions
 import CmuxNextBridge
 @testable import CmuxNextDaemon
 @testable import CmuxNextWorkspaceNaming
@@ -81,5 +82,52 @@ struct WorkspaceActivityNameTests {
         #expect(WorkspaceActivityName.name(fromReply: "**Sidebar drag polish**") == "Sidebar drag polish")
         #expect(WorkspaceActivityName.name(fromReply: "one two three four five six seven") == "one two three four five")
         #expect(WorkspaceActivityName.name(fromReply: " \n\"\" ") == nil)
+    }
+
+    private static func workspace(pages count: Int, revision: UInt64 = 1) -> WorkspaceModel {
+        let tabs = (1...count).map { TabSnapshot(surface: SurfaceID(rawValue: UInt64($0)), kind: .browser, title: "page \($0)") }
+        let pane = PaneSnapshot(id: 1, tabs: tabs)
+        return WorkspaceModel(WorkspaceSnapshot(id: 1, key: WorkspaceKey(rawValue: "activity"), name: "workspace-1",
+                                                nameSource: .auto, nameRevision: revision,
+                                                screens: [ScreenSnapshot(id: 1, layout: .leaf(1), panes: [pane])]))
+    }
+
+    @Test func aCrowdedWorkspaceReadsOnlyTheTabLimit() {
+        var asked = 0
+        let activity = WorkspaceActivityName.read(Self.workspace(pages: 40), turns: AgentTurnStateStore()) { tab in
+            asked += 1
+            return tab.titleText
+        }
+        #expect(activity.tabs.count == WorkspaceActivityName.tabLimit)
+        #expect(asked == WorkspaceActivityName.tabLimit, "the walk stops at the limit instead of reading every tab")
+    }
+
+    @MainActor
+    private final class Host: WorkspaceActivityNameHost {
+        let workspace: WorkspaceModel
+        var guards: Bool
+        var pagesAsked = 0
+        var completions = 0
+        init(_ workspace: WorkspaceModel, guards: Bool) {
+            self.workspace = workspace
+            self.guards = guards
+        }
+        func activityWorkspace(_ invocation: ActionInvocation) -> WorkspaceModel? { workspace }
+        func activityPageTitle(_ tab: TabModel) -> String? { pagesAsked += 1; return tab.titleText }
+        func activityHasAgents() -> Bool { true }
+        func activityComplete(_ params: [String: any Sendable], fallback: [String: any Sendable]) async throws -> String { completions += 1; return "Name" }
+        func activityRun(_ workspace: WorkspaceModel, _ body: @escaping @Sendable (isolated DaemonConnection) async throws -> Void) async -> Bool { true }
+        func activityGuardsRevision(_ workspace: WorkspaceModel) -> Bool { guards }
+    }
+
+    @Test func aDaemonWithoutTheRevisionGuardIsRefusedBeforeAnythingIsRead() {
+        let host = Host(Self.workspace(pages: 2), guards: false)
+        _ = WorkspaceActivityNameActions(host: host, turns: AgentTurnStateStore()).effect(ActionInvocation())
+        #expect(host.pagesAsked == 0, "no tab is read for a rename the daemon cannot guard")
+        #expect(host.completions == 0)
+
+        let guarded = Host(Self.workspace(pages: 2), guards: true)
+        _ = WorkspaceActivityNameActions(host: guarded, turns: AgentTurnStateStore()).effect(ActionInvocation())
+        #expect(guarded.pagesAsked == 2)
     }
 }

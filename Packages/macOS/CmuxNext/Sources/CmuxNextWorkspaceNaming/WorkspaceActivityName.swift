@@ -47,24 +47,34 @@ public nonisolated struct WorkspaceActivityName: Equatable, Sendable {
     /// Whether nothing would tell the model what the workspace is about.
     public var isEmpty: Bool { tabs.isEmpty }
 
-    /// Reads `workspace`'s tabs in their panes' order. `page` answers a browser tab's live title,
-    /// nil for an incognito page (its title never leaves memory, R102).
+    /// Reads `workspace`'s tabs in their panes' order, stopping at ``tabLimit`` tabs that say
+    /// something: a crowded workspace costs no more than a small one (the action's turn budget).
+    /// `page` answers a browser tab's live title, nil for an incognito page (its title never leaves
+    /// memory, R102).
     @MainActor
     public static func read(_ workspace: WorkspaceModel, turns: AgentTurnStateStore,
                             page: (TabModel) -> String?) -> WorkspaceActivityName {
-        let tabs = workspace.screens.flatMap(\.panes).flatMap(\.tabs)
-        return WorkspaceActivityName(tabs: tabs.compactMap { tab -> Tab? in
-            if let session = tab.agentSession {
-                let prompts = turns.timeline(for: session).events.filter { $0.kind == .prompt }.compactMap(\.text)
-                return .chat(title: snippet(turns.generatedTitle(for: session) ?? tab.name),
-                             prompts: prompts.suffix(promptsPerChat).compactMap(snippet))
-            }
-            switch tab.kind {
-            case .pty, .remoteTerminal: return .terminal(folder: snippet(tab.cwd), title: snippet(tab.titleText))
-            case .browser: return .browser(title: snippet(page(tab)))
-            case .conversation, .other: return nil
-            }
-        })
+        var read: [Tab] = []
+        for tab in workspace.screens.lazy.flatMap(\.panes).flatMap(\.tabs) {
+            guard read.count < tabLimit else { break }
+            if let item = Self.tab(tab, turns: turns, page: page), !item.isEmpty { read.append(item) }
+        }
+        return WorkspaceActivityName(tabs: read)
+    }
+
+    @MainActor
+    private static func tab(_ tab: TabModel, turns: AgentTurnStateStore, page: (TabModel) -> String?) -> Tab? {
+        if let session = tab.agentSession {
+            // The newest prompts only: a timeline holds at most `AgentTimeline.limit` events.
+            let prompts = turns.timeline(for: session).events.reversed().lazy.filter { $0.kind == .prompt }
+                .compactMap(\.text).prefix(promptsPerChat).reversed()
+            return .chat(title: snippet(turns.generatedTitle(for: session) ?? tab.name), prompts: prompts.compactMap(snippet))
+        }
+        switch tab.kind {
+        case .pty, .remoteTerminal: return .terminal(folder: snippet(tab.cwd), title: snippet(tab.titleText))
+        case .browser: return .browser(title: snippet(page(tab)))
+        case .conversation, .other: return nil
+        }
     }
 
     /// One line of at most ``snippetLimit`` characters; nil when empty.

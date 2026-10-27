@@ -295,6 +295,65 @@
           }
         }
       }
+    },
+    "workspaceNaming.nameFromActivity.oldDaemon": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This workspace's machine runs an older cmux that cannot protect a rename made meanwhile."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このワークスペースのマシンは古い cmux を実行しており、その間に行われた名前変更を保護できません。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Rechner dieses Arbeitsbereichs nutzt eine ältere cmux-Version, die eine zwischenzeitliche Umbenennung nicht schützen kann."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La machine de cet espace de travail exécute une ancienne version de cmux qui ne peut pas protéger un renommage effectué entre-temps."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يشغّل جهاز مساحة العمل هذه إصدارًا أقدم من cmux لا يمكنه حماية إعادة تسمية تمت في هذه الأثناء."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La máquina de este espacio de trabajo ejecuta una versión antigua de cmux que no puede proteger un cambio de nombre hecho mientras tanto."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此工作區的機器執行較舊版本的 cmux，無法保護期間所做的重新命名。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此工作区的机器运行较旧版本的 cmux，无法保护期间所做的重命名。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 작업 공간의 컴퓨터는 그 사이에 바꾼 이름을 보호할 수 없는 이전 cmux를 실행합니다."
+          }
+        }
+      }
     }
   },
   "version": "1.0"

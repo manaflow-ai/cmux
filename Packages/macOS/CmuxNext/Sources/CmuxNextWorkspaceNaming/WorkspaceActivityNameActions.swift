@@ -25,7 +25,7 @@ public protocol WorkspaceActivityNameHost: AnyObject {
 extension WorkspaceActivityName {
     /// Why Name from Activity did not rename.
     public enum Refusal: Sendable, Equatable {
-        case noWorkspace, nothingToNameFrom, noAgents, noName
+        case noWorkspace, nothingToNameFrom, noAgents, noName, oldDaemon
         case failed(String)
 
         /// What the person reads.
@@ -35,6 +35,7 @@ extension WorkspaceActivityName {
             case .nothingToNameFrom: String(localized: "workspaceNaming.nameFromActivity.nothing", defaultValue: "This workspace has no activity to name it from.", bundle: .module)
             case .noAgents: String(localized: "workspaceNaming.nameFromActivity.noAgents", defaultValue: "Name from Activity needs the agent service, which is not running.", bundle: .module)
             case .noName: String(localized: "workspaceNaming.nameFromActivity.noName", defaultValue: "The model did not suggest a name.", bundle: .module)
+            case .oldDaemon: String(localized: "workspaceNaming.nameFromActivity.oldDaemon", defaultValue: "This workspace's machine runs an older cmux that cannot protect a rename made meanwhile.", bundle: .module)
             case let .failed(detail): String(localized: "workspaceNaming.nameFromActivity.failed", defaultValue: "Could not name the workspace: \(detail)", bundle: .module)
             }
         }
@@ -66,12 +67,14 @@ public final class WorkspaceActivityNameActions {
         guard let workspace = host.activityWorkspace(invocation), let key = workspace.key else {
             return .refused(WorkspaceActivityName.Refusal.noWorkspace.text)
         }
+        // A rename the person makes while the model answers wins: the daemon refuses this one once
+        // the name revision read here has moved on. A daemon without that guard is refused, so a
+        // late reply can never overwrite the person's name.
+        guard host.activityGuardsRevision(workspace) else { return .refused(WorkspaceActivityName.Refusal.oldDaemon.text) }
         let activity = WorkspaceActivityName.read(workspace, turns: turns, page: host.activityPageTitle)
         guard !activity.isEmpty else { return .refused(WorkspaceActivityName.Refusal.nothingToNameFrom.text) }
         guard host.activityHasAgents() else { return .refused(WorkspaceActivityName.Refusal.noAgents.text) }
-        // A rename the person makes while the model answers wins: the daemon refuses this one once
-        // the name revision read here has moved on.
-        let revision = host.activityGuardsRevision(workspace) ? workspace.nameRevision : nil
+        let revision = workspace.nameRevision
         let params = activity.completionParams, fallback = activity.completionFallbackParams
         // action-wait-allow: the name comes from a model another process runs (acpmux's completion); nothing local can stand in for it
         return .waiting(.externalProcess) {
