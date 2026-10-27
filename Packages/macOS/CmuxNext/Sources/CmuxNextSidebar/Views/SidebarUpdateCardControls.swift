@@ -167,7 +167,7 @@ final class SidebarUpdateButton: NSView {
         }
     }
 
-    override func viewDidChangeEffectiveAppearance() {
+    override func viewDidChangeEffectiveAppearance() { // visibility-walk-allow: only invalidates: AppKit draws a hidden view when it shows
         super.viewDidChangeEffectiveAppearance()
         needsDisplay = true
     }
@@ -203,7 +203,7 @@ final class SidebarUpdateButton: NSView {
     }
 
     override var acceptsFirstResponder: Bool { NSApp.isFullKeyboardAccessEnabled && isEnabled }
-    override var canBecomeKeyView: Bool { acceptsFirstResponder && !isHiddenOrHasHiddenAncestor }
+    override var canBecomeKeyView: Bool { acceptsFirstResponder && !isHiddenOrHasHiddenAncestor } // visibility-walk-allow: AppKit's key-view loop asks it (Full Keyboard Access), an accessibility read
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         keyRepaint.track()

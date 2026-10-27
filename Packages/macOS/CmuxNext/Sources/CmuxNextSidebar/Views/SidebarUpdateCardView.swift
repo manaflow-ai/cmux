@@ -88,7 +88,7 @@ final class SidebarUpdateCardView: NSView {
     /// The popup's delayed close after the pointer left the card or the popup
     /// (``scheduleNotesClose()``): one-shot, re-armed while the pointer is on its way.
     /// Tests swap in one on a manual clock.
-    var notesCloseTimer = DemandTimer(owner: "sidebar.update-card.notes-close")
+    var notesCloseTimer = DemandTimer(owner: "sidebar.update-card.notes-close") // timer-class-allow: the popup's close grace the pointer waits on (visible); no MainDeadlineScheduler reaches the sidebar's cards yet
     /// How long the pending close has already waited (capped at ``notesCorridorLimit``).
     var notesCloseWaited: Duration = .zero
     /// How many close checks ran (tests wait on it instead of a fixed number of yields).
@@ -231,7 +231,7 @@ final class SidebarUpdateCardView: NSView {
         }
     }
 
-    override func viewDidChangeEffectiveAppearance() {
+    override func viewDidChangeEffectiveAppearance() { // visibility-walk-allow: only invalidates: AppKit draws a hidden view when it shows
         super.viewDidChangeEffectiveAppearance()
         needsDisplay = true
     }
@@ -292,7 +292,7 @@ final class SidebarUpdateCardView: NSView {
     }
 
     /// Not passed up the responder chain: the sidebar has nothing to do with it.
-    override func mouseMoved(with event: NSEvent) {
+    override func mouseMoved(with event: NSEvent) { // local-monitor-allow: a hover hit test only until the popup shows (the guard); then each move returns at once
         guard !isHovered || !notesAreShown else { return }
         pointerHover?.refresh()
         if isHovered, !notesAreShown, !notesDismissedWhileHovered { showNotes() }
@@ -316,7 +316,7 @@ final class SidebarUpdateCardView: NSView {
         toggleNotesPinned()
     }
 
-    override func viewDidHide() {
+    override func viewDidHide() { // visibility-walk-allow: a hidden card closes its popup (rule 3) and its hover owner hit-tests under a still pointer
         super.viewDidHide()
         hideNotes()
         pointerHover?.refresh()
