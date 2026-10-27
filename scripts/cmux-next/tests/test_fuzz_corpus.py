@@ -6,9 +6,12 @@
 2. A push after another run's push (the generation moved since this run's pull) adds to the stored inputs
    instead of replacing them, so neither run loses its finds.
 3. History: push records libFuzzer cov/ft from the run's log; record-coverage records llvm-cov regions; quality
-   lists a target whose last 3 measurements did not grow and files one issue per target, once per run.
+   lists a target whose last 3 measurements did not grow and files one issue per target, once per run, also after
+   a push and a move to a fresh store; rows imported older than the store's own are read in time order.
 4. regress checks in a crash input under 64 KiB and refuses a larger one; check finds an oversized tracked file.
 5. export / import carry a store between hosts; import refuses an archive member outside the layout.
+6. The lane carry (stability-lanes.json carry_merge): two steps that start from one carried store both keep their
+   finds, whichever finishes last.
 
     python3 -I -m pytest scripts/cmux-next/tests/test_fuzz_corpus.py
     python3 -I -m unittest discover -s scripts/cmux-next/tests -p test_fuzz_corpus.py
@@ -26,6 +29,7 @@ import tarfile
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 SCRIPT = Path(__file__).resolve().parents[1] / "fuzz-corpus.py"
 
@@ -63,6 +67,11 @@ FUZZ_LOG = """INFO: Seed: 1
 #90\tNEW    cov: 14 ft: 20 corp: 3/12b lim: 4 exec/s: 0 rss: 31Mb
 Done 100 runs in 2 second(s)
 """
+
+
+def at(stamp: str):
+    """Every timestamp the store writes inside the block is STAMP."""
+    return mock.patch.object(fc, "now_iso", return_value=stamp)
 
 
 def llvm_summary(covered: int, count: int = 100) -> str:
@@ -198,6 +207,52 @@ class Quality(unittest.TestCase):
         run("quality", "--store", str(self.store), "--file-issues", github=github)
         self.assertEqual(github.calls[-1], ("comment", 100))
 
+    def test_the_noted_run_survives_a_push_and_a_move_to_a_fresh_store(self) -> None:
+        for run_id, stamp in (("w1", "2026-10-01T00:00:00Z"), ("w2", "2026-10-08T00:00:00Z"),
+                              ("w3", "2026-10-15T00:00:00Z")):
+            with at(stamp):
+                self.record("flat", run_id, 40)
+        github = FakeGitHub()
+        run("quality", "--store", str(self.store), "--file-issues", github=github)
+        self.assertEqual(github.calls[-1], ("create", "fuzz-quality: flat coverage flat over 3 runs"))
+        # A fast-lane run stores its corpus; the next coverage step fails, so no llvm-cov row is added.
+        write_inputs(self.tmp / "merged", b"x")
+        with at("2026-10-16T00:00:00Z"):
+            run("push", "--store", str(self.store), "--target", "flat", "--from", str(self.tmp / "merged"),
+                "--run", "fast1")
+        self.assertEqual(fc.Store(self.store).read_meta("flat")["quality_noted_run"], "w3")
+        archive = self.tmp / "carry.tar.gz"
+        run("export", "--store", str(self.store), "--out", str(archive))
+        fresh = self.tmp / "fresh"
+        status, _, err = run("import", "--store", str(fresh), "--in", str(archive))
+        self.assertEqual(status, 0, err)
+        calls = len(github.calls)
+        run("quality", "--store", str(fresh), "--file-issues", github=github)
+        self.assertEqual(github.calls[calls:], [("list",)])
+
+    def test_rows_imported_older_than_the_stores_own_keep_the_verdict(self) -> None:
+        older = self.tmp / "older"
+        for run_id, stamp, flat, growing in (("w1", "2026-10-01T00:00:00Z", 40, 10),
+                                             ("w2", "2026-10-08T00:00:00Z", 40, 11)):
+            with at(stamp):
+                for target, covered in (("flat", flat), ("growing", growing)):
+                    summary = self.tmp / f"{target}-{run_id}.json"
+                    summary.write_text(llvm_summary(covered))
+                    run("record-coverage", "--store", str(older), "--target", target, "--run", run_id,
+                        "--llvm-cov-json", str(summary))
+        archive = self.tmp / "older.tar.gz"
+        run("export", "--store", str(older), "--out", str(archive))
+        with at("2026-10-15T00:00:00Z"):
+            self.record("flat", "w3", 39)
+            self.record("growing", "w3", 12)
+        status, _, err = run("import", "--store", str(self.store), "--in", str(archive))
+        self.assertEqual(status, 0, err)
+        self.assertEqual([r["run"] for r in fc.Store(self.store).read_history("growing")], ["w1", "w2", "w3"])
+        status, out, _ = run("quality", "--store", str(self.store), "--json")
+        self.assertEqual(status, 1)
+        self.assertEqual(json.loads(out), [{"target": "flat", "kind": "llvm-cov", "edges": 39,
+                                            "runs": ["w1", "w2", "w3"]}])
+
     def test_bad_llvm_cov_summary_is_refused(self) -> None:
         (self.tmp / "bad.json").write_text("{}")
         status, _, err = run("record-coverage", "--store", str(self.store), "--target", "t", "--run", "r",
@@ -260,9 +315,11 @@ class ExportImport(unittest.TestCase):
     def test_a_store_moves_between_hosts_and_joins_histories(self) -> None:
         host_a, host_b = self.tmp / "a", self.tmp / "b"
         write_inputs(self.tmp / "m", b"one", b"two")
-        run("push", "--store", str(host_a), "--target", "t", "--from", str(self.tmp / "m"), "--run", "ra")
+        with at("2026-10-01T00:00:00Z"):
+            run("push", "--store", str(host_a), "--target", "t", "--from", str(self.tmp / "m"), "--run", "ra")
         write_inputs(self.tmp / "n", b"three")
-        run("push", "--store", str(host_b), "--target", "t", "--from", str(self.tmp / "n"), "--run", "rb")
+        with at("2026-10-02T00:00:00Z"):
+            run("push", "--store", str(host_b), "--target", "t", "--from", str(self.tmp / "n"), "--run", "rb")
         archive = self.tmp / "store.tar.gz"
         status, out, _ = run("export", "--store", str(host_a), "--out", str(archive))
         self.assertEqual(status, 0)
@@ -271,7 +328,10 @@ class ExportImport(unittest.TestCase):
         self.assertEqual(status, 0)
         self.assertIn("t: 2 new inputs", out)
         self.assertEqual(stored(host_b, "t"), {b"one", b"two", b"three"})
-        self.assertEqual([r["run"] for r in fc.Store(host_b).read_history("t")], ["rb", "ra"])
+        # ra was written first, so it comes first, although host_b's own row was there before the import.
+        self.assertEqual([r["run"] for r in fc.Store(host_b).read_history("t")], ["ra", "rb"])
+        self.assertEqual([json.loads(line)["run"] for line in (host_b / "meta/t.history.jsonl").read_text().splitlines()],
+                         ["ra", "rb"])
         meta = fc.Store(host_b).read_meta("t")
         self.assertEqual((meta["generation"], meta["count"]), (2, 3))
         # Importing the same archive again adds nothing and keeps the generation.
@@ -290,6 +350,68 @@ class ExportImport(unittest.TestCase):
         self.assertEqual(status, 2)
         self.assertIn("is not inputs/<target>/<file>", err)
         self.assertFalse((self.tmp / "escape").exists())
+
+
+class LaneCarry(unittest.TestCase):
+    """stability-lanes.json's carry: two overlapping steps start from one carried store."""
+
+    LANES = SCRIPT.parent / "stability-lanes.json"
+
+    def setUp(self) -> None:
+        self.tmp = Path(tempfile.mkdtemp(prefix="fuzz-corpus-test-"))
+        self.lanes = {lane["id"]: lane for lane in json.loads(self.LANES.read_text())["lanes"]}
+
+    def tearDown(self) -> None:
+        subprocess.run(["rm", "-rf", str(self.tmp)], check=False)
+
+    def step(self, name: str, carry: Path, *found: bytes) -> Path:
+        """One lane step as rust-fuzz.sh runs it: a fresh --store, import, pull, push of the merge, export."""
+        store, receipt, out = self.tmp / f"{name}-store", self.tmp / f"{name}.json", self.tmp / f"{name}.tar.gz"
+        self.assertEqual(run("import", "--store", str(store), "--in", str(carry))[0], 0)
+        run("pull", "--store", str(store), "--into", str(self.tmp / f"{name}-corpus"), "--receipt", str(receipt), "t")
+        write_inputs(self.tmp / f"{name}-merged", *found)
+        run("push", "--store", str(store), "--target", "t", "--from", str(self.tmp / f"{name}-merged"),
+            "--receipt", str(receipt), "--run", name)
+        self.assertEqual(run("export", "--store", str(store), "--out", str(out))[0], 0)
+        return out
+
+    def update_carry(self, lane: str, carry: Path, step_artifact: Path, name: str) -> Path:
+        """The runner's carry update, run from the lane's own carry_merge command."""
+        following = self.tmp / f"{name}.tar.gz"
+        values = {"{corpus_in}": str(carry), "{step_artifact}": str(step_artifact), "{corpus_next}": str(following)}
+        argv = [values.get(arg, arg) for arg in self.lanes[lane]["corpus"]["carry_merge"]]
+        self.assertEqual(argv[:3], ["python3", "-I", "scripts/cmux-next/fuzz-corpus.py"])
+        status, _, err = run(*argv[3:])
+        self.assertEqual(status, 0, err)
+        return following
+
+    def unpacked(self, archive: Path) -> fc.Store:
+        store = self.tmp / f"{archive.name}-unpacked"
+        run("import", "--store", str(store), "--in", str(archive))
+        return fc.Store(store)
+
+    def test_two_steps_from_one_carry_both_keep_their_finds(self) -> None:
+        origin = self.tmp / "origin"
+        write_inputs(self.tmp / "seed", b"old")
+        run("push", "--store", str(origin), "--target", "t", "--from", str(self.tmp / "seed"), "--run", "r0")
+        carry = self.tmp / "carry0.tar.gz"
+        run("export", "--store", str(origin), "--out", str(carry))
+
+        # A fast step and a coverage step both start from carry0. Each step's merge minimized "old" away.
+        fast = self.step("fast", carry, b"from-fast")
+        coverage = self.step("coverage", carry, b"from-coverage")
+        self.assertEqual(stored(self.unpacked(coverage).root, "t"), {b"from-coverage"},
+                         "taking the last step's store alone would lose the fast step's find")
+
+        carry = self.update_carry("rust-fuzz", carry, fast, "carry1")
+        carry = self.update_carry("rust-fuzz-coverage", carry, coverage, "carry2")
+        final = self.unpacked(carry)
+        self.assertEqual(stored(final.root, "t"), {b"old", b"from-fast", b"from-coverage"})
+        self.assertEqual({r["run"] for r in final.read_history("t")}, {"r0", "fast", "coverage"})
+
+    def test_a_step_with_a_finding_updates_the_carry(self) -> None:
+        for lane in ("rust-fuzz", "rust-fuzz-coverage"):
+            self.assertEqual(self.lanes[lane]["corpus"]["carry_exit_codes"], [0, 1], lane)
 
 
 class DefaultStore(unittest.TestCase):

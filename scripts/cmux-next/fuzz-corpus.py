@@ -13,8 +13,9 @@ A store is a directory per fuzz family (cmux-tui, swift, ...):
     <store>/inputs/<target>/<sha1>        one corpus input per file, named by its SHA-1 as libFuzzer
                                           names corpus files. CMUX_FUZZ_CORPUS=<store>/inputs feeds a
                                           CmuxFuzzSupport suite the same files (Corpus.swift).
-    <store>/meta/<target>.json            {"target", "generation", "count", "bytes", "run", "updated"}
-    <store>/meta/<target>.history.jsonl   one row per run: {"run", "at", "kind", "edges", ...}
+    <store>/meta/<target>.json            {"target", "generation", "count", "bytes", "run", "updated",
+                                          "quality_noted_run"}
+    <store>/meta/<target>.history.jsonl   one row per run, in "at" order: {"run", "at", "kind", "edges", ...}
     <store>/.lock                         flock held while a command reads or writes the store
 
 Commands:
@@ -44,8 +45,12 @@ Commands:
                                input over 64 KiB: minimize it first (rust-fuzz.sh --minimize-crash).
   check [--repo R]             every checked-in corpus or regression file is at most 64 KiB (exit 1 otherwise).
   export --store S --out TAR   pack the store (inputs and meta) as a .tar.gz; prints its sha256.
-  import --store S --in TAR    add a packed store to S: inputs are added, histories joined by run, and a target
-                               whose inputs changed gets a new generation.
+  import --store S --in TAR    add a packed store to S: inputs are added, histories joined by run in time order,
+                               meta fields only the packed store has kept, and a target whose inputs changed gets
+                               a new generation.
+  merge --out TAR IN...        pack the union of packed stores (import of each into an empty store, then export).
+                               The lane carry merges each finished step's store with the current carry this way,
+                               so overlapping steps that started from one carry keep each other's finds.
 
 Exit 0 on success, 1 when check or quality finds something, 2 on a usage or store error.
 """
@@ -134,10 +139,13 @@ class Store:
                 raise CorpusError(f"{path}:{number} is not JSON: {error}") from None
             if isinstance(row, dict):
                 rows.append(row)
-        return rows
+        return in_time_order(rows)
 
     def write_meta(self, target: str, meta: dict) -> None:
         atomic_write(self.meta(target), json.dumps(meta, sort_keys=True) + "\n")
+
+    def write_history(self, target: str, rows: list[dict]) -> None:
+        atomic_write(self.history(target), "".join(json.dumps(r, sort_keys=True) + "\n" for r in rows))
 
     def append_history(self, target: str, row: dict) -> None:
         path = self.history(target)
@@ -182,6 +190,11 @@ def sha1_name(data: bytes) -> str:
 
 def now_iso() -> str:
     return dt.datetime.now(dt.timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+
+def in_time_order(rows: list[dict]) -> list[dict]:
+    """History rows by their "at" (UTC ISO, so text order is time order); rows of one second keep file order."""
+    return sorted(rows, key=lambda row: str(row.get("at", "")))
 
 
 def default_store(family: str, environ: dict[str, str] | None = None, fleet_parent: Path = FLEET_CACHE_PARENT) -> Path:
@@ -265,8 +278,9 @@ def push(store: Store, target: str, source: Path, pulled_generation: int | None,
             shutil.rmtree(old, ignore_errors=True)
         stored = input_files(current)
         size = sum(p.stat().st_size for p in stored)
-        updated = {"target": target, "generation": meta["generation"] + 1, "count": len(stored),
-                   "bytes": size, "run": run, "updated": now_iso()}
+        # meta | ...: the fields push does not own (quality_noted_run) stay.
+        updated = meta | {"target": target, "generation": meta["generation"] + 1, "count": len(stored),
+                          "bytes": size, "run": run, "updated": now_iso()}
         store.write_meta(target, updated)
         row = {"run": run, "at": updated["updated"], "kind": "fuzz", "count": len(stored), "bytes": size,
                "merged_with_concurrent_run": raced}
@@ -487,7 +501,16 @@ def packed_json(archive: Path, name: str, data: str | bytes) -> object:
         raise CorpusError(f"{archive}: meta/{name} is not JSON: {error}") from None
 
 
+def latest_noted_run(history: list[dict], *candidates: object) -> object:
+    """Of two stores' quality_noted_run, the one whose llvm-cov row is newest in the joined history."""
+    at = {row.get("run"): str(row.get("at", "")) for row in history if row.get("kind") == "llvm-cov"}
+    present = [c for c in candidates if c is not None]
+    return max(present, key=lambda run: at.get(run, ""), default=None)
+
+
 def import_store(store: Store, archive: Path) -> dict[str, int]:
+    if not archive.is_file():
+        raise CorpusError(f"{archive} is not a file: no packed store to import")
     added: dict[str, int] = {}
     histories: dict[str, list[dict]] = {}
     metas: dict[str, dict] = {}
@@ -510,11 +533,13 @@ def import_store(store: Store, archive: Path) -> dict[str, int]:
             elif name.endswith(".json"):
                 meta = packed_json(archive, name, data)
                 metas[name[: -len(".json")]] = meta if isinstance(meta, dict) else {}
+        # Joined in time order: the archive may hold rows older than this store's (quality reads a window).
         for target, rows in histories.items():
-            seen = {(r.get("run"), r.get("kind")) for r in store.read_history(target)}
-            for row in rows:
-                if (row.get("run"), row.get("kind")) not in seen:
-                    store.append_history(target, row)
+            local_rows = store.read_history(target)
+            seen = {(r.get("run"), r.get("kind")) for r in local_rows}
+            new_rows = [r for r in rows if (r.get("run"), r.get("kind")) not in seen]
+            if new_rows:
+                store.write_history(target, in_time_order(local_rows + new_rows))
         for target in sorted(set(added) | set(metas)):
             local = store.read_meta(target)
             packed = metas.get(target, {})
@@ -522,12 +547,29 @@ def import_store(store: Store, archive: Path) -> dict[str, int]:
             generation = max(local["generation"], int(packed.get("generation", 0)))
             if added.get(target):
                 generation += 1
-            local.update({"target": target, "generation": generation, "count": len(stored),
-                          "bytes": sum(p.stat().st_size for p in stored), "updated": now_iso()})
-            store.write_meta(target, local)
+            # Fields only the packed store has (its last run, the run quality last noted) come along.
+            merged = packed | local
+            noted = latest_noted_run(store.read_history(target), local.get("quality_noted_run"),
+                                     packed.get("quality_noted_run"))
+            if noted is not None:
+                merged["quality_noted_run"] = noted
+            merged.update({"target": target, "generation": generation, "count": len(stored),
+                           "bytes": sum(p.stat().st_size for p in stored), "updated": now_iso()})
+            store.write_meta(target, merged)
     for target, count in sorted(added.items()):
         print(f"fuzz-corpus: {target}: {count} new inputs from {archive}")
     return added
+
+
+def merge_archives(archives: list[Path], out: Path) -> str:
+    """One packed store with the inputs and histories of every archive: the lane's carry. Two steps that
+    started from one carried store each export their own; merging the newer carry with each finished step
+    keeps the finds of both, whichever finishes last."""
+    with tempfile.TemporaryDirectory(prefix="fuzz-corpus-merge-") as tmp:
+        store = Store(Path(tmp) / "store")
+        for archive in archives:
+            import_store(store, archive)
+        return export_store(store, out)
 
 
 # MARK: - CLI
@@ -583,6 +625,9 @@ def main(argv: list[str] | None = None, github: GitHub | None = None) -> int:
     p = commands.add_parser("import")
     p.add_argument("--store", required=True)
     p.add_argument("--in", dest="archive", required=True)
+    p = commands.add_parser("merge")
+    p.add_argument("--out", required=True)
+    p.add_argument("archives", nargs="+")
     args = parser.parse_args(argv)
 
     try:
@@ -598,6 +643,9 @@ def main(argv: list[str] | None = None, github: GitHub | None = None) -> int:
             return 1 if found else 0
         if args.command == "regress":
             regress(args.target, Path(args.input), Path(args.corpus_dir))
+            return 0
+        if args.command == "merge":
+            merge_archives([Path(a) for a in args.archives], Path(args.out))
             return 0
         store = Store(Path(args.store))
         if args.command == "pull":

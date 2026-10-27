@@ -39,7 +39,8 @@
 #                  last 3 measurements (fuzz-corpus.py quality). --file-quality-issues files one
 #                  fuzz-quality issue per flat target.
 #   --minimize-crash TARGET FILE
-#                  minimize a finding (libFuzzer -minimize_crash=1) and check it in as a
+#                  minimize a finding (libFuzzer -minimize_crash=1, with the target's .options
+#                  as in the run that found it) and check it in as a
 #                  regression input, cmux-tui/fuzz/corpus/<target>/regress-<sha1> (at most
 #                  64 KiB), which every later run replays first. Commit it with the fix.
 #   --rss-limit-mb, --malloc-limit-mb, --timeout
@@ -266,6 +267,22 @@ print("ASAN_OPTIONS=" + ":".join(f"{key}={value}" for key, value in asan))' \
     "$FUZZ_DIR/fuzz_targets/$1.options"
 }
 
+# The settings every libFuzzer process of a target runs with (the fuzzing run, the corpus
+# merge and the crash minimization), so each one runs as the run that found a finding did.
+# load_target_options TARGET sets TARGET_OWN, the target's libFuzzer flags, and TARGET_ASAN,
+# this process's ASAN_OPTIONS with the target's [asan] section appended.
+TARGET_OWN=() TARGET_ASAN=""
+load_target_options() {
+  local -a lines=()
+  TARGET_OWN=()
+  TARGET_ASAN="${ASAN_OPTIONS:-}"
+  [[ -f "$FUZZ_DIR/fuzz_targets/$1.options" ]] || return 0
+  mapfile -t lines < <(target_options "$1")
+  TARGET_OWN=("${lines[@]:0:${#lines[@]}-1}")
+  local target_asan="${lines[-1]#ASAN_OPTIONS=}"
+  [[ -z "$target_asan" ]] || TARGET_ASAN="${TARGET_ASAN:+$TARGET_ASAN:}$target_asan"
+}
+
 # cargo fuzz runs from the fuzz directory so rustup picks its pinned nightly.
 cargo_fuzz() {
   (cd "$FUZZ_DIR" && cargo fuzz "$1" --fuzz-dir . --sanitizer "$SANITIZER" "${@:2}")
@@ -297,6 +314,9 @@ coverage_run() {
   python3 -I "$CORPUS_TOOL" pull --store "$STORE" --into "$CORPUS" "${SELECTED[@]}"
   python3 -I "$FUZZ_DIR/seeds.py" --repo "$REPO" --out "$CORPUS" "${SELECTED[@]}"
   for target in "${SELECTED[@]}"; do
+    # cargo fuzz coverage writes batch-<n>.profraw into coverage/<target>/raw and merges every
+    # file there, so a file an earlier run left would add that corpus and binary to this one.
+    rm -rf "$FUZZ_DIR/coverage/$target"
     if ! cargo_fuzz coverage "$target" --target-dir "$target_dir" "$CORPUS/$target" \
         >"$OUT/logs/coverage-$target.log" 2>&1; then
       echo "rust-fuzz.sh: cargo fuzz coverage $target failed (log: $OUT/logs/coverage-$target.log)" >&2
@@ -345,10 +365,13 @@ fi
 if [[ -n "$MINIMIZE_TARGET" ]]; then
   minimized="$OUT/minimized/$MINIMIZE_TARGET-$(sha1sum "$MINIMIZE_INPUT" | cut -c1-16)"
   mkdir -p "$OUT/minimized"
-  cargo_fuzz run "$MINIMIZE_TARGET" "$MINIMIZE_INPUT" -- \
+  # The target's .options, as in the run that found the input: a timeout found under its own
+  # timeout reproduces only with it, and an [asan] setting keeps the RSS under the limit.
+  load_target_options "$MINIMIZE_TARGET"
+  ASAN_OPTIONS="$TARGET_ASAN" cargo_fuzz run "$MINIMIZE_TARGET" "$MINIMIZE_INPUT" -- \
     -minimize_crash=1 -max_total_time="$SECONDS_PER_TARGET" \
     -rss_limit_mb="$RSS_LIMIT_MB" -malloc_limit_mb="$MALLOC_LIMIT_MB" -timeout="$TIMEOUT" \
-    -exact_artifact_path="$minimized" >"$OUT/logs/minimize-$MINIMIZE_TARGET.log" 2>&1 || true
+    "${TARGET_OWN[@]}" -exact_artifact_path="$minimized" >"$OUT/logs/minimize-$MINIMIZE_TARGET.log" 2>&1 || true
   if [[ ! -s "$minimized" ]]; then
     echo "rust-fuzz.sh: libFuzzer kept no minimized input; does $MINIMIZE_INPUT still fail? (log: $OUT/logs/minimize-$MINIMIZE_TARGET.log)" >&2
     exit 75
@@ -402,14 +425,9 @@ run_target() {
   # are and never decide this run's verdict.
   mkdir -p "$OUT/artifacts/$target"
   artifacts="$(mktemp -d "$OUT/artifacts/$target/$(date -u +%Y%m%dT%H%M%SZ)-XXXXXX")/"
-  local -a own=() lines=()
-  local asan="${ASAN_OPTIONS:-}"
-  if [[ -f "$FUZZ_DIR/fuzz_targets/$target.options" ]]; then
-    mapfile -t lines < <(target_options "$target")
-    own=("${lines[@]:0:${#lines[@]}-1}")
-    local target_asan="${lines[-1]#ASAN_OPTIONS=}"
-    asan="${asan:+$asan:}$target_asan"
-  fi
+  load_target_options "$target"
+  local -a own=("${TARGET_OWN[@]}")
+  local asan="$TARGET_ASAN"
   mkdir -p "$CORPUS/$target"
   started="$(date +%s)"
   ASAN_OPTIONS="$asan" cargo_fuzz run "$target" "$CORPUS/$target" -- \

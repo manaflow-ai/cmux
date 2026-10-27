@@ -20,7 +20,10 @@
       "corpus": {
         "family": "cmux-tui",
         "tool": "scripts/cmux-next/fuzz-corpus.py",
-        "carry": "{corpus_in} is the newest passed rust-fuzz or rust-fuzz-coverage step's artifact, uploaded for this step's lane with `cmux-ci artifact-put` (store objects live 14 days; the daily run refreshes it). The step's --store is a fresh directory in its checkout, so the corpus moves with the lane, not with the host. With no earlier artifact the lane drops --store-import and starts from the seeds."
+        "carry_exit_codes": [0, 1],
+        "carry_merge": ["python3", "-I", "scripts/cmux-next/fuzz-corpus.py", "merge", "--out", "{corpus_next}",
+                        "{corpus_in}", "{step_artifact}"],
+        "carry": "{corpus_in} is the cmux-tui family's carried store, a packed store (fuzz-corpus.py export) uploaded for the step's lane with `cmux-ci artifact-put`. A rust-fuzz or rust-fuzz-coverage step updates it when rust-fuzz.sh exited with one of carry_exit_codes and wrote its artifact, whatever the lane's verdict: exit 1 is a finding, and that run's corpus is valid (`cmux-ci artifact --failed` takes its artifact). Exit 75 or no artifact leaves the carry as it was. The update is merge-on-write, one step at a time in the runner: carry_merge packs the union of the current carry and the step's store ({step_artifact}) as {corpus_next}, which becomes the next {corpus_in}. So two overlapping steps that started from one carry keep each other's finds, whichever finishes last (test_fuzz_corpus.py, LaneCarry). Each update is a new store object (objects live 14 days), so an open crash never lets the carry expire. The step's --store is a fresh directory in its checkout, so the corpus moves with the lane, not with the host. With no carry yet the lane drops --store-import and starts from the seeds."
       },
       "findings": "summary.jsonl verdicts crash, oom, timeout and leak; each artifact goes through crash_signature.py and stability_issues.py. The fix commits `rust-fuzz.sh --minimize-crash TARGET FILE`, a regression input of at most 64 KiB under cmux-tui/fuzz/corpus/<target>/."
     },
@@ -43,7 +46,10 @@
       "corpus": {
         "family": "cmux-tui",
         "tool": "scripts/cmux-next/fuzz-corpus.py",
-        "carry": "the same {corpus_in} as rust-fuzz; its exported store carries the coverage history to the next run."
+        "carry_exit_codes": [0, 1],
+        "carry_merge": ["python3", "-I", "scripts/cmux-next/fuzz-corpus.py", "merge", "--out", "{corpus_next}",
+                        "{corpus_in}", "{step_artifact}"],
+        "carry": "the same carry as rust-fuzz, updated the same way (merge-on-write), so a coverage step that overlaps a fuzz step keeps the fuzz step's growth; its store carries the coverage history to the next run."
       }
     }
   ]
