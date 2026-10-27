@@ -21,14 +21,14 @@ extension DiffPageService: DiffViewerOpening {
 /// `cmux.diff.chooseFolder` through the cmux picker (folder mode, the diff
 /// recents first).
 final class PickerDiffFolderChooser: DiffFolderChoosing {
-    // crash-allow: ViewerService owns the diff page service that holds this chooser, so it outlives it.
-    private unowned let viewers: ViewerService
+    /// The viewers' picker (``ViewerService/picker``).
+    private let picker: CmuxPicker
 
-    init(viewers: ViewerService) {
-        self.viewers = viewers
+    init(picker: CmuxPicker) {
+        self.picker = picker
     }
 
     func chooseFolder(start: URL?, anchor: NSWindow?) async -> URL? {
-        await viewers.picker.open(.init(choose: .folders, startDirectory: start, recents: [.diff]), over: anchor)?.first
+        await picker.open(.init(choose: .folders, startDirectory: start, recents: [.diff]), over: anchor)?.first
     }
 }
