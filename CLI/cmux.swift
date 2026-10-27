@@ -45663,7 +45663,13 @@ export default {
             }
             let actionArgs = Array(rest.dropFirst())
             if action == "install" || action == "uninstall", Self.agentDef(named: def.name) == nil {
-                throw CLIError(message: "Unknown hooks target: \(first). Agents declared in cmux.json have nothing to install.")
+                throw CLIError(message: String.localizedStringWithFormat(
+                    String(
+                        localized: "cli.hooks.error.vaultAgentNothingToInstall",
+                        defaultValue: "Unknown hooks target: %@. Agents declared in cmux.json have nothing to install."
+                    ),
+                    first
+                ))
             }
             switch action {
             case "extension-source" where def.name == "pi":

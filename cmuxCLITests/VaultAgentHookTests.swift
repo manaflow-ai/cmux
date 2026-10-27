@@ -47,7 +47,11 @@ struct VaultAgentHookTests {
             )
         }
         let stateURL = context.root.appendingPathComponent("myagent-hook-sessions.json")
-        #expect(FileManager.default.fileExists(atPath: stateURL.path))
+        let state = try #require(JSONSerialization.jsonObject(with: Data(contentsOf: stateURL)) as? [String: Any])
+        let sessions = try #require(state["sessions"] as? [String: Any])
+        let record = try #require(sessions[sessionId] as? [String: Any])
+        #expect(record["workspaceId"] as? String == context.workspaceId)
+        #expect(record["surfaceId"] as? String == context.surfaceId)
         #expect(
             !context.state.snapshot().contains { $0.contains("surface.resume.") },
             "A vault agent resumes through its cmux.json resumeCommand, so hooks must not set or clear its binding"
@@ -63,13 +67,14 @@ struct VaultAgentHookTests {
         #expect(result.stderr.contains("nothing to install"), Comment(rawValue: result.stderr))
     }
 
-    @Test func idsTheJournalCannotCarryAreUnknownTargets() throws {
+    @Test(arguments: ["my/agent", "manual"])
+    func idsThatCannotBeAgentsAreUnknownTargets(id: String) throws {
         let context = try makeHookContext(name: "vault-agent-bad-id")
         defer { context.cleanup() }
 
         let result = runAgentHook(
             context: context,
-            agent: "my/agent",
+            agent: id,
             subcommand: "session-start",
             standardInput: #"{"session_id":"s"}"#
         )

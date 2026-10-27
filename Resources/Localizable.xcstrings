@@ -610539,6 +610539,131 @@
         }
       }
     },
+    "cli.hooks.error.vaultAgentNothingToInstall": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unknown hooks target: %@. Agents declared in cmux.json have nothing to install."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "هدف الخطافات غير معروف: %@. الوكلاء المعرَّفون في cmux.json ليس لديهم ما يُثبَّت."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nepoznat cilj hookova: %@. Agenti deklarisani u cmux.json nemaju ništa za instalaciju."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ukendt hooks-mål: %@. Agenter, der er erklæret i cmux.json, har intet at installere."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unbekanntes Hooks-Ziel: %@. In cmux.json deklarierte Agenten haben nichts zu installieren."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Destino de hooks desconocido: %@. Los agentes declarados en cmux.json no tienen nada que instalar."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cible de hooks inconnue : %@. Les agents déclarés dans cmux.json n’ont rien à installer."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Destinazione hook sconosciuta: %@. Gli agenti dichiarati in cmux.json non hanno nulla da installare."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "不明なフックのターゲット: %@。cmux.json で宣言されたエージェントにはインストールするものがありません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "គោលដៅ hooks មិនស្គាល់៖ %@។ ភ្នាក់ងារដែលបានប្រកាសក្នុង cmux.json មិនមានអ្វីត្រូវដំឡើងទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "알 수 없는 훅 대상: %@. cmux.json에 선언된 에이전트는 설치할 항목이 없습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ukjent hooks-mål: %@. Agenter som er deklarert i cmux.json, har ingenting å installere."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nieznany cel hooków: %@. Agenci zadeklarowani w cmux.json nie mają nic do zainstalowania."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Destino de hooks desconhecido: %@. Agentes declarados em cmux.json não têm nada para instalar."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Неизвестная цель хуков: %@. Агентам, объявленным в cmux.json, нечего устанавливать."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไม่รู้จักเป้าหมาย hooks: %@ เอเจนต์ที่ประกาศใน cmux.json ไม่มีอะไรต้องติดตั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bilinmeyen hooks hedefi: %@. cmux.json içinde tanımlanan ajanların yüklenecek bir şeyi yok."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Невідома ціль хуків: %@. Агентам, оголошеним у cmux.json, нічого встановлювати."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未知的钩子目标：%@。在 cmux.json 中声明的代理没有需要安装的内容。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未知的鉤子目標：%@。在 cmux.json 中宣告的代理沒有需要安裝的內容。"
+          }
+        }
+      }
+    },
     "cli.error.notifyDesktopValue": {
       "extractionState": "manual",
       "localizations": {

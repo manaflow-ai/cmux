@@ -319,13 +319,19 @@ extension CMUXCLI {
     }
 
     /// Journal `source`/`agent_key` slugs are lowercase, so a vault id with
-    /// uppercase letters cannot report through hooks.
+    /// uppercase letters cannot report through hooks. Hook verbs and the
+    /// `manual` lifecycle namespace are never agent ids.
     static func isJournalSafeAgentID(_ id: String) -> Bool {
         guard !id.isEmpty, id.count <= 64, id != ".", id != ".." else { return false }
+        guard !reservedHookTargetNames.contains(id) else { return false }
         return id.allSatisfy { character in
             character.isASCII
                 && (character.isLowercase || character.isNumber
                     || character == "." || character == "_" || character == "-")
         }
     }
+
+    private static let reservedHookTargetNames: Set<String> = [
+        "setup", "install", "uninstall", "enqueue", "feed", "claude", "help", "manual",
+    ]
 }
