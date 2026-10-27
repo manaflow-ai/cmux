@@ -327,7 +327,7 @@ export function useChatInspector({
   shell?: HTMLElement | null;
   /// Opens a file's diff (App.tsx openOutput: beside the chat, else in place).
   onOpenOutput?: (path: string) => void;
-  onOpenSourceFile?: (path: string) => void;
+  onOpenSourceFile?: (path: string) => unknown;
   /// Opens a web address in the browser beside the chat (a server's port, a pull request).
   onOpenUrl?: (url: string) => void;
   onOpenImage?: (src: string, alt: string) => void;
@@ -569,7 +569,7 @@ function InspectorPresence({
   onRevealed: () => void;
   onStopProcess?: (id: string) => Promise<unknown>;
   onOpenOutput?: (path: string) => void;
-  onOpenSourceFile?: (path: string) => void;
+  onOpenSourceFile?: (path: string) => unknown;
   onOpenUrl?: (url: string) => void;
   onOpenImage?: (src: string, alt: string) => void;
   onOpenFolder?: (path: string) => void;
@@ -979,7 +979,7 @@ export function ChatInspector({
   sections?: InspectorSections;
   onSection?: (id: InspectorSectionId, open: boolean) => void;
   onOpenOutput?: (path: string) => void;
-  onOpenSourceFile?: (path: string) => void;
+  onOpenSourceFile?: (path: string) => unknown;
   onOpenUrl?: (url: string) => void;
   onOpenImage?: (src: string, alt: string) => void;
   remoteControl?: { on: boolean; set: (on: boolean) => void };

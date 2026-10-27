@@ -1,114 +1,120 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useT } from "../i18n";
 import { Icon } from "../icons/Icon";
 import { rowIconSize } from "../icons/iconSize";
-import type { SummarySource, SummarySourceKind } from "../summary/sessionSummary";
+import { NativeError } from "../nativeError";
+import type { SummarySource } from "../summary/sessionSummary";
 
-const ROW_ICON = rowIconSize(12);
 export const SOURCES_SHOWN = 5;
-
-const sourceIcon = (kind: SummarySourceKind | undefined) => {
-  switch (kind) {
-    case "pullRequest":
-    case "issue":
-      return "git.pullrequest";
-    case "file":
-      return "file.text";
-    case "mcp":
-      return "extension";
-    default:
-      return "link.web";
-  }
+type RowProps = {
+  source: SummarySource;
+  onOpenBeside?: (url: string) => void;
+  onOpenFile?: (path: string) => unknown;
+  cwd?: string;
 };
 
-/// References the session read or named; files open beside the scoped session.
+// Tab refusal happens before the native gesture is spent. Use the Changes editor route for
+// page types and unknown extensions; the host still validates roots and file existence.
+export async function openSourceFile(
+  path: string,
+  native: (method: string, params: Record<string, unknown>) => Promise<unknown>,
+) {
+  try {
+    return await native("file.open", { path, where: "tab" });
+  } catch (error) {
+    if (!(error instanceof NativeError) || error.code !== "transport.path_invalid") throw error;
+    return native("file.open", { path, where: "editor" });
+  }
+}
+
+function scopedPath(path: string, cwd?: string): string | undefined {
+  if (!cwd?.startsWith("/") || path.startsWith("~") || path.includes("\0")) return;
+  const normalize = (value: string) => {
+    const parts: string[] = [];
+    for (const part of value.split("/"))
+      if (part === "..") parts.pop();
+      else if (part && part !== ".") parts.push(part);
+    return `/${parts.join("/")}`;
+  };
+  const root = normalize(cwd),
+    resolved = normalize(path.startsWith("/") ? path : `${root}/${path}`);
+  return resolved.startsWith(root === "/" ? root : `${root}/`) ? resolved : undefined;
+}
+
 export function SourcesSection({
   sources,
-  onOpenBeside,
-  onOpenFile,
-  cwd,
   expanded,
   onExpandedChange,
-}: {
+  ...navigation
+}: Omit<RowProps, "source"> & {
   sources: readonly SummarySource[];
-  onOpenBeside?: (url: string) => void;
-  onOpenFile?: (path: string) => void;
-  cwd?: string;
-  expanded?: boolean;
-  onExpandedChange?: (expanded: boolean) => void;
+  expanded: boolean;
+  onExpandedChange: (expanded: boolean) => void;
 }) {
   const t = useT();
-  const [localAll, setLocalAll] = useState(false);
-  const all = expanded ?? localAll;
-  const setAll = (next: boolean) => {
-    onExpandedChange?.(next);
-    if (!onExpandedChange) setLocalAll(next);
-  };
   const folds = sources.length > SOURCES_SHOWN;
-  const shown = folds && !all ? sources.slice(0, SOURCES_SHOWN) : sources;
+  const shown = folds && !expanded ? sources.slice(0, SOURCES_SHOWN) : sources;
   return (
     <>
       <ul className="acpmux-chat-inspector-list" data-section="sources">
         {shown.map((source) => (
-          <SourceRow
-            key={`${source.kind ?? "url"}:${source.url ?? source.label}`}
-            source={source}
-            onOpenFile={onOpenFile}
-            cwd={cwd}
-            onOpenBeside={onOpenBeside}
-          />
+          <SourceRow key={`${source.kind}:${source.url ?? source.label}`} source={source} {...navigation} />
         ))}
       </ul>
       {folds && (
         <button
           type="button"
           className="acpmux-chat-inspector-fold acpmux-chat-inspector-sources-fold"
-          aria-expanded={all}
-          onClick={() => setAll(!all)}
+          aria-expanded={expanded}
+          onClick={() => onExpandedChange(!expanded)}
         >
-          {all ? t("summary.showFewer") : t("summary.viewAll", { n: sources.length })}
+          {expanded ? t("summary.showFewer") : t("summary.viewAll", { n: sources.length })}
         </button>
       )}
     </>
   );
 }
 
-function SourceRow({
-  source,
-  onOpenBeside,
-  onOpenFile,
-  cwd,
-}: {
-  source: SummarySource;
-  onOpenBeside?: (url: string) => void;
-  onOpenFile?: (path: string) => void;
-  cwd?: string;
-}) {
+function SourceRow({ source, onOpenBeside, onOpenFile, cwd }: RowProps) {
+  const t = useT();
+  const [failure, setFailure] = useState<string>();
+  useEffect(() => {
+    if (!failure) return;
+    const timer = setTimeout(() => setFailure(undefined), 4_000);
+    return () => clearTimeout(timer);
+  }, [failure]);
+  const icon = {
+    file: "file.text",
+    mcp: "extension",
+    pullRequest: "git.pullrequest",
+    issue: "git.pullrequest",
+    url: "link.web",
+  } as const;
   const content = (
     <>
-      <Icon name={sourceIcon(source.kind)} size={ROW_ICON} row />
+      <Icon name={icon[source.kind ?? "url"]} size={rowIconSize(12)} row />
       <span className="acpmux-chat-inspector-source__label">{source.label}</span>
     </>
   );
-  const path =
-    source.kind === "file"
-      ? source.label.startsWith("/") || source.label.startsWith("~/")
-        ? source.label
-        : cwd
-          ? `${cwd.replace(/\/$/, "")}/${source.label}`
-          : undefined
-      : undefined;
+  const path = source.kind === "file" ? scopedPath(source.label, cwd) : undefined;
+  let target = content;
   if (path && onOpenFile)
-    return (
-      <li className="acpmux-chat-inspector-source">
-        <button type="button" className="acpmux-chat-inspector-source__link" onClick={() => onOpenFile(path)}>
-          {content}
-        </button>
-      </li>
+    target = (
+      <button
+        type="button"
+        className="acpmux-chat-inspector-source__link"
+        onClick={() => {
+          setFailure(undefined);
+          Promise.resolve()
+            .then(() => onOpenFile(path))
+            .catch((error: unknown) => setFailure(error instanceof Error ? error.message : t("changes.openFailed")));
+        }}
+      >
+        {content}
+      </button>
     );
-  if (!source.url) return <li className="acpmux-chat-inspector-source">{content}</li>;
-  return (
-    <li className="acpmux-chat-inspector-source">
+  else if (source.kind !== "file" && source.url)
+    target = (
       <a
         className="acpmux-chat-inspector-source__link"
         href={source.url}
@@ -120,6 +126,11 @@ function SourceRow({
       >
         {content}
       </a>
+    );
+  return (
+    <li className="acpmux-chat-inspector-source">
+      {target}
+      {failure && <span role="alert">{failure}</span>}
     </li>
   );
 }
