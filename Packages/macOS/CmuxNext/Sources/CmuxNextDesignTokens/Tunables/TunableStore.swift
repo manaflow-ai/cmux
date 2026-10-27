@@ -188,7 +188,9 @@ public nonisolated final class TunableStore: Observable, Sendable {
 
     /// Removes every override.
     public func resetAll() {
-        reset(state.withLock { Array($0.overrides.keys) })
+        // While the file read is pending its keys are not in `overrides` yet: every registered key is
+        // reset, so none of the file's values comes back when the read lands.
+        reset(state.withLock { $0.loading ? Array(Set($0.overrides.keys).union($0.descriptors.keys)) : Array($0.overrides.keys) })
     }
 
     /// Merges a file's raw values (`TunableFile.decode`) into the
