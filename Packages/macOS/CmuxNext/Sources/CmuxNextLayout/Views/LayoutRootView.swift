@@ -72,8 +72,6 @@ public final class LayoutRootView: NSView {
     /// only when the pointer enters another pane, so a keyboard move is not undone by a
     /// small pointer twitch inside the pane it left.
     var hoveredPane: PaneID?
-    /// Delivers pointer moves for focus-follows-mouse (owner: self).
-    private var hoverTrackingArea: NSTrackingArea?
     /// Focus-follows-mouse's hover moves on the window's frames (``mouseMoved(with:)``).
     private(set) lazy var hoverFocus = PointerFrameHover(owner: "LayoutRootView.focusFollowsMouse", view: self) { [weak self] point in
         _ = self?.focusPaneForPointerHover(at: point)
@@ -215,6 +213,8 @@ public final class LayoutRootView: NSView {
         followLooks(on: mainWork)
         overlayPlane.addSubview(highlight)
         addSubview(overlayPlane)
+        // Pointer moves for focus-follows-mouse.
+        addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseMoved, .activeInKeyWindow, .inVisibleRect], owner: self))
         registerForDraggedTypes([LayoutTabDrag.pasteboardType, .URL])
         sync(snapshot())
         observe()
@@ -256,14 +256,6 @@ public final class LayoutRootView: NSView {
     }
 
     override public var isFlipped: Bool { true }
-
-    override public func updateTrackingAreas() {
-        super.updateTrackingAreas()
-        if let hoverTrackingArea { removeTrackingArea(hoverTrackingArea) }
-        let area = NSTrackingArea(rect: .zero, options: [.mouseMoved, .activeInKeyWindow, .inVisibleRect], owner: self, userInfo: nil)
-        addTrackingArea(area)
-        hoverTrackingArea = area
-    }
 
     // MARK: Public API
 
