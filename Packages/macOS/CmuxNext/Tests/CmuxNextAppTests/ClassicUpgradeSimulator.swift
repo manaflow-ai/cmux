@@ -180,6 +180,8 @@ final class ClassicUpgradeSimulator {
         }
         result.migration = clock.now - migrating
         watcher?.cancel()
+        // The run's last turns (the SSH workspaces, after their connect limit) can end it within one sampling tick.
+        sample(from: migrating)
         // The launch's empty New Tab page closes at the run's end; its close reaches the store a moment later
         // (a ceiling, not a budget: a loaded Mac takes longer).
         if result.outcome?.opened.isEmpty == false {
@@ -243,15 +245,20 @@ final class ClassicUpgradeSimulator {
     private func watch(from start: ContinuousClock.Instant) {
         watcher = Task { @MainActor [weak self] in
             while !Task.isCancelled, let self {
-                let seconds = (ContinuousClock.now - start).simSeconds
-                for workspace in self.services.daemon.store.workspaces where self.appeared[workspace.name] == nil {
-                    self.appeared[workspace.name] = seconds
-                }
-                if let ledger = try? self.mac.readLedger() {
-                    for key in ledger.workspaces.keys where self.ledgered[key] == nil { self.ledgered[key] = seconds }
-                }
+                self.sample(from: start)
                 try? await Task.sleep(for: .milliseconds(50))
             }
+        }
+    }
+
+    /// One sample for ``watch(from:)``: the workspaces in the store and the keys in the ledger not seen before.
+    private func sample(from start: ContinuousClock.Instant) {
+        let seconds = (ContinuousClock.now - start).simSeconds
+        for workspace in services.daemon.store.workspaces where appeared[workspace.name] == nil {
+            appeared[workspace.name] = seconds
+        }
+        if let ledger = try? mac.readLedger() {
+            for key in ledger.workspaces.keys where ledgered[key] == nil { ledgered[key] = seconds }
         }
     }
 
