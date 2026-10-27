@@ -37,6 +37,9 @@ final class RunawayPaneWarningCenter {
     private(set) var stopTasks: [PaneMemoryPaneKey: Task<Void, Never>] = [:]
     @ObservationIgnored
     private var tracker = RunawaySessionWarningTracker<PaneMemoryPaneKey>()
+    /// Consecutive samples in which each live pane's TTY was unavailable.
+    @ObservationIgnored
+    private var unavailableSampleCounts: [PaneMemoryPaneKey: Int] = [:]
     @ObservationIgnored
     private var timer: DispatchSourceTimer?
     @ObservationIgnored
@@ -58,6 +61,10 @@ final class RunawayPaneWarningCenter {
     private let appProcessID: Int
     @ObservationIgnored
     private let appProcessGroupID: Int
+
+    /// Samples a warning survives without a TTY measurement. A brief gap keeps
+    /// it; a pane whose shell exited must not keep a frozen warning forever.
+    static let maximumUnavailableSamples = 3
 
     private struct Measurement: Sendable {
         let warnings: [PaneMemoryPaneKey: RunawayPaneWarning]
@@ -196,8 +203,16 @@ final class RunawayPaneWarningCenter {
         // A pane can close while the census is in flight. Missing TTY data
         // for a still-live pane is not evidence that its runaway recovered.
         let measured = measurement.warnings.filter { liveKeys.contains($0.key) }
-        let unavailableKeys = measurement.unavailableKeys.intersection(liveKeys)
-        for key in measurement.recoveredKeys.intersection(liveKeys) {
+        var unavailableKeys = measurement.unavailableKeys.intersection(liveKeys)
+        unavailableSampleCounts = unavailableSampleCounts.filter { unavailableKeys.contains($0.key) }
+        var recoveredKeys = measurement.recoveredKeys.intersection(liveKeys)
+        for key in unavailableKeys {
+            let count = (unavailableSampleCounts[key] ?? 0) + 1
+            unavailableSampleCounts[key] = count
+            if count > Self.maximumUnavailableSamples { recoveredKeys.insert(key) }
+        }
+        unavailableKeys.subtract(recoveredKeys)
+        for key in recoveredKeys {
             tracker.reset(key)
         }
         let usages = measured.mapValues {

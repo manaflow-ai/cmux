@@ -198,7 +198,7 @@ struct RunawayPaneWarningOverlayHost: View {
 
 extension ContentView {
     @ViewBuilder
-    fileprivate func runawayPaneWarningBackground(
+    func runawayPaneWarningBackground(
         tabManager: TabManager,
         selection: SidebarSelectionState
     ) -> some View {
