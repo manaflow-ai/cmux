@@ -18,6 +18,9 @@ impl Hub {
         deliver: Option<Delivery>,
         prompt_id: Option<String>,
     ) -> Result<Value, RpcError> {
+        // The uploads it names as its own go if it is refused (`attach::OwnedUploads`, `Saved`).
+        let mut owned =
+            crate::attach::OwnedUploads(crate::prompt_uploads::owned(&target.id, &attachments));
         if text.trim().is_empty() {
             return Err(RpcError::invalid_params("text must not be empty"));
         }
@@ -61,6 +64,7 @@ impl Hub {
             crate::attach::receive(&id, false, &mut blocks).map(|saved| (blocks, saved))
         });
         let (blocks, saved) = received.await.map_err(|e| RpcError::internal(e.to_string()))??;
+        let saved = crate::attach::Saved::with_owned(saved, &target.id, owned.take());
         let accepted = self
             .send_family_prompt(caller, target, blocks, prompt_id, steer, interrupt, None, saved)
             .await?;

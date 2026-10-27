@@ -1002,6 +1002,13 @@ async fn dispatch_request(
             // A remote web client may not hide text, directly or through a peer daemon.
             let web = super::remote_guard::control_of(conn.origin, conn.auth, &params)
                 == crate::hub::Control::Web;
+            // The uploads this prompt names as its own (`attach::blocks_for` uploaded them for it
+            // alone): a refusal before the session sees it deletes them, so none is left behind.
+            let mut owned = crate::attach::OwnedUploads(if web {
+                Vec::new()
+            } else {
+                crate::prompt_uploads::owned(&s.id, &blocks)
+            });
             crate::prompt_context::apply(mux_meta(&params), web, &mut blocks)?;
             let provenance = crate::hub::Hub::prompt_provenance(&params, conn.origin)?;
             // A person's prompt (`author.rs`): the hub stamps who sent it, also for a peer's.
@@ -1080,6 +1087,8 @@ async fn dispatch_request(
                 (blocks, saved) =
                     received.await.map_err(|e| RpcError::internal(e.to_string()))??;
             }
+            // From here the prompt's own uploads go only if the session refuses it.
+            let saved = crate::attach::Saved::with_owned(saved, &s.id, owned.take());
             let opts = crate::hub::PromptOptions {
                 prompt_id,
                 on_accepted: match &saved {

@@ -167,40 +167,95 @@ pub async fn blocks_for(
         (Some(id), _) => id.to_owned(),
         (None, _) => session.to_owned(),
     };
-    let mut blocks = Vec::with_capacity(paths.len());
+    // Every file's bytes first, then every finish: a file that fails cancels the uploads begun so
+    // far, none of them finished yet, so nothing is left behind for a send that never happens.
+    let mut sent: Vec<Sent> = Vec::with_capacity(paths.len());
+    let mut failure = None;
     for (path, size) in paths.iter().zip(sizes) {
-        blocks.push(upload(daemon, &chat, path, size).await?);
+        match upload(daemon, &chat, path, size).await {
+            Ok(one) => sent.push(one),
+            Err((e, begun)) => {
+                sent.extend(begun);
+                failure = Some(e);
+                break;
+            }
+        }
     }
-    Ok(blocks)
+    if failure.is_none() {
+        for one in &sent {
+            let finish = json!({"sessionId": chat, "uploadId": one.id, "fileName": one.name,
+                "size": one.size});
+            if let Err(e) = daemon.request(method::MUX_FILE_PUT_FINISH, finish).await {
+                failure = Some(e.context(format!("cannot attach {}", one.name)));
+                break;
+            }
+        }
+    }
+    if let Some(e) = failure {
+        for one in &sent {
+            let cancel = json!({"sessionId": chat, "uploadId": one.id});
+            let _ = daemon.request(method::MUX_FILE_PUT_CANCEL, cancel).await;
+        }
+        return Err(e);
+    }
+    Ok(sent.iter().map(Sent::block).collect())
 }
 
 fn inline_blocks(paths: &[PathBuf]) -> anyhow::Result<Vec<Value>> {
     paths
         .iter()
         .map(|path| {
-            let bytes = std::fs::read(path)
-                .with_context(|| format!("cannot attach {}", path.display()))?;
+            let bytes =
+                std::fs::read(path).with_context(|| format!("cannot attach {}", path.display()))?;
             let name = path.file_name().map(|n| n.to_string_lossy()).unwrap_or_default();
             Ok(block(&name, &bytes))
         })
         .collect()
 }
 
-/// Uploads the file at `path`, `size` bytes, to chat `chat` in chunks read as they go, and
-/// answers the block that names it (`prompt_uploads.rs`). A failed upload is cancelled.
-async fn upload(daemon: &Client, chat: &str, path: &Path, size: u64) -> anyhow::Result<Value> {
+/// A file whose bytes were sent to a chat, not yet finished.
+struct Sent {
+    id: String,
+    name: String,
+    size: u64,
+    /// Its first bytes, which say whether it is an image.
+    head: Vec<u8>,
+}
+
+impl Sent {
+    /// The block that names the upload (`prompt_uploads.rs`), marked as this prompt's own: the
+    /// daemon deletes it if the prompt is refused before the chat takes it (`Saved`).
+    fn block(&self) -> Value {
+        let (id, name) = (&self.id, &self.name);
+        let meta = json!({"acpmux": {"upload": {"uploadId": id, "fileName": name, "owned": true}}});
+        match image_type(&self.head) {
+            Some(mime) => json!({"type": "image", "mimeType": mime, "_meta": meta}),
+            None => json!({"type": "resource_link", "name": name,
+                "uri": format!("{}{id}", crate::prompt_uploads::URI_SCHEME), "_meta": meta}),
+        }
+    }
+}
+
+/// Begins an upload of the file at `path`, `size` bytes, to chat `chat` and sends its bytes in
+/// chunks read as they go. A failure answers the upload when it was begun, for the caller to
+/// cancel.
+async fn upload(
+    daemon: &Client,
+    chat: &str,
+    path: &Path,
+    size: u64,
+) -> Result<Sent, (anyhow::Error, Option<Sent>)> {
     let label = path.display();
     let name = safe_name(&path.file_name().map(|n| n.to_string_lossy()).unwrap_or_default());
-    let mut file =
-        tokio::fs::File::open(path).await.with_context(|| format!("cannot attach {label}"))?;
+    let context = |e: anyhow::Error| e.context(format!("cannot attach {label}"));
+    let mut file = tokio::fs::File::open(path).await.map_err(|e| (context(e.into()), None))?;
     let begin = json!({"sessionId": chat, "fileName": name, "size": size, "forPrompt": true});
-    let begun = daemon
-        .request(method::MUX_FILE_PUT_BEGIN, begin)
-        .await
-        .with_context(|| format!("cannot attach {label}"))?;
-    let id = begun.get("uploadId").and_then(Value::as_str).context("the daemon gave no uploadId")?;
-    let id = id.to_owned();
-    let mut head = Vec::new();
+    let begun = daemon.request(method::MUX_FILE_PUT_BEGIN, begin).await;
+    let begun = begun.map_err(|e| (context(e), None))?;
+    let Some(id) = begun.get("uploadId").and_then(Value::as_str) else {
+        return Err((anyhow::anyhow!("the daemon gave no uploadId for {label}"), None));
+    };
+    let mut one = Sent { id: id.to_owned(), name, size, head: Vec::new() };
     let sent = async {
         use tokio::io::AsyncReadExt;
         let mut buf = vec![0u8; crate::hub::file_uploads::CHUNK_BYTES];
@@ -210,29 +265,21 @@ async fn upload(daemon: &Client, chat: &str, path: &Path, size: u64) -> anyhow::
             file.read_exact(&mut buf[..want])
                 .await
                 .with_context(|| format!("{label} changed while it was sent"))?;
-            if head.is_empty() {
-                head = buf[..want.min(64)].to_vec();
+            if one.head.is_empty() {
+                one.head = buf[..want.min(64)].to_vec();
             }
             let data = base64::engine::general_purpose::STANDARD.encode(&buf[..want]);
-            let chunk = json!({"sessionId": chat, "uploadId": id, "offset": offset, "data": data});
+            let chunk =
+                json!({"sessionId": chat, "uploadId": one.id, "offset": offset, "data": data});
             daemon.request(method::MUX_FILE_PUT_CHUNK, chunk).await?;
             offset += want as u64;
         }
-        let finish = json!({"sessionId": chat, "uploadId": id, "fileName": name, "size": size});
-        daemon.request(method::MUX_FILE_PUT_FINISH, finish).await?;
         anyhow::Ok(())
     };
-    if let Err(e) = sent.await {
-        let cancel = json!({"sessionId": chat, "uploadId": id});
-        let _ = daemon.request(method::MUX_FILE_PUT_CANCEL, cancel).await;
-        return Err(e.context(format!("cannot attach {label}")));
+    match sent.await {
+        Ok(()) => Ok(one),
+        Err(e) => Err((context(e), Some(one))),
     }
-    let meta = json!({"acpmux": {"upload": {"uploadId": id, "fileName": name}}});
-    Ok(match image_type(&head) {
-        Some(mime) => json!({"type": "image", "mimeType": mime, "_meta": meta}),
-        None => json!({"type": "resource_link", "name": name,
-            "uri": format!("{}{id}", crate::prompt_uploads::URI_SCHEME), "_meta": meta}),
-    })
 }
 
 fn mark(block: &Value) -> Option<&Value> {
@@ -345,8 +392,7 @@ pub fn receive(
     // Named by this daemon's clock, which the uploads age sweep reads.
     let dir = uploads.join(uuid::Uuid::now_v7().to_string());
     // From here the folder is the message's: a failure deletes it, files saved so far included.
-    let saved_dir =
-        Saved { dir: Some(dir.clone()), session: session.to_owned(), accepted: Arc::default() };
+    let saved_dir = Saved::new(session, Vec::new()).in_dir(dir.clone());
     let failed = |e: anyhow::Error| RpcError::internal(format!("cannot save an attachment: {e}"));
     crate::config::private_state_dir(&dir).map_err(failed)?;
     let mut saved = Vec::new();
@@ -380,18 +426,57 @@ pub fn receive(
 /// the session took the prompt.
 pub struct Saved {
     dir: Option<PathBuf>,
+    /// The folders of uploads the prompt names as its own (`_meta.acpmux.upload.owned`,
+    /// [`blocks_for`]): deleted only when the prompt is refused before the session answers it.
+    /// A duplicate keeps them, since the first run may read the same uploads (an outbox retry).
+    owned: Vec<PathBuf>,
     session: String,
     /// Set when the session takes the prompt as a new run: whether it queued, and its id.
     accepted: Arc<Mutex<Option<(bool, String)>>>,
+    /// Set when the session answers the prompt at all: a new run or a duplicate.
+    answered: Arc<std::sync::atomic::AtomicBool>,
 }
 
 type OnAccepted = Option<Box<dyn FnOnce(Value) + Send>>;
 
 impl Saved {
+    /// The guard of a prompt to session `session` that names uploads `owned` as its own, with no
+    /// inline files saved ([`receive`] makes the one that has them).
+    pub fn new(session: &str, owned: Vec<PathBuf>) -> Self {
+        Saved {
+            dir: None,
+            owned,
+            session: session.to_owned(),
+            accepted: Arc::default(),
+            answered: Arc::default(),
+        }
+    }
+
+    /// This guard, for the folder `dir` its inline files were saved in.
+    fn in_dir(mut self, dir: PathBuf) -> Self {
+        self.dir = Some(dir);
+        self
+    }
+
+    /// `saved` (from [`receive`]), or a new guard, that also deletes uploads `owned` when the
+    /// prompt is refused; None when there is nothing to guard.
+    pub fn with_owned(saved: Option<Saved>, session: &str, owned: Vec<PathBuf>) -> Option<Saved> {
+        match saved {
+            Some(mut saved) => {
+                saved.owned.extend(owned);
+                Some(saved)
+            }
+            None if owned.is_empty() => None,
+            None => Some(Saved::new(session, owned)),
+        }
+    }
+
     /// `on_accepted`, also noting whether the session took the prompt as a new run.
     pub fn watch(&self, on_accepted: OnAccepted) -> OnAccepted {
         let accepted = self.accepted.clone();
+        let answered = self.answered.clone();
         Some(Box::new(move |v: Value| {
+            answered.store(true, std::sync::atomic::Ordering::SeqCst);
             if v.get("duplicate") != Some(&Value::Bool(true)) {
                 let queued = v.get("queued") == Some(&Value::Bool(true));
                 let id = v.get("promptId").and_then(Value::as_str).unwrap_or_default().to_owned();
@@ -420,8 +505,15 @@ impl Saved {
         let withdrawn = answer.as_ref().ok().and_then(|v| v.pointer("/_meta/acpmux/withdrawn"))
             == Some(&Value::Bool(true));
         let failed = answer.is_err();
+        // Refused before the session answered it, and not held: its own uploads go.
+        let answered = self.answered.load(std::sync::atomic::Ordering::SeqCst);
+        let owned = std::mem::take(&mut self.owned);
+        let drop_owned = failed && !answered && held.is_none() && !flag("held");
         let (hub, session, dir) = (hub.clone(), self.session.clone(), self.dir.take());
         let _ = tokio::task::spawn_blocking(move || {
+            if drop_owned {
+                remove_uploads(&owned);
+            }
             let keep = match accepted {
                 None => match held {
                     Some(prompt_id) => {
@@ -489,6 +581,50 @@ impl Drop for Saved {
         if let Some(dir) = self.dir.take().filter(|_| !accepted) {
             remove_soon(dir);
         }
+        // Dropped unanswered (the request went before its answer): the prompt never ran.
+        let owned = std::mem::take(&mut self.owned);
+        if !owned.is_empty() && !self.answered.load(std::sync::atomic::Ordering::SeqCst) {
+            let remove = move || remove_uploads(&owned);
+            match tokio::runtime::Handle::try_current() {
+                Ok(runtime) => drop(runtime.spawn_blocking(remove)),
+                Err(_) => remove(),
+            }
+        }
+    }
+}
+
+/// The folders of the uploads a prompt names as its own (`prompt_uploads::owned`) while the
+/// daemon checks it: dropped before [`OwnedUploads::take`] (a refusal before the session saw
+/// the prompt), it deletes them. [`Saved`] then guards them until the session answers.
+pub struct OwnedUploads(pub Vec<PathBuf>);
+
+impl OwnedUploads {
+    /// The folders, for [`Saved::with_owned`]; this guard then deletes nothing.
+    pub fn take(&mut self) -> Vec<PathBuf> {
+        std::mem::take(&mut self.0)
+    }
+}
+
+impl Drop for OwnedUploads {
+    fn drop(&mut self) {
+        let owned = self.take();
+        if owned.is_empty() {
+            return;
+        }
+        let remove = move || remove_uploads(&owned);
+        match tokio::runtime::Handle::try_current() {
+            Ok(runtime) => drop(runtime.spawn_blocking(remove)),
+            Err(_) => remove(),
+        }
+    }
+}
+
+/// Deletes upload folders `dirs` under the uploads sweep's lock, so a prompt reading one of them
+/// at that moment never sees it half gone. Blocking.
+fn remove_uploads(dirs: &[PathBuf]) {
+    let _held = crate::hub::file_uploads::IN_USE.lock().unwrap_or_else(|e| e.into_inner());
+    for dir in dirs {
+        let _ = std::fs::remove_dir_all(dir);
     }
 }
 
@@ -584,8 +720,7 @@ mod tests {
         for (id, released) in [("dropped", false), ("released", true)] {
             let dir = root.join(id);
             std::fs::create_dir_all(&dir).unwrap();
-            let saved =
-                Saved { dir: Some(dir.clone()), session: "s".into(), accepted: Arc::default() };
+            let saved = Saved::new("s", Vec::new()).in_dir(dir.clone());
             saved.settle(&hub, &held(id)).await;
             assert!(dir.is_dir(), "{id}: kept while held");
             if released {
@@ -609,8 +744,7 @@ mod tests {
     fn files_of_a_message_dropped_unanswered_are_deleted() {
         let root = std::env::temp_dir().join(format!("acpmux-saved-{}", uuid::Uuid::now_v7()));
         std::fs::create_dir_all(&root).unwrap();
-        drop(Saved { dir: Some(root.clone()), session: String::new(), accepted: Arc::default() });
+        drop(Saved::new("", Vec::new()).in_dir(root.clone()));
         assert!(!root.exists());
     }
-
 }

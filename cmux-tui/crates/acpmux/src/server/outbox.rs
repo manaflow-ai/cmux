@@ -110,10 +110,36 @@ pub(super) async fn handle(
     // The same prompt id again: the first delivery, already on its way.
     if delivery.id == new.id {
         spawn(hub.clone(), delivery.id.clone());
-    } else if let Some(path) = kept {
-        forget_attachments(path).await;
+    } else {
+        if let Some(path) = kept {
+            forget_attachments(path).await;
+        }
+        drop_own_uploads(hub, &new, &delivery).await;
     }
     Ok(delivery.status())
+}
+
+/// A send that the outbox answered with an earlier delivery of the same prompt id: the uploads
+/// it named as its own and the earlier one does not (`attach::blocks_for` uploaded them for this
+/// send) are never read, so they go, on this daemon or on the peer that holds the chat.
+async fn drop_own_uploads(hub: &Arc<Hub>, new: &Delivery, kept: &Delivery) {
+    let ids = |d: &Delivery| {
+        let blocks = d.request.get("prompt").and_then(Value::as_array);
+        crate::prompt_uploads::owned_ids(blocks.map_or(&[][..], Vec::as_slice))
+    };
+    let keep = ids(kept);
+    for upload in ids(new).into_iter().filter(|id| !keep.contains(id)) {
+        if let Ok(session) = hub.resolve(&new.target) {
+            let params = json!({"uploadId": upload});
+            let id = session.id.clone();
+            let _ =
+                tokio::task::spawn_blocking(move || crate::hub::file_uploads::cancel(&id, &params))
+                    .await;
+        } else if let Some((peer, id, _)) = hub.resolve_remote(&new.target) {
+            let params = json!({"sessionId": id, "uploadId": upload});
+            let _ = peer.request(method::MUX_FILE_PUT_CANCEL, params).await;
+        }
+    }
 }
 
 async fn status(hub: &Arc<Hub>, params: &Value) -> Result<Value, RpcError> {

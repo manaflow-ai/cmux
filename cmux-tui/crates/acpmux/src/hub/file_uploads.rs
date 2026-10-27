@@ -755,14 +755,19 @@ pub fn cancel(id: &str, params: &Value) -> Result<Value, RpcError> {
         .and_then(Value::as_str)
         .and_then(upload_id)
         .ok_or_else(|| RpcError::invalid_params("uploadId is required"))?;
+    // The whole upload goes, finished or not (a sender that will not send the prompt naming it),
+    // under the sweep's lock, so a prompt reading it at that moment never sees it half gone.
+    let _in_use = IN_USE.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
     let _held = hold(&upload);
-    if let Some(part) = part_path(id, &upload) {
-        let _ = std::fs::remove_file(part);
-    }
-    if let Some(meta) = meta_path(id, &upload) {
-        let _ = std::fs::remove_file(meta);
+    if let Some(dir) = part_path(id, &upload).as_deref().and_then(Path::parent) {
+        let _ = std::fs::remove_dir_all(dir);
     }
     Ok(json!({}))
+}
+
+/// The folder of upload `upload` of session `session`; None for an id that is not a UUIDv7.
+pub(crate) fn upload_dir(session: &str, upload: &str) -> Option<PathBuf> {
+    Some(session_dir(session)?.join(upload_id(upload)?))
 }
 
 /// Writes the file of `params` for session `id` (this daemon's own) and answers `{path}`.

@@ -56,6 +56,27 @@ fn upload_of(block: &Value) -> Option<&Value> {
     named.or(by_uri.then_some(&NONE))
 }
 
+/// The folders of the uploads `blocks` name as the prompt's own (`_meta.acpmux.upload.owned`:
+/// `attach::blocks_for` uploaded them for this prompt alone), in session `session`'s uploads.
+/// Deleted when the prompt is refused (`attach::Saved`), so none is left behind.
+pub fn owned(session: &str, blocks: &[Value]) -> Vec<std::path::PathBuf> {
+    owned_ids(blocks)
+        .iter()
+        .filter_map(|id| crate::hub::file_uploads::upload_dir(session, id))
+        .collect()
+}
+
+/// The ids of the uploads `blocks` name as the prompt's own ([`owned`]).
+pub fn owned_ids(blocks: &[Value]) -> Vec<String> {
+    blocks
+        .iter()
+        .filter_map(upload_of)
+        .filter(|u| u.get("owned") == Some(&Value::Bool(true)))
+        .filter_map(|u| u.get("uploadId").and_then(Value::as_str))
+        .map(str::to_owned)
+        .collect()
+}
+
 /// Whether `block` names an upload (`send_message` sends files that go by reference so).
 pub fn names_upload(block: &Value) -> bool {
     upload_of(block).is_some()
