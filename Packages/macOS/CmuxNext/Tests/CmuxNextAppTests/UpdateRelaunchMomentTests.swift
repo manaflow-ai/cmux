@@ -123,7 +123,9 @@ import Testing
                                      defaults: UserDefaults(suiteName: "UpdateRelaunchMomentTests.\(UUID().uuidString)")!,
                                      enableSparkle: false, recordsUpdates: false)
         // The test runner has no modal, sheet, menu or composition up: the install starts now.
-        #expect(!updater.updaterDefersAutomaticInstall(until: {}))
+        // Asked outside #expect: the macro's autoclosure is @Sendable and cannot take the release.
+        let deferred = updater.updaterDefersAutomaticInstall(until: {})
+        #expect(!deferred)
         #expect(!updater.relaunchMomentHold.isHolding)
     }
 
