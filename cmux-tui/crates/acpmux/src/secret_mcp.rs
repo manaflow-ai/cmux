@@ -1,8 +1,10 @@
-//! `acpmux secret-mcp`: the agent's `request_secret` and `run_with_secret`
-//! tools (cx-ncc.42), an MCP stdio server for one agent session that
-//! `agent_tools.rs` registers. Each call is one daemon request
-//! (`hub/secrets.rs`) for the session in [`SESSION_ENV`]; the value never
-//! passes through here, only the ref.
+//! The agent's `request_secret` and `run_with_secret` tools (cx-ncc.42) for
+//! one agent session that `agent_tools.rs` registers. Each call is one
+//! daemon request (`hub/secrets.rs`) for the session; the value never passes
+//! through here, only the ref. The daemon serves them itself, for the
+//! session the caller token proves (`subsession_mcp::DaemonTools`); `acpmux
+//! secret-mcp`, the stdio server for the session in [`SESSION_ENV`], stays
+//! for a harness an earlier daemon started and for Windows.
 
 use crate::client::Client;
 use crate::rpc::method;
@@ -17,7 +19,7 @@ pub const SERVER_NAME: &str = "cmux-secrets";
 /// The session the tools ask for, set in this server's own env.
 pub const SESSION_ENV: &str = "ACPMUX_SECRET_SESSION";
 
-fn tools() -> Value {
+pub(crate) fn tools() -> Value {
     json!([
         {
             "name": "request_secret",
@@ -50,7 +52,7 @@ fn tools() -> Value {
 /// Runs the server on stdin and stdout.
 pub async fn run() -> Result<()> {
     serve(SERVER_NAME, SESSION_ENV, tools(), None, |daemon, session, params| async move {
-        call(&daemon, &session, &params).await
+        call(daemon.as_ref(), &session, &params).await
     })
     .await
 }
@@ -139,7 +141,11 @@ pub(crate) fn error_result(text: String) -> Value {
     json!({"content": [{"type": "text", "text": text}], "isError": true})
 }
 
-async fn call(daemon: &Client, session: &str, params: &Value) -> Value {
+pub(crate) async fn call<D: crate::subsession_mcp::ToolRequests>(
+    daemon: &D,
+    session: &str,
+    params: &Value,
+) -> Value {
     let arguments = params.get("arguments").cloned().unwrap_or_else(|| json!({}));
     let (m, mut request) = match params["name"].as_str() {
         Some("request_secret") => (

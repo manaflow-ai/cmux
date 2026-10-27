@@ -346,8 +346,11 @@ import Testing
         #expect(wheels.map(\.phase) == [NSEvent.Phase.changed.rawValue, 0])
         #expect(wheels.map(\.momentumPhase) == [0, NSEvent.Phase.began.rawValue])
         #expect(wheels.map(\.precise) == [gesture.hasPreciseScrollingDeltas, momentum.hasPreciseScrollingDeltas])
-        #expect(wheels.map(\.deltaY) == [gesture, momentum].map { (Double($0.scrollingDeltaY) * 100).rounded() / 100 })
-        #expect(wheels.allSatisfy { NSEvent.ModifierFlags(rawValue: UInt($0.modifierFlags)).contains(.shift) })
+        let sentDeltas: [Double] = [gesture, momentum].map { (event: NSEvent) -> Double in (Double(event.scrollingDeltaY) * 100).rounded() / 100 }
+        let wheelDeltas: [Double] = wheels.map(\.deltaY)
+        #expect(wheelDeltas == sentDeltas)
+        let allShifted = wheels.allSatisfy { NSEvent.ModifierFlags(rawValue: UInt($0.modifierFlags)).contains(.shift) }
+        #expect(allShifted)
     }
     #endif
 }

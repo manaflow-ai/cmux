@@ -1,0 +1,12 @@
+{
+  "tabs": {
+    "toolbarButtons": [
+      "toggleSplitZoom",
+      "agentPane.searchChats",
+      "file.open",
+      "openDiffViewer",
+      "splitDown",
+      "splitRight"
+    ]
+  }
+}

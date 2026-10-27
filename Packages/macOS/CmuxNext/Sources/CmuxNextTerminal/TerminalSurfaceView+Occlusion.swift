@@ -20,7 +20,7 @@ extension TerminalSurfaceView {
     /// comes back before that draw and goes after a pause (``TerminalGPUResidencyGate``). A window an
     /// opaque cmux window covers is occluded too (its ``WindowOcclusionFamily``, p03-rendering-097).
     func updateOcclusion() {
-        guard let surface else { return }
+        guard surface != nil else { return }
         var inputs = WindowDrawPolicy.inputs(for: self, suspended: isRenderingSuspended, forced: mirrorDemand > 0)
         if let window, WindowOcclusionFamily.installed(on: window)?.isOccluded == true { inputs.windowVisible = false }
         pause = inputs.pause
@@ -29,13 +29,12 @@ extension TerminalSurfaceView {
         defer { gpu.release(releases: releases)?.setResident(false, of: self) }
         guard (pause == nil) != lastOcclusionVisible else { return }
         lastOcclusionVisible = pause == nil
-        heldFrame.hold(volatile: pause != nil, presented: presentedFrame, layer: layer)
-        // SAFETY: the view's live surface (`surface`).
-        unsafe ghostty_surface_set_occlusion(surface, pause == nil)
+        heldFrame.hold(volatile: pause != nil, in: frameSource)
+        TerminalHostFramePresenter.setOcclusion(of: self, visible: pause == nil)  // shown: drawn frame in this commit
     }
 
-    /// The presented frame for one reader (hover pictures; ``TerminalHeldFrame/beginRead(presented:layer:)``).
-    func beginFrameRead() -> IOSurface? { heldFrame.beginRead(presented: presentedFrame, layer: layer) }
+    /// The presented frame for one reader (hover pictures; ``TerminalHeldFrame/beginRead(from:)``).
+    func beginFrameRead() -> IOSurface? { heldFrame.beginRead(from: frameSource) }
 
     func endFrameRead(_ frame: IOSurface) { heldFrame.endRead(frame) }
 }

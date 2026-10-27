@@ -159,7 +159,8 @@ extension LineTransport {
     /// spawns the child and reads its dial line off the caller's thread.
     ///
     /// - Parameter stats: Where the connection counts (``DaemonEndpoint/wireStats``); nil for none.
-    /// - Parameter hangs: Watches each line's handling on the reader thread; nil watches nothing.
+    /// - Parameter hangs: Watches each line's handling on the reader thread and each drain step of the
+    ///   socket writer; nil watches nothing.
     /// - Parameter writerTarget: The serial queue the socket writer drains on (``SocketWriter``), nil for its own.
     static func open(path: String, bridge: DaemonBridge?, role: DaemonWireStats.Role, stats: DaemonWireStats?,
                      hangs: (any HangWatchScoping)? = nil, writerTarget: DispatchQueue? = nil,

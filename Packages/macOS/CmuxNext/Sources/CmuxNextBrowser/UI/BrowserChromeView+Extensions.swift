@@ -149,6 +149,7 @@ extension BrowserChromeView {
 
     /// Its pane parked this tab hidden (another tab shows): popups close, as
     /// when it leaves the window.
+    // visibility-walk-allow: the hide's own effect, never deferred work (p06 rule 3): the parked tab's popups close and its page cards leave
     public override func viewDidHide() {
         super.viewDidHide()
         extensionToolbar.hidePopups()
@@ -156,10 +157,15 @@ extension BrowserChromeView {
     }
 
     /// Its pane shows this parked tab again: it repaints, as when it comes
-    /// back into the window (R55). The pane re-pins its header band itself.
+    /// back into the window (R55), once its node shows (R-hide). The pane
+    /// re-pins its header band itself.
     public override func viewDidUnhide() {
         super.viewDidUnhide()
-        guard window != nil else { return }
+        visibilityNode.deferUntilVisible(key: Self.shownKey) { [weak self] in self?.repaintShown() }
+    }
+
+    private func repaintShown() {
+        guard window != nil, !isHidden else { return }
         updateColors()
         renderPrompt()
         syncPageOverlays()

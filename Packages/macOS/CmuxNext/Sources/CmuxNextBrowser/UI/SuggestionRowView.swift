@@ -14,7 +14,7 @@ final class SuggestionRowView: NSView {
     /// for the whole card with feature `pointerFrameHover` (Chromium's rAF-aligned moves,
     /// main_thread_event_queue.cc; boundary events from those moves, boundary_event_dispatcher.cc).
     /// A press flushes it first; the card flushes it when the pointer leaves the card.
-    weak var hoverMoves: PointerFrameHover?
+    weak var frameInputHover: PointerFrameHover?
     var isHighlighted = false {
         didSet {
             guard oldValue != isHighlighted else { return }
@@ -91,6 +91,7 @@ final class SuggestionRowView: NSView {
             iconKind = nil
             if let page, let source = faviconSource {
                 // task-owner: this row; cancelled when the row shows another page.
+                // main-hop-allow: the source is the tab's main-actor async favicon fetch (the request runs in the page's network stack); this task only starts it and shows the icon
                 faviconTask = Task { [weak self] in
                     let image = await source(page)
                     guard !Task.isCancelled, let self, self.faviconURL == page, let image else { return }
@@ -149,7 +150,7 @@ final class SuggestionRowView: NSView {
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
         if let tracking { removeTrackingArea(tracking) }
-        let area = NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .mouseMoved, .activeAlways, .inVisibleRect], owner: self)
+        let area = NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .mouseMoved, .activeForHover, .inVisibleRect], owner: self)
         addTrackingArea(area)
         tracking = area
     }
@@ -157,13 +158,14 @@ final class SuggestionRowView: NSView {
     // Crossing into or out of a row is a position like a move: the card's consumer coalesces it with the
     // moves around it, so a sweep across the rows reports at most twice a frame. A press is discrete: the
     // pending move lands first (`ShouldFlushQueue`).
-    override func mouseEntered(with event: NSEvent) { hoverMoves?.crossed(event) }
-    override func mouseMoved(with event: NSEvent) { hoverMoves?.moved(event) }
-    override func mouseExited(with event: NSEvent) { hoverMoves?.crossed(event) }
+    override func mouseEntered(with event: NSEvent) { frameInputHover?.crossed(event) }
+    override func mouseMoved(with event: NSEvent) { frameInputHover?.moved(event) }
+    override func mouseExited(with event: NSEvent) { frameInputHover?.crossed(event) }
     override func mouseUp(with event: NSEvent) { onClick?(event.modifierFlags) }
-    override func mouseDown(with event: NSEvent) { hoverMoves?.flush() }
+    override func mouseDown(with event: NSEvent) { frameInputHover?.flush() }
     override func accessibilityPerformPress() -> Bool { onClick?([]); return true }
 
+    // visibility-walk-allow: a row exists only in the open suggestion card, which shows while the bar edits; nothing hidden to defer
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         applyColors()

@@ -17,6 +17,9 @@ nonisolated enum AgentActivityStrings {
     static var frameExpired: String { t("pane.frameExpired", "Screenshot removed by retention") }
     static var live: String { t("pane.live", "Live") }
     static var typedTextHidden: String { t("pane.typedTextHidden", "Typed text hidden") }
+    static var pageMissing: String {
+        t("pane.pageMissing", "The Agent Activity page is missing from this copy of cmux. Reinstall cmux to open it.")
+    }
 
     static var stop: String { t("action.stop", "Stop") }
     static var pause: String { t("action.pause", "Pause") }
@@ -86,4 +89,6 @@ nonisolated enum AgentActivityStrings {
 public nonisolated enum AgentActivityPaneStrings {
     public static var title: String { AgentActivityStrings.title }
     public static var thisMac: String { AgentActivityStrings.thisMac }
+    /// The load error page's message when this copy of cmux has no Activity page files.
+    public static var pageMissing: String { AgentActivityStrings.pageMissing }
 }

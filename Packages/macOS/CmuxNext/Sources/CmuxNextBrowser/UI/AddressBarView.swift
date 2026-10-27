@@ -50,14 +50,20 @@ public final class AddressBarView: NSView {
     let density = DensityBinding()
     /// The app's one main-thread scheduler: the bar's setting follows apply on it.
     let mainWork: MainWorkScheduler
+    /// The node the bar's repaints wait on (R-appear): its tab's, set by the chrome, or a root that stays
+    /// visible for a bar in no tab (a popup's toolbar, the Markdown bar), whose repaints run at once.
+    var visibilityNode = VisibilityNode(root: "browser.omnibar.standalone", own: .visible) {
+        didSet {
+            pill.visibilityNode = visibilityNode
+            field.visibilityNode = visibilityNode
+        }
+    }
     /// The suggestion engine's "Always show full URLs" (``followDisplay()``).
     var displayWatch: FrameObservation<Bool>?
 
     private var reportedURL: URL?
     /// Whether the field's cursor rects were last built for editing.
     private var cursorRectsEditing = false
-    /// The text area the bar's cursor rects were last built for.
-    private var cursorTextArea = NSRect.zero
     /// The page's title, for a drag of the address out of the bar.
     public var pageTitle: (() -> String?)?
     /// The site icon of a page suggestion row, fetched as the tab fetches
@@ -97,7 +103,8 @@ public final class AddressBarView: NSView {
             request.tabKey = tabKey
             request.allowsChromiumSchemes = allowsChromiumSchemes
             return suggestionEngine.deliveries(for: request)
-        }
+        },
+        mainWork: mainWork
     )
 
     /// A bar that shows the page's address but never edits it: a system
@@ -213,6 +220,7 @@ public final class AddressBarView: NSView {
         density.start(in: self)
         pill.followLook(on: mainWork)
         followDisplay()
+        addCursorUpdateArea()
     }
 
     @available(*, unavailable)
@@ -527,20 +535,21 @@ public final class AddressBarView: NSView {
     }
 
     /// The I-beam over the text area, the arrow beside the chip and the
-    /// badges (`OmnibarPointer`); the rects follow the text area.
-    public override func resetCursorRects() {
-        let text = textArea
-        cursorTextArea = text
-        addCursorRect(text, cursor: OmnibarPointer.cursor(.bar).cursor)
-        let edge = OmnibarPointer.cursor(.barEdge).cursor
-        if text.minX > bounds.minX { addCursorRect(NSRect(x: bounds.minX, y: bounds.minY, width: text.minX - bounds.minX, height: bounds.height), cursor: edge) }
-        if text.maxX < bounds.maxX { addCursorRect(NSRect(x: text.maxX, y: bounds.minY, width: bounds.maxX - text.maxX, height: bounds.height), cursor: edge) }
+    /// badges (`OmnibarPointer`), read from the text area when the pointer
+    /// enters the bar (its `.cursorUpdate` area, p04-input-090). A move
+    /// across the text area's edge is the row's (`ArrowCursorView`'s move
+    /// tracker sets the same rule on every move), so a resize of the bar, as
+    /// on every frame of a divider drag beside a browser pane, rebuilds none
+    /// of the window's cursor rects (Chrome: the view under the pointer names
+    /// its cursor, `ui/views/widget/root_view.cc` `RootView::UpdateCursor`).
+    public override func cursorUpdate(with event: NSEvent) {
+        let region: OmnibarPointer.Region = textArea.contains(convert(event.locationInWindow, from: nil)) ? .bar : .barEdge
+        OmnibarPointer.cursor(region).cursor.set()
     }
 
     public override func layout() {
         super.layout()
         applyBarLayout()
-        if textArea != cursorTextArea { window?.invalidateCursorRects(for: self) }
     }
 
     // MARK: Appearance
@@ -570,10 +579,18 @@ public final class AddressBarView: NSView {
         if newWindow == nil { panel.dismiss() }
     }
 
+    /// The URL's styled text is written again in the new look once the bar shows: a hidden tab's bar
+    /// measures and lays out no text (R-appear).
     public override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
-        if !field.isFieldEditorActive {
-            field.write(controller.state.fieldText, style: OmnibarPresentation(controller.state).style)
-        }
+        visibilityNode.deferUntilVisible(key: Self.appearanceKey) { [weak self] in self?.restyleField() }
+    }
+
+    /// The ``visibilityNode`` key of the bar's deferred repaint.
+    static let appearanceKey = "AddressBarView.appearance"
+
+    private func restyleField() {
+        guard !field.isFieldEditorActive else { return }
+        field.write(controller.state.fieldText, style: OmnibarPresentation(controller.state).style)
     }
 }

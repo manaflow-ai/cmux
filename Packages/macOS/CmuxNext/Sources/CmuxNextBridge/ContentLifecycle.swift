@@ -120,6 +120,14 @@ public struct ContentLifecycle<Key: Hashable & Sendable>: Sendable {
         records.compactMap { $0.value.phase == phase ? $0.key : nil }
     }
 
+    /// Each key in `phase` that `include` admits, with its generation: a key with the same generation at two reads
+    /// stayed in that phase between them (every show and hide issues a new one).
+    public func generations(in phase: Phase, where include: (Key) -> Bool = { _ in true }) -> [Key: UInt64] {
+        records.reduce(into: [:]) { found, entry in
+            if entry.value.phase == phase, include(entry.key) { found[entry.key] = entry.value.generation }
+        }
+    }
+
     // MARK: Transitions
 
     /// Applies `event` and returns the effects to perform now, in order.

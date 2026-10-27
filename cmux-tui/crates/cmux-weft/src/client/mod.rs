@@ -105,7 +105,7 @@ impl WeftNode {
     /// file does not exist yet, then start following the netmap.
     pub async fn join(state_path: &Path, options: Option<JoinOptions>) -> anyhow::Result<Self> {
         let http = http_client();
-        let state = match StateFile::load(state_path)? {
+        let state = match StateFile::load(state_path).await? {
             Some(state) => state,
             None => {
                 let options =
@@ -288,9 +288,10 @@ impl WeftNode {
             node_key: crate::b64::encode_key(&next.public()),
         })?;
         check(shared.signed(Method::POST, "/v1/rotate", body).await?).await?;
-        let mut state = StateFile::load(&shared.state_path)?.context("state file vanished")?;
+        let mut state =
+            StateFile::load(&shared.state_path).await?.context("state file vanished")?;
         state.node_private = crate::b64::encode_key(next.private());
-        state.save(&shared.state_path)?;
+        state.save(&shared.state_path).await?;
         write(&shared.node_key, next);
         // Relay registrations carry the old key: drop them until the next
         // netmap brings a ticket for the new one.
@@ -390,7 +391,7 @@ async fn register(
         machine_seed: crate::b64::encode_key(machine.seed()),
         node_private: crate::b64::encode_key(node_key.private()),
     };
-    state.save(state_path)?;
+    state.save(state_path).await?;
     Ok(state)
 }
 

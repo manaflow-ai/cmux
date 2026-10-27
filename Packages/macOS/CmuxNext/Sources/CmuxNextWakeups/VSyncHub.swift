@@ -1,6 +1,9 @@
 public import AppKit
 public import QuartzCore
 import CmuxNextCompat
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
+import func CmuxSafeConcurrency.withOnceContinuation
 
 /// What the hub needs from a display link (a fake in tests). The hub makes it on the main thread
 /// through its factory and hands it to the display's hub thread; every call after that runs there.
@@ -245,10 +248,11 @@ public final class VSyncHub {
     /// it ran (tests: a fake link's vsync runs where a real link's would).
     func onHubThread(_ display: CGDirectDisplayID, _ work: @escaping @Sendable () -> Void) async {
         guard let state = displays[display] else { return }
-        await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in
+        // A hub thread that ended with the post queued drops it (abandoned): the wait just ends.
+        try? await withOnceContinuation { (done: OnceContinuation<Void, OnceContinuationError>) in
             state.post {
                 work()
-                done.resume()
+                done.resume(returning: ())
             }
         }
     }

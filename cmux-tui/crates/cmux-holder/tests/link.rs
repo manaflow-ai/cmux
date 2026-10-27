@@ -305,6 +305,7 @@ const WATCH: FrameWatch = FrameWatch {
             WATCHED_EXITS.fetch_add(1, Ordering::SeqCst);
         }
     },
+    hang: |_| {},
 };
 
 #[test]

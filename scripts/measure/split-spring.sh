@@ -35,6 +35,10 @@
 #                   split-spring-terminal.py's suites; the other options go to it (--sessions=light,stress,
 #                   --storm=cli=10hz,sidebar-churn=400, --drag=divider,tab --rate=1000). Real input needs the
 #                   step's GUI session to hold the Accessibility grant; the report says input_reached false otherwise.
+#   --suite=scroll-jank  measure with scripts/cmux-next/scroll-jank-bench.py (p04-input-072: Chrome's scroll jank,
+#                   Event.ScrollJank.*, per scroll target with real trackpad gestures at the display rate; DC4); the
+#                   other options go to it (--sessions=light,stress, --stall=none,50ms/100ms, --targets=sidebar,strip).
+#                   Real input needs the Accessibility grant as above.
 # On exit, TERM, INT or HUP (a cancelled step) the script stops the bench, ends the tag's app and daemons
 # (scripts/cmux-next/tag_teardown.py, exact PIDs of the app bundle) and the virtual display.
 set -euo pipefail
@@ -54,6 +58,7 @@ for arg in "$@"; do
     --vdisplay-size=*) vdisplay_size="${arg#--vdisplay-size=}" ;;
     --config=*) reload_config=(--config "${arg#--config=}") ;;
     --suite=input-latency) bench_script=scripts/cmux-next/input-latency-bench.py ;;
+    --suite=scroll-jank) bench_script=scripts/cmux-next/scroll-jank-bench.py ;;
     *) args+=("$arg") ;;
   esac
 done
