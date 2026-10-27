@@ -3356,6 +3356,13 @@ jobs:
   report-nightly-failure:
     needs: [decide, build-nightly-ghostty-cli-helper, build-nightly-app, resolve-nightly-cmux-tui-client, prepare-nightly-variant, build-sign-notarize-nightly, verify-signed-nightly, publish-nightly, generate-nightly-deltas, republish-nightly-deltas]
     if: always() && needs.decide.outputs.should_publish == 'true' && (contains(needs.*.result, 'failure') || needs.publish-nightly.outputs.tag_status == 'stale')
+    # Push runs build in parallel, so two failed runs can report at once: one
+    # reporter at a time keeps the "find or open the one issue" step from
+    # opening two. It builds and publishes nothing; a replaced pending report
+    # is an older failure the newer report covers.
+    concurrency:
+      group: nightly-failure-report-${{ needs.decide.outputs.release_tag }}
+      cancel-in-progress: false
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-2vcpu-ubuntu-2404' }}
     permissions:
       contents: read

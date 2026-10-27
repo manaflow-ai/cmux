@@ -1179,6 +1179,16 @@ jobs:
           elif sha:
               print(f"published_sha={sha.group(1)}")
           PY
+          # The live feed is the other order check. The release-body markers
+          # are written last, so a newer run that exposed its feed and then
+          # failed leaves none, and push runs build in parallel: a live build
+          # above this one means a newer build is out, so this one steps aside.
+          live_build="$(python3 scripts/ci/live_appcast_build.py "https://files.cmux.com/${RELEASE_TAG}/appcast-arm64.xml" || true)"
+          if [[ "$live_build" =~ ^[0-9]+$ ]] && (( live_build > NIGHTLY_BUILD )) \
+             && ! grep -Fxq 'already_published=true' "$RUNNER_TEMP/publication-guard"; then
+            echo "The live $RELEASE_TAG feed serves build $live_build, above $NIGHTLY_BUILD; not publishing this older build"
+            printf '%s\n' already_published=true published_same_source=false >> "$RUNNER_TEMP/publication-guard"
+          fi
           if grep -Fxq 'already_published=true' "$RUNNER_TEMP/publication-guard"; then
             echo 'ALREADY_PUBLISHED=true' >> "$GITHUB_ENV"
             if grep -Fxq 'published_same_source=true' "$RUNNER_TEMP/publication-guard"; then
@@ -1532,6 +1542,15 @@ jobs:
           done
           if [ "${#deltas[@]}" -eq 0 ] || [ "${#feeds[@]}" -eq 0 ]; then
             echo "No Sparkle deltas were generated; full appcasts remain current"
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          # The tag can lag the feed (a newer publication that wrote its feed and
+          # failed before moving the tag), so the live feed must serve this build too.
+          own_build="$(python3 scripts/ci/live_appcast_build.py "nightly-deltas/appcast-arm64.xml")"
+          live_build="$(python3 scripts/ci/live_appcast_build.py "https://files.cmux.com/${RELEASE_TAG}/appcast-arm64.xml" || true)"
+          if [[ "$live_build" =~ ^[0-9]+$ ]] && [ "$live_build" != "$own_build" ]; then
+            echo "Skipping stale delta result: the live $RELEASE_TAG feed serves build $live_build, not $own_build"
             echo "publish=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
