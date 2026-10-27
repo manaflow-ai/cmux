@@ -1,11 +1,11 @@
-import CmuxNextWakeups
+public import CmuxNextWakeups
 import Foundation
 public import Observation
 
 /// The Task Manager page's state: the latest ``TaskManagerSnapshot`` and the
 /// selected rows. While started it takes one sample per `interval` from its
-/// ``TaskManagerSampleSource``, each next sample a one-shot ``DemandTimer`` deadline armed after
-/// the previous one finished; stopped, it samples nothing.
+/// ``TaskManagerSampleSource``, each next sample a one-shot `MainDeadline` (class `visible`: the page
+/// shows it) armed after the previous one finished; stopped, it samples nothing.
 ///
 /// With `memorySaved` (the `taskManagerMemorySaved` feature) the snapshot also lists the items
 /// Memory Saver discarded, as the source reports them, each with the memory the discarder recorded
@@ -19,7 +19,7 @@ public import Observation
 /// button, the palette and the CLI).
 ///
 /// ```swift
-/// let model = TaskManagerModel(source: FakeSource(), kill: { _ in })
+/// let model = TaskManagerModel(source: FakeSource(), deadlines: deadlines, kill: { _ in })
 /// await model.refresh()
 /// ```
 @MainActor @Observable
@@ -36,28 +36,29 @@ public final class TaskManagerModel {
     /// Whether the snapshot lists the discarded items and what they saved (`taskManagerMemorySaved`).
     @ObservationIgnored public let memorySaved: Bool
     @ObservationIgnored private weak var source: (any TaskManagerSampleSource)?
-    @ObservationIgnored private let timer: DemandTimer
+    /// The next sample's deadline.
+    @ObservationIgnored private let timer: MainDeadline
     @ObservationIgnored private let killAction: @MainActor (ProcessKey) -> Void
     @ObservationIgnored private var previous: TaskManagerSampleSet?
     @ObservationIgnored private var running = false
     /// The first sample start() takes; stop() cancels it.
-    @ObservationIgnored private var firstSample: Task<Void, Never>?
+    @ObservationIgnored private var sampling: Task<Void, Never>?
     /// Bumped by stop(), so a sample or deadline of an earlier start does nothing.
     @ObservationIgnored private var generation: UInt64 = 0
 
     /// - Parameters:
     ///   - source: Takes the samples; held weakly (the App owns it).
+    ///   - deadlines: The app's one deadline placer (the wait between samples).
     ///   - interval: Time between samples while started (default one second, as Activity Monitor).
-    ///   - clock: The clock the wait between samples runs on; tests pass their own.
     ///   - memorySaved: Lists the discarded items and what they saved (`taskManagerMemorySaved`, default off).
     ///   - kill: Runs Kill Process for one process (it asks first).
-    public init(source: any TaskManagerSampleSource, interval: Duration = .seconds(1),
-                clock: any Clock<Duration> = ContinuousClock(), memorySaved: Bool = false,
-                kill: @escaping @MainActor (ProcessKey) -> Void) {
+    public init(source: any TaskManagerSampleSource, deadlines: MainDeadlineScheduler, interval: Duration = .seconds(1),
+                memorySaved: Bool = false, kill: @escaping @MainActor (ProcessKey) -> Void) {
         self.source = source
         self.interval = interval
         self.memorySaved = memorySaved
-        self.timer = DemandTimer(owner: "TaskManager.sample", clock: clock)
+        // `visible`: the page shows each sample; a flexible wake (8 ms leeway) is far inside a 1 s period.
+        timer = MainDeadline(owner: "TaskManager.sample", workClass: .visible, scheduler: deadlines)
         self.killAction = kill
     }
 
@@ -68,18 +69,24 @@ public final class TaskManagerModel {
     public func start() {
         guard !running else { return }
         running = true
-        let generation = generation
-        firstSample = Task { [weak self] in await self?.sample(generation) }
+        startSample(generation)
     }
 
     /// Stops sampling and forgets the last sample (the next start has no CPU until its second sample).
     public func stop() {
-        firstSample?.cancel()
-        firstSample = nil
+        sampling?.cancel()
+        sampling = nil
         timer.cancel()
         generation &+= 1
         running = false
         previous = nil
+    }
+
+    /// Starts one periodic sample of start `generation`.
+    private func startSample(_ generation: UInt64) {
+        // task-owner: stored in sampling; stop() cancels it, and a stale generation applies nothing
+        // main-hop-allow: only awaits the main-actor sample source, whose daemon and process reads run off main; one resume applies it
+        sampling = Task { [weak self] in await self?.sample(generation) }
     }
 
     /// One periodic sample, then the deadline for the next. A sample that returns after stop() is
@@ -89,9 +96,7 @@ public final class TaskManagerModel {
         let set = await source.sample()
         guard generation == self.generation, !Task.isCancelled else { return }
         apply(set)
-        timer.schedule(after: interval) { @MainActor [weak self] in
-            await self?.sample(generation)
-        }
+        timer.schedule(after: interval) { [weak self] in self?.startSample(generation) }
     }
 
     /// Takes one sample now and updates the rows.

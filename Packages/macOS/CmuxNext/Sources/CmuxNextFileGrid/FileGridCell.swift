@@ -79,6 +79,7 @@ final class FileGridCell: NSCollectionViewItem {
         picture.image = Self.icon(for: item)
         badge.isHidden = true
         let side = appearance.tileSide
+        // main-hop-allow: FileGridView's maker (ScreenshotsView) passes no scheduler yet; one load per shown tile, cancelled on reuse
         load = Task { @MainActor [weak self] in
             if let image = await cache.thumbnail(for: item, side: side, scale: scale) {
                 guard let self, !Task.isCancelled, self.item == item else { return }

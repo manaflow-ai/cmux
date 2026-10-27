@@ -140,6 +140,7 @@ public actor ImportHistorySync {
     /// A write arrived: one read `delay` later, however many writes follow.
     private func changed(_ key: String) {
         guard watches[key] != nil else { return }
+        // timer-class-allow: off-main: the debounce fires into this actor (ImportHistorySync) and never wakes the main thread
         let timer = timers[key] ?? DemandTimer(owner: "ImportHistorySync")
         timers[key] = timer
         timer.scheduleIfIdle(after: delay) { [weak self] in await self?.refresh(key) }

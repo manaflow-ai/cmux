@@ -58,7 +58,8 @@ enum OnboardingHandlers {
             window: { services.windows.active?.window ?? NSApp.mainWindow ?? NSApp.windows.first(where: \.isVisible) },
             reveal: { tab in _ = registry.perform("tab.focus", invocation: ActionInvocation(target: ActionTargetRef(kind: .tab, id: tab), origin: .user)) },
             track: { registry.track($0) },
-            destination: ChromiumCookieDestination { writes, profile in try await cef.importCookies(writes, into: profile) }))
+            destination: ChromiumCookieDestination { writes, profile in try await cef.importCookies(writes, into: profile) },
+            deadlines: services.mainDeadlines))
         registry.bind("browser.importCookies", run: { invocation in try cookieImports.run(invocation) })
         // Import suggestion cards (Settings › Import only): the same import run as the window's.
         ImportSuggestionsCenter.shared.bind(into: registry, host: importCardsHost(services))
@@ -114,7 +115,8 @@ enum OnboardingHandlers {
             runImport: { plan, keys, progress in try await AppOnboardingServices(owner: services.onboarding).runImport(plan, keys: keys, progress: progress) },
             importedProfiles: { Set(await services.onboarding.importStore.sources().map(\.sourceKey)) },
             openSettings: { route in try? services.settingsWindow.show(section: nil, route: route) },
-            importClassic: { progress in try await importClassic(services, in: nil, progress: progress)?.opened })
+            importClassic: { progress in try await importClassic(services, in: nil, progress: progress)?.opened },
+            appEvents: services.appEvents)
     }
 
     /// Import Workspaces from Classic cmux as every entrypoint runs it (the action, the cmux

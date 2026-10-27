@@ -227,6 +227,7 @@ public final class FileBrowserModel {
     private func startWatching(_ target: URL, token: Int) {
         watchTask?.cancel()
         let stream = watcher.changes(in: target)
+        // main-hop-allow: the model's maker (FilesPaneService) passes no scheduler yet; one apply per folder change
         watchTask = Task { [weak self] in
             for await change in stream {
                 guard let self, token == self.generation || self.folder == target else { return }
@@ -263,6 +264,7 @@ public final class FileBrowserModel {
         let order = sortOrder
         let snapshot = all
         let token = generation
+        // main-hop-allow: the sort runs off main (@concurrent sortOff); its one apply resumes here, no scheduler seam yet
         Task { [weak self] in
             let sorted = await Self.sortOff(snapshot, order: order)
             guard let self, token == self.generation else { return }

@@ -42,6 +42,7 @@ enum RecordedDictationInput {
                 // The last use of `buffer` here: `ingest` moves it to the conversion worker.
                 ingest(buffer, AVAudioTime(sampleTime: start, atRate: sampleRate))
                 // wakeup-allow: debug clip playback paced like a microphone tap (about 12 per second while dictating)
+                // timer-class-allow: off-main, Debug builds only: the clip's pace stands in for the microphone tap's; no main-thread job
                 try? await Task.sleep(for: pace, tolerance: tolerance)
             }
         }

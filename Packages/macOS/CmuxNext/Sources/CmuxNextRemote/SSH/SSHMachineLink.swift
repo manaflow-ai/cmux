@@ -147,6 +147,7 @@ public actor SSHMachineLink {
             Task.detached {
                 // wakeup-allow: deadline for a stopped link client to close its session; not a DemandTimer: a detached
                 // escalation that outlives the link, which nothing replaces or cancels
+                // timer-class-allow: off-main: a detached escalation that ends a process group; it posts no main-thread job
                 try? await Task.sleep(for: Self.closeDeadline, tolerance: WakeLeeway.window(delay: Self.closeDeadline).tolerance)
                 child.terminate()
             }

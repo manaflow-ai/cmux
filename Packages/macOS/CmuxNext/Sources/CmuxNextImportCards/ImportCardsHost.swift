@@ -1,4 +1,5 @@
 public import CmuxNextBrowserImport
+public import CmuxNextWakeups
 public import Foundation
 
 /// What the cards need from the App, which owns the importer's stores: the
@@ -19,14 +20,18 @@ public struct ImportCardsHost {
     /// twice) and its toast. Reports the share of classic workspaces handled, 0...1, on the main
     /// actor. Returns how many workspaces this run opened, nil when the person declined the preview.
     public var importClassic: (@escaping @MainActor (Double) -> Void) async throws -> Int?
+    /// The app's one fan-out of app notices: the cards rescan when cmux comes forward.
+    public var appEvents: AppEvents
 
     public init(runImport: @escaping (ImportPlan, any SafeStorageKeyProviding, @escaping @MainActor (ImportProgress) -> Void) async throws -> ImportSummary,
                 importedProfiles: @escaping () async -> Set<String>,
                 openSettings: @escaping (String) -> Void,
-                importClassic: @escaping (@escaping @MainActor (Double) -> Void) async throws -> Int?) {
+                importClassic: @escaping (@escaping @MainActor (Double) -> Void) async throws -> Int?,
+                appEvents: AppEvents) {
         self.runImport = runImport
         self.importedProfiles = importedProfiles
         self.openSettings = openSettings
         self.importClassic = importClassic
+        self.appEvents = appEvents
     }
 }

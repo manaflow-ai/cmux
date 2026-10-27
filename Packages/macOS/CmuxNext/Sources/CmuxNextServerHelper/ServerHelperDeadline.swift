@@ -37,6 +37,7 @@ public struct ServerHelperDeadline {
             let timer = Task {
                 // wakeup-allow: deadline of one helper request: the timer side of its result-or-deadline race; not a
                 // DemandTimer, which the helper executable does not link
+                // timer-class-allow: off-main in the server helper process, which has no main-thread scheduler (it links no CmuxNextWakeups)
                 do { try await clock.sleep(for: limit, tolerance: tolerance) } catch { return }
                 if race.finish(.failure(ServerHelperTimedOut())) {
                     onTimeout()

@@ -6,6 +6,7 @@ import CmuxNextHibernation
 import CmuxNextPages
 import CmuxNextResources
 @testable import CmuxNextSettings
+import CmuxNextWakeups
 import Foundation
 import SwiftUI
 import Testing
@@ -278,7 +279,8 @@ struct InternalPageDiscardPolicyCoverageTests {
         let tabs = processes.map { TabResourceSources(tabID: "tab_\($0.pid)", title: "t\($0.pid)", kind: .terminal, processes: [$0]) }
         let samples = Dictionary(uniqueKeysWithValues: processes.map { ($0, TaskManagerMemorySavedTests.sample($0, memory: 1 << 20)) })
         let source = TaskManagerMemorySavedTests.Source([TaskManagerSampleSet(resources: ResourceSampleSet(tabs: tabs, shared: [], samples: samples))])
-        let model = TaskManagerModel(source: source, kill: { _ in })
+        let model = TaskManagerModel(source: source, deadlines: MainDeadlineScheduler(work: MainWorkScheduler(budget: MainFrameBudget())),
+                                     kill: { _ in })
         let table = TaskManagerTableState(scrollTarget: ProcessKey(pid: 2040))
         let host = NSHostingView(rootView: TaskManagerView(model: model, table: table))
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 500, height: 300), styleMask: [.titled], backing: .buffered, defer: false)

@@ -72,7 +72,7 @@ extension AppServices {
         let macScreenSettingsStart = with { services, settings in services.followMacScreenSettings(settings) }
         let deviceHubStart = with { services, settings in services.startDeviceHub(settings) }
         let computerUseHelperStart = with { services, settings in
-            ComputerUseHelperDaemon.shared.follow(settings, disabledByPolicy: { [weak services] in
+            ComputerUseHelperDaemon.shared.follow(settings, mainWork: services.mainWork, disabledByPolicy: { [weak services] in
                 services?.registry.disabledFeatures.contains(.computerUse) ?? true
             })
         }

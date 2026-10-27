@@ -62,6 +62,8 @@ public final class DictationSession {
         self.makeTranscriber = makeTranscriber
         self.locale = locale
         self.stopDeadline = stopDeadline
+        // timer-class-allow: the session's makers (AgentPaneDictation, HomeVoiceDictation) pass no deadline scheduler yet;
+        // one 3 s bound per stop, cancelled when the stream ends first
         deadline = DemandTimer(owner: "dictation.stop", clock: clock)
     }
 
@@ -82,6 +84,7 @@ public final class DictationSession {
         recording = recordsAudio ? DictationAudioRecording() : nil
         set(.starting)
         // task-owner: stored in listening; cancel() and the next start supersede it by generation
+        // main-hop-allow: the session's main-actor state machine reads the engine's stream here; its makers pass no scheduler yet
         listening = Task { [weak self] in await self?.listen(session) }
     }
 
@@ -153,6 +156,7 @@ public final class DictationSession {
         }
         set(.listening)
         // task-owner: stored in levels; ends with the meter or the session
+        // main-hop-allow: the meter's levels drive the same main-actor session; its makers pass no scheduler yet
         levels = Task { [weak self] in
             for await level in meter.levels {
                 guard let self, session == self.generation else { return }
@@ -226,8 +230,8 @@ public final class DictationSession {
     /// flushes into the stream the run loop is reading.
     private func finishEngine() {
         guard let engine = transcriber else { return }
-        // task-owner: one-shot teardown; the engine's finish is idempotent and bounded
-        Task { await engine.finishTranscribing() }
+        // task-owner: one-shot teardown; the engine's finish is idempotent and bounded, and runs off main
+        Task { @concurrent in await engine.finishTranscribing() }
     }
 
     private func endLevels() {

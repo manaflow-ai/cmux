@@ -6,6 +6,7 @@ import CmuxNextDesign
 public import CmuxNextImportSuggestions
 import CmuxNextOnboarding
 public import CmuxNextSettings
+import CmuxNextWakeups
 import Observation
 
 /// The import suggestion cards for the whole app: it scans this Mac off the
@@ -40,7 +41,8 @@ public final class ImportSuggestionsCenter {
     @ObservationIgnored let ledgerURL: URL
     @ObservationIgnored private var lastScan: Date?
     @ObservationIgnored var running: [String: Task<Void, Never>] = [:]
-    @ObservationIgnored private var activation: (any NSObjectProtocol)?
+    /// The app's become-active notice (``ImportCardsHost/appEvents``): a stale scan runs again.
+    @ObservationIgnored private var activation: EventSubscription?
     @ObservationIgnored private var started = false
     /// A page's start is waiting on the person's answer (one question at a time).
     @ObservationIgnored private var asking = false
@@ -72,9 +74,8 @@ public final class ImportSuggestionsCenter {
         started = true
         restoreJobs()
         state.expire(now: now())
-        activation = NotificationCenter.default.addObserver(forName: NSApplication.didBecomeActiveNotification, object: nil,
-                                                            queue: .main) { [weak self] _ in
-            Task { @MainActor in self?.rescanIfStale() }
+        activation = host.appEvents.subscribe(NSApplication.didBecomeActiveNotification, owner: "ImportSuggestionsCenter.rescan") { [weak self] in
+            self?.rescanIfStale()
         }
         scan { [weak self] in
             // A job the quit cut off goes on by itself only when nothing it has left asks the person.
@@ -106,6 +107,8 @@ public final class ImportSuggestionsCenter {
         isScanning = true
         lastScan = now()
         let scanning = scanThisMac
+        // task-owner: one scan at a time (`isScanning`)
+        // main-hop-allow: only awaits the scan, whose folder and session reads run detached; its one resume stores the findings
         Task { [weak self] in
             let found = await scanning(host)
             guard let self else { return }

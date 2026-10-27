@@ -76,6 +76,8 @@ public final class TabFaviconStore {
 
     private func load(_ key: Key, tab: (any BrowserTab)?) {
         guard pending[key] == nil, failed.peek(key) == nil else { return }
+        // main-hop-allow: only awaits the page's or the loader's main-actor fetch (request and decode run off main inside it);
+        // its one resume stores the icon
         pending[key] = Task { [weak self, weak tab, loader] in
             let icon: NSImage?
             if let tab { icon = await tab.fetchFavicon(key.url) } else { icon = await loader.favicon(at: key.url, profile: key.profile) }

@@ -33,6 +33,8 @@ public final class ResourceCardSampler {
     public private(set) var sampleCount = 0
 
     public init(source: (any ResourceSampleSource)?, interval: Duration = .seconds(1),
+                // timer-class-allow: its owners, the hover card controllers (Tabs, Sidebar), pass no deadline scheduler yet;
+                // one sample a second while a card shows, none otherwise
                 timer: DemandTimer = DemandTimer(owner: "Resources.card")) {
         self.source = source
         self.interval = interval
@@ -62,6 +64,7 @@ public final class ResourceCardSampler {
         self.onUpdate = onUpdate
         self.target = target
         let generation = generation
+        // main-hop-allow: the hover card's first sample awaits the main-actor source; its owners pass no scheduler yet
         Task { await self.take(generation) }
     }
 
