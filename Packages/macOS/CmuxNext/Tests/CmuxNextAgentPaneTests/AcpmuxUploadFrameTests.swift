@@ -90,6 +90,23 @@ struct AcpmuxUploadFrameTests {
         }
     }
 
+    @Test @MainActor func cancellationEndsPendingUploadBeforeLateAcknowledgement() async throws {
+        let sent = AsyncStream<Void>.makeStream()
+        let wire = UploadWire(holdReply: true, onSend: { sent.continuation.yield() })
+        let transport = AgentPaneTransport()
+        let socket = AcpmuxPaneSocket(request: URLRequest(url: URL(string: "ws://127.0.0.1")!),
+            wire: wire, limits: transport.limits, options: transport.permissionOptions,
+            sessions: transport.sessions, ids: AcpmuxRequestIds(), signal: {})
+        try await socket.start(timeout: 1)
+        let request = Task { try await socket.callHost("_acpmux/file_put_chunk", params: ["sessionId": "s"]) }
+        var events = sent.stream.makeAsyncIterator()
+        _ = await events.next()
+        request.cancel()
+        wire.reply()
+        await #expect(throws: CancellationError.self) { try await request.value }
+        socket.close(code: 1000, reason: "", error: nil)
+    }
+
     @Test @MainActor func uploadsRequireNativeOriginAndPaneSessionScope() async throws {
         let wire = UploadWire()
         let transport = AgentPaneTransport()
@@ -119,6 +136,13 @@ struct AcpmuxUploadFrameTests {
 
     final class UploadWire: AcpmuxPaneWire, Sendable {
         let sentCount = Mutex(0)
+        private let lastID = Mutex(0)
+        private let holdReply: Bool
+        private let onSend: @Sendable () -> Void
+        init(holdReply: Bool = false, onSend: @escaping @Sendable () -> Void = {}) {
+            self.holdReply = holdReply
+            self.onSend = onSend
+        }
         private let incoming = Mutex<(@Sendable (String) -> Void)?>(nil)
         func open(onFrame: @escaping @Sendable (String) -> Void,
                   onClose: @escaping @Sendable (Int, String) -> Void) async throws {
@@ -127,10 +151,14 @@ struct AcpmuxUploadFrameTests {
         func send(_ text: String, completion: @escaping @Sendable (Bool) -> Void) {
             sentCount.withLock { $0 += 1 }
             let object = (try? JSONSerialization.jsonObject(with: Data(text.utf8))) as? [String: Any]
-            let id = object?["id"] as? Int ?? 0
-            let result = #"{"offset":2}"#
-            incoming.withLock { $0 }?(#"{"id":\#(id),"result":\#(result)}"#)
+            lastID.withLock { $0 = object?["id"] as? Int ?? 0 }
             completion(true)
+            onSend()
+            if !holdReply { reply() }
+        }
+        func reply() {
+            let id = lastID.withLock { $0 }
+            incoming.withLock { $0 }?(#"{"id":\#(id),"result":{"offset":2}}"#)
         }
         func cancel(code: Int, reason: String) {}
     }

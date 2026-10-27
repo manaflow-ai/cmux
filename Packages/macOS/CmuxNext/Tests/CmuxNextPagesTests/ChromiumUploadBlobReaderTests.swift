@@ -35,6 +35,26 @@ struct ChromiumUploadBlobReaderTests {
         #expect(page.calls.first?.params["contextId"] as? Int == 9)
     }
 
+    @Test func cancellationDuringReadDiscardsChunkAndReleasesBlob() async throws {
+        let page = FakeChromiumPage()
+        var request: Task<Data?, any Error>?
+        page.answer = { method, _ in
+            switch method {
+            case "Runtime.evaluate": return #"{"result":{"objectId":"object"}}"#
+            case "IO.resolveBlob": return #"{"uuid":"blob-id"}"#
+            case "IO.read": request?.cancel(); return #"{"data":"bytes","eof":false}"#
+            default: return "{}"
+            }
+        }
+        let reader = ChromiumUploadBlobReader(page: page, context: 9, token: "token")
+        let started = Task { try await reader.next() }
+        request = started
+        await #expect(throws: CancellationError.self) { try await started.value }
+        #expect(try await reader.next() == nil)
+        #expect(page.calls.filter { $0.method == "IO.read" }.count == 1)
+        #expect(page.calls.contains { $0.method == "Runtime.releaseObject" })
+    }
+
     @Test func missingBlobIsRefusedWithoutReadingBytes() async {
         let page = FakeChromiumPage()
         let reader = ChromiumUploadBlobReader(page: page, context: 11, token: "missing")
