@@ -65,6 +65,7 @@ mod models_view;
 mod paging;
 mod personal_stats;
 mod policy_mode;
+mod policy_source;
 mod pool;
 pub(crate) mod prompt_images;
 mod prompt_ledger;
@@ -140,8 +141,6 @@ pub(crate) mod remote_sandbox;
 pub use remote_sandbox::vm_host_peer_approves;
 mod start_gate;
 pub mod vm_host;
-mod vm_host_grants;
-pub(crate) use vm_host_grants::VM_HOST as VM_HOST_GRANT;
 pub(crate) use start_gate::host_label;
 mod subsession_answer;
 mod subsession_guard;
@@ -725,12 +724,9 @@ impl Hub {
     }
 
     pub(super) fn load_from_store(self: &Arc<Self>, deferred: bool) {
-        let metas = match self.store.list() {
-            Ok(m) => m,
-            Err(e) => {
-                tracing::warn!("store list failed: {e}");
-                return;
-            }
+        let Ok(metas) = self.store.list().inspect_err(|e| tracing::warn!("store list failed: {e}"))
+        else {
+            return;
         };
         // The small index the chat logs load by (`log_load.rs`): agent hosts still running.
         let hosted = Self::live_host_sessions();
@@ -747,12 +743,8 @@ impl Hub {
             };
         let mut sessions = self.sessions.lock().unwrap();
         for mut meta in metas {
-            // An older daemon's approve-all that could be vmHost's asks now (`vm_host_grants.rs`).
-            if vm_host_grants::clear_legacy_grant(&mut meta)
-                && let Err(e) = self.store.save(&meta)
-            {
-                tracing::warn!(session = %meta.id, "save the cleared grant failed: {e}");
-            }
+            // An older daemon's approve-all that could be vmHost's asks now (`policy_source.rs`).
+            self.clear_legacy_grant_at_load(&mut meta);
             // An agent whose host still runs keeps its saved status until adoption reaches it:
             // it works on meanwhile, never shown idle (claude-sr2, 2026-10-26).
             let kept = deferred

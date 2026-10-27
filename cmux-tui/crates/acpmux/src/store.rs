@@ -117,8 +117,7 @@ pub struct SessionMeta {
     /// Model family of the profile at creation (`claude`, `codex`, ...).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub family: Option<String>,
-    /// Preset the session was created from (`-p NAME`); its env is
-    /// re-applied on every respawn.
+    /// Preset the session was created from (`-p NAME`); its env is re-applied on every respawn.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub preset: Option<String>,
     /// Model requested for a harness whose argv or env carries `${model}`:
@@ -163,11 +162,7 @@ pub struct SessionMeta {
     pub models: Option<Value>,
     #[serde(default)]
     pub permission_policy: Option<String>,
-    /// Who set `permission_policy` (`hub/vm_host_grants.rs`): `set` (a request, a default, a
-    /// preset, or acpmux from another chat's), `vmHost` (the approve-all a vmHost machine gives its
-    /// owner's peer chats) or `cleared` (an older daemon's approve-all, now ask). A string, so a
-    /// daemon that knows fewer values still reads the session. None: saved by a daemon from
-    /// before this was kept.
+    /// Who set `permission_policy` (`hub/policy_source.rs`); None from an older daemon.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub policy_source: Option<String>,
     #[serde(default)]
@@ -205,9 +200,8 @@ pub struct SessionMeta {
     /// sent after each turn; none from any other harness.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub context_breakdown: Option<Value>,
-    /// The account's plan usage limits (`claude_stdio::usage_limits`), newest
-    /// per window, from Claude Code's `rate_limit_event`; none from any other
-    /// harness.
+    /// The account's plan usage limits (`claude_stdio::usage_limits`), newest per window, from
+    /// Claude Code's `rate_limit_event`; none from any other harness.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub usage_limits: Option<Value>,
     /// The agent's newest `available_commands_update` (its slash commands), so
@@ -235,10 +229,9 @@ pub struct SessionMeta {
     /// with "No conversation found with session ID".
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub claude_unstored: bool,
-    /// The profile whose Claude store (its CLAUDE_CONFIG_DIR) holds the
-    /// current Claude conversation: the one that started or forked it. A
-    /// respawn on another profile (a failover) resumes only when that
-    /// profile's store has the conversation, else starts fresh (E1).
+    /// The profile whose Claude store (its CLAUDE_CONFIG_DIR) holds the current Claude
+    /// conversation: the one that started or forked it. A respawn on another profile (a failover)
+    /// resumes only when that profile's store has the conversation, else starts fresh (E1).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub claude_profile: Option<String>,
     /// Outcome of the last turn: {turnId, promptId, status, stopReason?,

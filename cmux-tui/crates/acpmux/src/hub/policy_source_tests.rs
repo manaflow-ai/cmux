@@ -96,7 +96,7 @@ fn only_a_remote_approve_all_with_no_source_is_cleared() {
 
 #[tokio::test]
 async fn a_vm_host_era_or_ambiguous_grant_asks_after_the_upgrade() {
-    let dir = cmux_unix_socket::short_test_dir("acpmux-vg");
+    let dir = cmux_unix_socket::short_test_dir("acpmux-ps");
     legacy_store(dir.path());
     let hub = hub_at(dir.path());
     assert_eq!(answers(&hub, VM_HOST_ERA), PermissionPolicy::Ask, "the vmHost-era grant");
@@ -106,7 +106,7 @@ async fn a_vm_host_era_or_ambiguous_grant_asks_after_the_upgrade() {
     let metas = saved(dir.path());
     let policy = |id: &str| {
         let m = metas.iter().find(|m| m.id == id).unwrap();
-        (m.permission_policy.clone(), m.policy_source)
+        (m.permission_policy.clone(), m.policy_source.clone())
     };
     assert_eq!(policy(VM_HOST_ERA), (Some("ask".into()), Some(CLEARED.to_owned())));
     assert_eq!(policy(AMBIGUOUS), (Some("ask".into()), Some(CLEARED.to_owned())));
@@ -115,7 +115,7 @@ async fn a_vm_host_era_or_ambiguous_grant_asks_after_the_upgrade() {
 
 #[tokio::test]
 async fn an_owner_grant_after_the_upgrade_still_approves_after_a_restart() {
-    let dir = cmux_unix_socket::short_test_dir("acpmux-vg");
+    let dir = cmux_unix_socket::short_test_dir("acpmux-ps");
     legacy_store(dir.path());
     let hub = hub_at(dir.path());
     // The owner's one click (`_acpmux/set_policy`).
@@ -131,7 +131,7 @@ async fn an_owner_grant_after_the_upgrade_still_approves_after_a_restart() {
 
 #[tokio::test]
 async fn a_second_run_changes_nothing() {
-    let dir = cmux_unix_socket::short_test_dir("acpmux-vg");
+    let dir = cmux_unix_socket::short_test_dir("acpmux-ps");
     legacy_store(dir.path());
     drop(hub_at(dir.path()));
     let once = saved(dir.path());

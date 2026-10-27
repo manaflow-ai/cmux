@@ -339,9 +339,8 @@ impl Hub {
         meta.spawn_argv = None;
         meta.tags.clear();
         meta.remote_origin = true;
-        // A chat an older daemon gave approve-all that could be vmHost's asks here
-        // (`vm_host_grants.rs`).
-        super::vm_host_grants::clear_legacy_grant(&mut meta);
+        // An older daemon's approve-all that could be vmHost's asks here (`policy_source.rs`).
+        super::policy_source::clear_legacy_grant(&mut meta);
         if let Some(sid) = meta.agent_session_id.as_deref()
             && !plain_agent_session(sid)
         {

@@ -1344,28 +1344,6 @@ impl Hub {
         Ok(())
     }
 
-    /// Sets `session`'s own policy; its mode follows (`follow_policy`), so a policy acpmux sets
-    /// itself (an aside's, a handoff target's) holds as one a client sets does.
-    pub async fn set_policy(self: &Arc<Self>, session: &Arc<Session>, policy: PermissionPolicy) {
-        self.set_policy_from(session, policy, super::vm_host_grants::SET).await;
-    }
-
-    /// `set_policy`, saying who set it (`hub/vm_host_grants.rs`).
-    pub(crate) async fn set_policy_from(
-        self: &Arc<Self>,
-        session: &Arc<Session>,
-        policy: PermissionPolicy,
-        source: &str,
-    ) {
-        self.permission_policy_changed(session, |m| {
-            m.permission_policy = Some(policy.to_string());
-            m.policy_source = Some(source.to_owned());
-        });
-        self.append(session, "mux", "policy", json!({"policy": policy.to_string()}));
-        self.save_meta(session);
-        self.follow_policy(session).await;
-    }
-
     /// Stop the child. The log stays. `purge` also deletes the log.
     pub async fn kill(&self, session: &Arc<Session>, purge: bool) -> Result<(), RpcError> {
         // Counted first: a start for a request from before this stop ends (`ensure_child`).
