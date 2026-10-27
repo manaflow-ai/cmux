@@ -7,8 +7,8 @@ public import AppKit
 /// and moves with the window. The host owns what every popup shares:
 ///
 /// - placement: below the anchor or above it on the screen (``PopupPlacement``);
-/// - motion: grows out of the anchor and shrinks back toward it on the card's layer
-///   (``NSWindow/openPopup(pivot:)``, the `popover` spring);
+/// - motion: opens in one frame by default; an explicit entrance grows out of the anchor and
+///   shrinks back toward it on the card's layer (``NSWindow/openPopup(pivot:entrance:)``);
 /// - dismiss rules: a click outside the popup (``keepsOpen`` lists the clicks that do not count),
 ///   Escape in the popup, the app going inactive, the window moving, resizing, closing or
 ///   minimizing, and for a ``NativePopupPanel`` the popup losing the keys.
