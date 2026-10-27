@@ -67,7 +67,7 @@ struct AgentPaneDebugClickPageHostTests {
         let remove = await view.debugLocate(selector: "", text: "Remove red.png")
         #expect(remove["tag"] as? String == "button", "\(remove)")
         #expect(remove["x"] as? Double == 308, "\(remove)")
-        #expect(await view.debugPress(x: 308, y: 18))
+        #expect(await view.debugPress(x: 308, y: 18) == .devtools, "a fork without the native click reports DevTools")
         let presses = hosting.made.last?.calls.filter { $0.method == "Input.dispatchMouseEvent" } ?? []
         #expect(presses.map { $0.params["type"] as? String } == ["mousePressed", "mouseReleased"])
         #expect(presses.allSatisfy { $0.params["x"] as? Double == 308 && $0.params["y"] as? Double == 18 })
