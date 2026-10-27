@@ -161,7 +161,11 @@ def policy_variables(source: str) -> frozenset[str]:
     if function is None:
         raise ValueError(f"{POLICY_SCRIPT} has no drifted_runner_variables()")
     names: set[str] = set()
-    for node in ast.walk(function):
+    # Only an if/elif whose whole test is `name == X` or `name in X` picks a label-shape check. A
+    # compare inside a larger test (`name in NO_HOSTED_MAC_VARIABLES and HOSTED_MAC_LABEL...`, which
+    # names LINUX_RUNNER and the hosted-Mac fallbacks) only guards a value and makes no variable owned.
+    for branch in ast.walk(function):
+        node = branch.test if isinstance(branch, ast.If) else None
         if not (isinstance(node, ast.Compare) and isinstance(node.left, ast.Name) and node.left.id == "name"):
             continue
         for operator, right in zip(node.ops, node.comparators):
@@ -175,11 +179,6 @@ def policy_variables(source: str) -> frozenset[str]:
                     names.add(resolved)
                 elif isinstance(resolved, tuple):
                     names.update(resolved)
-    # The policy also checks variables that must never select an owned pool
-    # (for example LINUX_RUNNER and the hosted-Mac fallbacks).  They are
-    # validation inputs, not rescue sources: a workflow reading one cannot be
-    # placed on a persistent runner merely because the value is malformed.
-    names.difference_update({"LINUX_RUNNER", "MACOS_RUNNER_15", "MACOS_RUNNER_26", "NIGHTLY_NEXT_TRAIN_RUNNER"})
     if not names:
         raise ValueError(f"{POLICY_SCRIPT}'s drifted_runner_variables() names no variable")
     return frozenset(names)
