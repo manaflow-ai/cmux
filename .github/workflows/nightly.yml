@@ -7482,6 +7482,10 @@ jobs:
       group: release-publish-${{ needs.decide.outputs.release_tag }}
       cancel-in-progress: false
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    # It holds the publish group, so a hang must not hold it for the default 6 h. nightly-next
+    # makes no gh call here (deltas and feed go to R2) and took at most 1.3 minutes in 56 runs;
+    # other tracks keep the default, as their release uploads may wait out the rate limit.
+    timeout-minutes: ${{ needs.decide.outputs.track == 'nightly-next' && 15 || 360 }}
     permissions:
       contents: write
       actions: read
