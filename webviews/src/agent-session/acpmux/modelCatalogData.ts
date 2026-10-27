@@ -414,7 +414,7 @@ function catalogHarness(harness: CatalogHarness, members: AcpmuxHarness[], join:
     ...(chosen?.probeFailed ? { probeFailed: true } : {}),
     ...(harness.defaultModel ? { defaultModel: harness.defaultModel } : {}),
     ...(harness.docsUrl ? { docsUrl: harness.docsUrl } : {}),
-    topModels: menuModels(chosen?.topModels, live, offered, reported),
+    topModels: menuModels(chosen?.topModels, live, offered, reported, join),
     models: live ? offered.map((model) => withLiveOptions(model, live)) : offered,
   };
 }
@@ -460,7 +460,7 @@ function uncataloguedHarness(entry: AcpmuxHarness, join: Join): PickerHarness {
     ...(entry.unavailable ? { unavailable: entry.unavailable } : {}),
     ...(entry.probeFailed ? { probeFailed: true } : {}),
     ...(kin ? { kin: kin.id } : {}),
-    topModels: menuModels(entry.topModels, live, offered, reported),
+    topModels: menuModels(entry.topModels, live, offered, reported, join),
     models: live ? offered.map((model) => withLiveOptions(model, live)) : offered,
   };
 }
@@ -471,6 +471,7 @@ function menuModels(
   options: ConfigOptions | undefined,
   models: PickerModel[],
   reported: Map<string, string>,
+  join: Join,
 ): string[] | undefined {
   const option = options?.find((choice) => choice.category === "model" || choice.id === "model");
   const ids = top ?? option?.options?.map((choice) => choice.value);
@@ -480,7 +481,7 @@ function menuModels(
       ids.flatMap((id) => {
         const model =
           models.find((choice) => choice.id === id || choice.release === id) ??
-          models.find((choice) => reported.get(id) && nameKey(reported.get(id)) === nameKey(choice.name));
+          models.find((choice) => namesRelease(reported.get(id), { ...choice, id: choice.release ?? choice.id }, join));
         return model && !isDefaultChoice(model) ? [model.id] : [];
       }),
     ),

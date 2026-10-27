@@ -142,13 +142,18 @@ function chat(catalog: Snapshot["catalog"], turnCount: number, extra: Partial<Sn
 }
 
 /// A Claude chat on the composer's model menu, `turnCount` turns in. `fork` is the chat's fork.
-async function mount(turnCount: number, fork?: { ready: boolean }, activeHarness = "claude") {
+async function mount(
+  turnCount: number,
+  fork?: { ready: boolean },
+  activeHarness = "claude",
+  suppliedCatalog?: Snapshot["catalog"],
+) {
   const { createRoot } = await import("react-dom/client");
   const { QueryClient, QueryClientProvider } = await import("@tanstack/react-query");
   const { ComposerPickers } = await import("../src/agent-session/acpmux/ComposerPickers");
   const { usePickerCatalog } = await import("../src/agent-session/acpmux/modelCatalogHost");
   const { ChatAccountsContext } = await import("../src/agent-session/acpmux/chatAccounts");
-  const catalog = await acpmuxCatalog();
+  const catalog = suppliedCatalog ?? (await acpmuxCatalog());
   const forked: string[] = [];
   const switched: string[] = [];
   const accounts = { list: async () => ({ accounts: [] }), set: async () => undefined };
@@ -277,7 +282,7 @@ test("a new chat launches a named harness entry from the rail", async () => {
   await act(async () => launch!.click());
   await settle();
   expect(switched).toHaveLength(1);
-  expect(switched[0]).toMatch(/^claude-/);
+  expect(switched[0]).toBe("claude-work");
 });
 
 test("the chat composer forks through Continue In…'s chat.handoff.prepare", async () => {
@@ -315,24 +320,37 @@ test("the chat composer forks through Continue In…'s chat.handoff.prepare", as
 // Catalog joining folds aliases for model data, while the picker keeps each installed launch
 // configuration as a named harness entry. With `claude` and `claude-sr` installed, the rail must
 // expose both names without a Profile submenu or duplicate generic Claude Code rows.
-test("a folded family exposes its launch configuration as a distinct rail entry", async () => {
-  const { BUNDLED_MODEL_CATALOG, buildPickerCatalog } = await import("../src/agent-session/acpmux/modelCatalogData");
-  const models = (id: string) =>
-    BUNDLED_MODEL_CATALOG.harnesses.find((h) => h.id === id)!.models.map((m) => ({ id: m.id, name: m.name }));
-  const catalog = [
-    { id: "claude", name: "Claude Code", family: "claude", models: models("claude") },
-    { id: "claude-sr", name: "claude-sr", family: "claude", models: models("claude") },
-    { id: "codex", name: "Codex", family: "codex", models: models("codex") },
-  ] as Snapshot["catalog"];
-  const joined = buildPickerCatalog({
-    catalog: BUNDLED_MODEL_CATALOG,
-    acpmux: catalog,
-    session: { harness: "claude" },
+for (const [id, label] of [
+  ["claude-sr", "Claude Code (sr)"],
+  ["claude_work", "Claude Code (work)"],
+]) {
+  test(`a folded family forks to the exact ${id} launch entry`, async () => {
+    const catalog = [
+      { id: "claude", name: "Claude Code", family: "claude", models: [{ id: "opus", name: "Opus" }] },
+      { id: id!, name: id!, family: "claude", models: [{ id: "opus", name: "Opus" }] },
+    ] as Snapshot["catalog"];
+    const { forked, switched } = await mount(1, { ready: true }, "claude", catalog);
+    await open();
+    expect(itemsOf(menu()!).map(labelOf)).not.toContain("Profile");
+    await showTab(label!);
+    expect(forked).toEqual([id!]);
+    expect(switched).toEqual([]);
   });
-  expect(
-    joined.harnesses.filter((entry) => entry.acpmuxHarness?.startsWith("claude")).map((entry) => entry.acpmuxHarness),
-  ).toEqual(["claude"]);
-  expect(joined.harnesses.some((entry) => entry.acpmuxHarness === "claude-sr")).toBe(false);
+}
+
+test("duplicate configured names use readable launch suffixes", async () => {
+  const catalog = [
+    { id: "claude", name: "Claude Code", family: "claude", models: [{ id: "opus", name: "Opus" }] },
+    { id: "claude-work", name: "Work", family: "claude", models: [] },
+    { id: "claude-sr", name: "Work", family: "claude", models: [] },
+  ] as Snapshot["catalog"];
+  const { switched } = await mount(0, undefined, "claude", catalog);
+  await open();
+  expect(railTabs().map((tab) => tab.getAttribute("aria-label"))).toEqual(
+    expect.arrayContaining(["Work (work)", "Work (sr)"]),
+  );
+  await showTab("Work (sr)");
+  expect(switched).toEqual(["claude-sr"]);
 });
 
 test("familyProfiles lists every global profile of the running profile's family", async () => {

@@ -358,7 +358,7 @@ export function QuickModelMenu({
       // The field edits its own text (fieldKeyDown). Enter there picks the highlighted row (the
       // pointer's or the arrows'), else the first match.
       if (event.key !== "Enter") return;
-      if (shown?.launch && !shown.note && families?.forkReady !== false) {
+      if (!query && shown?.launch && !shown.note && families?.forkReady !== false) {
         event.preventDefault();
         onOpenChange(false);
         families?.onLaunch?.(shown.id);

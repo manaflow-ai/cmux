@@ -271,10 +271,16 @@ function railByHarness(
     if (seen.has(family.id)) return [];
     seen.add(family.id);
     const folded = profiles[family.id] ?? [];
-    const names = folded.map((profile) => ({ ...profile, name: launchName(family.name, profile.name, profile.id) }));
-    const currentName = names.find((profile) => profile.id === family.id)?.name ?? family.name;
-    const brand = agentBrand(family.id);
-    const alternate = brand && family.id.startsWith(`${agentKey(family.id)}-`) && family.id !== running;
+    const named = folded.map((profile) => ({ ...profile, name: launchName(family.name, profile.name, profile.id) }));
+    const names = named.map((profile) => {
+      const suffix = launchSuffix(profile.id);
+      return suffix && named.some((other) => other.id !== profile.id && other.name === profile.name)
+        ? { ...profile, name: `${profile.name} (${suffix})` }
+        : profile;
+    });
+    const currentName =
+      names.find((profile) => profile.id === family.id)?.name ?? launchName(family.name, family.name, family.id);
+    const alternate = launchSuffix(family.id) && family.id !== running;
     const own = { ...family, name: currentName, ...(alternate ? { launch: true } : {}) };
     return [
       own,
@@ -300,9 +306,16 @@ function launchName(brand: string, configured: string, id: string): string {
   const base = agentKey(id);
   const canonical = agentDisplayName(id);
   if (configured !== canonical && configured !== id) return configured;
-  const suffix = agentBrand(id) && base && id.startsWith(`${base}-`) ? id.slice(base.length + 1) : undefined;
-  if (suffix && /^[a-z][a-z0-9-]*$/i.test(suffix)) return `${brand} (${suffix})`;
+  const suffix = launchSuffix(id);
+  if (suffix) return `${brand} (${suffix})`;
   return configured === id && base ? brand : configured;
+}
+
+function launchSuffix(id: string): string | undefined {
+  const base = agentKey(id);
+  if (!agentBrand(id) || !base || !id.toLowerCase().startsWith(base)) return undefined;
+  const suffix = id.slice(base.length).replace(/^[-_\s]+/, "");
+  return suffix.length <= 32 && /^[a-z][a-z0-9_-]*$/i.test(suffix) ? suffix : undefined;
 }
 
 /// A folder profile row the user cannot start yet: waiting for the folder's Trust answer, or broken.
