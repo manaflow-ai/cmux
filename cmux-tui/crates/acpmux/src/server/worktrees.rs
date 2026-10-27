@@ -36,6 +36,46 @@ pub(super) async fn dispatch(
     Some(handle(hub, m, params).await)
 }
 
+/// `_acpmux/retention` (`hub/retention.rs`), to this machine's clients only: it rewrites and
+/// archives files on this machine. None for any other method.
+pub(super) async fn retention(
+    hub: &Arc<Hub>,
+    conn: &Arc<Conn>,
+    m: &str,
+    params: &Value,
+) -> Option<Result<Value, RpcError>> {
+    if m != method::MUX_RETENTION {
+        return None;
+    }
+    if conn.origin.web_class() {
+        return Some(Err(RpcError::method_not_found(&format!(
+            "{m} (not served to a remote WebSocket connection or a peer)"
+        ))));
+    }
+    let days = match params.get("olderThanDays") {
+        None | Some(Value::Null) => None,
+        Some(v) => match v.as_u64().and_then(|d| u32::try_from(d).ok()) {
+            Some(days) => Some(days),
+            None => {
+                return Some(Err(RpcError::invalid_params(
+                    "olderThanDays must be a number of days",
+                )));
+            }
+        },
+    };
+    let archive = str_param(params, "archive").map(PathBuf::from);
+    if archive.as_ref().is_some_and(|a| !a.is_absolute()) {
+        return Some(Err(RpcError::invalid_params("archive must be an absolute folder")));
+    }
+    let req = crate::hub::RetentionRequest {
+        dry_run: params.get("dryRun").and_then(Value::as_bool).unwrap_or(false),
+        archive,
+        older_than_days: days,
+        only: str_param(params, "only").map(str::to_owned),
+    };
+    Some(hub.retention_pass(req).await)
+}
+
 async fn handle(hub: &Arc<Hub>, m: &str, params: &Value) -> Result<Value, RpcError> {
     match m {
         method::MUX_WORKTREE_REPORT => {

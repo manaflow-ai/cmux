@@ -19,6 +19,9 @@ import CmuxNextSettings
 nonisolated struct AgentPaneProjectIcon: Sendable {
     /// Larger files are skipped: a tile is 20pt, and the answer crosses the bridge as base64.
     static let maximumBytes = 64 * 1024
+    /// A package.json is read whole up to this size: cut short it is no JSON, and some (an editor
+    /// extension's) run well past an icon's limit.
+    static let maximumManifestBytes = 1024 * 1024
     /// Best first: a vector or a 180px touch icon draws sharper in the tile than a 16px `.ico`.
     static let names = ["favicon.svg", "icon.svg", "apple-touch-icon.png", "favicon.png", "icon.png", "favicon.ico"]
     /// The folder itself and where web frameworks keep their icons (Next.js `app/`, Vite and
@@ -35,6 +38,8 @@ nonisolated struct AgentPaneProjectIcon: Sendable {
     /// A regular file's size and modification date, or nil (the cache key with its path).
     var stat: @Sendable (String) -> File?
     var read: @Sendable (String) -> Data?
+    /// A manifest's bytes, up to `maximumManifestBytes`, or nil.
+    var readManifest: @Sendable (String) -> Data?
     /// A folder's entry names, or nil (the AppIcon set's images).
     var list: @Sendable (String) -> [String]?
     private var validator: ChatRootValidator
@@ -55,6 +60,11 @@ nonisolated struct AgentPaneProjectIcon: Sendable {
             guard let handle = FileHandle(forReadingAtPath: path) else { return nil }
             defer { try? handle.close() }
             return try? handle.read(upToCount: AgentPaneProjectIcon.maximumBytes + 1)
+        }
+        readManifest = { path in
+            guard let handle = FileHandle(forReadingAtPath: path) else { return nil }
+            defer { try? handle.close() }
+            return try? handle.read(upToCount: AgentPaneProjectIcon.maximumManifestBytes)
         }
         list = { path in try? FileManager.default.contentsOfDirectory(atPath: path) }
     }
@@ -135,24 +145,79 @@ nonisolated struct AgentPaneProjectIcon: Sendable {
         return nil
     }
 
-    /// A language or framework mark from the project's manifest, for a project with no icon file:
-    /// `swift`, `rust`, `react`, `typescript`, `node`, `python`, `go` or `ruby`; nil for none.
+    /// The web, desktop and mobile frameworks a package.json can name, most specific first: a
+    /// meta-framework over its UI library (Next.js is React, Nuxt is Vue), a desktop or mobile shell
+    /// over the UI library inside it (an Electron app built with React shows Electron), a UI library
+    /// over its bundler (a React app built with Vite shows React), so the mark says what kind of app
+    /// it is. A bare React Native app (no `expo`) shows React: the Expo mark is Expo's own.
+    static let packageFrameworks: [(glyph: String, packages: [String])] = [
+        ("next", ["next"]),
+        ("nuxt", ["nuxt", "nuxt3"]),
+        ("remix", ["@remix-run/react", "@remix-run/node", "@react-router/dev"]),
+        ("astro", ["astro"]),
+        ("expo", ["expo"]),
+        ("electron", ["electron"]),
+        ("tauri", ["@tauri-apps/api", "@tauri-apps/cli"]),
+        ("svelte", ["@sveltejs/kit", "svelte"]),
+        ("angular", ["@angular/core"]),
+        ("vue", ["vue"]),
+        ("react", ["react"]),
+        ("vite", ["vite"]),
+    ]
+
+    /// The package names a package.json depends on, in any of its dependency lists; empty for a
+    /// manifest that is not JSON.
+    static func dependencies(of manifest: Data) -> Set<String> {
+        guard let object = try? JSONSerialization.jsonObject(with: manifest) as? [String: Any] else { return [] }
+        var names = Set<String>()
+        for key in ["dependencies", "devDependencies", "peerDependencies", "optionalDependencies"] {
+            if let list = object[key] as? [String: Any] { names.formUnion(list.keys) }
+        }
+        return names
+    }
+
+    /// A framework or language mark from the project's manifest, for a project with no icon file:
+    /// one of `PROJECT_GLYPHS` (webviews projectIcon.ts); nil for none.
     func glyph(in folder: String) -> String? {
         guard folder.hasPrefix("/"), allows(folder) else { return nil }
         let base = folder.hasSuffix("/") ? String(folder.dropLast()) : folder
         let has = { (name: String) -> Bool in regularFile(base + "/" + name) != nil }
-        if has("Package.swift") { return "swift" }
-        if has("Cargo.toml") { return "rust" }
+        let text = { (name: String) -> String in
+            regularFile(base + "/" + name).flatMap(read).map { String(decoding: $0, as: UTF8.self) } ?? ""
+        }
+        if has("Package.swift") || hasXcodeProject(base) { return "swift" }
         if let package = regularFile(base + "/package.json") {
-            let manifest = read(package).map { String(decoding: $0, as: UTF8.self) } ?? ""
-            if manifest.contains("\"react\"") { return "react" }
-            if has("tsconfig.json") || manifest.contains("\"typescript\"") { return "typescript" }
+            let names = readManifest(package).map(Self.dependencies(of:)) ?? []
+            if let framework = Self.packageFrameworks.first(where: { !names.isDisjoint(with: $0.packages) }) {
+                return framework.glyph
+            }
+            if has("src-tauri/Cargo.toml") { return "tauri" }
+            if has("Cargo.toml") { return "rust" }
+            if has("bun.lock") || has("bun.lockb") { return "bun" }
+            if has("tsconfig.json") || names.contains("typescript") { return "typescript" }
             return "node"
         }
+        if has("Cargo.toml") { return "rust" }
+        if has("deno.json") || has("deno.jsonc") { return "deno" }
+        if has("pubspec.yaml") { return text("pubspec.yaml").contains("flutter:") ? "flutter" : "dart" }
         if has("pyproject.toml") || has("setup.py") || has("requirements.txt") { return "python" }
         if has("go.mod") { return "go" }
         if has("Gemfile") { return "ruby" }
+        if has("build.zig") { return "zig" }
+        if has("mix.exs") { return "elixir" }
+        if has("composer.json") { return "php" }
+        if has("build.gradle.kts") || has("settings.gradle.kts") { return "kotlin" }
+        if has("pom.xml") || has("build.gradle") { return "java" }
+        if has("CMakeLists.txt") { return "cpp" }
         return nil
+    }
+
+    /// True when the folder holds an Xcode project or workspace (an app with no Package.swift).
+    private func hasXcodeProject(_ base: String) -> Bool {
+        guard let entries = list(base) else { return false }
+        return entries.contains { name in
+            (name.hasSuffix(".xcodeproj") || name.hasSuffix(".xcworkspace")) && allows(base + "/" + name)
+        }
     }
 
     private static func realPath(_ path: String) -> String? {
@@ -203,9 +268,9 @@ actor AgentPaneProjectIcons {
 
     /// The `project.icon` answer: the GitHub owner's avatar (a user's or an organization's), else an
     /// icon file in the folder, else in its repository's main checkout (a worktree whose icon is not
-    /// checked in yet, or a folder inside the repository); and the manifest's language mark, which
-    /// the page draws only without an image. Both nil keep the page's letters. The avatar comes
-    /// first so every clone and worktree of one GitHub repository wears the same picture (Leo
+    /// checked in yet, or a folder inside the repository); and the manifest's framework or language
+    /// mark, which the page draws only without an image. All nil leave the page's folder. The avatar
+    /// comes first so every clone and worktree of one GitHub repository wears the same picture (Leo
     /// 2026-10-21: "why are the project icons not showing up for SOME of the cmux...? only one has
     /// my github icon?").
     func answer(for folder: String) async -> (src: String?, glyph: String?) {
