@@ -47,6 +47,21 @@ struct AgentPaneSandboxRunTests {
         }
     }
 
+    @Test func anUndocumentedRefusalShapedCodeSpendsTheTab() async {
+        // `run_vm_deadbeef_invalid` looks like a request refusal but is no proof nothing ran: the
+        // page sees `unavailable`, and a second send could start a second paid Run, so it is refused.
+        struct Failed: Error {}
+        let reply = await AgentPaneReply.sandbox({ throw Failed() }) { _ in "run_vm_deadbeef_invalid" }
+        #expect((reply["error"] as? [String: Any])?["code"] as? String == "unavailable")
+        let runs = AgentPaneSandboxRuns()
+        _ = await runs.run(task: "x", key: "k-1") { reply }
+        #expect(runs.refusal == "sandbox_spent")
+        // A documented one refused the request before anything was stored: the tab may send again.
+        let documented = AgentPaneSandboxRuns()
+        _ = await documented.run(task: "x", key: "k-2") { AgentPaneReply.failure(code: "run_image_invalid", message: "x") }
+        #expect(documented.refusal == nil)
+    }
+
     @Test func aReloadedPageFindsTheRunningSendAndItsReceipt() async {
         let runs = AgentPaneSandboxRuns()
         let gate = AsyncStream<Void>.makeStream()
