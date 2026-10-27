@@ -41,7 +41,7 @@ import CmuxNextWakeupsTestSupport
         let gate = MainJobGate(state: state, forward: { _ in order.note("job") }, wakeMain: {})
         // A deadline far away: only the drain after the commit may forward the job.
         let loop = MainJobGateRunLoop(gate: gate, kinds: { [] }, inputPending: { false }, refreshNanos: { 10_000_000_000 })
-        let commit =MainRunLoopObserver(activities: .beforeWaiting, order: 2_000_000) { _ in order.note("commit") }
+        let commit = MainRunLoopObserver(activities: .beforeWaiting, order: 2_000_000) { _ in order.note("commit") }
         defer { loop.invalidate(); commit.invalidate() }
         state.publish(.key)
         gate.enqueue(MainJobGateClassTests.job(1))
