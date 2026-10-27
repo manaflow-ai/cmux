@@ -17,6 +17,9 @@ import func CmuxSafeConcurrency.withOnceContinuation
 /// revisions and structural moves. Agent statuses are never coalesced
 /// either: the store records each transition.
 ///
+/// The connection holds the events no consumer took yet in one too
+/// (``DaemonEventRoute/backlog``), as does its handshake gate (``EventGate``).
+///
 /// Bounded (architecture.md 5a): past `limit` events the buffer collapses
 /// into one `.overflow` marker, which the store answers with one snapshot
 /// that supersedes everything dropped. Lifecycle events and transaction
@@ -204,13 +207,21 @@ extension DaemonStore {
     /// Mirrors the daemon until the connection closes. Events go from the
     /// connection's reader thread straight into the inbox
     /// (``DaemonConnection/consumeEvents(_:)``: no cooperative-pool job on the
-    /// echo path); only those the connection buffered before this run pass
-    /// through the pump task. Batches reach the main actor at most once
-    /// per frame. A batch that invalidates the tree triggers one snapshot,
-    /// fetched and decoded off the main actor; events it supersedes (by
-    /// sequence barrier) are dropped. No polling and no timers.
+    /// echo path); only those the connection held before this run (its bounded
+    /// ``EventInbox`` backlog, ``DaemonEventRoute``) pass through the pump task,
+    /// once, when it attaches. Nothing between the socket and the store grows
+    /// past one inbox's limit: a flood collapses into one resync (p05-ipc-093).
+    /// Batches reach the main actor at most once per frame. A batch that
+    /// invalidates the tree triggers one snapshot, fetched and decoded off
+    /// the main actor; events it supersedes (by sequence barrier) are
+    /// dropped. No polling and no timers.
     public func run(connection: DaemonConnection, scheduler: any FrameBatchScheduler = NextTurnFrameScheduler()) async {
-        let driver = StoreDriver(connection: connection, inbox: EventInbox(), scheduler: scheduler)
+        await run(driver: StoreDriver(connection: connection, inbox: EventInbox(), scheduler: scheduler))
+    }
+
+    /// ``run(connection:scheduler:)`` with its driver made: a test's injects the resync's snapshot read.
+    func run(driver: StoreDriver) async {
+        let connection = driver.connection
         self.driver = driver
         beginConnection()
         let pump = Task.detached { [weak self] () -> String? in

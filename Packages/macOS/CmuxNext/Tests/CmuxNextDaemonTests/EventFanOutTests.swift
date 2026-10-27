@@ -43,6 +43,30 @@ import Testing
         items.compactMap { if case .event(let envelope) = $0 { envelope.sequence } else { nil } }
     }
 
+    /// Matches no subscriber filter here: emitted before the store's consumer starts, it reaches that
+    /// consumer when it takes the route's backlog.
+    private static let sentinel = DaemonEventEnvelope(sequence: 0, event: .bell(surface: SurfaceID(rawValue: 0)))
+
+    /// Starts the store's consumer and returns once it took the route (the sentinel reached its sink),
+    /// so later events go straight to the sink, not to the backlog that coalesces them; and the
+    /// iterator of what the sink gets after the sentinel.
+    private static func consume(_ connection: DaemonConnection,
+                                into probe: SinkProbe) async -> (Task<Void, any Error>, AsyncStream<UInt64>.Iterator) {
+        connection.route.emit(sentinel)
+        let store = Task { try await connection.consumeEvents { probe.record($0) } }
+        var delivered = probe.delivered.makeAsyncIterator()
+        let first = await delivered.next()
+        #expect(first == sentinel.sequence, "the store's sink did not take the backlog first")
+        return (store, delivered)
+    }
+
+    /// The rest of what `delivered` yields.
+    private static func rest(_ delivered: inout AsyncStream<UInt64>.Iterator) async -> [UInt64] {
+        var sequences: [UInt64] = []
+        while let sequence = await delivered.next() { sequences.append(sequence) }
+        return sequences
+    }
+
     /// Records what the route's sink (the store's path) gets, on the emitting thread, without waiting.
     final class SinkProbe: Sendable {
         let delivered: AsyncStream<UInt64>
@@ -59,18 +83,13 @@ import Testing
         func end() {
             continuation.finish()
         }
-
-        func all() async -> [UInt64] {
-            var sequences: [UInt64] = []
-            for await sequence in delivered { sequences.append(sequence) }
-            return sequences
-        }
     }
 
     @Test func theStoreAndTwoFilteredSubscribersEachGetEveryMatchingEventInOrder() async throws {
         let connection = Self.connection()
         let probe = SinkProbe()
-        let store = Task { try await connection.consumeEvents { probe.record($0) } }
+        let (store, taken) = await Self.consume(connection, into: probe)
+        var delivered = taken
         let first = connection.subscribe(filter: Self.onSurface(1), limit: Self.count)
         let second = connection.subscribe(filter: Self.onSurface(2), limit: Self.count)
         let firstItems = Self.collect(first)
@@ -91,8 +110,8 @@ import Testing
         try await store.value
         probe.end()
         let all = (1...Self.count).map { Self.envelope($0) }
-        let delivered = await probe.all()
-        #expect(delivered == all.map(\.sequence), "the store's sink missed or reordered events")
+        let sunk = await Self.rest(&delivered)
+        #expect(sunk == all.map(\.sequence), "the store's sink missed or reordered events")
         let wantedFirst = all.filter { Self.surface($0.event) == 1 }.map(\.sequence)
         let wantedSecond = all.filter { Self.surface($0.event) == 2 }.map(\.sequence)
         let gotFirst = await firstItems.value
@@ -107,7 +126,8 @@ import Testing
     @Test func aStoppedSubscriberDelaysNoOtherAndResyncsOnce() async throws {
         let connection = Self.connection()
         let probe = SinkProbe()
-        let store = Task { try await connection.consumeEvents { probe.record($0) } }
+        let (store, taken) = await Self.consume(connection, into: probe)
+        var delivered = taken
         let stopped = connection.subscribe(limit: 8)
         let live = connection.subscribe(filter: Self.onSurface(3), limit: Self.count)
         let liveItems = Self.collect(live)
@@ -118,8 +138,8 @@ import Testing
         await connection.close()
         try await store.value
         probe.end()
-        let delivered = await probe.all()
-        #expect(delivered.count == Self.count, "the stopped subscriber cost the store events")
+        let sunk = await Self.rest(&delivered)
+        #expect(sunk.count == Self.count, "the stopped subscriber cost the store events")
         let wanted = (1...Self.count).map { Self.envelope($0) }.filter { Self.surface($0.event) == 3 }.map(\.sequence)
         let got = await liveItems.value
         #expect(Self.sequences(got) == wanted, "the stopped subscriber cost another subscriber events")

@@ -4,18 +4,26 @@ import CmuxNextCompat
 
 /// Holds events that arrive before the handshake finishes, then releases
 /// them after the `.connected` marker. Runs on the reader thread.
+///
+/// Bounded (p05-ipc-093): they wait in an ``EventInbox``, so a flood during
+/// the handshake holds at most its limit and is released as one `overflow`
+/// marker (one resync) plus what a resync cannot restore.
 final class EventGate: Sendable {
     private struct State {
         var open = false
-        var held: [DaemonEventEnvelope] = []
     }
 
     private let state = Mutex(State())
+    private let held: EventInbox
+
+    init(limit: Int = EventInbox.defaultLimit) {
+        held = EventInbox(limit: limit)
+    }
 
     func deliver(_ event: DaemonEventEnvelope, _ yield: (DaemonEventEnvelope) -> Void) {
         let passthrough = state.withLock { state -> Bool in
             if state.open { return true }
-            state.held.append(event)
+            _ = held.append(event)
             return false
         }
         if passthrough { yield(event) }
@@ -26,11 +34,13 @@ final class EventGate: Sendable {
     func open(first: DaemonEventEnvelope, _ yield: (DaemonEventEnvelope) -> Void) {
         state.withLock { state in
             yield(first)
-            for event in state.held { yield(event) }
-            state.held.removeAll()
+            for event in held.take() { yield(event) }
             state.open = true
         }
     }
+
+    /// Events held now (tests).
+    var heldCount: Int { held.bufferedCount }
 }
 
 /// One subscribe-stream event with its position in the connection's total
