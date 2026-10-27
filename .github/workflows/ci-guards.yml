@@ -416,15 +416,25 @@ jobs:
       # feat-cmux-next pull request and push, where these files live.
       - name: Test What's New highlights and release notes
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
+        # Every command runs, and the step fails at the end if any failed, so
+        # one red (test_digest.py on a bad highlight) never hides the rest.
         run: |
-          python3 scripts/whats-new/test_digest.py
-          python3 scripts/whats-new/test_validate.py
-          python3 scripts/whats-new/test_community.py
-          python3 tests/test_cmux_next_release_notes.py
-          python3 tests/test_release_notes_pr_media.py
-          python3 tests/test_release_notes_clips.py
-          python3 tests/test_whats_new_clips.py
-          python3 scripts/cmux-next/media/whats-new-clips.py check
+          failed=()
+          for command in \
+            "python3 scripts/whats-new/test_digest.py" \
+            "python3 scripts/whats-new/test_validate.py" \
+            "python3 scripts/whats-new/test_community.py" \
+            "python3 tests/test_cmux_next_release_notes.py" \
+            "python3 tests/test_release_notes_pr_media.py" \
+            "python3 tests/test_release_notes_clips.py" \
+            "python3 tests/test_whats_new_clips.py" \
+            "python3 scripts/cmux-next/media/whats-new-clips.py check"; do
+            echo "::group::$command"
+            $command || failed+=("$command")
+            echo "::endgroup::"
+          done
+          for command in "${failed[@]}"; do echo "::error::failed: $command"; done
+          [ "${#failed[@]}" -eq 0 ]
 
       - name: Test the server bootstrap candidate renderer
         if: ${{ !cancelled() && matrix.group == 'preflight' }}
