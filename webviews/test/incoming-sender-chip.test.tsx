@@ -57,6 +57,7 @@ afterAll(() => {
 const { createRoot } = await import("react-dom/client");
 const { IncomingMessageLine } = await import("../src/agent-session/acpmux/conversation/IncomingMessageCard");
 const { SubsessionContext, SubsessionStore } = await import("../src/agent-session/acpmux/subagents/subsessions");
+const { PromptMarksSession } = await import("../src/agent-session/acpmux/threadMinimap/promptMarks");
 
 const t = translatorFor("en");
 const entry = (fields: Partial<AcpmuxSessionEntry> & { sessionId: string }) =>
@@ -65,6 +66,13 @@ const entry = (fields: Partial<AcpmuxSessionEntry> & { sessionId: string }) =>
 const sessions = [
   entry({ sessionId: "mux-chief-ui", name: "huge-blue/chief-ui", peer: "huge-blue" }),
   entry({ sessionId: "mux-deputy", name: "coord-deputy", hostKind: "local" }),
+  entry({
+    sessionId: "mux-review",
+    name: "gcp-codex-lane-10/pr-row",
+    peer: "gcp-codex-lane-10",
+    harness: "codex",
+    startedBy: "viewer-chat",
+  }),
 ];
 
 async function line(message: { name: string; sessionId?: string }) {
@@ -76,11 +84,13 @@ async function line(message: { name: string; sessionId?: string }) {
   await act(async () =>
     root!.render(
       <SubsessionContext.Provider value={{ store, open: () => undefined }}>
-        <IncomingMessageLine
-          id="row-1"
-          message={{ ...message, text, raw: text }}
-          onOpen={(id) => void opened.push(id)}
-        />
+        <PromptMarksSession.Provider value="viewer-chat">
+          <IncomingMessageLine
+            id="row-1"
+            message={{ ...message, text, raw: text }}
+            onOpen={(id) => void opened.push(id)}
+          />
+        </PromptMarksSession.Provider>
       </SubsessionContext.Provider>,
     ),
   );
@@ -107,4 +117,26 @@ test("a sender no list names is no button: nothing to open", async () => {
   const { chip } = await line({ name: "gone-lane" });
   expect(chip).toBeNull();
   expect(host.querySelector(".cv-received__name.is-plain")?.textContent).toBe("gone-lane");
+});
+
+test("a received chip names the session first, the machine second, and opens that session", async () => {
+  const { chip, opened } = await line({ name: "gcp-codex-lane-10/pr-row", sessionId: "mux-review" });
+  expect(chip?.querySelector(".acpmux-sender__name")?.textContent).toContain("pr-row");
+  expect(chip?.querySelector(".acpmux-sender__name")?.textContent).not.toContain("gcp-codex-lane-10");
+  expect(chip?.querySelector(".acpmux-sender__host")?.textContent).toBe("gcp-codex-lane-10");
+  expect(chip?.title).toBe("Open pr-row (gcp-codex-lane-10)");
+  await act(async () => chip!.click());
+  expect(opened).toEqual(["mux-review"]);
+});
+
+test("explicit sender parentage uses the current transcript session without naming it twice", async () => {
+  const { chip } = await line({ name: "gcp-codex-lane-10/pr-row", sessionId: "mux-review" });
+  expect(chip?.querySelector(".acpmux-sender__name")?.textContent).toBe("Sub-session · pr-row");
+  expect(chip?.textContent?.match(/Sub-session/g)).toHaveLength(1);
+});
+
+test("finding a session by name does not prove that the message is from this chat's child", async () => {
+  const { chip } = await line({ name: "pr-row" });
+  expect(chip?.querySelector(".acpmux-sender__name")?.textContent).toBe(t("sender.otherSession", { name: "pr-row" }));
+  expect(chip?.textContent).not.toContain("Sub-session");
 });
