@@ -15,8 +15,8 @@ import CmuxNextWakeups
 ///
 /// The panels follow the page: AppKit moves child windows with the window
 /// (drags, Space changes); a page move inside the window (its rect checked
-/// once after each turn's commit while a surface is open), a window resize
-/// or a screen change places them again. While the page is hidden or out of
+/// after each layout pass of the window while a surface is open), a window
+/// resize or a screen change places them again. While the page is hidden or out of
 /// a window (another tab shows, the window closes) the panels are ordered
 /// out; they come back with the page. They go with the page's session.
 ///
@@ -31,17 +31,19 @@ public final class RemoteBrowserSurfaces {
     private var open: [UInt32: Surface] = [:]
     /// The page shows: surfaces decode only then (a hidden page's popups decode nothing).
     private var visible = true
-    /// The page window's notices (its `WindowEvents`), while a surface is open.
+    /// The page window's notices (its `WindowEvents`) and layout passes (`WindowLayoutPassHosting`), while a
+    /// surface is open.
     private weak var observedWindow: NSWindow?
     private var windowObservers: [EventSubscription] = []
-    /// While a surface is open: one check per run-loop turn, after its commit, of the page's rect in its window.
-    private var placementCheck: MainRunLoopObserver?
+    private var layoutPassWatch: WindowLayoutPasses.Observation?
     /// The page's rect in its window when the surfaces were last placed (nil: no window).
     private var placedPageRect: CGRect?
     /// How many times every surface was placed again (tests).
     package private(set) var placements = 0
-    /// The per-turn rect check runs (a surface is open; tests).
-    package var isCheckingPlacement: Bool { placementCheck != nil }
+    /// How many times the page's rect was read for an ancestor move (tests).
+    package private(set) var placementChecks = 0
+    /// The window's layout passes check the page's rect (a surface is open; tests).
+    package var isCheckingPlacement: Bool { layoutPassWatch != nil }
 
     /// `source` gives a surface stream's units; `send` sends one rb input
     /// event (`mustDeliver` second).
@@ -86,12 +88,14 @@ public final class RemoteBrowserSurfaces {
 
     /// The page hid or showed: each surface's decoder pauses or starts with it (Chrome stops a
     /// hidden widget's frames, `RenderWidgetHostImpl::WasHidden`). A shown surface asks for a keyframe.
+    /// A hidden page's layout passes read nothing, so a page that shows places its surfaces once.
     public func setVisible(_ visible: Bool) {
         guard visible != self.visible else { return }
         self.visible = visible
         for entry in open.values {
             if visible { entry.pane.start() } else { entry.pane.pause() }
         }
+        if visible, !open.isEmpty { placeAll() }
     }
 
     /// The surface is decoding its stream now (tests, debug).
@@ -143,10 +147,7 @@ public final class RemoteBrowserSurfaces {
         gone.pane.stop()
         detach(gone.panel)
         gone.panel.close()
-        if open.isEmpty {
-            observeWindow(nil)
-            placementCheck = nil
-        }
+        if open.isEmpty { observeWindow(nil) }
     }
 
     /// Every open surface at its anchor (the page moved, resized, was
@@ -161,21 +162,18 @@ public final class RemoteBrowserSurfaces {
         page.window == nil ? nil : page.convert(page.bounds, to: nil)
     }
 
-    /// The page moved inside its window with nothing to tell it (an ancestor
-    /// moved: a sidebar or divider drag): its surfaces follow. A turn that
-    /// moved nothing places nothing. Chrome's `NativeViewHost` hears only a
-    /// change of its bounds in the root (`View::RegisterForVisibleBoundsNotification`,
-    /// `VisibleBoundsChanged`, ui/views/view.h), never every event.
-    package func checkPagePlacement() {
-        guard !open.isEmpty, pageRectInWindow != placedPageRect else { return }
+    /// The window finished a layout pass: the page may have moved inside it
+    /// with nothing to tell it (an ancestor moved: a sidebar or divider drag),
+    /// and its surfaces follow. A pass that moved nothing places nothing, and a
+    /// hidden page reads nothing (`setVisible` places its surfaces when it shows). Chrome's
+    /// `NativeViewHost` hears a change of its bounds in the root from the
+    /// ancestor's bounds change (`View::RegisterForVisibleBoundsNotification`,
+    /// `VisibleBoundsChanged` from `SetBoundsRect`, ui/views/view.cc), never every event.
+    private func windowDidLayout() {
+        guard !open.isEmpty, visible, page.window != nil else { return }
+        placementChecks += 1
+        guard pageRectInWindow != placedPageRect else { return }
         placeAll()
-    }
-
-    private func startPlacementCheck() {
-        guard placementCheck == nil else { return }
-        placementCheck = MainRunLoopObserver(activities: .beforeWaiting, order: .max) { [weak self] _ in
-            self?.checkPagePlacement()
-        }
     }
 
     /// Shows `surface`'s panel at its anchor over the page, as a child of
@@ -184,7 +182,6 @@ public final class RemoteBrowserSurfaces {
         guard let entry = open[surface] else { return }
         let panel = entry.panel
         placedPageRect = pageRectInWindow
-        startPlacementCheck()
         // Observe the window while it is the page's, also while it is not
         // visible (minimized, ordered out): its return places the panel.
         observeWindow(page.window)
@@ -218,6 +215,8 @@ public final class RemoteBrowserSurfaces {
         guard !(window === observedWindow && (window == nil) == windowObservers.isEmpty) else { return }
         windowObservers.forEach { $0.cancel() }
         windowObservers.removeAll()
+        layoutPassWatch?.cancel()
+        layoutPassWatch = nil
         observedWindow = window
         guard let window else { return }
         let events = WindowEvents.of(window)
@@ -227,6 +226,9 @@ public final class RemoteBrowserSurfaces {
             windowObservers.append(events.subscribe(name, owner: "RemoteBrowserSurfaces") { [weak self] in
                 self?.placeAll()
             })
+        }
+        layoutPassWatch = (window as? any WindowLayoutPassHosting)?.layoutPasses.observe(owner: "RemoteBrowserSurfaces") { [weak self] in
+            self?.windowDidLayout()
         }
         windowObservers.append(events.subscribe(NSWindow.willCloseNotification, owner: "RemoteBrowserSurfaces") { [weak self] in
             guard let self else { return }
