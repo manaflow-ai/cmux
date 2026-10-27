@@ -103,6 +103,22 @@ describe("subagent tray motion", () => {
     // Its entrance ends: the mark goes.
     ended(card);
     expect(card.hasAttribute(TRAY_ENTER_ATTR)).toBe(false);
+    // A change of placement keeps the card: no copy.
+    await act(async () =>
+      root.render(
+        createElement(SubagentTray, {
+          items: [item("Reviewer")],
+          working: true,
+          waiting: NONE,
+          onOpen: () => {},
+          shown,
+          placement: "after-latest-message",
+        }),
+      ),
+    );
+    expect(host.querySelector(`.${TRAY_GHOST}`)).toBeNull();
+    await draw([item("Reviewer")], false);
+    expect(host.querySelector(`.${TRAY_GHOST}`)).toBeNull();
     // The last line goes: the real card is gone at once, a copy plays in its place.
     await draw([], false);
     const ghost = host.querySelector<HTMLElement>(`.${TRAY_GHOST}`)!;

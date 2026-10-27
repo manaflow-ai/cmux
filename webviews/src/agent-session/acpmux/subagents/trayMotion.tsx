@@ -100,6 +100,11 @@ export function playTrayExit(card: HTMLElement): void {
     pointerEvents: "none",
   });
   host.appendChild(ghost);
+  // A tray that only moved (another placement mounts it in the same commit) did not leave: its copy
+  // goes before the frame paints.
+  queueMicrotask(() => {
+    if (card.ownerDocument.querySelector(`.acpmux-running-tray:not(.${TRAY_GHOST})`)) leaving.get(ghost)?.done();
+  });
   const ms = animationMs(ghost);
   if (ms <= 0) {
     ghost.remove();
@@ -129,9 +134,14 @@ export function playTrayExit(card: HTMLElement): void {
 export function useTrayMotion(
   shown: { readonly current: string | undefined } | undefined,
   enters: boolean,
+  exits = true,
 ): (node: HTMLElement | null) => (() => void) | undefined {
+  // Read at attach and detach, so a change of either never makes a new ref (which would detach and
+  // reattach the card, playing its exit while it stays).
   const entersRef = useRef(enters);
   entersRef.current = enters;
+  const exitsRef = useRef(exits);
+  exitsRef.current = exits;
   return useCallback(
     (node: HTMLElement | null) => {
       if (!node || !shown) return undefined;
@@ -154,7 +164,7 @@ export function useTrayMotion(
       }
       return () => {
         // The copy is taken first, so a card leaving mid-entrance fades from where it is drawn.
-        if (shown.current === chat) playTrayExit(node);
+        if (exitsRef.current && shown.current === chat) playTrayExit(node);
         settle();
       };
     },

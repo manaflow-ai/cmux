@@ -132,7 +132,7 @@ export const SubagentTray = memo(function SubagentTray({
   const [look] = useState(() => experimentArm(trayPanelLook));
   const [motion] = useState(() => experimentArm(trayMotionLook));
   // Only the bottom stack's tray leaves on a snapshot: one placed in the transcript moves with it.
-  const motionRef = useTrayMotion(placement === "tray" ? shown : undefined, enters);
+  const motionRef = useTrayMotion(shown, enters, placement === "tray");
   // The header stays while the tray has more than one line, running or ended: one of two running
   // ending never takes it (and its collapse) away.
   const headed = items.length + finished.length > 1;
