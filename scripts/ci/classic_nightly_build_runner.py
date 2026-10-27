@@ -121,13 +121,11 @@ def blacksmith_route(snapshot: Mapping[str, Any] | None, now: dt.datetime,
     return moving[0], f"`{moving[0]}`" + (f", past stalled `{stuck[0]}`" if moving[0] != order[0] else "")
 
 
-def alternate(label: str, attempt: str = "") -> str:
-    """The label a re-run (attempt 2 on) takes. A re-run of failed jobs keeps attempt 1's outputs, so
-    from attempt 1 this is the other Blacksmith macOS 26 label: the re-run leaves the label that
-    stalled after the pick (GitHub never re-routes a queued job). A pick made on a later attempt (a
-    re-run of all jobs runs the picker again) already read the queues now, so it is that pick."""
-    if attempt not in ("", "1") and label in CANDIDATES:
-        return label
+def alternate(label: str) -> str:
+    """The other Blacksmith macOS 26 label. The jobs take it on an attempt later than the one that made
+    the pick (`attempt`): a re-run of failed jobs keeps the pick job's outputs, and GitHub never
+    re-routes a queued job, so the re-run leaves the label that stalled after the pick. A re-run of all
+    jobs runs the picker again, and that attempt takes the fresh pick."""
     return next(other for other in CANDIDATES if other != label) if label in CANDIDATES else SMALL
 
 
@@ -181,7 +179,7 @@ def main(env: Mapping[str, str] = os.environ,
     if env.get("GITHUB_OUTPUT"):
         with open(env["GITHUB_OUTPUT"], "a", encoding="utf-8") as handle:
             handle.write(f"trusted={'true' if trusted else 'false'}\ncloud={blacksmith}\n"
-                         f"alternate={alternate(blacksmith, (env.get('GITHUB_RUN_ATTEMPT') or '').strip())}\n")
+                         f"alternate={alternate(blacksmith)}\nattempt={(env.get('GITHUB_RUN_ATTEMPT') or '1').strip()}\n")
     if env.get("GITHUB_STEP_SUMMARY"):
         with open(env["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as handle:
             handle.write("\nNightly build runner:\n" + "".join(f"- {line}\n" for line in lines))

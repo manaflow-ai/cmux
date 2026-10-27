@@ -40,7 +40,8 @@ EXEMPT = {
         "pick-nightly-app-runner (cmux#26208) routes it; tests/test_classic_nightly_build_runner.py covers it",
 }
 MOVING = re.compile(r"needs\.([a-z0-9-]+)\.outputs\.(cloud|runner)\b")
-ALTERNATE = re.compile(r"github\.run_attempt > 1 && needs\.([a-z0-9-]+)\.outputs\.alternate \|\|")
+ALTERNATE = re.compile(r"github\.run_attempt > 1 && needs\.([a-z0-9-]+)\.outputs\.attempt != github\.run_attempt"
+                       r" && needs\.\1\.outputs\.alternate \|\|")
 LAST_LITERAL = re.compile(r"\|\| '(blacksmith-[0-9]+vcpu-macos-26)'\)?\s*\}\}$")
 
 
@@ -68,7 +69,8 @@ def problems(workflow: str, name: str, job: dict, jobs: dict) -> list[str]:
     if not moving:
         out.append("reads no moving Blacksmith pick")
     if not alternate:
-        out.append("has no `github.run_attempt > 1 && needs.<picker>.outputs.alternate ||` for a re-run")
+        out.append("has no `github.run_attempt > 1 && needs.<picker>.outputs.attempt != github.run_attempt && "
+                   "needs.<picker>.outputs.alternate ||` for a re-run")
     if not literal:
         out.append("does not end in a literal blacksmith-<n>vcpu-macos-26 label")
     for source in {job_name for job_name, _ in moving} | set(alternate):
@@ -118,7 +120,8 @@ class PublisherMacJobsMove(unittest.TestCase):
                     "needs.pick.outputs.cloud || 'blacksmith-6vcpu-macos-26' }}"}
         self.assertTrue(problems("x.yml", "j", no_rerun, jobs))
         good = {"needs": ["pick"], "if": "!cancelled()", "runs-on": "${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || "
-                "github.run_attempt > 1 && needs.pick.outputs.alternate || needs.pick.outputs.cloud || "
+                "github.run_attempt > 1 && needs.pick.outputs.attempt != github.run_attempt && needs.pick.outputs.alternate || "
+                "needs.pick.outputs.cloud || "
                 "'blacksmith-6vcpu-macos-26' }}"}
         self.assertEqual(problems("x.yml", "j", good, jobs), [])
         self.assertTrue(problems("x.yml", "j", {**good, "needs": []}, jobs))

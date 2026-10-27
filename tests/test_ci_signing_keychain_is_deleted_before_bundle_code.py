@@ -124,7 +124,7 @@ LINUX_PEM_SIGNERS = {
 OWNED_VERIFY_JOBS = {
     ("cmux-next-dev-daily.yml", "verify"): "${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || "
     "(github.run_attempt == 1 && needs.runner.outputs.label || github.run_attempt > 1 && "
-    "needs.runner.outputs.alternate || needs.runner.outputs.cloud || 'blacksmith-6vcpu-macos-26') }}",
+    "needs.runner.outputs.attempt != github.run_attempt && needs.runner.outputs.alternate || needs.runner.outputs.cloud || 'blacksmith-6vcpu-macos-26') }}",
 }
 # Rule 6's other exception: a verify job whose runs-on reads only a Blacksmith pick (exactly this
 # runs-on), from a job that runs scripts/ci/classic_nightly_build_runner.py with ENABLED '0', which can
@@ -133,6 +133,7 @@ PICKED_EPHEMERAL_VERIFY_JOBS = {
     ("nightly.yml", "verify-signed-nightly"): (
         "pick-classic-sign-runner",
         "${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.run_attempt > 1 && "
+        "needs.pick-classic-sign-runner.outputs.attempt != github.run_attempt && "
         "needs.pick-classic-sign-runner.outputs.alternate || needs.pick-classic-sign-runner.outputs.runner || "
         "'blacksmith-6vcpu-macos-26' }}"),
 }
@@ -324,6 +325,7 @@ def picks_only_blacksmith(job: object) -> bool:
     return (len(pick) == 1 and str((pick[0].get("env") or {}).get("ENABLED")) == "0"
             and outputs.get("runner") == f"${{{{ steps.{pick[0].get('id')}.outputs.cloud }}}}"
             and outputs.get("alternate") == f"${{{{ steps.{pick[0].get('id')}.outputs.alternate }}}}"
+            and outputs.get("attempt") == f"${{{{ steps.{pick[0].get('id')}.outputs.attempt }}}}"
             and all(label.startswith("blacksmith-") for label in picker.CANDIDATES)
             and picker.SMALL in picker.CANDIDATES and picker.LARGE in picker.CANDIDATES)
 
@@ -359,7 +361,8 @@ def self_test_verify_runners() -> list[str]:
 def self_test_picked_runners() -> list[str]:
     """Mutations the Blacksmith-pick exception must refuse."""
     (workflow, name), (picker, allowed) = next(iter(PICKED_EPHEMERAL_VERIFY_JOBS.items()))
-    pick = {"outputs": {"runner": "${{ steps.pick.outputs.cloud }}", "alternate": "${{ steps.pick.outputs.alternate }}"},
+    pick = {"outputs": {"runner": "${{ steps.pick.outputs.cloud }}", "alternate": "${{ steps.pick.outputs.alternate }}",
+                       "attempt": "${{ steps.pick.outputs.attempt }}"},
             "steps": [{"id": "pick", "env": {"ENABLED": "0"}, "run": "python3 scripts/ci/classic_nightly_build_runner.py"}]}
     good = {
         "sign": {"environment": "release", "steps": [{"run": "sign"}]},

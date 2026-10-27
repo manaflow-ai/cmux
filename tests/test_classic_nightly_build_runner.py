@@ -121,27 +121,35 @@ class FirstAndAlternate(unittest.TestCase):
         # A label that is not a candidate changes nothing.
         self.assertEqual(picker.blacksmith_route(None, now, "glaeda-std-xcode-26.6")[0], picker.LARGE)
 
-    def test_the_alternate_is_the_other_label_from_attempt_1_and_a_fresh_pick_later(self) -> None:
+    def test_the_alternate_is_always_the_other_blacksmith_label(self) -> None:
         self.assertEqual(picker.alternate(picker.SMALL), picker.LARGE)
-        self.assertEqual(picker.alternate(picker.LARGE, "1"), picker.SMALL)
-        # Re-run failed jobs: the picker does not run again, so attempts 2 and 3 read attempt 1's
-        # `alternate`, the label attempt 1 did not take.
-        # Re-run all jobs: the picker runs again and reads the queues now; a re-run takes that pick
-        # (a stalled 6 vCPU means it picked 12 vCPU, so its re-run never goes back to 6 vCPU).
-        self.assertEqual(picker.alternate(picker.LARGE, "2"), picker.LARGE)
-        self.assertEqual(picker.alternate(picker.SMALL, "3"), picker.SMALL)
+        self.assertEqual(picker.alternate(picker.LARGE), picker.SMALL)
         self.assertTrue(all(label.startswith("blacksmith-") for label in picker.CANDIDATES))
 
-    def test_a_fresh_pick_on_a_rerun_writes_itself_as_the_alternate(self) -> None:
-        with tempfile.TemporaryDirectory() as directory:
-            output = Path(directory) / "out"
-            picker.main({"GITHUB_OUTPUT": str(output), "GITHUB_RUN_ATTEMPT": "2", "FIRST": picker.SMALL,
-                         "SNAPSHOT_TOKEN": "t", "GITHUB_REPOSITORY": "o/r"},
-                        read_snapshot=lambda token, repo: snapshot(small=52), now=NOW,
-                        sleep=lambda seconds: None, clock=Clock())
-            values = dict(line.split("=", 1) for line in output.read_text().split())
-        self.assertEqual((values["cloud"], values["alternate"]), (picker.LARGE, picker.LARGE))
+    def test_successive_reruns_never_return_to_the_label_that_stalled(self) -> None:
+        """A consumer's runs-on: attempt > 1 and an older pick -> alternate, else the pick."""
+        def route(outputs: dict, attempt: int) -> str:
+            if attempt > 1 and outputs["attempt"] != str(attempt):
+                return outputs["alternate"]
+            return outputs["cloud"]
 
+        def pick(attempt: int, **stalled: float) -> dict:
+            with tempfile.TemporaryDirectory() as directory:
+                output = Path(directory) / "out"
+                picker.main({"GITHUB_OUTPUT": str(output), "GITHUB_RUN_ATTEMPT": str(attempt), "FIRST": picker.SMALL,
+                             "SNAPSHOT_TOKEN": "t", "GITHUB_REPOSITORY": "o/r"},
+                            read_snapshot=lambda token, repo: snapshot(**stalled), now=NOW,
+                            sleep=lambda seconds: None, clock=Clock())
+                return dict(line.split("=", 1) for line in output.read_text().split())
+
+        # Attempt 1 picks 6 vCPU; it stalls; re-run failed jobs (attempt 2) keeps the outputs.
+        first = pick(1)
+        self.assertEqual((route(first, 1), route(first, 2)), (picker.SMALL, picker.LARGE))
+        # Re-run all jobs on attempt 2 with 6 vCPU stalled: a fresh pick of 12 vCPU, taken as is.
+        fresh = pick(2, small=52)
+        self.assertEqual(route(fresh, 2), picker.LARGE)
+        # 12 vCPU then stalls; re-run failed jobs on attempt 3 keeps attempt 2's outputs and leaves it.
+        self.assertEqual(route(fresh, 3), picker.SMALL)
 
 class Main(unittest.TestCase):
     def run_main(self, env, runners, snap):
@@ -157,9 +165,9 @@ class Main(unittest.TestCase):
 
     def test_outputs(self) -> None:
         self.assertEqual(self.run_main({}, [runner(POOL, RUNNER)], snapshot()),
-                         {"trusted": "true", "cloud": picker.LARGE, "alternate": picker.SMALL})
+                         {"trusted": "true", "cloud": picker.LARGE, "alternate": picker.SMALL, "attempt": "1"})
         self.assertEqual(self.run_main({}, [runner(POOL, RUNNER, status="offline")], snapshot(large=30)),
-                         {"trusted": "false", "cloud": picker.SMALL, "alternate": picker.LARGE})
+                         {"trusted": "false", "cloud": picker.SMALL, "alternate": picker.LARGE, "attempt": "1"})
 
     def test_a_failing_read_never_fails_the_job(self) -> None:
         def boom(token, repo):
