@@ -1,0 +1,20 @@
+{
+  "id": "webviews-switch-intent-webkit",
+  "tier": "linux",
+  "description": "Harness switch as an intent in the agent pane, headless WebKit (bench-switch-intent.mjs; the Chromium arm is webviews-switch-intent): per harness and its first and repeat pick, the first frame after the pick, the new session attached, the next prompt sent and its first reply.",
+  "command": ["webviews/scripts/agent-pane/bench-switch-intent.mjs"],
+  "session": "light",
+  "engine": "webkit",
+  "config": "release",
+  "metrics": [
+    {"name": "web\\.switch_intent\\.[A-Za-z0-9_]+\\.(first|repeat)\\.(paint|ready|sent|reply)", "unit": "ms", "better": "lower"},
+    {"name": "web\\.switch_intent\\.[A-Za-z0-9_]+\\.(first|repeat)\\.timed_out", "unit": "count", "better": "lower"}
+  ],
+  "repeats": 1,
+  "seconds": 120,
+  "needs": ["file:webviews/scripts/agent-pane/bench-switch-intent.mjs", "file:webviews/scripts/perf-result.mjs",
+            "file:webviews/scripts/agent-pane/bench-perf-series.mjs"],
+  "owner": "Performance Lead",
+  "component": "Agents>Harness",
+  "not_measurable": "needs a live agent pane dev slot (webviews/scripts/agent-pane/dev-slot.sh) with signed-in Codex and Claude harnesses and its --url, not the runner's --app --tag --out; a person runs it with PERF_RESULT_DIR set."
+}

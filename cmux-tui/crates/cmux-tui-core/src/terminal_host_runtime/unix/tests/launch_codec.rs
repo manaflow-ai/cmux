@@ -15,6 +15,7 @@ fn spawned_pty_child_disarm_prevents_late_kill() {
 
 #[test]
 fn startup_child_cleanup_excludes_host_process_group() {
+    // SAFETY: getpgrp takes no arguments, cannot fail and touches no memory.
     let host_group = unsafe { libc::getpgrp() };
     let mut signaled = Vec::new();
     signal_validated_process_groups(
@@ -31,6 +32,7 @@ fn startup_child_cleanup_excludes_host_process_group() {
 
 #[test]
 fn startup_child_cleanup_reports_group_signal_failure() {
+    // SAFETY: getpgrp takes no arguments, cannot fail and touches no memory.
     let host_group = unsafe { libc::getpgrp() };
     let all_succeeded = signal_validated_process_groups(
         [Some(host_group + 1)],

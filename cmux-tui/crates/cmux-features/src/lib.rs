@@ -15,6 +15,11 @@
 //! signed `flags.json` reader (`cmux-tui/src/feature_flags.rs`) applies last
 //! ([`Snapshot::with_disabled`]).
 //!
+//! The daemon outlives the app, so a later app's hello can disagree with the
+//! daemon's start snapshot: [`Live`] keeps that snapshot for the daemon's life
+//! and turns off only a verified app's `process=daemon` kill switches; every
+//! other difference is reported as pending ([`Live::reconcile`]).
+//!
 //! This is Chromium's `base/feature_list.cc`: `FeatureList::InitFromCommandLine`
 //! reads `--enable-features` and `--disable-features` the same way, and
 //! `FeatureList::AddFeaturesToCommandLine` gives a child process only the
@@ -35,11 +40,13 @@ macro_rules! feature_handles {
 }
 
 mod generated;
+mod hello;
 /// The daemons' value sources (managed policy, the signed document, the channel).
 #[cfg(feature = "sources")]
 pub mod sources;
 
 pub use generated::feature;
+pub use hello::{Live, Pending, Reconciled, values_hash};
 
 /// The comma-separated names to turn on (Chromium's `--enable-features`).
 pub const ENABLE_ENV: &str = "CMUX_ENABLE_FEATURES";
@@ -114,6 +121,18 @@ impl Defaults {
     }
 }
 
+/// What a feature is for (`schemas/features/features.schema.json` `kind`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Kind {
+    /// A faster path that replaces an old one; on once the lab shows both arms.
+    PerfPath,
+    /// Default on; turning it off stops a path that misbehaves (Chromium's
+    /// `OVERRIDE_DISABLE_FEATURE` from a field trial).
+    KillSwitch,
+    /// Opt-in, shown on the Labs page.
+    Labs,
+}
+
 /// Which processes read a feature. The table holds only the daemon's.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Process {
@@ -126,6 +145,7 @@ pub enum Process {
 pub struct FeatureDef {
     pub name: &'static str,
     pub defaults: Defaults,
+    pub kind: Kind,
     pub process: Process,
 }
 
@@ -138,6 +158,8 @@ pub enum Source {
     Override,
     /// Managed policy or the signed document's `DisabledFeatures`.
     Disabled,
+    /// A verified app's client hello turned this kill switch off ([`Live`]).
+    Hello,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -157,6 +179,18 @@ impl Snapshot {
     /// Every feature at its registry default for `channel`.
     pub fn defaults(channel: Channel) -> Self {
         Self::defaults_in(generated::TABLE, channel)
+    }
+
+    /// Every feature of `table` at its default for `channel`: a table other
+    /// than the generated one, for another crate's tests. Its handles are
+    /// `feature_handles!`-style indexes into `table`.
+    pub fn defaults_of(table: &'static [FeatureDef], channel: Channel) -> Self {
+        Self::defaults_in(table, channel)
+    }
+
+    /// The handle of the feature named `name` in this snapshot's table.
+    pub fn feature(&self, name: &str) -> Option<Feature> {
+        self.index_of(name).map(Feature)
     }
 
     /// The spawn snapshot from the values of [`ENABLE_ENV`] and [`DISABLE_ENV`], `None` when unset.
@@ -286,11 +320,13 @@ mod tests {
         FeatureDef {
             name: "terminalHolder",
             defaults: Defaults { dev: true, nightly: true, release: false },
+            kind: Kind::PerfPath,
             process: Process::Both,
         },
         FeatureDef {
             name: "daemonOnly",
             defaults: Defaults { dev: false, nightly: false, release: false },
+            kind: Kind::Labs,
             process: Process::Daemon,
         },
     ];

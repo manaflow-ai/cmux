@@ -6,9 +6,11 @@ import os
 
 /// One attached terminal view on its own connection (v12 has no stream
 /// cancel, and heavy output must not delay tree mutations on the control
-/// connection). Output flows through a bounded `TerminalEventQueue`; after
-/// the attach handshake every command here is fire-and-forget, so a consumer
-/// that stops draining can never deadlock against a blocked reader.
+/// connection). Events flow through a bounded `TerminalEventQueue`; live
+/// output goes from the reader thread straight to the view's lane once one is
+/// set (``setOutputSink(_:)``, ``TerminalEchoRouter``). After the attach
+/// handshake every command here is fire-and-forget, so a consumer that stops
+/// draining can never deadlock against a blocked reader.
 public actor TerminalAttachment: TerminalByteChannel {
     public struct Target: Sendable, Hashable {
         public var surface: SurfaceID
@@ -52,12 +54,10 @@ public actor TerminalAttachment: TerminalByteChannel {
         init(_ surface: SurfaceID) { value = Mutex(surface) }
     }
 
-    /// Snapshot order of this stream; only the reader thread touches it.
-    private final class SequencerBox: Sendable {
-        let value = Mutex(TerminalSnapshotSequencer())
-    }
     private nonisolated let transport: LineTransport
     private nonisolated let queue: TerminalEventQueue
+    /// Snapshot order, and whether live output goes straight to the view's lane.
+    private nonisolated let router: TerminalEchoRouter
     /// Takes each key echo's daemon stages (p04-input-094), or nil.
     private nonisolated let keyStamps: (any TerminalKeyStampSink)?
     private nonisolated let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "daemon.attach")
@@ -125,7 +125,8 @@ public actor TerminalAttachment: TerminalByteChannel {
         NewTerminalTrace.shared.attachEvent(.attachStart, surface: target.surface.rawValue, intent: createIntent)
         let transport = try await LineTransport.open(path: endpoint.socketPath, bridge: endpoint.bridge, role: .terminalAttach,
                                                      stats: endpoint.wireStats, hangs: hangs, writerTarget: inputQueue)
-        let attachment = TerminalAttachment(transport: transport, surface: target.surface, keyStamps: keyStamps)
+        let attachment = TerminalAttachment(transport: transport, surface: target.surface, delivery: .ownConnection,
+                                            keyStamps: keyStamps)
         do {
             try await attachment.open(target: target, size: size, claimGeometry: claimGeometry,
                                       snapshotVersion: snapshotVersion, localHistory: localHistory,
@@ -137,12 +138,16 @@ public actor TerminalAttachment: TerminalByteChannel {
         return attachment
     }
 
-    private init(transport: LineTransport, surface: SurfaceID, keyStamps: (any TerminalKeyStampSink)?) {
+    init(transport: LineTransport, surface: SurfaceID, delivery: Delivery, keyStamps: (any TerminalKeyStampSink)? = nil) {
         self.transport = transport
         self.keyStamps = keyStamps
-        resolvedSurface = SurfaceBox(surface)
-        let queue = TerminalEventQueue(recorder: transport.recorder)
+        let resolvedSurface = SurfaceBox(surface)
+        self.resolvedSurface = resolvedSurface
+        let backpressure = Self.backpressure(for: delivery, transport: transport,
+                                             surface: { resolvedSurface.value.withLock { $0 } })
+        let queue = TerminalEventQueue(backpressure: backpressure, recorder: transport.recorder)
         self.queue = queue
+        router = TerminalEchoRouter(queue: queue)
         events = AsyncStream(unfolding: { await queue.next() }, onCancel: { queue.cancel() })
     }
 
@@ -156,7 +161,7 @@ public actor TerminalAttachment: TerminalByteChannel {
         let control = control
         let keyStamps = keyStamps
         let resolvedSurface = resolvedSurface
-        let sequencer = SequencerBox()
+        let router = router
         let decoder = transport.decoder
         transport.start(
             onEvent: { name, line, _ in
@@ -165,30 +170,22 @@ public actor TerminalAttachment: TerminalByteChannel {
                     resolvedSurface.value.withLock { $0 = named }
                     surface = named
                 }
-                guard let decoded = Self.decodeAttachLine(name: name, line: line, surface: surface, decoder: decoder),
-                      let event = sequencer.value.withLock({ $0.admit(decoded) })
-                else { return }
-                if case .sizeState(let state, let selfParticipant) = event {
+                guard let decoded = Self.decodeAttachLine(name: name, line: line, surface: surface, decoder: decoder) else { return }
+                // A key echo's daemon stages go to its latency slot as it is decoded, before the router
+                // hands the output to the lane or the stream (p04-input-094).
+                if let keyStamps, let flow = decoded.flow, let stamps = decoded.keyStamps {
+                    keyStamps.keyEchoStamped(flow: flow, stamps, decodedAt: clock_gettime_nsec_np(CLOCK_UPTIME_RAW))
+                }
+                router.receive(decoded) { state, selfParticipant in
                     // Pushed under the same lock that orders generations (see admitSizeState).
                     Self.admitSizeState(state, selfParticipant: selfParticipant, control: control, queue: queue)
-                    return
-                }
-                if case .closed = event {
-                    queue.finish(event)
-                } else {
-                    if case .output = event { TypingLatencyProbe.shared.outputDecoded(flow: decoded.flow) }
-                    if let keyStamps, let flow = decoded.flow, let stamps = decoded.keyStamps {
-                        keyStamps.keyEchoStamped(flow: flow, stamps, decodedAt: clock_gettime_nsec_np(CLOCK_UPTIME_RAW))
-                    }
-                    queue.push(event)
-                    if let flow = decoded.flow { queue.pushWithoutWaiting(.inputEcho(flow: flow)) } // rides behind its chunk
                 }
             },
             onClose: { reason in
                 switch reason {
-                case .closedByClient: queue.finish(.closed(.detachedByClient))
-                case .daemonShutdown: queue.finish(.closed(.connectionLost("daemon shut down")))
-                case .lost(let detail): queue.finish(.closed(.connectionLost(detail)))
+                case .closedByClient: router.finish(.closed(.detachedByClient))
+                case .daemonShutdown: router.finish(.closed(.connectionLost("daemon shut down")))
+                case .lost(let detail): router.finish(.closed(.connectionLost(detail)))
                 }
             }
         )
@@ -297,6 +294,19 @@ public actor TerminalAttachment: TerminalByteChannel {
         sendResize(CellSize(cols: cols, rows: rows))
     }
 
+    // MARK: Live output
+
+    /// Any thread: live output goes from the reader thread straight to `sink` (the view's output lane), in
+    /// order with the events still on ``events``: a sink takes output only once the consumer resumed the
+    /// ``TerminalChannelEvent/outputResume(_:)`` marker behind every event queued before it. Nil: output stays
+    /// on ``events``.
+    public nonisolated func setOutputSink(_ sink: TerminalEchoSink?) {
+        router.setSink(sink)
+    }
+
+    /// Whether the next output chunk goes straight to the sink (tests, diagnostics).
+    public nonisolated var routesOutputToSink: Bool { router.routesToLane }
+
     // MARK: Geometry and lifetime
 
     /// Makes this view the geometry owner: only the owner resizes the PTY.
@@ -397,20 +407,13 @@ public actor TerminalAttachment: TerminalByteChannel {
             return .some(control.lease)
         }
         guard case .some(let lease) = lease else { return }
+        // Output stays on the stream from here, and a reader waiting for the lane reads on to its end.
+        router.close()
         if let lease { fireAndForget(DetachAttachedViewRequest(surface: surface, lease: lease)) }
         transport.close()
     }
 
     private nonisolated func fireAndForget<R: DaemonRequest>(_ request: R) {
-        let logger = logger
-        do {
-            try transport.sendNoReply(cmd: R.command, onError: { error in
-                logger.error("\(R.command, privacy: .public) failed: \(error.description, privacy: .public)")
-            }) { id in
-                try WireCoding.encodeRequest(request, id: id)
-            }
-        } catch {
-            logger.debug("\(R.command, privacy: .public) dropped after close")
-        }
+        Self.fireAndForget(request, on: transport, logger: logger)
     }
 }

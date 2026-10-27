@@ -4,6 +4,7 @@ import Foundation
 import os
 import CmuxNextCompat
 import CmuxNextCrashReporting
+import CmuxNextDesign
 import CmuxNextWakeups
 
 /// Whole-app crash recovery and crash visibility (plans/cmux-next/browser-isolation.md):
@@ -33,24 +34,30 @@ final class CrashRecoveryService {
 
     var recovery: LaunchRecovery { marker?.recovery ?? .clean }
 
-    /// `marksRun` false (tests, tools that build AppServices) leaves no
-    /// marker and installs no signal handlers. With a marker, the crash
-    /// path writes `crashKeys` into the marker folder's `run.crashkeys`.
-    init(bundleID: String?, marksRun: Bool, crashKeys: CrashKeySlots? = nil, work: BackgroundWork, mainWork: MainWorkScheduler) {
-        marker = marksRun ? AppRunMarker(directory: AppRunMarker.standardDirectory(bundleID: bundleID)) : nil
+    /// `runMarker` is the run marker's launch read (``AppRunMarker/startLaunchRead(directory:in:now:bootSession:)``),
+    /// which `main` orders before the settings read, so it has ended when the services are made; nil (tests, tools
+    /// that build AppServices) leaves no marker and installs no signal handlers. With a marker, the crash path writes
+    /// `crashKeys` into the marker folder's `run.crashkeys`.
+    init(bundleID: String?, runMarker: LaunchRead<AppRunMarker.Launch>?, crashKeys: CrashKeySlots? = nil, work: BackgroundWork,
+         mainWork: MainWorkScheduler) {
+        if let runMarker, runMarker.value == nil {
+            Logger(subsystem: "com.cmuxterm.app.next", category: "crash").fault("run marker launch read had not ended: this run is not marked")
+        }
+        marker = runMarker?.value.map { AppRunMarker(launch: $0) }
         if marker != nil, let crashKeys { CrashReporter.attachCrashKeys(crashKeys) }
         writer = CrashReportWriter.standard(bundleID: bundleID)
         self.work = work
         self.mainWork = mainWork
-        if let previous = marker?.recovery.previous, let keysFile = marker?.previousCrashKeysFile {
+        if let previous = marker?.recovery.previous {
             logger.error("previous run ended unexpectedly signal=\(previous.signal ?? 0) exception=\(previous.exception?.name ?? "none", privacy: .public) safe=\(self.recovery.skipsBrowserPages)")
-            // The DiagnosticReports listing and the crash keys' read run on the files lane; nobody waits on them, so
-            // the reply is background work (Chrome's PostTaskAndReply, base/task/task_runner.h).
-            let launched = previous.launched
+            // The DiagnosticReports listing runs on the files lane (the crash keys came with the marker's launch
+            // read); nobody waits on it, so the reply is background work (Chrome's PostTaskAndReply,
+            // base/task/task_runner.h).
+            let launched = previous.launched, keys = marker?.previousCrashKeys
             work.run(.bestEffort, mayBlock: .files) {
-                (CrashRecoveryService.systemCrashLog(after: launched), AppRunMarker.readCrashKeys(keysFile))
-            }.reply(on: mainWork, class: .background, owner: "CrashRecovery.previousRun") { [weak self] read in
-                self?.previousRunRead(previous, systemLog: read.0, crashKeys: read.1)
+                CrashRecoveryService.systemCrashLog(after: launched)
+            }.reply(on: mainWork, class: .background, owner: "CrashRecovery.previousRun") { [weak self] systemLog in
+                self?.previousRunRead(previous, systemLog: systemLog, crashKeys: keys)
             }
         }
     }

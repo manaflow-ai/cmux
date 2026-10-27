@@ -81,6 +81,8 @@ public final class AuthCoordinator {
     let timeouts: AuthTimeouts
     let clock: any Clock<Duration>
     private let isOnline: @Sendable () async -> Bool
+    /// The event that re-arms team-scope recovery after its bounded backoff gives up.
+    let networkRestorations: any AuthNetworkRestorations
     /// Reports whether the persisted token store is currently readable. On iOS the data-protection keychain is unreadable before the first unlock after boot (background push launch, prewarm); an empty token read while unavailable must be treated as transient, never as a signed-out verdict.
     let isTokenStorageAvailable: @Sendable () async -> Bool
     private let onSessionWillTransition: @MainActor @Sendable () -> Void
@@ -128,11 +130,20 @@ public final class AuthCoordinator {
     /// The retry loop that restores a missing team scope; see
     /// ``scheduleTeamScopeRecoveryIfNeeded()``.
     @ObservationIgnored var teamScopeRecovery: (id: UUID, task: Task<Void, Never>)?
+    /// Set while that loop has used up its fast backoff and retries at
+    /// ``teamScopeRecoveryMaximumDelay``, or earlier when the network path
+    /// comes back or a host trigger arrives.
+    @ObservationIgnored var teamScopeRecoveryIsAtMaximumBackoff = false
     /// Set while the sign-in service answers the session check with 429:
-    /// the consecutive count and the backoff chosen for it. Recovery then
-    /// waits longer, and app activation, wake, and network changes do not
-    /// start an extra check. Cleared by a successful team load.
-    @ObservationIgnored var teamScopeRateLimit: (streak: Int, delay: Duration)?
+    /// the consecutive count, the backoff chosen for it, and when the 429
+    /// came. Until that backoff has passed, recovery does not check, and
+    /// app activation, wake, and network changes do not start an extra
+    /// check. Cleared by a successful team load.
+    @ObservationIgnored var teamScopeRateLimit: (
+        streak: Int,
+        delay: Duration,
+        since: any InstantProtocol<Duration>
+    )?
     /// Reports sign-in service 429s of the sign-in and session-check flows.
     /// Refresh-exchange and other SDK 429s always go to
     /// ``StackRateLimitTelemetry/shared``.
@@ -217,6 +228,9 @@ public final class AuthCoordinator {
     ///     drive timeouts with virtual time. Defaults to `ContinuousClock`.
     ///   - isOnline: Connectivity probe; sign-in flows fail fast when offline.
     ///     Defaults to always-online so tests need not supply it.
+    ///   - networkRestorations: Reports the network path coming back; it
+    ///     re-arms team-scope recovery after its bounded backoff gives up.
+    ///     Defaults to ``PathMonitorAuthNetworkRestorations``.
     ///   - isTokenStorageAvailable: Reports whether the persisted token store is currently readable. On iOS the data-protection keychain is unreadable before the first unlock after boot (background push launch, prewarm); an empty token read while unavailable must be treated as transient, never as a signed-out verdict.
     ///   - onSessionWillTransition: Synchronous hook invoked before the
     ///     coordinator advances to a different auth-session generation.
@@ -236,6 +250,7 @@ public final class AuthCoordinator {
         timeouts: AuthTimeouts = .default,
         clock: any Clock<Duration> = ContinuousClock(),
         isOnline: @escaping @Sendable () async -> Bool = { true },
+        networkRestorations: any AuthNetworkRestorations = PathMonitorAuthNetworkRestorations(),
         isTokenStorageAvailable: @escaping @Sendable () async -> Bool = { true },
         onSessionWillTransition: @escaping @MainActor @Sendable () -> Void = {},
         onSignedIn: @escaping @Sendable () async -> Void = {},
@@ -252,6 +267,7 @@ public final class AuthCoordinator {
         self.timeouts = timeouts
         self.clock = clock
         self.isOnline = isOnline
+        self.networkRestorations = networkRestorations
         self.isTokenStorageAvailable = isTokenStorageAvailable
         self.onSessionWillTransition = onSessionWillTransition
         self.onSignedIn = onSignedIn
@@ -644,7 +660,8 @@ public final class AuthCoordinator {
             group.addTask {
                 // Bounded, cancellable teardown deadline (carve-out); the loser
                 // is cancelled by `cancelAll()` once the first side finishes.
-                try? await clock.sleep(for: teardownTimeout, tolerance: nil)
+                // wakeup-allow: deadline the revocation's one timeout; cancelled when the revocation finishes first
+                try? await clock.sleep(for: teardownTimeout, tolerance: teardownTimeout.authWakeLeeway)
             }
             await group.next()
             group.cancelAll()

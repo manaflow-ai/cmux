@@ -52,7 +52,7 @@ fn termination_adoption_does_not_probe_legacy_protocols_for_receipt_hosts() {
 
     let _ = fs::remove_file(endpoint);
     drop(lease);
-    assert!(remove_stale_terminal_host_record(&record_path, &record).unwrap());
+    assert!(remove_stale_terminal_host_record(&record_path, &record, None).unwrap());
     let _ = fs::remove_dir_all(record_path.parent().unwrap());
 }
 
@@ -132,7 +132,7 @@ fn timed_out_cell_pixel_ack_reconciles_when_the_response_arrives_late() {
     resolver.join().unwrap();
     drop(attachment);
     drop(lease);
-    assert!(remove_stale_terminal_host_record(&record_path, &record).unwrap());
+    assert!(remove_stale_terminal_host_record(&record_path, &record, None).unwrap());
     let _ = fs::remove_dir_all(record_path.parent().unwrap());
 }
 
@@ -534,7 +534,7 @@ fn upgraded_daemon_falls_back_to_a_live_protocol_one_host() {
 
     let _ = fs::remove_file(endpoint);
     drop(lease);
-    assert!(remove_stale_terminal_host_record(&record_path, &record).unwrap());
+    assert!(remove_stale_terminal_host_record(&record_path, &record, None).unwrap());
     let _ = fs::remove_dir_all(record_path.parent().unwrap());
 }
 
@@ -649,7 +649,7 @@ fn smart_owner_negotiation_falls_back_to_a_live_legacy_host() {
 
     let _ = fs::remove_file(endpoint);
     drop(lease);
-    assert!(remove_stale_terminal_host_record(&record_path, &record).unwrap());
+    assert!(remove_stale_terminal_host_record(&record_path, &record, None).unwrap());
     let _ = fs::remove_dir_all(record_path.parent().unwrap());
 }
 
