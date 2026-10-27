@@ -1,4 +1,5 @@
 import Foundation
+import os
 
 // Markdown for message bubbles (shared/MARKDOWN.md). CommonMark block and inline
 // structure plus the GFM extensions (tables, task lists, strikethrough, extended
@@ -47,21 +48,27 @@ struct MDSpan: Hashable {
 /// The parser applies it to every link it makes; the hosts check it again at click time.
 enum MarkdownLinkPolicy {
     static let builtInSchemes: Set<String> = ["http", "https", "mailto"]
-    private static let lock = NSLock()
-    private static var extra: Set<String> = []
+    /// The host's additions: set on the main thread at launch, read by every parser thread.
+    private struct HostPolicy: Sendable {
+        var schemes: Set<String> = []
+        var rule: (@Sendable (URL) -> Bool)?
+    }
+    private static let lock = OSAllocatedUnfairLock(initialState: HostPolicy())
     /// Extra schemes the host app allows (lowercase, without ":"; empty by default). Set it at
     /// launch, before the first message is parsed: parsed documents and layouts are cached.
     static var extraSchemes: Set<String> {
-        get { lock.lock(); defer { lock.unlock() }; return extra }
-        set { lock.lock(); extra = Set(newValue.map { $0.lowercased() }); lock.unlock() }
+        get { lock.withLock { $0.schemes } }
+        set {
+            let lowered = Set(newValue.map { $0.lowercased() })
+            lock.withLock { $0.schemes = lowered }
+        }
     }
     // cmux: one exact link form of a scheme that is not allowed whole (Home's Chief subagent
     // links, `URL.isChiefSubagentLink`): a URL of another scheme is a link only when this rule allows it.
     // Set at launch with `extraSchemes`; nil allows nothing more.
-    private static var rule: (@Sendable (URL) -> Bool)?
     static var extraRule: (@Sendable (URL) -> Bool)? {
-        get { lock.lock(); defer { lock.unlock() }; return rule }
-        set { lock.lock(); rule = newValue; lock.unlock() }
+        get { lock.withLock { $0.rule } }
+        set { lock.withLock { $0.rule = newValue } }
     }
 
     /// The URL string to use for a link destination, or nil (not a link). Leading and trailing
@@ -174,7 +181,7 @@ struct MDDocument: Hashable {
 
 enum Markdown {
     /// Off for one run with `--no-markdown` (A/B and the diff harness's plain baseline).
-    static var enabled = !ProcessInfo.processInfo.arguments.contains("--no-markdown")
+    static let enabled = !ProcessInfo.processInfo.arguments.contains("--no-markdown")
 
     /// Cheap pre-check (no allocation): could this text contain markdown syntax?
     /// False means the plain path for sure.
@@ -275,8 +282,8 @@ struct MDLine {
             if s[checked: i] == " " { col += 1; i += 1 } // checked
             else if s[checked: i] == "\t" { // checked
                 let w = 4 - col % 4
-                if col + w > cols {
-                    let rest = col + w - cols
+                let rest = col + w - cols
+                if rest > 0 {
                     return MDLine(scalars: Array(repeating: " ", count: rest) + s.slice(from: i + 1)) // clamped slice
                 }
                 col += w; i += 1
@@ -665,7 +672,7 @@ enum MDBlockParser {
         while al.count < cols { al.append(.none) }
         var head = header.map { MDInlineParser.parse($0, breaks: false, refs: known) }
         while head.count < cols { head.append(MDText()) }
-        rows = rows.map { r in r + Array(repeating: MDText(), count: cols - r.count) }
+        rows = rows.map { r in r + Array(repeating: MDText(), count: max(0, cols - r.count)) }
         return (MDTable(aligns: al, header: head, rows: rows), j)
     }
 
@@ -680,7 +687,8 @@ enum MDBlockParser {
                   rest[checked: rest.index(after: close)] == ":" else { break } // checked
             let label = String(rest.slice(rest.index(after: rest.startIndex), close)) // clamped slice
             guard !label.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, !label.contains("[") else { break }
-            var j = rest.index(close, offsetBy: 2)
+            // `]` and `:` are checked above, so two steps stay inside `rest`.
+            guard var j = rest.index(close, offsetBy: 2, limitedBy: rest.endIndex) else { break }
             while j < rest.endIndex, rest[checked: j] == " " || rest[checked: j] == "\t" || rest[checked: j] == "\n" { j = rest.index(after: j) } // checked
             var dest = ""
             if j < rest.endIndex, rest[checked: j] == "<" { // checked
@@ -836,7 +844,7 @@ enum MDInlineParser {
                     // that it was not loaded; a link when the URL is allowed. The source goes to the
                     // host's image provider only.
                     let alt = plain(nodes.slice(from: b.node + 1)) // clamped slice
-                    nodes.removeLast(nodes.count - min(max(0, b.node), nodes.count)) // no range that can trap
+                    nodes.removeSubrange(min(max(0, b.node), nodes.count)...) // no range that can trap
                     nodes.append(.image(MarkdownLinkPolicy.imagePlaceholder(alt), link: safe, source: dest))
                     brackets.removeAll { $0.node > b.node }
                 } else {
@@ -926,7 +934,7 @@ enum MDInlineParser {
         }
         // What matching left of each run prints as literal characters.
         for d in delims.dropFirst(max(0, bottom)) { nodes.update(at: d.node) { $0 = .delim(d.char, count: d.count) } } // checked
-        delims.removeLast(max(0, delims.count - max(0, bottom))) // no range that can trap
+        delims.removeSubrange(min(max(0, bottom), delims.count)...) // no range that can trap
     }
 
     /// Inserting a node shifts every later delimiter's node index.
@@ -978,7 +986,7 @@ enum MDInlineParser {
             case let .open(s): counts[s, default: 0] += 1; style.insert(s)
             case let .close(s): counts[s, default: 0] -= 1; if counts[s, default: 0] <= 0 { style.remove(s) }
             case let .linkOpen(d): links.append(d); style.insert(.link)
-            case .linkClose: links.removeLast(); if links.isEmpty { style.remove(.link) }
+            case .linkClose: _ = links.popLast(); if links.isEmpty { style.remove(.link) }
             case .br: set(style, linkNow); emit("\n")
             }
         }
@@ -1029,7 +1037,7 @@ enum MDInlineParser {
             case let .text(t): s += t
             case let .styled(t, _, _): s += t
             case let .image(t, _, _): s += t
-            case let .delim(c, n): s += String(repeating: String(c), count: n)
+            case let .delim(c, n): s += String(repeating: String(c), count: max(0, n))
             case .br: s += " "
             default: break
             }

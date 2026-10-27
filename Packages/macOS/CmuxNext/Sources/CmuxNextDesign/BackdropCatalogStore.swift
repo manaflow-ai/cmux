@@ -1,6 +1,6 @@
 public import Foundation
 public import Observation
-import CmuxNextWakeups
+public import CmuxNextWakeups
 
 /// The wallpaper choices, kept current off the main thread (``BackdropCatalog``).
 ///
@@ -11,8 +11,14 @@ import CmuxNextWakeups
 /// once off main and again only after a folder it lists changes (``FolderChanges``: a wallpaper
 /// macOS downloaded, an image the person added); readers get the last one, observed.
 ///
+/// Each build runs on a nonisolated task and its result reaches main as one `visible` task on the
+/// app's ``MainWorkScheduler`` (Chromium's `PostTaskAndReplyWithResult` onto a typed UI task runner,
+/// base/task/task_runner_util.h, content/browser/scheduler/browser_task_queues.h): the Settings page
+/// shows it, and no input of the person's caused it.
+///
 /// ```swift
-/// let store = BackdropCatalogStore(systemDirectory: AppleWallpapers.system.desktopPictures, userImages: images)
+/// let store = BackdropCatalogStore(systemDirectory: AppleWallpapers.system.desktopPictures, userImages: images,
+///                                  mainWork: mainWork)
 /// store.start()
 /// let rows = store.catalog.choices
 /// ```
@@ -26,6 +32,7 @@ public final class BackdropCatalogStore {
 
     @ObservationIgnored private let build: @Sendable () -> BackdropCatalog
     @ObservationIgnored private let folders: [URL]
+    @ObservationIgnored private let mainWork: MainWorkScheduler
     @ObservationIgnored private var task: Task<Void, Never>?
 
     /// - Parameters:
@@ -33,9 +40,11 @@ public final class BackdropCatalogStore {
     ///   - userImages: The person's own images and videos, if any.
     ///   - aerials: Where idleassetsd keeps downloaded aerials.
     ///   - assetFolders: Where macOS keeps downloaded full pictures.
+    ///   - mainWork: The app's main-thread scheduler: each build lands as one `visible` task on it.
     public init(systemDirectory: URL, userImages: BackdropUserImages?, aerials: URL = AppleWallpapers.system.aerials,
-                assetFolders: [URL] = AppleWallpaperAssets.systemFolders) {
+                assetFolders: [URL] = AppleWallpaperAssets.systemFolders, mainWork: MainWorkScheduler) {
         catalog = BackdropCatalog(bundledOnly: ())
+        self.mainWork = mainWork
         build = {
             BackdropCatalog(systemDirectory: systemDirectory, fileManager: FileManager(),
                             assets: AppleWallpaperAssets(folders: assetFolders, fileManager: FileManager()),
@@ -51,15 +60,18 @@ public final class BackdropCatalogStore {
     /// Builds the catalog off main now and after every change to a folder it lists, until ``stop()``.
     public func start() {
         guard task == nil else { return }
-        let build = build, folders = folders
-        // task-owner: the store's refresh loop; stop() cancels it
-        task = Task { [weak self] in
+        let build = build, folders = folders, mainWork = mainWork
+        let owner = mainWork.board.owner("BackdropCatalogStore.build")
+        // task-owner: the store's refresh loop, off main; stop() cancels it
+        task = Task { @concurrent [weak self] in
             let changes = FolderChanges(folders: folders).events()
-            await self?.refresh(build)
+            let first = build()
+            mainWork.postFromAnyThread(.visible, owner: owner) { [weak self] in self?.land(first) }
             // wakeup-allow: each pass is one folder change event, never a poll
             for await _ in changes {
-                guard let self else { return }
-                await self.refresh(build)
+                guard self != nil, !Task.isCancelled else { return }
+                let fresh = build()
+                mainWork.postFromAnyThread(.visible, owner: owner) { [weak self] in self?.land(fresh) }
             }
         }
     }
@@ -70,12 +82,9 @@ public final class BackdropCatalogStore {
         task = nil
     }
 
-    private func refresh(_ build: @escaping @Sendable () -> BackdropCatalog) async {
-        let fresh = await Self.built(build)
+    /// A build landed on main.
+    private func land(_ fresh: BackdropCatalog) {
         if fresh != catalog { catalog = fresh }
         builds += 1
     }
-
-    @concurrent
-    private static func built(_ build: @Sendable () -> BackdropCatalog) async -> BackdropCatalog { build() }
 }

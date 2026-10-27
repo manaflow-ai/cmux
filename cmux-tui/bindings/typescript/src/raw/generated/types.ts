@@ -1,10 +1,34 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 88da3e89c750d2b4a0853254ffe2bcac9f4b5816960471f0c9951c6466bdd28b. */
+/* cmux-tui mux protocol 12, IR 18d0774199b6d6b647ef32fac66965b1a62a8278783444a949f045c242048431. */
 
 
 /** JSON accepted by the wire codec. bigint is serialized as an exact JSON integer. */
 export type JsonValue = null | boolean | number | bigint | string | JsonValue[] | { [key: string]: JsonValue };
 export type JsonObject = { [key: string]: JsonValue };
+
+export type AccessRequestKind = "file" | "secret";
+
+export type AccessRequestPending = {
+  "age_ms": bigint;
+  "kind": AccessRequestKind;
+  "name": (string) | null;
+  "path": (string) | null;
+  "reason": (string) | null;
+  "request_id": string;
+  "session": (string) | null;
+};
+
+export type AccessRequestStatus = ({ "state": "delivered" } & {
+  "path"?: string;
+  "state": "delivered";
+  "taken"?: true;
+  "value"?: string;
+}) | ({ "state": "denied" } & {
+  "reason": (string) | null;
+  "state": "denied";
+}) | ({ "state": "pending" } & {
+  "state": "pending";
+});
 
 export type ActivitySnapshot = {
   "attached_clients": number;
@@ -70,6 +94,56 @@ export type AgentCLIStoredIntent = {
   "session": string;
 };
 
+export type AgentInventoryAuth = "signedIn" | "signedOut" | "unknown";
+
+export type AgentInventoryChannel = "npm" | "bun" | "brew" | "brewCask" | "native" | "launcher" | "standalone" | "missing";
+
+export type AgentInventoryFamily = "claude" | "codex" | "opencode" | "pi" | "chief" | "gemini" | "amp" | "copilot" | "cursor";
+
+export type AgentInventoryHarness = {
+  "auth": AgentInventoryAuth;
+  "channel": AgentInventoryChannel;
+  /** When the owner's health check saved this row, in Unix milliseconds. */
+  "checkedAt": bigint;
+  /** Recognized CLI family from the owner's saved health check; null for launchers, missing executables, conflicting evidence and families this daemon does not know. */
+  "family": (AgentInventoryFamily) | null;
+  /** Harness profile id: 1-128 bytes of `[A-Za-z0-9._-]`. */
+  "id": string;
+  /** Latest registry version from the last successful check, or null. */
+  "latest": (string) | null;
+  /** When `latest` was checked, in Unix milliseconds; null when never checked. */
+  "latestCheckedAt": (bigint) | null;
+  /** True only when `version` and `latest` are both known and `latest` is newer. */
+  "outdated": boolean;
+  /** Installed semantic version, or null when unknown. */
+  "version": (string) | null;
+};
+
+export type AgentInventoryRefreshResult = {
+  "cached": true;
+  "harnesses": Array<AgentInventoryHarness>;
+  /** Canonical public machine id (`machine_…`) of the daemon that answered. */
+  "machine": string;
+  "view": "inventory";
+};
+
+export type AgentInventoryResult = {
+  "cached": true;
+  "harnesses": Array<AgentInventoryHarness>;
+  "view": "inventory";
+};
+
+export type AgentInventoryWatchActive = {
+  /** Canonical public machine id (`machine_…`) of the daemon that answered. */
+  "machine": string;
+  /** The owner's inventory revision when the lease became active. */
+  "revision": bigint;
+  /** Opaque lease id: `inventory_watch_` and 32 lowercase hex digits. */
+  "watch_id": string;
+};
+
+export type AgentInventoryWatchResult = (AgentInventoryWatchActive) | (EmptyResult);
+
 export type AgentPresenceActivity = "thinking" | "editing" | "reading" | "running" | "browsing" | "computer_use" | "waiting";
 
 export type AgentRecord = {
@@ -90,6 +164,19 @@ export type AgentRecord = {
 
 export type AgentReportSource = "socket" | "hook";
 
+/** Opaque JSON: The result acpmux answered for the call (permission_respond, acp.trust.get or acp.trust.set), passed through unchanged; acpmux owns its shape. */
+export type AgentSessionAcpmuxReply = JsonValue;
+
+export type AgentSessionAnsweredBy = {
+  /** The device the person answered on: 1 to 128 of [A-Za-z0-9_.:-]. */
+  "device": string;
+  /** The feed item the person answered: 1 to 128 of [A-Za-z0-9_.:-]. */
+  "feed_item": string;
+};
+
+/** Opaque JSON: acpmux's own _acpmux/attach or _acpmux/events page ({session, events, hasMore, lastSeq}; events only on agent-session-events), passed through unchanged except that a page over 8 MiB is cut and gets hasMore:true. acpmux owns the record shape. */
+export type AgentSessionPage = JsonValue;
+
 export type AgentSessionSource = {
   /** The agent kind the chat was started with. */
   "harness"?: (string) | null;
@@ -101,9 +188,26 @@ export type AgentSessionSource = {
   "session"?: (string) | null;
 };
 
+/** Opaque JSON: One acpmux session summary from _acpmux/sessions, as acpmux writes it (sessionId, startedBy, spawnedBy and the rest); acpmux owns its shape. */
+export type AgentSessionSummary = JsonValue;
+
 export type AgentSource = "plugin" | "detected" | "socket" | "hook";
 
 export type AgentState = "working" | "blocked" | "idle" | "done" | "unknown";
+
+export type AgentUpdateHarness = {
+  "id": string;
+  "latest"?: string;
+  "name"?: string;
+  "version"?: string;
+};
+
+export type AgentUpdateOutcome = {
+  "error"?: string;
+  "id": string;
+  "ok": boolean;
+  "version"?: string;
+};
 
 export type AppGrant = {
   "granted": boolean;
@@ -298,6 +402,33 @@ export type BrowserProviderUnregisterResult = {
   "removed": boolean;
 };
 
+export type BrowserRuntimeRow = {
+  "port": number;
+  "runtime": bigint;
+};
+
+export type BrowserRuntimeStartResult = {
+  "installed": string;
+  "port": number;
+  "runtime": bigint;
+  "secret": string;
+};
+
+export type BrowserRuntimeStatusResult = {
+  "installed": (string) | null;
+  "platform": string;
+  "runtimes": Array<BrowserRuntimeRow>;
+};
+
+export type BrowserRuntimeStopResult = {
+  "stopped": true;
+};
+
+export type CancelStreamResult = {
+  "outcome": "applied" | "ended";
+  "stream": number;
+};
+
 export type CellPixelFailure = {
   "error": string;
   "surface": Id;
@@ -314,6 +445,41 @@ export type CellPixelSurface = {
   "height_px": number;
   "surface": Id;
   "width_px": number;
+};
+
+export type ClientHelloFeaturePending = {
+  "app": boolean;
+  "daemon": boolean;
+  "name": string;
+};
+
+export type ClientHelloFeatureReport = {
+  "applied": Array<string>;
+  "hash": string;
+  "pending": Array<ClientHelloFeaturePending>;
+};
+
+export type ClientHelloFeatures = {
+  "hash"?: string;
+  "values": Record<string, boolean>;
+};
+
+export type ClientHelloPageOperations = {
+  "confirm": Array<string>;
+  "gesture": Array<string>;
+  "read": Array<string>;
+};
+
+export type ClientHelloResult = {
+  "connection_id": string;
+  "features"?: ClientHelloFeatureReport;
+  "install_id"?: string;
+  "nonce"?: string;
+  "page"?: string;
+  "page_events"?: Array<string>;
+  "page_operations"?: ClientHelloPageOperations;
+  "user_origin_allowed": boolean;
+  "verified"?: true;
 };
 
 export type ClientInfo = {
@@ -623,6 +789,70 @@ export type FrontendProjection = {
   "subject_key": string;
 };
 
+export type FsEntry = {
+  "hidden"?: boolean;
+  "kind": FsEntryKind;
+  "mtime": (bigint) | null;
+  "name": string;
+  "revision"?: string;
+  "size": (bigint) | null;
+  "target_kind"?: FsEntryKind;
+};
+
+export type FsEntryKind = "file" | "dir" | "symlink" | "other";
+
+export type FsEntryResult = {
+  "entry": FsEntry;
+};
+
+export type FsFilter = {
+  "hidden"?: boolean;
+  "kinds"?: (Array<FsEntryKind>) | null;
+  "query"?: (string) | null;
+};
+
+export type FsPage = {
+  "cursor": (string) | null;
+  "entries": Array<FsEntry>;
+  "listing": string;
+  "revision": string;
+  "total": bigint;
+};
+
+export type FsReadResult = ({ "encoding": "base64" } & {
+  "bytes_base64": Base64;
+  "encoding": "base64";
+  "size": bigint;
+  "truncated": boolean;
+}) | ({ "encoding": "utf-8" } & {
+  "encoding": "utf-8";
+  "size": bigint;
+  "text": string;
+  "truncated": boolean;
+});
+
+export type FsSort = {
+  "dir"?: FsSortDirection;
+  "dirs_first"?: boolean;
+  "key"?: FsSortKey;
+};
+
+export type FsSortDirection = "asc" | "desc";
+
+export type FsSortKey = "name" | "modified" | "size" | "kind";
+
+export type FsStatResult = {
+  "hidden"?: boolean;
+  "kind": FsEntryKind;
+  "mode_display": string;
+  "mtime": (bigint) | null;
+  "name": string;
+  "owner_display": string;
+  "revision": string;
+  "size": (bigint) | null;
+  "target_kind"?: FsEntryKind;
+};
+
 export type GetCellPixelsResult = {
   "height_px": number;
   "surfaces": Array<CellPixelSurface>;
@@ -717,6 +947,7 @@ export type IdentifyResult = {
   "app": "cmux-tui";
   "build_commit"?: (string) | null;
   "build_id"?: (string) | null;
+  "bulk_frame_max"?: (number) | null;
   "capabilities"?: Array<string>;
   "cli_path"?: (string) | null;
   "crate_version"?: (string) | null;
@@ -818,6 +1049,64 @@ export type LivePane = {
   "short_id"?: string;
   "tabs": Array<Tab>;
 };
+
+export type LoopbackAuditRecord = {
+  "at_ms": bigint;
+  "bytes_from_target": bigint;
+  "bytes_to_target": bigint;
+  "client": bigint;
+  "duration_ms": bigint;
+  "host": string;
+  "outcome": string;
+  "port": number;
+  "stream": bigint;
+};
+
+export type LoopbackLimits = {
+  "daemon_window": bigint;
+  "frame_bytes": bigint;
+  "per_client": bigint;
+  "total": bigint;
+};
+
+export type LoopbackOpenResult = {
+  "address": string;
+  "stream": bigint;
+  "window": bigint;
+};
+
+export type LoopbackStatusResult = {
+  "audit": Array<LoopbackAuditRecord>;
+  "client_streams": bigint;
+  "enabled": boolean;
+  "limits": LoopbackLimits;
+  "open_streams": bigint;
+  "opened": bigint;
+  "refused": bigint;
+};
+
+export type MachineCatalogEntry = {
+  "capabilities"?: Array<string>;
+  "id": string;
+  "name": string;
+  "origin": MachineCatalogOrigin;
+  "platform"?: (MachineCatalogPlatform) | null;
+  "status": MachineCatalogStatus;
+};
+
+export type MachineCatalogOrigin = "cloud" | "ssh" | "server";
+
+export type MachineCatalogPlatform = {
+  "arch"?: (string) | null;
+  "os"?: (string) | null;
+};
+
+export type MachineCatalogPublishResult = {
+  "replayed": boolean;
+  "sequence": bigint;
+};
+
+export type MachineCatalogStatus = "running" | "connecting" | "unavailable" | "sleeping" | "stopped";
 
 export type MachineListeningTcpResult = {
   "stdout": string;
@@ -1156,6 +1445,17 @@ export type ServerStatsConnections = {
   "refused": bigint;
 };
 
+export type ServerStatsHangRecord = {
+  "duration_ms": bigint;
+  "sequence": bigint;
+  "span": string;
+};
+
+export type ServerStatsHangs = {
+  "over_250ms": bigint;
+  "records": Array<ServerStatsHangRecord>;
+};
+
 export type ServerStatsHistogram = {
   "count": bigint;
   "max": bigint;
@@ -1163,6 +1463,46 @@ export type ServerStatsHistogram = {
   "p50": bigint;
   "p90": bigint;
   "p99": bigint;
+};
+
+export type ServerStatsIpc = {
+  "bad_message": bigint;
+  "parses": ServerStatsIpcParses;
+  "received": Array<ServerStatsIpcKind>;
+  "sent": Array<ServerStatsIpcKind>;
+  "sequence_depth": ServerStatsHistogram;
+  "streams": ServerStatsIpcStreams;
+  "writes": ServerStatsIpcWrites;
+};
+
+export type ServerStatsIpcKind = {
+  "bytes": bigint;
+  "kind": string;
+  "messages": bigint;
+};
+
+export type ServerStatsIpcParse = {
+  "json_parses": bigint;
+  "json_parses_per_request": number;
+  "requests": bigint;
+};
+
+export type ServerStatsIpcParses = {
+  "frames": ServerStatsIpcParse;
+  "lines": ServerStatsIpcParse;
+};
+
+export type ServerStatsIpcStreams = {
+  "open": bigint;
+  "opened": bigint;
+  "peak": bigint;
+};
+
+export type ServerStatsIpcWrites = {
+  "messages": bigint;
+  "stalls": bigint;
+  "syscalls": bigint;
+  "syscalls_per_message": number;
 };
 
 export type ServerStatsJournalWriter = {
@@ -1181,6 +1521,26 @@ export type ServerStatsJournalWriter = {
   "terminal_queued": bigint;
 };
 
+export type ServerStatsLockClass = {
+  "hold_us": ServerStatsHistogram;
+  "wait_p95_us": bigint;
+  "wait_us": ServerStatsHistogram;
+};
+
+export type ServerStatsLockClassSet = {
+  "automation": ServerStatsLockClass;
+  "automation_due_admissions": bigint;
+  "automation_yields": bigint;
+  "frontend": ServerStatsLockClass;
+  "program": ServerStatsLockClass;
+};
+
+export type ServerStatsLockClasses = {
+  "registry": ServerStatsLockClassSet;
+  "registry_connection": ServerStatsLockClassSet;
+  "state": ServerStatsLockClassSet;
+};
+
 export type ServerStatsLockHolder = {
   "held_for_us": bigint;
   "site": string;
@@ -1197,6 +1557,38 @@ export type ServerStatsLockStall = {
   "blocker": (string) | null;
   "waited_us": bigint;
   "waiter": string;
+};
+
+export type ServerStatsLockWait = {
+  "holder"?: string;
+  "lock": string;
+  "site": string;
+  "waited_us": bigint;
+  "waiter": string;
+};
+
+export type ServerStatsLockWaits = {
+  "dropped": bigint;
+  "long_waits": bigint;
+  "recent": Array<ServerStatsLockWait>;
+};
+
+export type ServerStatsMethodLatency = {
+  "class": string;
+  "handler_us": ServerStatsPercentiles;
+  "id": (number) | null;
+  "latency_us": ServerStatsPercentiles;
+  "lock_wait_us": ServerStatsPercentiles;
+  "method": string;
+  "trace_id": number;
+};
+
+export type ServerStatsPercentiles = {
+  "count": bigint;
+  "max": bigint;
+  "p50": bigint;
+  "p95": bigint;
+  "p99": bigint;
 };
 
 export type ServerStatsRegistryLock = {
@@ -1226,6 +1618,7 @@ export type ServerStatsRequestPathIo = {
   "host_wait": bigint;
   "journal_wait": bigint;
   "lock_hold_over_1ms"?: bigint;
+  "lock_waits"?: ServerStatsLockWaits;
   "network": bigint;
   "proc_scan": bigint;
   "process_spawn": bigint;
@@ -1264,7 +1657,11 @@ export type ServerStatsResourceProjection = {
 export type ServerStatsResult = {
   "connections": ServerStatsConnections;
   "dispatch_queue_us"?: ServerStatsHistogram;
+  "hangs"?: ServerStatsHangs;
+  "ipc"?: ServerStatsIpc;
+  "ipc_methods"?: Array<ServerStatsMethodLatency>;
   "journal_writer": (ServerStatsJournalWriter) | null;
+  "lock_classes"?: ServerStatsLockClasses;
   "registry_lock": ServerStatsRegistryLock;
   "request_latency_us"?: ServerStatsRequestLatency;
   "request_path_io"?: ServerStatsRequestPathIo;

@@ -33,17 +33,28 @@ import Testing
         #expect(OneWaySpy.jumps.isEmpty)
     }
 
-    /// The page decides a person's close in every outcome; BEFORE_CLOSE closes the tab, even when
-    /// the shim says the close went on at once.
+    /// A person's close whose beforeunload runs (try_close answers 0) leaves the tab to the page:
+    /// BEFORE_CLOSE closes it. try_close is async (task p01-process-064): in process its answer is
+    /// the call's own, and 1 (closes now, no question) hands the close back to the caller.
     @Test func aPersonsCloseLeavesTheTabToThePage() throws {
         let rig = try Rig(forkAPI: 29)
         defer { rig.close() }
         let tab = try rig.attachedTab()
+        OneWaySpy.closeAnswer = 0
         #expect(tab.beginUserClose())
         #expect(OneWaySpy.closes == [7])
         #expect(!tab.isClosed)
         rig.runtime.handle(.beforeClose(browser: 7))
         #expect(tab.isClosed)
+    }
+
+    @Test func aCloseWithNoQuestionGoesBackToTheCaller() throws {
+        let rig = try Rig(forkAPI: 29)
+        defer { rig.close() }
+        let tab = try rig.attachedTab()
+        OneWaySpy.closeAnswer = 1
+        #expect(!tab.beginUserClose())
+        #expect(OneWaySpy.closes == [7])
     }
 
     /// Whether the fork has the password fill switch is its mirrored API version, not the answer.
@@ -139,6 +150,7 @@ private nonisolated enum OneWaySpy {
     nonisolated(unsafe) static var entries = ""
     nonisolated(unsafe) static var jumps: [Int32] = []
     nonisolated(unsafe) static var closes: [Int32] = []
+    nonisolated(unsafe) static var closeAnswer: Int32 = 0
     nonisolated(unsafe) static var fills: [Int32] = []
     nonisolated(unsafe) static var actionRuns: [String] = []
     nonisolated(unsafe) static var restores: [String] = []
@@ -151,6 +163,7 @@ private nonisolated enum OneWaySpy {
         entries = ""
         jumps = []
         closes = []
+        closeAnswer = 0
         fills = []
         actionRuns = []
         restores = []
@@ -171,7 +184,7 @@ private nonisolated enum OneWaySpy {
         }
         // Each answer contradicts the tab's decision: the tab must not read it.
         let goToEntry: @convention(c) (Int32, Int32) -> Int32 = { _, offset in OneWaySpy.jumps.append(offset); return 0 }
-        let tryClose: @convention(c) (Int32) -> Int32 = { browser in OneWaySpy.closes.append(browser); return 1 }
+        let tryClose: @convention(c) (Int32) -> Int32 = { browser in OneWaySpy.closes.append(browser); return OneWaySpy.closeAnswer }
         let passwordFill: @convention(c) (Int32, Int32) -> Int32 = { _, value in OneWaySpy.fills.append(value); return 0 }
         let actionRun: @convention(c) (Int32, UnsafePointer<CChar>?, Int32, Int32) -> Int32 = { _, id, _, _ in
             OneWaySpy.actionRuns.append(OneWaySpy.text(id))

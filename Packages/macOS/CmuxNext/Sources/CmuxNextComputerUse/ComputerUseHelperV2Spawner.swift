@@ -38,17 +38,20 @@ nonisolated final class ComputerUseHelperV2Child: Sendable {
     /// Closes stdin: the helper sees EOF and exits (the same signal it gets
     /// when this app dies).
     func closeInput() {
-        input.withLock { descriptor in
-            guard descriptor >= 0 else { return }
-            close(descriptor)
-            descriptor = -1
+        // The lock hands the descriptor to one caller; the close runs after it is released.
+        let descriptor = input.withLock { descriptor -> Int32 in
+            defer { descriptor = -1 }
+            return descriptor
         }
+        guard descriptor >= 0 else { return }
+        close(descriptor)
     }
 }
 
 /// Starts the helper v2 executable (a fake in tests).
 nonisolated protocol ComputerUseHelperV2Spawning: Sendable {
-    func spawn(executable: URL, environment: [String: String], logPath: String) throws -> ComputerUseHelperV2Child
+    /// Starts the helper off the caller's thread.
+    func spawn(executable: URL, environment: [String: String], logPath: String) async throws -> ComputerUseHelperV2Child
     /// SIGTERM to this exact pid, then reap it.
     func terminate(_ pid: pid_t)
 }
@@ -73,9 +76,20 @@ nonisolated struct DisclaimedHelperSpawner: ComputerUseHelperV2Spawning {
 
     /// Resolved once from libsystem; tests inject their own.
     let disclaim: DisclaimFunction?
+    /// Spawns the helper off the main thread on the user-blocking launcher (Chrome's process launcher,
+    /// content/browser/child_process_launcher_helper.cc): Computer Use waits for it to start.
+    private let launcher = ChildProcessLauncher(label: "com.cmuxterm.next.child-launcher.computer-use-helper", priority: .userBlocking)
+    /// Reaps the helper from its process-exit source (``ChildExitWatch``): no thread waits in `waitpid` while it
+    /// runs on after SIGTERM.
+    private let reaper: DispatchQueue
 
-    init(disclaim: DisclaimFunction? = DisclaimedHelperSpawner.systemDisclaim) {
+    /// - Parameters:
+    ///   - disclaim: The responsibility disclaim; nil when libsystem lacks it (the helper then does not start).
+    ///   - reaper: The serial queue that reaps a terminated helper; utility, as nobody waits for that reap.
+    init(disclaim: DisclaimFunction? = DisclaimedHelperSpawner.systemDisclaim,
+         reaper: DispatchQueue = DispatchQueue(label: "com.cmuxterm.next.computer-use.helper-reap", qos: .utility)) {
         self.disclaim = disclaim
+        self.reaper = reaper
     }
 
     static let systemDisclaim: DisclaimFunction? = {
@@ -84,8 +98,18 @@ nonisolated struct DisclaimedHelperSpawner: ComputerUseHelperV2Spawning {
         return unsafeBitCast(symbol, to: DisclaimFunction.self)
     }()
 
-    func spawn(executable: URL, environment: [String: String], logPath: String) throws -> ComputerUseHelperV2Child {
+    func spawn(executable: URL, environment: [String: String], logPath: String) async throws -> ComputerUseHelperV2Child {
         guard let disclaim else { throw Failure.disclaimUnavailable }
+        let priority = launcher.priority
+        return try await launcher.run { () throws(Failure) -> ComputerUseHelperV2Child in
+            try Self.spawn(executable: executable, environment: environment, logPath: logPath, disclaim: disclaim,
+                           priority: priority)
+        }
+    }
+
+    /// ``spawn(executable:environment:logPath:)``'s work, on the launcher.
+    private static func spawn(executable: URL, environment: [String: String], logPath: String, disclaim: DisclaimFunction,
+                              priority: MayBlockPriority) throws(Failure) -> ComputerUseHelperV2Child {
         var toHelper: [Int32] = [-1, -1]
         var toHost: [Int32] = [-1, -1]
         guard pipe(&toHelper) == 0 else { throw Failure.spawn(errno) }
@@ -123,7 +147,7 @@ nonisolated struct DisclaimedHelperSpawner: ComputerUseHelperV2Spawning {
             envp.forEach { free($0) }
         }
         var pid: pid_t = 0
-        let status = posix_spawn(&pid, executable.path, &actions, &attributes, argv, envp)
+        let status = blockingPosixSpawn(&pid, executable.path, &actions, &attributes, argv, envp, priority: priority)
         guard status == 0 else {
             close(toHelper[1]); close(toHost[0])
             throw Failure.spawn(status)
@@ -131,21 +155,11 @@ nonisolated struct DisclaimedHelperSpawner: ComputerUseHelperV2Spawning {
         return ComputerUseHelperV2Child(pid: pid, input: toHelper[1], lines: Self.lines(from: toHost[0]))
     }
 
+    /// SIGTERM, then the reap on ``reaper`` once the helper exits, so it never stays a zombie; returns at once.
     func terminate(_ pid: pid_t) {
         guard pid > 0 else { return }
         kill(pid, SIGTERM)
-        Self.reap(pid)
-    }
-
-    /// Reaps the child off the main thread so it never stays a zombie.
-    static func reap(_ pid: pid_t) {
-        let thread = Thread {
-            var status: Int32 = 0
-            while waitpid(pid, &status, 0) < 0, errno == EINTR {}
-        }
-        thread.name = "cua-helper-v2-reap"
-        thread.qualityOfService = .utility
-        thread.start()
+        ChildExitWatch(pid: pid, queue: reaper).start { _ in }
     }
 
     /// stdout as lines, read on a dedicated thread until EOF.
@@ -156,7 +170,7 @@ nonisolated struct DisclaimedHelperSpawner: ComputerUseHelperV2Spawning {
             let thread = Thread {
                 var pending = Data()
                 var bytes = [UInt8](repeating: 0, count: 16 * 1024)
-                // wakeup-allow: blocking read(2) on a dedicated thread; EOF and read errors end it, EINTR retries.
+                // wakeup-allow: bounded: blocking read(2) on a dedicated thread; EOF and read errors end it, EINTR retries.
                 while true {
                     // concurrency-allow: dedicated reader Thread, never the main actor.
                     let count = read(descriptor, &bytes, bytes.count)

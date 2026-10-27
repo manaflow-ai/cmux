@@ -2,6 +2,8 @@ public import CmuxNextWakeups
 import Foundation
 public import Observation
 import os
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
 
 public enum DaemonConnectionState: Sendable, Equatable {
     case connecting
@@ -17,13 +19,13 @@ public enum DaemonConnectionState: Sendable, Equatable {
 /// batches at most once per frame (`run(connection:scheduler:)`).
 @Observable @MainActor
 public final class DaemonStore: StateResourceQueries {
-    public internal(set) var workspaces: [WorkspaceModel] = [] { didSet { adoptUnread() } }
+    public internal(set) var workspaces: [WorkspaceModel] = [] { didSet { crashKeys?.noteWorkspaces(workspaces.count) } }
     public internal(set) var groups: [WorkspaceGroupModel] = []
     /// Tabs the unread count read, one by one (tests: an observer of the badge reads no tab).
     @ObservationIgnored public internal(set) var unreadTabReads = 0
     /// The unread counts of all workspaces (``UnreadTotals``), summed from each workspace's own
-    /// count when one changes and assigned only when the sum changes: an observer of the badge
-    /// observes this one value, never the tabs.
+    /// count when one changes, joins or leaves (``UnreadLedger``) and assigned only when the sum
+    /// changes: an observer of the badge observes this one value, never the tabs.
     public internal(set) var unreadTotals = UnreadTotals()
     /// Rooms in order (`profiles-v1`, home session only; the wire calls
     /// them profiles). Empty on a daemon without personal state.
@@ -36,12 +38,14 @@ public final class DaemonStore: StateResourceQueries {
     /// Sidebar flattening, recomputed only when order, membership, or groups change.
     public internal(set) var sidebarSections: [SidebarSection] = []
     public internal(set) var connectionState: DaemonConnectionState = .connecting {
-        didSet { waiters.settle(.connection, in: self) }
+        didSet { waiters.settle(.connection, in: self); crashKeys?.noteDaemon(connectionState) }
     }
     /// Counts connection changes (connected, disconnected, shut down), so a
     /// reader can tell facts seen on an earlier connection from this one
     /// even when it missed the states in between.
     @ObservationIgnored public internal(set) var connectionEpoch = 0
+    /// Names ``connectionEpoch`` in a crash record, the connection and workspace count in the crash-key page; nil: none.
+    @ObservationIgnored let crashKeys: CrashKeySlots?
     /// The identity of the last daemon that completed a handshake. Kept
     /// through a disconnect; replaced on every (re)connect, whose daemon may
     /// be a different generation or build with different capabilities.
@@ -52,7 +56,7 @@ public final class DaemonStore: StateResourceQueries {
     /// Bumped once per apply (batch, snapshot, intent) that changed which
     /// tabs the tree lists, their panes or their order: one read for an
     /// observer that follows every tab list, instead of a walk of every pane.
-    public private(set) var tabListRevision: UInt64 = 0
+    public internal(set) var tabListRevision: UInt64 = 0
     public let session = SessionStateStore()
     /// Recent notifications, newest last (bounded).
     public internal(set) var notifications: [DaemonNotification] = []
@@ -100,14 +104,14 @@ public final class DaemonStore: StateResourceQueries {
     @ObservationIgnored public var onDisconnected: (@MainActor () -> Void)?
     /// Bookmark and conversation events (not in the tree snapshot), on the main actor.
     @ObservationIgnored public let sideEvents = DaemonSideEvents()
-    /// The workspace set (`listID`s) last reported to `onWorkspaceListChanged`.
-    @ObservationIgnored var notifiedWorkspaceList: Set<String>?
-    /// Bumped by every sidebar flattening (`recomputeSidebar`, which every
-    /// structural change runs): while it stays, the workspace set is the one
-    /// last checked, so `workspaceListMayHaveChanged` skips its O(n) set
-    /// build (status ticks apply batches several hundred times a second).
-    @ObservationIgnored var listGeneration: UInt64 = 0
-    @ObservationIgnored var checkedListGeneration: UInt64?
+    /// The digest of the workspace set (`listID`s, ``StoreIndex/workspaceListDigest``) last
+    /// reported to `onWorkspaceListChanged`: the check is one compare, whatever the batch held.
+    @ObservationIgnored var notifiedWorkspaceList: Int?
+    /// What the drains of the event inbox cost (``DrainCost``): their histogram and the
+    /// whole-list passes the applies ran.
+    @ObservationIgnored public internal(set) var drainCost = DrainCost()
+    /// Clock of the drain histogram (tests inject one).
+    @ObservationIgnored public var drainClock: any Clock<Duration> = ContinuousClock()
     /// Nesting of batch applies; the hook runs when the outermost ends.
     @ObservationIgnored var applyDepth = 0
     @ObservationIgnored let updateCycles = UpdateCycleDetector(owner: "DaemonStore.apply")
@@ -123,6 +127,9 @@ public final class DaemonStore: StateResourceQueries {
     var tabGroupsByID: [TabGroupID: TabGroupModel] { index.tabGroupsByID }
     /// Keyed waits on the records (StoreWaiters.swift), resumed when an apply ends.
     var waiters: StoreWaiters { index.waiters }
+    /// The tab ids and tab resource ids this store lists, with the hook the index of tabs across
+    /// machines keeps itself by (StoreTabKeys.swift, `MachineTabIndex`).
+    public var tabKeys: StoreTabKeys { index.tabKeys }
     @ObservationIgnored public internal(set) var agents = AgentRoster()
     @ObservationIgnored var directories = TerminalDirectories()
     /// Pending typed intents shown on top of the confirmed mirror
@@ -148,10 +155,10 @@ public final class DaemonStore: StateResourceQueries {
         get { causes.sidebar != nil }
         set { causes.noteSidebar(newValue) }
     }
-    /// Called once per intent when it leaves the log (main actor), after the visible state is complete again.
-    @ObservationIgnored public var onIntentSettled: ((ClientTransactionID, IntentSettlement) -> Void)?
-    /// Settlements of the current lift, reported when it ends.
-    @ObservationIgnored var intentSettlements: [(ClientTransactionID, IntentSettlement, ObservationCause)] = []
+    /// How the intents left the log since this store was made (``IntentTotals``), counted once the visible state is complete again; observed.
+    public internal(set) var intentTotals = IntentTotals()
+    /// Settlements of the current lift with their intents and causes, counted in `intentTotals` when it ends.
+    @ObservationIgnored var intentSettlements: [(settlement: IntentSettlement, intent: Intent, cause: ObservationCause)] = []
     /// Mirror single-writer violations found by the debug-build check (DaemonStore+MirrorCheck.swift), newest last (bounded).
     @ObservationIgnored public internal(set) var mirrorViolations: [String] = []
     /// Called on the main actor for each new mirror violation.
@@ -173,13 +180,17 @@ public final class DaemonStore: StateResourceQueries {
     @ObservationIgnored var snapshotWorkspacesWalkedOnMain = 0
     /// Set while `run(connection:scheduler:)` drives the store.
     @ObservationIgnored var driver: StoreDriver?
+    /// Runs the drain's tail (``DrainTail``, p06-scheduler-223): the app's ``MainWorkScheduler`` while
+    /// feature `drainCauseSplit` is on. nil: each frame drain applies its whole batch. A connection
+    /// reads it when it starts.
+    @ObservationIgnored public var drainTailScheduler: (any DrainTailScheduler)?
     @ObservationIgnored var isResyncing = false
     /// Who made each change, and what the store publishes later with (``StoreCauses``).
     @ObservationIgnored let causes: StoreCauses
     /// The `list-personal` refetch a `personal-changed` asks for (`refetchPersonal`).
     @ObservationIgnored var personalRefetch = PersonalRefetch()
     /// `refresh()` callers waiting for a snapshot requested after their call.
-    @ObservationIgnored var refreshWaiters: [CheckedContinuation<Void, Never>] = []
+    @ObservationIgnored var refreshWaiters: [OnceContinuation<Void, OnceContinuationError>] = []
     /// Work waiting for the first live snapshot (`whenFirstSnapshotApplied`); emptied when it lands.
     @ObservationIgnored var firstSnapshotWaiters: [@MainActor () -> Void] = []
     /// Spacing and budget of failed-snapshot retries; reset by the next applied one.
@@ -212,10 +223,13 @@ public final class DaemonStore: StateResourceQueries {
     ///     nil (tests, fixtures): a queue of the store's own.
     ///   - causes: The app's ``ObservationCauses`` (`MainWorkScheduler.causes`): the drain applies each
     ///     event with its cause, and an action run's intent with its origin's. nil (tests, fixtures): none.
-    public init(waitDeadlines: MainWakeUpQueue? = nil, causes: ObservationCauses? = nil) {
+    ///   - crashKeys: The app's crash keys; ``CrashKeySlots/Key/daemonEpoch`` follows ``connectionEpoch``.
+    public init(waitDeadlines: MainWakeUpQueue? = nil, causes: ObservationCauses? = nil, crashKeys: CrashKeySlots? = nil) {
         self.causes = StoreCauses(causes)
+        self.crashKeys = crashKeys
         let queue = waitDeadlines ?? MainWakeUpQueue(energy: EnergyPolicySource())
-        index = StoreIndex(waiters: StoreWaiters(deadlines: AlignedWakeups(queue: queue)))
+        index = StoreIndex(waiters: StoreWaiters(deadlines: AlignedWakeups(queue: queue)), unread: UnreadLedger())
+        index.unread.onChange = { [weak self] totals in self?.publish(unread: totals) }
     }
 
     // MARK: Lookup (O(1))
@@ -395,9 +409,10 @@ public final class DaemonStore: StateResourceQueries {
 
     // MARK: Derived state
 
-    /// Indexes the whole tree again, primes every record and flattens the
-    /// sidebar: a snapshot only. Events change the index per record
-    /// (`indexed(_:)`), and the sidebar once per batch (`sidebarNeedsRecompute`).
+    /// Indexes the whole tree again, primes every record and flags the sidebar
+    /// for its flattening once the overlay is back (`withOverlayLifted`): a
+    /// snapshot only. Events change the index per record (`indexed(_:)`), and
+    /// the sidebar once per batch (`sidebarNeedsRecompute`).
     func rebuildIndex() {
         index.rebuild(workspaces)
         for workspace in workspaces {
@@ -405,7 +420,7 @@ public final class DaemonStore: StateResourceQueries {
                 for pane in screen.panes { prime(pane) }
             }
         }
-        recomputeSidebar()
+        sidebarNeedsRecompute = true
         session.overlay(workspaces)
     }
 

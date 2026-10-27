@@ -1,5 +1,6 @@
 public import Foundation
 import CmuxNextCompat
+import CmuxNextWakeups
 import Darwin
 import Dispatch
 
@@ -57,45 +58,40 @@ public struct ProcessRunner {
         process.standardError = stderrFile.handle
         // Each stdout write is a progress event (a vnode event on the temp
         // file; the child's writes land on the same file).
-        let progress = progressIdle.map { _ in StdoutProgress(watching: stdoutFile.handle.fileDescriptor) }
+        let elapsed = Self.stopwatch(clock)
+        let progress = progressIdle.map { _ in StdoutProgress(watching: stdoutFile.handle.fileDescriptor, elapsed: elapsed) }
         defer { progress?.cancel() }
 
         let box = ProcessBox(process)
+        // The spawn runs on the launcher's queue, never the caller's actor or the cooperative pool, and the
+        // child at the caller's priority's processQoS (Chromium's launcher thread,
+        // content/browser/child_process_launcher_helper.cc).
+        let launcher = ProcessLauncher(label: "com.cmuxterm.next.daemon.process", priority: WorkPriority(Task.currentPriority))
         // A cancelled caller kills the child, so the waiter below ends now
         // instead of at the child's own exit or the deadline.
         let status: Int32 = try await withTaskCancellationHandler {
             try await withThrowingTaskGroup(of: Int32?.self) { group in
                 group.addTask {
-                    await withCheckedContinuation { (continuation: CheckedContinuation<Int32?, Never>) in
-                        box.process.terminationHandler = { process in
-                            continuation.resume(returning: process.terminationStatus)
-                        }
-                        do {
-                            try box.process.run()
-                            if Task.isCancelled { box.kill() }
-                        } catch {
-                            box.process.terminationHandler = nil
-                            continuation.resume(returning: nil)
-                        }
+                    // Set before the launch: a child that exits at once still reports its status.
+                    let exit = FirstOutcome<Int32>()
+                    box.process.terminationHandler = { process in exit.resolve(process.terminationStatus) }
+                    do {
+                        try await launcher.launched(box.process)
+                    } catch {
+                        box.process.terminationHandler = nil
+                        return nil
                     }
+                    // A cancel or timeout during the launch found no child to kill: this kill reaches it.
+                    if Task.isCancelled { box.kill() }
+                    return await exit.value()
                 }
                 group.addTask {
                     guard let progressIdle, let progress else {
-                        // wakeup-allow: one-shot deadline (child process timeout)
-                        try await clock.sleep(for: timeout)
+                        // wakeup-allow: deadline of the child process (timeout), a flexible never-early wait (WakeLeeway)
+                        try await clock.sleep(for: timeout, tolerance: WakeLeeway.window(delay: timeout).tolerance)
                         return Int32.min
                     }
-                    var seen = progress.count
-                    var waited = Duration.zero
-                    while waited < timeout {
-                        let window = min(progressIdle, timeout - waited)
-                        // wakeup-allow: one wake per idle window (no stdout progress = timeout), bounded by the hard cap
-                        try await clock.sleep(for: window)
-                        waited += window
-                        let now = progress.count
-                        if now == seen { return Int32.min }
-                        seen = now
-                    }
+                    try await Self.waitForSilence(of: progress, idle: progressIdle, cap: timeout, clock: clock)
                     return Int32.min
                 }
                 defer { group.cancelAll() }
@@ -116,10 +112,35 @@ public struct ProcessRunner {
         }
         return ProcessResult(status: status, stdout: stdoutFile.contents(), stderr: stderrFile.contents())
     }
+
+    /// Returns once `progress` saw no stdout write for `idle` (from the run's start or its last write), or at
+    /// `cap`; throws when cancelled.
+    ///
+    /// One deadline, moved lazily as Chromium's `DelayTimerBase` does (base/timer/timer.cc): a write only records
+    /// its time, and a fire before the desired time sleeps on for the time left to it.
+    static func waitForSilence(of progress: StdoutProgress, idle: Duration, cap: Duration,
+                               clock: any Clock<Duration>) async throws {
+        // wakeup-allow: deadline: one silence deadline; a pass ends at it or sleeps on for the time a write added
+        while true {
+            let now = progress.elapsed()
+            let end = min((progress.lastWrite ?? .zero) + idle, cap)
+            guard end > now else { return }
+            let left = end - now
+            // wakeup-allow: deadline: to the silence deadline; another pass only when a write moved it
+            try await clock.sleep(for: left, tolerance: WakeLeeway.window(delay: left).tolerance)
+        }
+    }
+
+    /// The time on `clock` since this call.
+    private static func stopwatch<C: Clock<Duration>>(_ clock: C) -> @Sendable () -> Duration {
+        let origin = clock.now
+        return { origin.duration(to: clock.now) }
+    }
 }
 
-/// `Process` is not Sendable; it is only touched from the group tasks above.
-final class ProcessBox: @unchecked Sendable {
+/// The child of one ``ProcessRunner/run(executable:arguments:environment:stdin:timeout:progressIdle:clock:)``,
+/// shared by its waiter task, its deadline task and the cancellation handler (`Process` is Sendable).
+final class ProcessBox: Sendable {
     let process: Process
     /// Sends a signal (tests record it instead).
     private let signal: @Sendable (pid_t, Int32) -> Void
@@ -137,28 +158,4 @@ final class ProcessBox: @unchecked Sendable {
         guard pid > 0, process.isRunning else { return }
         signal(pid, SIGKILL)
     }
-}
-
-/// Counts writes to a child's stdout file (`ProcessRunner.run(progressIdle:)`).
-/// The watch has its own duplicate of the descriptor, closed by the cancel
-/// handler, so the caller may close its file at any time.
-final class StdoutProgress: Sendable {
-    private let writes = Mutex<Int>(0)
-    private let source = Mutex<(any DispatchSourceFileSystemObject)?>(nil)
-    private let queue = DispatchQueue(label: "com.cmuxterm.next.process-progress")
-
-    init(watching fd: Int32) {
-        let watched = fcntl(fd, F_DUPFD_CLOEXEC, 0)
-        guard watched >= 0 else { return }
-        let watch = DispatchSource.makeFileSystemObjectSource(fileDescriptor: watched, eventMask: [.write, .extend],
-                                                              queue: queue)
-        watch.setEventHandler { [weak self] in self?.writes.withLock { $0 += 1 } }
-        watch.setCancelHandler { close(watched) }
-        watch.activate()
-        source.withLock { $0 = watch }
-    }
-
-    var count: Int { writes.withLock { $0 } }
-
-    func cancel() { source.withLock { $0?.cancel() } }
 }

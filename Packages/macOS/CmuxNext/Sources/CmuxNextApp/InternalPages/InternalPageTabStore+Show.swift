@@ -33,13 +33,13 @@ extension InternalPageTabStore {
         for pane in panes {
             guard let tab = pane.tabs.first(where: { $0.page == page.rawValue }) else { continue }
             if focus, let controller = content.controller(for: pane) { reveal(tab.id, in: controller) }
-            return view(forStoreTab: tab, in: daemon.store, local: daemon.isLocal, window: window)
+            return tabView(forStoreTab: tab, in: daemon.store, local: daemon.isLocal, window: window)
         }
         if let found = tab(of: page, inPanes: panes.map(\.id)) {
             if focus, let controller = panes.first(where: { $0.id == found.pane }).flatMap(content.controller(for:)) {
                 reveal(found.key, in: controller)
             }
-            return view(for: found.key)
+            return tabView(for: found.key)
         }
         return openNew(page, in: window, focus: focus)
     }
@@ -63,7 +63,7 @@ extension InternalPageTabStore {
             pane.apply(pane.snapshot())
             if focus { reveal(key, in: pane) }
         }
-        return view(for: key)
+        return tabView(for: key)
     }
 
     /// `page` as `window`'s top page (one view per window, shown again on a
@@ -117,7 +117,7 @@ extension AppServices {
 // and route, and its provider tears its view down; its next show makes the view again, under the
 // picture taken when it hid, with the route and state put back. `discards` (a
 // ContentDiscardScheduler) decides when, `discardRecords` keeps what each discarded tab needs; the
-// content cache's lifecycle carries it, through the `pageDiscards` it is given: show and hide are a
+// content cache's lifecycle carries it, through its `contentOwners`: show and hide are a
 // page tab's `reveal` and `conceal`, the discard is its `hibernate` event and `release` effect, a
 // show of a discarded tab its `restore` effect, all under the lifecycle's tokens. The cache names a tab by its strip id: an app-only
 // tab's key, or a store page tab's id, whose view lives under a provider key.
@@ -128,7 +128,7 @@ extension InternalPageTabStore {
         discards = scheduler
         self.cache = cache
         scheduler.host = self
-        cache.pageDiscards = self
+        cache.contentOwners.add(self)
     }
 
     /// The provider key of `tab`: a store page tab's, else `tab` itself.
@@ -142,11 +142,11 @@ extension InternalPageTabStore {
 
     /// Lets `tab`'s view go and keeps the tab (strip place, title, icon), its route and `state`,
     /// given back to the view made at its next show. The provider tears the view down
-    /// (``InternalPageProvider/viewDiscarded(_:)``). False with no view.
+    /// (``InternalPageProvider/viewDiscarded(_:)``). False with no view, or one whose content never showed.
     @discardableResult
     func discardView(ofTab tab: String, state: ContentViewState) -> Bool {
         let key = providerKey(ofTab: tab)
-        guard discards != nil, let view = takeView(key) else { return false }
+        guard discards != nil, existingView(key) != nil, let view = takeView(key) else { return false }
         view.removeFromSuperview()
         let owner = LocalPageTab.page(of: key).flatMap { self.provider($0) }
         discardRecords.discarded[key] = ContentDiscardRecords.Record(state: state, route: owner?.route(for: key))
@@ -154,8 +154,8 @@ extension InternalPageTabStore {
         return true
     }
 
-    /// The last picture of page tab `tab`, from the content cache's previews.
-    func discardedPicture(of tab: String) -> CGImage? { cache?.previews.image(for: tab) }
+    /// The last picture of page tab `tab`, from the content cache's internal page pictures.
+    func discardedPicture(of tab: String) -> CGImage? { cache?.internalPagePictures.image(for: tab) }
 
     /// What `page`'s picture shows, as far as the app can tell: its document (the view and its first
     /// paint), its route, and the person's last input in it (a scroll, a click, a key).
@@ -174,40 +174,41 @@ extension InternalPageTabStore {
     /// tab's latest transition and the tab still has this view.
     private func takePicture(of tab: String, provider: any InternalPageProvider, token: ContentLifecycle<String>.Token) {
         let key = providerKey(ofTab: tab)
-        guard discards != nil, let cache, provider.discardPolicy(for: key) != .never,
+        guard discards != nil, let cache, provider.discardPolicy(for: key) != .never, provider.keepsDiscardPicture(for: key),
               let view = existingView(tab), let page = view.content as? PageWebView, page.hasPainted else { return }
         let version = Self.pictureVersion(page)
         let records = discardRecords
-        if records.pictures[key]?.version == version, cache.previews.image(for: tab) != nil { return }
+        if records.pictures[key]?.version == version, cache.internalPagePictures.image(for: tab) != nil { return }
         records.pictures[key]?.task?.cancel()
         // task-owner: discardRecords.pictures[key]; cancelled by the next hide's capture or the tab's close
         let task = Task { [weak self, weak view, weak cache, weak records] in
-            guard let image = await view?.lastPicture(), !Task.isCancelled, let self, let cache,
-                  cache.lifecycle.accepts(tab, token), self.existingView(tab) === view else { return }
-            cache.previews.insert(image, for: tab)
-            records?.pictures[key]?.version = version
+            guard let image = await view?.lastPicture() else { return }
+            let picture = await cache?.internalPagePictures.picture(of: image)
+            guard !Task.isCancelled, let self, let cache, cache.lifecycle.accepts(tab, token), self.existingView(tab) === view else { return }
+            // A picture the store refused (nil) keeps no version: the next hide pictures the page again.
+            records?.pictures[key]?.version = cache.internalPagePictures.insert(picture, for: tab) ? version : nil
         }
         records.pictures[key] = ContentDiscardRecords.Picture(task: task, version: records.pictures[key]?.version)
     }
 }
 
-// The content lifecycle's effects on page tabs, which the cache hands to its `pageDiscards`. Each
+// The content lifecycle's effects on page tabs, which the cache hands to its `contentOwners`. Each
 // returns false for a tab that is no page tab, which then takes the cache's own path.
-extension InternalPageTabStore {
+extension InternalPageTabStore: ContentLifecycleOwner {
     /// A page tab's memory is the discards' to manage, never the terminal warm set's.
-    func adoptPage(_ tab: String) -> Bool {
+    func contentAdopted(_ tab: String) -> Bool {
         guard existingView(tab) != nil else { return false }
         cache?.ledger.setRetained(tab, false)
         return true
     }
 
-    func pageDidShow(_ tab: String) -> Bool {
+    func contentDidShow(_ tab: String) -> Bool {
         guard provider(ofTab: tab) != nil else { return false }
         discards?.contentDidShow(tab)
         return true
     }
 
-    func pageDidHide(_ tab: String, token: ContentLifecycle<String>.Token) -> Bool {
+    func contentDidHide(_ tab: String, token: ContentLifecycle<String>.Token) -> Bool {
         guard let provider = self.provider(ofTab: tab) else { return false }
         discards?.contentDidHide(tab)
         takePicture(of: tab, provider: provider, token: token)
@@ -216,7 +217,7 @@ extension InternalPageTabStore {
 
     /// The view goes with the state its preparation saved (none for a discard nobody prepared, the
     /// person's Hibernate Tab); a pane still holding it lets it go. The provider tears it down.
-    func releasePage(_ tab: String, token: ContentLifecycle<String>.Token) -> Bool {
+    func releaseContent(_ tab: String, token: ContentLifecycle<String>.Token) -> Bool {
         guard provider(ofTab: tab) != nil else { return false }
         let state = discards?.takePrepared(tab) ?? ContentViewState()
         guard let cache, cache.lifecycle.accepts(tab, token) else { return true }
@@ -229,7 +230,7 @@ extension InternalPageTabStore {
 
     /// The pane made the view with its content, so it is live; with no view (a wake nobody shows)
     /// the tab stays discarded.
-    func restorePage(_ tab: String, token: ContentLifecycle<String>.Token) -> Bool {
+    func restoreContent(_ tab: String, token: ContentLifecycle<String>.Token) -> Bool {
         guard provider(ofTab: tab) != nil else { return false }
         guard let cache else { return true }
         cache.applyLifecycle(cache.lifecycle.send(existingView(tab) != nil ? .mounted(tab, token) : .mountFailed(tab, token)))
@@ -251,14 +252,18 @@ extension InternalPageTabStore: ContentDiscardHost {
         existingView(key).map { $0.window != nil && !$0.isHiddenOrHasHiddenAncestor } ?? false
     }
 
-    /// Saves hidden page tab `key`'s state, once the picture its hide took has landed. It stays (nil)
-    /// when anything changed meanwhile: a show or hide (the lifecycle's generation), a new view, or a
-    /// reason to keep it.
+    /// Saves hidden page tab `key`'s state, once the picture its hide took has landed (a provider
+    /// that keeps no picture has none, and any older one is dropped). It stays (nil) when anything
+    /// changed meanwhile: a show or hide (the lifecycle's generation), a new view, or a reason to keep it.
     func prepareDiscard(_ key: String) async -> ContentViewState? {
         guard let view = existingView(key), let provider = self.provider(ofTab: key), let cache,
               let record = cache.lifecycle.record(key), record.phase == .mountedHidden else { return nil }
         let pageKey = providerKey(ofTab: key)
-        await discardRecords.pictures[pageKey]?.task?.value
+        if provider.keepsDiscardPicture(for: pageKey) {
+            await discardRecords.pictures[pageKey]?.task?.value
+        } else {
+            cache.internalPagePictures.remove(key)
+        }
         let state = await provider.saveViewState(for: pageKey, content: view.content)
         guard cache.lifecycle.record(key)?.generation == record.generation, existingView(key) === view,
               provider.keepReasons(for: pageKey).isEmpty else { return nil }

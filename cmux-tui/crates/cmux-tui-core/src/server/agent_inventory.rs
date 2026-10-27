@@ -1,6 +1,12 @@
 //! Cached inventory and explicit registry refresh of THIS machine, over the trusted native
 //! daemon carrier (local, SSH or Cloud). The conversations-only relay never
 //! admits this verb. No client-selected socket, machine or control params.
+//!
+//! Wire: `agent-inventory` and `agent-inventory-refresh` in spec/sdk-schema.json (agents
+//! family; the refresh is `background` priority because it waits on registries for
+//! seconds). This module's route ([`ROUTES`], server/routes.rs) decodes them as
+//! [`Command`] before the server's `Command` enum, so check-sdk-schema.py reads their
+//! request fields from it (scripts/handler_commands.py).
 
 #[path = "agent_inventory_watch.rs"]
 pub(super) mod watch;
@@ -12,19 +18,54 @@ use std::sync::atomic::Ordering;
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
-use serde_json::{Value, json};
+use serde_json::{Map, Value, json};
 
 use super::agent_session_attach::agent_session_link::{AcpmuxLink, LinkError};
+use super::command_args::present_non_null;
 use super::responses::send_response;
-use super::{MessageWriter, Response};
+use super::routes::{Route, RouteLine, RouteName};
+use super::{FrameStage, MessageWriter, Response};
 use crate::mux::Mux;
 
 pub(super) const CAPABILITY: &str = "agent-inventory-v1";
 pub(super) const OWNER_CAPABILITY: &str = "agent-inventory-owner-v1";
 pub(super) const REFRESH_CAPABILITY: &str = "agent-inventory-refresh-v1";
+const READ_COMMAND: &str = "agent-inventory";
+const REFRESH_COMMAND: &str = "agent-inventory-refresh";
 const MAX_READS: usize = 8;
 const MAX_HARNESSES: usize = 256;
+/// Spec `AgentInventoryChannel`.
+const CHANNELS: [&str; 8] =
+    ["npm", "bun", "brew", "brewCask", "native", "launcher", "standalone", "missing"];
+/// Spec `AgentInventoryAuth`.
+const AUTH: [&str; 3] = ["signedIn", "signedOut", "unknown"];
+/// Spec `AgentInventoryFamily`: the CLI families forwarded as `family`; any other is null.
+const FAMILIES: [&str; 9] =
+    ["claude", "codex", "opencode", "pi", "chief", "gemini", "amp", "copilot", "cursor"];
 pub(super) const CALL_TIMEOUT: Duration = Duration::from_secs(2);
+
+/// The two requests [`handle`] serves; spec/sdk-schema.json types them.
+#[derive(Deserialize)]
+#[serde(tag = "cmd")]
+enum Command {
+    #[serde(rename = "agent-inventory")]
+    Read(ReadParams),
+    #[serde(rename = "agent-inventory-refresh")]
+    Refresh(RefreshParams),
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ReadParams {
+    #[serde(default, deserialize_with = "present_non_null")]
+    expected_machine_id: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RefreshParams {
+    expected_machine_id: String,
+}
 
 #[derive(Clone, Copy)]
 enum ReadMode {
@@ -101,38 +142,33 @@ impl Failure {
     }
 }
 
+/// The `cmd` names this module answers (server/routes.rs).
+pub(in crate::server) const ROUTES: &[Route] = &[Route {
+    names: &[RouteName::Exact(READ_COMMAND), RouteName::Exact(REFRESH_COMMAND)],
+    stage: FrameStage::AgentInventory,
+    entry: handle,
+}];
+
+/// The route's typed handler: the line's `cmd` named one of [`Command`], so it decodes
+/// the line once and answers it. A line whose full decode fails is left to the `Command`
+/// parse (`None`).
+///
 /// The owner fence (required for refresh) only verifies this daemon; it never selects or
 /// connects to another machine. Trust precedes params and no client fields
 /// reach the owner's acpmux.
-pub(super) fn try_handle(
-    mux: &Arc<Mux>,
-    client: u64,
-    message: &str,
-    writer: &MessageWriter,
-) -> Option<bool> {
-    if !message.contains("agent-inventory") {
-        return None;
-    }
-    let Ok(Value::Object(mut fields)) = serde_json::from_str::<Value>(message) else {
-        return None;
-    };
-    let mode = match fields.remove("cmd").as_ref().and_then(Value::as_str) {
-        Some("agent-inventory") => ReadMode::Cached,
-        Some("agent-inventory-refresh") => ReadMode::Refresh,
-        _ => return None,
-    };
+fn handle(line: &RouteLine<'_>) -> Option<bool> {
+    let RouteLine { mux, client, message, writer, .. } = *line;
+    let mut fields = crate::line_parses::parse::<Map<String, Value>>(message).ok()?;
     let id = fields.remove("id");
     if !mux.control_clients.is_unix(client) || mux.is_remote_client(client) {
         return Some(reply(writer, id, Err(Failure::NotTrusted)));
     }
-    let expected_machine = fields.remove("expected_machine_id");
-    if !fields.is_empty() || (matches!(mode, ReadMode::Refresh) && expected_machine.is_none()) {
-        return Some(reply(writer, id, Err(Failure::BadRequest)));
-    }
+    let (mode, expected_machine) = match serde_json::from_value::<Command>(Value::Object(fields)) {
+        Ok(Command::Read(params)) => (ReadMode::Cached, params.expected_machine_id),
+        Ok(Command::Refresh(params)) => (ReadMode::Refresh, Some(params.expected_machine_id)),
+        Err(_) => return Some(reply(writer, id, Err(Failure::BadRequest))),
+    };
     if let Some(expected) = expected_machine {
-        let Value::String(expected) = expected else {
-            return Some(reply(writer, id, Err(Failure::BadRequest)));
-        };
         let Ok(expected) = crate::resource::MachinePublicId::parse(expected) else {
             return Some(reply(writer, id, Err(Failure::BadRequest)));
         };
@@ -150,20 +186,18 @@ pub(super) fn try_handle(
     let worker_writer = writer.clone();
     let worker_id = id.clone();
     let owner_echo = matches!(mode, ReadMode::Refresh).then(|| mux.machine_public_id.clone());
-    let spawned = std::thread::Builder::new()
-        .name("mux-agent-inventory".into())
-        .stack_size(256 * 1024)
-        .spawn(move || {
-            let result = read(&socket, mode).map(|mut value| {
-                if let Some(machine) = owner_echo {
-                    value.insert("machine", json!(machine));
-                }
-                value
-            });
-            drop(slot);
-            reply(&worker_writer, worker_id, result);
+    // The read waits on acpmux (`request_wait.rs`).
+    let posted = mux.post_request_wait(move || {
+        let result = read(&socket, mode).map(|mut value| {
+            if let Some(machine) = owner_echo {
+                value.insert("machine", json!(machine));
+            }
+            value
         });
-    if spawned.is_err() {
+        drop(slot);
+        reply(&worker_writer, worker_id, result);
+    });
+    if posted.is_err() {
         return Some(reply(writer, id, Err(Failure::Busy)));
     }
     Some(true)
@@ -226,13 +260,7 @@ fn read(socket: &Path, mode: ReadMode) -> Result<Value, Failure> {
     // new metadata string or infer a family from the profile id here.
     for row in &mut inventory.harnesses {
         if matches!(row.channel.as_str(), "launcher" | "missing")
-            || row.family.as_deref().is_some_and(|family| {
-                ![
-                    "claude", "codex", "opencode", "pi", "chief", "gemini", "amp", "copilot",
-                    "cursor",
-                ]
-                .contains(&family)
-            })
+            || row.family.as_deref().is_some_and(|family| !FAMILIES.contains(&family))
         {
             row.family = None;
         }
@@ -280,18 +308,8 @@ impl Inventory {
                         .id
                         .bytes()
                         .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'-' | b'.'))
-                    && [
-                        "npm",
-                        "bun",
-                        "brew",
-                        "brewCask",
-                        "native",
-                        "launcher",
-                        "standalone",
-                        "missing",
-                    ]
-                    .contains(&row.channel.as_str())
-                    && ["signedIn", "signedOut", "unknown"].contains(&row.auth.as_str())
+                    && CHANNELS.contains(&row.channel.as_str())
+                    && AUTH.contains(&row.auth.as_str())
                     && [&row.version, &row.latest]
                         .iter()
                         .all(|value| value.as_ref().is_none_or(|v| safe_version(v)))
@@ -329,4 +347,100 @@ pub(super) fn reply(
             error_delivery: None,
         },
     )
+}
+
+/// The reply DTOs are the schema's result types (spec/sdk-schema.json).
+#[cfg(test)]
+pub(super) mod schema {
+    use std::collections::BTreeSet;
+
+    use serde_json::Value;
+
+    use super::{AUTH, CHANNELS, FAMILIES, Harness, Inventory, View};
+
+    fn sdk_schema() -> Value {
+        serde_json::from_str(include_str!("../../../../spec/sdk-schema.json"))
+            .expect("spec/sdk-schema.json parses")
+    }
+
+    /// Member names of the schema's object type `name`.
+    pub(in crate::server) fn type_fields(name: &str) -> BTreeSet<String> {
+        let schema = sdk_schema();
+        let fields = schema["types"][name]["fields"].as_object();
+        fields.unwrap_or_else(|| panic!("spec type {name} is an object")).keys().cloned().collect()
+    }
+
+    fn enum_values(name: &str) -> Vec<String> {
+        let schema = sdk_schema();
+        let values = schema["types"][name]["values"].as_array();
+        let values = values.unwrap_or_else(|| panic!("spec type {name} is an enum"));
+        values.iter().filter_map(Value::as_str).map(str::to_owned).collect()
+    }
+
+    /// Member names of the schema event `name`'s payload.
+    pub(in crate::server) fn event_fields(name: &str) -> BTreeSet<String> {
+        let schema = sdk_schema();
+        let fields = schema["events"][name]["payload"]["fields"].as_object();
+        fields
+            .unwrap_or_else(|| panic!("spec event {name} has an object payload"))
+            .keys()
+            .cloned()
+            .collect()
+    }
+
+    /// `max_bytes` of member `field` of the schema object type `name`.
+    pub(in crate::server) fn max_bytes(name: &str, field: &str) -> Option<u64> {
+        sdk_schema()["types"][name]["fields"][field]["max_bytes"].as_u64()
+    }
+
+    /// `max_bytes` of request field `field` of the schema command `name`.
+    pub(in crate::server) fn request_max_bytes(name: &str, field: &str) -> Option<u64> {
+        sdk_schema()["commands"][name]["request"]["fields"][field]["max_bytes"].as_u64()
+    }
+
+    pub(in crate::server) fn keys(value: &Value) -> BTreeSet<String> {
+        value.as_object().expect("an object").keys().cloned().collect()
+    }
+
+    #[test]
+    fn reply_members_are_the_schema_result_fields() {
+        let inventory = Inventory {
+            view: View::Inventory,
+            cached: true,
+            harnesses: vec![Harness {
+                id: "claude".into(),
+                family: Some("claude".into()),
+                channel: "npm".into(),
+                version: Some("1.2.3".into()),
+                latest: None,
+                latest_checked_at: None,
+                outdated: false,
+                auth: "unknown".into(),
+                checked_at: 1,
+            }],
+        };
+        assert!(inventory.valid());
+        let value = serde_json::to_value(&inventory).expect("serializes");
+        assert_eq!(keys(&value), type_fields("AgentInventoryResult"));
+        assert_eq!(keys(&value["harnesses"][0]), type_fields("AgentInventoryHarness"));
+        // The refresh reply is the same object plus the owner echo `machine`.
+        let mut refresh = type_fields("AgentInventoryResult");
+        refresh.insert("machine".into());
+        assert_eq!(refresh, type_fields("AgentInventoryRefreshResult"));
+    }
+
+    #[test]
+    fn accepted_channels_and_auth_are_the_schema_enums() {
+        assert_eq!(enum_values("AgentInventoryChannel"), CHANNELS);
+        assert_eq!(enum_values("AgentInventoryAuth"), AUTH);
+    }
+
+    #[test]
+    fn forwarded_families_are_the_schema_enum() {
+        assert_eq!(enum_values("AgentInventoryFamily"), FAMILIES);
+        let schema = sdk_schema();
+        let family = &schema["types"]["AgentInventoryHarness"]["fields"]["family"];
+        assert_eq!(family["type"]["name"], "AgentInventoryFamily");
+        assert_eq!(family["nullable"], true);
+    }
 }

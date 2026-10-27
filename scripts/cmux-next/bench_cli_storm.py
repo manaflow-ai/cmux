@@ -24,6 +24,13 @@ the count is not back to the baseline. It refuses to start when the PTYs in
 use plus the storm's terminals would reach --pty-limit (300). Then (`next`, unless --keep-daemon) it ends every terminal of
 the tag's daemon with `shutdown-daemon end_terminals` (daemon_teardown.py)
 and fails if any of its terminal hosts outlives that.
+
+Statistics: percentiles are scripts/perf-lab/perf_stats.py's pct (linear interpolation). The report's `samples`
+holds every answered (ok) request's latency per category (an error reply or a timeout is counted in `criteria`
+request_errors or unanswered, never a latency) and, for `next`, the measured window's raw frame intervals and main-thread
+busy times (debug.frames stop with `raw`; `frames` keeps the app's summary). This driver attaches to a running app
+and writes no result-v1 itself: cli-storm-session.py launches the app through bench_launch.BenchApp and records
+these samples (storm_bench_results.py, stories cli-storm and cli-storm-stress).
 """
 import argparse
 import json
@@ -39,6 +46,8 @@ import zlib
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from daemon_teardown import daemon_env, end_terminals, recorded_hosts  # noqa: E402
+from bench_frames import split_raw_frames  # noqa: E402
+from storm_bench_results import latency_row  # noqa: E402
 
 DEADLINE_S = 2.0
 CLIENT_TIMEOUT_S = DEADLINE_S + 3.0
@@ -124,13 +133,6 @@ def app_bundle(pid):
 def pid_for_tag(tag):
     out = run(["pgrep", "-f", f"cmux DEV {tag}.app/Contents/MacOS/cmux DEV"]).split()
     return int(out[0]) if out else None
-
-
-def percentile(values, p):
-    if not values:
-        return 0.0
-    ordered = sorted(values)
-    return ordered[min(len(ordered) - 1, int(round((len(ordered) - 1) * p)))]
 
 
 class NextProfile:
@@ -280,8 +282,9 @@ class NextProfile:
         result(control.call("debug.frames", {"action": "start"}))
 
     def end_measure(self, control):
-        frames = result(control.call("debug.frames", {"action": "stop"}))
-        return frames, result(control.call("debug.hangs")), result(control.call("debug.queue"))
+        """(frames summary, raw frame arrays, hangs, queue) of the measured window."""
+        frames, raw = split_raw_frames(result(control.call("debug.frames", {"action": "stop", "raw": True})))
+        return frames, raw, result(control.call("debug.hangs")), result(control.call("debug.queue"))
 
     def hangs(self, control):
         return result(control.call("debug.hangs"))
@@ -371,7 +374,7 @@ class LegacyProfile:
         pass
 
     def end_measure(self, control):
-        return None, None, None
+        return None, split_raw_frames(None)[1], None, None
 
     def hangs(self, control):
         return None
@@ -502,20 +505,61 @@ def ptys_in_use():
     return len([name for name in os.listdir("/dev") if name.startswith("ttys") and name[4:].isdigit()])
 
 
-def summarize(samples):
+def latencies_by_category(samples):
+    """{category: [latency ms, in request order]} of the storm's samples."""
     by_category = {}
-    for category, _, latency, outcome in samples:
-        entry = by_category.setdefault(category, {"latencies": [], "outcomes": {}})
-        entry["latencies"].append(latency * 1000)
-        entry["outcomes"][outcome] = entry["outcomes"].get(outcome, 0) + 1
-    report = {}
-    for category, entry in sorted(by_category.items()):
-        values = entry["latencies"]
-        report[category] = {"count": len(values), "p50_ms": percentile(values, 0.5), "p95_ms": percentile(values, 0.95),
-                            "p99_ms": percentile(values, 0.99), "max_ms": max(values), "outcomes": entry["outcomes"]}
-    values = [latency * 1000 for _, _, latency, _ in samples]
-    report["all"] = {"count": len(values), "p50_ms": percentile(values, 0.5), "p95_ms": percentile(values, 0.95),
-                     "p99_ms": percentile(values, 0.99), "max_ms": max(values) if values else 0}
+    for category, _, latency, _ in samples:
+        by_category.setdefault(category, []).append(latency * 1000)
+    return dict(sorted(by_category.items()))
+
+
+def answered_latencies(samples):
+    """latencies_by_category of the requests answered ok: the series a regression that refuses requests fast, or
+    times them out, cannot lower."""
+    return latencies_by_category([sample for sample in samples if sample[3] == "ok"])
+
+
+def unanswered(outcome):
+    """A request that got no reply: the client timed out, or its connection failed."""
+    return outcome == "client_timeout" or outcome.startswith("connection:")
+
+
+def outcome_totals(report):
+    """(unanswered, error replies) over summarize()'s categories."""
+    counts = [(o, n) for c in report.values() if "outcomes" in c for o, n in c["outcomes"].items()]
+    return (sum(n for o, n in counts if unanswered(o)),
+            sum(n for o, n in counts if o != "ok" and not unanswered(o)))
+
+
+def request_failures(report):
+    """Failures of the requests themselves, from summarize()'s `all` row: none completed, or one waited past the
+    deadline. A storm with no sample has no max to compare."""
+    every = report["all"]
+    if not every["count"]:
+        return ["no request completed (every client failed before its first request)"]
+    if every["max_ms"] > (DEADLINE_S + 0.25) * 1000:
+        return [f"a request waited {every['max_ms']:.0f} ms (> deadline {DEADLINE_S * 1000:.0f} ms)"]
+    return []
+
+
+def latency_line(report):
+    """The printed summary of each category's p50, p99 and max (ms), `-` for no value."""
+    def shown(value):
+        return "-" if value is None else f"{value:.1f}"
+    return "latency: " + ", ".join(f"{c} p50 {shown(v['p50_ms'])} p99 {shown(v['p99_ms'])} max {shown(v['max_ms'])}"
+                                   for c, v in report.items())
+
+
+def summarize(samples):
+    """Per category and over all requests: count, p50/p95/p99/max ms (perf_stats.pct, linear interpolation) and,
+    per category, the outcomes."""
+    outcomes = {}
+    for category, _, _, outcome in samples:
+        counts = outcomes.setdefault(category, {})
+        counts[outcome] = counts.get(outcome, 0) + 1
+    report = {category: {**latency_row(values), "outcomes": outcomes[category]}
+              for category, values in latencies_by_category(samples).items()}
+    report["all"] = latency_row([latency * 1000 for _, _, latency, _ in samples])
     return report
 
 
@@ -596,6 +640,8 @@ def main():
     args = parser.parse_args()
     if not 0 < args.pty_limit <= MAX_PTY_LIMIT:
         parser.error(f"--pty-limit must be between 1 and {MAX_PTY_LIMIT}")
+    if args.requests < 1:
+        parser.error("--requests must be at least 1")
 
     # Every agent on this Mac shares kern.tty.ptmx_max (511): never let a
     # storm push the PTYs in use to --pty-limit. Checked before each storm,
@@ -665,7 +711,7 @@ def main():
     while time.monotonic() - started < args.measure_seconds:
         time.sleep(0.25)
     measured_seconds = time.monotonic() - started
-    frames, hangs, queue = profile.end_measure(control)
+    frames, frames_raw, hangs, queue = profile.end_measure(control)
     peak_rss = rss_kb(pid)
     peak_footprint = footprint_mb(pid)
     load_end = os.getloadavg()
@@ -698,11 +744,10 @@ def main():
         print(f"bench: teardown {json.dumps(teardown)}")
 
     report = summarize(storm.samples)
-    lost = sum(n for c in report.values() if "outcomes" in c
-               for o, n in c["outcomes"].items() if o == "client_timeout" or o.startswith("connection:"))
-    failures = []
+    lost, errors = outcome_totals(report)
+    failures = request_failures(report)
     footprint_ratio = (after_footprint / baseline_footprint) if baseline_footprint and after_footprint else None
-    criteria = {"max_request_ms": report["all"]["max_ms"], "unanswered": lost,
+    criteria = {"max_request_ms": report["all"]["max_ms"], "unanswered": lost, "request_errors": errors,
                 "footprint_after_vs_baseline": footprint_ratio,
                 "rss_after_vs_baseline": (after_rss / baseline_rss) if baseline_rss else None,
                 "pty_holders_baseline": len(pty_baseline), "pty_holders_after": len(remaining), "pty_leaked": len(leaked),
@@ -721,8 +766,6 @@ def main():
             failures.append(f"p99 frame interval {frames['p99_ms']:.2f} ms >= 16.7 ms")
     else:
         criteria.update({"stalls_over_50ms": None, "p99_frame_ms": None})
-    if report["all"]["max_ms"] > (DEADLINE_S + 0.25) * 1000:
-        failures.append(f"a request waited {report['all']['max_ms']:.0f} ms (> deadline {DEADLINE_S * 1000:.0f} ms)")
     if lost:
         failures.append(f"{lost} requests got no answer (client timeout or dropped connection)")
     if leftover:
@@ -752,6 +795,9 @@ def main():
         "latency": report, "error_examples": storm.error_examples, "frames": frames, "hangs": hangs,
         "hangs_after_cleanup": after_hangs, "queue": queue, "leftover_tabs": leftover, "closed_by_daemon": closed_by_daemon,
         "warmup": warmup,
+        # Raw samples for result-v1 (cli-storm-session.py records them through BenchApp.record).
+        "samples": {"latency_ms": answered_latencies(storm.samples), "frame_interval_ms": frames_raw["intervals_ms"],
+                    "main_busy_ms": frames_raw["main_ms"]},
         "rss_kb": {"launch": launch_rss, "baseline": baseline_rss, "peak": peak_rss, "after": after_rss},
         "footprint_mb": {"launch": launch_footprint, "baseline": baseline_footprint, "peak": peak_footprint,
                          "after": after_footprint},
@@ -764,7 +810,7 @@ def main():
     with open(out_path, "w") as handle:
         json.dump(output, handle, indent=2)
     print(json.dumps({k: output[k] for k in ("storm_seconds", "throughput_rps", "criteria", "failures")}, indent=2))
-    print("latency: " + ", ".join(f"{c} p50 {v['p50_ms']:.1f} p99 {v['p99_ms']:.1f} max {v['max_ms']:.1f}" for c, v in report.items()))
+    print(latency_line(report))
     print(f"wrote {out_path}")
     if failures and not args.no_fail:
         sys.exit(1)

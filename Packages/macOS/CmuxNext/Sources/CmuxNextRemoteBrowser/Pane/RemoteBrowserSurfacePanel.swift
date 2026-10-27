@@ -1,7 +1,7 @@
 public import AppKit
 public import CmuxNextDesign
 
-#if DEBUG
+#if DEBUG || CMUX_BENCH_HOOKS
 /// The window of one popup surface (a date picker, autofill list or
 /// extension popup) of a remote tab: a `ContentChildPanel` of the page's
 /// window at the surface's anchor. A child window is not clipped by the page

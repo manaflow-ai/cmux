@@ -1,3 +1,4 @@
+import CmuxNextIPC
 import Foundation
 
 /// The daemon's state resources over `cmux.protocol/2`
@@ -35,17 +36,27 @@ extension StateResourceClient {
         return key
     }
 
-    /// Sends one state mutation and returns its `value`.
+    /// Sends generated state mutation `request` and returns its `value`.
     @discardableResult
-    func stateMutation<R: Decodable & Sendable>(_ operation: String, _ params: [String: JSONValue],
-                                                 as type: R.Type = JSONValue.self) async throws -> R {
-        let key = Self.stateKey(on: connection)
-        return try await connection.resourceRequest({ id in
-            ResourceRequestEnvelope(id: id, operation: operation, params: params, idempotencyKey: key)
-        }, as: ResourceMutationResult<R>.self).value
+    func stateMutation<Request: ResourceMutationRequest, R: Decodable & Sendable>(
+        _ request: Request, as type: R.Type = JSONValue.self
+    ) async throws -> R {
+        try await ResourceOperationClient(connection: connection)
+            .mutate(request, idempotencyKey: Self.stateKey(on: connection), as: ResourceMutationResult<R>.self).value
     }
 
-    static func ids(_ ids: [ResourceID]) -> JSONValue { .array(ids.map { .string($0.rawValue) }) }
+    /// Sends generated read `request` and decodes its `result` as `type`.
+    func stateRead<Request: ResourceUnkeyedRequest, R: Decodable & Sendable>(
+        _ request: Request, as type: R.Type = JSONValue.self
+    ) async throws -> R {
+        try await ResourceOperationClient(connection: connection).read(request, as: type)
+    }
+
+    /// The selector of resource `id`.
+    static func selector(_ id: ResourceID) -> ResourceSelector { ResourceSelector(rawValue: id.rawValue) }
+
+    /// An index param: negative is 0, as the hand-built params sent `max(0, index)`.
+    static func index(_ index: Int) -> UInt32 { UInt32(clamping: index) }
 
     static func field<V>(_ update: FieldUpdate<V>, into params: inout [String: JSONValue], _ key: String,
                          _ value: (V) -> JSONValue) {
@@ -80,7 +91,7 @@ extension StateResourceClient {
     /// from the history.
     @discardableResult
     public func reopenClosed(_ id: String) async throws -> ReopenedItem {
-        try await stateMutation("closed.reopen", ["closed": .string(id)], as: ReopenedItem.self)
+        try await stateMutation(V2ClosedReopenRequest(closed: id), as: ReopenedItem.self)
     }
 
     /// Reopens closed tab `tab` (`tab_…`) by its id, under that same id
@@ -95,16 +106,18 @@ extension StateResourceClient {
     ///   no closed group holds the tab (it is open, or its record is gone).
     @discardableResult
     public func reopenClosed(tab: String, fallbackPane: String?) async throws -> ReopenedItem {
-        var params: [String: JSONValue] = ["tab": .string(tab)]
-        if let fallbackPane { params["fallback_pane"] = .string(fallbackPane) }
-        return try await stateMutation("closed.reopen", params, as: ReopenedItem.self)
+        try await stateMutation(Self.reopenRequest(tab: tab, fallbackPane: fallbackPane), as: ReopenedItem.self)
+    }
+
+    /// The `closed.reopen {tab, fallback_pane?}` request.
+    static func reopenRequest(tab: String, fallbackPane: String?) -> V2ClosedReopenRequest {
+        V2ClosedReopenRequest(fallbackPane: fallbackPane.map { V2PaneID(rawValue: $0) }, tab: V2TabID(rawValue: tab))
     }
 
     /// The window ids of install `installID`'s window records (`window_record.list`).
     public func windowRecordIDs(installID: String) async throws -> [String] {
-        let list = try await connection.resourceRequest({ id in
-            ResourceRequestEnvelope(id: id, operation: "window_record.list", params: [:], idempotencyKey: nil)
-        }, as: JSONValue.self)
+        let list = try await ResourceOperationClient(connection: connection)
+            .read(V2WindowRecordListRequest(), as: JSONValue.self)
         return (list.arrayValue ?? []).compactMap { record in
             record["install_id"]?.stringValue == installID ? record["window_id"]?.stringValue : nil
         }
@@ -113,27 +126,24 @@ extension StateResourceClient {
     /// Puts this install's record of window `windowID` (`window_record.put`,
     /// single writer per record, so no revision precondition).
     public func putWindowRecord(installID: String, windowID: String, record: JSONValue) async throws {
-        try await stateMutation("window_record.put", ["install_id": .string(installID), "window_id": .string(windowID),
-                                                      "record": record])
+        try await stateMutation(V2WindowRecordPutRequest(installID: installID, record: ResourceJSON(record), windowID: windowID))
     }
 
     /// Deletes this install's record of window `windowID` (`window_record.delete`).
     public func deleteWindowRecord(installID: String, windowID: String) async throws {
-        try await stateMutation("window_record.delete", ["install_id": .string(installID), "window_id": .string(windowID)])
+        try await stateMutation(V2WindowRecordDeleteRequest(installID: installID, windowID: windowID))
     }
 
     /// Deletes closed group `id` for good (Delete Permanently, `closed.delete`):
     /// it cannot be reopened, and its terminal archives go with it.
     public func deleteClosed(_ id: String) async throws {
-        try await stateMutation("closed.delete", ["closed": .string(id)])
+        try await stateMutation(V2ClosedDeleteRequest(closed: id))
     }
 
     /// Deletes every closed group, or every group closed at or after
     /// `sinceMs` (Clear Recently Closed, `closed.delete {all}`).
     public func deleteAllClosed(sinceMs: UInt64?) async throws {
-        var params: [String: JSONValue] = ["all": .bool(true)]
-        if let sinceMs { params["since_ms"] = .string(String(sinceMs)) }
-        try await stateMutation("closed.delete", params)
+        try await stateMutation(V2ClosedDeleteRequest(all: true, sinceMs: sinceMs.map { String($0) }))
     }
 
     // MARK: Workspaces
@@ -158,21 +168,18 @@ extension StateResourceClient {
     @discardableResult
     public func createWorkspace(name: String?, ephemeral: Bool, terminal: Bool, focus: Bool) async throws -> CreatedWorkspace {
         let supportsFocus = await connection.identity?.supports(DaemonCapability.workspaceCreateFocus.rawValue) == true
-        let params: [String: JSONValue] = Self.workspaceCreateParams(name: name, ephemeral: ephemeral, terminal: terminal,
-                                                                     focus: focus, daemonSupportsFocus: supportsFocus)
-        return try await stateMutation("workspace.create", params, as: CreatedWorkspace.self)
+        let request = Self.workspaceCreateRequest(name: name, ephemeral: ephemeral, terminal: terminal,
+                                                  focus: focus, daemonSupportsFocus: supportsFocus)
+        return try await stateMutation(request, as: CreatedWorkspace.self)
     }
 
-    /// The `workspace.create` params. `focus` is sent only to a daemon with
+    /// The `workspace.create` request. `focus` is sent only to a daemon with
     /// `workspace-create-focus-v1`: an older one refuses the field and
     /// focuses every new workspace anyway.
-    static func workspaceCreateParams(name: String?, ephemeral: Bool, terminal: Bool,
-                                      focus: Bool, daemonSupportsFocus: Bool) -> [String: JSONValue] {
-        var params: [String: JSONValue] = ["initial_content": .string(terminal ? "terminal" : "empty")]
-        if let name { params["name"] = .string(name) }
-        if ephemeral { params["ephemeral"] = .bool(true) }
-        if focus, daemonSupportsFocus { params["focus"] = .bool(true) }
-        return params
+    static func workspaceCreateRequest(name: String?, ephemeral: Bool, terminal: Bool,
+                                       focus: Bool, daemonSupportsFocus: Bool) -> V2WorkspaceCreateRequest {
+        V2WorkspaceCreateRequest(ephemeral: ephemeral ? true : nil, focus: focus && daemonSupportsFocus ? true : nil,
+                                 initialContent: terminal ? .terminal : .empty, name: name)
     }
 
     /// Workspace title, color, icon, description (`workspace-description-v1`) and manual task
@@ -182,21 +189,26 @@ extension StateResourceClient {
                                 color: FieldUpdate<String> = .unchanged, icon: FieldUpdate<String> = .unchanged,
                                 description: FieldUpdate<String> = .unchanged,
                                 taskStatus: FieldUpdate<WorkspaceTaskStatus> = .unchanged) async throws {
-        var params: [String: JSONValue] = ["workspace": .string(workspace.rawValue)]
-        Self.field(title, into: &params, "title") { .string($0) }
-        Self.field(color, into: &params, "color") { .string($0) }
-        Self.field(icon, into: &params, "icon") { .string($0) }
-        Self.field(description, into: &params, "description") { .string($0) }
-        Self.field(taskStatus, into: &params, "task_status") { .string($0.rawValue) }
-        try await stateMutation("workspace.update", params)
+        try await stateMutation(Self.workspaceUpdateRequest(workspace, title: title, color: color, icon: icon,
+                                                            description: description, taskStatus: taskStatus))
+    }
+
+    /// The `workspace.update` request: an `.unchanged` field is left out, `.clear` sends `null`.
+    static func workspaceUpdateRequest(_ workspace: ResourceID, title: FieldUpdate<String>, color: FieldUpdate<String>,
+                                       icon: FieldUpdate<String>, description: FieldUpdate<String>,
+                                       taskStatus: FieldUpdate<WorkspaceTaskStatus>) -> V2WorkspaceUpdateRequest {
+        V2WorkspaceUpdateRequest(
+            workspace: selector(workspace), color: color.resourceField { $0 }, description: description.resourceField { $0 },
+            icon: icon.resourceField { $0 },
+            taskStatus: taskStatus.resourceField { V2WorkspaceUpdateRequest.TaskStatus(rawValue: $0.rawValue) },
+            title: title.resourceField { $0 })
     }
 
     /// The folder new agent chats of the workspace start in (`workspace.agent_folder.set`); nil
     /// clears it. The daemon takes it only from the verified app (origin `user`) and only as an
     /// absolute, existing, canonical folder.
     public func setAgentFolder(_ workspace: ResourceID, path: String?) async throws {
-        let params: [String: JSONValue] = ["workspace": .string(workspace.rawValue), "path": path.map(JSONValue.string) ?? .null]
-        try await stateMutation("workspace.agent_folder.set", params)
+        try await stateMutation(V2WorkspaceAgentFolderSetRequest(workspace: Self.selector(workspace), path: path))
     }
 
     /// Workspace identity through `workspace.update` when `resource` (the
@@ -212,19 +224,27 @@ extension StateResourceClient {
 
     /// `tab.pin` / `tab.unpin`: pinned tabs sort first and leave any group.
     public func setTabPinned(_ tab: ResourceID, _ pinned: Bool) async throws {
-        try await stateMutation(pinned ? "tab.pin" : "tab.unpin", ["tab": .string(tab.rawValue)])
+        if pinned {
+            try await stateMutation(V2TabPinRequest(tab: Self.selector(tab)))
+        } else {
+            try await stateMutation(V2TabUnpinRequest(tab: Self.selector(tab)))
+        }
     }
 
     /// The tab record's zoom, user icon and a browser tab's back/forward lists (`tab.update`).
     public func updateTabRecord(_ tab: ResourceID, zoom: FieldUpdate<Double> = .unchanged, icon: FieldUpdate<String> = .unchanged,
                                 back: [String]? = nil, forward: [String]? = nil, markedUnread: Bool? = nil) async throws {
-        var params: [String: JSONValue] = ["tab": .string(tab.rawValue)]
-        // tab-mark-unread-v1: the caller checks the capability; an older daemon refuses the field.
-        if let markedUnread { params["marked_unread"] = .bool(markedUnread) }
-        Self.field(zoom, into: &params, "zoom") { .number($0) }
-        Self.field(icon, into: &params, "icon") { .string($0) }
-        if let back { params["back"] = .array(back.suffix(20).map { .string($0) }) }
-        if let forward { params["forward"] = .array(forward.prefix(20).map { .string($0) }) }
-        try await stateMutation("tab.update", params)
+        try await stateMutation(Self.tabRecordUpdateRequest(tab, zoom: zoom, icon: icon, back: back, forward: forward,
+                                                            markedUnread: markedUnread))
+    }
+
+    /// The `tab.update` request: at most the newest 20 back and the nearest 20 forward URLs.
+    /// `markedUnread` is tab-mark-unread-v1: the caller checks the capability; an older daemon
+    /// refuses the field.
+    static func tabRecordUpdateRequest(_ tab: ResourceID, zoom: FieldUpdate<Double>, icon: FieldUpdate<String>,
+                                       back: [String]?, forward: [String]?, markedUnread: Bool?) -> V2TabUpdateRequest {
+        V2TabUpdateRequest(tab: selector(tab), back: back.map { Array($0.suffix(20)) },
+                           forward: forward.map { Array($0.prefix(20)) }, icon: icon.resourceField { $0 },
+                           markedUnread: markedUnread, zoom: zoom.resourceField { $0 })
     }
 }

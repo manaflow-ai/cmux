@@ -111,7 +111,7 @@ pub(crate) fn parse_resource_line(message: &str) -> Option<Result<RequestEnvelop
 }
 
 fn is_resource_protocol_message(message: &str) -> bool {
-    serde_json::from_str::<Value>(message)
+    crate::line_parses::parse::<Value>(message)
         .ok()
         .and_then(|value| value.as_object().cloned())
         .is_some_and(|object| object.contains_key("protocol"))
@@ -162,7 +162,7 @@ pub(crate) fn handle_trusted_local_auxiliary(
 }
 
 pub(crate) fn malformed_resource_response(message: &str, error: ResourceError) -> Value {
-    let request = serde_json::from_str::<Value>(message).ok();
+    let request = crate::line_parses::parse::<Value>(message).ok();
     let raw_id = request.as_ref().and_then(|value| value.get("id"));
     let id = raw_id
         .and_then(Value::as_str)
@@ -228,7 +228,7 @@ fn parse_resource_envelope(message: &str) -> Result<RequestEnvelope, ResourceErr
             json!({"bytes":message.len(),"maximum":crate::resource::MAX_MESSAGE_BYTES}),
         ));
     }
-    serde_json::from_str::<RequestEnvelope>(message).map_err(|error| {
+    crate::line_parses::parse::<RequestEnvelope>(message).map_err(|error| {
         validation_error("invalid request envelope", json!({"error":error.to_string()}))
     })
 }

@@ -17,7 +17,6 @@ enum AgentPaneTheme {
     /// after a drag ends.
     static func values(_ tokens: ThemeTokens, motion: MotionPolicy = Motion.web.policyIgnoringLiveResize,
                        surface: SurfaceKind = .agentPane) -> [String: any Sendable] {
-        AgentPaneTunables.followCodexToolRuns()
         let page = pageColor(tokens, surface: surface)
         var opaquePage = tokens.contentBackground
         opaquePage.alpha = 1
@@ -78,9 +77,10 @@ enum AgentPaneTheme {
                 "fadeOut": motion.duration(MotionFade.fadeOut),
                 "move": motion.duration(MotionSpring.move),
             ],
-            // Static status indicators, or Reduce Motion (cx-sya4n): the page stops its status
-            // loops and draws a shape per state (`data-status-indicators`).
-            "statusIndicators": motion.reduceMotion || DesignSettings.shared.statusIndicator.animation == .static ? "static" : "animated",
+            // Static status indicators, Reduce Motion (cx-sya4n) or Energy Saver (p14-energy-027):
+            // the page stops its status loops and draws a shape per state (`data-status-indicators`).
+            "statusIndicators": motion.reduceMotion || motion.energySaver
+                || DesignSettings.shared.statusIndicator.animation == .static ? "static" : "animated",
             // How agent work shows on the transcript's running rows (`data-working-look`).
             "workingLook": StatusWorkingLook.tunable.value.rawValue,
         ]

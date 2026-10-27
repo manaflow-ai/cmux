@@ -1128,6 +1128,15 @@ Each file is in exactly one task. Section 8 lists the planned cut (FG300-FG346),
 - Acceptance: one source of window visibility; miniaturize then deminiaturize flips the node
   twice.
 - Test phase: fleet WindowEventsTests, Tabs tests.
+- Decision (review of the first pass; pending PL-switch's OK): WindowDrawPolicy.onScreen does
+  not read the node. It applies the node's own rule (`WindowVisibilitySource.appKitState(of:)`)
+  to AppKit's live state. The draw readers (TerminalSurfaceView, SurfaceInvariantMonitor) observe
+  `didChangeOcclusionState` themselves, and Foundation does not document observer order, so a
+  cached node can be stale in their handler and no second notice corrects it. The app node adds
+  nothing for drawing: AppKit already leaves every window occluded while the app is hidden or
+  the displays sleep. The node's effective state serves the flip subscribers (tab strip,
+  sidebar, workspace nodes). Draw readers can read the node once they subscribe to it instead
+  of the notice (follow-up with PL-ghostty).
 
 **p06-scheduler-023: Workspace nodes.**
 - Files: `CmuxNextApp/WorkspaceContentController.swift`, `Windows/WindowController.swift`.
@@ -1249,6 +1258,17 @@ Each file is in exactly one task. Section 8 lists the planned cut (FG300-FG346),
 - Acceptance: 1000 title events across 50 workspaces → recomputeSidebar 0 times; the counters
   prove it.
 - Test phase: fleet DrainCostTests; script-storm-bench `--hidden` drain p99 <= 1 ms.
+- As built: the unread sum (`UnreadLedger`, kept by StoreIndex) and the workspace-list check (an
+  order-free digest in StoreIndex) cost the workspaces that joined, left or changed their own count.
+  `recomputeSidebar` is still O(workspaces), but runs only for a batch that changed the order, the
+  membership or a group; a replayed add, a move to its own place and the lift and restore of an
+  unchanged overlay run none. `debug.drain_cost` reports the histogram (the owner ledger's buckets)
+  and the counters; script-storm-bench `--hidden` reads its p99.
+- Follow-up (p06-scheduler-033b): patch only the sidebar sections a batch touches. Placing a moved
+  workspace inside its section needs its daemon-order position without a walk of the list (an
+  order-statistic index over `workspaces`); until then one flattening is O(workspaces).
+- Follow-up (to p09-observability-000): a `HistogramID` for the drain (in us, owner PL-daemon), so
+  each drain also records through `Metrics`; the catalog is frozen, so DrainCost keeps a local one.
 
 **p06-scheduler-034: Lock admission by class.**
 - Files: `mux/signaled_mutex.rs`, `lock_rank.rs`, `diagnostics.rs` (per-class LockStats), the
@@ -1387,6 +1407,17 @@ Each file is in exactly one task. Section 8 lists the planned cut (FG300-FG346),
 - Files: `CmuxNextApp/Control/ControlSnapshotPublisher.swift`, ControlSnapshotLazyPublishTests.
 - Change: publishNow runs as background behind a dirty flag. A fresh-snapshot reader promotes it
   to automation for its request. The 2 tracking loops become `ServiceObservation(.background)`.
+- Deviation (as built): the 2 loops are not `ServiceObservation`s. They are one shared one-shot
+  tracking with a dirty bit (`DirtyTracking` in the publisher file). It arms again only when a
+  publish reads, and it calls the publisher on the first change. `ServiceObservation` is wrong here
+  for 2 reasons. It reads again on every flush, and the topology read is the whole build. It also
+  flushes a person-caused change in the input-response pass, and here the reader's need sets the
+  class, not the cause. A reader that waits raises the pending publish to automation through the
+  store's `waiterAdded` hook, also when it starts to wait after the change (`action.run`,
+  `after: "sync"`). A model change does not mark the store stale. Only a work-queue frame does, so
+  a plain read gets the last published value. `system.ping`, `debug.hangs` and `debug.queue`
+  (`readingLastPublished()`) never wait for a build, and `fresh(deadline:)` is bounded by the
+  request deadline.
 - Acceptance: 50 changes in a frame → 1 publish; never inside an input-response window.
 - Test phase: fleet ControlSnapshotLazyPublishTests; sidebar-churn-typing.py.
 

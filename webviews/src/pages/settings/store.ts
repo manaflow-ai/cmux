@@ -214,8 +214,11 @@ export class SettingsStore {
     const stopTransport = await this.transport.subscribe({
       changed: (event) => {
         if (this.disposed) return;
-        // Another writer changed these keys: an older refusal no longer applies.
-        if (event.keys.some((key) => this.ui.errors.has(key))) {
+        // Another writer changed these keys: an older refusal no longer applies. After a gap the
+        // dropped events' keys are unknown, so no refusal is known to still apply.
+        if (event.gap === true) {
+          if (this.ui.errors.size > 0) this.updateUi({ errors: new Map() });
+        } else if (event.keys.some((key) => this.ui.errors.has(key))) {
           const errors = new Map(this.ui.errors);
           for (const key of event.keys) errors.delete(key);
           this.updateUi({ errors });
@@ -519,6 +522,13 @@ export class SettingsStore {
   /** Settings > Chief > Voice input: turn the message box's mic on or off, then re-read the host lists. */
   async setVoiceInput(on: boolean): Promise<void> {
     await this.request("cmux.settings.voice_input.set", { on });
+    await this.refreshHost();
+  }
+
+  /** Experimental > Feature Flags: a feature on, off or back to no choice (null) for the next launch, then re-read
+   * the host lists. */
+  async setLocalFeature(name: string, on: boolean | null): Promise<void> {
+    await this.request("cmux.settings.features.set", { name, on });
     await this.refreshHost();
   }
 

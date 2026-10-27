@@ -250,9 +250,13 @@ impl Mux {
         if !retention.worker_started.swap(true, Ordering::AcqRel) {
             let shared = retention.shared.clone();
             let mux = Arc::downgrade(self);
-            let spawned = std::thread::Builder::new()
-                .name("journal-retention".into())
-                .spawn(move || run_retention_worker(&shared, &mux));
+            let spawned = cmux_threads::spawn(
+                "journal-retention",
+                crate::request_qos::UPKEEP_THREAD_QOS,
+                move || {
+                    run_retention_worker(&shared, &mux);
+                },
+            );
             if let Err(error) = spawned {
                 retention.worker_started.store(false, Ordering::Release);
                 eprintln!("cmux-tui: could not start the journal retention worker: {error}");
@@ -388,15 +392,16 @@ fn run_retention_worker(shared: &RetentionShared, mux: &Weak<Mux>) {
         }
         let now = Instant::now();
         let Some(due) = schedule.due_at() else {
-            schedule = shared.changed.wait(schedule).unwrap_or_else(PoisonError::into_inner);
+            schedule = cmux_threads::checked::sync::wait(&shared.changed, schedule)
+                .unwrap_or_else(PoisonError::into_inner);
             continue;
         };
         if due > now {
-            schedule = shared
-                .changed
-                .wait_timeout(schedule, due - now)
-                .unwrap_or_else(PoisonError::into_inner)
-                .0;
+            // wakeup-allow: deadline the next retention due time; with nothing due the wait above is untimed
+            schedule =
+                cmux_threads::checked::sync::wait_timeout(&shared.changed, schedule, due - now)
+                    .unwrap_or_else(PoisonError::into_inner)
+                    .0;
             continue;
         }
         let Some(batch) = schedule.take_due(now) else { continue };
@@ -404,7 +409,10 @@ fn run_retention_worker(shared: &RetentionShared, mux: &Weak<Mux>) {
         // Hold the mux only for the capture: the last owner may drop it here,
         // and its drop must not find this worker holding the schedule.
         let outcome = match mux.upgrade() {
-            Some(mux) => mux.capture_coalesced_checkpoint(&batch),
+            Some(mux) => {
+                let _pass = mux.request_qos().enter_upkeep_pass();
+                mux.capture_coalesced_checkpoint(&batch)
+            }
             None => return,
         };
         schedule = shared.schedule.lock().unwrap_or_else(PoisonError::into_inner);

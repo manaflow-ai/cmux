@@ -2,6 +2,7 @@
 import CmuxNextBrowser
 @testable import CmuxNextDaemon
 import CmuxNextInput
+import CmuxNextWakeups
 import Testing
 
 /// Both engines and the App ask one set of incognito profiles (`BrowserSharedStores`): a second
@@ -10,8 +11,8 @@ import Testing
     @Test func anIncognitoProfileBegunOnTheAppsStoresIsOffTheRecordInBothEngines() {
         let stores = BrowserSharedStores.inMemory()
         let cache = TabContentCache(daemon: DaemonService(),
-                                    cef: CEFEngine(layout: nil, stores: stores, signInCallbacks: CEFSignInCallbacks(), input: InputEventTap()),
-                                    fileInput: NoFileInput())
+                                    chromium: ChromiumEngineSlot(CEFEngine(layout: nil, stores: stores, signInCallbacks: CEFSignInCallbacks(), input: InputEventTap())),
+                                    fileInput: NoFileInput(), mainWork: MainWorkScheduler(budget: MainFrameBudget()))
         let profile = stores.offTheRecord.begin()
 
         #expect(cache.webKit.profileStore.isOffTheRecord(profile))

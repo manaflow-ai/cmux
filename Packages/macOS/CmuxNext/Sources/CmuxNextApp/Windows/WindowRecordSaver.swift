@@ -13,7 +13,7 @@ struct WindowRecordSaves {
     /// answers after the record is stored (plans/cmux-next/state-ownership.md 3 and 4).
     var tickets: [CommandTicket] = []
     /// The task draining saves, so the quit flush can await it.
-    var drain: Task<Void, Never>?
+    var drain: Task<Void, any Error>?
 }
 
 /// Writes the window records in the daemon's `personal` projection (state-ownership.md 3): tab per
@@ -22,8 +22,8 @@ struct WindowRecordSaves {
 @MainActor
 final class WindowRecordSaver {
     unowned let manager: WindowManager
-    /// Debounced save of window geometry (architecture.md 1: 500 ms).
-    let geometryTimer = DemandTimer(owner: "WindowManager.geometry")
+    /// Debounced save of window geometry (architecture.md 1: 500 ms): persistence nobody sees, `background`.
+    let geometryTimer: MainDeadline
     /// The focused pane's save waits for the commit that shows the move (``focusDidSettle(_:pane:)``).
     private var afterCommit: CommitProbe?
     /// A focused-pane save waits for that commit, or for ``afterCommitDeadline``.
@@ -31,8 +31,9 @@ final class WindowRecordSaver {
     /// Tickets of the focus moves that wait for that commit: they join the save that follows it
     /// (not a write already in flight, which does not carry their pane).
     private var focusTickets: [CommandTicket] = []
-    /// The deadline of a focused-pane save whose window shows no commit (occluded, unlit).
-    private let afterCommitTimer = DemandTimer(owner: "WindowRecordSaver.afterCommit")
+    /// The deadline of a focused-pane save whose window shows no commit (occluded, unlit). Nothing shows,
+    /// but an action's reply (`action.run`) waits on that save: `automation`.
+    private let afterCommitTimer: MainDeadline
     static let afterCommitDeadline: Duration = .milliseconds(100)
     /// Coalesced saves of the window records.
     var saves = WindowRecordSaves()
@@ -41,8 +42,13 @@ final class WindowRecordSaver {
     private var selectedTabsCache: [String: (key: SelectedTabsKey, tabs: [String: String])] = [:]
     private var services: AppServices { manager.services }
 
-    init(manager: WindowManager) {
+    /// - Parameters:
+    ///   - manager: The window manager that owns it.
+    ///   - deadlines: The app's one main-thread deadline scheduler.
+    init(manager: WindowManager, deadlines: MainDeadlineScheduler) {
         self.manager = manager
+        geometryTimer = MainDeadline(owner: "WindowManager.geometry", workClass: .background, scheduler: deadlines)
+        afterCommitTimer = MainDeadline(owner: "WindowRecordSaver.afterCommit", workClass: .automation, scheduler: deadlines)
     }
 
     /// A selection, focus, membership or sidebar change: save on the next turn.
@@ -54,7 +60,7 @@ final class WindowRecordSaver {
     /// A frame change: save once it has settled for 500 ms.
     func geometryDidChange(_ state: WindowState) {
         guard manager.restored, !manager.isTerminating else { return }
-        geometryTimer.schedule(after: .milliseconds(500)) { @MainActor [weak self] in self?.requestSave() }
+        geometryTimer.schedule(after: .milliseconds(500)) { [weak self] in self?.requestSave() }
     }
 
     func scheduleSave() {
@@ -77,8 +83,8 @@ final class WindowRecordSaver {
         let probe = afterCommit ?? CommitProbe { [weak self] _, _ in self?.commitShowedFocus() }
         afterCommit = probe
         probe.mark(in: host)
-        // Bounded, cancellable deadline (DemandTimer): a window that commits nothing still saves.
-        afterCommitTimer.schedule(after: Self.afterCommitDeadline) { @MainActor [weak self] in self?.commitShowedFocus() }
+        // Bounded, cancellable deadline: a window that commits nothing still saves.
+        afterCommitTimer.schedule(after: Self.afterCommitDeadline) { [weak self] in self?.commitShowedFocus() }
     }
 
     /// The commit that shows a focus move ran (or its deadline passed): the save it waited for starts.
@@ -102,19 +108,18 @@ final class WindowRecordSaver {
     private func scheduleDrain() {
         guard saves.requested, !saves.inFlight, !saves.scheduled else { return }
         saves.scheduled = true
-        // Not part of any action's scope: a projection write keeps a fresh
-        // mutation id (its CAS retries must not replay an earlier write).
-        DaemonCommandScope.$current.withValueInTask(nil) {
-            // task-owner: one coalesced save per main-actor turn; drainSaves ends when no save is requested
-            saves.drain = Task { @MainActor [weak self] in await self?.drainSaves() }
-        }
+        // A detached task (BackgroundWork) inherits no action's scope (`DaemonCommandScope`): a projection write
+        // keeps a fresh mutation id (its CAS retries must not replay an earlier write). `userVisible`: an action's
+        // reply waits on its ticket. The drain reaches main a turn later, so requests of one turn share one write.
+        // task-owner: one coalesced save per main-actor turn; drainSaves ends when no save is requested
+        saves.drain = services.work.task(.userVisible) { [weak self] in await self?.drainSaves() }
     }
 
     /// Writes the records once more after any write in flight, so an older one cannot land after it (quit).
     func flushSaves() async {
         commitShowedFocus()
         requestSave()
-        await saves.drain?.value
+        _ = await saves.drain?.result
     }
 
     private func drainSaves() async {

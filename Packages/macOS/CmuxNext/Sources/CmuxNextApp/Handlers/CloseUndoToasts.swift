@@ -6,6 +6,7 @@ import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextTabs
+import CmuxNextWakeups
 import Observation
 
 /// REOPEN-CLOSED (R102/R103): tabs the user closes (Cmd-W, a tab's close
@@ -110,26 +111,39 @@ final class CloseUndoToasts {
     func noteReopenTabsArrived(_ arrived: Duration) {
         lastReopen?.tabsArrived = arrived
     }
-    private var observation: Task<Void, Never>?
+    /// Follows each machine's closed list revision; released with the service. A service
+    /// observation: a close's toast comes from its records even while its window is hidden.
+    private var observation: ServiceObservation<[String]>?
+    /// How many times the observation applied, its first apply included (tests: a change outside
+    /// the closed lists reads no closed list).
+    private(set) var closedListApplies = 0
     static let toastID = "tab-closed"
 
     init(services: AppServices) {
         self.services = services
         let machines = services.machines
         seenDaemonItems = Set(Self.daemonItemIDs(machines.daemons))
-        // task-owner: the service (cancelled in deinit); event-driven (Observation)
-        observation = Task { [weak self] in
-            for await ids in ObservationStream({ Self.daemonItemIDs(machines.daemons) }) {
-                self?.daemonItemsChanged(ids)
-            }
+        observation = ServiceObservation(.visible, owner: "CloseUndoToasts.closedItems", on: services.mainWork) {
+            Self.revisions(of: machines.daemons)
+        } apply: { [weak self] _ in
+            guard let self else { return }
+            closedListApplies += 1
+            daemonItemsChanged(Self.daemonItemIDs(machines.daemons))
         }
     }
 
     // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
     // Each handle here is Sendable and stops from any thread: a release off main cleans up too.
     nonisolated deinit {
-        observation?.cancel()
         reopenWatch?.cancel()
+    }
+
+    /// One closed list revision per machine that serves closed history, O(machines): the
+    /// observation reads the lists themselves only after one of them changed.
+    private static func revisions(of daemons: [DaemonService]) -> [String] {
+        daemons.compactMap { daemon in
+            daemon.store.servesStateResources ? "\(daemon.machineID):\(daemon.store.session.closedRevision)" : nil
+        }
     }
 
     private static func daemonItemIDs(_ daemons: [DaemonService]) -> [String] {
@@ -211,6 +225,7 @@ final class CloseUndoToasts {
             run(terminals.contains { asked[$0.surface].flatMap { $0 } != nil })
         case .askTerminals(let terminals):
             // task-owner: one bounded process-info read per terminal (1 s each, concurrent), then the close
+            // main-hop-allow: the person's close waits on it (userBlocking, p06 rule 2): it awaits the main-actor process-info reads; post has no userBlocking class (task 208)
             Task { @MainActor in run(!(await DestructiveConfirmation.runningPrograms(of: terminals, on: daemon)).isEmpty) }
         }
     }

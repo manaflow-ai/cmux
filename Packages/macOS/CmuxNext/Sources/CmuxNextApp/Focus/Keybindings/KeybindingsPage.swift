@@ -74,7 +74,7 @@ final class KeybindingsPageService: InternalPageProvider {
         await (content as? PageWebView)?.discardViewState() ?? ContentViewState()
     }
 
-    func restoreViewState(_ state: ContentViewState, for key: String, content: NSView) {
+    func restoreViewState(_ state: ContentViewState, for key: String, content: NSView) async {
         (content as? PageWebView)?.restoreDiscardViewState(state)
     }
 

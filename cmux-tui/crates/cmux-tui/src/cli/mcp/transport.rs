@@ -372,7 +372,7 @@ pub(super) fn watch_app_events(
 /// `CMUX_BROWSER_HOST_SOCKET`, else `$XDG_RUNTIME_DIR/cmux/browser-host.sock`,
 /// else `$TMPDIR/cmux-<uid>/browser-host.sock`.
 pub(super) fn browser_host_socket() -> std::path::PathBuf {
-    let env = |name: &str| std::env::var_os(name).filter(|value| !value.is_empty());
+    let env = |name: &str| super::super::caller_env::var_os(name).filter(|value| !value.is_empty());
     if let Some(path) = env("CMUX_BROWSER_HOST_SOCKET") {
         return path.into();
     }
@@ -389,7 +389,8 @@ pub(super) fn browser_host_socket() -> std::path::PathBuf {
 /// in that agent's presence colour. Display only; the agent cannot name it.
 fn with_caller_terminal(method: &str, mut params: Value) -> Value {
     let opens = matches!(method, "browser.repl.open" | "browser.repl.eval" | "browser.repl.reset");
-    let terminal = std::env::var("CMUX_TUI_TERMINAL_ID").ok().filter(|id| !id.is_empty());
+    let terminal =
+        super::super::caller_env::var("CMUX_TUI_TERMINAL_ID").filter(|id| !id.is_empty());
     if let (true, Some(terminal), Some(fields)) = (opens, terminal, params.as_object_mut()) {
         fields.insert("terminal".into(), Value::String(terminal));
     }

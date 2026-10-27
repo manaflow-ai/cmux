@@ -128,7 +128,7 @@ public struct DaemonIdentity: Sendable, Hashable, Decodable {
 
 public struct IdentifyRequest: DaemonRequest {
     public typealias Response = DaemonIdentity
-    public static let command = "identify"
+    public static let commandName: DaemonCommandName = "identify"
     /// Explicit owner metadata; omission keeps the original raw response shape.
     public var machineMetadata: Bool?
     public init(machineMetadata: Bool? = nil) { self.machineMetadata = machineMetadata }
@@ -137,7 +137,7 @@ public struct IdentifyRequest: DaemonRequest {
 
 public struct SetClientInfoRequest: DaemonRequest {
     public typealias Response = EmptyResponse
-    public static let command = "set-client-info"
+    public static let commandName: DaemonCommandName = "set-client-info"
     public var name: String?
     public var kind: String?
     public var capabilities: [String]?
@@ -151,5 +151,9 @@ public struct SetClientInfoRequest: DaemonRequest {
         self.capabilities = capabilities
         self.deviceKind = deviceKind
         self.deviceName = deviceName
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case name, kind, capabilities, deviceKind = "device_kind", deviceName = "device_name"
     }
 }

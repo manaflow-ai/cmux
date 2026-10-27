@@ -148,6 +148,39 @@ final class RecordingConsumer: MemoryConsumer {
     }
 }
 
+/// A consumer that frees one entry per release call and yields the rest of the slice, as the
+/// terminal warm set closes one surface per frame.
+@MainActor
+final class PacedConsumer: MemoryConsumer {
+    let name: String
+    let fullEntries: Int
+    private(set) var entries: Int
+    private let log: CallLog
+
+    init(name: String, entries: Int, log: CallLog) {
+        self.name = name
+        fullEntries = entries
+        self.entries = entries
+        self.log = log
+    }
+
+    func updateMemoryLimit(_ limit: MemoryLimit) {
+        log.record(.limit(name, limit.percent))
+    }
+
+    func releaseMemory(within slice: MemoryReleaseSlice) -> MemoryReleaseProgress {
+        log.record(.release(name))
+        let cap = slice.limit.scale(fullEntries)
+        guard entries > cap else { return .done }
+        entries -= 1
+        return entries > cap ? .yield : .done
+    }
+
+    var memoryUsage: MemoryUsage? {
+        MemoryUsage(footprintBytes: entries * 1_024, entries: entries)
+    }
+}
+
 /// Traits of a managed consumer, with the parts the coordinator orders and limits by.
 @MainActor
 func managedTraits(

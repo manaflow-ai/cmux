@@ -1,7 +1,10 @@
 //! The seven `fs-v1` ops on the daemon's roots. Params and results are the
-//! shapes of the request file `daemon-fs-for-cloud.md` ("Exact wire JSON").
+//! shapes of the request file `daemon-fs-for-cloud.md` ("Exact wire JSON");
+//! server/fs_wire.rs decodes a line into one of the params structs here by
+//! its `cmd`.
 
-use std::fs::File;
+use cmux_threads::checked::fs as files;
+use files::File;
 use std::os::fd::AsFd;
 use std::os::unix::fs::FileExt as _;
 use std::sync::Mutex;
@@ -9,7 +12,6 @@ use std::time::Instant;
 
 use base64::Engine as _;
 use serde::Deserialize;
-use serde::de::DeserializeOwned;
 use serde_json::{Value, json};
 
 use super::entry::{Entry, EntryKind, Meta, StatResult, check_name, mode_display};
@@ -31,12 +33,12 @@ const MAX_DELETE_PATHS: usize = 1000;
 const MAX_RESOLVED_SYMLINKS: usize = 256;
 
 #[derive(Deserialize)]
-struct PathParams {
-    path: String,
+pub(crate) struct PathParams {
+    pub(crate) path: String,
 }
 
 #[derive(Deserialize)]
-struct ListParams {
+pub(crate) struct ListParams {
     #[serde(default)]
     path: Option<String>,
     #[serde(default)]
@@ -56,7 +58,7 @@ fn default_limit() -> usize {
 }
 
 #[derive(Deserialize)]
-struct ReadParams {
+pub(crate) struct ReadParams {
     path: String,
     #[serde(default)]
     offset: u64,
@@ -64,7 +66,7 @@ struct ReadParams {
 }
 
 #[derive(Deserialize)]
-struct WriteParams {
+pub(crate) struct WriteParams {
     path: String,
     #[serde(default)]
     text: Option<String>,
@@ -80,13 +82,13 @@ struct WriteParams {
 }
 
 #[derive(Deserialize)]
-struct NameParams {
-    path: String,
-    name: String,
+pub(crate) struct NameParams {
+    pub(crate) path: String,
+    pub(crate) name: String,
 }
 
 #[derive(Deserialize)]
-struct DeleteParams {
+pub(crate) struct DeleteParams {
     paths: Vec<String>,
     #[serde(default)]
     permanent: bool,
@@ -114,27 +116,6 @@ impl FsService {
         super::sweep::remove_stale_temporaries(&self.roots, std::time::SystemTime::now())
     }
 
-    /// Runs the op `cmd` with the request object `params` (flat, next to
-    /// `id` and `cmd`). `owner` keys the caller's listing snapshots.
-    pub fn call(&self, owner: &str, cmd: &str, params: Value) -> Result<Value, FsError> {
-        match cmd {
-            "fs.stat" => to_value(&self.stat(&parse::<PathParams>(params)?.path)?),
-            "fs.list" => self.list(owner, parse(params)?),
-            "fs.read" => self.read(parse(params)?),
-            "fs.write" => self.write(parse(params)?),
-            "fs.mkdir" => {
-                let params: NameParams = parse(params)?;
-                Ok(json!({ "entry": self.mkdir(&params.path, &params.name)? }))
-            }
-            "fs.rename" => {
-                let params: NameParams = parse(params)?;
-                Ok(json!({ "entry": self.rename(&params.path, &params.name)? }))
-            }
-            "fs.delete" => self.delete(parse(params)?),
-            _ => Err(FsError::ParamsInvalid("unknown fs op".into())),
-        }
-    }
-
     pub fn stat(&self, path: &str) -> Result<StatResult, FsError> {
         let resolved = self.roots.resolve(path, false)?;
         let stat = lstat_resolved(&resolved)?;
@@ -152,7 +133,8 @@ impl FsService {
         })
     }
 
-    fn list(&self, owner: &str, params: ListParams) -> Result<Value, FsError> {
+    /// `fs.list`; `owner` keys the caller's listing snapshots.
+    pub(crate) fn list(&self, owner: &str, params: ListParams) -> Result<Value, FsError> {
         if !(1..=MAX_BATCH).contains(&params.limit) {
             return Err(FsError::ParamsInvalid("limit is 1..1000".into()));
         }
@@ -210,7 +192,7 @@ impl FsService {
         Ok((entries, revision))
     }
 
-    fn read(&self, params: ReadParams) -> Result<Value, FsError> {
+    pub(crate) fn read(&self, params: ReadParams) -> Result<Value, FsError> {
         let (file, meta) = self.open_file(&params.path)?;
         let wanted =
             params.max_bytes.min(MAX_READ_BYTES).min(meta.size.saturating_sub(params.offset));
@@ -262,7 +244,7 @@ impl FsService {
         Ok((File::from(fd), meta))
     }
 
-    fn write(&self, params: WriteParams) -> Result<Value, FsError> {
+    pub(crate) fn write(&self, params: WriteParams) -> Result<Value, FsError> {
         let data = match (params.text, params.bytes_base64) {
             (Some(text), None) => text.into_bytes(),
             (None, Some(encoded)) => base64::engine::general_purpose::STANDARD
@@ -313,7 +295,7 @@ impl FsService {
         Entry::at(resolved.dir(), new_name)
     }
 
-    fn delete(&self, params: DeleteParams) -> Result<Value, FsError> {
+    pub(crate) fn delete(&self, params: DeleteParams) -> Result<Value, FsError> {
         if !params.permanent {
             return Err(FsError::ParamsInvalid("fs.delete needs permanent: true".into()));
         }
@@ -377,10 +359,7 @@ fn join(folder: &str, name: &str) -> String {
     format!("{}/{name}", folder.trim_end_matches('/'))
 }
 
-fn parse<T: DeserializeOwned>(params: Value) -> Result<T, FsError> {
-    serde_json::from_value(params).map_err(|error| FsError::ParamsInvalid(error.to_string()))
-}
-
-fn to_value<T: serde::Serialize>(value: &T) -> Result<Value, FsError> {
+/// `value` as an answer's JSON.
+pub(crate) fn to_value<T: serde::Serialize>(value: &T) -> Result<Value, FsError> {
     serde_json::to_value(value).map_err(|error| FsError::Failure(error.to_string()))
 }

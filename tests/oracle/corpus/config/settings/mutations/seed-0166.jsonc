@@ -1,0 +1,16 @@
+{
+	"workspaces": {
+		"autoName": true
+	},
+	"browser": {
+		"hibernation": "moderate"
+	},
+	"tabs": {
+		"newTabWidgets": {
+			"greeting": "true"
+		}
+	},
+	"layout": {
+		"splitSizing": "even"
+	}
+}

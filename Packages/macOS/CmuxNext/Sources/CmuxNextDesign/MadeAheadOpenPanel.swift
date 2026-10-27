@@ -22,6 +22,10 @@ public import AppKit
 /// Chromium (the default engine) has no file-dialog handler in the CEF shim, so Chromium makes its own new
 /// `NSOpenPanel` on the main thread for each click, not made ahead and with no dead-panel guard (open, routed to
 /// the CEF owners). Each instance keeps its own panel, so a test makes its own and never shares one with the app.
+///
+/// Under ``OpenPanelWarmPolicy/afterFirstUse(_:)`` (feature `memoryOpenPanelOnFirstUse`) the
+/// launch's and the views' warm-ups make no panel, so no panel service runs at Home idle: the first click makes the
+/// panel, which is kept for later clicks and released once it goes unused.
 @MainActor
 public final class MadeAheadOpenPanel {
     private let store: MadeAheadPanelStore<NSOpenPanel>
@@ -32,10 +36,13 @@ public final class MadeAheadOpenPanel {
     public var warmChecks: Int { store.warmChecks }
     /// Whether a warm-up check is pending.
     public var isWarming: Bool { store.isWarming }
+    /// The kept panels released after going unused so far.
+    public var releasedPanels: Int { store.releasedPanels }
 
-    public init() {
+    /// - Parameter policy: When the panel is made and how long it is kept; ``OpenPanelWarmPolicy/ahead`` by default.
+    public init(policy: OpenPanelWarmPolicy = .ahead) {
         let gate = OpenPanelWarmGate()
-        store = MadeAheadPanelStore(makePanel: { NSOpenPanel() }, warmCheck: { gate.check() })
+        store = MadeAheadPanelStore(policy: policy, makePanel: { NSOpenPanel() }, warmCheck: { gate.check() })
     }
 
     /// The panel made ahead when it is free (no sheet or window shows it), else a new one (it
@@ -53,6 +60,7 @@ public final class MadeAheadOpenPanel {
     ///
     /// The app also calls it once from an afterStartup post of its launch, so the first click on a picker is not
     /// cold even before a view that offers it reached a window (Lead decision 2026-10-23: keep the system panel;
-    /// start its warm-up at launch idle).
+    /// start its warm-up at launch idle). Under ``OpenPanelWarmPolicy/afterFirstUse(_:)`` it makes none
+    /// until a click asked for a panel since the last release.
     public func warmWhenIdle() { store.warmWhenIdle() }
 }

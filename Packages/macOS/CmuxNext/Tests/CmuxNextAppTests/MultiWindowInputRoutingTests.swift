@@ -108,6 +108,19 @@ import Testing
         #expect(harness.b.state.workspaceID == bShown, "window B changed its shown workspace for a click in window A")
     }
 
+    /// The `switch.workspace` interval is the window's that shows the workspace, so that window's `shown`
+    /// ends it: a pick in window A of a workspace window B lists is window A's switch, never one left open
+    /// in window B (B's observation refill would end it later as a switch nobody made).
+    @Test func aSwitchIsTimedInTheWindowThatShowsIt() throws {
+        let harness = try Self.harness()
+        defer { harness.close() }
+        let windows = harness.services.windows, timer = DebugWorkspaceSwitch.timer
+        timer.start()
+        defer { timer.stop() }
+        windows.show(workspaceID: "mw-b2", in: harness.a.state, from: .thisWindow)
+        #expect(!timer.isWaiting(ObjectIdentifier(harness.b)), "a pick in window A was timed in window B")
+    }
+
     /// A request from elsewhere (a notification, the CLI) still shows the workspace where it lives.
     @Test func aRequestFromElsewhereShowsTheWorkspaceWhereItLives() throws {
         let harness = try Self.harness()

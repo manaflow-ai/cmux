@@ -1,4 +1,4 @@
-#if DEBUG
+#if DEBUG || CMUX_BENCH_HOOKS
 // The Chromium host app ships in Debug builds only (embed-cef.sh), and so does its Swift side.
 import Darwin
 
@@ -265,10 +265,10 @@ nonisolated struct ChromiumHostControlMessage: Equatable, Sendable {
             message.fields.append(Field(tag: tag, value: value))
         }
         guard fds.count >= fdCount, shared.count <= fdCount else { return .malformed }
-        var taken = Array(fds.prefix(fdCount))
+        let frameFds = Array(fds.prefix(fdCount))
         fds.removeFirst(fdCount)
-        let regions = Array(taken.suffix(shared.count))
-        taken.removeLast(shared.count)
+        let regions = Array(frameFds.suffix(shared.count))
+        let taken = Array(frameFds.dropLast(shared.count))
         let filled = fillSharedFields(&message, shared, from: regions)
         for region in regions { Darwin.close(region) }
         guard filled else {
@@ -316,7 +316,7 @@ nonisolated struct ChromiumHostControlMessage: Equatable, Sendable {
     }
 
     private static func put<T: FixedWidthInteger>(_ out: inout [UInt8], _ value: T) {
-        withUnsafeBytes(of: value.littleEndian) { out.append(contentsOf: $0) }
+        out.appendLittleEndian(value)
     }
 }
 #endif
