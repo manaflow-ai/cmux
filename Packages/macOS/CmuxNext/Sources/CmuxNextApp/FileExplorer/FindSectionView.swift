@@ -227,3 +227,16 @@ final class FindSectionView: NSView, RightSidebarRefreshing, NSTableViewDataSour
         return cell
     }
 }
+
+// A Find section let go while hidden (feature `memoryDiscardSidebarSections`) searches its query again and goes
+// back to its selected result and scroll.
+extension FindSectionView: SidebarSectionStateKeeping {
+    var sectionState: SidebarSectionState {
+        SidebarSectionState(scroll: resultsScroll, query: field.stringValue, selection: cursor)
+    }
+
+    func restoreSectionState(_ state: SidebarSectionState) {
+        guard let query = state.query, !query.isEmpty else { return }
+        restore(query: query, cursor: state.selection, scroll: state.scroll)
+    }
+}

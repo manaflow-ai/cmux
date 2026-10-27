@@ -1,4 +1,5 @@
 public import AppKit
+public import CmuxNextCompat
 import CmuxNextDesign
 public import Observation
 
@@ -55,8 +56,10 @@ public struct HomeDockSelection: Equatable, Sendable {
 /// sidebar's Home entry shows Messages (the native MessagesLab list and transcript), its Channels
 /// entry shows hq-ec's `home-channels` page. The app's subclass makes the two views and answers
 /// their selection; this view owns which view shows and the order of switches. Each view is made on
-/// its first show and kept, so a switch back keeps its scroll, draft and selection. A switch hands
-/// the selection over as a permalink.
+/// its first show and kept, so a switch back keeps its scroll, draft and selection. With the app's
+/// sidebar section planner (feature `memoryDiscardSidebarSections`, p07-memory-100) the hidden view
+/// goes when the planner says, its selection kept, and its next show makes it again on that selection.
+/// A switch hands the selection over as a permalink.
 open class HomeDockSwitchView: NSView {
     private let content = NSView()
     /// The view shown. Observed (the view is not a model, so by hand): a reader of the shown view's selection
@@ -77,6 +80,14 @@ open class HomeDockSwitchView: NSView {
     /// Work that lives as long as this view (the Channels setting watch); cancelled by `close()`.
     public var tasks: [Task<Void, Never>] = []
     private var made: [HomeDockMode: NSView] = [:]
+    /// The app's sidebar section planner; nil keeps both views for good.
+    private let planner: (any SidebarSectionPlanner)?
+    /// The two views on the planner's discard, with the selection each released one showed.
+    private lazy var releases = SidebarSectionReleases<HomeDockMode, HomeDockSelection>(owner: "homeDock", planner: planner) { [weak self] mode in
+        await self?.selection(in: mode)
+    } drop: { [weak self] mode in
+        self?.letGo(mode)
+    }
     /// A switch in flight: a second one waits for it, so two quick selections end on the last one.
     private var switching: Task<Void, Never>?
     /// Work that needs this view in a window (a sheet, the keyboard).
@@ -98,8 +109,12 @@ open class HomeDockSwitchView: NSView {
     public internal(set) var tabRowToolsNeed: CGFloat?
     public var onTabRowToolsChange: (() -> Void)?
 
-    public init(mode: HomeDockMode) {
+    /// - Parameters:
+    ///   - mode: The view shown first.
+    ///   - planner: The app's sidebar section planner, which lets the hidden view go; nil keeps both for good.
+    public init(mode: HomeDockMode, planner: (any SidebarSectionPlanner)? = nil) {
         shownMode = mode
+        self.planner = planner
         super.init(frame: .zero)
         setAccessibilityIdentifier("cmux.homeDock")
         content.autoresizingMask = [.width, .height]
@@ -113,8 +128,12 @@ open class HomeDockSwitchView: NSView {
 
     // MARK: The two views (the app's subclass)
 
-    /// Makes `mode`'s view; called once per mode, on its first show.
+    /// Makes `mode`'s view; called on its first show, and again on the first show after the planner let it go.
     open func makeContent(for mode: HomeDockMode) -> NSView? { nil }
+
+    /// The planner let hidden `mode`'s view go (it is out of this view already): the subclass drops its references
+    /// to it and ends what it runs.
+    open func releaseContent(for mode: HomeDockMode) {}
 
     /// `mode`'s selection, nil when it has none.
     open func selection(in mode: HomeDockMode) async -> HomeDockSelection? { nil }
@@ -128,6 +147,7 @@ open class HomeDockSwitchView: NSView {
     /// The tab closed: a switch in flight and this view's tasks stop.
     open func close() {
         switching?.cancel()
+        releases.cancel()
         for task in tasks { task.cancel() }
         tasks = []
     }
@@ -199,6 +219,7 @@ open class HomeDockSwitchView: NSView {
     private func show(_ target: HomeDockMode) {
         mode = target
         needsLayout = true // invalidate: another view shows, and its row tools with it (HomeDockSwitchView+TabRow)
+        let isNew = made[target] == nil
         let view = made[target] ?? makeContent(for: target)
         made[target] = view
         for subview in content.subviews where subview !== view { subview.isHidden = true }
@@ -209,9 +230,21 @@ open class HomeDockSwitchView: NSView {
                 view.autoresizingMask = [.width, .height]
                 content.addSubview(view)
             }
+            if isNew, let record = releases.takeRecord(target) { open(record, in: target) }
         }
+        releases.show(target, hiding: made.keys, isNew: isNew && view != nil)
         onShow?(target)
     }
+
+    /// The planner's release of hidden `mode`: its view goes, its selection stays.
+    private func letGo(_ mode: HomeDockMode) {
+        guard mode != shownMode, let view = made.removeValue(forKey: mode) else { return }
+        view.removeFromSuperview()
+        releaseContent(for: mode)
+    }
+
+    /// `mode`'s view while it is made (tests and diagnostics).
+    public func madeContent(_ mode: HomeDockMode) -> NSView? { made[mode] }
 }
 
 extension HomeDockSwitchView: Observable {}

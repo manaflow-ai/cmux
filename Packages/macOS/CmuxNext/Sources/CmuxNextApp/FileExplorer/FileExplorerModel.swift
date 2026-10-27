@@ -32,6 +32,8 @@ final class FileExplorerModel {
     /// The root with symlinks resolved, the prefix git's paths share.
     @ObservationIgnored private var resolvedRoot = ""
     @ObservationIgnored private var expanded: Set<URL> = []
+    /// The open folders and selection a tree made again takes at its next new root, those inside it (``restore(expanded:selection:)``).
+    @ObservationIgnored private var restoring: (expanded: Set<URL>, selection: URL?)?
     @ObservationIgnored private var generation = 0
     @ObservationIgnored private let watcher: any FileTreeWatching
     /// The folders the running watch covers, and its task.
@@ -73,8 +75,10 @@ final class FileExplorerModel {
         if folder != root {
             root = folder
             children = [:]
-            expanded = []
-            selection = nil
+            let inside = { (url: URL) in url.standardizedFileURL.path.hasPrefix(folder.path.hasSuffix("/") ? folder.path : folder.path + "/") }
+            expanded = restoring?.expanded.filter(inside) ?? []
+            selection = restoring?.selection.flatMap { inside($0) ? $0 : nil }
+            restoring = nil
         }
         await reload()
     }
@@ -102,6 +106,15 @@ final class FileExplorerModel {
         (resolvedRoot, gitStates, changedFolders) = (status.root, status.states, status.folders)
         rebuild()
         watch([root] + (status.top.map { [URL(fileURLWithPath: $0, isDirectory: true).appendingPathComponent(".git", isDirectory: true)] } ?? []))
+    }
+
+    /// The open folders.
+    var expandedFolders: Set<URL> { expanded }
+
+    /// A tree made again (its Files section was let go while hidden): the next new root opens the folders of
+    /// `expanded` and selects `selection` that lie inside it.
+    func restore(expanded: Set<URL>, selection: URL?) {
+        restoring = (Set(expanded.map(\.standardizedFileURL)), selection?.standardizedFileURL)
     }
 
     /// Expands `folder` when it is collapsed (a new item goes inside it).

@@ -1,5 +1,6 @@
 import AppKit
 import CmuxHomeCore
+import CmuxNextHibernation
 import CmuxNextHome
 import CmuxNextHomeEngine
 import CmuxNextPages
@@ -22,7 +23,7 @@ final class HomeDockView: HomeDockSwitchView {
 
     init(services: AppServices, mode: Mode) {
         self.services = services
-        super.init(mode: mode)
+        super.init(mode: mode, planner: services.sidebarSectionDiscards)
     }
 
     @available(*, unavailable)
@@ -79,6 +80,16 @@ final class HomeDockView: HomeDockSwitchView {
         case .channels:
             guard let channels else { return }
             if channels.window != nil { channels.focusPage() } else { channels.whenPainted { [weak channels] in channels?.focusPage() } }
+        }
+    }
+
+    /// The planner let the hidden view go (feature `memoryDiscardSidebarSections`): Channels' document ends.
+    override func releaseContent(for mode: Mode) {
+        switch mode {
+        case .messages: messages = nil
+        case .channels:
+            channels?.close()
+            channels = nil
         }
     }
 

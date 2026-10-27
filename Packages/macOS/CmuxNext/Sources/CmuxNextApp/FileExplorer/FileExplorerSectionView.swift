@@ -26,6 +26,8 @@ final class FileExplorerSectionView: NSView, RightSidebarRefreshing, NSTableView
     let table = FileExplorerTableView()
     private let scroll = NSScrollView()
     private var rows: [FileExplorerRow] = []
+    /// The scroll a section made again goes back to once its rows show (``restoreSectionState(_:)``).
+    private var pendingScroll: CGPoint?
     /// This view in the visibility tree: the tree renders only while it is on screen, and once on show.
     let visibility = ViewVisibility("fileExplorer")
     var visibilityNode: VisibilityNode { visibility.node }
@@ -158,6 +160,11 @@ final class FileExplorerSectionView: NSView, RightSidebarRefreshing, NSTableView
         if let selection = model.selection, let index = rows.firstIndex(where: { $0.url == selection }) {
             table.selectRowIndexes(IndexSet(integer: index), byExtendingSelection: false)
         }
+        if let origin = pendingScroll, !rows.isEmpty {
+            pendingScroll = nil
+            scroll.contentView.scroll(to: origin)
+            scroll.reflectScrolledClipView(scroll.contentView)
+        }
         prefetchOpenWith()
     }
 
@@ -244,5 +251,20 @@ final class FileExplorerSectionView: NSView, RightSidebarRefreshing, NSTableView
     func tableViewSelectionDidChange(_ notification: Notification) {
         let index = table.selectedRow
         model.selection = index >= 0 && index < rows.count ? rows[index].url : nil
+    }
+}
+
+// A Files section let go while hidden (feature `memoryDiscardSidebarSections`) comes back with its open folders,
+// selection and scroll.
+extension FileExplorerSectionView: SidebarSectionStateKeeping {
+    var sectionState: SidebarSectionState {
+        SidebarSectionState(scroll: scroll.documentVisibleRect.origin, selection: model.selection?.path,
+                            expanded: model.expandedFolders.map(\.path).sorted())
+    }
+
+    func restoreSectionState(_ state: SidebarSectionState) {
+        model.restore(expanded: Set(state.expanded.map { URL(fileURLWithPath: $0, isDirectory: true) }),
+                      selection: state.selection.map { URL(fileURLWithPath: $0) })
+        pendingScroll = state.scroll
     }
 }
