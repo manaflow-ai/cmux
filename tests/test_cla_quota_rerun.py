@@ -122,7 +122,7 @@ class Tests(unittest.TestCase):
         self.assertEqual(fake.posts, [rerun_path(1)])
 
     def test_a_reset_that_leaves_the_budget_low_stops_after_one_more_read(self):
-        fake = FakeGitHub([run(1, "a" * 40)], [], {1: LIMITED_LOG}, remaining=[0, 0],
+        fake = FakeGitHub([run(1, "a" * 40)], [], {1: LIMITED_LOG}, remaining=[0, 100],
                           reset=NOW + dt.timedelta(minutes=6))
         slept = []
         self.assertIn("a re-run would fail the same way", self.sweep(fake, slept=slept))
@@ -419,6 +419,22 @@ class Tests(unittest.TestCase):
         self.sweep(fake)
         self.assertEqual(sorted(fake.posts), [rerun_path(1), rerun_path(2)])
 
+    def test_a_budget_still_spent_after_the_reset_ends_red(self):
+        fake = FakeGitHub([run(1, "a" * 40)], [], {1: LIMITED_LOG}, remaining=[0, 0],
+                          reset=NOW + dt.timedelta(minutes=6))
+        slept = []
+        self.sweep(fake, slept=slept, code=1)
+        self.assertEqual(slept[0], 6 * 60 + 20)
+        self.assertEqual(fake.posts, [])
+
+    def test_a_retry_spends_no_slot_on_a_run_already_rerun(self):
+        head_a, head_g = "a" * 40, "b" * 40
+        fake = FakeGitHub([run(1, head_a, number=1)], [run(2, head_g, number=2, name=GUARD)],
+                          {1: LIMITED_LOG, 2: GUARD_403_LOG}, remaining=[15000, rerun.FLOOR_MIN * 3 + rerun.RERUN_COST])
+        fake.fail("POST", rerun_path(2), 403)
+        self.sweep(fake)
+        self.assertEqual(fake.posts, [rerun_path(1), rerun_path(2)])
+
     def test_a_pass_out_of_time_exits_non_zero(self):
         fake = FakeGitHub([run(1, "a" * 40)], [], {1: LIMITED_LOG})
         fake.request = mock.Mock(side_effect=rerun.PastDeadline("no time left for GET /rate_limit"))
@@ -463,6 +479,17 @@ class RealRequestTests(unittest.TestCase):
             gh.request("GET", "/rate_limit")
             gh.request("GET", "/rate_limit")
         self.assertEqual(opened.call_count, 2)
+
+    def test_a_call_cut_short_by_the_deadline_is_out_of_time(self):
+        gh = rerun.GitHub("t", "o/r")
+        gh.deadline = dt.datetime.now(dt.timezone.utc) + dt.timedelta(seconds=1.5)
+
+        def slow(*args, **kwargs):
+            gh.deadline = dt.datetime.now(dt.timezone.utc)  # the timeout ran out
+            raise TimeoutError("timed out")
+
+        with mock.patch.object(rerun.urllib.request, "urlopen", side_effect=slow), self.assertRaises(rerun.PastDeadline):
+            gh.request("GET", "/x")
 
     def test_no_call_starts_past_the_deadline(self):
         gh = rerun.GitHub("t", "o/r")
