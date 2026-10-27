@@ -46,8 +46,8 @@ extension AgentTabStore {
         let remoteHost = !daemon.isLocal ? Self.registryHost(of: daemon) : nil
         let remoteChild = !daemon.isLocal && host == nil && adopt == nil
             && session.map { id in
-                remoteHost.flatMap { host in RemoteAgentSessionLinks.shared.parentsByHost[host]?[id] != nil }
-                    ?? (RemoteAgentSessionLinks.shared.parents[id] != nil)
+                guard let remoteHost else { return false }
+                return RemoteAgentSessionLinks.shared.parent(of: id, host: remoteHost) != nil
             } == true
         // A session never leaves its machine (cx-k21v): a pane of another machine never gets a
         // chat of this Mac (its session, an outside chat it resumes, a past chat of this Mac's list;

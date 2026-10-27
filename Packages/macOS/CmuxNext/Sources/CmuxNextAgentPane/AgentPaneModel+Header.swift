@@ -213,9 +213,9 @@ extension AgentPaneModel {
 enum AgentPaneSideChat {
     /// True when the pane of chat `chat` may open `session` beside it.
     static func holds(_ session: String, chat: String, in model: AgentPaneModel) -> Bool {
-        model.transport.sessions.contains(session)
-            || (model.remoteChat && RemoteAgentSessionLinks.shared.descends(session, from: chat,
-                                                            host: model.transport.remoteApprovals?.machineID))
+        if model.transport.sessions.contains(session) { return true }
+        guard model.remoteChat, let host = model.transport.remoteHostID else { return false }
+        return RemoteAgentSessionLinks.shared.descends(session, from: chat, host: host)
     }
 
     static func open(_ fork: String, in model: AgentPaneModel) async -> [String: Any] {

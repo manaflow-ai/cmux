@@ -73,7 +73,7 @@ import Testing
         #expect(local.state.parents == [Self.opened: Self.spawner])
         // Another machine's daemon listed its parent.
         let remote = SidebarSessionTreeFeed.pass(Self.chats(host: "registry:vm"), lanes: [:],
-                                                 remoteParents: ["s-opened": "s-spawner"], recordedParents: recorded,
+                                                 remoteParentsByHost: ["registry:vm": ["s-opened": "s-spawner"]], recordedParents: recorded,
                                                  localHost: Self.localHost, pullRequests: [:])
         #expect(remote.state.parents == [Self.opened: Self.spawner])
     }
@@ -87,7 +87,7 @@ import Testing
                                                 localHost: Self.localHost, pullRequests: [:])
         #expect(local.state.parents.isEmpty)
         let remote = SidebarSessionTreeFeed.pass(Self.chats(host: "registry:vm"), lanes: [:],
-                                                 remoteParents: ["s-opened": "s-hidden"], recordedParents: recorded,
+                                                 remoteParentsByHost: ["registry:vm": ["s-opened": "s-hidden"]], recordedParents: recorded,
                                                  localHost: Self.localHost, pullRequests: [:])
         #expect(remote.state.parents.isEmpty)
     }
@@ -161,5 +161,21 @@ import Testing
                                                localHost: Self.localHost, pullRequests: [:])
         #expect(pass.state.parents[aChild] == aParent)
         #expect(pass.state.parents[bChild] == bParent)
+    }
+
+    @Test func aQualifiedRemoteLookupNeverFallsBackToAnotherHost() {
+        let links = RemoteAgentSessionLinks()
+        links.note([["sessionId": "same-child", "startedBy": "same-parent"]], host: "registry:a")
+        #expect(links.parent(of: "same-child", host: "registry:a") == "same-parent")
+        #expect(links.parent(of: "same-child", host: "registry:b") == nil)
+        #expect(!links.descends("same-child", from: "same-parent", host: "registry:b"))
+    }
+
+    @Test func duplicateTabsShareAnIdentityOnlyWhenTheirHostMatches() {
+        let sameHost = [AgentSessionRef(host: "registry:a", session: "same"),
+                        AgentSessionRef(host: "registry:a", session: "same")]
+        #expect(AgentSessionWorkspace.callerIdentity("same", in: sameHost) == Self.identity("registry:a", "same"))
+        let twoHosts = sameHost + [AgentSessionRef(host: "registry:b", session: "same")]
+        #expect(AgentSessionWorkspace.callerIdentity("same", in: twoHosts) == nil)
     }
 }

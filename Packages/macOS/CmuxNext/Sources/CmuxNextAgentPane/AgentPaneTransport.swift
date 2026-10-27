@@ -67,6 +67,8 @@ import CmuxNextCompat
     public let decisions = AcpmuxDecisionContexts()
     /// The keyed restart the chat's machine offers, when it runs on another machine.
     private(set) var remoteApprovals: AgentPaneRemoteApprovals?
+    /// The canonical host key of the current remote chat, when its tab record supplied one.
+    private(set) var remoteHostID: String?
     /// The current connection is a chat on another machine (``RemoteAcpmuxWire``): its folders are
     /// that machine's, so this Mac's folder rule does not read them (that machine's acpmux checks
     /// its own folder trust, cx-k21v).
@@ -208,6 +210,7 @@ import CmuxNextCompat
         localAppToken = connection.localAppToken
         socketPath = connection.socketPath
         remoteApprovals = connection.remote?.approvals
+        remoteHostID = connection.remote?.hostID
         remoteWire = connection.remote != nil
         let wire = connection.remote?.makeWire()
         if let wire {

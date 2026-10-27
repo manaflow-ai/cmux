@@ -48,14 +48,21 @@ enum AgentSessionWorkspace {
         let host = invocation["host"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 }
         let group = invocation["group"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 }
         let parent = invocation.callerAgentSession.flatMap { caller in
-            let matches = context.services.agentTabs.listTabs().filter { $0.record.session == caller }
-            let hosts = Set(matches.map { $0.record.host })
-            guard hosts.count == 1, let host = hosts.first else { return nil }
-            return AgentSessionParents.identity(host: host, session: caller)
+            Self.callerIdentity(caller, in: context.services.agentTabs.listTabs().map {
+                AgentSessionRef(host: $0.record.host, session: $0.record.session)
+            })
         }
         let task = try open(session: session, name: name, key: key, cwd: cwd, host: host, group: group,
                             parent: parent, services: context.services)
         context.services.registry.track(task)
+    }
+
+    /// Resolves a caller only when every tab with its session belongs to one host. Duplicate tabs
+    /// on that host are the same lineage; the same id on two hosts is intentionally ambiguous.
+    @MainActor static func callerIdentity(_ caller: String, in records: [AgentSessionRef]) -> AgentSessionParents.Identity? {
+        let hosts = Set(records.filter { $0.session == caller }.map(\.host))
+        guard hosts.count == 1, let host = hosts.first else { return nil }
+        return AgentSessionParents.identity(host: host, session: caller)
     }
 
     /// Starts the new workspace for `session` (see the type) and returns its

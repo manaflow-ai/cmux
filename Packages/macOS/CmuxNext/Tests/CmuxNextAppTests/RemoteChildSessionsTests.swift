@@ -99,7 +99,7 @@ import Testing
             (child, [AgentSessionRef(host: vm, session: "vm-child")]),
             (other, [AgentSessionRef(host: vm, session: "vm-other")]),
         ]
-        let pass = SidebarSessionTreeFeed.pass(chats, lanes: [:], remoteParents: ["vm-child": "vm-chat"],
+        let pass = SidebarSessionTreeFeed.pass(chats, lanes: [:], remoteParentsByHost: [vm: ["vm-child": "vm-chat"]],
                                                localHost: "install:mac", pullRequests: [:])
         #expect(pass.state.parents == [child: parent])
         let none = SidebarSessionTreeFeed.pass(chats, lanes: [:], localHost: "install:mac", pullRequests: [:])
@@ -108,10 +108,14 @@ import Testing
 
     /// A Subagents row of a chat on another machine opens a child that chat started there beside
     /// it; never a session that machine did not list under the chat.
-    @Test func aRemoteChatOpensItsListedChildBesideIt() async {
-        RemoteAgentSessionLinks.shared.note([["sessionId": "vm-row-child", "startedBy": "vm-row-chat"]])
+    @Test func aRemoteChatOpensItsListedChildBesideIt() async throws {
+        let host = "registry:vm-row"
+        RemoteAgentSessionLinks.shared.note([["sessionId": "vm-row-child", "startedBy": "vm-row-chat"]], host: host)
         let model = AgentPaneModel(host: NoHost(), sessionId: "vm-row-chat")
         model.remoteChat = true
+        let wire = RemoteAcpmuxWire(client: FakeClient(parent: "vm-row-chat", children: []), session: "vm-row-chat", host: host)
+        let connection = try await model.transport.open(.remote(AgentPaneRemoteRoute(machine: "display-vm", hostID: host) { wire }))
+        defer { model.transport.close(connection: connection) }
         let opened = Opened()
         model.header = AgentPaneHeaderHooks(run: { _, _ in }, tabState: { AgentPaneHeaderState() },
                                             openSide: { _, fork in opened.ids.append(fork) })

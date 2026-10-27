@@ -41,10 +41,23 @@ public final class RemoteAgentSessionLinks {
         }
     }
 
+    /// The parent recorded by one daemon. A host-qualified query never falls back to the
+    /// unqualified legacy map: identical session ids from another daemon must stay isolated.
+    public func parent(of child: String, host: String? = nil) -> String? {
+        if let host { return parentsByHost[host]?[child] }
+        return parents[child]
+    }
+
     /// True when `session` descends from `root` (a child, or a child's child, ...).
     public func descends(_ session: String, from root: String, host: String? = nil) -> Bool {
         var seen: Set<String> = []
-        let links = host.flatMap { parentsByHost[$0] } ?? parents
+        let links: [String: String]
+        if let host {
+            guard let qualified = parentsByHost[host] else { return false }
+            links = qualified
+        } else {
+            links = parents
+        }
         var next = links[session]
         while let parent = next, seen.insert(parent).inserted {
             if parent == root { return true }
