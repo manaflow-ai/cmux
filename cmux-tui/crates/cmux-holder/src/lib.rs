@@ -196,6 +196,16 @@ pub fn parse_version_line(line: &str) -> Option<(u16, u16)> {
 /// only when it can take it exclusively.
 pub const IN_USE_LOCK: &str = "in-use.lock";
 
+/// A holder process's entry: installs the panic log ([`panic_log::install`],
+/// `holder-panics.jsonl` beside the socket), then [`serve`]s. Every holder
+/// process calls this: the standalone `cmux-holder` and the built-in
+/// `__holder` of `cmux-tui-host` and `cmux-tui` that the daemon falls back
+/// to. In-process test holders call [`serve`], which installs no hook.
+pub fn serve_process(args: &[String]) -> io::Result<()> {
+    panic_log::install(args);
+    serve(args)
+}
+
 /// Run a holder process: `--socket PATH` (and `--idle-exit-ms N`, the idle
 /// exit; default [`holder::IDLE_EXIT`]), the owner token as 64 hex
 /// characters on stdin, `ready` on stdout once it listens. `--version`

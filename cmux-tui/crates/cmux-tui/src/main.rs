@@ -1765,11 +1765,11 @@ fn run_main() {
     // semantics.
     // The one process that holds every PTY of this install (cmux-holder,
     // terminal-host-model-DESIGN.md). Same rule as the host: before any
-    // daemon signal handler.
+    // daemon signal handler. Panics go to holder-panics.jsonl (serve_process).
     #[cfg(unix)]
     if raw_args.first().map(String::as_str) == Some("__holder") {
         set_default_task_role();
-        if let Err(error) = cmux_holder::serve(&raw_args[1..]) {
+        if let Err(error) = cmux_holder::serve_process(&raw_args[1..]) {
             crate::client_log::stderr_log!("startup", "cmux-tui holder: {error}");
             client_log::exit(1);
         }

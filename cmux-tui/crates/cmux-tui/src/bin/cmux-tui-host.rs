@@ -45,10 +45,11 @@ fn main() -> std::process::ExitCode {
     if let Err(error) = cmux_threads::process_role::set_default_role() {
         eprintln!("cmux-tui-host: {error}");
     }
-    // The holder of every PTY (cmux-holder) runs from this small binary too.
+    // The holder of every PTY (cmux-holder) runs from this small binary too,
+    // with the same panic log (holder-panics.jsonl).
     #[cfg(unix)]
     if args.first().map(String::as_str) == Some("__holder") {
-        return match cmux_holder::serve(&args[1..]) {
+        return match cmux_holder::serve_process(&args[1..]) {
             Ok(()) => std::process::ExitCode::SUCCESS,
             Err(error) => {
                 eprintln!("cmux-tui-host holder: {error}");
