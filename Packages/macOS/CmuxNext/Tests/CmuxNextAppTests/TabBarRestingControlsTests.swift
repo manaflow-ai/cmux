@@ -91,20 +91,16 @@ import Testing
         #expect(toolbar.view.reservedCount == 0)
     }
 
-    /// Agent chats own their compact tool group in the web header. Their native pane toolbar leaves
-    /// the creation actions in commands and the tab menu; every non-chat kind, including a custom
-    /// nil kind, retains the native terminal and browser buttons.
-    @Test func agentChatLeavesCreationActionsToItsHeader() {
+    /// The native creation actions are offered by the pane's + and "…" menu, never duplicated as
+    /// resting buttons. This applies to chat and every other pane kind.
+    @Test func creationActionsAreNeverRestingButtons() {
         let registry = ActionRegistry.standard()
         let toolbar = PaneToolbar(registry: { registry }, newTabMenu: { nil },
                                    paneTarget: ActionTargetRef(kind: .pane, id: "pane"))
-        toolbar.update(target: "chat", kind: nil, agentChat: true)
-        #expect(toolbar.view.items.map(\.id) == [])
-
-        let nonChatKinds: [PaneToolbar.Kind?] = [.newTab, .terminal, .browser, .other, nil]
-        for (index, kind) in nonChatKinds.enumerated() {
-            toolbar.update(target: "non-chat-\(index)", kind: kind, agentChat: false)
-            #expect(toolbar.view.items.map(\.id) == PaneToolbar.creationActions.map(\.rawValue))
+        let kinds: [PaneToolbar.Kind?] = [.newTab, .terminal, .browser, .other, nil]
+        for (index, kind) in kinds.enumerated() {
+            toolbar.update(target: "pane-\(index)", kind: kind)
+            #expect(toolbar.view.items.map(\.id).filter { PaneToolbar.creationActions.map(\.rawValue).contains($0) }.isEmpty)
         }
     }
 
