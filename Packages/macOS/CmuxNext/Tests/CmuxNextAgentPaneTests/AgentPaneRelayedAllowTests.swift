@@ -434,8 +434,8 @@ struct AgentPaneRelayedAllowTests {
 
     /// The card's Allow for a batch of a peer's tool prompts (`_acpmux/permission_group_respond`),
     /// after the person's click: one signed one-time allow per pending member of the group the
-    /// page read, over that member's prompt, tool call and the option the group's Allow selects.
-    /// Allow for this chat (a lasting grant) goes unsigned, and the notice shows.
+    /// page read (two here), over that member's prompt, tool call, nonce and the option the group's
+    /// Allow selects. Allow for this chat (a lasting grant) goes unsigned, and the notice shows.
     @Test func aGroupAllowForAPeersPromptsSignsEachMember() async throws {
         let server = AcpmuxStandInServer()
         try await server.start()
@@ -445,8 +445,13 @@ struct AgentPaneRelayedAllowTests {
         var remoteOff = false
         transport.onRemoteApprovalsOff = { _ in remoteOff = true }
         let id = try await Self.peerChat(server, inbox, transport)
+        // A second prompt of the peer's, with its own tool call, nonce and allow-once option.
+        let nonce2 = String(repeating: "cd", count: 32)
+        let request2 = #"{"toolCall":{"toolCallId":"call-2","kind":"edit"},"options":[{"optionId":"ok","kind":"allow_once"},{"optionId":"no","kind":"reject_once"}]}"#
+        server.push(#"{"jsonrpc":"2.0","method":"_acpmux/permission_pending","params":{"sessionId":"s","permissionId":"p2","decisionNonce":"\#(nonce2)","personInstance":"\#(Self.instance)","peer":"far","via":"peer","request":\#(request2)}}"#, to: 0)
+        _ = await inbox.frame(containing: "\"permissionId\":\"p2\"")
         let request = #"{"toolCall":{"toolCallId":"call-1","kind":"execute"},"options":[{"optionId":"yes","kind":"allow_once"},{"optionId":"always","kind":"allow_always"},{"optionId":"no","kind":"reject_once"}]}"#
-        server.answer("_acpmux/permission_groups", with: #"{"groups":[{"groupId":"g1","sessionId":"s","revision":2,"state":"pending","items":[{"permissionId":"p1","state":"pending","request":\#(request)}],"decisions":["allow_once","deny"]}],"peer":"far"}"#)
+        server.answer("_acpmux/permission_groups", with: #"{"groups":[{"groupId":"g1","sessionId":"s","revision":2,"state":"pending","items":[{"permissionId":"p1","state":"pending","request":\#(request)},{"permissionId":"p2","state":"pending","request":\#(request2)}],"decisions":["allow_once","deny"]}],"peer":"far"}"#)
         #expect(await transport.send(connection: id, frames: [#"{"jsonrpc":"2.0","id":9,"method":"_acpmux/permission_groups","params":{"sessionId":"s"}}"#]) == nil)
         _ = await inbox.frame(containing: "\"id\":9")
 
@@ -458,19 +463,28 @@ struct AgentPaneRelayedAllowTests {
         let sent = try #require(server.peers.first?.frames.first { $0.contains("permission_group_respond") })
         let params = try #require((try JSONSerialization.jsonObject(with: Data(sent.utf8)) as? [String: Any])?["params"] as? [String: Any])
         let acpmux = try #require((params["_meta"] as? [String: Any])?["acpmux"] as? [String: Any], "an unsigned group allow: \(sent)")
-        let member = try #require((acpmux["approverDecisions"] as? [String: Any])?["p1"] as? [String: Any])
-        #expect(member["decisionNonce"] as? String == Self.nonce)
-        let decision = try #require(member["approverDecision"] as? [String: Any])
+        let members = try #require(acpmux["approverDecisions"] as? [String: Any])
+        #expect(Set(members.keys) == ["p1", "p2"])
         let identity = try #require(AcpmuxMacApprover.shared.identity)
-        #expect(decision["approver"] as? String == identity.id)
-        let expires = try #require((decision["expiresAt"] as? NSNumber)?.uint64Value)
-        #expect(expires > before && expires <= before + 300)
         let key = try P256.Signing.PublicKey(x963Representation: AcpmuxMacApproverTests.bytes(identity.publicKey))
-        let signature = try P256.Signing.ECDSASignature(
-            rawRepresentation: AcpmuxMacApproverTests.bytes(try #require(decision["signature"] as? String)))
-        let message = AcpmuxMacApprover.message(instance: Self.instance, mac: identity.id, session: "s", permission: "p1",
-                                                toolCall: "call-1", option: "yes", nonce: Self.nonce, expiresAt: expires, answers: "")
-        #expect(key.isValidSignature(signature, for: message))
+        for (permission, toolCall, option, nonce) in [("p1", "call-1", "yes", Self.nonce), ("p2", "call-2", "ok", nonce2)] {
+            let member = try #require(members[permission] as? [String: Any])
+            #expect(member["decisionNonce"] as? String == nonce)
+            let decision = try #require(member["approverDecision"] as? [String: Any])
+            #expect(decision["approver"] as? String == identity.id)
+            let expires = try #require((decision["expiresAt"] as? NSNumber)?.uint64Value)
+            #expect(expires > before && expires <= before + 300)
+            let signature = try P256.Signing.ECDSASignature(
+                rawRepresentation: AcpmuxMacApproverTests.bytes(try #require(decision["signature"] as? String)))
+            let message = AcpmuxMacApprover.message(instance: Self.instance, mac: identity.id, session: "s", permission: permission,
+                                                    toolCall: toolCall, option: option, nonce: nonce, expiresAt: expires, answers: "")
+            #expect(key.isValidSignature(signature, for: message), "member \(permission)")
+            // Each member's signature covers its own prompt only.
+            let other = AcpmuxMacApprover.message(instance: Self.instance, mac: identity.id, session: "s", permission: permission,
+                                                  toolCall: toolCall == "call-1" ? "call-2" : "call-1", option: option, nonce: nonce,
+                                                  expiresAt: expires, answers: "")
+            #expect(!key.isValidSignature(signature, for: other))
+        }
         #expect(!remoteOff)
 
         // Allow for this chat: no signature, and the notice.
