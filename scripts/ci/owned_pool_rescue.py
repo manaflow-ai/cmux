@@ -1448,6 +1448,7 @@ class GitHub:
         self._logs: dict[int, dict[tuple[int, int], str] | None] = {}
         # This rescue job's own workflow run (GITHUB_RUN_ID), which rescue_jobs() never waits on.
         self.own_run = 0
+        self._log_lines: dict[int, list[str]] = {}
         # Requests by (kind, "charged" | "not modified"), for the budget lines.
         self.counts: dict[tuple[str, str], int] = {}
         self.started = time.monotonic()
@@ -1838,13 +1839,23 @@ class GitHub:
         with a redirect to the log's storage, fetched without our token."""
         if job_id in self._logs:
             return self._logs[job_id]
+        lines = self.job_log_lines(job_id)
+        marks = cancel_marks(lines) if lines is not None else None
+        if marks is not None:
+            self._logs[job_id] = marks
+        return marks
+
+    def job_log_lines(self, job_id: int) -> list[str] | None:
+        """A finished job's whole log as lines, or None (an unsized, partial or over-JOB_LOG_MAX_BYTES read)."""
+        if job_id in self._log_lines:
+            return self._log_lines[job_id]
 
         class Stay(urllib.request.HTTPRedirectHandler):
             def redirect_request(self, *args: Any, **kwargs: Any) -> None:
                 return None
         request = urllib.request.Request(f"{API}/repos/{self.repo}/actions/jobs/{job_id}/logs",
                                          headers=dict(self.read_headers))
-        def scan(response: Any) -> dict[tuple[int, int], str] | None:
+        def scan(response: Any) -> list[str] | None:
             """None unless the whole log was read: a Content-Length the response states, and exactly that many bytes.
             A chunked or unsized transfer is not judged (http.client's readline() swallows a chunked one's early
             end). Lines are read JOB_LOG_LINE_BYTES at a time; a longer one is skipped (a mark is a short line of
@@ -1868,19 +1879,19 @@ class GitHub:
                 partial = not whole
             if read_bytes != int(stated):
                 return None
-            return cancel_marks(lines)
+            return lines
         try:
             with urllib.request.build_opener(Stay).open(request, timeout=20) as response:
-                marks = scan(response)
+                lines = scan(response)
         except urllib.error.HTTPError as error:
             location = error.headers.get("Location") if error.headers is not None else None
             if error.code not in (301, 302, 303, 307, 308) or not location:
                 raise
             with urllib.request.urlopen(location, timeout=60) as response:
-                marks = scan(response)
-        if marks is not None:
-            self._logs[job_id] = marks
-        return marks
+                lines = scan(response)
+        if lines is not None:
+            self._log_lines[job_id] = lines
+        return lines
 
     def annotations(self, job_id: int) -> list[Mapping[str, Any]]:
         """The annotations of a job's check run (GitHub's "The run was canceled by @actor." among them)."""
@@ -2417,11 +2428,14 @@ def hold_for_destination(client: GitHub, target: Target, outcome: str, reason: s
     The re-run of a rescued run takes its workflow's Blacksmith retry label (move_verdict()). While that
     label is stalled the run stays queued on its owned pool, however long, until the label moves, a
     refusal, the run's end or the watch limit; while it is busy, the job moves only after
-    OWNED_WAIT_FLOOR_SECONDS. Re-picking another owned pool is no option here: a re-run never takes an
+    OWNED_WAIT_FLOOR_SECONDS. A nightly is the exception: its hold on a stalled label ends after
+    NIGHTLY_HOLD_SECONDS or at the watch limit, and the job moves (its re-run's label read from its picker's
+    log where it can be, nightly_retry_destinations()). Re-picking another owned pool is no option here: a re-run never takes an
     owned label in the workflows this moves (cmux-next-dev-daily.yml's verify runs on its picker's label
     only on attempt 1), and a cancel would lose the job's place in the owned queue for a Blacksmith one.
     """
     held = ""
+    held_since: dt.datetime | None = None
     current, floor = budget_seconds, floor_seconds
     while outcome == "rescue":
         # A re-run the picker places again takes the owned machines free now first: nothing to hold.
@@ -2440,12 +2454,22 @@ def hold_for_destination(client: GitHub, target: Target, outcome: str, reason: s
             names = ", ".join(sorted(str(job.get("name") or job.get("id")) for job in turned_away))
             return "refused", f"{names} refused by {job_pool(turned_away[0])} at job start", held
         if held and now() >= deadline:
+            if target.nightly:
+                # NIGHTLY_HOLD_SECONDS: a held nightly job is moved at the watch limit, never left queued.
+                log(f"moving the held nightly job at the watch limit: {held}")
+                break
             # watch() reports a stuck job before its deadline check, so the hold ends here (after the
             # refusal look above, so a refusal on the last look still gets its re-run).
             return "stop", "watch limit reached", held
         verdict, label = move_verdict(client, target, now=now(), sleep=sleep, log=log)
         if verdict == "free" or verdict == "busy" and floor is not None and floor >= OWNED_WAIT_FLOOR_SECONDS:
             break
+        if verdict == "stalled" and target.nightly:
+            held_since = held_since or now()
+            if now() - held_since >= dt.timedelta(seconds=NIGHTLY_HOLD_SECONDS):
+                log(f"moving the held nightly job: no mini took it in {NIGHTLY_HOLD_SECONDS}s past its budget, "
+                    f"though the re-run takes {label}, which is stalled")
+                break
         if verdict == "stalled":
             held = f"{label} is stalled (simple_pool_picker.blacksmith_stalled())"
             log(f"held on the owned pool: {reason}, but the re-run would take {held}; "
@@ -2553,6 +2577,74 @@ def repicks(target: Target) -> bool:
     return target.path == CI_WORKFLOW_PATH and not target.e2e and target.attempt + 1 <= LAST_OWNED_ATTEMPT
 
 
+# nightly-next's owned jobs and where a re-run of failed jobs sends each (nightly.yml on feat-cmux-next): the
+# Blacksmith label its picker job chose on the earlier attempt, which the re-run keeps, as that picker's log
+# prints it. build-nightly-app and the Ghostty helper read pick-nightly-build-runner's `blacksmith`
+# ("nightly build runner: blacksmith: <label> (why)"); the secret-free verify jobs read pick-nightly-sign-runner's
+# `alternate` ("nightly sign runner: ...; a re-run takes `<label>`"). Until 2026-10-27 the rescue judged every
+# Blacksmith label the workflow file names (retry_labels()), so a stalled label no re-run would take held an
+# owned nightly job queued while the label its re-run takes had room.
+NIGHTLY_RETRY_SOURCES: tuple[tuple[str, str, re.Pattern[str]], ...] = (
+    ("build-nightly-app", "pick-nightly-build-runner",
+     re.compile(r"nightly build runner: blacksmith: (blacksmith-[0-9]+vcpu-macos-[0-9]+) ")),
+    ("build-nightly-ghostty-cli-helper", "pick-nightly-build-runner",
+     re.compile(r"nightly build runner: blacksmith: (blacksmith-[0-9]+vcpu-macos-[0-9]+) ")),
+    *((name, "pick-nightly-sign-runner",
+       re.compile(r"nightly sign runner: .*a re-run takes `(blacksmith-[0-9]+vcpu-macos-[0-9]+)`"))
+      for name in ("Verify signed nightly app", "Verify final nightly DMG", "signer-dmg-image", "signer-verify")),
+)
+# How long an owned nightly job is held while the label its re-run takes is stalled, after its queue budget:
+# two Blacksmith stall windows. Past it the job moves anyway: no mini took it, and a nightly never waits on one
+# label with no fallback (Leo, 2026-10-27: "a waiting nightly ... job is admitted on a mini ahead of every PR,
+# DEV and side job"; the routing order ends at Blacksmith). The same holds at the watch limit: a held nightly
+# job is moved, not left queued.
+NIGHTLY_HOLD_SECONDS = 2 * OWNED_WAIT_FLOOR_SECONDS
+
+
+def nightly_retry_destinations(api: GitHub, target: Target, sleep: Callable[[float], None],
+                               log: Callable[[str], None]) -> set[str] | None:
+    """The Blacksmith labels a re-run of failed jobs sends nightly-next's owned jobs waiting now to, read from
+    their picker jobs' logs (NIGHTLY_RETRY_SOURCES), or None when any of them is not known that way."""
+    if not target.late_owned_jobs:
+        return None
+    reader = getattr(api, "job_log_lines", None)
+    if reader is None:
+        return None
+    try:
+        jobs = read(lambda: api.jobs(target.run_id, target.attempt), sleep, log)
+    except Aborted:
+        raise
+    except Exception as error:  # noqa: BLE001 - the workflow's labels decide instead
+        log(f"could not list the jobs for their retry labels ({type(error).__name__}: {error})")
+        return None
+    waiting = [job for job in jobs if job_pool(job) and (waiting_for_runner(job) or in_setup(job))]
+    if not waiting:
+        return None
+    found: set[str] = set()
+    for job in waiting:
+        name = str(job.get("name") or "")
+        source = next(((picker, pattern) for prefix, picker, pattern in NIGHTLY_RETRY_SOURCES
+                       if name == prefix or name.startswith(prefix + " (")), None)
+        if source is None:
+            return None
+        picker = next((other for other in jobs if other.get("name") == source[0]
+                       and other.get("status") == "completed" and other.get("id")), None)
+        if picker is None:
+            return None
+        try:
+            lines = reader(int(picker["id"]))
+        except Aborted:
+            raise
+        except Exception as error:  # noqa: BLE001 - the workflow's labels decide instead
+            log(f"could not read {source[0]}'s log ({type(error).__name__}: {error})")
+            return None
+        labels = [match.group(1) for line in lines or () for match in [source[1].search(line)] if match]
+        if not labels:
+            return None
+        found.add(labels[-1])
+    return found
+
+
 def move_verdict(api: GitHub, target: Target, *, now: dt.datetime, sleep: Callable[[float], None],
                  log: Callable[[str], None]) -> tuple[str, str]:
     """Whether a queue rescue may move the run now: ("free" | "busy" | "stalled", the label it judged).
@@ -2576,14 +2668,18 @@ def move_verdict(api: GitHub, target: Target, *, now: dt.datetime, sleep: Callab
     states = blacksmith_states(snapshot, now)
     if all(state == "free" for state in states.values()):
         return "free", ""
-    try:
-        text = read(lambda: api.workflow_file(target.path, target.head_sha), sleep, log)
-    except Aborted:
-        raise
-    except Exception as error:  # noqa: BLE001 - every picker label then counts as a destination
-        log(f"could not read {target.path} at {target.head_sha[:12]} ({type(error).__name__}: {error})")
-        text = None
-    labels = sorted(retry_labels(text))
+    resolved = nightly_retry_destinations(api, target, sleep, log)
+    if resolved:
+        labels = sorted(resolved)
+    else:
+        try:
+            text = read(lambda: api.workflow_file(target.path, target.head_sha), sleep, log)
+        except Aborted:
+            raise
+        except Exception as error:  # noqa: BLE001 - every picker label then counts as a destination
+            log(f"could not read {target.path} at {target.head_sha[:12]} ({type(error).__name__}: {error})")
+            text = None
+        labels = sorted(retry_labels(text))
     for verdict in ("stalled", "busy"):
         hit = next((label for label in labels if states.get(label) == verdict), "")
         if hit:

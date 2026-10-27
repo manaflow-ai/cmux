@@ -2951,6 +2951,101 @@ class NightlyAPI(FakeAPI):
         return self.pushes
 
 
+class NightlyRetryDestination(unittest.TestCase):
+    """A held nightly-next owned job is judged by the label its re-run takes, read from its picker's log, and its
+    hold on a stalled label is timed (NIGHTLY_HOLD_SECONDS). Run 40515681971 (2026-10-27) queued 5 h of 6 h on
+    Blacksmith; a busy owned Mac could only take its jobs once the rescue had a timed Blacksmith fallback."""
+
+    SMALL, LARGE = "blacksmith-6vcpu-macos-26", "blacksmith-12vcpu-macos-26"
+    SIDE = "glaeda-side-std-xcode-26.6"
+    TARGET = rescue.Target(RUN_ID, 1, HEAD, 0, side=True, nightly=True, path=rescue.NIGHTLY_WORKFLOW_PATH,
+                           push_branch="nightly-next")
+    BUILD_LOG = ["2026-10-27T13:51:45Z nightly build runner: owned: none (no idle runner)\n",
+                 "2026-10-27T13:51:45Z nightly build runner: blacksmith: blacksmith-12vcpu-macos-26 (moving)\n"]
+    SIGN_LOG = ["2026-10-27T16:01:40Z nightly sign runner: `blacksmith-6vcpu-macos-26`; a re-run takes "
+                "`blacksmith-12vcpu-macos-26`\n"]
+
+    def jobs(self, name="build-nightly-app", picker="pick-nightly-build-runner"):
+        return [{**job(picker, status="completed", runner="linux"), "id": 7},
+                {**job(name, labels=[self.SIDE]), "id": 8}]
+
+    def api(self, jobs, logs, snapshot):
+        api = NightlyAPI(Clock(), lambda seconds: jobs, workflow=f"a: {self.SMALL}\nb: {self.LARGE}\n",
+                         snapshot=snapshot)
+        api.job_log_lines = lambda job_id: logs.get(job_id)
+        return api
+
+    def verdict(self, api, target=None):
+        return rescue.move_verdict(api, target or self.TARGET, now=START, sleep=lambda _: None, log=lambda _: None)
+
+    def test_the_picker_s_label_decides_not_every_label_the_file_names(self):
+        stalled_small = blacksmith_snapshot(queued=40, oldest=300, label=self.SMALL)
+        for name, picker, log in (("build-nightly-app", "pick-nightly-build-runner", self.BUILD_LOG),
+                                  ("Verify signed nightly app (arm64)", "pick-nightly-sign-runner", self.SIGN_LOG)):
+            with self.subTest(job=name):
+                api = self.api(self.jobs(name, picker), {7: log}, stalled_small)
+                self.assertEqual(rescue.nightly_retry_destinations(api, self.TARGET, lambda _: None, lambda _: None),
+                                 {self.LARGE})
+                # The re-run takes the 12 vCPU label, which has room: the stalled 6 vCPU one never holds it.
+                self.assertEqual(self.verdict(api), ("free", ""))
+        stalled_large = blacksmith_snapshot(queued=40, oldest=300, label=self.LARGE)
+        api = self.api(self.jobs(), {7: self.BUILD_LOG}, stalled_large)
+        self.assertEqual(self.verdict(api), ("stalled", self.LARGE))
+
+    def test_an_unknown_destination_falls_back_to_the_workflow_s_labels(self):
+        stalled_small = blacksmith_snapshot(queued=40, oldest=300, label=self.SMALL)
+        cases = {
+            "unread log": ({}, self.jobs()),
+            "no label in the log": ({7: ["nightly build runner: owned: none\n"]}, self.jobs()),
+            "a job with no known picker": ({7: self.BUILD_LOG}, self.jobs("prepare-nightly-variant")),
+        }
+        for why, (logs, jobs) in cases.items():
+            with self.subTest(why=why):
+                api = self.api(jobs, logs, stalled_small)
+                self.assertIsNone(rescue.nightly_retry_destinations(api, self.TARGET, lambda _: None, lambda _: None))
+                self.assertEqual(self.verdict(api), ("stalled", self.SMALL))
+        # Only nightly-next: main's nightly and every other workflow keep the workflow's labels.
+        api = self.api(self.jobs(), {7: self.BUILD_LOG}, stalled_small)
+        main = dataclasses.replace(self.TARGET, push_branch="main")
+        self.assertIsNone(rescue.nightly_retry_destinations(api, main, lambda _: None, lambda _: None))
+        self.assertEqual(self.verdict(api, main), ("stalled", self.SMALL))
+
+    def test_a_held_nightly_job_moves_after_the_hold_and_others_stay_held(self):
+        stalled = blacksmith_snapshot(queued=40, running=0, oldest=30)
+        for nightly in (True, False):
+            with self.subTest(nightly=nightly):
+                clock = Clock()
+                api = self.api(self.jobs(), {}, stalled)
+                target = dataclasses.replace(self.TARGET, nightly=nightly)
+                lines = []
+                deadline = START + dt.timedelta(hours=10)
+                with unittest.mock.patch.object(rescue, "watch", return_value=("rescue", "build-nightly-app queued")):
+                    outcome, _, why = rescue.hold_for_destination(
+                        api, target, "rescue", "build-nightly-app queued", budget_seconds=30, floor_seconds=30,
+                        deadline=deadline if nightly else START + dt.timedelta(hours=2), now=clock.now,
+                        sleep=clock.sleep, log=lines.append, seen={})
+                self.assertIn("is stalled", why)
+                if nightly:
+                    self.assertEqual(outcome, "rescue")
+                    self.assertGreaterEqual(clock.seconds, rescue.NIGHTLY_HOLD_SECONDS)
+                    self.assertLess(clock.seconds, rescue.NIGHTLY_HOLD_SECONDS + 2 * rescue.STALL_RECHECK_SECONDS)
+                else:
+                    self.assertEqual((outcome, clock.now() >= START + dt.timedelta(hours=2)), ("stop", True))
+
+    def test_a_held_nightly_job_moves_at_the_watch_limit(self):
+        clock = Clock()
+        api = self.api(self.jobs(), {}, blacksmith_snapshot(queued=40, running=0, oldest=30))
+        lines = []
+        with unittest.mock.patch.object(rescue, "watch", return_value=("rescue", "build-nightly-app queued")), \
+                unittest.mock.patch.object(rescue, "NIGHTLY_HOLD_SECONDS", 10 ** 6):
+            outcome, _, _ = rescue.hold_for_destination(
+                api, self.TARGET, "rescue", "build-nightly-app queued", budget_seconds=30, floor_seconds=30,
+                deadline=START + dt.timedelta(seconds=900), now=clock.now, sleep=clock.sleep, log=lines.append,
+                seen={})
+        self.assertEqual(outcome, "rescue")
+        self.assertTrue(any(line.startswith("moving the held nightly job at the watch limit") for line in lines), lines)
+
+
 class Nightly(unittest.TestCase):
     """nightly.yml's app build takes the trusted owned pool on attempt 1 of main's push and schedule runs."""
 
@@ -3417,12 +3512,16 @@ class Nightly(unittest.TestCase):
             self.assertGreaterEqual(api.first_cancel, state["start"] + lasts)
             self.assertEqual(api.calls[-1], "rerun-failed", retry)
 
-    def test_a_resumed_watch_still_holds_off_a_stalled_label(self):
+    def test_a_resumed_watch_still_holds_off_a_stalled_label_for_the_nightly_hold(self):
+        # The hold on a stalled label is timed for a nightly (NIGHTLY_HOLD_SECONDS): it then moves, never left queued.
         clock, api, target, state, lasts = self.late_sibling_api(stalled_from_sibling=True)
-        result = rescue.follow(api, target, seconds=30, queue_rounds="0", now=clock.now, sleep=clock.sleep,
-                               log=lambda _: None)
-        self.assertNotIn("rerun-failed", api.calls)
-        self.assertIn("kept on the owned pool", result)
+        lines = []
+        rescue.follow(api, target, seconds=30, queue_rounds="0", now=clock.now, sleep=clock.sleep, log=lines.append)
+        held = [index for index, line in enumerate(lines) if line.startswith("held on the owned pool")]
+        self.assertTrue(held, lines)
+        self.assertTrue(any(line.startswith("moving the held nightly job") for line in lines), lines)
+        self.assertEqual(api.calls[-1], "rerun-failed")
+        self.assertGreaterEqual(api.first_cancel, state["start"] + rescue.NIGHTLY_HOLD_SECONDS)
 
     def test_a_sibling_in_its_runner_setup_is_started_work(self):
         setup = {**job("publish-nightly", status="in_progress", runner="linux"),
