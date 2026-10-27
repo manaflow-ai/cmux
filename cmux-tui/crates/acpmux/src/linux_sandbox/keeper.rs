@@ -489,7 +489,7 @@ async fn run(options: Options) -> Result<i32> {
     // can add mounts in that window, and they already have full host access.
     // After cloning, seccomp and user namespaces block sandbox mounts; the
     // only sandbox-triggered propagation path is automount. The plan refuses
-    // all autofs outside /proc, /sys and /dev, which bwrap replaces. Systemd's
+    // all autofs outside /proc and /dev, which bwrap replaces. Systemd's
     // binfmt_misc automount under /proc/sys is unaffected. Mount IDs come from
     // O_PATH + /proc/self/fdinfo in this keeper, never from deepest-path guesses.
     let mut mountinfo = Vec::new();

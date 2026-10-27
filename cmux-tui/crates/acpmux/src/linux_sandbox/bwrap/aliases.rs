@@ -1,7 +1,9 @@
 //! Mountinfo alias checks, required before G2 enables Linux remote spawns.
 //! All loops consume finite mountinfo text, entries, paths, or option lists.
-//! Autofs is refused everywhere except /proc, /sys and /dev (replaced by bwrap);
+//! Autofs is refused everywhere except /proc and /dev (replaced by bwrap);
 //! systemd's binfmt_misc automount under /proc/sys remains supported.
+//! Reachable overlays require resolvable canonical layer paths; inaccessible
+//! layers refuse rather than guessing their relationship to guarded host paths.
 //! A FUSE or network mount elsewhere exporting protected content at another
 //! path remains out of scope, matching Seatbelt's path-based limitation.
 use super::*;
@@ -107,14 +109,19 @@ fn split_overlay_layers(value: &str) -> Vec<String> {
 fn overlay_layers(options: &str) -> Result<Vec<PathBuf>, String> {
     let mut layers = Vec::new();
     for option in options.split(',') {
-        let Some(value) = option
-            .strip_prefix("lowerdir=")
-            .or_else(|| option.strip_prefix("upperdir="))
-            .or_else(|| option.strip_prefix("workdir="))
-        else {
-            continue;
+        let (key, value) = option.split_once('=').unwrap_or((option, ""));
+        let parts = match key {
+            "lowerdir" => split_overlay_layers(value),
+            "lowerdir+" | "datadir+" | "upperdir" | "workdir" => vec![value.to_owned()],
+            key if key.ends_with("dir") || key.ends_with("dir+") => {
+                return Err(format!("unknown overlay layer option: {key}"));
+            }
+            _ => continue,
         };
-        for part in split_overlay_layers(value) {
+        if parts.is_empty() {
+            return Err(format!("empty overlay layer option: {key}"));
+        }
+        for part in parts {
             let path = PathBuf::from(decode_mount_field(&part)?);
             path_arg(&path)?;
             layers.push(path);
@@ -123,15 +130,26 @@ fn overlay_layers(options: &str) -> Result<Vec<PathBuf>, String> {
     Ok(layers)
 }
 
-fn layer_readable(path: &Path) -> bool {
-    let Ok(text) = path_arg(path) else {
-        return false;
-    };
-    let Ok(c_path) = CString::new(text.as_bytes()) else {
-        return false;
-    };
-    // SAFETY: c_path is a valid NUL-terminated path.
-    unsafe { libc::access(c_path.as_ptr(), libc::X_OK) == 0 }
+/// Only EACCES proves this uid cannot reach the mount; other errors refuse.
+fn mount_reachable(path: &Path) -> Result<bool, String> {
+    let name = CString::new(path_arg(path)?).map_err(|e| e.to_string())?;
+    // SAFETY: name is terminated; O_PATH does not open devices for I/O.
+    let raw =
+        unsafe { libc::open(name.as_ptr(), libc::O_PATH | libc::O_DIRECTORY | libc::O_CLOEXEC) };
+    if raw >= 0 {
+        // SAFETY: open returned a new descriptor; dropping it closes it.
+        drop(unsafe { OwnedFd::from_raw_fd(raw) });
+        return Ok(true);
+    }
+    let error = io::Error::last_os_error();
+    if error.raw_os_error() == Some(libc::EACCES) {
+        return Ok(false);
+    }
+    Err(format!("cannot inspect overlay mount {}: {error}", path.display()))
+}
+
+fn replaced_by_bwrap(path: &Path) -> bool {
+    path.starts_with("/proc") || path.starts_with("/dev")
 }
 
 fn local_filesystem(fs_type: &str) -> bool {
@@ -201,27 +219,59 @@ fn visible_below<'a>(
 /// Every visible descendant filesystem is a separate piece. All comparisons
 /// consume finite trees, pieces and mount entries. Unknown topology refuses.
 pub(super) fn guarded_aliases(trees: &[(&Path, u64, bool)], mountinfo: &str) -> Vec<String> {
-    match check_trees(trees, mountinfo) {
+    guarded_aliases_with(
+        trees,
+        mountinfo,
+        |p| fs::canonicalize(p).map_err(|e| e.to_string()),
+        mount_reachable,
+    )
+}
+
+fn guarded_aliases_with(
+    trees: &[(&Path, u64, bool)],
+    mountinfo: &str,
+    resolve: impl FnMut(&Path) -> Result<PathBuf, String>,
+    reachable: impl FnMut(&Path) -> Result<bool, String>,
+) -> Vec<String> {
+    match check_trees(trees, mountinfo, resolve, reachable) {
         Ok(reasons) => reasons.into_iter().collect(),
         Err(error) => vec![error],
     }
 }
 
-fn check_trees(trees: &[(&Path, u64, bool)], mountinfo: &str) -> Result<BTreeSet<String>, String> {
+fn check_trees(
+    trees: &[(&Path, u64, bool)],
+    mountinfo: &str,
+    mut resolve: impl FnMut(&Path) -> Result<PathBuf, String>,
+    mut reachable: impl FnMut(&Path) -> Result<bool, String>,
+) -> Result<BTreeSet<String>, String> {
     let mounts = parse_mountinfo(mountinfo)?;
     let mut reasons = BTreeSet::new();
     let mut layers = Vec::new();
     for mount in &mounts {
-        if mount.fs_type == "autofs"
-            && !["/proc", "/sys", "/dev"].iter().any(|p| mount.point.starts_with(p))
-        {
+        if mount.fs_type == "autofs" && !replaced_by_bwrap(&mount.point) {
             reasons.insert(format!(
                 "autofs mount at {} can propagate new aliases",
                 mount.point.display()
             ));
         }
-        if mount.fs_type == "overlay" {
-            layers.extend(overlay_layers(&mount.super_options)?);
+    }
+    // Do not access overlay paths through an autofs trigger before refusing it.
+    if !reasons.is_empty() {
+        return Ok(reasons);
+    }
+    for mount in &mounts {
+        if mount.fs_type != "overlay" || replaced_by_bwrap(&mount.point) {
+            continue;
+        }
+        if !reachable(&mount.point)? {
+            continue;
+        }
+        for layer in overlay_layers(&mount.super_options)? {
+            let canonical = resolve(&layer)
+                .map_err(|e| format!("cannot resolve overlay layer {}: {e}", layer.display()))?;
+            path_arg(&canonical)?;
+            layers.push((mount.id, canonical));
         }
     }
     for &(tree, id, writable) in trees {
@@ -246,19 +296,16 @@ fn check_trees(trees: &[(&Path, u64, bool)], mountinfo: &str) -> Result<BTreeSet
                     mount.fs_type
                 ));
             }
-            if mount.fs_type == "overlay" {
-                for layer in overlay_layers(&mount.super_options)? {
-                    if layer_readable(&layer) {
-                        reasons.insert(format!(
-                            "{} lives on overlayfs whose layer {} is readable here",
-                            view.display(),
-                            layer.display()
-                        ));
-                    }
+            // Overlay layers are host paths, never device-relative roots.
+            for (overlay_id, layer) in &layers {
+                if *overlay_id == mount.id {
+                    reasons.insert(format!(
+                        "{} lives on overlayfs whose layer {} is reachable here",
+                        view.display(),
+                        layer.display()
+                    ));
                 }
-            }
-            for layer in &layers {
-                if [tree, view.as_path(), underlying.as_path()]
+                if [tree, view.as_path()]
                     .iter()
                     .any(|p| layer.starts_with(p) || p.starts_with(layer))
                 {
@@ -293,22 +340,15 @@ fn check_trees(trees: &[(&Path, u64, bool)], mountinfo: &str) -> Result<BTreeSet
     Ok(reasons)
 }
 
-// Red-first seam; the implementation will use both resolver callbacks.
-#[cfg(test)]
-fn guarded_aliases_with(
-    trees: &[(&Path, u64, bool)],
-    mountinfo: &str,
-    _resolve: impl FnMut(&Path) -> Result<PathBuf, String>,
-    _reachable: impl FnMut(&Path) -> Result<bool, String>,
-) -> Vec<String> {
-    guarded_aliases(trees, mountinfo)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
     const ROOT: &str = "1 0 8:1 / / rw - ext4 root rw\n";
+
+    fn guarded_aliases(trees: &[(&Path, u64, bool)], info: &str) -> Vec<String> {
+        guarded_aliases_with(trees, info, |p| Ok(p.to_path_buf()), |_| Ok(true))
+    }
 
     fn overlay_info(options: &str) -> String {
         format!("{ROOT}2 1 0:42 / /mnt/leak rw - overlay overlay {options}\n")
@@ -402,18 +442,17 @@ mod tests {
         fs::create_dir(&secret).unwrap();
         let link = root.join("layer");
         std::os::unix::fs::symlink(&secret, &link).unwrap();
-        let info = overlay_info(&format!("lowerdir={}", link.display()));
-        let reasons = guarded_aliases_with(
-            &[(&secret, 1, false)],
-            &info,
-            |p| fs::canonicalize(p).map_err(|e| e.to_string()),
-            |_| Ok(true),
-        );
+        let point = root.join("mount");
+        fs::create_dir(&point).unwrap();
+        let info = overlay_info(&format!("lowerdir={}", link.display()))
+            .replace("/mnt/leak", point.to_str().unwrap());
+        let reasons = super::guarded_aliases(&[(&secret, 1, false)], &info);
         fs::remove_dir_all(root).unwrap();
         assert!(
             reasons.iter().any(|r| r.contains(&format!("overlay layer {}", secret.display()))),
             "{reasons:?}"
         );
+        eprintln!("passed: overlay layer symlink resolved through the kernel");
     }
 
     #[test]
@@ -502,11 +541,15 @@ mod tests {
     #[test]
     fn missing_mount_ids_and_overlay_layer_access_fail_closed() {
         assert!(!guarded_aliases(&[(Path::new("/work"), 999, true)], ROOT).is_empty());
-        for (layer, refused) in [("/tmp", true), ("/acpmux-absent-layer/a", false)] {
-            let info = format!("{ROOT}2 1 0:42 / /home rw - overlay overlay lowerdir={layer}\n");
-            let reasons = guarded_aliases(&[(Path::new("/home/u/.ssh"), 2, false)], &info);
-            assert_eq!(!reasons.is_empty(), refused, "{reasons:?}");
-        }
+        let info = overlay_info("lowerdir=/missing/layer");
+        let reasons = guarded_aliases_with(&[], &info, |_| Err("missing".into()), |_| Ok(true));
+        assert!(
+            reasons.iter().any(|r| r.contains("cannot resolve overlay layer /missing/layer")),
+            "{reasons:?}"
+        );
+        let info = format!("{ROOT}2 1 0:42 / /home rw - overlay overlay lowerdir=/tmp\n");
+        let reasons = guarded_aliases(&[(Path::new("/home/u/.ssh"), 2, false)], &info);
+        assert!(reasons.iter().any(|r| r.contains("lives on overlayfs")), "{reasons:?}");
     }
 
     #[test]
@@ -533,7 +576,10 @@ mod tests {
                 let info = format!("{ROOT}2 1 0:42 / {point} rw - {fs_type} source rw\n");
                 let id = if point == "/work/mnt" { 1 } else { 2 };
                 let reasons = guarded_aliases(&[(Path::new("/work"), id, true)], &info);
-                assert!(reasons.iter().any(|r| r.contains("non-local")), "{info}: {reasons:?}");
+                assert!(
+                    reasons.iter().any(|r| r.contains("non-local") || r.contains("autofs")),
+                    "{info}: {reasons:?}"
+                );
             }
         }
     }
