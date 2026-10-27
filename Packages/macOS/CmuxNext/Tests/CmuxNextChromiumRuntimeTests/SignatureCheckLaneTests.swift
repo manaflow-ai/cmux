@@ -1,3 +1,4 @@
+#if canImport(Security)
 import CmuxNextWakeups
 import Foundation
 import Testing
@@ -70,3 +71,4 @@ import Testing
         return item
     }
 }
+#endif

@@ -12,17 +12,24 @@ struct DirectoryListerTests {
         try temp.folder("Thing.app")
         try FileManager.default.createSymbolicLink(at: temp.url.appendingPathComponent("link"),
                                                    withDestinationURL: temp.url.appendingPathComponent("Sub"))
+        var names: Set<String> = ["plain.txt", ".dotfile", "Sub", "Thing.app", "link"]
+        #if canImport(Darwin)
+        // Linux has no UF_HIDDEN flag: a dot name alone hides an item there.
         let flagged = try temp.file("flagged")
         #expect(chflags(flagged.path, UInt32(UF_HIDDEN)) == 0)
+        names.insert("flagged")
+        #endif
 
         let entries = try await DirectoryLister().list(temp.url)
         let byName = Dictionary(uniqueKeysWithValues: entries.map { ($0.name, $0) })
-        #expect(Set(byName.keys) == ["plain.txt", ".dotfile", "Sub", "Thing.app", "link", "flagged"])
+        #expect(Set(byName.keys) == names)
         #expect(byName["plain.txt"]?.kind == .file)
         #expect(byName["plain.txt"]?.size == 42)
         #expect(byName["plain.txt"]?.isHidden == false)
         #expect(byName[".dotfile"]?.isHidden == true)
+        #if canImport(Darwin)
         #expect(byName["flagged"]?.isHidden == true)
+        #endif
         #expect(byName["Sub"]?.kind == .folder)
         #expect(byName["Sub"]?.size == 0)
         #expect(byName["Thing.app"]?.kind == .package)
@@ -48,6 +55,7 @@ struct DirectoryListerTests {
         #expect(FileBrowserError.posix(EACCES) == .failed("Permission denied"))
     }
 
+    #if canImport(Darwin)
     /// The batch parser reads each record with bounds checks: a record whose length runs past the
     /// buffer ends the batch, and the records before it are kept as the kernel wrote them.
     @Test func aBatchStopsAtARecordThatRunsPastTheBuffer() {
@@ -96,6 +104,7 @@ struct DirectoryListerTests {
         while body.count % 4 != 0 { body.append(0) }
         return bytes(UInt32(body.count + 4)) + body
     }
+    #endif
 
     @Test func listsTenThousandItems() async throws {
         let temp = try TempFolder()

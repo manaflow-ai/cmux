@@ -1,3 +1,4 @@
+#if canImport(CFNetwork)
 import CFNetwork
 import Foundation
 
@@ -12,12 +13,7 @@ import Foundation
 /// (checked while reading and while decoding), a body shorter than its Content-Length or a chunked
 /// body without its last chunk at the close.
 nonisolated struct RemoteFetchReplyReader {
-    nonisolated struct Refusal: Error, Equatable, CustomStringConvertible {
-        let reason: String
-        /// The body (or its Content-Length) is over the fetch's cap.
-        var overCap = false
-        var description: String { reason }
-    }
+    typealias Refusal = RemoteFetchRefusal
 
     static let maximumHeaderBytes = 16 * 1024
     static let redirects: Set<Int> = [301, 302, 303, 307, 308]
@@ -149,3 +145,4 @@ nonisolated struct RemoteFetchReplyReader {
         return (status, headers, length)
     }
 }
+#endif

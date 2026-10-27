@@ -12,10 +12,16 @@ public struct FileInfoReader: Sendable {
         self.volumeCapacity = volumeCapacity
     }
 
-    /// The volume's free space as Foundation reports it.
+    /// The volume's free space as Foundation reports it. Only Apple's Foundation knows the space
+    /// free for important use; elsewhere that half is nil.
     public static func systemVolumeCapacity(of url: URL) -> (important: Int64?, plain: Int64?) {
+        #if canImport(Darwin)
         let values = try? url.resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey, .volumeAvailableCapacityKey])
         return (values?.volumeAvailableCapacityForImportantUsage, values?.volumeAvailableCapacity.map(Int64.init))
+        #else
+        let values = try? url.resourceValues(forKeys: [.volumeAvailableCapacityKey])
+        return (nil, values?.volumeAvailableCapacity.map(Int64.init))
+        #endif
     }
 
     /// Reads `url`'s Get Info record.

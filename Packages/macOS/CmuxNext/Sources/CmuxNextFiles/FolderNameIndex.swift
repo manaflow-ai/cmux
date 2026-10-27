@@ -1,11 +1,10 @@
 public import Foundation
-import Darwin
 
 /// A name index over one folder tree: the Files pane's "search this folder" (Finder's search
 /// field, by name), without Spotlight.
 ///
-/// One `fts(3)` walk stores every name once, folded (case and accents), in one contiguous byte
-/// buffer; a search is one `memmem` pass over that buffer, so 100 000 files are searched in
+/// One walk (`fts(3)` on macOS, `readdir(3)` on Linux) stores every name once, folded (case and
+/// accents), in one contiguous byte buffer; a search is one `memmem` pass over that buffer, so 100 000 files are searched in
 /// about a millisecond, in folders Spotlight never indexed (`/tmp`, external disks, excluded
 /// paths) too. Like Finder's search it skips hidden items and the inside of packages.
 ///
@@ -61,43 +60,28 @@ public struct FolderNameIndex: Sendable {
             throw FileBrowserError.missing(root)
         }
         var builder = Builder()
-        // SAFETY: fts_open reads `argv`, a NULL-terminated array of one strdup'd copy of the root path; both live
-        // until the walk ends (the defers). Each FTSENT fts_read returns stays valid until the next fts_read or
-        // fts_close on the stream, and the loop reads its fields (fts_info, fts_level, the NUL-terminated fts_path)
-        // or hands it back to fts_set before asking for the next one; no FTSENT pointer outlives its turn.
-        let truncated = try unsafe rootPath.withCString { cPath -> Bool in
-            let argv = unsafe UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>.allocate(capacity: 2)
-            defer { unsafe argv.deallocate() }
-            let copy = unsafe strdup(cPath)
-            defer { unsafe free(copy) }
-            unsafe argv[0] = copy
-            unsafe argv[1] = nil
-            // FTS_NOSTAT: directory-ness comes from d_type, so no stat per file.
-            guard let stream = unsafe fts_open(argv, FTS_PHYSICAL | FTS_NOCHDIR | FTS_NOSTAT, nil) else {
-                throw FileBrowserError.unreadable(root, errno)
+        let prefixLength = rootPath == "/" ? 1 : rootPath.utf8.count + 1
+        let truncated = try walk(rootPath, root: root) { full, isDirectory -> WalkStep in
+            let name = (full as NSString).lastPathComponent
+            if !includeHidden, name.hasPrefix(".") { return isDirectory ? .skipChildren : .next }
+            if builder.count >= entryLimit { return .stop }
+            builder.add(relative: String(full.utf8.dropFirst(prefixLength)) ?? name, name: name, isDirectory: isDirectory)
+            if isDirectory, FileOpenKind.packageExtensions.contains((name as NSString).pathExtension.lowercased()) {
+                return .skipChildren
             }
-            defer { unsafe fts_close(stream) }
-            let prefixLength = rootPath == "/" ? 1 : rootPath.utf8.count + 1
-            while let entry = unsafe fts_read(stream) {
-                let info = unsafe Int32(entry.pointee.fts_info)
-                if unsafe entry.pointee.fts_level == 0 { continue }
-                if info == FTS_DP { continue }
-                let full = unsafe String(cString: entry.pointee.fts_path)
-                let name = (full as NSString).lastPathComponent
-                let isDir = info == FTS_D || info == FTS_DC || info == FTS_DOT
-                if !includeHidden, name.hasPrefix(".") {
-                    if isDir { unsafe fts_set(stream, entry, FTS_SKIP) }
-                    continue
-                }
-                if builder.count >= entryLimit { return true }
-                builder.add(relative: String(full.utf8.dropFirst(prefixLength)) ?? name, name: name, isDirectory: isDir)
-                if isDir, FileOpenKind.packageExtensions.contains((name as NSString).pathExtension.lowercased()) {
-                    unsafe fts_set(stream, entry, FTS_SKIP)
-                }
-            }
-            return false
+            return .next
         }
         return FolderNameIndex(root: URL(fileURLWithPath: rootPath, isDirectory: true), truncated: truncated, builder: builder)
+    }
+
+    /// What the walk does after it visits an item.
+    enum WalkStep {
+        /// Go on, into the item when it is a folder.
+        case next
+        /// Go on, but not into the item.
+        case skipChildren
+        /// End the walk (the entry limit).
+        case stop
     }
 
     private init(root: URL, truncated: Bool, builder: Builder) {

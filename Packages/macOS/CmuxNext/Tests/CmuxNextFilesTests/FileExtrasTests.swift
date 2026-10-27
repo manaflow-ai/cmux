@@ -5,6 +5,9 @@ import Testing
 /// Make Alias, symlinks, Delete Immediately, Compress / Expand, Get Info data,
 /// the sidebar, Go menu places and Tab selection. All writes go to temp folders.
 struct FileExtrasTests {
+    /// Compress and Expand run Finder's `ditto`, which only macOS has.
+    static let hasDitto = FileManager.default.isExecutableFile(atPath: "/usr/bin/ditto")
+
     @Test func aliasesAndSymlinksPointAtTheOriginal() async throws {
         let temp = try TempFolder()
         let report = try temp.file("report.txt", bytes: 3)
@@ -14,7 +17,12 @@ struct FileExtrasTests {
         #expect(try FileManager.default.destinationOfSymbolicLink(atPath: links[0].path) == report.path)
         let aliases = try await files.makeLinks([report], kind: .alias)
         #expect(aliases.map(\.lastPathComponent) == ["report.txt alias 2"])
+        #if canImport(Darwin)
         #expect(try URL(resolvingAliasFileAt: aliases[0]).resolvingSymlinksInPath().path == report.path)
+        #else
+        // No bookmark files off Apple systems: an alias is a symbolic link.
+        #expect(aliases[0].resolvingSymlinksInPath().path == report.path)
+        #endif
     }
 
     @Test func deleteImmediatelyRemovesWithoutTheTrash() async throws {
@@ -25,7 +33,8 @@ struct FileExtrasTests {
         #expect(temp.names() == ["kept"])
     }
 
-    @Test func compressNamesLikeFinderAndExpandRoundTrips() async throws {
+    @Test(.enabled(if: hasDitto, "ditto is macOS-only"))
+    func compressNamesLikeFinderAndExpandRoundTrips() async throws {
         let temp = try TempFolder()
         let a = try temp.file("a.txt", bytes: 10)
         let b = try temp.file("b.txt", bytes: 20)
@@ -54,12 +63,15 @@ struct FileExtrasTests {
         #expect(info.size == 4096)
         #expect(info.folder.path == temp.url.path)
         #expect(!info.isLocked)
-        #expect(!info.kind.isEmpty)
         #expect(info.permissions & 0o600 == 0o600)
+        #if canImport(Darwin)
+        // Kind text comes from Launch Services, and Locked is the UF_IMMUTABLE flag: both are Apple-only.
+        #expect(!info.kind.isEmpty)
         try await reader.setLocked(true, for: file)
         info = try await reader.info(for: file)
         #expect(info.isLocked)
         try await reader.setLocked(false, for: file)
+        #endif
     }
 
     @Test func folderSizeCountsEveryItemInside() async throws {
@@ -125,7 +137,8 @@ struct FileExtrasTests {
     }
 
     @MainActor
-    @Test func makeAliasAndCompressFromTheModelSelectTheResult() async throws {
+    @Test(.enabled(if: hasDitto, "ditto is macOS-only"))
+    func makeAliasAndCompressFromTheModelSelectTheResult() async throws {
         let temp = try TempFolder()
         try temp.file("x.txt", bytes: 5)
         let model = FileBrowserModel(folder: temp.url, watcher: NeverWatcher())

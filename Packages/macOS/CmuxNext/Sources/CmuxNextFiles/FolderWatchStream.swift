@@ -1,3 +1,4 @@
+#if canImport(CoreServices)
 import CmuxNextCompat
 import CoreServices
 import Foundation
@@ -13,13 +14,13 @@ private let folderWatchCallbacks = CallbackRegistry<FolderWatchStream>(capacity:
 // whenever it is non-nil.
 @safe final class FolderWatchStream: @unchecked Sendable { // crash-allow: `stream` and `token` change only on the serial `queue` (start, stop, and the FSEvents callback there); the rest is immutable
     private let folderPath: String
-    private let latency: CFTimeInterval
+    private let latency: TimeInterval
     private let continuation: AsyncStream<FolderChange>.Continuation
     private let queue = DispatchQueue(label: "cmux.files.fsevents", qos: .userInitiated)
     private var stream: FSEventStreamRef?
     private var token: CallbackToken?
 
-    init(folder: URL, latency: CFTimeInterval, continuation: AsyncStream<FolderChange>.Continuation) {
+    init(folder: URL, latency: TimeInterval, continuation: AsyncStream<FolderChange>.Continuation) {
         self.folderPath = folder.path.hasSuffix("/") ? String(folder.path.dropLast()) : folder.path
         self.latency = latency
         self.continuation = continuation
@@ -94,3 +95,4 @@ private func folderWatchCallback(
     let list = unsafe (Unmanaged<CFArray>.fromOpaque(paths).takeUnretainedValue() as? [String]) ?? []
     watcher.deliver(paths: list, flags: unsafe Array(UnsafeBufferPointer(start: flags, count: count)))
 }
+#endif

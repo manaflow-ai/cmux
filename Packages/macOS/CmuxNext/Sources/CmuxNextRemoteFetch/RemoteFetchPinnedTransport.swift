@@ -1,3 +1,4 @@
+#if canImport(Network)
 import Foundation
 import Network
 import class CmuxSafeConcurrency.OnceContinuation
@@ -17,12 +18,6 @@ public nonisolated struct PinnedTLSTransport: RemoteFetchTransport {
 
     nonisolated struct HTTPError: Error, Equatable {
         let reason: String
-    }
-
-    /// The connection failed before it was ready (no route, refused, TLS trust): no byte of the
-    /// request was sent, so the fetch may try the host's next checked address.
-    public nonisolated struct ConnectFailure: Error {
-        public let underlying: any Error
     }
 
     public func send(_ request: RemoteFetchRequest, maximumBytes: Int) async throws -> RemoteFetchResponse {
@@ -103,7 +98,7 @@ public nonisolated struct PinnedTLSTransport: RemoteFetchTransport {
                             })
                         case .failed(let error), .waiting(let error):
                             guard let self else { return }
-                            finish(.failure(ready ? error : ConnectFailure(underlying: error)))
+                            finish(.failure(ready ? error : RemoteFetchConnectFailure(underlying: error)))
                         case .cancelled:
                             self?.finish(.failure(CancellationError()))
                         default:
@@ -145,3 +140,13 @@ public nonisolated struct PinnedTLSTransport: RemoteFetchTransport {
         }
     }
 }
+
+extension GuardedRemoteFetch {
+    /// A guarded fetch over ``PinnedTLSTransport``, the system's TLS to each checked address.
+    public init(maximumBytes: Int, timeout: Duration, accept: String, resolver: any RemoteAddressResolving,
+                clock: any Clock<Duration> = ContinuousClock()) {
+        self.init(maximumBytes: maximumBytes, timeout: timeout, accept: accept, resolver: resolver,
+                  transport: PinnedTLSTransport(), clock: clock)
+    }
+}
+#endif

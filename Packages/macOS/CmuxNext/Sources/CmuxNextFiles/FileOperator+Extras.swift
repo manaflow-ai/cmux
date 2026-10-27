@@ -16,8 +16,13 @@ extension FileOperator {
                 case .symlink:
                     try FileManager.default.createSymbolicLink(atPath: target.path, withDestinationPath: url.path)
                 case .alias:
+                    #if canImport(Darwin)
                     let bookmark = try url.bookmarkData(options: .suitableForBookmarkFile)
                     try URL.writeBookmarkData(bookmark, to: target)
+                    #else
+                    // Bookmark files are Apple-only; the nearest link elsewhere is a symbolic one.
+                    try FileManager.default.createSymbolicLink(atPath: target.path, withDestinationPath: url.path)
+                    #endif
                 }
             } catch {
                 throw FileBrowserError.failed(error.localizedDescription)

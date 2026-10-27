@@ -1,3 +1,4 @@
+#if canImport(Darwin)
 import Darwin
 
 /// Reads one `getattrlistbulk(2)` record out of the batch buffer: little-endian integers, each checked
@@ -60,3 +61,4 @@ struct AttributeRecordReader {
         return String(decoding: bytes[offset..<(offset + textLength)].prefix { $0 != 0 }, as: UTF8.self)
     }
 }
+#endif

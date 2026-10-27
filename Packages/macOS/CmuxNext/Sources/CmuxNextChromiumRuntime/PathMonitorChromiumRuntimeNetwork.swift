@@ -1,3 +1,4 @@
+#if canImport(Network)
 import Network
 
 /// Network state from `NWPathMonitor`: a path is usable when it is satisfied,
@@ -27,3 +28,4 @@ public struct PathMonitorChromiumRuntimeNetwork: ChromiumRuntimeNetwork {
         return allowsExpensive || (!path.isExpensive && !path.isConstrained)
     }
 }
+#endif

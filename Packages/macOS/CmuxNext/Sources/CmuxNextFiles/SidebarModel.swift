@@ -1,5 +1,5 @@
 public import Foundation
-import Observation
+public import Observation
 
 /// The Files sidebar: Favorites (defaults plus the person's own, in their
 /// order, kept in `defaults`) and Locations (mounted volumes).

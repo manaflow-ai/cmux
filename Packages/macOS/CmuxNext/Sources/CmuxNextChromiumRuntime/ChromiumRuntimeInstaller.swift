@@ -1,6 +1,10 @@
 import Foundation
+#if canImport(CryptoKit)
 import CryptoKit
-import Darwin
+#else
+// swift-crypto: the same SHA256 API off Apple systems.
+import Crypto
+#endif
 public import CmuxNextWakeups
 
 /// Downloads, verifies and installs the Chromium runtime pack an app build is
@@ -330,16 +334,5 @@ public actor ChromiumRuntimeInstaller {
         guard helpers.contains(where: { $0.hasSuffix(" Helper.app") }) else { throw .missing("Helper.app") }
         return [ChromiumRuntimeLayoutNames.framework, ChromiumRuntimeLayoutNames.shim].map { frameworks.appending(path: $0) }
             + helpers.map { frameworks.appending(path: $0) }
-    }
-
-    /// Removes `com.apple.quarantine` from every item (the app downloaded
-    /// the pack itself and verified it against its signed pin).
-    static func removeQuarantine(in root: URL) {
-        let rootPath = root.path
-        removexattr(rootPath, "com.apple.quarantine", XATTR_NOFOLLOW)
-        guard let enumerator = FileManager.default.enumerator(atPath: rootPath) else { return }
-        while let relative = enumerator.nextObject() as? String {
-            removexattr(rootPath + "/" + relative, "com.apple.quarantine", XATTR_NOFOLLOW)
-        }
     }
 }

@@ -1,5 +1,5 @@
 public import Foundation
-import Observation
+public import Observation
 
 /// One Files pane's state: the folder shown, its sorted and filtered items,
 /// the selection, history, view options and undo.

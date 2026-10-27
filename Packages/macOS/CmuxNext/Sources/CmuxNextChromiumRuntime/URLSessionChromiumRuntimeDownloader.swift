@@ -1,4 +1,8 @@
 public import Foundation
+#if canImport(FoundationNetworking)
+// URLSession lives in FoundationNetworking off Apple systems.
+import FoundationNetworking
+#endif
 import class CmuxSafeConcurrency.OnceContinuation
 import enum CmuxSafeConcurrency.OnceContinuationError
 import func CmuxSafeConcurrency.withOnceContinuation
@@ -89,8 +93,25 @@ private final class DownloadFileDelegate: NSObject, URLSessionDataDelegate, @unc
         written = existing
     }
 
+    #if canImport(FoundationNetworking)
+    // swift-corelibs-foundation ignores the disposition its handler gets (the documented bug of
+    // URLSessionDataDelegate there), so a refused reply cancels its task itself.
+    func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive response: URLResponse,
+                    completionHandler: @escaping @Sendable (URLSession.ResponseDisposition) -> Void) {
+        let disposition = accept(response)
+        if disposition == .cancel { dataTask.cancel() }
+        completionHandler(disposition)
+    }
+    #else
     func urlSession(_ session: URLSession, dataTask: URLSessionDataTask,
                     didReceive response: URLResponse) async -> URLSession.ResponseDisposition {
+        accept(response)
+    }
+    #endif
+
+    /// Readies the partial file for the reply's body: appended after a 206, rewritten after a 200.
+    /// Any other status, or a file that cannot be readied, ends the transfer.
+    private func accept(_ response: URLResponse) -> URLSession.ResponseDisposition {
         let status = (response as? HTTPURLResponse)?.statusCode ?? 0
         do {
             switch status {

@@ -63,23 +63,20 @@ struct FileTransferJob: Sendable {
                                               taken: FileOperator.names(in: folder))
                     target = folder.appendingPathComponent(free)
                 case .replace:
-                    var trashed: NSURL?
+                    let trashed: URL
                     do {
-                        // SAFETY: `trashed` is a local that outlives the call; Foundation stores at most one
-                        // autoreleased NSURL through the pointer and keeps no reference to it.
-                        try unsafe fm.trashItem(at: target, resultingItemURL: &trashed)
+                        trashed = try FileOperator.systemTrash(target, namer: namer)
                     } catch {
                         throw FileBrowserError.failed(error.localizedDescription)
                     }
-                    replaced.append(TrashedItem(original: target, trashed: (trashed as URL?) ?? target))
+                    replaced.append(TrashedItem(original: target, trashed: trashed))
                 }
             }
             let base = progress.bytesDone
             switch mode {
             case .move:
                 if Self.sameVolume(source, folder) {
-                    // SAFETY: rename reads the NUL-terminated copies of both paths made for the call.
-                    guard unsafe Darwin.rename(source.path, target.path) == 0 else {
+                    guard FileOperator.systemRename(source.path, target.path) == 0 else {
                         throw FileBrowserError.posix(errno)
                     }
                 } else {

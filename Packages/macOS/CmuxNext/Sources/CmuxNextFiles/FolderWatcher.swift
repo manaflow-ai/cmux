@@ -1,4 +1,3 @@
-import CoreServices
 public import Foundation
 
 /// What changed in a watched folder.
@@ -17,7 +16,10 @@ public protocol FolderWatching: Sendable {
     func changes(in folder: URL) -> AsyncStream<FolderChange>
 }
 
-/// File-level FSEvents on one folder, delivered as an `AsyncStream`.
+/// File-level change events on one folder, delivered as an `AsyncStream`:
+/// FSEvents on macOS (FolderWatchStream.swift), inotify on Linux
+/// (FolderWatchStream+Linux.swift), one interface as Chromium's
+/// base::FilePathWatcher (file_path_watcher_fsevents.cc, file_path_watcher_inotify.cc).
 ///
 /// FSEvents coalesces bursts (50 ms latency) and reports item paths, so a
 /// change to one file in a 100 000-item folder updates one row instead of
@@ -25,13 +27,13 @@ public protocol FolderWatching: Sendable {
 /// dropped; a dropped-events or root-changed flag becomes ``FolderChange/rescan``.
 public struct FolderWatcher: FolderWatching {
     /// The coalescing latency in seconds.
-    public var latency: CFTimeInterval
+    public var latency: TimeInterval
 
     /// Changes held for a reader that lags; past this the oldest is dropped and a rescan follows.
     static let bufferLimit = 64
 
     /// Makes a watcher. `latency` defaults to 50 ms.
-    public init(latency: CFTimeInterval = 0.05) { self.latency = latency }
+    public init(latency: TimeInterval = 0.05) { self.latency = latency }
 
     public func changes(in folder: URL) -> AsyncStream<FolderChange> {
         // Bounded: when the reader lags so far that a change is dropped, a rescan follows it.

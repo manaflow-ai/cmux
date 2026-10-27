@@ -1,5 +1,4 @@
 public import Foundation
-import UniformTypeIdentifiers
 
 /// How cmux shows a file a person opens: the one rule behind every "open" in a chat (an
 /// attachment, a `file://` link chip, an agent's path) and in the Files pane.
@@ -45,7 +44,8 @@ public enum FileOpenKind: Sendable, Equatable {
     ///   - fileName: the last path component; only its extension is read for files.
     ///   - isDirectory: the item is a directory (a folder or a package).
     ///   - isPackage: the system treats the directory as one item (an app, a bundle).
-    public init(fileName: String, isDirectory: Bool, isPackage: Bool) {
+    ///   - types: the system's type registry, asked about an extension the lists here do not name.
+    public init(fileName: String, isDirectory: Bool, isPackage: Bool, types: some FileTypeRegistry = SystemFileTypes()) {
         let ext = (fileName as NSString).pathExtension.lowercased()
         if isDirectory {
             self = isPackage || Self.packageExtensions.contains(ext) ? .app : .folder
@@ -55,13 +55,11 @@ public enum FileOpenKind: Sendable, Equatable {
         if Self.webExtensions.contains(ext) { self = .web; return }
         if Self.previewExtensions.contains(ext) { self = .preview; return }
         if ext.isEmpty || Self.textExtensions.contains(ext) { self = .editor; return }
-        guard let type = UTType(filenameExtension: ext), type.isDeclared else {
-            // An extension the system does not know is most often code (`.tsx`, `.zig`).
-            self = .editor
-            return
+        switch types.content(pathExtension: ext) {
+        // An extension the system does not know is most often code (`.tsx`, `.zig`).
+        case .undeclared, .text: self = .editor
+        case .other: self = .other
         }
-        let text: [UTType] = [.text, .sourceCode, .script, .json, .xml, .propertyList, .yaml]
-        self = text.contains { type.conforms(to: $0) } ? .editor : .other
     }
 
     /// The kind of the item at `url`, reading the disk for folders and packages; nil when nothing

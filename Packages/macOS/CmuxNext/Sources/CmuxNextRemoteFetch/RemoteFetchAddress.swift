@@ -1,5 +1,4 @@
 public import CmuxNextCompat
-import Darwin
 import Foundation
 
 /// An IPv4 or IPv6 address as bytes, classified by range for a host fetch of page content.
@@ -41,8 +40,9 @@ public nonisolated enum RemoteAddress: Hashable, Sendable {
 
     /// An IPv6 address's sixteen bytes, in network order.
     init(_ address: in6_addr) {
-        let b = address.__u6_addr.__u6_addr8
-        self = .v6([b.0, b.1, b.2, b.3, b.4, b.5, b.6, b.7, b.8, b.9, b.10, b.11, b.12, b.13, b.14, b.15])
+        // SAFETY: the bytes are `address`'s own, a local copy, lent for the call; in6_addr is the sixteen address
+        // bytes on every C library (RFC 3493 section 3.2; the union around them is named differently in each).
+        self = .v6(unsafe withUnsafeBytes(of: address) { unsafe Array($0) })
     }
 
     /// Whether a fetch may connect to this address.
@@ -118,11 +118,13 @@ public nonisolated struct SystemRemoteResolver: RemoteAddressResolving {
     }
 
     private static func lookup(_ host: String) throws -> [RemoteAddress] {
-        // SAFETY: the init only stores integers and null pointers (no name, address or next hint); nothing is
-        // dereferenced.
-        var hints = unsafe addrinfo(ai_flags: AI_ADDRCONFIG, ai_family: AF_UNSPEC, ai_socktype: SOCK_STREAM,
-                                    ai_protocol: IPPROTO_TCP, ai_addrlen: 0, ai_canonname: nil, ai_addr: nil,
-                                    ai_next: nil)
+        // SAFETY: the zeroed hints hold only integers and null pointers (no name, address or next hint); nothing is
+        // dereferenced. The fields are set by name: their order in the struct differs between C libraries.
+        var hints = unsafe addrinfo()
+        unsafe hints.ai_flags = AI_ADDRCONFIG
+        unsafe hints.ai_family = AF_UNSPEC
+        unsafe hints.ai_socktype = Self.streamSocket
+        unsafe hints.ai_protocol = Int32(IPPROTO_TCP)
         var result: UnsafeMutablePointer<addrinfo>?
         // SAFETY: getaddrinfo reads `hints`, a local, and the NUL-terminated copy of the host made for the call, and
         // writes the list it allocates into `result`; that list is freed once, on return.
@@ -152,4 +154,11 @@ public nonisolated struct SystemRemoteResolver: RemoteAddressResolving {
         var seen: Set<RemoteAddress> = []
         return addresses.filter { seen.insert($0).inserted }
     }
+
+    /// `SOCK_STREAM` as `addrinfo` holds it: glibc declares the socket types as a C enum.
+    #if canImport(Glibc)
+    private static let streamSocket = Int32(SOCK_STREAM.rawValue)
+    #else
+    private static let streamSocket = SOCK_STREAM
+    #endif
 }

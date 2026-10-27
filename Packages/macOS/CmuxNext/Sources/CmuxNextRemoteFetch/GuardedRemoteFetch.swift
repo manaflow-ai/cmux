@@ -41,8 +41,10 @@ public nonisolated struct GuardedRemoteFetch: Sendable {
     /// (``isListed(_:in:)``); a hop anywhere else fails the fetch before it connects.
     public var hosts: Set<String>?
 
+    /// A guarded fetch over `transport`. Where Network.framework exists, the init without one uses
+    /// ``PinnedTLSTransport``; elsewhere the caller brings its transport.
     public init(maximumBytes: Int, timeout: Duration, accept: String, resolver: any RemoteAddressResolving,
-                transport: any RemoteFetchTransport = PinnedTLSTransport(), clock: any Clock<Duration> = ContinuousClock()) {
+                transport: any RemoteFetchTransport, clock: any Clock<Duration> = ContinuousClock()) {
         self.maximumBytes = maximumBytes
         self.timeout = timeout
         self.accept = accept
@@ -145,9 +147,9 @@ public nonisolated struct GuardedRemoteFetch: Sendable {
             guard !Task.isCancelled else { return .failure(.failed) }
             do {
                 return .success(try await transport.send(request(for: url, host: host, address: address), maximumBytes: maximumBytes))
-            } catch is PinnedTLSTransport.ConnectFailure {
+            } catch is RemoteFetchConnectFailure {
                 continue
-            } catch let refusal as RemoteFetchReplyReader.Refusal where refusal.overCap {
+            } catch let refusal as RemoteFetchRefusal where refusal.overCap {
                 return .failure(.tooLarge)
             } catch {
                 return .failure(.failed)

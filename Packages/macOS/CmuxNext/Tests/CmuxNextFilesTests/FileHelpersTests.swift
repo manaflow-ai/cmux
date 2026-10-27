@@ -81,6 +81,7 @@ struct FileHelpersTests {
         Issue.record("the stream ended without a change")
     }
 
+    #if canImport(Darwin)
     /// A folder under /private (the temp directory, the macOS screenshot preview folder) reports
     /// its children by name: FSEvents gives /private/var/... paths, so the watch must compare
     /// against the real path, not `resolvingSymlinksInPath()`'s /var/... form.
@@ -105,4 +106,5 @@ struct FileHelpersTests {
         }
         Issue.record("the stream ended without a named change")
     }
+    #endif
 }

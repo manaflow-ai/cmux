@@ -1,11 +1,10 @@
-import Compression
 import Foundation
 
 /// Decodes an HTTP/1.1 `Transfer-Encoding: chunked` body as it arrives (RFC 9112 section 7.1):
 /// hex size lines (extensions ignored), the chunk data with its CRLF, a zero chunk, then trailer
 /// lines (dropped) up to an empty line. Refused: a size line over ``maximumLineBytes``, a size that
 /// is not 1 to 15 hex digits (whitespace only around it), chunk data without its CRLF, trailers over ``maximumTrailerBytes``,
-/// and data past `maximumBody` (``RemoteFetchReplyReader/Refusal/overCap``).
+/// and data past `maximumBody` (``RemoteFetchRefusal/overCap``).
 nonisolated struct RemoteFetchChunkedBody {
     static let maximumLineBytes = 4 * 1024
     static let maximumTrailerBytes = 16 * 1024
@@ -34,7 +33,7 @@ nonisolated struct RemoteFetchChunkedBody {
     }
 
     /// Adds wire bytes; true once the zero chunk and the trailers have arrived.
-    mutating func append(_ data: Data) throws(RemoteFetchReplyReader.Refusal) -> Bool {
+    mutating func append(_ data: Data) throws(RemoteFetchRefusal) -> Bool {
         pending.append(contentsOf: data)
         var cursor = 0
         defer { if cursor >= pending.count { pending.removeAll(keepingCapacity: true) } else { pending.removeFirst(cursor) } }
@@ -51,7 +50,7 @@ nonisolated struct RemoteFetchChunkedBody {
                     state = .trailer
                 } else {
                     guard output.count + size <= maximumBody else {
-                        throw RemoteFetchReplyReader.Refusal(reason: "chunked body over the cap", overCap: true)
+                        throw RemoteFetchRefusal(reason: "chunked body over the cap", overCap: true)
                     }
                     state = .data(remaining: size)
                 }
@@ -64,14 +63,14 @@ nonisolated struct RemoteFetchChunkedBody {
             case .dataEnd:
                 guard pending.count - cursor >= 2 else { return false }
                 guard pending[cursor] == 0x0d, pending[cursor + 1] == 0x0a else {
-                    throw RemoteFetchReplyReader.Refusal(reason: "chunk without its CRLF")
+                    throw RemoteFetchRefusal(reason: "chunk without its CRLF")
                 }
                 cursor += 2
                 state = .size
             case .trailer:
                 guard let end = lineEnd(from: cursor) else { return try waitForLine(from: cursor) }
                 trailerBytes += end - cursor + 2
-                guard trailerBytes <= Self.maximumTrailerBytes else { throw RemoteFetchReplyReader.Refusal(reason: "trailers over 16 KB") }
+                guard trailerBytes <= Self.maximumTrailerBytes else { throw RemoteFetchRefusal(reason: "trailers over 16 KB") }
                 let empty = end == cursor
                 cursor = end + 2
                 if empty { state = .done }
@@ -89,16 +88,16 @@ nonisolated struct RemoteFetchChunkedBody {
         return nil
     }
 
-    private func waitForLine(from start: Int) throws(RemoteFetchReplyReader.Refusal) -> Bool {
-        guard pending.count - start <= Self.maximumLineBytes else { throw RemoteFetchReplyReader.Refusal(reason: "chunk line over 4 KB") }
+    private func waitForLine(from start: Int) throws(RemoteFetchRefusal) -> Bool {
+        guard pending.count - start <= Self.maximumLineBytes else { throw RemoteFetchRefusal(reason: "chunk line over 4 KB") }
         return false
     }
 
-    private static func chunkSize(_ line: ArraySlice<UInt8>) throws(RemoteFetchReplyReader.Refusal) -> Int {
+    private static func chunkSize(_ line: ArraySlice<UInt8>) throws(RemoteFetchRefusal) -> Int {
         let blank: (UInt8) -> Bool = { $0 == 0x20 || $0 == 0x09 }
         let field = line.prefix { $0 != UInt8(ascii: ";") }
         let digits = field.drop(while: blank).reversed().drop(while: blank).reversed()
-        guard (1...15).contains(digits.count) else { throw RemoteFetchReplyReader.Refusal(reason: "chunk size") }
+        guard (1...15).contains(digits.count) else { throw RemoteFetchRefusal(reason: "chunk size") }
         var size = 0
         for byte in digits {
             let value: Int
@@ -106,7 +105,7 @@ nonisolated struct RemoteFetchChunkedBody {
             case UInt8(ascii: "0")...UInt8(ascii: "9"): value = Int(byte - UInt8(ascii: "0"))
             case UInt8(ascii: "a")...UInt8(ascii: "f"): value = Int(byte - UInt8(ascii: "a")) + 10
             case UInt8(ascii: "A")...UInt8(ascii: "F"): value = Int(byte - UInt8(ascii: "A")) + 10
-            default: throw RemoteFetchReplyReader.Refusal(reason: "chunk size")
+            default: throw RemoteFetchRefusal(reason: "chunk size")
             }
             size = size << 4 | value
         }
@@ -114,106 +113,61 @@ nonisolated struct RemoteFetchChunkedBody {
     }
 }
 
-/// Decodes a `Content-Encoding` the request offered (`gzip`, `deflate`, `br`) with the system's
-/// Compression library, streaming, so a small body that inflates past `maximumBody` stops at the
-/// cap (a decompression bomb is ``RemoteFetchReplyReader/Refusal/overCap``). A stream that ends
-/// before its end marker is refused.
+/// Decodes a `Content-Encoding` the request offered (``accepted``), streaming, so a small body that
+/// inflates past `maximumBody` stops at the cap (a decompression bomb is
+/// ``RemoteFetchRefusal/overCap``). A stream that ends before its end marker is refused. The
+/// framing (gzip header, zlib header) is read here; the raw stream goes to the platform's decoder,
+/// ``decompress(_:format:maximumBody:)``: Apple's Compression library
+/// (RemoteFetchBodyDecoding+Compression.swift) or zlib (RemoteFetchBodyDecoding+Zlib.swift).
 nonisolated struct RemoteFetchContentDecoding {
-    /// The encodings the request offers, in its `Accept-Encoding` header.
-    static let accepted = "gzip, deflate, br"
+    /// A compressed stream without its framing.
+    enum Format: Equatable {
+        /// Raw DEFLATE (RFC 1951): the body of a gzip or zlib stream.
+        case deflate
+        /// Brotli (RFC 7932).
+        case brotli
+    }
 
     /// The decoded body; `identity` or no encoding returns the body as is.
-    static func decode(_ body: Data, encoding: String?, maximumBody: Int) throws(RemoteFetchReplyReader.Refusal) -> Data {
+    static func decode(_ body: Data, encoding: String?, maximumBody: Int) throws(RemoteFetchRefusal) -> Data {
         let name = encoding?.trimmingCharacters(in: .whitespaces).lowercased() ?? ""
         switch name {
         case "", "identity":
             return body
         case "gzip", "x-gzip":
-            return try inflate(body.dropFirst(try gzipHeaderLength(body)), algorithm: COMPRESSION_ZLIB, maximumBody: maximumBody)
+            return try decompress(body.dropFirst(try gzipHeaderLength(body)), format: .deflate, maximumBody: maximumBody)
         case "deflate":
-            // Most servers send zlib framing (RFC 1950); some send raw DEFLATE. COMPRESSION_ZLIB reads raw.
+            // Most servers send zlib framing (RFC 1950); some send raw DEFLATE, which the decoder reads.
             let bytes = [UInt8](body.prefix(2))
             let zlib = bytes.count == 2 && bytes[0] & 0x0f == 8 && bytes[0] >> 4 <= 7 && (Int(bytes[0]) << 8 | Int(bytes[1])) % 31 == 0
-            if zlib, bytes[1] & 0x20 != 0 { throw RemoteFetchReplyReader.Refusal(reason: "deflate with a preset dictionary") }
-            return try inflate(zlib ? body.dropFirst(2) : body[...], algorithm: COMPRESSION_ZLIB, maximumBody: maximumBody)
-        case "br":
-            return try inflate(body[...], algorithm: COMPRESSION_BROTLI, maximumBody: maximumBody)
+            if zlib, bytes[1] & 0x20 != 0 { throw RemoteFetchRefusal(reason: "deflate with a preset dictionary") }
+            return try decompress(zlib ? body.dropFirst(2) : body[...], format: .deflate, maximumBody: maximumBody)
+        case "br" where decodesBrotli:
+            return try decompress(body[...], format: .brotli, maximumBody: maximumBody)
         default:
-            throw RemoteFetchReplyReader.Refusal(reason: "Content-Encoding \(name)")
+            throw RemoteFetchRefusal(reason: "Content-Encoding \(name)")
         }
     }
 
     /// The length of a gzip member header (RFC 1952): magic, method 8, flags, then the optional
     /// extra field, name, comment and header CRC.
-    private static func gzipHeaderLength(_ body: Data) throws(RemoteFetchReplyReader.Refusal) -> Int {
+    private static func gzipHeaderLength(_ body: Data) throws(RemoteFetchRefusal) -> Int {
         let bytes = [UInt8](body.prefix(64 * 1024))
         guard bytes.count >= 10, bytes[0] == 0x1f, bytes[1] == 0x8b, bytes[2] == 8 else {
-            throw RemoteFetchReplyReader.Refusal(reason: "not a gzip stream")
+            throw RemoteFetchRefusal(reason: "not a gzip stream")
         }
         let flags = bytes[3]
         var index = 10
         if flags & 0x04 != 0 {
-            guard index + 2 <= bytes.count else { throw RemoteFetchReplyReader.Refusal(reason: "gzip header") }
+            guard index + 2 <= bytes.count else { throw RemoteFetchRefusal(reason: "gzip header") }
             index += 2 + (Int(bytes[index]) | Int(bytes[index + 1]) << 8)
         }
         for flag in [UInt8(0x08), 0x10] where flags & flag != 0 {
-            guard let zero = bytes[min(index, bytes.count)...].firstIndex(of: 0) else { throw RemoteFetchReplyReader.Refusal(reason: "gzip header") }
+            guard let zero = bytes[min(index, bytes.count)...].firstIndex(of: 0) else { throw RemoteFetchRefusal(reason: "gzip header") }
             index = zero + 1
         }
         if flags & 0x02 != 0 { index += 2 }
-        guard index <= bytes.count else { throw RemoteFetchReplyReader.Refusal(reason: "gzip header") }
+        guard index <= bytes.count else { throw RemoteFetchRefusal(reason: "gzip header") }
         return index
-    }
-
-    private static func inflate(_ input: Data.SubSequence, algorithm: compression_algorithm, maximumBody: Int) throws(RemoteFetchReplyReader.Refusal) -> Data {
-        let source = [UInt8](input)
-        guard !source.isEmpty else { throw RemoteFetchReplyReader.Refusal(reason: "empty compressed body") }
-        // SAFETY: `stream` is this call's own compression_stream, initialized before use, then destroyed and freed
-        // once on return. Its source is `source`'s storage, lent by the outer closure for the whole decode, which
-        // the stream reads src_size bytes of from src_ptr and advances through; each destination is `buffer`'s
-        // storage, lent by the inner closure for the one compression_stream_process call that writes at most
-        // dst_size = chunk = buffer.count bytes to it. No pointer is used after its closure returns.
-        let stream = unsafe UnsafeMutablePointer<compression_stream>.allocate(capacity: 1)
-        defer { unsafe stream.deallocate() }
-        guard unsafe compression_stream_init(stream, COMPRESSION_STREAM_DECODE, algorithm) == COMPRESSION_STATUS_OK else {
-            throw RemoteFetchReplyReader.Refusal(reason: "decoder")
-        }
-        defer { unsafe compression_stream_destroy(stream) }
-        let chunk = 64 * 1024
-        var buffer = [UInt8](repeating: 0, count: chunk)
-        var output = Data()
-        var failure: RemoteFetchReplyReader.Refusal?
-        unsafe source.withUnsafeBufferPointer { src in
-            guard let base = unsafe src.baseAddress else { return }
-            unsafe stream.pointee.src_ptr = base
-            unsafe stream.pointee.src_size = src.count
-            while failure == nil {
-                let before = unsafe stream.pointee.src_size
-                let (status, produced) = unsafe buffer.withUnsafeMutableBufferPointer { dst -> (compression_status, Int) in
-                    guard let target = unsafe dst.baseAddress else { return (COMPRESSION_STATUS_ERROR, 0) }
-                    unsafe stream.pointee.dst_ptr = target
-                    unsafe stream.pointee.dst_size = chunk
-                    let status = unsafe compression_stream_process(stream, Int32(COMPRESSION_STREAM_FINALIZE.rawValue))
-                    return unsafe (status, chunk - stream.pointee.dst_size)
-                }
-                let consumed = unsafe before - stream.pointee.src_size
-                output.append(contentsOf: buffer[0..<produced])
-                if output.count > maximumBody {
-                    failure = RemoteFetchReplyReader.Refusal(reason: "decoded body over the cap", overCap: true)
-                    break
-                }
-                switch status {
-                case COMPRESSION_STATUS_END:
-                    return
-                case COMPRESSION_STATUS_OK where produced > 0 || consumed > 0:
-                    continue
-                default:
-                    // An error, or no progress with all input given: a cut or corrupt stream.
-                    failure = RemoteFetchReplyReader.Refusal(reason: "corrupt or truncated compressed body")
-                }
-            }
-        }
-        if let failure { throw failure }
-        return output
     }
 }

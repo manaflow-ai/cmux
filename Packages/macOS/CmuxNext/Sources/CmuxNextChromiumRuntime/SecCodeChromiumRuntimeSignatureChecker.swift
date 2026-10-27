@@ -1,3 +1,4 @@
+#if canImport(Security)
 public import CmuxNextWakeups
 public import Foundation
 import Security
@@ -61,3 +62,4 @@ public struct SecCodeChromiumRuntimeSignatureChecker: ChromiumRuntimeSignatureCh
         return nil
     }
 }
+#endif
