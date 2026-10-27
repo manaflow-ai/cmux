@@ -660,6 +660,26 @@ mod tests {
         assert!(!full_access_allowed_by(Some(true), false), "a forced on raises nothing");
     }
 
+    /// Review 1 of #26034: an off push never waits without bound on a session whose spawn lock
+    /// another operation holds (a start that cannot end its agent). That session's end is left
+    /// pending for the next check, and the push returns.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn an_off_push_does_not_wait_on_a_held_spawn_lock() {
+        let (hub, chat, _) = two_chats_on(&[], false).await;
+        *chat.floor.undeclared_mode.lock().unwrap() = Some("full-access".to_owned());
+        let _held = chat.spawn_lock.lock().await;
+        let pushed = tokio::time::timeout(
+            std::time::Duration::from_secs(15),
+            hub.apply_full_access_push(Some(false)),
+        )
+        .await;
+        assert!(pushed.is_ok(), "the off push waited on a held spawn lock");
+        assert!(
+            chat.floor.full_access_end_pending.load(Ordering::SeqCst),
+            "the session the push could not reach was not left for the next check"
+        );
+    }
+
     /// A hub with two open chats on a stand-in agent that fails over to itself with
     /// `FAKE_FALLBACK=1`; a cut turn goes on after 1 s.
     async fn two_chats() -> (Arc<Hub>, Arc<Session>, Arc<Session>) {
