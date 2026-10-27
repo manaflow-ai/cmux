@@ -1,0 +1,11 @@
+{
+  "title": "Chief cards: live browser, Secure Store sign-in, next steps",
+  "steps": [
+    {"title": "Launch", "wait": 2, "shot": false},
+    {"title": "Light", "rpc": {"method": "debug.appearance", "params": {"mode": "light"}}, "wait": 1.5, "shot": false},
+    {"title": "Light: the Chief's browser card, a next-step chip and a Secure Store card", "rpc": {"method": "debug.home_native_fixture.open", "params": {"cards": true}}, "wait": 3, "optional": "the Home fixture is DEBUG only"},
+    {"title": "Dark", "rpc": {"method": "debug.appearance", "params": {"mode": "dark"}}, "wait": 2, "shot": false},
+    {"title": "Dark: the same cards", "wait": 1.5},
+    {"title": "Back to the system appearance", "rpc": {"method": "debug.appearance", "params": {"mode": "system"}}, "wait": 1, "shot": false}
+  ]
+}
