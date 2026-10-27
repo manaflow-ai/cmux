@@ -78,9 +78,18 @@ jobs:
           name="$(gh api "repos/$GH_REPO/actions/runs/$RUN_ID/artifacts?per_page=100" --jq '
             [.artifacts[] | select(.expired == false and (.name | test("^cmux-[a-z0-9-]+-prepared-app-arm64-[0-9a-f]{7,40}$")))] | if length == 1 then .[0].name else "" end')"
           [[ -n "$name" ]] || { echo "run $RUN_ID has no single unexpired prepared arm64 app artifact" >&2; exit 1; }
+          # nightly.yml may build a commit behind the run's head
+          # (resolve-nightly-cmux-tui-client build_sha); the artifact name ends
+          # with that build commit's short sha, which is the one signed here.
+          short="${name##*-}"
+          build="$(gh api "repos/$GH_REPO/commits/$short" --jq '.sha')"
+          [[ "$build" =~ ^[0-9a-f]{40}$ && "$build" == "$short"* ]] || { echo "could not resolve build commit $short" >&2; exit 1; }
+          status="$(gh api "repos/$GH_REPO/compare/$build...$sha" --jq '.status')"
+          [[ "$status" == ahead || "$status" == identical ]] || { echo "build commit $build is not the run head $sha or behind it ($status)" >&2; exit 1; }
           gh run download "$RUN_ID" --repo "$GH_REPO" --name "$name" --dir "$RUNNER_TEMP/prepared"
-          echo "build_sha=$sha" >> "$GITHUB_OUTPUT"
-          echo "Nightly run $RUN_ID built $sha; prepared app artifact $name" | tee -a "$GITHUB_STEP_SUMMARY"
+          echo "build_sha=$build" >> "$GITHUB_OUTPUT"
+          echo "build_short_sha=$short" >> "$GITHUB_OUTPUT"
+          echo "Nightly run $RUN_ID (head $sha) built $build; prepared app artifact $name" | tee -a "$GITHUB_STEP_SUMMARY"
 
       # The nightly-next identity build-sign-notarize-nightly stamps before
       # signing (bundle id, name, version, feed, key), with this run as the
@@ -88,7 +97,7 @@ jobs:
       - name: Stamp the nightly-next identity
         env:
           NIGHTLY_SPARKLE_PRIVATE_KEY: ${{ secrets.NIGHTLY_SPARKLE_PRIVATE_KEY }}
-          BUILD_SHA: ${{ steps.source.outputs.build_sha }}
+          BUILD_SHORT_SHA: ${{ steps.source.outputs.build_short_sha }}
         run: |
           set -euo pipefail
           work="$RUNNER_TEMP/unsigned"
@@ -99,7 +108,7 @@ jobs:
           # tar folds them back, so they are no bundle files on either side.
           dropped="$(find "$work/cmux.app" -name '._*' -type f -print -delete | wc -l)"
           echo "AppleDouble entries dropped: $dropped"
-          python3 -I - "$work/cmux.app/Contents/Info.plist" "$BUNDLE_ID" "$APP_NAME" "${BUILD_SHA:0:9}" <<'PY'
+          python3 -I - "$work/cmux.app/Contents/Info.plist" "$BUNDLE_ID" "$APP_NAME" "$BUILD_SHORT_SHA" <<'PY'
           import plistlib, sys
           path, bundle_id, name, commit = sys.argv[1:]
           with open(path, "rb") as handle:
