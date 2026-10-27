@@ -1,6 +1,9 @@
 import AppKit
 import CmuxNextBridge
+import CmuxNextBrowser
 import CmuxNextDaemon
+import CmuxNextDesign
+import CmuxNextFeatures
 import CmuxNextLayout
 import CmuxNextWakeups
 
@@ -8,6 +11,13 @@ import CmuxNextWakeups
 // it ends: its one command (the final value, one daemon `transaction`)
 // settles or rejects the gesture's LayoutTransactionID (no snapshot counting).
 extension WorkspaceContentController {
+    /// `LayoutPaneContentProvider`: with the `pageSpringResizeOnce` feature, a page in a springing pane resizes as
+    /// `browserResize.springPageResize` says (p03-rendering-036). Read once per pane host, as it is made.
+    var pageSpringResizing: PageSpringResizing? {
+        services.features.isEnabled(.pageSpringResizeOnce)
+            ? PageSpringResizing(mode: { BrowserResizeTunables.springPageResize.value }) : nil
+    }
+
     func handle(_ intent: LayoutIntent) {
         switch intent {
         case .focus(let pane):
