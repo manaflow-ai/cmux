@@ -750,7 +750,7 @@ jobs:
     # older entry by prefix. A seed_only dispatch still warms it on demand.
     if: github.event_name == 'schedule' && github.event.schedule == '17 */6 * * *' && vars.CI_PR_POOL_OWNED != '1' || github.event_name == 'workflow_dispatch' && inputs.seed_only
     # Match the PR Release-build runner and Xcode so its compilation cache is reusable.
-    runs-on: macos-26
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-6vcpu-macos-26' }}
     environment: ${{ github.ref == 'refs/heads/main' && 'ci-cache-writer' || '' }}
     # This job rebuilds the cache after the store drops it, so it runs cold
     # by design; scheduled run 35134963192 was cancelled at 45 minutes.
@@ -1159,7 +1159,7 @@ jobs:
     if: needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *') && needs.decide.outputs.build_only != 'true'
     # Zig 0.15.2 cannot link the real helper on macOS 26. Match the stable
     # release workflow by building and verifying it on macOS 15 instead.
-    runs-on: macos-15
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-15' || 'blacksmith-6vcpu-macos-15' }}
     timeout-minutes: 20
     env:
       NIGHTLY_FAST_BUILD: ${{ needs.decide.outputs.fast_build }}
@@ -1248,7 +1248,7 @@ jobs:
     # branch dogfood always uses the dedicated Blacksmith image. A
     # repository-wide runner override may point at a slower shared builder,
     # which defeats the purpose of the one-architecture path.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || needs.decide.outputs.fast_build != 'true' && github.run_attempt == 1 && (github.event_name == 'push' || github.event_name == 'schedule') && github.ref == 'refs/heads/main' && vars.CI_PR_POOL_OWNED == '1' && vars.CI_SEED_TRUSTED_POOL != '' && vars.CI_NIGHTLY_TRUSTED_RUNNER != '' && fromJSON(format('["{0}", "{1}"]', vars.CI_SEED_TRUSTED_POOL, vars.CI_NIGHTLY_TRUSTED_RUNNER)) || 'macos-26' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || needs.decide.outputs.fast_build != 'true' && github.run_attempt == 1 && (github.event_name == 'push' || github.event_name == 'schedule') && github.ref == 'refs/heads/main' && vars.CI_PR_POOL_OWNED == '1' && vars.CI_SEED_TRUSTED_POOL != '' && vars.CI_NIGHTLY_TRUSTED_RUNNER != '' && fromJSON(format('["{0}", "{1}"]', vars.CI_SEED_TRUSTED_POOL, vars.CI_NIGHTLY_TRUSTED_RUNNER)) || 'blacksmith-12vcpu-macos-26' }}
     environment: ${{ github.ref == 'refs/heads/main' && 'ci-cache-writer' || '' }}
     # The Blacksmith cache is scoped per branch and also drops main's own
     # entry (runs 35179030871 and 35182663752 restored nothing and were
@@ -1655,7 +1655,7 @@ jobs:
     permissions:
       contents: read
       actions: read
-    runs-on: macos-26
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-6vcpu-macos-26' }}
     timeout-minutes: 30
     strategy:
       fail-fast: false
@@ -1905,8 +1905,10 @@ jobs:
       contents: read
       actions: read
     # A literal ephemeral label: a repository variable must not move a signing
-    # job onto a machine that is reused between jobs.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (needs.decide.outputs.fast_build == 'true' && 'macos-26' || 'macos-26') }}
+    # job onto a machine that is reused between jobs. Blacksmith is trusted
+    # like GitHub-hosted for signing, and no nightly job takes a GitHub-hosted
+    # Mac (tests/test_ci_self_hosted_guard.sh).
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-6vcpu-macos-26' }}
     # Start the standalone helper submission early so
     # Apple's first wait overlaps useful work; finish it before the final DMG.
     # Sparkle delta generation runs after the full publication in a separate
@@ -2598,7 +2600,7 @@ jobs:
     if: always() && needs.build-sign-notarize-nightly.result != 'skipped' && needs.build-sign-notarize-nightly.result != 'cancelled'
     permissions:
       contents: read
-    runs-on: macos-26
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-6vcpu-macos-26' }}
     timeout-minutes: 30
     strategy:
       fail-fast: false
@@ -3101,7 +3103,7 @@ jobs:
     permissions:
       contents: read
       actions: read
-    runs-on: macos-26
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-6vcpu-macos-26' }}
     strategy:
       fail-fast: false
       matrix:

@@ -1,19 +1,20 @@
 name: rcodesign parity proof
 
-# One-off evidence for moving nightly signing to Linux (nightly.yml
-# build-sign-notarize-nightly): the same unsigned nightly-next app is signed
-# once by the Mac path the nightly uses today (scripts/sign-cmux-bundle.sh at
-# the build commit, Apple codesign) and once by Linux rcodesign
-# (scripts/ci/rcodesign-sign-bundle-dev.sh, which DEV ships since #25466).
+# One-off evidence for signing parity in nightly.yml
+# build-sign-notarize-nightly: the same unsigned nightly-next app is signed
+# twice by the Mac path the nightly uses today (scripts/sign-cmux-bundle.sh at
+# the build commit, Apple codesign) and once by our rcodesign
+# (scripts/ci/build-rcodesign.sh, run by scripts/ci/rcodesign-sign-bundle-dev.sh).
 #
 #   compare      every payload byte outside the code signatures must be equal
 #                (scripts/ci/signer_parity_compare.py); the signature
-#                differences are listed, not failed
+#                differences are listed, not failed, for rcodesign against
+#                codesign and for codesign against itself (the control)
 #   notarize-*   Apple notarizes and rcodesign staples the Linux-signed app and
 #                its DMG, on Linux
 #   gatekeeper   a fresh Blacksmith Mac with no secrets: codesign, spctl,
 #                stapler, syspolicy_check, then the quarantined DMG's app is
-#                launched with `open`
+#                launched with `open` and must be running within a minute
 #   sparkle      Sparkle's own sign_update verifies the Linux EdDSA signature,
 #                and a BinaryDelta from the newest published nightly-next
 #                applies to the Linux-signed app
@@ -145,6 +146,62 @@ jobs:
           if-no-files-found: error
           retention-days: 1
 
+  rcodesign:
+    # Our rcodesign, as cmux-next-dev-daily.yml builds it (same cache key),
+    # with no environment or secret; its consumers check its sha256.
+    if: github.ref == 'refs/heads/main'
+    name: Build the signer
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-8vcpu-ubuntu-2404' }}
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    outputs:
+      sha256: ${{ steps.digest.outputs.sha256 }}
+      artifact: rcodesign-${{ github.run_attempt }}
+    steps:
+      - name: Checkout trusted build scripts
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Restore the signer
+        id: cache
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ${{ runner.temp }}/rcodesign
+          key: rcodesign-0.29.0-rust-1.95.0-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('scripts/ci/build-rcodesign.sh', 'scripts/ci/rcodesign-0.29.0-dmg.patch') }}
+
+      # The runner image's rustup only; never a fetched installer script.
+      - name: Set up Rust
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: |
+          set -euo pipefail
+          export PATH="$HOME/.cargo/bin:$PATH"
+          command -v rustup >/dev/null || { echo "::error::this runner image has no rustup" >&2; exit 1; }
+          rustup toolchain install 1.95.0 --profile minimal
+          dirname "$(rustup which --toolchain 1.95.0 cargo)" >> "$GITHUB_PATH"
+
+      - name: Build rcodesign with our patch
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: ./scripts/ci/build-rcodesign.sh "$RUNNER_TEMP/rcodesign"
+
+      - name: Digest the signer
+        id: digest
+        run: |
+          set -euo pipefail
+          "$RUNNER_TEMP/rcodesign/rcodesign" --version
+          echo "sha256=$(sha256sum "$RUNNER_TEMP/rcodesign/rcodesign" | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+
+      - name: Upload the signer
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: rcodesign-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/rcodesign/rcodesign
+          if-no-files-found: error
+          retention-days: 1
+
   sign-codesign:
     name: Sign with Apple codesign (today's nightly path)
     needs: prep
@@ -185,11 +242,14 @@ jobs:
         run: |
           set -euo pipefail
           echo "$UNSIGNED_SHA256  $RUNNER_TEMP/handoff/unsigned.tar" | shasum -a 256 -c -
-          work="$RUNNER_TEMP/work"
-          mkdir -p "$work"
-          tar -C "$work" -xf "$RUNNER_TEMP/handoff/unsigned.tar"
-          CMUX_SIGN_MODE=all CMUX_HELPER_ENTITLEMENTS="$work/inputs/cmux-helper.entitlements" \
-            ./scripts/sign-cmux-bundle.sh "$work/$APP_NAME.app" "$work/inputs/cmux.next-dev.entitlements" "$APPLE_SIGNING_IDENTITY"
+          # Twice: the second signing is the control for what differs
+          # between any two codesign runs.
+          for work in "$RUNNER_TEMP/work" "$RUNNER_TEMP/control"; do
+            mkdir -p "$work"
+            tar -C "$work" -xf "$RUNNER_TEMP/handoff/unsigned.tar"
+            CMUX_SIGN_MODE=all CMUX_HELPER_ENTITLEMENTS="$work/inputs/cmux-helper.entitlements" \
+              ./scripts/sign-cmux-bundle.sh "$work/$APP_NAME.app" "$work/inputs/cmux.next-dev.entitlements" "$APPLE_SIGNING_IDENTITY"
+          done
 
       - name: Delete signing keychain
         if: always()
@@ -198,10 +258,12 @@ jobs:
       - name: Pack the codesign app
         run: |
           set -euo pipefail
-          work="$RUNNER_TEMP/work"
-          /usr/bin/codesign --verify --deep --strict --verbose=2 "$work/$APP_NAME.app"
-          mkdir -p out
-          COPYFILE_DISABLE=1 tar -C "$work" -cf out/signed.tar "$APP_NAME.app"
+          mkdir -p out control
+          for work in "$RUNNER_TEMP/work" "$RUNNER_TEMP/control"; do
+            /usr/bin/codesign --verify --deep --strict --verbose=2 "$work/$APP_NAME.app"
+          done
+          COPYFILE_DISABLE=1 tar -C "$RUNNER_TEMP/work" -cf out/signed.tar "$APP_NAME.app"
+          COPYFILE_DISABLE=1 tar -C "$RUNNER_TEMP/control" -cf control/signed.tar "$APP_NAME.app"
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -211,9 +273,17 @@ jobs:
           if-no-files-found: error
           retention-days: 1
 
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: parity-control-codesign
+          path: control/signed.tar
+          compression-level: 0
+          if-no-files-found: error
+          retention-days: 1
+
   sign-rcodesign:
-    name: Sign with rcodesign on Linux
-    needs: prep
+    name: Sign with our rcodesign
+    needs: [prep, rcodesign]
     environment: release
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 20
@@ -232,8 +302,19 @@ jobs:
           name: parity-unsigned
           path: ${{ runner.temp }}/handoff
 
-      - name: Install rcodesign
-        run: ./scripts/ci/install-rcodesign.sh "$RUNNER_TEMP/rcodesign" >> "$GITHUB_ENV"
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: ${{ needs.rcodesign.outputs.artifact }}
+          path: ${{ runner.temp }}/rcodesign
+      - name: Install our rcodesign
+        env:
+          SIGNER_SHA256: ${{ needs.rcodesign.outputs.sha256 }}
+        run: |
+          set -euo pipefail
+          signer="$RUNNER_TEMP/rcodesign/rcodesign"
+          echo "$SIGNER_SHA256  $signer" | sha256sum -c -
+          chmod 755 "$signer"
+          echo "RCODESIGN=$signer" >> "$GITHUB_ENV"
 
       - name: Sign with rcodesign
         env:
@@ -262,7 +343,7 @@ jobs:
 
   compare:
     name: Compare the payloads
-    needs: [sign-codesign, sign-rcodesign]
+    needs: [prep, sign-codesign, sign-rcodesign]
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 15
     permissions:
@@ -275,20 +356,32 @@ jobs:
           persist-credentials: false
       - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
-          pattern: parity-signed-*
+          pattern: parity-*
           path: ${{ runner.temp }}/signed
+      # Bytes past a new signature are accepted only when they are the
+      # unsigned input's bytes at the same offset (--input).
       - name: Compare every payload byte
+        env:
+          UNSIGNED_SHA256: ${{ needs.prep.outputs.unsigned_sha256 }}
         run: |
           set -euo pipefail
-          for side in codesign rcodesign; do
+          echo "$UNSIGNED_SHA256  $RUNNER_TEMP/signed/parity-unsigned/unsigned.tar" | sha256sum -c -
+          mkdir -p "$RUNNER_TEMP/unsigned"
+          tar -C "$RUNNER_TEMP/unsigned" -xf "$RUNNER_TEMP/signed/parity-unsigned/unsigned.tar"
+          for side in signed-codesign signed-rcodesign control-codesign; do
             mkdir -p "$RUNNER_TEMP/$side"
-            tar -C "$RUNNER_TEMP/$side" -xf "$RUNNER_TEMP/signed/parity-signed-$side/signed.tar"
+            tar -C "$RUNNER_TEMP/$side" -xf "$RUNNER_TEMP/signed/parity-$side/signed.tar"
           done
           mkdir -p out
           rc=0
-          python3 -I scripts/ci/signer_parity_compare.py "$RUNNER_TEMP/codesign/$APP_NAME.app" "$RUNNER_TEMP/rcodesign/$APP_NAME.app" \
-            out/compare.json --labels codesign,rcodesign --report out/compare.txt || rc=$?
-          { echo '### Payload compare (codesign vs rcodesign)'; echo '```'; cat out/compare.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          python3 -I scripts/ci/signer_parity_compare.py "$RUNNER_TEMP/signed-codesign/$APP_NAME.app" \
+            "$RUNNER_TEMP/signed-rcodesign/$APP_NAME.app" out/compare.json --labels codesign,rcodesign \
+            --input "$RUNNER_TEMP/unsigned/$APP_NAME.app" --report out/compare.txt || rc=$?
+          python3 -I scripts/ci/signer_parity_compare.py "$RUNNER_TEMP/signed-codesign/$APP_NAME.app" \
+            "$RUNNER_TEMP/control-codesign/$APP_NAME.app" out/control.json --labels codesign,codesign-again \
+            --input "$RUNNER_TEMP/unsigned/$APP_NAME.app" --report out/control.txt || rc=$?
+          { echo '### Payload and signature compare (codesign vs rcodesign)'; echo '```'; cat out/compare.txt; echo '```'
+            echo '### Control (codesign vs codesign)'; echo '```'; cat out/control.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
           echo "rc=$rc" > out/rc
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -300,8 +393,8 @@ jobs:
         run: grep -qx 'rc=0' out/rc
 
   notarize-app:
-    name: Notarize and staple the rcodesign app on Linux
-    needs: sign-rcodesign
+    name: Notarize and staple the rcodesign app
+    needs: [sign-rcodesign, rcodesign]
     environment: release
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 60
@@ -319,8 +412,19 @@ jobs:
         with:
           name: parity-signed-rcodesign
           path: ${{ runner.temp }}/signed
-      - name: Install rcodesign
-        run: ./scripts/ci/install-rcodesign.sh "$RUNNER_TEMP/rcodesign" >> "$GITHUB_ENV"
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: ${{ needs.rcodesign.outputs.artifact }}
+          path: ${{ runner.temp }}/rcodesign
+      - name: Install our rcodesign
+        env:
+          SIGNER_SHA256: ${{ needs.rcodesign.outputs.sha256 }}
+        run: |
+          set -euo pipefail
+          signer="$RUNNER_TEMP/rcodesign/rcodesign"
+          echo "$SIGNER_SHA256  $signer" | sha256sum -c -
+          chmod 755 "$signer"
+          echo "RCODESIGN=$signer" >> "$GITHUB_ENV"
       # As scripts/ci/rcodesign-notarize-dmg-dev.sh, for the app: the key is
       # only in a mktemp -d directory, never on a command line.
       - name: Notarize and staple
@@ -399,7 +503,7 @@ jobs:
 
   notarize-dmg:
     name: Sign, notarize and staple the DMG on Linux; Linux appcast
-    needs: [notarize-app, dmg]
+    needs: [notarize-app, dmg, rcodesign]
     environment: release
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 60
@@ -421,8 +525,19 @@ jobs:
         with:
           name: parity-stapled-app
           path: stapled
-      - name: Install rcodesign
-        run: ./scripts/ci/install-rcodesign.sh "$RUNNER_TEMP/rcodesign" >> "$GITHUB_ENV"
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: ${{ needs.rcodesign.outputs.artifact }}
+          path: ${{ runner.temp }}/rcodesign
+      - name: Install our rcodesign
+        env:
+          SIGNER_SHA256: ${{ needs.rcodesign.outputs.sha256 }}
+        run: |
+          set -euo pipefail
+          signer="$RUNNER_TEMP/rcodesign/rcodesign"
+          echo "$SIGNER_SHA256  $signer" | sha256sum -c -
+          chmod 755 "$signer"
+          echo "RCODESIGN=$signer" >> "$GITHUB_ENV"
       - name: Sign, notarize and staple the DMG
         id: notarize
         env:
@@ -541,18 +656,29 @@ jobs:
           fi
           echo "app quarantine: $(xattr -p com.apple.quarantine "$target")" | tee launch.txt
           spctl -a -vv -t exec "$target" 2>&1 | tee -a launch.txt
-          open "$target"
-          started=false
+          # `open` can stay in the foreground after the app starts, so it runs
+          # in the background; both pids are recorded and only they are stopped.
+          open "$target" > open.log 2>&1 &
+          open_pid=$!
+          echo "open pid: $open_pid" | tee -a launch.txt
+          app_pid=""
           for _ in $(seq 1 60); do
-            if pgrep -f "$target/Contents/MacOS/" >/dev/null; then started=true; break; fi
+            app_pid="$(pgrep -f "^$target/Contents/MacOS/cmux( |\$)" | head -n 1 || true)"
+            [[ -n "$app_pid" ]] && break
             sleep 1
           done
-          echo "started via open: $started" | tee -a launch.txt
-          pgrep -fl "$target/Contents/MacOS/" | tee -a launch.txt || true
+          echo "app pid: ${app_pid:-none}" | tee -a launch.txt
+          if [[ -n "$app_pid" ]]; then ps -o pid=,ppid=,etime=,command= -p "$app_pid" | tee -a launch.txt; fi
+          sleep 5
+          if [[ -n "$app_pid" ]] && kill -0 "$app_pid" 2>/dev/null; then running=true; else running=false; fi
+          echo "running 5 s after launch: $running" | tee -a launch.txt
+          # LaunchServices marks the quarantine as assessed once Gatekeeper lets the app run.
+          echo "app quarantine after launch: $(xattr -p com.apple.quarantine "$target")" | tee -a launch.txt
           log show --last 3m --style compact --predicate 'process == "syspolicyd" AND eventMessage CONTAINS[c] "cmux"' 2>/dev/null | tail -40 > syspolicyd.txt || true
           { echo '### Quarantined launch'; echo '```'; cat launch.txt; echo '--- syspolicyd'; cat syspolicyd.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
-          pkill -f "$target/Contents/MacOS/" || true
-          [[ "$started" == true ]]
+          if [[ -n "$app_pid" ]]; then kill "$app_pid" 2>/dev/null || true; fi
+          kill "$open_pid" 2>/dev/null || true
+          [[ "$running" == true ]]
 
   sparkle:
     name: Sparkle's tools on the Linux EdDSA signature and a delta

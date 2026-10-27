@@ -34,7 +34,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from pr_runner_pool import PR_XCODE_VARIABLE, SLOTS_VARIABLE, slot_problems  # noqa: E402
-from runner_label_policy import PolicyUnreadable, drifted_runner_variables  # noqa: E402
+from runner_label_policy import HOSTED_MACOS_LABEL, PolicyUnreadable, drifted_runner_variables  # noqa: E402
 from cloud_overflow_switch import RECORD_VARIABLE, parse_record  # noqa: E402
 
 RUNNER_VARIABLES_ENV = "CMUX_CI_RUNNER_VARIABLES"
@@ -126,8 +126,8 @@ def problems(env: dict[str, str]) -> list[str]:
                              "Fix: point it at a pool pull requests do not fill, or clear it for the promote pool")
             found.extend(pin_pool_findings(env.get(PIN_POOL_VARIABLE, "").strip(), daemon_pool, variables)[0])
             for name, value, reason in drifted_runner_variables(variables):
-                if switched.get(name) == value:
-                    continue  # the overflow switch's failover while Blacksmith is down
+                if switched.get(name) == value and not HOSTED_MACOS_LABEL.search(value.strip().lower()):
+                    continue  # the overflow switch's failover while Blacksmith is down; never a hosted Mac
                 found.append(f"{name}={value!r}: {reason}")
         except (ValueError, PolicyUnreadable) as error:
             found.append(str(error))

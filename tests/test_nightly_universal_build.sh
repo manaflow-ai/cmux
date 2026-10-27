@@ -132,7 +132,7 @@ if grep -Fq 'github.rest.repos.getBranch' "$WORKFLOW_FILE"; then
   exit 1
 fi
 
-if ! awk -v refresh_runner="runs-on: macos-26" '
+if ! awk -v refresh_runner="runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-6vcpu-macos-26' }}" '
   /^  refresh-compilation-cache:/ { in_refresh=1; next }
   in_refresh && /^  [a-zA-Z0-9_-]+:/ { in_refresh=0 }
   in_refresh && /timeout-minutes: 90/ { saw_cold_build_timeout=1 }
@@ -220,15 +220,15 @@ if ! awk '
   exit 1
 fi
 
-if ! awk -v helper_runner="runs-on: macos-15" \
-       -v app_runner="runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || needs.decide.outputs.fast_build != 'true' && github.run_attempt == 1 && (github.event_name == 'push' || github.event_name == 'schedule') && github.ref == 'refs/heads/main' && vars.CI_PR_POOL_OWNED == '1' && vars.CI_SEED_TRUSTED_POOL != '' && vars.CI_NIGHTLY_TRUSTED_RUNNER != '' && fromJSON(format('[\"{0}\", \"{1}\"]', vars.CI_SEED_TRUSTED_POOL, vars.CI_NIGHTLY_TRUSTED_RUNNER)) || 'macos-26' }}" '
+if ! awk -v helper_runner="runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'macos-15' || 'blacksmith-6vcpu-macos-15' }}" \
+       -v app_runner="runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || needs.decide.outputs.fast_build != 'true' && github.run_attempt == 1 && (github.event_name == 'push' || github.event_name == 'schedule') && github.ref == 'refs/heads/main' && vars.CI_PR_POOL_OWNED == '1' && vars.CI_SEED_TRUSTED_POOL != '' && vars.CI_NIGHTLY_TRUSTED_RUNNER != '' && fromJSON(format('[\"{0}\", \"{1}\"]', vars.CI_SEED_TRUSTED_POOL, vars.CI_NIGHTLY_TRUSTED_RUNNER)) || 'blacksmith-12vcpu-macos-26' }}" '
   /^  build-nightly-ghostty-cli-helper:/ { job="helper"; next }
   /^  build-nightly-app:/ { job="app"; next }
   /^  prepare-nightly-variant:/ { job="publish"; next }
   /^  build-sign-notarize-nightly:/ { job="publish"; next }
   /^  [a-zA-Z0-9_-]+:/ { job="" }
-  # Every nightly helper build takes the hosted macOS 15 image (its SDK 15
-  # Xcode); nightlies never use Blacksmith. Match the whole expression.
+  # Every nightly helper build takes Blacksmith macOS 15 (its SDK 15 Xcode),
+  # never a GitHub-hosted Mac. Match the whole expression.
   job == "helper" && index($0, helper_runner) { saw_helper_runner=1 }
   job == "helper" && /build-ghostty-cli-helper\.sh --universal/ { saw_build=1 }
   job == "helper" && /lipo .* -verify_arch arm64 x86_64/ { saw_arch_assert=1 }

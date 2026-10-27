@@ -125,7 +125,7 @@ jobs:
     needs: pick
     if: needs.pick.result == 'success' && needs.pick.outputs.checked != 'true'
     # No secrets: this job runs the published app.
-    runs-on: macos-26
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-6vcpu-macos-26' }}
     timeout-minutes: 25
     permissions:
       contents: read

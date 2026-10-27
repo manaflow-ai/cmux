@@ -805,6 +805,10 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_runner_label_policy.py
 
+      - name: Validate that no job runs on a GitHub-hosted Mac
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_no_github_hosted_macos.py
+
       - name: Validate the trusted web complexity workflow
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_web_complexity_trusted_workflow.py
@@ -1304,6 +1308,10 @@ jobs:
       - name: Validate the classic failure incident under parallel runs
         if: ${{ matrix.group == 'release-notary' }}
         run: node --test tests/nightly_failure_issue.test.mjs
+
+      - name: Validate newest-wins classic publication
+        if: ${{ matrix.group == 'release-notary' }}
+        run: python3 tests/test_classic_publish_lease.py
 
       - name: Validate the Linux DEV signer (stock rcodesign, fake-rcodesign fixture)
         if: ${{ matrix.group == 'release-notary' }}
