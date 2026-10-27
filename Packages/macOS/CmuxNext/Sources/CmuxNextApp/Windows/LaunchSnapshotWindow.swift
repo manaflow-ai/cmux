@@ -21,11 +21,20 @@ import Foundation
 struct LaunchSnapshotWindow {
     let manager: WindowManager
 
+    /// Opens the launch window (`WindowManager.restoreWhenLoaded`, once the snapshot's read has ended): drawn from the
+    /// snapshot, else in the connecting state, outside the registry. Nothing when a window or its picture is up.
+    func openLaunchWindow() {
+        guard manager.controllers.isEmpty, manager.launchPicture == nil, !show() else { return }
+        let id = UUID().uuidString.lowercased()
+        manager.launchWindowID = id
+        manager.makeController(for: WindowRegistry.Window(id: id))
+    }
+
     /// False when the snapshot has nothing to draw (or there is none).
     func show() -> Bool {
         let daemon = manager.services.daemon
         guard daemon.store.isProvisional else { return false }
-        if let document = daemon.launchSnapshotWindows, showSaved(document) { return true }
+        if let document = daemon.launchSnapshot.windows, showSaved(document) { return true }
         return showEveryWorkspace(daemon.store)
     }
 

@@ -46,7 +46,7 @@ nonisolated enum AgentPaneImageCopies {
         }
         base = String(scalars).trimmingCharacters(in: CharacterSet(charactersIn: ".- ").union(.whitespacesAndNewlines))
         if !base.unicodeScalars.contains(where: { CharacterSet.alphanumerics.contains($0) }) { base = "Image" }
-        while base.utf8.count > maximumNameBytes { base.removeLast() }
+        while base.utf8.count > maximumNameBytes, !base.isEmpty { base.removeLast() }
         let hash = SHA256.hash(data: data).prefix(4).map { String(format: "%02x", $0) }.joined()
         return "\(base) \(hash).\(extensions[type] ?? "img")"
     }
