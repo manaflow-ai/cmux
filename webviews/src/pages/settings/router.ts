@@ -10,11 +10,12 @@ import {
   type RouterHistory,
 } from "@tanstack/react-router";
 import type { QueryClient } from "@tanstack/react-query";
-import { ensureSection, routeSection } from "./sectionQueries";
+import type { SectionLoader } from "./lazySections";
+import { ensureSection, routeSection, shownRouteSection } from "./sectionQueries";
 import type { SettingsStore } from "./store";
 
-/** What every route's loader reads from: the page's query cache and its store. */
-export type SettingsRouterContext = { queryClient: QueryClient; store: SettingsStore };
+/** What every route's loader reads from: the page's query cache, its store and its section code. */
+export type SettingsRouterContext = { queryClient: QueryClient; store: SettingsStore; sections: SectionLoader };
 
 /** The route's search: the focused key, the workspace Change Background… came from, the sidebar
  * search's text (`q`) and its Changed filter (`changed=1`). Plain `?a=b` pairs, never JSON. */
@@ -50,11 +51,12 @@ export function stringifySettingsSearch(search: Record<string, unknown>): string
 
 /**
  * The page's router. The root route is the window (`layout`: the sidebar and the content column);
- * each section is a route whose loader ensures the host reads its cards draw from
- * (sectionQueries.ts). Links preload on intent (hover or keyboard focus), and the loader always
- * runs (the query cache, not the router, decides what is fresh), so a click on a hovered section
- * draws it complete in its first frame. While a slow read is out the previous section stays; after
- * `defaultPendingMs` the new section draws with what it has (`section` as the pending component).
+ * each section is a route whose loader loads its cards' chunk (lazySections.ts) and ensures the
+ * host reads its cards draw from (sectionQueries.ts). Links preload on intent (hover or keyboard
+ * focus), and the loader always runs (the query cache, not the router, decides what is fresh), so
+ * a click on a hovered section draws it complete in its first frame. While a slow read is out the
+ * previous section stays; after `defaultPendingMs` the new section draws with what it has
+ * (`section` as the pending component).
  */
 export function createSettingsRouter(
   options: { layout: RouteComponent; section: RouteComponent; context: SettingsRouterContext },
@@ -72,12 +74,11 @@ export function createSettingsRouter(
       // The focused key picks the section (a key's home), so it is a loader dependency; the
       // search text and the workspace are not.
       loaderDeps: ({ search }) => ({ focus: (search as SettingsSearch).focus }),
-      loader: ({ context, params, deps }) =>
-        ensureSection(
-          context.queryClient,
-          context.store,
-          routeSection((params as { section?: string }).section, deps.focus),
-        ),
+      loader: async ({ context, params, deps }) => {
+        const routed = routeSection((params as { section?: string }).section, deps.focus);
+        const section = await shownRouteSection(context.queryClient, routed);
+        await Promise.all([context.sections.load(section), ensureSection(context.queryClient, context.store, section)]);
+      },
       component: options.section,
       pendingComponent: options.section,
     });

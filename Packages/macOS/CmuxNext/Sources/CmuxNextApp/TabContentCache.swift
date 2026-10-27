@@ -34,10 +34,10 @@ final class TabContentCache {
     /// `terminalPointerFrames`); nil: each pointer event reaches Ghostty at once.
     let terminalPointerFrames: FrameInputCoalescers?
     let mainWork: MainWorkScheduler
-    var terminals: [String: TerminalEntry] = [:]
+    var terminals: [String: TerminalEntry] = [:] { didSet { pageRequests.services?.crashKeys?.noteTerminals(terminals.count) } }
     var browsers: [String: BrowserEntry] = [:] {
         didSet {
-            guard browsers.count != oldValue.count else { return }
+            pageRequests.services?.crashKeys?.noteBrowsers(in: browsers.values.lazy.map { $0.tab }); guard browsers.count != oldValue.count else { return }
             pageRequests.media.tabsChanged()
             if browsers.count < oldValue.count { tabRenderers.keep(only: Set(browsers.keys)) }
         }
@@ -58,6 +58,8 @@ final class TabContentCache {
     var warmBudget = WarmSetBudget.standard, warmSetRelease: WarmSetRelease?
     /// Lets paused away terminals' GPU memory go (`terminalGPURelease`, `ghostty_surface_set_gpu_resident`); nil: none.
     let gpuResidency: (any TerminalGPUResidency)?
+    /// Every terminal session it makes shows its cursor on the render server (feature `terminalCursorLayer`).
+    let terminalExternalCursor: Bool
     /// The warm set's capacity at normal pressure (`SubsystemBudget.warmTerminalSurfaces`: larger with
     /// ``gpuResidency``); `WarmSetRelease` scales it under pressure.
     let normalWarmCapacity: Int
@@ -209,24 +211,26 @@ final class TabContentCache {
     ///   - gpuResidency: The app's GPU memory release (``gpuResidency``); tests get none.
     ///   - webKitProcessReuse: Same-site WebKit tab processes above the renderer limit (`webKitSameSiteProcesses`);
     ///     nil, the default, gives every WebKit tab its own process.
+    ///   - terminalExternalCursor: `terminalCursorLayer` is on (``terminalExternalCursor``); tests get Ghostty's cursor.
     init(daemon: DaemonService, chromium: ChromiumEngineSlot, fileInput: any WebFileInputAnswering,
          afterFrame: @escaping (@escaping @MainActor () -> Void) -> Void = { AfterFrameCommit().run($0) },
          resizes: ResizeCoordinator = ResizeCoordinator(), terminalModifiers: TerminalModifierWatch? = nil,
          terminalPointerFrames: FrameInputCoalescers? = nil, mainWork: MainWorkScheduler, deadlines: MainDeadlineScheduler,
          appEvents: AppEvents, imageCaches: ImageCacheShares = .legacy, gpuResidency: (any TerminalGPUResidency)? = nil,
-         webKitProcessReuse: WebKitProcessReuse? = nil) {
+         webKitProcessReuse: WebKitProcessReuse? = nil, terminalExternalCursor: Bool = false) {
         self.imageCaches = imageCaches
-        previews = PreviewImageCache(fullCapacityBytes: imageCaches.previewBytes, contents: .rebuildable)
-        internalPagePictures = PreviewImageCache(fullCapacityBytes: imageCaches.internalPagePictureBytes, contents: .onlyCopy)
-        pageThumbnails = PreviewImageCache(fullCapacityBytes: imageCaches.pageThumbnailBytes, contents: .onlyCopy)
+        previews = PreviewImageCache(fullCapacityBytes: imageCaches.previewBytes, contents: .rebuildable, allocator: imageCaches.pictureAllocator)
+        internalPagePictures = PreviewImageCache(fullCapacityBytes: imageCaches.internalPagePictureBytes, contents: .onlyCopy, allocator: imageCaches.pictureAllocator)
+        pageThumbnails = PreviewImageCache(fullCapacityBytes: imageCaches.pageThumbnailBytes, contents: .onlyCopy, allocator: imageCaches.pictureAllocator)
         (self.daemon, self.terminalModifiers, self.chromium, self.resizes, self.mainWork) = (daemon, terminalModifiers, chromium, resizes, mainWork)
         self.terminalPointerFrames = terminalPointerFrames
         self.gpuResidency = gpuResidency
+        self.terminalExternalCursor = terminalExternalCursor
         normalWarmCapacity = SubsystemBudget.forThisMac(gpuResidentAvailable: gpuResidency != nil).warmTerminalSurfaces
         webKit = WebKitEngine(fileInput: fileInput, stores: chromium.stores, energy: mainWork.energy, waitDeadlines: chromium.waitDeadlines,
                               deadlines: deadlines, appEvents: appEvents, processReuse: webKitProcessReuse)
         self.afterFrame = afterFrame
-        browserTabs = BrowserTabService(daemon: daemon, chromium: chromium, mainWork: mainWork)
+        browserTabs = BrowserTabService(daemon: daemon, chromium: chromium, mainWork: mainWork, deadlines: deadlines, appEvents: appEvents)
         wireNotices()
         _ = ledger.setCapacity(normalWarmCapacity)  // no surface yet: closes nothing
         warmBudgetDidChange(to: normalWarmCapacity)

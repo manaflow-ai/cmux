@@ -33,9 +33,11 @@ enum NativeSpinnerImage {
         indicator.appearance = NSAppearance(named: .aqua)
         // A windowless view caches at 1x; draw into a rep with the pixel
         // size explicitly so the mask is sharp on Retina.
-        guard let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: pixels, pixelsHigh: pixels, bitsPerSample: 8,
-                                         samplesPerPixel: 4, hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB,
-                                         bytesPerRow: 0, bitsPerPixel: 0) else { return nil }
+        // SAFETY: the planes pointer is nil, so AppKit allocates and owns the pixel buffer (bytesPerRow 0: a row size
+        // it picks); nothing is read or written through a pointer passed from here.
+        guard let rep = unsafe NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: pixels, pixelsHigh: pixels, bitsPerSample: 8,
+                                                samplesPerPixel: 4, hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB,
+                                                bytesPerRow: 0, bitsPerPixel: 0) else { return nil }
         rep.size = NSSize(width: points, height: points)
         indicator.cacheDisplay(in: indicator.bounds, to: rep)
         guard let image = rep.cgImage.flatMap(normalized) else {
@@ -52,16 +54,21 @@ enum NativeSpinnerImage {
     /// the tint color reads at small sizes, keeping the fade ratios.
     private static func normalized(_ image: CGImage) -> CGImage? {
         let width = image.width, height = image.height
-        guard let context = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: width,
-                                      space: CGColorSpaceCreateDeviceGray(), bitmapInfo: CGImageAlphaInfo.alphaOnly.rawValue),
-              let data = context.data else { return nil }
+        // SAFETY (the bitmap below): `data` is the context's own alpha-only bitmap, read only after the draw.
+        guard let context = CGContext.pixelOwningBitmap(width: width, height: height, bytesPerRow: width,
+                                                        space: CGColorSpaceCreateDeviceGray(),
+                                                        bitmapInfo: CGImageAlphaInfo.alphaOnly.rawValue),
+              let data = unsafe context.data else { return nil }
         context.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
-        let bytes = data.bindMemory(to: UInt8.self, capacity: width * height)
+        let count = height * context.bytesPerRow
+        // SAFETY: `data` is the context's own alpha-only bitmap, height rows of bytesPerRow bytes, which lives as
+        // long as `context`; every index below is < count, and the context draws nothing while it runs.
+        let bytes = unsafe UnsafeMutableBufferPointer(start: data.bindMemory(to: UInt8.self, capacity: count), count: count)
         var peak: UInt8 = 0
-        for i in 0..<(width * height) { peak = max(peak, bytes[i]) }
+        for i in 0..<count { peak = max(peak, unsafe bytes[i]) }
         guard peak > 0 else { return nil }
         let factor = 255 / Double(peak)
-        for i in 0..<(width * height) { bytes[i] = UInt8(min(255, (Double(bytes[i]) * factor).rounded())) }
+        for i in 0..<count { unsafe bytes[i] = UInt8(min(255, (Double(bytes[i]) * factor).rounded())) }
         return context.makeImage()
     }
 }

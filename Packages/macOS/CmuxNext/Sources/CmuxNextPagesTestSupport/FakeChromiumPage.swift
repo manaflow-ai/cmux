@@ -24,6 +24,8 @@ public final class FakeChromiumPage: PageChromiumPage {
     public var onEvent: ((PageChromiumEvent) -> Void)?
     /// The answerer the host sets for the page's dynamic paths.
     public var resources: (@MainActor (URL) async -> PageChromiumResponse)?
+    /// The page channel event the page script fires; nil (the default) stands for an engine with no page channel.
+    public var pageHostEvent: String?
     /// The holes the host last asked for, in ``contentView``'s coordinates.
     public var occlusionRects: [CGRect] = []
     /// The window ``isPageWindow(_:)`` answers for (a test's child window over the page); nil: none.
@@ -106,8 +108,25 @@ public final class FakeChromiumPage: PageChromiumPage {
     /// What ``setFrozen(_:)`` answers (false: the engine still counts the page visible).
     public var freezes = true
 
+    /// What ``pushesToPage`` answers: true stands for a fork with the page push channel and the feature on.
+    public var pushChannel = false
+    /// Every ``push(_:)`` the page took, in order.
+    public private(set) var pushes: [String] = []
+    /// Runs after each push (tests wait on it).
+    public var onPush: (() -> Void)?
+
     /// Makes a page with no calls yet.
     public init() {}
+
+    /// ``pushChannel``.
+    public var pushesToPage: Bool { pushChannel }
+
+    /// Records `text` in ``pushes`` while ``pushChannel``; makes no DevTools call.
+    public func push(_ text: String) {
+        guard pushChannel else { return }
+        pushes.append(text)
+        onPush?()
+    }
 
     /// Records the size in ``surfaceCopies`` and answers ``surfaceCopy`` at once; makes no DevTools call.
     public func copySurface(maxPixelSize: CGSize, done: @escaping @MainActor (PageSurfaceCopy?) -> Void) {

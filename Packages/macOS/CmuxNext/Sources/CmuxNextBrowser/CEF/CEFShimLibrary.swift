@@ -84,6 +84,10 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
     /// (``CEFTab/followVisibility(of:capture:)``). A post in host mode, so no caller reads its answer. Nil on a
     /// shim without the export (task p06-scheduler-212).
     let tabSetVisibility: (@convention(c) (Int32, Int32, Int32) -> Int32)?
+    /// Fork API 39: `cmux_shim_tab_page_push(browser, text)`, a string to the receiver a cmux-page document
+    /// registered (the page push channel, ``CEFPagePush``). A post in host mode, so no caller reads its
+    /// answer. Nil on a shim without the export (task p13-webui-079).
+    let tabPagePush: ((Int32, String) -> Int32)?
     /// Fork API 31: `cmux_shim_browser_set_page_display(browser, display_id, screen_x, screen_y)`, the display a
     /// detached page window takes its scale, color space and refresh rate from (task 221); 0 when the fork lacks it.
     let browserSetPageDisplay: @convention(c) (Int32, UInt32, Double, Double) -> Int32
@@ -286,10 +290,14 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
     let widgets: CEFShimWidgetOps
     /// Drops into a detached page (task 050, fork API 31).
     let dragTarget: CEFShimDragTargetOps
+    /// Pointer lock and keyboard lock (task 229, fork API 31).
+    let locks: CEFShimLockOps
     /// <select> popups as data (task 060, fork API 31).
     let popupMenus: CEFShimPopupMenuOps
     /// Autofill, password and `<datalist>` suggestions as data (task 061, fork API 31).
     let suggestions: CEFShimSuggestionOps
+    /// The color chooser, device choosers and screen-share picker as data (task 228, fork API 31).
+    let choosers: CEFShimChooserOps
     let textInput: CEFShimTextInputOps
     /// `cmux_shim_browser_attach_view(browser, parent_view)` (fork API 36, p03-rendering-044, Track B): moves the
     /// browser's `WebContentsViewCocoa` into `parent_view` (an NSView), below its other subviews; 1 attached, 0

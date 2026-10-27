@@ -19,6 +19,7 @@ import CmuxNextFavicons
 import CmuxNextFeatures
 import CmuxNextFileGrid
 import CmuxNextHibernation
+import CmuxNextHistory
 import CmuxNextHome
 import CmuxNextMemory
 import CmuxNextPages
@@ -86,6 +87,7 @@ struct AppMemoryConsumers {
         // registerControlCaches(_:)  // CmuxNextControl: AppControl.start calls it when it makes the service
         registerDaemonCaches()  // CmuxNextDaemon
         registerDesignCaches()  // CmuxNextDesign (p07-memory-053)
+        registerSmallAppStores()  // CmuxNextDesign, CmuxNextTerminal (p07-memory-083)
         registerGlyphMasks()  // CmuxNextDesign (p03-rendering-075)
         registerConversationDiscards()  // CmuxNextHibernation, CmuxNextHome
         registerHiddenFrames()  // CmuxNextHibernation, CmuxNextTerminal
@@ -237,6 +239,15 @@ struct AppMemoryConsumers {
         }
     }
 
+    /// `memorySqliteTrim` (default off): one browser profile's visit log, whose SQLite page cache is an
+    /// asynchronous consumer on the log's actor (p07-memory-090); its owner, the history service, keeps the
+    /// registration while it keeps the log. Nil while the feature is off.
+    func registerVisitLog(_ log: BrowserVisitLog) -> AsyncMemoryConsumerRegistration? {
+        guard services.features.isEnabled(.memorySqliteTrim) else { return nil }
+        return AsyncMemoryConsumerRegistration(name: BrowserVisitLog.memoryConsumerName, traits: BrowserVisitLog.memoryTraits,
+                                               consumer: log, registry: services.memoryCoordinator)
+    }
+
     /// `memoryFileHomeCaches`: the apps client's decoded bundle images are one lossless consumer;
     /// their owner, the apps service, calls this when it makes them.
     func registerAppBundleImages(_ cache: AppBundleImageCache) {
@@ -322,5 +333,22 @@ struct AppMemoryConsumers {
     private func registerInternalPageDiscards() {
         guard services.features.isEnabled(.memoryDiscardInternalPages), !services.features.isEnabled(.pageLifecycle) else { return }
         services.pages.enableDiscards(ContentDiscardScheduler(kind: .internalPage, memory: services.memoryCoordinator), on: services.cache)
+    }
+
+    /// `memorySmallAppStores` (default off): the glass lens stills are one lossless consumer, the last quit's
+    /// terminal frames one lossy consumer, and the terminals' Kitty image budget halves below normal pressure
+    /// (p07-memory-083). The changelog page's pictures register with each page (`PageFactory.changelogPage`), and the
+    /// launch reads go at the settle (`LaunchSettle.dropLaunchReads`).
+    private func registerSmallAppStores() {
+        guard services.features.isEnabled(.memorySmallAppStores) else { return }
+        let coordinator = services.memoryCoordinator
+        GlassBackdropImages.shared.registerMemoryConsumer(with: coordinator)
+        services.terminalLaunchFrames.registerMemoryConsumer(with: coordinator)
+        let kittyImages = GhosttyImageStorageBudget(
+            fullBytes: SubsystemBudget.forThisMac(gpuResidentAvailable: false).kittyImageBytesPerSurface,
+            riseDeadline: MainDeadline(owner: "GhosttyImageStorageBudget.rise", workClass: .background, scheduler: services.mainDeadlines),
+            riseDelay: MemoryCoordinator.limitRiseDelay) { GhosttyRuntime.shared.setImageStorageBytesPerScreen($0) }
+        kittyImages.follow(coordinator)
+        services.lifetimeFollowers.append(kittyImages)
     }
 }

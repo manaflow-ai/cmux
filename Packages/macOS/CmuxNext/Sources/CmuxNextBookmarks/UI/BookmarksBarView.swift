@@ -139,6 +139,7 @@ public final class BookmarksBarView: NSView {
         }
     }
 
+    // visibility-walk-allow: it only invalidates; AppKit runs updateLayer only for a view it draws, so a hidden bar costs one flag
     public override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         needsDisplay = true

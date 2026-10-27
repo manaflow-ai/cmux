@@ -7,14 +7,14 @@ impl Surface {
     pub fn set_default_colors(&self, colors: DefaultColors) {
         if let Some(pty) = self.as_pty() {
             #[cfg(any(unix, windows))]
-            if let PtyRuntime::Hosted(host) = &*pty.runtime.lock().unwrap() {
+            if let PtyRuntime::Hosted(host) = &*pty.runtime.lock().recover_poison() {
                 // The local mirror updates immediately below. A v2 durable
                 // host also receives the same complete defaults so later
                 // output, resize snapshots, and reconnects cannot restore the
                 // launch-time theme. Legacy hosts are feature-gated by record.
                 let _ = host.send_default_colors(colors);
             }
-            let mut term = pty.term.lock().unwrap();
+            let mut term = pty.term.lock().recover_poison();
             term.replace_default_colors(colors.fg, colors.bg, colors.cursor);
             term.set_default_palette(&colors.palette);
             replace_ghostty_cursor_defaults(&mut term, colors);
@@ -22,7 +22,7 @@ impl Surface {
             let colors = pty.terminal_colors_locked(&term, colors);
             pty.attach_colors_pending.store(false, Ordering::Release);
             pty.attach_colors_force_pending.store(false, Ordering::Release);
-            *pty.last_attach_colors.lock().unwrap() = Some(Box::new(live_colors));
+            *pty.last_attach_colors.lock().recover_poison() = Some(Box::new(live_colors));
             pty.broadcast_attach_frame(AttachFrame::ColorsChanged(Arc::new(colors)));
             let generation = pty.render_generation.fetch_add(1, Ordering::AcqRel) + 1;
             let _ = pty.build_frame_locked(&mut term, generation, false);
@@ -36,7 +36,7 @@ impl Surface {
         let Some(pty) = self.as_pty() else {
             return Err(ghostty_vt::Error::InvalidValue);
         };
-        rs.update(&mut pty.term.lock().unwrap())
+        rs.update(&mut pty.term.lock().recover_poison())
     }
 
     /// Latest immutable frame from the surface's shared render producer.
@@ -44,10 +44,10 @@ impl Surface {
         let Some(pty) = self.as_pty() else {
             return Err(ghostty_vt::Error::InvalidValue);
         };
-        let mut term = pty.term.lock().unwrap();
+        let mut term = pty.term.lock().recover_poison();
         let generation = pty.render_generation.load(Ordering::Acquire);
         let _ = pty.build_frame_locked(&mut term, generation, false)?;
-        pty.render.lock().unwrap().latest.clone().ok_or(ghostty_vt::Error::NoValue)
+        pty.render.lock().recover_poison().latest.clone().ok_or(ghostty_vt::Error::NoValue)
     }
 
     /// Render this placement's frontend-local viewport without changing the
@@ -59,7 +59,7 @@ impl Surface {
         let Some(pty) = self.as_pty() else {
             return Err(ghostty_vt::Error::InvalidValue);
         };
-        let mut term = pty.term.lock().unwrap();
+        let mut term = pty.term.lock().recover_poison();
         let original_offset = term.scrollbar().map(|scrollbar| scrollbar.offset);
         let view_offset = pty.view_scrollbar_locked(&mut term).map(|scrollbar| scrollbar.offset);
         let applied =

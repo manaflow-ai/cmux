@@ -70,7 +70,7 @@ extension BrowserHostProvider {
               relay.startRelay(targetID: targetID,
                                onMessage: { [weak self] message in self?.relayFromBrowser(targetID, gen, message) },
                                onEnd: { [weak self] in self?.relayClosedByBrowser(targetID, gen) }) else {
-            prepareFailed(targetID, gen, "the tab is not a Chromium tab, or its page could not start")
+            prepareFailed(targetID, gen, relay?.prepareFailure(targetID: targetID) ?? "the tab is not a Chromium tab, or its page could not start")
             return
         }
         session.deadline?.cancel()
