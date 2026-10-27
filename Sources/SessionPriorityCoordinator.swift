@@ -42,12 +42,12 @@ struct SessionPrioritySnapshot: Equatable, Sendable {
 /// keeps each workspace's sidebar row current, and restarts one pane at a time, app-wide,
 /// between turns through ``Workspace/applySessionPriority(panelId:target:paneIsFree:)``. Off, it
 /// types nothing and shows no row.
+///
+/// Every trigger asks for one debounced reconcile pass, 2 s out (ruling R18): it is the only
+/// path that queues restarts, so a pass never runs against a rank the user is still moving.
 @MainActor
 final class SessionPriorityCoordinator {
     static let shared = SessionPriorityCoordinator()
-
-    /// How long user moves and settings changes settle before the panes are reconsidered.
-    private static let debounceInterval: Duration = .seconds(2)
 
     /// The settings the coordinator acts on.
     struct Settings: Equatable {
@@ -75,8 +75,8 @@ final class SessionPriorityCoordinator {
     private(set) var state = SessionPriorityCoordinatorState()
     private var lastSettings: Settings?
     private var defaultsObserver: (any NSObjectProtocol)?
-    private var debounceTask: Task<Void, Never>?
-    private var reconcileScheduled = false
+    /// Waits for the pending reconcile pass (``SessionPriorityCoordinatorState/reconcileDueAtMs``).
+    private var reconcileTask: Task<Void, Never>?
     private var drainTask: Task<Void, Never>?
     /// At most one per pane: a held pane's retry, or a restarted pane's session-start deadline.
     private var paneTimers: [UUID: Task<Void, Never>] = [:]
@@ -103,35 +103,34 @@ final class SessionPriorityCoordinator {
         }
         // Restore drops every status row, so while on the rows are built once the restored
         // windows settle; while off there is nothing to show or remove.
-        if lastSettings?.enabled == true { scheduleDebouncedReconcile() }
+        if lastSettings?.enabled == true { requestReconcile(settles: true) }
     }
 
     // MARK: - Triggers
 
-    /// Observes one live journal event. Cheap for everything but a Claude pane's turn end.
+    /// Observes one live journal event. Cheap: each trigger only asks for the debounced pass.
     func observe(_ draft: AgentJournalEventDraft) {
         guard draft.source == "claude", !draft.isSubagent, draft.unattributedReason == nil,
               let panelId = draft.surfaceId.flatMap(UUID.init(uuidString:)) else { return }
         switch draft.kind {
         case .turnCompleted, .idleObserved:
+            // The quiet window runs from here, also for a turn end seen while off.
+            state.noteTurnEnded(panelId: panelId, nowMs: Self.nowMs())
             guard isEnabled else { return }
             // Between turns: a pane held or refused earlier may be tried again.
             state.noteRetryDue(panelId: panelId)
-            scheduleReconcile()
+            requestReconcile()
         case .sessionStarted:
             guard let sessionId = draft.sessionId,
                   state.noteSessionStarted(panelId: panelId, sessionId: sessionId) else { return }
             cancelTimer(panelId: panelId)
             log("sessionPriority panel=\(panelId.uuidString.prefix(5)) sessionStarted")
-            // The resumed Claude's SessionStart recorded its launch: read it before deciding.
-            Task { [weak self] in
-                _ = await SharedLiveAgentIndex.shared.indexRefreshingNow()
-                self?.reconcile()
-            }
+            // The pass refreshes the agent index first, so it reads the launch this recorded.
+            requestReconcile()
         case .sessionEnded:
             guard state.records[panelId] != nil else { return }
             state.noteSessionEnded(panelId: panelId)
-            scheduleReconcile()
+            requestReconcile()
         default:
             return
         }
@@ -140,13 +139,13 @@ final class SessionPriorityCoordinator {
     /// A user move in `tabManager`'s sidebar, possibly one that left the order as it was.
     func userDidReorder(tabManager: TabManager) {
         guard isEnabled else { return }
-        scheduleDebouncedReconcile()
+        requestReconcile(settles: true)
     }
 
     /// A workspace's difficulty or manual flag changed.
     func workspaceStateDidChange(workspaceId: UUID) {
         guard isEnabled else { return }
-        scheduleReconcile()
+        requestReconcile()
     }
 
     /// Re-reads the settings and acts only when one of them changed: turning the feature off
@@ -157,24 +156,25 @@ final class SessionPriorityCoordinator {
         let wasEnabled = lastSettings?.enabled ?? false
         lastSettings = settings
         if settings.enabled {
-            scheduleDebouncedReconcile()
+            requestReconcile(settles: true)
         } else if wasEnabled {
             disable()
         }
     }
 
-    /// "Adjust automatically": the workspace's panes lose the manual signals seen on screen.
+    /// "Adjust automatically": the workspace's panes lose the manual signals seen on screen, and
+    /// a `/effort` or `/model` the transcript recorded until now no longer counts.
     private func adjustAutomatically(workspaceId: UUID) {
         guard isEnabled,
               let workspace = AppDelegate.shared?.tabManagerFor(tabId: workspaceId)?.workspacesById[workspaceId]
         else { return }
-        state.clearStickyManual(panelIds: workspace.orderedPanelIds)
-        scheduleReconcile()
+        state.clearStickyManual(panelIds: workspace.orderedPanelIds, nowMs: Self.nowMs())
+        requestReconcile()
     }
 
     private func disable() {
-        debounceTask?.cancel()
-        debounceTask = nil
+        reconcileTask?.cancel()
+        reconcileTask = nil
         for timer in paneTimers.values { timer.cancel() }
         paneTimers = [:]
         let cleared = state.disable()
@@ -184,32 +184,39 @@ final class SessionPriorityCoordinator {
 
     // MARK: - Scheduling
 
-    private func scheduleDebouncedReconcile() {
-        debounceTask?.cancel()
-        debounceTask = Task { [weak self] in
-            try? await Task.sleep(for: Self.debounceInterval)
-            guard !Task.isCancelled, let self else { return }
+    /// Asks for the one reconcile pass that may queue restarts (ruling R18). A user move or a
+    /// settings change (`settles`) moves it to 2 s from now; any other trigger joins the pending
+    /// pass, or asks for one 2 s out.
+    private func requestReconcile(settles: Bool = false) {
+        state.requestReconcile(nowMs: Self.nowMs(), settles: settles)
+        guard reconcileTask == nil else { return }
+        reconcileTask = Task { [weak self] in
+            await self?.reconcileWhenDue()
+        }
+    }
+
+    /// Runs the pending pass once it is due, then any pass asked for meanwhile.
+    private func reconcileWhenDue() async {
+        while let due = state.reconcileDueAtMs {
+            let wait = due - Self.nowMs()
+            if wait > 0 {
+                try? await Task.sleep(for: .milliseconds(wait))
+                guard !Task.isCancelled else { return }
+                // Read the due time again: a user move may have pushed it back.
+                continue
+            }
             // Decide from the launches recorded by now; at start-up the cache may be empty.
-            if self.isEnabled { _ = await SharedLiveAgentIndex.shared.indexRefreshingNow() }
+            if isEnabled { _ = await SharedLiveAgentIndex.shared.indexRefreshingNow() }
             guard !Task.isCancelled else { return }
-            self.debounceTask = nil
-            self.reconcile()
+            // A user move during the refresh pushed the pass back.
+            guard state.takeReconcileDue(nowMs: Self.nowMs()) else { continue }
+            reconcile()
         }
+        reconcileTask = nil
     }
 
-    /// Reconciles on the next main-actor turn; requests until then share one pass.
-    private func scheduleReconcile() {
-        guard !reconcileScheduled else { return }
-        reconcileScheduled = true
-        Task { [weak self] in
-            guard let self else { return }
-            self.reconcileScheduled = false
-            self.reconcile()
-        }
-    }
-
-    /// Replaces the pane's timer with one that makes the pane's retry due and reconciles after
-    /// `delay`.
+    /// Replaces the pane's timer with one that makes the pane's retry due and asks for the pass
+    /// after `delay`.
     private func armTimer(panelId: UUID, after delay: Duration) {
         paneTimers[panelId]?.cancel()
         paneTimers[panelId] = Task { [weak self] in
@@ -217,7 +224,7 @@ final class SessionPriorityCoordinator {
             guard !Task.isCancelled, let self else { return }
             self.paneTimers[panelId] = nil
             self.state.noteRetryDue(panelId: panelId)
-            self.reconcile()
+            self.requestReconcile()
         }
     }
 
@@ -286,22 +293,29 @@ final class SessionPriorityCoordinator {
         guard let snapshot = pane.snapshot else { return state.records[panelId]?.state ?? .applying }
         state.follow(panelId: panelId, sessionId: snapshot.sessionId)
         let arguments = snapshot.launchCommand?.arguments ?? []
+        let launchEnvironment = snapshot.launchCommand?.environment ?? [:]
         let manualSignal = SessionPriorityManualSignals.detect(
             userFlag: workspace.sessionPriorityState.isManual,
             launchArguments: arguments,
-            launchEnvironment: snapshot.launchCommand?.environment ?? [:],
+            launchEnvironment: launchEnvironment,
             workspaceEnvironment: workspace.workspaceEnvironment,
-            // The screen of a pane being restarted shows the restart, not the user.
-            screenText: awaiting ? nil : undismissedScreenText(panelId: panelId, in: workspace)
+            screenText: nil
         )
-        let action = SessionPriorityPaneDecision.decide(
+        var action = SessionPriorityPaneDecision.decide(
             target: entry.target,
             manualSignal: manualSignal,
             stickyManual: state.records[panelId]?.stickyManual,
-            currentEffort: ClaudeEffortLevel(rawValue: snapshot.launchCommand?.environment?["CLAUDE_CODE_EFFORT_LEVEL"] ?? ""),
+            // Only a level cmux marked as its own is current; any other makes the pane manual.
+            currentEffort: ClaudeEffortLevel(rawValue: launchEnvironment[ClaudeEffortLevel.environmentKey] ?? ""),
             currentModel: SessionPriorityLaunchArguments.value(ofOption: "--model", in: arguments),
             awaitingSessionStart: awaiting
         )
+        // The screen is read only for a pane about to be queued; the transcript is probed right
+        // before its restart. A pane being restarted shows the restart, not the user, and is
+        // never queued here.
+        if case .restart = action, screenShowsUndismissedManualChange(panelId: panelId, in: workspace) {
+            action = .leave(.manual(.userCommandOnScreen))
+        }
         let paneState = state.noteDecision(action, panelId: panelId, workspaceId: workspace.id, sessionId: snapshot.sessionId)
         switch paneState {
         case .held, .applying:
@@ -312,14 +326,13 @@ final class SessionPriorityCoordinator {
         return paneState
     }
 
-    /// The pane's screen text when it shows a `/effort` or `/model` result the user did not
-    /// dismiss, else `nil`. The screen is read only while the pane has no sticky signal and the
-    /// workspace is not marked manual; a result found becomes sticky for the session.
-    private func undismissedScreenText(panelId: UUID, in workspace: Workspace) -> String? {
-        guard state.records[panelId]?.stickyManual == nil, !workspace.sessionPriorityState.isManual,
-              let text = workspace.terminalPanel(for: panelId)?.surface.visibleText() else { return nil }
+    /// Whether the pane's screen shows a `/effort` or `/model` result the user did not dismiss.
+    /// Asked only for a pane about to be queued, which has no sticky signal in a workspace not
+    /// marked manual; a result found becomes sticky for the session.
+    private func screenShowsUndismissedManualChange(panelId: UUID, in workspace: Workspace) -> Bool {
+        guard let text = workspace.terminalPanel(for: panelId)?.surface.visibleText() else { return false }
         let markers = SessionPriorityCoordinatorState.screenMarkerCount(in: text)
-        return state.screenShowsManualMarker(panelId: panelId, markerCount: markers) ? text : nil
+        return state.screenShowsManualMarker(panelId: panelId, markerCount: markers)
     }
 
     // MARK: - Restarts
@@ -354,21 +367,30 @@ final class SessionPriorityCoordinator {
             state.shouldAttempt(panelId: panelId, sessionId: sessionId, target: entry.target)
         else {
             state.noteSkipped(panelId: panelId, target: entry.target)
-            scheduleReconcile()
+            requestReconcile()
             return
         }
         state.noteRestartStarted(panelId: panelId, sessionId: sessionId, target: entry.target, nowMs: Self.nowMs())
         cancelTimer(panelId: panelId)
-        scheduleReconcile()
-        log("sessionPriority panel=\(panelId.uuidString.prefix(5)) restart effort=\(entry.target.effort?.rawValue ?? "-")")
-        let result = await workspace.applySessionPriority(
-            panelId: panelId,
-            target: entry.target,
-            paneIsFree: { [weak self, weak workspace] in
-                guard let self, let workspace else { return .hold(.unknownScreen) }
-                return self.paneVerdict(panelId: panelId, workspace: workspace)
-            }
-        )
+        requestReconcile()
+        let paneIsFree: @MainActor () -> SessionPriorityApplyGate.Verdict = { [weak self, weak workspace] in
+            guard let self, let workspace else { return .hold(.unknownScreen) }
+            return self.paneVerdict(panelId: panelId, workspace: workspace, target: entry.target)
+        }
+        // The cheap synchronous gate first, so a held pane's retry reads no transcript.
+        let result: SessionPriorityApplyResult
+        if case .hold(let reason) = paneIsFree() {
+            result = .held(reason)
+        } else if await userChangedEffortInTranscript(panelId: panelId, workspace: workspace) {
+            guard isEnabled else { return }
+            state.noteManualChangeInTranscript(panelId: panelId)
+            log("sessionPriority panel=\(panelId.uuidString.prefix(5)) manual.transcript")
+            requestReconcile()
+            return
+        } else {
+            log("sessionPriority panel=\(panelId.uuidString.prefix(5)) restart effort=\(entry.target.effort?.rawValue ?? "-")")
+            result = await workspace.applySessionPriority(panelId: panelId, target: entry.target, paneIsFree: paneIsFree)
+        }
         // The pane restarted to a bare shell: the user needs the command, setting or not.
         if case .resumeNotTyped(let manual) = result {
             SessionPriorityNotice.notRestarted(target: entry.target, command: manual.command)
@@ -385,7 +407,7 @@ final class SessionPriorityCoordinator {
             armTimer(panelId: panelId, after: .milliseconds(until - nowMs + 500))
         }
         log("sessionPriority panel=\(panelId.uuidString.prefix(5)) result=\(SessionPriorityCoordinatorState.describe(result))")
-        scheduleReconcile()
+        requestReconcile()
     }
 
     // MARK: - Status

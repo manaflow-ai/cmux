@@ -43,8 +43,9 @@ extension Workspace {
     /// not stop is refused; one that outlives the restart gets no resume typed and the command
     /// comes back in ``SessionPriorityApplyResult/resumeNotTyped(_:)``.
     ///
-    /// - Parameter paneIsFree: Asked synchronously right before the restart, after every await.
-    ///   A hold leaves the pane alone and comes back as ``SessionPriorityApplyResult/held(_:)``.
+    /// - Parameter paneIsFree: Asked synchronously before the slow checks, and again right before
+    ///   the restart, after every await. A hold leaves the pane alone and comes back as
+    ///   ``SessionPriorityApplyResult/held(_:)``.
     @MainActor
     func applySessionPriority(
         panelId: UUID,
@@ -76,6 +77,8 @@ extension Workspace {
         guard !Self.isClaudeAccountSwitchInFlight(panelId: panelId) else { return .held(.accountSwitchInFlight) }
         guard let candidate = sessionPriorityClaudeSnapshot(panelId: panelId) else { return .refused(.notClaude) }
         guard !terminalRunsOnAnotherMachine(panelId) else { return .refused(.remoteUnsupported) }
+        // The cheap gate before the slow checks, so a busy pane costs no process scan or read.
+        if case .hold(let reason) = paneIsFree() { return .held(reason) }
         // A session cmux cannot confirm as the pane's live one would resume the wrong conversation.
         guard let snapshot = await authoritativeForkSnapshot(
             selected: candidate,

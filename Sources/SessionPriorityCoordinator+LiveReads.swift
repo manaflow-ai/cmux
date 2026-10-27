@@ -1,16 +1,11 @@
+import AppKit
 import CMUXAgentLaunch
 import CmuxSidebar
 import Foundation
 
 /// What ``SessionPriorityCoordinator`` reads from the live app: windows, Claude panes, the
-/// restart gate's facts and the sidebar rows.
+/// restart gate's facts, the conversation transcript and the sidebar rows.
 extension SessionPriorityCoordinator {
-    /// The pane must go this long without input before it may be restarted.
-    private static var quietInputWindowMs: Int64 {
-        let (seconds, attoseconds) = SessionPriorityApplyGate.quietInputWindow.components
-        return seconds * 1_000 + attoseconds / 1_000_000_000_000_000
-    }
-
     static func tabManagers() -> [TabManager] {
         AppDelegate.shared?.mainWindowContexts.values.map(\.tabManager) ?? []
     }
@@ -70,8 +65,13 @@ extension SessionPriorityCoordinator {
         )
     }
 
-    /// Whether the pane may be restarted now, read synchronously from the live pane.
-    func paneVerdict(panelId: UUID, workspace: Workspace) -> SessionPriorityApplyGate.Verdict {
+    /// Whether the pane may be restarted now for `target`, read synchronously from the live pane
+    /// and the workspace.
+    func paneVerdict(
+        panelId: UUID,
+        workspace: Workspace,
+        target: SessionPriorityTarget
+    ) -> SessionPriorityApplyGate.Verdict {
         guard isEnabled else { return .hold(.disabled) }
         guard let terminal = workspace.terminalPanel(for: panelId) else { return .hold(.unknownScreen) }
         let screen: ClaudeAccountAutoSwitchContinueGate.Screen
@@ -84,12 +84,14 @@ extension SessionPriorityCoordinator {
         let markers = SessionPriorityCoordinatorState.screenMarkerCount(in: terminal.surface.visibleText() ?? "")
         let screenShowsManualChange = state.records[panelId]?.stickyManual != nil
             || state.showsUndismissedManualMarker(panelId: panelId, markerCount: markers)
+        let receivedInputRecently = SessionPriorityApplyGate.isInsideQuietWindow(
+            nowMs: Self.nowMs(),
+            receivedInputAfter: { ClaudeAccountAutoSwitchCoordinator.shared.receivedInput(panelId: panelId, afterMs: $0) },
+            lastTurnEndMs: state.lastTurnEndedAtMs[panelId]
+        )
         return SessionPriorityApplyGate.evaluate(SessionPriorityApplyGate.Facts(
             responseRunning: workspace.isClaudeResponseRunning(panelId: panelId),
-            receivedInputRecently: ClaudeAccountAutoSwitchCoordinator.shared.receivedInput(
-                panelId: panelId,
-                afterMs: Self.nowMs() - Self.quietInputWindowMs
-            ),
+            receivedInputRecently: receivedInputRecently,
             screen: screen,
             claudeInForeground: ClaudeAccountAutoSwitchForegroundCheck.claudeOwnsTerminal(
                 registered: workspace.claudeAgentProcesses(panelId: panelId),
@@ -98,8 +100,75 @@ extension SessionPriorityCoordinator {
                 facts: ClaudeAccountAutoSwitchForegroundCheck.liveFacts(pid:)
             ),
             accountSwitchInFlight: Workspace.isClaudeAccountSwitchInFlight(panelId: panelId),
-            screenShowsManualChange: screenShowsManualChange
+            screenShowsManualChange: screenShowsManualChange,
+            workspaceMarkedManual: workspace.sessionPriorityState.isManual,
+            targetIsCurrent: currentTarget(of: workspace) == target,
+            backgroundWorkPending: Self.claudeBackgroundWorkPending(panelId: panelId, in: workspace),
+            paneIsFocused: Self.isFocusedPaneOfKeyWindow(panelId: panelId, workspaceId: workspace.id)
         ))
+    }
+
+    /// What the workspace's tier and difficulty ask for now, from the live rank; `nil` while
+    /// the workspace is manual or has left the plan.
+    private func currentTarget(of workspace: Workspace) -> SessionPriorityTarget? {
+        guard let tabManager = AppDelegate.shared?.tabManagerFor(tabId: workspace.id) else { return nil }
+        let settings = Settings.current()
+        return Self.plan(
+            for: tabManager,
+            panes: claudePanes(in: tabManager),
+            urgentCount: settings.urgentCount,
+            matrix: .fromStoredString(settings.matrix)
+        )[workspace.id]?.target
+    }
+
+    /// Whether the pane's Claude ended its last turn with background work still running, as
+    /// its journal lifecycle reports it: the same `pending_work` an account switch holds back
+    /// for (`ClaudeAccountAutoSwitchRequest`), projected onto the sidebar's lifecycle state.
+    static func claudeBackgroundWorkPending(panelId: UUID, in workspace: Workspace) -> Bool {
+        workspace.agentLifecycleStatesByPanelId[panelId]?[Workspace.claudeAgentLifecycleKey] == .backgroundWorkPending
+    }
+
+    /// Whether the pane is the one the user types into: the focused surface of the selected
+    /// workspace of the key main window, while cmux is the active app (the same reading
+    /// notifications use for "the surface the user is looking at").
+    static func isFocusedPaneOfKeyWindow(panelId: UUID, workspaceId: UUID) -> Bool {
+        guard AppFocusState.isAppFocused(),
+              let keyWindow = NSApp.keyWindow,
+              let tabManager = AppDelegate.shared?.contextForMainTerminalWindow(keyWindow, reindex: false)?.tabManager,
+              tabManager.selectedTabId == workspaceId else { return false }
+        return tabManager.focusedSurfaceId(for: workspaceId) == panelId
+    }
+
+    /// Whether the pane's transcript records a `/effort` or `/model` the user ran after the
+    /// pane's dismissal time (cmux's last restart of it, or "Adjust Claude Effort
+    /// Automatically"). Read off the main actor; a transcript that cannot be read counts as none.
+    func userChangedEffortInTranscript(panelId: UUID, workspace: Workspace) async -> Bool {
+        guard let snapshot = workspace.sessionPriorityClaudeSnapshot(panelId: panelId),
+              let workingDirectory = snapshot.workingDirectory ?? snapshot.launchCommand?.workingDirectory
+        else { return false }
+        let sessionID = snapshot.sessionId
+        let configDirectory = Workspace.sessionPriorityConfigDirectory(launchEnvironment: snapshot.launchCommand?.environment)
+        let dismissedAt = state.manualDismissedAtMs[panelId].map {
+            Date(timeIntervalSince1970: TimeInterval($0) / 1_000)
+        } ?? .distantPast
+        return await Task.detached {
+            guard let path = ClaudeTranscriptConversationLocator.transcriptPath(
+                sessionID: sessionID,
+                workingDirectory: workingDirectory,
+                configDirectory: configDirectory
+            ) else { return false }
+            do {
+                return try ClaudeTranscriptLocalCommandProbe.lastEffortOrModelChange(
+                    transcriptPath: path,
+                    after: dismissedAt
+                ) != nil
+            } catch {
+#if DEBUG
+                cmuxDebugLog("sessionPriority probe.localCommand.failed session=\(sessionID.prefix(8)) error=\(error)")
+#endif
+                return false
+            }
+        }.value
     }
 
     // MARK: - Rows

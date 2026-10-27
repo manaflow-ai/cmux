@@ -59,18 +59,69 @@ struct SessionPriorityCoordinatorState: Equatable {
         case timer(seconds: Int)
     }
 
+    /// How long triggers settle before the reconcile pass that may queue restarts runs.
+    static let reconcileDebounceMs: Int64 = 2_000
+
     var records: [UUID: PaneRecord] = [:]
     var queue = SessionPriorityApplyQueue()
     /// Workspaces that show the session priority row.
     var rowsShown: Set<UUID> = []
+    /// When the one reconcile pass that may queue restarts is due; `nil` when none is pending.
+    private(set) var reconcileDueAtMs: Int64?
+    /// When each pane's Claude last ended a turn, where the restart gate's quiet window starts.
+    /// Kept while off, so turning the feature on right after a turn end still waits.
+    private(set) var lastTurnEndedAtMs: [UUID: Int64] = [:]
+    /// When cmux last set aside the user's own `/effort` and `/model` on each pane: its last
+    /// restart of the pane, or "Adjust Claude Effort Automatically" on its workspace. Only a
+    /// change the transcript records later counts. Kept while off.
+    private(set) var manualDismissedAtMs: [UUID: Int64] = [:]
 
-    /// Forgets every pane and queued restart. Returns the workspaces whose row to clear.
+    /// Forgets every pane record, queued restart and pending pass. Returns the workspaces whose
+    /// row to clear.
     mutating func disable() -> Set<UUID> {
         let clearRows = rowsShown
         records = [:]
         queue.removeAll()
         rowsShown = []
+        reconcileDueAtMs = nil
         return clearRows
+    }
+
+    /// Asks for the reconcile pass and returns when it is due. A trigger that `settles` (a user
+    /// move or a settings change) moves the pass to ``reconcileDebounceMs`` from now, so the
+    /// gesture settles first; any other trigger joins a pending pass, or asks for one that far
+    /// out.
+    @discardableResult
+    mutating func requestReconcile(nowMs: Int64, settles: Bool) -> Int64 {
+        if let due = reconcileDueAtMs, !settles { return due }
+        let due = max(reconcileDueAtMs ?? .min, nowMs + Self.reconcileDebounceMs)
+        reconcileDueAtMs = due
+        return due
+    }
+
+    /// Whether the pending pass is due at `nowMs`. A due pass is taken: it runs once.
+    mutating func takeReconcileDue(nowMs: Int64) -> Bool {
+        guard let due = reconcileDueAtMs, nowMs >= due else { return false }
+        reconcileDueAtMs = nil
+        return true
+    }
+
+    /// The pane's Claude ended a turn at `nowMs`.
+    mutating func noteTurnEnded(panelId: UUID, nowMs: Int64) {
+        lastTurnEndedAtMs[panelId] = nowMs
+    }
+
+    /// The transcript records a `/effort` or `/model` the user ran after the pane's dismissal
+    /// time: the pane is left alone for the session, like a result seen on screen. The restart
+    /// that found it was not made, so its attempt is not spent.
+    mutating func noteManualChangeInTranscript(panelId: UUID) {
+        var record = records[panelId] ?? PaneRecord()
+        record.lastAttempt = nil
+        record.parkedTarget = nil
+        record.awaitingSessionStartUntilMs = nil
+        record.stickyManual = .userCommandOnScreen
+        record.state = .manual(.userCommandOnScreen)
+        records[panelId] = record
     }
 
     /// Follows the session the pane runs now. Another session than the followed one starts a
@@ -121,6 +172,7 @@ struct SessionPriorityCoordinatorState: Equatable {
             record.state = .applying
             record.awaitingSessionStartUntilMs = nowMs + Self.sessionStartTimeoutMs
             record.dismissedScreenMarkers = .max
+            manualDismissedAtMs[panelId] = nowMs
             return .none
         case .held(let reason):
             record.park()
@@ -138,6 +190,7 @@ struct SessionPriorityCoordinatorState: Equatable {
             // The pane was restarted and holds a bare shell; the user resumes it by hand.
             record.awaitingSessionStartUntilMs = nil
             record.dismissedScreenMarkers = .max
+            manualDismissedAtMs[panelId] = nowMs
             record.state = .notApplied(nil)
             return .none
         }
@@ -187,10 +240,12 @@ struct SessionPriorityCoordinatorState: Equatable {
         records[panelId] = record.lastAttempt.map { PaneRecord(lastAttempt: $0) }
     }
 
-    /// The user asked cmux to adjust these panes again: their manual signals from the screen
-    /// are lifted, and the results still on screen no longer count.
-    mutating func clearStickyManual(panelIds: [UUID]) {
-        for panelId in panelIds where records[panelId] != nil {
+    /// The user asked cmux to adjust these panes again at `nowMs`: their manual signals from the
+    /// screen are lifted, and the results still on screen or in the transcript no longer count.
+    mutating func clearStickyManual(panelIds: [UUID], nowMs: Int64) {
+        for panelId in panelIds {
+            manualDismissedAtMs[panelId] = nowMs
+            guard records[panelId] != nil else { continue }
             records[panelId]?.stickyManual = nil
             records[panelId]?.dismissedScreenMarkers = .max
         }
@@ -258,6 +313,8 @@ struct SessionPriorityCoordinatorState: Equatable {
     /// Forgets panes that no longer exist.
     mutating func retainPanes(_ panelIds: Set<UUID>) {
         records = records.filter { panelIds.contains($0.key) }
+        lastTurnEndedAtMs = lastTurnEndedAtMs.filter { panelIds.contains($0.key) }
+        manualDismissedAtMs = manualDismissedAtMs.filter { panelIds.contains($0.key) }
     }
 
     /// How many `/effort` and `/model` results `text` shows.
