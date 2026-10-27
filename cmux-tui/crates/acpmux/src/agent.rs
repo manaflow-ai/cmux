@@ -117,6 +117,9 @@ struct Hosted {
     /// The reader stopped (an entry could not be logged): the agent is not
     /// usable through this link; the next request adopts the host again.
     broken: std::sync::atomic::AtomicBool,
+    /// The host's last entry when it was last reattached (`reattach`): until `logged` reaches it,
+    /// what the host replays is not all in the session log.
+    replay_to: std::sync::atomic::AtomicU64,
 }
 
 impl Hosted {
@@ -1488,10 +1491,19 @@ impl ChildAgent {
                     return Err(anyhow!("agent host refused this build"));
                 }
             };
+        // Before the link counts as whole again: no check sees it neither broken nor replaying.
+        h.replay_to.store(last_h, Ordering::SeqCst);
         *h.link.write_or_recover() = link.clone();
         h.broken.store(false, Ordering::SeqCst);
         self.start_reader(link);
         Ok(last_h)
+    }
+
+    /// Whether a reattached host's replay is not all in the session log yet (`reattach`).
+    pub fn replay_pending(&self) -> bool {
+        self.hosted
+            .as_ref()
+            .is_some_and(|h| *h.logged.borrow() < h.replay_to.load(Ordering::SeqCst))
     }
 
     /// Leave a hosted agent running and let go of it (daemon shutdown or
@@ -1569,6 +1581,7 @@ impl ChildAgent {
                 detached: Arc::new(std::sync::atomic::AtomicBool::new(false)),
                 logged: tokio::sync::watch::channel(resume_after).0,
                 broken: std::sync::atomic::AtomicBool::new(false),
+                replay_to: std::sync::atomic::AtomicU64::new(0),
                 exited: std::sync::atomic::AtomicBool::new(false),
                 exit_seen: std::sync::atomic::AtomicBool::new(false),
                 exit: tokio::sync::Notify::new(),

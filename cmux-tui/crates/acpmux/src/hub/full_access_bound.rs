@@ -466,10 +466,14 @@ impl Hub {
     /// Whether `session`'s agent counts as in full access under MDM's off: by what acpmux keeps
     /// of it or its left host reported (`runs_full_access_by_records`), because an end of it
     /// failed and its host may still run (`FloorState::full_access_end_pending`, review 51 of
-    /// #23322), or because the host records cannot be read while this daemon hears no agent of it
+    /// #23322), because its reattached host's replay is not all in the log yet (`host_replaying`),
+    /// or because the host records cannot be read while this daemon hears no agent of it
     /// (`host_unknown`).
     async fn counts_as_full_access(&self, session: &Session) -> bool {
         if session.floor.full_access_end_pending.load(Ordering::SeqCst) {
+            return true;
+        }
+        if Self::host_replaying(session).await {
             return true;
         }
         let records = Self::read_host_records();
@@ -490,6 +494,15 @@ impl Hub {
             Some(child) => !child.is_alive().await,
             None => true,
         }
+    }
+
+    /// Whether `session`'s agent host was reattached and its replay is not all in the log yet:
+    /// what it kept while its link was down is unknown until then, so under MDM's off it counts as
+    /// full access, and its log is not read back (nor `left_host_read` kept) before the replay is
+    /// in it (review 1 of #26057).
+    async fn host_replaying(session: &Session) -> bool {
+        let child = session.child.lock().await.clone();
+        child.is_some_and(|c| c.replay_pending())
     }
 
     /// Whether `session`'s agent runs in full access by what acpmux keeps of it, or, for a host a

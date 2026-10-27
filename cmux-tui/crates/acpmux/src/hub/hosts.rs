@@ -210,7 +210,9 @@ impl Hub {
     /// adoption waits) and the session judged again from the log; an agent that runs in full
     /// access, or whose replay did not complete, ends, and None is returned (the caller starts a
     /// fresh agent, or refuses when the host did not end). Without MDM's off (`off`, the caller's
-    /// one read of it, with any off pushed since) nothing changes.
+    /// one read of it, with any off pushed since) it is handed out at once, and the next off judges
+    /// its replay: an earlier read of its log no longer holds (`FloorState::left_host_read`), and
+    /// until the replay is all in the log the agent counts as full access (review 1 of #26057).
     async fn judged_after_reattach(
         &self,
         session: &Arc<Session>,
@@ -218,6 +220,7 @@ impl Hub {
         last_h: u64,
         off: &OffLatch,
     ) -> Option<Arc<ChildAgent>> {
+        session.floor.left_host_read.store(false, Ordering::SeqCst);
         if !off.off() {
             return Some(child.clone());
         }
