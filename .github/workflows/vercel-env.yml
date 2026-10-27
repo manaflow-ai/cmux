@@ -51,7 +51,7 @@ jobs:
     environment: vercel-env-production
     permissions:
       contents: read
-      # Read the environment's protection rules (check step below).
+      # Read the environment's protection rules and branch policies (check step below).
       actions: read
     steps:
       - name: Checkout

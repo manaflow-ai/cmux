@@ -164,16 +164,26 @@ class Planner(unittest.TestCase):
         kind = vercel_env.verify([env(self.N, ["production"], type_="sensitive", updated=200)], self.N, "production", "set", True, step)
         self.assertEqual(kind, "sensitive")
 
-    def test_environment_must_require_review_and_branches(self) -> None:
+    def test_environment_must_require_review_and_admit_only_main(self) -> None:
         good = {
             "protection_rules": [{"type": "required_reviewers", "reviewers": [{"type": "User"}]}],
-            "deployment_branch_policy": {"protected_branches": True, "custom_branch_policies": False},
+            "deployment_branch_policy": {"protected_branches": False, "custom_branch_policies": True},
         }
-        vercel_env.check_environment(good, "e")
-        with self.assertRaisesRegex(vercel_env.Refused, "required reviewers"):
-            vercel_env.check_environment({"protection_rules": [], "deployment_branch_policy": None}, "e")
-        with self.assertRaisesRegex(vercel_env.Refused, "every branch"):
-            vercel_env.check_environment({**good, "deployment_branch_policy": None}, "e")
+        main_only = {"total_count": 1, "branch_policies": [{"name": "main", "type": "branch"}]}
+        vercel_env.check_environment(good, main_only, "e")
+        refused = {
+            "required reviewers": ({**good, "protection_rules": []}, main_only),
+            "selected branches": ({**good, "deployment_branch_policy": None}, None),
+            "selected branches ": ({**good, "deployment_branch_policy": {"protected_branches": True, "custom_branch_policies": False}}, None),
+            "exactly the branch main": (good, {"branch_policies": [{"name": "*", "type": "branch"}]}),
+            "exactly the branch main ": (good, {"branch_policies": [{"name": "main", "type": "branch"}, {"name": "dev", "type": "branch"}]}),
+            "exactly the branch main  ": (good, {"branch_policies": [{"name": "main", "type": "tag"}]}),
+            "exactly the branch main   ": (good, {"branch_policies": []}),
+        }
+        for reason, (doc, policies) in refused.items():
+            with self.subTest(reason=reason):
+                with self.assertRaisesRegex(vercel_env.Refused, reason.strip()):
+                    vercel_env.check_environment(doc, policies, "e")
 
 
 class ScriptNeverPrintsTheValue(unittest.TestCase):
@@ -233,6 +243,39 @@ class ScriptNeverPrintsTheValue(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertIn("***", text)
         self.assert_clean(text)
+
+
+class HttpErrorsPrintNoProviderText(unittest.TestCase):
+    """The real request function, fed a Vercel error that echoes the value."""
+
+    def test_http_error_body_is_reduced_to_status_and_code(self) -> None:
+        import urllib.error
+
+        value = "v" * 290 + "-the-secret-tail"
+        bodies = [
+            {"error": {"code": "bad_request", "message": f"invalid value {value}"}},
+            {"error": {"code": f"x {value}", "message": "m"}},
+            {"error": {"code": value[:40] + "\u0000", "message": json.dumps(value)}},
+            {"error": "plain string " + value},
+        ]
+        vercel_env.register_secret(value)
+        for body in bodies:
+            raw = json.dumps(body).encode()
+            error = urllib.error.HTTPError("https://api.vercel.com/x", 400, "Bad", {}, io.BytesIO(raw))
+            request = vercel_env.http_request("tok", "team")
+            with self.subTest(body=str(body)[:60]), mock.patch("urllib.request.urlopen", side_effect=error):
+                with self.assertRaises(vercel_env.Refused) as caught:
+                    request("POST", "/v10/projects/p/env", {"value": value})
+                message = str(caught.exception)
+                self.assertRegex(message, r"returned HTTP 400 \((bad_request|error)\)$")
+                self.assertNotIn("vvvv", message)
+                self.assertNotIn("tail", message)
+
+    def test_unexpected_exceptions_print_only_their_class(self) -> None:
+        err = io.StringIO()
+        with mock.patch.object(vercel_env, "run", side_effect=RuntimeError("leaky secret text")), redirect_stderr(err):
+            self.assertEqual(vercel_env.main(["--name", "X", "--target", "production", "--action", "set"]), 1)
+        self.assertEqual(err.getvalue().strip(), "::error::failed with RuntimeError")
 
 
 if __name__ == "__main__":

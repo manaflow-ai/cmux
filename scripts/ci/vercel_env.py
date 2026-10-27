@@ -20,7 +20,7 @@ target's own entry.
     scripts/ci/vercel_env.py --name NAME --target production|preview --action set|remove
 
 --check-environment refuses unless the allowlist's GitHub environment exists
-with required reviewers and a deployment branch policy. GitHub creates a
+with required reviewers and a deployment branch policy of exactly `main`. GitHub creates a
 missing environment on first use with no protection at all, and the repo-level
 VERCEL_TOKEN would then reach an unapproved run; this check fails it instead.
 
@@ -32,6 +32,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import sys
 import urllib.error
 import urllib.parse
@@ -59,6 +60,18 @@ def register_secret(value: str | None) -> None:
     _SECRETS.append(value)
     # A multi-line value is masked line by line too, so no fragment survives.
     _SECRETS.extend(line for line in value.splitlines() if len(line.strip()) >= 4)
+
+
+ERROR_CODE = re.compile(r"^[A-Za-z][A-Za-z0-9_]{0,63}$")
+
+
+def error_code(value: object) -> str:
+    """A provider error code if it looks like an identifier, else a fixed word.
+
+    Provider messages are never printed: one may quote the request, and a
+    truncated or escaped copy of the value would get past redact().
+    """
+    return value if isinstance(value, str) and ERROR_CODE.match(value) else "error"
 
 
 def redact(text: object) -> str:
@@ -154,13 +167,13 @@ def http_request(token: str, team_id: str) -> Request:
             with urllib.request.urlopen(req, timeout=30) as response:
                 raw = response.read()
         except urllib.error.HTTPError as error:
-            # Only Vercel's error code and message, redacted; never the request.
+            # Status and Vercel's error code only; never its message or the request.
             try:
                 detail = json.loads(error.read() or b"{}").get("error") or {}
-            except ValueError:
+            except (ValueError, AttributeError):
                 detail = {}
-            message = f"{detail.get('code', 'error')}: {detail.get('message', '')}"[:300]
-            raise Refused(f"Vercel {method} {path.split('?')[0]} returned HTTP {error.code} ({redact(message)})") from None
+            code = error_code(detail.get("code") if isinstance(detail, dict) else None)
+            raise Refused(f"Vercel {method} {path.split('?')[0]} returned HTTP {error.code} ({code})") from None
         except urllib.error.URLError as error:
             raise Refused(f"Vercel {method} {path.split('?')[0]} failed: {type(error.reason).__name__}") from None
         return json.loads(raw) if raw else {}
@@ -188,8 +201,8 @@ def apply(request: Request, project_id: str, name: str, target: str, value: str 
     if op == "create":
         result = request("POST", f"/v10/projects/{project_id}/env", {"key": name, "value": value, "type": step["type"], "target": [target]})
         if result.get("failed"):
-            codes = [((f or {}).get("error") or {}).get("code", "error") for f in result["failed"]]
-            raise Refused(f"Vercel refused to create {name}: {', '.join(map(str, codes))}")
+            codes = [error_code(((f or {}).get("error") or {}).get("code")) for f in result["failed"]]
+            raise Refused(f"Vercel refused to create {name}: {', '.join(codes)}")
     elif op == "update":
         request("PATCH", f"/v9/projects/{project_id}/env/{step['id']}", {"value": value})
     elif op == "narrow":
@@ -198,18 +211,25 @@ def apply(request: Request, project_id: str, name: str, target: str, value: str 
         request("DELETE", f"/v9/projects/{project_id}/env/{step['id']}", None)
 
 
-def check_environment(doc: dict[str, Any], name: str) -> None:
-    """Refuse an environment without required reviewers or a branch policy."""
+def check_environment(doc: dict[str, Any], branch_policies: dict[str, Any] | None, name: str) -> None:
+    """Refuse an environment unless it needs a reviewer and admits only main."""
     rules = doc.get("protection_rules") or []
     reviewers = [r for r in rules if r.get("type") == "required_reviewers" and r.get("reviewers")]
     if not reviewers:
         raise Refused(f"environment {name} has no required reviewers; an admin must add them before this workflow runs")
-    if not doc.get("deployment_branch_policy"):
-        raise Refused(f"environment {name} accepts every branch; an admin must restrict it to main")
+    policy = doc.get("deployment_branch_policy") or {}
+    if policy.get("protected_branches") is not False or policy.get("custom_branch_policies") is not True:
+        raise Refused(f"environment {name} must use selected branches with exactly main; an admin must set that")
+    listed = [
+        (p.get("name"), p.get("type", "branch"))
+        for p in (branch_policies or {}).get("branch_policies") or []
+    ]
+    if listed != [("main", "branch")]:
+        raise Refused(f"environment {name} admits {listed or 'no'} refs; it must admit exactly the branch main")
 
 
-def fetch_environment(token: str, repository: str, name: str) -> dict[str, Any]:
-    url = f"https://api.github.com/repos/{repository}/environments/{urllib.parse.quote(name)}"
+def github_get(token: str, path: str, name: str) -> dict[str, Any]:
+    url = f"https://api.github.com{path}"
     req = urllib.request.Request(url)
     req.add_header("Authorization", f"Bearer {token}")
     req.add_header("Accept", "application/vnd.github+json")
@@ -218,6 +238,17 @@ def fetch_environment(token: str, repository: str, name: str) -> dict[str, Any]:
             return json.loads(response.read())
     except urllib.error.HTTPError as error:
         raise Refused(f"could not read environment {name}: HTTP {error.code}") from None
+    except urllib.error.URLError as error:
+        raise Refused(f"could not read environment {name}: {type(error.reason).__name__}") from None
+
+
+def fetch_environment(token: str, repository: str, name: str) -> tuple[dict[str, Any], dict[str, Any] | None]:
+    base = f"/repos/{repository}/environments/{urllib.parse.quote(name)}"
+    doc = github_get(token, base, name)
+    policy = doc.get("deployment_branch_policy") or {}
+    if policy.get("custom_branch_policies") is not True:
+        return doc, None
+    return doc, github_get(token, f"{base}/deployment-branch-policies?per_page=100", name)
 
 
 def summary(lines: list[str]) -> None:
@@ -278,14 +309,15 @@ def main(argv: list[str] | None = None) -> int:
             name = load_allowlist(Path(args.allowlist))["environment"]
             token = os.environ.get("GH_TOKEN", "")
             register_secret(token)
-            check_environment(fetch_environment(token, os.environ["GITHUB_REPOSITORY"], name), name)
-            say(f"environment {name} requires review and restricts branches")
+            doc, branch_policies = fetch_environment(token, os.environ["GITHUB_REPOSITORY"], name)
+            check_environment(doc, branch_policies, name)
+            say(f"environment {name} requires a reviewer and admits only main")
             return 0
         return run(args, dict(os.environ))
     except Refused as error:
         say(f"::error::{error}", error=True)
     except Exception as error:  # noqa: BLE001  (never a traceback: it could quote a request)
-        say(f"::error::{type(error).__name__}: {error}", error=True)
+        say(f"::error::failed with {type(error).__name__}", error=True)
     return 1
 
 
