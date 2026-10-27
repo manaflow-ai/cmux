@@ -41,13 +41,18 @@ public final class ScreenSession {
 
     public let title: String
     public private(set) var phase = Phase.connecting {
-        didSet { resumeWaiters() }
+        didSet {
+            resumeWaiters()
+            if phase != oldValue { syncStreamStatsPoll() }
+        }
     }
     @ObservationIgnored private var phaseWaiters: [OnceContinuation<Bool, OnceContinuationError>] = []
     public private(set) var stats = LiveStats()
     /// The remote screen's pixel size (the streamed display, or the framebuffer).
     public private(set) var frameSize = CGSize.zero
-    public var preferences: ScreenPreferences
+    public var preferences: ScreenPreferences {
+        didSet { if preferences.showStats != oldValue.showStats { syncStreamStatsPoll() } }
+    }
     public var credentials: VNCCredentials
     /// Automatic reconnects after a stream drops: how many tries (0 turns them
     /// off), backing off 0, 1, 2, 4, 8 s, before the session fails.
@@ -97,6 +102,8 @@ public final class ScreenSession {
     public private(set) var relayErrors: [ICECandidateError] = []
     @ObservationIgnored private var reconnectAttempts = 0
     @ObservationIgnored private var reconnectTask: Task<Void, Never>?
+    /// Asks WebRTC for its numbers while the stats line can show (``pollsStreamStats(showStats:phase:)``).
+    @ObservationIgnored private var streamStatsTask: Task<Void, Never>?
     public var isStream: Bool { pairing?.isStream == true || makeSignaling != nil }
     /// Screen streams use the TURN relay only (ICE policy `relay`), to check
     /// the relay path; applies from the next `connect()`. Off by default.
@@ -283,7 +290,6 @@ public final class ScreenSession {
                 viewer.setQuality(preferences.quality)
                 phase = .connected(VNCServerInfo(width: 0, height: 0, name: name, nativeFormat: .bgrx,
                                                  protocolMinor: 8, securityType: 0))
-                await pollStreamStats(viewer)
             } catch {
                 guard let self, stream === viewer else { return }
                 if isReconnecting {
@@ -342,7 +348,8 @@ public final class ScreenSession {
         let delay = reconnectAttempts == 1 ? 0 : min(pow(2, Double(reconnectAttempts - 2)), 8)
         reconnectTask?.cancel()
         reconnectTask = Task { [weak self] in
-            try? await Task.sleep(for: .seconds(delay)) // reconnect backoff
+            // wakeup-allow: backoff one reconnect wait (0, 1, 2, 4, 8 s) per drop, ended by the reconnect limit and deadline
+            try? await Task.sleep(for: .seconds(delay), tolerance: Self.backoffTolerance(delay))
             guard !Task.isCancelled, let self, isReconnecting else { return }
             connect()
         }
@@ -380,12 +387,36 @@ public final class ScreenSession {
         stream?.setQuality(preferences.quality)
     }
 
+    /// The leeway of a reconnect wait: a tenth of it, at least 8 ms (Chromium's `kDefaultLeeway`,
+    /// base/task/task_features.h), so the system may share the wake.
+    nonisolated static func backoffTolerance(_ delay: TimeInterval) -> Duration {
+        .milliseconds(max(8, Int((delay * 100).rounded())))
+    }
+
+    /// Whether WebRTC's numbers are asked for: only while the stats line can show, on a connected
+    /// stream with ``ScreenPreferences/showStats`` on (as chrome://webrtc-internals asks `getStats`
+    /// only while its page is open).
+    static func pollsStreamStats(showStats: Bool, phase: Phase) -> Bool {
+        guard showStats, case .connected = phase else { return false }
+        return true
+    }
+
+    /// Starts or stops the stats poll for the current stream, phase and preference.
+    private func syncStreamStatsPoll() {
+        streamStatsTask?.cancel()
+        streamStatsTask = nil
+        guard let viewer = stream, Self.pollsStreamStats(showStats: preferences.showStats, phase: phase) else { return }
+        streamStatsTask = Task { [weak self] in await self?.pollStreamStats(viewer) }
+    }
+
     /// WebRTC's own numbers, once a second, for the stats line.
     private func pollStreamStats(_ viewer: ScreenStreamViewer) async {
         var lastBytes = 0.0
         var lastTime = CACurrentMediaTime()
+        // wakeup-allow: bounded the stats line's second, only while it shows on a connected stream (syncStreamStatsPoll); WebRTC has no stats event
         while !Task.isCancelled, stream === viewer {
-            try? await Task.sleep(for: .seconds(1)) // stats sampling period
+            // wakeup-allow: bounded one stats sample a second while the stats line shows; a tenth of it is leeway
+            try? await Task.sleep(for: .seconds(1), tolerance: .milliseconds(100))
             let video = await viewer.videoStats()
             let now = CACurrentMediaTime()
             var next = stats
@@ -422,6 +453,8 @@ public final class ScreenSession {
         }
         for task in tasks { task.cancel() }
         tasks.removeAll()
+        streamStatsTask?.cancel()
+        streamStatsTask = nil
         if let client { Task { await client.disconnect() } }
         client = nil
         // Closing a peer connection waits on WebRTC's threads (TURN

@@ -585,7 +585,19 @@
              let b = CABasicAnimation(keyPath: "filters.gaussianBlur.inputRadius"); b.fromValue = r0; b.toValue = r1; b.duration = d; b.timingFunction = fn
              if delay > 0 { b.beginTime = CACurrentMediaTime() + delay; b.fillMode = .backwards }
              blur.add(b, forKey: "thread")
-@@ -2727,7 +2910,7 @@
+@@ -2695,9 +2878,11 @@
+         // Their cells are made after the slide settles, a batch per run-loop pass, not in the fold's frame.
+         if delta > 0, let r = collection as? RowRecycler {
+             let n = Self.reserveCellCount(collection.visibleCells.count)
++            // cmux: wakeup-allow: deadline one shot after the fold's slide settles, with a tolerance; never repeats
+             let t = Timer(timeInterval: el.settleTime, repeats: false) { [weak self, weak r] _ in
+                 if let self, let r { self.reserveCells(r, n) }
+             }
++            t.tolerance = RunLoopDeadline.flexibleTolerance  // cmux: the system may share its wake
+             RunLoop.main.add(t, forMode: .common)
+         }
+     }
+@@ -2727,7 +2912,7 @@
          let textTop = Fixture.bubblePadY
          if case let .part(p) = spec0.kind, case let .text(t, _) = p.part, p.text == nil {
              let l = LongTextStore.shared.layout(t, width: spec0.width, message: p.ref.messageId, markdown: p.markdownFormat)
@@ -594,7 +606,7 @@
              inner = (l, l.anchor(atTextY: y), y)
          }
          apply()
-@@ -2828,7 +3011,7 @@
+@@ -2828,7 +3013,7 @@
          let ink = open ? UIColor(red: 0.30, green: 0.85, blue: 0.45, alpha: 1) : Fixture.secondaryText
          let r = min(l.chip.width, l.chip.height) / 2 * 0.999
          ctx.saveGState()
@@ -603,7 +615,7 @@
          ctx.setFillColor((Fixture.lightAppearance && !open ? UIColor(white: 0, alpha: 0.08) : fill).cgColor)
          ctx.fillPath()
          ctx.restoreGState()
-@@ -2836,3 +3019,150 @@
+@@ -2836,3 +3021,150 @@
          TextDraw.line(l.owner, font: ownerFont, color: Fixture.secondaryText, x: l.ownerX, baseline: l.chip.minY + 12, in: ctx, kern: RowDraw.captionKern)
      }
  }

@@ -247,6 +247,7 @@ public actor InstallAuthClient {
         guard let userID = user["id"] as? String else { throw InstallAuthError.malformedReply }
         guard user["stack_user_id"] as? String == stackUser else { throw InstallAuthError.userMismatch }
         var attempts = 0
+        // wakeup-allow: bounded two tries at most: the second runs only after the first's key.already_registered refusal
         while true {
             attempts += 1
             let x963 = try await signer.publicKeyX963()

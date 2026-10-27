@@ -455,6 +455,7 @@ enum MarkdownLayoutEngine {
             var maxW: CGFloat = 0
             var lineStart = 0
             let total = ns.length
+            // cmux: wakeup-allow: bounded a pass per line of the in-memory code text (no IO); the last line breaks
             repeat {
                 let nl = ns.range(of: "\n", options: [], range: NSRange(location: lineStart, length: total - lineStart))
                 let end = nl.location == NSNotFound ? total : nl.location
@@ -484,7 +485,7 @@ enum MarkdownLayoutEngine {
                 y += Markdown.lineHeight
                 if nl.location == NSNotFound { break }
                 lineStart = end + 1
-            } while true
+            } while true  // cmux: wakeup-allow: bounded a pass per line of the in-memory code text; the last line breaks
             y += Markdown.codePadY
             let content = maxW + 2 * Markdown.codePadX
             if content > w + 0.5 { y += Markdown.indicatorRoom }

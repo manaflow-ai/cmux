@@ -22,11 +22,13 @@ final class PressHold {
         cancel()
         point = p
         action = fire
+        // wakeup-allow: deadline one shot per press, with a tolerance; a move, release or new press cancels it
         let t = Timer(timeInterval: Self.delay, repeats: false) { [weak self] _ in
             guard let self else { return }
             // main-proof: the timer is added to RunLoop.main below, so it fires on the main thread.
             MainActor.assumeIsolated { self.timerFired() }
         }
+        t.tolerance = RunLoopDeadline.flexibleTolerance
         RunLoop.main.add(t, forMode: .common)
         timer = t
     }

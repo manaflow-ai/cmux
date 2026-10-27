@@ -230,6 +230,7 @@ struct ZRLEParser {
 
     private mutating func runLength() throws -> Int {
         var length = 1
+        // wakeup-allow: bounded each pass consumes a byte of the in-memory tile data (no IO); its end throws
         while true {
             let next = try byte()
             length += Int(next)

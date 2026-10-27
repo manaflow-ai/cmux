@@ -300,6 +300,7 @@ enum HomeTableColumns {
         // A fair share each; columns under it keep their natural width.
         var fixed = Set<Int>()
         var room = available
+        // wakeup-allow: bounded each pass fixes at least one more column or breaks: at most one pass per column (no IO)
         while true {
             let open = natural.enumerated().filter { !fixed.contains($0.offset) }
             guard !open.isEmpty else { break }

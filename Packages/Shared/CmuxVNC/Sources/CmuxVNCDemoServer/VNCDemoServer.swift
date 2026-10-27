@@ -74,7 +74,6 @@ public final class VNCDemoServer: @unchecked Sendable {
                     }
                 }
                 listener.start(queue: self.queue)
-                self.startTimer()
             }
         }
     }
@@ -85,8 +84,17 @@ public final class VNCDemoServer: @unchecked Sendable {
             self.timer = nil
             self.listener?.cancel()
             self.listener = nil
-            for connection in self.connections.values { connection.close() }
+            // Emptied first, so a closing viewer's onClose cannot start the clock again.
+            let closing = self.connections.values
             self.connections.removeAll()
+            for connection in closing { connection.close() }
+        }
+    }
+
+    /// Whether the animation clock runs (tests): only while a viewer is connected.
+    func animationClockRuns() async -> Bool {
+        await withCheckedContinuation { continuation in
+            queue.async { continuation.resume(returning: self.timer != nil) }
         }
     }
 
@@ -106,9 +114,11 @@ public final class VNCDemoServer: @unchecked Sendable {
         peer.onClose = { [weak self] in
             self?.connections[key] = nil
             self?.scene?.clients = self?.connections.count ?? 0
+            self?.syncTimer()
         }
         peer.onSceneChange = { [weak self] rect in self?.broadcast(rect) }
         peer.start()
+        syncTimer()
     }
 
     private func broadcast(_ rect: CGRect) {
@@ -116,9 +126,21 @@ public final class VNCDemoServer: @unchecked Sendable {
         for connection in connections.values { connection.invalidate(rect) }
     }
 
+    /// The animation clock runs while a viewer is connected and stops with the last one.
+    private func syncTimer() {
+        if connections.isEmpty {
+            timer?.cancel()
+            timer = nil
+        } else if timer == nil {
+            startTimer()
+        }
+    }
+
     private func startTimer() {
         let fps = max(1, configuration.framesPerSecond == 0 ? 1 : configuration.framesPerSecond)
+        // wakeup-allow: fixture the demo desktop and tests only, and only while a viewer is connected
         let timer = DispatchSource.makeTimerSource(queue: queue)
+        // wakeup-allow: fixture the demo's animation frames, at most framesPerSecond, while a viewer is connected
         timer.schedule(deadline: .now(), repeating: .nanoseconds(1_000_000_000 / fps), leeway: .milliseconds(2))
         timer.setEventHandler { [weak self] in
             guard let self, let scene, !connections.isEmpty else { return }
@@ -232,6 +254,7 @@ final class DemoConnection: @unchecked Sendable {
     }
 
     private func process() {
+        // wakeup-allow: bounded each pass consumes buffered input or returns until the next bytes arrive (no IO)
         while true {
             switch phase {
             case .version:
@@ -474,6 +497,7 @@ final class Deflater {
             unsafe stream.pointee.avail_in = uInt(source.count)
             // SAFETY: the live stream; no pointer into `source` outlives the closure.
             defer { unsafe stream.pointee.next_in = nil }
+            // wakeup-allow: bounded each pass deflates in-memory input (no IO); an output chunk not filled ends it
             while true {
                 let produced = chunk.withUnsafeMutableBufferPointer { out -> Int in
                     // SAFETY: next_out points at `out`, valid for this closure; zlib writes at most

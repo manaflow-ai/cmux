@@ -135,7 +135,15 @@
                  if st.contains(.code) {
                      out.boxes.append(MDBox(rect: CGRect(x: f.origin.x + x0 - 1.5, y: f.origin.y + 1, width: x1 - x0 + 3, height: 14.5), kind: .inlineCode, region: f.region))
                  }
-@@ -449,14 +468,14 @@
+@@ -436,6 +455,7 @@
+             var maxW: CGFloat = 0
+             var lineStart = 0
+             let total = ns.length
++            // cmux: wakeup-allow: bounded a pass per line of the in-memory code text (no IO); the last line breaks
+             repeat {
+                 let nl = ns.range(of: "\n", options: [], range: NSRange(location: lineStart, length: total - lineStart))
+                 let end = nl.location == NSNotFound ? total : nl.location
+@@ -449,14 +469,14 @@
                  }
                  let sub = r.length > 0 ? attr.attributedSubstring(from: r) : NSAttributedString(string: "")
                  let line = CTLineCreateWithAttributedString(sub)
@@ -152,7 +160,16 @@
                      out.frags.append(MDFrag(attr: label, line: ml, origin: CGPoint(x: x + Markdown.codePadX + lw, y: y), width: mw, baseline: Markdown.bodyBaseline,
                                              range: NSRange(location: plainLen + NSMaxRange(r), length: 0), region: rid, role: .more, links: []))
                      lineW += mw
-@@ -507,7 +526,7 @@
+@@ -465,7 +485,7 @@
+                 y += Markdown.lineHeight
+                 if nl.location == NSNotFound { break }
+                 lineStart = end + 1
+-            } while true
++            } while true  // cmux: wakeup-allow: bounded a pass per line of the in-memory code text; the last line breaks
+             y += Markdown.codePadY
+             let content = maxW + 2 * Markdown.codePadX
+             if content > w + 0.5 { y += Markdown.indicatorRoom }
+@@ -507,7 +527,7 @@
                      let m = markerText(i, it)
                      let attr = NSAttributedString(string: m, attributes: [.font: markerFont, .kern: Fixture.bodyKern, .mdRole: MDRole.marker.rawValue])
                      let line = CTLineCreateWithAttributedString(attr)
@@ -161,7 +178,7 @@
                      out.frags.append(MDFrag(attr: attr, line: line, origin: CGPoint(x: x + ind - Markdown.markerGap - mw, y: y), width: mw, baseline: Markdown.bodyBaseline,
                                              range: NSRange(location: plainLen, length: (m as NSString).length), region: -1, role: .marker, links: []))
                      appendPlain(m + " ")
-@@ -546,7 +565,7 @@
+@@ -546,7 +566,7 @@
                          let line = CTLineCreateWithAttributedString(a)
                          let word = MarkdownLayoutEngine.longestWord(a, line)
                          // c < cols == every width array's count; written through checked slots.
@@ -170,7 +187,7 @@
                          if let s = wordW.checkedIndex(c) { wordW[s] = max(wordW[s], word) }
                          if let s = minW.checkedIndex(c) { minW[s] = max(minW[s], min(140, word)) }
                      }
-@@ -640,7 +659,7 @@
+@@ -640,7 +660,7 @@
          let n = s.length
          func measure(_ lo: Int, _ hi: Int) {
              guard hi > lo else { return }
@@ -179,7 +196,7 @@
          }
          for i in 0..<n {
              let c = s.character(at: i)
-@@ -684,27 +703,36 @@
+@@ -684,27 +704,36 @@
  
  // MARK: - LRU
  

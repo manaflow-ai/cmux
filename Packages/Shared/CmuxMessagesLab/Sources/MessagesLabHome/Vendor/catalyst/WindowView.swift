@@ -2878,9 +2878,11 @@ extension MessagesWindowView {
         // Their cells are made after the slide settles, a batch per run-loop pass, not in the fold's frame.
         if delta > 0, let r = collection as? RowRecycler {
             let n = Self.reserveCellCount(collection.visibleCells.count)
+            // cmux: wakeup-allow: deadline one shot after the fold's slide settles, with a tolerance; never repeats
             let t = Timer(timeInterval: el.settleTime, repeats: false) { [weak self, weak r] _ in
                 if let self, let r { self.reserveCells(r, n) }
             }
+            t.tolerance = RunLoopDeadline.flexibleTolerance  // cmux: the system may share its wake
             RunLoop.main.add(t, forMode: .common)
         }
     }

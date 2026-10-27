@@ -655,6 +655,7 @@ final class SequenceScroller: NSScroller {
         super.updateTrackingAreas()
         trackingAreas.forEach(removeTrackingArea)
         // The strip only (no wake-ups for pointer moves elsewhere in the window).
+        // cmux: wakeup-allow: bounded enter and exit of the scroller strip only, no moves, so an inactive window's scroller still shows on hover
         addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self, userInfo: nil))
     }
     /// Messages widens the thumb 0.075 s after the pointer enters the strip (four lossless

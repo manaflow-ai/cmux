@@ -16,7 +16,9 @@ final class HomeLiveLine {
     /// How the line reads (Debug Settings > Home > Running indicator), read at each tick so a
     /// change shows on the next second.
     var style: () -> HomeTurnProgressStyle = { .narrated }
-    private var clock: Timer?
+    /// The next second of the line's elapsed time: a one-shot deadline that each second arms again, only
+    /// while a line shows. The host's comes through ``useClock(_:)``; standalone keeps a ``RunLoopDeadline``.
+    private var clock: any ViewDeadline = RunLoopDeadline()
     private var hiding = false
     /// Counts hide requests: a close pending for an earlier one never closes a later one early.
     private var hides = 0
@@ -26,29 +28,42 @@ final class HomeLiveLine {
         self.now = now
     }
 
+    /// The host's deadline for the clock (HomeProjection: the pane's `ChatWakeScheduler`), named in its ledger.
+    func useClock(_ deadline: any ViewDeadline) {
+        clock.cancel()
+        clock = deadline
+        armClock()
+    }
+
     func show(_ activity: HomeLiveActivity?, thought: String? = nil) {
         if activity != nil { hiding = false }
         if let activity { steps.record(activity) }
         if thought != self.thought {
             self.thought = thought
             // A new thought on the same step: the narration row changes now, not on the next second.
-            if activity != nil, activity == self.activity, clock != nil { tick() }
+            if activity != nil, activity == self.activity, clock.isPending { tick() }
         }
         // The same line again after a hide stopped its clock: the clock runs again.
-        guard activity != self.activity || (activity != nil && clock == nil) else { return }
+        guard activity != self.activity || (activity != nil && !clock.isPending) else { return }
         self.activity = activity
-        clock?.invalidate()
-        clock = nil
-        if activity != nil {
-            // A display clock for the elapsed seconds, not a synchronisation delay.
-            let clock = Timer(timeInterval: 1, repeats: true) { [weak self] timer in
-                guard self != nil else { return timer.invalidate() } // the line's view went away
-                Task { @MainActor [weak self] in self?.tick() }
-            }
-            RunLoop.main.add(clock, forMode: .common)
-            self.clock = clock
-        }
+        clock.cancel()
         tick()
+        armClock()
+    }
+
+    /// Arms the clock for the next whole second of the elapsed time, when the line's text can change.
+    private func armClock() {
+        guard let activity, !hiding else { return }
+        clock.schedule(after: Self.untilNextSecond(now().timeIntervalSince(activity.since))) { [weak self] in
+            self?.tick()
+            self?.armClock()
+        }
+    }
+
+    /// Seconds from `elapsed` to its next whole second, in (0, 1].
+    static func untilNextSecond(_ elapsed: TimeInterval) -> TimeInterval {
+        guard elapsed.isFinite else { return 1 }
+        return 1 - (elapsed - elapsed.rounded(.down))
     }
 
     /// The line closes on the display frame after the one that presents the commit that lands the reply
@@ -61,8 +76,7 @@ final class HomeLiveLine {
         let ticket = hides
         closeAfterHandOffFires = nil
         // A pending close shows the line as it is: no new second while it waits.
-        clock?.invalidate()
-        clock = nil
+        clock.cancel()
         // Not on screen (occluded, minimized, no window): no display frame comes and nothing moves on screen.
         guard controller.host.window?.occlusionState.contains(.visible) == true else { return close(ticket, controller) }
         controller.nextFrame { [weak self, weak controller] in
@@ -102,8 +116,7 @@ final class HomeLiveLine {
         // A close pending when the view stops never runs.
         hiding = false
         hides += 1
-        clock?.invalidate()
-        clock = nil
+        clock.cancel()
     }
 
     private func tick() {

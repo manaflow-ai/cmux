@@ -60,6 +60,7 @@ final class ZlibStream {
             // SAFETY: the live stream; no pointer into `source` outlives the closure.
             defer { unsafe stream.pointee.next_in = nil }
             let capacity = output.count
+            // wakeup-allow: bounded each pass inflates in-memory input (no IO); no output, or input used up, ends it
             while true {
                 let produced: Int = try output.withUnsafeMutableBufferPointer { out in
                     // SAFETY: next_out points at `out`, valid for this closure, and zlib writes

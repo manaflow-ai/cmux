@@ -197,6 +197,7 @@ public actor VNCClient {
             try await request(incremental: false)
             let decoder = RFBRectangleDecoder()
             let publisher = FramePublisher()
+            // wakeup-allow: bounded each pass awaits the server's next message; a closed transport or an error ends it
             while !Task.isCancelled {
                 let type = try await reader.u8()
                 switch type {

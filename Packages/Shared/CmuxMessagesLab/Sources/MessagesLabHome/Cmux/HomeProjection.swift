@@ -144,6 +144,7 @@ final class HomeProjection: ChatIntents {
         liveLine.dispatch = { [weak controller] text in if controller?.store != nil { controller?.dispatch(.setNotice(text)) } }
         liveLine.onTick = { [weak self] in self?.turnPopover?.refresh() }
         liveLine.onClose = { [weak self] in self?.turnPopover?.close() }
+        liveLine.useClock(controller.wake.makeDeadline(owner: "Home.liveLine.clock", exact: false))
         video.controller = controller
         // A finished picture redraws only the rows that show it (not every attachment row shown).
         media.onReady = { [weak self] hash in self?.refreshAttachments(only: hash) }
