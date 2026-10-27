@@ -65,6 +65,9 @@ public struct DaemonConnectionConfiguration: Sendable {
     /// `daemon.line` scope, never its `read(2)` wait). The App's composition root sets it to its
     /// ``HangWatch``; nil (the default) watches nothing.
     public var hangWatch: (any HangWatchScoping)?
+    /// The framed IPC upgrades the handshake asks for (``DaemonWireUpgrades``); none by default, so the
+    /// connection speaks JSON lines whatever the daemon offers.
+    public var wireUpgrades = DaemonWireUpgrades.none
 
     public init(
         clientName: String = "cmux-next",
