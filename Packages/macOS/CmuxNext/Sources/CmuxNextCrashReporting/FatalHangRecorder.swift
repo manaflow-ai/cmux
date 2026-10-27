@@ -163,11 +163,11 @@ extension CrashReporter {
                                  hangReportsOptIn: Bool, work: any MayBlockRunner, currentPID: Int32? = nil,
                                  consented: @escaping @Sendable () -> Bool, capture: @escaping ScopedCapture) {
         let reported = enabled ? run : nil
-        work.postFiles(.bestEffort, shutdown: .skipOnShutdown) { [self] in
+        work.postFiles(.bestEffort, shutdown: .skipOnShutdown) {
             guard let record = FatalHangRecorder.takePrevious(in: directory, run: reported, currentPID: currentPID),
                   consented() else { return }
             let records = record.blackBoxRecords(traceDirectory: traceDirectory)
-            Self.sendFatalHang(record, blackbox: blackboxAttachment(records, hangReportsOptIn: hangReportsOptIn), capture: capture)
+            Self.sendFatalHang(record, blackbox: Self.blackboxAttachment(records, hangReportsOptIn: hangReportsOptIn), capture: capture)
         }
     }
 }

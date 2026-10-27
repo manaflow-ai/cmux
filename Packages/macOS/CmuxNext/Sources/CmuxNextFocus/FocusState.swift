@@ -206,4 +206,15 @@ public nonisolated struct FocusState: Hashable, Sendable, Codable {
     public var settleKey: SettleKey {
         SettleKey(windowKey: windowKey, appActive: appActive, workspace: topology.workspace, target: target, resolved: resolved)
     }
+
+    /// Whether the keyboard this state places is in the content of `pane` (its page, conversation,
+    /// terminal or browser page; not its address bar, find bar or DevTools, not an overlay over the window).
+    /// A view of that pane asks it before it gives its own primary input the keyboard when nobody asked
+    /// (Home showing its default conversation): the window's first responder cannot say who has the keys,
+    /// since a Chromium page that has them leaves the cmux window itself first responder.
+    /// - Parameter pane: A pane id of this window.
+    /// - Returns: True when the focus model keeps the keyboard in that pane's content.
+    public func keepsKeyboard(inContentOf pane: String) -> Bool {
+        target == .content && overlays.isEmpty && resolved.pane == pane
+    }
 }

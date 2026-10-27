@@ -5,13 +5,20 @@ Run on the VM or a fleet mini (stdlib only, safe under `python3 -I`):
 
     python3 -I scripts/cmux-next/oracle/selftest.py [-v] [-k PATTERN]... [--seed N]
     python3 -I scripts/cmux-next/oracle/oracle.py selftest [...]
+    python3 -I scripts/cmux-next/oracle/oracle.py selftest --mutants [mutant_catch.py options]
+
+`--mutants` is the mutation smoke run instead (p15-oracle-115, mutant_catch.py): each seeded patch mutant of
+tests/oracle/mutants against its base, through the smallest selection that catches it, a corpus-gap line per
+miss, and a failure below 19/20 caught (9/10 per product). It builds and runs products (the daemon side in the
+Linux VM's queue, the app side on the fleet), so it is never part of the plain self test.
 
 Not in tests/test-execution.toml and not in CI: agents run it themselves (CLAUDE.md, 2026-10-23).
 
 Two layers:
 - Each module's own self test, run in process: normalize.py property cases, diff.py synthetic runs,
   expectations.py parser cases, baselines.py store cases, case_checks.py (when jsonschema is
-  installed) and oracle_cli_test.py (shards, retries, flaky handling, the run format).
+  installed), oracle_cli_test.py (shards, retries, flaky handling, the run format) and
+  mutant_catch_test.py (the --mutants ladder, judging and gate, with a fake runner).
 - Contracts between the modules that no single module tests: normalize's sha256 is the hash
   oracle.py writes and baselines.py stores; snapshots that differ only in raw ids compare equal
   through diff.py; the case-v1 mutation table gives its layer's result through normalize's
@@ -123,7 +130,7 @@ KNOWN_RED: Dict[str, KnownRed] = {
 }
 # The modules whose outcomes name each case. The others report counts, so a KNOWN_RED entry for them could
 # never show an unexpected pass or go stale.
-NAMED_MODULES = ("normalize", "diff", "oracle_cli_test")
+NAMED_MODULES = ("normalize", "diff", "oracle_cli_test", "mutant_catch_test")
 
 HOST = {"name": "selftest-host", "os": "Linux", "osVersion": "6.0", "arch": "x86_64"}
 
@@ -362,6 +369,16 @@ class ModuleSelftests(unittest.TestCase):
         self.assertEqual(len(set(names)), len(names), names)
         judge_cases(self, "oracle_cli_test", unittest_outcomes(result, names), output)
         self.assertEqual(result.testsRun, INNER["oracle_cli_test"].total)
+
+    def test_mutant_catch(self) -> None:
+        catch = importlib.import_module("mutant_catch_test")
+        cases = [value for value in vars(catch).values()
+                 if isinstance(value, type) and issubclass(value, unittest.TestCase) and value.__module__ == catch.__name__]
+        self.assertTrue(cases)
+        result, names, output = run_unittest_cases(cases)
+        self.assertEqual(len(set(names)), len(names), names)
+        judge_cases(self, "mutant_catch_test", unittest_outcomes(result, names), output)
+        self.assertEqual(result.testsRun, INNER["mutant_catch_test"].total)
 
     def test_case_checks_with_jsonschema(self) -> None:
         try:
@@ -884,6 +901,12 @@ def main(argv: Optional[List[str]] = None) -> int:
     parser.add_argument("-v", "--verbose", action="store_true", help="print each test")
     parser.add_argument("-k", dest="patterns", action="append", default=[], help="only tests matching this pattern")
     parser.add_argument("--seed", type=int, default=DEFAULT_SEED, help="normalize.py property-case seed")
+    parser.add_argument("--mutants", action="store_true",
+                        help="the mutation smoke run instead (mutant_catch.py; `--mutants --help` for its options)")
+    argv = list(sys.argv[1:] if argv is None else argv)
+    if "--mutants" in argv:
+        argv.remove("--mutants")
+        return importlib.import_module("mutant_catch").main(argv)
     args = parser.parse_args(argv)
     SETTINGS["seed"] = args.seed
     INNER.clear()

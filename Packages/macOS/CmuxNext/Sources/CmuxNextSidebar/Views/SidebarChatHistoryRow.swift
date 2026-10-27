@@ -88,7 +88,6 @@ final class SidebarChatHistoryRow: NSView {
     private let title = SidebarRowView.label(font: SidebarStyle.titleFont)
     private let meta = SidebarRowView.label(font: SidebarStyle.subtitleFont)
     private var quiet = false
-    private var tracking: NSTrackingArea?
     private(set) var isHovered = false { didSet { if isHovered != oldValue { tint() } } }
 
     override init(frame: NSRect) {
@@ -99,6 +98,7 @@ final class SidebarChatHistoryRow: NSView {
         [title, meta].forEach(addSubview)
         setAccessibilityElement(true)
         setAccessibilityRole(.button)
+        addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeInKeyWindow, .inVisibleRect], owner: self))
     }
 
     @available(*, unavailable)
@@ -131,14 +131,6 @@ final class SidebarChatHistoryRow: NSView {
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         tint()
-    }
-
-    override func updateTrackingAreas() {
-        super.updateTrackingAreas()
-        if let tracking { removeTrackingArea(tracking) }
-        let area = NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeInKeyWindow, .inVisibleRect], owner: self)
-        addTrackingArea(area)
-        tracking = area
     }
 
     override func mouseEntered(with event: NSEvent) { isHovered = true }

@@ -603,6 +603,9 @@ int main(int argc, char* argv[]) {
   // cmux_shim_load bound the fork's cmux_cef_set_energy_saver (p14-energy-029) when it has
   // it; without it the HELLO lists no saver and kOpEnergySaver changes nothing.
   if (cmux_shim::fork_api().set_energy_saver) host.SetEnergySaver(&cmux_shim_set_energy_saver);
+  // The fork's lock delegate (API 31, task 227): cmux locks its own cursor and keys for the page
+  // (host_locks.h, task 229); without it the HELLO lists no locks and cmux asks for none.
+  if (cmux_shim::fork_api().set_lock_handler) host.SetLockHandler(&cmux_shim_set_lock_handler);
   host.SetPageShowActivity(&page_activity);
   // After the framework load, which must run before any other thread exists:
   // NSWorkspace's notifications may start one.
@@ -661,18 +664,27 @@ int main(int argc, char* argv[]) {
     const std::string main_bundle =
         request.main_bundle_path.empty() ? Arg(args, "main-bundle") : request.main_bundle_path;
     const std::string subprocess = request.subprocess_path.empty() ? Arg(args, "subprocess") : request.subprocess_path;
+    const std::string log_file = cmux_host::HostLogFile(request.log_file, Arg(args, "log-file"));
     // The framework this host loaded at start; cmux names the same directory.
     // No schedule_fn: the shim then runs without an external pump, and
     // CefRunMessageLoop below is the loop.
     const int ok = cmux_shim_initialize(framework.c_str(), main_bundle.c_str(),
                                         subprocess.c_str(), request.root_cache_path.c_str(),
-                                        c_str(request.log_file), request.log_severity, c_str(request.locale),
+                                        log_file.empty() ? nullptr : log_file.c_str(), request.log_severity, c_str(request.locale),
                                         c_str(request.accept_languages), switches.data(), &host, nullptr,
                                         &cmux_host::HostContext::OnShimEvent, nullptr);
     if (!ok) {
       fprintf(stderr, "cmux-chromium-host: CefInitialize failed\n");
       channel->Close();
       return cmux_host::kExitInitialize;
+    }
+    // One line of the host's own after Chromium's start, so a crashed host's log tail (ChromiumHostSupervisor) says it
+    // got past CefInitialize and on which fork, even when Chromium logged nothing at cmux's severity (warnings and up).
+    if (!log_file.empty()) {
+      if (FILE* log = fopen(log_file.c_str(), "a")) {
+        fprintf(log, "cmux-chromium-host: Chromium started, pid %d, fork API %d\n", getpid(), fork_api);
+        fclose(log);
+      }
     }
     host_main.set_running();
     input_tasks.Start();

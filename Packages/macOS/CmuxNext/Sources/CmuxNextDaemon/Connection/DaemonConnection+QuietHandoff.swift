@@ -32,6 +32,7 @@ extension DaemonConnection {
         if !accepted(result) || (isReady && serial != startSerial) {
             releaseHandoffHold(hold)
         } else if handoffGate.holds(hold) {
+            // timer-class-allow: off main: the hold's limit releases it on the connection's actor; no main-thread job
             let timer = DemandTimer(owner: "DaemonConnection.handoffHold", clock: clock)
             handoffHoldTimer = timer
             timer.schedule(after: Self.handoffHoldLimit) { [weak self] in await self?.releaseHandoffHold(hold) }
