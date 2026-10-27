@@ -154,8 +154,9 @@ artifact listing per run that may hold one.
 
 Orphaned runs are a separate pass (find_orphans): a job the runner scheduler
 lost holds nothing on any pool, so that pass ignores the queue threshold,
-has its own cap, and may end main schedules, nightly and TestFlight runs,
-which the categories above never touch. It acts later than (e)
+has its own cap, and may end main schedules and TestFlight runs, which the
+categories above never touch. It never ends a nightly, DEV or promote run
+(scripts/ci/delivery_workflows.py): those are reported for more capacity. It acts later than (e)
 (CI_JANITOR_ORPHAN_MINUTES, 120 by default) and never re-runs; a run (e)
 cancels this sweep is excluded from it. An orphan at an open pull request's
 head, whatever its event, is skipped like every category's (open_pr_at_head()).
@@ -193,6 +194,7 @@ import owned_pool_rescue as rescue  # noqa: E402
 import owned_warm_state  # noqa: E402
 import ui_tests_dispatch  # noqa: E402
 import starved_labels  # noqa: E402
+from delivery_workflows import is_delivery_workflow  # noqa: E402
 
 
 API = "https://api.github.com"
@@ -2249,10 +2251,16 @@ def orphan_protected_reason(run: Mapping[str, Any]) -> str | None:
     """Why an orphaned run is reported but left for a human.
 
     Narrower than protected_reason: an orphaned job never runs, so cancelling
-    a main schedule, nightly or TestFlight upload only lets the next one
-    start (ios-appstore-upload.yml does not count a cancelled run as an
-    upload). A release that stopped halfway, or a merge-queue check, is not
-    the janitor's to end.
+    a main schedule or TestFlight upload only lets the next one start
+    (ios-appstore-upload.yml does not count a cancelled run as an upload). A
+    release that stopped halfway, or a merge-queue check, is not the
+    janitor's to end. Neither is a nightly, DEV or promote build of classic
+    or NEXT (delivery_workflows.py): "Never cancel a nightly, dev or promote
+    build or its Release compile once it has started ... unless it is stuck
+    past its timeout or certain to fail." A job waiting for a runner is
+    neither; the sweep reports it so the pool gets capacity. Run 40428578701
+    (a DEV publish whose verify job waited 126 minutes) was cancelled here
+    on 2026-10-27 while its tip job had just started.
     """
     event = run.get("event") or ""
     branch = run.get("head_branch") or ""
@@ -2265,6 +2273,8 @@ def orphan_protected_reason(run: Mapping[str, Any]) -> str | None:
     # holding CI's concurrency group (and every later main run pending).
     if ORPHAN_PROTECTED_WORKFLOW.search(str(run.get("path") or "")):
         return "release/publish workflow"
+    if is_delivery_workflow(run.get("path")):
+        return "nightly/DEV/promote delivery workflow; needs runner capacity, never a cancel"
     if event == "push" and branch in PROTECTED_PUSH_BRANCHES - {"main"}:
         # Listed since follows_another_copy(): a feat-cmux-next push gates the nightly-next build,
         # which is cancelled only when stuck past its timeout (ci.yml's main pushes are listed as before).

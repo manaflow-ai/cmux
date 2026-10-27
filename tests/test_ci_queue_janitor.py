@@ -986,11 +986,10 @@ class OrphanPlanTests(unittest.TestCase):
         decisions = orphan_plan(orphans, exclude=[orphans[0].run["id"]])
         self.assertEqual(decisions, [])
 
-    def test_main_schedule_nightly_and_testflight_orphans_are_cancelled(self):
+    def test_main_schedule_and_testflight_orphans_are_cancelled(self):
         for kwargs in (
             dict(event="schedule", branch="main", name="iOS TestFlight (cmux.app)",
                  path=".github/workflows/ios-appstore-upload.yml"),
-            dict(event="push", branch="main", name="Nightly macOS build", path=".github/workflows/nightly.yml"),
             dict(event="issue_comment", branch="main", name="Claude Code", path=".github/workflows/claude.yml"),
             # ci.yml's run-name carries routing metadata such as release=arm64.
             # Run 40039647633 held main's CI concurrency group for two days
@@ -1002,6 +1001,28 @@ class OrphanPlanTests(unittest.TestCase):
             with self.subTest(**kwargs):
                 decisions = orphan_plan(self.orphans(1, **kwargs))
                 self.assertEqual([d.action for d in decisions], ["cancel"])
+
+    def test_nightly_dev_and_promote_orphans_are_only_reported(self):
+        # Run 40428578701 (cmux NEXT DEV daily, a publish) was cancelled as an orphan on 2026-10-27:
+        # its verify job had waited 126 minutes for a runner. Waiting is not "stuck past its timeout".
+        for kwargs in (
+            dict(event="workflow_dispatch", branch="feat-cmux-next", name="cmux NEXT DEV daily · sign 1",
+                 path=".github/workflows/cmux-next-dev-daily.yml"),
+            dict(event="schedule", branch="main", name="cmux NEXT DEV daily dispatch",
+                 path=".github/workflows/cmux-next-dev-daily-dispatch.yml"),
+            dict(event="push", branch="main", name="Nightly macOS build", path=".github/workflows/nightly.yml"),
+            dict(event="push", branch="nightly-next", name="Nightly macOS build",
+                 path=".github/workflows/nightly.yml"),
+            dict(event="workflow_run", branch="main", name="Nightly sign", path=".github/workflows/nightly-sign.yml"),
+            dict(event="schedule", branch="main", name="nightly-next train",
+                 path=".github/workflows/nightly-next-train.yml"),
+            dict(event="workflow_dispatch", branch="feat-cmux-next", name="cmux-tui nightly",
+                 path=".github/workflows/cmux-tui-nightly.yml"),
+        ):
+            with self.subTest(**kwargs):
+                decisions = orphan_plan(self.orphans(1, **kwargs))
+                self.assertEqual([d.action for d in decisions], ["skip"])
+                self.assertIn("delivery workflow", decisions[0].note)
 
     def test_release_merge_queue_and_tag_orphans_are_only_reported(self):
         for kwargs in (

@@ -120,6 +120,7 @@ CI_CONTROL_PLANE_ONLY = frozenset({
     "scripts/ci/build_graph_health.py",
     "scripts/ci/cleanup-stale-runs.py",
     "scripts/ci/cmux_workload_profile.py",
+    "scripts/ci/delivery_workflows.py",
     "scripts/ci/notify-indexnow.py",
     "scripts/ci/queue_janitor.py",
     "scripts/ci/r2-canary-cloudflare.py",
