@@ -8,9 +8,12 @@ struct CloudCodexBrokerAdapterTests {
         var values: [String: [String: Data]] = [:]
         var live = true
         var removals = 0
+        var removalGate: CloudCodexBrokerTests.Gate?
+        func blockNextRemoval(_ gate: CloudCodexBrokerTests.Gate) { removalGate = gate }
         var pausedChecks = 0
         var pausedWaiter: CheckedContinuation<Void, Never>?
         func pause() { live = false }
+        func resume() { live = true }
         func waitForTwoPausedChecks() async {
             if pausedChecks >= 2 { return }
             await withCheckedContinuation { pausedWaiter = $0 }
@@ -24,7 +27,10 @@ struct CloudCodexBrokerAdapterTests {
         }
         func read(_ machine: String, _ path: String) -> Data? { values[machine]?[path] }
         func write(_ machine: String, _ path: String, _ data: Data) { values[machine, default: [:]][path] = data }
-        func remove(_ machine: String, _ path: String) { removals += 1; values[machine]?[path] = nil }
+        func remove(_ machine: String, _ path: String) async {
+            if let gate = removalGate { removalGate = nil; await gate.pause() }
+            removals += 1; values[machine]?[path] = nil
+        }
         func commit(_ machine: String, _ a: String, _ b: String, _ c: String, _ d: String) {
             values[machine, default: [:]][b] = values[machine]?[a]
             values[machine, default: [:]][d] = values[machine]?[c]
@@ -159,6 +165,55 @@ done
         #expect(await files.removals == before)
         await adapter.shutdown()
         #expect(adapter.pendingCleanup.contains("vm"))
+    }
+
+    @Test func allConcurrentTransfersWaitForPolicyTeardown() async throws {
+        let (root, launch) = try fixture()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let files = Files()
+        let scope = CloudCodexBrokerScope(userID: "user", teamID: nil)
+        let gate = CloudCodexBrokerTests.Gate()
+        let adapter = CloudCodexBrokerAdapter(root: root, registry: .init(), currentScope: { scope }, launch: { launch }, target: { _, id in files.target(id) })
+        try await adapter.run(machineID: "vm", scope: scope, confirmed: true) { _ in true }
+        await files.blockNextRemoval(gate)
+        adapter.setAvailable(false)
+        await gate.entered()
+        adapter.setAvailable(true)
+        var finished = 0
+        let first = Task { try await adapter.run(machineID: "vm", scope: scope, confirmed: true) { _ in true }; finished += 1 }
+        let second = Task { try await adapter.run(machineID: "vm", scope: scope, confirmed: true) { _ in true }; finished += 1 }
+        // Give both local holders time to answer; neither transfer may pass
+        // the old holder's deliberately blocked cleanup barrier.
+        try await Task.sleep(for: .milliseconds(250))
+        #expect(finished == 0)
+        await gate.open()
+        try await first.value
+        try await second.value
+        #expect(await files.read("vm", CloudCodexBroker.accessPath) != nil)
+        await adapter.shutdown()
+    }
+
+    @Test func failedShutdownRetainsPreviousModeUntilCleanupSucceeds() async throws {
+        let (root, launch) = try fixture()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let files = Files()
+        let scope = CloudCodexBrokerScope(userID: "user", teamID: nil)
+        let registry = CloudCodexBrokerRegistry()
+        let adapter = CloudCodexBrokerAdapter(root: root, registry: registry, currentScope: { scope }, launch: { launch }, target: { _, id in files.target(id) })
+        await files.write("vm", CloudCodexBroker.modePath, Data("team\n".utf8))
+        try await adapter.run(machineID: "vm", scope: scope, confirmed: true) { _ in true }
+        await files.pause()
+        await adapter.shutdown()
+        #expect(adapter.pendingCleanup.contains("vm"))
+        let replacement = CloudCodexBrokerAdapter(root: root, registry: registry, currentScope: { scope }, launch: { launch }, target: { _, id in files.target(id) })
+        await #expect(throws: CloudCodexBrokerError.remoteDeliveryFailed) {
+            try await replacement.run(machineID: "vm", scope: scope, confirmed: true) { _ in true }
+        }
+        await files.resume()
+        try await replacement.run(machineID: "vm", scope: scope, confirmed: true) { _ in true }
+        await replacement.shutdown()
+        #expect(await files.read("vm", CloudCodexBroker.modePath) == Data("team\n".utf8))
+        #expect(await files.read("vm", CloudCodexBroker.accessPath) == nil)
     }
 
     @Test func scopeSwitchCancelsPendingPromptWithoutDelivery() async throws {
