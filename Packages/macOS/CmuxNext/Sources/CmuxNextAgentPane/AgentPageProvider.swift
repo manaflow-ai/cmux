@@ -1,5 +1,6 @@
 public import CmuxNextPages
 public import CmuxNextSettings
+public import CmuxNextWakeups
 public import Foundation
 
 public extension PageDescriptor {
@@ -85,6 +86,11 @@ public final class AgentPageProvider: PageProvider {
     public static let hostEventsFrozenDelivery: PageFrozenDelivery = .ordered
 
     private let prepare: Prepare
+    /// The app's main-thread scheduler: a new subscriber's catch-up goes to its page as `visible` tasks
+    /// (Chrome posts every UI-thread task on a typed queue, content/browser/scheduler/browser_task_queues.h).
+    private let mainWork: MainWorkScheduler
+    /// The catch-up's owner, interned once (one post per replay batch).
+    private let replayOwner: MainTaskOwner
     /// Where each chat rested and its unsent chips (the App's, by init); ``AgentPaneChatStores/keepsNothing`` keeps neither.
     private let chatStores: AgentPaneChatStores
     private var listeners: [UInt64: @MainActor (JSONValue) -> Void] = [:]
@@ -142,9 +148,12 @@ public final class AgentPageProvider: PageProvider {
 
     /// - Parameters:
     ///   - chatStores: The App's chat stores (``AgentPaneChatStores``); the default keeps nothing (tests, the gallery).
+    ///   - mainWork: The app's main-thread scheduler (``AgentPaneMainThread/mainWork``).
     ///   - prepare: The model for a request; nil when the pane is closed.
-    public init(chatStores: AgentPaneChatStores = .keepsNothing, prepare: @escaping Prepare) {
+    public init(chatStores: AgentPaneChatStores = .keepsNothing, mainWork: MainWorkScheduler, prepare: @escaping Prepare) {
         self.chatStores = chatStores
+        self.mainWork = mainWork
+        replayOwner = mainWork.board.owner("AgentPageProvider.replay")
         self.prepare = prepare
     }
 
@@ -259,10 +268,9 @@ public final class AgentPageProvider: PageProvider {
         pendingEvents[id] = pending
         let replayEvents = self.replay?() ?? []
         pending.events.insert(contentsOf: replayEvents, at: pending.next)
-        Task { @MainActor [weak self] in
-            guard let self else { return }
-            self.flushPendingEvents(for: id)
-        }
+        // After the subscription is answered, one batch per task: what the page shows, which no input of the
+        // person's caused (a page that subscribes is loading or reconnecting).
+        mainWork.post(.visible, owner: replayOwner) { [weak self] in self?.flushPendingEvents(for: id) }
         return PageSubscription(frozenDelivery: Self.hostEventsFrozenDelivery) { [weak self] in self?.cancel(id: id) }
     }
 
@@ -292,7 +300,7 @@ public final class AgentPageProvider: PageProvider {
         }
         pending.compactDelivered()
         if pending.next < pending.events.count {
-            Task { @MainActor [weak self] in self?.flushPendingEvents(for: id) }
+            mainWork.post(.visible, owner: replayOwner) { [weak self] in self?.flushPendingEvents(for: id) }
             return
         }
         pendingEvents.removeValue(forKey: id)

@@ -12,7 +12,7 @@ import Testing
 @MainActor
 struct AgentPageHostQuickActionsTests {
     @Test func savingQuickActionsReachesTheChatThroughThePageHost() async throws {
-        let provider = AgentPageProvider { _ in nil }
+        let provider = AgentPageProvider(mainWork: AgentPaneMainThread.standalone().mainWork) { _ in nil }
         let params: JSONValue = .object(["quickActions": .array([.object(["id": .string("browser"), "mode": .string("open")])])])
         do {
             _ = try await provider.call(AgentPageOps.namespace + "pane.setQuickActions", params: params, context: PageCallContext(page: PageDescriptor.agent.id))

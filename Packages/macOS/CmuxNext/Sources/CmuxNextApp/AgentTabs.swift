@@ -34,6 +34,8 @@ final class AgentTabStore {
     let gestureRouter: AgentPaneGestureRouter
     /// The main-thread scheduler the chat headers' watches apply on (``AgentChatHeaderWatch``).
     let mainWork: MainWorkScheduler
+    /// The app's scheduling every pane posts, times and observes on (on ``mainWork``).
+    let mainThread: AgentPaneMainThread
     /// The page every agent tab loads: the bundled file (nil only when the bundled page is missing).
     private let source: AgentPaneSource?
     /// Adaptive, or in Debug builds fixed by `CMUX_NEXT_AGENT_PANE_FULL_RATE` (`1` full, `0` capped) for measuring either rate.
@@ -228,14 +230,17 @@ final class AgentTabStore {
     var gitLink: (@MainActor (String) -> AgentPaneGitLink?)?, openFiles: (@MainActor (_ chat: String, _ folder: String, _ target: String?) -> Void)?, moveToFloatingChat: (@MainActor (String) -> Bool)?, pullRequestReader: AgentChatPullRequestReader? // the App's one gh reader (`AppServices.pullRequests`); nil: no header chip
 
     /// `settings`, when given, is followed for the page settings (``AgentPanePageSettings``); else from `AppServices.settings`.
-    /// `input` is the app's input tap (`AppServices.inputTap`; a test's own); `mainWork`, the app's scheduler (`AppServices.mainWork`).
+    /// `input` is the app's input tap (`AppServices.inputTap`; a test's own); `mainWork`, the app's scheduler (`AppServices.mainWork`);
+    /// `mainThread`, the app's deadlines and notices on it (``wired(to:)``; nil: a standalone set on `mainWork`).
     /// `chatStores`, the chats' kept places and chips (``wired(to:)`` puts them beside the launch snapshot; tests keep none).
     init(build: BuildIdentity?, registry: ActionRegistry, work: any MayBlockRunner, webUI: WebUIHost, input: InputEventTap, environment: [String: String] = ProcessInfo.processInfo.environment,
          showcase: Bool = false, linkScheme: String? = nil, settings: SettingsController? = nil,
          openPanel: MadeAheadOpenPanel? = nil, warmup: AgentPageWarmup? = nil, chromiumChat: @escaping @MainActor () -> Bool = { true }, defaults: UserDefaults = .standard,
-         mainWork: MainWorkScheduler = MainWorkScheduler(budget: MainFrameBudget()), chatStores: AgentPaneChatStores = .keepsNothing, daemonFeatures: [String: String] = [:]) {
+         mainWork: MainWorkScheduler = MainWorkScheduler(budget: MainFrameBudget()), mainThread: AgentPaneMainThread? = nil,
+         chatStores: AgentPaneChatStores = .keepsNothing, daemonFeatures: [String: String] = [:]) {
         gestureRouter = AgentPaneGestureRouter(input: input)
         self.mainWork = mainWork
+        self.mainThread = mainThread ?? .standalone(on: mainWork)
         self.defaults = defaults
         if let data = defaults.data(forKey: Self.adoptionsDefaultsKey),
            let saved = try? JSONDecoder().blockingDecode([String: String].self, from: data) {
@@ -262,7 +267,7 @@ final class AgentTabStore {
         #endif
         source = resolvedSource
         customization = AgentPaneCustomizationWatcher(
-            directory: AgentPaneCustomization.directory(configFile: CmuxConfigFile.defaultURL(environment: environment))
+            directory: AgentPaneCustomization.directory(configFile: CmuxConfigFile.defaultURL(environment: environment)), mainWork: mainWork
         )
         customization.onChange = { [weak self] value in
             guard let self else { return }
@@ -284,7 +289,7 @@ final class AgentTabStore {
 
     /// Follows the page settings in cmux.json (``AgentPanePageSettings``).
     func follow(_ settings: SettingsController) {
-        pageSettings.follow(settings) { [weak self] in
+        pageSettings.follow(settings, on: mainWork) { [weak self] in
             guard let self else { return }
             for view in views.values { pageSettings.apply(to: view) }
             for view in standaloneViews.allObjects { pageSettings.apply(to: view) }
@@ -439,7 +444,7 @@ final class AgentTabStore {
             // the start, so no bind goes from here (cx-k21v). Its git reads go there (``gitLink``).
             if bindsHere(key) { sendSession(session, for: key) }
         }
-        model.onSessionHarness = { [weak self] session in self.map { $0.sendSession(session, for: $0.resolve(provisional)) } }
+        model.followSessionHarness(on: mainWork) { [weak self] session in self.map { $0.sendSession(session, for: $0.resolve(provisional)) } }
         unsentDrafts.wire(model) { [weak self] in self?.resolve(provisional) ?? provisional }
         model.onOpenTab = { [weak self] request in
             BenchSpans.mark("bridge.tab.open")
@@ -522,7 +527,7 @@ final class AgentTabStore {
         if shown { pageShown() }
         AgentPaneNewTabFrame.shared.pageMade(model)
         model.linkScheme = linkScheme
-        guard let source, let view = AgentPaneView(model: model, work: work, source: source, renderRate: renderRate, webUI: webUI, openPanel: openPanel, warmup: warmup, gestures: gestureRouter,
+        guard let source, let view = AgentPaneView(mainThread: mainThread, model: model, work: work, source: source, renderRate: renderRate, webUI: webUI, openPanel: openPanel, warmup: warmup, gestures: gestureRouter,
                                                     chatStores: chatStores, chromiumChat: chromiumChat()) else { return nil }
         DebugTimings.markLaunch("agent_pane.view_created")
         view.customization = customization.current

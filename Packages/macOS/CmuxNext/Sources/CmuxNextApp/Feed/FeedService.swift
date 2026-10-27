@@ -33,7 +33,7 @@ final class FeedService {
     /// check on the main thread).
     let acpmuxEnvironment: AcpmuxEnvironment?
     /// The reports reader; a page of a reader that a reset stopped is dropped.
-    private let reports = AcpmuxMailboxSubscription()
+    private let reports: AcpmuxMailboxSubscription
     /// Wakes the current reports reader's retry wait (one per reader, so a stopped reader's end
     /// never touches the next one's watch): its socket's changes, and app activation or wake.
     private var reportsWake: RetryWake?
@@ -68,6 +68,8 @@ final class FeedService {
          energy: EnergyPolicySource, shown: ShownWindows?, showcase: Bool = false, acpmuxEnvironment: AcpmuxEnvironment? = nil) {
         self.auth = auth
         self.deadlines = deadlines
+        // Reports are mail agents send: each page lands as an automation task, behind the person's input.
+        reports = AcpmuxMailboxSubscription(mainWork: deadlines.work, workClass: .automation, owner: "FeedService.reports")
         self.work = work
         self.showcase = showcase
         self.acpmuxEnvironment = acpmuxEnvironment

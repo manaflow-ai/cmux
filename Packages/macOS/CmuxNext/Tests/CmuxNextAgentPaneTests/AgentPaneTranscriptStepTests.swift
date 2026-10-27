@@ -43,7 +43,7 @@ struct AgentPaneTranscriptStepTests {
 
     @Test func eachStepSendsItsPageCommand() async throws {
         let file = try #require(AgentPageTestRoot.page)
-        let view = try #require(AgentPaneView(model: AgentPaneModel(host: NoHost(), sessionId: "session-a"), work: BackgroundWork(label: "test.agent-pane"), source: .bundled(file), webUI: .agentPaneTestHost(), gestures: .testing()))
+        let view = try #require(AgentPaneView(mainThread: .standalone(), model: AgentPaneModel(host: NoHost(), sessionId: "session-a"), work: BackgroundWork(label: "test.agent-pane"), source: .bundled(file), webUI: .agentPaneTestHost(), gestures: .testing()))
         let provider = try #require(view.pageEvents, "the shared page host has no event stream")
         let received = Received()
         let subscription = try await provider.subscribe(
@@ -63,7 +63,7 @@ struct AgentPaneTranscriptStepTests {
 
     @Test func stopTurnSendsTheComposerStopCommand() async throws {
         let file = try #require(AgentPageTestRoot.page)
-        let view = try #require(AgentPaneView(model: AgentPaneModel(host: NoHost(), sessionId: "session-a"), work: BackgroundWork(label: "test.agent-pane"), source: .bundled(file), webUI: .agentPaneTestHost(), gestures: .testing()))
+        let view = try #require(AgentPaneView(mainThread: .standalone(), model: AgentPaneModel(host: NoHost(), sessionId: "session-a"), work: BackgroundWork(label: "test.agent-pane"), source: .bundled(file), webUI: .agentPaneTestHost(), gestures: .testing()))
         let provider = try #require(view.pageEvents, "the shared page host has no event stream")
         let received = Received()
         let subscription = try await provider.subscribe(

@@ -9,7 +9,7 @@ import CmuxNextWakeups
     func deactivate()
 }
 
-/// The one-shot fallback deadline of ``AgentPaneFramePacer`` (a ``DemandTimer``; a fake in tests).
+/// The one-shot fallback deadline of ``AgentPaneFramePacer`` (a ``MainDeadline``; a fake in tests).
 @MainActor public protocol AgentPaneFallbackDeadline: AnyObject {
     func schedule(after delay: Duration, _ action: @escaping @MainActor @Sendable () -> Void)
     func cancel()
@@ -35,6 +35,10 @@ import CmuxNextWakeups
 ///   the page waits on go at most every ``hiddenInterval``, on the fallback deadline. Twenty mostly
 ///   hidden chats each streaming a call per frame interval kept the main thread busy until the app
 ///   beachballed (2026-10-20).
+///
+/// Who can see the pane is its tab's ``VisibilityNode`` once the pane follows one (``follow(_:)``): one read, and a
+/// flip delivers what it held, as Chromium's `WebContents` visibility drives its renderer
+/// (content/public/browser/visibility.h). Its next-turn calls are `visible` tasks on the app's scheduler.
 @MainActor public final class AgentPaneFramePacer: AgentPaneTransportPacer {
     /// One display frame at the slowest rate the pacer assumes.
     public static let frameInterval: TimeInterval = 1.0 / 120
@@ -48,6 +52,9 @@ import CmuxNextWakeups
     private let now: @MainActor () -> TimeInterval
     private let nextTurn: @MainActor (@escaping @MainActor @Sendable () -> Void) -> Void
     private let isHidden: @MainActor () -> Bool
+    /// The chat's tab node (``follow(_:)``), which says who can see the pane in place of ``isHidden``.
+    private var node: VisibilityNode?
+    private var nodeWatch: VisibilitySubscription?
     private var flush: (@MainActor @Sendable () -> AgentPaneFlush)?
     /// Frames arrived, or a capped flush left some, since the last call began.
     private var pending = false
@@ -72,12 +79,11 @@ import CmuxNextWakeups
     /// Calls made (tests).
     private(set) var calls = 0
 
+    /// - Parameters:
+    ///   - nextTurn: Runs a delivery on a later turn (the pane's: a `visible` task on the app's scheduler).
     public init(frames: any AgentPaneFrameTicks, fallback: any AgentPaneFallbackDeadline,
                 now: @escaping @MainActor () -> TimeInterval = { ProcessInfo.processInfo.systemUptime },
-                nextTurn: @escaping @MainActor (@escaping @MainActor @Sendable () -> Void) -> Void = { work in
-                    // task-owner: one next-turn delivery; the pacer runs it once, on the main actor
-                    Task { @MainActor in work() }
-                },
+                nextTurn: @escaping @MainActor (@escaping @MainActor @Sendable () -> Void) -> Void,
                 isHidden: @escaping @MainActor () -> Bool = { false }) {
         self.frames = frames
         self.fallback = fallback
@@ -87,9 +93,12 @@ import CmuxNextWakeups
         frames.onTick = { [weak self] in self?.ticked() }
     }
 
-    /// The pacer of a pane: its window's display frames, a ``DemandTimer`` fallback.
-    public convenience init(view: NSView) {
-        self.init(frames: AgentPaneWindowFrames(view: view), fallback: AgentPaneDemandDeadline(),
+    /// The pacer of a pane: its window's display frames, a ``MainDeadline`` fallback, and next-turn deliveries as
+    /// `visible` tasks, all on the app's scheduling (``AgentPaneMainThread``).
+    public convenience init(view: NSView, mainThread: AgentPaneMainThread) {
+        let mainWork = mainThread.mainWork, owner = mainWork.board.owner("agent-pane.transport.next-turn")
+        self.init(frames: AgentPaneWindowFrames(view: view), fallback: AgentPaneMainDeadline(deadlines: mainThread.deadlines),
+                  nextTurn: { work in mainWork.post(.visible, owner: owner, work) },
                   isHidden: { [weak view] in view.map(Self.nobodySees) ?? true })
         let probe = AgentPaneVisibilityProbe(frame: .zero)
         probe.onChange = { [weak self] in self?.visibilityChanged() }
@@ -97,10 +106,28 @@ import CmuxNextWakeups
         self.probe = probe
     }
 
-    /// Whether nobody can see `view`: out of a window, hidden, or its window covered or minimized.
+    /// Whether nobody can see `view`: out of a window, hidden, or its window covered or minimized. Only for a pane
+    /// that follows no tab node (``follow(_:)``).
     static func nobodySees(_ view: NSView) -> Bool {
         guard let window = view.window else { return true }
+        // visibility-walk-allow: a pane no tab node holds (a standalone chat, a spare not adopted yet) has only
+        // AppKit's view state; one walk per delivery, and none once the pane follows its tab's node
         return view.isHiddenOrHasHiddenAncestor || !window.occlusionState.contains(.visible)
+    }
+
+    /// Follows `node`, the chat's tab in the visibility tree: it says who can see the pane from now on, and a flip to
+    /// visible delivers the frames held meanwhile. Nil goes back to the view's own state.
+    public func follow(_ node: VisibilityNode?) {
+        guard node !== self.node else { return }
+        self.node = node
+        nodeWatch = node?.subscribe(owner: "AgentPaneFramePacer") { [weak self] _ in self?.visibilityChanged() }
+        visibilityChanged()
+    }
+
+    /// Nobody can see the pane: its tab node says so, or without one the injected test.
+    private var nobodyCanSee: Bool {
+        if let node { return !node.isVisible }
+        return isHidden()
     }
 
     public func schedule(_ flush: @escaping @MainActor @Sendable () -> AgentPaneFlush) {
@@ -171,7 +198,7 @@ import CmuxNextWakeups
 
     /// The pane may have come into sight: frames held while it was hidden go now.
     func visibilityChanged() {
-        guard held || waitingWhileHidden, !isHidden() else { return }
+        guard held || waitingWhileHidden, !nobodyCanSee else { return }
         held = false
         if waitingWhileHidden {
             waitingWhileHidden = false
@@ -183,7 +210,7 @@ import CmuxNextWakeups
     private func call() {
         guard let flush, pending else { return }
         // Every path here has the deadline free: none of the waits that use it is on.
-        if isHidden() {
+        if nobodyCanSee {
             guard urgent else {
                 held = true
                 return

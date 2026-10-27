@@ -250,7 +250,7 @@ final class AppServices {
     /// The closed-tab signal and the undo toasts of user closes; set when the tab handlers bind. The daemon owns the closed history (`DaemonClosedHistory`).
     var closedTabs: ClosedTabsFeed?
     lazy var findWorkGitHub: any GitHubFeedAPI = GitHubCLIClient(executable: AgentChatPullRequestReader.findGitHubCLI() ?? "/usr/bin/env")  // Find Work's `gh` reads; tests replace it
-    private(set) lazy var pullRequests = AgentPullRequestReads()  // every pull request read with the user's `gh`: two at once, app-wide (cx-mb1e0)
+    private(set) lazy var pullRequests = AgentPullRequestReads(mainWork: mainWork)  // every pull request read with the user's `gh`: two at once, app-wide (cx-mb1e0)
     /// The app-wide "where was I" trail (plans/cmux-next/history.md 4.2).
     private(set) lazy var locationTrail = LocationTrailService(services: self)
     /// The terminals and agent chats focused last: what new ones copy (``WorkContextTrail``).

@@ -22,7 +22,7 @@ struct AgentPaneEngineNeutralTests {
 
     private func chat(_ hosting: FakeChromiumHosting?) throws -> AgentPaneView {
         let file = try #require(AgentPageTestRoot.page)
-        let view = try #require(AgentPaneView(model: AgentPaneModel(host: NoHost()), work: BackgroundWork(label: "test.agent-pane"), source: .bundled(file),
+        let view = try #require(AgentPaneView(mainThread: .standalone(), model: AgentPaneModel(host: NoHost()), work: BackgroundWork(label: "test.agent-pane"), source: .bundled(file),
                                               webUI: .agentPaneTestHost(chromium: hosting), gestures: .testing()))
         view.frame = NSRect(x: 0, y: 0, width: 800, height: 600)
         return view

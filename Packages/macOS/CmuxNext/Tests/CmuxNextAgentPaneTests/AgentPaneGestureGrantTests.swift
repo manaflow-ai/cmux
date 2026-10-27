@@ -247,7 +247,7 @@ struct AgentPaneGestureGrantTests {
             window.close()
         }
         for _ in 0..<2 {
-            let view = try #require(AgentPaneView(model: AgentPaneModel(host: NoHost()), work: BackgroundWork(label: "test.agent-pane"), source: .bundled(file),
+            let view = try #require(AgentPaneView(mainThread: .standalone(), model: AgentPaneModel(host: NoHost()), work: BackgroundWork(label: "test.agent-pane"), source: .bundled(file),
                                                   webUI: .agentPaneTestHost(chromium: FakeChromiumHosting()), gestures: .testing()))
             view.frame = root.bounds
             root.addSubview(view)
@@ -282,7 +282,7 @@ struct AgentPaneGestureGrantTests {
         let file = try #require(AgentPageTestRoot.page)
         let tap = InputEventTap()
         let router = AgentPaneGestureRouter(input: tap)
-        let view = try #require(AgentPaneView(model: AgentPaneModel(host: NoHost()), work: BackgroundWork(label: "test.agent-pane"), source: .bundled(file), webUI: .agentPaneTestHost(),
+        let view = try #require(AgentPaneView(mainThread: .standalone(), model: AgentPaneModel(host: NoHost()), work: BackgroundWork(label: "test.agent-pane"), source: .bundled(file), webUI: .agentPaneTestHost(),
                                               gestures: router))
         #expect(tap.subscriberCount(.button, stage: .intercept) == 0, "a pane in no window costs the tap nothing")
 

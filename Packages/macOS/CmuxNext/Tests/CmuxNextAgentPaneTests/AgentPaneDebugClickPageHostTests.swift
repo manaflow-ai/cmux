@@ -21,7 +21,7 @@ struct AgentPaneDebugClickPageHostTests {
 
     @Test func clickFindsAnElementOfThePageTheChatShows() async throws {
         let file = try #require(AgentPageTestRoot.page)
-        let view = try #require(AgentPaneView(model: AgentPaneModel(host: NoHost()), work: BackgroundWork(label: "test.agent-pane"), source: .bundled(file),
+        let view = try #require(AgentPaneView(mainThread: .standalone(), model: AgentPaneModel(host: NoHost()), work: BackgroundWork(label: "test.agent-pane"), source: .bundled(file),
                                               webUI: .agentPaneTestHost(), gestures: .testing()))
         view.frame = NSRect(x: 0, y: 0, width: 800, height: 600)
         // The page loads in the page host.
@@ -57,7 +57,7 @@ struct AgentPaneDebugClickPageHostTests {
                 return #"{"result":{"type":"string","value":"{\"x\":308,\"y\":18,\"tag\":\"button\"}"}}"#
             }
         }
-        let view = try #require(AgentPaneView(model: AgentPaneModel(host: NoHost()), work: BackgroundWork(label: "test.agent-pane"), source: .bundled(file),
+        let view = try #require(AgentPaneView(mainThread: .standalone(), model: AgentPaneModel(host: NoHost()), work: BackgroundWork(label: "test.agent-pane"), source: .bundled(file),
                                               webUI: .agentPaneTestHost(chromium: hosting), gestures: .testing()))
         view.frame = NSRect(x: 0, y: 0, width: 800, height: 600)
         let deadline = Date().addingTimeInterval(5)

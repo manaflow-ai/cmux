@@ -127,6 +127,8 @@ public nonisolated struct AgentPaneProcessExit: Sendable {
         let done = Mutex(false)
         /// The wait's bounded deadline (rare: one per handoff); cancelled at the exit event.
         let deadline: DemandTimer
+        // timer-class-allow: off main: the deadline only resumes the exit wait's continuation (its action is not
+        // main-actor) and posts no main-thread job; DemandTimer is the off-main deadline (p06 section E)
         init(clock: any Clock<Duration>) { deadline = DemandTimer(owner: "agent-pane.process-exit", clock: clock) }
         func first() -> Bool {
             done.withLock { flag in

@@ -21,7 +21,7 @@ extension AgentPaneView {
         }
         installReplyLinks()
         // The host owns the acpmux socket; its frames reach the page in display-frame batches.
-        let pacer = AgentPaneFramePacer(view: self)
+        let pacer = AgentPaneFramePacer(view: self, mainThread: mainThread)
         transportPacer = pacer
         model.transport.pacer = pacer
         model.transport.onOtherInstall = { [weak self] other in self?.showOtherInstallNotice(other) }

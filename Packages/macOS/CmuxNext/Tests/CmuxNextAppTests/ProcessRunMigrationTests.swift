@@ -178,7 +178,7 @@ import Testing
         #expect(await running.most <= 2)
         #expect(await running.started == 6)
         // The App's reads default to that bound.
-        #expect(AgentPullRequestReads().reader.processes is BoundedProcessRunner)
+        #expect(AgentPullRequestReads(mainWork: MainWorkScheduler(budget: MainFrameBudget())).reader.processes is BoundedProcessRunner)
     }
 
     /// A real child through ``AsyncProcess``, from the main actor: the spawn and the wait make no blocking call on

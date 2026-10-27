@@ -60,9 +60,10 @@ public nonisolated struct AcpmuxMailboxReader: Sendable {
 
     /// Reads pages from the start of the alias until the task is cancelled.
     ///
-    /// - Parameter deliver: Gets each page on the main actor.
+    /// - Parameter deliver: Gets each page, in order, on the reader's task (off the main actor): the owner
+    ///   posts it to the main actor in a class (``AcpmuxMailboxSubscription``).
     @concurrent
-    public func run(deliver: @MainActor @Sendable (AcpmuxMailboxPage) -> Void) async {
+    public func run(deliver: @Sendable (AcpmuxMailboxPage) -> Void) async {
         defer { wake.unwatch() }
         var pacer = RetryPacer(policy)
         var cursor: UInt64 = 0
@@ -75,7 +76,7 @@ public nonisolated struct AcpmuxMailboxReader: Sendable {
                 wake.unwatch()
                 cursor = Self.cursor(after: page, from: cursor)
                 guard !Task.isCancelled else { return }
-                await deliver(page)
+                deliver(page)
             } catch is CancellationError {
                 return
             } catch {
