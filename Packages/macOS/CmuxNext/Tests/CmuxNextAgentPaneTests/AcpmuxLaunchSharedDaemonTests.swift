@@ -40,7 +40,7 @@ struct AcpmuxLaunchSharedDaemonTests {
             #expect(after.pid == before.pid)
             let listing = try await AcpmuxStatusClient.sessions(socketPath: socket, deadline: .seconds(5)).value
             let rows = try #require(listing["sessions"] as? [[String: Any]])
-            #expect(rows.first { $0["sessionId"] as? String == mineID }?["status"] as? String == "closed")
+            #expect(rows.first { $0["sessionId"] as? String == mineID }?["status"] as? String == "idle")
             #expect(rows.first { $0["sessionId"] as? String == otherID }?["status"] as? String == "ready")
         } catch {
             _ = await AcpmuxQuit.endAgents(owner, keep: .nothing)
