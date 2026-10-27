@@ -6,7 +6,7 @@
 /// It carries no path: a blocking site is its crate, a 16-hex-digit hash of its file and its line. Decoding
 /// refuses a value outside those shapes (a label of other characters, a hash that is not 16 hex digits), so
 /// nothing a report or a crash report copies from it can hold a path, a name or user text.
-public struct DaemonDiagnosticSite: Sendable, Hashable, Decodable {
+public struct DaemonDiagnosticSite: Sendable, Hashable, Decodable, Identifiable {
     /// The event's wire name.
     public static let eventName = "server-diagnostic-site"
     /// The longest label (`kind`, `crate`, `method`) the app keeps.
@@ -24,7 +24,8 @@ public struct DaemonDiagnosticSite: Sendable, Hashable, Decodable {
 
     /// What the site is.
     public var family: Family
-    /// The daemon's kind name (`fs`, `recv`, `priority-inversion`, ...), or `request` for a hang.
+    /// The daemon's kind name (`fs`, `recv`, `priority-inversion`, ...), or for a hang its scope (`request`,
+    /// `holder-link`, `journal-writer`).
     public var kind: String
     /// Blocking and inversion: the call site's crate (`cmux-tui-core`, `tokio`, `other`).
     public var crateName: String?
@@ -34,7 +35,8 @@ public struct DaemonDiagnosticSite: Sendable, Hashable, Decodable {
     public var line: UInt32?
     /// Blocking: a work item's wait for other work.
     public var laneSync: Bool
-    /// Hang: the request's command or operation name (`list-workspaces`, `frame.apps`).
+    /// Hang: what ran, a request's command or operation name (`list-workspaces`, `frame.apps`), a holder-link
+    /// frame (`data`) or a journal commit (`commit-batch`).
     public var method: String?
 
     private enum CodingKeys: String, CodingKey {
@@ -98,11 +100,44 @@ public struct DaemonDiagnosticSite: Sendable, Hashable, Decodable {
     }
 
     /// The site's identity across daemon lives and launches: a blocking or inversion site by crate, file and
-    /// line (whatever kind the daemon saw first), a hang by its method.
+    /// line (whatever kind the daemon saw first), a request hang by its method, any other hang by its scope
+    /// and what ran.
     public var key: String {
         switch family {
         case .blocking, .inversion: "daemon-\(crateName ?? "")-\(fileHash ?? "")-\(line.map(String.init) ?? "")"
-        case .hang: "daemon-hang-\(method ?? "")"
+        case .hang where kind == Self.requestScope: "daemon-hang-\(method ?? "")"
+        case .hang: "daemon-hang-\(kind)-\(method ?? "")"
+        }
+    }
+
+    /// ``key``: what a relay keeps once.
+    public var id: String { key }
+
+    /// The `kind` of a slow request's hang.
+    public static let requestScope = "request"
+
+    /// One site as one daemon life sent it: the daemon replays its sites to every connection of that life
+    /// (each app launch's too), and a new life sends them again. The app reports each pair once
+    /// (`DaemonSiteLedger`), so a relaunch against the same daemon reports nothing again.
+    public struct Sighting: Sendable, Hashable, Identifiable {
+        /// The site.
+        public var site: DaemonDiagnosticSite
+        /// The daemon life (``life(pid:generation:)``).
+        public var daemonLife: String
+
+        /// Makes the value from its parts.
+        public init(site: DaemonDiagnosticSite, daemonLife: String) {
+            self.site = site
+            self.daemonLife = daemonLife
+        }
+
+        /// The life and the site's ``DaemonDiagnosticSite/key``.
+        public var id: String { "\(daemonLife) \(site.key)" }
+
+        /// A daemon life's name from its `identify`: the process id and the boot's `generation` (a new UUID
+        /// at each daemon start), so neither a restart nor a reused pid is the same life.
+        public static func life(pid: Int32, generation: String) -> String {
+            "\(pid)-\(generation)"
         }
     }
 

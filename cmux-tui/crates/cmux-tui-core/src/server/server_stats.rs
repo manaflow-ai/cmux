@@ -354,7 +354,7 @@ pub(crate) fn forward_diagnostic_sites(mux: &Arc<Mux>) {
     let mux = Arc::downgrade(mux);
     let started =
         cmux_threads::spawn(DIAGNOSTIC_SITES_THREAD, cmux_threads::ThreadQos::Utility, move || {
-            forward_first_sites(&feed, &mux)
+            forward_first_sites(&feed, &mux);
         });
     if let Err(error) = started {
         eprintln!("cmux-tui: cannot start {DIAGNOSTIC_SITES_THREAD}: {error}");

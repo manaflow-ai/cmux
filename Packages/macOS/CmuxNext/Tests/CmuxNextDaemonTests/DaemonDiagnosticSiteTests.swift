@@ -23,6 +23,11 @@ struct DaemonDiagnosticSiteTests {
         #expect(site.key == "daemon-cmux-tui-core-9f2c4e1a7b3d5c60-412")
         let hang = try Self.decode(#"{"event":"server-diagnostic-site","family":"hang","kind":"request","method":"frame.apps"}"#)
         #expect(hang.key == "daemon-hang-frame.apps")
+        // A holder-link frame and a journal commit past their hang tiers: their scope is part of the site.
+        let holder = try Self.decode(#"{"event":"server-diagnostic-site","family":"hang","kind":"holder-link","method":"data"}"#)
+        #expect(holder.key == "daemon-hang-holder-link-data")
+        let journal = try Self.decode(#"{"family":"hang","kind":"journal-writer","method":"commit-batch"}"#)
+        #expect(journal.key == "daemon-hang-journal-writer-commit-batch")
     }
 
     @Test func aLineThatCouldCarryAPathOrTextIsRefused() {
@@ -41,7 +46,7 @@ struct DaemonDiagnosticSiteTests {
     }
 
     @Test func theRelayHoldsSitesUntilItsSinkThenHandsEachSiteOnce() throws {
-        let relay = DaemonDiagnosticSiteRelay()
+        let relay = DaemonDiagnosticSiteRelay<DaemonDiagnosticSite>()
         let first = try Self.decode(Self.fsLine)
         let hang = try DaemonDiagnosticSite(family: .hang, kind: "request", method: "list-workspaces")
         relay.deliver(first)

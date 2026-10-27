@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 195da6a914876ccf3bf483ea3f363412fe5db254bad31f7a559d0799b04d7ad1.
+// cmux-tui mux protocol 12, IR 4d89facbcb55f4f8647e8f7a45f3fd5cb785a93ea85e05d0d1eac7dc1173fc7f.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -872,12 +872,12 @@ pub struct ServerDiagnosticSiteEvent {
     /// Blocking and inversion: the crate of the call site without its version, or other. Never a path.
     #[serde(rename = "crate", default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub crate_: Option<String>,
-    /// blocking: a blocking call where blocking is disallowed (or a work item's wait for other work); inversion: a wait on work of lower QoS; hang: a request method that ran past the 250 ms watchdog threshold.
+    /// blocking: a blocking call where blocking is disallowed (or a work item's wait for other work); inversion: a wait on work of lower QoS; hang: a request method that ran past the 250 ms watchdog threshold, or a holder-link frame or a journal commit past its hang tier.
     pub family: ServerDiagnosticSiteEventFamily,
     /// Blocking and inversion: 16 hex digits, FNV-1a of the file's path from the crate folder on. Never a path.
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub file_hash: Option<String>,
-    /// The blocking kind (cmux_threads BlockingKind names: fs, sleep, recv, priority-inversion, ...), or request for a hang.
+    /// The blocking kind (cmux_threads BlockingKind names: fs, sleep, recv, priority-inversion, ...), or for a hang its scope: request, holder-link or journal-writer.
     pub kind: String,
     /// Blocking: a work item's wait for other work.
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
@@ -885,7 +885,7 @@ pub struct ServerDiagnosticSiteEvent {
     /// Blocking and inversion: the call site's line.
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub line: Option<u32>,
-    /// Hang: the request's command or v2 operation name, a colon written as a dot.
+    /// Hang: what ran: the request's command or v2 operation name (a colon written as a dot), the holder frame kind (data, exit, ...) or commit-batch.
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub method: Option<String>,
 }

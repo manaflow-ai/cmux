@@ -1,6 +1,7 @@
 //! The daemon's diagnostic sites (p02-threads-233): each call site that
-//! blocked where blocking is disallowed, each priority inversion and each
-//! request method that ran past the watchdog threshold, kept once per daemon
+//! blocked where blocking is disallowed, each priority inversion, each
+//! request method that ran past the watchdog threshold and each holder-link
+//! frame or journal commit that ran past its hang tier, kept once per daemon
 //! life and pushed to the app's hang reports as one `server-diagnostic-site`
 //! event (spec/events.md; the subscribe stream adds its `event` name).
 //!
@@ -41,16 +42,18 @@ pub enum DiagnosticSite {
         /// A work item's wait for other work.
         lane_sync: bool,
     },
-    /// A request method that ran past the watchdog threshold.
-    Hang { method: &'static str },
+    /// A watched run past its tier: a request method past the watchdog
+    /// threshold (`scope` `request`), or a holder-link frame or a journal
+    /// commit past its hang tier (`holder-link`, `journal-writer`).
+    Hang { scope: &'static str, method: &'static str },
 }
 
 /// What a site is the same as: a blocking site by its crate, file and line
-/// (whatever kind was seen first), a hang by its method.
+/// (whatever kind was seen first), a hang by its scope and method.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 enum SiteKey {
     Blocking { crate_name: &'static str, file_hash: u64, line: u32 },
-    Hang { method: &'static str },
+    Hang { scope: &'static str, method: &'static str },
 }
 
 impl DiagnosticSite {
@@ -61,7 +64,7 @@ impl DiagnosticSite {
                 let (crate_name, file_hash) = crate_and_hash(file);
                 Self::Blocking { kind, crate_name, file_hash, line, lane_sync }
             }
-            FirstSite::Hang { name } => Self::Hang { method: name },
+            FirstSite::Hang { scope, name } => Self::Hang { scope, method: name },
         }
     }
 
@@ -70,7 +73,7 @@ impl DiagnosticSite {
             Self::Blocking { crate_name, file_hash, line, .. } => {
                 SiteKey::Blocking { crate_name, file_hash, line }
             }
-            Self::Hang { method } => SiteKey::Hang { method },
+            Self::Hang { scope, method } => SiteKey::Hang { scope, method },
         }
     }
 
@@ -86,9 +89,9 @@ impl DiagnosticSite {
                 "line": line,
                 "lane_sync": lane_sync,
             }),
-            Self::Hang { method } => json!({
+            Self::Hang { scope, method } => json!({
                 "family": "hang",
-                "kind": "request",
+                "kind": scope,
                 // `frame:apps` -> `frame.apps`: report text holds no colon.
                 "method": method.replace(':', "."),
             }),
@@ -245,10 +248,16 @@ mod tests {
             blocking("crates/cmux-threads/src/sync.rs", 3, BlockingKind::PriorityInversion);
         assert_eq!(inversion.fields()["family"], "inversion");
         assert_eq!(inversion.fields()["kind"], "priority-inversion");
-        let hang = DiagnosticSite::of(FirstSite::Hang { name: "frame:agent-session" });
+        let hang =
+            DiagnosticSite::of(FirstSite::Hang { scope: "request", name: "frame:agent-session" });
         assert_eq!(
             hang.fields(),
             json!({"family": "hang", "kind": "request", "method": "frame.agent-session"})
+        );
+        let holder = DiagnosticSite::of(FirstSite::Hang { scope: "holder-link", name: "data" });
+        assert_eq!(
+            holder.fields(),
+            json!({"family": "hang", "kind": "holder-link", "method": "data"})
         );
     }
 
@@ -259,14 +268,16 @@ mod tests {
         assert!(kept(blocking("crates/a/src/x.rs", 1, BlockingKind::Fs)));
         assert!(!kept(blocking("crates/a/src/x.rs", 1, BlockingKind::Sleep)), "same site");
         assert!(kept(blocking("crates/a/src/x.rs", 2, BlockingKind::Fs)), "another line");
-        let hang = DiagnosticSite::Hang { method: "list-workspaces" };
+        let hang = DiagnosticSite::Hang { scope: "request", method: "list-workspaces" };
         assert!(kept(hang.clone()));
         assert!(!kept(hang));
-        assert_eq!(sites.snapshot().len(), 3);
+        // The same name in another scope is another site.
+        assert!(kept(DiagnosticSite::Hang { scope: "journal-writer", method: "list-workspaces" }));
+        assert_eq!(sites.snapshot().len(), 4);
         for line in 0..u32::try_from(MAX_DIAGNOSTIC_SITES).unwrap() {
             kept(blocking("crates/b/src/y.rs", line, BlockingKind::Fs));
         }
         assert_eq!(sites.snapshot().len(), MAX_DIAGNOSTIC_SITES);
-        assert_eq!(sites.overflow(), 3);
+        assert_eq!(sites.overflow(), 4);
     }
 }

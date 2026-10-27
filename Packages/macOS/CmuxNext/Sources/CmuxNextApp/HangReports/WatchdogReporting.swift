@@ -40,8 +40,8 @@ enum WatchdogReporting {
         // Replays the sites the detector recorded before this point (BlockingDetector.install).
         services.blocking.install(sink: blockingSink)
         // Replays the daemon sites read before this point; each goes off the reader thread (the sink may save).
-        services.daemon.diagnosticSites.install { [work = services.work] site in
-            work.post(.bestEffort, mayBlock: .files) { blockingSink.record(daemonSite: site) }
+        services.daemon.diagnosticSites.install { [work = services.work] sighting in
+            work.post(.bestEffort, mayBlock: .files) { blockingSink.record(daemonSite: sighting) }
         }
         watchdog.onHang = { hang in
             reporter.reportHang(duration: hang.duration, addresses: hang.addresses, otherThreads: hang.otherThreads.map { ($0.name, $0.addresses) },

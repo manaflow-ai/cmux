@@ -212,12 +212,14 @@ describe("POST /api/hang-reports schema 3", () => {
     });
     report.hangs.push(site("fs", "daemon-cmux-tui-core-9f2c4e1a7b3d5c60-412"));
     report.hangs.push({ ...site("request", "daemon-hang-frame.apps"), daemon: { family: "hang", kind: "request", site: "daemon-hang-frame.apps" } });
+    report.hangs.push({ ...site("holder-link", "daemon-hang-holder-link-data"), daemon: { family: "hang", kind: "holder-link", site: "daemon-hang-holder-link-data" } });
     report.hangs.push(site("gpu-wait", "daemon-cmux-tui-core-9f2c4e1a7b3d5c60-413"));
     const payload = await expectStored(report);
     const daemon = (payload.hangs as Hang[]).filter((hang) => hang.source === "daemon");
     expect(daemon.map((hang) => hang.daemon)).toEqual([
       { family: "blocking", kind: "fs", site: "daemon-cmux-tui-core-9f2c4e1a7b3d5c60-412" },
       { family: "hang", kind: "request", site: "daemon-hang-frame.apps" },
+      { family: "hang", kind: "holder-link", site: "daemon-hang-holder-link-data" },
     ]);
     expect(payload.dropped).toMatchObject({ labels: 1 });
   });

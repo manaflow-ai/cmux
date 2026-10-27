@@ -23,9 +23,10 @@ pub enum FirstSite {
     /// other work (`lane_sync`), or a priority inversion
     /// ([`BlockingKind::PriorityInversion`]).
     Blocking { file: &'static str, line: u32, column: u32, kind: BlockingKind, lane_sync: bool },
-    /// A watched run past its deadline, named by what it ran (a daemon
-    /// request's method). The consumer keeps the first of each name.
-    Hang { name: &'static str },
+    /// A watched run past its deadline, named by its scope (`request`,
+    /// `holder-link`, `journal-writer`) and what it ran (a request's method,
+    /// a holder frame). The consumer keeps the first of each pair.
+    Hang { scope: &'static str, name: &'static str },
 }
 
 static FEED: OnceLock<Sender<FirstSite>> = OnceLock::new();
@@ -58,11 +59,11 @@ pub(super) fn send(site: FirstSite) {
     }
 }
 
-/// A watched run named `name` ran past its deadline. Every call sends one
-/// [`FirstSite::Hang`] (the consumer keeps the first per name), so call it
-/// where the watcher records, never per scope.
-pub fn note_hang_site(name: &'static str) {
-    send(FirstSite::Hang { name });
+/// A watched run of `scope` named `name` ran past its deadline. Every call
+/// sends one [`FirstSite::Hang`] (the consumer keeps the first per pair), so
+/// call it where the watcher records, never per scope.
+pub fn note_hang_site(scope: &'static str, name: &'static str) {
+    send(FirstSite::Hang { scope, name });
 }
 
 #[cfg(test)]
@@ -101,13 +102,13 @@ mod tests {
             }
             line
         });
-        note_hang_site("feed-test-hang");
-        note_hang_site("feed-test-hang");
+        note_hang_site("request", "feed-test-hang");
+        note_hang_site("request", "feed-test-hang");
         let ours: Vec<FirstSite> = feed
             .try_iter()
             .filter(|site| match site {
                 FirstSite::Blocking { file, .. } => *file == file!(),
-                FirstSite::Hang { name } => *name == "feed-test-hang",
+                FirstSite::Hang { name, .. } => *name == "feed-test-hang",
             })
             .map(|site| match site {
                 // Columns follow formatting; the line names the site.
@@ -129,8 +130,8 @@ mod tests {
             vec![
                 blocking(early, BlockingKind::Sleep),
                 blocking(late, BlockingKind::Fs),
-                FirstSite::Hang { name: "feed-test-hang" },
-                FirstSite::Hang { name: "feed-test-hang" },
+                FirstSite::Hang { scope: "request", name: "feed-test-hang" },
+                FirstSite::Hang { scope: "request", name: "feed-test-hang" },
             ]
         );
     }

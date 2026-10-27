@@ -239,10 +239,13 @@ export const BLOCKING_KINDS: ReadonlySet<string> = new Set([
 ]);
 /** `BlockingContext` raw values (CmuxNextCompat/Threading/BlockingContext.swift). */
 export const BLOCKING_CONTEXTS: ReadonlySet<string> = new Set(["main", "pool", "lane", "dedicated", "cpu-lane", "lane-sync"]);
-/** cmux-tui `cmux_threads::BlockingKind` names, and `request` for a slow daemon request. */
+/**
+ * cmux-tui `cmux_threads::BlockingKind` names, and a hang's scope: `request` for a slow daemon request,
+ * `holder-link` and `journal-writer` for a holder frame or a journal commit past its hang tier.
+ */
 export const DAEMON_KINDS: ReadonlySet<string> = new Set([
   "fs", "process-spawn", "process-wait", "recv", "join", "condvar-wait", "sleep", "sqlite", "block-on", "ipc-reply",
-  "fd-read", "fd-write", "lock-wait", "priority-inversion", "request",
+  "fd-read", "fd-write", "lock-wait", "priority-inversion", "request", "holder-link", "journal-writer",
 ]);
 /** `MainWorkClass` descriptions and `HangSample.MainTask.unattributed`. */
 export const TASK_CLASSES: ReadonlySet<string> = new Set([

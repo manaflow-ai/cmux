@@ -12,10 +12,12 @@ public import Foundation
 /// violation's ``BlockingContext`` (the main thread, a shared pool thread or a `.cpu` lane item) and
 /// image UUID + offset frames only.
 ///
-/// ``record(daemonSite:)`` takes the daemon's sites (``DaemonDiagnosticSite``, the `server-diagnostic-site`
-/// events of the local daemon, p02-threads-233) the same way, with the daemon as their source: one
-/// ``HangSample/Source/daemon`` sample each and the same Sentry budget. The app calls it on a background lane,
-/// never on the connection's reader thread.
+/// ``record(daemonSite:)`` takes the daemon's sites (``DaemonDiagnosticSite/Sighting``, the
+/// `server-diagnostic-site` events of the local daemon, p02-threads-233) the same way, with the daemon as their
+/// source: each pair of daemon life and site once across launches (``DaemonSiteLedger``), as one
+/// ``HangSample/Source/daemon`` sample (in slots of their own, ``StallAggregate/maxDaemonSamples``) and a
+/// non-fatal event within a budget of its own, so a daemon's replay never takes the app's own sites' room.
+/// The app calls it on a background lane, never on the connection's reader thread.
 ///
 /// ```swift
 /// services.blocking.install(sink: BlockingReportSink(collector: collector, nonFatal: .init(
@@ -25,6 +27,8 @@ public import Foundation
 public final class BlockingReportSink: BlockingViolationSink {
     /// When each site was last sent to Sentry (``BlockingReportBudget/lastSent``), in the app's defaults.
     public static let lastSentKey = "cmux.next.blockingReports.lastSent"
+    /// The same for the daemon's sites, whose budget is their own.
+    public static let daemonLastSentKey = "cmux.next.blockingReports.daemonLastSent"
 
     /// One non-fatal crash-report event: one issue per site.
     public struct NonFatalEvent: Sendable, Equatable {
@@ -106,60 +110,98 @@ public final class BlockingReportSink: BlockingViolationSink {
         }
 
         /// The times under ``BlockingReportSink/lastSentKey`` in the standard defaults (thread-safe).
-        public static let standardDefaults = LastSentStore(
-            load: { UserDefaults.standard.dictionary(forKey: BlockingReportSink.lastSentKey)?.compactMapValues { $0 as? Date } ?? [:] },
-            save: { UserDefaults.standard.set($0, forKey: BlockingReportSink.lastSentKey) })
+        public static let standardDefaults = defaults(key: BlockingReportSink.lastSentKey)
+        /// The daemon sites' times under ``BlockingReportSink/daemonLastSentKey``.
+        public static let daemonDefaults = defaults(key: BlockingReportSink.daemonLastSentKey)
+
+        private static func defaults(key: String) -> LastSentStore {
+            LastSentStore(load: { UserDefaults.standard.dictionary(forKey: key)?.compactMapValues { $0 as? Date } ?? [:] },
+                          save: { UserDefaults.standard.set($0, forKey: key) })
+        }
+    }
+
+    /// One Sentry budget and where its times persist.
+    private final class Budget: Sendable {
+        let store: LastSentStore
+        // Lock carve-out: each admit and its save run under it so two admits never save out of order (a
+        // UserDefaults set, no wait); taken once per new site, never on the thread that blocked.
+        // Nil until the first consented site loads the saved times.
+        let state = Mutex<BlockingReportBudget?>(nil)
+
+        init(store: LastSentStore) {
+            self.store = store
+        }
+
+        /// Whether `site` may be sent at `now`; when it may, the new times are saved before the lock is let go.
+        func admit(site: String, now: Date) -> Bool {
+            let store = store
+            return state.withLock { budget in
+                var current = budget ?? BlockingReportBudget(lastSent: store.load())
+                let admits = current.admit(site: site, now: now)
+                budget = current
+                if admits { store.save(current.lastSent) }
+                return admits
+            }
+        }
     }
 
     private let collector: HangReportCollector?
     private let nonFatal: NonFatal
-    private let store: LastSentStore
     private let now: @Sendable () -> Date
-    // Lock carve-out: the detector's serial drain queue calls record, and one background lane item per new
-    // daemon site (a few per daemon life) calls record(daemonSite:); neither waits on anything under it.
-    // Nil until the first consented site loads the saved times.
-    private let budget = Mutex<BlockingReportBudget?>(nil)
+    /// The app's own sites (the detector's serial drain queue).
+    private let budget: Budget
+    /// The daemon's sites (one background lane item per new site, a few per daemon life).
+    private let daemonBudget: Budget
+    private let daemonSiteStore: DaemonSiteLedger.Store
+    // Lock carve-out: each daemon site's admit and its save run under it so two lane items never save out of
+    // order (a UserDefaults set, no wait). Nil until the first daemon site loads the saved ledger.
+    private let daemonSites = Mutex<DaemonSiteLedger?>(nil)
 
     /// Makes the value from its parts.
     ///
     /// - Parameters:
     ///   - collector: This launch's hang report collector; nil where hang reports never send.
     ///   - nonFatal: The crash-report side.
-    ///   - store: Where the last-sent times persist.
+    ///   - store: Where the app sites' last-sent times persist.
+    ///   - daemonStore: Where the daemon sites' last-sent times persist.
+    ///   - daemonSites: Where the daemon sites reported per daemon life persist.
     ///   - now: The clock of the 24 h rule.
     public init(collector: HangReportCollector?, nonFatal: NonFatal, store: LastSentStore = .standardDefaults,
+                daemonStore: LastSentStore = .daemonDefaults, daemonSites: DaemonSiteLedger.Store = .standardDefaults,
                 now: @escaping @Sendable () -> Date = { Date() }) {
         self.collector = collector
         self.nonFatal = nonFatal
-        self.store = store
+        self.budget = Budget(store: store)
+        self.daemonBudget = Budget(store: daemonStore)
+        self.daemonSiteStore = daemonSites
         self.now = now
     }
 
     /// Takes one new site (the detector's drain queue).
     public func record(_ violation: BlockingViolation) {
         collector?.noteBlocking(violation)
-        send(site: BlockingReportBudget.site(of: violation)) { NonFatalEvent(violation: violation, site: $0) }
+        send(site: BlockingReportBudget.site(of: violation), within: budget) { NonFatalEvent(violation: violation, site: $0) }
     }
 
-    /// Takes one daemon site (a background lane): its sample, and its non-fatal event within the same budget.
-    public func record(daemonSite: DaemonDiagnosticSite) {
-        collector?.noteDaemonSite(daemonSite)
-        send(site: daemonSite.key) { _ in NonFatalEvent(daemonSite: daemonSite) }
-    }
-
-    /// Sends the event of `site` when crash reporting runs and the budget admits it.
-    private func send(site: String, event: (String) -> NonFatalEvent) {
-        guard nonFatal.consented() else { return }
-        let store = store
-        let at = now()
-        let admitted: [String: Date]? = budget.withLock { budget in
-            var current = budget ?? BlockingReportBudget(lastSent: store.load())
-            let admits = current.admit(site: site, now: at)
-            budget = current
-            return admits ? current.lastSent : nil
+    /// Takes one daemon site (a background lane): nothing when this install already reported it for that
+    /// daemon life, else its sample and its non-fatal event within the daemon sites' budget.
+    public func record(daemonSite sighting: DaemonDiagnosticSite.Sighting) {
+        let store = daemonSiteStore
+        let isNew = daemonSites.withLock { ledger in
+            var current = ledger ?? store.load()
+            let admits = current.admit(sighting)
+            ledger = current
+            if admits { store.save(current) }
+            return admits
         }
-        guard let admitted else { return }
-        store.save(admitted)
+        guard isNew else { return }
+        collector?.noteDaemonSite(sighting.site)
+        send(site: sighting.site.key, within: daemonBudget) { _ in NonFatalEvent(daemonSite: sighting.site) }
+    }
+
+    /// Sends the event of `site` when crash reporting runs and `budget` admits it.
+    private func send(site: String, within budget: Budget, event: (String) -> NonFatalEvent) {
+        guard nonFatal.consented(), budget.admit(site: site, now: now()) else { return }
         nonFatal.send(event(site))
     }
 }

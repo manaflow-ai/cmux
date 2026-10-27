@@ -16,17 +16,17 @@ public final class ServerDiagnosticSiteEvent implements WireValue, DeltaStreamEv
     private final Field<EventCause> cause;
     /** Blocking and inversion: the crate of the call site without its version, or other. Never a path. */
     private final Field<String> crate;
-    /** blocking: a blocking call where blocking is disallowed (or a work item's wait for other work); inversion: a wait on work of lower QoS; hang: a request method that ran past the 250 ms watchdog threshold. */
+    /** blocking: a blocking call where blocking is disallowed (or a work item's wait for other work); inversion: a wait on work of lower QoS; hang: a request method that ran past the 250 ms watchdog threshold, or a holder-link frame or a journal commit past its hang tier. */
     private final ServerDiagnosticSiteEventFamily family;
     /** Blocking and inversion: 16 hex digits, FNV-1a of the file's path from the crate folder on. Never a path. */
     private final Field<String> fileHash;
-    /** The blocking kind (cmux_threads BlockingKind names: fs, sleep, recv, priority-inversion, ...), or request for a hang. */
+    /** The blocking kind (cmux_threads BlockingKind names: fs, sleep, recv, priority-inversion, ...), or for a hang its scope: request, holder-link or journal-writer. */
     private final String kind;
     /** Blocking: a work item's wait for other work. */
     private final Field<Boolean> laneSync;
     /** Blocking and inversion: the call site's line. */
     private final Field<Long> line;
-    /** Hang: the request's command or v2 operation name, a colon written as a dot. */
+    /** Hang: what ran: the request's command or v2 operation name (a colon written as a dot), the holder frame kind (data, exit, ...) or commit-batch. */
     private final Field<String> method;
 
     private ServerDiagnosticSiteEvent(Builder builder) {

@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "195da6a914876ccf3bf483ea3f363412fe5db254bad31f7a559d0799b04d7ad1";
+pub const ir_sha256 = "4d89facbcb55f4f8647e8f7a45f3fd5cb785a93ea85e05d0d1eac7dc1173fc7f";
 
 pub const AccessRequestKind = enum {
     file,
@@ -13851,17 +13851,17 @@ pub const ServerDiagnosticSiteEvent = struct {
     /// Blocking and inversion: the crate of the call site without its version, or other. Never a path.
     crate: ?[]const u8 = null,
     event: []const u8,
-    /// blocking: a blocking call where blocking is disallowed (or a work item's wait for other work); inversion: a wait on work of lower QoS; hang: a request method that ran past the 250 ms watchdog threshold.
+    /// blocking: a blocking call where blocking is disallowed (or a work item's wait for other work); inversion: a wait on work of lower QoS; hang: a request method that ran past the 250 ms watchdog threshold, or a holder-link frame or a journal commit past its hang tier.
     family: ServerDiagnosticSiteEventFamily,
     /// Blocking and inversion: 16 hex digits, FNV-1a of the file's path from the crate folder on. Never a path.
     file_hash: ?[]const u8 = null,
-    /// The blocking kind (cmux_threads BlockingKind names: fs, sleep, recv, priority-inversion, ...), or request for a hang.
+    /// The blocking kind (cmux_threads BlockingKind names: fs, sleep, recv, priority-inversion, ...), or for a hang its scope: request, holder-link or journal-writer.
     kind: []const u8,
     /// Blocking: a work item's wait for other work.
     lane_sync: ?bool = null,
     /// Blocking and inversion: the call site's line.
     line: ?u32 = null,
-    /// Hang: the request's command or v2 operation name, a colon written as a dot.
+    /// Hang: what ran: the request's command or v2 operation name (a colon written as a dot), the holder frame kind (data, exit, ...) or commit-batch.
     method: ?[]const u8 = null,
 
     pub const cmux_wire_optional_nonnull_fields = [_][]const u8{

@@ -10,8 +10,11 @@ public nonisolated struct StallAggregate: Codable, Sendable, Equatable {
     public static let sampledStallMs = 250
     /// The hang length (the watchdog's `hangThreshold`).
     public static let hangMs = 2_000
-    /// The most stall stacks and hang stacks kept per report.
+    /// The most stall stacks and hang stacks kept per report, and the most blocking detector sites.
     public static let maxSamples = 8
+    /// The most daemon sites kept per report, in slots of their own: a daemon's replay at each launch never
+    /// takes the room of the app's own sites.
+    public static let maxDaemonSamples = 4
 
     /// One count per bucket of ``bucketEdgesMs``.
     public private(set) var counts: [Int] = Array(repeating: 0, count: StallAggregate.bucketEdgesMs.count)
@@ -21,7 +24,8 @@ public nonisolated struct StallAggregate: Codable, Sendable, Equatable {
     public private(set) var hangs: [HangSample] = []
     /// The launches that reached `startup_complete`.
     public private(set) var launches = LaunchAggregate()
-    /// The blocking detector's call sites, first seen first, each once (at most ``maxSamples``).
+    /// The blocking detector's call sites (at most ``maxSamples``) and the daemon's (at most
+    /// ``maxDaemonSamples``), first seen first, each once.
     public private(set) var blocking: [HangSample] = []
 
     private enum CodingKeys: String, CodingKey {
@@ -94,13 +98,32 @@ public nonisolated struct StallAggregate: Codable, Sendable, Equatable {
         other.blocking.forEach { keepBlocking($0) }
     }
 
-    /// Whether a blocking sample of this site would be kept (it is new and there is room). A daemon sample's
-    /// site is its ``HangSample/Daemon/site``, whatever kind it names.
+    /// Whether a blocking sample of this site would be kept (it is new and its source has room). A daemon
+    /// sample's site is its ``HangSample/Daemon/site``, whatever kind it names.
     public func wantsBlockingSample(_ sample: HangSample) -> Bool {
         let site = sample.daemon?.site
-        return blocking.count < Self.maxSamples && !blocking.contains { kept in
+        let sameSource = blocking.lazy.filter { ($0.source == .daemon) == (sample.source == .daemon) }.count
+        return sameSource < Self.blockingLimit(of: sample) && !blocking.contains { kept in
             site.map { kept.daemon?.site == $0 } ?? (kept == sample)
         }
+    }
+
+    /// The blocking samples a report carries: the first ``maxSamples`` detector sites and the first
+    /// ``maxDaemonSamples`` daemon sites, in order (a saved file is untrusted, so the cut is made again here).
+    public var reportedBlocking: [HangSample] {
+        var counts: (detector: Int, daemon: Int) = (0, 0)
+        return blocking.filter { sample in
+            if sample.source == .daemon {
+                counts.daemon += 1
+                return counts.daemon <= Self.maxDaemonSamples
+            }
+            counts.detector += 1
+            return counts.detector <= Self.maxSamples
+        }
+    }
+
+    private static func blockingLimit(of sample: HangSample) -> Int {
+        sample.source == .daemon ? maxDaemonSamples : maxSamples
     }
 
     /// Forgets the blocking samples (a saved aggregate a build without them reads).

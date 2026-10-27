@@ -2967,7 +2967,7 @@
     },
     {
       "path": "Protocol.java",
-      "sha256": "bee5dc0e91ce8660c000b8394001b44b8874dd17f6a84c0087ceef420846b548",
+      "sha256": "7c1cd790e50ebf31b54d0b62acef71765cfc18b97fd7abb4466d711571d68a64",
       "size": 7929
     },
     {
@@ -3392,8 +3392,8 @@
     },
     {
       "path": "ServerDiagnosticSiteEvent.java",
-      "sha256": "2150f59fb3a1c618a9ca0b2e6ba6215cb29b526a1e4c3ac915ecf7016a395374",
-      "size": 7762
+      "sha256": "3b8a91f141fb4589106672ba9f114c7c3bcb2c5e78d5bad70b6686027d577d91",
+      "size": 7935
     },
     {
       "path": "ServerDiagnosticSiteEventFamily.java",
@@ -4442,7 +4442,7 @@
     }
   ],
   "format": 1,
-  "ir_sha256": "195da6a914876ccf3bf483ea3f363412fe5db254bad31f7a559d0799b04d7ad1",
+  "ir_sha256": "4d89facbcb55f4f8647e8f7a45f3fd5cb785a93ea85e05d0d1eac7dc1173fc7f",
   "language": "java",
   "mux_protocol": 12,
   "schema_version": 2

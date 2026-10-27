@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 195da6a914876ccf3bf483ea3f363412fe5db254bad31f7a559d0799b04d7ad1. */
+/* cmux-tui mux protocol 12, IR 4d89facbcb55f4f8647e8f7a45f3fd5cb785a93ea85e05d0d1eac7dc1173fc7f. */
 
 
 import type * as T from "./types.js";
@@ -620,17 +620,17 @@ export type ServerDiagnosticSiteEvent = { event: "server-diagnostic-site" } & {
   "cause"?: T.EventCause;
   /** Blocking and inversion: the crate of the call site without its version, or other. Never a path. */
   "crate"?: string;
-  /** blocking: a blocking call where blocking is disallowed (or a work item's wait for other work); inversion: a wait on work of lower QoS; hang: a request method that ran past the 250 ms watchdog threshold. */
+  /** blocking: a blocking call where blocking is disallowed (or a work item's wait for other work); inversion: a wait on work of lower QoS; hang: a request method that ran past the 250 ms watchdog threshold, or a holder-link frame or a journal commit past its hang tier. */
   "family": "blocking" | "inversion" | "hang";
   /** Blocking and inversion: 16 hex digits, FNV-1a of the file's path from the crate folder on. Never a path. */
   "file_hash"?: string;
-  /** The blocking kind (cmux_threads BlockingKind names: fs, sleep, recv, priority-inversion, ...), or request for a hang. */
+  /** The blocking kind (cmux_threads BlockingKind names: fs, sleep, recv, priority-inversion, ...), or for a hang its scope: request, holder-link or journal-writer. */
   "kind": string;
   /** Blocking: a work item's wait for other work. */
   "lane_sync"?: boolean;
   /** Blocking and inversion: the call site's line. */
   "line"?: number;
-  /** Hang: the request's command or v2 operation name, a colon written as a dot. */
+  /** Hang: what ran: the request's command or v2 operation name (a colon written as a dot), the holder frame kind (data, exit, ...) or commit-batch. */
   "method"?: string;
 };
 

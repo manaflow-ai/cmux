@@ -39462,7 +39462,7 @@
       },
       "presence": "required",
       "nullable": false,
-      "description": "blocking: a blocking call where blocking is disallowed (or a work item's wait for other work); inversion: a wait on work of lower QoS; hang: a request method that ran past the 250 ms watchdog threshold."
+      "description": "blocking: a blocking call where blocking is disallowed (or a work item's wait for other work); inversion: a wait on work of lower QoS; hang: a request method that ran past the 250 ms watchdog threshold, or a holder-link frame or a journal commit past its hang tier."
      },
      "kind": {
       "type": {
@@ -39471,7 +39471,7 @@
       },
       "presence": "required",
       "nullable": false,
-      "description": "The blocking kind (cmux_threads BlockingKind names: fs, sleep, recv, priority-inversion, ...), or request for a hang."
+      "description": "The blocking kind (cmux_threads BlockingKind names: fs, sleep, recv, priority-inversion, ...), or for a hang its scope: request, holder-link or journal-writer."
      },
      "crate": {
       "type": {
@@ -39516,7 +39516,7 @@
       },
       "presence": "optional",
       "nullable": false,
-      "description": "Hang: the request's command or v2 operation name, a colon written as a dot."
+      "description": "Hang: what ran: the request's command or v2 operation name (a colon written as a dot), the holder frame kind (data, exit, ...) or commit-batch."
      },
      "cause": {
       "type": {
