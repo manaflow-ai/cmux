@@ -38,20 +38,24 @@
       "args": {
         "method": "workspace_group.move",
         "params": {
-          "workspace_group": "",
+          "workspace_group": "oracle-missing-group",
           "index": 0
         },
         "idempotencyKey": "workspace-group-move-error.call"
       },
       "expect": {
         "outcome": "error",
-        "error": "validation.invalid"
+        "error": "resource.not_found",
+        "errorDetails": {
+          "scope": "workspace_group",
+          "id": "oracle-missing-group"
+        }
       },
       "checkpoint": [
         "before",
         "settled"
       ],
-      "note": "workspace_group breaks its catalog type (value has too few UTF-8 bytes); the daemon's catalog check refuses it"
+      "note": "a group id that names no workspace group (state/personal.rs GroupMove, typed unknown personal group)"
     }
   ],
   "invariants": [

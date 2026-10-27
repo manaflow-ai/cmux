@@ -3,15 +3,15 @@
 //! I/O, no threads, panics caught, a panic poisons only that handle, and
 //! pointers handed out stay valid until the next call on the same session.
 
-use std::panic::{AssertUnwindSafe, catch_unwind};
-
+use cmux_ffi_guard::ffi_boundary;
 use cmux_rd_core::reassembly::CompleteFrame;
 
 use crate::receiver::{Carrier, Message};
 use crate::session::{MAX_STREAMS, Session, SessionError};
 use crate::{
     CMUX_RD_CARRIER_DATAGRAM, CMUX_RD_CARRIER_STREAM, CMUX_RD_ERR_NULL, CMUX_RD_ERR_PANIC,
-    CMUX_RD_OK, CmuxRdFrame, CmuxRdMessage, CmuxRdStats, bytes_in, copy_out, error_code,
+    CMUX_RD_OK, CmuxRdFrame, CmuxRdMessage, CmuxRdStats, Poison, bytes_in, copy_out, error_code,
+    with_handle,
 };
 
 /// The stream is not open, or opening it would pass the stream limit.
@@ -36,23 +36,16 @@ fn session_code(error: &SessionError) -> i32 {
     }
 }
 
+impl Poison for CmuxRdSession {
+    fn poisoned(&mut self) -> &mut bool {
+        &mut self.poisoned
+    }
+}
+
 fn with_session(ptr: *mut CmuxRdSession, f: impl FnOnce(&mut CmuxRdSession) -> i32) -> i32 {
     // SAFETY: the caller passes NULL or a live pointer from cmux_rd_session_new
-    // and does not call into the same session concurrently.
-    let Some(handle) = (unsafe { ptr.as_mut() }) else { return CMUX_RD_ERR_NULL };
-    if handle.poisoned {
-        return CMUX_RD_ERR_PANIC;
-    }
-    match catch_unwind(AssertUnwindSafe(|| f(handle))) {
-        Ok(code) => code,
-        Err(_) => {
-            // SAFETY: as above; the closure's borrow ended when it unwound.
-            if let Some(handle) = unsafe { ptr.as_mut() } {
-                handle.poisoned = true;
-            }
-            CMUX_RD_ERR_PANIC
-        }
-    }
+    // and does not call into the same handle concurrently.
+    unsafe { with_handle(ptr, f) }
 }
 
 fn ready(h: &CmuxRdSession) -> i32 {
@@ -73,12 +66,12 @@ pub extern "C" fn cmux_rd_session_new(
     deadline_us: u64,
     nack_after_us: u64,
 ) -> *mut CmuxRdSession {
-    let carrier = match carrier {
-        CMUX_RD_CARRIER_DATAGRAM => Carrier::Datagram,
-        CMUX_RD_CARRIER_STREAM => Carrier::Stream,
-        _ => return std::ptr::null_mut(),
-    };
-    catch_unwind(|| {
+    ffi_boundary("cmux_rd_session_new", std::ptr::null_mut(), || {
+        let carrier = match carrier {
+            CMUX_RD_CARRIER_DATAGRAM => Carrier::Datagram,
+            CMUX_RD_CARRIER_STREAM => Carrier::Stream,
+            _ => return std::ptr::null_mut(),
+        };
         Box::into_raw(Box::new(CmuxRdSession {
             inner: Session::new(carrier, deadline_us, nack_after_us),
             current_frame: None,
@@ -87,7 +80,6 @@ pub extern "C" fn cmux_rd_session_new(
             poisoned: false,
         }))
     })
-    .unwrap_or(std::ptr::null_mut())
 }
 
 /// Frees a session; NULL is ignored.
@@ -96,12 +88,13 @@ pub extern "C" fn cmux_rd_session_new(
 /// `session` is NULL or came from [`cmux_rd_session_new`] and is not used again.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn cmux_rd_session_free(session: *mut CmuxRdSession) {
-    if session.is_null() {
-        return;
-    }
-    // SAFETY: guaranteed by the caller; the box is dropped exactly once.
-    let owned = unsafe { Box::from_raw(session) };
-    let _ = catch_unwind(AssertUnwindSafe(move || drop(owned)));
+    ffi_boundary("cmux_rd_session_free", (), || {
+        if session.is_null() {
+            return;
+        }
+        // SAFETY: guaranteed by the caller; the box is dropped exactly once.
+        drop(unsafe { Box::from_raw(session) });
+    });
 }
 
 /// Accepts datagrams of `stream` from now on (idempotent);
@@ -114,7 +107,9 @@ pub unsafe extern "C" fn cmux_rd_session_open_stream(
     session: *mut CmuxRdSession,
     stream: u16,
 ) -> i32 {
-    with_session(session, |h| unit(h.inner.open_stream(stream)))
+    ffi_boundary("cmux_rd_session_open_stream", CMUX_RD_ERR_PANIC, || {
+        with_session(session, |h| unit(h.inner.open_stream(stream)))
+    })
 }
 
 /// Drops `stream` and its frames; `CMUX_RD_ERR_STREAM` when it is not open.
@@ -126,9 +121,11 @@ pub unsafe extern "C" fn cmux_rd_session_close_stream(
     session: *mut CmuxRdSession,
     stream: u16,
 ) -> i32 {
-    with_session(session, |h| {
-        h.current_frame = None;
-        unit(h.inner.close_stream(stream))
+    ffi_boundary("cmux_rd_session_close_stream", CMUX_RD_ERR_PANIC, || {
+        with_session(session, |h| {
+            h.current_frame = None;
+            unit(h.inner.close_stream(stream))
+        })
     })
 }
 
@@ -144,11 +141,13 @@ pub unsafe extern "C" fn cmux_rd_session_push_datagram(
     len: usize,
     now_us: u64,
 ) -> i32 {
-    // SAFETY: guaranteed by the caller.
-    let Some(bytes) = (unsafe { bytes_in(bytes, len) }) else { return CMUX_RD_ERR_NULL };
-    with_session(session, |h| match h.inner.push_datagram(bytes, now_us) {
-        Ok(()) => ready(h),
-        Err(e) => session_code(&e),
+    ffi_boundary("cmux_rd_session_push_datagram", CMUX_RD_ERR_PANIC, || {
+        // SAFETY: guaranteed by the caller.
+        let Some(bytes) = (unsafe { bytes_in(bytes, len) }) else { return CMUX_RD_ERR_NULL };
+        with_session(session, |h| match h.inner.push_datagram(bytes, now_us) {
+            Ok(()) => ready(h),
+            Err(e) => session_code(&e),
+        })
     })
 }
 
@@ -163,11 +162,13 @@ pub unsafe extern "C" fn cmux_rd_session_push_stream(
     len: usize,
     now_us: u64,
 ) -> i32 {
-    // SAFETY: guaranteed by the caller.
-    let Some(bytes) = (unsafe { bytes_in(bytes, len) }) else { return CMUX_RD_ERR_NULL };
-    with_session(session, |h| match h.inner.push_stream(bytes, now_us) {
-        Ok(()) => ready(h),
-        Err(e) => session_code(&e),
+    ffi_boundary("cmux_rd_session_push_stream", CMUX_RD_ERR_PANIC, || {
+        // SAFETY: guaranteed by the caller.
+        let Some(bytes) = (unsafe { bytes_in(bytes, len) }) else { return CMUX_RD_ERR_NULL };
+        with_session(session, |h| match h.inner.push_stream(bytes, now_us) {
+            Ok(()) => ready(h),
+            Err(e) => session_code(&e),
+        })
     })
 }
 
@@ -177,9 +178,11 @@ pub unsafe extern "C" fn cmux_rd_session_push_stream(
 /// `session` is valid.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn cmux_rd_session_tick(session: *mut CmuxRdSession, now_us: u64) -> i32 {
-    with_session(session, |h| {
-        h.inner.tick(now_us);
-        ready(h)
+    ffi_boundary("cmux_rd_session_tick", CMUX_RD_ERR_PANIC, || {
+        with_session(session, |h| {
+            h.inner.tick(now_us);
+            ready(h)
+        })
     })
 }
 
@@ -195,29 +198,31 @@ pub unsafe extern "C" fn cmux_rd_session_pop_frame(
     out: *mut CmuxRdFrame,
     out_stream: *mut u16,
 ) -> i32 {
-    if out.is_null() || out_stream.is_null() {
-        return CMUX_RD_ERR_NULL;
-    }
-    with_session(session, |h| {
-        let Some((stream, frame)) = h.inner.pop_frame() else {
-            h.current_frame = None;
-            return 0;
-        };
-        let frame = h.current_frame.insert(frame);
-        let value = CmuxRdFrame {
-            t_capture_us: frame.body.t_capture_us,
-            data: frame.body.access_unit.as_ptr(),
-            len: frame.body.access_unit.len(),
-            frame: frame.frame,
-            ref_frame: frame.body.ref_frame,
-            flags: frame.flags,
-        };
-        // SAFETY: checked non-NULL; writable by contract.
-        unsafe {
-            out.write(value);
-            out_stream.write(stream);
+    ffi_boundary("cmux_rd_session_pop_frame", CMUX_RD_ERR_PANIC, || {
+        if out.is_null() || out_stream.is_null() {
+            return CMUX_RD_ERR_NULL;
         }
-        1
+        with_session(session, |h| {
+            let Some((stream, frame)) = h.inner.pop_frame() else {
+                h.current_frame = None;
+                return 0;
+            };
+            let frame = h.current_frame.insert(frame);
+            let value = CmuxRdFrame {
+                t_capture_us: frame.body.t_capture_us,
+                data: frame.body.access_unit.as_ptr(),
+                len: frame.body.access_unit.len(),
+                frame: frame.frame,
+                ref_frame: frame.body.ref_frame,
+                flags: frame.flags,
+            };
+            // SAFETY: checked non-NULL; writable by contract.
+            unsafe {
+                out.write(value);
+                out_stream.write(stream);
+            }
+            1
+        })
     })
 }
 
@@ -231,20 +236,22 @@ pub unsafe extern "C" fn cmux_rd_session_pop_message(
     session: *mut CmuxRdSession,
     out: *mut CmuxRdMessage,
 ) -> i32 {
-    if out.is_null() {
-        return CMUX_RD_ERR_NULL;
-    }
-    with_session(session, |h| {
-        h.current_message = h.inner.pop_message();
-        let Some(message) = h.current_message.as_ref() else { return 0 };
-        let value = CmuxRdMessage {
-            data: message.bytes.as_ptr(),
-            len: message.bytes.len(),
-            kind: message.kind,
-        };
-        // SAFETY: checked non-NULL; writable by contract.
-        unsafe { out.write(value) };
-        1
+    ffi_boundary("cmux_rd_session_pop_message", CMUX_RD_ERR_PANIC, || {
+        if out.is_null() {
+            return CMUX_RD_ERR_NULL;
+        }
+        with_session(session, |h| {
+            h.current_message = h.inner.pop_message();
+            let Some(message) = h.current_message.as_ref() else { return 0 };
+            let value = CmuxRdMessage {
+                data: message.bytes.as_ptr(),
+                len: message.bytes.len(),
+                kind: message.kind,
+            };
+            // SAFETY: checked non-NULL; writable by contract.
+            unsafe { out.write(value) };
+            1
+        })
     })
 }
 
@@ -258,7 +265,9 @@ pub unsafe extern "C" fn cmux_rd_session_note_decode(
     stream: u16,
     decode_us: u32,
 ) -> i32 {
-    with_session(session, |h| unit(h.inner.note_decode(stream, decode_us)))
+    ffi_boundary("cmux_rd_session_note_decode", CMUX_RD_ERR_PANIC, || {
+        with_session(session, |h| unit(h.inner.note_decode(stream, decode_us)))
+    })
 }
 
 /// Asks the host for a keyframe on `stream` until one is released there.
@@ -270,7 +279,9 @@ pub unsafe extern "C" fn cmux_rd_session_request_keyframe(
     session: *mut CmuxRdSession,
     stream: u16,
 ) -> i32 {
-    with_session(session, |h| unit(h.inner.request_keyframe(stream)))
+    ffi_boundary("cmux_rd_session_request_keyframe", CMUX_RD_ERR_PANIC, || {
+        with_session(session, |h| unit(h.inner.request_keyframe(stream)))
+    })
 }
 
 /// Writes the next due feedback datagram of any stream: 1 when written, 0
@@ -288,23 +299,26 @@ pub unsafe extern "C" fn cmux_rd_session_feedback(
     cap: usize,
     out_len: *mut usize,
 ) -> i32 {
-    if out_len.is_null() {
-        return CMUX_RD_ERR_NULL;
-    }
-    // SAFETY: checked non-NULL; writable by contract.
-    unsafe { *out_len = 0 };
-    with_session(session, |h| {
-        let Some(datagram) = h.stashed_feedback.take().or_else(|| h.inner.feedback(now_us)) else {
-            return 0;
-        };
-        // SAFETY: guaranteed by the caller.
-        match unsafe { copy_out(&datagram, out, cap, out_len) } {
-            CMUX_RD_OK => 1,
-            code => {
-                h.stashed_feedback = Some(datagram);
-                code
-            }
+    ffi_boundary("cmux_rd_session_feedback", CMUX_RD_ERR_PANIC, || {
+        if out_len.is_null() {
+            return CMUX_RD_ERR_NULL;
         }
+        // SAFETY: checked non-NULL; writable by contract.
+        unsafe { *out_len = 0 };
+        with_session(session, |h| {
+            let Some(datagram) = h.stashed_feedback.take().or_else(|| h.inner.feedback(now_us))
+            else {
+                return 0;
+            };
+            // SAFETY: guaranteed by the caller.
+            match unsafe { copy_out(&datagram, out, cap, out_len) } {
+                CMUX_RD_OK => 1,
+                code => {
+                    h.stashed_feedback = Some(datagram);
+                    code
+                }
+            }
+        })
     })
 }
 
@@ -315,15 +329,17 @@ pub unsafe extern "C" fn cmux_rd_session_feedback(
 /// `session` is NULL or valid.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn cmux_rd_session_next_deadline_us(session: *const CmuxRdSession) -> u64 {
-    // SAFETY: guaranteed by the caller.
-    let Some(handle) = (unsafe { session.as_ref() }) else { return u64::MAX };
-    if handle.poisoned {
-        return u64::MAX;
-    }
-    if handle.stashed_feedback.is_some() {
-        return 0;
-    }
-    catch_unwind(AssertUnwindSafe(|| handle.inner.next_deadline_us())).unwrap_or(u64::MAX)
+    ffi_boundary("cmux_rd_session_next_deadline_us", u64::MAX, || {
+        // SAFETY: guaranteed by the caller.
+        let Some(handle) = (unsafe { session.as_ref() }) else { return u64::MAX };
+        if handle.poisoned {
+            return u64::MAX;
+        }
+        if handle.stashed_feedback.is_some() {
+            return 0;
+        }
+        handle.inner.next_deadline_us()
+    })
 }
 
 /// Fills the counters of `stream`.
@@ -336,22 +352,24 @@ pub unsafe extern "C" fn cmux_rd_session_stats(
     stream: u16,
     out: *mut CmuxRdStats,
 ) -> i32 {
-    if out.is_null() {
-        return CMUX_RD_ERR_NULL;
-    }
-    with_session(session.cast_mut(), |h| match h.inner.stats(stream) {
-        Ok(s) => {
-            let value = CmuxRdStats {
-                frames_released: s.frames_released,
-                frames_lost: s.frames_lost,
-                acked_frame: s.acked_frame,
-                need_recovery: s.need_recovery,
-            };
-            // SAFETY: checked non-NULL; writable by contract.
-            unsafe { out.write(value) };
-            CMUX_RD_OK
+    ffi_boundary("cmux_rd_session_stats", CMUX_RD_ERR_PANIC, || {
+        if out.is_null() {
+            return CMUX_RD_ERR_NULL;
         }
-        Err(e) => session_code(&e),
+        with_session(session.cast_mut(), |h| match h.inner.stats(stream) {
+            Ok(s) => {
+                let value = CmuxRdStats {
+                    frames_released: s.frames_released,
+                    frames_lost: s.frames_lost,
+                    acked_frame: s.acked_frame,
+                    need_recovery: s.need_recovery,
+                };
+                // SAFETY: checked non-NULL; writable by contract.
+                unsafe { out.write(value) };
+                CMUX_RD_OK
+            }
+            Err(e) => session_code(&e),
+        })
     })
 }
 
@@ -363,9 +381,11 @@ pub unsafe extern "C" fn cmux_rd_session_stats(
 /// `session` is valid.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn cmux_rd_session_enable_clock(session: *mut CmuxRdSession) -> i32 {
-    with_session(session, |h| {
-        h.inner.enable_clock();
-        CMUX_RD_OK
+    ffi_boundary("cmux_rd_session_enable_clock", CMUX_RD_ERR_PANIC, || {
+        with_session(session, |h| {
+            h.inner.enable_clock();
+            CMUX_RD_OK
+        })
     })
 }
 
@@ -381,16 +401,18 @@ pub unsafe extern "C" fn cmux_rd_session_clock(
     offset_us: *mut i64,
     rtt_us: *mut u32,
 ) -> i32 {
-    if offset_us.is_null() || rtt_us.is_null() {
-        return CMUX_RD_ERR_NULL;
-    }
-    with_session(session.cast_mut(), |h| {
-        let Some(estimate) = h.inner.clock() else { return 0 };
-        // SAFETY: checked non-NULL; writable by contract.
-        unsafe {
-            offset_us.write(estimate.offset_us);
-            rtt_us.write(estimate.rtt_us);
+    ffi_boundary("cmux_rd_session_clock", CMUX_RD_ERR_PANIC, || {
+        if offset_us.is_null() || rtt_us.is_null() {
+            return CMUX_RD_ERR_NULL;
         }
-        1
+        with_session(session.cast_mut(), |h| {
+            let Some(estimate) = h.inner.clock() else { return 0 };
+            // SAFETY: checked non-NULL; writable by contract.
+            unsafe {
+                offset_us.write(estimate.offset_us);
+                rtt_us.write(estimate.rtt_us);
+            }
+            1
+        })
     })
 }

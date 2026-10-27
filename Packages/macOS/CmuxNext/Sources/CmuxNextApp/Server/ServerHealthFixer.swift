@@ -46,9 +46,9 @@ struct ServerHealthFixer {
 
     /// `localFix` for every check with allowlisted fixes.
     static var localFixes: [HealthCheckID: HealthFix] {
-        Dictionary(uniqueKeysWithValues: Set(ServerFix.allCases.map { HealthCheckID($0.check) }).compactMap { check in
+        Dictionary(Set(ServerFix.allCases.map { HealthCheckID($0.check) }).compactMap { check in
             localFix(for: check).map { (check, $0) }
-        })
+        }, uniquingKeysWith: { first, _ in first })
     }
 
     /// `sleep.enabled`: no system or disk sleep on AC, wake for network;

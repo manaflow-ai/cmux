@@ -1,0 +1,9 @@
+{
+  "appearance": {
+    "surfaces": {
+      "terminal": {
+        "opacity": 2
+      }
+    }
+  }
+}
