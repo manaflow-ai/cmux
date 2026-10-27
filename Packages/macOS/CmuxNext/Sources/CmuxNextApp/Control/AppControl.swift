@@ -167,7 +167,7 @@ final class AppControl {
             // The field histograms since launch (`cmux metrics`), read-only; `unavailable` until the metricsView feature is on.
             ControlRouter.metricsMethod(enabled: services.features.isEnabled(.metricsView)),
         ])
-        router.register(DebugHibernationControl.methods(services)) // debug.memory serves release builds too
+        router.register(DebugHibernationControl.methods(services)) // debug.memory and debug.discards serve release builds too
     }
 
     func startSnapshotPublisher(_ services: AppServices, on router: ControlRouter) {
