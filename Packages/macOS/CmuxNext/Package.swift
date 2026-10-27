@@ -2273,7 +2273,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         .testTarget(
             name: "CmuxNextMobileHostTests",
             dependencies: ["CmuxNextMobileHost", "CmuxNextMobile", "CmuxNextAgentPane", "CmuxNextPages", "CmuxNextSettings", "CmuxNextWakeups",
-                           "CmuxNextDaemon", .product(name: "CMUXMobileCore", package: "CMUXMobileCore"),
+                           "CmuxNextCompat", "CmuxNextDaemon", .product(name: "CMUXMobileCore", package: "CMUXMobileCore"),
                            .product(name: "CmuxFuzzSupport", package: "CmuxFuzzSupport")],
             swiftSettings: uiSwiftSettings
         ),

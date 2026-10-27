@@ -60,6 +60,13 @@ final class TopPageHost {
     private let hosts: () -> [TopPageHost]
     private let deadline: any PageDiscardDeadline
     private let planner = ContentDiscardPlanner()
+    /// The window's node in the visibility tree; nil: the pages get no nodes (tests of the discard alone).
+    private let windowNode: VisibilityNode?
+    /// A page key's node, a child node (`TabContentCache.node(for:)`): the one its provider's views follow.
+    private let pageNode: ((String) -> VisibilityNode)?
+    /// Each internal page's node, held while its view lives: under ``windowNode``, visible only while
+    /// the window shows the page (``contentDidChange(shown:)``), as a pane holds its selected tab's.
+    private var nodes: [TopPageRoute: VisibilityNode] = [:]
     /// The clock (tests set it).
     var now: () -> ContinuousClock.Instant = { .now }
     /// Pages released so far (tests, diagnostics).
@@ -78,8 +85,11 @@ final class TopPageHost {
          closed: @escaping (TopPageRoute, String) -> Void,
          discardable: @escaping (TopPageRoute, NSView) -> (any PageDiscardable)?, title: @escaping (TopPageRoute) -> String,
          discards: Bool, hiddenLimit: Int, hosts: @escaping () -> [TopPageHost], deadline: any PageDiscardDeadline,
-         memory: (any MemoryConsumerRegistry)? = nil) {
+         memory: (any MemoryConsumerRegistry)? = nil, windowNode: VisibilityNode? = nil,
+         pageNode: ((String) -> VisibilityNode)? = nil) {
         self.make = make
+        self.windowNode = windowNode
+        self.pageNode = pageNode
         self.closed = closed
         self.discardable = discardable
         titles = title
@@ -95,8 +105,9 @@ final class TopPageHost {
 
     /// The app's top pages: classic Home, and an internal page's provider view in an
     /// `InternalPageView`. A provider that conforms to `PageDiscardable` sets its page's policy and
-    /// view state; classic Home's view does. A page without one is never discarded.
-    convenience init(services: AppServices) {
+    /// view state; classic Home's view does. A page without one is never discarded. An internal page's
+    /// key node (`TabContentCache.node(for:)`) hangs under `windowNode` while the page lives.
+    convenience init(services: AppServices, windowNode: VisibilityNode) {
         self.init(make: { [weak services] route, window in services.flatMap { TopPageHost.makePage(route, in: window, services: $0) } },
                   closed: { [weak services] route, key in
                       if case .page(let id) = route { services?.pages.provider(id)?.tabClosed(key) }
@@ -115,7 +126,8 @@ final class TopPageHost {
                   hiddenLimit: SubsystemBudget.forThisMac(gpuResidentAvailable: false).liveHiddenInternalPages,
                   hosts: { [weak services] in services?.windows.controllers.map { $0.topPages } ?? [] },
                   deadline: MainDeadline(owner: "TopPageHost.discard", workClass: .background, scheduler: services.mainDeadlines),
-                  memory: services.memoryCoordinator)
+                  memory: services.memoryCoordinator, windowNode: windowNode,
+                  pageNode: { [cache = services.cache] in cache.node(for: $0) })
     }
 
     private static func makePage(_ route: TopPageRoute, in window: WindowController?,
@@ -142,6 +154,13 @@ final class TopPageHost {
         guard let made = make(route, window) else { return nil }
         views[route] = made.view
         keys[route] = made.key
+        if let key = made.key, let windowNode, let pageNode {
+            let node = pageNode(key)
+            // It cannot throw: a page's node is a child, never above its window's.
+            try? node.attach(to: windowNode)
+            node.set(.hidden) // until the window shows it
+            nodes[route] = node
+        }
         hiddenSince[route] = now()
         if let state = released.removeValue(forKey: route) { restoring[route] = state }
         installs.bump()
@@ -184,12 +203,14 @@ final class TopPageHost {
     }
 
     /// The window swapped its content (`WindowRootView.onContentChange`): the shown page is
-    /// visible, every other live page is hidden from now on (an earlier hide keeps its instant).
+    /// visible, every other live page is hidden from now on (an earlier hide keeps its instant), and
+    /// each page's node says so.
     /// The plan runs on the deadline right after the swap's turn, never in it: a release tears a
     /// view down, which the switch's budget has no room for.
     func contentDidChange(shown: NSView?) {
         let at = now()
         for (route, view) in views {
+            nodes[route]?.set(view === shown ? .visible : .hidden)
             if view === shown {
                 hiddenSince[route] = nil
             } else if hiddenSince[route] == nil {
@@ -310,6 +331,7 @@ final class TopPageHost {
 
     private func close(_ route: TopPageRoute, _ view: NSView) {
         view.removeFromSuperview()
+        nodes.removeValue(forKey: route)?.set(.hidden)
         views[route] = nil
         installs.bump()
         hiddenSince[route] = nil

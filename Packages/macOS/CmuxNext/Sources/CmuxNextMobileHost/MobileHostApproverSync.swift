@@ -43,6 +43,8 @@ final class MobileHostApproverSync {
         hasApprovers || workspaceRoots?.isEmpty == false || rootsClearPending || newChatPicks != nil || picksClearPending
     }
     private var nextID = 10
+    /// Connections tried so far, the backoff's included (tests, diagnostics).
+    private(set) var connectAttempts = 0
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.iphone.approvers")
 
     /// - Parameter deadlines: The app's one deadline placer; its scheduler runs the connection's replies.
@@ -106,6 +108,7 @@ final class MobileHostApproverSync {
     }
 
     private func connect() {
+        connectAttempts += 1
         reconnect.cancel()
         guard FileManager.default.fileExists(atPath: environment.socketPath) else { return scheduleReconnect() }
         let line = AcpmuxCheckedLine(environment: environment)
