@@ -62,14 +62,17 @@ export function SavedEnvironmentPanel({
   );
   const [error, setError] = useState<string>();
   const [saving, setSaving] = useState(false);
+  const [browsing, setBrowsing] = useState(false);
+  const [browseFailed, setBrowseFailed] = useState(false);
   const name = useRef<HTMLInputElement>(null);
   useEffect(() => name.current?.focus(), []);
-  const ready = savedEnvironmentReady(draft) && !saving;
+  const ready = savedEnvironmentReady(draft) && !saving && !browsing;
   const update = (change: Partial<SavedEnvironmentDraft>) => setDraft((current) => ({ ...current, ...change }));
   const save = () => {
     if (!ready) return;
     setSaving(true);
     setError(undefined);
+    setBrowseFailed(false);
     void onSave(savedEnvironmentToSave(draft))
       .catch((failure: unknown) =>
         setError(
@@ -79,6 +82,21 @@ export function SavedEnvironmentPanel({
         ),
       )
       .finally(() => setSaving(false));
+  };
+  const browse = () => {
+    if (!onBrowse || browsing) return;
+    setBrowsing(true);
+    setBrowseFailed(false);
+    setError(undefined);
+    void onBrowse()
+      .then((folder) => {
+        if (folder) update({ folder });
+      })
+      .catch((failure: unknown) => {
+        setBrowseFailed(true);
+        setError(failure instanceof Error ? failure.message : String(failure));
+      })
+      .finally(() => setBrowsing(false));
   };
   const command = (event: KeyboardEvent<HTMLDivElement>) => {
     // A menu or folder popover the panel opened draws elsewhere on the page and keeps its own keys.
@@ -190,11 +208,7 @@ export function SavedEnvironmentPanel({
               onPick={(folder) => update({ folder })}
               {...(!ssh && onBrowse
                 ? {
-                    onBrowse: () => {
-                      void onBrowse().then((folder) => {
-                        if (folder) update({ folder });
-                      });
-                    },
+                    onBrowse: browse,
                   }
                 : {})}
             />
@@ -212,7 +226,14 @@ export function SavedEnvironmentPanel({
           </label>
         )}
         <div className="acpmux-env-footer">
-          <output className="acpmux-env-error">{error}</output>
+          <output className="acpmux-env-error" role={error ? "alert" : undefined}>
+            {error}
+          </output>
+          {browseFailed && (
+            <button type="button" className="acpmux-env-button" onClick={browse} disabled={browsing}>
+              {t("project.retry")}
+            </button>
+          )}
           {environment && onRemove && (
             <button
               type="button"
