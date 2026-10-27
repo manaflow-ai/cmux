@@ -2163,7 +2163,11 @@ fn local_hostname() -> Option<String> {
         use std::ffi::CStr;
 
         let mut buffer = [0 as libc::c_char; 256];
+        // SAFETY: gethostname writes at most `buffer.len() - 1` bytes into `buffer`, a live local,
+        // so its last byte stays 0.
         if unsafe { libc::gethostname(buffer.as_mut_ptr(), buffer.len() - 1) } == 0 {
+            // SAFETY: `buffer` was zeroed and gethostname left its last byte 0, so it holds a NUL-
+            // terminated string that outlives the borrow.
             let hostname =
                 unsafe { CStr::from_ptr(buffer.as_ptr()) }.to_string_lossy().into_owned();
             if !hostname.is_empty() {

@@ -64,7 +64,7 @@ final class CEFPaneHost {
         self.contextMenus = contextMenus
         hostView.liveResizeWillStart = { [weak self] in self?.visibleTab?.samplePageBackdrop() }
         hostView.fileDrag.target = { [weak self] in self?.visibleTab }
-        // A popup window keeps its own window until its hosting is verified (p03-rendering-056).
+        // A popup host's page window hosts or attaches only on a fork that does it for popups (`CEFLayerHosting.Fork`).
         hostView.layerHosting.widget = isPopupHost ? .popup : .page
     }
 
@@ -240,7 +240,7 @@ final class CEFPaneHost {
     /// (`createAfterMachineProxy`), so a new window does not ask again.
     @discardableResult
     func ensureCreated(_ tab: CEFTab, machineProxyApplied: Bool = false) -> Bool {
-        guard tab.browserID == nil, tab.isCreationPending == false, runtime.acceptsNewBrowsers, let shim = runtime.shim else { return false }
+        guard tab.browserID == nil, !tab.isCreationPending, !tab.awaitsHostRestore, runtime.acceptsNewBrowsers, let shim = runtime.shim else { return false }
         switch window {
         case .none:
             // A browser profile's own proxy (#24432), before the first request:

@@ -198,14 +198,15 @@ fn start(watch: &Arc<state::Watch>, id: Option<Value>) -> Result<bool, Failure> 
 }
 
 /// Starts `body` on a `mux-inventory-watch` thread: a watcher, utility as
-/// Chromium's kUtility (p04-input-084).
+/// Chromium's kUtility (p04-input-084), started through `spawn_raisable`
+/// so a ranked lock can raise it (p05-ipc-080).
 fn spawn_thread(
     body: impl FnOnce() + Send + 'static,
 ) -> std::io::Result<std::thread::JoinHandle<()>> {
-    cmux_threads::spawn_with_stack(
+    crate::thread_qos::spawn_raisable(
         "mux-inventory-watch",
         ThreadType::Utility.qos(),
-        256 * 1024,
+        Some(256 * 1024),
         body,
     )
 }
@@ -236,7 +237,8 @@ fn watch_ids_are_the_schema_bound() {
     assert_eq!(schema::request_max_bytes("agent-inventory-watch", "expected_watch_id"), bound);
 }
 
-/// The watch thread is declared Utility (p04-input-084).
+/// The watch thread is declared at the raisable class of Utility
+/// (p04-input-084, p05-ipc-080): Utility where a lock can raise it.
 #[cfg(test)]
 #[test]
 fn the_watch_thread_is_a_utility_thread() {
@@ -245,7 +247,10 @@ fn the_watch_thread_is_a_utility_thread() {
         let _ = released.recv();
     })
     .expect("the watch thread starts");
-    crate::thread_qos::tests::assert_declared("mux-inventory-watch", ThreadType::Utility.qos());
+    crate::thread_qos::tests::assert_declared(
+        "mux-inventory-watch",
+        cmux_tui_platform::qos::raisable_class(ThreadType::Utility.qos()),
+    );
     drop(release);
     thread.join().expect("the watch thread ends");
 }

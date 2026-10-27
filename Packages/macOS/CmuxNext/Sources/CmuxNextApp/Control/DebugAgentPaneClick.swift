@@ -2,6 +2,7 @@
 import AppKit
 import CmuxNextAgentPane
 import CmuxNextCompat
+import CmuxNextPages
 import CmuxNextSettings
 import WebKit
 
@@ -9,8 +10,9 @@ import WebKit
 /// found by `selector` (CSS) or by `text` (its visible text or accessible name, such as a chip's label; the
 /// smallest element that matches). Its center goes from page coordinates to the window, and a real mouse down and
 /// up go there as ``DebugNativeInput`` delivers them, so the pane's gesture monitor records the user's gesture,
-/// also in a window that was never activated. A chat shown in Chromium gets a trusted DevTools press instead,
-/// which the gesture monitor does not see. Never moves the user's pointer.
+/// also in a window that was never activated. A chat shown in Chromium gets the engine's trusted native click
+/// instead (DevTools input on a fork without it; `delivered` says which), which the gesture monitor does not see.
+/// Never moves the user's pointer.
 @MainActor
 enum DebugAgentPaneClick {
     /// Whether the page has seen the click's mouse down, waiting up to `ms` for it.
@@ -39,15 +41,15 @@ enum DebugAgentPaneClick {
         guard let x = found["x"] as? Double, let y = found["y"] as? Double else {
             return .object(["pane": .string(pane), "error": .string("the page returned no point")])
         }
-        // A chat in Chromium takes a trusted DevTools click: no AppKit click reaches its page in a window
-        // that never activates (a capture slot).
+        // A chat in Chromium takes the engine's trusted click (native, or DevTools on an older fork): no AppKit
+        // click reaches its page in a window that never activates (a capture slot).
         if view.debugShowsChromium {
-            let pressed = await view.debugPress(x: x, y: y)
+            let delivered = await view.debugPress(x: x, y: y)
             let page = (try? await view.callPageScript(report)) as? String
             let pageObject = page.flatMap { (try? JSONSerialization.blockingJSONObject(with: Data($0.utf8))) as? [String: Any] }
             return .object([
-                "pane": .string(pane), "clicked": .bool(pressed), "tag": (found["tag"] as? String).map(JSONValue.string) ?? .null,
-                "x": .number(x), "y": .number(y), "delivered": .string("devtools"),
+                "pane": .string(pane), "clicked": .bool(delivered != nil), "tag": (found["tag"] as? String).map(JSONValue.string) ?? .null,
+                "x": .number(x), "y": .number(y), "delivered": delivered.map { .string($0.rawValue) } ?? .null,
                 "gesture_available": .bool(view.model.transport.gestures.debugState.available),
                 "page_events": .array(((pageObject?["events"] as? [String]) ?? []).map(JSONValue.string)),
             ])

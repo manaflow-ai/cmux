@@ -875,6 +875,11 @@ select {
   }
 }
 
+/* Energy Saver and animations off (WebTheme.swift): the packets rest at their places on the path. */
+:root:is([data-cmux-energy="saver"], [data-cmux-motion="off"]) .cloud-store-art-packet {
+  animation: none;
+}
+
 @keyframes cloud-store-packet {
   0% {
     offset-distance: 0%;

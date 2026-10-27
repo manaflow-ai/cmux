@@ -224,10 +224,12 @@ mod kitty_budget;
 mod kitty_reservation;
 mod launch_identity;
 mod ledger_maintenance;
+mod metrics_file;
 #[cfg(any(debug_assertions, feature = "oracle"))]
 mod oracle;
 mod pinned_columns;
 mod power_source;
+mod sqlite_trim;
 mod workspace_name;
 use kitty_reservation::kitty_image_limits_exceed;
 mod agent_presence;
@@ -331,7 +333,7 @@ mod terminal_relaunch;
 pub(crate) mod terminal_respawn;
 mod terminal_sizing;
 pub(crate) use terminal_sizing::host_policy;
-mod terminal_work;
+pub(crate) mod terminal_work;
 mod topology_result;
 mod tree_close;
 mod workspace_close_guard;
@@ -743,15 +745,14 @@ pub struct Mux {
     terminal_adoptions: Mutex<HashSet<String>>,
     /// Notified when an id leaves `terminal_adoptions` (its adoption ended).
     terminal_adoption_ended: Condvar,
-    /// Terminals a request waits on (`wait_for_terminal_adoption`): their
-    /// adoption starts without waiting for the owner to say ready.
-    terminal_adoptions_now: Mutex<HashSet<String>>,
+    /// A start's adoptions held until the owner says ready, and the
+    /// terminals a request waits on, whose adoption starts at once.
+    startup_adoptions: Mutex<terminal_adoption::StartupAdoptions>,
+    /// Adoption tries running at once (`terminal_adoption::ADOPTION_REPLAYS`).
+    terminal_replays: Arc<mux_work::Permits>,
     /// Restored tab names, by tab slot, for terminals that adopt after the
     /// start: the surface takes its tab's name when it arrives. A leaf lock.
     restored_tab_names: Mutex<HashMap<SurfaceId, String>>,
-    /// Lets a start's adoption threads go before the owner says ready: a
-    /// creation the crash interrupted waits on its host's adoption.
-    startup_adoptions_released: AtomicBool,
     /// Terminals with a possibly live host and no runtime surface (R41),
     /// keyed by public terminal id (`term_…`, what the tab JSON reads), with
     /// the host terminal id. A leaf lock: nothing else is locked under it.
@@ -821,6 +822,8 @@ pub struct Mux {
     /// This owner's memory registry: consumers register (the standby host and
     /// the output store's scrollback budget), sources vote.
     pub(crate) memory: Arc<crate::memory::DaemonMemory>,
+    /// The SQLite connections' memory consumers (`memorySqliteTrim`).
+    sqlite_trim: sqlite_trim::SqliteTrim,
     /// Hosts launched ahead of their creation, by reserved terminal id.
     #[cfg(any(unix, windows))]
     prelaunched_terminals: Mutex<HashMap<String, terminal_work::PrelaunchedTerminal>>,
@@ -829,12 +832,24 @@ pub struct Mux {
     /// The history module's session state: journal folds and revision.
     pub(crate) history: crate::history_ops::HistoryHost,
     pub(crate) surface_operation_admission: Arc<crate::server::ServerSurfaceOperationAdmission>,
+    /// The daemon-wide sequenced pool: every connection's control sequence
+    /// and stream sequences run on its fixed workers (p05-ipc-073).
+    pub(crate) sequenced_pool: crate::server::SequencedPool,
     /// Records requests that run past 250 ms (server-stats `slow_requests`).
     pub(crate) request_watchdog: crate::server::RequestWatchdog,
+    /// The blocking, inversion and slow-request sites of this daemon life
+    /// (`server-diagnostic-site`, server/server_stats.rs).
+    pub(crate) diagnostic_sites: crate::diagnostics::DiagnosticSites,
     /// Blocking work that request threads hand off (`cmux_threads::work`
     /// lanes: files, system, cpu), so a request answers from memory and a
     /// work item does the disk, process or IPC wait (p02-threads 220).
-    pub(crate) work: cmux_threads::work::Work,
+    pub(crate) work: Arc<cmux_threads::work::Work>,
+    /// Waits for the exits of the daemon's long-lived children (terminal
+    /// shells, terminal hosts, Chief brains, the journal plugin) on one
+    /// `mux-reaper` thread and completes each on `work`
+    /// (`cmux_threads::reaper`, p02-threads-237).
+    #[cfg(unix)]
+    pub(crate) reaper: Arc<cmux_threads::reaper::Reaper>,
     /// Each client's git requests, run on `work` one at a time in arrival
     /// order (git_ops/sequence.rs).
     pub(crate) git_sequences: crate::git_ops::Sequences,

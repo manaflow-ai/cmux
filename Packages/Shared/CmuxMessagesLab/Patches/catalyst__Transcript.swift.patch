@@ -260,7 +260,17 @@
              MediaPlaceholder.clear(cell.bitmap)
              cell.bitmap.frame = frame
              cell.bitmap.contents = img
-@@ -1197,8 +1250,11 @@
+@@ -1160,7 +1213,9 @@
+     private(set) var badgeFill: CAGradientLayer?
+     private var badgeGlyph: CALayer?
+     private var badgeState = "", badgeTop: CGFloat = 0
++    // cmux: memory: fixed at most badgeGlyphLimit glyphs (40 x 44 pt), emptied when full (a palette or scale change adds keys)
+     private static var badgeGlyphs: [String: CGImage] = [:]
++    static let badgeGlyphLimit = 64
+     private static let badgeBox = CGSize(width: 40, height: 44)
+ 
+     private func configureBadge(_ spec: RowSpec) {
+@@ -1197,8 +1252,11 @@
          box.position = CGPoint(x: c.x - 20 + box.anchorPoint.x * size.width, y: c.y - 20 + box.anchorPoint.y * size.height)
          box.contentsScale = renderScale
          badgeTop = c.y - 20
@@ -274,7 +284,15 @@
          RowCell.placeFill(fill, windowTop: contentWindowY + badgeTop, width: size.width, span: fillSpan, reachBelow: fillReachBelow)
          if let holder = fill.superlayer, let mask = holder.mask as? CAShapeLayer {
              holder.frame = CGRect(origin: .zero, size: size)
-@@ -1386,7 +1442,7 @@
+@@ -1211,6 +1269,7 @@
+             img = WideBitmap.make(size: size, scale: renderScale, opaque: false) { ctx in
+                 PartRenderer.drawBadgeGlyph(kind, center: CGPoint(x: 20, y: 20), ctx: ctx)
+             }
++            if Self.badgeGlyphs.count >= Self.badgeGlyphLimit { Self.badgeGlyphs.removeAll() } // cmux: bounded
+             Self.badgeGlyphs[key] = img // an unallocated glyph is not cached (nil)
+         }
+         glyph.contents = img
+@@ -1386,7 +1445,7 @@
          case let .label(_, outgoing, _), let .replies(_, _, outgoing): return outgoing
          case .receipt: return true
          case let .threadPreview(pv): return pv.outgoing
@@ -283,7 +301,7 @@
          }
      }
      /// The x (view pt) of the row's anchored side for a cell at `frame` (snapRow, the send morph's landing place): the
-@@ -1451,6 +1507,16 @@
+@@ -1451,6 +1510,16 @@
          clipTypingBody(Springs.typingBreathBody, about: Springs.typingBreathAnchor, begin: c.beginTime - Springs.typingBreathBody.start)
      }
  
@@ -300,7 +318,7 @@
      /// Window y of the cell's top: the outgoing fill shades with it.
      var windowY: CGFloat = 0 {
          didSet {
-@@ -1471,10 +1537,12 @@
+@@ -1471,10 +1540,12 @@
      /// down to this bubble: an arc that hangs from the root and a vertical
      /// stroke whose bottom stays 8.5 pt above this bubble. When the two rows
      /// move apart, the arc and the stroke's height animate (no path animation).
@@ -316,7 +334,7 @@
          connectorState = state
          CATransaction.begin(); CATransaction.setDisableActions(true)
          defer { CATransaction.commit() }
-@@ -1487,7 +1555,7 @@
+@@ -1487,7 +1558,7 @@
              contentView.layer.insertSublayer(connector, at: 0)
              contentView.layer.insertSublayer(connectorLine, at: 1)
          }
@@ -325,7 +343,7 @@
          let cx = x + r, cy = top + r
          let w = spec?.width ?? 628
          let p = UIBezierPath()
-@@ -1521,7 +1589,7 @@
+@@ -1521,7 +1592,7 @@
          CATransaction.begin(); CATransaction.setDisableActions(true)
          receiptOld.frame = bitmap.frame
          let span = RowDraw.drawSpan(spec)
@@ -334,7 +352,7 @@
          if receiptOld.superlayer == nil { contentView.layer.insertSublayer(receiptOld, above: bitmap) }
          var reuse: CGImage?
          #if !canImport(UIKit)
-@@ -1566,6 +1634,9 @@
+@@ -1566,6 +1637,9 @@
              a.isRemovedOnCompletion = false
              a.calculationMode = .linear
              if let p = Springs.typingStillPhase { a.speed = 0; a.timeOffset = p }
@@ -344,7 +362,7 @@
              hi.add(a, forKey: "dots")
          }
      }
-@@ -1576,6 +1647,8 @@
+@@ -1576,6 +1650,8 @@
      func startTypingBreath(insert: CFTimeInterval) {
  #if !os(iOS) || targetEnvironment(macCatalyst)
          guard Springs.typingStillPhase == nil else { return }
@@ -353,7 +371,7 @@
          let a = RowDraw.typingAnchor, b = Springs.typingBreathAnchor
          // The container scales about RowDraw.typingAnchor; the opposite offset of a scale e about it moves the
          // fixed point to b: e x (a - b).
-@@ -1674,7 +1747,8 @@
+@@ -1674,7 +1750,8 @@
      /// The typing row should breathe but does not (macOS, not a still scene): its breathing was stopped or never started.
      var needsTypingBreath: Bool {
  #if !os(iOS) || targetEnvironment(macCatalyst)

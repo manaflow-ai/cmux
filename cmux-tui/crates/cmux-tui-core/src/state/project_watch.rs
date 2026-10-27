@@ -33,13 +33,20 @@ pub(crate) fn start(mux: &Arc<Mux>) {
     }
 }
 
-/// Starts `body` on the `mux-project-sources` thread. An upkeep thread
-/// (p04-input-084): each import pass runs at utility (`import_changed`),
-/// raised while it holds the registry a request waits for.
+/// Starts `body` on the `mux-project-sources` thread: a watcher, utility
+/// through `spawn_raisable` (p05-ipc-080), so the registry lock a request
+/// waits for raises it. With `daemonRequestQos` on, each import pass also
+/// runs as a utility `WorkQos` (`import_changed`, p04-input-084), so a pass
+/// is lowered where the thread could only start at default.
 pub(crate) fn spawn_thread(
     body: impl FnOnce() + Send + 'static,
 ) -> std::io::Result<std::thread::JoinHandle<()>> {
-    cmux_threads::spawn("mux-project-sources", crate::request_qos::UPKEEP_THREAD_QOS, body)
+    crate::thread_qos::spawn_raisable(
+        "mux-project-sources",
+        crate::thread_qos::ThreadType::Utility.qos(),
+        None,
+        body,
+    )
 }
 
 fn note(message: &str) {
