@@ -77,11 +77,13 @@ final class BrowserDesignModeController {
         guard !rest.isEmpty else { return }
         // task-owner: BackgroundWork (quit skips it); one snapshot and the cards' delivery, it ends with the last card
         // (recipe R-hop). `userVisible`: the person's highlight on the page caused it, and nothing waits on it.
-        // The composers go in a main-actor box (Sendable), so the sending closure captures no non-Sendable view;
-        // `deliver` is a main-actor method that awaits the page snapshot off main.
+        // The composers go in a main-actor box (Sendable), so the sending closure captures and passes only
+        // Sendable values; `deliver` is a main-actor method that awaits the page snapshot off main and reads the
+        // composers from the box on main. The closure has no global actor of its own (as `toggle`'s): an explicit
+        // `@MainActor [weak self]` sending closure here trips the region-based isolation checker.
         let target = DeliveryTarget(home: home, chat: chat)
-        services.work.task(.userVisible) { @MainActor [weak self] in
-            await self?.deliver(rest, from: key, home: target.home, chat: target.chat)
+        services.work.task(.userVisible) { [weak self] in
+            await self?.deliver(rest, from: key, to: target)
         }
     }
 
@@ -97,9 +99,10 @@ final class BrowserDesignModeController {
 
     /// Gives `cards` of browser tab `key`, each with its crop of one page snapshot, to the Home composer, else to the
     /// agent chat composer.
-    private func deliver(_ cards: [BrowserDesignModeCard], from key: String, home: HomeNativeTranscriptView?, chat: AgentPaneView?) async {
+    private func deliver(_ cards: [BrowserDesignModeCard], from key: String, to target: DeliveryTarget) async {
         guard let page = services?.cache.existingBrowser(key)?.tab else { return }
         let shot = await Self.capture(page)
+        let home = target.home, chat = target.chat
         for card in cards {
             let png = shot.flatMap { Self.crop($0, to: card) }
             if let home {
