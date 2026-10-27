@@ -1,6 +1,7 @@
 public import Foundation
 public import Sentry
 import CmuxNextCompat
+import CmuxNextWakeups
 import os
 
 /// The forwarder of every cmux Rust process's diagnostics logs (p09-observability-075).
@@ -96,6 +97,9 @@ public final class OwnerPanicForwarder: Sendable {
     // storage of that queue-confined value and is never contended.
     private let hangSink: Mutex<HangSink>
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "crash")
+    /// The watches' record in the launch's arm census (Debug and bench builds, p08-startup-085): the first watch
+    /// armed and the first event of any of them.
+    private let census: ArmCensusWatch
 
     /// - Parameters:
     ///   - logs: The logs to read (``RustDiagnosticsLog/all(_:)`` in the app).
@@ -105,9 +109,11 @@ public final class OwnerPanicForwarder: Sendable {
     ///   - sends: The user's telemetry choice; false marks lines read without sending.
     ///   - hangEntries: Where each hang line sent goes besides Sentry; nil until ``setHangEntries(_:)`` attaches it, and
     ///     the lines read before that are handed on then.
+    ///   - file: The line that made it, named by the arm census (leave the default).
+    ///   - line: See `file`.
     ///   - capture: Sends one event (Sentry in the app, a recorder in tests).
     public init(logs: [RustDiagnosticsLog], stateFile: URL, legacyStates: [URL: URL] = [:], sends: Bool,
-                hangEntries: HangEntries? = nil,
+                hangEntries: HangEntries? = nil, file: StaticString = #fileID, line: UInt = #line,
                 capture: @escaping @Sendable (Event) -> Void = { SentrySDK.capture(event: $0, scope: Scope()) }) {
         self.logs = logs
         self.stateFile = stateFile
@@ -115,6 +121,7 @@ public final class OwnerPanicForwarder: Sendable {
         self.sends = sends
         self.capture = capture
         hangSink = Mutex(hangEntries.map(HangSink.attached) ?? .pending([]))
+        census = ArmCensusWatch(.watcher, owner: "OwnerPanicForwarder", file: file, line: line)
     }
 
     deinit {
@@ -129,10 +136,14 @@ public final class OwnerPanicForwarder: Sendable {
     ///   - stateFile: Where the read offset is kept (one per log).
     ///   - sends: The user's telemetry choice; false marks lines read without sending.
     ///   - source: Which process wrote `log`; the owner by default.
+    ///   - file: The line that made it, named by the arm census (leave the default).
+    ///   - line: See `file`.
     ///   - capture: Sends one event (Sentry in the app, a recorder in tests).
     public convenience init(log: URL, stateFile: URL, sends: Bool, source: RustPanicSource = .owner,
+                            file: StaticString = #fileID, line: UInt = #line,
                             capture: @escaping @Sendable (Event) -> Void = { SentrySDK.capture(event: $0, scope: Scope()) }) {
-        self.init(logs: [.file(log, source: source, kind: .panic)], stateFile: stateFile, sends: sends, capture: capture)
+        self.init(logs: [.file(log, source: source, kind: .panic)], stateFile: stateFile, sends: sends, file: file,
+                  line: line, capture: capture)
     }
 
     /// The owner's log for `session` under `stateRoot` (the parent of the
@@ -404,9 +415,13 @@ public final class OwnerPanicForwarder: Sendable {
         case .folder, .parent: [.write, .rename, .delete]
         }
         let source = DispatchSource.makeFileSystemObjectSource(fileDescriptor: descriptor, eventMask: mask, queue: queue)
-        source.setEventHandler { [weak self] in self?.changed(key) }
+        source.setEventHandler { [weak self] in
+            self?.census.fired()
+            self?.changed(key)
+        }
         source.setCancelHandler { close(descriptor) }
         source.resume()
+        census.armed()
         return source
     }
 

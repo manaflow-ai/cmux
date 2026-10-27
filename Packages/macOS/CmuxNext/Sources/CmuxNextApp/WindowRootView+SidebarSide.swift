@@ -5,23 +5,29 @@ import CmuxNextSidebar
 import Observation
 
 // `sidebar.side` and `sidebar.spacesPosition` (R109): the root pins the
-// sidebar to the chosen edge (`SidebarSide.pins`), the content and title
-// beside it, and passes the spaces position to the sidebar.
+// sidebar to the chosen edge (`sidebarEdgePins`), frames the content and
+// title beside it (`WindowRootLayout`), and passes the spaces position to
+// the sidebar.
 extension WindowRootView {
-    /// Swaps the pins to `sidebarSide` without animating. The layout may
+    /// Moves the sidebar to `sidebarSide` without animating. The layout may
     /// only move (same size), which runs no layout pass of its own, so it
     /// is marked here and lays out in the window's next pass, before the
     /// frame: pane rings and overlay rects follow, and strips under the
     /// traffic lights re-check themselves (`syncOverlay`). Nothing in this
     /// turn reads the new frames.
     func applySidebarSide() {
-        for (side, constraints) in sidePins where side != sidebarSide { NSLayoutConstraint.deactivate(constraints) }
-        NSLayoutConstraint.activate(sidePins[sidebarSide] ?? [])
+        applySidebarEdgePin()
         applySidebarRail()
         sidebar.side = sidebarSide
         // The right sidebar's inset moves to the other edge with it.
         applyMainPane()
         content?.needsLayout = true // invalidate: the sidebar changed sides; the content lays out at its new place.
+    }
+
+    /// Activates the sidebar's pin to the `sidebarSide` edge and ends the other one (idempotent).
+    func applySidebarEdgePin() {
+        for (side, pin) in sidebarEdgePins where side != sidebarSide && pin.isActive { pin.isActive = false }
+        if let pin = sidebarEdgePins[sidebarSide], !pin.isActive { pin.isActive = true }
     }
 
     /// Follows the placement settings from `DesignSettings` (init reads the

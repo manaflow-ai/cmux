@@ -159,8 +159,8 @@ struct Root {
 }
 
 fn resolve(root: &Path) -> Option<Root> {
-    let path = std::fs::canonicalize(root).ok()?;
-    let id = sys::dev_ino(&std::fs::symlink_metadata(&path).ok()?);
+    let path = cmux_blocking::fs::canonicalize(root).ok()?;
+    let id = sys::dev_ino(&cmux_blocking::fs::symlink_metadata(&path).ok()?);
     Some(Root { path, id })
 }
 
@@ -208,7 +208,7 @@ fn denied(inside: &Path, own: &Path, home: Option<&Path>) -> bool {
         matches!(e.to_string_lossy().to_ascii_lowercase().as_str(), "pem" | "key" | "p12" | "pfx")
     });
     let library = home.is_some_and(|home| {
-        let homes = [Some(home.to_path_buf()), std::fs::canonicalize(home).ok()];
+        let homes = [Some(home.to_path_buf()), cmux_blocking::fs::canonicalize(home).ok()];
         homes.into_iter().flatten().any(|home| own.starts_with(home.join("Library")))
     });
     dotted || key || library
@@ -500,7 +500,8 @@ mod sys {
     #[cfg(target_os = "linux")]
     fn mount_id(file: &File) -> Option<u64> {
         let info =
-            std::fs::read_to_string(format!("/proc/self/fdinfo/{}", file.as_raw_fd())).ok()?;
+            cmux_blocking::fs::read_to_string(format!("/proc/self/fdinfo/{}", file.as_raw_fd()))
+                .ok()?;
         info.lines().find_map(|line| line.strip_prefix("mnt_id:")?.trim().parse().ok())
     }
 
@@ -515,7 +516,13 @@ mod sys {
         use std::path::Component;
         let mut options = std::fs::OpenOptions::new();
         options.read(true).custom_flags(libc::O_DIRECTORY | libc::O_CLOEXEC);
-        let mut dir = options.open("/").ok()?;
+        #[allow(clippy::disallowed_methods, reason = "inside scoped_blocking_call")]
+        let opened = cmux_blocking::scoped_blocking_call(
+            "fs::open_with",
+            cmux_blocking::BlockingKind::Fs,
+            || options.open("/"),
+        );
+        let mut dir = opened.ok()?;
         for component in root.components() {
             match component {
                 Component::RootDir => {}
@@ -559,7 +566,14 @@ mod sys {
 
     #[cfg(target_os = "linux")]
     pub fn fd_path(file: &File) -> Option<PathBuf> {
-        std::fs::read_link(format!("/proc/self/fd/{}", file.as_raw_fd())).ok()
+        let link = format!("/proc/self/fd/{}", file.as_raw_fd());
+        #[allow(clippy::disallowed_methods, reason = "inside scoped_blocking_call")]
+        let path = cmux_blocking::scoped_blocking_call(
+            "fs::read_link",
+            cmux_blocking::BlockingKind::Fs,
+            || std::fs::read_link(link),
+        );
+        path.ok()
     }
 
     /// No way to name an open descriptor's path: nothing is read.
