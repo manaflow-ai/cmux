@@ -81,7 +81,7 @@ extension AgentTabStore {
     /// A tab in chat tab `provisional`'s pane, then moved to a new split on its right when `split`; else a tab there, focused when `created` is set.
     /// A split asked for chat `main` when that chat is its screen's main pane (``openInMainPane``) is a tab in the column on its right instead.
     @discardableResult
-    func openBeside(_ provisional: String, split: Bool = true, direction: String = "right", origin: ActionOrigin = .user, main: String? = nil, open: (PaneID, DaemonService) throws -> AgentTabPending, created: (@MainActor (String) -> Void)? = nil, finished: (@MainActor (_ moved: Bool) -> Void)? = nil) -> Bool {
+    func openBeside(_ provisional: String, split: Bool = true, direction: String = "right", origin: ActionOrigin = .user, main: String? = nil, open: (DaemonPaneID, DaemonService) throws -> AgentTabPending, created: (@MainActor (String) -> Void)? = nil, finished: (@MainActor (_ moved: Bool) -> Void)? = nil) -> Bool {
         if split, let main, let placed = openInMainPane(resolve(main), origin == .user, open, created, finished) { return placed }
         guard let (pane, daemon) = locate(resolve(provisional)), let pending = try? open(pane, daemon) else { return false }
         guard split || created != nil else { return true }

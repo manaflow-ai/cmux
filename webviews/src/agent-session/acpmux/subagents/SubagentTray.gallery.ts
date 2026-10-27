@@ -327,6 +327,10 @@ export default agentPaneEntry({
       snapshot: panel(3, 1),
     },
     "panel-118": {
+      checks: {
+        anchorMovePx: { value: 560, reason: "View all opens the preview pane and intentionally narrows the chat." },
+        layoutShiftMax: { value: 0.2, reason: "The full list takes the existing preview column beside the chat." },
+      },
       note: "The same panel with 118 agents: View all opens the full list beside the transcript while the tray stays bounded.",
       play: scrollPanel,
       snapshot: panel(116),
