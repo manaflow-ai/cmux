@@ -7,6 +7,7 @@ import CmuxNextPages
 import CmuxNextSettings
 import Foundation
 import Testing
+import CmuxNextWakeups
 
 /// Password export is off until the person turns it on (cmux-next-spec
 /// PASSWORDS P3, cx-d0d.13): with a store that can export and a person who
@@ -46,7 +47,8 @@ struct PasswordExportOffTests {
         let store = SamplePasswordStore()
         let person = Approver(destination: destination)
         let provider = PasswordsPageProvider(store: store, profiles: { [.init(id: "default", name: "Default")] },
-                                             confirmations: person, authenticator: person, secrets: person)
+                                             confirmations: person, authenticator: person, secrets: person,
+                                             mainWork: MainWorkScheduler(budget: MainFrameBudget()))
 
         var refusal: PageError?
         do {
@@ -79,7 +81,8 @@ struct PasswordExportOffTests {
         let destination = home.appending(path: "passwords.csv")
         let person = Approver(destination: destination)
         let provider = PasswordsPageProvider(store: SamplePasswordStore(), profiles: { [.init(id: "default", name: "Default")] },
-                                             confirmations: person, authenticator: person, secrets: person)
+                                             confirmations: person, authenticator: person, secrets: person,
+                                             mainWork: MainWorkScheduler(budget: MainFrameBudget()))
         provider.allowExport = { BrowserPasswordsSetting.current(settings).allowExport }
         let context = PageCallContext(page: "cmux.passwords", userGesture: true)
         let events = Events()

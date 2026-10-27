@@ -7,8 +7,7 @@ pub(super) mod machine_catalog;
 
 use super::*;
 use crate::diagnostics::{LockCaller, LockCallerScope};
-use crate::event_cause::EventCause;
-use crate::request_origin::page_router_table;
+use crate::event_cause::{EventCause, RequestPriority};
 use cmux_threads::work::{Lane, Priority, Shutdown};
 
 /// The caller class the lock acquisitions of `writer`'s connection count
@@ -201,17 +200,19 @@ pub(super) fn dispatch_line(line: &LineFrame<'_>) -> bool {
 
 /// A `cmux.protocol/2` line (its head has `protocol`). A routed namespace
 /// operation (page-router-v1) is not in the operation catalog, so its line
-/// goes to the page router without the catalog parse; a line the page
-/// router refuses gets the catalog parse's answer, as every other v2 line.
+/// goes to its operation route (server/routes.rs) without the catalog
+/// parse; a line the route refuses gets the catalog parse's answer, as
+/// every other v2 line.
 /// `None` only when the resource router does not take the line.
 fn resource_line(line: &LineFrame<'_>, head: &RequestHead<'_>) -> Option<bool> {
     let LineFrame { mux, client, message, writer, arrived, .. } = *line;
     let stats = mux.request_stats();
     let mut page_span = None;
-    if head.operation().is_some_and(|operation| page_router_table::routed(operation).is_some()) {
-        line.stage(FrameStage::PageRouter);
+    if let Some(route) = head.operation().and_then(routes::find_operation) {
+        line.stage(route.stage);
         let mut span = head.open(stats, RequestArrival::parsed_now(arrived));
-        if let Some(keep_open) = page_router::try_handle(mux, client, message, writer) {
+        let route_line = routes::RouteLine { mux, client, message, writer, head };
+        if let Some(keep_open) = (route.entry)(&route_line) {
             return Some(span.answered(keep_open));
         }
         page_span = Some(span);
@@ -223,13 +224,17 @@ fn resource_line(line: &LineFrame<'_>, head: &RequestHead<'_>) -> Option<bool> {
     }
     // An envelope's `origin` claim may only narrow the cause, as it
     // only narrows the origin; the origin gate still checks the claim.
-    // The narrowed cause sets the class too: a claimed automation line
-    // runs at UTILITY here, as it would on the dispatcher.
+    // Its `priority` narrows the cause the same way and is never checked:
+    // it cannot raise anything. The narrowed cause sets the class too: a
+    // claimed or prioritized automation line runs at UTILITY here, as it
+    // would on the dispatcher.
     let request_qos = mux.request_qos();
-    let _claimed =
-        request.as_ref().ok().and_then(|envelope| envelope.origin.as_ref()).map(|claim| {
-            request_qos.enter(EventCause::current().narrowed_by(claim.claim.event_cause()))
-        });
+    let _narrowed = request.as_ref().ok().and_then(|envelope| {
+        let claim = envelope.origin.as_ref().map(|claim| claim.claim.event_cause());
+        let priority = envelope.priority.map(RequestPriority::event_cause);
+        let narrowest = claim.into_iter().chain(priority).min()?;
+        Some(request_qos.enter(EventCause::current().narrowed_by(narrowest)))
+    });
     let arrival = RequestArrival::parsed_now(arrived);
     let mut span = match (page_span, &request) {
         (Some(span), _) => span,
@@ -570,6 +575,10 @@ pub(super) fn zeroize_string(value: &mut str) {
 #[cfg(test)]
 #[path = "event_cause_tests.rs"]
 mod event_cause_tests;
+
+#[cfg(test)]
+#[path = "request_priority_tests.rs"]
+mod request_priority_tests;
 
 #[cfg(all(test, unix))]
 mod dispatch_tests;

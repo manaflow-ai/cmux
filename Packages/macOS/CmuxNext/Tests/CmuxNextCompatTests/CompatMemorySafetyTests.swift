@@ -35,11 +35,15 @@ import Testing
         let symbol = try #require(unsafe dlsym(UnsafeMutableRawPointer(bitPattern: -2), "getpid"))
         let address = unsafe UInt(bitPattern: symbol) + 4
         var resolver = ImageOffsetResolver()
-        let frame = try #require(resolver.resolve(address))
+        // `resolve` is mutating (it caches the image): call it outside the macros, which take an immutable copy.
+        let resolved = resolver.resolve(address)
+        let frame = try #require(resolved)
         #expect(frame.offset == address - frame.base)
         #expect(frame.image.uuid != nil, "\(frame.image.name) has an LC_UUID")
-        #expect(resolver.resolve(address) == frame, "the cached image answers the same")
-        #expect(resolver.resolve(1) == nil)
+        let again = resolver.resolve(address)
+        #expect(again == frame, "the cached image answers the same")
+        let none = resolver.resolve(1)
+        #expect(none == nil)
     }
 
     // MARK: BlockingPendingCall (stack in its fields)

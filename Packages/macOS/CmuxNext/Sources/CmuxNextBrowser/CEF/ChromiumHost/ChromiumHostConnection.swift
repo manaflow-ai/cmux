@@ -146,7 +146,7 @@ nonisolated extension ChromiumHostFrame.Kind {
         case .edit: .edit
         case .ime: .ime
         case .navigate, .geometry, .focus, .ping, .stats, .quit, .textInputWatch, .gesture,
-             .ready, .context, .address, .title, .pong, .statsReply, .error, .rendererGone, .textInputState: nil
+             .ready, .context, .address, .title, .pong, .statsReply, .error, .rendererGone, .textInputState, .inputPresented: nil
         }
     }
 }

@@ -7098,6 +7098,11 @@ Result<Json> Codec<IdentifyResult>::encode(const IdentifyResult& value) {
         if (!encoded) return std::move(encoded).error();
         object.emplace("build_id", std::move(encoded).value());
     }
+    if (!value.bulk_frame_max.is_absent()) {
+        auto encoded = encode_value(value.bulk_frame_max);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("bulk_frame_max", std::move(encoded).value());
+    }
     if (value.capabilities) {
         auto encoded = encode_value(*value.capabilities);
         if (!encoded) return std::move(encoded).error();
@@ -7237,6 +7242,16 @@ Result<IdentifyResult> Codec<IdentifyResult>::decode(const Json& value) {
             auto decoded = decode_value<std::string>(*field_build_id);
             if (!decoded) return std::move(decoded).error();
             result.build_id = Field<std::string>(std::move(decoded).value());
+        }
+    }
+    const Json* field_bulk_frame_max = value.find("bulk_frame_max");
+    if (field_bulk_frame_max) {
+        if (field_bulk_frame_max->is_null()) {
+            result.bulk_frame_max = Field<std::uint32_t>::null();
+        } else {
+            auto decoded = decode_value<std::uint32_t>(*field_bulk_frame_max);
+            if (!decoded) return std::move(decoded).error();
+            result.bulk_frame_max = Field<std::uint32_t>(std::move(decoded).value());
         }
     }
     const Json* field_capabilities = value.find("capabilities");

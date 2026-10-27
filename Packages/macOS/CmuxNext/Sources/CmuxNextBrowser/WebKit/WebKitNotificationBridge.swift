@@ -30,6 +30,7 @@ final class WebKitNotificationBridge: NSObject, WKScriptMessageHandler {
         guard frame.isMainFrame else { return }
         let origin = WebKitTab.displayOrigin(frame.securityOrigin)
         let store = tab.sitePermissions
+        // main-hop-allow: whenLoaded is the permission store's main-actor wait for its one file read (at once once read); the notice is handed to the tab in its resume
         Task { @MainActor [weak tab] in
             await store.whenLoaded()
             guard let tab, store.setting(.notifications, for: origin) == .allow else { return }

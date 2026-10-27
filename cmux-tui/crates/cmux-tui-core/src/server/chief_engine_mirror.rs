@@ -22,11 +22,12 @@
 //! Both are a single writer per file, as Chrome's ImportantFileWriter writes
 //! on its own sequence (base/files/important_file_writer.h).
 
+use cmux_threads::sync::Mutex;
 use std::collections::HashMap;
 use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use cmux_threads::checked::fs as files;
 use cmux_threads::work::{Lane, Priority, Shutdown, Work};

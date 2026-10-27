@@ -1,5 +1,8 @@
 import AppKit
 import CmuxNextWakeups
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
+import func CmuxSafeConcurrency.withOnceContinuation
 
 extension PageHostPool {
     var shouldBuild: Bool {
@@ -33,8 +36,8 @@ extension PageHostPool {
     }
 
     static func nextTurn() async {
-        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
-            RunLoop.main.perform(inModes: [.common]) { continuation.resume() }
+        try? await withOnceContinuation { (continuation: OnceContinuation<Void, OnceContinuationError>) in
+            RunLoop.main.perform(inModes: [.common]) { continuation.resume(returning: ()) }
         }
     }
 

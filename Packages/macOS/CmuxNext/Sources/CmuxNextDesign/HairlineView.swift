@@ -20,6 +20,7 @@ public final class HairlineView: NSView {
         layer?.backgroundColor = performWithTheme { Palette.separator.cgColor }
     }
 
+    // visibility-walk-allow: one invalidation; AppKit draws only views on screen, so a hidden hairline pays nothing
     public override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         needsDisplay = true // invalidate: the appearance changed; the separator color resolves again.

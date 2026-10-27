@@ -100,7 +100,7 @@ extension BrowserChromeView {
         func add(_ key: String, _ view: NSView?) {
             guard let view, !view.isHidden, view.superview != nil, view.window != nil else { return }
             if let button = view as? ChromeIconButton { icons[key] = button.iconName }
-            // Constraints place the alignment rect (NSButton frames carry
+            // Layout places the alignment rect (`setChromeFrame`; NSButton frames carry
             // extra insets for the bezel).
             let alignment = view.alignmentRect(forFrame: view.frame)
             frames[key] = view.superview.map { $0.convert(alignment, to: self) } ?? alignment
@@ -125,8 +125,10 @@ extension BrowserChromeView {
     }
 
     public override func setFrameSize(_ newSize: NSSize) {
-        let widthChanged = newSize.width != frame.width
+        let widthChanged = newSize.width != frame.width, sizeChanged = newSize != frame.size
         super.setFrameSize(newSize)
+        // The rows are framed from the size (`BrowserChromeLayout`).
+        if sizeChanged { needsLayout = true }
         guard widthChanged else { return }
         // A popup hangs off a toolbar button that moves or collapses now.
         extensionToolbar.hidePopups()
@@ -147,6 +149,7 @@ extension BrowserChromeView {
 
     /// Its pane parked this tab hidden (another tab shows): popups close, as
     /// when it leaves the window.
+    // visibility-walk-allow: the hide's own effect, never deferred work (p06 rule 3): the parked tab's popups close and its page cards leave
     public override func viewDidHide() {
         super.viewDidHide()
         extensionToolbar.hidePopups()
@@ -154,10 +157,15 @@ extension BrowserChromeView {
     }
 
     /// Its pane shows this parked tab again: it repaints, as when it comes
-    /// back into the window (R55). The pane re-pins its header band itself.
+    /// back into the window (R55), once its node shows (R-hide). The pane
+    /// re-pins its header band itself.
     public override func viewDidUnhide() {
         super.viewDidUnhide()
-        guard window != nil else { return }
+        visibilityNode.deferUntilVisible(key: Self.shownKey) { [weak self] in self?.repaintShown() }
+    }
+
+    private func repaintShown() {
+        guard window != nil, !isHidden else { return }
         updateColors()
         renderPrompt()
         syncPageOverlays()
@@ -180,7 +188,10 @@ extension BrowserChromeView {
         )
         guard resolved != toolbarLayout else { return }
         toolbarLayout = resolved
-        forwardButton.isHidden = !resolved.showsForward
+        if forwardButton.isHidden == resolved.showsForward {
+            forwardButton.isHidden = !resolved.showsForward
+            toolbar.needsLayout = true
+        }
         extensionToolbar.visibleLimit = resolved.visiblePinned
     }
 

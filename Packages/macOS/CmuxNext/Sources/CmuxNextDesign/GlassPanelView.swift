@@ -79,6 +79,7 @@ public final class GlassPanelView: NSView {
     @available(*, unavailable)
     public required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
+    // visibility-walk-allow: a glass tint, or two layer color stores; no layout or text measure, cheaper than a deferral
     public override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         applyColors()

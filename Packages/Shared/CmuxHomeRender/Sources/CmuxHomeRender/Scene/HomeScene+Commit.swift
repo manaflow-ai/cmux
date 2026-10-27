@@ -14,10 +14,11 @@ extension HomeScene {
                 animated: Bool = true) -> CGFloat {
         commitCount += 1
         let begin = now
-        let animate = animated && motion.moves && change.animates
+        // A hidden transcript changes its model only: no motion, no rows (`setHidden`).
+        let animate = animated && motion.moves && change.animates && !isHidden
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        if motion.crossFades, change.animates, rows != nil { beginCrossFade(begin: begin) }
+        if motion.crossFades, change.animates, rows != nil, !isHidden { beginCrossFade(begin: begin) }
         let oldSnap = model.snapshot
         let oldRowsTop = layout.rowsTop
         let oldOffset = offset

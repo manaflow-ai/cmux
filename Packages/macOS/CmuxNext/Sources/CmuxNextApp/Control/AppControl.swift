@@ -83,8 +83,8 @@ final class AppControl {
     /// Starts stall and busy detection. Call first thing at launch.
     func startWatchdog() {
         watchdog.start()
-        // Hang-watch scopes are scanned on the watchdog's thread (overruns: debug.hangs thread_hangs, crash keys).
-        watchdog.attach(hangWatch: TraceRuntime.shared.hangWatch, crashKeys: crashKeys)
+        // Hang-watch scopes are scanned on the watchdog's thread (overruns: debug.hangs thread_hangs, crash keys, ring).
+        watchdog.attach(hangWatch: TraceRuntime.shared.hangWatch, crashKeys: crashKeys, trace: TraceRuntime.shared)
         // Stall records name the scheduled main-thread task they caught; a launch in the task
         // diagnostics mode also records tasks past their class budget, with a stack (debug.hangs
         // over_budget). It perturbs what it measures, so it is off unless asked for.
@@ -108,7 +108,8 @@ final class AppControl {
     /// (below), registered before the service serves (p08-startup-019).
     func start(registry: ActionRegistry, settings: SettingsController, launch: LaunchIdentity, services: AppServices) throws {
         let service = try ControlService.prepare(registry: registry, settings: settings, launch: launch,
-                                                 frameSource: frames, watchdog: watchdog, mainWork: mainWork)
+                                                 frameSource: frames, watchdog: watchdog, mainWork: mainWork,
+                                                 hangs: TraceRuntime.shared.hangWatch)
         self.service = service
         AppMemoryConsumers(services: services).registerControlCaches(service)
         actionBudget = ActionBudgetReporter(monitor: services.actionBudget, naming: ActionReportNaming(catalog: Set(registry.descriptors.map(\.id.rawValue))),
@@ -130,7 +131,7 @@ final class AppControl {
         router.register(ErrorJournalControl(journal: errors.journal, sources: errors.sources).methods)
     }
 
-    /// Resources, extensions, Ghostty diagnostics, `features.list`, `energy.status` and `debug.memory` (release builds too).
+    /// Resources, extensions, Ghostty diagnostics, `features.list`, `energy.status`, `metrics.snapshot` and `debug.memory` (release builds too).
     func registerResourceMethods(_ services: AppServices, on router: ControlRouter) {
         router.register([
             // CPU and memory per tab and workspace, two samples `interval_ms` apart.
@@ -148,6 +149,8 @@ final class AppControl {
             FeatureFlagsPage.report(services.features, tunables: TunableStore.shared).method,
             // Energy Saver's policy and inputs (`cmux energy status`, MCP `energy_status`).
             EnergyReport.statusMethod(services: services),
+            // The field histograms since launch (`cmux metrics`), read-only; `unavailable` until the metricsView feature is on.
+            ControlRouter.metricsMethod(enabled: services.features.isEnabled(.metricsView)),
         ])
         router.register(DebugHibernationControl.methods(services)) // debug.memory serves release builds too
     }

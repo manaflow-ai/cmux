@@ -1,4 +1,6 @@
 import CmuxNextCompat
+import class CmuxSafeConcurrency.OnceContinuation
+import func CmuxSafeConcurrency.withOnceThrowingContinuation
 
 /// One lane item from ``BackgroundWork/runHandle(_:mayBlock:shutdown:fileID:line:_:)``: its result, and the
 /// raise that a later waiter gives it.
@@ -10,7 +12,7 @@ import CmuxNextCompat
 /// `ScopedBoostablePriority` (base/threading/scoped_thread_priority.h). A raise never lowers an item.
 public final class WorkHandle<T: Sendable>: Sendable {
     private enum Outcome {
-        case pending([CheckedContinuation<T, any Error>])
+        case pending([OnceContinuation<T, any Error>])
         case done(Result<T, any Error>)
     }
 
@@ -40,7 +42,7 @@ public final class WorkHandle<T: Sendable>: Sendable {
     public var value: T {
         get async throws {
             scheduler.raise(id, to: WorkPriority(Task.currentPriority), awaited: true)
-            return try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<T, any Error>) in
+            return try await withOnceThrowingContinuation { (continuation: OnceContinuation<T, any Error>) in
                 let ready = outcome.withLock { outcome -> Result<T, any Error>? in
                     switch outcome {
                     case .done(let result):
@@ -64,7 +66,7 @@ public final class WorkHandle<T: Sendable>: Sendable {
 
     /// Stores the item's result and resumes every awaiter; the lane job calls it exactly once.
     func complete(_ result: Result<T, any Error>) {
-        let waiters = outcome.withLock { outcome -> [CheckedContinuation<T, any Error>] in
+        let waiters = outcome.withLock { outcome -> [OnceContinuation<T, any Error>] in
             guard case .pending(let waiters) = outcome else { return [] }
             outcome = .done(result)
             return waiters

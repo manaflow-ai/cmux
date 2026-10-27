@@ -1,5 +1,8 @@
 public import CmuxNextCompat
 public import CmuxNextSettings
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
+import func CmuxSafeConcurrency.withOnceContinuation
 
 /// Recent `action.run` and `action.batch` results by idempotency key (plans/cmux-next/state-ownership.md 4.4).
 ///
@@ -33,8 +36,9 @@ public final class ControlIdempotencyCache: Sendable {
         let cache: ControlIdempotencyCache
         let key: String
 
+        /// A joiner whose waiter is dropped unresumed answers nil, as a run that never started does: the retry runs.
         func outcome() async -> Outcome? {
-            await withCheckedContinuation { continuation in
+            try? await withOnceContinuation { (continuation: OnceContinuation<Outcome?, OnceContinuationError>) in
                 cache.addWaiter(continuation, key: key)
             }
         }
@@ -51,7 +55,7 @@ public final class ControlIdempotencyCache: Sendable {
     private struct Entry {
         var fingerprint: Fingerprint
         var outcome: Outcome?
-        var waiters: [CheckedContinuation<Outcome?, Never>] = []
+        var waiters: [OnceContinuation<Outcome?, OnceContinuationError>] = []
         /// The reply's estimated compact JSON bytes (``estimatedBytes(of:)``), counted once in ``finish(_:with:)``.
         var bytes = 0
     }
@@ -111,7 +115,7 @@ public final class ControlIdempotencyCache: Sendable {
     /// Stores the outcome of a run that started and wakes its joiners.
     func finish(_ key: String, with outcome: Outcome) {
         let bytes = if case .success(let reply) = outcome { Self.estimatedBytes(of: reply) } else { 0 }
-        let waiters = state.withLock { state -> [CheckedContinuation<Outcome?, Never>] in
+        let waiters = state.withLock { state -> [OnceContinuation<Outcome?, OnceContinuationError>] in
             guard var entry = state.entries[key], entry.outcome == nil else { return [] }
             entry.outcome = outcome
             entry.bytes = bytes
@@ -126,7 +130,7 @@ public final class ControlIdempotencyCache: Sendable {
 
     /// Drops the entry of a run that never started, so a retry runs.
     func forget(_ key: String) {
-        let waiters = state.withLock { state -> [CheckedContinuation<Outcome?, Never>] in
+        let waiters = state.withLock { state -> [OnceContinuation<Outcome?, OnceContinuationError>] in
             state.order.removeAll { $0 == key }
             guard let entry = state.entries.removeValue(forKey: key) else { return [] }
             state.bytes -= entry.bytes
@@ -135,7 +139,7 @@ public final class ControlIdempotencyCache: Sendable {
         for waiter in waiters { waiter.resume(returning: nil) }
     }
 
-    fileprivate func addWaiter(_ waiter: CheckedContinuation<Outcome?, Never>, key: String) {
+    fileprivate func addWaiter(_ waiter: OnceContinuation<Outcome?, OnceContinuationError>, key: String) {
         let ready = state.withLock { state -> Outcome?? in
             guard var entry = state.entries[key] else { return .some(nil) }
             if let outcome = entry.outcome { return .some(outcome) }

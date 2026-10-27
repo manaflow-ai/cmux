@@ -109,7 +109,9 @@ launches with CMUX_BLOCKING_TRAP=0 and CMUX_BLOCKING_TRAP_POOL=0, reads `debug.b
 quits and saves each read to OUT/blocking/<session>-<launch>.json; the report's `blocking` section groups the sites by
 (fileID, kind, context), one task p02-threads-R-every-action-<Module> per module (OUT/blocking-tasks.json, the
 design-result task shape, with each #fileID resolved to its file under Packages/**/Sources/<Module>/). Quit-path sites
-are lifecycle-sweep's (RUN-12, p02-threads 307): a record run cannot read a table that ended with its launch.
+are lifecycle-sweep's (RUN-12, p02-threads 307): a record run cannot read a table that ended with its launch; that sweep
+also reads the detector's fault lines from the unified log. Both sweeps group, file and judge sites with one module,
+blocking_sites.py, each under its own task ids.
 --blocking-report=trap launches with CMUX_BLOCKING_TRAP=1 and CMUX_BLOCKING_TRAP_POOL=1 and is RUN-1: the last launch
 quits before the verdict, and the run exits BLOCKING_EXIT (5) unless every launch was read in trap mode, with 0 traps
 (the detector's fatalError lines in OUT/app.log, or an exit or a quit on SIGTRAP), 0 sites and 0 overflow; each trap is
@@ -118,7 +120,7 @@ filed as a site too. A record run never exits on its sites: they are its output.
 --arg=--blocking-report=record (then =trap) to the split-spring.sh command above, with --artifact
 artifacts/split-spring/blocking-tasks.json in a further step.
 """
-import argparse, base64, csv, functools, signal, threading, glob, gzip, hashlib, importlib.util, json, os, platform, re, socket, statistics, subprocess, sys, tempfile, time, traceback
+import argparse, base64, csv, signal, threading, glob, gzip, hashlib, importlib.util, json, os, platform, re, socket, statistics, subprocess, sys, tempfile, time, traceback
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(os.path.dirname(HERE))
@@ -128,6 +130,10 @@ sys.path.append(os.path.join(HERE, "oracle"))
 import action_fixtures  # noqa: E402  (the per-family fixtures this sweep and the oracle share)
 from bench_launch import (BenchApp, LaunchError, PERF_LAB, RecordError, crash_reports, crash_summary,  # noqa: E402
                           load_by_path)
+# The detector's switches, trap lines, site groups and tasks, shared with lifecycle-sweep.py (RUN-12).
+from blocking_sites import (BLOCKING_CONTEXTS, BLOCKING_ENV, BLOCKING_TRAP_LINE, blocking_read_problem,  # noqa: E402,F401
+                            blocking_section, blocking_site_groups, blocking_source_paths, blocking_task_id,
+                            blocking_tasks, blocking_traps, swift_source_index)
 
 # One percentile definition and one result format for every perf script (p12-perf-process.md R8).
 perf_stats = load_by_path("perf_stats", os.path.join(PERF_LAB, "perf_stats.py"))
@@ -198,6 +204,10 @@ RESULT_ENGINE = "chromium"
 # How long a restore waits for the store to apply its own closes (an action's reply comes after the daemon's, the
 # topology after the store's event), as the rebuild's workspace close waits: a bound on a wait for a real change.
 STORE_APPLY_S = 5.0
+# How long a sample's describe waits for the context facts the session set up to be published (Sweep.described).
+CONTEXT_HOLD_S = 2.0
+# A context fact published later than this after the sweep set it up is listed in every-action.md (`context_wait_ms`).
+CONTEXT_LATE_MS = 100
 # The exit status of a run (or a --merge) in which a session failed: the report still lands, with every failure in
 # failed_sessions and in every-action.md, but the run is not a pass (bench-launch-smoke, split-spring.sh's step).
 FAILED_SESSION_EXIT = 3
@@ -208,19 +218,6 @@ GAPS = os.path.join(HERE, "every-action-gaps.json")
 # The exit status of a --blocking-report=trap run (or a --merge of one) that is not RUN-1 clean: a trap, a site, an
 # overflow, a launch whose debug.blocking was not read, or an app that ran the detector in another mode.
 BLOCKING_EXIT = 5
-# The app's environment per --blocking-report mode (BlockingViolationTable reads CMUX_BLOCKING_TRAP once at launch; the
-# pool switch is task 005's). Record says 0 outright, so a Debug default flipped to trap (task 021) still records.
-BLOCKING_ENV = {"record": {"CMUX_BLOCKING_TRAP": "0", "CMUX_BLOCKING_TRAP_POOL": "0"},
-                "trap": {"CMUX_BLOCKING_TRAP": "1", "CMUX_BLOCKING_TRAP_POOL": "1"}}
-# The detector's trap messages (BlockingViolationTable.trap's fatalError, CmuxNextCompat/Threading), as the app's
-# stderr has them in OUT/app.log: "...: Fatal error: blocking <kind> on the main thread at <Module/File.swift>:<line>:
-# move it ..." (recordedSite) and "... on the cooperative pool or a GCD root queue at <Module/File.swift>:<line>: run it
-# ..." (recordedOffMainSite). "Fatal error:" keeps out the record mode's log line of the same words. The words between
-# "on" and "at" name the context.
-BLOCKING_TRAP_LINE = re.compile(r"Fatal error: blocking (?P<kind>[\w-]+) on (?P<where>[^:\n]+?) at (?P<file>[^\s:]+):(?P<line>\d+):")
-# The violation contexts debug.blocking reports (BlockingContext's raw values; lane and dedicated may block). RUN-1
-# (plans/cmux-next/chrome-parity/p02-threads.md section 5) fails on a site of any context or kind.
-BLOCKING_CONTEXTS = ("main", "pool", "cpu-lane")
 # Why a row was skipped (`skip_kind`), set where the skip is decided, never read back from the reason's words:
 #   gap       no fixture: plan() or argument_values() found a context the sweep does not set up, a target kind or
 #             argument it has no value for; or a context the sweep does set up did not hold (the base pane showed no tab of
@@ -662,8 +659,10 @@ SKIPS = [
 ]
 MASS_DESTROY = r"(?i)(closeAll|closeOther|close.*Others|closeTabsTo|merge|ungroupAll|stashAll|stash.*Others|resetLayout)"
 WINDOW_CLOSERS = r"(?i)^(closeWindow|closeAllWindows|closeOtherWindows|window\.close.*)$"
+# textBoxFocused is a terminal's TextBox composer with the keyboard, not the omnibar: the misc family sets it up
+# (oracle/action_fixtures/misc.py).
 CONTEXT_SETUP = {"terminalFocused": "terminal", "browserFocused": "chromium", "webViewFocused": "chromium",
-                 "omnibarFocused": "omnibar", "textBoxFocused": "omnibar", "agentPaneFocused": "chat", "signedOut": None}
+                 "omnibarFocused": "omnibar", "agentPaneFocused": "chat", "signedOut": None}
 
 # What each checked action does, by exact catalog id (plans/cmux-next/action-surfaces.json). Exact ids, not prefixes:
 # a prefix also caught newWorkspaceGroup (makes a group, not a workspace), nextWorkspaceGroup (no move without groups)
@@ -1586,7 +1585,7 @@ class Sweep:
             return row
         row["entry"] = "key" if plan["key"] else "action"
         row["context"] = plan["context"]
-        samples, errors, checks, drifts = [], [], [], []
+        samples, errors, checks, drifts, context_waits = [], [], [], [], []
         toggled = toggles(ident)
 
         def ready():
@@ -1602,8 +1601,8 @@ class Sweep:
             why = self.enter_contexts(plan["families"])
             if why:
                 return None, why[:200], "gap"
-            described = rpc("action.describe", {"action": ident})
-            info = (described or {}).get("action") if isinstance(described, dict) else None
+            info, waited = self.described(ident)
+            context_waits.append(waited)
             if info and info.get("available") is False and not plan["args"]:
                 why = info.get("context_reason") or info.get("unavailable_reason") or "context"
                 return None, f"unavailable here: {why}", "gap"
@@ -1687,6 +1686,8 @@ class Sweep:
                 break
         if stopped and self.entered:
             drifts.extend(self.restore(ident, False))  # a context entered before the stop is left, its extras closed
+        if context_waits:
+            row["context_wait_ms"] = max(context_waits)
         if stopped and not samples:
             row.update(skipped=stopped, skip_kind=stopped_kind)
             if drifts:
@@ -1728,6 +1729,25 @@ class Sweep:
         if starts:
             row["from_pane"] = starts
         return row
+
+    def described(self, ident):
+        """(action.describe's `action` for `ident`, ms it waited) once the context facts the action requires are
+        published, or its last answer after CONTEXT_HOLD_S (None when describe does not answer). plan() lets through
+        only facts the session sets up (CONTEXT_SETUP or a family), so a `missing_context` here is one the show() or
+        fixture just made and the app has not published yet. The wait only reads: a fact that never comes stays the
+        row's `unavailable here` gap, and the ms a fact took is the row's `context_wait_ms`, so a late publish shows in
+        the report instead of passing as on time."""
+        last, start = {}, time.monotonic()
+
+        def holds():
+            reply = rpc("action.describe", {"action": ident})
+            info = reply.get("action") if isinstance(reply, dict) else None
+            last["info"] = info if isinstance(info, dict) else None
+            missing = (last["info"] or {}).get("missing_context") or []
+            return not last["info"] or last["info"].get("available") is not False or not missing
+
+        wait(holds, CONTEXT_HOLD_S)
+        return last.get("info"), round((time.monotonic() - start) * 1000, 1)
 
     def enter_contexts(self, keys):
         """Enters each family context of `keys` (plan()'s `families`) in order: None, or why one did not hold. A key
@@ -2595,6 +2615,11 @@ def markdown(report):
                 why = row.get("expected_refusal") or (row.get("errors") or ["refused"])[0]
                 lines.append(f"- {row['id']}{' (policy)' if row.get('expected_refusal') else ''}: {why[:160]} "
                              f"(refusal timing: commit p95 {(row.get('commit_ms') or {}).get('p95')} ms)")
+        late = [r for r in session["rows"] if (r.get("context_wait_ms") or 0) > CONTEXT_LATE_MS]
+        if late:
+            lines += ["", f"Context published late (over {CONTEXT_LATE_MS} ms after the sweep set it up) ({len(late)}):", ""]
+            lines += [f"- {row['id']}: {row['context_wait_ms']} ms{' (never; skipped)' if row.get('skipped') else ''}"
+                      for row in sorted(late, key=lambda r: -r["context_wait_ms"])]
         cut = [r for r in session["rows"] if r.get("cut_short")]
         if cut:
             lines += ["", f"Cut short (fewer samples than --repeat; the samples that ran are the row) ({len(cut)}):", ""]
@@ -2886,167 +2911,6 @@ COVERAGE_ORDER = ("gap", "harness", "no-run", "refused", "pattern", "policy", "s
 # The categories that count as a gap (no session measured the action's handler at work): everything but a reviewed
 # exclusion and a policy refusal.
 GAP_CATEGORIES = ("gap", "harness", "no-run", "refused", "state")
-
-
-def blocking_traps(log_path, start=0):
-    """The detector's traps in the app log from byte `start` on: one {kind, context, location} per BLOCKING_TRAP_LINE."""
-    try:
-        with open(log_path, errors="replace") as f:
-            f.seek(start)
-            text = f.read()
-    except OSError:
-        return []
-    return [{"kind": m["kind"], "context": "main" if m["where"].strip() == "the main thread" else
-             ("pool" if "pool" in m["where"] else m["where"].strip()), "location": f"{m['file']}:{m['line']}"}
-            for m in BLOCKING_TRAP_LINE.finditer(text)]
-
-
-def blocking_site_groups(reads, traps=()):
-    """The sites of every read debug.blocking reply, one group per (fileID, kind, context) (MQ-10): its lines, count,
-    and the sessions it was seen in. A site without `context` is main (the detector before task 005 checks only main).
-    A trap from app.log is a site of session "trap": the launch stopped there (or while it quit), so no read has it."""
-    groups = {}
-
-    def add(location, kind, context, count, session, max_ms=None):
-        location = str(location or "?")
-        file_id, _, line = location.rpartition(":")
-        file_id = file_id if line.isdigit() else location
-        key = (file_id, str(kind or "?"), str(context or "main"))
-        group = groups.setdefault(key, {"file_id": key[0], "kind": key[1], "context": key[2],
-                                        "module": key[0].split("/", 1)[0], "lines": set(), "count": 0,
-                                        "sessions": set(), "max_ms": None})
-        if line.isdigit():
-            group["lines"].add(int(line))
-        group["count"] += count
-        group["sessions"].add(session)
-        if isinstance(max_ms, (int, float)):
-            group["max_ms"] = max(group["max_ms"] or 0, max_ms)
-
-    for read in reads:
-        reply = read.get("reply")
-        if blocking_read_problem(reply, None):
-            continue
-        for site in reply.get("sites") or []:
-            add(site.get("location"), site.get("kind"), site.get("context"), int(site.get("count") or 0),
-                str(read.get("session")), site.get("max_ms"))
-    for trap in traps:
-        add(trap.get("location"), trap.get("kind"), trap.get("context"), 1, "trap")
-    return [dict(g, lines=sorted(g["lines"]), sessions=sorted(g["sessions"]))
-            for _, g in sorted(groups.items(), key=lambda kv: (kv[1]["module"], kv[0]))]
-
-
-@functools.lru_cache(maxsize=None)
-def swift_source_index(root=ROOT):
-    """(module folder, file name) -> the repo's paths Packages/**/Sources/<Module>/**/<File>.swift. A site's location
-    is Swift's #fileID, `Module/File.swift`, without the folders inside the module, in any package the detector
-    links (CmuxNext and the Shared packages). From `git ls-files`, or a walk of Packages without git."""
-    try:
-        listed = subprocess.run(["git", "-C", root, "ls-files", "-z", "--", "Packages/*.swift"], capture_output=True,
-                                timeout=60, check=True).stdout.decode(errors="replace").split("\0")
-    except (OSError, subprocess.SubprocessError):
-        listed = []
-        for folder, dirs, names in os.walk(os.path.join(root, "Packages")):
-            dirs[:] = [d for d in dirs if not d.startswith(".")]  # .build and other caches
-            listed += [os.path.relpath(os.path.join(folder, n), root) for n in names if n.endswith(".swift")]
-    index = {}
-    for path in listed:
-        parts = path.split("/")
-        if "Sources" in parts and parts.index("Sources") + 2 < len(parts):
-            index.setdefault((parts[parts.index("Sources") + 1], parts[-1]), []).append(path)
-    return index
-
-
-def blocking_source_paths(file_id, index):
-    """The repo files a #fileID `Module/File.swift` can be: one when it resolves, none or several when it does not."""
-    module, slash, name = file_id.partition("/")
-    return sorted(index.get((module, os.path.basename(name)), [])) if slash else []
-
-
-def blocking_task_id(module, sweep="every-action"):
-    """A site task's id, from its sweep and module only: a rerun after some modules were fixed, and lifecycle-sweep
-    (task 307) filing its own sites, never give a filed id to other work."""
-    return f"p02-threads-R-{sweep}-{module}"
-
-
-def blocking_tasks(groups, index=None, sweep="every-action"):
-    """One task per module of the site groups (MQ-10, blocking_task_id), in the design-result task shape, to fix with
-    the MQ-1 recipe (task 060) and rerun with traps. `files` are the real paths of the sites' #fileIDs
-    (swift_source_index); a fileID with no single match is `unresolved`, with its candidates, and the change says so."""
-    index = swift_source_index() if index is None else index
-    modules = {}
-    for group in groups:
-        modules.setdefault(group["module"], []).append(dict(group, paths=blocking_source_paths(group["file_id"], index)))
-    tasks = []
-    for module, items in sorted(modules.items()):
-        sites = [f"{g['file_id']}:{','.join(map(str, g['lines'])) or '?'} {g['kind']} ({g['context']}, {g['count']}x)"
-                 for g in items]
-        unresolved = {g["file_id"]: g["paths"] for g in items if len(g["paths"]) != 1}
-        change = ("MQ-1 recipe (task 060) for each site: the seam, and the call moved off its context (main, pool or "
-                  "the wrong lane) in the same commit. Sites: " + "; ".join(sites))
-        if unresolved:
-            change += (". Unresolved fileIDs (no single Packages/**/Sources/<Module>/**/<File>): "
-                       + "; ".join(f"{f} ({', '.join(c) if c else 'no file'})" for f, c in sorted(unresolved.items())))
-        tasks.append({"id": blocking_task_id(module, sweep), "title": f"runtime blocking sites in {module} ({len(items)} groups)",
-                      "files": sorted({p for g in items for p in g["paths"]}), "unresolved": unresolved,
-                      "change": change,
-                      "acceptance": "every-action-sweep.py --blocking-report=trap (RUN-1) reports none of these sites "
-                                    "and 0 traps; a red-first test per changed user-reachable path.",
-                      "test_phase": "T1; T2", "size": "S" if len(items) <= 3 else "M", "depends_on": ["p02-threads-300"],
-                      "machine_queue": "MQ-10", "sites": items})
-    return tasks
-
-
-def blocking_read_problem(reply, mode):
-    """Why a debug.blocking reply cannot count as a launch's sites, or None: an error, a build without the detector
-    (a bench build answers compiled_in false with no sites, which is not "no blocking"), or, when `mode` is "trap",
-    a detector whose main or pool mode is not trap (RUN-1 needs both)."""
-    if not isinstance(reply, dict):
-        return f"no reply ({reply!r})"
-    if error_of(reply):
-        return str(error_of(reply))
-    if reply.get("compiled_in") is not True:
-        return "the build has no blocking detector (compiled_in is not true)"
-    if mode == "trap" and (reply.get("mode"), reply.get("pool_mode")) != ("trap", "trap"):
-        return f"the detector ran in mode {reply.get('mode')!r}, pool_mode {reply.get('pool_mode')!r}, not trap"
-    return None
-
-
-def blocking_section(mode, reads, traps, partial=False, last_quit=None, index=None):
-    """The report's `blocking` section: the reads (`unread`: the launches whose reply cannot count), the traps, the
-    site groups and their tasks, and the RUN-1 verdict of a trap run (`run1`: problems, empty when clean). A record
-    run has no verdict (its sites are its output). `last_quit`: why the last launch's quit was not checked, or None."""
-    groups = blocking_site_groups(reads, traps)
-    overflow = sum(int((r.get("reply") or {}).get("overflow") or 0) for r in reads if isinstance(r.get("reply"), dict))
-    unread = [f"{r.get('session')} launch {r.get('launch')}: {why}" for r in reads
-              if (why := blocking_read_problem(r.get("reply"), mode))]
-    section = {"mode": mode, "reads": reads, "unread": unread, "traps": traps, "groups": groups,
-               "tasks": blocking_tasks(groups, index), "sites": sum(len(g["lines"]) or 1 for g in groups),
-               "overflow": overflow, "last_quit": last_quit,
-               "contexts": {c: sum(1 for g in groups if g["context"] == c) for c in
-                            sorted(set(BLOCKING_CONTEXTS) | {g["context"] for g in groups})},
-               "kinds": {k: sum(1 for g in groups if g["kind"] == k) for k in sorted({g["kind"] for g in groups})}}
-    if mode != "trap":
-        return section
-    problems = []
-    if not reads:
-        problems.append("no launch was read")
-    problems += [f"{r.get('session')} launch {r.get('launch')} exited on SIGTRAP" for r in reads
-                 if r.get("exit") == -signal.SIGTRAP]
-    problems += [f"{r.get('session')} launch {r.get('launch')} trapped while it quit (SIGTRAP)" for r in reads
-                 if r.get("quit_exit") == -signal.SIGTRAP and r.get("exit") != -signal.SIGTRAP]
-    if last_quit:
-        problems.append(f"{last_quit}: its quit is not checked")
-    problems += [f"not read: {why}" for why in unread]
-    if traps:
-        problems.append(f"{len(traps)} trap(s): " + ", ".join(f"{t['location']} {t['kind']}" for t in traps[:10]))
-    read_groups = [g for g in groups if g["sessions"] != ["trap"]]
-    if read_groups:
-        problems.append(f"{len(read_groups)} site group(s): "
-                        + ", ".join(f"{g['file_id']} {g['kind']}" for g in read_groups[:10]))
-    if overflow:
-        problems.append(f"overflow {overflow}")
-    section["run1"] = {"clean": not problems, "problems": problems, "whole_catalog": not partial}
-    return section
 
 
 def blocking_lines(section):

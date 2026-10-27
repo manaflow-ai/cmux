@@ -130,6 +130,8 @@ public final class ChromiumHostPageView: NSView {
     var accessibilityWindowClose: EventSubscription?
     /// Drags from outside into the page (ChromiumHostPageView+Drag.swift); none until ``takeDrags(through:)``.
     let dragDestination = ChromiumHostDragDestination()
+    /// The page's autofill, password and `<datalist>` suggestions, drawn by cmux (task 061).
+    private(set) lazy var suggestions = ChromiumHostSuggestionList(view: self)
     /// The window's part of the page's visibility (ChromiumHostPageView+Visibility.swift): hidden
     /// out of a window, in a minimized window or a hidden app; occluded in a covered window.
     let windowNode: VisibilityNode
@@ -163,6 +165,13 @@ public final class ChromiumHostPageView: NSView {
     /// Whether the page shown now is a cmux page (host mode's counterpart of ``CEFTab/pageThemeSurface``),
     /// asked of the page's owner (``CEFPaneHost/hostedPage()``): no macOS caret accessory over its fields.
     var showsCmuxPage: @MainActor () -> Bool = { false }
+    /// Each scroll goes here first (the pane's swipe navigation, `CEFSwipeNavigation.handleHosted`); true when it
+    /// took the scroll (a swipe tracks it), which then never reaches the page. Chrome's page view hands its
+    /// scrolls to its history swiper the same way (`-[RenderWidgetHostViewCocoa scrollWheel:]`).
+    var wheelGesture: ((NSEvent) -> Bool)?
+    /// The input seq of the last wheel frame this view sent, 0 before any: WHEEL_ACKs of a gesture's own
+    /// wheels carry later seqs (task p01-process-234).
+    private(set) var lastWheelSeq: UInt32 = 0
     private var tracking: NSTrackingArea?
     #endif
 
@@ -399,11 +408,13 @@ extension ChromiumHostPageView {
     public override func mouseExited(with event: NSEvent) { mouse(event, phase: 3, button: 0) }
 
     public override func scrollWheel(with event: NSEvent) {
+        if wheelGesture?(event) == true { return }
         let point = pagePoint(event)
-        _ = sink?(ChromiumHostFrame.wheel(.init(
+        let receipt = sink?(ChromiumHostFrame.wheel(.init(
             x: point.x, y: point.y, deltaX: Double(event.scrollingDeltaX), deltaY: Double(event.scrollingDeltaY),
             precise: event.hasPreciseScrollingDeltas, phase: event.phase.rawValue, momentumPhase: event.momentumPhase.rawValue,
             modifierFlags: UInt64(event.modifierFlags.rawValue), time: Self.nanoseconds(event.timestamp))))
+        if let receipt { lastWheelSeq = receipt.seq }
     }
 
     /// A down ends an open composition first, keeping its text (``textInputMouseDown()``).
@@ -419,19 +430,6 @@ extension ChromiumHostPageView {
     func pagePoint(_ event: NSEvent) -> (x: Int32, y: Int32) {
         let local = convert(event.locationInWindow, from: nil)
         return (Int32(local.x.rounded(.down)), Int32((bounds.height - local.y).rounded(.down)))
-    }
-
-    // MARK: Edit menu
-
-    @objc public func copy(_ sender: Any?) { edit(0) }
-    @objc public func cut(_ sender: Any?) { edit(1) }
-    @objc public func paste(_ sender: Any?) { edit(2) }
-    @objc public override func selectAll(_ sender: Any?) { edit(3) }
-    @objc public func undo(_ sender: Any?) { edit(4) }
-    @objc public func redo(_ sender: Any?) { edit(5) }
-
-    private func edit(_ command: Int32) {
-        _ = sink?(ChromiumHostFrame(.edit, v: [command]))
     }
 
     /// An event time (seconds since boot) as CLOCK_UPTIME_RAW nanoseconds, the host's clock too: the input latency

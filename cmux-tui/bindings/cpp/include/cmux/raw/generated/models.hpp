@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "fe84acbe2f8a991aef2f52252cb62b788905b404c1ad8fac0cfba766a8397876";
+inline constexpr std::string_view kProtocolIrSha256 = "df10717146553dfa363854f65845a400d363319d750b9f1e04386389220171be";
 
 enum class AccessRequestKind;
 struct AccessRequestPending;
@@ -4528,6 +4528,7 @@ struct IdentifyResult {
     Field<std::uint32_t> api_revision{};
     Field<std::string> build_commit{};
     Field<std::string> build_id{};
+    Field<std::uint32_t> bulk_frame_max{};
     std::optional<std::vector<std::string>> capabilities{};
     Field<std::string> cli_path{};
     Field<std::string> crate_version{};

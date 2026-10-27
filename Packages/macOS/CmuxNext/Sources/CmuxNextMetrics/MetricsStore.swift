@@ -171,6 +171,14 @@ public final class MetricsStore: Sendable {
         }
     }
 
+    /// Every sample since the store was made, uploads or not, per histogram with samples (``MetricsImage/totals()``):
+    /// what `metrics.snapshot` and View Metrics show. Waits while an adoption folds the heap into the file.
+    public func totals() -> MetricsDelta {
+        shadow.withLock { address in
+            shadowImage(at: address)?.totals() ?? MetricsDelta(profile: profile, histograms: [])
+        }
+    }
+
     /// Adds an uploaded `delta` (from ``delta()``) to the logged shadow, so the next delta leaves its samples out.
     /// One owner (the report uploader) calls it, once per delta, after the upload succeeded. Waits while an
     /// adoption folds the heap into the file.

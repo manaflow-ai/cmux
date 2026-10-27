@@ -1,3 +1,4 @@
+import CmuxNextPages
 import Foundation
 
 /// The user's agent pane customization (``AgentPaneCustomization``: `theme.css`, `layout.json`,
@@ -14,7 +15,7 @@ extension AgentPaneView {
     /// script element the page makes.
     func runPageHostRegistry() {
         guard let script = customization.registryScript else { return }
-        evaluateScript(script)
+        evaluateScript(script, whileFrozen: .latest(.pageHostRegistry))
     }
 
     /// Re-pushes a non-empty ``customization`` to a page that may not have
@@ -24,4 +25,9 @@ extension AgentPaneView {
         guard !customization.isEmpty else { return }
         applyCustomization()
     }
+}
+
+nonisolated extension PagePushKind {
+    /// The user's `registry.js`, run as a host script (``AgentPaneView/runPageHostRegistry()``).
+    static let pageHostRegistry = PagePushKind("agent.pageHostRegistry")
 }

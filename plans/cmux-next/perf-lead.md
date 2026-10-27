@@ -188,6 +188,14 @@ push), and writes its before/after table into this file's section 5.
   `cef-layer-hosting-DESIGN.md`.
 - **PL-typing**: issue 5 and the terminal key-to-frame baseline; sidebar-caused lag goes to a590 (the
   sidebar owner, who took a576's work).
+- **PL-input** (chrome-parity program p04-input, 2026-10-26): input before all other main-thread
+  work, continuous input once per frame, scroll on layers, prediction that moves only pixels,
+  O(1) key routing, and EventLatency from the OS event to the presented frame. Owns the
+  CmuxNextInput* targets ([OWNERS.md](OWNERS.md)); PL-typing keeps the key router. Red rows: 5
+  and 6 (key to frame under load) and the input half of 26. Target: key to presented frame p50
+  <= 8.3 ms and p99 <= 16.7 ms at 120 Hz, light and STRESS. Design:
+  [input-pipeline-DESIGN.md](input-pipeline-DESIGN.md); spec and task table:
+  [chrome-parity/p04-input.md](chrome-parity/p04-input.md).
 
 Batch 2 (after batch 1 lands): issues 8, 9, 11, 15-20.
 

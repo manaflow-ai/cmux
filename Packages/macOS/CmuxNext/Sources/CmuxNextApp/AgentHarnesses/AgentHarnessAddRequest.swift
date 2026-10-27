@@ -74,11 +74,14 @@ nonisolated enum AgentHarnessFailure: Error, Equatable {
     case noDaemon
     /// The daemon predates the harness operations.
     case unsupported
+    /// `harness doctor` answered with a failed step; the text names the agent, the step and its fix.
+    case doctorFailed(String)
 
     var message: String {
         switch self {
         case .noDaemon: AgentHarnessStrings.noDaemon
         case .unsupported: AgentHarnessStrings.unsupported
+        case .doctorFailed(let text): text
         }
     }
 }

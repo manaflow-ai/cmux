@@ -3,6 +3,9 @@ import Foundation
 import os
 import CmuxNextCompat
 import struct CmuxNextDaemon.POSIXErrorText
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
+import func CmuxSafeConcurrency.withOnceContinuation
 
 /// Starts a detached acpmux daemon and returns its WebSocket endpoint from
 /// the `--ready-fd` line, so a fresh daemon needs no status round trip.
@@ -273,9 +276,10 @@ nonisolated enum AcpmuxDaemonLauncher {
     /// armed for a shell that exited before. A shell that never exited would hold the launch; the script only
     /// backgrounds the daemon, in its own session (no terminal can stop it), so it cannot.
     private static func reap(_ pid: pid_t) async {
-        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+        // A watch dropped without its exit event ends the wait (abandoned): the launch goes on.
+        try? await withOnceContinuation { (continuation: OnceContinuation<Void, OnceContinuationError>) in
             ChildExitWatch(pid: pid, queue: DispatchQueue(label: "cmux.next.agent-pane.acpmux-launch-reap.\(pid)", qos: .userInitiated))
-                .start { _ in continuation.resume() }
+                .start { _ in continuation.resume(returning: ()) }
         }
     }
 }

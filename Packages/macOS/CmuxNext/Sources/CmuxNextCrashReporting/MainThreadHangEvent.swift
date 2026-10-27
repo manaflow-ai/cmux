@@ -89,15 +89,7 @@ public nonisolated struct MainThreadHangEvent: Sendable {
                 return thread
             }
         }
-        event.debugMeta = images.map { image in
-            let meta = DebugMeta()
-            meta.type = "macho"
-            meta.debugID = image.uuid
-            meta.imageAddress = Self.hex(image.base)
-            meta.imageSize = NSNumber(value: image.size)
-            meta.codeFile = image.path
-            return meta
-        }
+        event.debugMeta = Self.debugMeta(images)
         event.tags = ["hang_source": "main_thread_watchdog"]
         if let phase { event.tags?["main_thread_phase"] = phase }
         event.extra = ["hang_ms": Int(duration / .milliseconds(1))]
@@ -113,8 +105,21 @@ public nonisolated struct MainThreadHangEvent: Sendable {
     /// The most frames the other threads add to one event (about 100 bytes each without a package).
     static let otherFrameLimit = 2_000
 
+    /// The debug images Sentry symbolicates `images`' frames with.
+    static func debugMeta(_ images: [Image]) -> [DebugMeta] {
+        images.map { image in
+            let meta = DebugMeta()
+            meta.type = "macho"
+            meta.debugID = image.uuid
+            meta.imageAddress = hex(image.base)
+            meta.imageSize = NSNumber(value: image.size)
+            meta.codeFile = image.path
+            return meta
+        }
+    }
+
     /// Sentry frames run outermost first; a sample lists innermost first.
-    private static func stacktrace(_ addresses: [UInt], images: [Image], packages: Bool) -> SentryStacktrace {
+    static func stacktrace(_ addresses: [UInt], images: [Image], packages: Bool) -> SentryStacktrace {
         let frames: [Frame] = addresses.reversed().map { address in
             let frame = Frame()
             frame.instructionAddress = hex(UInt64(address))

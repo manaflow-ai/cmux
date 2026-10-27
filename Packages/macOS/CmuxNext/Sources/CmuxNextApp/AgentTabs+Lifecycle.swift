@@ -35,14 +35,14 @@ extension AgentTabStore {
               linked: Bool = false, adopt: AgentPaneAdopt? = nil, host: String? = nil,
               idempotencyKey: String = UUID().uuidString.lowercased(), split: SplitDirection? = nil, timing: CreateTabInterval? = nil) throws -> AgentTabPending {
         guard let localHost, holdsTabs(daemon), reachable(daemon) else {
-            if let spare, recycle?(spare) != true { retirer.retire(spare) }
+            if let spare, recycle?(spare) != true { spare.retire(on: retirer) }
             let reason = !reachable(daemon) ? RefusalStrings.agentTabsDisconnected
                 : localHost == nil ? RefusalStrings.agentTabCreateFailed : RefusalStrings.agentTabsUnsupported
             throw AgentTabRefusal(message: reason)
         }
         let record: AgentSessionRef
         if let refusal = Self.hostRefusal(host, localHost: localHost, chiefHost: chiefHost, daemonIsLocal: daemon.isLocal) {
-            if let spare, recycle?(spare) != true { retirer.retire(spare) }
+            if let spare, recycle?(spare) != true { spare.retire(on: retirer) }
             throw AgentTabRefusal(message: refusal)
         }
         // A chat a chat of that machine started there (its daemon listed it, `agent-session-children`):
@@ -54,7 +54,7 @@ extension AgentTabStore {
         // the New Tab page's open-here included). The store binds a `registry:` tab's session only
         // through that machine's agent-session-start (cmux-tui conversation_tabs_wire.rs).
         if !daemon.isLocal, !remoteChild, session != nil || adopt != nil || seed?.namesLocalChat == true {
-            if let spare, recycle?(spare) != true { retirer.retire(spare) }
+            if let spare, recycle?(spare) != true { spare.retire(on: retirer) }
             throw AgentTabRefusal(message: RefusalStrings.agentTabMachineMismatch)
         }
         // A new chat in a pane of another machine runs on that machine: the tab records that
@@ -65,13 +65,13 @@ extension AgentTabStore {
         var seed = seed, spare = spare
         if remote {
             guard let registry = Self.registryHost(of: daemon) else {
-                if let spare, recycle?(spare) != true { retirer.retire(spare) }
+                if let spare, recycle?(spare) != true { spare.retire(on: retirer) }
                 throw AgentTabRefusal(message: RefusalStrings.agentTabsDisconnected)
             }
             // The same New Tab page shows (its terminal and browser choices act in this pane); its
             // chat starts on that machine at the first send (``RemoteAcpmuxWire``). A prewarmed
             // spare is connected to this Mac's acpmux, so it is never adopted here.
-            if let spare, recycle?(spare) != true { retirer.retire(spare) }
+            if let spare, recycle?(spare) != true { spare.retire(on: retirer) }
             seed = remoteChild ? nil : (seed ?? AgentPaneSeedSource(AgentPaneSeed(cwd: newTab?.page.cwd)))
             spare = nil
             record = AgentSessionRef(host: registry, hostName: remoteMachineName(daemon), session: remoteChild ? session : nil, harness: nil)
@@ -208,7 +208,7 @@ extension AgentTabStore {
         if remoteCreations[key] != nil || remoteSeeds[key] != nil { remoteAliases[key] = real }
         if let view = views.removeValue(forKey: key) {
             // A page made under the store's id meanwhile (another window) gives way to the one shown.
-            if let other = views[real], other !== view { retirer.retire(other) }
+            if let other = views[real], other !== view { other.retire(on: retirer) }
             views[real] = view
         }
         if let value = sessions.removeValue(forKey: key) { sessions[real] = value }
@@ -322,7 +322,7 @@ extension AgentTabStore {
             if newTabPages[key] != nil, recycle?(view) == true {
                 standaloneViews.add(view)
             } else {
-                retirer.retire(view)
+                view.retire(on: retirer)
             }
         }
         notices[key] = nil

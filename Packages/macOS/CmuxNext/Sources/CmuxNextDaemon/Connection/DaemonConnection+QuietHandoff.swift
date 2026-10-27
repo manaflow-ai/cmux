@@ -1,4 +1,7 @@
 import CmuxNextWakeups
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
+import func CmuxSafeConcurrency.withOnceContinuation
 import Foundation
 
 /// A handoff of this connection's daemon that cuts no request (hq-6d 2026-10-14: a cut Home send is
@@ -22,9 +25,14 @@ extension DaemonConnection {
     /// `quietHandoff` for a handoff whose result says whether the daemon accepted it.
     public func quietHandoff<Result: Sendable>(_ handoff: @Sendable () async -> Result,
                                                accepted: (Result) -> Bool) async -> Result {
-        while handoffHold != nil { await withCheckedContinuation { handoffQueue.append($0) } }
+        // A queued or quiet waiter dropped unresumed goes on as a resumed one does.
+        while handoffHold != nil {
+            _ = try? await withOnceContinuation { (next: OnceContinuation<Void, OnceContinuationError>) in handoffQueue.append(next) }
+        }
         handoffHold = [:]
-        if inFlight > 0 { await withCheckedContinuation { quietWaiters.append($0) } }
+        if inFlight > 0 {
+            _ = try? await withOnceContinuation { (quiet: OnceContinuation<Void, OnceContinuationError>) in quietWaiters.append(quiet) }
+        }
         let startSerial = serial
         // concurrency-allow: async binding on the connection actor, always inside a Swift task (no fallback storage, cx-bpcj)
         let result = await Self.$passesHandoffHold.withValue(true) { await handoff() }
@@ -44,8 +52,12 @@ extension DaemonConnection {
             handoffHoldNext += 1
             let key = handoffHoldNext
             await withTaskCancellationHandler {
-                await withCheckedContinuation { continuation in
-                    if handoffHold == nil { continuation.resume() } else { handoffHold?[key] = continuation }
+                _ = try? await withOnceContinuation { (continuation: OnceContinuation<Void, OnceContinuationError>) in
+                    guard handoffHold == nil else {
+                        handoffHold?[key] = continuation
+                        return
+                    }
+                    continuation.resume(returning: ())
                 }
             } onCancel: {
                 // task-owner: one hop back to the actor to resume this cancelled request's continuation
@@ -55,7 +67,7 @@ extension DaemonConnection {
     }
 
     private func leaveHandoffHold(_ key: UInt64) {
-        handoffHold?.removeValue(forKey: key)?.resume()
+        handoffHold?.removeValue(forKey: key)?.resume(returning: ())
     }
 
     func requestStarted() { inFlight += 1 }
@@ -65,7 +77,7 @@ extension DaemonConnection {
         guard inFlight == 0, !quietWaiters.isEmpty else { return }
         let waiters = quietWaiters
         quietWaiters.removeAll()
-        waiters.forEach { $0.resume() }
+        waiters.forEach { $0.resume(returning: ()) }
     }
 
     /// Lets the held requests go (a new connection is ready, the connection closed, the handoff
@@ -75,9 +87,9 @@ extension DaemonConnection {
         handoffHold = nil
         handoffHoldTimer?.cancel()
         handoffHoldTimer = nil
-        held.values.forEach { $0.resume() }
+        held.values.forEach { $0.resume(returning: ()) }
         let queued = handoffQueue
         handoffQueue.removeAll()
-        queued.forEach { $0.resume() }
+        queued.forEach { $0.resume(returning: ()) }
     }
 }

@@ -2106,6 +2106,25 @@ class WarningTests(Fixture):
         hot = [w for kind, w in self.check()[1] if kind == "perf-hot"]
         self.assertTrue(any("Router.swift:8:" in w and "marks no declaration" in w for w in hot), hot)
 
+    def test_list_perf_hot_prints_each_ids_resolved_markers(self):
+        def listed(*ids):
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out):
+                code = guardrails.main(["--repo", str(self.repo), "--list-perf-hot", *ids])
+            return code, out.getvalue()
+
+        code, text = listed("key-dispatch")
+        self.assertEqual(code, 0, text)
+        self.assertIn("key-dispatch: 1 marker\n", text)
+        self.assertIn(f"{KIT}/Router.swift:4: 2ms, marks `func dispatch(_ key: Int) {{`", text)
+        self.assertEqual(listed("no-such-id")[0], 1, "an id not in the benches file fails")
+        self.write(f"{KIT}/Router.swift", HOT.replace(" // perf-hot: 2ms key-dispatch", "").replace(
+            "        count = 0\n", "        count = 0 // perf-hot: 2ms key-dispatch\n"))
+        code, text = listed()
+        self.assertEqual(code, 1, text)
+        self.assertIn("key-dispatch: 0 markers (none)", text)
+        self.assertIn("MARKS NO DECLARATION", text)
+
     def test_codebase_health_counts_the_markers_the_guardrails_resolve(self):
         spec = importlib.util.spec_from_file_location("cmux_next_codebase_health", SOURCE / "scripts/cmux-next/codebase-health.py")
         health = importlib.util.module_from_spec(spec)

@@ -839,7 +839,7 @@ struct SurfaceParams {
                 "literals": {
                     "machine-catalog-publish": {
                         "request": ["client_registry/machine_catalog.rs::Nope"],
-                        "handler": "try_handle",
+                        "handler": "handle",
                     }
                 },
                 "authority": "local-admin",
@@ -857,7 +857,7 @@ struct SurfaceParams {
                         "machine-catalog-publish": {
                             "request": ["client_registry/machine_catalog.rs::Publication"],
                             "fields": fields,
-                            "handler": "try_handle",
+                            "handler": "handle",
                         }
                     },
                     "authority": "local-admin",

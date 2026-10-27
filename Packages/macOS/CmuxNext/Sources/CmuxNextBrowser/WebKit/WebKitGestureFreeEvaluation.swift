@@ -1,4 +1,6 @@
 package import WebKit
+import class CmuxSafeConcurrency.OnceContinuation
+import func CmuxSafeConcurrency.withOnceThrowingContinuation
 
 /// A script in a WebKit page without a user gesture (`BrowserScriptGesture.cmux`). Every public
 /// WKWebView evaluation (`evaluateJavaScript`, `callAsyncJavaScript`) runs with a forced user
@@ -105,11 +107,13 @@ package struct WebKitGestureFreeEvaluation {
     /// Fire and forget: a script whose answer nobody reads (a clear, an exit); an engine without a
     /// gesture-free path runs nothing.
     package func run(_ script: String, in world: WKContentWorld) {
+        // main-hop-allow: the send is a main-thread-only WKWebView call whose script runs in the web content process; the task only sends it, and nobody reads its answer
         Task { _ = try? await evaluate(script, in: world) }
     }
 
     private func answer(_ send: (@escaping Completion) -> Void) async throws -> BrowserJSValue {
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<BrowserJSValue, any Error>) in
+        // An SPI completion dropped uncalled throws OnceContinuationError.abandoned instead of hanging.
+        try await withOnceThrowingContinuation { (continuation: OnceContinuation<BrowserJSValue, any Error>) in
             send { value, error in
                 if let error { continuation.resume(throwing: error) } else { continuation.resume(returning: BrowserJSValue(foundation: value)) }
             }

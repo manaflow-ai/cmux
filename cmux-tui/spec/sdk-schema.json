@@ -2165,6 +2165,17 @@
       "The command that updates this daemon's install (npm and PyPI only), for a client's version-skew refusal. Only with identify {revisions: true}."
      ]
     },
+    "bulk_frame_max": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint32"
+     },
+     "presence": "optional",
+     "nullable": true,
+     "constraints": [
+      "The longest stream frame, in bytes, a connection writes whole; longer frames leave in chunks between control replies (CMUX_IPC_BULK_FRAME_MAX). Only with identify {revisions: true}."
+     ]
+    },
     "capabilities": {
      "type": {
       "kind": "array",
@@ -13164,7 +13175,7 @@
       "nullable": false,
       "since": 12,
       "constraints": [
-       "Adds api_revision, min_api_revision, crate_version, install and update_command to the reply. Off by default so strict older SDK decoders keep reading the reply."
+       "Adds api_revision, min_api_revision, crate_version, install, update_command and bulk_frame_max to the reply. Off by default so strict older SDK decoders keep reading the reply."
       ]
      }
     },

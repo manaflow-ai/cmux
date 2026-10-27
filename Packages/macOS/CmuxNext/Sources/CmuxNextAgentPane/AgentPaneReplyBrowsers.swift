@@ -24,10 +24,14 @@ public import Foundation
 /// them kept. A card opened before they land lists what is kept and asks for the rest.
 @MainActor public final class AgentPaneWorkspaceBrowsers: AgentPaneBrowserApps {
     private let queries: WorkspaceQueries?
+    private let workspace: NSWorkspace
 
-    /// - Parameter queries: The app's Launch Services answers; nil lists no browser.
-    public init(queries: WorkspaceQueries?) {
+    /// - Parameters:
+    ///   - queries: The app's Launch Services answers; nil lists no browser.
+    ///   - workspace: Opens the chosen browser, off the main thread.
+    public init(queries: WorkspaceQueries?, workspace: NSWorkspace = .shared) {
         self.queries = queries
+        self.workspace = workspace
         warm()
     }
 

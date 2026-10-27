@@ -1,6 +1,9 @@
 package import AppKit
 import CmuxNextCompat
 package import CmuxNextWakeups
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
+import func CmuxSafeConcurrency.withOnceContinuation
 import Dispatch
 import UniformTypeIdentifiers
 import WebKit
@@ -55,7 +58,7 @@ extension PageWebView {
     /// Nil at once when no capture is on its way; nil when the capture brings no decoded frame (a
     /// Chromium copy comes encoded) or a show or a newer hide replaces it.
     package func hideFrame() async -> CGImage? {
-        await withCheckedContinuation { (done: CheckedContinuation<CGImage?, Never>) in
+        try? await withOnceContinuation { (done: OnceContinuation<CGImage?, OnceContinuationError>) in
             if !hideState.whenFrameArrives({ done.resume(returning: $0) }) { done.resume(returning: nil) }
         }
     }
