@@ -93,7 +93,7 @@ public final class MobileSyncCollectionStore<Record: MobileSyncRecord> {
             if let highestDiscarded = discarded.last?.rev {
                 discardedTombstoneRevBound = max(discardedTombstoneRevBound, highestDiscarded)
             }
-            tombstones.removeFirst(discarded.count)
+            tombstones.removeSubrange(..<discarded.endIndex)
         }
         return MobileSyncCollectionChange(
             fromRev: fromRev,

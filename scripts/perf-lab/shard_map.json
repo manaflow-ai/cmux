@@ -5,7 +5,7 @@
         {
           "index": 0,
           "seconds": {
-            "T1": 25360,
+            "T1": 26140,
             "T2": 44580
           },
           "stories": {
@@ -28,6 +28,9 @@
               "crash-survival-webkit",
               "daemon-ops",
               "drag-lag",
+              "frame_pacing.fling",
+              "frame_pacing.golden",
+              "frame_pacing.instant",
               "fullscreen-transition",
               "home-idle",
               "home-perf",
@@ -230,7 +233,7 @@
           "index": 0,
           "seconds": {
             "T0": 330,
-            "T1": 12910
+            "T1": 12790
           },
           "stories": {
             "T0": [
@@ -246,6 +249,8 @@
               "burst",
               "command-pan",
               "daemon-ops",
+              "frame_pacing.fling",
+              "frame_pacing.instant",
               "home-perf",
               "launch-cold-realistic",
               "launch-connect",
@@ -258,7 +263,6 @@
               "open-panel",
               "palette-open-webkit",
               "pane-stress",
-              "power",
               "sidebar-doc",
               "sidebar-drag",
               "sidebar-rows-live",
@@ -275,7 +279,7 @@
           "index": 1,
           "seconds": {
             "T0": 150,
-            "T1": 12450
+            "T1": 13350
           },
           "stories": {
             "T0": [
@@ -292,6 +296,7 @@
               "crash-survival",
               "crash-survival-webkit",
               "drag-lag",
+              "frame_pacing.golden",
               "fullscreen-transition",
               "home-idle",
               "idle-tabs",
@@ -308,6 +313,7 @@
               "omnibar-click-webkit",
               "palette-open",
               "perf-gate",
+              "power",
               "relaunch-e2e",
               "remote-browser-media",
               "renderer-sharing",
