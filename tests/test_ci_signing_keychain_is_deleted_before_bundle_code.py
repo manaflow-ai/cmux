@@ -316,7 +316,10 @@ def picks_only_blacksmith(job: object) -> bool:
     if not isinstance(job, dict):
         return False
     steps = [step for step in job.get("steps") or [] if isinstance(step, dict)]
-    pick = [step for step in steps if "classic_nightly_build_runner.py" in str(step.get("run", ""))]
+    # Exactly the helper, nothing appended that could write another label to the step's outputs.
+    pick = [step for step in steps if str(step.get("run", "")).strip() == "python3 scripts/ci/classic_nightly_build_runner.py"]
+    if any("classic_nightly_build_runner.py" in str(step.get("run", "")) for step in steps) and len(pick) != 1:
+        return False
     outputs = job.get("outputs") or {}
     return (len(pick) == 1 and str((pick[0].get("env") or {}).get("ENABLED")) == "0"
             and outputs.get("runner") == f"${{{{ steps.{pick[0].get('id')}.outputs.cloud }}}}"
@@ -373,6 +376,8 @@ def self_test_picked_runners() -> list[str]:
         "a pick that may name the trusted mini": {**good, picker: trusted},
         "another output behind runner": {**good, picker: {**pick, "outputs": {**pick["outputs"], "runner": "${{ vars.X }}"}}},
         "no picker job": {key: value for key, value in good.items() if key != picker},
+        "a label appended to the pick's outputs": {**good, picker: {**pick, "steps": [{**pick["steps"][0], "run":
+            pick["steps"][0]["run"] + '\necho cloud=glaeda-std-xcode-26.6 >> "$GITHUB_OUTPUT"'}]}},
     }
     for what, jobs in mutations.items():
         if not failures_of(workflow, jobs):

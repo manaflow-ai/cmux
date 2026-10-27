@@ -75,10 +75,15 @@ def problems(workflow: str, name: str, job: dict, jobs: dict) -> list[str]:
         if source not in needs(job):
             out.append(f"reads {source} without needing it")
             continue
-        steps = (jobs.get(source) or {}).get("steps") or []
-        if not any("classic_nightly_build_runner.py" in str(step.get("run", "")) for step in steps
-                   if isinstance(step, dict)):
+        source_job = jobs.get(source) or {}
+        steps = [step for step in source_job.get("steps") or [] if isinstance(step, dict)]
+        if not any("classic_nightly_build_runner.py" in str(step.get("run", "")) for step in steps):
             out.append(f"{source} does not run classic_nightly_build_runner.py")
+        # A pick that fails leaves its outputs empty and the literal takes the job, so the pick never
+        # skips it: the consumer's `if` does not rely on the implicit success().
+        condition = str(job.get("if", "")).replace("${{", "").strip().strip('"')
+        if not condition.startswith(("!cancelled()", "always()")):
+            out.append(f"reads {source} but its `if` is the implicit success(), so a failed pick would skip it")
     if literal and moving and runs_on.index(literal.group(0)) < runs_on.index(f"needs.{moving[0][0]}"):
         out.append("the literal comes before the pick")
     return [f"{workflow} {name}: {problem}" for problem in out]
@@ -112,11 +117,12 @@ class PublisherMacJobsMove(unittest.TestCase):
         no_rerun = {"needs": ["pick"], "runs-on": "${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || "
                     "needs.pick.outputs.cloud || 'blacksmith-6vcpu-macos-26' }}"}
         self.assertTrue(problems("x.yml", "j", no_rerun, jobs))
-        good = {"needs": ["pick"], "runs-on": "${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || "
+        good = {"needs": ["pick"], "if": "!cancelled()", "runs-on": "${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || "
                 "github.run_attempt > 1 && needs.pick.outputs.alternate || needs.pick.outputs.cloud || "
                 "'blacksmith-6vcpu-macos-26' }}"}
         self.assertEqual(problems("x.yml", "j", good, jobs), [])
         self.assertTrue(problems("x.yml", "j", {**good, "needs": []}, jobs))
+        self.assertTrue(problems("x.yml", "j", {**good, "if": "needs.a.result == 'success'"}, jobs))
         self.assertTrue(problems("x.yml", "j", good, {"pick": {"steps": [{"run": "echo blacksmith-6vcpu-macos-26"}]}}))
 
 

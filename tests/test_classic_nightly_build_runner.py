@@ -121,10 +121,26 @@ class FirstAndAlternate(unittest.TestCase):
         # A label that is not a candidate changes nothing.
         self.assertEqual(picker.blacksmith_route(None, now, "glaeda-std-xcode-26.6")[0], picker.LARGE)
 
-    def test_the_alternate_is_always_the_other_blacksmith_label(self) -> None:
+    def test_the_alternate_is_the_other_label_from_attempt_1_and_a_fresh_pick_later(self) -> None:
         self.assertEqual(picker.alternate(picker.SMALL), picker.LARGE)
-        self.assertEqual(picker.alternate(picker.LARGE), picker.SMALL)
+        self.assertEqual(picker.alternate(picker.LARGE, "1"), picker.SMALL)
+        # Re-run failed jobs: the picker does not run again, so attempts 2 and 3 read attempt 1's
+        # `alternate`, the label attempt 1 did not take.
+        # Re-run all jobs: the picker runs again and reads the queues now; a re-run takes that pick
+        # (a stalled 6 vCPU means it picked 12 vCPU, so its re-run never goes back to 6 vCPU).
+        self.assertEqual(picker.alternate(picker.LARGE, "2"), picker.LARGE)
+        self.assertEqual(picker.alternate(picker.SMALL, "3"), picker.SMALL)
         self.assertTrue(all(label.startswith("blacksmith-") for label in picker.CANDIDATES))
+
+    def test_a_fresh_pick_on_a_rerun_writes_itself_as_the_alternate(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / "out"
+            picker.main({"GITHUB_OUTPUT": str(output), "GITHUB_RUN_ATTEMPT": "2", "FIRST": picker.SMALL,
+                         "SNAPSHOT_TOKEN": "t", "GITHUB_REPOSITORY": "o/r"},
+                        read_snapshot=lambda token, repo: snapshot(small=52), now=NOW,
+                        sleep=lambda seconds: None, clock=Clock())
+            values = dict(line.split("=", 1) for line in output.read_text().split())
+        self.assertEqual((values["cloud"], values["alternate"]), (picker.LARGE, picker.LARGE))
 
 
 class Main(unittest.TestCase):
