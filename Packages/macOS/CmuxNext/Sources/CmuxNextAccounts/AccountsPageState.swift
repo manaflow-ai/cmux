@@ -1,4 +1,7 @@
 public import CmuxNextCodeRouter
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
+import func CmuxSafeConcurrency.withOnceContinuation
 public import Foundation
 
 /// The Accounts screen as data for the React Settings page (R82 commit 3): the same rows, buttons,
@@ -183,10 +186,11 @@ extension AccountsModel {
         case .runSetupToken: services.runClaudeSetupToken()
         case .cancelPaste: pasteTarget = nil
         case .saveKey(let provider, let secret):
-            let failure = await withCheckedContinuation { (answered: CheckedContinuation<String?, Never>) in
+            // nil: saved. A dropped answer (the model went away before the Keychain write ended) leaves nothing to show.
+            let failure = try? await withOnceContinuation { (answered: OnceContinuation<String?, OnceContinuationError>) in
                 saveKey(secret, for: provider) { answered.resume(returning: $0) }
             }
-            if let failure { return failure }
+            if let failure = failure ?? nil { return failure }
             pasteTarget = nil
         case .sendToCodeRouter(let provider, let secret):
             pasteTarget = nil

@@ -7,7 +7,6 @@ import CmuxNextWakeups
 import Foundation
 import os
 import CmuxNextCompat
-import CmuxNextWakeups
 
 /// Owns the Accounts screen's model and its `AccountsServices`: detection
 /// over the login-shell environment, the cmux Keychain item for pasted
