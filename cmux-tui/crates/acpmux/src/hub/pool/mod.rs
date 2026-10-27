@@ -163,6 +163,12 @@ impl Pooled {
         self.claim.as_ref().is_some_and(super::full_access_bound::OffLatch::began)
     }
 
+    /// MDM's off as the chat that claimed it read it (`claim`), kept for the take to read again
+    /// once the chat has what the agent answered (`Hub::off_passed_the_take`).
+    pub(super) fn claim_latch(&self) -> Option<super::full_access_bound::OffLatch> {
+        self.claim.clone()
+    }
+
     /// Whether its harness reported full access while MDM forced it off (`reported_off`), kept
     /// for the handoff after the entry is given up (review 77 of #23322).
     pub(super) fn reported_off(&self) -> Arc<AtomicBool> {

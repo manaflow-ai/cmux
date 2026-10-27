@@ -609,13 +609,17 @@ impl Hub {
                 return Err(e);
             }
             let reported_off = pooled.reported_off();
+            let claim = pooled.claim_latch();
             match self.adopt_pooled(session, pooled).await {
                 // MDM forces full access off (#23322, reviews 71 and 77): a report of full access
                 // held past the take's check may not have reached the chat when its start is
-                // capped, and one made while the off held counts though it is unset by now.
+                // capped, and one made while the off held counts though it is unset by now. So
+                // does an off that began past the take's check, while the agent's full access
+                // was only in the answer the take had not absorbed (review 3 of #26035).
                 Ok((_, reported))
                     if reported_off.load(Ordering::SeqCst)
-                        || (reported && self.full_access_managed_off()) =>
+                        || (reported && self.full_access_managed_off())
+                        || Self::off_passed_the_take(session, claim.as_ref()) =>
                 {
                     self.stop_full_access_agent(session).await;
                     return Err(super::start_mode::full_access_off());

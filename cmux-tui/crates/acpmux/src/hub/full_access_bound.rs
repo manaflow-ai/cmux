@@ -387,6 +387,16 @@ impl Hub {
         Ok(Some(OffWatch { offs: latch.offs.clone(), seen: latch.seen }))
     }
 
+    /// Whether an off began since a chat claimed the pooled agent it has just taken (`claim`),
+    /// past the take's check, while the agent runs in full access by what the chat has of it now.
+    /// That off's teardown passed the chat by while its full access showed only in the agent's
+    /// `session/new` answer, which the take had not absorbed yet, and an unset may have followed;
+    /// so the start ends the agent itself (review 3 of #26035).
+    pub(super) fn off_passed_the_take(session: &Session, claim: Option<&OffLatch>) -> bool {
+        claim.is_some_and(OffLatch::began)
+            && runs_full_access(&FullAccessView::of_session(session)).is_some()
+    }
+
     /// MDM's off as a start that begins now sees it (`OffLatch`).
     pub(super) fn off_latch(&self) -> OffLatch {
         // The count and the state, read together (review 75): an off counted after this changes
@@ -831,6 +841,7 @@ fn after_off_count(hub: &Hub) {
 
 /// MDM's off as one start (a probe, a pooled agent) saw it: on when it was off as the start
 /// began, or began while it ran, though an unset followed (reviews 71 and 73 of #23322).
+#[derive(Clone)]
 pub(super) struct OffLatch {
     offs: tokio::sync::watch::Receiver<u64>,
     seen: u64,
