@@ -259,3 +259,38 @@ fn owner_kind_never_replaces_a_record_written_after_its_check() {
     assert_eq!(std::fs::metadata(&kind).unwrap().permissions().mode() & 0o777, 0o644);
     drop(dir);
 }
+
+#[cfg(target_os = "linux")]
+#[test]
+fn a_failed_write_leaves_no_temp_file() {
+    use super::role::WriteStep;
+    let temps = |dir: &std::path::Path| -> Vec<String> {
+        std::fs::read_dir(dir)
+            .map(|entries| {
+                entries
+                    .map(|e| e.unwrap().file_name().into_string().unwrap())
+                    .filter(|name| name.contains(".tmp-"))
+                    .collect()
+            })
+            .unwrap_or_default()
+    };
+    for step in [WriteStep::Write, WriteStep::Permissions, WriteStep::Rename] {
+        let (_dir, mut store, kind) = file_store();
+        store.fail_next(step);
+        assert!(store.write(VM_KIND_FILE, "owner\n", 0o644).is_err(), "{step:?}");
+        assert_eq!(temps(kind.parent().unwrap()), Vec::<String>::new(), "{step:?}");
+        assert!(!kind.exists(), "{step:?}");
+    }
+    for step in [WriteStep::Write, WriteStep::Permissions, WriteStep::Link] {
+        let (_dir, mut store, kind) = file_store();
+        store.fail_next(step);
+        assert!(store.create_new(VM_KIND_FILE, "owner\n", 0o644).is_err(), "{step:?}");
+        assert_eq!(temps(kind.parent().unwrap()), Vec::<String>::new(), "{step:?}");
+        assert!(!kind.exists(), "{step:?}");
+    }
+    // A write that works leaves only the file.
+    let (_dir, mut store, kind) = file_store();
+    store.write(VM_KIND_FILE, "owner\n", 0o644).unwrap();
+    assert_eq!(temps(kind.parent().unwrap()), Vec::<String>::new());
+    assert_eq!(std::fs::read_to_string(&kind).unwrap(), "owner\n");
+}

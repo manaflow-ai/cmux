@@ -83,6 +83,30 @@ describe("the image's cmux-vm-kind-sync", () => {
     expect(boot).toContain("CMUX_VM_KIND_RESET=team /usr/local/bin/cmux-vm-kind-sync");
   });
 
+  test("a clone reset waits for a held lock past the sync's 10 s limit, then writes team", async () => {
+    // A holder keeps the lock for 12 s. The reset must neither give up nor
+    // write without it: the record stays as it was until the holder lets go.
+    // A sync that fetched `team` meanwhile gives up at 10 s and writes nothing.
+    const root = guestRoot();
+    writeFileSync(kindFile(root), "owner\n");
+    const lockFile = `${kindFile(root)}.lock`;
+    writeFileSync(lockFile, "");
+    const holder = runChild("flock", [lockFile, "sleep", "12"], { timeout: 30_000 });
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    const reset = runChild("/bin/sh", [SYNC], {
+      env: { PATH: process.env.PATH, CMUX_VM_KIND_FILE: kindFile(root), CMUX_VM_KIND_RESET: "team" },
+      timeout: 30_000,
+    });
+    const gaveUp = sync(root, "team");
+    await new Promise((resolve) => setTimeout(resolve, 11_000));
+    await gaveUp;
+    expect(readFileSync(kindFile(root), "utf8")).toBe("owner\n");
+    expect((await holder).status).toBe(0);
+    expect((await reset).status).toBe(0);
+    expect(readFileSync(kindFile(root), "utf8")).toBe("team\n");
+    expect(readFileSync(lockFile, "utf8").trim()).toBe("1");
+  }, 30_000);
+
   test("a clone reset during a running sync's fetch keeps team, and the next sync writes its answer", async () => {
     // The clone carries its source's `owner`; a sync started before the reset
     // answers `owner` after it. That stale answer must not undo the reset.

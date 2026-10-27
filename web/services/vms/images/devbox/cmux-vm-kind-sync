@@ -10,6 +10,9 @@
 # The boot's clone reset (CMUX_VM_KIND_RESET=team) bumps it, and a fetched
 # answer is written only when no reset happened since its fetch began, so a
 # sync already running when a clone resets cannot put back the old answer.
+# The lock covers only the write, never the fetch, so it is held briefly: a
+# reset waits for it however long it takes, and a sync that cannot take it
+# within 10 s writes nothing.
 set -eu
 
 kind_file=${CMUX_VM_KIND_FILE:-/etc/cmux/vm-kind}
@@ -18,11 +21,11 @@ lock_file=$kind_file.lock
 kind_dir=${kind_file%/*}
 [ "$kind_dir" != "$kind_file" ] || kind_dir=.
 
-# Holds the lock on fd 9 until the script exits.
+# Holds the lock on fd 9 until the script exits; flock's options are passed through.
 lock() {
   mkdir -p "$kind_dir"
   exec 9>>"$lock_file"
-  flock -w 10 9
+  flock "$@" 9
 }
 
 generation() {
@@ -44,7 +47,7 @@ write_kind() {
 # The boot's snapshot-clone check asks for a reset: a clone may carry its
 # source's record, so it reads `team` until its own answer arrives.
 if [ "${CMUX_VM_KIND_RESET:-}" = team ]; then
-  lock || :
+  lock
   gen=$(($(generation) + 1))
   printf '%s\n' "$gen" >"$lock_file"
   write_kind team
@@ -63,6 +66,6 @@ fi
 started=$(generation)
 body=$(curl "$@" "${origin%/}/api/vm/reflection/kind" 2>/dev/null) || exit 0
 kind=$(printf '%s' "$body" | jq -er '.kind | select(. == "owner" or . == "team")' 2>/dev/null) || exit 0
-lock
+lock -w 10 || exit 0
 [ "$(generation)" = "$started" ] || exit 0
 write_kind "$kind"
