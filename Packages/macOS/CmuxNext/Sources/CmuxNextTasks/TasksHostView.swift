@@ -1,5 +1,6 @@
 public import AppKit
 public import CmuxNextDesign
+import CmuxNextWakeups
 import SwiftUI
 
 /// Hosts the Tasks pane in a tab's content area. The App creates it with a
@@ -13,6 +14,11 @@ public final class TasksHostView: NSView, VisibilityGatedContent {
     public let model: TasksModel
     private let appearanceState: TasksAppearance
     private let gate: VisibilityGatedHostingView
+    /// The pane's place in the visibility tree: a theme change while it is hidden resolves the colors once, on show.
+    private let visibility = ViewVisibility("tasks")
+    private var visibilityNode: VisibilityNode { visibility.node }
+    /// How many times the pane's colors were resolved (tests: a hidden pane resolves none until it shows).
+    package private(set) var colorResolves = 0
 
     /// Its SwiftUI leaves the hierarchy while the tab is hidden (``VisibilityGatedHostingView``).
     public var visibilityGate: VisibilityGatedHostingView? { gate }
@@ -54,15 +60,29 @@ public final class TasksHostView: NSView, VisibilityGatedContent {
 
     public override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
+        visibility.place(in: window)
         resolveColors()
     }
 
+    // R-hide: hiding forwards to the node.
+    public override func viewDidHide() {
+        super.viewDidHide()
+        visibilityNode.set(.hidden)
+    }
+
+    public override func viewDidUnhide() {
+        super.viewDidUnhide()
+        visibilityNode.set(.visible)
+    }
+
+    // R-appear: the colors feed the SwiftUI pane, so a hidden pane resolves them on show.
     public override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
-        resolveColors()
+        visibilityNode.deferUntilVisible(key: "TasksHostView.appearance") { [weak self] in self?.resolveColors() }
     }
 
     private func resolveColors() {
+        colorResolves += 1
         let colors = performWithTheme {
             // The glyph knock-out color stays opaque; the page itself
             // paints the pane's fill (`Palette.paneFill`).

@@ -78,6 +78,7 @@ public struct Backoff: Sendable {
     public mutating func wait(owner: String, clock: any Clock<Duration> = ContinuousClock(),
                               ledger: WakeupLedger = .shared) async throws {
         let delay = next()
+        // timer-class-allow: the retry helper's own sleep (flexible: max(8 ms, 10%)); the caller's task posts its main-thread work itself
         try await clock.sleep(for: delay, tolerance: Self.tolerance(for: delay))
         ledger.record(owner, reason: "backoff")
     }

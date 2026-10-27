@@ -211,6 +211,7 @@ public final class ControlSnapshotStore: Sendable {
         }
         if let ready { return ready }
         // The read-barrier deadline (1 s), cancelled when the store catches up.
+        // timer-class-allow: off main: the barrier's deadline resolves the waiter under the store's lock (flexible, never early)
         let timer = DemandTimer(owner: "ControlSnapshot.barrier")
         timer.schedule(after: max(deadline - .now, .zero)) { [weak self] in
             self?.resolve(id, with: nil)

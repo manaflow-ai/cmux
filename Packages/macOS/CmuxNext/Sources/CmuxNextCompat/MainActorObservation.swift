@@ -34,6 +34,7 @@ public final class MainActorObservation {
         _ handler: @escaping @MainActor () -> Void
     ) {
         self.center = center
+        // raw-observer-allow: the one Compat observer adapter (p06-scheduler-340), for notices WindowEvents and AppEvents do not carry
         token = center.addObserver(forName: name, object: object, queue: .main) { _ in
             // main-proof: the observer is registered on the main queue (queue: .main).
             MainActor.assumeIsolated { handler() }
@@ -66,6 +67,7 @@ public final class MainActorObservation {
         _ handler: @escaping @MainActor (Value) -> Void
     ) {
         self.center = center
+        // raw-observer-allow: the one Compat observer adapter (p06-scheduler-340), for notices WindowEvents and AppEvents do not carry
         token = center.addObserver(forName: name, object: object, queue: .main) { note in
             // crash-allow: the center delivers on the main queue (queue: .main) and the notification is read only inside the assumeIsolated below, on this same delivery, so it never crosses actors.
             nonisolated(unsafe) let note = note

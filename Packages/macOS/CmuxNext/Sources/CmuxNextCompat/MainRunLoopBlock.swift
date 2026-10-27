@@ -44,6 +44,7 @@ public nonisolated struct MainRunLoopBlock: Sendable {
     public func perform(mode: CFRunLoopMode = .commonModes) {
         let body = body
         let main = CFRunLoopGetMain()
+        // main-hop-allow: the run-loop block primitive; each caller names the AppKit order that needs it
         CFRunLoopPerformBlock(main, mode.rawValue) {
             // main-proof: a block queued on CFRunLoopGetMain() runs only on the main thread.
             MainActor.assumeIsolated { body() }

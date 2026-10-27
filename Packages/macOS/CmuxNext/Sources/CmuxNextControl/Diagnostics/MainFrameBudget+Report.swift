@@ -113,6 +113,7 @@ extension MainTaskBoard {
     public func mainBudgetReport(_ budget: MainFrameBudget, idle: IdleScheduler? = nil, reset: Bool) async -> JSONValue {
         let snapshot = ownerSnapshot()
         if reset { ledger.reset() }
+        // main-hop-allow: the scheduler's own report; a post would queue the read behind the classes it reports on
         let (parts, idleReport) = await MainActor.run {
             let parts = budget.reportParts
             let idleReport = idle?.report

@@ -44,6 +44,7 @@ extension ProcessRunning {
                 first.resolve(.failure(error))
             }
         }
+        // timer-class-allow: off main: the caller's wait bound only resolves the first outcome
         let bound = DemandTimer(owner: owner, clock: clock)
         bound.schedule(after: limit) { first.resolve(nil) }
         defer { bound.cancel() }

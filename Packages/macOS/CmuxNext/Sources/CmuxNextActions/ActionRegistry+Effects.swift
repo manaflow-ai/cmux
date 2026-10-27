@@ -84,6 +84,7 @@ extension ActionRegistry {
         let cause = (ActionRunScope.current?.origin ?? invocation.origin).observationCause
         let mainWork = self.mainWork
         let answers = cause == .person ? mainWork?.budget.answerableInput : nil
+        // main-hop-allow: `send` is the handler's main-actor async body; the Task only starts it at the run's priority, and its completion is posted through mainWork.reply in the run's class
         let task: ActionWork = Task(priority: cause == .person ? WorkPriority.userBlocking.taskPriority : nil) { [weak self] in
             let failure = await send()
             guard failure != nil || answers != nil else { return nil }

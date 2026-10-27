@@ -171,6 +171,7 @@ final class ControlConnection: Sendable {
                     return
                 }
                 // The drain deadline (5 s) after the client half-closes; cancelled by closeNow.
+                // timer-class-allow: off main: the drain deadline runs on the connection's queue
                 let timer = DemandTimer(owner: "ControlConnection.drain")
                 timer.schedule(after: limits.drainTimeout) { [weak self] in self?.drainDeadlinePassed() }
                 state.drainTimer = timer

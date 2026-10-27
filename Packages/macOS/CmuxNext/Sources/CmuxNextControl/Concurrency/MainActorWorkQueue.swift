@@ -219,7 +219,7 @@ public final class MainActorWorkQueue: Sendable {
                 item.expire(rejection)
                 return
             }
-            let task = Task { [weak self] in
+            let task = Task { @concurrent [weak self] in
                 // wakeup-allow: deadline of the work item (flexible, never early: WakeLeeway), cancelled when the item runs
                 let tolerance = WakeLeeway.window(delay: max(deadline - now, .zero)).tolerance
                 do { try await engineStart.waitPast(deadline, countingFrom: mark, tolerance: tolerance) } catch { return }

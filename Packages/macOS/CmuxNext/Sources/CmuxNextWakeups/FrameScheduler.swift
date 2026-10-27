@@ -120,7 +120,8 @@ public final class FrameScheduler: NSObject {
     weak var starvation: RenderStarvationGuard?
     /// The late period the guard saw since ``lastTick`` (stale once it moves).
     var starvationPeriod: RenderStarvationGuard.Period?
-    var closeObserver: MainActorObservation?
+    /// Lets go of it when its window closes (window schedulers only): a ``WindowEvents`` subscription.
+    var closeObserver: EventSubscription?
     /// Moves it to its window's new display when the window changes screen (window schedulers only).
     var screenFamily: WindowScreenFamily?
     /// When the frame of its last tick is shown (nil before the first tick after subscribing).

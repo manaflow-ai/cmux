@@ -32,7 +32,10 @@ public final class SocketTasksSource: TasksSource {
     /// Interned once: the connection's queue posts each read's lines under it.
     private let linesOwner: MainTaskOwner
     private let directoryOwner: MainTaskOwner
-    private let retryTimer = DemandTimer(owner: "tasks.reconnect")
+    /// The next reconnect attempt: an automation-class deadline on the app's wake-up queue (flexible), so a
+    /// retry waits behind the person's input like the owner's lines (Chrome's `base::OneShotTimer` on a typed task
+    /// runner, base/timer/timer.h).
+    private let retry: MainDeadline
     private var backoff = Backoff(initial: .milliseconds(200), maximum: .seconds(10))
     /// Owns the descriptor: reads, framing, JSON decoding and writes run on
     /// its queue, off the main actor (cx-9c8m).
@@ -45,12 +48,15 @@ public final class SocketTasksSource: TasksSource {
     /// - Parameters:
     ///   - path: The owner's socket; defaults to the local team's
     ///     (`~/Library/Application Support/cmux/tasks/local/tasks.sock`).
-    ///   - mainWork: Where the owner's lines and the socket directory's changes run on main, as automation work.
-    public init(path: String? = nil, mainWork: MainWorkScheduler) {
+    ///   - deadlines: The app's deadline scheduler; its ``MainDeadlineScheduler/work`` is where the owner's lines,
+    ///     the socket directory's changes and the reconnect attempts run on main, as automation work.
+    public init(path: String? = nil, deadlines: MainDeadlineScheduler) {
         self.path = path ?? Self.defaultPath(team: "local")
+        let mainWork = deadlines.work
         self.mainWork = mainWork
         linesOwner = mainWork.board.owner("tasks.socket.lines")
         directoryOwner = mainWork.board.owner("tasks.socket.directory")
+        retry = MainDeadline(owner: "tasks.reconnect", workClass: .automation, scheduler: deadlines)
     }
 
     public static func defaultPath(team: String) -> String {
@@ -70,7 +76,7 @@ public final class SocketTasksSource: TasksSource {
 
     public func stop() {
         sink = nil
-        retryTimer.cancel()
+        retry.cancel()
         directoryWatch?.cancel()
         directoryWatch = nil
         closeConnection()
@@ -179,8 +185,8 @@ public final class SocketTasksSource: TasksSource {
 
     /// One attempt after the next `Backoff` delay (a one-shot timer, never a poll).
     private func scheduleAttempt() {
-        guard !retryTimer.isScheduled, sink != nil, !connected else { return }
-        retryTimer.scheduleOnMain(after: backoff.next()) { [weak self] in
+        guard !retry.isScheduled, sink != nil, !connected else { return }
+        retry.schedule(after: backoff.next()) { [weak self] in
             self?.attempt()
         }
     }

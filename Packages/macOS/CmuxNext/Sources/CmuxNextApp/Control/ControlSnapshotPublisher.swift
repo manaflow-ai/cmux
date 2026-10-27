@@ -64,7 +64,7 @@ final class ControlSnapshotPublisher {
     }
 
     func start() {
-        // The entry's hop runs a turn after its change: a publish since rebuilt the entry and left nothing to do.
+        // It runs inside the entry's change (ControlWorkspaceInfoCache.onStale): it only queues the publish.
         workspaceInfos.onStale = { [weak self] in
             guard let self, self.workspaceInfos.hasStaleEntries else { return }
             self.invalidate()
