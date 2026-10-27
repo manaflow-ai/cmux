@@ -1900,6 +1900,12 @@ struct SessionWorkspaceSnapshot: Codable, Sendable {
     var taskStatusHidden: Bool? = nil
     /// 0-based position in the window's session priority rank; absent in manifests written before the rank, so old manifests decode unchanged.
     var sessionPriorityIndex: Int? = nil
+    /// Claude task difficulty the user pinned for this workspace; absent for automatic, so old manifests decode unchanged.
+    var claudeDifficultyOverride: String? = nil
+    /// Claude task difficulty assessed at the last turn end; absent before any assessment.
+    var claudeDifficultyAuto: String? = nil
+    /// `true` when the user excluded this workspace from automatic effort adjustment; absent for the default.
+    var sessionPriorityManual: Bool? = nil
     var checklist: [SessionChecklistItemSnapshot]? = nil
     var dock: SessionSplitContainerSnapshot? = nil // Missing legacy fields continue to seed from dock.json.
 }
