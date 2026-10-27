@@ -15,6 +15,7 @@ public actor CloudCodexBroker {
     private let codexExecutable: URL
     private let home: URL
     private var session: CodexBrokerSession?
+    private var stopped = false
     private var cached: CloudCodexAccessGrant?
     private var previousModeByMachine: [String: Data?] = [:]
     private var loadedPreviousMode: Set<String> = []
@@ -51,7 +52,9 @@ public actor CloudCodexBroker {
     /// cmux and then calls `waitForLogin` without opening a VM terminal.
     public func login(target: CloudCodexBrokerTarget, confirmed: Bool) async throws -> CloudCodexLoginPrompt {
         try await validate(target: target, confirmed: confirmed)
+        try await ensureScope()
         let response = try await request(method: "login")
+        try await ensureScope()
         guard let urlString = response.verificationURL,
               let url = URL(string: urlString), url.scheme == "https",
               let code = response.userCode, !code.isEmpty, code.utf8.count < 64 else {
@@ -124,6 +127,7 @@ public actor CloudCodexBroker {
 
     private func performRefresh() async throws -> CloudCodexAccessGrant {
         let response = try await request(method: "access", force: true, previousAccountID: cached?.chatgptAccountID)
+        try await ensureScope()
         guard let token = response.accessToken, !token.isEmpty,
               let account = response.chatgptAccountID, !account.isEmpty,
               let expiry = response.expiresAt else { throw CloudCodexBrokerError.invalidReply }
@@ -204,6 +208,7 @@ public actor CloudCodexBroker {
     }
 
     private func validate(target: CloudCodexBrokerTarget, confirmed: Bool) async throws {
+        guard !stopped else { throw CloudCodexBrokerError.cancelled }
         guard confirmed else { throw CloudCodexBrokerError.consentRequired }
         guard !pendingRevocations.contains(target.machineID) else { throw CloudCodexBrokerError.cancelled }
         guard await currentScope() == scope else { throw CloudCodexBrokerError.scopeChanged }
@@ -216,6 +221,7 @@ public actor CloudCodexBroker {
     }
 
     private func request(method: String, force: Bool? = nil, previousAccountID: String? = nil) async throws -> BrokerResult {
+        guard !stopped || method == "logout" else { throw CloudCodexBrokerError.cancelled }
         if session == nil {
             session = try CodexBrokerSession(executable: executable, executablePrefix: executablePrefix, codexExecutable: codexExecutable, home: home)
         }
@@ -379,11 +385,29 @@ public actor CloudCodexBroker {
     }
 
     private func ensureScope() async throws {
+        guard !stopped else { throw CloudCodexBrokerError.cancelled }
         guard await currentScope() == scope else { throw CloudCodexBrokerError.scopeChanged }
         guard !Task.isCancelled else { throw CloudCodexBrokerError.cancelled }
     }
 
     func registeredMachineIDs() -> Set<String> { Set(targets.keys) }
+
+    /// Stops the local process and renewal before erasing registered VM files.
+    /// Returns failed cleanup IDs; retained local credentials allow reuse later.
+    public func shutdown() async -> Set<String> {
+        stopped = true
+        refreshTask?.cancel()
+        refreshInFlight?.cancel()
+        let endingTargets = targetList()
+        if let session { await invalidate(session) }
+        var failed = pendingRevocations
+        for target in endingTargets {
+            do { try await revoke(target: target); failed.remove(target.machineID) }
+            catch { failed.insert(target.machineID) }
+        }
+        cached = nil
+        return failed
+    }
 
     private func targetList() -> [CloudCodexBrokerTarget] { targets.values.sorted { $0.machineID < $1.machineID } }
 
@@ -471,8 +495,13 @@ public actor CloudCodexBrokerRegistry {
         return broker
     }
 
-    public func remove(scope: CloudCodexBrokerScope) {
-        brokers.removeValue(forKey: scope)
+    /// Returns the existing holder without creating or signing in to one.
+    public func existing(for scope: CloudCodexBrokerScope) -> CloudCodexBroker? { brokers[scope] }
+
+    /// Stops a scoped holder before releasing it. Credentials remain on disk.
+    public func remove(scope: CloudCodexBrokerScope) async -> Set<String> {
+        guard let broker = brokers.removeValue(forKey: scope) else { return [] }
+        return await broker.shutdown()
     }
 }
 
