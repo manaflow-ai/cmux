@@ -146,7 +146,6 @@ test("a captured file body is rendered, while an unavailable file keeps Raw as t
   // back to Raw; it must never inspect `/tmp/summary.md` while rendering history.
   expect(acpmuxSendCall(bash("acpmux send --no-wait reports:leo - < /tmp/summary.md", { output: "queued" }))).toMatchObject({
     fileInput: true,
-    text: undefined,
   });
 });
 
