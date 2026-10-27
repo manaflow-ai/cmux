@@ -99,6 +99,23 @@ impl<'a> RequestHead<'a> {
         self.command_method().unwrap_or_else(|| RequestMethod::routed(self.cmd()))
     }
 
+    /// The head with its routing members owned, for a line handed to
+    /// another thread with its text (`connection_frame::post_line`), so the
+    /// line is not parsed twice. `params` and `stream` are left out: no
+    /// handler reads them from the head (only the head's own tests do); a
+    /// handler that needs them decodes the line.
+    pub(super) fn into_owned(self) -> RequestHead<'static> {
+        RequestHead {
+            parsed: self.parsed,
+            id: self.id,
+            cmd: self.cmd.map(|cmd| Cow::Owned(cmd.into_owned())),
+            operation: self.operation.map(|operation| Cow::Owned(operation.into_owned())),
+            protocol: self.protocol,
+            stream: None,
+            params: None,
+        }
+    }
+
     pub(super) fn open<'s>(
         &self,
         stats: &'s Arc<RequestStats>,
