@@ -5125,6 +5125,138 @@
         }
       }
     },
+    "browser.engine.unavailable.restoredTab": {
+      "comment": "A restored browser tab's notice when Chromium could not start: the page is not loaded in WebKit (no Chromium cookies there). Reload retries.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chromium unavailable. This tab stays closed instead of opening signed out in WebKit. Reload to try again."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chromium غير متاح. تبقى علامة التبويب هذه مغلقة بدل فتحها في WebKit بدون تسجيل الدخول. أعد التحميل للمحاولة مرة أخرى."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chromium nije dostupan. Ova kartica ostaje zatvorena umjesto da se otvori odjavljena u WebKitu. Ponovo učitajte da pokušate ponovo."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chromium er ikke tilgængelig. Fanen forbliver lukket i stedet for at åbne logget ud i WebKit. Genindlæs for at prøve igen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chromium ist nicht verfügbar. Dieser Tab bleibt geschlossen, statt abgemeldet in WebKit zu öffnen. Neu laden, um es erneut zu versuchen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chromium no está disponible. Esta pestaña sigue cerrada en lugar de abrirse sin sesión en WebKit. Recarga para volver a intentarlo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chromium est indisponible. Cet onglet reste fermé plutôt que de s’ouvrir déconnecté dans WebKit. Rechargez pour réessayer."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chromium non è disponibile. Questa scheda resta chiusa invece di aprirsi senza accesso in WebKit. Ricarica per riprovare."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chromium を使用できません。このタブは WebKit でサインアウトした状態で開かず、閉じたままにしています。再読み込みしてもう一度お試しください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chromium មិនអាចប្រើបានទេ។ ផ្ទាំងនេះនៅតែបិទ ជំនួសឱ្យការបើកក្នុង WebKit ដោយមិនបានចូល។ ផ្ទុកឡើងវិញ ដើម្បីសាកល្បងម្តងទៀត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chromium을 사용할 수 없습니다. 이 탭은 WebKit에서 로그아웃된 상태로 열리지 않고 닫힌 채로 유지됩니다. 다시 시도하려면 새로고침하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chromium er ikke tilgjengelig. Fanen forblir lukket i stedet for å åpne utlogget i WebKit. Last inn på nytt for å prøve igjen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chromium jest niedostępny. Ta karta pozostaje zamknięta zamiast otworzyć się bez logowania w WebKit. Załaduj ponownie, aby spróbować jeszcze raz."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O Chromium não está disponível. Esta aba fica fechada em vez de abrir sem login no WebKit. Recarregue para tentar de novo."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chromium недоступен. Эта вкладка остаётся закрытой, чтобы не открываться в WebKit без входа. Перезагрузите, чтобы попробовать снова."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ใช้ Chromium ไม่ได้ แท็บนี้จึงยังปิดอยู่แทนที่จะเปิดใน WebKit โดยไม่ได้ลงชื่อเข้าใช้ โหลดซ้ำเพื่อลองอีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chromium kullanılamıyor. Bu sekme WebKit'te oturum kapalı açılmak yerine kapalı kalır. Yeniden denemek için yeniden yükleyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chromium недоступний. Ця вкладка лишається закритою, щоб не відкриватися у WebKit без входу. Перезавантажте, щоб спробувати знову."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chromium không khả dụng. Tab này vẫn đóng thay vì mở trong WebKit khi chưa đăng nhập. Tải lại để thử lại."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chromium 不可用。此标签页保持关闭，不会以未登录状态在 WebKit 中打开。重新加载以重试。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chromium 無法使用。此分頁維持關閉，不會以未登入狀態在 WebKit 中開啟。重新載入以再試一次。"
+          }
+        }
+      }
+    },
     "app.restart.notice": {
       "extractionState": "manual",
       "localizations": {
