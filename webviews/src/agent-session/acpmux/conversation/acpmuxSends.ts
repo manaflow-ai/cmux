@@ -96,6 +96,7 @@ export type ShellCommand = {
   words: ShellWord[];
   stdin?: ShellWord | "file";
   stdinQuoted?: boolean;
+  stdinUnsafe?: true;
   /// The path used by a file stdin redirect. It is only resolved when a prior command in
   /// this same recorded shell call wrote a literal here-document to that path.
   stdinFile?: ShellWord;
@@ -106,6 +107,7 @@ export type ShellCommand = {
   /// Redirects are ambiguous for recorded message provenance (append, fd duplication, non-stdout,
   /// dynamic path or a second output target).
   redirectUnsafe?: true;
+  grouped?: true;
   /// A literal path written by this command. The parser never reads this path from disk.
   writeFile?: ShellWord;
   /// Its stdout goes somewhere other than the next command (`> out`, `>/dev/null`; not `2>&1`).
@@ -127,10 +129,12 @@ export function shellCommands(line: string): ShellCommand[] {
   let words: ShellWord[] = [];
   let stdin: ShellCommand["stdin"];
   let stdinQuoted = false;
+  let stdinUnsafe = false;
   let stdinFile: ShellCommand["stdinFile"];
   let writes = false;
   let redirectWrites = 0;
   let redirectUnsafe = false;
+  const opaqueGrouping = /[(){}]/.test(line);
   let writeFile: ShellCommand["writeFile"];
   let stdout = false;
   let runs: string[] = [];
@@ -152,10 +156,12 @@ export function shellCommands(line: string): ShellCommand[] {
         op,
         ...(stdin && { stdin }),
         ...(stdinQuoted && { stdinQuoted: true as const }),
+        ...(stdinUnsafe && { stdinUnsafe: true as const }),
         ...(stdinFile && { stdinFile }),
         ...(writes && { writes: true as const }),
         ...(redirectWrites && { redirectWrites }),
         ...(redirectUnsafe && { redirectUnsafe: true as const }),
+        ...(opaqueGrouping && { grouped: true as const }),
         ...(writeFile && { writeFile }),
         ...(stdout && { stdout: true as const }),
         ...(runs.length && { runs }),
@@ -167,6 +173,7 @@ export function shellCommands(line: string): ShellCommand[] {
     words = [];
     stdin = undefined;
     stdinQuoted = false;
+    stdinUnsafe = false;
     stdinFile = undefined;
     writes = false;
     redirectWrites = 0;
@@ -252,6 +259,8 @@ export function shellCommands(line: string): ShellCommand[] {
       // The last redirect of stdin wins: one after a here-document takes its place.
       const takesStdin = (fd === undefined || fd === "0") && (op.startsWith("<") || op === "<>");
       if (takesStdin) {
+        if (stdin !== undefined || stdinFile !== undefined) stdinUnsafe = true;
+        if (op !== "<" && op !== "<<" && op !== "<<-") stdinUnsafe = true;
         for (const doc of docs) doc.stdin = false;
         stdinFile = op.startsWith("<") && op !== "<<" && op !== "<<-" && op !== "<<<" ? target : undefined;
       }
@@ -264,8 +273,13 @@ export function shellCommands(line: string): ShellCommand[] {
         stdin = undefined;
         stdinFile = undefined;
         stdinQuoted = quoted;
-      } else if (op === "<<<") stdin = { text: `${target.text}\n`, literal: target.literal };
-      else if (op === "<" || op === "<>") stdin = "file";
+      } else if (op === "<<<") {
+        stdinUnsafe = true;
+        stdin = { text: `${target.text}\n`, literal: target.literal };
+      } else if (op === "<" || op === "<>") {
+        stdinUnsafe = true;
+        stdin = "file";
+      }
       continue;
     }
     if (char === ";" || char === "&" || char === "|" || char === "(" || char === ")") {
@@ -319,7 +333,8 @@ function recordedMessageBodyChange(command: ShellCommand): RecordedMessageBodyCh
   // `;` is the parser's synthetic terminator for a standalone heredoc command. Every other
   // operator may skip the write or alter its working directory before the send.
   if (command.op !== "" && command.op !== ";") return { reset: true };
-  if (command.redirectUnsafe || (command.redirectWrites ?? 0) > 1) return { reset: true };
+  if (command.grouped || command.stdinUnsafe || command.redirectUnsafe || (command.redirectWrites ?? 0) > 1)
+    return { reset: true };
   const words = unwrapped(command.words);
   const name = program(words[0]);
   if (command.writeFile?.literal) {
@@ -656,6 +671,15 @@ export function acpmuxSend(
       ((commandName === "acpmux" || commandName === "acpmux-debug-cli") &&
         commandWords.some((word) => word.text === "send")) ||
       (commandName === "cmux" && commandWords[1]?.text === "acp" && commandWords[2]?.text === "send");
+    if (
+      isSendCommand &&
+      (command.grouped ||
+        command.writes ||
+        command.runs?.length ||
+        command.redirectUnsafe ||
+        (command.stdinUnsafe && command.stdin !== "file"))
+    )
+      recordedFiles.clear();
     if (!uncertainControlFlow && !isSendCommand) applyRecordedMessageBodyChange(command, recordedFiles);
     const words = unwrapped(command.words);
     const name = program(words[0]);

@@ -298,6 +298,23 @@ describe("acpmuxSend", () => {
       noWait: false,
       others: 1,
     });
+    expect(read("cat > /tmp/message <<'EOF'\nOLD\nEOF\nacpmux send lane - < /tmp/message > /tmp/message")).toEqual({
+      target: "lane",
+      noWait: false,
+      others: 2,
+    });
+    expect(
+      read("cat > /tmp/message <<'EOF'\nOLD\nEOF\nacpmux send lane - < /tmp/message \"$(rm -f /tmp/message)\""),
+    ).toEqual({
+      target: "lane",
+      noWait: false,
+      others: 2,
+    });
+    expect(read("{ cat > /tmp/message <<'EOF'\nGROUPED\nEOF\n}\nacpmux send lane - < /tmp/message")).toEqual({
+      target: "lane",
+      noWait: false,
+      others: 1,
+    });
     expect(
       read("cat > /tmp/message <<'EOF'\nOLD\nEOF\nprintf NEW > /tmp/message\nacpmux send lane - < /tmp/message"),
     ).toEqual({ target: "lane", noWait: false, others: 2 });
@@ -366,6 +383,7 @@ describe("shellCommands", () => {
       writeFile: { text: "out", literal: true },
       redirectWrites: 1,
       stdout: true,
+      grouped: true,
     });
   });
 
