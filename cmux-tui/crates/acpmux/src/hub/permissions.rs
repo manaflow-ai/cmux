@@ -1036,7 +1036,7 @@ impl Hub {
 
 /// `policy`, capped while MDM forces full access off (`managed_off`): approve-all, the policy form
 /// of full access, runs as `ask` (`Hub::approve_all_allowed`).
-fn capped_policy(policy: PermissionPolicy, managed_off: bool) -> PermissionPolicy {
+pub(super) fn capped_policy(policy: PermissionPolicy, managed_off: bool) -> PermissionPolicy {
     if managed_off && super::full_access_bound::policy_is_full_access(policy) {
         return PermissionPolicy::Ask;
     }

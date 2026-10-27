@@ -524,7 +524,7 @@ thread_local! {
 }
 
 #[cfg(test)]
-pub(super) fn after_off_count(hub: &Hub) {
+fn after_off_count(hub: &Hub) {
     if let Some(f) = AFTER_OFF_COUNT.take() {
         f(hub);
     }
@@ -923,7 +923,7 @@ mod tests {
         let _ = hub.hold_subsession(&parent.meta(), &child).await;
         hub.apply_full_access_push(None).await;
         assert!(
-            !hub.policy_laxer(&child.meta(), &parent.meta()).await,
+            !hub.policy_laxer(&child.meta(), &parent.meta(), &hub.off_latch()).await,
             "a chat held under the off runs approve-all under an approve-edits caller after the unset"
         );
     }
