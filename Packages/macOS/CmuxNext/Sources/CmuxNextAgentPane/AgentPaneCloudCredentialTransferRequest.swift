@@ -3,7 +3,7 @@ import Foundation
 /// A real click asks the App to transfer its signed-in provider credential to this exact Cloud
 /// chat's machine. The App revalidates all three values against the pane and current account.
 public nonisolated struct AgentPaneCloudCredentialTransferRequest: Equatable, Sendable {
-    public enum Provider: String, Sendable {
+    public enum Provider: String, Sendable, Equatable {
         case claude, codex
 
         /// Match the web agentKey convention for named harness profiles, including scoped IDs.
