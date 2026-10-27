@@ -1,26 +1,14 @@
 #!/usr/bin/env bash
-# Build the rcodesign that signs the cmux NEXT DEV tip DMG the way codesign does.
+# Builds the patched DMG signer for the cmux NEXT DEV tip DMG.
 #
 #   scripts/ci/build-rcodesign-dmg.sh <dest-dir>
 #
-# Stock rcodesign 0.29.0 (the newest release; main is the same) signs a DMG
-# with a 0x20100 Code Directory, no team identifier and an empty requirement
-# set, while codesign writes a 0x20200 Code Directory with the certificate's
-# team and the explicit designated requirement (for Developer ID:
-# identifier "..." and anchor apple generic and the Developer ID OIDs and
-# leaf[subject.OU] = TEAM). scripts/ci/rcodesign-0.29.0-dmg.patch makes
-# rcodesign's DMG signer do what its Mach-O signer already does: take the
-# team from the settings (set from an Apple-issued signing certificate) and
-# derive the designated requirement from the certificate. With it, the Code
-# Directory and requirement set of a DMG it signs are byte for byte the ones
-# codesign writes; only the CMS signature (signing time, signature bytes)
-# differs. Upstream: https://github.com/indygreg/apple-platform-rs/issues/370.
-#
-# The source is the apple-codesign 0.29.0 crate from crates.io, checked
-# against the sha256 the crates.io index publishes, built with its own
-# Cargo.lock (--locked). The binary goes to <dest-dir>/rcodesign; its sha256
-# is printed on stdout as sha256=<hex> (for $GITHUB_OUTPUT), everything else
-# goes to stderr.
+# Source: the apple-codesign 0.29.0 crate from crates.io, checked against its
+# pinned sha256, with scripts/ci/rcodesign-0.29.0-dmg.patch applied, built
+# with the crate's own Cargo.lock (--locked). The binary goes to
+# <dest-dir>/rcodesign; its sha256 is printed on stdout as sha256=<hex> (for
+# $GITHUB_OUTPUT), everything else goes to stderr.
+
 set -euo pipefail
 
 CRATE_VERSION=0.29.0

@@ -985,13 +985,10 @@ jobs:
           if [[ -n "${TIP_WORK_DIR:-}" ]]; then rm -rf "$TIP_WORK_DIR"; fi
 
   rcodesign-dmg:
-    # The rcodesign tip-dmg signs the DMG with: 0.29.0 from crates.io plus
-    # scripts/ci/rcodesign-0.29.0-dmg.patch, so the DMG's Code Directory and
-    # requirement set are the ones codesign writes (Leo, 2026-10-24: "the linux
-    # built ones the ones we send to apple we wanna make sure it's byte
-    # perfect"). Built from pinned source on every run, alongside sign, with no
-    # environment, secret or cache; tip-dmg runs it only after checking its
-    # sha256 against this job's output.
+    # Builds the patched DMG signer (scripts/ci/build-rcodesign-dmg.sh) from
+    # pinned source on every run, alongside sign, with no environment, secret or
+    # cache. tip-dmg runs it only after checking its sha256 against this job's
+    # output.
     if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
     name: Build the DMG signer
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-8vcpu-ubuntu-2404' }}
