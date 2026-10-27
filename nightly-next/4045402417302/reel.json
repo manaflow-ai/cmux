@@ -1,0 +1,35 @@
+{
+  "version": 1,
+  "build": "4045402417302",
+  "notes": "notes/4045402417302.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 25878,
+      "title": "ci: signing jobs may read the ephemeral-only runner variables, checked live",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25887,
+      "title": "ci(nightly): no nightly, promote or DEV path resolves to a GitHub-hosted Mac",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 20945,
+      "title": "cmux-next: Move Sessions from Another cmux Build… in the palette (cx-yxmkh)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25749,
+      "title": "acpmux: vmHost on by default on a VM cmux created, with a per-machine toggle",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
