@@ -12,6 +12,7 @@ python3 -I scripts/perf-lab/lab.py stories --lint        # or catalog.py stories
 python3 -I scripts/perf-lab/lab.py targets --check        # N/12 fixed targets mapped
 python3 -I scripts/perf-lab/lab.py targets --uncovered    # MQ8: target rows that no story claims
 python3 -I scripts/perf-lab/lab.py hot-paths --uncovered  # MQ9: perf-hot paths whose bench is not a story
+python3 -I scripts/perf-lab/lab.py stories --orphans     # MQ12: perf scripts not in a story or ../retired.json
 python3 -m unittest scripts/perf-lab/tests/test_catalog.py
 ```
 

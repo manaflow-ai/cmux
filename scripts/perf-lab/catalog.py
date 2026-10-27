@@ -2,6 +2,7 @@
 """The perf lab's story catalog: stories.d/, targets.json, owners and their lints.
 
     python3 -I scripts/perf-lab/catalog.py stories [--lint [--format=paths]]
+    python3 -I scripts/perf-lab/catalog.py stories --orphans [--json]     # MQ12, orphans.py
     python3 -I scripts/perf-lab/catalog.py targets --check | --uncovered
     python3 -I scripts/perf-lab/catalog.py hot-paths --uncovered
 
@@ -664,6 +665,9 @@ def add_arguments(command: str, parser: argparse.ArgumentParser) -> None:
         parser.add_argument("--lint", action="store_true", help="exit 1 when any catalog problem is found")
         parser.add_argument("--format", choices=("text", "paths"), default="text",
                             help="paths: print each story's command path, one per line (MQ4)")
+        parser.add_argument("--orphans", action="store_true",
+                            help="MQ12: print each perf script that is not a story and not in retired.json (orphans.py)")
+        parser.add_argument("--json", action="store_true", help="with --orphans: one JSON list of paths (done check 8)")
     elif command == "targets":
         mode = parser.add_mutually_exclusive_group(required=True)
         mode.add_argument("--check", action="store_true", help="print N/12 mapped; exit 1 unless 12/12")
@@ -676,6 +680,8 @@ def add_arguments(command: str, parser: argparse.ArgumentParser) -> None:
 def run(command: str, args: argparse.Namespace, out=None, err=None) -> int:
     out = out or sys.stdout
     err = err or sys.stderr
+    if command == "stories" and args.orphans:
+        return _load_sibling("orphans").run_orphans(args.root, args.json, out, err)
     try:
         catalog = load_catalog(args.root)
     except (CatalogError, OSError, SyntaxError) as error:
