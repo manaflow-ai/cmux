@@ -40,17 +40,56 @@ added. The report then lists the hits only one run saw (the macOS-only
 hits). The CI-read baseline stays the Linux run's, the one CI repeats, so a
 merged run never writes it (--update-baseline and --init-baseline take one
 run).
+
+Shipped Rust workspaces outside cmux-tui/Cargo.toml (EXTRA_MANIFESTS: the
+CCmuxAppFFI crates, cmux-rd-host, the remote browser hosts, Native/OptChat/*,
+Native/DiffSidecar, cmux-next-ios/rust) are report-only. Each is linted with
+its own manifest and no target flags (the default targets are the lib and the
+bins; `--lib` fails on a bin-only package), with --locked when the workspace
+has a Cargo.lock (delete the lock cargo writes for one that has none):
+  for m in $(rust_panic_ratchet.py --list-manifests); do
+    cargo clippy --manifest-path "$m" --workspace --message-format=json -- $(rust_panic_ratchet.py --flags) > "$(echo "$m" | tr / _).jsonl"
+  done
+and compared with one --manifest CARGO_TOML [LABEL=]JSONL per run (repeat a
+manifest with linux= and macos= runs to merge them):
+  rust_panic_ratchet.py --manifest Native/DiffSidecar/Cargo.toml linux=Native_DiffSidecar_Cargo.toml.jsonl ... --report md
+A row is a package, named by its repo-relative directory. These rows live in
+rust-panic-extra-baseline.json, which only a --manifest run reads or writes
+and CI never reads: counts above it warn and exit 0, an unfinished run is
+listed and exits 2 after the report of the rest, and rust-panic-baseline.json
+is never read or written.
 """
 import argparse
 import collections
 import json
 import os
+import posixpath
 import re
 import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(os.path.dirname(HERE))
 BASELINE = os.path.join(HERE, "rust-panic-baseline.json")
+# Report-only rows of the separate workspaces (EXTRA_MANIFESTS); CI never reads this file.
+EXTRA_BASELINE = os.path.join(HERE, "rust-panic-extra-baseline.json")
+# Shipped Rust workspaces that cmux-tui/Cargo.toml does not build (each has its own [workspace]):
+# plans/cmux-next/chrome-parity/p10-stability.md, "E. Rust".
+EXTRA_MANIFESTS = [
+    "cmux-tui/crates/cmux-app-ffi/Cargo.toml",
+    "cmux-tui/crates/cmux-rd-ffi/Cargo.toml",
+    "cmux-tui/crates/cmux-layout-reducer-ffi/Cargo.toml",
+    "cmux-tui/crates/cmux-rd-host/Cargo.toml",
+    "cmux-tui/crates/cmux-remote-browser-host/Cargo.toml",
+    "cmux-tui/crates/cmux-remote-browser-testhost/Cargo.toml",
+    "Native/OptChat/chief-turn/Cargo.toml",
+    "Native/OptChat/optchat-chief/Cargo.toml",
+    "Native/OptChat/optchat-core/Cargo.toml",
+    "Native/OptChat/optchat-host/Cargo.toml",
+    "Native/OptChat/optchat-wasm/Cargo.toml",
+    "Native/DiffSidecar/Cargo.toml",
+    "cmux-next-ios/rust/Cargo.toml",
+]
+LIB_KINDS = ("lib", "rlib", "bin", "cdylib", "staticlib", "proc-macro", "dylib")
 
 # Lints whose zero makes a crate "deny" (a panic in production code).
 DENY_LINTS = [
@@ -126,19 +165,55 @@ def workspace_path(file_name):
     return path
 
 
+def under_workspace(path, workspace):
+    """`path` (absolute, or relative to the workspace root) as a repo-relative path inside `workspace`, else None.
+
+    `workspace` is the repo-relative directory of a separate workspace's root manifest. An absolute path
+    from any checkout keeps its part from that directory on, so runs on two hosts name a file alike.
+    """
+    path = path.replace("\\", "/")
+    if not path.startswith("/"):
+        path = posixpath.normpath(posixpath.join(workspace, path))
+        return path if path == workspace or path.startswith(workspace + "/") else None
+    padded = path + "/"
+    at = padded.rfind(f"/{workspace}/")
+    return None if at < 0 else padded[at + 1:].rstrip("/")
+
+
+def package_dir(item):
+    """The absolute directory of the package a cargo JSON line belongs to."""
+    manifest = item.get("manifest_path")
+    if manifest:
+        return posixpath.dirname(manifest.replace("\\", "/"))
+    match = re.search(r"path\+file://([^#)\s]+)", item.get("package_id", ""))
+    return match.group(1) if match else None
+
+
 class ClippyRun:
     """One clippy --message-format=json run: the crates it checked, whether it finished, its hits."""
 
-    def __init__(self, label):
+    def __init__(self, label, workspace=None):
         self.label = label
+        # A separate workspace's repo-relative root, or None for the cmux-tui workspace.
+        self.workspace = workspace
         self.checked = set()
         self.finished = None
         # (workspace file, line, column, lint) -> crate, in first-seen order.
         self.hits = {}
 
+    def crate(self, item):
+        """The row a cargo JSON line counts under, or None for a package this run does not report."""
+        if self.workspace is None:
+            name = package_name(item.get("package_id", ""))
+            return None if name in FROZEN_FIXTURES else name
+        # A path dependency outside the workspace (cmux-app-ffi -> cmux-rd-ffi) has its own run.
+        directory = package_dir(item)
+        return under_workspace(directory, self.workspace) if directory else None
 
-def read_run(path, label=None):
-    run = ClippyRun(label or os.path.splitext(os.path.basename(path))[0])
+
+def read_run(path, label=None, workspace=None):
+    """Read one clippy run; `workspace` names a separate workspace's repo-relative root (a --manifest run)."""
+    run = ClippyRun(label or os.path.splitext(os.path.basename(path))[0], workspace)
     with open(path, encoding="utf-8", errors="replace") as handle:
         for line in handle:
             line = line.strip()
@@ -153,9 +228,8 @@ def read_run(path, label=None):
                 run.finished = bool(item.get("success"))
                 continue
             if reason == "compiler-artifact":
-                name = package_name(item.get("package_id", ""))
-                if name and name not in FROZEN_FIXTURES and any(k in ("lib", "rlib", "bin", "cdylib", "staticlib", "proc-macro", "dylib")
-                                for k in item.get("target", {}).get("kind", [])):
+                name = run.crate(item)
+                if name and any(k in LIB_KINDS for k in item.get("target", {}).get("kind", [])):
                     run.checked.add(name)
                 continue
             if reason != "compiler-message":
@@ -173,13 +247,18 @@ def read_run(path, label=None):
             if span is None:
                 continue
             file_name = span.get("file_name", "")
-            crate = crate_of(file_name) or package_name(item.get("package_id", ""))
-            if crate is None:
+            if workspace is None:
+                crate = crate_of(file_name) or package_name(item.get("package_id", ""))
+                file_name = workspace_path(file_name)
+            else:
+                crate = run.crate(item)
+                file_name = under_workspace(file_name, workspace)
+            if crate is None or file_name is None:
                 continue  # vendor/ or registry code: third-party
             if crate in FROZEN_FIXTURES:
                 continue
             # The same source line seen through a lib and a bin target counts once.
-            run.hits.setdefault((workspace_path(file_name), span.get("line_start"), span.get("column_start"), lint), crate)
+            run.hits.setdefault((file_name, span.get("line_start"), span.get("column_start"), lint), crate)
     return run
 
 
@@ -279,22 +358,30 @@ def _changed_first(root, locations):
     return sorted(locations, key=lambda loc: (loc.split(":", 1)[0] not in changed, loc))
 
 
-def load_baseline():
-    if not os.path.exists(BASELINE):
+BASELINE_DOC = ("Per-crate clippy hit counts of production code (scripts/cmux-next/rust_panic_ratchet.py). "
+                "Counts only go down. A crate with every deny lint at 0 is at deny.")
+EXTRA_BASELINE_DOC = ("Report-only per-package clippy hit counts of the shipped Rust workspaces outside cmux-tui/Cargo.toml "
+                      "(rust_panic_ratchet.py --manifest; rows are repo-relative package directories). CI never reads "
+                      "this file. Counts only go down, through --manifest ... --update-baseline.")
+
+
+def load_baseline(path=None):
+    path = path or BASELINE
+    if not os.path.exists(path):
         return {}
-    with open(BASELINE, encoding="utf-8") as handle:
+    with open(path, encoding="utf-8") as handle:
         return json.load(handle).get("crates", {})
 
 
-def write_baseline(crates):
+def write_baseline(crates, path=None, doc=BASELINE_DOC):
+    path = path or BASELINE
     data = {
-        "_doc": "Per-crate clippy hit counts of production code (scripts/cmux-next/rust_panic_ratchet.py). "
-                "Counts only go down. A crate with every deny lint at 0 is at deny.",
+        "_doc": doc,
         "lints": LINTS,
         "deny_lints": DENY_LINTS,
         "crates": {crate: {lint: crates[crate].get(lint, 0) for lint in LINTS} for crate in sorted(crates)},
     }
-    with open(BASELINE, "w", encoding="utf-8") as handle:
+    with open(path, "w", encoding="utf-8") as handle:
         json.dump(data, handle, indent=1, sort_keys=False)
         handle.write("\n")
 
@@ -309,7 +396,20 @@ SHORT = {"unwrap_used": "unwrap", "expect_used": "expect", "panic": "panic", "un
          "cast_possible_truncation": "cast_trunc"}
 
 
-def report(checked, counts, files, fmt, only=None):
+def deny_total(lints):
+    return sum(lints.get(lint, 0) for lint in DENY_LINTS)
+
+
+def versus_baseline(counts, base):
+    """A row's deny total against its baseline row: `new`, `=`, `+N` or `-N` (a --manifest report)."""
+    if base is None:
+        return "new"
+    delta = deny_total(counts) - deny_total(base)
+    return "=" if delta == 0 else f"{delta:+d}"
+
+
+def report(checked, counts, files, fmt, only=None, baseline=None):
+    """Print the per-crate table; `baseline` (a --manifest report) adds each row's deny total against it."""
     only = only or {}
     rows = []
     for crate in sorted(checked | set(counts)):
@@ -320,16 +420,21 @@ def report(checked, counts, files, fmt, only=None):
         out = {}
         for crate, c, deny, top in rows:
             out[crate] = {"counts": dict(c), "deny": deny, "top": top}
+            if baseline is not None:
+                out[crate]["baseline"] = baseline.get(crate)
             if only:
                 out[crate]["only_in"] = {label: [{"loc": loc, "lint": lint} for loc, lint in sorted(by_crate.get(crate, []))]
                                          for label, by_crate in only.items()}
         print(json.dumps(out, indent=1))
         return
-    print("| crate | " + " | ".join(SHORT[l] for l in LINTS) + " | deny | top files |")
-    print("|" + " --- |" * (len(LINTS) + 3))
-    rows.sort(key=lambda r: -sum(r[1].get(l, 0) for l in DENY_LINTS))
+    extra = baseline is not None
+    print("| crate | " + " | ".join(SHORT[l] for l in LINTS) + " | deny |" + (" vs baseline |" if extra else "")
+          + " top files |")
+    print("|" + " --- |" * (len(LINTS) + 3 + extra))
+    rows.sort(key=lambda r: -deny_total(r[1]))
     for crate, c, deny, top in rows:
-        print(f"| {crate} | " + " | ".join(str(c.get(l, 0)) for l in LINTS) + f" | {'yes' if deny else 'no'} | {top} |")
+        delta = f" {versus_baseline(c, baseline.get(crate))} |" if extra else ""
+        print(f"| {crate} | " + " | ".join(str(c.get(l, 0)) for l in LINTS) + f" | {'yes' if deny else 'no'} |{delta} {top} |")
     for label, by_crate in only.items():
         total = sum(len(v) for v in by_crate.values())
         print(f"\n### Hits only the {label} run saw ({total})\n")
@@ -343,6 +448,99 @@ def report(checked, counts, files, fmt, only=None):
                 print(f"| {crate} | {SHORT[lint]} | {loc} |")
 
 
+def workspace_of(repo, manifest):
+    """A --manifest argument as the repo-relative directory of that workspace's root, or None if absent."""
+    rel = posixpath.normpath(manifest.replace("\\", "/"))
+    if posixpath.basename(rel) == "Cargo.toml":
+        rel = posixpath.dirname(rel)
+    if rel.startswith("../") or rel.startswith("/") or not os.path.isfile(os.path.join(repo, rel, "Cargo.toml")):
+        return None
+    return rel
+
+
+def main_extra(args, parser):
+    """Report-only rows of the separate shipped workspaces (--manifest); reads only EXTRA_BASELINE."""
+    if args.clippy_json:
+        parser.error("--manifest runs are report-only and never mix with the --clippy-json run of cmux-tui, whose "
+                     "baseline CI reads; run them as two commands")
+    if not (args.report or args.update_baseline or args.init_baseline):
+        parser.error("--manifest is report-only: add --report md|json, or --update-baseline / --init-baseline to "
+                     "write rust-panic-extra-baseline.json")
+    groups = {}
+    for manifest, value in args.manifest:
+        workspace = workspace_of(args.repo, manifest)
+        if workspace is None:
+            parser.error(f"--manifest {manifest}: no Cargo.toml there (give a path relative to the repo root)")
+        label, path = parse_run_arg(value)
+        run = read_run(path, label, workspace)
+        if any(other.label == run.label for other in groups.get(workspace, [])):
+            parser.error(f"two --manifest {workspace} runs are labelled {run.label!r}; name them LABEL=PATH")
+        groups.setdefault(workspace, []).append(run)
+
+    unfinished = sorted(f"{workspace} ({run.label})" for workspace, runs in groups.items() for run in runs
+                        if not run.checked or run.finished is not True)
+    checked, counts, files, hits, only = set(), {}, {}, {}, {}
+    for workspace, runs in sorted(groups.items()):
+        if any(not run.checked or run.finished is not True for run in runs):
+            continue  # counts from a partial build prove nothing; listed below
+        # Merged per workspace, so a macOS run of one workspace does not mark another's hits Linux-only.
+        ws_checked, ws_counts, ws_files, _, ws_hits, ws_only = merge_runs(runs)
+        checked |= ws_checked
+        counts.update(ws_counts)
+        files.update(ws_files)
+        hits.update(ws_hits)
+        for label, by_crate in ws_only.items():
+            only.setdefault(label, collections.defaultdict(list)).update(by_crate)
+    listed = {posixpath.dirname(m) for m in EXTRA_MANIFESTS}
+    not_run = sorted(listed - set(groups))
+
+    baseline = {} if args.init_baseline else load_baseline(EXTRA_BASELINE)
+    if args.report:
+        report(checked, counts, files, args.report, only, baseline)
+    if args.report == "md":
+        for title, items in (("Separate workspaces not in this run", not_run),
+                             ("Runs that did not finish (no rows)", unfinished)):
+            if items:
+                print(f"\n### {title} ({len(items)})\n")
+                print("\n".join(f"- {item}" for item in items))
+
+    grew = []
+    for crate in sorted(checked):
+        base = baseline.get(crate)
+        now = counts.get(crate, collections.Counter())
+        if base is not None and not args.init_baseline:
+            grew.extend(f"{crate}: clippy::{lint} {now.get(lint, 0)} > baseline {base.get(lint, 0)}"
+                        for lint in LINTS if now.get(lint, 0) > base.get(lint, 0))
+    for line in grew:
+        print(f"::warning title=rust panic ratchet (report-only)::{line}", file=sys.stderr)
+    for crate in sorted(checked):
+        for line in _allow_scan(args.repo, os.path.join(args.repo, crate, "src")):
+            print(f"::warning title=rust panic ratchet (report-only)::{line}", file=sys.stderr)
+
+    if args.init_baseline or args.update_baseline:
+        merged = dict(baseline)
+        for crate in checked:
+            now = counts.get(crate, collections.Counter())
+            base = merged.get(crate)
+            # Report-only: a new row records its debt as found; an existing row only goes down.
+            merged[crate] = {l: now.get(l, 0) if base is None else min(now.get(l, 0), base.get(l, 0)) for l in LINTS}
+        write_baseline(merged, EXTRA_BASELINE, EXTRA_BASELINE_DOC)
+        print(f"rust-panic-ratchet: wrote {len(checked)} row(s) of {os.path.relpath(EXTRA_BASELINE, args.repo)}"
+              + (f"; kept the old rows of {len(unfinished)} unfinished run(s)" if unfinished and args.update_baseline else ""), file=sys.stderr)
+
+    deny = sorted(c for c in checked if is_deny(counts.get(c, {})))
+    print(f"rust-panic-ratchet: report-only, {len(groups)} separate workspace(s), {len(checked)} crates checked, "
+          f"{len(deny)} at deny, {len(grew)} count(s) above rust-panic-extra-baseline.json", file=sys.stderr)
+    if not_run:
+        print("::warning title=rust panic ratchet (report-only)::separate workspaces not in this run: "
+              + ", ".join(not_run), file=sys.stderr)
+    if unfinished:
+        print("rust-panic-ratchet: these clippy runs did not finish successfully (no build-finished success line), "
+              "so they have no rows: " + ", ".join(unfinished), file=sys.stderr)
+        return 2
+    return 0
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--flags", action="store_true", help="print the clippy lint flags and exit")
@@ -352,10 +550,20 @@ def main():
     parser.add_argument("--update-baseline", action="store_true", help="lower the baseline to the counts seen")
     parser.add_argument("--init-baseline", action="store_true", help="write the baseline from scratch (first run only)")
     parser.add_argument("--report", choices=["md", "json"])
+    parser.add_argument("--manifest", action="append", nargs=2, metavar=("CARGO_TOML", "[LABEL=]JSONL"),
+                        help="report-only: one clippy run of a separate workspace (repo-relative manifest path); "
+                             "repeat per workspace and per run")
+    parser.add_argument("--list-manifests", action="store_true",
+                        help="print the separate shipped workspaces' manifests (EXTRA_MANIFESTS) and exit")
     args = parser.parse_args()
     if args.flags:
         print(lint_flags())
         return 0
+    if args.list_manifests:
+        print("\n".join(EXTRA_MANIFESTS))
+        return 0
+    if args.manifest:
+        return main_extra(args, parser)
     if not args.clippy_json:
         parser.error("--clippy-json is required")
     runs = []
