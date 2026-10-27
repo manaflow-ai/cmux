@@ -12,6 +12,7 @@ import { OnNewTab } from "../newTabComposer";
 import type { Project } from "../ProjectChooser";
 import { firstProject, isAgentHome, mostRecentProject, projectLabel } from "../sessionList";
 import { WorktreeFailure } from "../startFolder";
+import { BrowseFailure } from "../BrowseFailure";
 import type { SavedEnvironment, SavedEnvironmentHost } from "../environments";
 import { SavedEnvironmentPanel } from "../SavedEnvironmentPanel";
 import { useSavedEnvironments } from "./savedEnvironments";
@@ -991,6 +992,7 @@ export function NewTabScreen(props: Props) {
     [snapshot.sessions],
   );
   const [worktreeError, setWorktreeError] = useState<string>();
+  const [browseError, setBrowseError] = useState<string>();
   // A saved environment's chat: on its machine, in its folder there, or on this computer in a new
   // worktree of its folder (the host makes it first; its refusal shows above the card and the
   // prompt stays in the field).
@@ -1039,9 +1041,14 @@ export function NewTabScreen(props: Props) {
       : undefined;
   const browseProject = props.onBrowseProject
     ? () => {
-        void props.onBrowseProject?.().then((cwd) => {
-          if (cwd) pickProject(cwd);
-        });
+        setBrowseError(undefined);
+        void props.onBrowseProject?.()
+          .then((cwd) => {
+            if (cwd) pickProject(cwd);
+          })
+          .catch((error: unknown) => {
+            setBrowseError((error instanceof Error && error.message) || String(error));
+          });
       }
     : undefined;
   const Chips = props.chips;
@@ -1251,6 +1258,13 @@ export function NewTabScreen(props: Props) {
           composer location strip; newtab/screen.css). */}
       <div ref={setComposer} className="nt-composer" data-composer-look={look === "codex" ? "codex" : undefined}>
         {worktreeError && <WorktreeFailure error={worktreeError} onDismiss={() => setWorktreeError(undefined)} />}
+        {browseError && browseProject && (
+          <BrowseFailure
+            error={browseError}
+            onRetry={browseProject}
+            onDismiss={() => setBrowseError(undefined)}
+          />
+        )}
         {/* Above the box: the project strip (Cards draws it under the field). */}
         {!pill && <div className="nt-above">{folderStrip}</div>}
         <div ref={setBox} className="ui-glass ui-glass-floats nt-box">
