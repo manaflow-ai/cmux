@@ -110,14 +110,11 @@ public actor ChiefHomeDirectory {
         for host in launchHomes.sorted() {
             guard let own = await ownAcpmux(of: host) else { continue }
             let home = own.home
-            guard let mayEnd = try? await work.run(.userVisible, mayBlock: .files, {
-                if let attached = excludingAttachedHome,
-                   attached.standardizedFileURL.resolvingSymlinksInPath() == home.acpmuxHome.standardizedFileURL.resolvingSymlinksInPath() { return false }
-                return !home.hostRuns
-            }), mayEnd else { continue }
-            // Keep the ownership lock for the entire shutdown. A brain can start between the
-            // census above and endAgents; acquiring the same flock makes that race a safe skip,
-            // and prevents a new owner from appearing while this app ends the old daemon.
+            if let attached = excludingAttachedHome,
+               attached.standardizedFileURL.resolvingSymlinksInPath() == home.acpmuxHome.standardizedFileURL.resolvingSymlinksInPath() { continue }
+            // Acquire the ownership lock as the authoritative check and hold it through shutdown.
+            // If another Chief owns the home, acquisition fails; a separate hostRuns census would
+            // only widen the check-to-shutdown race.
             guard let ownership = ChiefMigration.HostLock(path: home.root.appendingPathComponent("state/host.lock")) else { continue }
             let result = await endAgents(own.environment, waitForShutdown)
             ownership.release()
