@@ -21,12 +21,18 @@ resize notices), `debug.frames` (frame intervals, main ms per frame, `NSView.lay
 `debug.layout_counters` (`screen_reconciles`, `screen_resizes_in_place`, terminal grid reports) and the Chromium
 host's resize counts (`debug.cef` host_resize; null when Chromium runs in process):
 
-  main ms per resize event   p50 / p95 / p99 / max of the window layout passes (one per live-resize event)
+  main ms per resize event   p50 / p95 / p99 / max of the window layout passes a resize caused: the window's size
+                             differs from the previous pass's (or, with none before it, a resize notice came
+                             first). The other passes (display-cycle and explicit ones, the settle after a drag)
+                             are their own distribution, `main_ms_other_layouts`, and DC16 does not read them
   view layouts               `NSView.layout()` calls in all and per resize event
   grids per frame            terminal grid reports / recorded frames (a live resize should report at most one
                              grid per terminal per frame)
   page resize waits          the host's fenced, late and cut resizes (`debug.cef` host_resize deltas)
-  reconciles per event       screen reconciles / resize events (DC16: 0); resizes in place per event
+  reconciles per event       screen reconciles / resize events (DC16: 0); resizes in place per event. A build
+                             before p03-rendering-115 has no screen counters: these are null with a
+                             `counting_note`, the other rows are still recorded (the base of a base-vs-head run),
+                             and DC16 reports its reconciles as unmeasured
 
 `--count` adds one armed pass of the live resize (`debug.frames` with `render: true`, RenderStats,
 p03-rendering-001): frame sets and layouts per resize event, counts only, never ms.
@@ -35,7 +41,7 @@ Measurement validity (PATTERNS P12): the report records host, chip, macOS, the b
 an unarmed `debug.frames` probe); `--expect-hz` (default --vdisplay's) fails the run on another rate.
 
 Exit status: 0 when every pass ran; 1 when a pass or a check failed (the reason is in `problems`: no resize came,
-a build without the screen counters); 2 when the session has the wrong shape (StressShapeError, Chromium not real,
+an armed `--count` pass on a build without RenderStats); 2 when the session has the wrong shape (StressShapeError, Chromium not real,
 the display at another rate). The DC16 verdict is reported (`dc16`), not an exit status.
 
 Usage:
@@ -64,7 +70,11 @@ class ShapeError(RuntimeError):
 
 
 class CountingError(RuntimeError):
-    """The build cannot count what DC16 reads (no screen counters, no per-frame RenderStats)."""
+    """The build cannot count what the armed `--count` pass reads (no per-frame RenderStats)."""
+
+
+NO_SCREEN_COUNTERS = ("debug.layout_counters has no screen_reconciles / screen_resizes_in_place (a build before "
+                      "p03-rendering-115): reconciles per resize event not counted")
 
 
 # -- the statistics (pure; --self-test covers them) --
@@ -94,44 +104,70 @@ def host_resize(cef):
     return {k: row.get(k) for k in HOST_RESIZE_KEYS} if isinstance(row, dict) else None
 
 
+def number(value):
+    return isinstance(value, (int, float)) and not isinstance(value, bool)
+
+
+def split_layouts(events):
+    """The trace's window layout passes (main ms), split into the ones a resize caused and the rest. A pass is a
+    resize's when the window's size (its `w` / `h`) differs from the previous pass's; the first pass, or one with
+    no size, when a resize notice came after the previous pass."""
+    caused, other = [], []
+    size, notice = None, False
+    for event in events:
+        if event.get("e") == "resize":
+            notice = True
+            continue
+        if event.get("e") != "layout" or not number(event.get("ms")):
+            continue
+        shown = (event["w"], event["h"]) if number(event.get("w")) and number(event.get("h")) else None
+        resized = shown != size if shown and size else notice
+        (caused if resized else other).append(event["ms"])
+        size, notice = shown or size, False
+    return caused, other
+
+
 def judge_pass(trace, frames, counters_before, counters_after, cef_before, cef_after):
     """One timed pass's row from its `debug.window_transition` stop, `debug.frames` stop (raw) and the counter
-    reads around it. Raises CountingError when the build has no screen counters."""
+    reads around it. A build with no screen counters gets null reconciles and a `counting_note`."""
     events = trace.get("events") or []
-    layout_ms = [e["ms"] for e in events if e.get("e") == "layout" and isinstance(e.get("ms"), (int, float))]
+    resize_ms, other_ms = split_layouts(events)
     resizes = sum(1 for e in events if e.get("e") == "resize")
     reconciles = delta(counters_before, counters_after, "screen_reconciles")
     in_place = delta(counters_before, counters_after, "screen_resizes_in_place")
-    if reconciles is None or in_place is None:
-        raise CountingError("debug.layout_counters has no screen_reconciles / screen_resizes_in_place: a build "
-                            "before p03-rendering-115 cannot count reconciles per resize event")
+    counted = reconciles is not None and in_place is not None
     frame_count = frames.get("frames") or 0
     view_layouts = sum(frames.get("view_layouts_per_frame") or [])
     grids = trace.get("terminal_grid_reports")
     before_host, after_host = host_resize(cef_before), host_resize(cef_after)
     waits = {k: delta(before_host, after_host, k) for k in HOST_RESIZE_KEYS} if before_host and after_host else None
     return {
-        "resize_events": resizes, "layout_passes": len(layout_ms), "main_ms_per_event": distribution(layout_ms),
+        "resize_events": resizes, "layout_passes": len(resize_ms) + len(other_ms), "resize_layout_passes": len(resize_ms),
+        "main_ms_per_event": distribution(resize_ms), "main_ms_other_layouts": distribution(other_ms),
         "main_ms_per_frame": distribution([m for m in frames.get("main_ms") or [] if isinstance(m, (int, float))]),
         "frames": frame_count, "missed": frames.get("missed"), "refresh_ms": frames.get("refresh_ms"),
         "view_layouts": view_layouts, "view_layouts_per_event": round(view_layouts / resizes, 2) if resizes else None,
         "root_layouts": trace.get("root_layouts"), "grid_reports": grids,
         "grids_per_frame": round(grids / frame_count, 3) if isinstance(grids, int) and frame_count else None,
         "terminal_resizes_sent": trace.get("terminal_resizes_sent"), "page_resize_waits": waits,
-        "screen_reconciles": reconciles, "screen_resizes_in_place": in_place,
-        "reconciles_per_event": round(reconciles / resizes, 3) if resizes else None,
+        "screen_reconciles": reconciles if counted else None, "screen_resizes_in_place": in_place if counted else None,
+        "reconciles_per_event": round(reconciles / resizes, 3) if counted and resizes else None,
+        "counting_note": None if counted else NO_SCREEN_COUNTERS,
     }
 
 
 def dc16(rows):
-    """DC16 over every live-resize row: main ms per event p99 <= 4 and 0 reconciles per event."""
+    """DC16 over every live-resize row: main ms per resize event p99 <= 4 and 0 reconciles per event. On a build
+    without the screen counters the reconciles are unmeasured (null) and so is the verdict; the p99 still is."""
     live = [r for r in rows if r["scenario"] == "live-resize" and not r.get("error")]
     if not live:
         return {"measured": False}
     worst = max((r["main_ms_per_event"]["p99"] or 0) for r in live)
-    reconciles = sum(r["screen_reconciles"] for r in live)
-    return {"measured": True, "p99_ms_worst": worst, "reconciles": reconciles,
-            "pass": worst <= DC16_P99_MS and reconciles == 0}
+    counted = all(r["screen_reconciles"] is not None for r in live)
+    reconciles = sum(r["screen_reconciles"] for r in live) if counted else None
+    p99_pass = worst <= DC16_P99_MS
+    return {"measured": True, "p99_ms_worst": worst, "p99_pass": p99_pass, "reconciles": reconciles,
+            "reconciles_measured": counted, "pass": p99_pass and reconciles == 0 if counted else None}
 
 
 # -- the app side --
@@ -343,7 +379,7 @@ class FakeApp:
 
     def resize(self, width, height):
         self.frame[2:] = [width, height]
-        self.events += [{"e": "resize"}, {"e": "layout", "ms": 1.5}]
+        self.events += [{"e": "resize", "w": width, "h": height}, {"e": "layout", "ms": 1.5, "w": width, "h": height}]
         self.frames += 1
         key = "screen_reconciles" if self.knobs.get("reconciles") else "screen_resizes_in_place"
         self.counters[key] += 1
@@ -365,6 +401,8 @@ class FakeApp:
                 self.resize(w + params["x"] - x0, h + params["y"] - y0)
             elif action == "up":
                 self.pressed = None
+                # A display-cycle pass in the settle, at the size the drag left: no resize caused it.
+                self.events.append({"e": "layout", "ms": 9.0, "w": self.frame[2], "h": self.frame[3]})
             return {}
         if method == "action.run":
             self.full = not self.full
@@ -434,11 +472,14 @@ def self_test():
     assert distribution([2.0, 1.0])["max"] == 2.0
     assert delta({"a": 1}, {"a": 4}, "a") == 3 and delta({}, {"a": 4}, "a") is None
     assert host_resize({"host_resize": None}) is None
-    try:
-        judge_pass({"events": []}, {}, {}, {}, None, None)
-        raise AssertionError("a build without the screen counters was measured")
-    except CountingError:
-        pass
+    unsized = judge_pass({"events": []}, {}, {}, {}, None, None)
+    assert unsized["screen_reconciles"] is None and unsized["counting_note"] == NO_SCREEN_COUNTERS, unsized
+    # The passes a resize caused, not the display-cycle passes around them (the trace starts mid-size).
+    trace = [{"e": "layout", "ms": 0.1, "w": 800, "h": 600}, {"e": "resize"}, {"e": "layout", "ms": 6.0, "w": 801, "h": 600},
+             {"e": "layout", "ms": 0.1, "w": 801, "h": 600}, {"e": "layout", "ms": 5.0, "w": 802, "h": 600},
+             {"e": "resize"}, {"e": "layout", "ms": 0.2}]
+    assert split_layouts(trace) == ([6.0, 5.0, 0.2], [0.1, 0.1]), split_layouts(trace)
+    assert split_layouts([{"e": "resize"}, {"e": "layout", "ms": 2.0, "w": 1, "h": 1}]) == ([2.0], [])
     assert dc16([]) == {"measured": False}
     with tempfile.TemporaryDirectory() as tmp:
         status, report = fake_run(tmp)
@@ -447,7 +488,11 @@ def self_test():
         assert len(live) == 2 and len(report["passes"]) == 4, report["passes"]
         assert live[0]["resize_events"] == 12 and live[0]["reconciles_per_event"] == 0.0, live[0]
         assert live[0]["main_ms_per_event"]["p99"] == 1.5 and live[0]["page_resize_waits"]["fence_resizes"] is not None
-        assert report["dc16"] == {"measured": True, "p99_ms_worst": 1.5, "reconciles": 0, "pass": True}, report["dc16"]
+        # The settle pass after each drag (9 ms, no resize) is its own distribution, not DC16's.
+        assert live[0]["resize_layout_passes"] == 12 and live[0]["layout_passes"] == 14, live[0]
+        assert live[0]["main_ms_other_layouts"] == {"n": 2, "p50": 9.0, "p95": 9.0, "p99": 9.0, "max": 9.0}, live[0]
+        assert report["dc16"] == {"measured": True, "p99_ms_worst": 1.5, "p99_pass": True, "reconciles": 0,
+                                  "reconciles_measured": True, "pass": True}, report["dc16"]
         assert report["counts"][0]["frame_sets_per_event"] is not None
         assert report["environment"]["refresh_ms"] == round(1000 / 120, 3)
     with tempfile.TemporaryDirectory() as tmp:
@@ -457,8 +502,15 @@ def self_test():
         status, report = fake_run(tmp, shape_error=True)
         assert status == 2 and "StressShapeError" in report["problems"][0], report["problems"]
     with tempfile.TemporaryDirectory() as tmp:
+        # The base of a base-vs-head run: no screen counters, every timed row still recorded.
         status, report = fake_run(tmp, knobs={"old_build": True})
-        assert status == 1 and "CountingError" in report["problems"][0], report["problems"]
+        assert status == 0 and not report["problems"], report["problems"]
+        live = [r for r in report["passes"] if r["scenario"] == "live-resize"]
+        assert len(report["passes"]) == 4 and all(r["screen_reconciles"] is None and r["reconciles_per_event"] is None
+                                                  and r["counting_note"] for r in report["passes"]), report["passes"]
+        assert live[0]["main_ms_per_event"]["p99"] == 1.5 and live[0]["view_layouts"] and live[0]["grids_per_frame"] == 0.0
+        assert report["dc16"] == {"measured": True, "p99_ms_worst": 1.5, "p99_pass": True, "reconciles": None,
+                                  "reconciles_measured": False, "pass": None}, report["dc16"]
     with tempfile.TemporaryDirectory() as tmp:
         status, report = fake_run(tmp, knobs={"stuck": True}, count=False)
         assert status == 1 and any("did not resize" in p for p in report["problems"]), report["problems"]

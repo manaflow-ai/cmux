@@ -29,6 +29,11 @@ struct ScreenResizeInPlaceTests {
     }
 
     /// STRESS's 4 x 3 grid of 12 panes in a window `width` points wide, laid out once.
+    ///
+    /// The root mounts its screen at zero size, so the window's first sized layout resizes it (in place).
+    /// `mountsAtSize`: the screen mounts in a window already `width` wide instead, so its frames come from a
+    /// full reconcile at that size (the reference the in-place path is checked against), and its panes land
+    /// at once.
     final class Fixture {
         let provider = Panes()
         let model: LayoutModel
@@ -36,14 +41,19 @@ struct ScreenResizeInPlaceTests {
         let window: NSWindow
         static let height: CGFloat = 1000
 
-        init(width: CGFloat) {
-            model = LayoutModel(screens: PaneMotionBench.grid(4, 3), activeScreenID: "s", focusedPane: PaneID("p0-0"))
+        init(width: CGFloat, mountsAtSize: Bool = false) {
+            let grid = PaneMotionBench.grid(4, 3)
+            model = LayoutModel(screens: mountsAtSize ? [] : grid, activeScreenID: "s", focusedPane: PaneID("p0-0"))
             root = LayoutRootView(model: model, contentProvider: provider, mainWork: MainWorkScheduler(budget: MainFrameBudget()))
-            root.context.reduceMotionOverride = false
+            root.context.reduceMotionOverride = mountsAtSize
             window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: width, height: Self.height), styleMask: [.borderless],
                               backing: .buffered, defer: false)
             window.isReleasedWhenClosed = false
             window.contentView = root
+            if mountsAtSize {
+                model.apply(screens: grid)
+                root.syncWithModel()
+            }
             root.layoutSubtreeIfNeeded()
         }
 
@@ -81,11 +91,18 @@ struct ScreenResizeInPlaceTests {
                 #expect(sized == 0, "\(pane): its size kept and its content resized \(sized) times")
             }
         }
-        // The frames a full reconcile at the new size gives.
-        let fresh = Fixture(width: 1601)
+        // The frames a full reconcile at the new size gives: a screen mounted at 1601 pt that never resized in place.
+        let fresh = Fixture(width: 1601, mountsAtSize: true)
         defer { fresh.window.close() }
+        let reference = try #require(fresh.screen)
+        #expect(reference.reconcilePasses > 0 && reference.resizesInPlace == 0,
+                "the reference ran \(reference.reconcilePasses) reconciles and \(reference.resizesInPlace) resizes in place")
+        #expect(reference.paneFrames.count == 12, "the reference has \(reference.paneFrames.count) panes")
+        #expect(!reference.hasMotion, "the reference's panes still move")
         #expect(after == fresh.hostFrames, "in place: \(after.sorted { $0.key < $1.key }), reconciled: \(fresh.hostFrames.sorted { $0.key < $1.key })")
-        #expect(screen.dividerFrames.mapValues(\.targetRect) == fresh.screen?.dividerFrames.mapValues(\.targetRect))
+        #expect(screen.dividerFrames.mapValues(\.targetRect) == reference.dividerFrames.mapValues(\.targetRect))
+        #expect(screen.geometry == reference.geometry, "the in-place geometry is not the reconcile's")
+        #expect(screen.scroll.value == reference.scroll.value, "the strip camera: in place \(screen.scroll.value), reconciled \(reference.scroll.value)")
     }
 
     @Test func aResizeBackLandsOnTheFramesItLeftWithNoReconcile() throws {
