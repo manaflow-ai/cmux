@@ -32,7 +32,9 @@ impl ProbeIo {
             return Some(ProbeIo { read_fd: libc::STDIN_FILENO, write_fd, _tty: None });
         }
 
-        if let Ok(tty) = OpenOptions::new().read(true).write(true).open("/dev/tty") {
+        if let Ok(tty) =
+            crate::blocking::fs::open_with(OpenOptions::new().read(true).write(true), "/dev/tty")
+        {
             let fd = tty.as_raw_fd();
             return Some(ProbeIo { read_fd: fd, write_fd: fd, _tty: Some(tty) });
         }

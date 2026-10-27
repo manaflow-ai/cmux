@@ -1,6 +1,5 @@
 use std::{
     cmp::Ordering,
-    fs,
     path::{Path, PathBuf},
 };
 
@@ -26,7 +25,7 @@ impl FileEntry {
 }
 
 pub fn list_directory(directory: &Path, show_hidden: bool) -> Result<Vec<FileEntry>> {
-    let read_dir = fs::read_dir(directory)
+    let read_dir = cmux_blocking::fs::read_dir(directory)
         .with_context(|| format!("cannot read directory {}", directory.display()))?;
     let mut entries = Vec::new();
 
@@ -77,7 +76,7 @@ pub fn filtered_indices(entries: &[FileEntry], query: &str) -> Vec<usize> {
 
 #[cfg(test)]
 mod tests {
-    use std::fs::{create_dir, write};
+    use std::fs::{self, create_dir, write};
 
     use super::*;
 

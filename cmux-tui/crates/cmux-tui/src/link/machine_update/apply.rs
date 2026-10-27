@@ -150,16 +150,16 @@ fn apply(args: &Args) -> (&'static str, String) {
     };
     // A hard link: no copy, no space, and a planted file there goes first.
     let previous = args.install.with_file_name("cmux-tui.prev");
-    let _ = std::fs::remove_file(&previous);
-    if let Err(error) = std::fs::hard_link(&args.install, &previous) {
+    let _ = cmux_blocking::fs::remove_file(&previous);
+    if let Err(error) = crate::blocking::fs::hard_link(&args.install, &previous) {
         return ("failed", format!("cannot keep the running binary: {error}"));
     }
     // The file at our own path is still the one hashed: same inode, one link.
-    match std::fs::symlink_metadata(&own.path) {
+    match cmux_blocking::fs::symlink_metadata(&own.path) {
         Ok(now) if now.dev() == own.dev && now.ino() == own.ino && now.nlink() == 1 => {}
         _ => return ("failed", "the staged build changed after it was checked".into()),
     }
-    if let Err(error) = std::fs::rename(&own.path, &args.install) {
+    if let Err(error) = cmux_blocking::fs::rename(&own.path, &args.install) {
         return ("failed", format!("cannot install the new build: {error}"));
     }
     // SAFETY: kill has no memory preconditions; the pid was checked to run
@@ -204,8 +204,9 @@ struct Staged {
 fn own_install(install: &Path) -> Result<(), String> {
     let home = std::env::var_os("HOME").ok_or("no HOME")?;
     let expected = PathBuf::from(home).join(".cmux/bin/cmux-tui");
-    let canonical =
-        |path: &Path| std::fs::canonicalize(path).map_err(|e| format!("{}: {e}", path.display()));
+    let canonical = |path: &Path| {
+        cmux_blocking::fs::canonicalize(path).map_err(|e| format!("{}: {e}", path.display()))
+    };
     if canonical(install)? != canonical(&expected)? {
         return Err("the install path is not this user's ~/.cmux/bin/cmux-tui".into());
     }
@@ -215,14 +216,15 @@ fn own_install(install: &Path) -> Result<(), String> {
 /// Every check before anything changes.
 fn check(args: &Args) -> Result<Staged, String> {
     own_install(&args.install)?;
-    let canonical =
-        |path: &Path| std::fs::canonicalize(path).map_err(|e| format!("{}: {e}", path.display()));
+    let canonical = |path: &Path| {
+        cmux_blocking::fs::canonicalize(path).map_err(|e| format!("{}: {e}", path.display()))
+    };
     let own = std::env::current_exe().map_err(|e| e.to_string())?;
     if own.parent() != canonical(&args.install)?.parent() {
         return Err("the new build is not staged beside the binary".into());
     }
     // Hash the file through one descriptor, and remember which file it was.
-    let mut file = std::fs::File::open(&own).map_err(|e| e.to_string())?;
+    let mut file = cmux_blocking::fs::open(&own).map_err(|e| e.to_string())?;
     let opened = file.metadata().map_err(|e| e.to_string())?;
     let mut digest = Sha256::new();
     std::io::copy(&mut file, &mut digest).map_err(|e| e.to_string())?;
@@ -230,7 +232,7 @@ fn check(args: &Args) -> Result<Staged, String> {
     if sha256 != args.sha256 {
         return Err("the staged build does not match the pinned checksum".into());
     }
-    let running = std::fs::read_link(format!("/proc/{}/exe", args.daemon_pid))
+    let running = crate::blocking::fs::read_link(format!("/proc/{}/exe", args.daemon_pid))
         .map_err(|e| format!("cannot read the daemon's binary: {e}"))?;
     if running != canonical(&args.install)? {
         return Err("the daemon does not run the installed binary".into());
@@ -248,12 +250,11 @@ fn check(args: &Args) -> Result<Staged, String> {
 
 /// The folder's update lock, held while this process lives.
 fn lock(install: &Path) -> Option<std::fs::File> {
-    let file = std::fs::OpenOptions::new()
-        .create(true)
-        .truncate(false)
-        .write(true)
-        .open(install.with_file_name(LOCK_NAME))
-        .ok()?;
+    let file = crate::blocking::fs::open_with(
+        std::fs::OpenOptions::new().create(true).truncate(false).write(true),
+        install.with_file_name(LOCK_NAME),
+    )
+    .ok()?;
     // SAFETY: flock on a descriptor this function owns.
     let locked = unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } == 0;
     locked.then_some(file)
@@ -262,9 +263,9 @@ fn lock(install: &Path) -> Option<std::fs::File> {
 /// Puts the previous binary back over the install, atomically.
 fn put_back(args: &Args, previous: &Path) -> std::io::Result<()> {
     let back = args.install.with_file_name(".cmux-tui.rollback");
-    let _ = std::fs::remove_file(&back);
-    std::fs::hard_link(previous, &back)?;
-    std::fs::rename(&back, &args.install)
+    let _ = cmux_blocking::fs::remove_file(&back);
+    crate::blocking::fs::hard_link(previous, &back)?;
+    cmux_blocking::fs::rename(&back, &args.install)
 }
 
 /// Puts the previous binary back and waits for a daemon of it to serve.
@@ -302,12 +303,12 @@ fn serving(wanted: impl Fn(&str) -> bool, old_pid: i32) -> bool {
     let deadline = Instant::now() + SERVE_TIMEOUT;
     while Instant::now() < deadline {
         if let Some(pid) = answering(&socket, &wanted, old_pid) {
-            std::thread::sleep(SETTLE);
+            cmux_blocking::thread::sleep(SETTLE);
             if answering(&socket, &wanted, old_pid) == Some(pid) {
                 return true;
             }
         }
-        std::thread::sleep(Duration::from_secs(1));
+        cmux_blocking::thread::sleep(Duration::from_secs(1));
     }
     false
 }
@@ -335,14 +336,14 @@ fn wait(limit: Duration, mut done: impl FnMut() -> bool) -> bool {
         if done() {
             return true;
         }
-        std::thread::sleep(Duration::from_millis(100));
+        cmux_blocking::thread::sleep(Duration::from_millis(100));
     }
     done()
 }
 
 /// A file's SHA-256, lowercase hex.
 pub(crate) fn file_sha256(path: &Path) -> std::io::Result<String> {
-    let mut file = std::fs::File::open(path)?;
+    let mut file = cmux_blocking::fs::open(path)?;
     let mut digest = Sha256::new();
     std::io::copy(&mut file, &mut digest)?;
     Ok(digest.finalize().iter().map(|byte| format!("{byte:02x}")).collect())
@@ -350,6 +351,6 @@ pub(crate) fn file_sha256(path: &Path) -> std::io::Result<String> {
 
 fn write_atomically(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     let temporary = path.with_extension("json.part");
-    std::fs::write(&temporary, bytes)?;
-    std::fs::rename(&temporary, path)
+    cmux_blocking::fs::write(&temporary, bytes)?;
+    cmux_blocking::fs::rename(&temporary, path)
 }

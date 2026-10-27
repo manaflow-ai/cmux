@@ -69,20 +69,20 @@ pub(crate) fn write(
     let mut temporary = path.clone().into_os_string();
     temporary.push(format!(".{}.tmp", std::process::id()));
     let temporary = PathBuf::from(temporary);
-    let _ = std::fs::remove_file(&temporary);
+    let _ = cmux_blocking::fs::remove_file(&temporary);
     let result = (|| -> std::io::Result<()> {
         use std::io::Write;
         let mut options = std::fs::OpenOptions::new();
         options.write(true).create_new(true);
         #[cfg(unix)]
         std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
-        let mut file = options.open(&temporary)?;
+        let mut file = crate::blocking::fs::open_with(&options, &temporary)?;
         file.write_all(value.to_string().as_bytes())?;
-        file.sync_all()?;
-        std::fs::rename(&temporary, &path)
+        crate::blocking::fs::sync_all(&file)?;
+        cmux_blocking::fs::rename(&temporary, &path)
     })();
     if let Err(error) = result {
-        let _ = std::fs::remove_file(&temporary);
+        let _ = cmux_blocking::fs::remove_file(&temporary);
         anyhow::bail!("cannot write the WebSocket credential file {}: {error}", path.display());
     }
     Ok(CredentialFile { path })
@@ -90,12 +90,12 @@ pub(crate) fn write(
 
 impl Drop for CredentialFile {
     fn drop(&mut self) {
-        let ours = std::fs::read(&self.path)
+        let ours = cmux_blocking::fs::read(&self.path)
             .ok()
             .and_then(|bytes| serde_json::from_slice::<serde_json::Value>(&bytes).ok())
             .is_some_and(|value| value["pid"].as_u64() == Some(u64::from(std::process::id())));
         if ours {
-            let _ = std::fs::remove_file(&self.path);
+            let _ = cmux_blocking::fs::remove_file(&self.path);
         }
     }
 }

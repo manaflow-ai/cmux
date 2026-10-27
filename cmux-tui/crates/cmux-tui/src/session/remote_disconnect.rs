@@ -1,7 +1,9 @@
 //! The remote session's disconnect state and the wait on it.
 
-use std::sync::{Condvar, LockResult, Mutex, MutexGuard};
+use std::sync::{LockResult, Mutex, MutexGuard};
 use std::time::Duration;
+
+use cmux_threads::sync::Condvar;
 
 use super::DisconnectState;
 

@@ -3,10 +3,11 @@
 //! thread, runtime and shutdown handshake that feed it.
 
 use std::collections::VecDeque;
-use std::sync::{Arc, Condvar, Mutex};
+use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
+use cmux_threads::sync::Condvar;
 use crossbeam_channel::{Sender as SyncSender, TrySendError};
 use crossterm::event::{Event, KeyEvent, MouseEvent, MouseEventKind};
 
@@ -421,7 +422,7 @@ impl HostInputShutdown {
             if self.reader.wait_for_exit(HOST_INPUT_READER_EXIT_DEADLINE) {
                 // The exit report is the reader's last action, so this join
                 // only waits for the thread itself to finish.
-                let _ = reader.join();
+                let _ = crate::blocking::thread::join(reader);
             } else {
                 crate::client_log::warn(
                     "input",

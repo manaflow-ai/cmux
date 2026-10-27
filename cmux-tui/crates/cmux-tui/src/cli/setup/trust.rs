@@ -159,7 +159,7 @@ fn paths() -> Result<Paths, Refusal> {
 
 /// The level acpmux's record holds for `folder`, None without an entry.
 fn recorded(paths: &Paths, folder: &str) -> Result<Option<Level>, Refusal> {
-    let text = match std::fs::read_to_string(&paths.record) {
+    let text = match cmux_blocking::fs::read_to_string(&paths.record) {
         Ok(text) => text,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
         Err(error) => {

@@ -142,7 +142,7 @@ fn shared_file(folder: &Path, relative: &str, git: bool) -> bool {
     let mut at = folder.to_path_buf();
     names[..names.len().saturating_sub(1)].iter().all(|name| {
         at.push(name);
-        std::fs::symlink_metadata(&at).is_ok_and(|meta| meta.file_type().is_dir())
+        cmux_blocking::fs::symlink_metadata(&at).is_ok_and(|meta| meta.file_type().is_dir())
     })
 }
 
@@ -578,7 +578,7 @@ fn revoke(
 ) -> Result<Value, Failure> {
     // A folder that is gone is named as it was shared.
     let folder = folder.map(|folder| {
-        std::fs::canonicalize(folder)
+        cmux_blocking::fs::canonicalize(folder)
             .unwrap_or_else(|_| folder.to_path_buf())
             .to_string_lossy()
             .into_owned()

@@ -414,19 +414,20 @@ impl RemoteSession {
             forget();
             return Err(self.classify_transport_error(error).into());
         }
-        let response = match rx.recv_timeout(REMOTE_REQUEST_TIMEOUT) {
-            Ok(response) => response,
-            Err(RecvTimeoutError::Timeout) => {
-                forget();
-                anyhow::bail!("{operation} timed out");
-            }
-            Err(RecvTimeoutError::Disconnected) => {
-                return Err(match self.request_shutdown_error() {
-                    Some(error) => error.into(),
-                    None => anyhow::anyhow!("{operation}: the connection closed"),
-                });
-            }
-        };
+        let response =
+            match crate::blocking::sync::remote_reply_timeout(&rx, REMOTE_REQUEST_TIMEOUT) {
+                Ok(response) => response,
+                Err(RecvTimeoutError::Timeout) => {
+                    forget();
+                    anyhow::bail!("{operation} timed out");
+                }
+                Err(RecvTimeoutError::Disconnected) => {
+                    return Err(match self.request_shutdown_error() {
+                        Some(error) => error.into(),
+                        None => anyhow::anyhow!("{operation}: the connection closed"),
+                    });
+                }
+            };
         if response.get("ok").and_then(Value::as_bool) == Some(true) {
             return Ok(response.get("result").cloned().unwrap_or(Value::Null));
         }

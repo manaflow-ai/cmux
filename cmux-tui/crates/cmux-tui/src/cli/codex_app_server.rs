@@ -248,7 +248,7 @@ impl Client {
         self.send(&json!({"id": id, "method": method, "params": params}))?;
         loop {
             let left = self.deadline.saturating_duration_since(Instant::now());
-            let line = match self.lines.recv_timeout(left) {
+            let line = match crate::blocking::sync::recv_timeout(&self.lines, left) {
                 Ok(line) => line,
                 Err(RecvTimeoutError::Timeout) => {
                     return Err(format!("the Codex app-server did not answer {method} in time"));

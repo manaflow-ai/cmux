@@ -116,7 +116,7 @@ pub(super) struct GhosttyHelperOutputReader {
 
 impl GhosttyHelperOutputReader {
     pub(super) fn wait(self) -> Option<String> {
-        self.receiver.recv().ok().flatten()
+        cmux_blocking::sync::recv(&self.receiver).ok().flatten()
     }
 
     #[cfg(not(target_os = "macos"))]
@@ -124,7 +124,7 @@ impl GhosttyHelperOutputReader {
         &self,
         timeout: Duration,
     ) -> Result<Option<String>, mpsc::RecvTimeoutError> {
-        self.receiver.recv_timeout(timeout)
+        crate::blocking::sync::recv_timeout(&self.receiver, timeout)
     }
 }
 

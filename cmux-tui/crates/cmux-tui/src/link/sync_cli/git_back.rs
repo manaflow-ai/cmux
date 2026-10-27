@@ -120,7 +120,7 @@ pub(super) fn plan(
     copy_objects(remote, &remote_git, &quarantine, manifest)?;
     let vm_index = quarantine.join("machine-index");
     if let Some(bytes) = remote.read(&format!("{remote_git}/index"))? {
-        std::fs::write(&vm_index, bytes)?;
+        cmux_blocking::fs::write(&vm_index, bytes)?;
     }
     let vm_staged = quarantine_git(&quarantine)
         .env("GIT_INDEX_FILE", &vm_index)
@@ -357,10 +357,10 @@ fn quarantined(quarantine: &Path, common_dir: &Path) -> anyhow::Result<()> {
             .arg(format!("--object-format={}", format.trim()))
             .arg(quarantine),
     )?;
-    let objects = std::fs::canonicalize(common_dir.join("objects"))?;
+    let objects = cmux_blocking::fs::canonicalize(common_dir.join("objects"))?;
     let objects = objects.to_str().context("the repository's path is not UTF-8")?;
-    std::fs::create_dir_all(quarantine.join("objects/info"))?;
-    std::fs::write(quarantine.join("objects/info/alternates"), format!("{objects}\n"))?;
+    cmux_blocking::fs::create_dir_all(quarantine.join("objects/info"))?;
+    cmux_blocking::fs::write(quarantine.join("objects/info/alternates"), format!("{objects}\n"))?;
     Ok(())
 }
 
@@ -400,12 +400,12 @@ fn copy_objects(
                 continue;
             }
             let target = quarantine.join("objects").join(&relative);
-            std::fs::create_dir_all(target.parent().context("no parent")?)?;
-            let mut out = std::fs::File::create(&target)?;
+            cmux_blocking::fs::create_dir_all(target.parent().context("no parent")?)?;
+            let mut out = cmux_blocking::fs::create(&target)?;
             let source = format!("{objects}/{relative}");
             if remote.read_into(&source, &mut out, MAX_OBJECT_BYTES)?.is_none() {
                 drop(out);
-                std::fs::remove_file(&target)?;
+                cmux_blocking::fs::remove_file(&target)?;
                 continue;
             }
             if !loose {
@@ -428,7 +428,7 @@ fn is_hex(text: &str) -> bool {
 /// cached trees, which could name any tree.
 fn staged_commit(quarantine: &Path, entries: &[u8]) -> anyhow::Result<Option<String>> {
     let index = quarantine.join("rebuilt-index");
-    let _ = std::fs::remove_file(&index);
+    let _ = cmux_blocking::fs::remove_file(&index);
     let mut child = quarantine_git(quarantine)
         .env("GIT_INDEX_FILE", &index)
         .args(["update-index", "-z", "--index-info"])
@@ -441,7 +441,7 @@ fn staged_commit(quarantine: &Path, entries: &[u8]) -> anyhow::Result<Option<Str
     let input = entries.to_vec();
     let writer = std::thread::spawn(move || stdin.write_all(&input));
     let built = child.wait().context("cannot run git")?;
-    let _ = writer.join();
+    let _ = crate::blocking::thread::join(writer);
     if !built.success() {
         return Ok(None);
     }

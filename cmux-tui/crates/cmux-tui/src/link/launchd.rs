@@ -37,9 +37,9 @@ pub(super) fn plist_path() -> io::Result<PathBuf> {
 pub(super) fn install(program: &Path, arguments: &[String]) -> io::Result<PathBuf> {
     let path = plist_path()?;
     if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)?;
+        cmux_blocking::fs::create_dir_all(parent)?;
     }
-    std::fs::write(&path, plist(program, arguments)?)?;
+    cmux_blocking::fs::write(&path, plist(program, arguments)?)?;
     let domain = gui_domain();
     let _ = launchctl(&["bootout", &format!("{domain}/{LABEL}")]);
     launchctl(&["bootstrap", &domain, &path.to_string_lossy()])?;
@@ -66,7 +66,7 @@ pub(super) fn upgrade_installed_role() -> Option<String> {
 /// Unload the agent and remove its plist.
 pub(super) fn uninstall() -> io::Result<()> {
     let _ = launchctl(&["bootout", &format!("{}/{LABEL}", gui_domain())]);
-    match std::fs::remove_file(plist_path()?) {
+    match cmux_blocking::fs::remove_file(plist_path()?) {
         Err(error) if error.kind() != io::ErrorKind::NotFound => Err(error),
         _ => Ok(()),
     }

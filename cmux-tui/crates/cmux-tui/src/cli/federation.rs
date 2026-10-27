@@ -214,7 +214,7 @@ pub(super) fn local_sessions(
 ) -> Vec<(String, PathBuf)> {
     let mut sessions: Vec<(String, PathBuf)> = Vec::new();
     for directory in directories {
-        let Ok(entries) = std::fs::read_dir(directory) else { continue };
+        let Ok(entries) = cmux_blocking::fs::read_dir(directory) else { continue };
         for entry in entries.flatten() {
             let path = entry.path();
             if path.extension().is_none_or(|extension| extension != "sock") {

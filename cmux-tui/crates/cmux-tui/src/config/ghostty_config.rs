@@ -423,7 +423,8 @@ pub(super) fn parse_ghostty_config_file_until_with_scrollback(
     let mut loaded_root = false;
     let mut overrides = DefaultColors::default();
     let collect_scrollback = scrollback_limit_bytes.is_some();
-    let root_identity = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
+    let root_identity =
+        cmux_blocking::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
 
     // Preserve cmux's existing depth-first precedence for colors and themes.
     // Scrollback is replayed from this snapshot in Ghostty's declaration-order
@@ -443,7 +444,8 @@ pub(super) fn parse_ghostty_config_file_until_with_scrollback(
             }
             continue;
         }
-        let identity = pending.path.canonicalize().unwrap_or_else(|_| pending.path.clone());
+        let identity =
+            cmux_blocking::fs::canonicalize(&pending.path).unwrap_or_else(|_| pending.path.clone());
         if !loaded.insert(identity.clone()) {
             continue;
         }
@@ -507,7 +509,8 @@ pub(super) fn parse_ghostty_config_file_until_with_scrollback(
                     resolved = Some(*value);
                 }
                 for include in includes {
-                    let identity = include.canonicalize().unwrap_or_else(|_| include.clone());
+                    let identity = cmux_blocking::fs::canonicalize(include)
+                        .unwrap_or_else(|_| include.clone());
                     queue.push_back((identity, depth + 1));
                 }
             }
@@ -787,7 +790,7 @@ pub(super) fn load_ghostty_theme(
 }
 
 pub(super) fn read_ghostty_regular_file(path: &Path, max_bytes: u64) -> Option<String> {
-    let file = std::fs::File::open(path).ok()?;
+    let file = cmux_blocking::fs::open(path).ok()?;
     let metadata = file.metadata().ok()?;
     if !metadata.file_type().is_file() || metadata.len() > max_bytes {
         return None;
@@ -796,7 +799,7 @@ pub(super) fn read_ghostty_regular_file(path: &Path, max_bytes: u64) -> Option<S
 }
 
 pub(super) fn ghostty_regular_file_exceeds_limit(path: &Path, max_bytes: u64) -> bool {
-    std::fs::metadata(path)
+    cmux_blocking::fs::metadata(path)
         .is_ok_and(|metadata| metadata.file_type().is_file() && metadata.len() > max_bytes)
 }
 
@@ -822,7 +825,9 @@ pub(super) fn resolve_ghostty_theme_path(
         return Some(path.to_path_buf());
     }
     if path.file_name().is_some_and(|name| name == theme) {
-        return theme_dirs.iter().map(|dir| dir.join(theme)).find(|path| path.is_file());
+        return theme_dirs.iter().map(|dir| dir.join(theme)).find(|path| {
+            cmux_blocking::fs::metadata(path).is_ok_and(|metadata| metadata.is_file())
+        });
     }
     base_dir.map(|base_dir| base_dir.join(path))
 }

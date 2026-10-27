@@ -52,7 +52,7 @@ pub(super) fn trusted_stamp(stamp: &Path, top: &Path, owner_uid: u32) -> bool {
     }
     let mut current = Some(stamp);
     while let Some(path) = current {
-        let Ok(meta) = std::fs::symlink_metadata(path) else { return false };
+        let Ok(meta) = cmux_blocking::fs::symlink_metadata(path) else { return false };
         let kind_ok = if path == stamp { meta.file_type().is_file() } else { meta.is_dir() };
         if !kind_ok || meta.uid() != owner_uid || meta.mode() & 0o022 != 0 {
             return false;
@@ -62,7 +62,7 @@ pub(super) fn trusted_stamp(stamp: &Path, top: &Path, owner_uid: u32) -> bool {
         }
         current = path.parent();
     }
-    let Ok(file) = std::fs::File::open(stamp) else { return false };
+    let Ok(file) = cmux_blocking::fs::open(stamp) else { return false };
     let mut text = String::new();
     if std::io::Read::read_to_string(&mut std::io::Read::take(file, MAX_STAMP_BYTES), &mut text)
         .is_err()
@@ -75,7 +75,7 @@ pub(super) fn trusted_stamp(stamp: &Path, top: &Path, owner_uid: u32) -> bool {
 /// True when this machine is a cmux Cloud host (the module's test).
 fn this_is_a_cloud_host() -> bool {
     let env_file = crate::coderouter_usage::default_env_file_path()
-        .and_then(|path| std::fs::read_to_string(path).ok());
+        .and_then(|path| cmux_blocking::fs::read_to_string(path).ok());
     let identity =
         crate::coderouter_usage::resolve_source(|key| std::env::var(key).ok(), env_file.as_deref())
             .is_some();

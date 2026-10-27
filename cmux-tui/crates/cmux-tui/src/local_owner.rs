@@ -310,7 +310,7 @@ pub(crate) fn ensure_owner(
             Attempt::Starting(pid) => {
                 progress.restoring(pid);
                 drop(lock);
-                std::thread::sleep(POLL_INTERVAL);
+                cmux_blocking::thread::sleep(POLL_INTERVAL);
                 continue;
             }
             // The lock is released once the spawn is issued. A redundant
@@ -383,7 +383,7 @@ fn wait_while_starting(
         if Instant::now() >= restore_deadline {
             return Err(EnsureError::RestoreTimeout);
         }
-        std::thread::sleep(POLL_INTERVAL);
+        cmux_blocking::thread::sleep(POLL_INTERVAL);
     }
 }
 
@@ -425,7 +425,7 @@ fn wait_until_ready(
         if !seen_alive && now >= contact_deadline {
             return Ok(None);
         }
-        std::thread::sleep(POLL_INTERVAL);
+        cmux_blocking::thread::sleep(POLL_INTERVAL);
     }
 }
 

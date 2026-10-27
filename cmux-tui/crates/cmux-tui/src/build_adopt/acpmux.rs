@@ -39,7 +39,7 @@ const STOP_WAIT: Duration = Duration::from_secs(45);
 /// Adopts NEXT's old acpmux home into `home` (`<root>/builds/<key>`) once.
 /// `exe` is this binary (it stops a running daemon); `by` names the caller.
 pub(crate) fn adopt(home: &Path, exe: Option<&Path>, by: &str) -> Outcome {
-    if home.join(RECORD).exists() {
+    if cmux_blocking::fs::metadata(home.join(RECORD)).is_ok() {
         return Outcome::Done;
     }
     let Some(root) = home.parent().and_then(Path::parent) else { return Outcome::Nothing };
@@ -49,10 +49,10 @@ pub(crate) fn adopt(home: &Path, exe: Option<&Path>, by: &str) -> Outcome {
         // post-update home a crashed adoption set aside (a later run merges it first).
         let key = home.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
         let leftover =
-            std::fs::read_dir(root.join("builds")).into_iter().flatten().flatten().any(|e| {
-                e.file_name().to_string_lossy().starts_with(&format!(".post-update-{key}-"))
-            });
-        if is_real_dir(home) && std::fs::symlink_metadata(&legacy).is_err() && !leftover {
+            cmux_blocking::fs::read_dir(root.join("builds")).into_iter().flatten().flatten().any(
+                |e| e.file_name().to_string_lossy().starts_with(&format!(".post-update-{key}-")),
+            );
+        if is_real_dir(home) && cmux_blocking::fs::symlink_metadata(&legacy).is_err() && !leftover {
             let (_, at) = super::now_stamps();
             let record = serde_json::json!({"from": null, "at": at, "by": by, "mode": "none"});
             let _ = super::write_record(&home.join(RECORD), &record);
@@ -82,14 +82,14 @@ fn adopt_locked(
         Ok(None) => return Outcome::Deferred("another adoption of this home runs".into()),
         Err(error) => return Outcome::Deferred(format!("adoption lock: {error}")),
     };
-    if home.join(RECORD).exists() {
+    if cmux_blocking::fs::metadata(home.join(RECORD)).is_ok() {
         return Outcome::Done;
     }
     if !is_real_dir(legacy) {
         return Outcome::Nothing;
     }
     steps.step(format!("old home {} found; new home {}", legacy.display(), home.display()));
-    let new_exists = std::fs::symlink_metadata(home).is_ok();
+    let new_exists = cmux_blocking::fs::symlink_metadata(home).is_ok();
     let mut locks: Vec<File> = Vec::new();
     for dir in [Some(legacy), new_exists.then_some(home)].into_iter().flatten() {
         match quiesce(dir, exe, steps) {
@@ -102,7 +102,7 @@ fn adopt_locked(
         "from": legacy, "at": at, "by": by, "mode": "rename",
     });
     if !new_exists {
-        if let Err(error) = std::fs::rename(legacy, home) {
+        if let Err(error) = cmux_blocking::fs::rename(legacy, home) {
             return Outcome::Deferred(format!(
                 "rename {} -> {}: {error}",
                 legacy.display(),
@@ -112,12 +112,12 @@ fn adopt_locked(
         steps.step("renamed the old home to the new home (the new home did not exist)");
     } else {
         let aside = builds.join(format!(".post-update-{key}-{stamp}"));
-        if let Err(error) = std::fs::rename(home, &aside) {
+        if let Err(error) = cmux_blocking::fs::rename(home, &aside) {
             return Outcome::Deferred(format!("set aside {}: {error}", home.display()));
         }
-        if let Err(error) = std::fs::rename(legacy, home) {
+        if let Err(error) = cmux_blocking::fs::rename(legacy, home) {
             // Put the post-update home back; if that fails too, the next run merges the aside.
-            if let Err(back) = std::fs::rename(&aside, home) {
+            if let Err(back) = cmux_blocking::fs::rename(&aside, home) {
                 steps.step(format!(
                     "{} stays aside ({back}); the next run merges it",
                     aside.display()
@@ -132,7 +132,7 @@ fn adopt_locked(
         steps.step("renamed the old home to the new home; merging the post-update sessions");
         let merged = merge_sessions(&aside, home, steps);
         let kept = home.join(format!("adopted-post-update-{stamp}"));
-        let kept = match std::fs::rename(&aside, &kept) {
+        let kept = match cmux_blocking::fs::rename(&aside, &kept) {
             Ok(()) => {
                 steps.step(format!("kept the rest of the post-update home in {}", kept.display()));
                 kept
@@ -148,7 +148,7 @@ fn adopt_locked(
         record["post_update_kept"] = serde_json::json!(kept);
     }
     // Asides a crash left between the two renames of an earlier run.
-    let leftovers: Vec<PathBuf> = std::fs::read_dir(&builds)
+    let leftovers: Vec<PathBuf> = cmux_blocking::fs::read_dir(&builds)
         .into_iter()
         .flatten()
         .flatten()
@@ -165,7 +165,7 @@ fn adopt_locked(
             "adopted-{}",
             aside.file_name().unwrap_or_default().to_string_lossy().trim_start_matches('.')
         ));
-        if std::fs::rename(&aside, &kept).is_ok() {
+        if cmux_blocking::fs::rename(&aside, &kept).is_ok() {
             steps.step(format!("kept the rest of it in {}", kept.display()));
         }
     }
@@ -185,7 +185,7 @@ fn adopt_locked(
 
 /// A real folder (not a link: an adopted old path is a link).
 fn is_real_dir(path: &Path) -> bool {
-    std::fs::symlink_metadata(path).is_ok_and(|m| m.file_type().is_dir())
+    cmux_blocking::fs::symlink_metadata(path).is_ok_and(|m| m.file_type().is_dir())
 }
 
 /// Stops the daemon of `home` if one runs (through its own socket, agents
@@ -231,12 +231,14 @@ fn quiesce(home: &Path, exe: Option<&Path>, steps: &mut Steps) -> Result<Vec<Fil
 fn merge_sessions(aside: &Path, home: &Path, steps: &mut Steps) -> (usize, Vec<(String, String)>) {
     let mut moved = 0;
     let mut renamed = Vec::new();
-    let Ok(entries) = std::fs::read_dir(aside.join("sessions")) else { return (0, renamed) };
-    let _ = std::fs::create_dir_all(home.join("sessions"));
+    let Ok(entries) = cmux_blocking::fs::read_dir(aside.join("sessions")) else {
+        return (0, renamed);
+    };
+    let _ = cmux_blocking::fs::create_dir_all(home.join("sessions"));
     for entry in entries.flatten() {
         let id = entry.file_name().to_string_lossy().into_owned();
         let mut target_id = id.clone();
-        if std::fs::symlink_metadata(home.join("sessions").join(&id)).is_ok() {
+        if cmux_blocking::fs::symlink_metadata(home.join("sessions").join(&id)).is_ok() {
             // A kept agent host of that id would write into the other session: such a
             // session stays in the kept post-update folder (both kept, never mixed).
             if has_host_record(aside, &id) {
@@ -248,7 +250,7 @@ fn merge_sessions(aside: &Path, home: &Path, steps: &mut Steps) -> (usize, Vec<(
             target_id = new_session_id();
         }
         let to = home.join("sessions").join(&target_id);
-        if let Err(error) = std::fs::rename(entry.path(), &to) {
+        if let Err(error) = cmux_blocking::fs::rename(entry.path(), &to) {
             steps.step(format!("session {id} stays in the post-update home: {error}"));
             continue;
         }
@@ -270,20 +272,22 @@ fn merge_sessions(aside: &Path, home: &Path, steps: &mut Steps) -> (usize, Vec<(
 /// Whether `hosts/<id>.*` of `home` names an agent host of session `id`.
 fn has_host_record(home: &Path, id: &str) -> bool {
     let prefix = format!("{id}.");
-    std::fs::read_dir(home.join("hosts")).is_ok_and(|entries| {
+    cmux_blocking::fs::read_dir(home.join("hosts")).is_ok_and(|entries| {
         entries.flatten().any(|e| e.file_name().to_string_lossy().starts_with(&prefix))
     })
 }
 
 /// `hosts/<id>.*` of a moved session: its agent host still finds it.
 fn move_host_records(aside: &Path, home: &Path, id: &str) {
-    let Ok(entries) = std::fs::read_dir(aside.join("hosts")) else { return };
-    let _ = std::fs::create_dir_all(home.join("hosts"));
+    let Ok(entries) = cmux_blocking::fs::read_dir(aside.join("hosts")) else { return };
+    let _ = cmux_blocking::fs::create_dir_all(home.join("hosts"));
     let prefix = format!("{id}.");
     for entry in entries.flatten() {
         let name = entry.file_name();
-        if name.to_string_lossy().starts_with(&prefix) && !home.join("hosts").join(&name).exists() {
-            let _ = std::fs::rename(entry.path(), home.join("hosts").join(&name));
+        if name.to_string_lossy().starts_with(&prefix)
+            && cmux_blocking::fs::metadata(home.join("hosts").join(&name)).is_err()
+        {
+            let _ = cmux_blocking::fs::rename(entry.path(), home.join("hosts").join(&name));
         }
     }
 }
@@ -299,7 +303,7 @@ fn new_session_id() -> String {
 }
 
 fn set_session_id(path: &PathBuf, id: &str) {
-    let Ok(text) = std::fs::read_to_string(path) else { return };
+    let Ok(text) = cmux_blocking::fs::read_to_string(path) else { return };
     let Ok(mut value) = serde_json::from_str::<serde_json::Value>(&text) else { return };
     value["id"] = id.into();
     let _ = super::write_record(path, &value);

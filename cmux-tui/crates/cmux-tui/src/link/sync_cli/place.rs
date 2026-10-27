@@ -492,7 +492,7 @@ impl Transaction {
         let mut out = dir.create_file(&part, 0o600)?;
         let copied = io::copy(&mut from, &mut out)
             .and_then(|_| out.set_permissions(mode))
-            .and_then(|()| out.sync_all())
+            .and_then(|()| crate::blocking::fs::sync_all(&out))
             .and_then(|()| link_new(dir, &part, dir, name));
         if copied.is_err() {
             let _ = dir.unlink(&part, false);

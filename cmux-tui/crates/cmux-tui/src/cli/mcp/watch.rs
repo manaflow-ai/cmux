@@ -99,7 +99,7 @@ pub(super) fn spawn(global: GlobalArgs, output: Output) {
                 delay = FIRST_RETRY;
             }
             // Backoff after a failure or a closed stream.
-            std::thread::sleep(delay);
+            cmux_blocking::thread::sleep(delay);
             delay = (delay * 2).min(MAX_RETRY);
         }
     });

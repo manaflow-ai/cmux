@@ -105,7 +105,7 @@ impl RemoteSession {
                 RequestDeadline::Fixed(timeout) => timeout,
                 RequestDeadline::Attach => unreachable!(),
             };
-            return match rx.recv_timeout(timeout) {
+            return match crate::blocking::sync::remote_reply_timeout(&rx, timeout) {
                 Ok(response) => Ok(response),
                 Err(RecvTimeoutError::Timeout) => Err(RemoteRequestError::Timeout),
                 Err(RecvTimeoutError::Disconnected) if self.shutdown.load(Ordering::Acquire) => {
@@ -132,7 +132,7 @@ impl RemoteSession {
             let Some(wait) = deadline.next_wait(now, request_progress, attach_progress) else {
                 return Err(RemoteRequestError::Timeout);
             };
-            match rx.recv_timeout(wait) {
+            match crate::blocking::sync::remote_reply_timeout(&rx, wait) {
                 Ok(response) => return Ok(response),
                 Err(RecvTimeoutError::Disconnected) if self.shutdown.load(Ordering::Acquire) => {
                     return Err(self.shutdown_error());

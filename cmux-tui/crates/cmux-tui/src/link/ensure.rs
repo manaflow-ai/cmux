@@ -203,7 +203,7 @@ pub(super) fn ensure_lock(state: &LinkState) -> anyhow::Result<std::fs::File> {
         let answer = if locked { Ok(file) } else { Err(std::io::Error::last_os_error()) };
         let _ = sender.send(answer);
     })?;
-    match receiver.recv_timeout(LOCK_BUDGET) {
+    match crate::blocking::sync::recv_timeout(&receiver, LOCK_BUDGET) {
         Ok(Ok(file)) => Ok(file),
         Ok(Err(error)) => Err(error).context("lock the link state directory"),
         Err(_) => bail!(
@@ -378,13 +378,11 @@ const READY_FD: RawFd = 3;
 fn start(state: &LinkState, flags: &Flags) -> anyhow::Result<Option<Value>> {
     use std::os::fd::AsFd as _;
     use std::os::unix::fs::OpenOptionsExt as _;
-    let log = std::fs::OpenOptions::new()
-        .create(true)
-        .write(true)
-        .truncate(true)
-        .mode(0o600)
-        .open(state.log_path())
-        .with_context(|| format!("open {}", state.log_path().display()))?;
+    let log = crate::blocking::fs::open_with(
+        std::fs::OpenOptions::new().create(true).write(true).truncate(true).mode(0o600),
+        state.log_path(),
+    )
+    .with_context(|| format!("open {}", state.log_path().display()))?;
     let log_err = log.try_clone()?;
     let mut fds = [0 as RawFd; 2];
     // SAFETY: fds has room for the two descriptors pipe writes.
@@ -428,7 +426,7 @@ fn start(state: &LinkState, flags: &Flags) -> anyhow::Result<Option<Value>> {
         let read = BufReader::new(reader.take(64 * 1024)).read_line(&mut line);
         let _ = sender.send(read.ok().filter(|n| *n > 0).map(|_| line));
     })?;
-    let line = receiver.recv_timeout(START_BUDGET).map_err(|_| {
+    let line = crate::blocking::sync::recv_timeout(&receiver, START_BUDGET).map_err(|_| {
         anyhow!(
             "the link was not ready within {START_BUDGET:?}; see {}",
             state.log_path().display()

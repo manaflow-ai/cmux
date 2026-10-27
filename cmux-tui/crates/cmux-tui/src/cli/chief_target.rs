@@ -38,7 +38,7 @@ pub(super) fn is_socket(path: &Path) -> bool {
     #[cfg(unix)]
     {
         use std::os::unix::fs::FileTypeExt;
-        std::fs::metadata(path).is_ok_and(|m| m.file_type().is_socket())
+        cmux_blocking::fs::metadata(path).is_ok_and(|m| m.file_type().is_socket())
     }
     #[cfg(not(unix))]
     {

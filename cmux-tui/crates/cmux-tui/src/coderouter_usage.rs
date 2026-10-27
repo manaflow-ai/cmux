@@ -142,7 +142,7 @@ pub(crate) fn default_env_file_path() -> Option<PathBuf> {
 }
 
 fn read_env_file(path: Option<&Path>) -> Option<String> {
-    std::fs::read_to_string(path?).ok()
+    cmux_blocking::fs::read_to_string(path?).ok()
 }
 
 /// Why the daemon currently has no readout. Only used for log text.
@@ -265,7 +265,7 @@ impl UsagePoller {
     pub(crate) fn stop(mut self) {
         self.stop.notify_one();
         if let Some(thread) = self.thread.take() {
-            let _ = thread.join();
+            let _ = crate::blocking::thread::join(thread);
         }
     }
 }

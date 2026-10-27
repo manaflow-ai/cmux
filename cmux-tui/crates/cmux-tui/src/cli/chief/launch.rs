@@ -34,9 +34,9 @@ pub(super) fn ensure(home: &ChiefHome) -> Result<PathBuf, String> {
     let m = messages();
     let socket = home.socket().map_err(|e| e.to_string())?;
     let session = home.session();
-    std::fs::create_dir_all(home.state_dir()).map_err(|e| e.to_string())?;
+    cmux_blocking::fs::create_dir_all(home.state_dir()).map_err(|e| e.to_string())?;
     // Asked for the Chief again: the app may restart its brain again.
-    let _ = std::fs::remove_file(home.shutdown_marker());
+    let _ = cmux_blocking::fs::remove_file(home.shutdown_marker());
     let spec = OwnerSpec {
         session: session.clone(),
         socket: socket.clone(),
@@ -124,7 +124,9 @@ pub(super) fn brain_running(lock: &Path) -> bool {
     #[cfg(unix)]
     {
         use std::os::fd::AsRawFd;
-        let Ok(file) = OpenOptions::new().read(true).open(lock) else { return false };
+        let Ok(file) = crate::blocking::fs::open_with(OpenOptions::new().read(true), lock) else {
+            return false;
+        };
         // SAFETY: flock on a descriptor this function owns; it is released
         // when `file` drops.
         let taken = unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) };
@@ -143,7 +145,9 @@ pub(super) fn brain_running(lock: &Path) -> bool {
 pub(super) fn brain_binary() -> Option<PathBuf> {
     for key in ["CMUX_CHIEF_BRAIN_BIN", "CMUX_NEXT_MUX_HOST"] {
         if let Some(path) = std::env::var_os(key).filter(|v| !v.is_empty()).map(PathBuf::from) {
-            return path.is_file().then_some(path);
+            return cmux_blocking::fs::metadata(&path)
+                .is_ok_and(|metadata| metadata.is_file())
+                .then_some(path);
         }
     }
     sibling_or_path("optchat-chief")
@@ -154,7 +158,10 @@ fn sibling_or_path(name: &str) -> Option<PathBuf> {
     let on_path = std::env::var_os("PATH")
         .map(|paths| std::env::split_paths(&paths).map(|dir| dir.join(name)).collect::<Vec<_>>())
         .unwrap_or_default();
-    beside.into_iter().chain(on_path).find(|path| path.is_file())
+    beside
+        .into_iter()
+        .chain(on_path)
+        .find(|path| cmux_blocking::fs::metadata(path).is_ok_and(|metadata| metadata.is_file()))
 }
 
 /// The Chief conversation exists, created with the app's request if not.
@@ -183,18 +190,21 @@ fn ensure_conversation(link: &mut Link, user: &str) -> Result<(), LinkError> {
 /// Created 0600 from the start, so the token is never readable by others.
 fn write_token(path: &Path, token: &str) -> std::io::Result<()> {
     use std::io::Write;
-    let _ = std::fs::remove_file(path);
+    let _ = cmux_blocking::fs::remove_file(path);
     let mut options = OpenOptions::new();
     options.write(true).create_new(true);
     #[cfg(unix)]
     std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
-    options.open(path)?.write_all(token.as_bytes())
+    crate::blocking::fs::open_with(&options, path)?.write_all(token.as_bytes())
 }
 
 /// The brain detached in its own session, its output appended to
 /// `host.log`, with the app's environment for it.
 fn spawn_brain(brain: &Path, home: &ChiefHome, socket: &Path, user: &str) -> std::io::Result<u32> {
-    let log = OpenOptions::new().create(true).append(true).open(home.host_log())?;
+    let log = crate::blocking::fs::open_with(
+        OpenOptions::new().create(true).append(true),
+        home.host_log(),
+    )?;
     // The account's home (the user database), not the caller's HOME: a job
     // runner's own HOME made the brain miss the person's harness settings
     // (the daemon's brains do the same, c47dd2fd0112).

@@ -134,7 +134,7 @@ pub(super) fn collect(folder: &Path) -> anyhow::Result<LocalSet> {
         return Ok(set);
     };
     set.git = true;
-    if git.common.join("objects/info/alternates").exists() {
+    if cmux_blocking::fs::metadata(git.common.join("objects/info/alternates")).is_ok() {
         bail!(
             "{} borrows objects from another repository (objects/info/alternates); clone it without --shared or --reference first",
             folder.display()
@@ -177,7 +177,8 @@ impl GitDirs {
     /// repository is above it, so pushing it alone would lose the git state.
     pub(super) fn of(folder: &Path) -> anyhow::Result<Option<Self>> {
         let Ok(top) = git(folder, &["rev-parse", "--show-toplevel"]) else { return Ok(None) };
-        let top = std::fs::canonicalize(top.trim()).unwrap_or_else(|_| PathBuf::from(top.trim()));
+        let top = cmux_blocking::fs::canonicalize(top.trim())
+            .unwrap_or_else(|_| PathBuf::from(top.trim()));
         if top != folder {
             bail!(
                 "{} is inside the git working copy {}; push its top folder",
@@ -255,13 +256,14 @@ fn add_git(set: &mut LocalSet, relative: &str, path: &Path) -> anyhow::Result<()
     let target = format!(".git/{relative}");
     let name = parts.last().copied().unwrap_or_default();
     if data_at.is_none() && matches!(name, "config" | "config.worktree") {
-        let text = std::fs::read_to_string(path).unwrap_or_default();
+        let text = cmux_blocking::fs::read_to_string(path).unwrap_or_default();
         let source = Source::Bytes(clean_config(&text).into_bytes());
         set.files.insert(target, LocalFile { source, permissions: 0o644 });
         return Ok(());
     }
     if data_at.is_some_and(|index| parts[index] == "logs") {
-        let text = String::from_utf8_lossy(&std::fs::read(path).unwrap_or_default()).into_owned();
+        let text = String::from_utf8_lossy(&cmux_blocking::fs::read(path).unwrap_or_default())
+            .into_owned();
         let cleaned: String = text.split_inclusive('\n').map(without_user_info).collect();
         set.files.insert(
             target,
@@ -276,7 +278,7 @@ fn add_git(set: &mut LocalSet, relative: &str, path: &Path) -> anyhow::Result<()
 /// as skipped (a symlink, a socket, a name the machine cannot hold). A file
 /// deleted from the working tree is left out.
 fn add(set: &mut LocalSet, relative: String, path: &Path) -> anyhow::Result<()> {
-    match std::fs::symlink_metadata(path) {
+    match cmux_blocking::fs::symlink_metadata(path) {
         Ok(meta) if meta.file_type().is_file() && holdable(&relative) => {
             let permissions = permissions_of(meta.permissions().mode());
             set.files.insert(
@@ -318,8 +320,8 @@ fn walk(
     dir: &Path,
     visit: &mut dyn FnMut(&str, &Path) -> anyhow::Result<()>,
 ) -> anyhow::Result<()> {
-    let entries =
-        std::fs::read_dir(dir).with_context(|| format!("cannot list {}", dir.display()))?;
+    let entries = cmux_blocking::fs::read_dir(dir)
+        .with_context(|| format!("cannot list {}", dir.display()))?;
     for entry in entries {
         let entry = entry?;
         let path = entry.path();

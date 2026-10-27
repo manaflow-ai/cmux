@@ -59,23 +59,26 @@ fn path_of(local: &Path, remote_root: &str) -> anyhow::Result<PathBuf> {
 pub(super) fn save(local: &Path, remote_root: &str, manifest: &Manifest) -> anyhow::Result<()> {
     let path = path_of(local, remote_root)?;
     let dir = path.parent().context("no state folder")?;
-    std::fs::DirBuilder::new()
-        .recursive(true)
-        .mode(0o700)
-        .create(dir)
-        .with_context(|| format!("cannot make {}", dir.display()))?;
+    crate::blocking::fs::create_dir_with(
+        std::fs::DirBuilder::new().recursive(true).mode(0o700),
+        dir,
+    )
+    .with_context(|| format!("cannot make {}", dir.display()))?;
     let part = path.with_extension(format!("{}.part", std::process::id()));
-    let _ = std::fs::remove_file(&part);
-    let mut file = std::fs::OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .mode(0o600)
-        .custom_flags(libc::O_NOFOLLOW)
-        .open(&part)
-        .with_context(|| format!("cannot write {}", part.display()))?;
+    let _ = cmux_blocking::fs::remove_file(&part);
+    let mut file = crate::blocking::fs::open_with(
+        std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(0o600)
+            .custom_flags(libc::O_NOFOLLOW),
+        &part,
+    )
+    .with_context(|| format!("cannot write {}", part.display()))?;
     file.write_all(&serde_json::to_vec(manifest)?)?;
-    file.sync_all()?;
-    std::fs::rename(&part, &path).with_context(|| format!("cannot write {}", path.display()))
+    crate::blocking::fs::sync_all(&file)?;
+    cmux_blocking::fs::rename(&part, &path)
+        .with_context(|| format!("cannot write {}", path.display()))
 }
 
 /// The base of `local` synced to `remote_root`, checked against the
@@ -86,7 +89,7 @@ pub(super) fn trusted(
     machine: Option<&[u8]>,
 ) -> anyhow::Result<Manifest> {
     let path = path_of(local, remote_root)?;
-    let kept = match std::fs::read(&path) {
+    let kept = match cmux_blocking::fs::read(&path) {
         Ok(bytes) => bytes,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Err(NoBase.into()),
         Err(error) => return Err(error).with_context(|| format!("cannot read {}", path.display())),

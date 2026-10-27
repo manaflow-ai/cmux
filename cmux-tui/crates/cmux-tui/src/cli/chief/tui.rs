@@ -44,7 +44,7 @@ pub(super) fn run(mut session: Session) -> i32 {
     });
     screen.paint(&lines, &chat, &editor);
     let mut code = 0;
-    while let Ok(input) = session.rx.recv() {
+    while let Ok(input) = cmux_blocking::sync::recv(&session.rx) {
         let mut lines: Vec<Line> = Vec::new();
         match input {
             Input::Closed(reason) if reason == "gap" && session.reopen(50).is_ok() => {

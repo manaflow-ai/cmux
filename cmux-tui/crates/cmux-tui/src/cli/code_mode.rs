@@ -71,7 +71,7 @@ pub(super) fn run(plan: Plan) -> i32 {
 fn resolve_runner(current_exe: Option<PathBuf>) -> PathBuf {
     current_exe
         .and_then(|path| path.parent().map(|dir| dir.join("cmux-code-mode-runner")))
-        .filter(|path| path.is_file())
+        .filter(|path| cmux_blocking::fs::metadata(path).is_ok_and(|metadata| metadata.is_file()))
         .unwrap_or_else(|| PathBuf::from("cmux-code-mode-runner"))
 }
 
