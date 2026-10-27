@@ -94,8 +94,11 @@ struct AppCrashReporting: Sendable {
     let reporter: CrashReporter
     /// The helper crash reports and every shipped Rust process's panic and hang logs (cx-urd.59,
     /// p09-observability-075: ``RustDiagnosticsLog/all(_:)``), the acpmux daemon's among them; nil outside the
-    /// app process. With reports off they only mark reports done.
+    /// app process. With reports off they only mark reports done. The helper crash forwarder starts at the
+    /// hang-reports controller's first decision too (``hangReportsDecided(_:)``), so no pass sends a black box before it.
     let forwarders: CrashForwarders?
+    /// Whether the helper crash forwarder's Rust crashes carry their black box; nil outside the app process.
+    let blackboxConsent: RustBlackBoxConsent?
 
     /// - Parameters:
     ///   - features: The features the app runs with, put on the Sentry scope right after it starts
@@ -118,6 +121,7 @@ struct AppCrashReporting: Sendable {
             // No Sentry in this process: the running build still decides when a notFatalUntil site traps.
             InvariantSink.install(reporter: reporter, bundleVersion: bundleVersion)
             forwarders = nil
+            blackboxConsent = nil
             return
         }
         // Before the start: with Sentry's tracker off, the watchdog reports every hang from the start on (p09-observability-076).
@@ -129,10 +133,25 @@ struct AppCrashReporting: Sendable {
         InvariantSink.install(reporter: reporter, bundleVersion: bundleVersion)
         if let features { reporter.setFeatures(features) }
         afterStartup.schedule { [reporter = self.reporter] in reporter.resumeAfterStartup() }
+        // A Rust crash's black box goes only while hang reports are on in effect (079's opt-in).
+        let blackboxConsent = RustBlackBoxConsent(consentRecorded: { [key = HangReportsController.consentKey] in
+            UserDefaults.standard.object(forKey: key) is Date
+        })
+        let processEnvironment = ProcessInfo.processInfo.environment
+        let rings = HangReportsController.ringFolders(bundleID: environment.launch.bundleID, environment: processEnvironment)
         let stateDirectory = AppRunMarker.standardDirectory(bundleID: environment.launch.bundleID)
         let system = SystemCrashForwarder(
             stateFile: stateDirectory.appending(path: "crash-forwarder.json"),
-            bundlePath: Bundle.main.bundlePath, mainExecutable: Bundle.main.executablePath, sends: sends)
+            bundlePath: Bundle.main.bundlePath, mainExecutable: Bundle.main.executablePath,
+            hostExeRoot: Self.hostExeRoot(environment: processEnvironment),
+            ownRustBinaries: SystemCrashForwarder.ownRustBinaries(
+                bundledBin: Bundle.main.resourceURL?.appending(path: "bin", directoryHint: .isDirectory),
+                daemonOverride: processEnvironment[DaemonLauncher.binaryOverrideKey]),
+            release: reporter.policy.release,
+            artifacts: RustCrashArtifacts(directories: rings.directories, holderSockets: rings.holderSockets,
+                                          blackboxOptIn: { blackboxConsent.allows }),
+            sends: sends)
+        self.blackboxConsent = blackboxConsent
         // Every shipped Rust process's panic and hang logs but acpmux's, which the forwarders' first pass adds
         // because finding acpmux reads the file system. The owner's and acpmux's offsets from before the log list
         // carry over.
@@ -146,7 +165,7 @@ struct AppCrashReporting: Sendable {
             sends: sends)
         // A panic in an acpmux request task ends only that task: before its log, the 2026-10-14 sort panic
         // reached only daemon.log.
-        let forwarders = CrashForwarders(system: system, ownerPanics: rustDiagnostics) { [build = environment.build] in
+        let forwarders = CrashForwarders(system: system, ownerPanics: rustDiagnostics, systemWaitsForRelease: true) { [build = environment.build] in
             Self.acpmuxHome(build: build).map { home in
                 RustDiagnosticsForwarder(
                     logs: RustDiagnosticsLog.acpmux(home: home),
@@ -158,6 +177,22 @@ struct AppCrashReporting: Sendable {
         if let forwardersAfterStartup { forwarders.post(on: forwardersAfterStartup) } else { forwarders.start() }
         self.forwarders = forwarders
         Self.installLayoutPassGuard(reporter: reporter)
+    }
+
+    /// The hang-reports controller's decision, at its first and each later one: whether a Rust crash's black box may
+    /// go. The first one releases the helper crash forwarder (``CrashForwarders/releaseSystem()``).
+    func hangReportsDecided(_ on: Bool) {
+        guard let blackboxConsent, blackboxConsent.decide(on) else { return }
+        forwarders?.releaseSystem()
+    }
+
+    /// The root the app's daemon copies its hosts and holder under: the daemon's `CMUX_TUI_HOST_EXE_DIR`, which
+    /// the app's launch knob `CMUX_NEXT_TUI_HOST_EXE_DIR` sets (``DaemonDiagnosticKnobs``), else the default.
+    /// The app's own `CMUX_TUI_HOST_EXE_DIR` is stripped at its launch and never reaches the daemon.
+    static func hostExeRoot(environment: [String: String],
+                            home: URL = FileManager.default.homeDirectoryForCurrentUser) -> String {
+        SystemCrashReport.HelperRoots.standardHostExeRoot(
+            environment: DaemonDiagnosticKnobs(processEnvironment: environment).daemonEnvironment, home: home)
     }
 
     /// Each Rust hang line sent is also a hang-report entry, the lines read before this call too (the collector exists

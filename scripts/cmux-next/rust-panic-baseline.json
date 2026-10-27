@@ -175,10 +175,10 @@
    "unreachable": 0,
    "todo": 0,
    "unimplemented": 0,
-   "indexing_slicing": 32,
-   "string_slice": 10,
+   "indexing_slicing": 0,
+   "string_slice": 0,
    "panic_in_result_fn": 0,
-   "arithmetic_side_effects": 65,
+   "arithmetic_side_effects": 46,
    "cast_possible_truncation": 6
   },
   "cmux-chief": {
@@ -591,10 +591,10 @@
    "unreachable": 0,
    "todo": 0,
    "unimplemented": 0,
-   "indexing_slicing": 41,
-   "string_slice": 2,
+   "indexing_slicing": 0,
+   "string_slice": 0,
    "panic_in_result_fn": 0,
-   "arithmetic_side_effects": 41,
+   "arithmetic_side_effects": 26,
    "cast_possible_truncation": 2
   },
   "cmux-server-core": {
@@ -630,10 +630,10 @@
    "unreachable": 0,
    "todo": 0,
    "unimplemented": 0,
-   "indexing_slicing": 37,
-   "string_slice": 2,
+   "indexing_slicing": 0,
+   "string_slice": 0,
    "panic_in_result_fn": 0,
-   "arithmetic_side_effects": 27,
+   "arithmetic_side_effects": 25,
    "cast_possible_truncation": 0
   },
   "cmux-terminal-client": {
