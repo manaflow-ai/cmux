@@ -437,17 +437,20 @@ struct ComputerUseSetupWindowTests {
         #expect(panel.frame == panel.dockedFrame(for: settingsBounds))
     }
 
-    @Test func screenshotsWithoutASourceUsesTheMeasuredList() async {
+    /// With no read of the list, a guess covered its rows (seen 2026-10-28 with six apps): dock at the bottom.
+    @Test func screenshotsWithoutASourceDocksAtTheBottom() async {
         let list = FakeListReader()
         let (panel, _, _, _) = await dockedPanel(list: list)
         defer { panel.orderOut(nil) }
         #expect(list.reads.count == 1)
-        #expect(panel.listBottom == SystemSettingsWindow.screenRecordingListBottom)
-        #expect(panelTop(panel, under: settingsBounds)
-            == SystemSettingsWindow.screenRecordingListBottom + SystemSettingsWindow.listGap)
+        #expect(panel.listBottom == nil)
+        #expect(panel.frame == panel.dockedFrame(for: settingsBounds))
+        let (accessibility, _, _, _) = await dockedPanel(.accessibility)
+        defer { accessibility.orderOut(nil) }
+        #expect(panel.frame.minY == accessibility.frame.minY, "the same bottom docking as the Accessibility panel")
         let (bare, _, _, _) = await dockedPanel()
         defer { bare.orderOut(nil) }
-        #expect(bare.listBottom == SystemSettingsWindow.screenRecordingListBottom, "no list reader: the measured place too")
+        #expect(bare.listBottom == nil, "no list reader: the bottom too")
     }
 
     @Test func accessibilityStillDocksAtTheBottom() async {

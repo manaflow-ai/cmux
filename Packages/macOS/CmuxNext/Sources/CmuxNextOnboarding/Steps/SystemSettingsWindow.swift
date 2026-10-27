@@ -41,14 +41,10 @@ nonisolated struct SystemSettingsWindow {
     static let toolbarHeight: CGFloat = 52
     /// Room between the bottom of the pane's first list and the panel's top.
     static let listGap: CGFloat = 8
-    /// The bottom of the Screen & System Audio Recording list with one app, from the window's top
-    /// edge, for when the list cannot be read (``SystemSettingsList``). Measured on macOS 26.6 (AX
-    /// frames of the pane, not scrolled): the toolbar is 52 pt, the section's title starts at 56 and
-    /// its two-line note at 73.5; the list starts at 111.5, each row is 40 pt (the outline 40 per
-    /// row + 0.5), and its +/- buttons add 24 pt under the rows: 136 + 40 per app (7 apps end at 416).
-    /// "System Audio Recording Only" then starts 29.75 pt lower. With one app assumed, a longer list
-    /// puts the arrow into one of its own rows, never into the second list.
-    static let screenRecordingListBottom: CGFloat = 176
+    // Measured on macOS 26.6 (AX frames of the Screen & System Audio Recording pane): the list
+    // starts 111.5 pt under the window's top, each row is 40 pt and its +/- buttons add 24 pt, so its
+    // length depends on how many apps it holds. With no read of it (``SystemSettingsList``), the panel
+    // docks at the window's bottom like the Accessibility panel: a guess would cover the list's rows.
 
     /// The frontmost System Settings window on screen, or nil when there is none.
     @concurrent static func frontWindow() async -> SettingsWindowMatch? {

@@ -223,7 +223,7 @@ final class HelperDragPanel: NSPanel {
     /// Where the pane's first list ends, from the window's top: Screenshots only (read, else
     /// measured); nil for Accessibility, which docks over the window's bottom.
     var listBottom: CGFloat? {
-        pane == .screenRecording ? follower.listBottom ?? SystemSettingsWindow.screenRecordingListBottom : nil
+        pane == .screenRecording ? follower.listBottom : nil
     }
 
     private func moveToFallback() {
