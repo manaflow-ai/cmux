@@ -37,7 +37,8 @@ import func CmuxSafeConcurrency.withOnceThrowingContinuation
 /// ``WorkPriority/idle`` and ``WorkPriority/bestEffort`` items wait, so they do not compete with launch.
 /// An awaited item is never held: someone waits for it, so it runs at once at its own priority. The app
 /// raises it once, through ``raiseLaunchFence(cap:clock:)``, and lowers it at startup complete or after
-/// ``LaunchFence/cap`` (``LaunchFence``).
+/// ``LaunchFence/cap`` (``LaunchFence``). Both come after ``StartupPhase``'s reveal: startup completes after
+/// the settle, and the cap outlasts the reveal deadline.
 ///
 /// Every lane item is traced from its `fileID` and `line` post to its run (``TaskTrace``, Chrome's `TaskAnnotator`).
 ///

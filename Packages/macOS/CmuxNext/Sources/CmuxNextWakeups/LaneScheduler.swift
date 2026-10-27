@@ -42,6 +42,7 @@ import Dispatch
 /// While a best-effort fence is up (``fence()``), a posted ``WorkPriority/idle`` or
 /// ``WorkPriority/bestEffort`` item stays queued in post order; an item someone awaits still runs at its
 /// own QoS. Chrome's `CanRunPolicy::kForegroundOnly` (base/task/thread_pool/thread_pool_impl.cc).
+/// Raising the fence only counts: an item that already runs is not waited on.
 ///
 /// With a hang-watched lane, each slot registers on its own and each item's run on its slot is one hang scope
 /// of that slot (Chrome's `WatchHangsInScope` in `TaskTracker::RunTask`, base/task/thread_pool/task_tracker.cc,

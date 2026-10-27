@@ -2,7 +2,10 @@
 /// "Startup phases"): what may run on the main thread while the first window is still coming.
 ///
 /// - ``Phase/launching``: input, frame, userBlocking, visible and automation work run; background
-///   work is held.
+///   work is held. Off main, the launch's best-effort fence (``BackgroundWork/LaunchFence``, raised
+///   in `main()`) holds posted best-effort and idle lane items, while user-visible and awaited lane
+///   work runs at once. It comes down at startup complete, after the settle, or at its cap, which
+///   outlasts the reveal deadline: no posted best-effort item starts before the reveal.
 /// - ``Phase/revealed``: at the first frame (``noteFirstFrame()``), at once for a hidden or
 ///   windowless launch (``noteLaunch(_:)``), or at the reveal deadline (1.5 s) when a window's
 ///   first frame never comes. Background work opens.
