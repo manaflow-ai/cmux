@@ -1,8 +1,6 @@
-//! Bubblewrap mount/namespace plan. Not wired to remote spawns until G2.
+//! Bubblewrap mount/namespace plan for Linux remote spawns.
 //! This layer alone is insufficient: the seccomp supervisor and network
 //! proxy must also be installed before a remote command may run.
-//! HOME reconstruction and mount-alias rejection land separately; this staged
-//! plan must not enable Linux remote spawns until those layers are installed.
 #![allow(dead_code)] // Staged API: G1/G2 supply the production callers.
 
 use std::ffi::CString;
@@ -15,6 +13,24 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::Duration;
 use wait_timeout::ChildExt;
+
+/// HOME-relative Linux additions; the shared deny list comes from Seatbelt.
+pub(crate) const LINUX_READ_DENIES: &[&str] = &[
+    ".local/share/keyrings",
+    ".password-store",
+    ".mozilla",
+    ".config/google-chrome",
+    ".config/chromium",
+    ".config/BraveSoftware",
+    ".pki",
+    ".claude/.credentials.json",
+];
+
+mod aliases;
+mod home;
+#[cfg(test)]
+use home::{denied_paths, home_view};
+use home::{denied_paths_pinned, home_view_pinned};
 
 /// Canonical absolute UTF-8 paths, validated and created by the caller.
 /// `claude_project/memory` must already exist, too.
@@ -223,13 +239,29 @@ fn outside_view(paths: &[PathBuf], home: &Path) -> Result<Vec<String>, String> {
 
 /// Caller supplies explicit denied paths parsed by `rules::WritePolicy`.
 /// The returned descriptors must be inherited by bwrap with CLOEXEC cleared.
-/// No spawn is wired yet; HOME reconstruction and alias checks are required.
+/// Caller supplies fresh mountinfo; mount IDs are resolved here in the keeper.
 /// Validation loops stop after the fixed roots and supplied deny list.
 pub(crate) fn plan(
     paths: &Paths,
     read_denies: &[PathBuf],
+    mountinfo: &str,
     cmd_prefix: &[String],
 ) -> Result<BwrapPlan, String> {
+    plan_with_mount_id(paths, read_denies, mountinfo, cmd_prefix, aliases::resolved_mount_id)
+}
+
+fn plan_with_mount_id(
+    paths: &Paths,
+    read_denies: &[PathBuf],
+    mountinfo: &str,
+    cmd_prefix: &[String],
+    mut mount_id: impl FnMut(&Path) -> Result<u64, String>,
+) -> Result<BwrapPlan, String> {
+    // Refuse automount triggers before resolving any guarded path.
+    let preflight = aliases::guarded_aliases(&[], mountinfo);
+    if !preflight.is_empty() {
+        return Err(preflight.join("; "));
+    }
     let memory = paths.claude_project.join("memory");
     let writable = [&paths.cwd, &paths.tmp, &paths.claude_tmp_project, &paths.claude_project];
     for path in [&paths.home, &memory].into_iter().chain(writable) {
@@ -238,12 +270,40 @@ pub(crate) fn plan(
             return Err(format!("noncanonical sandbox path: {}", path.display()));
         }
     }
+    let snapshot = denied_paths_pinned(&paths.home, read_denies)?;
+    let denied = &snapshot.inside;
+    let outside = &snapshot.outside;
     for root in writable {
-        if read_denies.iter().any(|d| root.starts_with(d) || d.starts_with(root)) {
+        if denied.iter().chain(outside.iter()).any(|d| root.starts_with(d) || d.starts_with(root)) {
             return Err(format!("writable root overlaps read denial: {}", root.display()));
         }
     }
-    bwrap_args(paths, (outside_view(read_denies, &paths.home)?, Vec::new()), cmd_prefix)
+    let mut protected = vec![memory];
+    for path in denied.iter().chain(outside.iter()) {
+        match fs::canonicalize(path) {
+            Ok(target) => {
+                protected.push(path.clone());
+                protected.push(target);
+            }
+            Err(e) if e.kind() == io::ErrorKind::NotFound => protected.push(path.clone()),
+            Err(e) => return Err(format!("cannot inspect {}: {e}", path.display())),
+        }
+    }
+    let mut trees = Vec::new();
+    for path in &protected {
+        trees.push((path.as_path(), mount_id(path)?, false));
+    }
+    for path in writable {
+        trees.push((path.as_path(), mount_id(path)?, true));
+    }
+    let aliases = aliases::guarded_aliases(&trees, mountinfo);
+    if !aliases.is_empty() {
+        return Err(aliases.join("; "));
+    }
+    let mut home = home_view_pinned(&paths.home, denied, Some(&snapshot))?;
+    let outside = outside_view(outside, &paths.home)?;
+    home.0.splice(0..0, outside);
+    bwrap_args(paths, home, cmd_prefix)
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -350,6 +410,7 @@ pub(crate) fn probe(bwrap: &Path) -> Result<(), Unavailable> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::BTreeSet;
     use std::fs;
 
     struct Fixture(PathBuf);
@@ -415,6 +476,47 @@ mod tests {
         }
     }
 
+    #[test]
+    fn plan_refuses_bind_mounts_under_each_writable_root() {
+        let fixture = Fixture::new();
+        let paths = fixture.create_paths();
+        for root in [&paths.cwd, &paths.tmp, &paths.claude_tmp_project, &paths.claude_project] {
+            // The source is separate from memory and read denials, so only
+            // the writable-folder mount check can reject this alias.
+            let point = root.join("cache");
+            let encode = |p: &Path| p.to_str().unwrap().replace(' ', "\\040");
+            let info = format!(
+                "1 0 8:1 / / rw - ext4 root rw\n2 1 8:1 {} {} rw - ext4 root rw\n",
+                encode(&root.join(".git/hooks")),
+                encode(&point)
+            );
+            let error =
+                plan_with_mount_id(&paths, &[], &info, &strings(&["true"]), |_| Ok(1)).unwrap_err();
+            assert!(
+                error.contains(&format!(
+                    "{} is also visible at {}",
+                    root.join(".git/hooks").display(),
+                    point.display()
+                )),
+                "{error}"
+            );
+        }
+    }
+
+    #[test]
+    fn plan_refuses_memory_alias() {
+        let fixture = Fixture::new();
+        let paths = fixture.create_paths();
+        let memory = paths.claude_project.join("memory");
+        let info = format!(
+            "1 0 8:1 / / rw - ext4 root rw\n2 1 8:1 {} /alias rw - ext4 root rw\n",
+            memory.display()
+        );
+        let error =
+            plan_with_mount_id(&paths, &[], &info, &strings(&["true"]), |_| Ok(1)).unwrap_err();
+        assert!(error.contains("also visible at /alias"), "{error}");
+    }
+
     fn real_probe() -> bool {
         match probe(Path::new("/usr/bin/bwrap")) {
             Ok(()) => true,
@@ -427,6 +529,128 @@ mod tests {
                 false
             }
         }
+    }
+
+    #[test]
+    fn regression_home_rebuild_omits_absent_and_nested_denies() {
+        use std::os::unix::fs::symlink;
+        let f = Fixture::new();
+        let p = f.create_paths();
+        fs::create_dir_all(p.home.join(".ssh/aws")).unwrap();
+        symlink(".ssh/aws", p.home.join(".aws")).unwrap();
+        symlink("absent-target", p.home.join("ordinary-link")).unwrap();
+        fs::write(p.home.join(".claude/settings.json"), "{}").unwrap();
+        let resolved_claude = home::resolve_missing(&p.home.join(".claude")).unwrap();
+        assert_eq!(resolved_claude, fs::canonicalize(p.home.join(".claude")).unwrap());
+        assert!(!resolved_claude.to_string_lossy().ends_with('/'));
+        let (denied, outside) =
+            denied_paths(&p.home, &[p.home.join(".ssh"), p.home.join(".aws")]).unwrap();
+        assert!(outside.is_empty());
+        let (view, _fds) = home_view(&p.home, &denied).unwrap();
+        let home = p.home.to_str().unwrap();
+        let claude = p.home.join(".claude").to_str().unwrap().to_owned();
+        assert!(view.windows(2).any(|w| w == ["--tmpfs", home]), "view={view:?} denied={denied:?}");
+        assert!(
+            view.windows(2).any(|w| w == ["--tmpfs", &claude]),
+            "view={view:?} denied={denied:?}"
+        );
+        assert!(
+            !view.iter().any(|a| a.ends_with("/.ssh")
+                || a.ends_with("/.ssh/aws")
+                || a.ends_with("/.aws")
+                || a.ends_with("/.credentials.json")),
+            "view={view:?} denied={denied:?}"
+        );
+        assert!(
+            view.windows(3).any(|w| w
+                == ["--symlink", "absent-target", p.home.join("ordinary-link").to_str().unwrap()]),
+            "view={view:?} denied={denied:?}"
+        );
+        let mounts: Vec<_> = view.windows(2).filter(|w| w[0] == "--tmpfs").map(|w| &w[1]).collect();
+        assert_eq!(
+            mounts.len(),
+            mounts.iter().collect::<BTreeSet<_>>().len(),
+            "view={view:?} denied={denied:?}"
+        );
+        let (args, _fds) = plan_with_mount_id(
+            &p,
+            &[],
+            "1 0 8:1 / / rw - ext4 root rw\n",
+            &strings(&["true"]),
+            |_| Ok(1),
+        )
+        .unwrap();
+        let rebuilt = args.iter().position(|s| s == "--tmpfs").unwrap();
+        let writable = args.iter().position(|s| s == "--bind-fd").unwrap();
+        assert!(
+            rebuilt < writable,
+            "HOME must be rebuilt before writable roots return: view={args:?} denied={denied:?}"
+        );
+    }
+
+    #[test]
+    fn regression_external_secret_symlink_is_refused() {
+        let f = Fixture::new();
+        let p = f.create_paths();
+        fs::write(f.0.join("secret"), "credential").unwrap();
+        std::os::unix::fs::symlink(f.0.join("secret"), p.home.join(".netrc")).unwrap();
+        let error = denied_paths(&p.home, &[p.home.join(".netrc")]).unwrap_err();
+        assert!(error.contains("outside HOME"), "{error}");
+    }
+
+    /// Both the ready handshake and child lifetime end at a 20-second
+    /// deadline; kill_on_drop stops the child if either deadline expires.
+    #[tokio::test]
+    async fn regression_real_bwrap_hides_credentials_created_during_session() {
+        use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+        if !real_probe() {
+            return;
+        }
+        let f = Fixture::new();
+        let p = f.create_paths();
+        fs::create_dir_all(p.home.join(".ssh/aws")).unwrap();
+        std::os::unix::fs::symlink(".ssh/aws", p.home.join(".aws")).unwrap();
+        let credential = p.home.join(".claude/.credentials.json");
+        let script = "echo ready; read -r go; if [ -e \"$1\" ]; then echo 'late credential visible' >&2; exit 49; fi";
+        let command =
+            strings(&["/bin/sh", "-c", script, "late-secret", credential.to_str().unwrap()]);
+        let (args, fds) = plan(
+            &p,
+            &[p.home.join(".ssh"), p.home.join(".aws")],
+            &fs::read_to_string("/proc/self/mountinfo").unwrap(),
+            &command,
+        )
+        .unwrap();
+        let mut command = tokio::process::Command::new("/usr/bin/bwrap");
+        inherit_fds(&mut command, &fds);
+        let mut child = command
+            .args(args)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .kill_on_drop(true)
+            .spawn()
+            .unwrap();
+        let mut stdout = BufReader::new(child.stdout.take().unwrap());
+        let mut ready = String::new();
+        tokio::time::timeout(Duration::from_secs(20), stdout.read_line(&mut ready))
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(ready, "ready\n");
+        fs::write(credential, "credential-created-after-sandbox-start").unwrap();
+        child.stdin.take().unwrap().write_all(b"go\n").await.unwrap();
+        let output = tokio::time::timeout(Duration::from_secs(20), child.wait_with_output())
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}: {}",
+            output.status,
+            String::from_utf8_lossy(&output.stderr)
+        );
+        eprintln!("passed: credentials created during a session stay hidden");
     }
 
     fn profile_read_denies(p: &Paths) -> Vec<PathBuf> {
@@ -646,6 +870,170 @@ mod tests {
         assert_eq!(probe(&fixture.0.join("absent-bwrap")), Err(Unavailable::NotInstalled));
     }
 
+    /// The child ends on completion or is killed at the 20-second deadline.
+    #[tokio::test]
+    async fn home_bind_survives_source_symlink_swap() {
+        if !real_probe() {
+            return;
+        }
+        let f = Fixture::new();
+        let p = f.create_paths();
+        let allowed = p.home.join("allowed");
+        let secret = p.home.join(".ssh");
+        fs::create_dir(&allowed).unwrap();
+        fs::create_dir(&secret).unwrap();
+        fs::write(allowed.join("marker"), "safe-before-swap").unwrap();
+        fs::write(secret.join("marker"), "denied-marker").unwrap();
+        let command =
+            strings(&["/bin/sh", "-c", "cat -- \"$1/marker\"", "swap", allowed.to_str().unwrap()]);
+        let (args, fds) = plan(
+            &p,
+            std::slice::from_ref(&secret),
+            &fs::read_to_string("/proc/self/mountinfo").unwrap(),
+            &command,
+        )
+        .unwrap();
+        fs::rename(&allowed, f.0.join("held-allowed")).unwrap();
+        std::os::unix::fs::symlink(&secret, &allowed).unwrap();
+        let mut child = tokio::process::Command::new("/usr/bin/bwrap");
+        inherit_fds(&mut child, &fds);
+        child.args(args).kill_on_drop(true);
+        let output =
+            tokio::time::timeout(Duration::from_secs(20), child.output()).await.unwrap().unwrap();
+        assert!(
+            output.status.success(),
+            "{}: {}",
+            output.status,
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert!(!String::from_utf8_lossy(&output.stdout).contains("denied-marker"));
+        assert_eq!(output.stdout, b"safe-before-swap");
+        eprintln!("passed: HOME bind keeps its pinned source after a symlink swap");
+    }
+
+    #[test]
+    fn regression_denied_resolution_stays_pinned_across_ancestor_swap() {
+        use std::os::unix::fs::symlink;
+        let f = Fixture::new();
+        let p = f.create_paths();
+        let codex = p.home.join(".codex");
+        let saved = p.home.join(".codex.saved");
+        fs::create_dir(&codex).unwrap();
+        fs::write(codex.join("auth.json"), "credential").unwrap();
+        let denied_path = codex.join("auth.json");
+        let snapshot = denied_paths_pinned(&p.home, std::slice::from_ref(&denied_path)).unwrap();
+        assert!(snapshot.outside.is_empty());
+        fs::rename(&codex, &saved).unwrap();
+        symlink(".codex.saved", &codex).unwrap();
+        let error = home_view_pinned(&p.home, &snapshot.inside, Some(&snapshot)).unwrap_err();
+        assert!(
+            error.contains("denied path resolution changed")
+                || error.contains("HOME ancestor changed"),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn real_home_planner_uses_the_runner_home() {
+        let f = Fixture::new();
+        let mut p = f.create_paths();
+        p.home = PathBuf::from(std::env::var_os("HOME").expect("HOME is set on the runner"));
+        let (args, _fds) = plan(
+            &p,
+            &profile_read_denies(&p),
+            &fs::read_to_string("/proc/self/mountinfo").unwrap(),
+            &strings(&["true"]),
+        )
+        .expect("HOME planner accepts the runner filesystem");
+        assert!(args.iter().any(|arg| arg == "--tmpfs"));
+    }
+
+    /// The hook runs twice for one child; the fixture removes all swapped files.
+    fn check_home_enumeration_swap(swap_parent: bool) {
+        let f = Fixture::new();
+        let p = f.create_paths();
+        let child = p.home.join(".claude/settings.json");
+        fs::write(&child, "safe").unwrap();
+        let replaced = if swap_parent { child.parent().unwrap().to_owned() } else { child.clone() };
+        let held = f.0.join("held");
+        let replacement = f.0.join("replacement");
+        if swap_parent {
+            fs::create_dir(&replacement).unwrap();
+            fs::write(replacement.join("settings.json"), "secret").unwrap();
+        } else {
+            fs::write(&replacement, "secret").unwrap();
+        }
+        let snapshot = denied_paths_pinned(&p.home, &[]).unwrap();
+        let mut swapped = false;
+        let result =
+            home::rebuild(&p.home, &snapshot.inside, Some(&snapshot), &mut |path, before| {
+                if path != child {
+                    return;
+                }
+                if before {
+                    fs::rename(&replaced, &held).unwrap();
+                    fs::rename(&replacement, &replaced).unwrap();
+                    swapped = true;
+                } else {
+                    fs::rename(&replaced, &replacement).unwrap();
+                    fs::rename(&held, &replaced).unwrap();
+                }
+            });
+        assert!(swapped, "enumeration/open hook was not reached");
+        match result {
+            Err(error) => assert!(error.contains("changed"), "unexpected refusal: {error}"),
+            Ok((args, _fds)) => {
+                let bind = args
+                    .windows(3)
+                    .find(|w| w[0] == "--ro-bind-fd" && w[2] == child.to_str().unwrap())
+                    .unwrap();
+                assert_eq!(fs::read(format!("/proc/self/fd/{}", bind[1])).unwrap(), b"safe");
+            }
+        }
+    }
+
+    #[test]
+    fn regression_home_child_swap_between_stat_and_open() {
+        check_home_enumeration_swap(false);
+    }
+
+    #[test]
+    fn regression_home_parent_swap_between_stat_and_open() {
+        check_home_enumeration_swap(true);
+    }
+
+    #[test]
+    fn regression_home_child_identity_is_captured_at_enumeration() {
+        let f = Fixture::new();
+        let p = f.create_paths();
+        let public = p.home.join("public");
+        let secret = p.home.join("secret");
+        fs::write(&public, "public").unwrap();
+        fs::write(&secret, "secret").unwrap();
+        let snapshot = denied_paths_pinned(&p.home, &[]).unwrap();
+        let mut swapped = false;
+        let result =
+            home::rebuild(&p.home, &snapshot.inside, Some(&snapshot), &mut |path, before| {
+                if path == p.home && !before && !swapped {
+                    fs::rename(&public, f.0.join("public-held")).unwrap();
+                    fs::rename(&secret, &public).unwrap();
+                    fs::rename(f.0.join("public-held"), &secret).unwrap();
+                    swapped = true;
+                } else if path == public && !before && swapped {
+                    fs::rename(&public, f.0.join("public-held")).unwrap();
+                    fs::rename(&secret, &public).unwrap();
+                    fs::rename(f.0.join("public-held"), &secret).unwrap();
+                }
+            });
+        if swapped {
+            fs::rename(&public, f.0.join("public-held")).unwrap();
+            fs::rename(&secret, &public).unwrap();
+            fs::rename(f.0.join("public-held"), &secret).unwrap();
+        }
+        assert!(swapped, "enumeration swap hook was not reached");
+        assert!(result.is_err(), "child identity race was accepted");
+    }
+
     /// The child is killed on the 20-second deadline. Shell loops exhaust
     /// finite /proc snapshots and network tables; no background jobs are made.
     #[tokio::test]
@@ -763,7 +1151,13 @@ case "$bad_ipv6_route" in '') ;; *) fail 48 "non-loopback IPv6 route: observed=<
             .map(|path| path.to_str().unwrap().to_owned()),
         );
         command.extend([FILE_MARKER.to_owned(), DIRECTORY_MARKER.to_owned()]);
-        let (args, fds) = plan(&p, &profile_read_denies(&p), &command).unwrap();
+        let (args, fds) = plan(
+            &p,
+            &profile_read_denies(&p),
+            &fs::read_to_string("/proc/self/mountinfo").unwrap(),
+            &command,
+        )
+        .unwrap();
         let mut child = tokio::process::Command::new(bwrap);
         inherit_fds(&mut child, &fds);
         child

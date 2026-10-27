@@ -105,6 +105,12 @@ enum KeybindingStrings {
                table: "Keybindings", bundle: .module)
     }
 
+    static var familyNeedsDigit: String {
+        String(localized: "keybinding.error.familyNeedsDigit",
+               defaultValue: "A numbered shortcut takes a digit: press 1 with the modifiers you want.",
+               table: "Keybindings", bundle: .module)
+    }
+
     static var ghosttyReadOnly: String {
         String(localized: "keybinding.error.ghosttyReadOnly", defaultValue: "This shortcut comes from your Ghostty config. Change it there.",
                table: "Keybindings", bundle: .module)
