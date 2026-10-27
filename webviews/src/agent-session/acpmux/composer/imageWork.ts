@@ -115,7 +115,18 @@ function canDraw(): boolean {
 /// Claude vision tier: https://platform.claude.com/docs/en/build-with-claude/vision). Its original
 /// remains accessible by session path. Undefined when the engine cannot decode it.
 export async function prepareImage(file: Blob): Promise<PreparedImage | undefined> {
-  if (!canDraw()) return undefined;
+  // Unit-test DOMs and a few embedded WebKit surfaces do not expose the bitmap/canvas APIs. Keep
+  // small, already-sized PNG/JPEG images attachable there instead of dropping the paste on the
+  // floor; the normal browser/worker path still strips metadata and makes the thumbnail.
+  if (!canDraw()) {
+    if ((file.type !== "image/png" && file.type !== "image/jpeg") || file.size > IMAGE_BUDGET_BYTES) return undefined;
+    const size = await imageSize(file);
+    if (!size?.width || !size.height) return undefined;
+    return {
+      mimeType: file.type === "image/jpeg" ? "image/jpeg" : "image/png",
+      data: base64(new Uint8Array(await file.arrayBuffer())),
+    };
+  }
   let bitmap: ImageBitmap | undefined;
   try {
     // A picture past the pixel budget is never decoded (a 200-megapixel PNG is 800 MB of pixels):
