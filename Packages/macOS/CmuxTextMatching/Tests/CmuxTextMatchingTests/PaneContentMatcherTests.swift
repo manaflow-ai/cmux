@@ -1,5 +1,4 @@
-import CmuxTextMatching
-import Foundation
+@testable import CmuxTextMatching
 import Testing
 
 @Suite struct PaneContentMatcherTests {
@@ -70,18 +69,20 @@ import Testing
         #expect(ranges.allSatisfy { line[$0] == "ab" })
     }
 
-    @Test func aCancelledSearchStopsARegexThatBacktracks() async throws {
-        // `(a+)+$` against 30 a's and a b backtracks for most of a minute. Typing a
-        // new query cancels the old search, and the line in progress must stop too.
+    @Test func aSearchCancelledWhileARegexBacktracksStopsThere() throws {
+        // `(a+)+$` against 30 a's and a b backtracks for most of a minute if left alone.
+        // The search is cancelled on the third progress report, while the match runs,
+        // and must not check again: the match stopped where it was cancelled.
         let matcher = try PaneContentMatcher(query: "(a+)+$", syntax: .regex, caseMode: .respect)
         let line = String(repeating: "a", count: 30) + "b"
-        let (found, elapsed) = await Task.detached { () -> (Bool, Duration) in
-            withUnsafeCurrentTask { $0?.cancel() }
-            var found = false
-            let elapsed = ContinuousClock().measure { found = matcher.firstMatch(in: line) != nil }
-            return (found, elapsed)
-        }.value
-        #expect(!found)
-        #expect(elapsed < .seconds(5))
+        var checks = 0
+
+        let ranges = matcher.matches(in: line, limit: 1, isCancelled: {
+            checks += 1
+            return checks >= 3
+        })
+
+        #expect(ranges.isEmpty)
+        #expect(checks == 3)
     }
 }
