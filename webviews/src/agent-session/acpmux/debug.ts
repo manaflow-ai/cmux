@@ -184,7 +184,12 @@ export function createAcpmuxDebug(
       const done = (async () => {
         const warmup: number[] = [];
         for (let frame = 0; frame < WARMUP_FRAMES; frame += 1) warmup.push(await nextFrame());
-        if (run !== generation || !requested()) return;
+        if (run !== generation || !requested()) {
+          // Cancellation during warm-up returns before the animation phase, so clear the
+          // diagnostic flag here rather than leaving flingStats() stuck at running.
+          if (run === generation) running = false;
+          return;
+        }
         nominal =
           options.nominal_ms && options.nominal_ms > 0
             ? options.nominal_ms
