@@ -1160,13 +1160,7 @@ impl Config {
         cfg.join_discovered(discover_harnesses(route.as_deref()));
         if cfg.default_harness.is_none() {
             cfg.auto_default = true;
-            // A terminal harness (an installed `muse`, say) runs no ACP
-            // session, so it never becomes the default.
-            cfg.default_harness = cfg
-                .harnesses
-                .iter()
-                .find(|(_, profile)| profile.kind != HarnessKind::Terminal)
-                .map(|(name, _)| name.clone());
+            cfg.default_harness = crate::default_harness::auto_default_harness(&cfg.harnesses);
         }
         // Installed ACP Registry agents (the cached copy; no network, nothing
         // started), after the default so a registry agent never becomes it
