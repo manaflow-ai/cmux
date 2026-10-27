@@ -197,10 +197,13 @@ impl Command {
     /// [`Command::stderr`] set them). With [`Command::new_session`] and a
     /// terminal path (a PTY slave), that terminal becomes the child's
     /// controlling terminal: a session leader with none acquires the first
-    /// terminal it opens (macOS and Linux). The shell spawn of a PTY uses it,
-    /// as `cmux-mux2`'s `spawn_pty` does (`posix_spawn_file_actions_addopen`
-    /// on 0, then `adddup2` 0 to 1 and 2 on macOS). A failed open is the
-    /// spawn's error. Replaces an earlier [`Command::stdin`].
+    /// terminal it opens, and the child asks for it with `TIOCSCTTY`. The
+    /// shell spawn of a PTY uses it. On macOS such a child is forked, not
+    /// `posix_spawn`ed: posix_spawn opens the path before its `setsid`, and
+    /// the terminal then never becomes the controlling one (no SIGINT from
+    /// Ctrl-C). A failed open, or a terminal that cannot become the
+    /// controlling one, is the spawn's error. Replaces an earlier
+    /// [`Command::stdin`].
     pub fn open_stdin_path(&mut self, path: impl AsRef<Path>) -> &mut Self {
         self.stdin_path = Some(path.as_ref().to_owned());
         self.stdin = None;
@@ -265,12 +268,15 @@ impl Command {
     }
 
     /// The child's soft `RLIMIT_NOFILE` (at most its hard limit), set before
-    /// its program runs. Linux: `setrlimit` before the exec. macOS:
-    /// `posix_spawn` cannot set a limit, so the child is `/bin/sh -c
-    /// 'ulimit -S -n N; exec "$@"'` that execs the program in the same
-    /// process (same pid, session and terminal); the program's `argv[0]` is
-    /// then its resolved path, and a [`Command::arg0`] makes the spawn fail
-    /// with `InvalidInput`.
+    /// its program runs and after the child placed its descriptors, so a
+    /// limit below numbers this process has in use still spawns. Linux, and
+    /// a macOS child with a controlling terminal (forked): `setrlimit`
+    /// before the exec, after the open of the stdin path and the dup2s.
+    /// Other macOS children: `posix_spawn` cannot set a limit, so the child
+    /// is `/bin/sh -c 'ulimit -S -n N; exec "$@"'` that execs the program in
+    /// the same process (same pid, session and terminal); the program's
+    /// `argv[0]` is then its resolved path, and a [`Command::arg0`] makes the
+    /// spawn fail with `InvalidInput`.
     #[cfg(unix)]
     pub fn open_file_limit(&mut self, soft: u64) -> &mut Self {
         self.open_file_limit = Some(soft);
@@ -371,12 +377,33 @@ impl Command {
         }
         #[cfg(target_vendor = "apple")]
         {
+            // posix_spawn runs its file actions before POSIX_SPAWN_SETSID
+            // (xnu bsd/kern/kern_exec.c, posix_spawn: exec_handle_file_actions,
+            // then setsid_internal after the image activation), so the child
+            // opens the terminal while it still is in this process's session,
+            // where it cannot become its controlling terminal (TIOCSCTTY needs
+            // a session leader), and the new session then has none: the line
+            // discipline sends no SIGINT for Ctrl-C and the shell has no job
+            // control. No file action sets a controlling terminal, so such a
+            // child takes the fork path (setsid, open, TIOCSCTTY), as Ghostty
+            // and node-pty's spawn helper do.
+            if self.wants_controlling_terminal() {
+                return self.spawn_std();
+            }
             crate::spawn_apple::spawn(self)
         }
         #[cfg(not(target_vendor = "apple"))]
         {
             self.spawn_std()
         }
+    }
+
+    /// Whether the child opens a terminal ([`Command::open_stdin_path`]) as
+    /// the leader of a new session ([`Command::new_session`]): that terminal
+    /// becomes its controlling terminal.
+    #[cfg(unix)]
+    fn wants_controlling_terminal(&self) -> bool {
+        self.new_session && self.stdin_path.is_some()
     }
 
     /// Run the child to its end with stdin null and stdout and stderr
@@ -400,8 +427,10 @@ impl Command {
     }
 
     /// The std path (Linux, Windows): the kernel makes every descriptor this
-    /// process opens close-on-exec atomically, so nothing leaks.
-    #[cfg(not(target_vendor = "apple"))]
+    /// process opens close-on-exec atomically, so nothing leaks. macOS takes
+    /// it only for a child with a controlling terminal: a fork whose child
+    /// marks every descriptor but its own close-on-exec before the exec
+    /// (`isolate`), so it passes on what `posix_spawn` would.
     fn spawn_std(&mut self) -> io::Result<Child> {
         let child = self.std_command()?.spawn()?;
         #[cfg(unix)]
@@ -409,13 +438,43 @@ impl Command {
             self.inherit.clear();
             self.cwd_fd = None;
         }
-        Ok(Child::from_std(child))
+        #[cfg(target_vendor = "apple")]
+        {
+            // std's handle neither waits nor kills on drop; the pid is
+            // reaped through `Child` as every macOS child is.
+            let mut child = child;
+            let pid = libc::pid_t::try_from(child.id())
+                .map_err(|_| io::Error::from_raw_os_error(libc::ESRCH))?;
+            Ok(Child::from_pid(pid, child.stdin.take(), child.stdout.take(), child.stderr.take()))
+        }
+        #[cfg(not(target_vendor = "apple"))]
+        {
+            Ok(Child::from_std(child))
+        }
+    }
+
+    /// Whether the std path's child gets [`Command::isolate`]'s sweep and
+    /// signal reset: as asked on Linux; on macOS always, unless
+    /// [`Command::inherit_like_std`] asked for std's inheritance.
+    #[cfg(unix)]
+    fn isolates(&self) -> bool {
+        #[cfg(target_vendor = "apple")]
+        {
+            !self.inherit_like_std
+        }
+        #[cfg(not(target_vendor = "apple"))]
+        {
+            self.isolate
+        }
     }
 
     /// The `std::process::Command` of the std path; the streams given are
     /// moved into it.
-    #[cfg(not(target_vendor = "apple"))]
     fn std_command(&mut self) -> io::Result<std::process::Command> {
+        // Before the streams are moved: stdout and stderr not set become
+        // copies of an opened stdin path.
+        #[cfg(unix)]
+        let (stdout_set, stderr_set) = (self.stdout.is_some(), self.stderr.is_some());
         let mut command = std::process::Command::new(&self.program);
         command.args(&self.args);
         if self.env_clear {
@@ -461,7 +520,7 @@ impl Command {
                 || !self.inherit.is_empty()
                 || self.stdin_path.is_some()
                 || self.cwd_fd.is_some()
-                || self.isolate
+                || self.isolates()
                 || fence
                 || self.open_file_limit.is_some()
             {
@@ -473,7 +532,7 @@ impl Command {
                 let setup = crate::child_setup::ChildSetup {
                     new_session: self.new_session,
                     cwd_fd: self.cwd_fd.as_ref().map(std::os::fd::AsRawFd::as_raw_fd),
-                    sweep: self.isolate.then(crate::child_setup::DescriptorSweep::new),
+                    sweep: self.isolates().then(crate::child_setup::DescriptorSweep::new),
                     // (path, also onto 1, also onto 2): stdout and stderr not
                     // set become copies of the opened descriptor.
                     stdin_path: match &self.stdin_path {
@@ -484,8 +543,8 @@ impl Command {
                             .map_err(|_| {
                                 io::Error::new(io::ErrorKind::InvalidInput, "a NUL byte in a path")
                             })?,
-                            self.stdout.is_none(),
-                            self.stderr.is_none(),
+                            !stdout_set,
+                            !stderr_set,
                         )),
                         None => None,
                     },
@@ -496,6 +555,13 @@ impl Command {
                         .collect(),
                     process_group_fence: fence,
                     open_file_limit: self.open_file_limit,
+                    controlling_terminal: self.wants_controlling_terminal(),
+                    // A posix_spawn child starts at Default, or at its
+                    // ceiling (`posix_spawnattr_set_qos_class_np`).
+                    #[cfg(target_vendor = "apple")]
+                    qos_class: self
+                        .qos_ceiling
+                        .map_or(libc::qos_class_t::QOS_CLASS_DEFAULT, ThreadQos::qos_class),
                 };
                 // SAFETY: `ChildSetup::run` makes only async-signal-safe
                 // calls, allocates nothing, and touches only the child's own

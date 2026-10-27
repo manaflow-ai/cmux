@@ -59,10 +59,12 @@ public final class BrowserPopupWindow: NSWindow, InputTapHosting {
     /// The app's input tap: the omnibar and find pill read the event in dispatch from it, as they do
     /// in a main window (a click that focuses the omnibar selects the whole address).
     public let inputTap: InputEventTap?
-    private var observation: Task<Void, Never>?
+    /// The window title following the page's (``observeTitle(on:)``).
+    private var titleWatch: ServiceObservation<String>?
     private let separator = NSBox()
     private var toolbarHeightConstraint: NSLayoutConstraint?
-    private var fullscreenObservers: [MainActorObservation] = []
+    /// The window's own full-screen notices, through its ``WindowEvents`` (``observeFullscreen()``).
+    private var fullscreenWatches: [EventSubscription] = []
 
     /// A popup window showing `page`.
     ///
@@ -97,18 +99,19 @@ public final class BrowserPopupWindow: NSWindow, InputTapHosting {
         // Kind `.browserPopup`: the three traffic lights and the one surface
         // background; the opener's scope is adopted when it opens.
         install(kind: .browserPopup, content: makeContent(), scope: .app)
-        title = Self.title(for: page.state)
-        observeTitle()
+        observeTitle(on: mainWork)
         observeFullscreen()
     }
 
-    /// Page title, live.
-    private func observeTitle() {
+    /// Page title, live: set now, then once per change of the title it shows. A window's title shows while the
+    /// window is occluded too (the Window menu, Mission Control), so it follows the page as a visible service,
+    /// not by a view's node; the page's own changes are its program's, flushed as one visible task.
+    private func observeTitle(on mainWork: MainWorkScheduler) {
         let page = page
-        observation = Task { [weak self] in
-            for await state in ObservationStream({ page.state }) {
-                self?.title = Self.title(for: state)
-            }
+        titleWatch = ServiceObservation(.visible, owner: "BrowserPopupWindow.title", on: mainWork) {
+            Self.title(for: page.state)
+        } apply: { [weak self] title in
+            self?.title = title
         }
     }
 
@@ -179,14 +182,18 @@ public final class BrowserPopupWindow: NSWindow, InputTapHosting {
         }
     }
 
-    /// Fullscreen shows only the page (Chrome hides a popup's location bar there).
+    /// Fullscreen shows only the page (Chrome hides a popup's location bar there). The window's one
+    /// ``WindowEvents`` observes each notice once for every subscriber in it.
     private func observeFullscreen() {
-        let center = NotificationCenter.default
-        for (name, isFull) in [(NSWindow.didEnterFullScreenNotification, true), (NSWindow.didExitFullScreenNotification, false)] {
-            fullscreenObservers.append(MainActorObservation(name, object: self, center: center) { [weak self] in
-                self?.showToolbar(!isFull)
-            })
-        }
+        let events = WindowEvents.of(self)
+        fullscreenWatches = [
+            events.subscribe(NSWindow.didEnterFullScreenNotification, owner: "BrowserPopupWindow.fullscreen") { [weak self] in
+                self?.showToolbar(false)
+            },
+            events.subscribe(NSWindow.didExitFullScreenNotification, owner: "BrowserPopupWindow.fullscreen") { [weak self] in
+                self?.showToolbar(true)
+            },
+        ]
     }
 
     /// Shows or hides the title bar gap, the location bar and its separator.
@@ -226,9 +233,10 @@ public final class BrowserPopupWindow: NSWindow, InputTapHosting {
 
     /// Every close path (close button, Cmd-W, `window.close()`) ends here once.
     override public func close() {
-        observation?.cancel()
-        observation = nil
-        fullscreenObservers.removeAll()
+        titleWatch?.cancel()
+        titleWatch = nil
+        for watch in fullscreenWatches { watch.cancel() }
+        fullscreenWatches.removeAll()
         omnibar.stop()
         let closed = onClose
         onClose = nil

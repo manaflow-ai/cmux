@@ -307,7 +307,7 @@ struct OnboardingThemesMainWorkTests {
         // The cancel posts the end from any thread: it reaches main on a run loop pass, then runs on a frame.
         let end = Date(timeIntervalSinceNow: 5)
         while seen.result == nil, Date() < end {
-            _ = RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.01))
+            runMainLoopPass(for: 0.01)
             rig.frame()
         }
         #expect(await waiter.value == false)

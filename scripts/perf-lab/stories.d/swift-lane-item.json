@@ -1,0 +1,18 @@
+{
+  "id": "swift-lane-item",
+  "tier": "builder",
+  "description": "LaneStatsBench: ns per BackgroundWork lane item's always-on stats: the clock read, LaneStats.record, and the three reads plus the record around an item.",
+  "command": ["scripts/perf-lab/stories/swift_benches.py", "run", "--story", "swift-lane-item", "--filter", "LaneStatsBench", "--env", "CMUX_LANE_ITEM_BENCH=1"],
+  "session": "light",
+  "engine": "none",
+  "config": "release",
+  "metrics": [
+    {"name": "swift\\.lane_item\\.(clock_read|record|per_item)_ns", "unit": "ns", "better": "lower"}
+  ],
+  "repeats": 1,
+  "seconds": 900,
+  "needs": ["file:Packages/macOS/CmuxNext/Tests/CmuxNextWakeupsTests/LaneStatsBench.swift", "file:Packages/macOS/CmuxNext/Tests/CmuxNextTestSupport/PerfResultWriter.swift"],
+  "owner": "Performance Lead",
+  "component": "Scheduler>Lanes",
+  "hot_paths": ["lane-item"]
+}

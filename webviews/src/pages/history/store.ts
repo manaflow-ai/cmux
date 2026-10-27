@@ -3,6 +3,7 @@
 // the page keeps no optimistic copy: a remove or clear re-reads after the provider confirms.
 // React reads it through `useSyncExternalStore` (no effects); tests drive it directly.
 import { isPageError, type PageClient } from "../shared/pageClient";
+import { restoredPageInputs } from "../shared/pageState";
 import { LINK_CLOSED, subscribePageStreams } from "../shared/pageStreams";
 import {
   filterKinds,
@@ -49,6 +50,9 @@ export interface HistoryStoreOptions {
   newKey?: () => string;
 }
 
+/** The page name its saved state carries (pageState.ts). */
+export const HISTORY_PAGE = "history";
+
 /** The part of the History page's state that comes back after a discard. */
 export interface HistoryQuery {
   text: string;
@@ -57,8 +61,8 @@ export interface HistoryQuery {
 }
 
 /**
- * The fields of a discarded document's saved state (`PageClient.restore`) that are a valid query;
- * the rest keep their defaults. Read once, when the store is made, before the first render.
+ * The fields of the inputs a discarded document saved (`restoredPageInputs`) that are a valid
+ * query; the rest keep their defaults. Read once, when the store is made, before the first render.
  */
 export function restoredQuery(state: unknown): Partial<HistoryQuery> {
   if (!state || typeof state !== "object") return {};
@@ -88,7 +92,7 @@ export class HistoryStore {
       text: "",
       filter: "all",
       grouping: "day",
-      ...restoredQuery(client?.restore?.state),
+      ...restoredQuery(restoredPageInputs(client, HISTORY_PAGE)),
       entries: [],
       groups: [],
       loading: client !== null,
@@ -97,6 +101,12 @@ export class HistoryStore {
   }
 
   getSnapshot = (): HistorySnapshot => this.snapshot;
+
+  /** What the page keeps when it hides (pageState.ts `keep`); `restoredQuery` reads it back. */
+  pageInputs(): HistoryQuery {
+    const { text, filter, grouping } = this.snapshot;
+    return { text, filter, grouping };
+  }
 
   subscribe = (listener: () => void): (() => void) => {
     this.listeners.add(listener);

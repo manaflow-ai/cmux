@@ -67,13 +67,16 @@ nonisolated struct ChromiumHostLauncher: ChromiumHostLaunching {
     /// Delivers the exit events of this launcher's hosts (no thread per host). Serial, one per launcher: an
     /// event handler only collects an exit the kernel has posted (`waitid` waits at most until the status is
     /// collectable, which follows the event at once), so hosts never wait on each other for long.
-    /// userInitiated: the exit restarts the page a person is looking at.
-    private let exitQueue = DispatchQueue(label: "com.cmuxterm.chromium-host.exit", qos: .userInitiated)
+    /// By default userInitiated: the exit restarts the page a person is looking at.
+    private let exitQueue: DispatchQueue
     /// Spawns hosts off the main thread, on the user-blocking launcher (Chrome's process launcher,
     /// content/browser/child_process_launcher_helper.cc): the host draws the page a person is looking at.
     private let launcher = ChildProcessLauncher(label: "com.cmuxterm.next.child-launcher.chromium-host", priority: .userBlocking)
 
-    init() {}
+    /// - Parameter exitQueue: The serial queue the exit events of this launcher's hosts arrive on.
+    init(exitQueue: DispatchQueue = DispatchQueue(label: "com.cmuxterm.chromium-host.exit", qos: .userInitiated)) {
+        self.exitQueue = exitQueue
+    }
 
     func launch(executable: URL, arguments: [String]) async throws -> ChromiumHostProcessHandle {
         let priority = launcher.priority
@@ -86,24 +89,57 @@ nonisolated struct ChromiumHostLauncher: ChromiumHostLaunching {
     /// set the spawning thread's signal mask).
     static func spawn(executable: URL, arguments: [String],
                       priority: MayBlockPriority) throws(LaunchError) -> ChromiumHostProcessHandle {
-        var toHost: [Int32] = [-1, -1]
-        var fromHost: [Int32] = [-1, -1]
-        // SAFETY: socketpair writes two descriptors into the two-element array during the call.
-        guard unsafe socketpair(AF_UNIX, SOCK_STREAM, 0, &toHost) == 0 else { throw .socketPair(errno) }
-        toHost.forEach { _ = fcntl($0, F_SETFD, FD_CLOEXEC) }
-        // SAFETY: as for toHost.
-        guard unsafe socketpair(AF_UNIX, SOCK_STREAM, 0, &fromHost) == 0 else {
-            let error = errno
+        let toHost = try socketPair()
+        let fromHost: [Int32]
+        do throws(LaunchError) {
+            fromHost = try socketPair()
+        } catch {
             toHost.forEach { _ = Darwin.close($0) }
-            throw .socketPair(error)
+            throw error
         }
-        fromHost.forEach { _ = fcntl($0, F_SETFD, FD_CLOEXEC) }
-        for fd in [toHost[0], fromHost[0]] {
-            // A write after the host died fails with EPIPE instead of a SIGPIPE.
-            var noSigPipe: Int32 = 1
-            // SAFETY: setsockopt reads the one Int32 `noSigPipe` holds, the length given, during the call.
-            _ = unsafe setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &noSigPipe, socklen_t(MemoryLayout<Int32>.size))
+        do throws(LaunchError) {
+            let pid = try spawn(executable: executable, arguments: arguments, hostEnds: [toHost[1], fromHost[1]], priority: priority)
+            return ChromiumHostProcessHandle(pid: pid, readFD: fromHost[0], writeFD: toHost[0])
+        } catch {
+            Darwin.close(toHost[0])
+            Darwin.close(fromHost[0])
+            throw error
         }
+    }
+
+    /// The Chromium Host of host mode (``ChromiumHostSupervisor``): one stream `socketpair`, the host's end on its
+    /// fd 3, where browser_host_main.mm reads its control channel (`kControlFd`), the rest as
+    /// ``spawn(executable:arguments:priority:)`` starts a host. Returns the host's pid and cmux's end of the channel.
+    static func spawnControlled(executable: URL, arguments: [String],
+                                priority: MayBlockPriority) throws(LaunchError) -> (pid: pid_t, controlFD: Int32) {
+        let control = try socketPair()
+        do throws(LaunchError) {
+            let pid = try spawn(executable: executable, arguments: arguments, hostEnds: [control[1]], priority: priority)
+            return (pid, control[0])
+        } catch {
+            Darwin.close(control[0])
+            throw error
+        }
+    }
+
+    /// One stream `socketpair`, both ends close-on-exec; cmux keeps index 0, the host gets index 1.
+    private static func socketPair() throws(LaunchError) -> [Int32] {
+        var pair: [Int32] = [-1, -1]
+        // SAFETY: socketpair writes two descriptors into the two-element array during the call.
+        guard unsafe socketpair(AF_UNIX, SOCK_STREAM, 0, &pair) == 0 else { throw .socketPair(errno) }
+        pair.forEach { _ = fcntl($0, F_SETFD, FD_CLOEXEC) }
+        // A write after the host died fails with EPIPE instead of a SIGPIPE.
+        var noSigPipe: Int32 = 1
+        // SAFETY: setsockopt reads the one Int32 `noSigPipe` holds, the length given, during the call.
+        _ = unsafe setsockopt(pair[0], SOL_SOCKET, SO_NOSIGPIPE, &noSigPipe, socklen_t(MemoryLayout<Int32>.size))
+        return pair
+    }
+
+    /// Starts `executable` with `hostEnds` on its fds 3, 4, ... in order, and closes this process's copies of
+    /// them whether or not it started.
+    private static func spawn(executable: URL, arguments: [String], hostEnds: [Int32],
+                              priority: MayBlockPriority) throws(LaunchError) -> pid_t {
+        defer { hostEnds.forEach { _ = Darwin.close($0) } }
         // SAFETY (the spawn below): `actions` and `attributes` are initialized here and destroyed once by the
         // defers, after the spawn; each call reads or writes only them, the local signal sets and the
         // NUL-terminated strings Swift copies for the call.
@@ -113,8 +149,9 @@ nonisolated struct ChromiumHostLauncher: ChromiumHostLaunching {
         unsafe posix_spawn_file_actions_addopen(&actions, 0, "/dev/null", O_RDONLY, 0)
         unsafe posix_spawn_file_actions_addinherit_np(&actions, 1)
         unsafe posix_spawn_file_actions_addinherit_np(&actions, 2)
-        unsafe posix_spawn_file_actions_adddup2(&actions, toHost[1], 3)
-        unsafe posix_spawn_file_actions_adddup2(&actions, fromHost[1], 4)
+        for (index, end) in hostEnds.enumerated() {
+            unsafe posix_spawn_file_actions_adddup2(&actions, end, Int32(3 + index))
+        }
         var attributes: posix_spawnattr_t?
         unsafe posix_spawnattr_init(&attributes)
         defer { unsafe posix_spawnattr_destroy(&attributes) }
@@ -132,14 +169,8 @@ nonisolated struct ChromiumHostLauncher: ChromiumHostLaunching {
         var pid: pid_t = 0
         // SAFETY: as above; `environ` is the process's NULL-terminated environment, which posix_spawn copies.
         let result = unsafe blockingPosixSpawn(&pid, executable.path, &actions, &attributes, argv, environ, priority: priority)
-        Darwin.close(toHost[1])
-        Darwin.close(fromHost[1])
-        guard result == 0 else {
-            Darwin.close(toHost[0])
-            Darwin.close(fromHost[0])
-            throw .spawn(result)
-        }
-        return ChromiumHostProcessHandle(pid: pid, readFD: fromHost[0], writeFD: toHost[0])
+        guard result == 0 else { throw .spawn(result) }
+        return pid
     }
 
     func exit(of pid: pid_t) async -> ChromiumHostExit {

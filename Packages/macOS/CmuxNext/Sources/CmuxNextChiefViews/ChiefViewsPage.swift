@@ -6,6 +6,7 @@ public import Foundation
 import CmuxNextAgentActivity
 import CmuxNextHome
 public import CmuxNextPages
+public import CmuxNextWakeups
 
 extension PageDescriptor {
     /// The Chief view gallery (webviews/src/pages/chief-views): experimental views beside the Chief,
@@ -30,12 +31,16 @@ public struct ChiefViewsHost {
     var revealTab: @MainActor (String) -> Bool
     /// Opens a pull request on Home's right side.
     var openURL: @MainActor (URL) -> Void
+    /// The app's one main-thread scheduler (`AppServices.mainWork`): the page's agent stream follows on it.
+    var mainWork: MainWorkScheduler
 
     public init(workspaces: @escaping @MainActor () -> [(WorkspaceModel, DaemonService)],
                 machineName: @escaping @MainActor (DaemonService) -> String?,
                 openChat: @escaping @MainActor (String) throws -> Void,
                 revealTab: @escaping @MainActor (String) -> Bool,
-                openURL: @escaping @MainActor (URL) -> Void) {
+                openURL: @escaping @MainActor (URL) -> Void,
+                mainWork: MainWorkScheduler) {
+        self.mainWork = mainWork
         self.workspaces = workspaces
         self.machineName = machineName
         self.openChat = openChat
@@ -89,6 +94,7 @@ extension ChiefViewsPageProvider.Host {
             agents: {
                 ChiefViewsAgent.current(lanes: .shared, workspaces: app.workspaces(), machineName: app.machineName)
             },
+            mainWork: app.mainWork,
             fetch: ChiefViewsPageProvider.liveFetch,
             defaults: .standard,
             environment: ProcessInfo.processInfo.environment,

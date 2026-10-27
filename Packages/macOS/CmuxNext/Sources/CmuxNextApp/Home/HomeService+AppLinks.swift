@@ -51,7 +51,7 @@ extension HomeService {
     /// them). The cache was written by the quit's save step (``flushCacheForQuit()``).
     func applicationWillTerminate() {
         settleWatch?.cancel()
-        if homeListPrimed { sidebarLaunch.flush() }
+        if homeListPrimed { listLaunch.read.sidebar.flush() }
         ChiefAppLinks.unpublish(home: chief.home, controlSocket: services.environment.launch.socketPath,
                                 daemonSocket: publishedDaemonSocket)
     }
