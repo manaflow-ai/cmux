@@ -41992,121 +41992,121 @@
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "حدّث %@ لمحادثات موثوقة"
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Ažurirajte %@ za pouzdane razgovore"
           }
         },
         "da": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Opdater %@ for stabile chats"
           }
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "%@ für zuverlässige Chats aktualisieren"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Actualiza %@ para chats fiables"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Mettre à jour %@ pour des chats fiables"
           }
         },
         "it": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Aggiorna %@ per chat affidabili"
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "信頼できるチャットのために%@を更新"
           }
         },
         "km": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "ធ្វើបច្ចុប្បន្នភាព %@ សម្រាប់ការជជែកដែលអាចទុកចិត្តបាន"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "안정적인 채팅을 위해 %@ 업데이트"
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Oppdater %@ for pålitelige samtaler"
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Zaktualizuj %@, aby czaty działały niezawodnie"
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Atualize %@ para chats confiáveis"
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Обновите %@ для надежных чатов"
           }
         },
         "th": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "อัปเดต %@ เพื่อการแชทที่เสถียร"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Güvenilir sohbetler için %@ uygulamasını güncelleyin"
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Оновіть %@ для надійних чатів"
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Cập nhật %@ để trò chuyện ổn định"
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "更新 %@，让聊天更可靠"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "更新 %@，讓聊天更可靠"
           }
         }
@@ -42123,121 +42123,121 @@
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "المثبت %@ · يتوفر %@ · إصلاحات التوافق."
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Instalirano %@ · %@ dostupno · Ispravke kompatibilnosti."
           }
         },
         "da": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Installeret %@ · %@ klar · Kompatibilitetsrettelser."
           }
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Installiert %@ · %@ verfügbar · Kompatibilitätsfixes."
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Instalado %@ · %@ disponible · Compatibilidad."
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Installé %@ · %@ dispo · Correctifs de compatibilité."
           }
         },
         "it": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Installato %@ · %@ disponibile · Fix compatibilità."
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "インストール済み %@ · %@ 利用可 · 互換性修正。"
           }
         },
         "km": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "បានដំឡើង %@ · មាន %@ · ជួសជុលភាពឆបគ្នា។"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "설치됨 %@ · %@ 사용 가능 · 호환성 수정."
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Installert %@ · %@ klar · Kompatibilitetsfikser."
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Zainstalowano %@ · dostępne %@ · Poprawki zgodności."
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Instalado %@ · %@ disponível · Compatibilidade."
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Установлено %@ · доступно %@ · Исправления совместимости."
+            "state": "translated",
+            "value": "Установлено %@ · доступно %@ · Исправления."
           }
         },
         "th": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "ติดตั้งแล้ว %@ · มี %@ · แก้ไขความเข้ากันได้"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Yüklü %@ · %@ hazır · Uyumluluk düzeltmeleri."
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Встановлено %@ · %@ доступно · Сумісність."
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Đã cài %@ · có %@ · Sửa tương thích."
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "已安装 %@ · 可用 %@ · 兼容性修复。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "已安裝 %@ · 可用 %@ · 相容性修正。"
           }
         }
@@ -42254,121 +42254,121 @@
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "شغّل الأمر أدناه لتحديث %@."
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Pokrenite naredbu ispod da ažurirate %@."
           }
         },
         "da": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Kør kommandoen nedenfor for at opdatere %@."
           }
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Führe den folgenden Befehl aus, um %@ zu aktualisieren."
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Ejecuta el comando siguiente para actualizar %@."
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Exécutez la commande ci-dessous pour mettre à jour %@."
           }
         },
         "it": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Esegui il comando sotto per aggiornare %@."
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "%@を更新するには、以下のコマンドを実行してください。"
           }
         },
         "km": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "ដំណើរការពាក្យបញ្ជាខាងក្រោម ដើម្បីធ្វើបច្ចុប្បន្នភាព %@។"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "%@를 업데이트하려면 아래 명령을 실행하세요."
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Kjør kommandoen nedenfor for å oppdatere %@."
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Uruchom poniższe polecenie, aby zaktualizować %@."
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Execute o comando abaixo para atualizar %@."
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Выполните команду ниже, чтобы обновить %@."
           }
         },
         "th": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "เรียกใช้คำสั่งด้านล่างเพื่ออัปเดต %@"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Güncellemek için aşağıdaki komutu çalıştırın."
+            "state": "translated",
+            "value": "%@ için aşağıdaki güncelleme komutunu çalıştırın."
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Виконайте наведену нижче команду, щоб оновити %@."
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Chạy lệnh bên dưới để cập nhật %@."
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "运行以下命令以更新 %@。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "執行下方指令以更新 %@。"
           }
         }

@@ -34,12 +34,13 @@ function HarnessUpdateCard({ row, harnesses }: { row: HarnessRow; harnesses: Har
   const store = useStore();
   const name = row.name ?? agentDisplayName(row.id);
   const safeUpdate = offersUpdate(row);
+  const titleId = useId();
   const unsettled = updateUnsettled(harnesses, row.id);
   if (!row.outdated || !row.version || !row.latest || !row.update) return null;
   return (
     <article className="harness-update-card" data-harness-update-card={row.id}>
       <div className="harness-update-card-copy">
-        <strong>{t("settingsWindow.harnesses.updateCard.title", name)}</strong>
+        <strong id={titleId}>{t("settingsWindow.harnesses.updateCard.title", name)}</strong>
         <p className="row-help">{t("settingsWindow.harnesses.updateCard.detail", row.version, row.latest)}</p>
         {row.update.elevated && <p className="row-help">{t("settingsWindow.harnesses.updateElevated")}</p>}
         {!safeUpdate && !row.update.elevated && (
@@ -56,6 +57,7 @@ function HarnessUpdateCard({ row, harnesses }: { row: HarnessRow; harnesses: Har
           type="button"
           className="button"
           data-harness-action="updateCard"
+          aria-describedby={titleId}
           disabled={unsettled}
           onClick={() => void store.runHarnesses({ action: "update", id: row.id })}
         >

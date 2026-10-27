@@ -249,6 +249,10 @@ mark {
   margin: 0 0 12px;
 }
 
+.harness-update-cards:empty {
+  display: none;
+}
+
 .harness-update-card {
   display: flex;
   align-items: flex-start;
