@@ -1,4 +1,4 @@
-public import CmuxNextDesign
+public import CmuxNextDesignTokens
 
 /// `appearance.borders` in cmux.json: "default" draws borders, hairlines
 /// and separators; "none" removes every one of them (`Borders`).

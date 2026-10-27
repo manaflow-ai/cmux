@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextActions
 import CmuxNextAgentPane
 import CmuxNextBrowser
 import CmuxNextBrowserImport
@@ -60,8 +61,9 @@ public struct CmuxNextApp {
         // ghostty_init while the process still has one thread: its locale setup may setenv LANG and setlocale
         // (Ghostty's internal_os.ensureLocale, src/os/locale.zig), which must not race another thread's environ read.
         GhosttyRuntime.initializeLibrary()
-        // Pure launch work (action catalog, symbols, displays) overlaps AppKit's start.
-        LaunchWarmup().start()
+        // Pure launch work (action catalog, symbols, displays, icons) overlaps AppKit's start; the registry takes the catalog.
+        let actionCatalog = ActionCatalogLaunch()
+        LaunchWarmup().start(catalog: actionCatalog)
         DebugTimings.markLaunch("main.warmup_started")
         // One hang watch for the process: the lanes, the daemon readers and the terminal output lanes.
         let hangWatch = TraceRuntime.shared.hangWatch
@@ -76,6 +78,7 @@ public struct CmuxNextApp {
         // Shells get the launch limit back. Path lookups only: the stores at these paths read and create on first use.
         var environment = AppEnvironment.current(openFiles: openFiles)
         environment.marksRun = true
+        environment.actionCatalog = actionCatalog
         #if DEBUG || CMUX_BENCH_HOOKS
         environment.mainJobCensus = mainJobs
         environment.globalJobCensus = globalJobs
