@@ -1,6 +1,6 @@
 import CmuxNextWakeups
 public import Foundation
-import CmuxNextCompat
+public import CmuxNextCompat
 import class CmuxSafeConcurrency.OnceContinuation
 import enum CmuxSafeConcurrency.OnceContinuationError
 import os
@@ -30,6 +30,10 @@ import os
 /// the loop waits for the daemon socket to change or `retryWake` to fire.
 /// After `retry.socketRetries` failures that a new socket woke (a daemon
 /// that dies on connect) only `retryWake` does.
+///
+/// With ``DaemonConnectionConfiguration/reportsDiagnosticSites`` the reader decodes each
+/// `server-diagnostic-site` line once into its transport's relay and routes the event on as `unknown` with no
+/// payload; once the handshake names the daemon life, the sites reach ``diagnosticSites`` as sightings of it.
 public actor DaemonConnection {
     public typealias EndpointProvider = @Sendable () async throws -> DaemonEndpoint
 
@@ -50,6 +54,8 @@ public actor DaemonConnection {
     public nonisolated let eventSourceID: UUID = UUID()
     /// The `mutation_id`s caused scopes sent on this connection, which name their echoes' cause.
     public nonisolated let mutationCauses = MutationCauseLedger()
+    /// The daemon's diagnostic sites this connection read, each once per daemon life, held until a sink is installed.
+    public nonisolated let diagnosticSites = DaemonDiagnosticSiteRelay<DaemonDiagnosticSite.Sighting>()
     /// Where events go: `events`, or the consumer of ``consumeEvents(_:)``; and each subscriber.
     nonisolated let route: DaemonEventRoute
 
@@ -113,12 +119,11 @@ public actor DaemonConnection {
         // The heartbeat asks on its shown cadence while a request waits for its reply (p14-energy-064).
         handoffGate = QuietHandoffGate(observe: configuration.handoffWaits,
                                        busyEdge: { [heartbeat] gate in heartbeat.requestsWaiting { gate.requestsInFlight > 0 } })
-        // concurrency-allow: holds only events no consumer took yet (DaemonEventRoute); the store drains them at once into the bounded EventInbox
-        // memory: bounded-by DaemonEventRoute.highWater (8 MiB of event lines): past it, while a consumer takes them, the reader stops reading the socket
-        let (events, continuation) = AsyncThrowingStream.makeStream(of: DaemonEventEnvelope.self, bufferingPolicy: .unbounded)
-        let route = DaemonEventRoute(continuation)
+        // The events no consumer took yet wait in the route's bounded EventInbox backlog; past
+        // DaemonEventRoute.highWater bytes of them, while a stream consumer takes them, the reader stops reading the socket.
+        let route = DaemonEventRoute()
         self.route = route
-        self.events = DaemonEventStream(base: events, route: route)
+        self.events = DaemonEventStream(route: route)
     }
 
     /// Connects to a fixed socket (tests, dev tools).
@@ -242,20 +247,20 @@ public actor DaemonConnection {
         route.emit(DaemonEventEnvelope(sequence: envelope.sequence, event: envelope.event, sourceID: eventSourceID, cause: envelope.cause))
     }
 
-    /// Takes this connection's events instead of `events`, in order, until they end: the ones
-    /// `events` already holds, then each later one on the thread that produced it (the reader for
-    /// every daemon event; the actor for `connected` and `disconnected`). The echo of a person's
-    /// action reaches `deliver` with no cooperative-pool job after the socket read (p02-threads-133).
-    /// One consumer per connection; returns when the connection finishes, throwing what ended it.
+    /// Takes this connection's events instead of `events`, in order, until they end: the ones the
+    /// route's bounded backlog holds (on the calling task), then each later one on the thread that
+    /// produced it (the reader for every daemon event; the actor for `connected` and `disconnected`).
+    /// The echo of a person's action reaches `deliver` with no cooperative-pool job after the socket
+    /// read (p02-threads-133). One consumer per connection; returns when the connection finishes,
+    /// throwing what ended it, or when the calling task is cancelled.
     ///
     /// - Parameter deliver: Takes one event; runs under ``DaemonEventRoute``'s lock, so it must not
     ///   block or call back into the connection.
     nonisolated func consumeEvents(_ deliver: @escaping DaemonEventRoute.Sink) async throws {
+        route.takeStream()
         route.attach(deliver)
         defer { route.detach() }
-        for try await envelope in events {
-            route.deliverQueued(envelope)
-        }
+        try await route.ended()
     }
 
     /// The admitted control session, or nil when not connected.
@@ -291,10 +296,19 @@ public actor DaemonConnection {
             let raw = configuration.role == .pageRelay
             let decoder = transport.decoder
             let mutationCauses = mutationCauses
+            // The subscribe of the handshake starts the daemon's replay before identify is read: held until then.
+            let transportSites = configuration.reportsDiagnosticSites ? DaemonDiagnosticSiteRelay<DaemonDiagnosticSite>() : nil
             transport.start(
                 onCausedEvent: { [weak self] name, line, index, wireCause in
-                    let event = raw ? DaemonEvent.raw(name: name, line: line, decoder: decoder)
-                        : DaemonEvent.decode(name: name, line: line, decoder: decoder)
+                    let event: DaemonEvent
+                    if let transportSites, name == DaemonDiagnosticSite.eventName {
+                        // Routed on with no payload: the sequence counts it; nothing but the relay reads it.
+                        if let site = try? decoder.decode(DaemonDiagnosticSite.self, from: line) { transportSites.deliver(site) }
+                        event = .unknown(name: name, payload: .null)
+                    } else {
+                        event = raw ? DaemonEvent.raw(name: name, line: line, decoder: decoder)
+                            : DaemonEvent.decode(name: name, line: line, decoder: decoder)
+                    }
                     let envelope = DaemonEventEnvelope(
                         sequence: DaemonEventEnvelope.sequence(serial: serial, index: index), event: event, sourceID: eventSourceID,
                         cause: event.cause(wire: wireCause, recorded: mutationCauses))
@@ -320,6 +334,8 @@ public actor DaemonConnection {
             } ?? false
             self.identity = identity
             self.endpoint = endpoint
+            let life = DaemonDiagnosticSite.Sighting.life(pid: identity.pid, generation: identity.generation.rawValue)
+            transportSites?.install { [diagnosticSites] in diagnosticSites.deliver(.init(site: $0, daemonLife: life)) }
             phase = .ready(DaemonReadyConnection(transport: transport, serial: serial, identity: identity, userOriginAllowed: userOriginAllowed))
             releaseHandoffHold()
             resumeReadyWaits(serial: serial)

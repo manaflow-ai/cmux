@@ -154,6 +154,7 @@ fn request_path_a_queued_request_runs_in_the_daemon_scope() {
         frame_call: None,
         retained_bytes: 0,
         _bytes_permit: mux.surface_operation_admission.try_reserve_bytes(0).expect("permit"),
+        stream_barrier: None,
     };
     let (runs, sqlite) = request_path_counts(&mux);
     assert!(run_pending_request(&scheduler, &mux, client, pending, &writer));
@@ -442,6 +443,7 @@ fn daemon_locks_attribute_each_request_to_its_caller_and_op() {
             frame_call: None,
             retained_bytes: 0,
             _bytes_permit: mux.surface_operation_admission.try_reserve_bytes(0).expect("permit"),
+            stream_barrier: None,
         };
         assert!(run_pending_request(&scheduler, &mux, client, pending, writer));
         while outbound.try_pop().is_some() {}
@@ -508,6 +510,7 @@ fn daemon_locks_attribute_a_worker_answered_request_to_its_caller_and_op() {
         frame_call: None,
         retained_bytes: 0,
         _bytes_permit: mux.surface_operation_admission.try_reserve_bytes(0).expect("permit"),
+        stream_barrier: None,
     };
     assert!(run_pending_request(&scheduler, &mux, app, pending, &app_writer));
     let deadline = Instant::now() + Duration::from_secs(10);

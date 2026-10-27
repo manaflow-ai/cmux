@@ -20,10 +20,12 @@ struct WebUIHostTests {
         try Data("<!doctype html><title>Page</title>".utf8).write(to: root.appendingPathComponent("index.html"))
     }
 
-    private func makeHost(_ hosting: FakeChromiumHosting?, openPanel: MadeAheadOpenPanel? = nil) -> WebUIHost {
+    private func makeHost(_ hosting: FakeChromiumHosting?, openPanel: MadeAheadOpenPanel? = nil,
+                          everySharingPage: Bool = false) -> WebUIHost {
         WebUIHost(chromium: hosting, openPanel: openPanel,
                   memory: QuietMemoryRegistry(),
-                  deadlines: LifecycleDeadlineRig.never)
+                  deadlines: LifecycleDeadlineRig.never,
+                  processGroups: WebProcessGroups(pagesPerProcess: 8, groupsEverySharingPage: everySharingPage))
     }
 
     @Test func openMakesThePageWithTheHostsChromiumAndListsIt() async throws {
@@ -108,7 +110,7 @@ struct WebUIHostTests {
         let first = try #require(host.open(PageOpenRequest(descriptor: descriptor, root: root, routes: [], options: shared)))
         let second = try #require(host.open(PageOpenRequest(descriptor: descriptor, root: root, routes: [], options: shared)))
         let alone = try #require(host.open(PageOpenRequest(descriptor: descriptor, root: root, routes: [])))
-        let store = host.processGroups.dataStore
+        let store = try #require(host.processGroups).dataStore
         #expect(first.webView.configuration.websiteDataStore === store)
         #expect(second.webView.configuration.websiteDataStore === store)
         #expect(second.webView.configuration.value(forKey: "_relatedWebView") as? WKWebView === first.webView)
@@ -131,7 +133,42 @@ struct WebUIHostTests {
         #expect(view.webKitPieces == nil)
         await view.chromiumStart?.value
         #expect(view.webKitPieces == nil)
-        #expect(view.webView.configuration.websiteDataStore !== host.processGroups.dataStore)
+        #expect(view.webView.configuration.websiteDataStore !== host.processGroups?.dataStore)
+        #expect(!view.crash.sharesWebKitProcess)
         host.close(view)
+    }
+
+    /// With `webKitPageProcessGroups` every page of a sharing group joins it without asking, so the
+    /// pages of one group start one WebContent process and their crashes count against one budget;
+    /// a solo page keeps its own store and process (p07-memory-087).
+    @Test func everyPageOfASharingGroupJoinsItWithWebKitPageProcessGroups() throws {
+        defer { try? FileManager.default.removeItem(at: root) }
+        let host = makeHost(nil, everySharingPage: true)
+        let privileged = PageDescriptor(id: "test.webui-host-privileged", resource: "webui-host", processGroup: .privileged, namespaces: [])
+        let first = try #require(host.open(PageOpenRequest(descriptor: privileged, root: root, routes: [])))
+        let second = try #require(host.open(PageOpenRequest(descriptor: privileged, root: root, routes: [])))
+        let alone = try #require(host.open(PageOpenRequest(descriptor: descriptor, root: root, routes: [])))
+        let store = try #require(host.processGroups).dataStore
+        #expect(first.webView.configuration.websiteDataStore === store)
+        #expect(second.webView.configuration.value(forKey: "_relatedWebView") as? WKWebView === first.webView)
+        #expect(first.crash.sharesWebKitProcess && second.crash.sharesWebKitProcess)
+        #expect(alone.webView.configuration.websiteDataStore !== store)
+        #expect(alone.webView.configuration.value(forKey: "_relatedWebView") == nil)
+        #expect(!alone.crash.sharesWebKitProcess)
+        for view in [first, second, alone] { host.close(view) }
+    }
+
+    /// A host made without groups starts a process for every WebKit page, also one that asks to share.
+    @Test func aHostWithoutGroupsGroupsNoPage() throws {
+        defer { try? FileManager.default.removeItem(at: root) }
+        let host = WebUIHost(chromium: nil, openPanel: nil, memory: QuietMemoryRegistry(), deadlines: LifecycleDeadlineRig.never)
+        let shared = PageEngineOptions(sharesWebKitProcess: true)
+        let first = try #require(host.open(PageOpenRequest(descriptor: descriptor, root: root, routes: [], options: shared)))
+        let second = try #require(host.open(PageOpenRequest(descriptor: descriptor, root: root, routes: [], options: shared)))
+        #expect(host.processGroups == nil)
+        #expect(second.webView.configuration.value(forKey: "_relatedWebView") == nil)
+        #expect(first.webView.configuration.websiteDataStore !== second.webView.configuration.websiteDataStore)
+        #expect(!first.crash.sharesWebKitProcess)
+        for view in [first, second] { host.close(view) }
     }
 }

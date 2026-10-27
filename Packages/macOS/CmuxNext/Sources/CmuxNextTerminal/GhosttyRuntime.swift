@@ -354,19 +354,19 @@ public final class GhosttyRuntime {
     // The tick: GhosttyRuntime+Ticks.swift.
 
     private func installObservers() {
-        let center = NotificationCenter.default
+        let center = NotificationCenter.default // raw-observer-allow: the process's one observer of this notice for every terminal (the runtime starts before the app's AppEvents exists)
         observers.append(center.addObserver(forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main) { [weak self] _ in
             // main-proof: observer registered with queue: .main (OperationQueue.main runs on the main thread)
             MainActor.assumeIsolated {
                 self?.setAppFocused(true)
                 self?.inputSources.applicationDidBecomeActive()
             }
-        })
+        }) // raw-observer-allow: the process's one observer of this notice for every terminal (the runtime starts before the app's AppEvents exists)
         observers.append(center.addObserver(forName: NSApplication.didResignActiveNotification, object: nil, queue: .main) { [weak self] _ in
             // main-proof: observer registered with queue: .main (OperationQueue.main runs on the main thread)
             MainActor.assumeIsolated { self?.setAppFocused(false) }
         })
-        // Ghostty caches the keyboard layout for key translation, the key path the source's kind.
+        // raw-observer-allow: the process's one observer of this notice for every terminal (the runtime starts before the app's AppEvents exists); Ghostty caches the keyboard layout for key translation, the key path the source's kind
         observers.append(center.addObserver(forName: NSTextInputContext.keyboardSelectionDidChangeNotification, object: nil, queue: .main) { [weak self] _ in
             // main-proof: observer registered with queue: .main (OperationQueue.main runs on the main thread)
             MainActor.assumeIsolated {
@@ -378,9 +378,9 @@ public final class GhosttyRuntime {
         })
         if let nsApp = NSApp {
             applyColorScheme(nsApp.effectiveAppearance)
-            // KVO calls back on the thread that changed the value: inline on
-            // main, a hop from anywhere else.
-            appearanceObservation = nsApp.observe(\.effectiveAppearance, options: [.new]) { @Sendable [weak self] application, _ in
+            // KVO calls back on the thread that changed the value: inline on main, a hop from anywhere else.
+            // raw-observer-allow: no notice reports a light/dark switch; KVO of NSApp's effectiveAppearance is the one source, as Chromium's NativeThemeMac observes it (ui/native_theme/native_theme_mac.mm)
+            appearanceObservation = nsApp.observe(\.effectiveAppearance, options: [.new]) { @Sendable [weak self] application, _ in // main-hop-allow: AppKit changes the app's appearance on main, so the scheme switch runs inline in that turn, beside ThemeResolver's re-resolve; only an off-main change hops
                 MainDelivery().run { self?.applyColorScheme(application.effectiveAppearance) }
             }
         }

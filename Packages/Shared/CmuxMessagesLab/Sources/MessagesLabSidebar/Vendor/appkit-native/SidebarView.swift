@@ -666,7 +666,7 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
         var extraTitle = ""
         init(pinned: [Int], rows: [Int], count: Int, searching: Bool) {
             self.pinned = pinned; self.rows = rows; self.searching = searching
-            rowOf = [Int32](repeating: -1, count: count)
+            rowOf = [Int32](repeating: -1, count: max(0, count))
             for (r, i) in rows.enumerated() { if let slot = rowOf.checkedIndex(i) { rowOf[slot] = Int32(clamping: r) } } // checked
         }
         /// The pinned grid and every other conversation in the snapshot's order.

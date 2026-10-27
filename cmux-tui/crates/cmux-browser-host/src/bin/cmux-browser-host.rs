@@ -204,6 +204,7 @@ mod unix {
         }
         // SAFETY: fstat(2) on an fd number with a zeroed out buffer.
         let mut stat: libc::stat = unsafe { std::mem::zeroed() };
+        // SAFETY: fstat writes one stat into `stat`, a live local; a closed fd fails with EBADF.
         if unsafe { libc::fstat(fd, &mut stat) } != 0
             || (stat.st_mode & libc::S_IFMT) != libc::S_IFIFO
         {
