@@ -53,6 +53,11 @@ pub(crate) struct FloorState {
     /// agent whose report waits in the queue (review 69 of #23322). None are left once its agent
     /// ends or a new host starts.
     pub(super) unapplied_full_access: AtomicU64,
+    /// Which agents' taps count their reports in `unapplied_full_access`: each tap counts only
+    /// while this is the epoch it was made in, and MDM's end of an agent moves it on, so a report
+    /// the ended agent still sends is not counted for the agent after it (review 4 of #26052).
+    /// A tap counts under this lock, and the end moves it and drops the count under it.
+    pub(super) report_epoch: StdMutex<u64>,
     /// The last few agents MDM's off ended (`end_managed_full_access`), by generation: a mode or
     /// option report one of them sent that the inbound loop has not applied yet is dropped, not
     /// applied to the agent after it (review 3 of #26052).

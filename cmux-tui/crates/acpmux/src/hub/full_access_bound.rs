@@ -74,12 +74,15 @@ impl FullAccessView {
     pub(crate) fn of_session(session: &Session) -> Self {
         // The count first: the inbound loop applies a report before it takes back the report's
         // count, so a report applied after this read is in the reads below (review 3 of #26052).
-        let reported = session.floor.unapplied_full_access.load(Ordering::SeqCst) > 0;
+        let counted = || session.floor.unapplied_full_access.load(Ordering::SeqCst) > 0;
+        let reported = counted();
         #[cfg(test)]
         between_view_reads(session);
         let undeclared_mode =
             session.floor.undeclared_mode.lock().unwrap_or_else(|e| e.into_inner()).clone();
         let meta = session.meta();
+        // Again after: one the tap counted while the mode was read is seen too (review 4).
+        let reported = reported || counted();
         Self {
             mode: crate::web_modes::mode_of(&meta),
             undeclared_mode,
@@ -732,7 +735,13 @@ impl Hub {
             }
         }
         session.floor.full_access_end_pending.store(false, Ordering::SeqCst);
-        session.floor.unapplied_full_access.store(0, Ordering::SeqCst);
+        // What its agent reported and nothing applied goes with it; a report it still sends is
+        // not counted (its tap's epoch is gone, review 4 of #26052).
+        {
+            let mut epoch = session.floor.report_epoch.lock().unwrap_or_else(|e| e.into_inner());
+            *epoch += 1;
+            session.floor.unapplied_full_access.store(0, Ordering::SeqCst);
+        }
         // What only the ended agent said goes with it: the mode it reported without declaring
         // modes, and a full-access value of any option (the next agent reports its own, and
         // `replay_config` skips a null).
