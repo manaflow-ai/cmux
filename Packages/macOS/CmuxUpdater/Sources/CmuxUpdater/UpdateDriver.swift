@@ -267,19 +267,26 @@ final class UpdateDriver {
     /// gate again as a user install (the "auto" flag only labels the state) and installs at
     /// most once.
     private func showRestartToComplete(install: @escaping () -> Void) {
-        let once = InstallOnce(install)
+        // The install handler, taken by its one run: a main-actor optional the closures below share, as
+        // Chromium runs a held `base::OnceCallback` with `std::move(callback_).Run()`.
+        var pendingInstall: (() -> Void)? = install
+        let installOnce = {
+            guard let run = pendingInstall else { return }
+            pendingInstall = nil
+            run()
+        }
         setState(.installing(.init(
             isAutoUpdate: true,
             retryTerminatingApplication: { [weak self] in
                 guard let self else {
-                    once.run()
+                    installOnce()
                     return
                 }
                 guard self.holdsUserInstalls else {
-                    once.run()
+                    installOnce()
                     return
                 }
-                self.holdRelaunch(isAutoUpdate: true, install: once.run)
+                self.holdRelaunch(isAutoUpdate: true, install: installOnce)
             },
             dismiss: {}
         )))
@@ -471,20 +478,5 @@ final class UpdateDriver {
             }
             return "installing(auto=\(installing.isAutoUpdate))"
         }
-    }
-}
-
-/// Runs a Sparkle install handler at most once.
-private final class InstallOnce {
-    private var install: (() -> Void)?
-
-    init(_ install: @escaping () -> Void) {
-        self.install = install
-    }
-
-    func run() {
-        guard let install else { return }
-        self.install = nil
-        install()
     }
 }

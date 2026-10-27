@@ -112,8 +112,8 @@ that brings it to zero (moving its reviewed crash-allow lines into the allowlist
 REPORT-ONLY classes (--report CLASS[,CLASS]; plans/cmux-next/chrome-parity/p10-stability.md, implementer rule 1):
 counted over every package's Sources and printed as JSON {class: {"total": N, "modules": {module: hits}}}, never
 compared, never in crash-safety-baseline.json, and never read by the CI compare mode (no flag, --baseline-against,
---update-baseline). A crash-allow does not hide a hit from the report. guardrails.py refuses new hits before a push
-(local only).
+--update-baseline). A crash-allow does not hide a hit from the report. guardrails.py judges them before a push
+(local only): raw_continuation is banned there, every hit in a file the push changes is refused (p10-stability-089).
     raw_continuation  with(Checked|Unsafe)(Throwing)?Continuation: a raw continuation traps on a second resume
                       and leaks its task when dropped. Use CmuxSafeConcurrency's withOnceContinuation /
                       withOnceThrowingContinuation (p10-stability-083); CmuxSafeConcurrency itself, which

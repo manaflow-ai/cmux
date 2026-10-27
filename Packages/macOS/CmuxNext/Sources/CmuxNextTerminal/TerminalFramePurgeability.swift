@@ -3,7 +3,8 @@ import IOSurface
 /// A hidden terminal's frame is purgeable (lead decision, cx-8w027.19.1): the pages it keeps
 /// (a hidden surface's presented frame, an evicted terminal's last frame) are volatile while
 /// nothing shows them, so memory pressure takes them without a policy of ours, and they are made
-/// non-volatile again before they show. A purged frame is not shown.
+/// non-volatile again before they show. A purged frame is not shown: a surface's renderer is told to drop
+/// it (``TerminalPresentation/purge``), since only the renderer writes what a surface presents.
 ///
 /// Purgeable pages and the app-wide hidden frame list (`HiddenFrameLRU`, `memoryHiddenFrameLRU`) work
 /// together: the kernel takes a volatile frame's pages when it needs them, and the list drops the frame

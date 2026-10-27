@@ -1,5 +1,7 @@
 import AppKit
 public import CmuxNextBrowser
+import class CmuxSafeConcurrency.OnceContinuation
+import func CmuxSafeConcurrency.withOnceThrowingContinuation
 import CmuxNextCompat
 public import CmuxNextDaemon
 public import Foundation
@@ -225,33 +227,28 @@ public final class BrowserHistoryWriter {
     /// finishes unawaited).
     public static func within<T: Sendable>(_ budget: Duration, sleep: @escaping Sleep,
                                     _ work: @escaping @MainActor () async -> T?) async -> T? {
-        let once = Once<T>()
-        return await withCheckedContinuation { continuation in
-            once.continuation = continuation
-            let timer = Task { @MainActor in
-                try? await sleep(budget) // wakeup-allow: deadline of `budget` for `work`, cancelled when the work finishes first
-                once.resume(nil)
-            }
-            Task { @MainActor in
-                once.resume(await work())
-                timer.cancel()
-            }
-        }
+        await first(of: work, within: budget, sleep: sleep)
     }
 
-    /// Resumes a continuation with the first answer only.
-    private final class Once<T: Sendable> {
-        var continuation: CheckedContinuation<T?, Never>?
-
-        // A main-actor generic class needs a nonisolated deinit while the package targets macOS 14: the
-        // isolated deinit's back-deploy path crashed swift-frontend's Release inliner
-        // (EarlyPerfInliner, isCallerAndCalleeLayoutConstraintsCompatible) on its deallocating deinit.
-        nonisolated deinit {}
-
-        func resume(_ value: T?) {
-            continuation?.resume(returning: value)
-            continuation = nil
+    /// ``within(_:sleep:_:)``: the budget cancels the wait, which ends its cancellable continuation at once and
+    /// makes the work's late answer a no-op. Off the main actor: only the work runs there, in its own isolation.
+    private nonisolated static func first<T: Sendable>(of work: @escaping @MainActor () async -> T?, within budget: Duration,
+                                                       sleep: @escaping Sleep) async -> T? {
+        // task-owner: the wait for the work's answer; ends with the answer or at the budget below
+        let wait = Task {
+            try await withOnceThrowingContinuation(cancellation: .cancellable) { (answer: OnceContinuation<T?, any Error>) in
+                // task-owner: the work; it finishes unawaited when the budget answers first
+                Task { answer.resume(returning: await work()) }
+            }
         }
+        // task-owner: the budget; cancelled when the work answers first
+        let timer = Task {
+            try? await sleep(budget) // wakeup-allow: deadline of `budget` for `work`, cancelled when the work finishes first
+            wait.cancel()
+        }
+        let answer = try? await wait.value
+        timer.cancel()
+        return answer
     }
 
     /// The page changes that can change its history: a new URL or title,

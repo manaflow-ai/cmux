@@ -23,6 +23,7 @@ final class DisplaySleep {
 
     private init() {
         // Sleep ends what is running; wake ends what froze in the gap. Neither sets a state.
+        // raw-observer-allow: the app's one pair of display sleep observers, made by Motion's static gate (no composition-root seam) at its first tracked animation
         let center = NSWorkspace.shared.notificationCenter
         observers = [NSWorkspace.screensDidSleepNotification, NSWorkspace.screensDidWakeNotification].map { name in
             MainActorObservation(name, center: center) {

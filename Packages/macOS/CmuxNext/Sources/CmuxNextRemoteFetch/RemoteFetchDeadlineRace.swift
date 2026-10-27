@@ -1,10 +1,12 @@
 import CmuxNextCompat
 import Foundation
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
 
 /// Resumes the caller once, with the fetch's result or the deadline's, and cancels the loser.
 nonisolated final class DeadlineRace: Sendable {
     private struct State {
-        var continuation: CheckedContinuation<Result<RemoteFetchResponse, RemoteFetchFailure>, Never>?
+        var continuation: OnceContinuation<Result<RemoteFetchResponse, RemoteFetchFailure>, OnceContinuationError>?
         var result: Result<RemoteFetchResponse, RemoteFetchFailure>?
         var tasks: [Task<Void, Never>] = []
     }
@@ -13,7 +15,7 @@ nonisolated final class DeadlineRace: Sendable {
     // that exactly-once and synchronous (an actor hop could not run inside onCancel).
     private let state = Mutex(State())
 
-    func arm(_ continuation: CheckedContinuation<Result<RemoteFetchResponse, RemoteFetchFailure>, Never>) {
+    func arm(_ continuation: OnceContinuation<Result<RemoteFetchResponse, RemoteFetchFailure>, OnceContinuationError>) {
         let early = state.withLock { state -> Result<RemoteFetchResponse, RemoteFetchFailure>? in
             if let result = state.result { return result }
             state.continuation = continuation
@@ -31,7 +33,7 @@ nonisolated final class DeadlineRace: Sendable {
     }
 
     func finish(_ result: Result<RemoteFetchResponse, RemoteFetchFailure>) {
-        let (continuation, tasks) = state.withLock { state -> (CheckedContinuation<Result<RemoteFetchResponse, RemoteFetchFailure>, Never>?, [Task<Void, Never>]) in
+        let (continuation, tasks) = state.withLock { state -> (OnceContinuation<Result<RemoteFetchResponse, RemoteFetchFailure>, OnceContinuationError>?, [Task<Void, Never>]) in
             guard state.result == nil else { return (nil, []) }
             state.result = result
             defer { state.continuation = nil }

@@ -1,4 +1,6 @@
 public import CmuxNextWakeups
+import class CmuxSafeConcurrency.OnceContinuation
+import func CmuxSafeConcurrency.withOnceThrowingContinuation
 
 /// A pause of a main-actor async flow (a backoff between two retries) on a ``MainDeadline`` (recipe R-timer,
 /// plans/cmux-next/chrome-parity/p06-scheduler.md): the wake is an entry of the main thread's one wake-up queue,
@@ -14,7 +16,7 @@ public import CmuxNextWakeups
 public final class MainPause {
     private let deadline: MainDeadline
     private let work: MainWorkScheduler
-    private var continuation: CheckedContinuation<Void, any Error>?
+    private var continuation: OnceContinuation<Void, any Error>?
     /// Bumped by every wait, so a cancel posted for an earlier wait never ends a later one.
     private var generation: UInt64 = 0
 
@@ -39,7 +41,7 @@ public final class MainPause {
         generation &+= 1
         let work = work, owner = deadline.owner, workClass = deadline.workClass, current = generation
         try await withTaskCancellationHandler {
-            try await withCheckedThrowingContinuation { continuation in
+            try await withOnceThrowingContinuation { (continuation: OnceContinuation<Void, any Error>) in
                 self.continuation = continuation
                 deadline.schedule(after: delay) { [weak self] in self?.end(nil) }
             }
@@ -54,6 +56,6 @@ public final class MainPause {
         deadline.cancel()
         guard let continuation else { return }
         self.continuation = nil
-        if let error { continuation.resume(throwing: error) } else { continuation.resume() }
+        if let error { continuation.resume(throwing: error) } else { continuation.resume(returning: ()) }
     }
 }

@@ -18,6 +18,7 @@ use super::RenderClientState;
 use super::TERMINAL_COLOR_OVERRIDES_CAPABILITY;
 use super::TERMINAL_PENDING_SEQUENCE_CAPABILITY;
 use super::VtStateMessage;
+use super::WatchKind;
 use super::attach_overflow_json;
 use super::attach_response;
 use super::browser_state_message;
@@ -26,19 +27,22 @@ use super::detach_actor;
 use super::detach_committed_attach;
 use super::detach_own_view;
 use super::detached_event_json;
+use super::encode_browser_attach_update;
 use super::get_surface;
 use super::handle_attach_send_error;
 use super::kick_client;
+use super::kick_terminal_views;
 use super::mark_client_attached;
 use super::own_view_detach_target;
 use super::render_state_message;
 use super::report_attach_overflow;
 use super::require_pty;
 use super::rollback_failed_attach;
-use super::send_browser_attach_update;
+use super::send_encoded_browser_attach_update;
 use super::spawn_attach_notification_stream;
 use super::terminal_colors_json;
 use super::terminal_snapshot;
+use super::terminal_views_kick_target;
 use super::wait_for_initial_browser_resize;
 use crate::Mux;
 use crate::RenderAttachFrame;
@@ -90,6 +94,14 @@ pub(super) fn detach_client(
             &detached_event_json(placement, &notice, Some(&view)),
         );
         return Ok(json!({}));
+    }
+    if let Some((owner, views)) = terminal_views_kick_target(mux, &target, surface)
+        && owner != client
+    {
+        // One terminal's views of an app leave; the app's connection and its
+        // other terminals stay.
+        kick_terminal_views(mux, owner, &views, by);
+        return Ok(json!({"scope": "terminal"}));
     }
     let target_client = match &target {
         DetachClientTarget::Client(target) => Some(*target),
@@ -280,30 +292,36 @@ pub(super) fn attach_surface(
                 return;
             }
             let mut state = RenderClientState::new(writer.render_service.clone(), &attach.initial);
+            let hangs = mux.echo_watch();
             let interrupt = StreamInterrupt::new();
             writer.register_interrupt(&interrupt);
             outbound_stream.register_interrupt(&interrupt);
             lifecycle.register_interrupt(&interrupt);
             attach.stream.wake_on(&interrupt);
             while writer.is_open() && outbound_stream.is_open() && !lifecycle.is_canceled() {
-                let send_result = match attach.stream.recv_until_interrupted(&interrupt) {
-                    Ok(RenderAttachFrame::Frame(frame)) => {
-                        let message = state.delta_message(surface_id, &frame);
-                        writer.send_stream_backpressured(&message, &outbound_stream)
-                    }
-                    Ok(RenderAttachFrame::ScrollChanged { offset, at_bottom }) => writer
-                        .send_stream_backpressured(
-                            &json!({
-                                "event": "scroll-changed",
-                                "surface": surface_id,
-                                "offset": offset,
-                                "at_bottom": at_bottom,
-                            }),
-                            &outbound_stream,
-                        ),
+                let received = match attach.stream.recv_until_interrupted(&interrupt) {
+                    Ok(received) => received,
                     Err(std::sync::mpsc::RecvTimeoutError::Timeout) => continue,
                     Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
                 };
+                // Each frame's encode is a 100 ms hang scope; the wait for
+                // it and the hand-off that waits for room are not.
+                let item = hangs.item(WatchKind::RenderAttachOut);
+                let encoded = match received {
+                    RenderAttachFrame::Frame(frame) => {
+                        writer.encode(&state.delta_message(surface_id, &frame))
+                    }
+                    RenderAttachFrame::ScrollChanged { offset, at_bottom } => {
+                        writer.encode(&json!({
+                            "event": "scroll-changed",
+                            "surface": surface_id,
+                            "offset": offset,
+                            "at_bottom": at_bottom,
+                        }))
+                    }
+                };
+                drop(item);
+                let send_result = writer.send_encoded_backpressured(encoded, &outbound_stream);
                 if let Err(error) = send_result {
                     handle_attach_send_error(&lifecycle, &error);
                     break;
@@ -396,6 +414,7 @@ pub(super) fn attach_surface(
             if waits::recv(&worker_committed).is_err() {
                 return;
             }
+            let hangs = mux.echo_watch();
             let interrupt = StreamInterrupt::new();
             writer.register_interrupt(&interrupt);
             outbound_stream.register_interrupt(&interrupt);
@@ -416,12 +435,15 @@ pub(super) fn attach_surface(
                         break;
                     }
                 }
+                let item = hangs.item(WatchKind::AttachOut);
                 let update = std::mem::take(&mut *frames.slot.lock().recover_poison());
                 // A frame event applies its bitmap and authority
                 // atomically. Publish it before a paired state
                 // snapshot can expose the same positive token.
+                let encoded = encode_browser_attach_update(&writer, surface_id, update);
+                drop(item);
                 if let Err(error) =
-                    send_browser_attach_update(&writer, surface_id, update, &outbound_stream)
+                    send_encoded_browser_attach_update(&writer, encoded, &outbound_stream)
                 {
                     handle_attach_send_error(&lifecycle, &error);
                     break;
@@ -525,6 +547,7 @@ pub(super) fn attach_surface(
         if waits::recv(&worker_committed).is_err() {
             return;
         }
+        let hangs = mux.echo_watch();
         let interrupt = StreamInterrupt::new();
         writer.register_interrupt(&interrupt);
         outbound_stream.register_interrupt(&interrupt);
@@ -545,9 +568,12 @@ pub(super) fn attach_surface(
                     break;
                 }
             };
-            if let Err(error) =
-                writer.send_attach_frame_backpressured(surface_id, &frame, shape, &outbound_stream)
-            {
+            // Each frame's encode is a 100 ms hang scope; the wait for it
+            // and the hand-off that waits for room are not.
+            let item = hangs.item(WatchKind::AttachOut);
+            let encoded = writer.encode_attach_frame(surface_id, &frame, shape);
+            drop(item);
+            if let Err(error) = writer.send_encoded_backpressured(encoded, &outbound_stream) {
                 handle_attach_send_error(&attach.lifecycle, &error);
                 break;
             }

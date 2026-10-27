@@ -1,6 +1,8 @@
 #if DEBUG || CMUX_PGO_PROFILE
 import CmuxNextCompat
 public import CmuxNextWakeups
+import class CmuxSafeConcurrency.OnceContinuation
+import func CmuxSafeConcurrency.withOnceContinuation
 public import Foundation
 import os
 #if CMUX_PGO_PROFILE
@@ -172,9 +174,11 @@ public final class ProfileFlush: Sendable {
     }
 
     private func written(_ profile: Profile) async throws(Failure) -> Written {
-        try await withCheckedContinuation { (reply: CheckedContinuation<Result<Written, Failure>, Never>) in
-            post(profile) { reply.resume(returning: $0) }
-        }.get()
+        // A reply dropped without an answer is a write shutdown dropped.
+        try await withOnceContinuation(failingWith: { _ in Failure.abandoned(profile) }) {
+            (reply: OnceContinuation<Written, Failure>) in
+            post(profile) { reply.resume(with: $0) }
+        }
     }
 
     private func post(_ profile: Profile, _ done: @escaping @Sendable (Result<Written, Failure>) -> Void) {

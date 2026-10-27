@@ -50,13 +50,13 @@ enum GhosttyActionDispatcher {
             NSWorkspace.shared.openInBackground(URL(fileURLWithPath: text))
             return true
         case .host(let hostAction):
-            if let view = bridge?.view {
-                return view.handleHostAction(hostAction)
+            if let target = bridge?.target {
+                return target.handleHostAction(hostAction)
             }
             return runtime?.appActionHandler?(hostAction) ?? false
         default:
-            guard let view = bridge?.view else { return false }
-            return view.applyAction(action)
+            guard let target = bridge?.target else { return false }
+            return target.applyAction(action)
         }
     }
 

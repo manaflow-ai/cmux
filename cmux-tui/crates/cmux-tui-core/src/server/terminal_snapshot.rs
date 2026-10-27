@@ -58,8 +58,9 @@
 use crate::panic_free::JsonFields;
 use crate::panic_free::RecoverPoison;
 use cmux_threads::checked::sync as waits;
+use cmux_threads::sync::Mutex;
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::time::Instant;
 
 use base64::Engine as _;

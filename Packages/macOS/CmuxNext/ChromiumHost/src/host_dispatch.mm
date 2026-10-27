@@ -175,6 +175,8 @@ void HostContext::Resume() {
     waiting_.pop_front();
     Handle(message);
   }
+  // Held since the start: with no page shown now, the host may nap.
+  UpdatePageActivity();
 }
 
 void HostContext::Handle(control::Message& message) {
@@ -444,7 +446,22 @@ bool HostContext::KeepPageVisibility(const control::Message& message) {
   if (!peek.ok() || !peek.AtEnd()) return true;
   if (!page_visibility_.count(client) && page_visibility_.size() >= kMaxPageVisibilities) return false;
   page_visibility_[client] = visibility;
+  page_windows_.Post(mirrors_.WindowOf(client), client, visibility);
+  UpdatePageActivity();
   return true;
+}
+
+void HostContext::FollowPageWindows(int32_t client, int64_t window_before, int64_t event_window) {
+  if (page_windows_.empty()) return;
+  if (const int64_t window = mirrors_.WindowOf(client); window != 0) page_windows_.Placed(client, window);
+  for (const int64_t window : {window_before, event_window}) {
+    if (window != 0 && !mirrors_.HasTabs(window)) page_windows_.WindowGone(window);
+  }
+  UpdatePageActivity();
+}
+
+void HostContext::UpdatePageActivity() {
+  if (page_activity_) page_activity_->SetShownPages(page_windows_.shown());
 }
 
 bool HostContext::PlaceFrame(const Header& frame) {
@@ -673,7 +690,9 @@ void HostContext::ForwardEvent(int kind, int browser_id, int request, int64_t a,
       devtools_ids_.erase(minted);
     }
   }
+  const int64_t window_before = mirrors_.WindowOf(client);
   Refresh(mirror_event);
+  FollowPageWindows(client, window_before, kind == CMUX_SHIM_TAB_EVENT ? a : 0);
   TlvWriter event;
   EncodeEvent(event, kind, client, out_request, a, b, s1, s2);
   Post(MessageOf(kOpEvent, false, 0, event.Take()));
@@ -713,6 +732,9 @@ void HostContext::Forget(int32_t client_id, int chromium_id) {
   chromium_of_.erase(client_id);
   geometry_awaiting_.erase(client_id);
   page_visibility_.erase(client_id);
+  // Its window's value stays with the tabs that remain (FollowPageWindows).
+  page_windows_.BrowserClosed(client_id);
+  UpdatePageActivity();
   client_of_.erase(chromium_id);
   text_input_.Forget(chromium_id);  // the fork ends the watch with the page
   wheel_acks_.Forget(chromium_id);
