@@ -1,5 +1,6 @@
 public import AppKit
 import CmuxNextCompat
+public import CmuxNextPages
 public import CmuxNextSettings
 public import CmuxNextWakeups
 public import Foundation
@@ -34,6 +35,8 @@ public final class AgentPaneModel {
     @ObservationIgnored public var onFramePacing: (([Double]) -> [String: Any])?
     /// Applies the page's adaptive rendering decision.
     @ObservationIgnored public var onRenderRate: ((Bool) -> Void)?
+    /// Receives each key-to-paint histogram the page's probe posts (``AgentPaneView/keyToPaintReport``).
+    @ObservationIgnored public var onKeyToPaint: ((AgentPaneKeyToPaint) -> Void)?
     /// The new tab page this pane shows until it has a session (cleared then), nil for a plain chat.
     public private(set) var newTab: AgentPaneNewTab? { didSet { if (oldValue == nil) != (newTab == nil) { onNewTabChange?() } } }
     @ObservationIgnored var onNewTabChange: (() -> Void)? // it became or left a New Tab page (the view's bar on top)
@@ -104,6 +107,8 @@ public final class AgentPaneModel {
     /// The agent chat open that made this pane (its `create.tab` stages, ``ChatOpenStages``); nil for a pane made
     /// with no open (a restored one, the prewarmed New Tab page). Its page is made with it.
     @ObservationIgnored public var chatOpen: ChatOpenStages?
+    /// Who asks for its page (``PageOpenOrigin/launchRestore``: the launch restored the tab, p08-startup-041).
+    @ObservationIgnored public var pageOrigin: PageOpenOrigin = .user
     /// The last quit's state of this chat while the launch still reads it (``AgentPaneRelaunchWake/hand(_:to:)``):
     /// the page's first `ready` awaits it into ``pendingWake``.
     @ObservationIgnored public var wakeSource: (@MainActor () async -> AgentPaneWakeState?)?
@@ -272,7 +277,7 @@ public final class AgentPaneModel {
     public func respond(to request: AgentPaneRequest) async -> [String: Any] {
         switch request {
         // Boot traffic, and a request the host refused (it changed nothing), leave it untouched.
-        case .ready, .reconnect, .uiPointerReport, .framePacing, .renderRate, .checkpointAvailability, .painted, .newTabInputReady, .newTabContext, .newTabWarm, .unsupported,
+        case .ready, .reconnect, .uiPointerReport, .framePacing, .renderRate, .keyToPaint, .checkpointAvailability, .painted, .newTabInputReady, .newTabContext, .newTabWarm, .unsupported,
              .transportOpen, .transportSend, .transportClose, .transportGesture, .transportGestureRelease, .chatsPage, .quickFloatingState, .quickContext,
              .tabRowTools, .projectIcon, .environment(.list): break
         case .reply(let reply) where reply.isPassive: break
@@ -296,6 +301,9 @@ public final class AgentPaneModel {
             return AgentPaneReply.success(onFramePacing?(intervals) ?? [:])
         case .renderRate(let full):
             onRenderRate?(full)
+            return AgentPaneReply.success()
+        case .keyToPaint(let report):
+            onKeyToPaint?(report)
             return AgentPaneReply.success()
         case .painted(let fromKeptTail):
             AgentPaneLaunchTimings.shared.mark(newTab != nil ? "agent_pane.newtab_painted" : "agent_pane.painted")
