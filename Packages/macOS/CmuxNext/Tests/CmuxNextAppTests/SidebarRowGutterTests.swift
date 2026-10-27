@@ -76,6 +76,7 @@ import Testing
         for (name, row) in [("unselected", unread), ("selected", selected)] {
             let (leading, trailing, lastMidX) = try Self.insets(row)
             if row === unread { #expect(lastMidX != nil, "the unread row shows its count and status glyph") }
+            if row === selected { #expect(lastMidX == nil, "the selected row shows no mark (no agent at work)") }
             if let lastMidX {
                 let column = SidebarStyle.trailingColumnCenterX(rowWidth: row.bounds.width)
                 #expect(abs(lastMidX - column) < 0.5, "\(name): the last mark centers at \(lastMidX), the trailing column at \(column)")
