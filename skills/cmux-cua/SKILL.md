@@ -179,13 +179,14 @@ Perceive, act in logical groups, then verify:
    screenshot. Ground on both. Prefer element addressing.
 2. Act by element: `click` with `element_token` (or `element_index` + pid +
    window_id) is the robust path. Pixel addressing (`x`,`y`) is the fallback.
-3. For a stable, already-snapshotted control set, call `perform_actions` once
-   with the ordered `click` / `type_text` / `press_key` / other input steps.
-   This reuses the existing element-token cache and visible cursor inside the
-   persistent proxy instead of paying one model/MCP round trip and AX scan per
-   click. Do not put navigation, modal-opening, or layout-changing actions
-   before later control references in the same group; re-snapshot immediately
-   after any action that can invalidate those controls.
+3. Each model turn costs seconds; a tool call in a script costs milliseconds.
+   In code mode, put the steps that need no new look in one `cmux_exec`
+   script: `launch_app`, then `get_window_state` on the window it returned;
+   later, every `click` / `type_text` / `press_key` of a stable,
+   already-snapshotted control set, then one `get_window_state` to verify.
+   Do not put navigation, modal-opening, or layout-changing actions before
+   later control references in the same script; re-snapshot after any action
+   that can invalidate those controls. This helper has no `perform_actions`.
 4. Verify the completed group by re-snapshotting and reading the element
    `value` / screenshot — do not assume actions landed (clicks are never
    helper-verified). Operate on-screen controls with visible pointer clicks by
@@ -195,9 +196,9 @@ Perceive, act in logical groups, then verify:
    visibility.
 
 Notes:
-- In the native profile, use `list_apps` / `launch_app` / `list_windows` to
-  find targets;
-  `get_window_state` needs a `window_id` from `list_windows`.
+- In the native profile, `launch_app` returns the pid and its windows; use
+  that `window_id` for `get_window_state`. Call `list_windows` only when it
+  returned no window or several.
 - Catalyst apps (e.g. Calculator) can expose an empty AX tree briefly after
   launch and return spurious AX error codes (-25204) even when the action
   landed — re-snapshot and check the result rather than trusting the code.
@@ -212,8 +213,10 @@ The agent's pointer shows as the cmux logo gradient (`#12c7f5 → #2d8cff →
 #6c5cff`) with a `cmux` label, so it is visually distinct from the user's
 cursor. It is configured by env the attachment sets
 (`CMUX_CUA_CURSOR_GRADIENT` / `_BLOOM` / `_LABEL`) and is auto-active while
-the helper daemon is driving. It remains visible across normal reasoning gaps
-and is removed when the driving session ends or the proxy control connection
+the helper daemon is driving. The app starts the helper with a fixed short
+glide (`--glide-ms 150`) and click dwell (`--dwell-ms 30`), so a move takes
+about 0.2 s however far it goes (`ComputerUseHelperDaemon.arguments`). It
+remains visible across normal reasoning gaps and is removed when the driving session ends or the proxy control connection
 closes. Each later action reasserts the cursor directly above the driven
 target. If no cursor appears during an action, confirm the session's MCP config
 uses the helper socket with `CMUX_CUA_MCP_FORCE_PROXY=1`; never call
