@@ -21,6 +21,8 @@ use crate::observability::{ClientConnectionSnapshot, ConnectionState};
 use crate::provider::{LinkGroup, LinkRequest, ProviderError, lane_bindings};
 use crate::session::{ReceivedFrame, ReliableSession, SessionError, SessionLimits};
 
+#[cfg(test)]
+mod heartbeat_tests;
 mod keepalive;
 use keepalive::SilenceKeepalive;
 
@@ -73,8 +75,11 @@ impl Default for ReconnectPolicy {
             maximum_delay: Duration::from_secs(5),
             attempt_timeout: Duration::from_secs(15),
             full_jitter: true,
-            heartbeat_interval: Some(Duration::from_secs(5)),
-            heartbeat_timeout: Duration::from_secs(15),
+            // An idle connection is probed once per 15 s of silence (the
+            // DaemonConnection heartbeat's visible interval, p14-energy.md C);
+            // a dead carrier is found within 25 s of its last frame.
+            heartbeat_interval: Some(Duration::from_secs(15)),
+            heartbeat_timeout: Duration::from_secs(10),
             maximum_attempts: None,
             // Long-lived interactive links, including direct SSH sessions,
             // must keep retrying until their owner closes them. Callers that
@@ -260,6 +265,7 @@ impl ClientConnection {
             physical_link_count: lane_bindings.len(),
             lane_bindings,
             transport,
+            heartbeat_probes: 0,
         };
         let (close_state, _) = watch::channel(CloseState::Pending);
         let connection = Arc::new(Self {
@@ -930,8 +936,8 @@ async fn run_heartbeat(weak: Weak<ClientConnection>, interval: Duration, timeout
     loop {
         tokio::select! {
             biased;
-            // wakeup-allow: deadline the silence deadline: `interval` after the last inbound frame
-            // or probe; any inbound frame moves it, so a busy connection is never probed
+            // wakeup-allow: periodic RemoteClientConnection.heartbeat only after `interval` (15 s)
+            // with no inbound frame; any inbound frame moves it, so a busy connection is never probed
             _ = tokio::time::sleep_until(keepalive.due_at()) => {}
             _ = close_state.changed() => return,
         }
@@ -983,7 +989,13 @@ async fn probe_heartbeat(
         _ = close_state.changed() => return ControlFlow::Break(()),
     };
     match send_result {
-        Ok(Ok(_)) => {}
+        Ok(Ok(_)) => {
+            connection
+                .diagnostics
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .heartbeat_probes += 1;
+        }
         Ok(Err(_)) => return ControlFlow::Continue(()),
         Err(_) => {
             let _ = connection.recover(generation).await;

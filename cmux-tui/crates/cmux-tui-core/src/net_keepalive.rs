@@ -24,7 +24,8 @@ pub const WEBSOCKET_PING_INTERVAL: Duration = Duration::from_secs(25);
 
 /// Inbound silence after which a listener closes the connection: three ping
 /// intervals, so two Pings go unanswered first. Longer than the CMXR client
-/// heartbeat timeout (15 s), so a client always notices a lost link first.
+/// heartbeat (15 s of silence, then a 10 s timeout), so a client always notices
+/// a lost link first.
 pub const WEBSOCKET_DEAD_PEER_TIMEOUT: Duration = Duration::from_secs(75);
 
 /// Idle time before the kernel sends the first TCP keepalive probe on an

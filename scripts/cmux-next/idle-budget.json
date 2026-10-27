@@ -142,7 +142,9 @@
     {"owner": "ErrorJournalService.harvest", "period_s": 300, "why": "harvests crash and error reports written by other processes; task 064 moves it to NSBackgroundActivityScheduler"},
     {"owner": "GitHubFeedSource.refresh", "period_s": 120, "why": "GitHub has no push for the feed; task 066 stops it while no feed surface shows"},
     {"owner": "DeviceHubSocket.ping", "period_s": 30, "why": "PROTOCOL.md keepalive of the device hub; task 066 sends it only after silence"},
-    {"owner": "ControlEventBus.heartbeat", "period_s": 15, "why": "events.stream include_heartbeats keepalive, only while a client asked for it and stays connected"}
+    {"owner": "ControlEventBus.heartbeat", "period_s": 15, "why": "events.stream include_heartbeats keepalive, only while a client asked for it and stays connected"},
+    {"owner": "RemoteClientConnection.heartbeat", "period_s": 15, "why": "cmux-remote ClientConnection liveness probe after 15 s with no inbound frame (connection/keepalive.rs, as Chromium's spdy_session.cc MaybeSendPrefacePing); a busy connection is never probed, an idle one finds a dead carrier within 25 s; only while a remote connection is open"},
+    {"owner": "RelayRegistration.renew", "period_s": 15, "why": "a daemon registered on a cmux relay renews its slot lease with a Ping at half the lease (cmux-relay grants 30 s); only a daemon Ping renews it (cmux-relay touch_control); only while the daemon serves through a relay"}
   ],
   "assertions_allowed_when": ["sessions.keepAwake", "phone.keepAwake"]
 }

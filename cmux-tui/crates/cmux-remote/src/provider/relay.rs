@@ -1271,6 +1271,13 @@ async fn run_registration_loop(
     }
 }
 
+/// Only a daemon Ping renews the registration lease (cmux-relay
+/// `touch_control`), so the daemon renews at half the lease the relay granted:
+/// half a lease of margin for the Ping to arrive.
+fn registration_renewal_period(lease_seconds: u32) -> Duration {
+    Duration::from_millis(u64::from(lease_seconds.max(1)) * 500)
+}
+
 async fn run_registration_once(
     daemon: Arc<RemoteDaemon>,
     config: &RelayDaemonConfig,
@@ -1291,14 +1298,12 @@ async fn run_registration_once(
             authentication.await?
         }
     };
-    // Only a daemon Ping renews the registration lease (cmux-relay
-    // `touch_control`); no other traffic can stand in for it.
-    let renew_every = Duration::from_secs(u64::from(lease_seconds).max(3) / 3);
+    let renew_every = registration_renewal_period(lease_seconds);
     if let Some(sender) = first_ready.take() {
         let _ = sender.send(Ok(()));
     }
-    // wakeup-allow: deadline the registration lease's renewal, a third of the lease the relay
-    // granted, re-armed after each Ping; the relay drops the slot without it
+    // wakeup-allow: periodic RelayRegistration.renew one Ping per half lease (15 s at cmux-relay's
+    // 30 s default), re-armed after each Ping; the relay drops the slot without it
     let renewal = tokio::time::sleep_until(Instant::now() + renew_every);
     tokio::pin!(renewal);
     let mut nonce = 0_u64;
@@ -1759,6 +1764,9 @@ fn random_capability() -> Result<String, ProviderError> {
 }
 
 #[cfg(test)]
+mod registration_tests;
+
+#[cfg(test)]
 mod tests {
     use std::collections::BTreeMap;
     use std::sync::Mutex as StdMutex;
@@ -1776,7 +1784,9 @@ mod tests {
 
     use super::*;
 
-    async fn receive_test_control(socket: &mut WebSocketStream<TcpStream>) -> RelayControl {
+    pub(super) async fn receive_test_control(
+        socket: &mut WebSocketStream<TcpStream>,
+    ) -> RelayControl {
         let message = socket.next().await.unwrap().unwrap();
         let Message::Text(text) = message else {
             panic!("expected relay control text, got {message:?}");
@@ -1784,12 +1794,17 @@ mod tests {
         serde_json::from_str(&text).unwrap()
     }
 
-    async fn send_test_control(socket: &mut WebSocketStream<TcpStream>, control: &RelayControl) {
+    pub(super) async fn send_test_control(
+        socket: &mut WebSocketStream<TcpStream>,
+        control: &RelayControl,
+    ) {
         socket.send(Message::Text(serde_json::to_string(control).unwrap().into())).await.unwrap();
     }
 
     #[allow(clippy::result_large_err)] // Required by tungstenite's handshake callback signature.
-    async fn accept_with_authorization(stream: TcpStream) -> (WebSocketStream<TcpStream>, String) {
+    pub(super) async fn accept_with_authorization(
+        stream: TcpStream,
+    ) -> (WebSocketStream<TcpStream>, String) {
         let authorization = Arc::new(StdMutex::new(None));
         let observed = authorization.clone();
         let socket = accept_hdr_async(stream, move |request: &Request, response| {

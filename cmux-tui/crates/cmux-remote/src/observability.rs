@@ -50,6 +50,10 @@ pub struct ClientConnectionSnapshot {
     pub lane_bindings: Vec<Vec<Lane>>,
     pub physical_link_count: usize,
     pub transport: TransportSnapshot,
+    /// Liveness probes (HEARTBEAT_REQUEST frames) sent on this connection.
+    /// Each follows a full heartbeat interval with no inbound frame.
+    #[serde(default)]
+    pub heartbeat_probes: u64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
