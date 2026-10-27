@@ -19,6 +19,7 @@ use super::{HolderSink, HolderTerminal};
 
 mod trace;
 use crate::panic_free::RecoverPoison;
+use crate::supervised::{self, Fatal, ShutdownBehavior};
 pub(crate) use trace::HolderTrace;
 
 /// The current link and the CLOSEs waiting for one. Held only for a
@@ -512,15 +513,19 @@ impl HolderService {
                     return;
                 }
                 // The holder died: start a new one and hand it every master.
-                let _ =
-                    std::thread::Builder::new().name("holder-restart".into()).spawn(move || {
+                let _ = supervised::spawn(
+                    "holder-restart",
+                    Fatal,
+                    ShutdownBehavior::Continue,
+                    move || {
                         if let Err(error) = service.link() {
                             // No holder streams their output any more: their
                             // terminals end as lost (the shells may still run).
                             eprintln!("cmux-tui: restart the terminal holder: {error}");
                             service.lose_all();
                         }
-                    });
+                    },
+                );
             }),
             SPAWN_TIMEOUT,
             HOLDER_FRAME_WATCH,
@@ -617,7 +622,7 @@ impl HolderService {
                 });
             }
         }
-        let _ = std::thread::Builder::new().name("holder-reaper".into()).spawn(move || {
+        let _ = supervised::spawn("holder-reaper", Fatal, ShutdownBehavior::Continue, move || {
             let _ = child.wait();
         });
         Ok(())
@@ -661,7 +666,7 @@ pub(crate) fn prepare_in_background() {
     if !super::enabled() {
         return;
     }
-    let _ = std::thread::Builder::new().name("cmux-holder-exe".into()).spawn(|| {
+    let _ = supervised::spawn("cmux-holder-exe", Fatal, ShutdownBehavior::Continue, || {
         let _ = standalone_holder();
     });
 }

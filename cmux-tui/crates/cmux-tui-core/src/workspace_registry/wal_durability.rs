@@ -45,6 +45,7 @@ use std::time::Duration;
 use rusqlite::Connection;
 
 use crate::panic_free::RecoverPoison;
+use crate::supervised::{self, Fatal, ShutdownBehavior};
 
 /// WAL size past which the syncer checkpoints (SQLite's own default is
 /// 1000 pages of 4 KiB).
@@ -160,10 +161,15 @@ impl WalDurability {
             Ok(())
         }));
         let thread_shared = shared.clone();
-        let spawned =
-            cmux_threads::spawn("sqlite-wal-sync", cmux_threads::ThreadQos::Utility, move || {
+        let spawned = supervised::spawn_at(
+            "sqlite-wal-sync",
+            cmux_threads::ThreadQos::Utility,
+            Fatal,
+            ShutdownBehavior::Continue,
+            move || {
                 run(&thread_shared);
-            });
+            },
+        );
         if let Err(error) = spawned {
             // Without the thread, commits stay crash safe (WAL+NORMAL) but
             // are flushed only at close; say so once.

@@ -5,13 +5,13 @@
 //! waker and the PTY readiness wait.
 
 use crate::panic_free::RecoverPoison;
+use crate::supervised::{self, Fatal, ShutdownBehavior};
 use std::collections::HashMap;
 use std::io::Read;
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::mpsc::{channel as mpsc_channel, sync_channel};
 use std::sync::{Arc, Condvar, Mutex};
-use std::thread;
 
 use cmux_kitty_media::KittyMediaRewriter;
 use cmux_pty::MasterPty;
@@ -209,7 +209,7 @@ pub(crate) fn start_host_runtime(
         let _ = reader_host.parser_commands.send(ParserCommand::Drain);
     })?;
     let child_host = shared.clone();
-    thread::Builder::new().name("terminal-host-child".into()).spawn(move || {
+    supervised::spawn("terminal-host-child", Fatal, ShutdownBehavior::Continue, move || {
         let observed_without_reaping = child.wait_exit_observed();
         if observed_without_reaping {
             child_host.mark_child_waitable();

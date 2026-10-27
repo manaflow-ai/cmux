@@ -45,6 +45,8 @@ use super::*;
 #[cfg(any(unix, windows))]
 use crate::state::kept_tab_store::KeptTab;
 #[cfg(any(unix, windows))]
+use crate::supervised::{self, Fatal, ShutdownBehavior};
+#[cfg(any(unix, windows))]
 use crate::terminal_host_protocol::TerminalExit;
 #[cfg(any(unix, windows))]
 use crate::terminal_loss_log::Prefilled;
@@ -253,7 +255,7 @@ impl Mux {
             return;
         };
         let name = format!("terminal-respawn-{terminal_id}");
-        let spawned = std::thread::Builder::new().name(name).spawn(move || {
+        let spawned = supervised::spawn(name, Fatal, ShutdownBehavior::Continue, move || {
             let delay = plan.delay.max(mux.terminal_respawns.delay.unwrap_or_default());
             if mux.wait_respawn_backoff(delay) {
                 mux.run_terminal_respawn(plan);

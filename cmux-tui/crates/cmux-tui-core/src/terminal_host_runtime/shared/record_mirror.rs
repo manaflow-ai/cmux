@@ -25,6 +25,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Condvar, Mutex, OnceLock};
 
 use crate::panic_free::RecoverPoison;
+use crate::supervised::{self, Fatal, ShutdownBehavior};
 
 use super::super::TerminalHostRecord;
 use super::records::write_record_deferring_dir_sync;
@@ -38,8 +39,12 @@ struct Mirror {
 fn mirror() -> &'static Mirror {
     static MIRROR: OnceLock<Mirror> = OnceLock::new();
     MIRROR.get_or_init(|| {
-        let spawned =
-            std::thread::Builder::new().name("terminal-host-record-mirror".into()).spawn(run);
+        let spawned = supervised::spawn(
+            "terminal-host-record-mirror",
+            Fatal,
+            ShutdownBehavior::Continue,
+            run,
+        );
         if let Err(error) = spawned {
             eprintln!("cmux-tui: host record mirror writer did not start: {error}");
         }

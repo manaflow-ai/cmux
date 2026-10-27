@@ -41,6 +41,7 @@ use serde_json::{Value, json};
 
 use super::routes::{Route, RouteLine, RouteName};
 use super::{FrameStage, MessageWriter, OutboundStream, Response, send_response};
+use crate::supervised::{self, Fatal, ShutdownBehavior};
 use crate::{mux::Mux, panic_free::RecoverPoison};
 
 pub const LOOPBACK_FORWARD_CAPABILITY: &str = "loopback-forward-v1";
@@ -58,7 +59,6 @@ pub(crate) const MAX_STREAMS_TOTAL: usize = 512;
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(3);
 const AUDIT_CAPACITY: usize = 256;
 const MAX_HOST_BYTES: usize = 253;
-const THREAD_STACK_BYTES: usize = 256 * 1024;
 
 // MARK: Policy
 
@@ -895,10 +895,8 @@ fn open(
     let worker_mux = mux.clone();
     let worker_writer = writer.clone();
     let worker_id = id.clone();
-    let spawned = std::thread::Builder::new()
-        .name("mux-loopback-open".into())
-        .stack_size(THREAD_STACK_BYTES)
-        .spawn(move || {
+    let spawned =
+        supervised::spawn("mux-loopback-open", Fatal, ShutdownBehavior::Continue, move || {
             connect_and_start(
                 worker_mux,
                 client,
@@ -1018,10 +1016,9 @@ fn connect_and_start(
     ] {
         let worker = stream.clone();
         let worker_mux = mux.clone();
-        let spawned = std::thread::Builder::new()
-            .name(name.into())
-            .stack_size(THREAD_STACK_BYTES)
-            .spawn(move || run(worker, worker_mux));
+        let spawned = supervised::spawn(name, Fatal, ShutdownBehavior::Continue, move || {
+            run(worker, worker_mux);
+        });
         if spawned.is_err() {
             stream.fail(forwarder, "internal", true);
             return;

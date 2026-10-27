@@ -9,7 +9,7 @@
 
 use super::MessageWriter;
 use crate::panic_free::RecoverPoison;
-use cmux_threads::checked::sync as waits;
+use crate::supervised::{self, Fatal, ShutdownBehavior, SupervisedThread};
 
 use super::CONNECTION_SURFACE_QUEUE_BYTE_CAPACITY;
 use super::CONNECTION_SURFACE_QUEUE_CAPACITY;
@@ -42,7 +42,6 @@ use std::collections::VecDeque;
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering;
-use std::thread::JoinHandle;
 use std::time::Duration;
 use std::time::Instant;
 
@@ -59,12 +58,12 @@ pub(super) const REQUEST_THREAD_QOS: ThreadQos = ThreadType::Interactive.qos();
 /// under it is a `server.blocking` site (recorded by default; panics under
 /// `CMUX_DAEMON_BLOCKING=panic` in Debug), and its work moves to
 /// `cmux_threads::work`.
-pub(super) fn spawn_request_thread<F, T>(name: &str, f: F) -> std::io::Result<JoinHandle<T>>
+pub(super) fn spawn_request_thread<F, T>(name: &str, f: F) -> std::io::Result<SupervisedThread<T>>
 where
     F: FnOnce() -> T + Send + 'static,
     T: Send + 'static,
 {
-    cmux_threads::spawn(name, REQUEST_THREAD_QOS, move || {
+    supervised::spawn_at(name, REQUEST_THREAD_QOS, Fatal, ShutdownBehavior::Continue, move || {
         cmux_threads::disallow_blocking();
         f()
     })
@@ -153,7 +152,7 @@ pub(super) struct ConnectionSurfaceScheduler {
     pub(super) changed: Condvar,
     pub(super) admission: Arc<ServerSurfaceOperationAdmission>,
     pub(super) cancelled: ConnectionCancellation,
-    pub(super) dispatcher: Mutex<Option<JoinHandle<()>>>,
+    pub(super) dispatcher: Mutex<Option<SupervisedThread<()>>>,
     pub(super) connection_permit: Mutex<Option<ConnectionPermit>>,
     pub(super) creations: terminal_create::ConnectionCreations,
     /// The connection's client class, set by its registry record; the
@@ -446,7 +445,7 @@ impl ConnectionSurfaceScheduler {
             && state.active_creations == 0;
         drop(state);
         if drained && let Some(dispatcher) = self.dispatcher.lock().recover_poison().take() {
-            let _ = waits::join(dispatcher);
+            let _ = dispatcher.join();
         }
         drained
     }

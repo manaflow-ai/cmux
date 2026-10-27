@@ -40,6 +40,7 @@
 //! `agent_session.acpmux_unavailable`.
 
 use crate::panic_free::JsonFields;
+use crate::supervised::{self, Fatal, ShutdownBehavior};
 use cmux_threads::sync::Mutex;
 use std::collections::HashSet;
 use std::path::PathBuf;
@@ -83,7 +84,6 @@ const MAX_CWD_BYTES: usize = 4096;
 /// A harness spawns and answers `session/new` (a cold agent can take long).
 const NEW_TIMEOUT: Duration = Duration::from_secs(60);
 const CALL_TIMEOUT: Duration = Duration::from_secs(5);
-const THREAD_STACK_BYTES: usize = 256 * 1024;
 
 /// Reads this machine's [`AgentStartHost`] (a few file checks), at each start.
 pub type AgentStartHostSource = Arc<dyn Fn() -> AgentStartHost + Send + Sync>;
@@ -218,10 +218,8 @@ pub(super) fn start(
     // The start keeps the cause of the frame that asked for it.
     let cause = crate::event_cause::EventCause::current();
     let request_qos = mux.request_qos();
-    let spawned = std::thread::Builder::new()
-        .name("mux-agent-start".into())
-        .stack_size(THREAD_STACK_BYTES)
-        .spawn(move || {
+    let spawned =
+        supervised::spawn("mux-agent-start", Fatal, ShutdownBehavior::Continue, move || {
             let _cause = request_qos.enter(cause);
             // A chat never starts in `/`, above the home folder, or in the
             // home folder unless the person chose it (cx-1bhjj), as on the

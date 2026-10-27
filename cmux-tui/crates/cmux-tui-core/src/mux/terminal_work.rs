@@ -20,6 +20,7 @@
 //! The reaper uses the same pool to end several due terminals at once.
 
 use super::*;
+use crate::supervised::{self, Fatal, ShutdownBehavior};
 
 #[cfg(any(unix, windows))]
 mod standby_host;
@@ -93,9 +94,15 @@ impl TerminalWorkPool {
             return Ok(());
         }
         let state = self.state.clone();
-        let started = cmux_threads::spawn("mux-terminal-work", TERMINAL_WORK_QOS, move || {
-            Self::work(&state);
-        });
+        let started = supervised::spawn_at(
+            "mux-terminal-work",
+            TERMINAL_WORK_QOS,
+            Fatal,
+            ShutdownBehavior::Continue,
+            move || {
+                Self::work(&state);
+            },
+        );
         if started.is_ok() {
             return Ok(());
         }

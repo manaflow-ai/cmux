@@ -19,6 +19,7 @@ use crate::event_bus::MuxEventKind;
 use crate::event_bus::MuxEventKinds;
 use crate::panic_free::JsonFields;
 use crate::stream_interrupt::StreamInterrupt;
+use crate::supervised::{self, Fatal, ShutdownBehavior};
 use serde_json::Value;
 use serde_json::json;
 use std::sync::Arc;
@@ -80,244 +81,253 @@ pub(super) fn subscribe_command(
     let writer = writer.clone();
     // Its events share the reply FIFO (spec/transports.md "Reply and event order").
     let outbound_stream = writer.start_control_stream(&subscription_overflow_json())?;
-    cmux_threads::spawn("mux-events-out", REQUEST_THREAD_QOS, move || {
-        let mut transport_overflow = false;
-        for challenge in pending_pairings {
-            let value = json!({
-                "event": "pairing-requested",
-                "request": challenge.id,
-                "code": challenge.code,
-                "peer": challenge.peer,
-                "expires_in": challenge.expires_in,
-            });
-            if let Err(error) = writer.send_stream_backpressured(&value, &outbound_stream) {
-                transport_overflow = error.kind() == std::io::ErrorKind::WouldBlock;
-                break;
-            }
-        }
-        let interrupt = StreamInterrupt::new();
-        writer.register_interrupt(&interrupt);
-        outbound_stream.register_interrupt(&interrupt);
-        events.wake_on(&interrupt);
-        while writer.is_open() && outbound_stream.is_open() {
-            let (event, cause) = match events.recv_caused_until_interrupted(&interrupt) {
-                Ok(caused) => caused,
-                Err(std::sync::mpsc::RecvTimeoutError::Timeout) => continue,
-                Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
-            };
-            #[cfg(test)]
-            probe.received.note(&event);
-            // A surface stream is not filtered on the bus: drop an unwanted
-            // kind before any JSON is built.
-            if interest.is_some_and(|kinds| !kinds.accepts(&event)) {
-                continue;
-            }
-            #[cfg(test)]
-            probe.rendered.note(&event);
-            let mut value = match &event {
-                MuxEvent::PairingRequested(_) | MuxEvent::PairingResolved { .. }
-                    if !trusted_pairing_client =>
-                {
-                    continue;
-                }
-                // A draft goes only to a trusted local connection that asked
-                // for drafts in set-client-info (the admission of
-                // `conversation.events`; old clients never see the event).
-                MuxEvent::Conversation(event) if event.is_draft() => {
-                    let wanted = conversation_client
-                        && event_mux.control_clients.supports_capability(
-                            client,
-                            super::conversations::CONVERSATION_DRAFT_EVENTS_CAPABILITY,
-                        );
-                    match event.as_ref() {
-                        crate::conversation_store::ConversationEvent::Draft {
-                            conversation,
-                            participant,
-                            item,
-                        } if wanted => json!({
-                            "event": "conversation-draft",
-                            "conversation": conversation,
-                            "participant": participant,
-                            "item": item,
-                        }),
-                        _ => continue,
-                    }
-                }
-                MuxEvent::Conversation(_) if !conversation_client => {
-                    continue;
-                }
-                // A participant's own list state (a pin, a "marked unread")
-                // goes only to connections that act as that participant.
-                MuxEvent::Conversation(event)
-                    if matches!(
-                        event.as_ref(),
-                        crate::conversation_store::ConversationEvent::Inbox { participant, .. }
-                            if *participant != event_mux.conversation_principal(client)
-                    ) =>
-                {
-                    continue;
-                }
-                // A run's steps go only to a connection that asked for runs in
-                // set-client-info (`conversation-runs-v1`): old clients never
-                // see the event, and its steps can be large.
-                MuxEvent::Conversation(event)
-                    if event.is_run()
-                        && !event_mux.control_clients.supports_capability(
-                            client,
-                            super::conversation_runs::CONVERSATION_RUNS_CAPABILITY,
-                        ) =>
-                {
-                    continue;
-                }
-                // A Chief's live frames only to a connection that asked for
-                // them in set-client-info (`chief-live-v1`).
-                MuxEvent::Conversation(event)
-                    if event.is_live()
-                        && !event_mux.control_clients.supports_capability(
-                            client,
-                            super::conversation_live::CHIEF_LIVE_CAPABILITY,
-                        ) =>
-                {
-                    continue;
-                }
-                // An avatar change only to a connection that asked for it in
-                // set-client-info (`participant-avatars-v1`).
-                MuxEvent::Conversation(event)
-                    if event.is_avatar()
-                        && !event_mux.control_clients.supports_capability(
-                            client,
-                            super::participant_avatars::PARTICIPANT_AVATARS_CAPABILITY,
-                        ) =>
-                {
-                    continue;
-                }
-                // A Chief change only to the person's own connection that
-                // asked for it in set-client-info (`chief-events-v1`): never
-                // to a bound agent, which chief.profile.list may refuse.
-                MuxEvent::Conversation(event)
-                    if event.is_chief()
-                        && (event_mux.conversation_principal(client)
-                            != crate::conversation_store::LOCAL_USER
-                            || !event_mux.control_clients.supports_capability(
-                                client,
-                                super::chief_registry_resource::CHIEF_EVENTS_CAPABILITY,
-                            )) =>
-                {
-                    continue;
-                }
-                // The person's own clients: Unix, or an authenticated page
-                // (`ws-cloud-conversations-v1`); `delivers` narrows it to the lease's.
-                // The host replica's renewal only to the verified app: it holds the install token.
-                MuxEvent::CloudConversation(event)
-                    if host_replica_needed(event)
-                        && !matches!(
-                            super::origin_gate::connection_actor(&event_mux, client),
-                            crate::workspace_registry::Actor::Frontend { .. }
-                        ) =>
-                {
-                    continue;
-                }
-                MuxEvent::CloudConversation(_) if !conversation_client => {
-                    continue;
-                }
-                MuxEvent::CloudConversation(event)
-                    if !host_replica_needed(event)
-                        && !super::cloud_conversations::delivers(&event_mux, client) =>
-                {
-                    continue;
-                }
-                // A Cloud Chief's run change, like a local one, only to a
-                // connection that asked for runs (`conversation-runs-v1`).
-                MuxEvent::CloudConversation(event)
-                    if matches!(
-                        event.as_ref(),
-                        crate::cloud_conversations::CloudEvent::RunChanged { .. }
-                    ) && !event_mux.control_clients.supports_capability(
-                        client,
-                        super::conversation_runs::CONVERSATION_RUNS_CAPABILITY,
-                    ) =>
-                {
-                    continue;
-                }
-                // A Cloud Chief's live frame only to a connection that asked
-                // for live frames (`chief-live-v1`).
-                MuxEvent::CloudConversation(event)
-                    if matches!(
-                        event.as_ref(),
-                        crate::cloud_conversations::CloudEvent::Live { .. }
-                    ) && !event_mux.control_clients.supports_capability(
-                        client,
-                        super::conversation_live::CHIEF_LIVE_CAPABILITY,
-                    ) =>
-                {
-                    continue;
-                }
-                // Typing in a Cloud conversation only to a connection that
-                // asked for it (`cloud-conversation-typing-v1`).
-                MuxEvent::CloudConversation(event)
-                    if matches!(
-                        event.as_ref(),
-                        crate::cloud_conversations::CloudEvent::Typing { .. }
-                    ) && !event_mux.control_clients.supports_capability(
-                        client,
-                        super::cloud_conversations::CLOUD_TYPING_CAPABILITY,
-                    ) =>
-                {
-                    continue;
-                }
-                MuxEvent::PairingRequested(challenge) => json!({
+    supervised::spawn_at(
+        "mux-events-out",
+        REQUEST_THREAD_QOS,
+        Fatal,
+        ShutdownBehavior::Continue,
+        move || {
+            let mut transport_overflow = false;
+            for challenge in pending_pairings {
+                let value = json!({
                     "event": "pairing-requested",
                     "request": challenge.id,
                     "code": challenge.code,
                     "peer": challenge.peer,
                     "expires_in": challenge.expires_in,
-                }),
-                MuxEvent::PairingResolved { request } => json!({
-                    "event": "pairing-resolved",
-                    "request": request,
-                }),
-                MuxEvent::TreeDelta(delta) if tree_deltas => tree_delta_json(delta, &event_mux),
-                MuxEvent::TreeDelta(_) => json!({"event": "tree-changed"}),
-                MuxEvent::TreeSelectionChanged if tree_deltas => {
-                    json!({"event": "tree-changed"})
+                });
+                if let Err(error) = writer.send_stream_backpressured(&value, &outbound_stream) {
+                    transport_overflow = error.kind() == std::io::ErrorKind::WouldBlock;
+                    break;
                 }
-                MuxEvent::TreeSelectionChanged => continue,
-                MuxEvent::SizeStateChanged { surface, runtime, state } => {
-                    if !event_mux
-                        .control_clients
-                        .supports_capability(client, SHARED_SIZING_CAPABILITY)
+            }
+            let interrupt = StreamInterrupt::new();
+            writer.register_interrupt(&interrupt);
+            outbound_stream.register_interrupt(&interrupt);
+            events.wake_on(&interrupt);
+            while writer.is_open() && outbound_stream.is_open() {
+                let (event, cause) = match events.recv_caused_until_interrupted(&interrupt) {
+                    Ok(caused) => caused,
+                    Err(std::sync::mpsc::RecvTimeoutError::Timeout) => continue,
+                    Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
+                };
+                #[cfg(test)]
+                probe.received.note(&event);
+                // A surface stream is not filtered on the bus: drop an unwanted
+                // kind before any JSON is built.
+                if interest.is_some_and(|kinds| !kinds.accepts(&event)) {
+                    continue;
+                }
+                #[cfg(test)]
+                probe.rendered.note(&event);
+                let mut value = match &event {
+                    MuxEvent::PairingRequested(_) | MuxEvent::PairingResolved { .. }
+                        if !trusted_pairing_client =>
                     {
                         continue;
                     }
-                    let open = event_mux
-                        .control_clients
-                        .supports_capability(client, OPEN_DEVICE_KINDS_CAPABILITY);
-                    let reader =
-                        SizeStateReader { client, open, scheme: event_mux.participant_scheme() };
-                    size_state_event_json(*surface, *runtime, state, Some(reader))
+                    // A draft goes only to a trusted local connection that asked
+                    // for drafts in set-client-info (the admission of
+                    // `conversation.events`; old clients never see the event).
+                    MuxEvent::Conversation(event) if event.is_draft() => {
+                        let wanted = conversation_client
+                            && event_mux.control_clients.supports_capability(
+                                client,
+                                super::conversations::CONVERSATION_DRAFT_EVENTS_CAPABILITY,
+                            );
+                        match event.as_ref() {
+                            crate::conversation_store::ConversationEvent::Draft {
+                                conversation,
+                                participant,
+                                item,
+                            } if wanted => json!({
+                                "event": "conversation-draft",
+                                "conversation": conversation,
+                                "participant": participant,
+                                "item": item,
+                            }),
+                            _ => continue,
+                        }
+                    }
+                    MuxEvent::Conversation(_) if !conversation_client => {
+                        continue;
+                    }
+                    // A participant's own list state (a pin, a "marked unread")
+                    // goes only to connections that act as that participant.
+                    MuxEvent::Conversation(event)
+                        if matches!(
+                            event.as_ref(),
+                            crate::conversation_store::ConversationEvent::Inbox { participant, .. }
+                                if *participant != event_mux.conversation_principal(client)
+                        ) =>
+                    {
+                        continue;
+                    }
+                    // A run's steps go only to a connection that asked for runs in
+                    // set-client-info (`conversation-runs-v1`): old clients never
+                    // see the event, and its steps can be large.
+                    MuxEvent::Conversation(event)
+                        if event.is_run()
+                            && !event_mux.control_clients.supports_capability(
+                                client,
+                                super::conversation_runs::CONVERSATION_RUNS_CAPABILITY,
+                            ) =>
+                    {
+                        continue;
+                    }
+                    // A Chief's live frames only to a connection that asked for
+                    // them in set-client-info (`chief-live-v1`).
+                    MuxEvent::Conversation(event)
+                        if event.is_live()
+                            && !event_mux.control_clients.supports_capability(
+                                client,
+                                super::conversation_live::CHIEF_LIVE_CAPABILITY,
+                            ) =>
+                    {
+                        continue;
+                    }
+                    // An avatar change only to a connection that asked for it in
+                    // set-client-info (`participant-avatars-v1`).
+                    MuxEvent::Conversation(event)
+                        if event.is_avatar()
+                            && !event_mux.control_clients.supports_capability(
+                                client,
+                                super::participant_avatars::PARTICIPANT_AVATARS_CAPABILITY,
+                            ) =>
+                    {
+                        continue;
+                    }
+                    // A Chief change only to the person's own connection that
+                    // asked for it in set-client-info (`chief-events-v1`): never
+                    // to a bound agent, which chief.profile.list may refuse.
+                    MuxEvent::Conversation(event)
+                        if event.is_chief()
+                            && (event_mux.conversation_principal(client)
+                                != crate::conversation_store::LOCAL_USER
+                                || !event_mux.control_clients.supports_capability(
+                                    client,
+                                    super::chief_registry_resource::CHIEF_EVENTS_CAPABILITY,
+                                )) =>
+                    {
+                        continue;
+                    }
+                    // The person's own clients: Unix, or an authenticated page
+                    // (`ws-cloud-conversations-v1`); `delivers` narrows it to the lease's.
+                    // The host replica's renewal only to the verified app: it holds the install token.
+                    MuxEvent::CloudConversation(event)
+                        if host_replica_needed(event)
+                            && !matches!(
+                                super::origin_gate::connection_actor(&event_mux, client),
+                                crate::workspace_registry::Actor::Frontend { .. }
+                            ) =>
+                    {
+                        continue;
+                    }
+                    MuxEvent::CloudConversation(_) if !conversation_client => {
+                        continue;
+                    }
+                    MuxEvent::CloudConversation(event)
+                        if !host_replica_needed(event)
+                            && !super::cloud_conversations::delivers(&event_mux, client) =>
+                    {
+                        continue;
+                    }
+                    // A Cloud Chief's run change, like a local one, only to a
+                    // connection that asked for runs (`conversation-runs-v1`).
+                    MuxEvent::CloudConversation(event)
+                        if matches!(
+                            event.as_ref(),
+                            crate::cloud_conversations::CloudEvent::RunChanged { .. }
+                        ) && !event_mux.control_clients.supports_capability(
+                            client,
+                            super::conversation_runs::CONVERSATION_RUNS_CAPABILITY,
+                        ) =>
+                    {
+                        continue;
+                    }
+                    // A Cloud Chief's live frame only to a connection that asked
+                    // for live frames (`chief-live-v1`).
+                    MuxEvent::CloudConversation(event)
+                        if matches!(
+                            event.as_ref(),
+                            crate::cloud_conversations::CloudEvent::Live { .. }
+                        ) && !event_mux.control_clients.supports_capability(
+                            client,
+                            super::conversation_live::CHIEF_LIVE_CAPABILITY,
+                        ) =>
+                    {
+                        continue;
+                    }
+                    // Typing in a Cloud conversation only to a connection that
+                    // asked for it (`cloud-conversation-typing-v1`).
+                    MuxEvent::CloudConversation(event)
+                        if matches!(
+                            event.as_ref(),
+                            crate::cloud_conversations::CloudEvent::Typing { .. }
+                        ) && !event_mux.control_clients.supports_capability(
+                            client,
+                            super::cloud_conversations::CLOUD_TYPING_CAPABILITY,
+                        ) =>
+                    {
+                        continue;
+                    }
+                    MuxEvent::PairingRequested(challenge) => json!({
+                        "event": "pairing-requested",
+                        "request": challenge.id,
+                        "code": challenge.code,
+                        "peer": challenge.peer,
+                        "expires_in": challenge.expires_in,
+                    }),
+                    MuxEvent::PairingResolved { request } => json!({
+                        "event": "pairing-resolved",
+                        "request": request,
+                    }),
+                    MuxEvent::TreeDelta(delta) if tree_deltas => tree_delta_json(delta, &event_mux),
+                    MuxEvent::TreeDelta(_) => json!({"event": "tree-changed"}),
+                    MuxEvent::TreeSelectionChanged if tree_deltas => {
+                        json!({"event": "tree-changed"})
+                    }
+                    MuxEvent::TreeSelectionChanged => continue,
+                    MuxEvent::SizeStateChanged { surface, runtime, state } => {
+                        if !event_mux
+                            .control_clients
+                            .supports_capability(client, SHARED_SIZING_CAPABILITY)
+                        {
+                            continue;
+                        }
+                        let open = event_mux
+                            .control_clients
+                            .supports_capability(client, OPEN_DEVICE_KINDS_CAPABILITY);
+                        let reader = SizeStateReader {
+                            client,
+                            open,
+                            scheme: event_mux.participant_scheme(),
+                        };
+                        size_state_event_json(*surface, *runtime, state, Some(reader))
+                    }
+                    _ => subscribed_event_json(&event),
+                };
+                if let Some(events) = page_events
+                    && !value
+                        .field("event")
+                        .as_str()
+                        .is_some_and(|name| events.iter().any(|e| e == name))
+                {
+                    continue;
                 }
-                _ => subscribed_event_json(&event),
-            };
-            if let Some(events) = page_events
-                && !value
-                    .field("event")
-                    .as_str()
-                    .is_some_and(|name| events.iter().any(|e| e == name))
-            {
-                continue;
+                if caused_events {
+                    stamp_cause(&mut value, cause);
+                }
+                if let Err(error) = writer.send_stream_backpressured(&value, &outbound_stream) {
+                    transport_overflow = error.kind() == std::io::ErrorKind::WouldBlock;
+                    break;
+                }
             }
-            if caused_events {
-                stamp_cause(&mut value, cause);
+            if events.overflowed() || transport_overflow {
+                let _ = writer.send_terminal(&subscription_overflow_json(), &outbound_stream);
             }
-            if let Err(error) = writer.send_stream_backpressured(&value, &outbound_stream) {
-                transport_overflow = error.kind() == std::io::ErrorKind::WouldBlock;
-                break;
-            }
-        }
-        if events.overflowed() || transport_overflow {
-            let _ = writer.send_terminal(&subscription_overflow_json(), &outbound_stream);
-        }
-    })?;
+        },
+    )?;
     Ok(json!({}))
 }
 

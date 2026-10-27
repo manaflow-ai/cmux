@@ -70,6 +70,7 @@
 //! receives and 16 moves remembered (24 h each), 8 calls at once.
 
 use crate::panic_free::JsonFields;
+use crate::supervised::{self, Fatal, ShutdownBehavior};
 use cmux_threads::sync::{Mutex, RwLock};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -125,7 +126,6 @@ const CALL_TIMEOUT: Duration = Duration::from_secs(15);
 const BEGIN_TIMEOUT: Duration = Duration::from_secs(30);
 /// A finish imports the chat (and may replace a moved-away copy).
 const FINISH_TIMEOUT: Duration = Duration::from_secs(60);
-const THREAD_STACK_BYTES: usize = 256 * 1024;
 
 /// Frame params refused on every verb (the guard is the daemon's own).
 const FORBIDDEN_PARAMS: &[&str] =
@@ -602,10 +602,8 @@ fn handle(line: &RouteLine<'_>) -> Option<bool> {
     let worker_mux = mux.clone();
     let worker_writer = writer.clone();
     let worker_id = id.clone();
-    let spawned = std::thread::Builder::new()
-        .name("mux-agent-transfer".into())
-        .stack_size(THREAD_STACK_BYTES)
-        .spawn(move || {
+    let spawned =
+        supervised::spawn("mux-agent-transfer", Fatal, ShutdownBehavior::Continue, move || {
             let result = run(&worker_mux, &socket, prepared);
             worker_mux.agent_transfers.calls.fetch_sub(1, Ordering::AcqRel);
             reply(&worker_writer, worker_id, result);

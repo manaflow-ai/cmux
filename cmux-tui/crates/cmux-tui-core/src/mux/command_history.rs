@@ -30,6 +30,7 @@ use crate::shell_history::{FinishedCommand, MAX_QUEUED_COMMANDS};
 use crate::state::command_history_store::{
     CommandDeletion, CommandExpiry, CommandHistoryPage, CommandHistoryRow,
 };
+use crate::supervised::{self, Fatal, ShutdownBehavior};
 use crate::workspace_registry::unix_epoch_ms;
 
 /// Commands stored in one registry transaction.
@@ -232,10 +233,13 @@ impl Mux {
         let (sender, receiver) =
             std::sync::mpsc::sync_channel::<CommandHistoryMessage>(MAX_QUEUED_COMMANDS);
         let mux = Arc::downgrade(self);
-        std::thread::Builder::new()
-            .name("terminal-command-history".into())
-            .spawn(move || Worker { mux, checkpoint_pending }.run(receiver, deadline))
-            .ok()?;
+        supervised::spawn(
+            "terminal-command-history",
+            Fatal,
+            ShutdownBehavior::Continue,
+            move || Worker { mux, checkpoint_pending }.run(receiver, deadline),
+        )
+        .ok()?;
         *slot = Some(sender.clone());
         Some(sender)
     }

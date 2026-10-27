@@ -9,6 +9,7 @@
 //! host never takes the daemon down. The customization app installs itself
 //! with its required scopes when it first appears (the user wrote it).
 
+use crate::supervised::{self, Fatal, ShutdownBehavior};
 use cmux_threads::checked::fs as files;
 use cmux_threads::checked::sync as waits;
 use std::collections::HashMap;
@@ -44,9 +45,10 @@ impl Supervisor {
             let inner = self.inner.lock().unwrap();
             local_prints(inner.catalog.packages.values())
         };
-        let spawned = std::thread::Builder::new()
-            .name("apps-local-reload".into())
-            .spawn(move || watch(&me, local, customize, prints));
+        let spawned =
+            supervised::spawn("apps-local-reload", Fatal, ShutdownBehavior::Continue, move || {
+                watch(&me, local, customize, prints);
+            });
         if let Err(error) = spawned {
             eprintln!("cmux-tui: apps local reload thread did not start: {error}");
         }

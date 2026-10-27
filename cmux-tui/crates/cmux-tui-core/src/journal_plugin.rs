@@ -5,17 +5,16 @@
 //! module. A plugin communicates through the local resource socket and writes
 //! normal journal events, so every frontend observes the same reducer state.
 
-use cmux_threads::checked::sync as waits;
 #[cfg(windows)]
 use std::mem::size_of;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Condvar, Mutex};
-use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
 use cmux_process::{Child, Command, ExitStatus, Stdio};
 
 use crate::panic_free::RecoverPoison;
+use crate::supervised::{self, Fatal, ShutdownBehavior};
 
 #[cfg(windows)]
 use windows_sys::Win32::Foundation::{CloseHandle, HANDLE, INVALID_HANDLE_VALUE};
@@ -301,7 +300,7 @@ struct SupervisorState {
 /// event schema.
 pub struct JournalPluginRuntime {
     state: Arc<(Mutex<SupervisorState>, Condvar)>,
-    thread: Mutex<Option<JoinHandle<()>>>,
+    thread: Mutex<Option<supervised::SupervisedThread<()>>>,
 }
 
 impl Default for JournalPluginRuntime {
@@ -396,9 +395,12 @@ impl JournalPluginRuntime {
             }
             state.started = true;
             let shared = Arc::clone(&self.state);
-            let handle = thread::Builder::new()
-                .name("cmux-journal-plugin".into())
-                .spawn(move || supervise(shared));
+            let handle = supervised::spawn(
+                "cmux-journal-plugin",
+                Fatal,
+                ShutdownBehavior::Continue,
+                move || supervise(shared),
+            );
             match handle {
                 Ok(handle) => {
                     *self.thread.lock().recover_poison() = Some(handle);
@@ -435,7 +437,7 @@ impl JournalPluginRuntime {
             handler(&plugin_id, generation);
         }
         if let Some(handle) = self.thread.lock().recover_poison().take()
-            && waits::join(handle).is_err()
+            && handle.join().is_err()
         {
             eprintln!("cmux-tui: journal plugin supervisor panicked during shutdown");
         }
@@ -454,28 +456,33 @@ impl Drop for JournalPluginRuntime {
 /// Returns false when the thread could not start.
 #[cfg(unix)]
 fn spawn_exit_waiter(shared: Arc<(Mutex<SupervisorState>, Condvar)>, pid: u32) -> bool {
-    let spawned = thread::Builder::new().name("cmux-journal-plugin-wait".into()).spawn(move || {
-        loop {
-            // SAFETY: `info` is a zeroed siginfo_t that waitid fills in.
-            let mut info: libc::siginfo_t = unsafe { std::mem::zeroed() };
-            let result = unsafe {
-                libc::waitid(
-                    libc::P_PID,
-                    pid as libc::id_t,
-                    &mut info,
-                    libc::WEXITED | libc::WNOWAIT,
-                )
-            };
-            if result == 0
-                || std::io::Error::last_os_error().kind() != std::io::ErrorKind::Interrupted
-            {
-                break;
+    let spawned = supervised::spawn(
+        "cmux-journal-plugin-wait",
+        Fatal,
+        ShutdownBehavior::Continue,
+        move || {
+            loop {
+                // SAFETY: `info` is a zeroed siginfo_t that waitid fills in.
+                let mut info: libc::siginfo_t = unsafe { std::mem::zeroed() };
+                let result = unsafe {
+                    libc::waitid(
+                        libc::P_PID,
+                        pid as libc::id_t,
+                        &mut info,
+                        libc::WEXITED | libc::WNOWAIT,
+                    )
+                };
+                if result == 0
+                    || std::io::Error::last_os_error().kind() != std::io::ErrorKind::Interrupted
+                {
+                    break;
+                }
             }
-        }
-        let (lock, changed) = &*shared;
-        let _state = lock.lock().unwrap_or_else(|error| error.into_inner());
-        changed.notify_all();
-    });
+            let (lock, changed) = &*shared;
+            let _state = lock.lock().unwrap_or_else(|error| error.into_inner());
+            changed.notify_all();
+        },
+    );
     match spawned {
         Ok(_) => true,
         Err(error) => {

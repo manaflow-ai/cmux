@@ -26,9 +26,9 @@
 //! conversation principal is `remote_<install>`, never `user_local`.
 
 use crate::panic_free::JsonFields;
+use crate::supervised::{self, Fatal, ShutdownBehavior};
 use cmux_threads::blocking::{BlockingKind, scoped_blocking_call};
 use cmux_threads::checked::fs as files;
-use cmux_threads::checked::sync as waits;
 use std::fs;
 use std::io::{Read, Write};
 use std::os::unix::fs::MetadataExt;
@@ -72,7 +72,7 @@ pub struct RemoteEntryServer {
     /// that another daemon bound at the same path later.
     identity: (u64, u64),
     shutdown: Arc<AtomicBool>,
-    thread: Option<JoinHandle<()>>,
+    thread: Option<supervised::SupervisedThread<()>>,
     mux: Arc<Mux>,
 }
 
@@ -92,7 +92,7 @@ impl Drop for RemoteEntryServer {
         if let Some(thread) = self.thread.take()
             && woke
         {
-            let _ = waits::join(thread);
+            let _ = thread.join();
         }
         if file_identity(&self.path).is_some_and(|identity| identity == self.identity) {
             let _ = files::remove_file(&self.path);
@@ -155,10 +155,11 @@ pub(super) fn serve_remote_entry_with(
     let shutdown = Arc::new(AtomicBool::new(false));
     let thread_shutdown = shutdown.clone();
     let thread_mux = mux.clone();
-    let thread = std::thread::Builder::new().name("mux-remote-entry".into()).spawn(move || {
-        let config = EntryConfig { entry_fs, record_checks };
-        accept_loop(&thread_mux, &listener, &thread_shutdown, &verifier, &gate, config);
-    })?;
+    let thread =
+        supervised::spawn("mux-remote-entry", Fatal, ShutdownBehavior::Continue, move || {
+            let config = EntryConfig { entry_fs, record_checks };
+            accept_loop(&thread_mux, &listener, &thread_shutdown, &verifier, &gate, config);
+        })?;
     Ok(RemoteEntryServer {
         path: path.to_path_buf(),
         identity,
@@ -317,9 +318,8 @@ impl LineAdmission for RemoteAdmission {
 
 /// The refusal of `line`: its `id` when it has one, and no detail.
 pub(super) fn denied(line: &str) -> Value {
-    let id = crate::line_parses::parse::<Value>(line)
-        .ok()
-        .and_then(|frame| frame.get("id").cloned());
+    let id =
+        crate::line_parses::parse::<Value>(line).ok().and_then(|frame| frame.get("id").cloned());
     let mut response = json!({"ok": false, "error": REMOTE_DENIED, "error_code": REMOTE_DENIED});
     if let Some(id) = id {
         response.insert("id", id);

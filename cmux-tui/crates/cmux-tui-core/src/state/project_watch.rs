@@ -18,6 +18,7 @@ use notify::Watcher as _;
 use crate::mux::Mux;
 use crate::state::project_sources::{self, Layout, SourceScan, WATCHED_NAMES};
 use crate::state::projects::Observation;
+use crate::supervised::{self, Fatal, ShutdownBehavior};
 
 /// Starts the import and the watch on its own thread; returns at once.
 pub(crate) fn start(mux: &Arc<Mux>) {
@@ -28,9 +29,10 @@ pub(crate) fn start(mux: &Arc<Mux>) {
     }
     let Some(layout) = Layout::current() else { return };
     let weak = Arc::downgrade(mux);
-    let spawned = std::thread::Builder::new()
-        .name("mux-project-sources".into())
-        .spawn(move || run(&weak, &layout));
+    let spawned =
+        supervised::spawn("mux-project-sources", Fatal, ShutdownBehavior::Continue, move || {
+            run(&weak, &layout);
+        });
     if let Err(error) = spawned {
         note(&format!("project sources thread did not start: {error}"));
     }

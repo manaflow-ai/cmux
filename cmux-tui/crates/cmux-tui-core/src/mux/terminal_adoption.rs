@@ -2,6 +2,7 @@
 //! terminal hosts, template terminals, and scheduling adoption work.
 
 use super::*;
+use crate::supervised::{self, Fatal, ShutdownBehavior};
 use cmux_threads::checked::fs as checked_files;
 
 impl Mux {
@@ -428,9 +429,11 @@ impl Mux {
         eprintln!("cmux-tui: template terminal {terminal_id} not published yet: {error:#}");
         let mux = Arc::clone(self);
         let terminal_id = terminal_id.to_string();
-        let spawned = std::thread::Builder::new()
-            .name(format!("template-complete-{terminal_id}"))
-            .spawn(move || {
+        let spawned = supervised::spawn(
+            format!("template-complete-{terminal_id}"),
+            Fatal,
+            ShutdownBehavior::Continue,
+            move || {
                 let mut delay = Duration::from_millis(100);
                 loop {
                     crate::request_path::sleep(delay);
@@ -448,7 +451,8 @@ impl Mux {
                         }
                     }
                 }
-            });
+            },
+        );
         if let Err(error) = spawned {
             eprintln!("cmux-tui: could not schedule template completion: {error}");
         }
@@ -837,9 +841,11 @@ impl Mux {
         }
         let cleanup_id = terminal_id.clone();
         let mux = self.clone();
-        let spawn_result = std::thread::Builder::new()
-            .name(format!("terminal-adopt-{terminal_id}"))
-            .spawn(move || {
+        let spawn_result = supervised::spawn(
+            format!("terminal-adopt-{terminal_id}"),
+            Fatal,
+            ShutdownBehavior::Continue,
+            move || {
                 if first_delay.is_zero() {
                     // A start's adoptions wait for the owner to say ready: their
                     // registry and state locks held the rest of its start back
@@ -1077,7 +1083,8 @@ impl Mux {
                 mux.clear_adopting_marker(&terminal_id);
                 mux.terminal_adoptions.lock().unwrap().remove(&terminal_id);
                 mux.terminal_adoption_ended.notify_all();
-            });
+            },
+        );
         if spawn_result.is_err() {
             self.terminal_adoptions.lock().unwrap().remove(&cleanup_id);
             self.terminal_adoption_ended.notify_all();

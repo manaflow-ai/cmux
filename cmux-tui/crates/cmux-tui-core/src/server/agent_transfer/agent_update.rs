@@ -43,6 +43,7 @@
 //! bad request; `ids` are only names acpmux matches against its own rows.
 
 use crate::panic_free::JsonFields;
+use crate::supervised::{self, Fatal, ShutdownBehavior};
 use cmux_threads::sync::Mutex;
 use std::path::Path;
 use std::sync::Arc;
@@ -83,7 +84,6 @@ const UPDATE_CAP: Duration = Duration::from_secs(2 * 60 * 60);
 const RESTART_TIMEOUT: Duration = Duration::from_secs(5 * 60);
 /// Programs that raise rights (acpmux `harness_health/auto.rs` ELEVATING).
 const ELEVATING: [&str; 4] = ["sudo", "doas", "su", "pkexec"];
-const THREAD_STACK_BYTES: usize = 256 * 1024;
 
 /// The binary's acpmux handoff, and whether an apply runs.
 #[derive(Default)]
@@ -266,10 +266,8 @@ fn handle(line: &RouteLine<'_>) -> Option<bool> {
     let worker_mux = mux.clone();
     let worker_writer = writer.clone();
     let worker_id = id.clone();
-    let spawned = std::thread::Builder::new()
-        .name("mux-agent-update".into())
-        .stack_size(THREAD_STACK_BYTES)
-        .spawn(move || {
+    let spawned =
+        supervised::spawn("mux-agent-update", Fatal, ShutdownBehavior::Continue, move || {
             let result = match verb {
                 Verb::Plan {} => plan(&socket),
                 Verb::Apply(params) => apply(&worker_mux, &socket, params),

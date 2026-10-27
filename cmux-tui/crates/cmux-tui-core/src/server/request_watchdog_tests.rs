@@ -217,7 +217,7 @@ fn request_watchdog_rearms_after_it_parked() {
 
 #[test]
 fn request_watchdog_counts_a_failed_thread_start_and_retries_it() {
-    fn refuse(_: Box<dyn FnOnce() + Send>) -> std::io::Result<Thread> {
+    fn refuse(_: Box<dyn FnOnce() + Send>) -> std::io::Result<supervised::Unparker> {
         Err(std::io::Error::other("no threads"))
     }
     let watchdog = RequestWatchdog::with_seams(

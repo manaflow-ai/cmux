@@ -16,6 +16,7 @@
 //! terminal at once and never hold or replay them.
 
 use super::*;
+use crate::supervised::{self, Fatal, ShutdownBehavior};
 
 /// The most bytes queued for one creating terminal; more is refused (`input.overflow`).
 pub(crate) const CREATING_INPUT_LIMIT: usize = 64 * 1024;
@@ -281,8 +282,11 @@ impl Mux {
         let deadline = Instant::now() + expiry;
         let mux = Arc::downgrade(self);
         let terminal_id = terminal_id.to_string();
-        let spawned =
-            std::thread::Builder::new().name("creating-input-expiry".into()).spawn(move || {
+        let spawned = supervised::spawn(
+            "creating-input-expiry",
+            Fatal,
+            ShutdownBehavior::Continue,
+            move || {
                 let Some(mux) = mux.upgrade() else { return };
                 let inputs = &mux.creating_inputs;
                 let mut terminals = inputs.terminals.lock().unwrap_or_else(PoisonError::into_inner);
@@ -307,7 +311,8 @@ impl Mux {
                 }
                 drop(terminals);
                 mux.finish_creating_input(&terminal_id, generation, Some("expired"));
-            });
+            },
+        );
         if let Err(error) = spawned {
             eprintln!("cmux-tui: no expiry for creating terminal input: {error}");
         }

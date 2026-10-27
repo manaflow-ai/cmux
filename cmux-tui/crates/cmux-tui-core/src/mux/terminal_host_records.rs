@@ -1,6 +1,7 @@
 //! Terminal host records: terminating discovered hosts, acknowledging exits, and scheduled host record cleanup.
 
 use super::*;
+use crate::supervised::{self, Fatal, ShutdownBehavior};
 
 /// Terminate every host record under `root` for one terminal and
 /// acknowledge its exit sidecar.
@@ -85,10 +86,10 @@ pub(super) fn schedule_terminal_host_record_cleanup(
     let fallback_record = record.clone();
     let fallback_path = record_path.clone();
     let name = format!("terminal-clean-{}", record.terminal_id);
-    if std::thread::Builder::new()
-        .name(name)
-        .spawn(move || retry_terminal_host_record_cleanup(record, record_path))
-        .is_err()
+    if supervised::spawn(name, Fatal, ShutdownBehavior::Continue, move || {
+        retry_terminal_host_record_cleanup(record, record_path);
+    })
+    .is_err()
     {
         // Thread exhaustion cannot turn a durable close into a permanent
         // orphan. The request may remain blocked, but the exact host keeps

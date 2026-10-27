@@ -210,7 +210,7 @@ pub struct PtyTerminalRuntime {
     /// Owned reader join fence. Shutdown gives this reader a bounded drain
     /// interval, then closes journal capture before it inserts the final
     /// journal barrier.
-    pub(super) reader_thread: Mutex<Option<std::thread::JoinHandle<()>>>,
+    pub(super) reader_thread: Mutex<Option<SupervisedThread<()>>>,
     pub(super) reader_completion: Arc<ReaderCompletion>,
     /// Owned child-reaper join fence. Shutdown uses the same bounded deadline
     /// as the reader so the child wait cannot outlive terminal teardown.

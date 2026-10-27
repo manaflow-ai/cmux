@@ -5,6 +5,7 @@
 //! terminals that the tab JSON reports.
 
 use super::*;
+use crate::supervised::{self, Fatal, ShutdownBehavior};
 
 impl Mux {
     /// Terminals whose tabs must not read as dead while they have no runtime
@@ -176,7 +177,7 @@ impl Mux {
     ) {
         let mux = Arc::downgrade(self);
         let name = format!("terminal-unadoptable-{}", record.terminal_id);
-        let spawned = std::thread::Builder::new().name(name).spawn(move || {
+        let spawned = supervised::spawn(name, Fatal, ShutdownBehavior::Continue, move || {
             if let Err(error) =
                 crate::terminal_host_runtime::wait_for_unadoptable_terminal_host_exit(&record)
             {

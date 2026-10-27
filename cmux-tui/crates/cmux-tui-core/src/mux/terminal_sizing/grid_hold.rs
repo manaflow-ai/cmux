@@ -3,6 +3,7 @@
 //! the grid it left (docs/shared-terminal-sizing.md, "Phone viewers").
 
 use super::*;
+use crate::supervised::{self, Fatal, ShutdownBehavior};
 
 impl Mux {
     /// The grid to apply for an engine decision `decided`. When a phone or
@@ -104,15 +105,13 @@ impl Mux {
     fn schedule_terminal_grid_hold_end(&self, runtime: SurfaceId, grace: Duration) -> bool {
         let Some(mux) = self.exit_settles.owner() else { return false };
         let mux = Arc::downgrade(&mux);
-        std::thread::Builder::new()
-            .name("terminal-grid-hold".into())
-            .spawn(move || {
-                crate::request_path::sleep(grace);
-                if let Some(mux) = mux.upgrade() {
-                    mux.end_expired_terminal_grid_hold(runtime);
-                }
-            })
-            .is_ok()
+        supervised::spawn("terminal-grid-hold", Fatal, ShutdownBehavior::Continue, move || {
+            crate::request_path::sleep(grace);
+            if let Some(mux) = mux.upgrade() {
+                mux.end_expired_terminal_grid_hold(runtime);
+            }
+        })
+        .is_ok()
     }
 
     fn end_expired_terminal_grid_hold(&self, runtime: SurfaceId) {

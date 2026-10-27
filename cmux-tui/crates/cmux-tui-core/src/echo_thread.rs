@@ -21,10 +21,10 @@
 //! (queue MQ-13).
 
 use std::io;
-use std::thread::JoinHandle;
 
 use cmux_threads::ThreadQos;
 
+use crate::supervised::{self, Fatal, ShutdownBehavior, SupervisedThread};
 use crate::thread_qos::ThreadType;
 
 /// The class every echo path thread declares: [`ThreadType::InputCritical`].
@@ -32,12 +32,12 @@ pub const ECHO_PATH_QOS: ThreadQos = ThreadType::InputCritical.qos();
 
 /// Starts echo path thread `name`: registered at [`ECHO_PATH_QOS`], blocking
 /// disallowed before `f` runs.
-pub fn spawn<F, T>(name: impl Into<String>, f: F) -> io::Result<JoinHandle<T>>
+pub fn spawn<F, T>(name: impl Into<String>, f: F) -> io::Result<SupervisedThread<T>>
 where
     F: FnOnce() -> T + Send + 'static,
     T: Send + 'static,
 {
-    cmux_threads::spawn(name, ECHO_PATH_QOS, move || {
+    supervised::spawn_at(name, ECHO_PATH_QOS, Fatal, ShutdownBehavior::Continue, move || {
         cmux_threads::disallow_blocking();
         f()
     })
@@ -64,12 +64,12 @@ pub(crate) fn spawn_host_stream_reader<F, T>(
     name: impl Into<String>,
     stream: crate::terminal_host_runtime::HostStream,
     f: F,
-) -> io::Result<JoinHandle<T>>
+) -> io::Result<SupervisedThread<T>>
 where
     F: FnOnce(&mut OwnHostStream<'_>) -> T + Send + 'static,
     T: Send + 'static,
 {
-    cmux_threads::spawn(name, ECHO_PATH_QOS, move || {
+    supervised::spawn_at(name, ECHO_PATH_QOS, Fatal, ShutdownBehavior::Continue, move || {
         // Registration is thread setup and must come before the disallow.
         let mut own = OwnHostStream::register(&stream);
         cmux_threads::disallow_blocking();

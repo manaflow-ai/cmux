@@ -30,6 +30,7 @@ use serde_json::Value;
 
 use crate::Mux;
 use crate::journal_kernel::SharedJournalRead;
+use crate::supervised::{self, Fatal, ShutdownBehavior};
 use crate::workspace_registry::SessionJournalRecord;
 
 const PAGE: usize = 512;
@@ -152,9 +153,10 @@ pub(super) fn start(mux: &Arc<Mux>) {
     }
     let weak = Arc::downgrade(mux);
     let kernel = mux.shared_journal_handle();
-    let spawned = std::thread::Builder::new()
-        .name("mux-history-feed".into())
-        .spawn(move || run(&weak, &kernel));
+    let spawned =
+        supervised::spawn("mux-history-feed", Fatal, ShutdownBehavior::Continue, move || {
+            run(&weak, &kernel);
+        });
     if let Err(error) = spawned {
         eprintln!("cmux-tui: history feed did not start: {error}");
         mux.history.release_feed();

@@ -45,6 +45,7 @@ use super::acpmux_energy::AcpmuxEnergy;
 use super::{Mux, NotificationLevel, NotificationSource};
 use crate::resource::ContentPublicId;
 use crate::state::conversation_tabs_store::ConversationTabRecord;
+use crate::supervised::{self, Fatal, ShutdownBehavior};
 use crate::{Actor, SurfaceId};
 
 /// Longest acpmux line read; a session summary is far smaller.
@@ -73,9 +74,12 @@ impl Mux {
             self.report_internal_diagnostic("acpmux energy relay not started");
         }
         let mux = Arc::downgrade(self);
-        let spawned = std::thread::Builder::new()
-            .name("mux-agent-chat-notices".into())
-            .spawn(move || watch(&mux, &socket, energy.ok().as_ref()));
+        let spawned = supervised::spawn(
+            "mux-agent-chat-notices",
+            Fatal,
+            ShutdownBehavior::Continue,
+            move || watch(&mux, &socket, energy.ok().as_ref()),
+        );
         if spawned.is_err() {
             self.report_internal_diagnostic("agent chat notifications not started");
         }

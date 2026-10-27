@@ -27,6 +27,7 @@ use crate::resource::SessionPublicId;
 use crate::resource::StreamPublicId;
 use crate::resource::WireDecimal;
 use crate::stream_interrupt::StreamInterrupt;
+use crate::supervised::{self, Fatal, ShutdownBehavior};
 use serde_json::Value;
 use serde_json::json;
 use std::sync::Arc;
@@ -542,9 +543,12 @@ pub(super) fn start_session_journal_stream(
     let outbound = start.outbound.clone();
     let worker_mux = mux.clone();
     let worker_writer = writer.clone();
-    let spawn = std::thread::Builder::new()
-        .name("mux-resource-session-journal".into())
-        .spawn(move || run_session_journal_stream(&worker_mux, client, &worker_writer, start));
+    let spawn = supervised::spawn(
+        "mux-resource-session-journal",
+        Fatal,
+        ShutdownBehavior::Continue,
+        move || run_session_journal_stream(&worker_mux, client, &worker_writer, start),
+    );
     if spawn.is_err() {
         let _ = mux.control_clients.take_resource_stream(client, &stream_id);
         let end = resource_stream_end(

@@ -61,7 +61,6 @@ use std::cell::Cell;
 use std::collections::VecDeque;
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering, fence};
 use std::sync::{Arc, OnceLock};
-use std::thread::Thread;
 use std::time::{Duration, Instant};
 
 use cmux_tui_platform::thread_backtrace::{self, Backtrace, BacktraceError, ThreadHandle};
@@ -71,6 +70,7 @@ use super::command_names::COMMANDS;
 use crate::diagnostics::{SlowRequest, SlowRequestFrame, SlowRequestsSnapshot};
 use crate::panic_free::RecoverPoison;
 use crate::resource::ResourceOperation;
+use crate::supervised::{self, Fatal, ShutdownBehavior};
 
 /// How long a request runs before the watchdog records it.
 pub(crate) const REQUEST_WATCHDOG_THRESHOLD: Duration = Duration::from_millis(250);
@@ -249,11 +249,17 @@ impl Slot {
 type HangSink = Box<dyn Fn(serde_json::Value) + Send + Sync>;
 
 /// Starts the watchdog thread with `body`; a seam so tests can fail it.
-type SpawnWatchdog = fn(Box<dyn FnOnce() + Send>) -> std::io::Result<Thread>;
+type SpawnWatchdog = fn(Box<dyn FnOnce() + Send>) -> std::io::Result<supervised::Unparker>;
 
-fn spawn_watchdog_thread(body: Box<dyn FnOnce() + Send>) -> std::io::Result<Thread> {
-    cmux_threads::spawn(THREAD_NAME, cmux_threads::ThreadQos::Utility, body)
-        .map(|handle| handle.thread().clone())
+fn spawn_watchdog_thread(body: Box<dyn FnOnce() + Send>) -> std::io::Result<supervised::Unparker> {
+    supervised::spawn_at(
+        THREAD_NAME,
+        cmux_threads::ThreadQos::Utility,
+        Fatal,
+        ShutdownBehavior::Continue,
+        body,
+    )
+    .map(|handle| handle.unparker())
 }
 
 /// Stops a thread and walks its stack; a seam so tests can end the run
@@ -297,7 +303,7 @@ struct Shared {
     stack_captures: AtomicU64,
     /// The watchdog thread, set by the first arm whose start succeeds. Only
     /// the run that flipped `armed` starts it, so no two starts race.
-    thread: OnceLock<Thread>,
+    thread: OnceLock<supervised::Unparker>,
     wakeups: AtomicU64,
     unwatched: AtomicU64,
     expected_waits: AtomicU64,

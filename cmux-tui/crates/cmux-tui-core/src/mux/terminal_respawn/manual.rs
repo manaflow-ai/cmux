@@ -15,6 +15,8 @@
 //! (`tab-restart-kept-layout-v1`).
 
 use super::*;
+#[cfg(unix)]
+use crate::supervised::{self, Fatal, ShutdownBehavior};
 
 /// The `user_restart` cause in the loss log (`terminal_respawned`).
 #[cfg(unix)]
@@ -80,7 +82,7 @@ impl Mux {
         };
         let mux = Arc::clone(self);
         let name = format!("terminal-restart-{}", plan.terminal_id);
-        let spawned = std::thread::Builder::new().name(name).spawn(move || {
+        let spawned = supervised::spawn(name, Fatal, ShutdownBehavior::Continue, move || {
             mux.run_terminal_respawn(plan);
         });
         if let Err(error) = spawned {

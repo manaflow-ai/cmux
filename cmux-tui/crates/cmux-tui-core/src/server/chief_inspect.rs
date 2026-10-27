@@ -29,6 +29,7 @@ use serde_json::Value;
 use super::{AsyncReply, ClientTransport, MessageWriter, Mux, Response, send_response};
 use crate::conversation_store::LOCAL_USER;
 use crate::request_origin::ORIGIN_FORBIDDEN;
+use crate::supervised::{self, Fatal, ShutdownBehavior};
 
 pub(super) const CAPABILITY: &str = "chief-inspect-v1";
 /// The `error_code` for the owner when this daemon has no tools socket.
@@ -226,12 +227,13 @@ pub(super) fn start(
     let thread_writer = writer.clone();
     let reply_id = id.clone();
     let reply = reply.hand_to_worker();
-    let spawned = std::thread::Builder::new().name("mux-chief-inspect".into()).spawn(move || {
-        let reply = reply.start();
-        let _lock_scope = reply.enter_lock_scope();
-        let answer = inspect_with(&mux, client, params, None);
-        reply.reply(|| respond(&thread_writer, reply_id, answer));
-    });
+    let spawned =
+        supervised::spawn("mux-chief-inspect", Fatal, ShutdownBehavior::Continue, move || {
+            let reply = reply.start();
+            let _lock_scope = reply.enter_lock_scope();
+            let answer = inspect_with(&mux, client, params, None);
+            reply.reply(|| respond(&thread_writer, reply_id, answer));
+        });
     spawned.is_ok()
         || respond(writer, id, Err(anyhow::anyhow!("cannot start the inspector request")))
 }

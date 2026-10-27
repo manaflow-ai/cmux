@@ -15,8 +15,8 @@
 //! view detaches. With no policy-bearing terminal it blocks indefinitely
 //! (it used to tick every 15 s whether or not any policy existed).
 
+use crate::supervised::{self, Fatal, ShutdownBehavior, SupervisedThread};
 use std::sync::mpsc::{self, RecvTimeoutError};
-use std::thread::JoinHandle;
 
 use cmux_threads::checked;
 
@@ -260,7 +260,7 @@ pub(crate) enum ReaperMessage {
 /// the handle wakes it without joining.
 pub struct IdleTerminalReaper {
     stop: Option<mpsc::Sender<ReaperMessage>>,
-    thread: Option<JoinHandle<()>>,
+    thread: Option<SupervisedThread<()>>,
 }
 
 impl IdleTerminalReaper {
@@ -269,7 +269,7 @@ impl IdleTerminalReaper {
             let _ = stop.send(ReaperMessage::Stop);
         }
         if let Some(thread) = self.thread.take() {
-            let _ = checked::sync::join(thread);
+            let _ = thread.join();
         }
     }
 }
@@ -298,24 +298,27 @@ pub fn start_idle_terminal_reaper(
             let _ = waker.send(ReaperMessage::Wake);
         });
     }
-    let thread = std::thread::Builder::new().name("mux-idle-close".into()).spawn(move || {
-        loop {
-            let Some(owner) = mux.upgrade() else { break };
-            let now = Instant::now();
-            let (_, next) = owner.reap_idle_terminals_until_next(now);
-            drop(owner);
-            let message = match next {
-                None => checked::sync::recv(&messages).map_err(|_| RecvTimeoutError::Disconnected),
-                Some(next) => {
-                    checked::sync::recv_timeout(&messages, next.saturating_duration_since(now))
+    let thread =
+        supervised::spawn("mux-idle-close", Fatal, ShutdownBehavior::Continue, move || {
+            loop {
+                let Some(owner) = mux.upgrade() else { break };
+                let now = Instant::now();
+                let (_, next) = owner.reap_idle_terminals_until_next(now);
+                drop(owner);
+                let message = match next {
+                    None => {
+                        checked::sync::recv(&messages).map_err(|_| RecvTimeoutError::Disconnected)
+                    }
+                    Some(next) => {
+                        checked::sync::recv_timeout(&messages, next.saturating_duration_since(now))
+                    }
+                };
+                match message {
+                    Ok(ReaperMessage::Wake) | Err(RecvTimeoutError::Timeout) => {}
+                    Ok(ReaperMessage::Stop) | Err(RecvTimeoutError::Disconnected) => break,
                 }
-            };
-            match message {
-                Ok(ReaperMessage::Wake) | Err(RecvTimeoutError::Timeout) => {}
-                Ok(ReaperMessage::Stop) | Err(RecvTimeoutError::Disconnected) => break,
             }
-        }
-    })?;
+        })?;
     Ok(IdleTerminalReaper { stop: Some(stop), thread: Some(thread) })
 }
 

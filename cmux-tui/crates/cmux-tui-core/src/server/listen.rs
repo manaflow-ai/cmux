@@ -19,6 +19,7 @@ use super::{
 };
 use crate::mux::Mux;
 use crate::platform::{self, transport};
+use crate::supervised::{self, Fatal, ShutdownBehavior};
 use cmux_threads::ThreadQos;
 
 /// A bound local server whose lifecycle endpoint is not ready yet.
@@ -454,36 +455,42 @@ pub(super) fn spawn_accept_loop(
     slot: Arc<super::restoring::SessionSlot>,
     shutdown: Arc<AtomicBool>,
 ) -> std::io::Result<()> {
-    cmux_threads::spawn("mux-server", ACCEPT_THREAD_QOS, move || {
-        // Resource exhaustion (EMFILE, ENFILE, ENOBUFS) persists across
-        // accepts, and an immediate retry ran this thread at 100% CPU until
-        // descriptors freed up. Space those retries; per-connection errors
-        // need none because the next accept blocks.
-        let mut backoff = crate::backoff::Backoff::new(ACCEPT_RETRY_INITIAL, ACCEPT_RETRY_MAX);
-        loop {
-            let stream = match listener.accept() {
-                Ok(stream) => {
-                    backoff.reset();
-                    stream
-                }
-                Err(error) => {
-                    if shutdown.load(Ordering::Acquire) {
-                        break;
+    supervised::spawn_at(
+        "mux-server",
+        ACCEPT_THREAD_QOS,
+        Fatal,
+        ShutdownBehavior::Continue,
+        move || {
+            // Resource exhaustion (EMFILE, ENFILE, ENOBUFS) persists across
+            // accepts, and an immediate retry ran this thread at 100% CPU until
+            // descriptors freed up. Space those retries; per-connection errors
+            // need none because the next accept blocks.
+            let mut backoff = crate::backoff::Backoff::new(ACCEPT_RETRY_INITIAL, ACCEPT_RETRY_MAX);
+            loop {
+                let stream = match listener.accept() {
+                    Ok(stream) => {
+                        backoff.reset();
+                        stream
                     }
-                    if crate::backoff::accept_error_needs_backoff(&error) {
-                        backoff.sleep();
+                    Err(error) => {
+                        if shutdown.load(Ordering::Acquire) {
+                            break;
+                        }
+                        if crate::backoff::accept_error_needs_backoff(&error) {
+                            backoff.sleep();
+                        }
+                        continue;
                     }
-                    continue;
+                };
+                if shutdown.load(Ordering::Acquire) {
+                    break;
                 }
-            };
-            if shutdown.load(Ordering::Acquire) {
-                break;
+                if let Some((session, stream)) = slot.route(stream) {
+                    session.serve(stream);
+                }
             }
-            if let Some((session, stream)) = slot.route(stream) {
-                session.serve(stream);
-            }
-        }
-    })?;
+        },
+    )?;
     Ok(())
 }
 

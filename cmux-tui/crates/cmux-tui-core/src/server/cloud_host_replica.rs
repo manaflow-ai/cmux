@@ -29,6 +29,7 @@ use super::{Mux, list_workspaces_reply};
 use crate::cloud_conversations::{
     CloudError, HostOpRefusal, HostReplica, HostReplicaParams, HostSource,
 };
+use crate::supervised::{self, Fatal, ShutdownBehavior};
 use crate::workspace_registry::Actor;
 
 pub(super) use crate::cloud_conversations::CLOUD_HOST_REPLICA_CAPABILITY as CAPABILITY;
@@ -343,8 +344,11 @@ pub fn install_host_replica(mux: &Arc<Mux>, replica: HostReplica) -> bool {
     }
     let weak = Arc::downgrade(mux);
     let mut events = mux.subscribe_launch_snapshot();
-    let spawned =
-        std::thread::Builder::new().name("mux-host-replica-changes".into()).spawn(move || {
+    let spawned = supervised::spawn(
+        "mux-host-replica-changes",
+        Fatal,
+        ShutdownBehavior::Continue,
+        move || {
             loop {
                 // mq14-allow: this watcher thread waits for its own events.
                 match events.recv() {
@@ -360,14 +364,15 @@ pub fn install_host_replica(mux: &Arc<Mux>, replica: HostReplica) -> bool {
                     replica.mark_changed();
                 }
             }
-        });
+        },
+    );
     if let Err(error) = spawned {
         eprintln!("cmux-tui: host replica change watcher unavailable: {error}");
     }
     let weak = Arc::downgrade(mux);
     let mut chats = mux.subscribe_conversations();
     let spawned =
-        std::thread::Builder::new().name("mux-host-replica-chief".into()).spawn(move || {
+        supervised::spawn("mux-host-replica-chief", Fatal, ShutdownBehavior::Continue, move || {
             loop {
                 // mq14-allow: this watcher thread waits for its own events.
                 match chats.recv() {

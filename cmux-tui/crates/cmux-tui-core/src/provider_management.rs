@@ -17,6 +17,8 @@ use zeroize::Zeroize;
 #[cfg(target_os = "linux")]
 use zeroize::Zeroizing;
 
+#[cfg(target_os = "linux")]
+use crate::supervised::{self, Fatal, ShutdownBehavior};
 use crate::{
     Mux, ProviderWorkspaceAuthority, ProviderWorkspaceAuthorityStatus,
     ProviderWorkspaceAuthorityUpdateError,
@@ -202,12 +204,12 @@ fn peer_uid(stream: &std::os::unix::net::UnixStream) -> io::Result<u32> {
 pub fn serve(
     listener: std::os::unix::net::UnixListener,
     mux: Arc<Mux>,
-) -> io::Result<std::thread::JoinHandle<()>> {
+) -> io::Result<supervised::SupervisedThread<()>> {
     let result = unsafe { libc::prctl(libc::PR_SET_DUMPABLE, 0, 0, 0, 0) };
     if result != 0 {
         return Err(io::Error::last_os_error());
     }
-    std::thread::Builder::new().name("provider-management".into()).spawn(move || {
+    supervised::spawn("provider-management", Fatal, ShutdownBehavior::Continue, move || {
         // Descriptor exhaustion persists across accepts; an immediate retry
         // spun this thread at 100% CPU.
         let mut backoff =
@@ -226,7 +228,10 @@ pub fn serve(
                 }
             };
             let mux = mux.clone();
-            let _ = std::thread::Builder::new().name("provider-management-peer".into()).spawn(
+            let _ = supervised::spawn(
+                "provider-management-peer",
+                Fatal,
+                ShutdownBehavior::Continue,
                 move || {
                     let Ok(uid) = peer_uid(&stream) else { return };
                     if uid != 0 {

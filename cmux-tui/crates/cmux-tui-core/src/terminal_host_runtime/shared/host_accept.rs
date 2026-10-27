@@ -8,6 +8,7 @@
 //! that stays readable under `EMFILE` does not spin), and accepts again. An
 //! aborted connection (`ECONNABORTED`) is retried at once, like `EINTR`.
 
+use crate::supervised::{self, Fatal, ShutdownBehavior};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -80,8 +81,14 @@ pub(crate) fn serve_accepted(shared: &Arc<HostShared>, stream: HostStream) -> st
     // Echo path class from the start; blocking is disallowed only for the
     // output loop (serve_client), after the handshake's waits.
     let qos = crate::echo_thread::ECHO_PATH_QOS;
-    cmux_threads::spawn("terminal-host-client", qos, move || {
-        let _ = serve_client(host, stream);
-    })?;
+    supervised::spawn_at(
+        "terminal-host-client",
+        qos,
+        Fatal,
+        ShutdownBehavior::Continue,
+        move || {
+            let _ = serve_client(host, stream);
+        },
+    )?;
     Ok(())
 }

@@ -4,6 +4,7 @@
 //! committed op, so a missed rev is detected and ends the stream with `gap`.
 
 use crate::panic_free::JsonFields;
+use crate::supervised::{self, Fatal, ShutdownBehavior};
 use std::sync::Arc;
 use std::sync::mpsc::RecvTimeoutError;
 
@@ -131,9 +132,12 @@ pub(super) fn start(mux: Arc<Mux>, client: u64, writer: MessageWriter, start: Ev
     let stream_id = start.stream_id.clone();
     let outbound = start.outbound.clone();
     let (worker_mux, worker_writer) = (mux.clone(), writer.clone());
-    let spawned = std::thread::Builder::new()
-        .name("mux-resource-conversation-events".into())
-        .spawn(move || run(&worker_mux, client, &worker_writer, start));
+    let spawned = supervised::spawn(
+        "mux-resource-conversation-events",
+        Fatal,
+        ShutdownBehavior::Continue,
+        move || run(&worker_mux, client, &worker_writer, start),
+    );
     if spawned.is_err() {
         let _ = mux.control_clients.take_resource_stream(client, &stream_id);
         let error = ResourceError::operation_failed(

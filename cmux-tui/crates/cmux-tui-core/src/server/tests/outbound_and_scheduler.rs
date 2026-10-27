@@ -800,10 +800,16 @@ fn scheduler_retains_connection_permit_until_dispatcher_exit() {
     scheduler.state.lock().unwrap().dispatcher_started = true;
     let (release_tx, release_rx) = std::sync::mpsc::channel();
     let worker_scheduler = scheduler.clone();
-    let dispatcher = std::thread::spawn(move || {
-        release_rx.recv().unwrap();
-        worker_scheduler.finish_dispatcher();
-    });
+    let dispatcher = crate::supervised::spawn(
+        "test-dispatcher",
+        crate::supervised::Fatal,
+        crate::supervised::ShutdownBehavior::Continue,
+        move || {
+            release_rx.recv().unwrap();
+            worker_scheduler.finish_dispatcher();
+        },
+    )
+    .unwrap();
     *scheduler.dispatcher.lock().unwrap() = Some(dispatcher);
 
     assert!(!scheduler.close_and_wait(Duration::from_millis(25)));

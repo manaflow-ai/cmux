@@ -16,6 +16,7 @@
 //! to an agent may run scripts; the connection's sessions end when it closes.
 
 use crate::panic_free::JsonFields;
+use crate::supervised::{self, Fatal, ShutdownBehavior};
 use std::sync::Arc;
 
 use cmux_app_host::script::{LogSink, ScriptError};
@@ -158,7 +159,7 @@ fn answer_later(
     let writer = writer.clone();
     // The job keeps the cause and class of the frame that started it.
     let cause = crate::event_cause::EventCause::current();
-    let spawned = std::thread::Builder::new().name("cmux-script".into()).spawn({
+    let spawned = supervised::spawn("cmux-script", Fatal, ShutdownBehavior::Continue, {
         let writer = writer.clone();
         let id = id.clone();
         move || {

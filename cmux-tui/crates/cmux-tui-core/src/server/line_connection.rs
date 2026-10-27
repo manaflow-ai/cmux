@@ -26,10 +26,10 @@ use std::fmt;
 use cmux_ipc::{BadMessage, Frame, FrameKind, FrameReader, Message, ReaderLimits};
 
 use crate::diagnostics::{IpcTransport, JsonParseScope};
+use crate::supervised::{self, Fatal, ShutdownBehavior};
 
 use super::connection_scheduler::connection_qos::ReaderClass;
 use super::*;
-use cmux_threads::checked::sync as waits;
 
 /// The grant that lets a connection send frames. p05-ipc-060 decides who
 /// gets it (a local Unix peer at this daemon's api_revision); this loop only
@@ -69,11 +69,17 @@ pub(super) const CONNECTION_READER_QOS: cmux_threads::ThreadQos =
 pub(super) fn spawn_connection_reader(
     name: &str,
     serve: impl FnOnce() + Send + 'static,
-) -> std::io::Result<JoinHandle<()>> {
-    cmux_threads::spawn(name, CONNECTION_READER_QOS, move || {
-        cmux_threads::disallow_blocking();
-        serve();
-    })
+) -> std::io::Result<supervised::SupervisedThread<()>> {
+    supervised::spawn_at(
+        name,
+        CONNECTION_READER_QOS,
+        Fatal,
+        ShutdownBehavior::Continue,
+        move || {
+            cmux_threads::disallow_blocking();
+            serve();
+        },
+    )
 }
 
 /// One JSON line per message, and frames once granted. `admission` sees
@@ -239,7 +245,7 @@ pub(super) fn serve_connection(
         // Refused before its first frame (the remote entry's revocation
         // limits): nothing is read or dispatched.
         disconnect_client(&mux, client, false);
-        let _ = waits::join(writer_thread);
+        let _ = writer_thread.join();
         return ConnectionEnd::Dropped;
     }
     let mut hello = client_hello::HelloGate::new(transport);
@@ -354,7 +360,7 @@ pub(super) fn serve_connection(
         let _ = surface_scheduler.close_and_wait(CONNECTION_SURFACE_SHUTDOWN_TIMEOUT);
     }
     disconnect_client(&mux, client, false);
-    let _ = waits::join(writer_thread);
+    let _ = writer_thread.join();
     drop(connection_permit);
     end
 }

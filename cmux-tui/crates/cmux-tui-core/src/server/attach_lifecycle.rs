@@ -7,6 +7,7 @@
 use super::MessageWriter;
 use super::OutboundStream;
 use crate::panic_free::JsonFields;
+use crate::supervised::{self, Fatal, ShutdownBehavior};
 use cmux_threads::checked::ipc_reply;
 use cmux_threads::checked::sync as waits;
 
@@ -33,56 +34,52 @@ pub(super) fn spawn_attach_notification_stream(
     outbound_stream: OutboundStream,
 ) -> std::io::Result<()> {
     let events = mux.subscribe_attached_surface(surface_id);
-    std::thread::Builder::new()
-        .name("mux-attach-notifications".into())
-        .spawn(move || {
-            let interrupt = StreamInterrupt::new();
-            writer.register_interrupt(&interrupt);
-            outbound_stream.register_interrupt(&interrupt);
-            lifecycle.register_interrupt(&interrupt);
-            events.wake_on(&interrupt);
-            while writer.is_open() && outbound_stream.is_open() && !lifecycle.is_canceled() {
-                let event = match events.recv_until_interrupted(&interrupt) {
-                    Ok(event) => event,
-                    Err(std::sync::mpsc::RecvTimeoutError::Timeout) => continue,
-                    Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
-                };
-                let value = match event {
-                    MuxEvent::Notification(notification)
-                        if notification.surface == Some(surface_id) =>
-                    {
-                        json!({
-                            "event": "notification",
-                            "notification": notification.notification,
-                            "title": notification.title,
-                            "body": notification.body,
-                            "level": notification.level.as_str(),
-                            "surface": notification.surface,
-                        })
-                    }
-                    MuxEvent::ScrollChanged { surface, offset, at_bottom }
-                        if surface == surface_id =>
-                    {
-                        json!({
-                            "event": "scroll-changed",
-                            "surface": surface,
-                            "offset": offset,
-                            "at_bottom": at_bottom,
-                        })
-                    }
-                    _ => continue,
-                };
-                if let Err(error) = writer.send_stream_backpressured(&value, &outbound_stream) {
-                    handle_attach_send_error(&lifecycle, &error);
-                    break;
+    supervised::spawn("mux-attach-notifications", Fatal, ShutdownBehavior::Continue, move || {
+        let interrupt = StreamInterrupt::new();
+        writer.register_interrupt(&interrupt);
+        outbound_stream.register_interrupt(&interrupt);
+        lifecycle.register_interrupt(&interrupt);
+        events.wake_on(&interrupt);
+        while writer.is_open() && outbound_stream.is_open() && !lifecycle.is_canceled() {
+            let event = match events.recv_until_interrupted(&interrupt) {
+                Ok(event) => event,
+                Err(std::sync::mpsc::RecvTimeoutError::Timeout) => continue,
+                Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
+            };
+            let value = match event {
+                MuxEvent::Notification(notification)
+                    if notification.surface == Some(surface_id) =>
+                {
+                    json!({
+                        "event": "notification",
+                        "notification": notification.notification,
+                        "title": notification.title,
+                        "body": notification.body,
+                        "level": notification.level.as_str(),
+                        "surface": notification.surface,
+                    })
                 }
+                MuxEvent::ScrollChanged { surface, offset, at_bottom } if surface == surface_id => {
+                    json!({
+                        "event": "scroll-changed",
+                        "surface": surface,
+                        "offset": offset,
+                        "at_bottom": at_bottom,
+                    })
+                }
+                _ => continue,
+            };
+            if let Err(error) = writer.send_stream_backpressured(&value, &outbound_stream) {
+                handle_attach_send_error(&lifecycle, &error);
+                break;
             }
-            if events.overflowed() {
-                lifecycle.mark_overflow();
-            }
-            report_attach_overflow(&writer, surface_id, &lifecycle, &outbound_stream);
-        })
-        .map(|_| ())
+        }
+        if events.overflowed() {
+            lifecycle.mark_overflow();
+        }
+        report_attach_overflow(&writer, surface_id, &lifecycle, &outbound_stream);
+    })
+    .map(|_| ())
 }
 
 pub(super) struct MarkedClientAttach {

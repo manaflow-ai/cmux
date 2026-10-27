@@ -57,6 +57,7 @@
 
 use crate::panic_free::JsonFields;
 use crate::panic_free::RecoverPoison;
+use crate::supervised::{self, Fatal, ShutdownBehavior};
 use cmux_threads::checked::sync as waits;
 use cmux_threads::sync::Mutex;
 use std::collections::HashMap;
@@ -854,8 +855,11 @@ fn attach(
         images_cap,
     };
     let (worker_start, worker_committed) = std::sync::mpsc::sync_channel(1);
-    let spawned =
-        std::thread::Builder::new().name("mux-snapshot-attach-out".into()).spawn(move || {
+    let spawned = supervised::spawn(
+        "mux-snapshot-attach-out",
+        Fatal,
+        ShutdownBehavior::Continue,
+        move || {
             if waits::recv(&worker_committed).is_ok() {
                 worker.run();
             } else {
@@ -865,7 +869,8 @@ fn attach(
                     worker.outbound_stream.id,
                 );
             }
-        });
+        },
+    );
     if let Err(error) = spawned {
         lifecycle.cancel();
         mux.control_clients.snapshot_viewers.unregister(client, surface_id, outbound_stream.id);

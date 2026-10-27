@@ -6,12 +6,12 @@
 //! entry points (`sys::adopt_launch`) and the service-manager signal hooks
 //! (`sys::host_signals`).
 
+use crate::supervised::{self, Fatal, ShutdownBehavior};
 use cmux_threads::checked::fs as files;
 use cmux_threads::checked::sync as waits;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::Ordering;
-use std::thread;
 use std::time::{Duration, Instant};
 
 use super::super::super::sys::{
@@ -172,14 +172,19 @@ pub fn serve_terminal_host_stdio(
     // The discovery files' remaining syncs, after Ready: they only order
     // the files on disk for a power cut, which also ends this host.
     let record_dir = Path::new(&launch.record_path).parent().map(Path::to_path_buf);
-    let _ = thread::Builder::new().name("terminal-host-publication-sync".into()).spawn(move || {
-        if let Some(lease) = unsynced_lease {
-            let _ = sys::barrier_sync(&lease);
-        }
-        if let Some(record_dir) = record_dir {
-            let _ = sys::barrier_sync_dir(&record_dir);
-        }
-    });
+    let _ = supervised::spawn(
+        "terminal-host-publication-sync",
+        Fatal,
+        ShutdownBehavior::Continue,
+        move || {
+            if let Some(lease) = unsynced_lease {
+                let _ = sys::barrier_sync(&lease);
+            }
+            if let Some(record_dir) = record_dir {
+                let _ = sys::barrier_sync_dir(&record_dir);
+            }
+        },
+    );
 
     let launch_owner_deadline = Instant::now() + HOST_LAUNCH_OWNER_TIMEOUT;
     let mut backoff = host_accept::AcceptBackoff::new();
@@ -312,7 +317,7 @@ fn wait_at_test_gate(variable: &str) {
         return;
     };
     let (opened, wait) = std::sync::mpsc::channel();
-    let _ = thread::Builder::new().name("host-test-gate".into()).spawn(move || {
+    let _ = supervised::spawn("host-test-gate", Fatal, ShutdownBehavior::Continue, move || {
         let _ = files::open(&gate);
         let _ = opened.send(());
     });

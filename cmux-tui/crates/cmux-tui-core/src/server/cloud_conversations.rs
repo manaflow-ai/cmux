@@ -6,6 +6,7 @@
 //! requests; their replies are matched by `id`.
 
 use crate::panic_free::JsonFields;
+use crate::supervised::{self, Fatal, ShutdownBehavior};
 use std::sync::Arc;
 
 use serde::Deserialize;
@@ -611,14 +612,15 @@ pub(super) fn start(
     let worker_writer = writer.clone();
     let worker_id = id.clone();
     let reply = reply.hand_to_worker();
-    let spawned = std::thread::Builder::new().name("mux-cloud-request".into()).spawn(move || {
-        let reply = reply.start();
-        let _lock_scope = reply.enter_lock_scope();
-        let _permit = permit;
-        let result =
-            handle_command_with_cancellation(&worker_mux, client, cmd, &worker_writer, None);
-        reply.reply(|| send(&worker_writer, worker_id, result));
-    });
+    let spawned =
+        supervised::spawn("mux-cloud-request", Fatal, ShutdownBehavior::Continue, move || {
+            let reply = reply.start();
+            let _lock_scope = reply.enter_lock_scope();
+            let _permit = permit;
+            let result =
+                handle_command_with_cancellation(&worker_mux, client, cmd, &worker_writer, None);
+            reply.reply(|| send(&worker_writer, worker_id, result));
+        });
     match spawned {
         Ok(_) => true,
         Err(error) => send(

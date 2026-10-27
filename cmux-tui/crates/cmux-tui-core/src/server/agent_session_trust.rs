@@ -37,12 +37,12 @@ use super::agent_session_start::{connect, store_host};
 use super::{MessageWriter, Refusal, SurfaceId, ok, refuse};
 use crate::mux::Mux;
 use crate::state::conversation_tabs_store::ConversationTabRecord;
+use crate::supervised::{self, Fatal, ShutdownBehavior};
 
 pub const AGENT_SESSION_TRUST_CAPABILITY: &str = "agent-session-trust-v1";
 
 const MAX_CWD_BYTES: usize = 4096;
 const CALL_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
-const THREAD_STACK_BYTES: usize = 256 * 1024;
 /// Trust calls that may run at once on one daemon (each waits up to
 /// `CALL_TIMEOUT` on acpmux).
 const MAX_CALLS: usize = 8;
@@ -114,10 +114,8 @@ pub(super) fn trust(
     let worker_mux = mux.clone();
     let worker_writer = writer.clone();
     let worker_id = id.clone();
-    let spawned = std::thread::Builder::new()
-        .name("mux-agent-trust".into())
-        .stack_size(THREAD_STACK_BYTES)
-        .spawn(move || {
+    let spawned =
+        supervised::spawn("mux-agent-trust", Fatal, ShutdownBehavior::Continue, move || {
             let result = run(&worker_mux, &socket, &params);
             drop(slot);
             match result {

@@ -9,10 +9,10 @@
 
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::{Arc, Condvar, Mutex};
-use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
 use cmux_tui_core::server::EchoWatch;
+use cmux_tui_core::supervised::SupervisedThread;
 use cmux_tui_core::{SurfaceId, SurfaceKind};
 use smallvec::SmallVec;
 
@@ -356,7 +356,7 @@ impl SharedQueue {
 
 pub struct PtyInputDispatcher {
     sender: PtyInputSender,
-    worker: Option<JoinHandle<()>>,
+    worker: Option<SupervisedThread<()>>,
 }
 
 #[derive(Clone)]

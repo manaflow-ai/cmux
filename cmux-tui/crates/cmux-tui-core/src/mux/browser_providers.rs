@@ -1,6 +1,7 @@
 //! Browser providers: the browser runtime, provider registration, provider surface reconciliation, browser bootstrap and provider surface restart.
 
 use super::*;
+use crate::supervised::{self, Fatal, ShutdownBehavior};
 
 impl Mux {
     pub(super) fn browser_runtime(&self) -> anyhow::Result<Arc<BrowserRuntime>> {
@@ -141,9 +142,11 @@ impl Mux {
         let providers = self.browser_providers.clone();
         let id = surface.id;
         let thread_surface = surface.clone();
-        let spawn = std::thread::Builder::new()
-            .name(format!("browser-surface-{id}-bootstrap"))
-            .spawn(move || {
+        let spawn = supervised::spawn(
+            format!("browser-surface-{id}-bootstrap"),
+            Fatal,
+            ShutdownBehavior::Continue,
+            move || {
                 let result = (|| -> anyhow::Result<()> {
                     match bootstrap {
                         BrowserBootstrap::Provider { tab_id, url } => {
@@ -279,7 +282,8 @@ impl Mux {
                         mux.emit(MuxEvent::SurfaceOutput(id));
                     }
                 }
-            });
+            },
+        );
         if let Err(error) = spawn
             && !surface.is_dead()
             && let Surface::Browser(browser) = surface.as_ref()

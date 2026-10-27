@@ -2,6 +2,7 @@
 //! [`FromHost`] lines on a reader thread that blocks on the socket, and
 //! report the exit once the socket closes and the child is reaped.
 
+use crate::supervised::{self, Fatal, ShutdownBehavior};
 use cmux_threads::checked::sync as waits;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::os::fd::AsFd;
@@ -101,33 +102,45 @@ impl HostProcess {
         let reader = ours.try_clone()?;
         let writer = ours.try_clone()?;
         let (queue, outgoing) = sync_channel(QUEUE);
-        std::thread::Builder::new()
-            .name(format!("cmux-app-host-w:{name}"))
-            .spawn(move || write_loop(writer, outgoing))?;
-        std::thread::Builder::new().name(format!("cmux-app-host:{name}")).spawn(move || {
-            let mut lines = BufReader::new(reader);
-            let mut line = Vec::new();
-            loop {
-                line.clear();
-                match lines.by_ref().take(MAX_LINE_BYTES as u64 + 1).read_until(b'\n', &mut line) {
-                    Ok(0) | Err(_) => break,
-                    Ok(_) if line.last() != Some(&b'\n') => break,
-                    Ok(_) => match serde_json::from_slice::<FromHost>(&line) {
-                        Ok(message) => on_message(message),
-                        Err(_) => break,
-                    },
+        supervised::spawn(
+            format!("cmux-app-host-w:{name}"),
+            Fatal,
+            ShutdownBehavior::Continue,
+            move || write_loop(writer, outgoing),
+        )?;
+        supervised::spawn(
+            format!("cmux-app-host:{name}"),
+            Fatal,
+            ShutdownBehavior::Continue,
+            move || {
+                let mut lines = BufReader::new(reader);
+                let mut line = Vec::new();
+                loop {
+                    line.clear();
+                    match lines
+                        .by_ref()
+                        .take(MAX_LINE_BYTES as u64 + 1)
+                        .read_until(b'\n', &mut line)
+                    {
+                        Ok(0) | Err(_) => break,
+                        Ok(_) if line.last() != Some(&b'\n') => break,
+                        Ok(_) => match serde_json::from_slice::<FromHost>(&line) {
+                            Ok(message) => on_message(message),
+                            Err(_) => break,
+                        },
+                    }
                 }
-            }
-            // A malformed or oversized line, or the socket closed: end the process.
-            // SAFETY: signalling our own child by pid; it is not reaped yet, so the pid is still ours.
-            unsafe { libc::kill(pid as libc::pid_t, libc::SIGKILL) };
-            let status = child.wait();
-            let exit = match status {
-                Ok(status) => Exit { code: status.code(), signal: status.signal() },
-                Err(_) => Exit { code: None, signal: None },
-            };
-            on_exit(exit);
-        })?;
+                // A malformed or oversized line, or the socket closed: end the process.
+                // SAFETY: signalling our own child by pid; it is not reaped yet, so the pid is still ours.
+                unsafe { libc::kill(pid as libc::pid_t, libc::SIGKILL) };
+                let status = child.wait();
+                let exit = match status {
+                    Ok(status) => Exit { code: status.code(), signal: status.signal() },
+                    Err(_) => Exit { code: None, signal: None },
+                };
+                on_exit(exit);
+            },
+        )?;
         Ok(Self { queue, socket: ours })
     }
 

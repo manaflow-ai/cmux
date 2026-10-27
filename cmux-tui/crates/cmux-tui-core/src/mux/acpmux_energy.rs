@@ -24,6 +24,7 @@ use std::time::Duration;
 use cmux_threads::ThreadQos;
 use serde_json::json;
 
+use crate::supervised::{self, Fatal, ShutdownBehavior};
 use crate::wake::{EnergyMode, EnergyWatch};
 
 /// acpmux's Energy Saver method (`acpmux/src/rpc.rs`, `MUX_ENERGY`).
@@ -55,7 +56,13 @@ impl AcpmuxEnergy {
             let _ = edges.send(Relay::Edge);
         });
         let mode = Arc::clone(mode);
-        cmux_threads::spawn(THREAD_NAME, ThreadQos::Utility, move || run(&mode, &relay))?;
+        supervised::spawn_at(
+            THREAD_NAME,
+            ThreadQos::Utility,
+            Fatal,
+            ShutdownBehavior::Continue,
+            move || run(&mode, &relay),
+        )?;
         Ok(Self { inbox, _watch: watch })
     }
 

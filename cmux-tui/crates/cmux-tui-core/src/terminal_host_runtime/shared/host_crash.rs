@@ -9,6 +9,8 @@
 //! as a flag in the tab's end. The owner removes the sidecar on every end of
 //! the host's incarnation.
 
+#[cfg(debug_assertions)]
+use crate::supervised::{self, Fatal, ShutdownBehavior};
 use cmux_threads::checked::fs as files;
 use std::io::Write;
 use std::path::PathBuf;
@@ -91,28 +93,36 @@ fn abort_once_for_test() {
     }
     let mut trigger = marker;
     trigger.push(".trigger");
-    let _ = std::thread::Builder::new().name("terminal-host-test-crash".into()).spawn(move || {
-        // Opening a FIFO for reading blocks until the test opens it for
-        // writing: the crash happens at the moment the test chose.
-        let _ = files::open(&trigger);
-        // crash-allow: a test-only injected crash (debug builds, explicit env).
-        #[allow(clippy::panic, reason = "a test-only injected crash (debug builds, explicit env)")]
-        let _ = std::panic::catch_unwind(|| panic!("test-injected host crash"));
-        // No core dump: a dump of this process (systemd-coredump compresses
-        // it) keeps the host alive for seconds under load, which delays the
-        // owner's replacement the test waits for.
-        #[cfg(target_os = "linux")]
-        // SAFETY: prctl(PR_SET_DUMPABLE) takes integer arguments only.
-        unsafe {
-            libc::prctl(libc::PR_SET_DUMPABLE, 0, 0, 0, 0);
-        }
-        #[cfg(unix)]
-        // SAFETY: `limit` is a valid rlimit that outlives the call.
-        unsafe {
-            let limit = libc::rlimit { rlim_cur: 0, rlim_max: 0 };
-            libc::setrlimit(libc::RLIMIT_CORE, &limit);
-        }
-        // crash-allow: a test-only injected crash (debug builds, explicit env).
-        std::process::abort();
-    });
+    let _ = supervised::spawn(
+        "terminal-host-test-crash",
+        Fatal,
+        ShutdownBehavior::Continue,
+        move || {
+            // Opening a FIFO for reading blocks until the test opens it for
+            // writing: the crash happens at the moment the test chose.
+            let _ = files::open(&trigger);
+            // crash-allow: a test-only injected crash (debug builds, explicit env).
+            #[allow(
+                clippy::panic,
+                reason = "a test-only injected crash (debug builds, explicit env)"
+            )]
+            let _ = std::panic::catch_unwind(|| panic!("test-injected host crash"));
+            // No core dump: a dump of this process (systemd-coredump compresses
+            // it) keeps the host alive for seconds under load, which delays the
+            // owner's replacement the test waits for.
+            #[cfg(target_os = "linux")]
+            // SAFETY: prctl(PR_SET_DUMPABLE) takes integer arguments only.
+            unsafe {
+                libc::prctl(libc::PR_SET_DUMPABLE, 0, 0, 0, 0);
+            }
+            #[cfg(unix)]
+            // SAFETY: `limit` is a valid rlimit that outlives the call.
+            unsafe {
+                let limit = libc::rlimit { rlim_cur: 0, rlim_max: 0 };
+                libc::setrlimit(libc::RLIMIT_CORE, &limit);
+            }
+            // crash-allow: a test-only injected crash (debug builds, explicit env).
+            std::process::abort();
+        },
+    );
 }

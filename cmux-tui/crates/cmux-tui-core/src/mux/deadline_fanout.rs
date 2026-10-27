@@ -3,6 +3,7 @@
 //! unscheduled results in input order. Cell pixel and kitty budget updates use
 //! it so one slow surface cannot stall the rest.
 
+use crate::supervised::{self, Fatal, ShutdownBehavior};
 use cmux_threads::sync::{Condvar, Mutex};
 use std::collections::VecDeque;
 use std::sync::Arc;
@@ -64,10 +65,13 @@ impl DeadlineFanoutPool {
             state.next_worker = state.next_worker.wrapping_add(1);
             state.worker_count += 1;
             let inner = self.inner.clone();
-            if std::thread::Builder::new()
-                .name(format!("mux-deadline-{worker_index}"))
-                .spawn(move || deadline_fanout_worker(inner))
-                .is_err()
+            if supervised::spawn(
+                format!("mux-deadline-{worker_index}"),
+                Fatal,
+                ShutdownBehavior::Continue,
+                move || deadline_fanout_worker(inner),
+            )
+            .is_err()
             {
                 state.worker_count -= 1;
                 if state.worker_count == 0 {

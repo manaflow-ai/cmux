@@ -6,6 +6,7 @@
 //! close with a replay cursor when acpmux or the client falls behind.
 
 use crate::panic_free::JsonFields;
+use crate::supervised::{self, Fatal, ShutdownBehavior};
 use cmux_threads::checked::ipc_reply;
 use cmux_threads::checked::sync as waits;
 use cmux_threads::sync::{Mutex, RwLock};
@@ -63,7 +64,6 @@ const MAX_EARLY: usize = 256;
 pub(crate) const MAX_PAGE_BYTES: usize = 8 << 20;
 /// Bytes of notifications held while the attach call waits.
 const MAX_EARLY_BYTES: usize = 16 << 20;
-const THREAD_STACK_BYTES: usize = 256 * 1024;
 
 // MARK: State
 
@@ -642,10 +642,8 @@ fn attach(
     let worker_writer = writer.clone();
     let worker_id = id.clone();
     let surface = params.surface;
-    let spawned = std::thread::Builder::new()
-        .name("mux-agent-attach".into())
-        .stack_size(THREAD_STACK_BYTES)
-        .spawn(move || {
+    let spawned =
+        supervised::spawn("mux-agent-attach", Fatal, ShutdownBehavior::Continue, move || {
             connect_and_attach(
                 worker_mux,
                 client,
@@ -757,10 +755,8 @@ fn run_on_worker(
     let worker_writer = writer.clone();
     let worker_id = id.clone();
     let worker = attachment.clone();
-    let spawned = std::thread::Builder::new()
-        .name("mux-agent-call".into())
-        .stack_size(THREAD_STACK_BYTES)
-        .spawn(move || {
+    let spawned =
+        supervised::spawn("mux-agent-call", Fatal, ShutdownBehavior::Continue, move || {
             let result = call(&worker, command);
             worker.calls.fetch_sub(1, Ordering::AcqRel);
             match result {

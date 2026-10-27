@@ -51,6 +51,7 @@ use crate::sidebar_resource::resolve_sidebar_view;
 use crate::sidebar_resource::sidebar_attach_snapshot;
 use crate::sidebar_resource::sidebar_snapshot;
 use crate::stream_interrupt::StreamInterrupt;
+use crate::supervised::{self, Fatal, ShutdownBehavior};
 use crate::surface::AttachLifecycle;
 use cmux_threads::checked::sync as waits;
 use serde_json::Value;
@@ -431,8 +432,11 @@ pub(super) fn start_terminal_resource_attach(
     let (worker_start, worker_committed) = std::sync::mpsc::sync_channel(1);
     let worker_mux = mux.clone();
     let worker_writer = writer.clone();
-    let spawn =
-        std::thread::Builder::new().name("mux-resource-terminal-attach".into()).spawn(move || {
+    let spawn = supervised::spawn(
+        "mux-resource-terminal-attach",
+        Fatal,
+        ShutdownBehavior::Continue,
+        move || {
             if waits::recv(&worker_committed).is_err() {
                 return;
             }
@@ -495,7 +499,8 @@ pub(super) fn start_terminal_resource_attach(
                 &start.common,
                 "closed",
             );
-        });
+        },
+    );
     if let Err(error) = spawn {
         let end = resource_stream_end(
             &stream_id,
@@ -659,8 +664,11 @@ pub(super) fn start_browser_resource_attach(
     let (worker_start, worker_committed) = std::sync::mpsc::sync_channel(1);
     let worker_mux = mux.clone();
     let worker_writer = writer.clone();
-    let spawn =
-        std::thread::Builder::new().name("mux-resource-browser-attach".into()).spawn(move || {
+    let spawn = supervised::spawn(
+        "mux-resource-browser-attach",
+        Fatal,
+        ShutdownBehavior::Continue,
+        move || {
             if waits::recv(&worker_committed).is_err() {
                 return;
             }
@@ -750,7 +758,8 @@ pub(super) fn start_browser_resource_attach(
                 &start.common,
                 "closed",
             );
-        });
+        },
+    );
     if let Err(error) = spawn {
         let end = resource_stream_end(
             &stream_id,
@@ -843,8 +852,11 @@ pub(super) fn start_sidebar_resource_attach(
     let outbound = start.outbound.clone();
     let worker_mux = mux.clone();
     let worker_writer = writer.clone();
-    let spawn =
-        std::thread::Builder::new().name("mux-resource-sidebar-attach".into()).spawn(move || {
+    let spawn = supervised::spawn(
+        "mux-resource-sidebar-attach",
+        Fatal,
+        ShutdownBehavior::Continue,
+        move || {
             let mut sequence = 0u64;
             if !send_resource_uncursored_stream_item(
                 &worker_writer,
@@ -908,7 +920,8 @@ pub(super) fn start_sidebar_resource_attach(
                 &start.stream_id,
                 start.outbound.id,
             );
-        });
+        },
+    );
     if let Err(error) = spawn {
         let end = resource_stream_end(
             &stream_id,

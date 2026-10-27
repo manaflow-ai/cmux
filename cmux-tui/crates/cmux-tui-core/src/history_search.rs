@@ -5,10 +5,10 @@
 //! `history-search` reads on its own connection (WAL), so a query never
 //! waits for indexing.
 
+use crate::supervised::{self, Fatal, ShutdownBehavior, SupervisedThread};
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
-use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
 use cmux_history::{Backfill, SearchFeed, SearchHit, SearchIndex, SearchKind};
@@ -35,7 +35,7 @@ pub type BoxedSearchFeed = Box<dyn SearchFeed + Send>;
 pub struct HistorySearch {
     reader: Mutex<SearchIndex>,
     stop: Arc<AtomicBool>,
-    worker: Mutex<Option<JoinHandle<()>>>,
+    worker: Mutex<Option<SupervisedThread<()>>>,
 }
 
 impl HistorySearch {
@@ -49,9 +49,10 @@ impl HistorySearch {
         let reader = SearchIndex::open(path)?;
         let stop = Arc::new(AtomicBool::new(false));
         let worker_stop = stop.clone();
-        let worker = std::thread::Builder::new()
-            .name("history-search".into())
-            .spawn(move || index_loop(writer, feeds, pace, &worker_stop))?;
+        let worker =
+            supervised::spawn("history-search", Fatal, ShutdownBehavior::Continue, move || {
+                index_loop(writer, feeds, pace, &worker_stop);
+            })?;
         Ok(Self { reader: Mutex::new(reader), stop, worker: Mutex::new(Some(worker)) })
     }
 
@@ -71,7 +72,7 @@ impl Drop for HistorySearch {
     fn drop(&mut self) {
         self.stop.store(true, Ordering::Relaxed);
         if let Some(worker) = self.worker.lock().unwrap_or_else(PoisonError::into_inner).take() {
-            worker.thread().unpark();
+            worker.unpark();
             let _ = worker.join();
         }
     }

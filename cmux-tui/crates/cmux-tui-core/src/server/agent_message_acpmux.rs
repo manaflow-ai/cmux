@@ -5,6 +5,7 @@
 //! requires for `_acpmux/prompt_withdraw`, and never starts acpmux.
 
 use crate::panic_free::JsonFields;
+use crate::supervised::{self, Fatal, ShutdownBehavior};
 use cmux_threads::checked::ipc_reply;
 use cmux_threads::checked::sync as waits;
 use std::sync::mpsc::sync_channel;
@@ -23,7 +24,6 @@ const INFO_TIMEOUT: Duration = Duration::from_secs(2);
 const ACCEPT_TIMEOUT: Duration = Duration::from_secs(10);
 /// How long a withdraw waits; acpmux waits up to 5 s for its notice.
 const WITHDRAW_TIMEOUT: Duration = Duration::from_secs(10);
-const PROMPT_THREAD_STACK_BYTES: usize = 256 * 1024;
 /// The spec's limit on an unsend's `error.acpmux_reason`, in UTF-8 bytes.
 const ACPMUX_REASON_MAX: usize = 128;
 
@@ -89,13 +89,15 @@ impl crate::mux::Mux {
         });
         // The turn's own answer comes when it ends; the link closes first.
         let caller = link.clone();
-        let spawned = std::thread::Builder::new()
-            .name("mux-agent-message-prompt".into())
-            .stack_size(PROMPT_THREAD_STACK_BYTES)
-            .spawn(move || {
+        let spawned = supervised::spawn(
+            "mux-agent-message-prompt",
+            Fatal,
+            ShutdownBehavior::Continue,
+            move || {
                 let answer = caller.call("session/prompt", params, ACCEPT_TIMEOUT);
                 let _ = heard.try_send(Heard::Answered(answer));
-            });
+            },
+        );
         if spawned.is_err() {
             link.close();
             return Handover::Unreachable;

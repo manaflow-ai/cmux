@@ -162,6 +162,9 @@ use crate::lock_rank::{LockRank, RankedGuard, RankedMutex};
 use crate::mux::ResourceWaitWake;
 use crate::platform;
 use crate::resource::{ContentPublicId, TabResourceIdentity, TerminalPublicId};
+use crate::supervised::SupervisedThread;
+#[cfg(any(debug_assertions, test))]
+use crate::supervised::{self, Fatal, ShutdownBehavior};
 use crate::terminal_end::TerminalEnd;
 use crate::terminal_host_protocol::{TerminalExit, wait_for_native_child_status_with_reap_result};
 use crate::{Mux, MuxEvent, SurfaceId};
@@ -954,7 +957,10 @@ impl Surface {
             .and_then(|mux| mux.take_test_terminal_host_disconnect_after_spawn())
         {
             let test_surface = surface.clone();
-            let _ = std::thread::Builder::new().name("terminal-host-test-disconnect".into()).spawn(
+            let _ = supervised::spawn(
+                "terminal-host-test-disconnect",
+                Fatal,
+                ShutdownBehavior::Continue,
                 move || {
                     crate::request_path::sleep(delay);
                     if let Some(pty) = test_surface.as_pty()

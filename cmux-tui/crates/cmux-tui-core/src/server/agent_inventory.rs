@@ -12,6 +12,7 @@
 pub(super) mod watch;
 
 use crate::panic_free::JsonFields;
+use crate::supervised::{self, Fatal, ShutdownBehavior};
 use std::path::Path;
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
@@ -186,10 +187,8 @@ fn handle(line: &RouteLine<'_>) -> Option<bool> {
     let worker_writer = writer.clone();
     let worker_id = id.clone();
     let owner_echo = matches!(mode, ReadMode::Refresh).then(|| mux.machine_public_id.clone());
-    let spawned = std::thread::Builder::new()
-        .name("mux-agent-inventory".into())
-        .stack_size(256 * 1024)
-        .spawn(move || {
+    let spawned =
+        supervised::spawn("mux-agent-inventory", Fatal, ShutdownBehavior::Continue, move || {
             let result = read(&socket, mode).map(|mut value| {
                 if let Some(machine) = owner_echo {
                     value.insert("machine", json!(machine));

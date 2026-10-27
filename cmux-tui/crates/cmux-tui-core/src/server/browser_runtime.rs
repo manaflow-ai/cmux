@@ -48,6 +48,7 @@ use serde_json::{Value, json};
 use super::routes::{Route, RouteLine, RouteName};
 use super::{FrameStage, MessageWriter, Response, send_response};
 use crate::mux::Mux;
+use crate::supervised::{self, Fatal, ShutdownBehavior};
 
 pub const BROWSER_RUNTIME_CAPABILITY: &str = "browser-runtime-v1";
 /// Overrides the install directory (development and tests).
@@ -67,7 +68,6 @@ pub(crate) const MAX_STATUS_READS_PER_CLIENT: usize = 4;
 pub(crate) const MAX_STATUS_READS_TOTAL: usize = 16;
 const MAX_URL_BYTES: usize = 8 * 1024;
 const LOG_TAIL_BYTES: u64 = 2 * 1024;
-const THREAD_STACK_BYTES: usize = 256 * 1024;
 
 struct Runtime {
     owner: u64,
@@ -372,10 +372,11 @@ fn start(
     let worker_mux = mux.clone();
     let worker_writer = writer.clone();
     let worker_id = id.clone();
-    let spawned = std::thread::Builder::new()
-        .name("mux-browser-runtime-start".into())
-        .stack_size(THREAD_STACK_BYTES)
-        .spawn(move || {
+    let spawned = supervised::spawn(
+        "mux-browser-runtime-start",
+        Fatal,
+        ShutdownBehavior::Continue,
+        move || {
             let runtimes = &worker_mux.control_clients.browser_runtimes;
             // The install is on disk: read here, not on the reader thread.
             let Some((version, executable)) = runtimes.installed() else {
@@ -409,7 +410,8 @@ fn start(
                     fail(&worker_writer, worker_id, "browser-runtime.start-failed", &message);
                 }
             }
-        });
+        },
+    );
     if spawned.is_err() {
         runtimes.lock().release(client);
         return fail(writer, id, "browser-runtime.start-failed", "cannot start a thread");
@@ -462,17 +464,14 @@ fn launch(
     });
     let (line_tx, line_rx) = std::sync::mpsc::sync_channel(1);
     let reader = stdout.map(|stdout| {
-        std::thread::Builder::new()
-            .name("mux-browser-runtime-out".into())
-            .stack_size(THREAD_STACK_BYTES)
-            .spawn(move || {
-                let mut reader = BufReader::new(stdout);
-                let mut line = String::new();
-                let read = reader.read_line(&mut line).map(|_| line);
-                let _ = line_tx.send(read.ok());
-                // Keep the pipe drained until the host exits.
-                let _ = std::io::copy(&mut reader, &mut std::io::sink());
-            })
+        supervised::spawn("mux-browser-runtime-out", Fatal, ShutdownBehavior::Continue, move || {
+            let mut reader = BufReader::new(stdout);
+            let mut line = String::new();
+            let read = reader.read_line(&mut line).map(|_| line);
+            let _ = line_tx.send(read.ok());
+            // Keep the pipe drained until the host exits.
+            let _ = std::io::copy(&mut reader, &mut std::io::sink());
+        })
     });
     let port = match (written, reader) {
         (Some(Ok(())), Some(Ok(_))) => match waits::recv_timeout(&line_rx, START_TIMEOUT) {
@@ -537,10 +536,8 @@ fn stop(runtime: Runtime) {
     };
     // A stop thread that cannot start leaves the host to its closed
     // lifeline: it exits by itself, unreaped until the daemon ends.
-    let _ = std::thread::Builder::new()
-        .name("mux-browser-runtime-stop".into())
-        .stack_size(THREAD_STACK_BYTES)
-        .spawn(finish);
+    let _ =
+        supervised::spawn("mux-browser-runtime-stop", Fatal, ShutdownBehavior::Continue, finish);
 }
 
 fn ok(writer: &MessageWriter, id: Option<Value>, data: Value) -> bool {
