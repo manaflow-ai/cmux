@@ -232,7 +232,7 @@ final class SidebarRows {
             applied?()
             return
         }
-        let replies = Replies(commands.count, failed: failed, applied: applied)
+        let replies = SidebarReplies(commands.count, failed: failed, applied: applied)
         for command in commands {
             // task-owner: one sidebar command; reports to the change's `Replies`
             Task {
@@ -240,31 +240,6 @@ final class SidebarRows {
                 // Its daemon's store holds it once that daemon's events up to the reply are applied.
                 command.daemon.whenApplied(.generate(), replies.applied)
             }
-        }
-    }
-
-    /// One change's replies: `failed` at the first failure, else `applied` once every command's result is held.
-    @MainActor private final class Replies {
-        private var left: Int
-        private var onFailure: (@MainActor (ActionWorkFailure) -> Void)?
-        private let onApplied: (@MainActor () -> Void)?
-
-        init(_ count: Int, failed: @escaping @MainActor (ActionWorkFailure) -> Void, applied: (@MainActor () -> Void)?) {
-            left = count
-            onFailure = failed
-            onApplied = applied
-        }
-
-        func failed(_ failure: ActionWorkFailure) {
-            let report = onFailure
-            onFailure = nil
-            report?(failure)
-        }
-
-        func applied() {
-            left -= 1
-            // A change that failed already took its edit back.
-            if left == 0, onFailure != nil { onApplied?() }
         }
     }
 
