@@ -4455,6 +4455,7 @@ function AcpmuxPane() {
   /// This Mac's name, from the handshake.
   const [machineName, setMachineName] = useState<string | undefined>();
   const [cloudMachineID, setCloudMachineID] = useState<string | undefined>();
+  const [cloudCredentialRecoveryAvailable, setCloudCredentialRecoveryAvailable] = useState(false);
   const [scrollAnchor, setScrollAnchor] = useState<(ScrollAnchor & { sessionId: string }) | undefined>();
   const [githubRepository, setGithubRepository] = useState<string | undefined>();
   /// What the direct client (or the host) last reported; `snapshot` draws a pending harness or
@@ -5626,7 +5627,7 @@ function AcpmuxPane() {
             }).catch(() => undefined),
         }),
       transferCloudCredentials: cloudCredentialRecovery(
-        connected,
+        connected && cloudCredentialRecoveryAvailable,
         cloudMachineID,
         snapshot.sessionId,
         snapshot.summary?.harness,
@@ -5658,6 +5659,7 @@ function AcpmuxPane() {
       hunkReview,
       loginCommand,
       cloudMachineID,
+      cloudCredentialRecoveryAvailable,
       snapshot.summary?.hostKind,
       snapshot.summary?.cwd,
       snapshot.summary?.harness,
@@ -7059,12 +7061,14 @@ function AcpmuxPane() {
           pastTurns?: unknown;
           machineName?: unknown;
           cloudMachineID?: unknown;
+          cloudCredentialRecoveryAvailable?: unknown;
           githubRepository?: unknown;
           harnesses?: unknown;
           sandboxState?: unknown;
         }>("ready", reconnect ? { reconnect } : {});
         if (cancelled) return;
         acpmuxPerf.markAgent("handshakeReady");
+        setCloudCredentialRecoveryAvailable(host.cloudCredentialRecoveryAvailable === true);
         setCloudMachineID(
           typeof host.cloudMachineID === "string" && host.cloudMachineID ? host.cloudMachineID : undefined,
         );
