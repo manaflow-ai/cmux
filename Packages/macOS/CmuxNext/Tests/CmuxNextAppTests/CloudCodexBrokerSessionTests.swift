@@ -1,4 +1,5 @@
 import Foundation
+import Darwin
 import Testing
 @testable import CmuxNextCloud
 
@@ -56,6 +57,21 @@ struct CloudCodexBrokerSessionTests {
         }
     }
 
+    @Test func shutdownEscalatesOnlyOwnedHolderThatIgnoresTERM() async throws {
+        try await withSession { session, _ in
+            let reply = try await session.request(method: "ignore-term")
+            let pid = try #require(reply.chatgptAccountID.flatMap(Int32.init))
+            let clock = ContinuousClock()
+            let started = clock.now
+            async let first: Void = session.shutdown()
+            async let second: Void = session.shutdown()
+            _ = await (first, second)
+            #expect(started.duration(to: clock.now) < .seconds(8))
+            #expect(kill(pid, 0) == -1)
+            #expect(errno == ESRCH)
+        }
+    }
+
     @Test func childKeepsTLSAndTemporaryDirectoryEnvironment() async throws {
         try await withSession { session, root in
             let reply = try await session.request(method: "environment")
@@ -95,6 +111,9 @@ for line in sys.stdin:
         reply(id, error='codex_auth_timeout')
         sys.exit(0)
     elif method == 'account': reply(id, error='codex_auth_account_changed')
+    elif method == 'ignore-term':
+        signal.signal(signal.SIGTERM, signal.SIG_IGN)
+        reply(id, str(os.getpid()))
     elif method == 'environment':
         reply(id, json.dumps({k: os.environ[k] for k in ('TMPDIR', 'SSL_CERT_FILE', 'SSL_CERT_DIR', 'UNRELATED_SECRET') if k in os.environ}))
     else: reply(id)
