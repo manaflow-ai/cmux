@@ -131,18 +131,41 @@ impl<'a> Progress<'a> {
 }
 
 /// Whether failure `e` of a request to `daemon` may pass if asked again: a link that dropped or
-/// timed out, a peer daemon that restarted, a chunk the daemon did not take at that offset. Not a
-/// refusal the daemon gave with its reason, a local file error, or a closed daemon connection.
+/// timed out, a peer that is down, a chunk the daemon did not take at that offset. Not a refusal
+/// the daemon gave for the upload itself, a local file error, or a closed daemon connection.
 pub(super) fn transient(daemon: &Client, e: &anyhow::Error) -> bool {
+    if e.downcast_ref::<LinkStopped>().is_some() {
+        return true;
+    }
     if daemon.is_closed() {
         return false;
     }
-    let Some(DaemonError(rpc)) = e.downcast_ref::<DaemonError>() else { return false };
-    match rpc.data.as_ref().and_then(|d| d.get("reason")).and_then(Value::as_str) {
-        Some(reason) => matches!(reason, "upload.offset" | "peer_unreachable"),
-        // An internal error with no reason: a link that dropped or timed out on the way.
-        None => rpc.code == -32603,
+    e.downcast_ref::<DaemonError>().is_some_and(|DaemonError(rpc)| link_failure(rpc))
+}
+
+/// Whether the daemon's error `rpc` says the link lost the request, not that it refused it.
+fn link_failure(rpc: &crate::rpc::RpcError) -> bool {
+    let data = rpc.data.as_ref();
+    match data.and_then(|d| d.get("reason")).and_then(Value::as_str) {
+        Some("upload.offset" | "peer_unreachable") => true,
+        Some(_) => false,
+        // The peer link's own failures (`peer.rs` `link_request_on`), which carry no reason.
+        None => {
+            data.and_then(|d| d.get("retryable")) == Some(&Value::Bool(true))
+                || (rpc.code == -32603
+                    && rpc.message.starts_with("peer ")
+                    && ["timed out", "dropped the request", "connection closed", "disconnected"]
+                        .iter()
+                        .any(|end| rpc.message.ends_with(end)))
+        }
     }
+}
+
+/// `e` as the failure of `label`'s upload: [`LinkStopped`] when the link it went on stopped, so
+/// the caller keeps the uploads for a later send to resume.
+pub(super) fn failure(daemon: &Client, label: &str, e: anyhow::Error) -> anyhow::Error {
+    let message = format!("cannot attach {label}: {e:#}");
+    if transient(daemon, &e) { LinkStopped(message).into() } else { anyhow::anyhow!(message) }
 }
 
 /// Asks `call` until it answers, waiting longer each time a [`transient`] failure comes, for at
@@ -172,62 +195,103 @@ where
     }
 }
 
-/// The record of the upload of the file at `path` (`meta`) to chat `chat`.
-fn record_path(chat: &str, path: &Path, meta: &std::fs::Metadata) -> Option<PathBuf> {
-    use sha2::Digest;
-    let canonical = std::fs::canonicalize(path).ok()?;
-    let mtime = meta.modified().ok()?.duration_since(std::time::UNIX_EPOCH).ok()?.as_nanos();
-    let key = format!("{chat}\0{}\0{}\0{mtime}", canonical.display(), meta.len());
-    let hash: String =
-        sha2::Sha256::digest(key.as_bytes()).iter().take(16).map(|b| format!("{b:02x}")).collect();
-    Some(crate::config::home().join("run").join("upload-resume").join(format!("{hash}.json")))
+/// The resume record of one file's upload to one chat, held by one sender at a time: its lock
+/// is the OS's, so a sender that dies lets go of it at once.
+pub(super) struct Record {
+    path: PathBuf,
+    _lock: std::fs::File,
 }
 
-/// Removes the record of a finished or cancelled upload.
-pub(super) fn forget(one: &Sent) {
-    if let Some(record) = &one.record {
-        let _ = std::fs::remove_file(record);
+impl Record {
+    /// The record of the upload of the file at `path` (`meta`) to chat `chat`, claimed for this
+    /// sender. None when another sender holds it (a concurrent send of the same file): this one
+    /// then uploads on its own, with no record.
+    fn claim(chat: &str, path: &Path, meta: &std::fs::Metadata) -> Option<Self> {
+        Self::claim_in(&crate::config::home().join("run").join("upload-resume"), chat, path, meta)
+    }
+
+    /// [`Record::claim`] in folder `dir`.
+    fn claim_in(dir: &Path, chat: &str, path: &Path, meta: &std::fs::Metadata) -> Option<Self> {
+        use sha2::Digest;
+        let canonical = std::fs::canonicalize(path).ok()?;
+        let mtime = meta.modified().ok()?.duration_since(std::time::UNIX_EPOCH).ok()?.as_nanos();
+        let key = format!("{chat}\0{}\0{}\0{mtime}", canonical.display(), meta.len());
+        let hash: String = sha2::Sha256::digest(key.as_bytes())
+            .iter()
+            .take(16)
+            .map(|b| format!("{b:02x}"))
+            .collect();
+        // Its lock file stays when the record goes: a sender that opened it just before would
+        // otherwise lock a file nobody else sees.
+        crate::config::private_state_dir(dir).ok()?;
+        let mut open = std::fs::OpenOptions::new();
+        open.create(true).truncate(false).write(true);
+        #[cfg(unix)]
+        std::os::unix::fs::OpenOptionsExt::mode(&mut open, 0o600);
+        let lock = open.open(dir.join(format!("{hash}.lock"))).ok()?;
+        lock.try_lock().ok()?;
+        Some(Self { path: dir.join(format!("{hash}.json")), _lock: lock })
+    }
+
+    /// The upload it names: `(uploadId, ownerToken)`.
+    fn read(&self) -> Option<(String, Option<String>)> {
+        let saved: Value = serde_json::from_slice(&std::fs::read(&self.path).ok()?).ok()?;
+        let id = saved.get("uploadId").and_then(Value::as_str)?.to_owned();
+        Some((id, saved.get("ownerToken").and_then(Value::as_str).map(str::to_owned)))
+    }
+
+    /// Saves it; false when it could not be written, so a later send cannot resume the upload.
+    fn write(&self, id: &str, owner: Option<&str>) -> bool {
+        let saved = json!({"uploadId": id, "ownerToken": owner}).to_string();
+        crate::agent_tools::write_private(&self.path, saved.as_bytes()).is_ok()
+    }
+
+    /// Removes it: its upload finished, was cancelled, or is gone. The lock file stays, empty.
+    pub(super) fn forget(&self) {
+        let _ = std::fs::remove_file(&self.path);
     }
 }
 
 /// The upload an earlier send of this file to this chat began, and where it stands: `(id,
-/// owner, offset)`. None when there is none, or the daemon no longer has it.
+/// owner, offset)`. None when there is none, or the daemon answers it is not that upload (the
+/// record goes). Err when the daemon cannot be asked: the record stays for a later send.
 async fn resumable(
     daemon: &Client,
     say: Say<'_>,
     chat: &str,
-    record: &Path,
+    record: &Record,
     name: &str,
     size: u64,
-) -> Option<(String, Option<String>, u64)> {
-    let saved: Value = serde_json::from_slice(&std::fs::read(record).ok()?).ok()?;
-    let id = saved.get("uploadId").and_then(Value::as_str)?.to_owned();
-    let owner = saved.get("ownerToken").and_then(Value::as_str).map(str::to_owned);
+) -> anyhow::Result<Option<(String, Option<String>, u64)>> {
+    let Some((id, owner)) = record.read() else { return Ok(None) };
     let ask = json!({"sessionId": chat, "uploadId": id});
     let what = format!("asking where {name} stands");
     let status = retrying(daemon, say, &what, Instant::now(), || {
         daemon.request(method::MUX_FILE_PUT_STATUS, ask.clone())
     });
-    let same = |s: &Value| {
-        s.get("size").and_then(Value::as_u64) == Some(size)
-            && s.get("fileName").and_then(Value::as_str) == Some(name)
+    let status = match status.await {
+        Ok(status) => status,
+        Err(e) if transient(daemon, &e) => return Err(e),
+        // The daemon answered: it has no such upload.
+        Err(_) => {
+            record.forget();
+            return Ok(None);
+        }
     };
-    match status.await {
-        Ok(status) if same(&status) => {
-            let offset = status.get("offset").and_then(Value::as_u64).unwrap_or(0).min(size);
-            say(&format!("resuming {name} at {} of {}", human(offset), human(size)));
-            Some((id, owner, offset))
-        }
-        _ => {
-            let _ = std::fs::remove_file(record);
-            None
-        }
+    let same = status.get("size").and_then(Value::as_u64) == Some(size)
+        && status.get("fileName").and_then(Value::as_str) == Some(name);
+    if !same {
+        record.forget();
+        return Ok(None);
     }
+    let offset = status.get("offset").and_then(Value::as_u64).unwrap_or(0).min(size);
+    say(&format!("resuming {name} at {} of {}", human(offset), human(size)));
+    Ok(Some((id, owner, offset)))
 }
 
 /// Begins (or resumes, [`resumable`]) an upload of the file at `path`, `size` bytes, to chat
 /// `chat` and sends its bytes in chunks read as they go, retrying what the link loses. A failure
-/// answers the upload when it was begun, for the caller to cancel.
+/// answers the upload when it was begun, for the caller to cancel or keep ([`LinkStopped`]).
 pub(super) async fn upload(
     daemon: &Client,
     chat: &str,
@@ -235,36 +299,39 @@ pub(super) async fn upload(
     size: u64,
     progress: &mut Progress<'_>,
 ) -> Result<Sent, (anyhow::Error, Option<Sent>)> {
-    let label = path.display();
+    let label = path.display().to_string();
     let name = super::safe_name(&path.file_name().map(|n| n.to_string_lossy()).unwrap_or_default());
     // With its reason: the CLI prints the outer message only.
-    let context = |e: anyhow::Error| anyhow::anyhow!("cannot attach {label}: {e:#}");
-    let mut file = tokio::fs::File::open(path).await.map_err(|e| (context(e.into()), None))?;
-    let meta = file.metadata().await.map_err(|e| (context(e.into()), None))?;
+    let fail = |e: anyhow::Error| failure(daemon, &label, e);
+    let mut file = tokio::fs::File::open(path).await.map_err(|e| (fail(e.into()), None))?;
+    let meta = file.metadata().await.map_err(|e| (fail(e.into()), None))?;
     let mut head = vec![0u8; HEAD_BYTES.min(usize::try_from(size).unwrap_or(HEAD_BYTES))];
-    file.read_exact(&mut head).await.map_err(|e| (context(e.into()), None))?;
+    file.read_exact(&mut head).await.map_err(|e| (fail(e.into()), None))?;
     let say = progress.say;
     let resume = daemon.daemon_lists(crate::hub::file_uploads::RESUME_FEATURE);
-    let record = resume.then(|| record_path(chat, path, &meta)).flatten();
+    let mut record = resume.then(|| Record::claim(chat, path, &meta)).flatten();
     let earlier = match &record {
         Some(record) => resumable(daemon, say, chat, record, &name, size).await,
-        None => None,
+        None => Ok(None),
     };
+    let earlier = earlier.map_err(|e| (fail(e), None))?;
     let (id, owner, mut offset) = match earlier {
         Some(found) => found,
         None => {
             let begin =
                 json!({"sessionId": chat, "fileName": name, "size": size, "forPrompt": true});
-            let begun = daemon.request(method::MUX_FILE_PUT_BEGIN, begin).await;
-            let begun = begun.map_err(|e| (context(e), None))?;
+            let what = format!("starting the upload of {name}");
+            let begun = retrying(daemon, say, &what, Instant::now(), || {
+                daemon.request(method::MUX_FILE_PUT_BEGIN, begin.clone())
+            });
+            let begun = begun.await.map_err(|e| (fail(e), None))?;
             let Some(id) = begun.get("uploadId").and_then(Value::as_str) else {
                 return Err((anyhow::anyhow!("the daemon gave no uploadId for {label}"), None));
             };
             let owner = begun.get("ownerToken").and_then(Value::as_str).map(str::to_owned);
-            if let Some(record) = &record {
-                let saved = json!({"uploadId": id, "ownerToken": owner}).to_string();
-                // Without its record the upload still goes; only a later send cannot resume it.
-                let _ = crate::agent_tools::write_private(record, saved.as_bytes());
+            // Without its record the upload still goes; only a later send cannot resume it.
+            if record.as_ref().is_some_and(|r| !r.write(id, owner.as_deref())) {
+                record = None;
             }
             (id.to_owned(), owner, 0)
         }
@@ -314,8 +381,10 @@ pub(super) async fn upload(
             })
             .await?;
             let at = status.get("offset").and_then(Value::as_u64).unwrap_or(0).min(size);
-            if at >= offset {
+            if at > offset {
+                // Bytes whose answers the link lost: progress all the same.
                 progress.took(at - offset, true, &one.name);
+                (gained, wait) = (Instant::now(), Duration::from_secs(1));
             } else {
                 progress.lost(offset, at);
             }
@@ -326,15 +395,12 @@ pub(super) async fn upload(
     };
     match sent.await {
         Ok(()) => Ok(one),
-        Err(e) if transient(daemon, &e) => {
-            Err((LinkStopped(format!("{:#}", context(e))).into(), Some(one)))
-        }
-        Err(e) => Err((context(e), Some(one))),
+        Err(e) => Err((fail(e), Some(one))),
     }
 }
 
-/// An upload that stopped because the link stayed down for [`STALL`]: kept for a later send of
-/// the same file to resume.
+/// An upload that stopped because the link it went on stopped (for [`STALL`], or for a request
+/// that is not retried): kept for a later send of the same file to resume.
 #[derive(Debug)]
 pub(super) struct LinkStopped(String);
 
@@ -369,5 +435,48 @@ mod tests {
         assert_eq!(span(Duration::from_secs(12)), "12 s");
         assert_eq!(span(Duration::from_secs(200)), "3 min 20 s");
         assert_eq!(span(Duration::from_secs(3840)), "1 h 4 min");
+    }
+
+    /// Two sends of one file to one chat never share an upload: the second gets no record while
+    /// the first holds it, and gets it once the first lets go (a sender that ended).
+    #[test]
+    fn one_sender_at_a_time_holds_a_files_resume_record() {
+        let dir = std::env::temp_dir().join(format!("amx-rec-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("big.bin");
+        std::fs::write(&file, b"bytes").unwrap();
+        let meta = std::fs::metadata(&file).unwrap();
+        let records = dir.join("records");
+        let first = Record::claim_in(&records, "chat", &file, &meta).expect("the first claim");
+        assert!(first.write("01a17d93-859c-75a2-82f8-350749c86551", Some("tok")));
+        assert!(Record::claim_in(&records, "chat", &file, &meta).is_none(), "held by the first");
+        let other = Record::claim_in(&records, "other-chat", &file, &meta);
+        assert!(other.is_some(), "another chat's record is its own");
+        drop(first);
+        let again = Record::claim_in(&records, "chat", &file, &meta).expect("let go");
+        let saved = again.read().expect("the record");
+        assert_eq!(saved, ("01a17d93-859c-75a2-82f8-350749c86551".into(), Some("tok".into())));
+        again.forget();
+        assert!(again.read().is_none());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Only the link losing a request is retried, never a refusal of the upload itself.
+    #[test]
+    fn only_a_lost_request_is_retried() {
+        use crate::rpc::RpcError;
+        let lost = |m: &str| link_failure(&RpcError::internal(m));
+        assert!(lost("peer cosmic-gray timed out"));
+        assert!(lost("peer cosmic-gray dropped the request"));
+        assert!(lost("peer cosmic-gray connection closed"));
+        let reason = |r: &str| RpcError::internal("x").with_data(json!({"reason": r}));
+        assert!(link_failure(&reason("peer_unreachable")));
+        assert!(link_failure(&reason("upload.offset")));
+        assert!(!link_failure(&reason("upload.diskFull")));
+        assert!(!link_failure(&reason("upload.unknown")));
+        assert!(!link_failure(&reason("filePut.unsupported")));
+        assert!(!lost("cannot append upload: Input/output error"));
+        assert!(!link_failure(&RpcError::invalid_params("peer x timed out")));
     }
 }

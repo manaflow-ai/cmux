@@ -199,29 +199,33 @@ pub async fn blocks_for(
                 daemon.request(method::MUX_FILE_PUT_FINISH, finish.clone())
             });
             if let Err(e) = finished.await {
-                failure = Some(anyhow::anyhow!("cannot attach {}: {e:#}", one.name));
+                failure = Some(upload::failure(daemon, &one.name, e));
                 break;
             }
         }
     }
     if let Some(e) = failure {
-        // A link that stayed down: the uploads stay for the same send to resume, which their
-        // records let it do (`attach/upload.rs`); the sweep takes them if it never comes.
-        if e.downcast_ref::<upload::LinkStopped>().is_some()
-            && sent.iter().all(|one| one.record.is_some())
-        {
-            return Err(anyhow::anyhow!("{e:#}; run the same send again to resume it"));
-        }
+        // A link that stopped: each upload with a record stays for the same send to resume
+        // (`attach/upload.rs`), and the age sweep takes it if that never comes. The rest go.
+        let stopped = e.downcast_ref::<upload::LinkStopped>().is_some();
+        let mut kept = 0;
         for one in &sent {
+            if stopped && one.record.is_some() {
+                kept += 1;
+                continue;
+            }
             let cancel = json!({"sessionId": chat, "uploadId": one.id, "ownerToken": one.owner});
             let _ = daemon.request(method::MUX_FILE_PUT_CANCEL, cancel).await;
-            upload::forget(one);
+            one.forget();
+        }
+        if kept > 0 {
+            return Err(anyhow::anyhow!("{e:#}; run the same send again to resume the upload"));
         }
         return Err(e);
     }
     progress.finished();
     // Finished: a later send of the same files uploads them again, for its own prompt.
-    sent.iter().for_each(upload::forget);
+    sent.iter().for_each(Sent::forget);
     Ok(sent.iter().map(Sent::block).collect())
 }
 
@@ -246,11 +250,19 @@ struct Sent {
     size: u64,
     /// Its first bytes, which say whether it is an image.
     head: Vec<u8>,
-    /// The record a later send resumes it by (`attach/upload.rs`); none from an older daemon.
-    record: Option<PathBuf>,
+    /// The record a later send resumes it by, held by this sender (`attach/upload.rs`); none
+    /// from an older daemon, or while another sender holds it.
+    record: Option<upload::Record>,
 }
 
 impl Sent {
+    /// Removes its resume record: it finished for this send, or was cancelled.
+    fn forget(&self) {
+        if let Some(record) = &self.record {
+            record.forget();
+        }
+    }
+
     /// The block that names the upload (`prompt_uploads.rs`), marked as this prompt's own: the
     /// daemon deletes it if the prompt is refused before the chat takes it (`Saved`).
     fn block(&self) -> Value {
