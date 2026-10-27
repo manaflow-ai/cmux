@@ -52,6 +52,10 @@ import func CmuxSafeConcurrency.withOnceContinuation
 /// changes no user-visible state. Location services are not asked (chief
 /// decision 2026-10-18: no system access the user did not ask for).
 ///
+/// In-process backend only: in host mode (``CEFHostStart``) cmux reads none of the framework; the
+/// Chromium Host reads it beside its own start (ChromiumHost/src/host_framework_prefetch.h, task
+/// p01-process-101).
+///
 /// One per runtime (``CEFRuntime/prefetch``); tests make their own.
 nonisolated final class CEFFrameworkPrefetch: Sendable {
     nonisolated struct Report: Sendable {

@@ -3,28 +3,23 @@ import Foundation
 /// Maps the in-process shim and the framework (`cef_load_library`, fork API lookup), reading the framework's
 /// files into the file cache through ``prefetch`` first. Thread-safe: plain `dlopen`/`dlsym`, no Chromium code
 /// runs yet. The runtime's loader reads through the runtime's prefetch (``CEFRuntime/prefetch``), so what a
-/// fenced or promoted read already read is not read again.
+/// fenced or promoted read already read is not read again. In-process backend only: in host mode
+/// (``CEFHostStart``) the Chromium Host maps and reads the framework (ChromiumHost/src/host_framework_prefetch.h).
 nonisolated struct CEFLibraryLoader: Sendable {
     /// The framework read the load goes through.
     let prefetch: CEFFrameworkPrefetch
-    /// Checks a downloaded runtime's code before it loads; nil: Security's code signature check.
-    var signatureChecker: (any CEFCodeSignatureChecking)?
+    /// Checks a downloaded runtime's code before it loads.
+    var verification: CEFRuntimeVerification
 
     init(prefetch: CEFFrameworkPrefetch, signatureChecker: (any CEFCodeSignatureChecking)? = nil) {
         self.prefetch = prefetch
-        self.signatureChecker = signatureChecker
+        verification = CEFRuntimeVerification(checker: signatureChecker)
     }
 
     /// Maps the shim and the framework of `candidate`.
     func load(_ candidate: CEFRuntimeLayout?) -> Result<CEFLoadedLibrary, CEFRuntime.BootError> {
         guard let layout = candidate else { return .failure(.notEmbedded) }
-        if case .downloaded(let teamID) = layout.trust {
-            guard let teamID else { return .failure(.untrusted("missing Developer ID team")) }
-            let checker = signatureChecker ?? SecCodeCEFCodeSignatureChecker()
-            if let invalid = checker.invalidItem(in: layout, teamID: teamID) {
-                return .failure(.untrusted(invalid))
-            }
-        }
+        if let refusal = verification.refusal(for: layout) { return .failure(refusal) }
         let clock = ContinuousClock()
         let started = clock.now
         let shim: CEFShimLibrary

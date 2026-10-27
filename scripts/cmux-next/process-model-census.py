@@ -30,7 +30,11 @@ across all roles, keyed by its VM object id, as Chrome's memory-infra counts a s
 (base/memory/shared_memory_tracker.cc). File-backed shared pages (code, the dyld cache) are the system's and
 not counted. Memory is known only when every counted process was read: a missing footprint or region walk
 (`--no-regions`, a walk that failed) makes the sums null, never a partial number; `memory` in the report says
-which pids lack what. `per_hidden_terminal_mb` is the growth of all roles' unique memory over a baseline census
+which pids lack what. `framework_regions` per role counts the regions mapped from the Chromium framework's
+folder (its binary and the Resources files Chromium maps), the lines `vmmap <pid> | grep -c 'Chromium Embedded
+Framework'` counts (the same region walk, PROC_PIDREGIONPATHINFO; /proc/<pid>/maps on Linux): in host mode the
+app maps none, the Chromium Host all (p01-process done check 3, task 101); null when a member's walk did not run.
+`--check-framework` exits 1 when the app maps any. `per_hidden_terminal_mb` is the growth of all roles' unique memory over a baseline census
 of the same build, per added hidden terminal (`--baseline`, or for `--session heavy` a census taken before the
 session is built). With no baseline it is null; `terminal_roles_unique_mb` is then only the holder's, VT
 workers' and terminal hosts' memory, not a per-terminal figure.
@@ -49,13 +53,15 @@ Usage:
   process-model-census.py --tag T --sample-ms 50 --during agent-burst      peaks during 200 CLI calls
   process-model-census.py --tag T --sample-ms 50 --during daemon-restart   peaks while the daemon restarts
   process-model-census.py --tag T --check-thread-doc [plans/cmux-next/threading-model.md]
+  process-model-census.py --tag T --check-framework             host mode: the app maps no Chromium framework region
   process-model-census.py --pid P                             any process and its descendants (role app)
   process-model-census.py --from DIR                          a canned or dumped census (--dump DIR writes one)
 
 A census directory (`--from`, `--dump`): ps.txt (`ps -axww -o pid=,ppid=,rss=,args=`), exe.txt
 (`pid<TAB>executable path`, what proc_pidpath or /proc/<pid>/exe read; it classifies before argv), threads.txt
 (`pid<TAB>qos<TAB>name`), memory.txt (`pid<TAB>footprint_kb<TAB>private_kb<TAB>obj:kb,obj:kb` for shared
-anonymous objects; private_kb `-` when the region walk did not run), samples.txt
+anonymous objects; private_kb `-` when the region walk did not run), framework.txt (`pid<TAB>regions` mapped from
+the Chromium framework, for each process whose region walk ran), samples.txt
 (`tick<TAB>pid<TAB>ppid<TAB>threads<TAB>args`), session.json ({bundle, tag, app_pid, terminals,
 hidden_terminals, regions, build}). Only ps.txt is required.
 
@@ -68,8 +74,9 @@ written after a section label (`label` (user-initiated)), or the row's QoS cell 
 thread of the Rust processes is cmux's; in the app and the Chromium Host only names that start with `cmux` or
 `com.cmux` are (the rest are AppKit's and Chromium's). Exit 1 when any is found.
 
-Exit status: 0, 1 when `--check-thread-doc` finds an unlisted name or a QoS mismatch, 2 when the census cannot
-run (no app, a session that did not build, a socket that does not answer).
+Exit status: 0, 1 when `--check-thread-doc` finds an unlisted name or a QoS mismatch or `--check-framework` a
+framework region in the app, 2 when the census cannot run (no app, a session that did not build, a socket that does
+not answer; for `--check-framework`, an app whose region walk did not run).
 
 Runs on the fleet (`cmux-ci run`), never in CI. Stdlib only; macOS through libproc (ctypes), Linux through /proc.
 """
@@ -103,6 +110,8 @@ TERMINAL_ARGS = {HOST_ARG, HOLDER_ARG, VT_WORKER_ARG}
 CHIEF_SESSION = "cmux-chief"
 # macOS links /tmp, /var and /etc into /private; proc_pidpath returns the /private spelling.
 PRIVATE_ROOTS = ("/tmp/", "/var/", "/etc/")
+# What `vmmap | grep 'Chromium Embedded Framework'` matches: the framework folder's name is in each of its files' paths.
+FRAMEWORK_MARK = "Chromium Embedded Framework"
 QOS_NAMES = ("user-interactive", "user-initiated", "default", "utility", "background")
 BURST_CALLS, BURST_PARALLEL = 200, 50
 MB = 1024.0
@@ -122,6 +131,7 @@ class Proc:
         self.footprint_kb = None
         self.private_kb = None
         self.shared = {}           # shared anonymous VM object id -> resident KiB
+        self.framework_regions = None  # regions mapped from the Chromium framework, None when not walked
 
     @property
     def command(self):
@@ -192,6 +202,11 @@ def read_dir(path):
             if ":" in item:
                 obj, kb = item.rsplit(":", 1)
                 proc.shared[obj.strip()] = int(kb)
+    for line in (text("framework.txt") or "").splitlines():
+        pid, _, count = line.partition("\t")
+        proc = by_pid.get(int(pid)) if pid.strip().isdigit() else None
+        if proc is not None and count.strip().isdigit():
+            proc.framework_regions = int(count)
     session = json.loads(text("session.json") or "{}")
     samples = collections.OrderedDict()
     for line in (text("samples.txt") or "").splitlines():
@@ -224,6 +239,10 @@ def write_dir(path, procs, session, samples):
                 shared = ",".join(f"{obj}:{kb}" for obj, kb in sorted(p.shared.items()))
                 private = "-" if p.private_kb is None else p.private_kb
                 handle.write(f"{p.pid}\t{p.footprint_kb}\t{private}\t{shared}\n")
+    with open(os.path.join(path, "framework.txt"), "w", encoding="utf-8") as handle:
+        for p in procs:
+            if p.framework_regions is not None:
+                handle.write(f"{p.pid}\t{p.framework_regions}\n")
     if samples:
         with open(os.path.join(path, "samples.txt"), "w", encoding="utf-8") as handle:
             for tick, table in enumerate(samples):
@@ -257,6 +276,7 @@ class Darwin:
     BSDINFO_SIZE, TASKINFO_SIZE, THREADINFO_SIZE = 136, 96, 112
     REGIONPATHINFO_SIZE = 1272          # proc_regioninfo (96) + vnode_info_path (152 + MAXPATHLEN)
     REGION_PATH_OFFSET = 96 + 152
+    MAXPATHLEN = 1024
     SHARED_MODES = (4, 5, 7)            # SM_SHARED, SM_TRUESHARED, SM_SHARED_ALIASED
     CTL_KERN, KERN_ARGMAX, KERN_PROCARGS2 = 1, 8, 49
 
@@ -366,8 +386,10 @@ class Darwin:
             self._regions(proc)
 
     def _regions(self, proc):
-        """Private resident pages, and each shared anonymous VM object's resident pages by object id."""
-        address, private, shared = 0, 0, {}
+        """Private resident pages, each shared anonymous VM object's resident pages by object id, and the regions
+        mapped from the Chromium framework."""
+        address, private, shared, framework = 0, 0, {}, 0
+        mark = FRAMEWORK_MARK.encode()
         buf = ctypes.create_string_buffer(self.REGIONPATHINFO_SIZE)
         while True:
             n = self.lib.proc_pidinfo(proc.pid, self.PROC_PIDREGIONPATHINFO, address, buf, self.REGIONPATHINFO_SIZE)
@@ -383,11 +405,14 @@ class Darwin:
             if share_mode in self.SHARED_MODES and buf.raw[self.REGION_PATH_OFFSET] == 0:
                 key = f"{obj_id:x}"
                 shared[key] = max(shared.get(key, 0), pages_resident * self.page_kb)
+            path = buf.raw[self.REGION_PATH_OFFSET:self.REGION_PATH_OFFSET + self.MAXPATHLEN].split(b"\0", 1)[0]
+            framework += mark in path
             if region_size == 0:
                 break
             address = region_address + region_size
         proc.private_kb = private * self.page_kb
         proc.shared = shared
+        proc.framework_regions = framework
 
 
 class Linux:
@@ -460,6 +485,9 @@ class Linux:
         proc.footprint_kb = kb("RssAnon") + kb("VmSwap")
         if not regions:
             return
+        maps = self._read(f"/proc/{proc.pid}/maps")
+        if maps is not None:
+            proc.framework_regions = sum(FRAMEWORK_MARK in line for line in maps.splitlines())
         rollup = self._read(f"/proc/{proc.pid}/smaps_rollup")
         if rollup is None:
             return  # not readable: the region state stays unknown, as a failed walk on macOS
@@ -694,6 +722,13 @@ def unique_kb(members):
     return sum(p.private_kb for p in members) + sum(shared.values())
 
 
+def framework_regions(members):
+    """Regions the members map from the Chromium framework; None when a member's region walk did not run."""
+    if any(p.framework_regions is None for p in members):
+        return None
+    return sum(p.framework_regions for p in members)
+
+
 def footprint_kb(members):
     if any(p.footprint_kb is None for p in members):
         return None
@@ -736,6 +771,7 @@ def census(procs, target, session=None, samples=None, baseline=None, sampling=No
             "unique_mb": mb(unique),
             "threads_by_qos": dict(sorted(qos.items())),
             "threads_by_name": dict(names.most_common()),
+            "framework_regions": framework_regions(members),
             "pids": sorted(p.pid for p in members),
         }
     children = report_roles.pop("children")
@@ -1098,6 +1134,10 @@ def text_report(report, threads=False, by_name=False):
     if memory.get("regions_missing_pids") or memory.get("footprint_missing_pids"):
         lines.append(f"memory not read in full (regions: {memory.get('regions')}): no region walk for pids "
                      f"{memory.get('regions_missing_pids')}, no footprint for {memory.get('footprint_missing_pids')}")
+    mapped = {role: r.get("framework_regions") for role, r in report["roles"].items() if r["processes"]}
+    if any(count is not None for count in mapped.values()):
+        lines.append("Chromium framework regions: " + ", ".join(
+            f"{role} {'-' if count is None else count}" for role, count in mapped.items()))
     if report["per_object_threads"]:
         lines.append("per-object threads: " + ", ".join(f"{n} x{c}" for n, c in report["per_object_threads"].items()))
     if report.get("foreign_hosts"):
@@ -1157,6 +1197,8 @@ def main(argv=None):
     parser.add_argument("--no-regions", action="store_true", help="skip the region walk (no private or shared memory)")
     parser.add_argument("--check-thread-doc", nargs="?", const=THREAD_DOC, metavar="DOC",
                         help="check observed thread names and QoS against the doc (default threading-model.md)")
+    parser.add_argument("--check-framework", action="store_true",
+                        help="host mode: exit 1 when the app maps any Chromium framework region (done check 3)")
     parser.add_argument("--keep", action="store_true", help="with --app: leave the launched app running")
     opts = parser.parse_args(argv)
     if opts.during and not opts.sample_ms:
@@ -1230,6 +1272,11 @@ def main(argv=None):
                 roles, _ = classify(procs, target)
                 report["thread_doc"] = check_thread_doc(procs, roles, handle.read())
             failed = bool(report["thread_doc"]["unlisted"] or report["thread_doc"]["qos_mismatch"])
+        if opts.check_framework:
+            app_regions = report["roles"]["app"]["framework_regions"]
+            if not report["roles"]["app"]["processes"] or app_regions is None:
+                raise CensusError("--check-framework: the app's region walk did not run (no app, or --no-regions)")
+            failed = failed or app_regions > 0
         if opts.dump:
             write_dir(opts.dump, procs, session, samples)
         if opts.out:

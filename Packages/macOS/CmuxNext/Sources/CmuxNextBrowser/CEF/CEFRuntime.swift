@@ -328,7 +328,7 @@ final class CEFRuntime {
         let inputs = preparedStartInputs()
         let loaded: Result<CEFRuntimeBoot, BootError>
         if let hostStart {
-            loaded = await hostStart.attached().map(CEFRuntimeBoot.host)
+            loaded = await hostStart.attached(layout: candidate).map(CEFRuntimeBoot.host)
         } else if fencedRead != nil, let prefetchWork, !(await prefetch.promote(on: prefetchWork)) {
             // Quit dropped the preload's fenced framework read before this start promoted it: nothing maps.
             loaded = .failure(.quit)

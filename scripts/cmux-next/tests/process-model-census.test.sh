@@ -168,6 +168,35 @@ assert b["roles"]["daemon"]["pids"] == [102], b["roles"]["daemon"]["pids"]
 EOF
 grep -q $'^102\t.*/bin/cmux$' "$tmp/again/exe.txt" || { echo "FAIL: --dump lost the executable paths" >&2; exit 1; }
 
+# The framework row (p01-process task 101, done check 3): regions mapped from the Chromium framework per role,
+# null for a role with a member whose walk did not run. `--check-framework`: 0 when the app maps none, 1 when it
+# maps any, 2 when the app's walk did not run.
+fw="$tmp/framework"
+cp -R "$dir" "$fw"
+printf '%s\n' $'100\t0' $'140\t812' $'141\t30' $'142\t30' $'101\t28' > "$fw/framework.txt"
+python3 -I "$CENSUS" --from "$fw" --json --check-framework > "$tmp/fw.json" \
+  || { echo "FAIL: --check-framework must pass an app that maps no framework region" >&2; exit 1; }
+python3 -I - "$tmp/fw.json" <<'EOF'
+import json, sys
+roles = json.load(open(sys.argv[1]))["roles"]
+got = {role: roles[role]["framework_regions"] for role in ("app", "chromium_host", "chromium_helper", "daemon")}
+assert got == {"app": 0, "chromium_host": 812, "chromium_helper": 88, "daemon": None}, got
+EOF
+python3 -I "$CENSUS" --from "$fw" > "$tmp/fw.txt"
+grep -q '^Chromium framework regions: app 0, daemon -, .*chromium_host 812, chromium_helper 88' "$tmp/fw.txt" \
+  || { echo "FAIL: no framework row in the text census" >&2; cat "$tmp/fw.txt" >&2; exit 1; }
+python3 -I "$CENSUS" --from "$fw" --json --dump "$tmp/fw-again" > /dev/null
+python3 -I "$CENSUS" --from "$tmp/fw-again" --json --check-framework > "$tmp/fw-again.json" \
+  || { echo "FAIL: --dump lost the framework regions" >&2; exit 1; }
+printf '%s\n' $'100\t3' $'140\t812' > "$fw/framework.txt"
+code=0
+python3 -I "$CENSUS" --from "$fw" --check-framework > /dev/null || code=$?
+[[ $code -eq 1 ]] || { echo "FAIL: --check-framework must exit 1 when the app maps the framework (got $code)" >&2; exit 1; }
+printf '%s\n' $'140\t812' > "$fw/framework.txt"
+code=0
+python3 -I "$CENSUS" --from "$fw" --check-framework > /dev/null 2>&1 || code=$?
+[[ $code -eq 2 ]] || { echo "FAIL: --check-framework with no walk of the app must exit 2 (got $code)" >&2; exit 1; }
+
 # A region walk that did not run (`-`) or a process with no memory row: the sums are null, never partial.
 partial="$tmp/partial"
 cp -R "$dir" "$partial"
@@ -323,5 +352,6 @@ app = r["roles"]["app"]
 assert app["processes"] == 1 and app["threads"] >= 1, app
 assert app["rss_mb"] and app["rss_mb"] > 0, app
 assert r["children"]["processes"] >= 1, r["children"]
+assert app["framework_regions"] == 0, app  # a shell maps no Chromium framework
 EOF
 echo "process-model-census: ok"

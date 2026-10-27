@@ -2,9 +2,11 @@ import Foundation
 
 /// Host mode's part of `CEFRuntime.start` (``BrowserBackend/host``; task 015 of
 /// plans/cmux-next/chrome-parity/p01-process.md): the supervisor's wire, the remote shim opened off
-/// the main thread, attached, and the host's hello awaited. It never resolves the framework, builds
-/// no `CEFLoadedLibrary` and starts no pump: Chromium's message loop runs in the host, as the GPU
-/// process runs its own (content/gpu/gpu_main.cc) and the browser only holds a channel to it.
+/// the main thread, attached, and the host's hello awaited. It never maps or reads the framework
+/// (the host does, task 101; cmux only checks a downloaded runtime's code first,
+/// ``CEFRuntimeVerification``), builds no `CEFLoadedLibrary` and starts no pump: Chromium's message
+/// loop runs in the host, as the GPU process runs its own (content/gpu/gpu_main.cc) and the browser
+/// only holds a channel to it.
 ///
 /// One attach per runtime: every concurrent first start awaits the same one. It owns the runtime's
 /// one ``CEFHostReplies``, which the attached remote shim's REPLY frames resolve (task 018). After the
@@ -40,6 +42,8 @@ final class CEFHostStart {
     /// The attached host's page resizes (`CEFRuntime.hostPageResizes()`), made on first use; a new host starts with none.
     var pageResizes: ChromiumHostResizeFence?
     private let supervisor: any ChromiumHostSupervising
+    /// Checks a downloaded runtime before each attach asks for the host that maps it (task p01-process-101).
+    private let verification: CEFRuntimeVerification
     private let open: Open
     private let helloDeadline: Duration
     private let clock: any Clock<Duration>
@@ -58,12 +62,14 @@ final class CEFHostStart {
 
     /// `helloDeadline`: how long, on `clock`, the host may take from the attach to its hello
     /// before the start fails (a host that hangs while it starts Chromium). Reply deadlines run on
-    /// `clock` too.
+    /// `clock` too. `verification` checks a downloaded runtime's code before the host is asked for.
     init(supervisor: any ChromiumHostSupervising, showsWidgets: Bool = false, takesDrags: Bool = false,
          fencesResizes: Bool = false, drawsPopupMenus: Bool = false, fileDialogs: (any ChromiumFileDialogAnswering)? = nil,
+         verification: CEFRuntimeVerification = CEFRuntimeVerification(),
          open: @escaping Open = { CEFRemoteShim.open($0) },
          helloDeadline: Duration = .seconds(30), clock: any Clock<Duration> = ContinuousClock()) {
         self.supervisor = supervisor
+        self.verification = verification
         files = fileDialogs.map { ChromiumHostFiles(panels: $0) }
         self.showsWidgets = showsWidgets
         self.takesDrags = takesDrags
@@ -80,12 +86,14 @@ final class CEFHostStart {
         }
     }
 
-    /// The attached host; the first caller starts the attach, later ones await it.
-    func attached() async -> Result<CEFAttachedHost, CEFRuntime.BootError> {
+    /// The attached host; the first caller starts the attach, later ones await it. A downloaded
+    /// `layout` that ``CEFRuntimeVerification`` refuses fails the attach before the host is asked for,
+    /// so no host maps it.
+    func attached(layout: CEFRuntimeLayout? = nil) async -> Result<CEFAttachedHost, CEFRuntime.BootError> {
         let startsAttach = self.task == nil
-        let task = self.task ?? Task { [supervisor, open, replies, helloDeadline, clock, fencesResizes] in
-            await CEFHostStart.attach(supervisor, open: open, replies: replies, helloDeadline: helloDeadline, clock: clock,
-                                      fencesResizes: fencesResizes)
+        let task = self.task ?? Task { [supervisor, verification, open, replies, helloDeadline, clock, fencesResizes] in
+            await CEFHostStart.attach(supervisor, verifying: layout, with: verification, open: open, replies: replies,
+                                      helloDeadline: helloDeadline, clock: clock, fencesResizes: fencesResizes)
         }
         self.task = task
         let outcome = await task.value
@@ -114,11 +122,18 @@ final class CEFHostStart {
         return token
     }
 
-    private static func attach(_ supervisor: any ChromiumHostSupervising, open: @escaping Open, replies: CEFHostReplies,
+    private static func attach(_ supervisor: any ChromiumHostSupervising, verifying layout: CEFRuntimeLayout?,
+                               with verification: CEFRuntimeVerification, open: @escaping Open, replies: CEFHostReplies,
                                helloDeadline: Duration, clock: any Clock<Duration>,
                                fencesResizes: Bool) async -> Result<CEFAttachedHost, CEFRuntime.BootError> {
         let elapsed = ContinuousClock()
         let started = elapsed.now
+        if let layout, case .downloaded = layout.trust {
+            // Security reads and hashes the runtime's code, so never on main, as the in-process check runs on the load's thread.
+            // qos-allow: the first Chromium tab waits for this check (userInitiated); nothing else runs in the task
+            let refusal = await Task.detached(priority: .userInitiated) { verification.refusal(for: layout) }.value
+            if let refusal { return .failure(refusal) }
+        }
         let attachment: ChromiumHostAttachment
         do { attachment = try await supervisor.attachment() } catch { return .failure(.host(error.description)) }
         // dlopen holds dyld's loader lock, so never on main; the in-process load beside it in CEFRuntime.start runs the same way.

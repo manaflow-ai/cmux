@@ -37,6 +37,7 @@
 #import <QuartzCore/QuartzCore.h>
 #include <CoreFoundation/CoreFoundation.h>
 #include <objc/runtime.h>
+#include <dispatch/dispatch.h>
 #include <dlfcn.h>
 #include <fcntl.h>
 #include <signal.h>
@@ -64,6 +65,7 @@
 #include "chromium_host_wire.h"
 #include "cmux_cef_shim.h"
 #include "host_dispatch.h"
+#include "host_framework_prefetch.h"
 #include "host_page_activity.h"
 #include "host_switches.h"
 #include "host_user_input.h"
@@ -488,6 +490,14 @@ int main(int argc, char* argv[]) {
             cmux_host::kMinForkAPI);
     return cmux_host::kExitForkAPI;
   }
+  // Mapped here, never in cmux (task p01-process-101). Read into the file
+  // cache beside the attach and CefInitialize, which then fault in cached
+  // pages (host_framework_prefetch.h); other threads may run from here on.
+  dispatch_async_f(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), new std::string(framework),
+                   [](void* context) {
+                     const std::unique_ptr<std::string> dir(static_cast<std::string*>(context));
+                     cmux_host::PreReadFramework(*dir);
+                   });
   const ForkInputCalls fork_input = ResolveForkInputCalls(binary);
   if (!cmux_shim_prepare_application()) {
     fprintf(stderr, "cmux-chromium-host: NSApp does not implement CefAppProtocol\n");
