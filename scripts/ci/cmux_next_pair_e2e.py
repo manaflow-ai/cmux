@@ -25,7 +25,7 @@ have to fake that stamp, so it would test around the very check this proves. The
 in-source DEBUG dev credential of the dev Stack project (the one verify/e2e/mac.py uses), not a
 production or personal account and not a secret.
 """
-import argparse, glob, hashlib, json, os, plistlib, re, shutil, socket, subprocess, sys, threading, time
+import argparse, glob, hashlib, json, os, plistlib, pwd, re, shutil, socket, subprocess, sys, threading, time
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "../.."))
 sys.path.insert(0, os.path.join(ROOT, "scripts/cmux-next"))
@@ -132,20 +132,11 @@ def main():
     note(f"- this ref's pairing page {'shows' if expects_code else 'shows no'} pairing codes")
 
     # ---- the Mac app ------------------------------------------------------
-    info = plistlib.load(open(os.path.join(a.mac_app, "Contents/Info.plist"), "rb"))
-    ls_env = {k: str(v) for k, v in (info.get("LSEnvironment") or {}).items()}
-    mac_bundle, tag = info["CFBundleIdentifier"], ls_env.get("CMUX_TAG", "")
-    if not re.fullmatch(r"iospair-[0-9a-f]+-\d+", tag):  # the step's own tag: every path below is named by it
-        raise SystemExit(f"the Mac app is not this step's tagged build (CMUX_TAG {tag!r})")
+    mac_bundle, tag, ls_env = step_tag(a.mac_app)
     sock = ls_env.get("CMUX_SOCKET_PATH") or f"/tmp/cmux-debug-{tag}.sock"
     support = os.path.expanduser(f"~/Library/Application Support/{mac_bundle}")
-    # The DEBUG auth's file fallback (CloudConfiguration.credentialsDirectory): this bundle id's only.
-    auth_files = os.path.expanduser(f"~/Library/Application Support/cmux/{mac_bundle}")
-    rig = os.path.join(a.work, "pair-rig")
-    os.makedirs(rig, mode=0o700, exist_ok=True)
+    rig = os.path.join(a.work, "pair-rig")  # written only once cleanup is armed (below)
     config = os.path.join(rig, "cmux-next.json")
-    with open(config, "w") as f:
-        json.dump({"mobile": {"allowIPhoneConnections": True}}, f)
     email, password = dev_credential()
     creds = os.path.join(rig, "dev-auth.env")  # written once cleanup is armed (below)
     # Launched by its binary (its PID is this script's child), with the environment `open`
@@ -219,6 +210,9 @@ def main():
     teardown.install()
     streams, app, paired, url = [], None, None, None
     try:
+        os.makedirs(rig, mode=0o700, exist_ok=True)
+        with open(config, "w") as f:
+            json.dump({"mobile": {"allowIPhoneConnections": True}}, f)
         with os.fdopen(os.open(creds, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600), "w") as f:
             f.write(f"CMUX_UITEST_STACK_EMAIL={email}\nCMUX_UITEST_STACK_PASSWORD={password}\n")
         if os.path.exists(sock):
@@ -289,6 +283,9 @@ def main():
         note(f"- scanner sheet: {scanner(a.udid, phone_shot)}")
     finally:
         if app and app.poll() is None:
+            # The app signs itself out first, so it deletes its own tokens wherever its store keeps them
+            # (the data-protection Keychain, which `security` can't reach, or its file fallback).
+            rpc("debug.cloud.end_session", timeout=30)
             rpc("action.run", {"action": "quitEndSessions"})
             try:
                 app.wait(30)
@@ -302,20 +299,59 @@ def main():
             s.stop()
         collect(support, a.out, note)
         teardown.end()
-        shutil.rmtree(rig, ignore_errors=True)  # the credential file
-        shutil.rmtree(support, ignore_errors=True)  # this run's bundle id only
-        shutil.rmtree(auth_files, ignore_errors=True)  # its tokens, if the Keychain refused them
-        # The tag's own state, by its exact paths (the tag holds the step's PID, so they are this
-        # run's): the daemon's state root, the isolated Chief home, the iPhone link journal.
-        shutil.rmtree(os.path.expanduser(f"~/Library/Application Support/cmux/tags/{tag}"), ignore_errors=True)
-        shutil.rmtree(os.path.expanduser(f"~/.cmux/chief/isolated/{tag}"), ignore_errors=True)
-        forget_keychain(mac_bundle)
-        for path in (sock, f"/tmp/cmux-debug-{tag}.log", f"/tmp/cmux-next-irx-journal-{tag}.jsonl"):
-            if os.path.exists(path):
-                os.unlink(path)
+        shutil.rmtree(rig, ignore_errors=True)  # the settings and credential files
+        forget_tag(a.mac_app)  # cmux-next-ios-sim.sh's EXIT runs it again for a rig cut short
     if not url and not expects_code:
         return 0  # the "before": this ref shows no code, and the Devices screen is its evidence
     return 0 if paired else 1
+
+
+def step_tag(app):
+    """(bundle id, tag, LSEnvironment) of cmux-next-ios-sim.sh's own tagged Mac app. Its tag holds the
+    step's PID (`iospair-<sha8>-<pid>`), so every path named by the tag or bundle id is this run's."""
+    info = plistlib.load(open(os.path.join(app, "Contents/Info.plist"), "rb"))
+    ls_env = {k: str(v) for k, v in (info.get("LSEnvironment") or {}).items()}
+    bundle, tag = info.get("CFBundleIdentifier", ""), ls_env.get("CMUX_TAG", "")
+    if not re.fullmatch(r"iospair-[0-9a-f]+-\d+", tag) or not bundle.startswith("com.cmuxterm.app.debug."):
+        raise SystemExit(f"the Mac app is not this step's tagged build ({bundle!r}, CMUX_TAG {tag!r})")
+    return bundle, tag, ls_env
+
+
+def forget_tag(app):
+    """Everything the tagged app and reload.sh leave for this tag, by exact path (the one list both cleanup
+    paths use): the app's settings, support, auth file fallback, run markers and defaults; the daemon's
+    tag state and socket; the isolated Chief home; reload.sh's log and last-socket markers; the debug
+    socket and log; the iPhone link journal; the Keychain items. Home paths are tried under $HOME (a step
+    runs with its own) and the account home (reload.sh's markers, the app's FileManager home)."""
+    bundle, tag, ls_env = step_tag(app)
+    slug = re.sub(r"[^a-z0-9]+", "-", bundle[len("com.cmuxterm.app.debug."):].lower()).strip("-")
+    safe = re.sub(r"[^A-Za-z0-9.-]", "_", bundle)  # CrashReportWriter.safe
+    homes = {os.path.expanduser("~"), pwd.getpwuid(os.getuid()).pw_dir}
+    dirs, files = [], [f"/tmp/cmux-reload-{tag}.log", f"/tmp/cmux-debug-{tag}.sock", f"/tmp/cmux-debug-{tag}.log",
+                       f"/tmp/cmux-next-irx-journal-{tag}.jsonl", f"/tmp/cmux-dev-{slug}-last-socket-path"]
+    sock = ls_env.get("CMUX_SOCKET_PATH", "")
+    if tag in os.path.basename(sock):
+        files.append(sock)
+    for home in homes:
+        support = os.path.join(home, "Library/Application Support")
+        dirs += [os.path.join(support, bundle), os.path.join(support, "cmux", bundle),
+                 os.path.join(support, "cmux/tags", tag), os.path.join(support, "cmux-next", safe),
+                 os.path.join(home, ".cmux/chief/isolated", tag)]
+        files += [os.path.join(support, f"cmux/cmuxd-dev-{tag}.sock"),
+                  os.path.join(support, f"cmux/dev-{slug}-last-socket-path"),
+                  os.path.join(home, f".local/state/cmux/dev-{slug}-last-socket-path"),
+                  os.path.join(home, "Library/Preferences", f"{bundle}.plist")]
+    # Through cfprefsd first, so a cached domain is not written back after the file goes.
+    subprocess.run(["/usr/bin/defaults", "delete", bundle], capture_output=True)
+    for path in dirs:
+        shutil.rmtree(path, ignore_errors=True)
+    for path in files:
+        if os.path.lexists(path):
+            try:
+                os.unlink(path)
+            except OSError:
+                pass
+    forget_keychain(bundle)
 
 
 def forget_keychain(bundle):
@@ -382,6 +418,9 @@ def collect(support, out, note):
 
 
 if __name__ == "__main__":
+    if len(sys.argv) == 3 and sys.argv[1] == "--forget-tag":  # cmux-next-ios-sim.sh's EXIT: the same list
+        forget_tag(sys.argv[2])
+        sys.exit(0)
     if sys.argv[1:] == ["--redact"]:  # a filter: cmux-next-ios-sim.sh's app log goes through it
         for line in sys.stdin:
             sys.stdout.write(redact(line))

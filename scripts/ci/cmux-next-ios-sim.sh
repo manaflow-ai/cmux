@@ -74,13 +74,15 @@ cleanup() {
   # pair-e2e's Mac app build (its DerivedData, app included), reload.sh's
   # /tmp/cmux-<tag> link to it, and the host's last-debug-log pointer as it was.
   if [[ -n "${mac_dd:-}" ]]; then
-    # The tag is this run's own (its PID is in it), so its link and state are too: a fallback for
-    # a rig that never reached its own cleanup (cmux_next_pair_e2e.py removes them first).
+    # The tag is this run's own (its PID is in it), so its link and state are too. The rig removes
+    # them in its own finally; this runs the same list (forget_tag) for a rig cut short.
     if [[ -n "${mac_tag:-}" ]]; then
       if [[ -L "/tmp/cmux-$mac_tag" ]]; then rm -f "/tmp/cmux-$mac_tag" || true; fi
-      rm -rf "$HOME/Library/Application Support/cmux/tags/$mac_tag" "$HOME/.cmux/chief/isolated/$mac_tag" || true
-      rm -f "/tmp/cmux-next-irx-journal-$mac_tag.jsonl" "/tmp/cmux-debug-$mac_tag.sock" "/tmp/cmux-debug-$mac_tag.log" || true
+      if [[ -n "${mac_app:-}" && -d "$mac_app" ]]; then
+        python3 -I scripts/ci/cmux_next_pair_e2e.py --forget-tag "$mac_app" >/dev/null 2>&1 || true
+      fi
     fi
+    rm -rf "$work/pair-rig" || true
     if [[ -n "${mac_tag:-}" ]] && grep -qF -- "$mac_tag" /tmp/cmux-last-debug-log-path 2>/dev/null; then
       if [[ -n "${prev_last_log:-}" ]]; then printf '%s\n' "$prev_last_log" > /tmp/cmux-last-debug-log-path || true
       else rm -f /tmp/cmux-last-debug-log-path || true; fi
