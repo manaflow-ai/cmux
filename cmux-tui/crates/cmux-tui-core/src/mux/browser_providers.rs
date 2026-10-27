@@ -142,150 +142,159 @@ impl Mux {
         let providers = self.browser_providers.clone();
         let id = surface.id;
         let thread_surface = surface.clone();
-        let spawn = std::thread::Builder::new()
-            .name(format!("browser-surface-{id}-bootstrap"))
-            .spawn(move || {
-                let result = (|| -> anyhow::Result<()> {
-                    match bootstrap {
-                        BrowserBootstrap::Provider { tab_id, url } => {
-                            anyhow::ensure!(
-                                runtime.is_none(),
-                                "provider bootstrap cannot override its CDP runtime"
-                            );
-                            let mut retry_delay = Duration::from_millis(250);
-                            loop {
-                                let canceled = || {
-                                    thread_surface.is_dead()
-                                        || weak_mux.upgrade().is_none_or(|mux| {
-                                            mux.shutting_down.load(Ordering::Acquire)
-                                        })
+        let run = move || {
+            let result = (|| -> anyhow::Result<()> {
+                match bootstrap {
+                    BrowserBootstrap::Provider { tab_id, url } => {
+                        anyhow::ensure!(
+                            runtime.is_none(),
+                            "provider bootstrap cannot override its CDP runtime"
+                        );
+                        let mut retry_delay = Duration::from_millis(250);
+                        loop {
+                            let canceled = || {
+                                thread_surface.is_dead()
+                                    || weak_mux
+                                        .upgrade()
+                                        .is_none_or(|mux| mux.shutting_down.load(Ordering::Acquire))
+                            };
+                            let lease =
+                                providers.wait_for_target(&tab_id, canceled).ok_or_else(|| {
+                                    anyhow::anyhow!("browser provider wait was canceled")
+                                })?;
+                            let attempt = (|| -> anyhow::Result<()> {
+                                let mux = weak_mux
+                                    .upgrade()
+                                    .ok_or_else(|| anyhow::anyhow!("browser mux was dropped"))?;
+                                let runtime = mux.browser_runtime_for_provider(&lease)?;
+                                let Surface::Browser(browser) = thread_surface.as_ref() else {
+                                    anyhow::bail!("browser bootstrap got a non-browser surface");
                                 };
-                                let lease =
-                                    providers.wait_for_target(&tab_id, canceled).ok_or_else(
-                                        || anyhow::anyhow!("browser provider wait was canceled"),
-                                    )?;
-                                let attempt = (|| -> anyhow::Result<()> {
-                                    let mux = weak_mux.upgrade().ok_or_else(|| {
-                                        anyhow::anyhow!("browser mux was dropped")
-                                    })?;
-                                    let runtime = mux.browser_runtime_for_provider(&lease)?;
+                                anyhow::ensure!(
+                                    browser.prepare_provider_bootstrap_attempt(),
+                                    "browser provider wait was canceled"
+                                );
+                                runtime.bootstrap_surface_sync(
+                                    thread_surface.clone(),
+                                    BrowserBootstrap::ExistingTarget {
+                                        target_id: lease.target_id.clone(),
+                                        url: url.clone(),
+                                    },
+                                    weak_mux.clone(),
+                                )
+                            })();
+                            match attempt {
+                                Ok(()) => {
+                                    let current_lease = providers.target(&tab_id);
                                     let Surface::Browser(browser) = thread_surface.as_ref() else {
                                         anyhow::bail!(
                                             "browser bootstrap got a non-browser surface"
                                         );
                                     };
-                                    anyhow::ensure!(
-                                        browser.prepare_provider_bootstrap_attempt(),
-                                        "browser provider wait was canceled"
-                                    );
-                                    runtime.bootstrap_surface_sync(
-                                        thread_surface.clone(),
-                                        BrowserBootstrap::ExistingTarget {
-                                            target_id: lease.target_id.clone(),
-                                            url: url.clone(),
-                                        },
-                                        weak_mux.clone(),
-                                    )
-                                })();
-                                match attempt {
-                                    Ok(()) => {
-                                        let current_lease = providers.target(&tab_id);
-                                        let Surface::Browser(browser) = thread_surface.as_ref()
-                                        else {
-                                            anyhow::bail!(
-                                                "browser bootstrap got a non-browser surface"
-                                            );
-                                        };
-                                        // Registration can change while CDP
-                                        // setup is in flight. Never publish a
-                                        // now-stale target merely because its
-                                        // attach finished after the provider
-                                        // revision advanced.
-                                        if browser.prepare_provider_lease_replacement(
-                                            current_lease.as_ref(),
-                                        ) {
-                                            retry_delay = Duration::from_millis(250);
-                                            continue;
-                                        }
-                                        return Ok(());
+                                    // Registration can change while CDP
+                                    // setup is in flight. Never publish a
+                                    // now-stale target merely because its
+                                    // attach finished after the provider
+                                    // revision advanced.
+                                    if browser
+                                        .prepare_provider_lease_replacement(current_lease.as_ref())
+                                    {
+                                        retry_delay = Duration::from_millis(250);
+                                        continue;
                                     }
-                                    Err(error) if !canceled() => {
-                                        let message = error.to_string();
-                                        let Surface::Browser(browser) = thread_surface.as_ref()
-                                        else {
-                                            return Err(error);
-                                        };
-                                        let changed = browser.status()
-                                            != crate::BrowserStatus::Failed(message.clone());
-                                        if changed {
-                                            browser.mark_failed(message.clone());
-                                            if let Some(mux) = weak_mux.upgrade() {
-                                                mux.emit(MuxEvent::Status(format!(
-                                                    "cmux-browser provider unavailable: {message}"
-                                                )));
-                                                mux.emit(MuxEvent::TitleChanged {
-                                                    surface: id,
-                                                    title: thread_surface.title().into(),
-                                                });
-                                                mux.emit(MuxEvent::SurfaceOutput(id));
-                                            }
-                                        }
-                                        if !providers.wait_for_revision_change(
-                                            lease.revision,
-                                            canceled,
-                                            retry_delay,
-                                        ) {
-                                            anyhow::bail!("browser provider wait was canceled");
-                                        }
-                                        retry_delay = retry_delay
-                                            .saturating_mul(2)
-                                            .min(Duration::from_secs(2));
-                                    }
-                                    Err(error) => return Err(error),
+                                    return Ok(());
                                 }
+                                Err(error) if !canceled() => {
+                                    let message = error.to_string();
+                                    let Surface::Browser(browser) = thread_surface.as_ref() else {
+                                        return Err(error);
+                                    };
+                                    let changed = browser.status()
+                                        != crate::BrowserStatus::Failed(message.clone());
+                                    if changed {
+                                        browser.mark_failed(message.clone());
+                                        if let Some(mux) = weak_mux.upgrade() {
+                                            mux.emit(MuxEvent::Status(format!(
+                                                "cmux-browser provider unavailable: {message}"
+                                            )));
+                                            mux.emit(MuxEvent::TitleChanged {
+                                                surface: id,
+                                                title: thread_surface.title().into(),
+                                            });
+                                            mux.emit(MuxEvent::SurfaceOutput(id));
+                                        }
+                                    }
+                                    if !providers.wait_for_revision_change(
+                                        lease.revision,
+                                        canceled,
+                                        retry_delay,
+                                    ) {
+                                        anyhow::bail!("browser provider wait was canceled");
+                                    }
+                                    retry_delay =
+                                        retry_delay.saturating_mul(2).min(Duration::from_secs(2));
+                                }
+                                Err(error) => return Err(error),
                             }
                         }
-                        bootstrap => {
-                            let mux = weak_mux
-                                .upgrade()
-                                .ok_or_else(|| anyhow::anyhow!("browser mux was dropped"))?;
-                            let runtime = match runtime {
-                                Some(runtime) => runtime,
-                                None => mux.browser_runtime()?,
-                            };
-                            runtime.bootstrap_surface_sync(
-                                thread_surface.clone(),
-                                bootstrap,
-                                weak_mux.clone(),
-                            )
-                        }
                     }
-                })();
-                if let Err(err) = result {
-                    if !thread_surface.is_dead()
-                        && !provider_bootstrap
-                        && let Surface::Browser(browser) = thread_surface.as_ref()
-                    {
-                        browser.abandon_attach(err.to_string());
-                    }
-                    if !provider_bootstrap
-                        && let Some(mux) = weak_mux.upgrade()
-                        && !thread_surface.is_dead()
-                    {
-                        mux.emit(MuxEvent::Status(format!("browser failed: {err}")));
-                        mux.emit(MuxEvent::TitleChanged {
-                            surface: id,
-                            title: thread_surface.title().into(),
-                        });
-                        mux.emit(MuxEvent::SurfaceOutput(id));
+                    bootstrap => {
+                        let mux = weak_mux
+                            .upgrade()
+                            .ok_or_else(|| anyhow::anyhow!("browser mux was dropped"))?;
+                        let runtime = match runtime {
+                            Some(runtime) => runtime,
+                            None => mux.browser_runtime()?,
+                        };
+                        runtime.bootstrap_surface_sync(
+                            thread_surface.clone(),
+                            bootstrap,
+                            weak_mux.clone(),
+                        )
                     }
                 }
-            });
-        if let Err(error) = spawn
+            })();
+            if let Err(err) = result {
+                if !thread_surface.is_dead()
+                    && !provider_bootstrap
+                    && let Surface::Browser(browser) = thread_surface.as_ref()
+                {
+                    browser.abandon_attach(err.to_string());
+                }
+                if !provider_bootstrap
+                    && let Some(mux) = weak_mux.upgrade()
+                    && !thread_surface.is_dead()
+                {
+                    mux.emit(MuxEvent::Status(format!("browser failed: {err}")));
+                    mux.emit(MuxEvent::TitleChanged {
+                        surface: id,
+                        title: thread_surface.title().into(),
+                    });
+                    mux.emit(MuxEvent::SurfaceOutput(id));
+                }
+            }
+        };
+        // A provider bootstrap waits, with no bound, for the provider to
+        // register its target and retries until the surface dies: a loop,
+        // so it keeps a thread (threading-model.md, "Per-terminal threads").
+        // Any other bootstrap is one CDP attach: a request wait
+        // (`server/request_wait.rs`).
+        let started = if provider_bootstrap {
+            let name = format!("browser-surface-{id}-bootstrap");
+            std::thread::Builder::new()
+                .name(name)
+                .spawn(run)
+                .map(drop)
+                .map_err(|error| format!("could not start browser bootstrap: {error}"))
+        } else {
+            self.post_request_wait(run)
+                .map_err(|_| "could not start browser bootstrap: shutting down".to_owned())
+        };
+        if let Err(message) = started
             && !surface.is_dead()
             && let Surface::Browser(browser) = surface.as_ref()
         {
-            browser.abandon_attach(format!("could not start browser bootstrap: {error}"));
+            browser.abandon_attach(message);
         }
     }
 

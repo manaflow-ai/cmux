@@ -301,7 +301,7 @@ impl Mux {
 
     /// Ends `client`'s binding when its connection ends.
     pub(crate) fn unbind_conversation_principal(&self, client: u64) {
-        // Safety: a removal never grants access, so a poisoned bindings lock
+        // Poison recovery: a removal never grants access, so a poisoned bindings lock
         // still drops the binding.
         let bound = self
             .conversations
@@ -315,7 +315,7 @@ impl Mux {
         {
             self.end_agent_typing(&participant);
         }
-        // Safety: a removal never grants access, so a poisoned peers lock
+        // Poison recovery: a removal never grants access, so a poisoned peers lock
         // still drops the record.
         self.conversations
             .remote

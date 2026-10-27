@@ -1,5 +1,7 @@
 import AppKit
 import CmuxHomeCore
+import CmuxNextCompat
+import CmuxNextHibernation
 import CmuxNextHome
 import CmuxNextHomeEngine
 import CmuxNextPages
@@ -20,9 +22,16 @@ final class HomeDockView: HomeDockSwitchView {
     /// or does not answer. Set by the provider (the page's reply path).
     var channelsSelection: (@MainActor (PageWebView) async -> Selection?)?
 
-    init(services: AppServices, mode: Mode) {
+    /// - Parameters:
+    ///   - planner: The sidebar section planner that lets the hidden view go (the app's, nil while
+    ///     `memoryDiscardSidebarSections` is off).
+    init(services: AppServices, mode: Mode, planner: (any SidebarSectionPlanner)?) {
         self.services = services
-        super.init(mode: mode)
+        super.init(mode: mode, planner: planner)
+    }
+
+    convenience init(services: AppServices, mode: Mode) {
+        self.init(services: services, mode: mode, planner: services.sidebarSectionDiscards)
     }
 
     @available(*, unavailable)
@@ -58,6 +67,53 @@ final class HomeDockView: HomeDockSwitchView {
         }
     }
 
+    /// Messages keeps its list's search and scroll with its conversation (``TopHomePageView``'s own record, as
+    /// classic Home's discard keeps them); Channels keeps the page's route with the page's selection.
+    override func saveViewState(in mode: Mode) async -> HomeDockRecord? {
+        let shown = await selection(in: mode)
+        switch mode {
+        case .messages:
+            guard let messages else { return nil }
+            var state = PageViewState()
+            messages.saveViewState(messages, into: &state)
+            return HomeDockRecord(selection: shown,
+                                  view: SidebarSectionState(scroll: state.scroll[TopHomePageView.listScrollKey], query: state.search))
+        case .channels:
+            guard let channels else { return nil }
+            return HomeDockRecord(selection: shown, route: channels.route)
+        }
+    }
+
+    /// Messages takes its search, conversation and list scroll back (the scroll once its rows are in) and opens the
+    /// thread's message; Channels opens its route.
+    override func restoreViewState(_ record: HomeDockRecord, in mode: Mode) {
+        switch mode {
+        case .messages:
+            guard let messages else { return }
+            let scroll = record.view.scroll.map { [TopHomePageView.listScrollKey: $0] } ?? [:]
+            messages.restoreViewState(PageViewState(scroll: scroll, selection: record.selection?.conversation, search: record.view.query),
+                                      in: messages)
+            if let selection = record.selection, selection.message != nil { messages.show(selection) }
+        case .channels:
+            // The page's route is its hash ("#/conversation/c1"); open(route:) takes it without the "#".
+            let route = record.route.map { hash in String(hash.drop { $0 == "#" }) } ?? ""
+            if !route.isEmpty {
+                open(route: route)
+            } else if let selection = record.selection {
+                open(route: selection.route)
+            }
+        }
+    }
+
+    /// An unsent New Message in Messages (which no store keeps); in Channels, what the page or the host holds on it
+    /// (its composer's unsent text, `cmux.page.keepAlive` `draft`; a sheet or a menu it opened).
+    override func holdsUnsavedInput(in mode: Mode) -> Bool {
+        switch mode {
+        case .messages: messages.map { $0.holdsUnsavedInput($0) } ?? false
+        case .channels: channels?.keepReasons.current.contains { $0.blocksDiscard } ?? false
+        }
+    }
+
     /// The native list selects the conversation and opens the message's thread branch; the page follows its hash.
     override func open(_ selection: Selection, in mode: Mode) {
         switch mode {
@@ -79,6 +135,16 @@ final class HomeDockView: HomeDockSwitchView {
         case .channels:
             guard let channels else { return }
             if channels.window != nil { channels.focusPage() } else { channels.whenPainted { [weak channels] in channels?.focusPage() } }
+        }
+    }
+
+    /// The planner let the hidden view go (feature `memoryDiscardSidebarSections`): Channels' document ends.
+    override func releaseContent(for mode: Mode) {
+        switch mode {
+        case .messages: messages = nil
+        case .channels:
+            channels?.close()
+            channels = nil
         }
     }
 

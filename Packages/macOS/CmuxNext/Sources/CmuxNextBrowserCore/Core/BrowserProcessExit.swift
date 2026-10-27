@@ -20,17 +20,29 @@ public nonisolated struct BrowserProcessExit: Hashable, Sendable {
         case abnormal
     }
 
+    /// The process whose end took the page.
+    public enum EndedProcess: String, Hashable, Sendable {
+        /// The page's own content process: a Chromium renderer, WebKit's WebContent process.
+        case page
+        /// The Chromium Host, which ran Chromium's browser process for every Chromium page: every
+        /// page it showed ended with it, and its Reload starts a new host.
+        case chromiumHost
+    }
+
     public var reason: Reason
     /// Exit code or signal number, when the engine reports one.
     public var code: Int?
     /// The engine whose content process ended: the sad tab uses that
     /// browser's wording (Chrome's "Aw, Snap!" for Chromium).
     public var engine: BrowserEngineKind?
+    /// Which process ended: the sad tab says when it was the Chromium Host.
+    public var process: EndedProcess
 
-    public init(reason: Reason, code: Int? = nil, engine: BrowserEngineKind? = nil) {
+    public init(reason: Reason, code: Int? = nil, engine: BrowserEngineKind? = nil, process: EndedProcess = .page) {
         self.reason = reason
         self.code = code
         self.engine = engine
+        self.process = process
     }
 
     /// Maps CEF's `cef_termination_status_t` (TS_ABNORMAL_TERMINATION = 0,

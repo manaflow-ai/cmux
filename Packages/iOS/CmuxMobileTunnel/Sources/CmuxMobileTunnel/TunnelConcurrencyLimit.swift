@@ -40,12 +40,13 @@ public actor TunnelConcurrencyLimit {
     }
 
     public func release() {
-        if waiters.isEmpty {
+        guard let next = waiters.first else {
             holders = max(0, holders - 1)
-        } else {
-            // Hand the slot straight to the next waiter.
-            waiters.removeFirst().continuation.resume(returning: true)
+            return
         }
+        // Hand the slot straight to the next waiter.
+        waiters.removeFirst()
+        next.continuation.resume(returning: true)
     }
 
     private func cancelWaiter(_ id: UUID) {

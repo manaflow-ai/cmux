@@ -2247,7 +2247,7 @@ fn run_server(
     // Windows hosts get no orphan grace (no app bundles there to classify).
     #[cfg(unix)]
     host_orphan_policy::install();
-    owner_start::prepare(&args)?;
+    owner_start::start_server_process(&args)?;
     let owner_host_colors = args.owner_host_colors();
     #[cfg(target_os = "linux")]
     let provider_management_listener = take_provider_management_listener()?;

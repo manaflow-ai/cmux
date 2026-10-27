@@ -41,10 +41,15 @@ pub(super) async fn ensure(
         Some(Value::String(b)) => Some(b.clone()),
         Some(_) => return Err(RpcError::invalid_params("worktree.base must be a string")),
     };
-    let folder = cwd.clone().filter(|c| c.is_absolute() && c.is_dir()).ok_or_else(|| {
-        RpcError::invalid_params("a worktree needs cwd: an absolute folder of the repository")
-    })?;
-    let ensured = tokio::task::spawn_blocking(move || {
+    let folder = match cwd.clone().filter(|c| c.is_absolute()) {
+        Some(c) if tokio::fs::metadata(&c).await.is_ok_and(|m| m.is_dir()) => c,
+        _ => {
+            return Err(RpcError::invalid_params(
+                "a worktree needs cwd: an absolute folder of the repository",
+            ));
+        }
+    };
+    let ensured = cmux_blocking::spawn_blocking(move || {
         crate::subsession_worktree::ensure_worktree(&folder, &name, base.as_deref())
     })
     .await

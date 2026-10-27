@@ -30,6 +30,8 @@ struct PendingHostClose {
     step: HostCloseStep,
     identity: Option<TerminalHostIdentity>,
     host_root: Option<PathBuf>,
+    /// The mux, for a record cleanup retry when the host does not exit.
+    owner: Weak<Mux>,
 }
 
 #[cfg(any(unix, windows))]
@@ -113,8 +115,9 @@ impl TerminalHostCloses {
                     step: HostCloseStep::Await(termination, deadline),
                     identity,
                     host_root,
+                    owner,
                 } => {
-                    finish_host_close(runtime, termination, deadline, identity, host_root);
+                    finish_host_close(runtime, termination, deadline, identity, host_root, owner);
                     None
                 }
                 close => signal_host_close(close),
@@ -175,6 +178,7 @@ fn signal_host_close(mut close: PendingHostClose) -> Option<PendingHostClose> {
                 (close.identity.as_ref(), close.host_root.as_ref())
             {
                 terminate_discovered_terminal_host_in(
+                    &close.owner,
                     root,
                     &identity.terminal_id,
                     Some(&identity.incarnation),
@@ -203,6 +207,7 @@ fn finish_host_close(
     deadline: Instant,
     identity: Option<TerminalHostIdentity>,
     host_root: Option<PathBuf>,
+    owner: Weak<Mux>,
 ) {
     let acknowledged =
         match termination.map(|termination| runtime.wait_for_host_exit(termination, deadline)) {
@@ -221,6 +226,7 @@ fn finish_host_close(
     runtime.kill();
     if !acknowledged && let (Some(identity), Some(root)) = (identity, host_root) {
         terminate_discovered_terminal_host_in(
+            &owner,
             &root,
             &identity.terminal_id,
             Some(&identity.incarnation),
@@ -257,6 +263,7 @@ impl Mux {
                 step: HostCloseStep::Signal,
                 identity,
                 host_root,
+                owner: self.work_owner(),
             });
         }
         #[cfg(not(any(unix, windows)))]
@@ -284,6 +291,7 @@ impl Mux {
                     step: HostCloseStep::Signal,
                     identity,
                     host_root: host_root.clone(),
+                    owner: self.work_owner(),
                 });
             }
         }
