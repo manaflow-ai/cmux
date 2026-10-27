@@ -126,6 +126,18 @@ class PlanTests(unittest.TestCase):
             if point.index == 1:
                 self.assertNotEqual(point.fault, cw.HOST_ABORT)
 
+    def test_a_host_abort_only_plan_draws_only_one_terminal_kill_points(self) -> None:
+        one = call("ws", "workspace.create", params={"initial_content": "terminal"}, key="k.ws")
+        walk = cw.Walk("walks/two", walk_case("two", [one, call("t", "tab.create_terminal", key="t")]))
+        none = cw.Walk("walks/none", walk_case("none", [call("w", "workspace.create", key="w")]))
+        for seed in range(100):
+            point = cw.plan(seed, [none, walk], CLASSES, (cw.HOST_ABORT,))
+            self.assertEqual((point.walk, point.index, point.fault), ("walks/two", 0, cw.HOST_ABORT))
+        with self.assertRaises(cw.CrashWalkError):
+            cw.plan(0, [none], CLASSES, (cw.HOST_ABORT,))
+        # With another fault in the set, a host-abort draw with no eligible walk becomes that fault.
+        self.assertEqual({cw.plan(seed, [none], CLASSES).fault for seed in range(100)}, {cw.SIGKILL, cw.OWNER_PANIC})
+
     def test_a_restricted_fault_set_is_honored(self) -> None:
         for seed in range(100):
             self.assertEqual(cw.plan(seed, [sample_walk()], CLASSES, (cw.SIGKILL,)).fault, cw.SIGKILL)
@@ -173,6 +185,40 @@ class CaseTests(unittest.TestCase):
         self.assertEqual(steps[cw.RECOVER]["waitFor"]["equals"], "running")
         self.assertIn(cw.HOLDER_SWITCH, case["switches"])
         self.assertEqual(case["allow_crashes"][-1]["steps"], [cw.KILL])
+
+    def test_the_restart_waits_for_a_terminal_only_when_one_surely_runs(self) -> None:
+        ws = "$step:ws#/value/workspace_id"
+        made = call("ws", "workspace.create", params={"initial_content": "terminal"}, key="k.ws")
+        for closing in (call("close", "workspace.close", key="k.close", target={**cw.SELECTORS, "workspace": ws}),
+                        call("close", "terminal.close", key="k.close"),
+                        call("close", "pane.split", key="k.close")):
+            walk = cw.Walk("walks/closed", walk_case("closed", [made, closing]))
+            case = cw.crash_case(walk, cw.KillPoint(1, walk.id, 1, "close", cw.SIGKILL), CLASSES)
+            recover = next(step for step in case["steps"] if step["id"] == cw.RECOVER)
+            self.assertNotIn("waitFor", recover, closing["args"]["method"])
+        walk = cw.Walk("walks/open", walk_case("open", [made, call("list", "workspace.list")]))
+        case = cw.crash_case(walk, cw.KillPoint(1, walk.id, 0, "ws", cw.SIGKILL), CLASSES)
+        self.assertIn("waitFor", next(step for step in case["steps"] if step["id"] == cw.RECOVER))
+        self.assertTrue(cw.has_running_terminal([made, made]))
+        self.assertFalse(cw.has_running_terminal([call("w", "workspace.create")]))
+        # A given argv may exit at once (sidebar-view-reload-ok writes a file and exits); a run may make one.
+        exits = call("ws", "workspace.create", params={"initial_content": "terminal", "argv": ["/bin/sh", "-c", ":"]})
+        self.assertFalse(cw.has_running_terminal([exits]))
+        self.assertIsNone(cw.sure_terminals([made, call("r", "workspace.run", params={"argv": ["/bin/cat"]})]))
+        # A refused create makes nothing.
+        refused = call("t", "tab.create_terminal", outcome="error")
+        self.assertEqual(cw.sure_terminals([refused]), 0)
+        self.assertTrue(cw.terminal_count_is_one([made, refused]))
+
+    def test_the_replay_keeps_the_acknowledged_revision(self) -> None:
+        case = cw.crash_case(sample_walk(), self.point(2), CLASSES)
+        replay = next(step for step in case["steps"] if step["id"] == cw.REPLAY)
+        self.assertEqual(replay["expect"]["resultExcept"], ["/generation", "/replayed"])
+
+    def test_a_case_id_names_the_minimized_case(self) -> None:
+        point = self.point(2)
+        case = cw.crash_case(sample_walk(), point, CLASSES, case_id=point.found_id("new"))
+        self.assertEqual(case["id"], "s1-sigkill-new")
 
     def test_the_replay_is_the_last_acknowledged_mutation_with_a_key(self) -> None:
         # Kill after the failing call: the last acknowledged success is `rename`.
@@ -267,7 +313,7 @@ class DdminTests(unittest.TestCase):
         kept, case = cw.minimize(walk, point, CLASSES, failure, run)
         self.assertEqual(kept, [3])
         self.assertEqual([s["id"] for s in case["steps"][:3]], ["ws", "bad", "rename-2"])
-        self.assertEqual(failure.kind, "crash")
+        self.assertEqual(failure.kind(True), "crash")
 
     def test_one_cause_is_one_signature(self) -> None:
         failure = cw.Failure("Failure", cw.RECOVERED)
@@ -281,7 +327,54 @@ class DdminTests(unittest.TestCase):
         self.assertNotEqual(cw.Failure.of({"status": "Crash", "step": cw.RECOVERED}), failure)
         self.assertNotEqual(cw.Failure.of({"status": "Failure", "step": cw.REPLAY}), failure)
         self.assertIsNone(cw.Failure.of({"status": "Skip"}))
-        self.assertEqual(cw.Failure("Timeout", "ws").kind, "walk")
+
+    def test_a_failure_is_the_walks_only_before_the_kill(self) -> None:
+        self.assertEqual(cw.Failure("Timeout", "ws").kind(True), "walk")
+        self.assertEqual(cw.Failure("Failure", cw.ACKED).kind(False), "walk")
+        self.assertEqual(cw.Failure("Failure", cw.RECOVERED).kind(True), "crash")
+        self.assertEqual(cw.Failure("Timeout", cw.ABORT).kind(False), "crash")
+        # No step: the teardown's I6 proof or a worker over its bound, placed by whether the kill ran.
+        self.assertEqual(cw.Failure("Failure", None).kind(True), "crash")
+        self.assertEqual(cw.Failure("Failure", None).kind(False), "walk")
+        self.assertEqual(cw.Failure("Timeout", None).kind(None), "crash")
+
+    def test_the_run_groups_only_crash_failures(self) -> None:
+        walk = sample_walk()
+        point = cw.KillPoint(1, walk.id, 2, "rename", cw.SIGKILL)
+        jobs = [(point, "old"), (point, "new"), (point, "old"), (point, "new"), (point, "old")]
+        records: List[Dict[str, Any]] = [
+            {"status": "Failure", "step": None, "killed": True, "message": "I6: processes left after teardown: 12"},
+            {"status": "Timeout", "step": None, "message": "the case worker ran over its bound of 300 s"},
+            {"status": "Timeout", "step": "ws", "killed": False, "message": "waitFor /x did not hold"},
+            {"status": "Failure", "step": None, "killed": False, "message": "I6: processes left after teardown: 9"},
+            {"status": "Pass", "step": None, "killed": True},
+        ]
+        groups, walk_failures = cw.group_failures(jobs, records)
+        self.assertEqual(walk_failures, 2)
+        self.assertEqual(sorted(len(group) for group in groups.values()), [1, 1])
+        self.assertEqual([r.get("side") for r in records], ["crash", "crash", "walk", "walk", None])
+
+    def test_two_representatives_of_one_seed_are_two_cases(self) -> None:
+        walk = sample_walk()
+        point = cw.KillPoint(1, walk.id, 2, "rename", cw.SIGKILL)
+        groups = {"a": [(point, "old", {})], "b": [(point, "new", {})]}
+        chosen = cw.representatives(groups)
+        self.assertEqual(sorted(p.found_id(arm) for p, arm, _ in chosen), ["s1-sigkill-new", "s1-sigkill-old"])
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp, "corpus", "crash")
+            for item_point, arm, _ in chosen:
+                case = cw.crash_case(walk, item_point, CLASSES, case_id=item_point.found_id(arm))
+                cw.write_case(out, item_point, case, walk, {"arm": arm},
+                              {arm: {"status": "Failure", "step": cw.RECOVERED}})
+            records = cw.read_kill_points(out)
+            self.assertEqual(sorted(records), ["s1-sigkill-new", "s1-sigkill-old"])
+            self.assertEqual(sorted(p.name for p in out.glob("s1-*.json")),
+                             ["s1-sigkill-new.json", "s1-sigkill-old.json"])
+            text = (Path(tmp) / "Expectations.d" / "crash.txt").read_text(encoding="utf-8")
+        self.assertIn(f"{cw.TASK} [ new ] crash/s1-sigkill-new/{cw.RECOVERED} [ Failure ]", text)
+        self.assertIn(f"{cw.TASK} [ old ] crash/s1-sigkill-old/{cw.RECOVERED} [ Failure ]", text)
+        with self.assertRaises(cw.CrashWalkError):
+            cw.representatives({"a": [(point, "old", {})], "b": [(point, "old", {})]})
 
 
 class CorpusTests(unittest.TestCase):
@@ -298,8 +391,48 @@ class CorpusTests(unittest.TestCase):
             self.assertEqual(records["s4-owner-panic"]["found"]["arm"], "new")
             coverage = json.loads((out / "coverage.json").read_text())
             self.assertEqual(coverage["faults"][cw.OWNER_PANIC], ["s4-owner-panic"])
-            self.assertIn(cw.HOST_ABORT, coverage["excluded"])
-            self.assertEqual(coverage["missing"], [cw.SIGKILL])
+            self.assertEqual(coverage["excluded"], {})
+            self.assertEqual(coverage["missing"], [cw.HOST_ABORT, cw.SIGKILL])
+
+    def test_expectation_lines_follow_the_recorded_results(self) -> None:
+        both = {"status": "Failure", "step": cw.RECOVERED}
+        records = {
+            "s1-sigkill": {"fault": cw.SIGKILL, "results": {"old": both, "new": both}},
+            "s2-sigkill": {"fault": cw.SIGKILL, "results": {"old": {"status": "Pass"},
+                                                            "new": {"status": "Timeout", "step": None}}},
+            "s3-host-abort": {"fault": cw.HOST_ABORT, "results": {"old": {"status": "Pass"},
+                                                                  "new": {"status": "Skip"}}},
+            "s4-sigkill": {"fault": cw.SIGKILL},
+        }
+        self.assertEqual(cw.expectation_lines(records), [
+            f"{cw.TASK} crash/s1-sigkill/{cw.RECOVERED} [ Failure ]",
+            f"{cw.TASK} [ new ] crash/s2-sigkill [ Timeout ]",
+            f"p15-oracle-224 crash/s3-host-abort/{cw.ABORT} [ Crash ]",
+        ])
+        flaky = cw.merge_results([{"status": "Failure", "step": cw.RECOVER}, {"status": "Pass", "step": None}])
+        self.assertEqual(flaky, {"status": "Failure", "step": cw.RECOVER, "seen": ["Failure", "Pass"]})
+        self.assertEqual(cw.expectation_lines({"s5-owner-panic": {"fault": cw.OWNER_PANIC,
+                                                                  "results": {"new": flaky}}}),
+                         [f"{cw.TASK} [ new ] crash/s5-owner-panic/{cw.RECOVER} [ Failure Pass ]"])
+        self.assertNotIn("seen", cw.merge_results([{"status": "Pass"}, {"status": "Pass"}]))
+        kept = "# a hand line\np15-oracle-999 crash/x [ Skip ]\n"
+        text = cw.render_expectations(kept, cw.expectation_lines(records))
+        self.assertTrue(text.startswith(kept))
+        self.assertEqual(cw.render_expectations(text, []), kept)
+        self.assertEqual(cw.render_expectations(text, cw.expectation_lines(records)), text)
+
+    def test_the_crash_expectations_are_the_recorded_results_and_lint_clean(self) -> None:
+        import expectations  # noqa: PLC0415 - sibling (p15-oracle-007)
+
+        path = cw.expectations_path(cw.CRASH_DIR)
+        records = cw.read_kill_points(cw.CRASH_DIR)
+        existing = path.read_text(encoding="utf-8") if path.is_file() else ""
+        self.assertEqual(existing, cw.render_expectations(existing, cw.expectation_lines(records)))
+        if not existing:
+            return
+        exp = expectations.Expectations.load([path])
+        errors = [d for d in expectations.lint(exp, cw.CORPUS) if d.severity == "error"]
+        self.assertEqual(errors, [])
 
     def test_the_checked_in_crash_cases_are_their_kill_points(self) -> None:
         """Each generated case of tests/oracle/corpus/crash is what its recorded kill point builds today."""

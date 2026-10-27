@@ -14,8 +14,10 @@ fault, all from `random.Random("cmux-crash-walk:<seed>")`, so the same seed give
 case is the walk's steps up to the kill point, then:
 
   crash-acked      session.snapshot: the state at the last acknowledged step
-  crash-abort      host-abort only: kill holder ABRT, the terminal host's crash seam
-                   (CMUX_TUI_TEST_HOST_ABORT_ONCE, released by driver_daemon.py's holder kill, p15-oracle-224)
+  crash-abort      host-abort only: kill holder ABRT, the terminal host's crash seam (CMUX_TUI_TEST_HOST_ABORT_ONCE,
+                   host_crash.rs): crash_driver.py opens its trigger FIFO and waits for the host to exit. Old holder
+                   arm only (the cmux-holder of the new arm has no such seam); oracle.py's driver_daemon.py kills no
+                   host until p15-oracle-224, and crash.txt expects that
   crash-kill       kill daemon KILL
   crash-recover    restart daemon on the same root (owner-panic: with CMUX_TUI_TEST_OWNER_PANIC=thread, so the
                    recovering owner panics a worker thread while it reopens the root)
@@ -31,8 +33,14 @@ A failing crash walk is ddmin-minimized (Zeller and Hildebrandt, "Simplifying an
 Input", 2002; ClusterFuzz's delta minimizer does the same for Chromium's fuzz crashes): the steps before the kill
 point are reduced while the case still fails at the same step with the same status. A reduced prefix keeps the
 steps its $step: references name and must keep the daemon running at the kill point; any other subset is
-unresolved and counts as passing. The minimized case goes to tests/oracle/corpus/crash/ and its kill point to
-`_kill-points.json` there; every walk of a run, failing or not, is in the run receipt with its kill point.
+unresolved and counts as passing. The minimized case (`s<seed>-<fault>-<arm>`) goes to tests/oracle/corpus/crash/
+and its kill point, with its result on each arm, to `_kill-points.json` there; each failing result is a line of
+tests/oracle/Expectations.d/crash.txt, so a default oracle run expects it. Every walk of a run, failing or not, is
+in the run receipt with its kill point.
+
+A failure is the walk's when it is at a walk step or at crash-acked (both before the fault), or names no step in a
+case that never reached crash-kill; every other failure is the crash's, a teardown I6 leak after the restart or a
+worker hang after the kill included. Only the crash's are grouped, minimized and written.
 
 Chrome reference (chromium/src):
 - components/sessions/core/command_storage_backend.cc: the session service appends commands to its file and, on
@@ -51,8 +59,9 @@ Usage:
   crash_walks.py run --binary CMUX_TUI [--walks PATH...] [--seeds 5000] [--arms old,new] [--jobs 200]
                      [--out DIR] [--corpus DIR] [--no-minimize] [--isolation netns|auto|none]
                                                  the crash walks on each arm; failures minimized into the corpus
-  crash_walks.py replay --binary CMUX_TUI CASE.json [--arm old|new]
-                                                 one corpus crash case with the fault its kill point recorded
+  crash_walks.py replay --binary CMUX_TUI CASE.json... [--arms old,new] [--repeat N] [--record]
+                                                 corpus crash cases with the fault their kill points recorded;
+                                                 --record keeps each result in _kill-points.json and crash.txt
   crash_walks.py --selftest                      the offline tests (crash_walks_test.py)
 """
 
@@ -100,9 +109,9 @@ SELECTORS = {"machine": "current", "session": "current"}
 # the connected clients: a killed owner drops every connection, which is not session state it acknowledged.
 RECOVERED_EXCEPT = ["/cursor", "/session/generation", "/session/revision", "/terminals/*/stream_revision",
                     "/terminals/*/extra", "/clients"]
-# What a replayed mutation_result changes: its cursor (generation and revision) is the replaying generation's,
-# and its replayed flag. The value is the acknowledged one.
-REPLAY_EXCEPT = ["/generation", "/revision", "/replayed"]
+# What a replayed mutation_result changes: its generation is the replaying daemon's, and its replayed flag. The
+# value and the revision are the acknowledged ones (gen_daemon_ops.py's graceful-restart replays except the same).
+REPLAY_EXCEPT = ["/generation", "/replayed"]
 # The graceful-restart cases wait this long for an adopted terminal.
 ADOPT_WAIT_MS = 15000
 
@@ -113,10 +122,13 @@ STEP_REF = re.compile(r"\$step:([a-z0-9][a-z0-9-]{0,63})#")
 # The parts of a failure message that differ between two walks with one cause: JSON strings, paths, numbers.
 VOLATILE = re.compile(r'"[^"]*"|/tmp/\S+|\b\d+\b')
 # A host-abort walk needs exactly one terminal (the seam ends the first host only, and driver_daemon.py refuses
-# it with several): a step that surely makes one, none that may make or end one.
+# it with several): a step that surely makes one, none that may make or end one. A creator surely makes a running
+# terminal only when its call succeeds and it runs the default shell: a given argv may exit at once.
 CREATES_TERMINAL = frozenset({"tab.create_terminal"})
-MAY_CREATE_TERMINAL = frozenset({"closed.reopen", "pane.create", "pane.split", "saved_tab_group.reopen",
-                                 "screen.create", "session.open"})
+MAY_CREATE_TERMINAL = frozenset({"closed.reopen", "pane.create", "pane.run", "pane.split", "saved_tab_group.reopen",
+                                 "screen.create", "session.open", "stash.create", "stash.restore",
+                                 "terminal.input.keys", "terminal.input.write", "workspace.layout.apply",
+                                 "workspace.run"})
 ENDS_SOMETHING = re.compile(r"\.(close|delete|remove|kill|end|restart|respawn|clear|discard)(_|\.|$)")
 
 
@@ -151,6 +163,11 @@ class KillPoint:
     @property
     def case_id(self) -> str:
         return f"s{self.seed}-{self.fault}"
+
+    def found_id(self, arm: str) -> str:
+        """The id of a minimized failure of this walk on `arm`: one seed can fail with another signature on each
+        arm, and each representative is its own case."""
+        return f"{self.case_id}-{arm}"
 
     def to_json(self) -> Dict[str, Any]:
         return asdict(self)
@@ -274,48 +291,71 @@ def kill_candidates(steps: Sequence[Mapping[str, Any]], classes: Mapping[str, st
     return mutations or calls
 
 
-def terminal_count_is_one(steps: Sequence[Mapping[str, Any]]) -> bool:
-    """Whether the steps surely leave exactly one terminal: one sure creator, nothing that may make or end one."""
+def sure_terminals(steps: Sequence[Mapping[str, Any]]) -> Optional[int]:
+    """How many terminals the steps surely leave: the sure creators, or None when a step may make or end one."""
     sure = 0
     for step in steps:
         name = method(step)
         if name is None:
             continue
         params = (step.get("args") or {}).get("params") or {}
-        if name in CREATES_TERMINAL or (name == "workspace.create" and params.get("initial_content") == "terminal"):
+        creates = name in CREATES_TERMINAL or (name == "workspace.create" and params.get("initial_content") == "terminal")
+        if (step.get("expect") or {}).get("outcome") == "error" and (creates or name == "workspace.create"):
+            continue  # a refused create makes nothing
+        if creates and "argv" not in params and "command" not in params:
             sure += 1
-        elif name in MAY_CREATE_TERMINAL or name == "workspace.create" or ENDS_SOMETHING.search(name):
-            return False
-    return sure == 1
+        elif creates or name in MAY_CREATE_TERMINAL or name == "workspace.create" or ENDS_SOMETHING.search(name):
+            return None
+    return sure
 
 
-def makes_terminal(steps: Sequence[Mapping[str, Any]]) -> bool:
-    """Whether a step surely makes a terminal: then the restart waits for the first one to run again."""
-    for step in steps:
-        name = method(step)
-        params = ((step.get("args") or {}).get("params") or {}) if name else {}
-        if name in CREATES_TERMINAL or (name == "workspace.create" and params.get("initial_content") == "terminal"):
-            return True
-    return False
+def terminal_count_is_one(steps: Sequence[Mapping[str, Any]]) -> bool:
+    """Whether the steps surely leave exactly one terminal (a host-abort walk's precondition)."""
+    return sure_terminals(steps) == 1
+
+
+def has_running_terminal(steps: Sequence[Mapping[str, Any]]) -> bool:
+    """Whether the acknowledged state surely has a terminal: then the restart waits for the first one to run
+    again. A walk that may have closed it gets no wait (a closed terminal leaves the list empty)."""
+    return (sure_terminals(steps) or 0) >= 1
+
+
+def fault_candidates(steps: Sequence[Mapping[str, Any]], classes: Mapping[str, str], fault: str) -> List[int]:
+    """The kill points of `fault`: every kill candidate, and for host-abort only those after which exactly one
+    terminal surely runs."""
+    candidates = kill_candidates(steps, classes)
+    if fault != HOST_ABORT:
+        return candidates
+    return [index for index in candidates if terminal_count_is_one(steps[:index + 1])]
 
 
 def plan(seed: int, walks: Sequence[Walk], classes: Mapping[str, str],
          faults: Sequence[str] = FAULTS) -> KillPoint:
-    """The crash walk of `seed`: a walk, a kill point and a fault, all from one seeded generator. A host-abort draw
-    on a prefix without exactly one terminal becomes a SIGKILL walk, so the plan never depends on a run."""
+    """The crash walk of `seed`: a fault, then a walk and a kill point that fault can follow, all from one seeded
+    generator, so the plan never depends on a run. A host-abort draw takes only walks with a kill point after
+    which exactly one terminal runs; with none, the draw is a SIGKILL walk when the fault set allows another
+    fault, else the plan is refused."""
     if not walks:
         raise CrashWalkError("no usable walk")
     draw = [fault for fault in FAULT_DRAW if fault in faults]
     if not draw:
         raise CrashWalkError(f"no fault of {list(faults)} is drawn")
     rng = random.Random(f"{SEED_PREFIX}{seed}")
-    walk = walks[rng.randrange(len(walks))]
-    steps = walk.steps
-    index = rng.choice(kill_candidates(steps, classes))
     fault = rng.choice(draw)
-    if fault == HOST_ABORT and not terminal_count_is_one(steps[:index + 1]):
-        fault = SIGKILL if SIGKILL in faults else draw[0]
-    return KillPoint(seed, walk.id, index, str(steps[index]["id"]), fault)
+    eligible = [(walk, points) for walk in walks for points in [fault_candidates(walk.steps, classes, fault)]
+                if points]
+    if not eligible and fault == HOST_ABORT:
+        others = [other for other in draw if other != HOST_ABORT]
+        if not others:
+            raise CrashWalkError("no walk has a kill point after which exactly one terminal runs, which a "
+                                 "host-abort walk needs")
+        fault = SIGKILL if SIGKILL in others else others[0]
+        eligible = [(walk, kill_candidates(walk.steps, classes)) for walk in walks]
+    if not eligible:
+        raise CrashWalkError("no walk has a kill point")
+    walk, points = eligible[rng.randrange(len(eligible))]
+    index = rng.choice(points)
+    return KillPoint(seed, walk.id, index, str(walk.steps[index]["id"]), fault)
 
 
 # ---------------------------------------------------------------------------------------------------------
@@ -378,7 +418,7 @@ def tail_steps(prefix: Sequence[Mapping[str, Any]], fault: str, classes: Mapping
                                                                 "its result"}})
     recover: Dict[str, Any] = {"id": RECOVER, "op": "restart", "target": {"process": "daemon"},
                                "expect": {"outcome": "ok", "receipt": "identify"}}
-    if makes_terminal(prefix):
+    if has_running_terminal(prefix):
         recover["waitFor"] = {"pointer": "/daemon/session/terminals/0/lifecycle", "equals": "running",
                               "maxMs": ADOPT_WAIT_MS}
     steps.append(recover)
@@ -413,9 +453,9 @@ def allow_crashes(walk: Mapping[str, Any], kept_ids: Set[str], fault: str) -> Li
 
 
 def crash_case(walk: Walk, point: KillPoint, classes: Mapping[str, str],
-               keep: Optional[Iterable[int]] = None) -> Dict[str, Any]:
+               keep: Optional[Iterable[int]] = None, case_id: Optional[str] = None) -> Dict[str, Any]:
     """The case-v1 crash case of `point`: the walk's steps up to the kill point (`keep` of those before it, with
-    what they reference; all of them when None), then the crash steps."""
+    what they reference; all of them when None), then the crash steps. Its id is `case_id`, else the point's."""
     steps = walk.steps
     if point.walk != walk.id or point.after != steps[point.index].get("id"):
         raise CrashWalkError(f"kill point {point.case_id} is not on walk {walk.id}")
@@ -445,7 +485,7 @@ def crash_case(walk: Walk, point: KillPoint, classes: Mapping[str, str],
     return {
         "$schema": "../../../../schemas/oracle/case-v1.schema.json",
         "corpusVersion": 1,
-        "id": point.case_id,
+        "id": case_id or point.case_id,
         "suite": SUITE,
         "title": f"Crash walk {point.seed}: {point.fault} after {walk.id} step {point.after}, then the last "
                  f"acknowledged state",
@@ -523,10 +563,14 @@ class Failure:
             return None
         return cls(str(status), result.get("step"))
 
-    @property
-    def kind(self) -> str:
-        """`crash` when a crash step failed, `walk` when the walk failed before its kill point."""
-        return "crash" if self.step in CRASH_STEPS else "walk"
+    def kind(self, killed: Optional[bool]) -> str:
+        """`walk` when the walk failed before its kill point, else `crash`. By position: a walk step, or
+        crash-acked (it reads the state before the fault), is the walk's; a crash step after it is the crash's.
+        A failure that names no step (the teardown's I6 proof, a worker over its bound) is the walk's only when
+        the case never reached crash-kill (`killed` False); unknown (None) counts as the crash's."""
+        if self.step is None:
+            return "walk" if killed is False else "crash"
+        return "crash" if self.step in CRASH_STEPS - {ACKED} else "walk"
 
 
 def signature(failure: Failure, message: str) -> str:
@@ -538,19 +582,53 @@ def signature(failure: Failure, message: str) -> str:
 
 
 def minimize(walk: Walk, point: KillPoint, classes: Mapping[str, str], failure: Failure,
-             run: Callable[[Dict[str, Any]], Mapping[str, Any]]) -> Tuple[List[int], Dict[str, Any]]:
-    """The fewest steps before the kill point that still fail as `failure`, and their crash case. `run` runs one
-    case and returns its result."""
+             run: Callable[[Dict[str, Any]], Mapping[str, Any]], case_id: Optional[str] = None
+             ) -> Tuple[List[int], Dict[str, Any]]:
+    """The fewest steps before the kill point that still fail as `failure`, and their crash case (id `case_id`).
+    `run` runs one case and returns its result."""
     steps = walk.steps
 
     def fails(keep: List[int]) -> bool:
         running = running_after([steps[i] for i in closure(steps, [*keep, point.index])])
         if not running or not running[-1]:
             return False  # unresolved: the reduced walk cannot reach its kill point with the daemon up
-        return Failure.of(run(crash_case(walk, point, classes, keep))) == failure
+        return Failure.of(run(crash_case(walk, point, classes, keep, case_id))) == failure
 
     kept = ddmin(list(range(point.index)), fails)
-    return kept, crash_case(walk, point, classes, kept)
+    return kept, crash_case(walk, point, classes, kept, case_id)
+
+
+Job = Tuple[KillPoint, str]
+Grouped = Tuple[KillPoint, str, Dict[str, Any]]
+
+
+def group_failures(jobs: Sequence[Job], records: Sequence[Dict[str, Any]]) -> Tuple[Dict[str, List[Grouped]], int]:
+    """The run's crash failures by signature, and the count of walk failures (the walk failed before its kill
+    point: the walk's own suite owns it). Each failing record gets its `signature` and `side`."""
+    groups: Dict[str, List[Grouped]] = {}
+    walk_failures = 0
+    for (point, arm), record in zip(jobs, records):
+        failure = Failure.of(record)
+        if failure is None:
+            continue
+        record["signature"] = signature(failure, str(record.get("message") or ""))
+        record["side"] = failure.kind(record.get("killed"))
+        if record["side"] == "walk":
+            walk_failures += 1
+            continue
+        groups.setdefault(record["signature"], []).append((point, arm, record))
+    return groups, walk_failures
+
+
+def representatives(groups: Mapping[str, Sequence[Grouped]]) -> List[Grouped]:
+    """One failing walk per signature, the one with the fewest steps before its kill point. Each becomes its own
+    case (KillPoint.found_id); two that would share an id are refused, so no write replaces another."""
+    chosen = [min(group, key=lambda item: (item[0].index, item[0].seed, item[1]))
+              for _, group in sorted(groups.items())]
+    ids = [point.found_id(arm) for point, arm, _ in chosen]
+    if len(set(ids)) != len(ids):
+        raise CrashWalkError(f"two minimized failures would share a case id: {sorted(ids)}")
+    return chosen
 
 
 # ---------------------------------------------------------------------------------------------------------
@@ -581,11 +659,9 @@ def write_kill_points(directory: Path, cases: Mapping[str, Mapping[str, Any]]) -
 
 
 def write_coverage(directory: Path, records: Mapping[str, Mapping[str, Any]]) -> None:
-    """The suite's coverage: the fault kinds with a case, and why each other one has none."""
+    """The suite's coverage: the fault kinds with a case."""
     found = {record["fault"] for record in records.values()}
-    excluded = {fault: ("p15-oracle-224: driver_daemon.py kills no terminal holder yet; crash_walks.py run plans "
-                        "host-abort walks and reports them Skip until it does") for fault in FAULTS
-                if fault not in found and fault == HOST_ABORT}
+    excluded: Dict[str, str] = {}
     write_json(directory / "coverage.json", {
         "generator": "scripts/cmux-next/oracle/crash_walks.py",
         "suite": SUITE,
@@ -598,22 +674,122 @@ def write_coverage(directory: Path, records: Mapping[str, Mapping[str, Any]]) ->
     })
 
 
-def kill_point_record(point: KillPoint, case: Mapping[str, Any], walk: Walk, *, found: Optional[Mapping[str, Any]] = None
-                      ) -> Dict[str, Any]:
+Results = Mapping[str, Mapping[str, Any]]
+
+
+def kill_point_record(point: KillPoint, case: Mapping[str, Any], walk: Walk, *,
+                      found: Optional[Mapping[str, Any]] = None, results: Optional[Results] = None) -> Dict[str, Any]:
     record = {**point.to_json(), "walkSteps": len(walk.steps), "caseSteps": len(case["steps"])}
     if found is not None:
         record["found"] = dict(found)
+    if results:
+        record["results"] = {arm: dict(results[arm]) for arm in sorted(results)}
     return record
 
 
 def write_case(directory: Path, point: KillPoint, case: Mapping[str, Any], walk: Walk,
-               found: Optional[Mapping[str, Any]] = None) -> None:
-    """The case file and its kill point; the suite's coverage follows."""
-    write_json(directory / f"{point.case_id}.json", case)
+               found: Optional[Mapping[str, Any]] = None, results: Optional[Results] = None) -> None:
+    """The case file and its kill point (by the case's id); the suite's coverage and the expectations of its
+    failing results follow."""
+    case_id = str(case["id"])
+    write_json(directory / f"{case_id}.json", case)
     records = read_kill_points(directory)
-    records[point.case_id] = kill_point_record(point, case, walk, found=found)
+    records[case_id] = kill_point_record(point, case, walk, found=found, results=results)
     write_kill_points(directory, records)
     write_coverage(directory, records)
+    write_expectations(expectations_path(directory), records)
+
+
+def merge_results(runs: Sequence[Mapping[str, Any]]) -> Dict[str, Any]:
+    """One arm's result over several runs of a case: the last failing run (else the last run), with `seen`, every
+    status the runs gave, when they disagree (a flaky case: its expectation lists them all)."""
+    if not runs:
+        raise CrashWalkError("no run to merge")
+    failing = [run for run in runs if run.get("status") in EXPECTED_RESULTS]
+    out = dict(failing[-1] if failing else runs[-1])
+    seen = sorted({str(run.get("status")) for run in runs})
+    if len(seen) > 1:
+        out["seen"] = seen
+    return out
+
+
+def record_results(directory: Path, case_id: str, results: Results) -> None:
+    """A corpus case's result on each arm (`replay --record`, which replaces what the arm had), and the
+    expectations that follow."""
+    records = read_kill_points(directory)
+    if case_id not in records:
+        raise CrashWalkError(f"{directory / KILL_POINTS} has no kill point for {case_id}")
+    merged = {**(records[case_id].get("results") or {}), **{arm: dict(value) for arm, value in results.items()}}
+    records[case_id]["results"] = {arm: merged[arm] for arm in sorted(merged)}
+    write_kill_points(directory, records)
+    write_expectations(expectations_path(directory), records)
+
+
+# The crash suite's known failures, as Blink keeps a failing test in TestExpectations with its bug: a corpus case
+# whose recorded result on an arm is not Pass gets a line, so a default oracle run counts it as expected. This file
+# owns one block of tests/oracle/Expectations.d/crash.txt (expectations.py); lines outside the block are kept.
+EXPECTATIONS_GENERATOR = "scripts/cmux-next/oracle/crash_walks.py"
+EXPECTATIONS_BEGIN_PREFIX = f"# BEGIN {EXPECTATIONS_GENERATOR}:"
+EXPECTATIONS_BEGIN = f"{EXPECTATIONS_BEGIN_PREFIX} the crash cases whose recorded result ({KILL_POINTS}) is not Pass"
+EXPECTATIONS_END = f"# END {EXPECTATIONS_GENERATOR}"
+EXPECTATIONS_HEADER = (f"# {SUITE} expectations (format: scripts/cmux-next/oracle/expectations.py).\n"
+                       f"# {EXPECTATIONS_GENERATOR} writes the block below from the results in {KILL_POINTS}\n"
+                       "# (`run`, `replay --record`): do not edit the block. Lines outside it are kept.\n")
+EXPECTED_RESULTS = ("Failure", "Crash", "Timeout")
+HOST_ABORT_LINE = "p15-oracle-224 {case}/" + ABORT + " [ Crash ]"
+
+
+def expectations_path(directory: Path) -> Path:
+    """`<oracle root>/Expectations.d/crash.txt` for the suite directory `<oracle root>/corpus/crash`."""
+    return directory.parent.parent / "Expectations.d" / f"{SUITE}.txt"
+
+
+def expectation_lines(records: Mapping[str, Mapping[str, Any]]) -> List[str]:
+    """`<task> [ <arm> ] crash/<case>/<step> [ <results> ]` per failing recorded result (every status a flaky one
+    gave): no arm tag when every arm fails the same way, no step when the failure names none. A host-abort case
+    also gets HOST_ABORT_LINE: oracle.py runs it on driver_daemon.py, which kills no terminal host until
+    p15-oracle-224, so it ends at crash-abort there (its crash_driver.py results after that step stay recorded)."""
+    lines = []
+    for case_id in sorted(records):
+        by_failure: Dict[Tuple[str, Tuple[str, ...]], List[str]] = {}
+        host_abort = records[case_id].get("fault") == HOST_ABORT
+        for arm, result in (records[case_id].get("results") or {}).items():
+            status, step = str(result.get("status")), str(result.get("step") or "")
+            if status in EXPECTED_RESULTS and not (host_abort and step == ABORT):
+                statuses = tuple(sorted((set(result.get("seen") or ()) & {"Pass", *EXPECTED_RESULTS}) | {status}))
+                by_failure.setdefault((step, statuses), []).append(arm)
+        if host_abort:
+            lines.append(HOST_ABORT_LINE.format(case=f"{SUITE}/{case_id}"))
+        for (step, statuses), arms in sorted(by_failure.items()):
+            tags = "" if sorted(arms) == sorted(ARMS) else "".join(f"[ {arm} ] " for arm in sorted(arms))
+            target = f"{SUITE}/{case_id}" + (f"/{step}" if step else "")
+            lines.append(f"{TASK} {tags}{target} [ {' '.join(statuses)} ]")
+    return lines
+
+
+def render_expectations(existing: str, lines: Sequence[str]) -> str:
+    """`existing` with this file's block replaced by `lines` (appended, with a header for a new file); the block
+    goes when no line is left."""
+    begin, end = existing.find(EXPECTATIONS_BEGIN_PREFIX), existing.find(EXPECTATIONS_END)
+    if (begin >= 0) != (end >= 0) or end < begin:
+        raise CrashWalkError(f"the {SUITE} expectations file has one of the block markers without the other")
+    block = "\n".join([EXPECTATIONS_BEGIN, *lines, EXPECTATIONS_END]) + "\n" if lines else ""
+    if begin >= 0:
+        tail = existing[end + len(EXPECTATIONS_END):]
+        return existing[:begin] + block + (tail[1:] if tail.startswith("\n") else tail)
+    if not block:
+        return existing
+    if not existing.strip():
+        return EXPECTATIONS_HEADER + block
+    return existing + ("" if existing.endswith("\n") else "\n") + block
+
+
+def write_expectations(path: Path, records: Mapping[str, Mapping[str, Any]]) -> None:
+    existing = path.read_text(encoding="utf-8") if path.is_file() else ""
+    text = render_expectations(existing, expectation_lines(records))
+    if text != existing:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text, encoding="utf-8")
 
 
 # ---------------------------------------------------------------------------------------------------------
@@ -697,10 +873,14 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     run.add_argument("--no-minimize", action="store_true")
     run.add_argument("--isolation", choices=("netns", "auto", "none"), default="netns")
     run.add_argument("--state-base", type=Path, default=Path("/tmp/o"))
-    replay = sub.add_parser("replay", help="one crash case with its recorded fault")
-    replay.add_argument("case", type=Path)
+    replay = sub.add_parser("replay", help="corpus crash cases with their recorded faults")
+    replay.add_argument("cases", type=Path, nargs="+")
     replay.add_argument("--binary", required=True)
-    replay.add_argument("--arm", choices=ARMS, default="old")
+    replay.add_argument("--arms", type=parse_arms, default=ARMS)
+    replay.add_argument("--jobs", type=int, default=24)
+    replay.add_argument("--repeat", type=int, default=1, help="runs of each case on each arm (a flaky result "
+                                                              "records every status it gave)")
+    replay.add_argument("--record", action="store_true", help="keep each result in _kill-points.json and crash.txt")
     replay.add_argument("--isolation", choices=("netns", "auto", "none"), default="netns")
     replay.add_argument("--state-base", type=Path, default=Path("/tmp/o"))
     args = parser.parse_args(argv)
