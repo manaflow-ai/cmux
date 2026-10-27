@@ -17,7 +17,8 @@ import Foundation
 /// a window in the turn that opened it. The page tabs of one pane share that pane's page window
 /// (``PageChromiumWindow``, p13-webui-063): the second page of a pane builds no window. A page tab runs no
 /// browser-tab document script and attaches none of their DevTools bridges (``CEFEngine/makePagesTab(_:)``,
-/// p13-webui-068): only its first paint is read.
+/// p13-webui-068): only its first paint is read. A page's ``PageChromiumOrigin`` is its tab's origin, and the slot's
+/// launch order (``CEFLaunchDeferral``, 040) answers a restored page's origin and hidden start (p08-startup-041).
 @MainActor
 final class ChromiumPageHost: PageChromiumHosting {
     enum Failure: Error {
@@ -64,20 +65,31 @@ final class ChromiumPageHost: PageChromiumHosting {
         self.pushChannel = pushChannel
     }
 
+    /// The slot's launch order's origin (``CEFLaunchDeferral/restoredOrigin(isShown:wasStarted:)``): a page view starts once.
+    func restoredOrigin(isShown: Bool) -> PageChromiumOrigin {
+        PageChromiumOrigin(chromium.launchOrder.restoredOrigin(isShown: isShown, wasStarted: false))
+    }
+
+    /// The slot's launch order's hidden start, the path a hidden restored browser tab takes too.
+    func startHidden(when node: VisibilityNode, _ start: @escaping @MainActor @Sendable () -> Void) {
+        chromium.launchOrder.startHidden(when: node, start)
+    }
+
     var preference: BrowserDefaultEngine { enginePreference() }
 
     var isAvailable: Bool { chromium.unavailableReason == nil }
 
     func serves(_ page: PageDescriptor) -> Bool { CEFPageSchemes.firstParty[page.id] != nil }
 
-    func makePage(_ page: PageDescriptor, chatOpen: ChatOpenStages?, window: PageChromiumWindow?) async throws
-        -> any PageChromiumPage {
+    func makePage(_ page: PageDescriptor, chatOpen: ChatOpenStages?, window: PageChromiumWindow?,
+                  origin: PageChromiumOrigin) async throws -> any PageChromiumPage {
         #if DEBUG || CMUX_BENCH_HOOKS
         // Taken before any suspension: set by the traced chat's own page in this turn (``ChatOpenTrace``).
         let traced = ChatOpenTrace.shared.takeMakingTracedPage()
         #endif
         let cef = chromium.engine
-        let configuration = Self.tabConfiguration(of: cef, chatOpen: chatOpen, window: window)
+        var configuration = Self.tabConfiguration(of: cef, chatOpen: chatOpen, window: window)
+        configuration.origin = BrowserTabOrigin(origin)  // CEFEngine.makeTab's launch order is the only wait
         #if DEBUG || CMUX_BENCH_HOOKS
         if traced, ChatOpenTrace.shared.chromiumPane == nil { ChatOpenTrace.shared.chromiumPane = configuration.pane?.rawValue }
         #endif
@@ -112,5 +124,29 @@ final class ChromiumPageHost: PageChromiumHosting {
     /// The CEF pane key of `window`: one Chromium window per pane of a main window.
     nonisolated static func pane(of window: PageChromiumWindow) -> BrowserPaneID {
         CEFEngine.pagesPane(window: window.window, pane: window.pane)
+    }
+}
+
+extension BrowserTabOrigin {
+    /// The engine's origin of a cmux page made with `origin` (``ChromiumPageHost/makePage(_:chatOpen:window:origin:)``).
+    nonisolated init(_ origin: PageChromiumOrigin) {
+        self = switch origin {
+        case .user: .user
+        case .automation: .automation
+        case .restoreVisible: .restoreVisible
+        case .restoreHidden: .restoreHidden
+        }
+    }
+}
+
+extension PageChromiumOrigin {
+    /// The page side of the engine's `origin` (``ChromiumPageHost/restoredOrigin(isShown:)``).
+    nonisolated init(_ origin: BrowserTabOrigin) {
+        self = switch origin {
+        case .user: .user
+        case .automation: .automation
+        case .restoreVisible: .restoreVisible
+        case .restoreHidden: .restoreHidden
+        }
     }
 }

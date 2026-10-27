@@ -20,8 +20,10 @@ import Testing
         struct NoPages: Error {}
 
         func serves(_ page: PageDescriptor) -> Bool { !unserved.contains(page.id) }
-        func makePage(_ page: PageDescriptor, chatOpen: ChatOpenStages?, window: PageChromiumWindow?) async throws
-            -> any PageChromiumPage { throw NoPages() }
+        func restoredOrigin(isShown: Bool) -> PageChromiumOrigin { .user }
+        func startHidden(when node: VisibilityNode, _ start: @escaping @MainActor @Sendable () -> Void) { start() }
+        func makePage(_ page: PageDescriptor, chatOpen: ChatOpenStages?, window: PageChromiumWindow?,
+                      origin: PageChromiumOrigin) async throws -> any PageChromiumPage { throw NoPages() }
         func supervisorOutcome(then answer: @escaping @MainActor @Sendable (PageChromiumSupervisorOutcome) -> Void) {
             answer(.gaveUp)
         }
