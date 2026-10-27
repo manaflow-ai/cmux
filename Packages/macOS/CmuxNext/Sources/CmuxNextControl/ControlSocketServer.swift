@@ -113,6 +113,9 @@ public final class ControlSocketServer: Sendable {
         self.init(configuration: configuration, router: router, accept: { accept($0, nil, nil) })
     }
 
+    /// Each open connection's peer process (the Credential Vault's caller check).
+    public let peers = ControlConnectionPeers()
+
     init(configuration: Configuration, router: ControlRouter, accept: @escaping AcceptCall,
          bind: @escaping BindCall = { Darwin.bind($0, $1, $2) }) {
         self.configuration = configuration
@@ -312,12 +315,12 @@ public final class ControlSocketServer: Sendable {
             let connection = ControlConnection(id: id, descriptor: client, limits: limits)
             state.withLock { $0.connections[id] = connection }
             if let pid = peer.pid {
-                ControlConnectionPeers.shared.opened(id, pid: pid, ancestor: configuration.trustedAncestor,
+                peers.opened(id, pid: pid, ancestor: configuration.trustedAncestor,
                                                      trusted: configuration.trustedExecutables)
             }
             connection.onClosed = { [weak self] in
                 _ = self?.state.withLock { $0.connections.removeValue(forKey: id) }
-                ControlConnectionPeers.shared.closed(id)
+                peers.closed(id)
                 // A request still waiting for this client (a confirmation sheet) ends now.
                 ControlConnectionClosures.shared.closed(id)
             }

@@ -106,8 +106,7 @@ extension CredentialVault {
 
     /// The `vault.*` methods over this vault, with `ask` as the person's sheet and `lineage` as
     /// who really calls (the server's peer process, not the request's params).
-    public func controlMethods(ask: @escaping Ask,
-                               lineage: @escaping Lineage = { ControlConnectionPeers.shared.lineage($0) }) -> [ControlMethod] {
+    public func controlMethods(ask: @escaping Ask, lineage: @escaping Lineage) -> [ControlMethod] {
         VaultControl.methods(vault: self, ask: ask, lineage: lineage)
     }
 }

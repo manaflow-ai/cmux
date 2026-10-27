@@ -374,10 +374,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 control.registerCloudMethods(services)
                 control.registerAccountsMethods(services)
                 // `vault.*` (`cmux vault`): the Credential Vault, its secure sheet on the active window.
-                control.service?.router.register(services.credentialVault.controlMethods { [weak services] request in
+                // Who calls is the socket's peer process (`peers`), never the request's params.
+                let peers = control.service?.server.peers
+                control.service?.router.register(services.credentialVault.controlMethods(ask: { [weak services] request in
                     guard let window = services?.windows.active?.window else { return nil }
                     return await CredentialVault.askForEntry(request, in: window)
-                })
+                }, lineage: { peers?.lineage($0) }))
                 control.registerBillingMethods(services)
                 control.registerRemoteMethods(services)
                 control.registerMobileMethods(services)
