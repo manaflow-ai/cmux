@@ -23,6 +23,7 @@ struct CaptureNeutralNamesTests {
         let captured = AppEnvironment.current(["CMUX_CAPTURE_SHELL_HOME": home.path])
         #expect(captured.captureShellHome == home.path)
         #expect(captured.terminalEnvironment["ZDOTDIR"] == home.path)
+        #expect(captured.terminalEnvironment["SHELL"] == "/bin/zsh")
         #expect(captured.namesShowcaseMac)
     }
 
@@ -30,6 +31,7 @@ struct CaptureNeutralNamesTests {
         let plain = AppEnvironment.current([:])
         #expect(plain.captureShellHome == nil)
         #expect(plain.terminalEnvironment["ZDOTDIR"] == nil)
+        #expect(plain.terminalEnvironment["SHELL"] == nil)
         #expect(!plain.namesShowcaseMac)
     }
 }

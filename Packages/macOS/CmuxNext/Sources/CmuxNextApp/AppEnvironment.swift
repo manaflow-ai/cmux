@@ -163,8 +163,12 @@ struct AppEnvironment: Sendable {
         terminal["CMUX_CHIEF_HOME"] = ChiefHome.resolve(tag: launch.tag, environment: environment).root.path
         // Under capture, zsh reads the slot's neutral rc files (a `$ ` prompt), never the account's
         // (`%n@%m`: the capture host's name, which the capture's privacy check refuses). Ghostty's and the
-        // bundled CLI's ZDOTDIR layers wrap it and hand it back before `.zshrc` runs.
-        if let shellHome = captureShellHome(environment) { terminal["ZDOTDIR"] = shellHome }
+        // bundled CLI's ZDOTDIR layers wrap it and hand it back before `.zshrc` runs. The terminals run zsh
+        // there: bash and fish read the account's `HOME`, which LaunchServices keeps, so they would not see them.
+        if let shellHome = captureShellHome(environment) {
+            terminal["ZDOTDIR"] = shellHome
+            terminal["SHELL"] = "/bin/zsh"
+        }
         return terminal
     }
 
