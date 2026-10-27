@@ -143,7 +143,9 @@ pub(super) fn decide(
         Some("version_mismatch") => return Decision::Refuse(refusal(Refusal::VersionMismatch)),
         // Off, or the helper answered with a grant missing: only the person can fix it.
         Some("off" | "ready") => {}
-        // `starting` (the helper is not up yet, or did not answer): the grants
+        // No answer: the helper proxy's own wait decides.
+        Some("starting" | "failed") => return Decision::Run,
+        // An unknown phase also leaves the call to the helper. The grants
         // are unknown and may be on, and the card would stay until clicked;
         // the helper proxy's own wait decides.
         _ => return Decision::Run,
@@ -282,6 +284,13 @@ mod tests {
         assert!(matches!(decide("click", status, None), Decision::Run));
         let off = Ok(json!({"phase": "off", "accessibility": null, "screen_recording": null}));
         assert!(matches!(decide("click", off, None), Decision::Wait { .. }));
+    }
+
+    #[test]
+    fn a_failed_helper_is_left_to_its_own_wait() {
+        let status = Ok(json!({"phase": "failed", "accessibility": null,
+                               "screen_recording": null, "driver": "legacy"}));
+        assert!(matches!(decide("click", status, None), Decision::Run));
     }
 
     #[test]

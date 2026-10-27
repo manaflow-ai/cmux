@@ -32,6 +32,7 @@ public final class ComputerUseStepModel {
                 // buffered then is dropped here rather than applied late.
                 guard let self, !Task.isCancelled else { return }
                 permissions = value
+                if value.helperFailed { helping = nil }
                 if let pane = helping, value.granted(pane) { helping = nil }
             }
         }
@@ -60,6 +61,14 @@ public final class ComputerUseStepModel {
         if permissions.isOff { source.enable() }
         source.openSettings(pane)
         helping = pane
+    }
+
+    /// Restarts a helper that did not answer setup.
+    public func restart() {
+        guard permissions.helperFailed else { return }
+        unavailable = false
+        helping = nil
+        source?.restart()
     }
 
     /// The tile's close button.

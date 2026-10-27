@@ -37,6 +37,8 @@ final class ComputerUseSetup {
         case unavailable
         /// On, and the helper is starting (or has not answered yet).
         case starting
+        /// The helper did not answer within the read budget.
+        case failed
         /// The helper answered: `permissions` are its grants.
         case ready
         /// The helper answered in another protocol version: the grants are unknown.
@@ -76,6 +78,7 @@ final class ComputerUseSetup {
     @ObservationIgnored private let read: @Sendable (AgentActivitySocketSource.Configuration) async -> Read
     @ObservationIgnored private let resolveHelper: @Sendable (URL?) async -> URL?
     @ObservationIgnored private let openURL: @MainActor (URL) -> Void
+    @ObservationIgnored private let restartHelper: @MainActor () async -> Void
     @ObservationIgnored private let enableSetting: @MainActor () -> Void
     @ObservationIgnored private let notifications: NotificationCenter
     @ObservationIgnored private let distributed: NotificationCenter
@@ -87,7 +90,7 @@ final class ComputerUseSetup {
     @ObservationIgnored private var resolvedFor: URL??
     /// The inputs `start()` applied, until the input stream's first value.
     @ObservationIgnored private var appliedAtStart: Inputs?
-    /// Reads after a helper start that has not answered yet.
+    /// Maximum reads per check while the helper has not answered.
     static let maximumRetries = 6
 
     /// macOS posts this (distributed) when any process's Accessibility trust changes.
@@ -98,6 +101,7 @@ final class ComputerUseSetup {
          read: @escaping @Sendable (AgentActivitySocketSource.Configuration) async -> Read = { await ComputerUseSetup.socketRead($0) },
          resolveHelper: @escaping @Sendable (URL?) async -> URL? = ComputerUseSetup.signedHelper,
          openURL: @escaping @MainActor (URL) -> Void = { NSWorkspace.shared.openInBackground($0) },
+         restartHelper: @escaping @MainActor () async -> Void = {},
          enableSetting: @escaping @MainActor () -> Void = {},
          notifications: NotificationCenter = .default,
          distributed: NotificationCenter = DistributedNotificationCenter.default(),
@@ -107,6 +111,7 @@ final class ComputerUseSetup {
         self.read = read
         self.resolveHelper = resolveHelper
         self.openURL = openURL
+        self.restartHelper = restartHelper
         self.enableSetting = enableSetting
         self.notifications = notifications
         self.distributed = distributed
@@ -149,9 +154,27 @@ final class ComputerUseSetup {
         })
     }
 
-    /// Reads the grants again now (Settings opened, the step showed, the app came back).
+    /// Reads the grants again with a fresh budget (Settings, onboarding or an app event).
     func recheck() {
         apply(inputs())
+    }
+
+    /// Shows progress now and returns the shared restart work for the action or step.
+    func prepareRestart() -> (@MainActor () async -> Void)? {
+        let current = inputs()
+        guard current.enabled, !current.disabledByPolicy, current.driver == .legacy else { return nil }
+        generation &+= 1
+        let restartGeneration = generation
+        reading?.cancel()
+        reading = nil
+        settle(.starting, running: nil)
+        return { [weak self] in
+            guard let self, self.generation == restartGeneration else { return }
+            let current = self.inputs()
+            guard current.enabled, !current.disabledByPolicy, current.driver == .legacy else { return }
+            await self.restartHelper()
+            self.recheck()
+        }
     }
 
     /// Opens the Privacy & Security list for `pane` in System Settings; the
@@ -182,6 +205,7 @@ final class ComputerUseSetup {
         case .ready: permissions
         case .versionMismatch: .helperVersionMismatch
         case .off: .off
+        case .failed: .helperFailed
         case .disabledByPolicy, .unavailable, .starting: .none
         }
     }
@@ -221,7 +245,7 @@ final class ComputerUseSetup {
         // task-owner: one read (plus bounded retries while a started helper is not up yet); a newer apply cancels it.
         reading = Task { [weak self] in
             var backoff = Backoff(initial: .milliseconds(250), maximum: .seconds(4))
-            for attempt in 0...Self.maximumRetries {
+            for attempt in 0..<Self.maximumRetries {
                 let result = await read(configuration)
                 guard let self, !Task.isCancelled, self.generation == current else { return }
                 switch result {
@@ -236,8 +260,9 @@ final class ComputerUseSetup {
                     return
                 case .noAnswer:
                     // A helper that answered before keeps its rows until a read succeeds.
-                    if phase != .ready { settle(.starting, running: nil) }
-                    guard attempt < Self.maximumRetries else { return }
+                    let hasRetry = attempt + 1 < Self.maximumRetries
+                    if phase != .ready { settle(hasRetry ? .starting : .failed, running: nil) }
+                    guard hasRetry else { return }
                     // concurrency-allow: Backoff.wait is an async sleep after a failed read, not a poll period.
                     do { try await backoff.wait(owner: "computer-use.setup.read", clock: clock) } catch { return }
                 }
@@ -307,6 +332,7 @@ extension ComputerUseSetup {
                        driver: services?.settings?.snapshot.computerUse.driver ?? .legacy)
             },
             configuration: { helper.configuration },
+            restartHelper: { await helper.restartLegacy() },
             enableSetting: { [weak services] in
                 guard let settings = services?.settings else { return }
                 let writer = SettingWriter.currentRun()

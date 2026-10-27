@@ -43,7 +43,7 @@ enum ComputerUseSessionStrings {
         switch phase {
         case .off: off
         case .disabledByPolicy: disabledByPolicy
-        case .unavailable, .starting, .ready, .versionMismatch: helperNotRunning
+        case .unavailable, .starting, .failed, .ready, .versionMismatch: helperNotRunning
         }
     }
 }

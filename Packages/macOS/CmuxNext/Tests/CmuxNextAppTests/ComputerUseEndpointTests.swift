@@ -71,8 +71,9 @@ struct ComputerUseEndpointTests {
         let launcher = RecordingHelperLauncher()
         let daemon = Self.daemon(launcher)
         await daemon.apply(Self.settings(enabled: true), disabledByPolicy: false)
-        await daemon.apply(Self.settings(enabled: false), disabledByPolicy: false)
-        await daemon.apply(Self.settings(enabled: true), disabledByPolicy: false)
+        await daemon.restartLegacy()
+        #expect(launcher.stopped == [40_001])
+        #expect(daemon.state == .running(40_002))
         try #require(launcher.started.count == 2)
         #expect(launcher.started[0]["CMUX_CUA_SOCKET_AUTH_TOKEN"] == launcher.started[1]["CMUX_CUA_SOCKET_AUTH_TOKEN"])
         #expect(launcher.started[0]["CMUX_CUA_SOCKET_HOST_AUTH_TOKEN"] != launcher.started[1]["CMUX_CUA_SOCKET_HOST_AUTH_TOKEN"],

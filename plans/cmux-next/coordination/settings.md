@@ -1,6 +1,7 @@
 # Lane: settings
 
 ## Active streams
+- 2026-10-27: Computer Use setup reports `failed` after six reads with no answer. Settings and onboarding share the restart path with `palette.computerUse.restart`. Each recheck resets the read budget. App activation, trust changes and input changes still read permissions. The CLI offers restart, and the MCP gate lets the helper decide. Changes are uncommitted in `next-cu-setup-failed`.
 - 2026-10-16 refined look (Lucas #21120) is the one Settings look: mount.tsx sets `data-settings-look="refined"`, refined.css draws over layout.css, the Theme preview draws the app as an illustration. The `settings.refinedLook` debug switch, the `settings_refined_look` host fact, the old Theme preview and the gallery-only `dense` look are removed (Lawrence 2026-10-16).
 - Settings in Rust + web page (settings lead): config actor in the daemon owns cmux.json (validate, MDM guard, JSONC persist, `settings-changed`); Swift applies daemon snapshots; web Settings page in a page tab via `cmux-settings://page`; palette, CLI and MCP use the same `settings.*` v2 ops. Design: plans/cmux-next/settings-react.md. Touches: catalog lane (settings-surfaces export), lane 20 (background token, transparency), app platform (page tabs).
 

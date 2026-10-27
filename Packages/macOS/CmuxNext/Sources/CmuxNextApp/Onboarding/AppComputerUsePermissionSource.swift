@@ -36,6 +36,12 @@ final class AppComputerUsePermissionSource: ComputerUsePermissionSource {
         setup.open(pane)
     }
 
+    func restart() {
+        guard let restart = setup.prepareRestart() else { return }
+        // task-owner: one helper restart from the person's click in the step.
+        Task { await restart() }
+    }
+
     func enable() {
         setup.enable()
     }

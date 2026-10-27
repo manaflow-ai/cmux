@@ -215,6 +215,12 @@ public final class ComputerUseHelperDaemon {
         helperLogger.notice("cmux Computer Use helper started from \(helper.path, privacy: .public)")
     }
 
+    /// Restarts the legacy helper. The caller checks the current setting and policy.
+    public func restartLegacy() async {
+        stop()
+        await apply(enabled: true)
+    }
+
     /// Stops the helper this app started (exact pid). The endpoint stays
     /// published: a later start serves the same socket and agent token.
     func stop() {

@@ -13,17 +13,21 @@ public nonisolated struct ComputerUsePermissions: Sendable, Equatable {
     /// Computer Use is off, so no helper runs and the grants are unknown;
     /// Allow turns it on first.
     public var isOff: Bool
+    /// The helper did not answer within the setup read budget.
+    public var helperFailed: Bool
 
-    public init(accessibility: Bool, screenRecording: Bool, helperVersionMismatch: Bool = false, isOff: Bool = false) {
+    public init(accessibility: Bool, screenRecording: Bool, helperVersionMismatch: Bool = false, isOff: Bool = false, helperFailed: Bool = false) {
         self.accessibility = accessibility
         self.screenRecording = screenRecording
         self.helperVersionMismatch = helperVersionMismatch
         self.isOff = isOff
+        self.helperFailed = helperFailed
     }
 
     public static let none = ComputerUsePermissions(accessibility: false, screenRecording: false)
     public static let helperVersionMismatch = ComputerUsePermissions(accessibility: false, screenRecording: false,
                                                                      helperVersionMismatch: true)
+    public static let helperFailed = ComputerUsePermissions(accessibility: false, screenRecording: false, helperFailed: true)
     public static let off = ComputerUsePermissions(accessibility: false, screenRecording: false, isOff: true)
 
     public func granted(_ pane: ComputerUsePermissionPane) -> Bool {
