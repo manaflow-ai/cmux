@@ -1,9 +1,9 @@
 {
   "$schema": "../../../../schemas/oracle/case-v1.schema.json",
   "corpusVersion": 1,
-  "id": "child-crash-crash-url",
+  "id": "child-crash-renderer",
   "suite": "e2e",
-  "title": "chrome://crash typed into the omnibar crashes only the tab's renderer; Reload brings a page back",
+  "title": "SIGKILL a Chromium tab's renderer: the app stays up, the tab shows the sad tab, and Reload brings the page back",
   "priority": "P1",
   "surface": "cmux-next-native",
   "source": {
@@ -19,7 +19,7 @@
     "engine": "chromium"
   },
   "fixture": {
-    "seed": "e2e-child-crash-crash-url-v1",
+    "seed": "e2e-child-crash-renderer-v1",
     "network": "offline",
     "clock": "fixed",
     "agent": "mock",
@@ -46,9 +46,9 @@
   "allow_crashes": [
     {
       "kind": "renderer",
-      "reason": "chrome://crash makes the renderer that loads it crash on purpose",
+      "reason": "kill-renderer ends the tab's renderer on purpose (the script's renderer case)",
       "steps": [
-        "type-crash-url"
+        "kill-renderer"
       ]
     }
   ],
@@ -98,40 +98,24 @@
         "facets": [
           "topology",
           "tabs",
-          "crashes"
+          "crashes",
+          "liveObjects"
         ]
       },
       "settleMaxMs": 10000
     },
     {
-      "id": "type-crash-url",
-      "op": "key",
+      "id": "kill-renderer",
+      "op": "kill",
       "target": {
-        "window": "current"
+        "process": "renderer"
       },
       "args": {
-        "keys": [
-          "cmd+l",
-          "c",
-          "h",
-          "r",
-          "o",
-          "m",
-          "e",
-          "shift+;",
-          "/",
-          "/",
-          "c",
-          "r",
-          "a",
-          "s",
-          "h",
-          "return"
-        ]
+        "signal": "KILL"
       },
       "expect": {
         "outcome": "ok",
-        "noReceiptReason": "the typed characters and Return go to the omnibar's field; only Cmd-L runs an action"
+        "noReceiptReason": "a kill step signals a process; no action runs"
       },
       "waitFor": {
         "pointer": "/crashes/counts/renderer",
@@ -141,7 +125,7 @@
         },
         "maxMs": 10000
       },
-      "note": "chrome://crash typed into the omnibar, the person's path: Chromium handles debug URLs only from the address bar (content/browser/renderer_host/debug_urls.cc)"
+      "note": "SIGKILL the renderer of the case's only Chromium tab (an exact pid of the app's process tree)"
     },
     {
       "id": "sad-tab",
@@ -154,7 +138,8 @@
           "focus"
         ]
       },
-      "settleMaxMs": 5000
+      "settleMaxMs": 5000,
+      "note": "the tab says its page is gone (crashed true); the app runs"
     },
     {
       "id": "reload",
@@ -181,16 +166,18 @@
         "facets": [
           "topology",
           "tabs",
-          "crashes"
+          "crashes",
+          "liveObjects"
         ]
       },
       "settleMaxMs": 10000
     }
   ],
   "invariants": [
-    "converted from scripts/cmux-next/child-crash-e2e.py, which stays as the live check; tests/oracle/corpus/e2e/coverage.json maps the script to this case and its cited fix",
-    "the app's pid is unchanged and only the crashed tab changes",
-    "reloaded: the tab is not crashed; crashes counts one renderer exit only"
+    "converted from scripts/cmux-next/child-crash-e2e.py, which stays as the live check; tests/oracle/corpus/e2e/coverage.json lists the script as blocked: this case moves into tests/oracle/corpus/e2e/ when driver_app.py runs its steps",
+    "the app's pid is unchanged: a renderer exit never ends cmux (crash-elimination.md classes 13 and 14)",
+    "sad-tab: the tab is crashed and every other value equals loaded's (no other tab, pane or workspace changes)",
+    "reloaded: the tab is not crashed and shows $WEB/load.html again; crashes counts one renderer exit only"
   ],
   "teardown": [
     "quit the tagged app the run started",
@@ -198,6 +185,8 @@
     "end the tag's daemons (TagTeardown)"
   ],
   "untested": [
-    "the browser-CHECK debug URL (inducebrowsercrashforrealz): it ends cmux while Chromium's browser process is in the app (until F2), so the script never types it either"
+    "the sad tab's own Reload button (the script presses it through debug.browser.page_status press): Cmd-R runs the browser's reload",
+    "a terminal beside the page answering keys through the kill window: that is the crash-survival perf story (key_to_frame)",
+    "the WebKit WebContent and agent page kills: their pids come from debug methods (page_pid, debug.agent_pane pid) that no kill target names"
   ]
 }

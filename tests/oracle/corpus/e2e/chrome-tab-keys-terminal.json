@@ -45,10 +45,39 @@
         "facets": [
           "topology",
           "focus",
-          "sidebar"
+          "sidebar",
+          "settings"
         ]
       },
       "settleMaxMs": 5000
+    },
+    {
+      "id": "numbering-workspaces",
+      "op": "cli",
+      "target": {
+        "window": "current"
+      },
+      "args": {
+        "argv": [
+          "settings",
+          "set",
+          "sidebar.numbering",
+          "workspacesOnly"
+        ]
+      },
+      "expect": {
+        "outcome": "ok",
+        "noReceiptReason": "a settings write has no action receipt"
+      },
+      "waitFor": {
+        "pointer": "/settings/nonDefaultKeys",
+        "predicate": {
+          "op": "contains",
+          "value": "sidebar.numbering"
+        },
+        "maxMs": 10000
+      },
+      "note": "Cmd-1 to Cmd-9 count workspaces only: the default allItems numbers Home = 1 and the App Store = 2 first (SidebarItemOrder.items(_:), schemas/defaults/cmux-next.json setting.sidebar.numbering)"
     },
     {
       "id": "w1",
@@ -404,7 +433,7 @@
         "turn",
         "settled"
       ],
-      "note": "selects the first sidebar item (selectWorkspaceByNumber 1): the launch's workspace"
+      "note": "selects the first workspace (selectWorkspaceByNumber 1 with numbering workspacesOnly): the launch's workspace"
     },
     {
       "id": "cmd-2-show-start",
@@ -452,7 +481,7 @@
         "turn",
         "settled"
       ],
-      "note": "selects the second sidebar item (selectWorkspaceByNumber 2): w1"
+      "note": "selects the second workspace (selectWorkspaceByNumber 2 with numbering workspacesOnly): w1"
     },
     {
       "id": "cmd-9-show-start",
@@ -500,7 +529,7 @@
         "turn",
         "settled"
       ],
-      "note": "Cmd-9 selects the last sidebar item: w4"
+      "note": "Cmd-9 selects the last workspace (sidebar.cmd9 last): w4"
     }
   ],
   "invariants": [

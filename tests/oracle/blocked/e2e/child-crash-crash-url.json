@@ -1,9 +1,9 @@
 {
   "$schema": "../../../../schemas/oracle/case-v1.schema.json",
   "corpusVersion": 1,
-  "id": "child-crash-gpu",
+  "id": "child-crash-crash-url",
   "suite": "e2e",
-  "title": "SIGKILL Chromium's GPU process: the app stays up and the page answers a reload",
+  "title": "chrome://crash typed into the omnibar crashes only the tab's renderer; Reload brings a page back",
   "priority": "P1",
   "surface": "cmux-next-native",
   "source": {
@@ -19,7 +19,7 @@
     "engine": "chromium"
   },
   "fixture": {
-    "seed": "e2e-child-crash-gpu-v1",
+    "seed": "e2e-child-crash-crash-url-v1",
     "network": "offline",
     "clock": "fixed",
     "agent": "mock",
@@ -45,17 +45,10 @@
   ],
   "allow_crashes": [
     {
-      "kind": "gpu",
-      "reason": "kill-gpu ends the GPU process on purpose (the script's gpu case)",
-      "steps": [
-        "kill-gpu"
-      ]
-    },
-    {
       "kind": "renderer",
-      "reason": "a GPU loss may take the tab's renderer with it; the script accepts a sad tab that reloads",
+      "reason": "chrome://crash makes the renderer that loads it crash on purpose",
       "steps": [
-        "kill-gpu"
+        "type-crash-url"
       ]
     }
   ],
@@ -111,27 +104,57 @@
       "settleMaxMs": 10000
     },
     {
-      "id": "kill-gpu",
-      "op": "kill",
+      "id": "type-crash-url",
+      "op": "key",
       "target": {
-        "process": "gpu"
+        "window": "current"
       },
       "args": {
-        "signal": "KILL"
+        "keys": [
+          "cmd+l",
+          "c",
+          "h",
+          "r",
+          "o",
+          "m",
+          "e",
+          ":",
+          "/",
+          "/",
+          "c",
+          "r",
+          "a",
+          "s",
+          "h",
+          "return"
+        ]
       },
       "expect": {
         "outcome": "ok",
-        "noReceiptReason": "a kill step signals a process; no action runs"
+        "noReceiptReason": "the typed characters and Return go to the omnibar's field; only Cmd-L runs an action"
       },
       "waitFor": {
-        "pointer": "/crashes/counts/gpu",
+        "pointer": "/crashes/counts/renderer",
         "predicate": {
           "op": "gte",
           "value": 1
         },
         "maxMs": 10000
       },
-      "note": "SIGKILL Chromium's GPU process; Chromium starts a new one"
+      "note": "chrome://crash typed into the omnibar, the person's path: Chromium handles debug URLs only from the address bar (content/browser/renderer_host/debug_urls.cc)"
+    },
+    {
+      "id": "sad-tab",
+      "op": "snapshot",
+      "args": {
+        "facets": [
+          "topology",
+          "tabs",
+          "crashes",
+          "focus"
+        ]
+      },
+      "settleMaxMs": 5000
     },
     {
       "id": "reload",
@@ -152,7 +175,7 @@
       "note": "Reload (Cmd-R, browserReload) on the tab brings the page back in a new renderer"
     },
     {
-      "id": "after-gpu",
+      "id": "reloaded",
       "op": "snapshot",
       "args": {
         "facets": [
@@ -165,8 +188,9 @@
     }
   ],
   "invariants": [
-    "converted from scripts/cmux-next/child-crash-e2e.py, which stays as the live check; tests/oracle/corpus/e2e/coverage.json maps the script to this case and its cited fix",
-    "the app's pid is unchanged; after-gpu: the tab is not crashed and shows $WEB/load.html"
+    "converted from scripts/cmux-next/child-crash-e2e.py, which stays as the live check; tests/oracle/corpus/e2e/coverage.json lists the script as blocked: this case moves into tests/oracle/corpus/e2e/ when driver_app.py runs its steps",
+    "the app's pid is unchanged and only the crashed tab changes",
+    "reloaded: the tab is not crashed; crashes counts one renderer exit only"
   ],
   "teardown": [
     "quit the tagged app the run started",
@@ -174,6 +198,6 @@
     "end the tag's daemons (TagTeardown)"
   ],
   "untested": [
-    "the network service and Chromium browser host kills: a kill target names a process kind, not a utility sub-type or the helper host (the host journey is p15-oracle-223's chromium-helper-kill)"
+    "the browser-CHECK debug URL (inducebrowsercrashforrealz): it ends cmux while Chromium's browser process is in the app (until F2), so the script never types it either"
   ]
 }

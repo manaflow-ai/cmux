@@ -3,7 +3,7 @@
   "suite": "e2e",
   "catalog": "scripts/cmux-next/*-e2e.py and *-e2e.sh",
   "total": 66,
-  "covered": 5,
+  "covered": 4,
   "batches": {
     "p15-oracle-092": [
       "acpmux-app-keyed-start-e2e.py",
@@ -36,22 +36,6 @@
           "commit": "2a3f7a47a93babc62a8c5ae928a8fd89471a4da8",
           "parent": "4265e78e755924c582a0c09ac808337ea10b4cb5",
           "fails_at": "icon-1 (the app traps on every run: Crash)"
-        }
-      ],
-      "red_on_parent": "red on parent not run yet: Swift does not build on the Linux VM; the fleet runs the case on the parent with oracle.py diff --overlay (p15-oracle-202), because the parent predates the debug.oracle.* methods"
-    },
-    "child-crash-e2e.py": {
-      "cases": [
-        "child-crash-renderer",
-        "child-crash-crash-url",
-        "child-crash-gpu"
-      ],
-      "fixes": [
-        {
-          "bug": "cx-d0d.2",
-          "commit": "4069030cfa1686ce0e9e346572a51bb3d0ff1876",
-          "parent": "4316181071e593ccd32836a75f9825729c24ceda",
-          "fails_at": "none known: the script came with the debug reporting it reads, not with a survival fix; the cases guard the survival behavior and their red is a seeded fault (a mutant), not this parent"
         }
       ],
       "red_on_parent": "red on parent not run yet: Swift does not build on the Linux VM; the fleet runs the case on the parent with oracle.py diff --overlay (p15-oracle-202), because the parent predates the debug.oracle.* methods"
@@ -122,6 +106,21 @@
         }
       ],
       "red_on_parent": "red on parent not run yet: Swift does not build on the Linux VM; the fleet runs the case on the parent with oracle.py diff --overlay (p15-oracle-202), because the parent predates the debug.oracle.* methods"
+    }
+  },
+  "blocked": {
+    "child-crash-e2e.py": {
+      "cases": [
+        "tests/oracle/blocked/e2e/child-crash-renderer.json",
+        "tests/oracle/blocked/e2e/child-crash-crash-url.json",
+        "tests/oracle/blocked/e2e/child-crash-gpu.json"
+      ],
+      "blocked_by": [
+        "driver_app.py launch_spec applies only environment.viewport; the cases need environment.engine chromium (no task owns it yet; driver_app.py is p15-oracle-047's)",
+        "driver_app.py has no loopback web fixture (fixture.web, the $WEB origin): webfixture.py (p15-oracle-222) is not wired into the app driver",
+        "op kill is not an app-driver step: app child kills are p15-oracle-188 (child-crash-renderer, child-crash-gpu)"
+      ],
+      "red": "no red yet: the cited commit (cx-d0d.2, 4069030cfa1686ce0e9e346572a51bb3d0ff1876) added the debug reporting the script reads, not a survival fix, so its parent is no red. When the driver paths land, add a task mutant (tests/oracle/task-mutants/app/) that breaks crash survival, show the cases kill it, then move them into tests/oracle/corpus/e2e/ and the script into scripts"
     }
   },
   "excluded": {
