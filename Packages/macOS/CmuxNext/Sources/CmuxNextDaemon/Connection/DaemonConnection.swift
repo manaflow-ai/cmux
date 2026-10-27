@@ -114,6 +114,7 @@ public actor DaemonConnection {
         handoffGate = QuietHandoffGate(observe: configuration.handoffWaits,
                                        busyEdge: { [heartbeat] gate in heartbeat.requestsWaiting { gate.requestsInFlight > 0 } })
         // concurrency-allow: holds only events no consumer took yet (DaemonEventRoute); the store drains them at once into the bounded EventInbox
+        // memory: bounded-by DaemonEventRoute.highWater (8 MiB of event lines): past it, while a consumer takes them, the reader stops reading the socket
         let (events, continuation) = AsyncThrowingStream.makeStream(of: DaemonEventEnvelope.self, bufferingPolicy: .unbounded)
         let route = DaemonEventRoute(continuation)
         self.route = route
@@ -301,8 +302,9 @@ public actor DaemonConnection {
                         // task-owner: hop onto the actor; a stale serial is ignored there
                         Task { await self?.sessionStreamEvent(item, serial: serial) }
                     }
-                    gate.deliver(envelope) { route.emit($0) }
+                    gate.deliver(envelope) { route.emit($0, bytes: line.count, parksReader: true) }
                 },
+                waitForConsumer: { route.waitWhileReaderParked() },
                 onClose: { [weak self] reason in
                     // task-owner: hop onto the actor; transportClosed ignores a stale serial
                     Task { await self?.transportClosed(serial: serial, reason: reason) }

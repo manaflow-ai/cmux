@@ -160,10 +160,15 @@ final class LineTransport: Sendable {
     }
 
     /// Starts the reader thread, handing each event its envelope cause. Call once.
-    func start(onCausedEvent onEvent: @escaping CausedEventHandler, onClose: @escaping CloseHandler) {
+    ///
+    /// - Parameter waitForConsumer: Runs on the reader thread after each line it handled, outside the
+    ///   line's hang scope: an event handler that found its consumer behind waits there
+    ///   (``DaemonEventRoute/waitWhileReaderParked()``), which is idle time, not a hang.
+    func start(onCausedEvent onEvent: @escaping CausedEventHandler, waitForConsumer: (@Sendable () -> Void)? = nil,
+               onClose: @escaping CloseHandler) {
         let fd = socket.withLock { $0.fd }
         let thread = Thread { [self] in
-            readLoop(fd: fd, onEvent: onEvent, onClose: onClose)
+            readLoop(fd: fd, onEvent: onEvent, waitForConsumer: waitForConsumer, onClose: onClose)
         }
         thread.name = "cmux-tui reader \(path)"
         thread.qualityOfService = role.readerQoS
@@ -357,7 +362,7 @@ final class LineTransport: Sendable {
         }
     }
 
-    private func readLoop(fd: Int32, onEvent: CausedEventHandler, onClose: CloseHandler) {
+    private func readLoop(fd: Int32, onEvent: CausedEventHandler, waitForConsumer: (@Sendable () -> Void)?, onClose: CloseHandler) {
         let decoder = self.decoder
         // An attach connection carries the terminal's output: the reader's copies of its bytes
         // are copies of that output (``DaemonWireStats/Snapshot/outputBytesCopiedApp``).
@@ -390,6 +395,7 @@ final class LineTransport: Sendable {
                 if case .json(let bytes) = message, !bytes.isEmpty {
                     outputStream?.outputCopied(2 * bytes.count)  // out of the reader as the line, then into its Data
                     handle(bytes, decoder: decoder, onEvent: onEvent)
+                    waitForConsumer?()
                 }
                 next = Self.nextMessage(&reader)
             }

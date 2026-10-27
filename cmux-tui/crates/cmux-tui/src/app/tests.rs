@@ -9,6 +9,7 @@ mod host_input;
 mod machine_sidebar;
 mod menus_browser;
 mod mux_recovery;
+mod pane_resize;
 mod program_status_tabs;
 mod projection_actions;
 mod provider_switch;

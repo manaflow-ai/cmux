@@ -243,7 +243,7 @@ impl Mux {
     /// Install the pairing records (`cmux server pair`) the owner scope
     /// reads.
     pub fn set_pairing_records(&self, records: Arc<dyn crate::PairingRecords>) {
-        // Safety: this replaces the whole value, and the lock stays poisoned,
+        // Poison recovery: this replaces the whole value, and the lock stays poisoned,
         // so every owner read still fails closed (`owner_user`).
         *self.remote_relay().pairing.lock().unwrap_or_else(PoisonError::into_inner) = Some(records);
     }
