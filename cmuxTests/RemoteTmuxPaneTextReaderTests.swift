@@ -20,7 +20,7 @@ import Testing
         ])
         let reader = RemoteTmuxPaneTextReader(query: far.query)
 
-        let text = try #require(await reader.read(paneId: 7))
+        let text = try #require(await reader.read(paneId: 7, budget: Self.unbounded))
 
         #expect(far.commands == [
             "display-message -p -t %7 -F \"#{history_size} #{pane_width} #{alternate_on}\"",
@@ -41,7 +41,7 @@ import Testing
         ])
         let reader = RemoteTmuxPaneTextReader(query: far.query)
 
-        let text = try #require(await reader.read(paneId: 3))
+        let text = try #require(await reader.read(paneId: 3, budget: Self.unbounded))
 
         #expect(far.commands.count == 2)
         #expect(text.lines == ["vim buffer"])
@@ -54,8 +54,39 @@ import Testing
         ])
         let reader = RemoteTmuxPaneTextReader(query: far.query)
 
-        #expect(await reader.read(paneId: 3) == nil)
+        #expect(await reader.read(paneId: 3, budget: Self.unbounded) == nil)
         #expect(far.commands.count == 2)
+    }
+
+    @Test func historyPastTheByteBudgetKeepsTheScreenAndNewestRows() async throws {
+        // 3,000 rows at 200 columns read as two chunks. The budget holds the screen
+        // (8 bytes) and the newest chunk (16 bytes) but not the oldest (10 bytes).
+        let far = ScriptedTmux(replies: [
+            "display-message": .lines(["3000 200 0"]),
+            "capture-pane -p -J -S - -E -1001": .lines(["old-1", "old-2"]),
+            "capture-pane -p -J -S -1000 -E -1": .lines(["recent-1", "recent-2"]),
+            "capture-pane -p -J -t": .lines(["$ prompt"]),
+        ])
+        let budget = RemoteTmuxFindWindowTextBudget(bytes: 30)
+
+        let text = try #require(await RemoteTmuxPaneTextReader(query: far.query).read(paneId: 7, budget: budget))
+
+        #expect(text.lines == ["recent-1", "recent-2", "$ prompt"])
+        #expect(text.isTruncated)
+        #expect(budget.remaining == 6)
+    }
+
+    @Test func aScreenOverTheBudgetReadsNothingMore() async throws {
+        let far = ScriptedTmux(replies: [
+            "display-message": .lines(["3000 200 0"]),
+            "capture-pane -p -J -t": .lines(["a screen longer than the budget"]),
+            "capture-pane -p -J -S": .lines(["history"]),
+        ])
+        let budget = RemoteTmuxFindWindowTextBudget(bytes: 4)
+
+        #expect(await RemoteTmuxPaneTextReader(query: far.query).read(paneId: 7, budget: budget) == nil)
+        #expect(far.commands.count == 2)
+        #expect(budget.remaining == 4)
     }
 
     @Test func historyPastTheCapIsMarkedTruncated() async throws {
@@ -66,11 +97,15 @@ import Testing
         var reader = RemoteTmuxPaneTextReader(query: far.query)
         reader.maximumRows = 100
 
-        let text = try #require(await reader.read(paneId: 3))
+        let text = try #require(await reader.read(paneId: 3, budget: Self.unbounded))
 
         #expect(text.isTruncated)
         #expect(far.commands[1] == "capture-pane -p -J -S -100 -E -1 -t %3")
     }
+}
+
+extension RemoteTmuxPaneTextReaderTests {
+    static var unbounded: RemoteTmuxFindWindowTextBudget { RemoteTmuxFindWindowTextBudget(bytes: .max) }
 }
 
 /// A far end that answers by command prefix and records what it was asked.
