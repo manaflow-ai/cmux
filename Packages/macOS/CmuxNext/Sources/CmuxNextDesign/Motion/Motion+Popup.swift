@@ -29,11 +29,11 @@ public extension NSWindow {
         return CGPoint(x: x, y: y)
     }
 
-    /// Opens the popup at `pivot`. Menus and popovers appear in one frame by
-    /// default; callers that need an entrance motion opt in explicitly. A
+    /// Opens the popup at `pivot`. Popups use their shared entrance motion by
+    /// default; menu callers opt out explicitly so they appear in one frame. A
     /// fresh animated open (the owner left the window at alpha 0) starts from
     /// nothing; a reopen during the close continues from what is on screen.
-    func openPopup(pivot: CGPoint, entrance: Bool = false) {
+    func openPopup(pivot: CGPoint, entrance: Bool = true) {
         guard entrance else { return showPopupAtOnce() }
         guard let content = contentView else {
             alphaValue = 1
@@ -146,7 +146,9 @@ public final class PopupFade {
             parent.addChildWindow(window, ordered: .above)
         }
         window.orderFront(nil)
-        if opening { window.openPopup(pivot: window.popupPivot(toward: anchor)) }
+        // The icon picker is a menu-like control: the instant-menu rule applies
+        // even though PopupFade also services animated card panels.
+        if opening { window.openPopup(pivot: window.popupPivot(toward: anchor), entrance: false) }
     }
 
     /// Fades `window` out toward `anchor`, then takes it off its window.

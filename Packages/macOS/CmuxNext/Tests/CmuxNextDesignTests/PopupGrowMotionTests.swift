@@ -7,8 +7,8 @@ import CmuxNextDesignTokens
 /// better"). At 120 fps the card appeared at full size in one frame and, on close, held for about
 /// 75 ms and then vanished: the open and close faded the window's alpha, which the glass card
 /// did not show, and grew it from 0.97 on a 0.135 s spring, too small and short to read as
-/// coming out of the pill. Native popups now show in one frame by default; an explicit entrance
-/// opt-in still exercises the shared card motion, and every close fades and shrinks faster.
+/// coming out of the pill. Shared popup owners keep their grow/fade entrance by default; menu
+/// hosts opt out explicitly with `entrance: false`, and every close fades and shrinks faster.
 @MainActor @Suite(.serialized) struct PopupGrowMotionTests {
     private static let pivot = CGPoint(x: 150, y: 200)
 
@@ -41,7 +41,7 @@ import CmuxNextDesignTokens
     }
 
     @Test(.enabled("needs a screen to order a popup window") { await Self.hasScreen() })
-    func anOpenWithoutEntranceShowsTheCardAtOnce() throws {
+    func anOpenWithoutExplicitEntranceUsesTheSharedEntrance() throws {
         Motion.reduceMotionOverride = false
         defer { Motion.reduceMotionOverride = nil }
         let (window, layer) = try Self.popupWindow()
@@ -50,8 +50,22 @@ import CmuxNextDesignTokens
         window.openPopup(pivot: Self.pivot)
 
         #expect(window.alphaValue == 1)
-        #expect(layer.animation(forKey: "opacity") == nil, "the card fades in")
-        #expect(layer.animation(forKey: "sublayerTransform") == nil, "the card grows in")
+        #expect(layer.animation(forKey: "opacity") != nil, "the shared popup entrance fades in")
+        #expect(layer.animation(forKey: "sublayerTransform") != nil, "the shared popup entrance grows in")
+    }
+
+    @Test(.enabled("needs a screen and animation speed on, or every popup snaps") { await Self.queuesAnimations() })
+    func anOpenWithEntranceFalseShowsTheCardAtOnce() throws {
+        Motion.reduceMotionOverride = false
+        defer { Motion.reduceMotionOverride = nil }
+        let (window, layer) = try Self.popupWindow()
+        defer { window.resetPopupScale(); window.orderOut(nil) }
+
+        window.openPopup(pivot: Self.pivot, entrance: false)
+
+        #expect(window.alphaValue == 1)
+        #expect(layer.animation(forKey: "opacity") == nil, "the menu fades in")
+        #expect(layer.animation(forKey: "sublayerTransform") == nil, "the menu grows in")
         #expect(layer.opacity == 1)
         #expect(CATransform3DIsIdentity(layer.sublayerTransform))
     }
