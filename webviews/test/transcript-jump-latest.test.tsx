@@ -10,6 +10,7 @@ const dom = new JSDOM("<!doctype html><div id=root></div>", {
   pretendToBeVisual: true,
   virtualConsole: new VirtualConsole(),
 });
+dom.window.document.documentElement.dataset.agentMotion = "off";
 const scope = globalThis as Record<string, unknown>;
 const replacements: Record<string, unknown> = {
   window: dom.window,
@@ -122,7 +123,7 @@ test("scrolled up, a static button above the composer jumps to the latest messag
     // A click goes to the latest message, and the button hides there.
     jumps.length = 0;
     await act(async () => button()!.click());
-    expect(jumps).toEqual([latest]);
+    expect(scroller.scrollTop).toBe(latest);
     await act(async () => {
       scroller.dispatchEvent(new dom.window.Event("scroll"));
       await nextFrame();

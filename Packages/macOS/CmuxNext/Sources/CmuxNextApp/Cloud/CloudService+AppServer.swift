@@ -87,10 +87,8 @@ extension CloudPresenter {
     @MainActor static func confirmCreate(_ prompt: CloudMachineCreateFlow.Prompt, in window: NSWindow?, asks: SidebarAsks?, chatOpen: @escaping @MainActor @Sendable (String) -> Bool = { _ in true },
                                          openPricing: @MainActor (URL) -> Void = { NSWorkspace.shared.openInBackground($0) }) async -> Bool {
         if case .upgrade(let need) = prompt {
-            guard let asks, window != nil else {
-                openPricing(StaticURL.pricing.url)
-                return true
-            }
+            // No window or sidebar to show the card in: nothing is opened without the person's click.
+            guard let asks, window != nil else { return false }
             let upgrade = await asks.ask(CloudStrings.upgradeTitle, detail: CloudStrings.upgradeDetail(need.reason), symbol: "cloud", yes: CloudStrings.upgradeButton, no: CloudStrings.notNow)
             if upgrade { openPricing(StaticURL.pricing.url) }
             return upgrade

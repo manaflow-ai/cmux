@@ -22,8 +22,8 @@ public final class AgentPaneSandboxRuns {
     }
 
     /// The refusals that come before the server could create a Run (the page's `sandboxRetryable`),
-    /// with the Run API's request refusals (``AgentPaneReply/isRunRequestRefusal(_:)``): after one of
-    /// these the tab may send again.
+    /// with the Run API's documented request refusals (``AgentPaneReply/runRequestRefusals``): after
+    /// one of these the tab may send again. Any other code may hide a live Run.
     static let definiteRefusals: Set<String> = [
         "labs_off", "not_signed_in", "cloud_disabled", "unavailable_now", "unsupported", "transport.gesture_required",
         "run_sandbox_unavailable",
@@ -42,7 +42,7 @@ public final class AgentPaneSandboxRuns {
     static func isDefiniteRefusal(_ reply: [String: Any]) -> Bool {
         let code = (reply["error"] as? [String: Any])?["code"] as? String
         guard reply["ok"] as? Bool == false, let code else { return false }
-        return definiteRefusals.contains(code) || AgentPaneReply.isRunRequestRefusal(code)
+        return definiteRefusals.contains(code) || AgentPaneReply.runRequestRefusals.contains(code)
     }
 
     /// Runs `work` as this pane's one send and answers its reply.
