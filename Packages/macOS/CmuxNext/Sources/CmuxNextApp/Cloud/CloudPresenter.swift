@@ -1,4 +1,7 @@
 import AppKit
+import CmuxNextAgentPane
+import CmuxNextCloud
+import CmuxNextCloudCredentials
 import CmuxNextDesign
 import os
 
@@ -53,6 +56,8 @@ enum CloudPresenter {
     /// The money confirmation of a machine create: only the person answers
     /// it (`DebugDialog.userOnly`), so automation can never approve a spend.
     static let createConfirmIdentifier = "cmux.dialog.cloud.createConfirm"
+    /// Credential installation always requires a real click; debug.dialog cannot approve it.
+    static let credentialRecoveryIdentifier = "cmux.dialog.cloud.credentialRecovery"
 
     /// Asks a yes/no question; `done(true)` only for a click on `button`.
     static func confirm(_ title: String, _ body: String, button: String, identifier: String = "cmux.dialog.cloud.confirm",
@@ -72,5 +77,87 @@ enum CloudPresenter {
     private static func present(_ spec: CmuxDialogSpec, in window: NSWindow?, done: @escaping (CmuxDialogAnswer?) -> Void) {
         guard let window else { return done(nil) }
         CmuxDialogCenter.shared.present(spec, in: .window(window)) { done($0) }
+    }
+
+    /// Confirms provider setup for the tab’s resolved Cloud VM and reports failures in its window.
+    @MainActor static func recoverCredentials(chat: String, request: AgentPaneCloudCredentialTransferRequest, services: AppServices) async -> Bool {
+        guard services.cloud.isSignedIn,
+              let userID = services.cloud.auth.user?.id,
+              let (tab, _) = services.locateTab(chat),
+              let daemon = try? services.machines.agentDaemon(forTab: tab),
+              daemon.machineID == request.machineID,
+              let session = services.machines.session(daemon.machineID),
+              session.daemon.connection != nil else { return false }
+
+        let teamID = services.cloud.auth.teamID
+        guard let provider = CloudCredentialTransfer.Provider(rawValue: request.provider.rawValue) else { return false }
+        let providerName = provider == .claude ? "Claude" : "Codex"
+        let teamName = teamID.flatMap { id in services.cloud.auth.teams.first(where: { $0.id == id })?.displayName } ?? "Personal account"
+        let body: String
+        if provider == .claude {
+            body = "cmux will run claude setup-token in a visible local terminal, then install the resulting one-year login on this owner VM for \(teamName)."
+        } else {
+            body = "cmux will start a fresh Codex device login in a visible local terminal for this VM. Codex refresh credentials are never copied between VMs; Codex requires a separate sign-in for each VM."
+        }
+        let spec = CmuxDialogSpec(
+            title: "Set up \(providerName) on \(session.machine.title)?",
+            lines: [body, "This replaces \(providerName)'s login on this VM and restarts this chat before retrying its failed prompt."],
+            buttons: [.cancel("Cancel"), CmuxDialogButton(id: "transfer", title: "Transfer and restart", role: .default)],
+            identifier: credentialRecoveryIdentifier)
+        guard let window = services.windows.active?.window else { return false }
+        let answer = await CmuxDialogCenter.shared.present(spec, in: .window(window))
+        guard answer.button == "transfer", !answer.isDismissal else { return false }
+
+        let transfer = CloudCredentialTransfer(
+            provider: provider, machineID: session.machineID, teamID: teamID,
+            userID: userID,
+            openTerminal: { [weak services] line in
+                await services?.openLocalProviderLogin(line) ?? false
+            })
+        do {
+            try await transfer.run(api: services.cloud.api,
+                                   currentTeamID: { services.cloud.auth.teamID },
+                                   currentUserID: { services.cloud.auth.user?.id },
+                                   confirmed: true, refresh: true)
+            guard services.cloud.auth.user?.id == userID, services.cloud.auth.teamID == teamID,
+                  let (currentTab, _) = services.locateTab(chat),
+                  currentTab === tab,
+                  (try? services.machines.agentDaemon(forTab: currentTab)) === daemon else { return false }
+            let pinned = services.cloud.api.pinningTeam(teamID)
+            guard try await restartCredentialSession(request.sessionID, exec: {
+                try await pinned.exec(session.machineID, command: $0, timeoutMs: 300_000)
+            }) else {
+                CloudPresenter.show("Credentials installed", "The chat could not restart yet. Wait for any running turn to finish, then retry the prompt.", in: window)
+                return false
+            }
+            return true
+        } catch {
+            CloudPresenter.failure(error, in: window)
+            return false
+        }
+    }
+
+    /// Use the same installed CLI and user as the credentials. Old/root-layout machines fail
+    /// closed rather than restarting a different daemon. No provider output reaches the UI.
+    @MainActor static func restartCredentialSession(_ sessionID: String, exec: (String) async throws -> CloudExecResult) async throws -> Bool {
+        let command = """
+            set -eu
+            [ "$(cat /etc/cmux/vm-kind 2>/dev/null)" = owner ]
+            [ -x /home/cmux/.cmux/bin/cmux-tui ]
+            if [ "$(id -u)" = 0 ]; then
+              set -- setpriv --reuid=cmux --regid=cmux --init-groups
+            else
+              [ "$(id -un)" = cmux ]; set --
+            fi
+            "$@" env HOME=/home/cmux USER=cmux LOGNAME=cmux SHELL=/bin/bash TERM=xterm-256color \
+              /home/cmux/.cmux/bin/cmux-tui acp --json session restart \(CloudStartSession.shellQuoted(sessionID))
+            """
+        let result = try await exec(command)
+        guard result.exitCode == 0, result.stdout.utf8.count < 65_536,
+              let reply = try? JSONSerialization.jsonObject(with: Data(result.stdout.utf8)) as? [String: Any],
+              reply["failed"] as? Int == 0, reply["after_turn"] as? Int == 0,
+              let restarted = reply["restarted"] as? Int, (0...1).contains(restarted) else { return false }
+        // Zero means the process has already exited; the retry starts it with the new login.
+        return true
     }
 }
