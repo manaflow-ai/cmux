@@ -17,7 +17,7 @@ test("Look is one glass card with the pet, the characters and Bubble Style", asy
   expect(card.classList.contains("ui-glass")).toBe(true);
   expect(card.querySelector(".group-title")!.textContent).toBe("Look");
   expect(card.querySelector(".chief-pet-preview")).not.toBeNull();
-  expect(card.querySelectorAll(".chief-pet-choice")).toHaveLength(9);
+  expect(card.querySelectorAll(".chief-pet-choice")).toHaveLength(10);
   expect(card.querySelector('[data-row-key="home.chiefBubbleStyle"]')).not.toBeNull();
   page.unmount();
 });

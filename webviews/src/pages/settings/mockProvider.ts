@@ -544,6 +544,7 @@ export class MockSettingsProvider {
     });
     provide("cmux.settings.harnesses.changed", (ctx) => this.track(this.harnessesChanged, ctx));
     provide("cmux.settings.devices.changed", (ctx) => this.track(this.devicesChanged, ctx));
+    provide("cmux.settings.channels.machines.changed", (ctx) => this.track(this.machinesChanged, ctx));
   }
 
   /** Settings > Devices as the app serves it (texts already localized). */
@@ -651,6 +652,13 @@ export class MockSettingsProvider {
 
   /** Settings > Updates' channels; null: the host has no updater. */
   channels: ChannelsState | null = mockChannels;
+  private readonly machinesChanged = new Set<EventSourceContext>();
+
+  /** Replaces the Channels card's row of other machines and tells the page, like the app's push. */
+  setMachines(machines: ChannelsState["machines"]): void {
+    if (this.channels) this.channels = { ...this.channels, machines };
+    for (const ctx of this.machinesChanged) ctx.emit(machines ?? null);
+  }
   /** The way back the host answers with (Nightly's: the fixture runs a Dev build). */
   channelSwitch: ChannelSwitch | null = null;
   /** The build the card's Go Back asked for. */
