@@ -82,6 +82,8 @@ parser.add_argument("--alt-app-sha256", default="",
 parser.add_argument("--first-key", type=int, default=0,
                     help="first-key mode: N new tabs, each typed --first-key-keys keys from the action's reply on (no wait)")
 parser.add_argument("--first-key-keys", type=int, default=5)
+parser.add_argument("--first-key-focus", action="store_true",
+                    help="read debug.focus once before key 0 and once after it (shifts key 0 by the read)")
 parser.add_argument("--first-key-settle", type=float, default=1.5)
 parser.add_argument("--shell", default="", help="terminal.shell for the app's cmux.json (default: the app's own)")
 opts = parser.parse_args()
@@ -236,7 +238,11 @@ def run_first_key(session, poster):
         before = hid_input.probe_rows(PROBE)[session_start:]
         base = max([int(r["index"]) for r in before if (r.get("index") or "").isdigit()], default=-1) + 1
         sent = []
+        focus_before = focus_brief(full=True) if opts.first_key_focus else None
+        focus_after = None
         for index in range(opts.first_key_keys):
+            if index == 1 and opts.first_key_focus:
+                focus_after = focus_brief(full=True)
             k0 = time.perf_counter()
             answer = poster.key(hid_input.LETTERS[index % 26])
             sent.append({"at_ms": round((k0 - t0) * 1000, 2), "rpc_ms": round((time.perf_counter() - k0) * 1000, 2),
@@ -262,12 +268,16 @@ def run_first_key(session, poster):
         entry = {"trial": trial, "reply_ms": reply_ms, "reply": json.dumps(reply)[:160], "rows": len(rows), "base": base,
                  "typed": typed, "screen_line": last_line[-120:], "attach": screen.get("attach"),
                  "on_screen": typed in last_line, "on_screen_less_first": typed[1:] in last_line and typed not in last_line,
-                 "row_indices": sorted(by_index), "keys": keys}
+                 "row_indices": sorted(by_index), "keys": keys, "focus_before": focus_before, "focus_after": focus_after}
         if trial < 3:
             entry["focus"] = focus_brief()
         trials.append(entry)
         k = keys[0]
-        note(f"  ft{trial}: key0 {sent[0].get('handled_by')} {sent[0].get('trace')}")
+        note(f"  ft{trial}: key0 {sent[0].get('handled_by')} {sent[0].get('trace')[:1] if sent[0].get('trace') else None}"
+             f" menu={any('menu gate' in t for t in (sent[0].get('trace') or []))}")
+        if opts.first_key_focus:
+            note(f"  ft{trial}: before {json.dumps(focus_before)[:700]}")
+            note(f"  ft{trial}: after  {json.dumps(focus_after)[:700]}")
         note(f"  ft{trial}: screen {'ALL' if entry['on_screen'] else ('LOST-FIRST' if entry['on_screen_less_first'] else 'OTHER')} {last_line[-40:]!r}")
         note(f"  ft{trial}: reply {reply_ms} ms; first key {k.get('ms')} ms (row {'complete' if k.get('ms') is not None else (k['row'] or {}).get('complete')}); "
              f"keys 1..: {[x.get('ms') for x in keys[1:]]}")
@@ -317,12 +327,17 @@ def focused_terminal_text():
     return best
 
 
-def focus_brief():
+def focus_brief(full=False):
     """What has the keyboard: debug.focus's context and the Ghostty tabs it holds focused (the measured terminal)."""
     reply = rpc("debug.focus", timeout=20)
     if not isinstance(reply, dict):
         return reply
     windows = reply.get("windows") or []
+    if full:
+        w = windows[0] if windows else {}
+        return {"context": reply.get("context"), "appkit": w.get("appkit"), "model": {k: (w.get("model") or {}).get(k) for k in
+                ("pane", "tab", "resolved", "expectation", "generation", "overlays")}, "layout_focused_pane": w.get("layout_focused_pane"),
+                "mismatches": w.get("mismatches"), "consistent": w.get("consistent")}
     return {"app_active": reply.get("app_active"), "context": reply.get("context"),
             "ghostty_focused_tabs": reply.get("ghostty_focused_tabs"),
             "first_responders": [((w.get("appkit") or {}).get("first_responder")) for w in windows][:4]}
