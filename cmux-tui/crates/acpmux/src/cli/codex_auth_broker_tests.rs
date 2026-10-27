@@ -221,7 +221,7 @@ sleep 30
         StartupCancellation::Channel(&mut receiver),
     ));
     tokio::select! {
-        result = &mut start => panic!("stalled startup unexpectedly returned: {result:?}"),
+        _ = &mut start => panic!("stalled startup unexpectedly returned"),
         _ = tokio::time::sleep(Duration::from_millis(100)) => sender.send(()).unwrap(),
     }
     assert!(start.await.unwrap().is_none(), "shutdown must cancel startup after reaping Codex");

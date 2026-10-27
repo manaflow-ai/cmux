@@ -226,6 +226,7 @@ struct Owner {
 
 enum StartupCancellation<'a> {
     Signal(&'a mut tokio::signal::unix::Signal),
+    #[cfg(test)]
     Channel(&'a mut tokio::sync::oneshot::Receiver<()>),
 }
 
@@ -235,6 +236,7 @@ impl StartupCancellation<'_> {
             Self::Signal(signal) => {
                 let _ = signal.recv().await;
             }
+            #[cfg(test)]
             Self::Channel(receiver) => {
                 let _ = (&mut **receiver).await;
             }
