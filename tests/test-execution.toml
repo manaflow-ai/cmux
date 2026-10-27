@@ -1722,6 +1722,10 @@ path = "tests/test_nightly_build_state.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ensure_setup_node.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_download_run_artifact_retries.py"
 lane = "linux-guard"
 
