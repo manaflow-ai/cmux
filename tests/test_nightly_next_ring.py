@@ -241,6 +241,12 @@ printf {live_code}
         self.assertEqual(result.returncode, 1)
         self.assertIn("curl exit 18, HTTP 200", result.stdout)
 
+    def test_a_200_that_is_not_an_appcast_stops_the_publication(self):
+        for body in ("", "<html>error</html>", feed()):
+            result, _ = self.run_script(200, body)
+            self.assertEqual(result.returncode, 1, body)
+            self.assertIn("answered 200 with no appcast items", result.stdout)
+
     def test_ring_off_leaves_the_feed_alone(self):
         result, out = self.run_script(503, ring="off")
         self.assertEqual(result.returncode, 0, result.stderr)

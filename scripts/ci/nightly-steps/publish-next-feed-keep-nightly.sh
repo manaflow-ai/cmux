@@ -29,7 +29,13 @@ for feed in "$@"; do
   if [ "$status" != 0 ] && [ "$code" != 404 ]; then code="curl exit $status, HTTP ${code:-000}"; fi
   current=()
   case "$code" in
-    200) current=(--current "$live") ;;
+    200)
+      # A 200 that is not an appcast with items (an empty body or an error page) is unreadable too.
+      if ! python3 -I -c 'import sys, xml.etree.ElementTree as E; sys.exit(0 if any(True for _ in E.parse(sys.argv[1]).getroot().iter("item")) else 1)' "$live" 2>/dev/null; then
+        echo "::error title=nightly-next feed::the live $name answered 200 with no appcast items; publishing it now would drop its Nightly item"
+        exit 1
+      fi
+      current=(--current "$live") ;;
     404) echo "::notice::no live $name yet; publishing the new build's items alone" ;;
     *) echo "::error title=nightly-next feed::could not read the live $name (HTTP $code); publishing it now would drop its Nightly item"; exit 1 ;;
   esac
