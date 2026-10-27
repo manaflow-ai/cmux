@@ -139,6 +139,7 @@ mod remote_floor;
 pub(crate) mod remote_sandbox;
 pub use remote_sandbox::vm_host_peer_approves;
 mod start_gate;
+pub mod vm_boundary;
 pub mod vm_host;
 pub(crate) use start_gate::host_label;
 mod subsession_answer;
