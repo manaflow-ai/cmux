@@ -1744,4 +1744,98 @@ mod fence_tests {
         let _ = std::fs::remove_file(&out);
         assert!(read < (1 << 20), "a cut message reached the agent after the cut ({read} bytes)");
     }
+
+    /// Review 87 of #23322, round 2: a direct agent whose leader exited while a descendant that
+    /// never reads kept its stdin: the message its writer has settles once the agent ended,
+    /// with no cut, so a family hold on it is not held for ever.
+    #[tokio::test]
+    async fn a_message_a_descendant_never_reads_settles_once_its_agent_ended() {
+        let pid_file = std::env::temp_dir().join(format!("acpmux-stuck-{}", std::process::id()));
+        let _ = std::fs::remove_file(&pid_file);
+        let hold = format!(
+            "import os, time; os.setsid(); open('{}', 'w').write(str(os.getpid())); time.sleep(30)",
+            pid_file.display()
+        );
+        let script = format!("exec 3<&0; python3 -c \"{hold}\" <&3 3<&- >/dev/null 2>&1 & exit 0");
+        let argv = serde_json::json!({"argv": ["/bin/sh", "-c", script]});
+        let profile: HarnessProfile = serde_json::from_value(argv).unwrap();
+        let (inbound, _rx) = mpsc::channel(16);
+        let tap: Tap = Arc::new(|_, _, _| true);
+        let agent = ChildAgent::spawn("stuck", &profile, &std::env::temp_dir(), inbound, tap)
+            .await
+            .expect("the agent starts");
+        let fence = Fence::default();
+        let line = "x".repeat(1 << 20);
+        let note = Message::notification("note", serde_json::json!({"text": line}));
+        agent.write_fenced(&note, Some(&fence)).await.unwrap();
+        let settled =
+            tokio::time::timeout(std::time::Duration::from_secs(10), fence.settled()).await;
+        if let Some(pid) = std::fs::read_to_string(&pid_file).ok().and_then(|p| p.parse().ok()) {
+            // SAFETY: the descendant this test started, still holding its pid while it sleeps.
+            unsafe { libc::kill(pid, libc::SIGKILL) };
+        }
+        let _ = std::fs::remove_file(&pid_file);
+        assert!(settled.is_ok(), "a message its ended agent never took was still unsettled");
+        assert!(!fence.is_cut(), "it was written in part, so it is not a cut");
+    }
+
+    /// Review 88 of #23322: Claude's translator lets go of a permission ask once it translated
+    /// the answer, so a translated answer is as good as taken: a cut never drops it while it is
+    /// queued, which would leave Claude waiting on an ask nothing can answer again; the cut
+    /// ends that agent instead.
+    #[tokio::test]
+    async fn an_answer_a_translator_took_is_not_cut_while_queued() {
+        let ask = serde_json::json!({"type": "control_request", "request_id": "ask-1",
+            "request": {"subtype": "can_use_tool", "tool_name": "Bash", "input": {}}});
+        let script = format!("echo '{ask}'; exec sleep 30");
+        let argv = serde_json::json!({"argv": ["/bin/sh"]});
+        let profile: HarnessProfile = serde_json::from_value(argv).unwrap();
+        let (inbound, mut rx) = mpsc::channel(16);
+        let tap: Tap = Arc::new(|_, _, _| true);
+        let tr =
+            crate::claude_stdio::Translator::new("acp-1".into(), "default", "haiku", "default");
+        let command = Some(("/bin/sh".to_owned(), vec!["-c".to_owned(), script]));
+        let agent = ChildAgent::spawn_with(
+            "translated",
+            &profile,
+            &std::env::temp_dir(),
+            inbound,
+            tap,
+            command,
+            Some(tr),
+            None,
+        )
+        .await
+        .expect("the agent starts");
+        let id = tokio::time::timeout(std::time::Duration::from_secs(10), async {
+            loop {
+                match rx.recv().await {
+                    Some(Inbound::Request { id, .. }) => break id,
+                    Some(_) => continue,
+                    None => panic!("the agent ended before it asked"),
+                }
+            }
+        })
+        .await
+        .expect("Claude's ask reaches the hub");
+        // Its writer holds one line, so the answer stays queued behind it.
+        let (arrived_tx, arrived) = oneshot::channel();
+        let (release, release_rx) = oneshot::channel();
+        *agent.input_seam.lock().unwrap() =
+            Some(("held-line".to_owned(), false, arrived_tx, release_rx));
+        agent.stdin_tx.send(("\"held-line\"\n".to_owned(), None)).await.unwrap();
+        tokio::time::timeout(std::time::Duration::from_secs(10), arrived)
+            .await
+            .expect("the writer holds the line")
+            .unwrap();
+        let fence = Fence::default();
+        let allow =
+            serde_json::json!({"outcome": {"outcome": "selected", "optionId": "allow_once"}});
+        agent.respond_fenced(id, Ok(allow), Some(&fence)).await.unwrap();
+        fence.cut();
+        assert!(!fence.is_cut(), "a cut dropped an answer its translator had already let go of");
+        assert!(fence.cut_or_end(std::time::Duration::from_secs(1)).await, "its agent ended");
+        assert!(!agent.is_alive().await, "the agent of a translated answer was left running");
+        let _ = release.send(());
+    }
 }
