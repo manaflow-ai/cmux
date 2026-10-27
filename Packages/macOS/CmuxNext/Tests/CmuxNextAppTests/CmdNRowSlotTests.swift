@@ -57,6 +57,12 @@ struct CmdNRowSlotTests {
         let anchor = before[at]
         services.windows.select(anchor, in: state)
         controller.showWorkspace(requested: state.workspaceID)
+        let anchorID = WorkspaceID(anchor)
+        await RapidWorkspaceCreateTests.wait(within: .seconds(10)) {
+            guard let row = list.rowViews[.workspace(anchorID)], let layoutRow = list.displayed.row(for: .workspace(anchorID)) else { return false }
+            return row.window != nil && row.frame == list.frame(for: layoutRow)
+        }
+        try #require(list.rowViews[.workspace(anchorID)] != nil, "anchor row was not displayed before Cmd-N: \(rows(list.displayed))")
 
         var frames: [[String]] = []
         list.onApply = { frames.append(rows($0)) }
