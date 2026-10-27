@@ -528,10 +528,17 @@ export async function decide({
   }
 
   // The current nightly-next must be an ancestor of the target: compare
-  // status "ahead". "identical" was handled above; anything else refuses.
+  // status "ahead". "identical" was handled above. "behind" means nightly-next
+  // already contains the target: a request that arrived after a newer one
+  // promoted (2026-10-27: requests for 00:30Z landings dispatched at 04:41Z
+  // failed with "is not an ancestor"). It is a no-op, not a failure. Anything
+  // else ("diverged") refuses.
   const compare = comparer(github, owner, repo);
   if (current) {
     const data = await compare(`${current}...${sha}`);
+    if (data.status === 'behind') {
+      return { action: 'skip', reason: `superseded by newer target: ${TARGET} is already at ${current}, which contains ${sha}; nothing promoted`, sha, current };
+    }
     if (data.status !== 'ahead') {
       return refuse(`${current} (${TARGET}) is not an ancestor of ${sha} (compare status ${data.status}); nothing promoted`, { sha, current });
     }
