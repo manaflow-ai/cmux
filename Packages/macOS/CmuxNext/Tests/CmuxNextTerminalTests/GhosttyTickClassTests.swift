@@ -104,11 +104,10 @@ struct GhosttyTickClassTests {
         #expect(rig.mailbox.replaced == 99)
     }
 
-    @Test func aHiddenSurfacesTitlesApplyOnceWhenItShows() {
+    @Test func aHiddenSurfacesStateAppliesOnceWhenItShows() {
         let node = VisibilityNode(root: "tab", own: .hidden)
         let rig = ActionRig(node: node)
-        for index in 1...100 { rig.deliver(.setTitle("t\(index)")) }
-        rig.deliver(.pwd("/tmp"))
+        for index in 1...100 { rig.deliver(.pwd("/d\(index)")) }
 
         rig.frame()
         rig.frame()
@@ -121,32 +120,56 @@ struct GhosttyTickClassTests {
         #expect(rig.recorder.applied.isEmpty, "it applies in the frame after the show, not inside the flip")
         rig.frame()
 
-        #expect(rig.recorder.applied == ["title t100", "pwd /tmp"])
+        #expect(rig.recorder.applied == ["pwd /d100"])
         #expect(rig.mailbox.applies == 1)
         #expect(!rig.mailbox.isScheduled)
         rig.frame()
         #expect(rig.mailbox.applies == 1)
     }
 
+    /// The title shows outside the terminal (its tab, the sidebar, a remote tab's record): a hidden
+    /// terminal's title applies at the next frame, after the held state Ghostty sent before it.
+    @Test func aHiddenSurfacesTitleAppliesAtTheNextFrameAfterWhatWaitsBeforeIt() {
+        let node = VisibilityNode(root: "tab", own: .hidden)
+        let rig = ActionRig(node: node)
+        rig.deliver(.pwd("/tmp"))
+        rig.frame()
+        #expect(rig.recorder.applied.isEmpty)
+        #expect(rig.mailbox.isHeld)
+
+        for index in 1...100 { rig.deliver(.setTitle("t\(index)")) }
+        #expect(!rig.mailbox.isHeld, "a waiting title takes the pass off the hold")
+        rig.frame()
+
+        #expect(rig.recorder.applied == ["pwd /tmp", "title t100"])
+        #expect(rig.mailbox.applies == 1)
+        #expect(!rig.mailbox.isScheduled)
+
+        rig.deliver(.pwd("/var"))
+        rig.frame()
+        #expect(rig.recorder.applied == ["pwd /tmp", "title t100"], "with no title waiting, the hold is back")
+        #expect(rig.mailbox.isHeld)
+    }
+
     @Test func aCapturedHiddenSurfaceAppliesAtItsFrame() {
         let node = VisibilityNode(root: "tab", own: .hidden)
         let rig = ActionRig(node: node)
-        rig.deliver(.setTitle("seen"))
+        rig.deliver(.pwd("/seen"))
         let vote = node.captureVote(reason: "screenshot", stayHidden: true)
         rig.frame()
 
-        #expect(rig.recorder.applied == ["title seen"], "a capture sees the hidden terminal")
+        #expect(rig.recorder.applied == ["pwd /seen"], "a capture sees the hidden terminal")
         withExtendedLifetime(vote) {}
     }
 
     @Test func aHiddenSurfacesDiscreteActionRunsAtOnceAfterTheStateSentBeforeIt() {
         let rig = ActionRig(node: VisibilityNode(root: "tab", own: .hidden))
-        rig.deliver(.setTitle("before"))
+        rig.deliver(.pwd("/before"))
         rig.deliver(.ringBell)
-        rig.deliver(.setTitle("after"))
+        rig.deliver(.pwd("/after"))
         rig.deliver(.commandFinished(TerminalCommandResult(exitCode: 0, duration: .seconds(1))))
 
-        #expect(rig.recorder.applied == ["title before", "bell", "title after", "command"],
+        #expect(rig.recorder.applied == ["pwd /before", "bell", "pwd /after", "command"],
                 "discrete actions keep their order, hidden or not")
         #expect(rig.mailbox.pendingCount == 0)
         #expect(!rig.mailbox.isScheduled)
@@ -155,18 +178,31 @@ struct GhosttyTickClassTests {
     @Test func aSurfaceMovedUnderAnotherNodeFollowsTheNewOne() {
         let hidden = VisibilityNode(root: "old tab", own: .hidden)
         let rig = ActionRig(node: hidden)
-        rig.deliver(.setTitle("one"))
+        rig.deliver(.pwd("/one"))
         rig.frame()
         #expect(rig.recorder.applied.isEmpty)
 
         rig.recorder.actionNode = VisibilityNode(root: "new tab", own: .visible)
-        rig.deliver(.setTitle("two"))
+        rig.deliver(.pwd("/two"))
         rig.frame()
 
-        #expect(rig.recorder.applied == ["title two"])
+        #expect(rig.recorder.applied == ["pwd /two"])
         hidden.set(.visible)
         rig.frame()
-        #expect(rig.recorder.applied == ["title two"], "the old node's client went with the move")
+        #expect(rig.recorder.applied == ["pwd /two"], "the old node's client went with the move")
+    }
+
+    /// A held state applies when the bridge's waiting actions are flushed (a save at quit, a surface swap).
+    @Test func aFlushAppliesWhatAHiddenSurfaceHolds() {
+        let rig = ActionRig(node: VisibilityNode(root: "tab", own: .hidden))
+        rig.deliver(.pwd("/held"))
+        rig.frame()
+        #expect(rig.mailbox.isHeld)
+
+        rig.bridge.flushActions()
+
+        #expect(rig.recorder.applied == ["pwd /held"])
+        #expect(!rig.mailbox.isScheduled)
     }
 }
 

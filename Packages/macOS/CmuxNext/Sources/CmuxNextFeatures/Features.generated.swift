@@ -1671,12 +1671,12 @@ nonisolated extension Feature {
         replaces: ["memory.discard.terminalGPURelease"]
     )
 
-    /// A hidden terminal's title, working directory, progress, scrollbar and other state changes from its program wait while nobody sees it, latest wins, and apply once in the first frame after it shows; bells, exits and clipboard requests still run at once and in order.
+    /// A hidden terminal's working directory, progress, scrollbar and other state from its program wait until it shows, latest wins; its title still changes at the next frame, quit and a surface swap apply what waits first, and bells, exits and clipboard requests run at once, in order.
     public static let terminalHiddenActionHold = Feature(
         index: 96,
         name: "terminalHiddenActionHold",
         owner: "PL-ghostty",
-        description: "A hidden terminal's title, working directory, progress, scrollbar and other state changes from its program wait while nobody sees it, latest wins, and apply once in the first frame after it shows; bells, exits and clipboard requests still run at once and in order.",
+        description: "A hidden terminal's working directory, progress, scrollbar and other state from its program wait until it shows, latest wins; its title still changes at the next frame, quit and a surface swap apply what waits first, and bells, exits and clipboard requests run at once, in order.",
         kind: .perfPath,
         process: .app,
         chromiumFeature: nil,

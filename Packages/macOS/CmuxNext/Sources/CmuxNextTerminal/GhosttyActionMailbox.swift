@@ -5,6 +5,12 @@ import CmuxNextWakeups
 nonisolated enum GhosttyActionSlot: Int, CaseIterable, Sendable {
     case title, workingDirectory, mouseVisible, rendererHealth, progress, backgroundColor, scrollbar,
          searchTotal, searchSelected
+
+    /// Whether this state waits while nobody sees the terminal (``GhosttyActionMailbox``). The title does
+    /// not: it shows outside the terminal (its tab, the sidebar, a remote tab's record), as a background
+    /// tab's title still reaches Chrome's tab strip (`WebContentsImpl::UpdateTitle`,
+    /// content/browser/web_contents/web_contents_impl.cc).
+    var waitsWhileHidden: Bool { self != .title }
 }
 
 extension GhosttyAction {
@@ -57,7 +63,9 @@ extension GhosttyAction {
 /// Its ``FrameClient`` is a batch client (it keeps ticking at the stall rate for an occluded window),
 /// made with the first action and active only while one waits: an idle surface has no frame client.
 /// The client follows the surface's tab node (p06-scheduler-218): while nobody sees the terminal, what
-/// waits stays held, latest wins per slot, and applies once in the first frame after it shows (a hidden
+/// waits stays held, latest wins per slot, and applies once in the first frame after it shows. A title
+/// (``GhosttyActionSlot/waitsWhileHidden``) still applies at the next frame, after what waits before it
+/// (a hidden
 /// widget gets no BeginFrames in Chrome either: `RenderWidgetHostViewMac::WasOccluded`,
 /// content/browser/renderer_host/render_widget_host_view_mac.mm). A discrete action still flushes it at
 /// once, so it never runs before the state Ghostty sent before it.
@@ -153,9 +161,10 @@ final class GhosttyActionMailbox {
         for action in due { apply(action) }
     }
 
-    /// The frame client of the surface's current node: a surface moved under another node gets a new one.
+    /// The frame client of the surface's current node: a surface moved under another node gets a new one,
+    /// and a pass with a slot that does not wait while hidden gets one that ticks whether or not anyone sees it.
     private func frameClient() -> FrameClient {
-        let current = node()
+        let current = order.allSatisfy(\.waitsWhileHidden) ? node() : nil
         if let client, client.visibleOnly === current { return client }
         client?.deactivate()
         let made = FrameClient(owner: owner, isAnimation: false, visibleOnly: current, scheduler: scheduler) { [weak self] _ in
