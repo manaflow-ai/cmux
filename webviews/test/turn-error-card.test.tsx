@@ -194,7 +194,7 @@ test("a tailnet failure offers Reconnect before Retry and keeps the failed promp
   await act(async () =>
     root.render(
       <TurnActionsContext.Provider
-        value={{ reconnectHost: () => reconnects++, retry: () => retries++ }}
+        value={{ reconnectHost: () => { reconnects += 1; }, retry: () => { retries += 1; } }}
       >
         <TurnFooter row={failed("peer remote-worker unreachable: dial tcp remote-worker.tail0e5a.ts.net:4717: i/o timeout")} />
       </TurnActionsContext.Provider>,

@@ -5494,7 +5494,7 @@ function AcpmuxPane() {
         promptTurns: stablePromptSeqs,
       }),
       promptImage: (id: string) => directClient.current?.promptImage(id) ?? Promise.resolve(undefined),
-      ...(snapshot.summary?.peer && {
+      ...((snapshot.summary?.peer || (snapshot.summary?.host && snapshot.summary.hostKind !== "local")) && {
         // The host resolves this pane to its owning machine and runs the shared reconnect action.
         // Keeping the failure's prompt in acpmux means reconnect never retries or drops work.
         reconnectHost: () => callNative("action.run", { id: "machine.reconnect" }),
