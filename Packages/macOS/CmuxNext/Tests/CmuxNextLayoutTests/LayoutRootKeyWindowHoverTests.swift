@@ -89,4 +89,31 @@ import Testing
         fixture.center.post(name: NSWindow.didResignKeyNotification, object: fixture.window)
         #expect(!handle.isHovered, "the window resigned key and its divider still shows hovered")
     }
+
+    /// Both key notices run in the input class, in the notice's own turn (`// input-hop-allow:` at the
+    /// subscription): resign clears the hover and become-key restores it before the post returns, with no
+    /// run-loop turn between, one fan-out delivery per post.
+    @Test func keyNoticesUpdateTheDividerHoverInTheInputsOwnTurn() throws {
+        let fixture = Fixture()
+        let screen = fixture.screen
+        let handle = try #require(screen.dividerViews[.split("x")])
+        let rect = screen.convert(handle.cursorRectInBounds, from: handle)
+        try #require(rect.width > 1 && rect.height > 1, "the divider shows: \(rect)")
+        var isKey = false
+        let point = CGPoint(x: rect.midX, y: rect.midY)
+        fixture.root.context.hoverPointer = { _, _ in isKey ? screen.convert(point, to: nil) : nil }
+        fixture.root.context.hoverReachesWindow = { _, _ in true }
+        fixture.root.refreshDividerHover()
+        try #require(!handle.isHovered, "a window that is not key hovers no divider")
+
+        isKey = true
+        fixture.center.post(name: NSWindow.didBecomeKeyNotification, object: fixture.window)
+        #expect(handle.isHovered, "the window became key and the divider under the pointer waits for a later turn")
+        #expect(fixture.events.deliveries(NSWindow.didBecomeKeyNotification) == 1)
+
+        isKey = false
+        fixture.center.post(name: NSWindow.didResignKeyNotification, object: fixture.window)
+        #expect(!handle.isHovered, "the window resigned key and the hover waits for a later turn")
+        #expect(fixture.events.deliveries(NSWindow.didResignKeyNotification) == 1)
+    }
 }

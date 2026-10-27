@@ -26,15 +26,17 @@ extension LayoutRootView {
     /// The notices come through the window's one fan-out (``WindowEvents``;
     /// Chromium observes an NSWindow once, in
     /// components/remote_cocoa/app_shim/views_nswindow_delegate.mm), in the
-    /// notice's own turn: the click that moves the keys is input, and the
-    /// hover clears in that input's frame. Only a live root subscribes, so a
-    /// hidden or parked one gets no call; `setLive` subscribes again on show.
+    /// notice's own turn, in ``MainWorkClass/input``: the click or Cmd-Tab
+    /// that moves the keys is input, and the hover follows in the frame that
+    /// input commits. Only a live root subscribes, so a hidden or parked one
+    /// gets no call; `setLive` subscribes again on show.
     func observeKeyWindow() {
         for subscription in keyWindowObservers { subscription.cancel() }
         keyWindowObservers = []
         guard isLive, let window else { return }
         let events = context.hoverWindowEvents(window)
         keyWindowObservers = [NSWindow.didBecomeKeyNotification, NSWindow.didResignKeyNotification].map { name in
+            // input-hop-allow: class input; the key change is the click's or Cmd-Tab's own effect, and a later turn would commit that input's frame with the divider hover of the old key state.
             events.subscribe(name, owner: "LayoutRootView.dividerHover") { [weak self] in self?.refreshDividerHover() }
         }
     }
