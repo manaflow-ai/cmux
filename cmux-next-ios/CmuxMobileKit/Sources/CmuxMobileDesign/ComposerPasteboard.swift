@@ -30,8 +30,7 @@ public extension UIPasteboard {
         // An image copied as an image object (Photos, Safari) leads with
         // UIKit's private `com.apple.uikit.image`, not an image type.
         if hasImages, !hasStrings { return true }
-        // `com.apple.uikit.image` is not declared: a missing type is that object.
-        guard let first = types.first.flatMap({ UTType($0) }), first.isDeclared else { return hasImages }
+        guard let first = composerLeadingType else { return hasImages }
         if first.conforms(to: .fileURL) { return true }
         if first.conforms(to: .image) { return hasImages || Self.isComposerFileType(first) }
         guard !hasStrings else { return false }
@@ -41,8 +40,15 @@ public extension UIPasteboard {
     /// The pasteboard holds a copied file's own bytes (Files' Copy puts the
     /// file, not its path), not an image UIKit decodes or text.
     var composerHoldsFileData: Bool {
-        guard !hasImages, let first = types.first.flatMap({ UTType($0) }), Self.isComposerFileType(first) else { return false }
+        guard !hasImages, let first = composerLeadingType, Self.isComposerFileType(first) else { return false }
         return !hasStrings || first.conforms(to: .image)
+    }
+
+    /// The first declared type, past an app's private ones: Files leads with
+    /// `com.apple.DocumentManager.FINode.File`, then the file's own type
+    /// (`com.adobe.pdf`). Nil when every type is private.
+    var composerLeadingType: UTType? {
+        types.lazy.compactMap { UTType($0) }.first(where: \.isDeclared)
     }
 
     /// A copied file's own type (a PDF, an archive, a movie, an SVG from

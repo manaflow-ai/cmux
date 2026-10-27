@@ -648,7 +648,7 @@ final class ConversationComposerView: UIView, UITextViewDelegate {
     private func pasteAttachments() {
         let board = UIPasteboard.general
         guard board.hasImages else {
-            if let first = board.types.first.flatMap({ UTType($0) }), ComposerTextView.isPastedFileType(first),
+            if let first = ComposerTextView.leadingType(board), ComposerTextView.isPastedFileType(first),
                !board.hasStrings || first.conforms(to: .image) {
                 pasteFileData(board.itemProviders)
                 return
@@ -914,8 +914,9 @@ final class ComposerTextView: UITextView {
         // An image copied as an image object (Photos, Safari) leads with
         // UIKit's private `com.apple.uikit.image`, not an image type.
         if board.hasImages, !board.hasStrings { return true }
-        // `com.apple.uikit.image` is not declared: a missing type is that object.
-        guard let first = board.types.first.flatMap({ UTType($0) }), first.isDeclared else { return board.hasImages }
+        // The first declared type, past an app's private ones: Files leads with
+        // `com.apple.DocumentManager.FINode.File`, then the file's own type.
+        guard let first = Self.leadingType(board) else { return board.hasImages }
         if first.conforms(to: .fileURL) { return true }
         if first.conforms(to: .image) { return board.hasImages || Self.isPastedFileType(first) }
         guard !board.hasStrings else { return false }
@@ -924,6 +925,10 @@ final class ComposerTextView: UITextView {
 
     /// A copied file's own type (Files' Copy puts the file's bytes, a PDF or
     /// an archive): declared, and not text, a web link or an app's private format.
+    static func leadingType(_ board: UIPasteboard) -> UTType? {
+        board.types.lazy.compactMap { UTType($0) }.first(where: \.isDeclared)
+    }
+
     /// The same rule as CmuxMobileDesign's `UIPasteboard.isComposerFileType`
     /// (another package).
     static func isPastedFileType(_ type: UTType) -> Bool {
