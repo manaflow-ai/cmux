@@ -12,7 +12,7 @@
 //! links can pass each lexical check and still escape), and every file and
 //! directory is fsynced.
 
-use std::fs::{self, OpenOptions};
+use std::fs::OpenOptions;
 use std::io::{self, BufReader, Read};
 use std::path::{Component, Path, PathBuf};
 
@@ -68,7 +68,8 @@ fn check_link_target(root: &Path, rel: &Path, target: &Path) -> Result<()> {
             Component::Normal(part) => {
                 depth += 1;
                 at.push(part);
-                through_link |= fs::symlink_metadata(&at).is_ok_and(|m| m.file_type().is_symlink());
+                through_link |= cmux_blocking::fs::symlink_metadata(&at)
+                    .is_ok_and(|m| m.file_type().is_symlink());
             }
             Component::CurDir => {}
             Component::ParentDir => {
@@ -111,11 +112,11 @@ fn ensure_parents(root: &Path, rel: &Path) -> Result<()> {
     let parents: Vec<_> = rel.parent().map(|p| p.components().collect()).unwrap_or_default();
     for component in parents {
         dir.push(component);
-        match fs::symlink_metadata(&dir) {
+        match cmux_blocking::fs::symlink_metadata(&dir) {
             Ok(meta) if meta.is_dir() => {}
             Ok(_) => return Err(unsafe_entry(format!("{} is not a directory", dir.display()))),
             Err(e) if e.kind() == io::ErrorKind::NotFound => {
-                fs::create_dir(&dir).ctx(dir.display())?;
+                cmux_threads::checked::fs::create_dir(&dir).ctx(dir.display())?;
             }
             Err(e) => return Err(Error::io(dir.display(), e)),
         }
@@ -126,7 +127,7 @@ fn ensure_parents(root: &Path, rel: &Path) -> Result<()> {
 /// Opens a gzip-compressed tar (decision SV-R3: the only package format).
 /// Any other format is refused by name before anything is unpacked.
 fn open_reader(archive: &Path) -> Result<Box<dyn Read>> {
-    let mut file = BufReader::new(fs::File::open(archive).ctx(archive.display())?);
+    let mut file = BufReader::new(cmux_blocking::fs::open(archive).ctx(archive.display())?);
     let mut head = Vec::with_capacity(FORMAT_SNIFF_LEN);
     (&mut file).take(FORMAT_SNIFF_LEN as u64).read_to_end(&mut head).ctx(archive.display())?;
     PackageFormat::sniff(&head).require_tar_gz().map_err(Error::rejected)?;
@@ -150,7 +151,7 @@ pub fn unpack(archive: &Path, dest: &Path, limits: Limits) -> Result<()> {
         ));
     }
     let mut tar = tar::Archive::new(io::Cursor::new(first).chain(gz));
-    fs::create_dir(dest).ctx(dest.display())?;
+    cmux_threads::checked::fs::create_dir(dest).ctx(dest.display())?;
     let mut entries_seen = 0u64;
     let mut bytes = 0u64;
     for entry in tar.entries().map_err(corrupt)? {
@@ -168,10 +169,10 @@ pub fn unpack(archive: &Path, dest: &Path, limits: Limits) -> Result<()> {
         ensure_parents(dest, &rel)?;
         let path = dest.join(&rel);
         match kind {
-            EntryType::Directory => match fs::symlink_metadata(&path) {
+            EntryType::Directory => match cmux_blocking::fs::symlink_metadata(&path) {
                 Ok(meta) if meta.is_dir() => {}
                 Ok(_) => return Err(unsafe_entry(format!("duplicate entry {}", rel.display()))),
-                Err(_) => fs::create_dir(&path).ctx(path.display())?,
+                Err(_) => cmux_threads::checked::fs::create_dir(&path).ctx(path.display())?,
             },
             EntryType::Regular | EntryType::Continuous => {
                 let size = entry.size();
@@ -203,7 +204,7 @@ pub fn unpack(archive: &Path, dest: &Path, limits: Limits) -> Result<()> {
             "package archive holds no tar entries; store packages are tar.gz only",
         ));
     }
-    let root = fs::canonicalize(dest).ctx(dest.display())?;
+    let root = cmux_blocking::fs::canonicalize(dest).ctx(dest.display())?;
     check_tree(&root, dest)
 }
 
@@ -231,12 +232,12 @@ fn tar_checksum_ok(block: &[u8]) -> bool {
 /// lexical check). Fsyncs every directory, so the entries are durable
 /// before the package directory is renamed into the store.
 fn check_tree(root: &Path, dir: &Path) -> Result<()> {
-    for entry in fs::read_dir(dir).ctx(dir.display())? {
+    for entry in cmux_blocking::fs::read_dir(dir).ctx(dir.display())? {
         let path = entry.ctx(dir.display())?.path();
-        let meta = fs::symlink_metadata(&path).ctx(path.display())?;
+        let meta = cmux_blocking::fs::symlink_metadata(&path).ctx(path.display())?;
         if meta.file_type().is_symlink() {
             let shown = path.strip_prefix(dir).unwrap_or(&path).display().to_string();
-            match fs::canonicalize(&path) {
+            match cmux_blocking::fs::canonicalize(&path) {
                 Ok(real) if real.starts_with(root) => {}
                 Ok(_) => {
                     return Err(unsafe_entry(format!(
@@ -270,8 +271,7 @@ fn write_file(
     }
     #[cfg(not(unix))]
     let _ = executable;
-    let mut file = options
-        .open(path)
+    let mut file = cmux_threads::checked::fs::open_with(&options, path)
         .map_err(|e| unsafe_entry(format!("cannot create {} ({e})", rel.display())))?;
     let copied = io::copy(&mut entry.take(size), &mut file).map_err(|e| match e.kind() {
         // The gzip or tar stream broke while reading this entry.
@@ -283,7 +283,7 @@ fn write_file(
     if copied != size {
         return Err(Error::verification(format!("truncated entry {}", rel.display())));
     }
-    file.sync_all().ctx(path.display())
+    cmux_threads::checked::fs::sync_all(&file).ctx(path.display())
 }
 
 fn make_symlink(target: &Path, path: &Path, rel: &Path) -> Result<()> {

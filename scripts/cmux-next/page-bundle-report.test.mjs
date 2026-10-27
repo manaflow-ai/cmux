@@ -55,6 +55,12 @@ const splitPage = {
   "chunks/Accounts-ZX56CV78.js": "export const c=1;\n",
 };
 
+// The same page with each section in one file: Theme's chunk is in the first load.
+const onePerSection = {
+  ...splitPage,
+  "app.js": `import"./chunks/chunk-AB12CD34.js";${splitPage["app.js"]}`,
+};
+
 // The Settings sections of the fixtures: two lazy ones and a third lazySections.ts does not name.
 const SECTIONS = {
   sections: [
@@ -85,7 +91,7 @@ test("a split page counts its own and shared bytes, requests, lazy chunks and th
 test("every built document naming the same shared React URL passes the identity check", () => {
   const trees = tree("same-react", {
     "pages/_shared/react-AB12.js": REACT,
-    ...prefixed("pages/settings", splitPage),
+    ...prefixed("pages/settings", onePerSection),
     ...prefixed("pages/history", splitPage),
   });
   const result = report(trees, ["settings", "history"], SECTIONS);
@@ -154,7 +160,7 @@ test("a lazy chunk that is not a section does not pass the Settings check", () =
 });
 
 test("one section in the first load passes the Settings check, two do not", () => {
-  const trees = tree("one-first", { "pages/_shared/react-AB12.js": REACT, ...prefixed("pages/settings", splitPage) });
+  const trees = tree("one-first", { "pages/_shared/react-AB12.js": REACT, ...prefixed("pages/settings", onePerSection) });
   const passing = report(trees, ["settings"], SECTIONS);
   assert.ok(!passing.findings.some((finding) => finding.startsWith("settings:")), passing.findings.join("\n"));
   const sections = { ...SECTIONS, sections: [...SECTIONS.sections, { id: "server", chunk: "Server" }] };
@@ -166,6 +172,31 @@ test("one section in the first load passes the Settings check, two do not", () =
     ),
     failing.findings.join("\n"),
   );
+});
+
+// A section's import fetches its chunk, then the chunk's static imports: each file after the first
+// is one more round trip before the section paints (task 081: one file per section).
+test("a lazy section that loads more than one file after the first load is a finding", () => {
+  const trees = tree("waterfall", { "pages/_shared/react-AB12.js": REACT, ...prefixed("pages/settings", splitPage) });
+  const result = report(trees, ["settings"], SECTIONS);
+  const [row] = result.documents;
+  assert.deepEqual(row.lazyLoads, {
+    "cmux-page://cmux.settings/chunks/Theme-QW12ER34.js": [
+      "cmux-page://cmux.settings/chunks/Theme-QW12ER34.js",
+      "cmux-page://cmux.settings/chunks/chunk-AB12CD34.js",
+    ],
+    "cmux-page://cmux.settings/chunks/Accounts-ZX56CV78.js": ["cmux-page://cmux.settings/chunks/Accounts-ZX56CV78.js"],
+  });
+  assert.deepEqual(
+    result.findings.filter((finding) => finding.startsWith("settings:")),
+    [
+      "settings: section theme loads 2 files (Theme-QW12ER34.js, chunk-AB12CD34.js) after the first load (task 081 wants one)",
+    ],
+  );
+  // The shared chunk in the first load: Theme paints with its own file.
+  const one = tree("one-file", { "pages/_shared/react-AB12.js": REACT, ...prefixed("pages/settings", onePerSection) });
+  const fixed = report(one, ["settings"], SECTIONS);
+  assert.deepEqual(fixed.findings.filter((finding) => finding.startsWith("settings:")), []);
 });
 
 test("sectionChunks reads lazySections.ts entries and adds the schema categories that draw a card", () => {

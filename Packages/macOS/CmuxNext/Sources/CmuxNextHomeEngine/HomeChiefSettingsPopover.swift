@@ -71,6 +71,7 @@ public final class HomeChiefSettingsPopover {
         let toggles = toggles.map { WeakView(view: $0) }
         popup.keepsOpen = { event in
             toggles.contains { toggle in
+                // visibility-walk-allow: a hit test of one click against the toggle's own frame: a hidden pill or avatar takes no press
                 guard let view = toggle.view, !view.isHiddenOrHasHiddenAncestor, event.window === view.window else { return false }
                 return view.bounds.contains(view.convert(event.locationInWindow, from: nil))
             }

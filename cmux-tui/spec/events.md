@@ -12,13 +12,14 @@ Implemented event lines can appear on subscribe, attach, or control lifecycle st
 
 | Stream | How to start | Event names |
 | --- | --- | --- |
-| Subscribe stream | `subscribe` command | `tree-changed`, all workspace/screen/pane/tab deltas, `frontend-projection-changed`, `personal-changed`, `conversation-changed`, `conversation-typing`, `conversation-inbox-changed`, `conversation-run-changed`, `conversation-live`, `cloud-conversation-changed`, `cloud-conversation-resynced`, `cloud-conversation-run-changed`, `cloud-conversation-live`, `cloud-conversation-typing`, `cloud-inbox-changed`, `cloud-inbox-reset`, `cloud-subscription-state`, `cloud-session-needed`, `cloud-host-replica-needed`, `bookmarks-changed`, `settings-changed`, `keybindings-changed`, `history-changed`, `terminal-registry-changed`, `terminal-reaped`, `layout-changed`, `surface-output`, `scroll-changed`, `surface-resized`, `surface-resize-failed`, `surface-exited`, `title-changed`, `agent-changed`, `agent-presence-changed`, `bell`, `program-status-changed`, `notification`, `status`, `config-reload-requested`, `window-title-requested`, `machine-usage-changed`, `client-attached`, `client-changed`, `client-detached`, `client-list-invalidated`, `pairing-requested`, `pairing-resolved`, `empty`, `overflow` |
+| Subscribe stream | `subscribe` command | `tree-changed`, all workspace/screen/pane/tab deltas, `frontend-projection-changed`, `personal-changed`, `conversation-changed`, `conversation-typing`, `conversation-inbox-changed`, `conversation-run-changed`, `conversation-live`, `cloud-conversation-changed`, `cloud-conversation-resynced`, `cloud-conversation-run-changed`, `cloud-conversation-live`, `cloud-conversation-typing`, `cloud-inbox-changed`, `cloud-inbox-reset`, `cloud-subscription-state`, `cloud-session-needed`, `cloud-host-replica-needed`, `bookmarks-changed`, `settings-changed`, `keybindings-changed`, `history-changed`, `terminal-registry-changed`, `terminal-reaped`, `layout-changed`, `surface-output`, `scroll-changed`, `surface-resized`, `surface-resize-failed`, `surface-exited`, `title-changed`, `agent-changed`, `agent-presence-changed`, `bell`, `program-status-changed`, `notification`, `status`, `config-reload-requested`, `window-title-requested`, `machine-usage-changed`, `server-diagnostic-site`, `client-attached`, `client-changed`, `client-detached`, `client-list-invalidated`, `pairing-requested`, `pairing-resolved`, `empty`, `overflow` |
 | Attach stream v5 | `attach-surface` command | `vt-state`, `output`, `detached`, `overflow` |
 | Attach stream v6 PTY | `attach-surface` command | `vt-state`, `resized`, `output`, `colors-changed`, `notification`, `scroll-changed`, `detached`, `overflow` |
 | Attach stream v7 render mode | `attach-surface` command | `render-state`, `render-delta`, `scroll-changed`, `detached`, `overflow` |
 | Browser attach v6 | `attach-surface` command on a browser | `browser-state`, `frame`, `notification`, `scroll-changed`, `detached`, `overflow` |
 | Control lifecycle notice | No command; sent after a successful `shutdown-daemon` or `session.shutdown` acknowledgment | `daemon-shutdown` |
 | Control input notice | No command; sent to a connection whose queued input for a creating terminal was not written | `terminal-input-unclaimed` |
+| Attach stream with `attach-streams-v1` | `attach-surface` with `stream` | the events of its mode, each with `stream`, then `stream-end` |
 | Native owner inventory watch | Trusted Unix `agent-inventory-watch` with `agent-inventory-watch-v1` | `agent-inventory-changed`, `agent-inventory-watch-ended` |
 
 Events and command responses share one full-duplex connection. Each event or response is a complete transport message: a JSON line on Unix or a text frame on WebSocket. Clients must route messages by checking for `event`. If `event` is absent, the message is a command response and should be matched by `id`.
@@ -27,7 +28,7 @@ Events and command responses share one full-duplex connection. Each event or res
 
 Every entity-scoped event carries its subject id in the field named below. Tree deltas also carry every parent id needed to place the entity. Legacy session-wide events have no numeric entity subject; the table marks them `session` rather than inventing an id and changing their v5/v6 payloads.
 
-Subscribe events belong to the `subscribe` registration. Tree lifecycle deltas belong only to a subscription that selected `tree_events:"deltas"`; `tree-changed` belongs to the default `"coarse"` subscription and may also appear on a delta subscription as a resync fallback. The tree-event selection does not affect other subscribe events. Attach events belong to the attachment selected by `attach-surface`; their `surface` field permits multiple attachments on one connection. `notification` and `scroll-changed` can appear on subscribe and selected attach streams. Consumers must tolerate those duplicated routes. Protocol v10 has no public stream id or cancellation command, so a connection must use at most one subscription and one attachment per surface when event origin must be unambiguous.
+Subscribe events belong to the `subscribe` registration. Tree lifecycle deltas belong only to a subscription that selected `tree_events:"deltas"`; `tree-changed` belongs to the default `"coarse"` subscription and may also appear on a delta subscription as a resync fallback. The tree-event selection does not affect other subscribe events. Attach events belong to the attachment selected by `attach-surface`; their `surface` field permits multiple attachments on one connection. `notification` and `scroll-changed` can appear on subscribe and selected attach streams. Consumers must tolerate those duplicated routes. Without `attach-streams-v1` there is no attach stream id or cancellation command, so a connection must use at most one subscription and one attachment per surface when event origin must be unambiguous. With it, a client names each attachment with a stream id it mints (see [Attach streams](#attach-streams)), and every item of that attachment carries the id.
 
 Control lifecycle notices are sent on the authenticated control queue. They do not require a `subscribe` registration and are ordered after the command response that caused them.
 
@@ -87,6 +88,7 @@ Control lifecycle notices are sent on the authenticated control queue. They do n
 | `terminal-clipboard-read-cancelled` | control (targeted) | `request_id` | protocol 12 additive; capability `terminal-clipboard-read-v1`; only to the frontend that got the read |
 | `window-title-requested` | subscribe | session | protocol 6 |
 | `machine-usage-changed` | subscribe | session | protocol 12 additive extension; capability `machine-usage-v1` |
+| `server-diagnostic-site` | subscribe | none | protocol 12 additive extension; capability `diagnostic-sites-v1` |
 | `activity-changed` | control (targeted) | session | protocol 12 additive extension; capability `vm-activity-v1`; only to `subscribe-activity` connections |
 | `client-attached` | subscribe | `client` | protocol 6 |
 | `client-changed` | subscribe | `client` | protocol 6 |
@@ -116,7 +118,14 @@ Control lifecycle notices are sent on the authenticated control queue. They do n
 
 The server writes each response or event as one complete transport message. JSON lines and WebSocket text frames are not interleaved at the byte level.
 
-Requests on one connection are executed in the order they arrive, with two exceptions that may answer after later requests. `clear-history` waits for its surface's output stream. Commands that create a terminal (`new-tab`, `new-pane`, `new-pane-right`, `split`, `new-screen`, `new-workspace`, `create-terminal`) run on the owner's bounded terminal worker pool, which launches the hosts of several `new-tab` requests in parallel. Creates of one connection still commit and reply in request order, so the tabs of a pane land in the order they were requested, but a later non-creating request can be answered first. Match every response by its `id`. A client that needs a created terminal's topology waits for that create's response.
+Requests on one connection are executed in the order they arrive, with the four exceptions below. Requests that name the same surface always run in arrival order, and no request runs before an earlier request that names no surface. Match every response by its `id`.
+
+- `clear-history` waits for its surface's output stream and may answer after later requests of other surfaces.
+- Commands that create a terminal (`new-tab`, `new-pane`, `new-pane-right`, `split`, `new-screen`, `new-workspace`, `create-terminal`) run on the owner's bounded terminal worker pool, which launches the hosts of several `new-tab` requests in parallel. Creates of one connection still commit and reply in request order, so the tabs of a pane land in the order they were requested, but a later non-creating request can be answered first. A client that needs a created terminal's topology waits for that create's response.
+- Input commands (`send`, `send-key`, `paste-image`, `scroll-surface`, `browser-mouse`, `browser-mouse-guarded`, `browser-wheel`, `browser-wheel-guarded`, `browser-key`, `browser-key-press`, `browser-insert-text`) that name a surface run before earlier queued requests of other surfaces. They never run before an earlier request of their own surface, before earlier input that can run, or before an earlier request that names no surface.
+- Long reads (`read-scrollback`, `copy` with `mode` `scrollback`, `vt-state`) run off the connection's dispatcher and may answer after later requests of other surfaces. Later requests of the same surface wait for the long read.
+
+A client that pipelines requests across surfaces (for example `read-screen` or `wait-for` on one surface, then `send` to another) must not assume that the responses come back in request order.
 
 For a single subscription, ordinary events are delivered in the order the mux broadcasts them. The server does not create a total order across unrelated producer threads beyond the order in which events enter the mux broadcaster.
 
@@ -1272,6 +1281,28 @@ Example:
 {"event":"machine-usage-changed","usage":{"vm_id":"3f1c...","period_days":30,"total_tokens":184220,"api_equivalent_usd":1.23,"as_of":"2026-09-01T00:00:00Z"}}
 ```
 
+### server-diagnostic-site
+
+| Field | Value |
+| --- | --- |
+| event | `server-diagnostic-site` |
+| status | implemented |
+| since | protocol 12 additive extension; capability `diagnostic-sites-v1` |
+
+Payload:
+
+```text
+object{event:"server-diagnostic-site",family:"blocking"|"inversion"|"hang",kind:string,crate?:string,file_hash?:string,line?:uint32,lane_sync?:bool,method?:string}
+```
+
+Meaning: The daemon saw a diagnostic site for the first time in this daemon life: a blocking call on a thread that disallows blocking, or a work item's wait for other work (`blocking`, `kind` a `server-blocking` kind such as `fs` or `recv`, `lane_sync` true for the work-item wait); a wait on work of lower QoS (`inversion`, `kind` `priority-inversion`); a request method that ran past the 250 ms watchdog threshold (`hang`, `kind` `request`, `method` its command or v2 operation name with `:` written as `.`); or a holder-link frame or a session journal commit that ran past its hang tier (1 s and 2 s) (`hang`, `kind` `holder-link` or `journal-writer`, `method` the frame kind such as `data`, or `commit-batch`). A blocking or inversion site is named by `crate` (the crate folder without its version, or `other`), `file_hash` (16 hex digits, FNV-1a of the file's path from the crate folder on, the same on every machine) and `line`; no event holds a path. Each site comes once per daemon life (a blocking site by crate, file and line, whatever kind came later; a hang by `kind` and `method`; at most 512 sites). Only a trusted local connection that echoed `diagnostic-sites-v1` in `set-client-info` gets it: its `subscribe` first replays the sites seen so far, then sends each new one. A site seen while `subscribe` starts may come twice, and every new connection of the same daemon life gets the replay again (an app relaunch included); the app reports each site once per daemon life, which it names by the `pid` and `generation` of `identify`. Event-driven only: the daemon's `mux-diag-sites` thread waits for the next new site with no timer.
+
+Example:
+
+```json
+{"event":"server-diagnostic-site","family":"blocking","kind":"fs","crate":"cmux-tui-core","file_hash":"9f2c4e1a7b3d5c60","line":412,"lane_sync":false}
+```
+
 ### empty
 
 | Field | Value |
@@ -1721,6 +1752,83 @@ Example:
 {"event":"detached","surface":1}
 {"event":"detached","surface":1,"reason":"disconnected-by","by":{"display_name":"Maya","device_name":"Mac Studio"}}
 ```
+
+### stream-end
+
+| Field | Value |
+| --- | --- |
+| event | `stream-end` |
+| status | implemented |
+| since | protocol 12 additive; capability `attach-streams-v1` |
+
+Payload:
+
+```text
+object{event:"stream-end",stream:uint16,reason:"canceled"|"detached"|"overflow"|"attach_failed"}
+```
+
+Meaning: The last item of a client-minted attach stream. Nothing of that
+stream follows it, and its id may name a new `attach-surface` once the
+client has read it. `canceled`: `cancel-stream` or `detach-attached-view`
+of that view; what the stream still queued is dropped. `detached`: the view
+ended (its surface or output tap ended, or a `detached` event of that
+stream came first); every item queued before it is delivered. `overflow`:
+the stream fell behind its outbound budget; it takes the place of the
+attach `overflow` event, and the client reattaches. `attach_failed`: the
+`attach-surface` that took the id failed after taking it; its error reply
+follows.
+
+Example:
+
+```json
+{"event":"stream-end","stream":3,"reason":"canceled"}
+```
+
+## Attach streams
+
+Capability `attach-streams-v1` (p05-ipc-074) lets one connection carry
+many views, each a stream the client names, like the associated
+interfaces of a Mojo message pipe: the side that opens an endpoint picks its
+id, every message names its endpoint, and the closing notice is the last
+message of the endpoint (chromium
+`mojo/public/cpp/bindings/lib/multiplex_router.cc`).
+
+- The capability is a framed IPC grant
+  ([transports.md](transports.md#framed-ipc-grants)): `identify` offers it
+  and the client echoes it in `set-client-info`. A `stream` on a connection
+  without the grant is refused with `streams_not_granted`.
+- `attach-surface {stream}` takes a `uint16` id the client chose. An id
+  whose `stream-end` is not queued yet is refused with `stream_in_use`; the
+  open stream and the connection are unchanged.
+- A connection holds at most 4096 open streams and the daemon at most 16384
+  across its connections. An open past either is refused with
+  `stream_capacity` (this connection) or `server_stream_capacity` (the
+  daemon); only that open fails, with no `stream-end`, and the connection
+  and its open streams are unchanged. An id is counted until its
+  `stream-end` is queued.
+- Every item of the view carries `"stream": id` as its first member: the
+  READY (`vt-state`, `snapshot`, `render-state` or `browser-state`) before the
+  reply, then output, resizes, notifications, `detached`, and `stream-end`.
+  The `surface` field is unchanged.
+- `stream-end` is the stream's last item. The id is free once it is queued.
+- View requests take an optional `stream`: `resize-attached-view`,
+  `release-attached-view-size`, `detach-attached-view` and
+  `snapshot-request`. The daemon checks it: no open stream with that id is
+  `unknown_stream`, a stream of another surface is
+  `stream_surface_mismatch`. On the three view commands, `stream` alone
+  selects that stream's lease (`stream_has_no_lease` when the client did
+  not send `view-attachment-lease-v1`); with `lease`, the lease must be that
+  stream's (`stream_lease_mismatch`). `snapshot-request` with `stream` asks
+  that view only.
+- `cancel-stream {stream}` ends the stream with `stream-end{canceled}` and
+  removes its view before it answers `{stream, outcome:"applied"}`. It is
+  idempotent: an id with no open stream answers `outcome:"ended"`.
+- Streams are independent: one stream whose reader stopped fills only its
+  own queue, and the other streams and the command replies of the
+  connection keep flowing. Losing the connection ends every stream; there
+  is no `stream-end` then.
+- Without `stream`, `attach-surface` behaves as before: no tag, the
+  `overflow` event, no `stream-end`.
 
 ### size-state
 
