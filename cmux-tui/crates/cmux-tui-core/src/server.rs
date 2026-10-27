@@ -151,6 +151,7 @@ pub mod agent_transfer;
 mod app_trust;
 pub use app_trust::{FrontendKey, frontend_proof, install_frontend_key, read_frontend_key};
 mod client_hello;
+pub use client_hello::{daemon_features, install_daemon_features};
 mod command_args;
 mod frame_dispatch;
 #[cfg(unix)]
@@ -205,6 +206,7 @@ mod remote_relay;
 mod remote_terminal_tabs_wire;
 #[cfg(test)]
 use remote_relay::handle_connection_message;
+mod attach_streams;
 mod cmd_attach;
 mod cmd_browser;
 #[cfg(test)]
@@ -274,14 +276,13 @@ use group_outcome_json::{
     workspace_group_json, workspace_groups_json,
 };
 use split_respawn::{frontend_shell, placement_spawn_options, shell_argv, split_tab};
+mod capabilities;
 mod terminal_create;
 mod terminal_history;
 mod terminal_io_wire;
 mod terminal_ports;
 mod terminal_resources;
 mod terminal_snapshot;
-use terminal_snapshot::{attach_overflow_json, handle_attach_send_error, report_attach_overflow};
-mod capabilities;
 pub use capabilities::{build_capabilities, static_capabilities};
 mod daemon_build;
 pub use daemon_build::{
@@ -1943,6 +1944,9 @@ enum Command {
         identity: Option<ClientIdentityWire>,
         cols: u16,
         rows: u16,
+        /// attach-streams-v1: the view's client-minted stream, checked.
+        #[serde(default)]
+        stream: Option<u16>,
     },
     /// Stop this client from contributing a size for a surface while
     /// retaining its attach stream for cached rendering.
@@ -1956,6 +1960,9 @@ enum Command {
         lease: Option<String>,
         #[serde(default)]
         view: Option<String>,
+        /// attach-streams-v1: the view's client-minted stream, checked.
+        #[serde(default)]
+        stream: Option<u16>,
     },
     /// Close one negotiated view attachment without affecting the terminal or
     /// any other placement or client view.
@@ -1965,6 +1972,9 @@ enum Command {
         lease: Option<String>,
         #[serde(default)]
         view: Option<String>,
+        /// attach-streams-v1: the view's client-minted stream, checked.
+        #[serde(default)]
+        stream: Option<u16>,
     },
     FocusPane {
         pane: PaneId,
@@ -2328,6 +2338,11 @@ const RESOURCE_STREAMS_PER_CLIENT_CAPACITY: usize = 64;
 const RESOURCE_STREAMS_SERVER_CAPACITY: usize = 256;
 const RESOURCE_WAITS_PER_CLIENT_CAPACITY: usize = 8;
 const RESOURCE_WAITS_SERVER_CAPACITY: usize = 64;
+/// Open client-minted attach streams (attach-streams-v1) one connection may
+/// hold, and the daemon across its connections; past either only the open
+/// fails (server/attach_streams.rs).
+const ATTACH_STREAMS_PER_CLIENT_CAPACITY: usize = 4096;
+const ATTACH_STREAMS_SERVER_CAPACITY: usize = ATTACH_STREAMS_PER_CLIENT_CAPACITY * 4;
 
 mod worker_admission;
 pub(crate) use worker_admission::ServerSurfaceOperationAdmission;
@@ -2362,6 +2377,9 @@ pub(crate) use request_watchdog::{
 };
 
 mod connection_scheduler;
+mod sequenced_pool;
+pub(crate) use sequenced_pool::SequencedPool;
+mod stream_lanes;
 #[cfg(test)]
 use connection_scheduler::ConnectionSurfaceState;
 use connection_scheduler::{
@@ -2372,10 +2390,10 @@ mod bounded_outbound;
 pub(crate) use bounded_outbound::bulk_frame_max_from_env;
 use bounded_outbound::{
     BoundedOutbound, ConnectionPermit, OutboundItem, QueuedSink, SinkControl,
-    SynchronizedTcpStream, claim_connection, write_line_outbound_item,
+    SynchronizedTcpStream, claim_connection, write_counted_batch,
 };
 #[cfg(test)]
-use bounded_outbound::{ControlOutbound, websocket_server_frame_header};
+use bounded_outbound::{ControlOutbound, websocket_server_frame_header, write_line_outbound_item};
 
 mod client_registry;
 pub(crate) use client_registry::ClientRegistry;
@@ -2467,8 +2485,10 @@ use resource_connection::{
 };
 
 mod connection_frame;
+mod request_hang_watch;
 mod request_head;
 mod request_spans;
+mod request_wait;
 mod routes;
 #[cfg(test)]
 use connection_frame::write_vt_state_command_json;
@@ -2586,8 +2606,9 @@ use render_messages::{browser_frame_json, render_graphics_message};
 
 mod attach_lifecycle;
 use attach_lifecycle::{
-    AttachWorkerCommit, MarkedClientAttach, attach_response, commit_client_attach_and_start_worker,
-    detach_committed_attach, mark_client_attached, mark_resource_client_attached,
+    AttachWorkerCommit, MarkedClientAttach, attach_overflow_json, attach_response,
+    commit_client_attach_and_start_worker, detach_committed_attach, handle_attach_send_error,
+    mark_client_attached, mark_resource_client_attached, report_attach_overflow,
     rollback_failed_attach, spawn_attach_notification_stream, wait_for_initial_browser_resize,
 };
 #[cfg(test)]

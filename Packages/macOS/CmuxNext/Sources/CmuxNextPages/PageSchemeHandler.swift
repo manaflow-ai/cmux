@@ -16,7 +16,10 @@ import WebKit
 ///
 /// `cmux-page://cmux.shared/` is answered for every page from ``sharedRoot`` (or the overlay, Debug
 /// override or web update that also serves pages) by ``PageSharedChunks``' rules: its `.js` and
-/// `.css` files only, only to a first-party page origin, never to a navigation.
+/// `.css` files only, only to a first-party page origin, never to a navigation. While the bundle is
+/// served, a chunk in the in-memory table (``sharedChunks``) is answered inside ``webView(_:start:)``
+/// itself, with no task hop and no disk read; an overlay, a Debug override, a web update or a file the
+/// table lacks takes the async path.
 ///
 /// Absorbed from the Settings lead's `SettingsPageSchemeHandler` (branch
 /// feat-cmux-next-settings-react), generalized to every page.
@@ -53,6 +56,9 @@ final class PageSchemeHandler: NSObject, WKURLSchemeHandler {
     var fetchDevServer: @Sendable (URL) async -> (Data, HTTPURLResponse)? = { await PageDevServer.fetch($0) }
     /// The live override (``WebDevOverride/current``; tests replace it).
     var liveOverride: @Sendable () -> WebDevOverride = { WebDevOverride.current }
+    /// The shared chunks in memory (``WebBundleOverlay/bundledShared``; tests replace it), asked per
+    /// request: the launch read may end after the view is made, and a web update turns it off.
+    var sharedChunks: @Sendable () -> PageSharedChunkCache? = { WebBundleOverlay.shared.bundledShared }
     /// Tasks started and not yet answered or stopped; a stopped task must not be answered.
     private var active: Set<ObjectIdentifier> = []
     /// Where the `webui.scheme` slices go (``PageTraceSink``).
@@ -106,7 +112,8 @@ final class PageSchemeHandler: NSObject, WKURLSchemeHandler {
         let page = PageWebView.traceID(showing: webView)
         trace.begin(.webuiScheme, arg0: TracePart.start.rawValue, arg1: page)
         var failed: UInt64 = 0
-        defer { trace.end(.webuiScheme, arg0: failed, arg1: 0) }
+        var answered: UInt64 = 0
+        defer { trace.end(.webuiScheme, arg0: failed, arg1: answered) }
         WebDevOverrideWatcher.shared.served(webView) // a web-dev.json change reloads it
         let request = task.request
         let origin = request.value(forHTTPHeaderField: "Origin")
@@ -117,12 +124,20 @@ final class PageSchemeHandler: NSObject, WKURLSchemeHandler {
             task.didFailWithError(URLError(.fileDoesNotExist))
             return
         }
+        WebBundleServedViews.shared.add(webView)
+        let mainDocument = request.mainDocumentURL
+        if let reply = sharedReplyInTurn(to: url, origin: origin, mainDocument: mainDocument) {
+            task.didReceive(reply.response)
+            if !reply.body.isEmpty { task.didReceive(reply.body) }
+            task.didFinish()
+            answered = UInt64(reply.body.count)
+            return
+        }
         let id = ObjectIdentifier(task)
         active.insert(id)
-        WebBundleServedViews.shared.add(webView)
         let range = request.value(forHTTPHeaderField: "Range")
-        let mainDocument = request.mainDocumentURL
         // task-owner: one file read or dynamic lookup per scheme task; a stopped task is never answered
+        // main-hop-allow: reply and sharedReply are this handler's main-actor async reads (the file reads run off main, a dynamic lookup is the provider's main-actor call); the task only answers WebKit's scheme task, a main-thread-only object
         Task { @MainActor [weak self] in
             guard let self else { return }
             let reply: Reply? = if PageSharedChunks.isShared(url) {
@@ -153,6 +168,20 @@ final class PageSchemeHandler: NSObject, WKURLSchemeHandler {
         }
         guard let served = served(url) else { return false }
         return Self.route(for: url, page: served.page, root: served.root) != nil
+    }
+
+    /// The reply for a GET of the shared chunk `url` from the bundled table (``sharedChunks``), in the
+    /// caller's turn, with the headers and origin rules of ``sharedReply(to:origin:mainDocument:page:)``.
+    /// Nil, so the request takes that async path, for another origin, a refused origin or navigation, no
+    /// table or a table of another folder than ``sharedRoot``, a Debug override (``debugSharedRoot``), a
+    /// live overlay, or a file the table lacks.
+    func sharedReplyInTurn(to url: URL, origin: String?, mainDocument: URL?) -> Reply? {
+        guard PageSharedChunks.isShared(url), debugSharedRoot == nil, let root = sharedRoot,
+              let allowed = PageSharedChunks.allowedOrigin(for: url, origin: origin, mainDocument: mainDocument),
+              let table = sharedChunks(), table.serves(root), let chunk = table.chunk(for: url),
+              liveOverride().overlay == nil
+        else { return nil }
+        return PageSharedChunks.reply(url: url, allowedOrigin: allowed, body: chunk.body, file: chunk.file)
     }
 
     /// The reply for a GET of the shared chunk `url` with the `Origin` header `origin` and the top

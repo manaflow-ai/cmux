@@ -51,6 +51,49 @@ pub(in crate::server) struct ClientRecord {
         std::sync::Arc<crate::server::cmd_subscribe::SubscribeProbe>,
 }
 
+/// What `server-threads` says of the connection a thread works for
+/// (server/server_stats.rs): the facts its class comes from and the class.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(in crate::server) struct ConnectionFacts {
+    pub(in crate::server) transport: &'static str,
+    pub(in crate::server) remote_device: bool,
+    /// The derived request origin (`user` is the verified app).
+    pub(in crate::server) origin: &'static str,
+    /// The socket peer's PID at accept, from its kernel peer key.
+    pub(in crate::server) peer_pid: Option<u32>,
+    pub(in crate::server) class: &'static str,
+}
+
+impl super::ClientRegistry {
+    /// The facts of each of `clients` the registry holds, read under one
+    /// hold of its lock (server-threads, a diagnostics read).
+    pub(in crate::server) fn connection_facts(
+        &self,
+        clients: impl IntoIterator<Item = u64>,
+    ) -> HashMap<u64, ConnectionFacts> {
+        use crate::panic_free::RecoverPoison;
+        let state = self.state.lock().recover_poison();
+        clients
+            .into_iter()
+            .filter_map(|client| {
+                let record = state.clients.get(&client)?;
+                let facts = ConnectionFacts {
+                    transport: record.transport.as_str(),
+                    remote_device: record.remote_device,
+                    origin: record.origin.derive().wire_name(),
+                    peer_pid: record
+                        .origin
+                        .peer_key
+                        .as_deref()
+                        .and_then(crate::server::origin_gate::peer_pid),
+                    class: record.connection_class.get().as_str(),
+                };
+                Some((client, facts))
+            })
+            .collect()
+    }
+}
+
 impl super::ClientRegistryState {
     /// Classes `client`'s connection from what the daemon knows of it: its
     /// transport, its derived origin, `set-client-info remote` and whether

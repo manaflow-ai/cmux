@@ -182,7 +182,7 @@ fn reexec_newer(ctx: &Context<'_>, args: &Args, layout: &Layout, staged: &Staged
 fn ensure_shim(layout: &Layout, warnings: &mut Vec<String>) -> Result<()> {
     let shim = fsx::local(&layout.cli_shim);
     let target = fsx::local(&layout.current_cmux);
-    match std::fs::read_link(&shim) {
+    match cmux_threads::checked::fs::read_link(&shim) {
         Ok(existing) if existing == target => return Ok(()),
         Ok(_) | Err(_) if fsx::exists_no_follow(&shim) => {
             warnings.push(format!("{} exists and is not our shim; left as is", shim.display()));
@@ -258,7 +258,9 @@ pub fn install(ctx: &Context<'_>, args: &Args) -> Result<Output> {
 /// (`-X stream`), because the WAL archive is deleted with the state.
 fn final_backup(ctx: &Context<'_>, args: &Args, layout: &Layout) -> Result<Option<PathBuf>> {
     let cfg = config(layout)?;
-    if !fsx::local(&layout.postgres_data()).join("PG_VERSION").is_file() {
+    if !cmux_blocking::fs::metadata(fsx::local(&layout.postgres_data()).join("PG_VERSION"))
+        .is_ok_and(|m| m.is_file())
+    {
         return Ok(None);
     }
     let pg = Postgres::open_existing(layout, ctx.runner, &cfg, &pg_options(args)).map_err(|e| {
@@ -277,7 +279,7 @@ fn final_backup(ctx: &Context<'_>, args: &Args, layout: &Layout) -> Result<Optio
 /// `<cwd>/cmux-server-final-backup-<stamp>`, refused when `cwd` is inside
 /// the state directory that `--purge` is about to delete.
 pub(super) fn final_backup_dest(cwd: &Path, state: &Path, now_ms: u64) -> Result<PathBuf> {
-    let real = |p: &Path| std::fs::canonicalize(p).unwrap_or_else(|_| p.to_path_buf());
+    let real = |p: &Path| cmux_blocking::fs::canonicalize(p).unwrap_or_else(|_| p.to_path_buf());
     if real(cwd).starts_with(real(state)) {
         return Err(Error::rejected(format!(
             "the final backup would land in {}, which --purge deletes; run from another directory",
@@ -289,8 +291,10 @@ pub(super) fn final_backup_dest(cwd: &Path, state: &Path, now_ms: u64) -> Result
 
 /// The pid in `postmaster.pid` when that process is alive.
 fn live_postmaster(layout: &Layout) -> Option<u32> {
-    let text =
-        std::fs::read_to_string(fsx::local(&layout.postgres_data()).join("postmaster.pid")).ok()?;
+    let text = cmux_blocking::fs::read_to_string(
+        fsx::local(&layout.postgres_data()).join("postmaster.pid"),
+    )
+    .ok()?;
     let pid: u32 = text.lines().next()?.trim().parse().ok()?;
     sys::process_alive(pid).then_some(pid)
 }
@@ -318,7 +322,9 @@ fn postgres_guard(
 }
 
 fn stop_postgres(ctx: &Context<'_>, args: &Args, layout: &Layout) -> Result<()> {
-    if !fsx::local(&layout.postgres_data()).join("PG_VERSION").is_file() {
+    if !cmux_blocking::fs::metadata(fsx::local(&layout.postgres_data()).join("PG_VERSION"))
+        .is_ok_and(|m| m.is_file())
+    {
         return Ok(());
     }
     let cfg = config(layout)?;
@@ -340,7 +346,9 @@ pub fn uninstall(ctx: &Context<'_>, args: &Args) -> Result<Output> {
     let mut removed: Vec<PathBuf> = svc.uninstall()?;
     stop_postgres(ctx, args, &layout)?;
     let shim = fsx::local(&layout.cli_shim);
-    if std::fs::read_link(&shim).is_ok_and(|t| t == fsx::local(&layout.current_cmux)) {
+    if cmux_threads::checked::fs::read_link(&shim)
+        .is_ok_and(|t| t == fsx::local(&layout.current_cmux))
+    {
         fsx::remove_tree(&shim)?;
         removed.push(shim);
     }
@@ -373,7 +381,10 @@ pub fn uninstall(ctx: &Context<'_>, args: &Args) -> Result<Output> {
 
 fn postgres_state(layout: &Layout) -> &'static str {
     let data = fsx::local(&layout.postgres_data());
-    match (data.join("PG_VERSION").is_file(), data.join("postmaster.pid").is_file()) {
+    match (
+        cmux_blocking::fs::metadata(data.join("PG_VERSION")).is_ok_and(|m| m.is_file()),
+        cmux_blocking::fs::metadata(data.join("postmaster.pid")).is_ok_and(|m| m.is_file()),
+    ) {
         (false, _) => "absent",
         (true, true) => "running",
         (true, false) => "stopped",

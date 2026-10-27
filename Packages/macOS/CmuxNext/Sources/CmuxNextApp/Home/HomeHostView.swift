@@ -86,7 +86,7 @@ final class HomeHostView: NSView {
             if let self { HomeHeaderPanels.toggle(id, headerPanelContext) }
         }
         petRows.onMascot = { [weak self] in self?.loadAvatar() }  // a new character redraws the header at once
-        petRows.install(in: self, addRow: { [settingsView] in settingsView.addAppearanceRow($0, control: $1) },
+        petRows.install(in: self, node: node, mainWork: work, addRow: { [settingsView] in settingsView.addAppearanceRow($0, control: $1) },
                         open: { [weak self] in self?.toggleChiefSettings(openOnly: true) ?? false })
         settingsView.onAvatar = { [weak self, weak service] in
             self?.loadAvatar()

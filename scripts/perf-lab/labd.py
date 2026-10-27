@@ -86,6 +86,7 @@ def _sibling(name: str, path: Path):
 store = _sibling("store", HERE / "store.py")
 ingest = _sibling("ingest", HERE / "ingest.py")
 alerts = _sibling("alerts", HERE / "alerts.py")
+harness_alerts = _sibling("harness_alerts", HERE / "harness_alerts.py")
 
 LABEL = "com.cmux.perf-lab"
 PLIST_TEMPLATE = HERE / f"{LABEL}.plist"
@@ -537,7 +538,10 @@ class Labd:
 
     def coverage(self, query: Mapping[str, list[str]]) -> object:
         with self.open_store() as db:
-            return {"coverage": _rows(db.coverage())}
+            broken = harness_alerts.broken_stories(db._db)
+            return {"coverage": _rows(db.coverage()), "harness_broken": [
+                {"story": b.story, "host_class": b.host_class, "start_pos": b.start_pos, "end_pos": b.end_pos,
+                 "errored_batches": b.errored_batches, "reason": b.last_error.reason} for b in broken.values()]}
 
     # ----- write endpoints -----
 
