@@ -30,7 +30,12 @@ failover of each variable (failover_values()) is derived from the lane's
 Xcode pin, the same way pr_runner_pool.py names owned pools: the macOS
 capability variables take the std owned pool (the GUI one for
 MACOS_RUNNER_DISPLAY, the simulator capability label for MACOS_RUNNER_IOS),
-and LINUX_RUNNER and CI_TRUSTED_RUNNER take GitHub-hosted ubuntu-24.04. CI_CLOUD_FAILOVER (JSON,
+and LINUX_RUNNER and CI_TRUSTED_RUNNER take another Blacksmith Linux size
+(LINUX_FAILOVER, TRUSTED_FAILOVER), never GitHub-hosted Ubuntu: hosted
+Ubuntu sits behind the plan's concurrency limit, and on 2026-10-27 the
+switch's own failover filled it so this workflow's watch waited 94 minutes
+for a runner (Leo: "just put it on blacksmith / 16vcpu blacksmiths do
+exist"). CI_CLOUD_FAILOVER (JSON,
 variable name to value, "" to leave one alone) overrides any of them. Only a
 variable that is unset (its readers then fall back to Blacksmith) or holds a
 blacksmith-* label is changed, so a lane someone deliberately pointed
@@ -69,7 +74,13 @@ PAID_OVERFLOW_VARIABLE = "CI_PAID_MACOS_OVERFLOW"
 CLOUD_PREFIX = pr_runner_pool.EPHEMERAL_PREFIX  # "blacksmith-"
 # Every workflow's fallback when LINUX_RUNNER is unset (docs/ci-runners.md).
 DEFAULT_PROBE_LABEL = "blacksmith-4vcpu-ubuntu-2404"
-HOSTED_LINUX = "ubuntu-24.04"
+# Where Linux overflow goes while the probed label stalls: another Blacksmith
+# Linux size, never GitHub-hosted Ubuntu. CI_TRUSTED_RUNNER's readers accept
+# only ubuntu-24.04 and the 2 and 4 vCPU labels (docs/ci-runners.md), so it
+# takes 2 vCPU.
+LINUX_FAILOVER = "blacksmith-16vcpu-ubuntu-2404"
+TRUSTED_FAILOVER = "blacksmith-2vcpu-ubuntu-2404"
+HOSTED_LINUX_LABEL = re.compile(r"^ubuntu-")
 LINUX_VARIABLE = "LINUX_RUNNER"
 # The merge-gating checks (CLA, backend migrations) read this; it falls back to
 # Blacksmith, so it leaves with the rest of Linux and comes back with it.
@@ -134,6 +145,11 @@ def cloud_label(label: str | None) -> bool:
     return bool(label) and str(label).startswith(CLOUD_PREFIX)
 
 
+def linux_cloud_label(label: str | None) -> bool:
+    """An x64 Blacksmith Linux label: a Linux failover may name another size of the pool it probes."""
+    return bool(re.fullmatch(r"blacksmith-\d+vcpu-ubuntu-\d+", str(label or "")))
+
+
 def probe_label(record: Mapping[str, Any] | None, linux_runner: str | None) -> str:
     """The Blacksmith label a probe asks for; the workflow's runs-on restates this."""
     saved = (record or {}).get("probe")
@@ -162,7 +178,7 @@ def failover_values(xcode_app_pr: str | None, overrides: str | None) -> tuple[di
     macOS variables are left alone (named in the problems).
     """
     problems: list[str] = []
-    values: dict[str, str] = {name: HOSTED_LINUX for name in LINUX_VARIABLES}
+    values: dict[str, str] = {LINUX_VARIABLE: LINUX_FAILOVER, TRUSTED_VARIABLE: TRUSTED_FAILOVER}
     owned = pr_runner_pool.owned_pools(xcode_app_pr)
     if owned:
         std = owned[0]
@@ -186,7 +202,11 @@ def failover_values(xcode_app_pr: str | None, overrides: str | None) -> tuple[di
                     problems.append(f"{OVERRIDES_VARIABLE} names {name!r}, which the switch does not set; ignored")
                 elif not value.strip():
                     values.pop(name, None)
-                elif cloud_label(value.strip()):
+                elif HOSTED_LINUX_LABEL.match(value.strip().lower()):
+                    # No job runs on GitHub-hosted Ubuntu (Leo, 2026-10-27).
+                    problems.append(f"{OVERRIDES_VARIABLE} points {name} at {value.strip()}, GitHub-hosted "
+                                    "Ubuntu; ignored")
+                elif cloud_label(value.strip()) and not (name in LINUX_VARIABLES and linux_cloud_label(value.strip())):
                     problems.append(f"{OVERRIDES_VARIABLE} points {name} at {value.strip()}, a Blacksmith label; "
                                     "ignored")
                 elif HOSTED_MACOS_LABEL.search(value.strip().lower()):
@@ -307,13 +327,19 @@ def protected_reason(run: Mapping[str, Any]) -> str:
     return ""
 
 
-def stuck_job(jobs: Iterable[Mapping[str, Any]], now: dt.datetime, minutes: int) -> Mapping[str, Any] | None:
-    """The oldest job queued with no runner on a Blacksmith label for `minutes` or more."""
+def stuck_job(jobs: Iterable[Mapping[str, Any]], now: dt.datetime, minutes: int,
+              failovers: Iterable[str] = ()) -> Mapping[str, Any] | None:
+    """The oldest job queued with no runner on a Blacksmith label for `minutes` or more.
+
+    A job queued on a failover label (another Blacksmith size) already went
+    where the switch sends overflow, so re-running it moves nothing.
+    """
+    skip = {str(label) for label in failovers}
     stuck = []
     for job in jobs:
         if job.get("status") != "queued" or job.get("runner_name"):
             continue
-        if not any(cloud_label(str(label)) for label in job.get("labels") or ()):
+        if not any(cloud_label(str(label)) and str(label) not in skip for label in job.get("labels") or ()):
             continue
         created = parse_time(job.get("created_at"))
         if created is not None and (now - created).total_seconds() >= minutes * 60:
@@ -402,7 +428,8 @@ def wait_for_probe(api: GitHub, run_id: int, attempt: int, minutes: int, *,
 
 
 def rescue_stuck_runs(api: GitHub, *, own_run_id: int, minutes: int, now: Callable[[], dt.datetime],
-                      sleep: Callable[[float], None], log: Callable[[str], None], dry_run: bool) -> list[str]:
+                      sleep: Callable[[float], None], log: Callable[[str], None], dry_run: bool,
+                      failovers: Iterable[str] = ()) -> list[str]:
     """Force-cancel and re-run runs holding a job queued on Blacksmith; one line per run touched."""
     lines: list[str] = []
     seen: dict[int, dict[str, Any]] = {}
@@ -419,7 +446,7 @@ def rescue_stuck_runs(api: GitHub, *, own_run_id: int, minutes: int, now: Callab
         if len(chosen) >= MAX_RESCUES:
             break
         try:
-            job = stuck_job(api.jobs(int(run["id"])), now(), minutes)
+            job = stuck_job(api.jobs(int(run["id"])), now(), minutes, failovers)
         except RuntimeError as error:
             lines.append(f"run {run['id']}: could not list jobs ({error})")
             continue
@@ -612,7 +639,9 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
                         log(f"- {item.name}: retried {item.value}")
         if record or args.dry_run:
             for line in rescue_stuck_runs(api, own_run_id=run_id, minutes=minutes, now=now, sleep=sleep,
-                                          log=log, dry_run=args.dry_run):
+                                          log=log, dry_run=args.dry_run,
+                                          failovers=[value for name, value in failover.items()
+                                                     if name in LINUX_VARIABLES]):
                 log(f"- {line}")
     out = env.get("GITHUB_OUTPUT")
     if out:
