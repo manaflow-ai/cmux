@@ -54,6 +54,12 @@ pub(crate) const TABLE: &[crate::FeatureDef] = &[
         process: crate::Process::Daemon,
     },
     crate::FeatureDef {
+        name: "memorySqliteTrim",
+        defaults: crate::Defaults { dev: false, nightly: false, release: false },
+        kind: crate::Kind::PerfPath,
+        process: crate::Process::Both,
+    },
+    crate::FeatureDef {
         name: "terminalHolder",
         defaults: crate::Defaults { dev: false, nightly: false, release: false },
         kind: crate::Kind::PerfPath,
@@ -86,6 +92,8 @@ pub mod feature {
         MEMORY_KITTY_SHARE = "memoryKittyShare",
         /// Daemon scrollback RAM total sized from installed RAM (128 MiB at 8 GB, 1 GiB at 64 GB) and lowered by memory pressure: half at warning, 16 MiB at critical, least recently active terminals first; limits return at normal below 80 %.
         MEMORY_SCROLLBACK_PRESSURE = "memoryScrollbackPressure",
+        /// Long-lived SQLite connections of the daemon and the app's page visit logs give their unused page cache back at warning and critical memory pressure, each on the connection's own executor; the pages read again on the next query.
+        MEMORY_SQLITE_TRIM = "memorySqliteTrim",
         /// New terminals run on the install's one PTY holder process, and the daemon parses their output, instead of one terminal host process each (terminal-host-model-DESIGN.md option D).
         TERMINAL_HOLDER = "terminalHolder",
         /// Terminal sizing counts one participant per app connection: all of an app's views of one terminal are leases of one participant (its latest active view sets its size), and disconnecting that participant ends only that terminal's views, not the app's connection.

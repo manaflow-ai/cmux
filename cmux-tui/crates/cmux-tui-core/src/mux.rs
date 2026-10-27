@@ -228,6 +228,7 @@ mod ledger_maintenance;
 mod oracle;
 mod pinned_columns;
 mod power_source;
+mod sqlite_trim;
 mod workspace_name;
 use kitty_reservation::kitty_image_limits_exceed;
 mod agent_presence;
@@ -820,6 +821,8 @@ pub struct Mux {
     /// This owner's memory registry: consumers register (the standby host and
     /// the output store's scrollback budget), sources vote.
     pub(crate) memory: Arc<crate::memory::DaemonMemory>,
+    /// The SQLite connections' memory consumers (`memorySqliteTrim`).
+    sqlite_trim: sqlite_trim::SqliteTrim,
     /// Hosts launched ahead of their creation, by reserved terminal id.
     #[cfg(any(unix, windows))]
     prelaunched_terminals: Mutex<HashMap<String, terminal_work::PrelaunchedTerminal>>,
