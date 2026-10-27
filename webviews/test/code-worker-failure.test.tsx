@@ -74,8 +74,8 @@ beforeAll(() => {
   });
   host = document.querySelector<HTMLElement>("#root")!;
 });
-afterEach(() => {
-  void act(() => root?.unmount());
+afterEach(async () => {
+  await act(async () => root?.unmount());
   root = undefined;
   delete document.documentElement.dataset.cmuxHighlightWorker;
   delete document.documentElement.dataset.agentMotion;
@@ -127,7 +127,7 @@ test("a mounted highlighted card drops Pierre on worker failure and can recover 
   });
   expect(creates).toBe(2);
   expect(renders).toBe(2);
-  void act(() => root!.unmount());
+  await act(async () => root!.unmount());
   root = undefined;
   expect(cleanups).toBe(2);
   await act(async () => {
