@@ -61,6 +61,13 @@ final class HomeHostView: NSView {
     /// Where attachments open and their right-click menu (the transcript holds it weakly).
     private var fileActions: HomeFileActions?
 
+    #if DEBUG || CMUX_BENCH_HOOKS
+    /// Every live Home view, for `debug.home.api` `chief_names` (each one's header name).
+    static let debugLive = NSHashTable<HomeHostView>.weakObjects()
+    /// The conversation this view shows.
+    var debugConversation: String { control.conversation.rawValue }
+    #endif
+
     init(services: AppServices, conversation: String) {
         let service = services.home
         let id = ConversationID(conversation)
@@ -72,6 +79,9 @@ final class HomeHostView: NSView {
         petRows = ChiefPetSettingsRows(settings: { [weak services] in services?.settings }, homes: services.chiefPetHomes,
                                        picks: services.chiefMascotPicks, uploads: services.chiefAvatarUploads)
         super.init(frame: .zero)
+        #if DEBUG || CMUX_BENCH_HOOKS
+        Self.debugLive.add(self)
+        #endif
         transcript.linkScheme = services.linkScheme  // "Copy Link" names messages in this build's scheme
         transcript.setNamePillHelp(HomeEngineStrings.pillHelp)
         // The header's name: the Chief's settings over a Chief; a DM's or group's info otherwise.

@@ -31,11 +31,15 @@ enum DebugHomeAPI {
                 guard let choice = params["choice"]?.stringValue.flatMap(HomeChiefChoice.init(rawValue:)) else { return failure("choice must be hosted or placed") }
                 return await MainActor.run { services.home.hostedChief.pick(choice); return DebugHome.hosted(services.home) }
             case "rename_chief":
-                // The header card's rename (HomeService.renameChief): the reply is its failure, or null when saved.
-                guard let id = params["conversation"]?.stringValue, let name = params["name"]?.stringValue else {
-                    return failure("conversation and name required")
+                // The header card's rename (HomeService.renameChief) of `conversation`, else of the default Chief's.
+                guard let name = params["name"]?.stringValue else { return failure("name required") }
+                guard let id = await MainActor.run(body: { params["conversation"]?.stringValue ?? services.home.defaultChiefConversation }) else {
+                    return failure("no Chief conversation")
                 }
                 return await renameChief(id, to: name, services: services)
+            case "chief_names":
+                // Every surface's name for `conversation`'s Chief (else the default Chief's), issue 26393.
+                return await MainActor.run { chiefNames(params["conversation"]?.stringValue, services: services) }
             case "watch_start":
                 return await MainActor.run { DebugHomeWatch.start(router) }
             case "watch_read":
@@ -51,10 +55,39 @@ enum DebugHomeAPI {
         }
     }
 
-    /// `rename_chief`: the header card's rename; `failure` is why it did not save, null when it did.
+    /// `rename_chief`: the header card's rename; `failure` is why it did not save, null when it did,
+    /// and `names` every surface's name right after (``chiefNames(_:services:)``).
     @MainActor static func renameChief(_ id: String, to name: String, services: AppServices) async -> JSONValue {
         let failure = await services.home.renameChief(conversation: id, to: name)
-        return .object(["ok": .bool(failure == nil), "failure": failure.map { .string(String(describing: $0)) } ?? .null])
+        return .object(["ok": .bool(failure == nil), "failure": failure.map { .string(String(describing: $0)) } ?? .null,
+                        "names": chiefNames(id, services: services)])
+    }
+
+    /// `chief_names`: the Chief's name as its tile, header and tab show it, its record's, whether a
+    /// rename still shows over the record, the conversation's own title, and `agree` when all
+    /// shown names are one.
+    @MainActor static func chiefNames(_ conversation: String?, services: AppServices) -> JSONValue {
+        let home = services.home
+        guard let id = conversation ?? home.defaultChiefConversation else { return failure("no Chief conversation") }
+        let key = ConversationID(id)
+        let tab = home.homeWorkspace?.screens.flatMap(\.panes).flatMap(\.tabs)
+            .first { $0.kind == .conversation && $0.snapshot.conversation?.conversation == id }
+        // A header showing this Chief now (a Home tab's, or the Home page's), else none.
+        #if DEBUG || CMUX_BENCH_HOOKS
+        let header = HomeHostView.debugLive.allObjects.filter { $0.debugConversation == id && $0.window != nil }
+            .compactMap(\.transcript.headerTitle).first
+        #else
+        let header: String? = nil
+        #endif
+        let tile = home.chiefNames[key]
+        let tabTitle = tab.map { home.tabTitle(for: $0) }
+        let shown = [tile, header, tabTitle].compactMap { $0 }
+        return .object(["conversation": .string(id), "tile": tile.map { .string($0) } ?? .null,
+                        "header": header.map { .string($0) } ?? .null, "tab": tabTitle.map { .string($0) } ?? .null,
+                        "record": home.chiefRecord(of: key).map { .string($0) } ?? .null,
+                        "pending": .bool(home.chiefRenames.isPending(key)),
+                        "title": .string(home.conversations.first { $0.id == id }?.title ?? ""),
+                        "agree": .bool(!shown.isEmpty && Set(shown).count == 1)])
     }
 
     /// Kinds: send {conversation, text, thread_root?}, edit {conversation,
