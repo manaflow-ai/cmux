@@ -143,7 +143,7 @@ import Testing
     /// A remote off reaches the switches as an off feature: on the disable list, not on the enable list.
     @Test func anOffFeatureIsOnlyDisabled() {
         let arguments = switches(enabled: [], disabled: ["BackForwardCache"])
-        #expect(features(arguments, "disable-features=") == ["BackForwardCache"])
+        #expect(features(arguments, "disable-features=") == CEFSwitches.idleServiceOffFeatures + ["BackForwardCache"])
         #expect(!features(arguments, "enable-features=").contains("BackForwardCache"))
     }
 
@@ -152,7 +152,7 @@ import Testing
         let enabled = features(arguments, "enable-features=")
         #expect(enabled.contains("BackForwardCache"))
         #expect(!enabled.contains("TimerSlackMac"))
-        #expect(features(arguments, "disable-features=") == ["TimerSlackMac"])
+        #expect(features(arguments, "disable-features=") == CEFSwitches.idleServiceOffFeatures + ["TimerSlackMac"])
     }
 
     /// A feature cmux turns on itself (wake-up alignment, the Chrome prompt off) also loses to an off one.
@@ -165,9 +165,11 @@ import Testing
         #expect(arguments.filter { $0.hasPrefix("enable-features=") }.count == 1)
     }
 
-    @Test func noOffFeatureAddsNoDisableEntry() {
+    /// With no app feature off, the one disable entry holds only the idle services cmux does not use (p13-webui-084).
+    @Test func noOffFeatureLeavesOnlyTheIdleServicesDisabled() {
         let arguments = switches(enabled: ["TimerSlackMac"], disabled: [])
-        #expect(!arguments.contains { $0.hasPrefix("disable-features=") })
+        let idleServicesOnly = "disable-features=" + CEFSwitches.idleServiceOffFeatures.joined(separator: ",")
+        #expect(arguments.filter { $0.hasPrefix("disable-features=") } == [idleServicesOnly])
         #expect(features(arguments, "enable-features=").contains("TimerSlackMac"))
     }
 

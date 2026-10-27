@@ -58,6 +58,17 @@ final class CEFHostStart {
     var hangMonitor: ChromiumHostHangMonitor?
     /// The attached host reports to ``hangMonitor``: it acks its dispatch and the remote shim has the host watch.
     private(set) var watchesHangs = false
+    /// The host Chromium ran on ended and its pages do not show it yet: `CEFRuntime.hostWireEnded` sets it,
+    /// `CEFRuntime.hostEnded(_:)` takes it with the exit they show; the next attach clears it.
+    var pagesAwaitEnd = false
+    /// What the host's end runs, whichever reports it first: the supervisor
+    /// (``ChromiumHostSupervising/observeHostEnds(_:)``) or the wire's own end
+    /// (``CEFHostReplies/wireEnded()``). The runtime that owns this start sets its `hostWireEnded`,
+    /// which detaches the wire before anything resolves; with none, ``ended()`` does both itself.
+    var onHostGone: (@MainActor () -> Void)?
+    /// Which host is attached: one more after each ``hostEnded()``. Work begun for one host compares it
+    /// to know that host is still the one attached, as a mojo reply callback dies with its pipe.
+    private(set) var generation = 0
 
     /// `helloDeadline`: how long, on `clock`, the host may take from the attach to its hello
     /// before the start fails (a host that hangs while it starts Chromium). Reply deadlines run on
@@ -76,11 +87,17 @@ final class CEFHostStart {
         self.helloDeadline = helloDeadline
         self.clock = clock
         replies = CEFHostReplies(clock: clock)
-        // A dead host sends no WIDGET_GONE or POPUP_MENU_HIDE: its panels, panes, windows and menu go when it ends.
-        supervisor.observeHostEnds { [weak self] in
-            self?.widgetHost?.hostEnded()
-            self?.popupMenus?.hostEnded()
-        }
+        supervisor.observeHostEnds { [weak self] in self?.ended() }
+        replies.onWireEnded = { [weak self] in self?.ended() }
+    }
+
+    /// The host ended: its runtime's ``onHostGone``, or for a start no runtime owns, the dead wire
+    /// detached (an attach still waiting for its hello fails by itself) and then everything that
+    /// waited on the host resolved.
+    private func ended() {
+        if let onHostGone { return onHostGone() }
+        if remote != nil { hostEnded() }
+        hostDisconnected()
     }
 
     /// The attached host; the first caller starts the attach, later ones await it.
@@ -93,7 +110,7 @@ final class CEFHostStart {
         self.task = task
         let outcome = await task.value
         guard case .success(let host) = outcome else { return outcome }
-        (remote, mapsClientIDs, acksWheels, hostGone) = (host.remote, host.mapsClientIDs, host.acksWheels, false)
+        (remote, mapsClientIDs, acksWheels, hostGone, pagesAwaitEnd) = (host.remote, host.mapsClientIDs, host.acksWheels, false, false)
         // A host that acks its dispatch counts waiting input for the busy banner; one that does not never shows it.
         if let hangMonitor, host.watchesHangs { watchesHangs = host.remote.watchHost(hangMonitor) }
         // Once per attach, before initialize: a preinit op, which the remote shim replays to every later host.
@@ -106,9 +123,9 @@ final class CEFHostStart {
     /// starts, as a mojo `Remote` whose peer closed is rebound to a new pipe, never reused.
     func hostEnded() {
         remote?.detach()
-        files?.hostEnded()
         (task, remote, mapsClientIDs, acksWheels, hostGone, pageResizes) = (nil, nil, false, false, true, nil)
         watchesHangs = false
+        generation += 1
     }
 
     /// The supervisor can end a running host so a new one starts (the busy banner's Reload Chromium).
@@ -118,6 +135,19 @@ final class CEFHostStart {
     /// state and the next start attaches a new host. Nothing when the supervisor cannot.
     func reloadHost() {
         (supervisor as? any ChromiumHostReloading)?.reloadHost()
+    }
+
+    /// The host's wire ended, whatever ended it (`CEFRuntime.hostWireEnded`, task 091), and ``hostEnded()``
+    /// detached it: every REPLY token not answered yet fails with ``CEFHostReplyError/hostGone`` and
+    /// what cmux showed for the host closes in this turn. A dead host sends no WIDGET_GONE,
+    /// POPUP_MENU_HIDE or chooser end, so its panels, panes, windows, `<select>` menu and file pickers go here, as a mojo disconnect runs each pending reply
+    /// callback's default and then the disconnect handler
+    /// (mojo/public/cpp/bindings/lib/interface_endpoint_client.cc, `NotifyError`). A second call finds nothing.
+    func hostDisconnected() {
+        widgetHost?.hostEnded()
+        popupMenus?.hostEnded()
+        files?.hostEnded()
+        replies.failAll(.hostGone)
     }
 
     /// The REPLY token of the async shim call this turn just made, now expected in ``replies``;
@@ -150,6 +180,8 @@ final class CEFHostStart {
         case .success(let exports): hostExports = exports
         case .failure(let error): return .failure(error)
         }
+        // From the hello on, the host's end is a crash of its pages (ChromiumHostExitReporting).
+        (supervisor as? any ChromiumHostExitReporting)?.hostSaidHello()
         // The host checked its fence inbox in before its hello; the look-up is off the main thread.
         if fencesResizes, let name = attachment.resizeFence {
             let channel = ChromiumHostResizeFenceChannel(name: name)
