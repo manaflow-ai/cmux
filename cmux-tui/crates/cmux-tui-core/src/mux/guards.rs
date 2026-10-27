@@ -1,6 +1,7 @@
 //! Small Mux state holders: pending terminal host binding and release guards, the pending workspace surface guard, the resource wait wake signal, config reload state, and the client focus record.
 
 use super::*;
+use crate::panic_free::RecoverPoison;
 
 #[cfg(any(unix, windows))]
 pub(crate) struct PendingTerminalHostBinding {
@@ -13,7 +14,7 @@ pub(crate) struct PendingTerminalHostBinding {
 impl Drop for PendingTerminalHostBinding {
     fn drop(&mut self) {
         let Some(mux) = self.mux.upgrade() else { return };
-        let mut pending = mux.pending_terminal_hosts.lock().unwrap();
+        let mut pending = mux.pending_terminal_hosts.lock().recover_poison();
         if pending.get(&self.surface_id) == Some(&self.identity) {
             pending.remove(&self.surface_id);
         }
@@ -37,7 +38,7 @@ pub(super) struct PendingWorkspaceSurface<'a> {
 
 impl Drop for PendingWorkspaceSurface<'_> {
     fn drop(&mut self) {
-        self.pending.lock().unwrap().remove(&self.surface);
+        self.pending.lock().recover_poison().remove(&self.surface);
     }
 }
 
@@ -57,14 +58,14 @@ impl Default for ResourceWaitWake {
 
 impl ResourceWaitWake {
     pub(crate) fn notify(&self) {
-        let mut notified = self.notified.lock().unwrap();
+        let mut notified = self.notified.lock().recover_poison();
         *notified = true;
         self.changed.notify_all();
     }
 
     /// Returns true for an explicit wake and false when the deadline expires.
     pub(crate) fn wait_until(&self, deadline: Option<Instant>) -> bool {
-        let mut notified = self.notified.lock().unwrap();
+        let mut notified = self.notified.lock().recover_poison();
         while !*notified {
             match deadline {
                 Some(deadline) => {
@@ -77,14 +78,15 @@ impl ResourceWaitWake {
                         notified,
                         remaining,
                     )
-                    .unwrap();
+                    .recover_poison();
                     notified = next;
                     if timeout.timed_out() && !*notified {
                         return false;
                     }
                 }
                 None => {
-                    notified = cmux_threads::checked::sync::wait(&self.changed, notified).unwrap();
+                    notified =
+                        cmux_threads::checked::sync::wait(&self.changed, notified).recover_poison();
                 }
             }
         }

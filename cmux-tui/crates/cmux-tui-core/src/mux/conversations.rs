@@ -5,6 +5,7 @@
 
 use super::*;
 use crate::conversation_store::ConversationStore;
+use crate::panic_free::{JsonFields, RecoverPoison};
 use crate::remote_relay_state::{RelayLock, RelayStateError, lock_checked};
 
 /// The binding of a connection whose agent token was replaced.
@@ -29,12 +30,15 @@ impl Mux {
         &self,
         operation: impl FnOnce(&mut ConversationStore) -> anyhow::Result<T>,
     ) -> anyhow::Result<T> {
-        let mut store = self.conversations.lock_store_for_sqlite().unwrap();
-        if store.is_none() {
-            let directory = self.session_state_directory();
-            *store = Some(ConversationStore::open(directory.as_deref())?);
-        }
-        operation(store.as_mut().expect("conversation store opened above"))
+        let mut store = self.conversations.lock_store_for_sqlite().recover_poison();
+        let store = match &mut *store {
+            Some(store) => store,
+            unopened => {
+                let directory = self.session_state_directory();
+                unopened.insert(ConversationStore::open(directory.as_deref())?)
+            }
+        };
+        operation(store)
     }
 
     /// Commit one conversation write, then publish the event `publish`
@@ -59,7 +63,7 @@ impl Mux {
         write: impl FnOnce(&mut ConversationStore) -> anyhow::Result<T>,
         publish: impl FnOnce(&T) -> Vec<MuxEvent>,
     ) -> anyhow::Result<T> {
-        let _order = self.conversations.publish.lock().unwrap();
+        let _order = self.conversations.publish.lock().recover_poison();
         let value = self.with_conversations(write)?;
         for event in publish(&value) {
             // A participant's posted message ends its typing (every client
@@ -71,8 +75,8 @@ impl Mux {
                     change,
                     ..
                 } = change.as_ref()
-                && change["kind"] == "message"
-                && let Some(author) = change["message"]["author"].as_str()
+                && change.field("kind") == "message"
+                && let Some(author) = change.field("message").field("author").as_str()
             {
                 self.set_conversation_typing(conversation, author, false);
             }

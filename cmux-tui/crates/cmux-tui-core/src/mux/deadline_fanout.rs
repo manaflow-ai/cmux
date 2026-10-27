@@ -3,6 +3,7 @@
 //! unscheduled results in input order. Cell pixel and kitty budget updates use
 //! it so one slow surface cannot stall the rest.
 
+use crate::panic_free::RecoverPoison;
 use cmux_threads::sync::{Condvar, Mutex};
 use std::collections::VecDeque;
 use std::sync::Arc;
@@ -123,12 +124,13 @@ fn deadline_fanout_worker(inner: Arc<DeadlineFanoutInner>) {
                     .unwrap_or_else(|poisoned| poisoned.into_inner())
                     .0;
             }
-            if state.shutdown || state.jobs.is_empty() {
+            let next = if state.shutdown { None } else { state.jobs.pop_front() };
+            let Some(job) = next else {
                 state.worker_count = state.worker_count.saturating_sub(1);
                 inner.changed.notify_all();
                 return;
-            }
-            state.jobs.pop_front().expect("deadline fanout queue was checked as non-empty")
+            };
+            job
         };
 
         let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(job));
@@ -148,11 +150,11 @@ pub(super) struct DeadlineCompletion<R> {
 
 impl<R> DeadlinePending<R> {
     pub(super) fn try_take(&self) -> Option<R> {
-        self.result.lock().unwrap().take().map(|completion| completion.value)
+        self.result.lock().recover_poison().take().map(|completion| completion.value)
     }
 
     pub(super) fn try_take_before(&self, deadline: Instant) -> Option<R> {
-        let mut result = self.result.lock().unwrap();
+        let mut result = self.result.lock().recover_poison();
         if result.as_ref().is_some_and(|completion| completion.completed_at <= deadline) {
             result.take().map(|completion| completion.value)
         } else {
@@ -190,7 +192,7 @@ where
     let operation = Arc::new(operation);
     let (sender, receiver) = std::sync::mpsc::channel();
     let mut submitted = 0;
-    for (index, item) in items.iter().cloned().enumerate() {
+    for (index, (item, slot)) in items.iter().cloned().zip(ordered.iter_mut()).enumerate() {
         if Instant::now() >= deadline {
             break;
         }
@@ -200,13 +202,13 @@ where
         let job_result = result.clone();
         let job = Box::new(move || {
             let value = operation(&item, deadline);
-            *job_result.lock().unwrap() =
+            *job_result.lock().recover_poison() =
                 Some(DeadlineCompletion { completed_at: Instant::now(), value });
             let _ = sender.send(index);
         });
         if pool.submit_before(deadline, job) {
             submitted += 1;
-            ordered[index] = DeadlineMapResult::Pending(DeadlinePending { result });
+            *slot = DeadlineMapResult::Pending(DeadlinePending { result });
         }
     }
     drop(sender);
@@ -218,18 +220,21 @@ where
         }
         match cmux_threads::checked::sync::recv_timeout(&receiver, remaining) {
             Ok(index) => {
-                let pending =
-                    std::mem::replace(&mut ordered[index], DeadlineMapResult::Unscheduled);
-                match pending {
+                #[allow(
+                    clippy::indexing_slicing,
+                    reason = "INVARIANT: a job sends its enumerate index over items; ordered has one slot per item"
+                )]
+                let slot = &mut ordered[index];
+                match std::mem::replace(slot, DeadlineMapResult::Unscheduled) {
                     DeadlineMapResult::Pending(pending) => {
                         if let Some(result) = pending.try_take_before(deadline) {
-                            ordered[index] = DeadlineMapResult::Complete(result);
+                            *slot = DeadlineMapResult::Complete(result);
                             submitted -= 1;
                         } else {
-                            ordered[index] = DeadlineMapResult::Pending(pending);
+                            *slot = DeadlineMapResult::Pending(pending);
                         }
                     }
-                    result => ordered[index] = result,
+                    result => *slot = result,
                 }
             }
             Err(_) => break,

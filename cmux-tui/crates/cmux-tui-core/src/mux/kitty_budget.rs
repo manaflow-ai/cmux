@@ -1,6 +1,7 @@
 //! Kitty graphics budget: render attachment permits, kitty image surface reservations and commits, per-surface limits, and the budget worker that rebalances them.
 
 use super::*;
+use crate::panic_free::RecoverPoison;
 
 impl Mux {
     pub(crate) fn claim_render_attachment(&self) -> Option<RenderAttachmentPermit> {
@@ -22,7 +23,7 @@ impl Mux {
         self: &Arc<Self>,
         surface: SurfaceId,
     ) -> anyhow::Result<KittyImageBudgetReservation> {
-        let mut budget = self.kitty_image_budget.lock().unwrap();
+        let mut budget = self.kitty_image_budget.lock().recover_poison();
         Self::prune_dead_kitty_image_surfaces(&mut budget);
         anyhow::ensure!(
             !budget.entries.contains_key(&surface),
@@ -44,7 +45,7 @@ impl Mux {
         applied: KittyGraphicsLimits,
     ) -> anyhow::Result<()> {
         {
-            let mut budget = self.kitty_image_budget.lock().unwrap();
+            let mut budget = self.kitty_image_budget.lock().recover_poison();
             let entry = budget
                 .entries
                 .get_mut(&id)
@@ -63,7 +64,7 @@ impl Mux {
 
     pub(super) fn cancel_kitty_image_surface_reservation(self: &Arc<Self>, id: SurfaceId) {
         {
-            let mut budget = self.kitty_image_budget.lock().unwrap();
+            let mut budget = self.kitty_image_budget.lock().recover_poison();
             if budget.entries.get(&id).is_some_and(|entry| entry.surface.is_none()) {
                 budget.entries.remove(&id);
                 Self::rebalance_kitty_image_budget_owners(&mut budget);
@@ -79,7 +80,7 @@ impl Mux {
     ) -> anyhow::Result<()> {
         let runtime_id = surface.terminal_runtime_id().unwrap_or(surface.id);
         {
-            let mut budget = self.kitty_image_budget.lock().unwrap();
+            let mut budget = self.kitty_image_budget.lock().recover_poison();
             let removed_current_surface = budget
                 .entries
                 .get(&runtime_id)
@@ -103,7 +104,7 @@ impl Mux {
     ) -> Option<TerminalHostIdentity> {
         surface.terminal_host_identity().or_else(|| {
             let runtime = surface.terminal_runtime_id()?;
-            self.reserved_in_process_terminals.lock().unwrap().get(&runtime).cloned()
+            self.reserved_in_process_terminals.lock().recover_poison().get(&runtime).cloned()
         })
     }
 
@@ -111,7 +112,7 @@ impl Mux {
         &self,
         surface: &Arc<Surface>,
     ) -> anyhow::Result<KittyGraphicsLimits> {
-        let mut budget = self.kitty_image_budget.lock().unwrap();
+        let mut budget = self.kitty_image_budget.lock().recover_poison();
         Self::prune_dead_kitty_image_surfaces(&mut budget);
         let plan = budget.plan();
         let entry = budget
@@ -148,7 +149,7 @@ impl Mux {
         applied: KittyGraphicsLimits,
     ) -> bool {
         {
-            let mut budget = self.kitty_image_budget.lock().unwrap();
+            let mut budget = self.kitty_image_budget.lock().recover_poison();
             Self::prune_dead_kitty_image_surfaces(&mut budget);
             let Some(entry) = budget.entries.get_mut(&surface.id) else { return false };
             let owns_entry = entry
@@ -211,7 +212,7 @@ impl Mux {
 
     pub(super) fn start_kitty_image_budget_worker(self: &Arc<Self>) {
         let should_start = {
-            let mut budget = self.kitty_image_budget.lock().unwrap();
+            let mut budget = self.kitty_image_budget.lock().recover_poison();
             Self::prune_dead_kitty_image_surfaces(&mut budget);
             let plan = budget.plan();
             let has_work = budget.entries.iter().any(|(&id, entry)| {
@@ -234,7 +235,7 @@ impl Mux {
             .name("kitty-image-budget".into())
             .spawn(move || Self::run_kitty_image_budget_worker(mux))
         {
-            self.kitty_image_budget.lock().unwrap().worker_running = false;
+            self.kitty_image_budget.lock().recover_poison().worker_running = false;
             self.kitty_image_budget_changed.notify_all();
             self.emit(MuxEvent::GraphicsStatus(
                 GraphicsStatus::KittyImageBudgetWorkerStartFailed {
@@ -258,7 +259,7 @@ impl Mux {
                 return;
             }
             if mux.shutting_down.load(Ordering::Acquire) {
-                let mut budget = mux.kitty_image_budget.lock().unwrap();
+                let mut budget = mux.kitty_image_budget.lock().recover_poison();
                 budget.expansion_in_flight = false;
                 budget.worker_running = false;
                 drop(budget);
@@ -275,7 +276,7 @@ impl Mux {
             // limits until its retry.
             let mut failed_shrink = false;
             {
-                let mut budget = mux.kitty_image_budget.lock().unwrap();
+                let mut budget = mux.kitty_image_budget.lock().recover_poison();
                 for pending in pending_operations.drain(..) {
                     let Some(result) = pending.result.try_take() else {
                         retained_pending.push(pending);
@@ -320,7 +321,7 @@ impl Mux {
             let shrink_unsettled =
                 failed_shrink || pending_operations.iter().any(|pending| !pending.expanding);
             let (tasks, deferred_expansion) = {
-                let mut budget = mux.kitty_image_budget.lock().unwrap();
+                let mut budget = mux.kitty_image_budget.lock().recover_poison();
                 Self::prune_dead_kitty_image_surfaces(&mut budget);
                 let plan = budget.plan();
                 let mut tasks = Vec::new();
@@ -411,7 +412,7 @@ impl Mux {
                         mux.apply_kitty_image_limits(surface, *limits, deadline)
                     },
                 );
-                let mut budget = mux.kitty_image_budget.lock().unwrap();
+                let mut budget = mux.kitty_image_budget.lock().recover_poison();
                 let mut retry_expansion = false;
                 for ((id, surface, limits, expanding), result) in tasks.iter().zip(results) {
                     match result {
@@ -491,7 +492,7 @@ impl Mux {
                 }));
             }
             if retry_exhausted {
-                let mut budget = mux.kitty_image_budget.lock().unwrap();
+                let mut budget = mux.kitty_image_budget.lock().recover_poison();
                 let blocked = failed_surface_ids
                     .into_iter()
                     .filter(|id| budget.entries.contains_key(id))

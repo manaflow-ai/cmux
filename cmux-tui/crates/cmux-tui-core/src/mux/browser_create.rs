@@ -1,6 +1,7 @@
 //! Browser surface creation in a workspace: target adoption and attaching the surface to a pane (or killing it).
 
 use super::*;
+use crate::panic_free::RecoverPoison;
 
 impl Mux {
     #[track_caller]
@@ -13,8 +14,8 @@ impl Mux {
         mut transaction: Option<Arc<str>>,
     ) -> anyhow::Result<Arc<Surface>> {
         let lifecycle = self.workspace_lifecycle(workspace);
-        let workspace_lifecycle = lifecycle.lock().unwrap();
-        if self.state.lock().unwrap().workspace_by_id(workspace).is_none() {
+        let workspace_lifecycle = lifecycle.lock().recover_poison();
+        if self.state.lock().recover_poison().workspace_by_id(workspace).is_none() {
             anyhow::bail!("unknown workspace {workspace}");
         }
         let surface = self.spawn_browser_surface_with_resource_identity(
@@ -27,15 +28,20 @@ impl Mux {
         let notifications = self.tree_decorations();
         let active_at = self.next_active_at();
         let (delta, selection_resync) = {
-            let mut state = self.state.lock().unwrap();
-            let Some(wi) = state.workspace_index(workspace) else {
+            let mut state = self.state.lock().recover_poison();
+            let Some((wi, target)) = state.workspace_index(workspace).and_then(|wi| {
+                let active_screen = state.workspaces.get(wi)?.active_screen_ref();
+                Some((wi, active_screen.map(|screen| screen.active_pane)))
+            }) else {
                 state.surfaces.remove(&surface.id);
                 surface.kill();
                 anyhow::bail!("workspace disappeared while creating browser tab");
             };
-            let target = state.workspaces[wi].active_screen_ref().map(|screen| screen.active_pane);
             if let Some(target) = target {
-                let Some((_, si)) = state.screen_of(target) else {
+                let Some(screen) = state
+                    .screen_of(target)
+                    .and_then(|(wi, si)| Some(state.workspaces.get(wi)?.screens.get(si)?.id))
+                else {
                     state.surfaces.remove(&surface.id);
                     surface.kill();
                     anyhow::bail!("workspace active pane disappeared while creating browser tab");
@@ -50,7 +56,10 @@ impl Mux {
                 pane.active_at = active_at;
                 let index = pane.tabs.len() - 1;
                 fence_layout_undo_for_tab_membership(&mut state, &[target]);
-                let screen = state.workspaces[wi].screens[si].id;
+                #[allow(
+                    clippy::expect_used,
+                    reason = "INVARIANT: the tab was pushed under this same state guard"
+                )]
                 let entity = crate::server::tree_entity_json(
                     &state,
                     &notifications,
@@ -77,7 +86,12 @@ impl Mux {
                 let screen_id = self.next_id();
                 state.insert_pane(pane);
                 stamp_pane_focus(self, &mut state, pane_id);
-                state.workspaces[wi].screens.push(Screen {
+                #[allow(
+                    clippy::indexing_slicing,
+                    reason = "INVARIANT: wi was found under this same state guard"
+                )]
+                let ws = &mut state.workspaces[wi];
+                ws.screens.push(Screen {
                     id: screen_id,
                     public_id: ScreenPublicId::random()?,
                     name: None,
@@ -91,7 +105,11 @@ impl Mux {
                     layout_revision: 0,
                     layout_undo: Default::default(),
                 });
-                state.workspaces[wi].active_screen = 0;
+                ws.active_screen = 0;
+                #[allow(
+                    clippy::expect_used,
+                    reason = "INVARIANT: the screen was pushed under this same state guard"
+                )]
                 let entity = crate::server::tree_entity_json(
                     &state,
                     &notifications,
@@ -135,9 +153,9 @@ impl Mux {
         url: String,
         runtime: Arc<BrowserRuntime>,
     ) -> anyhow::Result<bool> {
-        let _cell_pixel_lifecycle = self.cell_pixel_lifecycle.lock().unwrap();
+        let _cell_pixel_lifecycle = self.cell_pixel_lifecycle.lock().recover_poison();
         let (pane_id, size) = {
-            let state = self.state.lock().unwrap();
+            let state = self.state.lock().recover_poison();
             let Some(pane_id) = state.pane_of(opener_surface) else {
                 return Ok(false);
             };
@@ -145,7 +163,7 @@ impl Mux {
             (pane_id, size)
         };
         let id = self.next_id();
-        let opts = self.surface_options.lock().unwrap().clone();
+        let opts = self.surface_options.lock().recover_poison().clone();
         let size = size.unwrap_or((opts.cols, opts.rows));
         let cell_pixels = self.cell_pixel_creation_size();
         let surface =
@@ -201,7 +219,7 @@ impl Mux {
     ) -> BrowserSurfaceAttach {
         let notifications = self.tree_decorations();
         let attached = {
-            let mut state = self.state.lock().unwrap();
+            let mut state = self.state.lock().recover_poison();
             match state.panes.get_mut(&pane_id) {
                 Some(pane) => {
                     pane.tabs.push(surface.id);
@@ -214,6 +232,8 @@ impl Mux {
                     state.surfaces.insert(surface.id, surface.clone());
                     let delta = (|| {
                         let (wi, si) = state.screen_of(pane_id)?;
+                        let workspace = state.workspaces.get(wi)?;
+                        let screen = workspace.screens.get(si)?;
                         let pane = state.panes.get(&pane_id)?;
                         let index = pane.tabs.iter().position(|id| *id == surface.id)?;
                         let entity = crate::server::tree_entity_json(
@@ -224,8 +244,8 @@ impl Mux {
                         )?;
                         Some(TreeDelta {
                             kind: TreeDeltaKind::TabAdded,
-                            workspace: state.workspaces[wi].id,
-                            screen: Some(state.workspaces[wi].screens[si].id),
+                            workspace: workspace.id,
+                            screen: Some(screen.id),
                             pane: Some(pane_id),
                             surface: Some(surface.id),
                             index: Some(index),

@@ -5,6 +5,7 @@
 use std::sync::PoisonError;
 
 use super::*;
+use crate::panic_free::JsonFields;
 use crate::workspace_registry::DETACHED_TERMINAL_WORKSPACE_KEY;
 
 /// Whether a durable `workspace_key` is a detached terminal's sentinel.
@@ -85,7 +86,10 @@ impl Mux {
             None,
         )?;
         // Marks a detached receipt explicitly, beyond its sentinel key.
-        fingerprint["detached"] = Value::Bool(true);
+        fingerprint
+            .as_object_mut()
+            .context("terminal create fingerprint is not an object")?
+            .insert("detached".to_owned(), Value::Bool(true));
         let replay = {
             self.workspace_registry
                 .lock()
@@ -93,9 +97,10 @@ impl Mux {
                 .replay_terminal(mutation, &fingerprint)?
         };
         if let Some(replay) = replay {
-            let terminal_id = replay.result["terminal_id"]
-                .as_str()
-                .ok_or_else(|| anyhow::anyhow!("stored terminal create result is missing id"))?;
+            let terminal_id =
+                replay.result.field("terminal_id").as_str().ok_or_else(|| {
+                    anyhow::anyhow!("stored terminal create result is missing id")
+                })?;
             return self.detached_terminal_result(terminal_id, true);
         }
         let terminal_id = match requested_terminal_id {

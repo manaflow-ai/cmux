@@ -2,6 +2,7 @@
 
 use super::*;
 use crate::event_cause::EventCause;
+use crate::panic_free::RecoverPoison;
 
 impl Mux {
     pub fn subscribe(&self) -> MuxEventReceiver {
@@ -26,14 +27,14 @@ impl Mux {
         const APPLY_TIMEOUT: Duration = Duration::from_secs(5);
 
         let request = {
-            let mut state = self.config_reload.lock().unwrap();
+            let mut state = self.config_reload.lock().recover_poison();
             state.requested = state.requested.saturating_add(1);
             state.requested
         };
         self.emit(MuxEvent::ConfigReloadRequested);
 
         let deadline = Instant::now() + APPLY_TIMEOUT;
-        let mut state = self.config_reload.lock().unwrap();
+        let mut state = self.config_reload.lock().recover_poison();
         while state.applied < request {
             if self.shutting_down.load(Ordering::Acquire) {
                 return Err(ConfigReloadError::OwnerStopped);
@@ -46,7 +47,7 @@ impl Mux {
                 state,
                 remaining,
             )
-            .unwrap();
+            .recover_poison();
             state = next;
             if timeout.timed_out() && state.applied < request {
                 return Err(ConfigReloadError::TimedOut);
@@ -57,12 +58,12 @@ impl Mux {
 
     /// Capture the newest request that the owner is about to apply.
     pub fn begin_config_reload_application(&self) -> u64 {
-        self.config_reload.lock().unwrap().requested
+        self.config_reload.lock().recover_poison().requested
     }
 
     /// Publish completion after the owner applies the captured request.
     pub fn complete_config_reload_application(&self, request: u64) {
-        let mut state = self.config_reload.lock().unwrap();
+        let mut state = self.config_reload.lock().recover_poison();
         state.applied = state.applied.max(request);
         drop(state);
         self.config_reload_changed.notify_all();
@@ -73,7 +74,7 @@ impl Mux {
     }
 
     pub fn subscribe_surface_session(&self, surface: SurfaceId) -> Option<MuxEventReceiver> {
-        let state = self.state.lock().unwrap();
+        let state = self.state.lock().recover_poison();
         let pane = state.pane_of(surface)?;
         let (workspace_index, screen_index) = state.screen_of(pane)?;
         let workspace = state.workspaces.get(workspace_index)?;
@@ -100,7 +101,7 @@ impl Mux {
     }
 
     pub(super) fn terminal_event_placements(&self, surface_id: SurfaceId) -> Vec<SurfaceId> {
-        let state = self.state.lock().unwrap();
+        let state = self.state.lock().recover_poison();
         let Some(surface) =
             state.surfaces.get(&surface_id).or_else(|| state.terminal_runtime_by_id(surface_id))
         else {
@@ -204,7 +205,7 @@ impl Mux {
         if let Some(hook) = before_empty_check {
             hook();
         }
-        let state = self.state.lock().unwrap();
+        let state = self.state.lock().recover_poison();
         if state.workspaces.is_empty() && state.workspace_revision == workspace_revision {
             self.emit(MuxEvent::Empty);
         }

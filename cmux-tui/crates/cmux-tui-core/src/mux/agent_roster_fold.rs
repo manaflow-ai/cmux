@@ -1,6 +1,7 @@
 //! Agent hook records and the agent roster: applying hook records, folding the roster, reconciling roster projections, and report echoes.
 
 use super::*;
+use crate::panic_free::RecoverPoison;
 
 impl Mux {
     /// Committed agent hook events double as the live agent-status feed:
@@ -45,7 +46,7 @@ impl Mux {
             let terminal_is_retryable = self
                 .workspace_registry
                 .lock()
-                .unwrap()
+                .recover_poison()
                 .agent_hook_terminal_retryable(&terminal_id)?;
             if !terminal_is_retryable {
                 return Err(anyhow::Error::new(AgentHookTerminalGone));
@@ -66,7 +67,7 @@ impl Mux {
                 .and_then(|value| value.get("agent_session_id"))
                 .and_then(Value::as_str)
                 .filter(|session_id| !session_id.is_empty());
-            let fences = self.agent_hook_fences.lock().unwrap();
+            let fences = self.agent_hook_fences.lock().recover_poison();
             session_id.is_some_and(|session_id| {
                 fences
                     .get(&terminal_id)
@@ -94,7 +95,7 @@ impl Mux {
         // update as one operation. The projection path takes registry, state,
         // then agent-record locks, so teardown acquires sequence before those
         // locks as well.
-        let mut fences = self.agent_hook_fences.lock().unwrap();
+        let mut fences = self.agent_hook_fences.lock().recover_poison();
         let explicit_session_id = ingress
             .payload
             .get("normalized")
@@ -176,7 +177,7 @@ impl Mux {
         // sequential (they follow one agent process's lifecycle), so nothing
         // races this removal.
         if state == AgentState::Done {
-            let mut records = self.agent_records.lock().unwrap();
+            let mut records = self.agent_records.lock().recover_poison();
             if records.get(&terminal_id).is_some_and(|record| record.state == AgentState::Done) {
                 records.remove(&terminal_id);
             }
@@ -205,13 +206,13 @@ impl Mux {
         {
             return;
         }
-        let _fold = self.agent_roster_fold.lock().unwrap();
+        let _fold = self.agent_roster_fold.lock().recover_poison();
         // Consume every intervening committed record under registry -> roster
         // lock order. Concurrent appends and delayed hook retries cannot jump
         // the cursor over a record that startup replay would have consumed.
         let (deltas, cursor, snapshot) = {
-            let registry = self.workspace_registry.lock().unwrap();
-            let mut host = self.agent_roster.lock().unwrap();
+            let registry = self.workspace_registry.lock().recover_poison();
+            let mut host = self.agent_roster.lock().recover_poison();
             if commit.sequence <= host.cursor {
                 return;
             }
@@ -246,12 +247,14 @@ impl Mux {
             }
             (deltas, host.cursor, host.roster.snapshot().to_string())
         };
-        if let Err(error) = self.workspace_registry.lock().unwrap().put_journal_reducer_state(
-            AGENT_ROSTER_REDUCER_ID,
-            AGENT_ROSTER_REDUCER_VERSION,
-            cursor,
-            &snapshot,
-        ) {
+        if let Err(error) =
+            self.workspace_registry.lock().recover_poison().put_journal_reducer_state(
+                AGENT_ROSTER_REDUCER_ID,
+                AGENT_ROSTER_REDUCER_VERSION,
+                cursor,
+                &snapshot,
+            )
+        {
             eprintln!("cmux-tui: persisting the agent roster snapshot failed: {error}");
         }
         for delta in deltas {
@@ -268,7 +271,7 @@ impl Mux {
         let entries = self
             .agent_roster
             .lock()
-            .unwrap()
+            .recover_poison()
             .roster
             .entries
             .iter()
@@ -289,7 +292,7 @@ impl Mux {
         let entry = self
             .agent_roster
             .lock()
-            .unwrap()
+            .recover_poison()
             .roster
             .entries
             .get(terminal_id.as_str())

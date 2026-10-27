@@ -39,6 +39,7 @@ use super::kitty_budget_state::{
     kitty_image_bytes_for_process_share, kitty_surface_byte_reservation,
 };
 use super::*;
+use crate::panic_free::RecoverPoison;
 
 /// The daemon feature that sizes the total from RAM and shares it by recency.
 pub(crate) const FEATURE: &str = "memoryKittyShare";
@@ -128,7 +129,7 @@ pub(super) fn kitty_recency_shares(
 
     // Viewed terminals keep their grants, the most recently shown first: when
     // new floors leave too little, the least recently shown is lowered.
-    for (owner, (_, share)) in ranked[..viewed].iter().zip(&mut shares[..viewed]) {
+    for (owner, (_, share)) in ranked.iter().zip(&mut shares).take(viewed) {
         if owner.grant > 0 {
             let extra = (owner.grant.clamp(equal, full) - equal).min(pool);
             *share += extra;
@@ -138,14 +139,14 @@ pub(super) fn kitty_recency_shares(
     // A newly viewed terminal takes half of what hidden terminals hold above
     // their floors, so the next show still finds room without lowering a
     // terminal already on screen.
-    for (owner, (_, share)) in ranked[..viewed].iter().zip(&mut shares[..viewed]) {
+    for (owner, (_, share)) in ranked.iter().zip(&mut shares).take(viewed) {
         if owner.grant == 0 {
             let extra = (pool / 2).min(full - equal);
             *share += extra;
             pool -= extra;
         }
     }
-    for (_, share) in &mut shares[viewed..] {
+    for (_, share) in shares.iter_mut().skip(viewed) {
         if pool == 0 {
             break;
         }
@@ -257,7 +258,7 @@ impl KittyBudgetPlan {
 impl Mux {
     /// Whether the share follows terminal visibility ([`FEATURE`] on).
     pub(super) fn kitty_share_follows_visibility(&self) -> bool {
-        self.kitty_image_budget.lock().unwrap().share.by_recency
+        self.kitty_image_budget.lock().recover_poison().share.by_recency
     }
 
     /// The client sizing state published that size leases show the terminal
@@ -266,7 +267,7 @@ impl Mux {
     /// new grant; the budget worker applies the limits.
     pub(super) fn set_kitty_visible_terminals(&self, order: u64, visible: HashSet<SurfaceId>) {
         {
-            let mut budget = self.kitty_image_budget.lock().unwrap();
+            let mut budget = self.kitty_image_budget.lock().recover_poison();
             if !budget.share.by_recency || order <= budget.visibility_order {
                 return;
             }
@@ -299,7 +300,7 @@ impl Mux {
     /// its show set reach the view in that one replay, not in a second one
     /// (cnx-ios termqa D4, as `settle_hosted_viewer_size`).
     pub(crate) fn settle_kitty_share(&self, runtime: SurfaceId, deadline: Instant) {
-        let mut budget = self.kitty_image_budget.lock().unwrap();
+        let mut budget = self.kitty_image_budget.lock().recover_poison();
         while budget.share.by_recency && budget.worker_running {
             let plan = budget.plan();
             let settled = budget
@@ -316,7 +317,7 @@ impl Mux {
                 budget,
                 remaining,
             )
-            .unwrap()
+            .recover_poison()
             .0;
         }
     }
@@ -324,7 +325,7 @@ impl Mux {
     /// Critical memory pressure: the budget worker clears every terminal's
     /// decoded pixel copies.
     pub(super) fn request_kitty_pixel_release(self: &Arc<Self>) {
-        self.kitty_image_budget.lock().unwrap().pixel_release_due = true;
+        self.kitty_image_budget.lock().recover_poison().pixel_release_due = true;
         self.start_kitty_image_budget_worker();
     }
 
@@ -335,7 +336,7 @@ impl Mux {
     pub(super) fn release_kitty_pixels_if_due(&self) -> bool {
         loop {
             let surfaces = {
-                let mut budget = self.kitty_image_budget.lock().unwrap();
+                let mut budget = self.kitty_image_budget.lock().recover_poison();
                 if !budget.pixel_release_due {
                     if budget.blocked_surfaces.is_empty() {
                         return true;
@@ -365,7 +366,7 @@ impl Mux {
     /// lossless. Its callback only marks the release and starts the worker;
     /// the worker takes the terminal locks.
     pub(super) fn register_kitty_pixel_consumer(self: &Arc<Self>) {
-        if !self.kitty_image_budget.lock().unwrap().share.by_recency {
+        if !self.kitty_image_budget.lock().recover_poison().share.by_recency {
             return;
         }
         let mux = Arc::downgrade(self);

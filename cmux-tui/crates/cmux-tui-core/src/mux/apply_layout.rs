@@ -1,6 +1,7 @@
 //! Applying layouts: apply_layout, layout instantiation, and discarding spawned surfaces on failure.
 
 use super::*;
+use crate::panic_free::RecoverPoison;
 
 impl Mux {
     #[track_caller]
@@ -13,7 +14,7 @@ impl Mux {
         size: Option<(u16, u16)>,
     ) -> anyhow::Result<AppliedLayout> {
         let target_workspace = {
-            let state = self.state.lock().unwrap();
+            let state = self.state.lock().recover_poison();
             if let Some(id) = workspace
                 && !state.workspaces.iter().any(|ws| ws.id == id)
             {
@@ -36,11 +37,11 @@ impl Mux {
             ),
         };
         let workspace_lifecycle = self.workspace_lifecycle(target_workspace);
-        let workspace_lifecycle_guard = workspace_lifecycle.lock().unwrap();
+        let workspace_lifecycle_guard = workspace_lifecycle.lock().recover_poison();
         let workspace_key = self
             .state
             .lock()
-            .unwrap()
+            .recover_poison()
             .workspace_by_id(target_workspace)
             .map(|workspace| workspace.key.clone())
             .ok_or_else(|| anyhow::anyhow!("layout workspace disappeared"))?;
@@ -85,7 +86,7 @@ impl Mux {
         let screen_id = self.next_id();
         let notifications = self.tree_decorations();
         let delta = {
-            let mut state = self.state.lock().unwrap();
+            let mut state = self.state.lock().recover_poison();
             let Some(workspace_index) = state.workspace_index(target_workspace) else {
                 drop(state);
                 self.discard_spawned(actor, spawned);
@@ -109,10 +110,18 @@ impl Mux {
                 layout_revision: 0,
                 layout_undo: Default::default(),
             };
+            #[allow(
+                clippy::indexing_slicing,
+                reason = "INVARIANT: workspace_index was found under this same state guard"
+            )]
             let ws = &mut state.workspaces[workspace_index];
             ws.screens.push(screen);
             ws.active_screen = ws.screens.len().saturating_sub(1);
             let index = ws.active_screen;
+            #[allow(
+                clippy::expect_used,
+                reason = "INVARIANT: the screen was pushed under this same state guard"
+            )]
             let entity = crate::server::tree_entity_json(
                 &state,
                 &notifications,
@@ -133,19 +142,26 @@ impl Mux {
                 transaction: None,
             }
         };
+        // Another request can close the new screen once the state guard is released.
         let projection_result = self.with_state(|state| {
-            let (workspace, screen) =
-                state.screen_of(active_pane).expect("applied screen remains live");
-            serde_json::json!({
-                "workspace_id":state.workspaces[workspace].public_id,
-                "screen_id":state.workspaces[workspace].screens[screen].public_id,
-            })
+            let (workspace, screen) = state.screen_of(active_pane)?;
+            let workspace = state.workspaces.get(workspace)?;
+            let screen = workspace.screens.get(screen)?;
+            Some(serde_json::json!({
+                "workspace_id":workspace.public_id,
+                "screen_id":screen.public_id,
+            }))
         });
-        if let Err(error) = self.commit_ordinary_full_resource_projection(
-            actor,
-            "screen.layout.create",
-            projection_result,
-        ) {
+        if let Err(error) = projection_result
+            .context("the applied layout's screen closed before it was persisted")
+            .and_then(|projection_result| {
+                self.commit_ordinary_full_resource_projection(
+                    actor,
+                    "screen.layout.create",
+                    projection_result,
+                )
+            })
+        {
             drop(workspace_lifecycle_guard);
             let rollback = self.close_screen_for_resource_effect(screen_id);
             if created_workspace {
@@ -265,11 +281,16 @@ impl Mux {
                         created,
                         spawned,
                     )?;
-                    let Node::Leaf(pane_id) = node else { unreachable!() };
+                    let Node::Leaf(pane_id) = node else {
+                        anyhow::bail!("a leaf layout spec instantiated a split");
+                    };
                     pane_ids.push(pane_id);
                 }
-                let expanded = pane_ids[*expanded_index];
-                Ok(Node::stack_with_expanded(pane_ids, expanded).expect("validated stack"))
+                let expanded = *pane_ids
+                    .get(*expanded_index)
+                    .context("stack expanded pane must be a member")?;
+                Node::stack_with_expanded(pane_ids, expanded)
+                    .context("stack layout needs at least one pane")
             }
         }
     }
@@ -284,7 +305,7 @@ impl Mux {
             .filter_map(|surface| self.resource_terminal_host_identity(surface))
             .map(|identity| (identity.terminal_id, Some(identity.incarnation)))
             .collect::<Vec<_>>();
-        let mut registry = self.workspace_registry.lock().unwrap();
+        let mut registry = self.workspace_registry.lock().recover_poison();
         let close = Self::terminal_public_ids_for_hosted(&registry, &hosted).and_then(
             |closed_public_ids| {
                 registry
@@ -305,7 +326,7 @@ impl Mux {
                 let mut topology_changed = false;
                 let mut projection_errors = Vec::new();
                 {
-                    let mut state = self.lock_state_pinned(&registry).unwrap();
+                    let mut state = self.lock_state_pinned(&registry).recover_poison();
                     for (terminal_id, _) in &hosted {
                         let terminal = match registry.terminal_record(terminal_id) {
                             Ok(Some(terminal))
@@ -349,7 +370,7 @@ impl Mux {
             }
         };
         let removed = {
-            let mut state = self.state.lock().unwrap();
+            let mut state = self.state.lock().recover_poison();
             let mut removed = Vec::new();
             for surface in &spawned {
                 removed.extend(remove_terminal_runtime_from_state(self, &mut state, surface).0);

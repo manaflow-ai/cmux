@@ -528,7 +528,9 @@ impl ClientSizingState {
         let size = if self.terminal_runtime_by_placement.contains_key(&surface) {
             self.surfaces.get(&surface).and_then(|viewers| viewers.get(&reporter)).copied()
         } else {
-            let use_excluded = fallback_by_surface[&surface];
+            let use_excluded = fallback_by_surface.get(&surface).copied().unwrap_or_else(|| {
+                self.uses_excluded_fallback(surface, attached_clients.get(&surface))
+            });
             self.effective_size(surface, use_excluded)
         }?;
         Some((order, size))

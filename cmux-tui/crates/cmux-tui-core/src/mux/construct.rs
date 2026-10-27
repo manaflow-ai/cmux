@@ -2,6 +2,7 @@
 //! the shared `from_workspace_registry` bootstrap, and test constructors.
 
 use super::*;
+use crate::panic_free::RecoverPoison;
 
 impl Mux {
     #[track_caller]
@@ -59,6 +60,10 @@ impl Mux {
         ))
     }
 
+    #[allow(
+        clippy::expect_used,
+        reason = "INVARIANT: an in-memory registry does no file I/O; only the OS RNG or allocation can fail it"
+    )]
     #[track_caller]
     pub(super) fn new_with_test_surface_runtime(
         session: impl Into<String>,
@@ -500,7 +505,7 @@ impl Mux {
         #[cfg(any(unix, windows))]
         mux.adopt_terminal_hosts()?;
         {
-            let mut state = mux.state.lock().unwrap();
+            let mut state = mux.state.lock().recover_poison();
             state.rebuild_resource_indexes();
             let mut names = mux.restored_tab_names.lock().unwrap_or_else(PoisonError::into_inner);
             for content in &contents {
@@ -544,7 +549,7 @@ impl Mux {
     }
 
     pub fn lock_initial_bootstrap(&self) -> MutexGuard<'_, ()> {
-        self.initial_bootstrap.lock().unwrap()
+        self.initial_bootstrap.lock().recover_poison()
     }
 
     /// A persistent mux whose memory registry and scrollback pressure

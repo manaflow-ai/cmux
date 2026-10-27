@@ -17,6 +17,7 @@ use std::collections::VecDeque;
 use std::path::PathBuf;
 
 use super::*;
+use crate::panic_free::RecoverPoison;
 
 /// Upper bound on concurrent host-exit waiters. Every host already received
 /// its termination request, so a waiter only observes an exit in progress.
@@ -68,7 +69,7 @@ impl TerminalHostCloses {
     #[cfg(any(unix, windows))]
     fn enqueue(self: &Arc<Self>, close: PendingHostClose) {
         let spawn = {
-            let mut state = self.state.lock().unwrap();
+            let mut state = self.state.lock().recover_poison();
             state.queue.push_back(close);
             state.pending += 1;
             if state.workers < MAX_HOST_CLOSE_WORKERS {
@@ -97,7 +98,7 @@ impl TerminalHostCloses {
     fn work(&self) {
         loop {
             let close = {
-                let mut state = self.state.lock().unwrap();
+                let mut state = self.state.lock().recover_poison();
                 match state.queue.pop_front() {
                     Some(close) => close,
                     None => {
@@ -106,14 +107,19 @@ impl TerminalHostCloses {
                     }
                 }
             };
-            let close = match close.step {
-                HostCloseStep::Signal => signal_host_close(close),
-                HostCloseStep::Await(..) => {
-                    finish_host_close(close);
+            let close = match close {
+                PendingHostClose {
+                    runtime,
+                    step: HostCloseStep::Await(termination, deadline),
+                    identity,
+                    host_root,
+                } => {
+                    finish_host_close(runtime, termination, deadline, identity, host_root);
                     None
                 }
+                close => signal_host_close(close),
             };
-            let mut state = self.state.lock().unwrap();
+            let mut state = self.state.lock().recover_poison();
             // Waiters measure progress, so every step wakes them: a long
             // signal phase counts too, not only finished closes.
             state.steps = state.steps.wrapping_add(1);
@@ -134,7 +140,7 @@ impl TerminalHostCloses {
     /// fixed deadline from the first enqueue made the hosts at the end of a
     /// large teardown miss it.
     pub(crate) fn wait_idle(&self, stall: Duration, ceiling: Instant) -> bool {
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.state.lock().recover_poison();
         let mut progress = (state.steps, Instant::now() + stall);
         while state.pending != 0 {
             if state.steps != progress.0 {
@@ -144,8 +150,9 @@ impl TerminalHostCloses {
             else {
                 return false;
             };
-            state =
-                cmux_threads::checked::sync::wait_timeout(&self.idle, state, remaining).unwrap().0;
+            state = cmux_threads::checked::sync::wait_timeout(&self.idle, state, remaining)
+                .recover_poison()
+                .0;
         }
         true
     }
@@ -190,11 +197,13 @@ fn signal_host_close(mut close: PendingHostClose) -> Option<PendingHostClose> {
 }
 
 #[cfg(any(unix, windows))]
-fn finish_host_close(close: PendingHostClose) {
-    let PendingHostClose { runtime, step, identity, host_root } = close;
-    let HostCloseStep::Await(termination, deadline) = step else {
-        unreachable!("only a signaled host close is awaited");
-    };
+fn finish_host_close(
+    runtime: Arc<Surface>,
+    termination: Option<crate::surface::HostTermination>,
+    deadline: Instant,
+    identity: Option<TerminalHostIdentity>,
+    host_root: Option<PathBuf>,
+) {
     let acknowledged =
         match termination.map(|termination| runtime.wait_for_host_exit(termination, deadline)) {
             Some(Ok((path, exit))) => acknowledge_exact_terminal_host_exit(&path, &exit),
@@ -242,7 +251,7 @@ impl Mux {
                 }
                 return;
             }
-            let host_root = self.surface_options.lock().unwrap().terminal_host_root.clone();
+            let host_root = self.surface_options.lock().recover_poison().terminal_host_root.clone();
             self.terminal_host_closes.enqueue(PendingHostClose {
                 runtime: runtime.clone(),
                 step: HostCloseStep::Signal,
@@ -264,7 +273,7 @@ impl Mux {
     pub(super) fn terminate_terminal_runtimes_deferred(&self, runtimes: Vec<Arc<Surface>>) {
         #[cfg(any(unix, windows))]
         {
-            let host_root = self.surface_options.lock().unwrap().terminal_host_root.clone();
+            let host_root = self.surface_options.lock().recover_poison().terminal_host_root.clone();
             for runtime in runtimes {
                 let identity = self.resource_terminal_host_identity(&runtime);
                 if let Some(identity) = identity.as_ref() {
