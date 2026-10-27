@@ -2010,6 +2010,7 @@ export function VirtualTranscript({
   githubRepository,
   fallbackRepository,
   sourceRows,
+  pullRequestRows,
   find,
   reveal,
   working = false,
@@ -2082,6 +2083,8 @@ export function VirtualTranscript({
   /// The client's rows, which still hold the work a closed "Worked for" folds away: where a bare
   /// `#N`'s repository is looked for (conversation/bareReferences.ts). Else `rows`.
   sourceRows?: readonly AcpmuxRow[];
+  /// Original producer snapshot: filtered rows lose its O(1) PR revision marker.
+  pullRequestRows?: readonly AcpmuxRow[];
   /// Find in Chat (chatFind.ts): its bar, the query to highlight and the match to bring into view.
   find?: ChatFind;
   /// A row to bring into view (a count on the running line, WorkingFor.tsx); a new `key` asks again.
@@ -2103,7 +2106,7 @@ export function VirtualTranscript({
   showMinimap?: boolean;
 }) {
   const t = useT();
-  const pullRequests = useTranscriptPullRequests(sourceRows ?? rows, githubRepository);
+  const pullRequests = useTranscriptPullRequests(pullRequestRows ?? sourceRows ?? rows, githubRepository);
   const prRow = pullRequests.length ? pullRequestRow(rows) : undefined;
   // Debug measurement (acpmuxPerf): off until the first debug call.
   const renderStart = acpmuxPerf.enabled ? performance.now() : 0;
@@ -8563,6 +8566,7 @@ function AcpmuxPane() {
                                                 <VirtualTranscript
                                                   rows={transcriptRows}
                                                   sourceRows={childRows ? undefined : sourceRows}
+                                                  pullRequestRows={childRows ?? snapshot.rows}
                                                   working={snapshot.isWorking}
                                                   // Its stage positions Jump to latest; the Quick Composer's panel has no room for it.
                                                   jumpButton={!quick}
