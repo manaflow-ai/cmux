@@ -91,15 +91,16 @@ their R2 cache keys carry the workspace path (a hosted /Users/runner/work
 build never restores a Blacksmith one), and they use no Blacksmith-only
 action. A PR's scheme compile stays off hosted: a cold app compile, web bundles
 and launch-time budget on about 3 vCPU are unmeasured against its 60 min
-budget. A DEV daily's (HOSTED_FRESH_JOBS, when it is in FRESH_JOBS) takes
-hosted the same way, with a 90 min timeout: a feed's freshness outranks a
-cold build (2026-10-26: the DEV feed unpublished from 21:01Z, its compile
-queued 70 min on blacksmith-6vcpu-macos-26 behind about 75 jobs while hosted
-macos-26 was free). Without the snapshot's waits nothing is stalled and nothing goes to
-hosted, which is the previous route. A feed's compile counts a label whose
-oldest queued job has waited FRESH_STALL_MINUTES as full, sooner than the
-stall above, and so does its last resort when the runner groups are unread:
-the DEV compile takes hosted, a push's Release compile the owned label.
+budget. A feed's run (one with FRESH_JOBS: a DEV daily, a feat-cmux-next
+push) puts no job on hosted at all (Leo, 2026-10-27: "THE GITHUB HOSTED MACS
+/ ARE THE SLOWEST THINGS"): from #25798 to here a DEV daily's compile took
+hosted macos-26 when Blacksmith was full, stalled or unread, and built cold
+there for up to 90 min. Without the snapshot's waits nothing is stalled and
+nothing goes to hosted, which is the previous route. A feed's compile counts a
+label whose oldest queued job has waited FRESH_STALL_MINUTES as full, sooner
+than the stall above, and so does its last resort when the runner groups are
+unread: the compile takes the owned label then (the DEV slot while idle, else
+the side queue), never hosted.
 
 The rescue's full re-run (attempt 2, triggered by RESCUE_ACTOR: bot_rerun()) is
 placed afresh, from what is free when it starts, instead of reading nothing:
@@ -148,15 +149,14 @@ POOL_VCPU = 60
 # GitHub-hosted macOS 26 (Xcode 26.6 default): free here, capped by the organization's concurrency.
 HOSTED = "macos-26"
 HOSTED_CAPACITY = 5
+# Only these, and never in a feed's run (FRESH_JOBS set): a DEV, nightly or promote path never takes hosted.
 HOSTED_JOBS = ("fast-tier", "swift-canary")
-# A feed's compile whose runs-on also reads hosted_jobs: it takes hosted only as one of FRESH_JOBS.
-HOSTED_FRESH_JOBS = ("cmux-scheme-compile",)
 STALL_MINUTES = 25
 IDLE_STALL_MINUTES = 5
 # A feed's compile (FRESH_JOBS) counts a Blacksmith label as full once its oldest queued job has waited this
 # long, before STALL_MINUTES: 2026-10-26 22:25Z to 01:30Z, 92 jobs queued on 6 vCPU (oldest 148 min) and 27 on
 # 12 vCPU (oldest 165 min, no runner online) while a DEV Release compile queued there; the compile takes
-# hosted (HOSTED_FRESH_JOBS) or the owned label instead.
+# the owned label instead, never hosted.
 FRESH_STALL_MINUTES = 15
 # simple_pool_picker.CAPACITY's figures for these labels. 12 vCPU: at most six
 # at once, five whenever it had a queue (2026-10-19); 6 vCPU: ten online at 21:40Z.
@@ -351,7 +351,8 @@ def fresh_stalled(waits: Mapping[str, float]) -> tuple[str, ...]:
 def cascade(jobs: Sequence[str], live: Mapping[str, int], waiting: Mapping[str, int], *,
             stall: Sequence[str] = (), hosted_free: int = 0, reserved: Sequence[str] = (),
             fresh: Sequence[str] = (), fresh_stall: Sequence[str] = ()) -> dict[str, tuple[str, ...]]:
-    """Give `jobs`, in order, the free slots of LARGE, then SMALL (unless stalled), then HOSTED for HOSTED_JOBS.
+    """Give `jobs`, in order, the free slots of LARGE, then SMALL (unless stalled), then HOSTED for HOSTED_JOBS
+    in a run with no `fresh` jobs: a feed's run never takes hosted.
 
     A Blacksmith slot is free while its label is under CAPACITY and the shared pool fits the job (fits()).
     A `reserved` label (freshness work queued for it) gives its slots only to `fresh` jobs.
@@ -359,11 +360,11 @@ def cascade(jobs: Sequence[str], live: Mapping[str, int], waiting: Mapping[str, 
     """
     free = {label: 0 if label in stall else CAPACITY[label] - live.get(label, 0) - waiting.get(label, 0)
             for label in LABELS}
-    free[HOSTED] = min(hosted_free, MAX_PER_RUN)
+    free[HOSTED] = 0 if fresh else min(hosted_free, MAX_PER_RUN)
     room, queue = pool_room(live, waiting), pool_queued(waiting)
     placed: dict[str, list[str]] = {label: [] for label in (*LABELS, HOSTED)}
     for job in jobs:
-        targets = (*LABELS, HOSTED) if job in HOSTED_JOBS or job in fresh and job in HOSTED_FRESH_JOBS else LABELS
+        targets = (*LABELS, HOSTED) if job in HOSTED_JOBS and not fresh else LABELS
         label = next((label for label in targets
                       if free[label] > 0 and (label == HOSTED or fits(label, room, queue))
                       and (label not in reserved or job in fresh)
@@ -434,21 +435,15 @@ def place(env: Mapping[str, str], owned: Sequence[str], live: Mapping[str, int] 
         fresh = unread_fresh_jobs(env, owned)
         fresh_stall = fresh_stalled(seen.waits) if seen is not None else ()
         if fresh:
-            # A feed's compile that can run on hosted takes it: its queue is the organization's concurrency,
-            # never the Blacksmith backlog nobody counted. The others take the last resort.
-            hosted = tuple(job for job in fresh if job in HOSTED_FRESH_JOBS)
-            small = tuple(job for job in fresh if job not in hosted)
-            # The snapshot, read even when the runner groups were refused, still shows a stalled queue: a feed's
-            # compile does not join it (2026-10-27 01:11Z: 6 vCPU's oldest job had waited 148 min).
+            # A feed's compile takes the last resort, never hosted (HOSTED_JOBS). The snapshot, read even when the
+            # runner groups were refused, still shows a stalled queue: a feed's compile does not join it
+            # (2026-10-27 01:11Z: 6 vCPU's oldest job had waited 148 min) and keeps the owned label.
             if SMALL in fresh_stall:
                 why += f"; `{SMALL}`'s oldest queued job has waited {seen.waits[SMALL]:.0f} min"
-                small = ()
-            moved = "; ".join(f"{', '.join(jobs)} take `{label}`" for label, jobs in ((HOSTED, hosted), (SMALL, small))
-                              if jobs)
-            if moved:
-                return Placement({**empty, HOSTED: hosted, SMALL: small}, "",
-                                 f"{why}; a feed's freshness waits on them, so {moved}; the rest stay on the "
-                                 "minis' queue", fresh_stall)
+            else:
+                return Placement({**empty, SMALL: fresh}, "",
+                                 f"{why}; a feed's freshness waits on them, so {', '.join(fresh)} take `{SMALL}`; "
+                                 "the rest stay on the minis' queue", fresh_stall)
         return Placement(empty, "", f"{why}; no job leaves the minis' queue", fresh_stall)
     stall = stalled(live, waiting, seen.waits, seen.age) if seen is not None else ()
     runs = set((env.get("CASCADE_RUNS") or "").split())

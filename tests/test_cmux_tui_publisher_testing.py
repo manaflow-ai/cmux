@@ -90,11 +90,13 @@ class WiringTests(unittest.TestCase):
         job = self.WORKFLOW[self.WORKFLOW.index("\n  cmux-next-daemon-tests:\n"):]
         job = job[:job.index("\n    runs-on:")]
         name = job[job.index("\n    name: ") + len("\n    name: "):].split("\n", 1)[0]
-        self.assertEqual(name, f"{publisher.JOB_NAME} (Linux)")
+        self.assertEqual(name, publisher.JOB_NAME)
         self.assertTrue(publisher.is_daemon_job(name))
 
-    def test_older_runs_macos_job_still_counts_and_the_shadow_does_not(self):
-        self.assertTrue(publisher.is_daemon_job("cmux_next_ daemon tests (macOS)"))
+    def test_older_runs_suffixed_jobs_still_count_and_the_shadow_does_not(self):
+        # Runs from before the runner suffix was dropped are still read.
+        for suffix in ("macOS", "Linux"):
+            self.assertTrue(publisher.is_daemon_job(f"cmux_next_ daemon tests ({suffix})"))
         self.assertTrue(testing([job("completed", "success", name="cmux_next_ daemon tests (macOS)")]))
         self.assertFalse(publisher.is_daemon_job("cmux_next_ macOS-only daemon tests (shadow)"))
         self.assertFalse(publisher.is_daemon_job(None))
