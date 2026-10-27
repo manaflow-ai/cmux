@@ -7,6 +7,7 @@ import type { AcpmuxSnapshot } from "./model";
 import { HarnessStatusCard } from "./HarnessStatusCard";
 import { ContextRing } from "./ComposerPickers";
 import { ImageViewer } from "./conversation/ImageViewer";
+import { SummaryCard } from "./summary/SummaryCard";
 
 type Props = { harness: "claude" | "codex" | "opencode"; overlays?: boolean };
 
@@ -57,6 +58,7 @@ function snapshot(harness: Props["harness"]): AcpmuxSnapshot["summary"] {
 function GalleryStatusCard({ harness, overlays }: Props) {
   const [open, setOpen] = useState(true);
   const [imageOpen, setImageOpen] = useState(false);
+  const [summaryOpen, setSummaryOpen] = useState(false);
   return (
     <div
       data-status-card-fixture
@@ -72,10 +74,29 @@ function GalleryStatusCard({ harness, overlays }: Props) {
       ) : (
         <div data-status-card-dismissed>Status card dismissed</div>
       )}
+      {overlays && summaryOpen && (
+        <SummaryCard
+          rows={[]}
+          subagents={{ views: undefined, current: undefined, asks: new Set(), onOpen: () => {} }}
+          card={{
+            shown: true,
+            column: false,
+            reserve: false,
+            collapsed: false,
+            show: () => {},
+            close: () => setSummaryOpen(false),
+            toggle: () => {},
+            fold: () => {},
+          }}
+        />
+      )}
       {overlays && (
         <div style={{ position: "absolute", bottom: 24, left: 24, display: "flex", gap: 12 }}>
           <button type="button" onClick={() => setImageOpen(true)}>
             Open status test image
+          </button>
+          <button type="button" onClick={() => setSummaryOpen(true)}>
+            Open status test summary
           </button>
           <ContextRing used={100_000} size={200_000} onOpenDetails={() => undefined} />
           {imageOpen && (
@@ -127,6 +148,11 @@ const overlayPriority: Play = async (ctx) => {
   await ctx.press("Escape");
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-context-card") === null);
   if (!ctx.document.querySelector(".acpmux-harness-status")) throw new Error("Context Escape also closed status");
+  await ctx.click({ role: "button", name: "Open status test summary" });
+  await ctx.waitFor(() => ctx.document.querySelector('.acpmux-summary-card[data-placement="popover"]') !== null);
+  await ctx.press("Escape");
+  await ctx.waitFor(() => ctx.document.querySelector('.acpmux-summary-card[data-placement="popover"]') === null);
+  if (!ctx.document.querySelector(".acpmux-harness-status")) throw new Error("Summary Escape also closed status");
   await ctx.press("Escape");
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-harness-status") === null);
 };
@@ -140,7 +166,12 @@ export default componentEntry<Props>({
   anchors: [{ selector: "[data-status-card-fixture]" }],
   covers: ["agent-session/acpmux/HarnessStatusCard.tsx#HarnessStatusCard"],
   styles: () =>
-    Promise.all([import("./styles.css"), import("./conversation/conversation.css"), import("./harnessStatus.css")]),
+    Promise.all([
+      import("./styles.css"),
+      import("./conversation/conversation.css"),
+      import("./harnessStatus.css"),
+      import("./summary/summary.css"),
+    ]),
   load: async () => GalleryStatusCard,
   variants: {
     claude: {
@@ -166,7 +197,7 @@ export default componentEntry<Props>({
       play: copyValue,
     },
     "overlay-escape-priority": {
-      note: "The real image viewer and interactive Context ring card take Escape before Session status; the next press closes status.",
+      note: "The real image viewer, Summary popover and interactive Context ring card take Escape before Session status; the next press closes status.",
       props: { harness: "claude", overlays: true },
       height: 560,
       play: overlayPriority,

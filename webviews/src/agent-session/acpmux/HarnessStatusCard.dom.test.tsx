@@ -1,9 +1,12 @@
 import { afterEach, expect, test } from "bun:test";
-import { act } from "react";
+import { act, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import type { AcpmuxSnapshot } from "./model";
 import { HarnessStatusCard } from "./HarnessStatusCard";
+import { SummaryCard } from "./summary/SummaryCard";
+import { PreviewCard } from "./threadMinimap/PreviewCard";
+import { useEscapeCloses } from "../../ui/escapeDismiss";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -19,6 +22,7 @@ function installDom(): HTMLElement {
     "Node",
     "HTMLElement",
     "Element",
+    "getComputedStyle",
     "IS_REACT_ACT_ENVIRONMENT",
     "__cmuxPaneStrings",
   ])
@@ -30,6 +34,7 @@ function installDom(): HTMLElement {
     Node: dom.window.Node,
     HTMLElement: dom.window.HTMLElement,
     Element: dom.window.Element,
+    getComputedStyle: dom.window.getComputedStyle.bind(dom.window),
     IS_REACT_ACT_ENVIRONMENT: true,
   });
   globalThis.__cmuxPaneStrings = {
@@ -171,4 +176,96 @@ test("a closed or hidden overlay retained for its fade no longer claims Escape",
   }
   expect(dismissed).toHaveLength(4);
   overlay.remove();
+});
+
+test("the real Summary popover takes Escape before status, while the inline Summary does not", async () => {
+  const dismissed: string[] = [];
+  const container = installDom();
+  function Cards({ column = false }: { column?: boolean }) {
+    const [shown, setShown] = useState(true);
+    return (
+      <>
+        <HarnessStatusCard summary={summary()} rows={[]} onDismiss={() => dismissed.push("status")} />
+        <SummaryCard
+          rows={[]}
+          subagents={{ views: undefined, current: undefined, asks: new Set(), onOpen: () => {} }}
+          card={{
+            shown,
+            column,
+            reserve: false,
+            collapsed: true,
+            show: () => {},
+            close: () => setShown(false),
+            toggle: () => {},
+            fold: () => {},
+          }}
+        />
+      </>
+    );
+  }
+  await act(async () => {
+    root = createRoot(container);
+    root.render(<Cards />);
+  });
+  expect(container.querySelector('.acpmux-summary-card[data-placement="popover"]')).not.toBeNull();
+  await act(async () =>
+    document.dispatchEvent(
+      new dom!.window.KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }),
+    ),
+  );
+  expect(dismissed).toEqual([]);
+  expect(container.querySelector('.acpmux-summary-card[data-placement="popover"]')).toBeNull();
+  await act(async () =>
+    document.dispatchEvent(
+      new dom!.window.KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }),
+    ),
+  );
+  expect(dismissed).toEqual(["status"]);
+  await act(async () => root!.render(<Cards key="inline" column />));
+  expect(container.querySelector('.acpmux-summary-card[data-placement="inline"]')).not.toBeNull();
+  await act(async () =>
+    document.dispatchEvent(
+      new dom!.window.KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }),
+    ),
+  );
+  expect(dismissed).toEqual(["status", "status"]);
+});
+
+test("the focused real minimap preview takes Escape before status", async () => {
+  const dismissed: string[] = [];
+  const container = installDom();
+  function Cards() {
+    const [shown, setShown] = useState(true);
+    const [focused, setFocused] = useState(false);
+    useEscapeCloses(shown && focused, () => setShown(false));
+    return (
+      <>
+        <HarnessStatusCard summary={summary()} rows={[]} onDismiss={() => dismissed.push("status")} />
+        {shown && (
+          <PreviewCard
+            id="preview"
+            x={0}
+            y={0}
+            prompt="Test prompt"
+            reply={[]}
+            bookmark={{ marked: false, toggle: () => {} }}
+            onPointerLeave={() => {}}
+            onFocus={() => setFocused(true)}
+          />
+        )}
+      </>
+    );
+  }
+  await act(async () => {
+    root = createRoot(container);
+    root.render(<Cards />);
+  });
+  await act(async () => container.querySelector<HTMLButtonElement>(".acpmux-minimap__bookmark")!.focus());
+  await act(async () =>
+    document.activeElement!.dispatchEvent(
+      new dom!.window.KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }),
+    ),
+  );
+  expect(dismissed).toEqual([]);
+  expect(container.querySelector(".acpmux-minimap__card")).toBeNull();
 });
