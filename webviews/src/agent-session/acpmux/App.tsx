@@ -4560,6 +4560,7 @@ function AcpmuxPane() {
   /// The subagent whose own view the transcript shows (its line in a group opens it), or none.
   const [subagentView, setSubagentView] = useState<string>();
   const allSubagents = useSubagentList(callNative);
+  const hideAllSubagents = allSubagents.hide;
   /// The subagent this pane was opened on (a `subagent:` reveal, subagents/subagentPanes.ts), shown
   /// once its chat is. Further row clicks still go through native tab tracking.
   const [requestedSubagent, setRequestedSubagent] = useState<string>();
@@ -5853,11 +5854,11 @@ function AcpmuxPane() {
     const focus = typeof intent === "boolean" ? intent : !intent.metaKey;
     void openSubagentPane(callNative, id, focus).then((result) => {
       if (result === "refused" && focus) {
-        allSubagents.hide();
+        hideAllSubagents();
         setSubagentView(id);
       }
     });
-  }, [allSubagents]);
+  }, [hideAllSubagents]);
   const [autoOpenSubagents, setAutoOpenSubagents] = useAutoOpenSubagents();
   useOpenNewSubagents(
     quick || subagentPane.current ? undefined : shownSessionId,

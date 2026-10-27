@@ -212,3 +212,15 @@ test("native subagent placement distinguishes refusal from transport failure", a
     throw new Error("disconnected");
   }, "child-1", true)).resolves.toBe("error");
 });
+
+test("subagent list hide callback stays stable across renders", async () => {
+  const hides: unknown[] = [];
+  const call = async () => ({ opened: true });
+  function Probe() {
+    hides.push(useSubagentList(call).hide);
+    return null;
+  }
+  await act(async () => root.render(<Probe />));
+  await act(async () => root.render(<Probe />));
+  expect(hides[1]).toBe(hides[0]);
+});
