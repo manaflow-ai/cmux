@@ -246,7 +246,20 @@ impl Hub {
         let mut kinds =
             vec!["host_started", "current_mode_update", "config_option_update", "response"];
         kinds.extend(requests);
-        let _ = self.store.scan_kinds(&session.id, &kinds, &mut |e: crate::store::EventRecord| {
+        // Debug builds only: `ACPMUX_TEST_LEFT_HOST_SCAN_FAILS` makes this read fail before it reads
+        // anything, as an unreadable log does, so the daemon's integration tests can drive that
+        // path. Release builds have no seam.
+        #[cfg(debug_assertions)]
+        let fails = std::env::var_os("ACPMUX_TEST_LEFT_HOST_SCAN_FAILS").is_some();
+        #[cfg(not(debug_assertions))]
+        let fails = false;
+        let scan = |visit: &mut dyn FnMut(crate::store::EventRecord) -> bool| {
+            if fails {
+                return Err(anyhow::anyhow!("the log could not be read"));
+            }
+            self.store.scan_kinds(&session.id, &kinds, visit)
+        };
+        let _ = scan(&mut |e: crate::store::EventRecord| {
             let its_own = || {
                 e.msg.pointer("/params/_meta/acpmux/subagent").is_none()
                     || e.msg.pointer("/params/sessionId").and_then(Value::as_str) == own.as_deref()

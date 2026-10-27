@@ -1377,9 +1377,12 @@ def main():
             if os.environ.get("FAKE_MODE_OPTION") == "1":
                 if params.get("configId") == "mode":
                     MODE_OPTION[params.get("sessionId")] = v
-                # FAKE_BARE_OPTION_ANSWER=1: the answer carries no configOptions.
+                # FAKE_BARE_OPTION_ANSWER=1: the answer carries no configOptions; =null: a null.
                 if os.environ.get("FAKE_BARE_OPTION_ANSWER") == "1":
                     send({"jsonrpc": "2.0", "id": rid, "result": {}})
+                    continue
+                if os.environ.get("FAKE_BARE_OPTION_ANSWER") == "null":
+                    send({"jsonrpc": "2.0", "id": rid, "result": {"configOptions": None}})
                     continue
                 send({"jsonrpc": "2.0", "id": rid, "result": {"configOptions": mode_options(params.get("sessionId"))}})
                 continue

@@ -352,7 +352,13 @@ impl Hub {
         self.note_host_kind(session, &child, kind).await;
         // Scan only once every entry the host had is in the log: what the
         // previous daemon wrote or answered may still sit in its buffer.
-        if !child.wait_replayed(adopted.last_h, REPLAY_STALL, REPLAY_CEILING).await {
+        // Debug builds only: `ACPMUX_TEST_REPLAY_INCOMPLETE` makes every replay count as incomplete,
+        // as a host that stalls mid-replay does. Release builds have no seam.
+        #[cfg(debug_assertions)]
+        let stalls = std::env::var_os("ACPMUX_TEST_REPLAY_INCOMPLETE").is_some();
+        #[cfg(not(debug_assertions))]
+        let stalls = false;
+        if stalls || !child.wait_replayed(adopted.last_h, REPLAY_STALL, REPLAY_CEILING).await {
             tracing::warn!(session = %session.id, "agent host replay incomplete; recovering from the partial log");
         }
         // MDM forces full access off (#23322, review 60): what the host kept while no daemon was

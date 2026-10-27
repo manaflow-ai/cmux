@@ -2411,14 +2411,29 @@ async fn proven_daemon(tag: &str, fake: Value, env: &[(&str, &str)]) -> (Daemon,
 /// pushed while it runs or a later daemon finds its host.
 #[tokio::test]
 async fn a_full_access_option_answered_without_options_ends_under_mdm_off() {
-    let fake = json!({"argv": ["python3", FAKE], "env": {"FAKE_NO_MODES": "1",
-                      "FAKE_MODE_OPTION": "1", "FAKE_BARE_OPTION_ANSWER": "1"}});
-    for restart in [false, true] {
-        let tag = if restart { "mdmbarerestart" } else { "mdmbarelive" };
-        let (mut daemon, mut rpc) = proven_daemon(tag, fake.clone(), &[]).await;
+    // Review 61: an answer whose options are null is bare too.
+    for (bare, restart, tag) in [
+        ("1", false, "mdmbarelive"),
+        ("1", true, "mdmbarerestart"),
+        ("null", false, "mdmnulllive"),
+        ("null", true, "mdmnullrestart"),
+    ] {
+        let fake = json!({"argv": ["python3", FAKE], "env": {"FAKE_NO_MODES": "1",
+                          "FAKE_MODE_OPTION": "1", "FAKE_BARE_OPTION_ANSWER": bare}});
+        let (mut daemon, mut rpc) = proven_daemon(tag, fake, &[]).await;
         let session = new_session(&daemon).await;
         let prompt = json!({"sessionId": session, "prompt": [{"type": "text", "text": "hi"}]});
         rpc.call("session/prompt", prompt).await;
+        // Review 61: an earlier off found this agent asking, and MDM was unset again since.
+        let settings =
+            json!({"enabled": true, "discovery": false, "roots": [], "managedRoots": []});
+        let mut off = settings.clone();
+        off["allowFullAccess"] = json!(false);
+        off["allowFullAccessManaged"] = json!(true);
+        for push in [off, settings] {
+            let pushed = rpc.call("_acpmux/chat_settings", push).await;
+            assert_eq!(pushed["applied"], true, "{tag}: {pushed}");
+        }
         let set = json!({"sessionId": session, "configId": "mode", "value": "full-access"});
         let r = rpc.reply("session/set_config_option", set).await;
         assert!(r.get("error").is_none(), "{tag}: {r}");
@@ -2487,5 +2502,43 @@ async fn a_mode_a_left_host_replays_is_judged_before_its_agent_is_reached_under_
     assert!(
         gone_within(harness_pid, Duration::from_secs(10)),
         "the full-access agent the host replayed ran on under the managed off"
+    );
+}
+
+/// Review 61 of #23322: under MDM's off, a host a restart left whose log cannot be read back
+/// (the debug seam `ACPMUX_TEST_LEFT_HOST_SCAN_FAILS`) is not known to ask, so it is ended, never
+/// adopted: its harness had moved itself into full access, which only the log says.
+#[tokio::test]
+async fn a_left_host_whose_log_cannot_be_read_ends_under_mdm_off() {
+    let (mut daemon, _session, harness_pid) = left_in_bypass("mdmscanfail", None).await;
+    daemon.env.push(("ACPMUX_TEST_LEFT_HOST_SCAN_FAILS".to_owned(), "1".to_owned()));
+    record_mdm_off(&daemon);
+    daemon.start();
+    assert!(
+        gone_within(harness_pid, Duration::from_secs(10)),
+        "the next daemon adopted a host whose log it could not read under the managed off"
+    );
+}
+
+/// Review 61 of #23322: under MDM's off, a host whose replay did not complete (the debug seam
+/// `ACPMUX_TEST_REPLAY_INCOMPLETE`) may hold a full-access report the log does not have yet: it is
+/// ended, never adopted and handed out.
+#[tokio::test]
+async fn a_left_host_whose_replay_is_incomplete_ends_under_mdm_off() {
+    let mut daemon = Daemon::new("mdmreplaycut", "ask");
+    let session = new_session(&daemon).await;
+    let mut rpc = daemon.rpc().await;
+    let prompt = json!({"sessionId": session, "prompt": [{"type": "text", "text": "hi"}]});
+    rpc.call("session/prompt", prompt).await;
+    let harness_pid = daemon.host_record(&session)["harness_pid"].as_i64().unwrap();
+    daemon.sigterm();
+    drop(rpc);
+    assert!(alive(harness_pid), "SIGTERM ended the agent");
+    daemon.env.push(("ACPMUX_TEST_REPLAY_INCOMPLETE".to_owned(), "1".to_owned()));
+    record_mdm_off(&daemon);
+    daemon.start();
+    assert!(
+        gone_within(harness_pid, Duration::from_secs(10)),
+        "the next daemon adopted a host whose replay was incomplete under the managed off"
     );
 }
