@@ -10,7 +10,8 @@
 // accessibility token comes back in its REPLY; a page window whose layers
 // are hosted is detached; a page view moves only when its geometry changed
 // (task 053); the host holds its App Nap activity while a page shows (task
-// p14-energy-128); a bad message ends the host. Run by scripts/cmux-next/tests/chromium-host-dispatch.test.sh.
+// p14-energy-128); the fork's lock delegate reaches cmux as CMUX_SHIM_LOCK
+// while cmux's handler is on (task 229); a bad message ends the host. Run by scripts/cmux-next/tests/chromium-host-dispatch.test.sh.
 #include <algorithm>
 #include <cstdio>
 #include <cstdlib>
@@ -61,6 +62,14 @@ struct Shim {
   bool refuse_detach = false;  // set_detached_hosting(1) answers 0 (a fork that cannot detach)
   // (browser, request): AFTER_CREATED events the next create_window emits inside the call, in order.
   std::vector<std::pair<int, int>> created_in_call;
+  // The handler the host put in the fork's lock delegate (RecordSetLockHandler).
+  cmux_host::LockFn lock_fn = nullptr;
+  void* lock_context = nullptr;
+  int lock_answer = 1;  // set_lock_handler's return (0: the fork refused it)
+  cmux_shim_password_reveal_fn reveal_done = nullptr;  // the latest started reveal's
+  void* reveal_ctx = nullptr;
+  int reveals_started = 0;
+  bool reveal_refuses = false;  // password_reveal returns 0
 } shim;
 
 void Emit(int kind, int browser, int request, const char* s1 = "") {
@@ -160,6 +169,14 @@ char* cmux_shim_tab_navigation_state(int browser_id) {
   return strdup(("state of " + std::to_string(browser_id)).c_str());
 }
 void cmux_shim_free(char* s) { std::free(s); }
+int cmux_shim_password_reveal(const char* path, const char* id, cmux_shim_password_reveal_fn done, void* ctx) {
+  shim.calls.push_back(std::string("reveal ") + (path ? path : "<null>") + " " + (id ? id : "<null>"));
+  if (shim.reveal_refuses) return 0;
+  shim.reveal_done = done;
+  shim.reveal_ctx = ctx;
+  ++shim.reveals_started;
+  return 1;
+}
 int cmux_shim_live_browser_count(void) { return shim.live; }
 }
 
@@ -941,13 +958,18 @@ void PageVisibilityAppliesAtTheDetach() {
          "a malformed op is bad");
 }
 
+// PageShowActivity's hold as the task 128 tests read it: held or not, per change of level.
+PageShowActivity::Hold Recorder(std::vector<bool>& holds) {
+  return [&holds](const ActivityState& state) { holds.push_back(state.level != ActivityLevel::kNone); };
+}
+
 // Task p14-energy-128: the host holds its App Nap activity while cmux shows one of its pages and
 // lets App Nap apply when every page is hidden or occluded. It starts held, through Chromium's
 // start; 1 shown page begins it, 0 ends it, and the same count again changes nothing.
 void PageShowActivityHoldsWhileAPageShows() {
   {
     std::vector<bool> holds;
-    PageShowActivity activity([&holds](bool held) { holds.push_back(held); });
+    PageShowActivity activity(Recorder(holds));
     Check(activity.held() && holds == std::vector<bool>{true}, "the activity begins at the start");
     activity.SetShownPages(1);
     activity.SetShownPages(2);
@@ -971,7 +993,7 @@ void PageShowActivityHoldsWhileAPageShows() {
     // Through the dispatcher: the count is cmux's visibility posts, per browser.
     Fixture f;
     std::vector<bool> holds;
-    PageShowActivity activity([&holds](bool held) { holds.push_back(held); });
+    PageShowActivity activity(Recorder(holds));
     f.host.SetPageShowActivity(&activity);
     f.Start();
     Check(!activity.held() && holds == (std::vector<bool>{true, false}),
@@ -1004,7 +1026,7 @@ void PageShowActivityHoldsWhileAPageShows() {
     // carries on into the page's, with no end between.
     Fixture f;
     std::vector<bool> holds;
-    PageShowActivity activity([&holds](bool held) { holds.push_back(held); });
+    PageShowActivity activity(Recorder(holds));
     f.host.SetPageShowActivity(&activity);
     f.Initialize();
     visibility(f, 5, CMUX_SHIM_PAGE_VISIBLE);
@@ -1013,6 +1035,56 @@ void PageShowActivityHoldsWhileAPageShows() {
     Check(f.host.shown_pages() == 1 && activity.held() && holds == std::vector<bool>{true},
           "held from the start through the shown page");
   }
+}
+
+// Task p01-process-222: while cmux is the active app the host holds the activity at kActive
+// (latency critical), with or without a shown page; a shown page with another app active holds
+// kShown; cmux hidden lets App Nap apply. Each change of level is one hold and one log line.
+void ActivityFollowsCmuxActiveAndHidden() {
+  std::vector<ActivityState> states;
+  PageShowActivity activity([&states](const ActivityState& state) { states.push_back(state); });
+  auto levels = [&states] {
+    std::vector<ActivityLevel> out;
+    for (const ActivityState& state : states) out.push_back(state.level);
+    return out;
+  };
+  using L = ActivityLevel;
+  Check(levels() == std::vector<L>{L::kShown} && states.back().starting, "the start holds kShown");
+  activity.SetApp(true, false);
+  Check(levels() == (std::vector<L>{L::kShown, L::kActive}), "cmux active during the start: kActive");
+  activity.SetShownPages(0);
+  Check(activity.level() == L::kActive && states.size() == 2,
+        "the start's end with no page shown keeps kActive while cmux is active");
+  activity.SetApp(true, false);
+  Check(states.size() == 2, "the same app state again changes nothing");
+  activity.SetApp(false, false);
+  Check(activity.level() == L::kNone && !activity.held() && states.size() == 3,
+        "another app active and no page shown: App Nap may apply");
+  activity.SetShownPages(1);
+  Check(activity.level() == L::kShown && states.size() == 4, "a shown page with another app active: kShown");
+  activity.SetApp(true, false);
+  Check(activity.level() == L::kActive && states.size() == 5, "cmux active again: kActive");
+  activity.SetShownPages(2);
+  Check(states.size() == 5, "a second page while active does not churn");
+  activity.SetApp(false, true);
+  Check(activity.level() == L::kNone && states.size() == 6, "cmux hidden ends it, pages posted shown or not");
+  activity.SetApp(false, false);
+  Check(activity.level() == L::kShown && states.size() == 7, "unhidden with its pages shown: kShown");
+  Check(activity.edges() == 7, "one edge per change of level");
+  Check(ActivityLogLine(states.back()) ==
+            "cmux-chromium-host: app nap activity shown (cmux active 0, hidden 0, shown pages 2)\n",
+        "the log line names the level and what it follows");
+  Check(ActivityLogLine(states.front()) ==
+            "cmux-chromium-host: app nap activity shown (cmux active 0, hidden 0, shown pages 0, starting)\n",
+        "the start's line says it is starting");
+
+  // Hidden during the start: the start's hold stays until the first count.
+  std::vector<bool> holds;
+  PageShowActivity starting(Recorder(holds));
+  starting.SetApp(false, true);
+  Check(starting.level() == L::kShown && holds.size() == 1, "hidden while starting keeps the start's hold");
+  starting.SetShownPages(1);
+  Check(!starting.held() && holds == (std::vector<bool>{true, false}), "and hidden ends it after the start");
 }
 
 // The fork applies a page visibility post to the browser's Chromium window, every tab of it, and
@@ -1036,7 +1108,7 @@ void PageShowActivityFollowsTheWindow() {
 
   Fixture f;
   std::vector<bool> holds;
-  PageShowActivity activity([&holds](bool held) { holds.push_back(held); });
+  PageShowActivity activity(Recorder(holds));
   f.host.SetPageShowActivity(&activity);
   f.Start();
   auto created = [&f](int browser, int64_t window) {
@@ -1216,6 +1288,90 @@ void GeometryStatsReply() {
   Expect(f.delegate.calls, {"initialize /root", "bad a malformed geometry stats request"}, "fields are bad");
 }
 
+// cmux_shim_password_reveal (task p01-process-025): the shim's done answers
+// the op's token with one bytes field, or none when it found no password.
+Message RevealRequest(uint32_t token, const char* id) {
+  Writer w;
+  w.Str("/profile");
+  w.Str(id);
+  return Op(kOpPasswordReveal, token, w);
+}
+
+bool Answers(const std::vector<Message>& sent, uint32_t token, const char* password) {
+  if (sent.size() != 1 || sent[0].op != kOpReply || !sent[0].reply || sent[0].token != token) return false;
+  if (password == nullptr) return sent[0].fields.empty();
+  return sent[0].fields.size() == 1 && sent[0].fields[0].type == control::Type::kBytes &&
+         sent[0].fields[0].tag == control::kTagValue && sent[0].fields[0].bytes == password;
+}
+
+void PasswordReveal() {
+  {
+    Fixture f;
+    f.Start();
+    f.host.OnMessages({RevealRequest(9, "id1")});
+    Check(!shim.calls.empty() && shim.calls.back() == "reveal /profile id1", "the reveal reaches the shim");
+    Check(f.sent.empty(), "nothing is sent before the shim's done");
+    shim.reveal_done(shim.reveal_ctx, "s3cretXX", 6);
+    Check(Answers(f.sent, 9, "s3cret"), "done answers the token with the password's bytes");
+    f.sent.clear();
+    f.host.OnMessages({RevealRequest(10, "id2")});
+    shim.reveal_done(shim.reveal_ctx, nullptr, 0);
+    Check(Answers(f.sent, 10, nullptr), "not found: a REPLY with no field");
+    f.sent.clear();
+    shim.reveal_refuses = true;
+    f.host.OnMessages({RevealRequest(11, "id3")});
+    Check(Answers(f.sent, 11, nullptr), "a reveal the shim did not start is answered at once as not found");
+    f.sent.clear();
+    f.host.OnMessages({RevealRequest(0, "id4")});
+    Check(f.delegate.calls.back() == "bad a malformed password reveal", "a reveal with no token is bad");
+  }
+  {
+    Fixture f;
+    f.host.Attach();
+    f.host.OnMessages({Hello()});
+    f.Sent();
+    f.host.OnMessages({RevealRequest(12, "id5")});
+    Check(Answers(f.sent, 12, nullptr), "before initialize nothing is started: not found");
+    Check(shim.calls.empty(), "before initialize the shim is not asked");
+  }
+  // A done after the host context is gone sends nothing (ASan: no use after free).
+  cmux_shim_password_reveal_fn done = nullptr;
+  void* ctx = nullptr;
+  {
+    Fixture f;
+    f.Start();
+    f.host.OnMessages({RevealRequest(13, "id6")});
+    done = shim.reveal_done;
+    ctx = shim.reveal_ctx;
+  }
+  Check(done != nullptr, "the late reveal started");
+  if (done) done(ctx, "late", 4);
+  // Past 64 waiting reveals one is answered as not found; the host stays up.
+  {
+    Fixture f;
+    f.Start();
+    std::vector<std::pair<cmux_shim_password_reveal_fn, void*>> waiting;
+    for (uint32_t token = 100; token < 164; ++token) {
+      f.host.OnMessages({RevealRequest(token, "id")});
+      waiting.emplace_back(shim.reveal_done, shim.reveal_ctx);
+    }
+    Check(f.sent.empty() && shim.reveals_started == 64, "64 reveals wait for the shim");
+    f.host.OnMessages({RevealRequest(164, "id")});
+    Check(Answers(f.sent, 164, nullptr), "the 65th is answered as not found at once");
+    Check(shim.reveals_started == 64, "the 65th never reaches the shim");
+    bool bad = false;
+    for (const std::string& call : f.delegate.calls) bad = bad || call.rfind("bad ", 0) == 0;
+    Check(!bad, "too many reveals is not a bad message");
+    f.sent.clear();
+    for (const auto& [reveal_done, reveal_ctx] : waiting) reveal_done(reveal_ctx, "pw", 2);
+    Check(f.sent.size() == 64, "each waiting reveal is answered by its done");
+    f.sent.clear();
+    f.host.OnMessages({RevealRequest(165, "id")});
+    Check(shim.reveals_started == 65 && f.sent.empty(), "answered reveals free their places");
+    shim.reveal_done(shim.reveal_ctx, nullptr, 0);
+  }
+}
+
 void WipeZeroes() {
   std::vector<std::string> secrets = {"hunter2", ""};
   cmux_host::Wipe(secrets);
@@ -1353,6 +1509,103 @@ void EnergySaverReachesTheFork() {
   }
 }
 
+int RecordSetLockHandler(cmux_host::LockFn fn, void* context) {
+  shim.calls.push_back(fn ? "lock_handler on" : "lock_handler off");
+  shim.lock_fn = fn;
+  shim.lock_context = context;
+  return shim.lock_answer;
+}
+
+Message LockHandlerOp(uint32_t token, int32_t installed) {
+  Writer w;
+  w.I32(installed);
+  return Op(kOpSetLockHandler, token, w);
+}
+
+// "<kind> <browser> <request> <a> <b>" of each EVENT among `sent`.
+std::vector<std::string> Events(const std::vector<Message>& sent) {
+  std::vector<std::string> out;
+  for (const Message& m : sent) {
+    if (m.op != kOpEvent) continue;
+    Reader r(m.fields);
+    const int kind = r.I32(), browser = r.I32(), request = r.I32();
+    const int64_t a = r.I64(), b = r.I64();
+    out.push_back(std::to_string(kind) + " " + std::to_string(browser) + " " + std::to_string(request) + " " +
+                  std::to_string(a) + " " + std::to_string(b));
+  }
+  return out;
+}
+
+// Task 229: a host whose fork has the lock delegate lists kLocksHelloName; cmux's handler goes
+// into the fork once initialize returned and out again; each call of the delegate reaches cmux
+// as CMUX_SHIM_LOCK with cmux's id of the browser, the event as request and the detail as a; a
+// host without the delegate takes the op and calls nothing; a malformed op is bad.
+void LocksReachCmux() {
+  {
+    Fixture f;
+    f.host.SetLockHandler(&RecordSetLockHandler);
+    f.host.Attach();
+    const std::vector<std::string> sent = f.Sent();
+    Check(!sent.empty() && sent.back() == "hello cmux_shim_tab_set_frozen " + std::string(kLocksHelloName),
+          "a host whose fork has the lock delegate lists it in its hello: " + Join(sent));
+    f.host.OnMessages({Hello()});
+    f.host.OnMessages({LockHandlerOp(0, 1)});
+    Check(shim.calls.empty(), "before initialize the handler waits");
+    Writer init;
+    for (const char* path : {"/fw", "/app", "/helper", "/root"}) init.Str(path);
+    init.Str(nullptr);
+    init.I32(0);
+    init.Str(nullptr);
+    init.Str(nullptr);
+    init.StrList(nullptr, 0);
+    f.host.OnMessages({Op(kOpInitialize, 1, init)});
+    f.host.Resume();
+    Expect(shim.calls, {"lock_handler on"}, "after initialize the host's handler is in the fork");
+    Check(shim.lock_fn == &HostContext::OnLock && shim.lock_context == &f.host, "the host's own handler, with the host");
+    f.Sent();
+
+    CreateWindow(f, kMinted, 9);  // Chromium's 3 is cmux's kMinted
+    f.sent.clear();
+    shim.lock_fn(shim.lock_context, CMUX_SHIM_POINTER_LOCK_REQUESTED, 3, 1);
+    shim.lock_fn(shim.lock_context, CMUX_SHIM_KEYBOARD_LOCK_REQUESTED, 3, 1);
+    shim.lock_fn(shim.lock_context, CMUX_SHIM_POINTER_UNLOCKED, 3, 0);
+    shim.lock_fn(shim.lock_context, CMUX_SHIM_KEYBOARD_UNLOCKED, 77, 0);  // a browser cmux did not mint
+    const std::string lock = std::to_string(CMUX_SHIM_LOCK);
+    const std::string minted = std::to_string(kMinted);
+    Expect(Events(f.sent),
+           {lock + " " + minted + " 0 1 0", lock + " " + minted + " 2 1 0", lock + " " + minted + " 1 0 0",
+            lock + " 77 3 0 0"},
+           "each call of the delegate is one CMUX_SHIM_LOCK, cmux's browser id, the event and its detail");
+    f.sent.clear();
+
+    shim.calls.clear();
+    f.host.OnMessages({LockHandlerOp(31, 0)});
+    Expect(shim.calls, {"lock_handler off"}, "cmux's handler off takes the host's out of the fork");
+    Expect(f.Sent(), {"ack 31"}, "a token is acked");
+
+    shim.calls.clear();
+    shim.lock_answer = 0;
+    f.host.OnMessages({LockHandlerOp(0, 1)});
+    Expect(shim.calls, {"lock_handler on"}, "a refused handler is logged, not bad");
+    Expect(f.delegate.calls, {"initialize /root"}, "and the host goes on");
+  }
+  {
+    Fixture f;
+    f.Start();
+    f.host.OnMessages({LockHandlerOp(32, 1)});
+    Check(shim.calls.empty(), "a host whose fork has no lock delegate calls nothing");
+    Expect(f.Sent(), {"ack 32"}, "and acks the op");
+  }
+  {
+    Fixture f;
+    f.host.SetLockHandler(&RecordSetLockHandler);
+    f.Start();
+    f.host.OnMessages({LockHandlerOp(0, 2)});
+    Check(shim.calls.empty(), "installed neither 0 nor 1: nothing reaches the fork");
+    Expect(f.delegate.calls, {"initialize /root", "bad a malformed lock handler"}, "and it is bad");
+  }
+}
+
 // The switches the host starts Chromium with: cmux's set, without the external pump's slice (the
 // host runs CefRunMessageLoop), with TimerSlackMac on (host_switches.h).
 void HostSwitchesFitTheHostsLoop() {
@@ -1364,6 +1617,17 @@ void HostSwitchesFitTheHostsLoop() {
                                          "disable-stack-profiler", "enable-features=TimerSlackMac"};
   Expect(cmux_host::HostSwitches(app), want, "the app's switches fitted to the host's message loop");
   Expect(cmux_host::HostSwitches({}), {"enable-features=TimerSlackMac"}, "TimerSlackMac with no app switches");
+}
+
+// The log the host's Chromium writes: the spawn's --log-file when INITIALIZE
+// names none, as cmux's runtime does in host mode, so the supervisor finds a
+// crashed host's last lines there (host_switches.h, p01-process-085).
+void HostLogFileIsTheSpawnsUnlessInitializeNamesOne() {
+  const std::string spawn = "/root/ChromiumHost/chromium-host.log";
+  Check(cmux_host::HostLogFile(std::nullopt, spawn) == spawn, "no log in INITIALIZE: the spawn's");
+  Check(cmux_host::HostLogFile(std::string(), spawn) == spawn, "an empty log in INITIALIZE: the spawn's");
+  Check(cmux_host::HostLogFile(std::string("/a/cef.log"), spawn) == "/a/cef.log", "INITIALIZE's log wins");
+  Check(cmux_host::HostLogFile(std::nullopt, "").empty(), "no log anywhere: none");
 }
 
 }  // namespace
@@ -1389,11 +1653,15 @@ int main() {
   PageVisibilityAppliesAtTheDetach();
   PageShowActivityHoldsWhileAPageShows();
   PageShowActivityFollowsTheWindow();
+  ActivityFollowsCmuxActiveAndHidden();
   GeometryOnlyOnChange();
   GeometryStatsReply();
+  PasswordReveal();
   WipeZeroes();
   EnergySaverReachesTheFork();
+  LocksReachCmux();
   HostSwitchesFitTheHostsLoop();
+  HostLogFileIsTheSpawnsUnlessInitializeNamesOne();
   if (failures) return EXIT_FAILURE;
   std::puts("chromium-host-dispatch tests: ok");
   return EXIT_SUCCESS;

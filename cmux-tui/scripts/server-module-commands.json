@@ -99,6 +99,10 @@
             "proof": {
               "type": "String",
               "presence": "optional"
+            },
+            "features": {
+              "type": "Option<HelloFeatures>",
+              "presence": "optional"
             }
           },
           "handler": "observe"

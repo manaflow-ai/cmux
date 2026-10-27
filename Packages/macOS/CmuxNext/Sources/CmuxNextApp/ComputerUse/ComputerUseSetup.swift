@@ -104,7 +104,7 @@ final class ComputerUseSetup {
     init(inputs: @escaping @MainActor () -> Inputs,
          configuration: @escaping @MainActor () -> AgentActivitySocketSource.Configuration?,
          read: @escaping @Sendable (AgentActivitySocketSource.Configuration) async -> Read = { await ComputerUseSetup.socketRead($0) },
-         resolveHelper: @escaping @Sendable (URL?) async -> URL? = ComputerUseSetup.signedHelper,
+         resolveHelper: @escaping @Sendable (URL?) async -> URL?,
          openURL: @escaping @MainActor (URL) -> Void = { NSWorkspace.shared.openInBackground($0) },
          enableSetting: @escaping @MainActor () -> Void = {},
          appEvents: AppEvents, distributedEvents: AppEvents, deadlines: MainDeadlineScheduler, work: BackgroundWork,
@@ -309,11 +309,14 @@ final class ComputerUseSetup {
                                screenRecording: status["screen_recording"] as? Bool ?? false)
     }
 
-    /// The Developer ID signed helper for `running`, else the installed one that would start.
-    @concurrent nonisolated static func signedHelper(_ running: URL?) async -> URL? {
-        CuaHelperIdentity().resolve(running: running,
-                                    installed: CuaHelperIdentity.installedCandidates(isDevBuild: ComputerUseHelperDaemon.isDevBuild))
-            .helperURL
+    /// The Developer ID signed helper for `running`, else the installed one that would start: signature
+    /// checks of each candidate (kept per version of it), so they run on `lanes`' system lane.
+    nonisolated static func signedHelper(_ running: URL?, on lanes: any MayBlockRunner) async -> URL? {
+        try? await lanes.runSystem(.userVisible) {
+            CuaHelperIdentity().resolve(running: running,
+                                        installed: CuaHelperIdentity.installedCandidates(isDevBuild: ComputerUseHelperDaemon.isDevBuild))
+                .helperURL
+        }
     }
 }
 
@@ -330,6 +333,7 @@ extension ComputerUseSetup {
                        helper: helper.state)
             },
             configuration: { helper.configuration },
+            resolveHelper: { await ComputerUseSetup.signedHelper($0, on: work) },
             enableSetting: { [weak services] in
                 guard let settings = services?.settings else { return }
                 let writer = SettingWriter.currentRun()
@@ -342,7 +346,7 @@ extension ComputerUseSetup {
             },
             appEvents: services.appEvents,
             // raw-observer-allow: the app's one fan-out of distributed notices (Accessibility trust), one observer per name for the whole app
-            distributedEvents: AppEvents(center: DistributedNotificationCenter.default()),
+            distributedEvents: AppEvents(center: DistributedNotificationCenter.default(), observerLedger: .shared),
             deadlines: services.mainDeadlines, work: work, queries: services.workspaceQueries)
         setup.start()
         return setup

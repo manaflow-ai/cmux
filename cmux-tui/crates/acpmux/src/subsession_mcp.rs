@@ -1,14 +1,154 @@
-//! `acpmux subsession-mcp`: the `cmux-subsessions` MCP stdio server every
-//! agent session gets (`agent_tools.rs`), the same on every harness. Each
-//! tool is one daemon request (`server/subsessions.rs`) over a connection
-//! that carries the session's caller token from this server's own env, so
-//! the daemon knows which session acts; nothing here decides a limit.
+//! The `cmux-subsessions` tools every agent session gets (`agent_tools.rs`),
+//! the same on every harness. Each tool is one daemon request
+//! (`server/subsessions.rs`) as the session its caller token proves, so the
+//! daemon knows which session acts; nothing here decides a limit.
+//!
+//! The daemon serves them itself (p07-memory-092, [`DaemonTools`]): a
+//! connection whose first `initialize` proves a session and names this
+//! server is that session's MCP server (`server/agent_mcp.rs`). The agent
+//! reaches it through `cmux mcp serve`'s socket upstream (no process) or,
+//! for a harness that runs stdio servers itself, the byte-copy relay
+//! (`mcp_relay.rs`, no tokio). That replaces one tokio process per agent for
+//! these tools and one for the secret tools (`secret_mcp.rs`), as Chrome
+//! serves a renderer's interfaces from the browser process instead of a
+//! process per interface (`content/browser/browser_interface_binders.cc`).
+//! `acpmux subsession-mcp`, the stdio server of earlier builds, stays for a
+//! harness an earlier daemon started and for Windows.
 
+use crate::agent_tools::McpServer;
 use crate::client::Client;
 use crate::rpc::method;
 use crate::secret_mcp::error_result;
 use anyhow::Result;
 use serde_json::{Value, json};
+use std::future::Future;
+
+/// Where a tool's daemon requests go: a daemon connection ([`Client`], the
+/// stdio servers) or the daemon's own request router (`server/agent_mcp.rs`).
+pub(crate) trait ToolRequests: Sync {
+    fn request(&self, m: &'static str, params: Value)
+    -> impl Future<Output = Result<Value>> + Send;
+}
+
+impl ToolRequests for Client {
+    fn request(
+        &self,
+        m: &'static str,
+        params: Value,
+    ) -> impl Future<Output = Result<Value>> + Send {
+        Client::request(self, m, params)
+    }
+}
+
+/// The registry name of the feature that serves [`DaemonTools`] from the
+/// daemon (`schemas/features/features.d`); off, every agent runs the stdio
+/// servers of earlier builds.
+pub const FEATURE: &str = "agentToolsInDaemon";
+
+/// `_meta.acpmux` field of a first unix `initialize`: the agent tool server
+/// the connection is ([`DaemonTools::server_name`], `server/agent_mcp.rs`).
+pub use crate::mcp_relay::{SERVER_FIELD, hello_meta};
+
+/// The agent tool servers the daemon serves on its socket (module docs).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DaemonTools {
+    /// `cmux-subsessions`: start_session and the rest (this file).
+    Subsessions,
+    /// `cmux-secrets`: request_secret and run_with_secret (`secret_mcp.rs`).
+    Secrets,
+}
+
+impl DaemonTools {
+    pub const ALL: [Self; 2] = [Self::Subsessions, Self::Secrets];
+
+    /// The MCP server name the agent sees.
+    pub fn server_name(self) -> &'static str {
+        match self {
+            Self::Subsessions => SERVER_NAME,
+            Self::Secrets => crate::secret_mcp::SERVER_NAME,
+        }
+    }
+
+    pub fn from_server_name(name: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|tools| tools.server_name() == name)
+    }
+
+    /// The acpmux command word of its own stdio server (earlier builds, Windows).
+    pub fn stdio_word(self) -> &'static str {
+        match self {
+            Self::Subsessions => "subsession-mcp",
+            Self::Secrets => "secret-mcp",
+        }
+    }
+
+    /// Its MCP server. With `in_daemon` the server is marked as the daemon's
+    /// (`mcp_relay::SERVER_ENV`): `cmux mcp serve` dials the daemon for it with
+    /// no process (`AgentTools::folded`), and a harness that runs stdio servers
+    /// itself runs `relay`, the small `acpmux-mcp-relay` (`mcp_relay.rs`). An
+    /// install without one keeps the tool set's own stdio server: a relay inside
+    /// the full acpmux or cmux binary would cost more than the server it
+    /// replaces. `AgentTools::for_session` fills in its env.
+    pub fn server(
+        self,
+        acpmux: &crate::self_command::SelfCommand,
+        in_daemon: bool,
+        relay: Option<&std::path::Path>,
+    ) -> McpServer {
+        let name = self.server_name().to_owned();
+        let marked = in_daemon.then(|| (crate::mcp_relay::SERVER_ENV.to_owned(), name.clone()));
+        let env = marked.into_iter().collect();
+        match relay.filter(|_| in_daemon) {
+            Some(relay) => McpServer { name, command: relay.to_owned(), args: vec![], env },
+            None => {
+                let args = acpmux.args_lossy(&[self.stdio_word()]);
+                McpServer { name, command: acpmux.exe.clone(), args, env }
+            }
+        }
+    }
+
+    /// The daemon tool set `server` is, when the daemon serves it ([`Self::server`]).
+    pub fn served(server: &McpServer) -> Option<Self> {
+        let (_, name) = server.env.iter().find(|(k, _)| k == crate::mcp_relay::SERVER_ENV)?;
+        Self::from_server_name(name).filter(|tools| tools.server_name() == server.name)
+    }
+
+    /// The env key its own stdio server reads the session from.
+    pub fn stdio_session_env(self) -> &'static str {
+        match self {
+            Self::Subsessions => SESSION_ENV,
+            Self::Secrets => crate::secret_mcp::SESSION_ENV,
+        }
+    }
+
+    /// Its `tools/list`.
+    pub fn tools(self) -> Value {
+        match self {
+            Self::Subsessions => tools(),
+            Self::Secrets => crate::secret_mcp::tools(),
+        }
+    }
+
+    /// The MCP `instructions` it gives at `initialize`.
+    pub fn instructions(self) -> Option<String> {
+        match self {
+            Self::Subsessions => Some(instructions()),
+            Self::Secrets => None,
+        }
+    }
+
+    /// `tools/call` as `session`, the one the caller token proved.
+    pub(crate) async fn call<D: ToolRequests>(
+        self,
+        daemon: &D,
+        session: &str,
+        params: &Value,
+    ) -> Value {
+        match self {
+            Self::Subsessions => call(daemon, params).await,
+            Self::Secrets => crate::secret_mcp::call(daemon, session, params).await,
+        }
+    }
+}
 
 pub const SERVER_NAME: &str = "cmux-subsessions";
 /// The session the tools act for, set in this server's own env with its
@@ -160,14 +300,14 @@ fn tools() -> Value {
     ])
 }
 
-/// Runs the server on stdin and stdout.
+/// Runs the stdio server of earlier builds on stdin and stdout (module docs).
 pub async fn run() -> Result<()> {
     crate::secret_mcp::serve(
         SERVER_NAME,
         SESSION_ENV,
         tools(),
         Some(instructions()),
-        |daemon, _session, params| async move { call(&daemon, &params).await },
+        |daemon, _session, params| async move { call(daemon.as_ref(), &params).await },
     )
     .await
 }
@@ -231,7 +371,7 @@ fn refusal(e: anyhow::Error) -> Value {
     error_result(format!("{e:#}"))
 }
 
-async fn call(daemon: &Client, params: &Value) -> Value {
+async fn call<D: ToolRequests>(daemon: &D, params: &Value) -> Value {
     let args = params.get("arguments").cloned().unwrap_or_else(|| json!({}));
     if !args.is_object() {
         return error_result("arguments must be an object".to_owned());
@@ -273,7 +413,7 @@ async fn call(daemon: &Client, params: &Value) -> Value {
 
 /// `wait_for_sessions`: `_acpmux/wait` on the sessions, then each finished
 /// one's row with its last reply.
-async fn wait(daemon: &Client, args: &Value) -> Value {
+async fn wait<D: ToolRequests>(daemon: &D, args: &Value) -> Value {
     let secs =
         args.get("timeoutSeconds").and_then(Value::as_u64).unwrap_or(45).clamp(1, MAX_WAIT_SECS);
     let mut ids: Vec<String> = args
@@ -361,6 +501,21 @@ mod tests {
         assert!(rules.contains(&format!("cmux.{CMUX_APP_TOOL}(")), "{rules}");
         assert!(rules.contains(&format!("cmux.{CMUX_APP_TAB_TOOL}(")), "{rules}");
         assert!(!rules.contains("agent_report"), "agent.report needs a terminal: {rules}");
+    }
+
+    /// The relay links none of acpmux (`mcp_relay.rs`): the names it shares
+    /// with the daemon are its own copies, equal to acpmux's.
+    #[test]
+    fn the_relay_speaks_the_daemons_names() {
+        use crate::hub::person::{CALLER_FIELD, CALLER_SOCKET_ENV, CALLER_TOKEN_ENV};
+        use crate::mcp_relay as relay;
+        assert_eq!(relay::SESSION_ENV, SESSION_ENV);
+        assert_eq!(relay::TOKEN_ENV, CALLER_TOKEN_ENV);
+        assert_eq!(relay::SOCKET_ENV, CALLER_SOCKET_ENV);
+        assert_eq!(relay::CALLER_FIELD, CALLER_FIELD);
+        for tools in DaemonTools::ALL {
+            assert_eq!(DaemonTools::from_server_name(tools.server_name()), Some(tools));
+        }
     }
 
     /// `host` documents `auto` and `auto-build`, and a placed start says why

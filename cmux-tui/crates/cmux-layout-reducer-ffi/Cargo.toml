@@ -13,11 +13,15 @@ description = "C ABI for the pure cmux sidebar drop resolver, section layout red
 crate-type = ["staticlib", "rlib"]
 
 [dependencies]
+cmux-ffi-guard = { path = "../cmux-ffi-guard" }
 cmux-focus-core = { path = "../cmux-focus-core" }
 cmux-layout-reducer = { path = "../cmux-layout-reducer" }
 cmux-tasks-core = { path = "../cmux-tasks-core" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+
+[dev-dependencies]
+cmux-ffi-guard = { path = "../cmux-ffi-guard", features = ["testing"] }
 
 [lints.rust]
 unsafe_op_in_unsafe_fn = "deny"

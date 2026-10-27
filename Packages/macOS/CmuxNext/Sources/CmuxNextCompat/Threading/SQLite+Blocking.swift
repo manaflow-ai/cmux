@@ -14,6 +14,7 @@ public import SQLite3
 ///   - fileID: The calling code's `#fileID` (names the call site).
 ///   - line: The calling code's `#line`.
 /// - Returns: The SQLite result code.
+@available(*, deprecated, message: "Pass the BlockingPermit of the lane body it runs in: work.run(priority, mayBlock: .files) { permit in ... }")
 @inlinable
 public func blockingSQLiteOpen(_ path: UnsafePointer<CChar>, _ database: UnsafeMutablePointer<OpaquePointer?>, _ flags: Int32,
                                _ vfs: UnsafePointer<CChar>? = nil, fileID: StaticString = #fileID, line: UInt = #line) -> Int32 {
@@ -34,6 +35,7 @@ public func blockingSQLiteOpen(_ path: UnsafePointer<CChar>, _ database: UnsafeM
 ///   - fileID: The calling code's `#fileID` (names the call site).
 ///   - line: The calling code's `#line`.
 /// - Returns: The SQLite result code.
+@available(*, deprecated, message: "Pass the BlockingPermit of the lane body it runs in: work.run(priority, mayBlock: .files) { permit in ... }")
 @inlinable
 public func blockingSQLitePrepare(_ database: OpaquePointer?, _ sql: UnsafePointer<CChar>, _ byteCount: Int32,
                                   _ statement: UnsafeMutablePointer<OpaquePointer?>, _ tail: UnsafeMutablePointer<UnsafePointer<CChar>?>?,
@@ -50,6 +52,7 @@ public func blockingSQLitePrepare(_ database: OpaquePointer?, _ sql: UnsafePoint
 ///   - fileID: The calling code's `#fileID` (names the call site).
 ///   - line: The calling code's `#line`.
 /// - Returns: The SQLite result code (`SQLITE_ROW`, `SQLITE_DONE` or an error).
+@available(*, deprecated, message: "Pass the BlockingPermit of the lane body it runs in: work.run(priority, mayBlock: .files) { permit in ... }")
 @inlinable
 public func blockingSQLiteStep(_ statement: OpaquePointer?, fileID: StaticString = #fileID, line: UInt = #line) -> Int32 {
     // SAFETY: forwards the caller's pointers to sqlite3_step unchanged, only for the call; the caller's own `unsafe`
@@ -67,6 +70,7 @@ public func blockingSQLiteStep(_ statement: OpaquePointer?, fileID: StaticString
 ///   - fileID: The calling code's `#fileID` (names the call site).
 ///   - line: The calling code's `#line`.
 /// - Returns: The SQLite result code.
+@available(*, deprecated, message: "Pass the BlockingPermit of the lane body it runs in: work.run(priority, mayBlock: .files) { permit in ... }")
 @inlinable
 public func blockingSQLiteExec(_ database: OpaquePointer?, _ sql: UnsafePointer<CChar>,
                                _ errorMessage: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>? = nil,
@@ -84,6 +88,7 @@ public func blockingSQLiteExec(_ database: OpaquePointer?, _ sql: UnsafePointer<
 ///   - fileID: The calling code's `#fileID` (names the call site).
 ///   - line: The calling code's `#line`.
 /// - Returns: The SQLite result code.
+@available(*, deprecated, message: "Pass the BlockingPermit of the lane body it runs in: work.run(priority, mayBlock: .files) { permit in ... }")
 @inlinable @discardableResult
 public func blockingSQLiteClose(_ database: OpaquePointer?, fileID: StaticString = #fileID, line: UInt = #line) -> Int32 {
     // SAFETY: forwards the caller's pointers to sqlite3_close unchanged, only for the call; the caller's own `unsafe`
@@ -99,6 +104,7 @@ public func blockingSQLiteClose(_ database: OpaquePointer?, fileID: StaticString
 ///   - fileID: The calling code's `#fileID` (names the call site).
 ///   - line: The calling code's `#line`.
 /// - Returns: The SQLite result code.
+@available(*, deprecated, message: "Pass the BlockingPermit of the lane body it runs in: work.run(priority, mayBlock: .files) { permit in ... }")
 @inlinable @discardableResult
 public func blockingSQLiteCloseV2(_ database: OpaquePointer?, fileID: StaticString = #fileID, line: UInt = #line) -> Int32 {
     // SAFETY: forwards the caller's pointers to sqlite3_close_v2 unchanged, only for the call; the caller's own
@@ -115,6 +121,7 @@ public func blockingSQLiteCloseV2(_ database: OpaquePointer?, fileID: StaticStri
 ///   - fileID: The calling code's `#fileID` (names the call site).
 ///   - line: The calling code's `#line`.
 /// - Returns: The SQLite result code (`SQLITE_DONE` when the copy is complete).
+@available(*, deprecated, message: "Pass the BlockingPermit of the lane body it runs in: work.run(priority, mayBlock: .files) { permit in ... }")
 @inlinable
 public func blockingSQLiteBackupStep(_ backup: OpaquePointer?, _ pages: Int32,
                                      fileID: StaticString = #fileID, line: UInt = #line) -> Int32 {

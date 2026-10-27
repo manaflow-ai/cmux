@@ -4,15 +4,23 @@ import CmuxNextSettings
 import Foundation
 
 /// `debug.crashes`: recent Chromium process failures (renderer per tab from
-/// CEF, helper processes from the child monitor), how this launch follows
+/// CEF, helper processes from the child monitor), the Chromium Host's ends
+/// in host mode (`chromium_host`: signal or exit code, CEF version, fork API
+/// and its log's last lines, p01-process-085), how this launch follows
 /// the previous run (restart, safe restart), the previous run's crash
 /// report paths, the restart notice on screen, and the crash report
 /// folder. No page content.
 @MainActor
 enum DebugCrashes {
     static func report(_ services: AppServices) -> JSONValue {
-        let crash = services.crashRecovery
-        let log = services.cache.cef.crashLog
+        report(crash: services.crashRecovery, chromium: services.cache.cef.crashLog,
+               hostSupervisor: services.chromiumRuntime.source.hostSupervisor)
+    }
+
+    /// The report of `crash` (this launch and the crash report folder), `log` (Chromium's process failures) and, in
+    /// host mode, `hostSupervisor`'s records of the Chromium Host's ends.
+    static func report(crash: CrashRecoveryService, chromium log: BrowserCrashLog,
+                       hostSupervisor: (any ChromiumHostSupervising)?) -> JSONValue {
         var launch: [String: JSONValue] = [
             "recovery": .string(recoveryName(crash.recovery)),
             "skips_browser_pages": .bool(crash.recovery.skipsBrowserPages),
@@ -38,12 +46,20 @@ enum DebugCrashes {
         launch["system_report"] = crash.previousCrashLog.map { .string($0.path) } ?? .null
         launch["report"] = crash.previousReport.map { .string($0.path) } ?? .null
         launch["notice"] = crash.noticeText.map { .string($0) } ?? .null
-        return .object([
+        var object: [String: JSONValue] = [
             "launch": .object(launch),
             "chromium_total": .number(Double(log.total)),
             "chromium": .array(log.records.map(record)),
             "report_dir": .string(crash.writer.directory.path),
-        ])
+        ]
+        #if DEBUG || CMUX_BENCH_HOOKS
+        if let supervisor = hostSupervisor as? ChromiumHostSupervisor {
+            object["chromium_host_total"] = .number(Double(supervisor.crashesTotal))
+            // The fields of each end's crash report (CrashReportWriter), one source for both.
+            object["chromium_host"] = .array(supervisor.crashes.map { JSONValue(foundation: crash.writer.report(for: $0)) ?? .null })
+        }
+        #endif
+        return .object(object)
     }
 
     private static func recoveryName(_ recovery: LaunchRecovery) -> String {

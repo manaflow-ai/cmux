@@ -130,6 +130,8 @@ public final class StartupScheduler {
     /// ``afterFirstFrame()`` callers, resumed when the afterFirstFrame tasks are released or quit begins.
     private var firstFrameWaiters: [OnceContinuation<Void, OnceContinuationError>] = []
     /// Built in init (lazy because its callback captures self).
+    // A budgeted client is always motion rate.
+    // frame-client: the afterStartup main tasks, one a frame in the background class's budget, then idle
     private lazy var idleClient: FrameClient = FrameClient(owner: "Startup.afterStartup", budgeted: .background, on: mainWork) { [weak self] _, budget in
         self?.runIdleTask(budget) ?? false
     }
@@ -172,6 +174,7 @@ public final class StartupScheduler {
         self.log = log
         self.uptimeNanos = uptimeNanos
         allowlist = Set(criticalAllowlist.map(\.description))
+        // timer-class-allow: the settle failsafe, an unposted scheduler timer (p06 section A)
         failsafe = DemandTimer(owner: "StartupScheduler.failsafe", clock: clock, ledger: ledger)
         visibleWork = FrameBatchQueue(owner: "Startup.afterFirstFrame", budgeted: .visible, on: mainWork)
         idleOwner = mainWork.budget.board.owner("Startup.afterStartup")
