@@ -955,6 +955,11 @@ CANCELLED_BY_READS = 30
 ANNOTATION_PAGES = 5
 
 
+class RescueHistoryCapped(Exception):
+    """The rescue runs were not all listed (GitHub.rescue_jobs() read RESCUE_RUN_PAGES pages and found no end): a
+    settled mark may be on the next page, so no intent is read from it. Not a read error: read() does not retry it."""
+
+
 class AnnotationsCapped(Exception):
     """A job's annotations were not all read (GitHub.annotations()); not a read error, so read() does not retry it."""
 # rescue() logs CANCEL_SENT once the cancel it means to follow with a re-run went out, and CANCEL_SETTLED when it is
@@ -971,7 +976,7 @@ EVERY_JOB = " of every job"
 # A rescue job's life: a sweeper's SWEEP_SECONDS and its rescue grace, within ci-owned-pool-rescue.yml's
 # timeout-minutes (345); a single watch's JOB_TIMEOUT_SECONDS is shorter.
 RESCUE_JOB_LIFETIME_SECONDS = 345 * 60
-RESCUE_RUN_PAGES = 4
+RESCUE_RUN_PAGES = 10
 # A rescue job's log is read as a stream up to this much; a longer one is not judged (the run stays cancelled).
 JOB_LOG_MAX_BYTES = 256 * 1024 * 1024
 # A log line is read at most this much at a time; the rest of a longer one is skipped.
@@ -1038,8 +1043,8 @@ def rerun_intended(api: GitHub, run: Mapping[str, Any], attempt: int, sleep: Cal
             state = marks.get(wanted) or state
             if state == "settled":
                 return ""
-    except READ_ERRORS as error:
-        log(f"could not read the rescue jobs' logs ({error})")
+    except (*READ_ERRORS, RescueHistoryCapped) as error:
+        log(f"could not read the rescue jobs' logs ({error}); the run is left cancelled")
         return ""
     return {"sent": "failed", "sent all": "all"}.get(state, "")
 
@@ -1759,6 +1764,8 @@ class GitHub:
             # A status-filtered page can come back short before the last one (failed_runs()): only an empty one ends.
             if not batch:
                 break
+        else:
+            raise RescueHistoryCapped(f"{RESCUE_RUN_PAGES} pages of rescue runs and no end")
         found: list[int] = []
         for run in runs:
             if not isinstance(run, Mapping) or run.get("conclusion") == "skipped":
@@ -3159,6 +3166,9 @@ def follow(client: GitHub, target: Target, *, seconds: int, queue_rounds: str | 
         outcome, reason, held = hold_for_destination(
             client, target, outcome, reason, budget_seconds=effective_seconds, floor_seconds=None,
             deadline=deadline, now=clock, sleep=sleep, log=log, seen=seen)
+        if outcome == "resume":
+            # The hold watches on, and can find the same stopped rescue.
+            return settle(outcome, reason)[3]
         if outcome not in ("rescue", "refused"):
             return f"stopped watching attempt {target.attempt}: {reason}" + (
                 f"; kept on the owned pool: {held}" if held else "")

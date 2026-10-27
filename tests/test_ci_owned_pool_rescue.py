@@ -1510,6 +1510,53 @@ class StrandedCancel(unittest.TestCase):
                                               f"{rescue.CANCEL_SENT} run 6 attempt 2{rescue.EVERY_JOB}\r\n"]),
                          {(5, 1): "settled", (6, 2): "sent all"})
 
+    def test_the_next_attempt_s_destination_hold_resumes_a_stopped_rescue(self):
+        # The hold (the real one) watches on while the re-run's label is stalled, and finds attempt 2 cancelled by a
+        # rescue that stopped before re-running it: that re-run is finished, never left cancelled.
+        clock = Clock()
+        api = CancelledAPI(clock)
+        looks = iter([("rescue", "queue alarm"), ("rescue", "queue alarm"), ("resume", "failed")])
+        verdicts = iter([("free", BLACKSMITH), ("stalled", BLACKSMITH)])
+        resumed, logged = [], []
+
+        def resume_rerun(api, target, *, now, sleep, log, every_job):
+            resumed.append((target.attempt, every_job))
+            return "re-ran it"
+        target = rescue.Target(RUN_ID, 1, HEAD, 0, e2e=True, path=DEV_DAILY)
+        with unittest.mock.patch.object(rescue, "watch", lambda *args, **kwargs: next(looks)), \
+                unittest.mock.patch.object(rescue, "resume_rerun", resume_rerun), \
+                unittest.mock.patch.object(rescue, "repicks", lambda target: False), \
+                unittest.mock.patch.object(rescue, "pull_moved", lambda *args: False), \
+                unittest.mock.patch.object(rescue, "move_verdict", lambda *args, **kwargs: next(verdicts)), \
+                unittest.mock.patch.object(rescue, "rescue",
+                                           lambda *args, **kwargs: f"re-ran every job of run {RUN_ID}"):
+            result = rescue.follow(api, target, seconds=30, queue_rounds="0", now=clock.now, sleep=clock.sleep,
+                                   log=logged.append)
+        self.assertEqual(result, "done", logged)
+        self.assertEqual(resumed, [(2, False)], logged)
+        self.assertTrue(any("is stalled" in line for line in logged), logged)
+
+    def test_a_rescue_history_past_the_page_cap_leaves_the_run_cancelled(self):
+        api = rescue.GitHub("t", "manaflow-ai/cmux")
+        pages = []
+
+        def request(method, path, **_):
+            if path.startswith("/actions/workflows/"):
+                pages.append(path)
+                return {"workflow_runs": [{"id": len(pages), "conclusion": "skipped"}]}
+            return {"jobs": []}
+        api.request = request
+        with self.assertRaises(rescue.RescueHistoryCapped):
+            api.rescue_jobs(START)
+        self.assertEqual(len(pages), rescue.RESCUE_RUN_PAGES)
+        clock = Clock()
+        cancelled = CancelledAPI(clock, cancelled=True, rescue_log=[f"{rescue.CANCEL_SENT} run {RUN_ID} attempt 1"])
+        cancelled.rescue_jobs = lambda earliest_end: (_ for _ in ()).throw(rescue.RescueHistoryCapped("capped"))
+        clock.sleep(60)
+        lines = []
+        self.assertEqual(rescue.rerun_intended(cancelled, cancelled.run(RUN_ID), 1, clock.sleep, lines.append), "")
+        self.assertTrue(any("left cancelled" in line for line in lines), lines)
+
     def test_a_janitor_cancel_by_the_same_bot_stays_cancelled(self):
         # The queue janitor cancels as cmux-bot too (a superseded DEV run that never started, an orphan): no rescue
         # sent a cancel of this run's attempt, or it settled that cancel (re-ran it, or left it for a moved head).
