@@ -411,7 +411,7 @@ test("Run follows one live artifact but passive markup cannot gain script consen
   const { createRoot } = await import("react-dom/client");
   const { ArtifactPanel } = await import("../src/agent-session/acpmux/conversation/ArtifactPanel");
   const previousLocation = scope.location;
-  scope.location = { protocol: "cmux-agent:" };
+  scope.location = new URL("cmux-agent://pane/index.html");
   const version = (code: string, revision: number) => ({
     kind: "html" as const,
     lang: "html",

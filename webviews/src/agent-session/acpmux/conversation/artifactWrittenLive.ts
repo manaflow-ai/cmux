@@ -11,6 +11,7 @@ export class ArtifactWrittenLive {
   private versions: Artifact[] = [];
   private order = -Infinity;
   private revision = 0;
+  private toolId?: string;
   private unsubscribe?: () => void;
   private recent = new WeakSet<ArtifactSourceRow>();
   private disposed = false;
@@ -43,11 +44,13 @@ export class ArtifactWrittenLive {
     this.versions.push(artifact);
   }
   private changed(update: RowUpdate) {
-    if (this.disposed || update.order <= this.order) return;
+    if (this.disposed || update.order < this.order || (update.order === this.order && update.tool.id === this.toolId))
+      return;
     const before = update.before ? toolArtifacts(update.before) : [];
     for (const next of toolArtifacts(update.tool)) {
       if (!this.matches(next) || before.some((old) => this.matches(old) && old.code === next.code)) continue;
       this.order = update.order;
+      this.toolId = update.tool.id;
       this.artifact = { ...next, identity: this.artifact.identity, revision: ++this.revision };
       const index = this.versions.findIndex((version) => version.code === next.code);
       if (index < 0) this.append(this.artifact);
