@@ -84,9 +84,11 @@ final class CrashRecoveryService {
         marker?.armSurvivalWindow(on: deadlines)
     }
 
-    /// Writes a report for each Chromium failure from now on. With the Chromium Host in the build, also
-    /// collects its Crashpad dumps (p01-process task 226): now, and after each failure, when Crashpad
-    /// has written the failed process's dump. `reporter` sends a helper's dump when crash reports are on.
+    /// Writes a report for each Chromium failure from now on; the Chromium Host's ends have a fuller report of their
+    /// own, written from its supervisor (``AppRunMarker/reportHostCrashes(of:writer:work:)``). With the Chromium Host in
+    /// the build, also collects its Crashpad dumps (p01-process task 226): now, and after each failure (the host's own
+    /// end too), when Crashpad has written the failed process's dump. `reporter` sends a helper's dump when crash
+    /// reports are on.
     func observe(_ log: BrowserCrashLog, reporter: CrashReporter? = nil) {
         guard crashLog == nil else { return }
         crashLog = log
@@ -95,8 +97,9 @@ final class CrashRecoveryService {
         chromiumDumps = dumps
         dumps?.scan()
         crashObserver = log.addObserver { record in
-            writer.writeInBackground(record)
             dumps?.scan()
+            guard record.processType != CrashRecoveryService.hostProcessType else { return }
+            writer.writeInBackground(record)
         }
     }
 
@@ -123,6 +126,10 @@ final class CrashRecoveryService {
         return nil
         #endif
     }
+    }
+
+    /// The crash log's process type of the Chromium Host (`CEFRuntime.hostEnded`).
+    nonisolated static let hostProcessType = "chromium-host"
 
     /// Shows "cmux restarted after a problem" once per launch, on the first
     /// window presented after a restart.

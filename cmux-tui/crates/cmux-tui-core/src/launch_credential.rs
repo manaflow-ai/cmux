@@ -217,7 +217,10 @@ impl LaunchKeys {
             return Err(VerifyError::Malformed);
         }
         let Some(key) = self.keys.get(kid) else { return Err(VerifyError::UnknownKey) };
-        let signed = &credential[..PREFIX.len() + 1 + kid.len() + 1 + body.len()];
+        // `<prefix>.<kid>.<body>`: everything before the tag's dot.
+        let Some((signed, _)) = credential.rsplit_once('.') else {
+            return Err(VerifyError::Malformed);
+        };
         let expected = URL_SAFE_NO_PAD.encode(hmac_sha256(key, signed.as_bytes()));
         if !cmux_local_auth::tokens_match(tag, &expected) {
             return Err(VerifyError::BadMac);

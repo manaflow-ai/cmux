@@ -44,7 +44,7 @@ pub(super) fn change(
     change: impl Fn(&mut HiddenHistory),
 ) -> anyhow::Result<()> {
     let digest = Sha256::digest(key.as_bytes());
-    let key_hash: String = digest[..12].iter().map(|byte| format!("{byte:02x}")).collect();
+    let key_hash: String = digest.iter().take(12).map(|byte| format!("{byte:02x}")).collect();
     let mut last_error = None;
     for _ in 0..MAX_ATTEMPTS {
         let (mut document, revision) = load(mux)?;

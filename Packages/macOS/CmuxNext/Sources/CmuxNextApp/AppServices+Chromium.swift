@@ -7,13 +7,15 @@ import CmuxNextDesign
 import CmuxNextFeatures
 import CmuxNextMemory
 import CmuxNextSettings
+import CmuxNextSignposts
 import CmuxNextWakeups
 import Observation
 
 // When Chromium is likely (ChromiumWarmup): Chromium tabs and the palette's Chromium
-// entries (while Chromium is the default engine it starts after launch). The "+" engine menu reports from
+// entries (while Chromium is the default engine it starts after startup). The "+" engine menu reports from
 // PaneController.contextMenu(for: .newTabButton), the default-engine action
-// from SettingsHandlers.
+// from SettingsHandlers. Every warm-start step is an idle task of the app's main-thread scheduler
+// (`AppServices.mainDeadlines`, given to ChromiumWarmup at init), posted once startup settled.
 extension AppServices {
     /// The cmux-shipped uBlock Origin's pinned folder (``AgentExtensionAccess/readTrustedBuiltInFolder(resources:)``,
     /// a manifest read and hash), read once on `work`'s files lane: each tab's extension access
@@ -124,6 +126,7 @@ extension AppServices {
         // A host that ends while cmux quits reports nothing (quit ends it).
         let supervisor = chromiumRuntime.source.hostSupervisor as? ChromiumHostSupervisor
         supervisor?.isQuitting = { [weak self] in self?.quit.isQuitting == true }
+        AppRunMarker.reportHostCrashes(of: chromiumRuntime.source.hostSupervisor, writer: crashRecovery.writer, work: work)
         // A crashed host's tabs come back with the history their daemon records keep (p01-process-083).
         supervisor?.savedNavigation = { [weak self] tab, url in
             guard let tabs = self?.cache.browserTabs else { return nil }
@@ -169,6 +172,7 @@ extension AppServices {
                                           .cappingSharedRendererMemory(rendererCaps)
                                   },
                                   engineDidCreate: AppServices.chromiumEngineHook(crashRecovery: crashRecovery, reporter: crashReporting.reporter,
+                                                                                  stability: rendererStability,
                                                                                   routes: { [weak self] in self?.routeChromiumRequests($0) }),
                                   stop: { await $0.shutdown() })
     }
@@ -190,12 +194,14 @@ extension AppServices {
     }
 
     /// The slot's `engineDidCreate`. It holds the crash services themselves, not the `AppServices`, so on every engine
-    /// built, before CefInitialize can run: the crash log's writer, the run marker's and Sentry's signal handlers (Chromium
-    /// resets them at start), the assistive-client switch of Chromium's accessibility trees; then `routes`.
-    static func chromiumEngineHook(crashRecovery: CrashRecoveryService, reporter: CrashReporter,
+    /// built, before CefInitialize can run: the crash log's writer, the renderer stability events, the run marker's and
+    /// Sentry's signal handlers (Chromium resets them at start), the assistive-client switch of Chromium's accessibility
+    /// trees; then `routes`.
+    static func chromiumEngineHook(crashRecovery: CrashRecoveryService, reporter: CrashReporter, stability: RendererStability,
                                    routes: @escaping (CEFEngine) -> Void) -> (CEFEngine) -> Void {
         { engine in
             crashRecovery.observe(engine.crashLog, reporter: reporter)
+            engine.rendererStability = stability
             AppRunMarker.keepSignalHandlers(crashRecovery.marker, across: engine, reporter: reporter)
             (NSApp as? CmuxApplication)?.assistiveClientsChanged = { [weak engine] active in engine?.setAssistiveClientActive(active) }
             routes(engine)

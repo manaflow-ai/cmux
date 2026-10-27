@@ -78,6 +78,7 @@ use crate::browser::{BrowserAttachUpdate, BrowserFrameUpdate};
 use crate::journal_kernel::JournalDocument;
 use crate::model::{Screen, State};
 use crate::mux::ClientSizingIdentity;
+use crate::panic_free::JsonFields;
 use crate::platform::{self, transport};
 #[cfg(test)]
 use crate::resource::BrowserPublicId;
@@ -122,6 +123,10 @@ pub use browser_runtime::BROWSER_RUNTIME_CAPABILITY;
 mod window_title;
 use window_title::sanitize_window_title;
 pub use window_title::window_title_osc;
+/// `debug-panic` (p09-observability task 101): debug and `--features bench` builds only.
+#[cfg(any(debug_assertions, feature = "bench"))]
+#[path = "server/debug_crash_inject.rs"]
+mod debug_crash_inject;
 #[path = "server/loopback_forward.rs"]
 mod loopback_forward;
 /// `oracle-state` (p15-oracle task 021): debug and `--features oracle` builds only.
@@ -2524,7 +2529,7 @@ fn node_json(
                 "b": node_json(b, active_pane, split_ids),
             });
             if let Some(public_id) = split_ids.get(id) {
-                value["split_id"] = json!(public_id);
+                value.insert("split_id", json!(public_id));
             }
             value
         }
@@ -2636,9 +2641,9 @@ fn list_workspaces_reply(mux: &Mux) -> anyhow::Result<Value> {
     let notifications = mux.tree_decorations();
     let mut workspaces = mux.with_state(|state| workspaces_json(state, &notifications));
     let (registry_id, generation) = mux.registry_identity();
-    workspaces["registry_id"] = json!(registry_id);
-    workspaces["generation"] = json!(generation);
-    workspaces["terminal_revision"] = json!(mux.terminal_registry_revision()?);
+    workspaces.insert("registry_id", json!(registry_id));
+    workspaces.insert("generation", json!(generation));
+    workspaces.insert("terminal_revision", json!(mux.terminal_registry_revision()?));
     Ok(workspaces)
 }
 
