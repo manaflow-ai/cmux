@@ -426,7 +426,7 @@ def static_declarations(text: str) -> list[tuple[str, str, list[str]]]:
             if depth == 0 and started:
                 if value in ("}", ";"):
                     break
-                if "\n" in gap and tokens[-1] not in ("=", ",", ".", ":", "+", "-", "?", "??") and value not in (".", "{", "("):
+                if "\n" in gap and tokens[-1] not in ("=", ",", ".", ":", "+", "-", "*", "/", "%", "&", "|", "?", "??") and value not in (".", "{", "("):
                     break
             if value in ("(", "[", "{"):
                 depth += 1
@@ -464,10 +464,10 @@ def tunable_source_defaults(sources: Mapping[str, str]) -> dict[str, object]:
     selected = {key for key, (_, _, _, tokens) in nodes.items()
                 if any(re.fullmatch(r"(?:Derived)?Tunable|\w+Tunable", token) for token in tokens)}
     # A helper returning Tunable (e.g. points) has callers whose initializer has no Tunable token.
-    helpers = {(path, name) for key, (path, kind, name, _) in nodes.items()
-               if key in selected and kind == "func"}
-    for key, (path, _, _, tokens) in nodes.items():
-        if any((path, token) in helpers for token in tokens):
+    helper_names = {name for key, (_, kind, name, _) in nodes.items()
+                    if key in selected and kind == "func"}
+    for key, (_, _, _, tokens) in nodes.items():
+        if any(token in helper_names for token in tokens):
             selected.add(key)
     pending = list(selected)
     while pending:
