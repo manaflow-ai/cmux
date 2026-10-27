@@ -8034,9 +8034,9 @@ function AcpmuxPane() {
   const deleteChat = async () => {
     const target = deleteConfirmSession;
     const client = directClient.current;
-    if (!target || target !== snapshot.sessionId || !client) return;
+    if (!target || target !== snapshot.sessionId || !client || client.selectedSession !== target) return;
     deleteInFlight.current = { target, client, harness: snapshot.summary?.harness };
-    await client.purge();
+    await client.purge(target);
     // The purge can resolve after the dialog was dismissed or the pane selected another chat.
     // Never close the newly selected tab for the old chat's completion.
     // A purge clears the client's selected session as part of its own notification; that is the

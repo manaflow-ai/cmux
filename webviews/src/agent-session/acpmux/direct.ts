@@ -5405,9 +5405,11 @@ export class AcpmuxDirectClient {
   }
   /// Permanently removes the shown session from acpmux history. The caller closes the tab only
   /// after this authenticated, session-scoped purge succeeds.
-  async purge(): Promise<void> {
-    const sessionId = this.actingSessionId;
-    if (!sessionId) throw new Error(translate("error.notOpen"));
+  async purge(sessionId: string): Promise<void> {
+    // The confirmation belongs to its original chat, even between a hold's release and React's
+    // next commit. Never resolve this destructive target from the client's mutable selection.
+    if (!sessionId || sessionId !== this.selectedSessionId || sessionId !== this.actingSessionId)
+      throw new Error(translate("error.notOpen"));
     this.purgingSessionId = sessionId;
     try {
       await this.request("_acpmux/kill", { sessionId, purge: true });
