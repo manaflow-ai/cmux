@@ -61,8 +61,8 @@ const capturedFile = bash(
   "completed",
   { output: "queued" },
 );
-capturedFile.inputPath = { path: "/tmp/net-retries/summary.md", canonical: "/tmp/net-retries/summary.md" };
-capturedFile.diffs = [
+capturedFile.tool!.inputPath = { path: "/tmp/net-retries/summary.md", canonical: "/tmp/net-retries/summary.md" };
+capturedFile.tool!.diffs = [
   {
     path: "/tmp/net-retries/summary.md",
     canonical: "/tmp/net-retries/summary.md",

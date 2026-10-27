@@ -107,6 +107,11 @@ describe("acpmuxSend", () => {
     expect(read("echo -e 'a\\nb' | acpmux send lane -")).toEqual({ target: "lane", noWait: false });
     expect(read("cat <<'EOF' | acpmux send lane\nvia cat\nEOF")?.text).toBe("via cat\n");
     expect(read("acpmux send lane - < /tmp/note.md")).toEqual({ target: "lane", fileInput: true, noWait: false });
+    expect(read("acpmux send lane 'body from the argument' < /tmp/note.md")).toEqual({
+      target: "lane",
+      text: "body from the argument",
+      noWait: false,
+    });
     // The last stdin redirect wins; a writer whose stdout goes elsewhere feeds nothing.
     expect(read("acpmux send lane - <<EOF < /tmp/message\nbody\nEOF")).toEqual({
       target: "lane",

@@ -683,7 +683,7 @@ function sendArgs(args: readonly ShellWord[], stdin: ShellWord | "file" | undefi
   return {
     target,
     ...(text?.trim() && { text }),
-    ...(stdin === "file" && { fileInput: true as const }),
+    ...(fromStdin && stdin === "file" && { fileInput: true as const }),
     noWait,
   } satisfies AcpmuxSend;
 }
