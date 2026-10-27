@@ -5,7 +5,9 @@ import AppKit
 /// its Home passes a FrameScheduler client (CmuxNextHome HomeFrameTicks).
 @MainActor
 public final class DisplayLinkFrameTicks: FrameTickSource {
-    public init() {}
+    /// Nonisolated: it is the default argument of MessagesLabHomeView's and ChatController's inits,
+    /// and a Swift 5 module evaluates default arguments outside the main actor. It holds no state.
+    nonisolated public init() {}
 
     public func frames(for view: NSView, onFrame: @escaping @MainActor () -> Bool) -> any FrameTickStream {
         DisplayLinkFrameTickStream(view: view, onFrame: onFrame)
