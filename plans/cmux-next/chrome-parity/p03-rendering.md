@@ -1353,6 +1353,16 @@ every task that changes behavior or performance and is not repeated per row.
   today, which now holds a frame only until the renderer's next one). Costs to measure on the fleet: one GPU blit and
   three drawables per surface next to the swap chain (`bench_memory.py`), the `nextDrawable` wait histogram
   (`present_form` log line, `ghostty-present-form-bench.py`).
+- Fork fixes (2026-10-27): commit 612a8ff99 on the same branch, after review. `nextDrawable` never runs under the
+  draw lock: a frame whose drawable has the size from before a resize is dropped and drawn again at once with a
+  drawable taken outside the lock (`stale_drawables` in the `present_form` line). The reveal request comes from the
+  drawable's presented handler, not the command buffer's completion, so no older drawable can show after it. Every
+  `set_size` and `set_content_scale` syncs the overlay's geometry and scale and the drawable size (a display scale
+  change keeps the bounds); 081 must set the root layer's `contentsScale` before those calls, as upstream Ghostty's
+  `viewDidChangeBackingProperties` does (the cmux leaf does not today). The overlay is `opaque` only for
+  `background-opacity` >= 1 without glass, also on a config reload. A hidden or purged presentation draws nothing in
+  the display pass; a purge clears the overlay's drawable, and a frame encoded before a hide, purge or main present
+  never becomes `ghostty_surface_presented_frame`.
 
 #### p03-rendering-081 cmux adopts renderer-owned frames
 - Files: `.../CmuxNextTerminal/TerminalSurfaceView.swift`, `TerminalFrameHold.swift`, `TerminalFramePurgeability.swift`,
