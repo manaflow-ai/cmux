@@ -11,6 +11,50 @@ struct CuaTargetGuard: Sendable {
         guard var object = try JSONSerialization.jsonObject(with: arguments) as? [String: Any] else {
             throw ToolError("Computer use arguments must be a JSON object.")
         }
+        // These run other tools from content this guard cannot check (a
+        // script, a recorded trajectory), so their targets are never seen.
+        if Self.opaqueDispatchTools.contains(name) {
+            throw ToolError("Computer use does not allow \(name) in cmux. Call the tools directly, or use run_steps with pid and window_id.")
+        }
+        // A batch runs each step through the driver's own registry, so every
+        // nested target must pass here first. Upstream matches `app` and
+        // `window` names loosely (substring), which this guard cannot repeat
+        // exactly, so a batch must name its windows by pid and window_id.
+        if Self.batchTools.contains(name) {
+            try await checkBatch(object)
+            return arguments
+        }
+        try await checkTargets(in: object, name: name)
+        for key in name == "launch_app" ? ["name", "app_name"] : ["app_name"] {
+            if let value = object[key], !(value is NSNull) {
+                guard let reference = value as? String, !reference.isEmpty else { throw unresolved(key) }
+                let app = await resolver.app(named: reference)
+                try check(app, reference: reference)
+                if name == "launch_app", !(object["bundle_id"] is String), let app {
+                    // LaunchServices must open the bundle we checked, rather than
+                    // resolving the display name a second time inside the driver.
+                    object["bundle_id"] = app.bundleID
+                }
+            }
+        }
+        if name == "launch_app", let urls = object["urls"] as? [String] {
+            for url in urls {
+                let parts = url.split(separator: ":", maxSplits: 1, omittingEmptySubsequences: false)
+                guard parts.count == 2 else { continue }
+                let scheme = parts[0].lowercased()
+                if scheme == "cmux" || scheme.hasPrefix("cmux-") || scheme.hasPrefix("cmux+") {
+                    throw ToolError("Computer use is not allowed to use cmux for safety reasons.")
+                }
+            }
+        }
+        // Unchanged calls keep their original wire bytes.
+        if name != "launch_app" { return arguments }
+        return try JSONSerialization.data(withJSONObject: object)
+    }
+
+    /// Checks the pid, window, bundle id and element token targets of one
+    /// argument object. `name` is the tool, or nil for an object nested in a batch.
+    private func checkTargets(in object: [String: Any], name: String?) async throws {
         let hasPID = object["pid"].map { !($0 is NSNull) } ?? false
         let hasWindowID = object["window_id"].map { !($0 is NSNull) } ?? false
         if let value = object["pid"], !(value is NSNull) {
@@ -32,37 +76,42 @@ struct CuaTargetGuard: Sendable {
                 try check(await resolver.app(forBundleID: bundle), reference: bundle)
             }
         }
-        for key in name == "launch_app" ? ["name", "app_name"] : ["app_name"] {
-            if let value = object[key], !(value is NSNull) {
-                guard let reference = value as? String, !reference.isEmpty else { throw unresolved(key) }
-                let app = await resolver.app(named: reference)
-                try check(app, reference: reference)
-                if name == "launch_app", !(object["bundle_id"] is String), let app {
-                    // LaunchServices must open the bundle we checked, rather than
-                    // resolving the display name a second time inside the driver.
-                    object["bundle_id"] = app.bundleID
-                }
-            }
-        }
         // A desktop input has an implicit, changing target. Require an explicit
         // pid/window so it cannot bypass the guard via global input delivery.
+        // In a batch the step's tool is not known here, so every desktop scope needs one.
         if object["scope"] as? String == "desktop", !hasPID, !hasWindowID,
-           Self.desktopInputTools.contains(name) {
+           name.map(Self.desktopInputTools.contains) ?? true {
             throw ToolError("Computer use desktop input needs an explicit app target. Use list_apps or list_windows, then provide pid or window_id.")
         }
-        if name == "launch_app", let urls = object["urls"] as? [String] {
-            for url in urls {
-                let parts = url.split(separator: ":", maxSplits: 1, omittingEmptySubsequences: false)
-                guard parts.count == 2 else { continue }
-                let scheme = parts[0].lowercased()
-                if scheme == "cmux" || scheme.hasPrefix("cmux-") || scheme.hasPrefix("cmux+") {
-                    throw ToolError("Computer use is not allowed to use cmux for safety reasons.")
+        // Since v0.35 upstream takes an element_token without a pid and acts
+        // on the token's own window, which this guard never resolved.
+        if let token = object["element_token"], !(token is NSNull), !hasPID {
+            throw ToolError("Computer use needs the pid with element_token. Pass the pid of the window you read the token from.")
+        }
+    }
+
+    private func checkBatch(_ object: [String: Any]) async throws {
+        func walk(_ value: Any, depth: Int) async throws {
+            guard depth < 16 else { throw ToolError("Computer use batch arguments are nested too deeply.") }
+            if let object = value as? [String: Any] {
+                for key in ["app", "window"] {
+                    if let selector = object[key], !(selector is NSNull) {
+                        throw ToolError("Computer use batches must name each window by pid and window_id, not by `\(key)`. Use list_windows first.")
+                    }
                 }
+                try await checkTargets(in: object, name: nil)
+                for (key, nested) in object where key != "app_name" {
+                    try await walk(nested, depth: depth + 1)
+                }
+                if let reference = object["app_name"], !(reference is NSNull) {
+                    guard let reference = reference as? String, !reference.isEmpty else { throw unresolved("app_name") }
+                    try check(await resolver.app(named: reference), reference: reference)
+                }
+            } else if let array = value as? [Any] {
+                for nested in array { try await walk(nested, depth: depth + 1) }
             }
         }
-        // Unchanged calls keep their original wire bytes.
-        if name != "launch_app" { return arguments }
-        return try JSONSerialization.data(withJSONObject: object)
+        try await walk(object, depth: 0)
     }
 
     private func check(_ app: CuaTargetIdentity?, reference: String) throws {
@@ -81,6 +130,12 @@ struct CuaTargetGuard: Sendable {
               let result = Int64(number.stringValue) else { return nil }
         return result
     }
+
+    /// Tools that run other tools from content outside their arguments.
+    static let opaqueDispatchTools: Set<String> = ["run_script", "replay_trajectory"]
+    /// Tools that run nested tool calls given in their arguments (run_actions
+    /// is upstream's hidden alias of run_steps).
+    static let batchTools: Set<String> = ["run_steps", "run_actions"]
 
     private static let desktopInputTools: Set<String> = [
         "click", "double_click", "right_click", "drag", "scroll", "move_cursor",

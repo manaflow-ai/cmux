@@ -101,6 +101,52 @@ import Testing
         }
     }
 
+    // Upstream v0.35+ tools whose inner calls the driver dispatches itself.
+    @Test(arguments: ["run_script", "replay_trajectory"])
+    func toolsThatHideTheirTargetsAreRefused(name: String) async {
+        await #expect(throws: ToolError.self) {
+            try await CuaTargetGuard(policy: CuaTargetPolicy(), resolver: Resolver())
+                .check(name: name, arguments: Data(#"{"script":"cua.click({pid:100,x:1,y:1})"}"#.utf8))
+        }
+    }
+
+    @Test(arguments: [
+        // batch default, step {tool,args}, shorthand step, observe, nested refused selectors
+        #"{"pid":100,"steps":[{"tool":"click","args":{"x":1,"y":1}}]}"#,
+        #"{"steps":[{"tool":"click","args":{"pid":100,"x":1,"y":1}}]}"#,
+        #"{"steps":[{"click":{"window_id":9000,"x":1,"y":1}}]}"#,
+        #"{"pid":102,"steps":[{"tool":"click","args":{"x":1,"y":1}}],"observe":{"pid":100}}"#,
+        #"{"steps":[{"tool":"click","args":{"app":"Calculator","role":"button","name":"7"}}]}"#,
+        #"{"app":"TextEdit","steps":[{"tool":"press_key","args":{"key":"a"}}]}"#,
+        #"{"pid":102,"steps":[{"tool":"click","args":{"window":"Terminal","x":1,"y":1}}]}"#,
+        #"{"pid":102,"steps":[{"tool":"click","args":{"element_token":"s00000001:3"}}]}"#,
+        #"{"steps":[{"tool":"click","args":{"scope":"desktop","x":1,"y":1}}]}"#,
+        #"{"steps":[{"tool":"type_text","args":{"app_name":"Terminal","text":"ls"}}]}"#,
+    ])
+    func everyBatchTargetIsChecked(arguments: String) async {
+        for name in ["run_steps", "run_actions"] {
+            await #expect(throws: ToolError.self) {
+                try await CuaTargetGuard(policy: CuaTargetPolicy(), resolver: Resolver())
+                    .check(name: name, arguments: Data(arguments.utf8))
+            }
+        }
+    }
+
+    @Test func batchWithCheckedWindowsPasses() async throws {
+        let arguments = Data(#"{"pid":102,"window_id":9001,"steps":[{"tool":"click","args":{"element_token":"s00000001:3","pid":102}},{"type_text":{"text":"hi"},"expect":[{"role":"button","name":"Save"}]}],"observe":{}}"#.utf8)
+        let result = try await CuaTargetGuard(policy: CuaTargetPolicy(), resolver: Resolver())
+            .check(name: "run_steps", arguments: arguments)
+        #expect(result == arguments)
+    }
+
+    @Test func elementTokenNeedsItsPid() async throws {
+        let guarder = CuaTargetGuard(policy: CuaTargetPolicy(), resolver: Resolver())
+        await #expect(throws: ToolError.self) {
+            try await guarder.check(name: "set_value", arguments: Data(#"{"element_token":"s00000001:3","value":"x"}"#.utf8))
+        }
+        _ = try await guarder.check(name: "set_value", arguments: Data(#"{"element_token":"s00000001:3","pid":102,"value":"x"}"#.utf8))
+    }
+
     private struct Resolver: CuaTargetResolving {
         func app(forPID pid: Int32) async -> CuaTargetIdentity? {
             switch pid {
