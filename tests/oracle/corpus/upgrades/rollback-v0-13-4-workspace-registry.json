@@ -3,7 +3,7 @@
   "corpusVersion": 1,
   "id": "rollback-v0-13-4-workspace-registry",
   "suite": "upgrades",
-  "title": "cmux-tui-v0.13.4 opens the workspace_registry head wrote (the rollback may run)",
+  "title": "cmux-tui-v0.13.4 refuses head's root with the workspace_registry (store_schemas.predates_rollback)",
   "surface": "cmux-next-daemon",
   "source": {
     "repo": "manaflow-ai/cmux",
@@ -198,31 +198,22 @@
         "process": "daemon"
       },
       "expect": {
-        "outcome": "ok",
-        "noReceiptReason": "a daemon start answers no request, so it has no receipt; it is ready or it exits"
+        "outcome": "error",
+        "error": "store_schemas.predates_rollback",
+        "errorDetails": {
+          "kept": "cmux-tui-v0.13.4"
+        }
       },
       "checkpoint": [
         "settled"
       ],
-      "note": "the rollback may run: cmux-tui-v0.13.4 starts on head's root"
-    },
-    {
-      "id": "read",
-      "op": "snapshot",
-      "args": {
-        "facets": [
-          "daemon"
-        ]
-      },
-      "checkpoint": [
-        "settled"
-      ],
-      "note": "cmux-tui-v0.13.4's facet of head's root"
+      "note": "the rollback is refused; cmux-tui-v0.13.4 is then started anyway, as the old app would be"
     }
   ],
   "invariants": [
-    "the store_schemas verdict of workspace_registry: head's stored schema 15 against cmux-tui-v0.13.4's readable 15 (RollbackDecision.decide)",
-    "read: every value cmux-tui-v0.13.4 reads is in head's written facet at the same pointer, equal"
+    "head's __store-schemas --stored over the root is {\"workspace_registry\": 15}: the case's store and the registry, no other",
+    "the store_schemas verdict of the whole root against what cmux-tui-v0.13.4 reads (nothing: its __store-schemas fails), as RollbackDecision.decide gives it",
+    "every file of the root (each store's database and SQLite sidecars, the locks, machine-id and the pepper) is byte-identical (sha256) after cmux-tui-v0.13.4 ran, and none is gone"
   ],
   "teardown": [
     "stop the case daemon",
@@ -231,5 +222,14 @@
   ],
   "untested": [
     "terminals: a packed root holds no live terminal host; host adoption across builds belongs to the terminal-host protocol (docs/cloud-guest-upgrades.md)"
+  ],
+  "allow_crashes": [
+    {
+      "kind": "daemon",
+      "steps": [
+        "open"
+      ],
+      "reason": "a refused rollback: cmux-tui-v0.13.4 may exit before it is ready on head's root"
+    }
   ]
 }

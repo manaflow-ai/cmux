@@ -13,23 +13,23 @@
         "attached_terminal_ids": [],
         "client_kind": null,
         "connected_seconds": "0",
-        "id": "client_0679583a8dce572e34e6e049c09cd34c",
+        "id": "client_b33fad2bfa5392f51b322de38249d2f4",
         "name": null,
         "self": true,
-        "session_id": "session_4c698c781abe0b945838ffc4dc751365",
+        "session_id": "session_eb8e3d5930c10281aa5ffbe50f8bbbc3",
         "sizes": [],
         "transport": "unix"
       }
     ],
     "cursor": {
-      "generation": "7a50c0bb-f646-4a33-9884-7654f48deaa5",
+      "generation": "78e2f15c-2c95-493a-9497-e9b35ab378c0",
       "revision": "8"
     },
     "frontend_projections": [],
     "machine": {
       "connectable": true,
       "deleted": false,
-      "id": "machine_503a91f328102821ce7e8d7e3d9d0250",
+      "id": "machine_9df93ea8f6b28388e06d5d59937baef5",
       "name": "local",
       "origin": "local",
       "recoverable": false,
@@ -38,11 +38,11 @@
     "notifications": [
       {
         "body": "all green",
-        "created_at_ms": "1793074577700",
-        "id": "notification_fc175968fe9dcb4e2d2d0054192005e5",
+        "created_at_ms": "1793077381766",
+        "id": "notification_0f08ad22c4374114b8c9671cbd02d55f",
         "level": "info",
         "read_by": [],
-        "session_id": "session_4c698c781abe0b945838ffc4dc751365",
+        "session_id": "session_eb8e3d5930c10281aa5ffbe50f8bbbc3",
         "title": "build done",
         "unread": false
       }
@@ -51,9 +51,9 @@
     "screens": [],
     "session": {
       "connected": true,
-      "generation": "7a50c0bb-f646-4a33-9884-7654f48deaa5",
-      "id": "session_4c698c781abe0b945838ffc4dc751365",
-      "machine_id": "machine_503a91f328102821ce7e8d7e3d9d0250",
+      "generation": "78e2f15c-2c95-493a-9497-e9b35ab378c0",
+      "id": "session_eb8e3d5930c10281aa5ffbe50f8bbbc3",
+      "machine_id": "machine_9df93ea8f6b28388e06d5d59937baef5",
       "name": "oracle-upgrade",
       "revision": "8"
     },
@@ -63,35 +63,35 @@
     "workspaces": [
       {
         "focused": false,
-        "id": "ws_1882abe262a635304616bf11c0074800",
+        "id": "ws_67b81cb0333021b1421f316a74b4d94f",
         "index": 0,
         "name": "gamma",
-        "session_id": "session_4c698c781abe0b945838ffc4dc751365"
+        "session_id": "session_eb8e3d5930c10281aa5ffbe50f8bbbc3"
       },
       {
         "focused": true,
-        "id": "ws_d26b19e2d32cddc11013f796dc4a9c64",
+        "id": "ws_a98652b88c1b41867302f379b30310af",
         "index": 1,
         "name": "alpha renamed",
-        "session_id": "session_4c698c781abe0b945838ffc4dc751365"
+        "session_id": "session_eb8e3d5930c10281aa5ffbe50f8bbbc3"
       },
       {
         "focused": false,
-        "id": "ws_188113ed07bab0c8cf3b2f6030c6f1c8",
+        "id": "ws_3a61866fbe378023d800d61d793e5908",
         "index": 2,
         "name": "béta ✓ ",
-        "session_id": "session_4c698c781abe0b945838ffc4dc751365"
+        "session_id": "session_eb8e3d5930c10281aa5ffbe50f8bbbc3"
       }
     ]
   },
   "files": {
-    "state/machine-id": "c6b38fedda19d7c5daa8f63160f50777f4660a2c10baa1f31ea316ba6921e377",
+    "state/machine-id": "4d19a9856dccb88e8db447c142d62a2d76fd9bcc4e24c096a5a8d69ccf5f1d39",
     "state/machine-id.lock": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
     "state/oracle-upgrade-036fdbc0e60586ee/workspace-registry.sqlite3": "f1c1d714b195aa1795c50ed2db1795613d868a07340cbf0b1a563384fdfebdcf",
-    "state/oracle-upgrade-036fdbc0e60586ee/workspace-registry.sqlite3-shm": "1e0c6dfae56bcefc179f023a0c1f980011089d3841cbc6088001c8f870c5f9c7",
-    "state/oracle-upgrade-036fdbc0e60586ee/workspace-registry.sqlite3-wal": "43613db8fac1d6f89f51b1e7575ed8d965c5983783e41502a1557ae75f39a639",
+    "state/oracle-upgrade-036fdbc0e60586ee/workspace-registry.sqlite3-shm": "a63c19d00952a0c35c69235e55555c577ac6835b1b325af08a383c4e5c4575ed",
+    "state/oracle-upgrade-036fdbc0e60586ee/workspace-registry.sqlite3-wal": "cd9d20ea5057f312dd0ee6832da879594465ebee397cbc307e3f48088a728bf6",
     "state/oracle-upgrade-036fdbc0e60586ee/writer.lock": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-    "state/resource-effect-pepper": "46676cf09f8028e24cf6cbfcdc115d9de7e5b53f8b46028b543b86499bbf89d0",
+    "state/resource-effect-pepper": "b6ca0b820d1a174ccc76de4363980bb40980a268fa373f72891ccfb4b88afc93",
     "state/resource-effect-pepper.lock": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
     "state/session-locks/.coordinator.lock": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
     "state/session-locks/oracle-upgrade-036fdbc0e60586ee.lock": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
@@ -115,11 +115,12 @@
   "storeFiles": {
     "workspace_registry": "workspace-registry.sqlite3"
   },
+  "storeSchemas": null,
   "stored": {
     "workspace_registry": 15
   },
   "tag": "cmux-tui-v0.13.3",
   "tarball": "cmux-tui-v0.13.3.tar.gz",
-  "tarballSha256": "192531ae923c8bb16b62b6fd97f4ce73a9ab5d78e0e52edcae8c774878d744c0",
+  "tarballSha256": "4e2320f24bc3ec87e3efa6bc6955febbeaa0ba84822678b099689b15e0342d36",
   "task": "p15-oracle-208"
 }

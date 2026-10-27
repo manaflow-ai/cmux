@@ -3,7 +3,7 @@
   "corpusVersion": 1,
   "id": "rollback-v0-13-4-conversation-store",
   "suite": "upgrades",
-  "title": "cmux-tui-v0.13.4 refuses the conversation_store head wrote (store_schemas.unknown_store)",
+  "title": "cmux-tui-v0.13.4 refuses head's root with the conversation_store (store_schemas.predates_rollback)",
   "surface": "cmux-next-daemon",
   "source": {
     "repo": "manaflow-ai/cmux",
@@ -239,9 +239,9 @@
       },
       "expect": {
         "outcome": "error",
-        "error": "store_schemas.unknown_store",
+        "error": "store_schemas.predates_rollback",
         "errorDetails": {
-          "store": "conversation_store"
+          "kept": "cmux-tui-v0.13.4"
         }
       },
       "checkpoint": [
@@ -251,8 +251,9 @@
     }
   ],
   "invariants": [
-    "the store_schemas verdict of conversation_store: head's stored schema 2 against cmux-tui-v0.13.4's readable none (RollbackDecision.decide)",
-    "every file of conversation_store (database and SQLite sidecars) is byte-identical (sha256) after cmux-tui-v0.13.4 ran, and none is gone"
+    "head's __store-schemas --stored over the root is {\"conversation_store\": 2, \"workspace_registry\": 15}: the case's store and the registry, no other",
+    "the store_schemas verdict of the whole root against what cmux-tui-v0.13.4 reads (nothing: its __store-schemas fails), as RollbackDecision.decide gives it",
+    "every file of the root (each store's database and SQLite sidecars, the locks, machine-id and the pepper) is byte-identical (sha256) after cmux-tui-v0.13.4 ran, and none is gone"
   ],
   "teardown": [
     "stop the case daemon",
@@ -261,5 +262,14 @@
   ],
   "untested": [
     "terminals: a packed root holds no live terminal host; host adoption across builds belongs to the terminal-host protocol (docs/cloud-guest-upgrades.md)"
+  ],
+  "allow_crashes": [
+    {
+      "kind": "daemon",
+      "steps": [
+        "open"
+      ],
+      "reason": "a refused rollback: cmux-tui-v0.13.4 may exit before it is ready on head's root"
+    }
   ]
 }

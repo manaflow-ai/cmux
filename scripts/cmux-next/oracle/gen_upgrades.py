@@ -7,16 +7,19 @@ cmux Python SDK's wire layer (cmux-tui/bindings/python, `cmux._protocol`), Pytho
 
 The daemon stores are the ones a rollback checks (cmux-tui-core store_schemas.rs `STORES`: workspace_registry and
 conversation_store). Each holds `meta.schema_version`; a build refuses a store newer than its own SCHEMA_VERSION, and
-the app refuses a rollback (CmuxNextUpdater RollbackDecision) when a stored schema is newer than the kept build reads
-(`storeTooNew`) or the kept build does not know the store (`unknownStore`). That refusal is the store_schemas error.
+the app refuses a rollback (CmuxNextUpdater RollbackDecision) when the kept build cannot say what it reads
+(`predatesRollback`: its `cmux __store-schemas` fails, so StoreSchemaProbe.readable is nil), when a stored schema is
+newer than the kept build reads (`storeTooNew`) or when the kept build does not know a stored store
+(`unknownStore`). That refusal is the store_schemas error.
 
 Fixtures (`--write-roots`, Linux VM): each of the last 5 cmux-tui tags merged into HEAD is built with linux_run.sh
 (`--profile dev`, no features: a tag has no oracle profile), runs `POPULATE` on a fresh hermetic root through the
 SDK, stops (`session.shutdown`), starts again on its own root and reads its facet (`session.snapshot`: what it
 persisted, read back by itself), and stops. The state directory is packed into
 tests/oracle/fixtures/state-roots/<tag>.tar.gz (sorted members, zero times and owners) next to <tag>.json: the tag's
-sha, its readable schemas (from its source; the tags predate `__store-schemas`), the stored schemas, every file's
-sha256 and the facet.
+sha, its readable schemas from its source (`readable`, which names the store files), what its own `__store-schemas`
+prints (`storeSchemas`, the rollback check's input; null when the probe fails, as for every tag from before #18103),
+the stored schemas, every file's sha256 and the facet.
 
 Corpus (`--out DIR`, from the fixtures and head's source):
 - `<tag>-<store>` per (tag, store the tag wrote): head starts on the tag's root (restart step `open`) and reads the
@@ -24,12 +27,13 @@ Corpus (`--out DIR`, from the fixtures and head's source):
   fields, never drop or change one), and after head stops `__store-schemas --stored` reports the store at head's
   schema (head migrated it).
 - `rollback-<tag>-<store>` per store head reads, for the newest tag (the previous release): head runs POPULATE (and
-  the store's own steps), reads its facet, then the `open` restart starts the previous tag on that root. Its
-  `expect` is the store_schemas verdict for that store, head's stored schema against the tag's readable one:
-  `store_schemas.store_too_new` and `store_schemas.unknown_store` are refusals, ok means the rollback may run. On a
-  refusal the runner still starts the tag, as a person would with the old app: store_too_new must stop it before it
-  is ready, and on either refusal the store's files are byte-identical after it (sha256); on ok the tag's facet
-  equals head's the same way as an upgrade.
+  the store's own steps), reads its facet, then the `open` restart starts the previous tag on that root. The root
+  holds exactly the registry and the case's store (`rollback_root_stores`; the runner fails a root with any other),
+  and the `expect` is RollbackDecision's verdict over that whole root against the tag's `storeSchemas`:
+  `store_schemas.predates_rollback`, `store_schemas.store_too_new` and `store_schemas.unknown_store` are refusals,
+  ok means the rollback may run. On a refusal the runner still starts the tag, as a person would with the old app:
+  store_too_new must stop it before it is ready, and on every refusal every file of the root is byte-identical after
+  it (sha256) and none is gone; on ok the tag's facet equals head's the same way as an upgrade.
 
 The cases need two builds on one root, which no product driver runs (they require `state_root`, which no product of
 oracle.py has); `--run` is their runner. Terminals are left out: a packed root holds no live terminal host, and host
@@ -75,7 +79,7 @@ import tarfile
 import tempfile
 import time
 import unittest
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any, Callable, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
 
@@ -129,8 +133,12 @@ REFUSAL_TEXT = {
     "workspace_registry": "unsupported workspace registry schema",
     "conversation_store": "unsupported conversation store schema",
 }
+PREDATES_ROLLBACK = "store_schemas.predates_rollback"
 STORE_TOO_NEW = "store_schemas.store_too_new"
 UNKNOWN_STORE = "store_schemas.unknown_store"
+# The store every root holds: POPULATE writes the registry.
+REGISTRY = "workspace_registry"
+STORE_SCHEMAS_FLAG = "__store-schemas"
 # What one daemon start changes in the facet of an unchanged root; nothing else is left out.
 VOLATILE: Dict[str, str] = {
     "/cursor": "the generation is new at every daemon start, and the revision counts the shutdown that ended the writer",
@@ -330,9 +338,14 @@ def tag_slug(tag: str) -> str:
 # --------------------------------------------------------------------------------------- the store_schemas verdict
 
 
-def rollback_verdict(stored: Mapping[str, int], readable: Mapping[str, int]) -> Optional[Dict[str, Any]]:
-    """RollbackDecision.decide's store check (CmuxNextUpdater/RollbackDecision.swift): the first store, in name
-    order, the kept build does not know or holds newer than it reads; None when it reads every stored store."""
+def rollback_verdict(stored: Mapping[str, int], readable: Optional[Mapping[str, int]],
+                     kept: str) -> Optional[Dict[str, Any]]:
+    """RollbackDecision.decide after its signature check (CmuxNextUpdater/RollbackDecision.swift), over every store
+    the root holds: predates_rollback when the kept build cannot say what it reads (`readable` None: its
+    `__store-schemas` failed), else the first store, in name order, the kept build does not know or holds newer than
+    it reads; None when it reads every stored store."""
+    if readable is None:
+        return {"error": PREDATES_ROLLBACK, "errorDetails": {"kept": kept}}
     for store in sorted(stored):
         if store not in readable:
             return {"error": UNKNOWN_STORE, "errorDetails": {"store": store}}
@@ -340,6 +353,49 @@ def rollback_verdict(stored: Mapping[str, int], readable: Mapping[str, int]) -> 
             return {"error": STORE_TOO_NEW,
                     "errorDetails": {"store": store, "stored": stored[store], "readable": readable[store]}}
     return None
+
+
+def rollback_root_stores(store: str) -> List[str]:
+    """The stores a rollback case's root holds: the registry POPULATE writes and the case's own store."""
+    return sorted({REGISTRY, store})
+
+
+def root_verdict(stored: Mapping[str, int], store: str, readable: Optional[Mapping[str, int]],
+                 kept: str) -> Optional[Dict[str, Any]]:
+    """The verdict over a rollback case's whole root. A root that holds other stores than the case's fails the
+    case: its expectation was made for `rollback_root_stores(store)`."""
+    if sorted(stored) != rollback_root_stores(store):
+        raise CaseFailure("Failure", f"the root holds {', '.join(sorted(stored)) or 'no store'}; the case is made for "
+                                     f"{', '.join(rollback_root_stores(store))}", "written")
+    return rollback_verdict(stored, readable, kept)
+
+
+def parse_store_schemas(text: str) -> Optional[Dict[str, int]]:
+    """StoreSchemaProbe.parse: one JSON object of store name to integer schema, else None."""
+    try:
+        value = json.loads(text)
+    except ValueError:
+        return None
+    if not isinstance(value, dict) or not all(type(item) is int for item in value.values()):
+        return None
+    return dict(value)
+
+
+def probe_readable(binary: str, env: "hermetic_env.CaseEnv") -> Optional[Dict[str, int]]:
+    """StoreSchemaProbe.readable: what `binary __store-schemas` prints, run in the case environment; None when it
+    cannot start, exits non-zero, times out or prints anything but the object (a build from before the probe)."""
+    try:
+        done = env.run([binary, STORE_SCHEMAS_FLAG], timeout=REQUEST_S, stdin=subprocess.DEVNULL)
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    return parse_store_schemas(done.stdout) if done.returncode == 0 else None
+
+
+def refusal_changes(before: Mapping[str, str], after: Mapping[str, str]) -> List[str]:
+    """Every file of the root (path to sha256) that the refused build changed or removed. There is no exception:
+    the lock files are empty and taken with flock, so they keep their bytes too. A file the build added is not a
+    change to head's data and is reported apart."""
+    return sorted(path for path, digest in before.items() if after.get(path) != digest)
 
 
 # ------------------------------------------------------------------------------------------------- facets
@@ -485,19 +541,14 @@ def stored_schemas(state: Path, files: Mapping[str, str]) -> Dict[str, int]:
     return found
 
 
-def store_files(state: Path, file: str) -> Dict[str, str]:
-    """sha256 of a store's database and its SQLite sidecars in every session directory."""
-    hashes = file_hashes(state)
-    names = {f"{file}{suffix}" for suffix in SQLITE_SIDECARS}
-    return {path: digest for path, digest in hashes.items() if path.rsplit("/", 1)[-1] in names}
-
-
 # ----------------------------------------------------------------------------------------------- the daemon
 
 
 @dataclass
 class Build:
-    """One cmux-tui build: head or a tag, with what the runner needs to know about it."""
+    """One cmux-tui build: head or a tag, with what the runner needs to know about it. `readable` comes from the
+    source and names the store files; `probed` is what the build's own `__store-schemas` prints (probe_readable),
+    the input of the rollback check, None when the build cannot say."""
 
     name: str
     binary: str
@@ -505,6 +556,7 @@ class Build:
     readable: Dict[str, int]
     files: Dict[str, str]
     operations: frozenset = field(default_factory=frozenset)
+    probed: Optional[Dict[str, int]] = None
 
 
 def short_token(text: str) -> str:
@@ -803,6 +855,13 @@ def head_build(binary: str, stores: Sequence[Store]) -> Build:
     return Build(HEAD, binary, source.mentions(CLI_SRC, READY_FD_FLAG), readable, files, operations(source))
 
 
+def probed_build(build: Build, isolation: hermetic_env.Isolation, run_id: str) -> Build:
+    """`build` with `probed`: its `__store-schemas`, run on a fresh case root of its own, as the app's
+    StoreSchemaProbe runs the kept bundle's CLI."""
+    with CaseRoot(run_id, f"probe-{build.name}", isolation) as root:
+        return replace(build, probed=probe_readable(build.binary, root.case_env))
+
+
 def write_root(build: Build, isolation: hermetic_env.Isolation, run_id: str) -> Tuple[Dict[str, Any], bytes]:
     """The tag writes POPULATE on a fresh root, reads it back after its own restart, and stops: (manifest, tarball)."""
     with CaseRoot(run_id, build.name, isolation) as root:
@@ -838,6 +897,7 @@ def write_root(build: Build, isolation: hermetic_env.Isolation, run_id: str) -> 
                   "readyFd": build.ready_fd},
         "session": SESSION,
         "readable": build.readable,
+        "storeSchemas": build.probed,
         "storeFiles": build.files,
         "stored": stored,
         "steps": [step["id"] for step in steps],
@@ -855,6 +915,9 @@ def load_manifests(folder: Path = FIXTURES) -> List[Dict[str, Any]]:
         manifest = json.loads(path.read_text(encoding="utf-8"))
         if manifest.get("schema") != STATE_ROOT_SCHEMA or manifest.get("tag") != path.stem:
             raise UpgradeError(f"{path}: not a {STATE_ROOT_SCHEMA} manifest of {path.stem}")
+        if "storeSchemas" not in manifest:
+            raise UpgradeError(f"{path}: no storeSchemas (the tag's own __store-schemas): gen_upgrades.py "
+                               "--write-roots")
         manifests.append(manifest)
     return sorted(manifests, key=lambda m: tag_version(m["tag"]))
 
@@ -936,13 +999,19 @@ def upgrade_case(manifest: Mapping[str, Any], store: str, head_readable: Mapping
 
 def rollback_case(previous: Mapping[str, Any], store: str, head_readable: Mapping[str, int]) -> Dict[str, Any]:
     tag = previous["tag"]
-    verdict = rollback_verdict({store: head_readable[store]}, previous["readable"])
+    kept_reads = previous["storeSchemas"]
+    root_stores = rollback_root_stores(store)
+    stored = {name: head_readable[name] for name in root_stores}
+    verdict = rollback_verdict(stored, kept_reads, tag)
     steps = populate_steps(frozenset(step["args"]["method"] for step in (*POPULATE, *STORE_STEPS.get(store, ()))),
                            [store])
     steps.append(read_step("head's facet of the root it wrote, before the rollback"))
     steps[-1]["id"] = "written"
-    invariants = [f"the store_schemas verdict of {store}: head's stored schema {head_readable[store]} against "
-                  f"{tag}'s readable {previous['readable'].get(store, 'none')} (RollbackDecision.decide)"]
+    reads = "nothing: its __store-schemas fails" if kept_reads is None else json.dumps(kept_reads, sort_keys=True)
+    invariants = [f"head's __store-schemas --stored over the root is {json.dumps(stored, sort_keys=True)}: the case's "
+                  "store and the registry, no other",
+                  f"the store_schemas verdict of the whole root against what {tag} reads ({reads}), as "
+                  "RollbackDecision.decide gives it"]
     allow: List[Dict[str, Any]] = []
     if verdict is None:
         steps.append(open_step({"outcome": "ok", "noReceiptReason": START_REASON},
@@ -955,11 +1024,16 @@ def rollback_case(previous: Mapping[str, Any], store: str, head_readable: Mappin
                                f"the rollback is refused; {tag} is then started anyway, as the old app would be"))
         if verdict["error"] == STORE_TOO_NEW:
             allow.append({"kind": "daemon", "steps": ["open"],
-                          "reason": f"{tag} refuses the newer {store} and exits before it is ready"})
-            invariants.append(f"{tag} exits before it is ready, its log naming the {store} schema")
-        invariants.append(f"every file of {store} (database and SQLite sidecars) is byte-identical (sha256) after "
-                          f"{tag} ran, and none is gone")
-        title = f"{tag} refuses the {store} head wrote ({verdict['error']})"
+                          "reason": f"{tag} refuses the newer {verdict['errorDetails']['store']} and exits before "
+                                    "it is ready"})
+            invariants.append(f"{tag} exits before it is ready, its log naming the "
+                              f"{verdict['errorDetails']['store']} schema")
+        else:
+            allow.append({"kind": "daemon", "steps": ["open"],
+                          "reason": f"a refused rollback: {tag} may exit before it is ready on head's root"})
+        invariants.append(f"every file of the root (each store's database and SQLite sidecars, the locks, machine-id "
+                          f"and the pepper) is byte-identical (sha256) after {tag} ran, and none is gone")
+        title = f"{tag} refuses head's root with the {store} ({verdict['error']})"
     case = base_case(f"rollback-{tag_slug(tag)}-{slug(store)}", title, {"writtenBy": HEAD, "openedBy": tag}, steps,
                      ["a fresh state root", "head's daemon runs the steps before the first restart"], invariants)
     if store in STORE_AGENT:
@@ -1110,19 +1184,21 @@ class Runner:
         finally:
             head.kill()
         stored = self.head_stored(root)
+        result["stored"] = stored
+        result["keptReads"] = previous.probed
         if stored.get(store) != self.head.readable[store]:
             raise CaseFailure("Failure", f"head stored {store} at {stored.get(store)}, not at its readable "
                                          f"{self.head.readable[store]}", "written")
-        verdict = rollback_verdict({store: stored[store]}, previous.readable)
+        verdict = root_verdict(stored, store, previous.probed, previous.name)
         expect = steps[index]["expect"]
         expected = None if expect["outcome"] == "ok" else {"error": expect["error"],
                                                            "errorDetails": expect.get("errorDetails", {})}
         if verdict != expected:
             raise CaseFailure("Failure", f"the store_schemas verdict is {verdict}, the case expects {expected}; "
                                          "regenerate the corpus (gen_upgrades.py --out)", "open")
-        result["checks"].append(f"store_schemas verdict {verdict['error'] if verdict else 'ok'}")
+        result["checks"].append(f"store_schemas verdict over {', '.join(sorted(stored))}: "
+                                f"{verdict['error'] if verdict else 'ok'}")
         before = file_hashes(root.state)
-        store_before = store_files(root.state, self.head.files[store])
         old = Daemon(previous, root)
         facet = None
         try:
@@ -1133,17 +1209,20 @@ class Runner:
                     raise CaseFailure("Failure", f"the store_schemas verdict lets the rollback run, but "
                                                  f"{previous.name} exited before it was ready: {error}", "open") \
                         from None
-                if verdict["error"] == UNKNOWN_STORE:
-                    # A refused rollback: the old build may run or stop, as long as it leaves the store alone.
-                    result["checks"].append(f"{previous.name} exited before it was ready ({error.exit_text})")
-                elif REFUSAL_TEXT[store] not in error.log:
+                too_new = verdict["errorDetails"]["store"] if verdict["error"] == STORE_TOO_NEW else None
+                if too_new is None:
+                    # A refused rollback: the old build may run or stop, as long as it leaves the root alone.
+                    result["checks"].append(f"{previous.name} exited before it was ready ({error.exit_text}): "
+                                            f"{error.log.strip()[-200:]}")
+                elif REFUSAL_TEXT[too_new] not in error.log:
                     raise CaseFailure("Failure", f"{previous.name} exited ({error.exit_text}) without naming the "
-                                                 f"{store} schema: {error.log[-300:]}", "open") from None
+                                                 f"{too_new} schema: {error.log[-300:]}", "open") from None
                 else:
-                    result["checks"].append(f"{previous.name} refused to start: {REFUSAL_TEXT[store]}")
+                    result["checks"].append(f"{previous.name} refused to start: {REFUSAL_TEXT[too_new]}")
             else:
                 if verdict is not None and verdict["error"] == STORE_TOO_NEW:
-                    raise CaseFailure("Failure", f"{previous.name} served a {store} newer than it reads", "open")
+                    raise CaseFailure("Failure", f"{previous.name} served a {verdict['errorDetails']['store']} "
+                                                 "newer than it reads", "open")
                 facet = old.facet()
                 old.stop()
         finally:
@@ -1157,13 +1236,15 @@ class Runner:
             result["checks"].append(f"{previous.name}'s facet holds only head's values")
             return
         after = file_hashes(root.state)
-        changed = sorted(path for path, digest in store_before.items() if after.get(path) != digest)
-        if verdict["error"] == STORE_TOO_NEW:
-            changed = sorted(path for path, digest in before.items() if after.get(path) != digest)
+        added = sorted(set(after) - set(before))
+        if added:
+            result["added"] = added
+        changed = refusal_changes(before, after)
         if changed:
             result["changed"] = changed
             raise CaseFailure("Failure", f"{previous.name} changed or removed {', '.join(changed)}", "open")
-        result["checks"].append(f"{len(store_before)} {store} files unchanged by sha256")
+        result["checks"].append(f"all {len(before)} files of the root unchanged by sha256"
+                                + (f" ({len(added)} added)" if added else ""))
 
 
 def select(cases: Mapping[str, Mapping[str, Any]], globs: Sequence[str]) -> List[Mapping[str, Any]]:
@@ -1187,11 +1268,17 @@ def run_suite(args: argparse.Namespace) -> int:
     previous = None
     if len(openers) > 1:
         raise UpgradeError(f"cases open with several tags: {sorted(openers)}")
+    isolation = hermetic_env.isolation_for(args.isolation, "linux")
+    run_id = f"upgrades-{os.getpid()}-{time.time_ns()}"
     if openers:
         tag = openers.pop()
-        previous = tag_build(tag, args.previous_binary or build_tag(tag), stores)
-    isolation = hermetic_env.isolation_for(args.isolation, "linux")
-    runner = Runner(head, previous, isolation, f"upgrades-{os.getpid()}-{time.time_ns()}", args.keep)
+        previous = probed_build(tag_build(tag, args.previous_binary or build_tag(tag), stores), isolation, run_id)
+        recorded = {m["tag"]: m for m in load_manifests()}.get(tag, {}).get("storeSchemas", MISSING)
+        if recorded != previous.probed:
+            raise UpgradeError(f"{tag}'s __store-schemas gives {json.dumps(previous.probed)}, its manifest "
+                               f"{json.dumps(None if recorded is MISSING else recorded)}: gen_upgrades.py "
+                               "--write-roots")
+    runner = Runner(head, previous, isolation, run_id, args.keep)
     results = []
     for case in chosen:
         outcome = runner.run_case(case)
@@ -1200,7 +1287,7 @@ def run_suite(args: argparse.Namespace) -> int:
               flush=True)
     report = {"schema": REPORT_SCHEMA, "task": TASK, "head": {"binary": args.binary, "readable": head.readable},
               "previous": previous and {"tag": previous.name, "binary": previous.binary,
-                                        "readable": previous.readable},
+                                        "readable": previous.readable, "storeSchemas": previous.probed},
               "isolation": isolation.describe(), "results": results}
     if args.report:
         args.report.write_text(json.dumps(report, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
@@ -1220,7 +1307,7 @@ def write_roots(args: argparse.Namespace) -> int:
             old.unlink()
     run_id = f"upgrades-roots-{os.getpid()}-{time.time_ns()}"
     for tag in tags:
-        build = tag_build(tag, given.get(tag) or build_tag(tag), stores)
+        build = probed_build(tag_build(tag, given.get(tag) or build_tag(tag), stores), isolation, run_id)
         manifest, tarball = write_root(build, isolation, run_id)
         (FIXTURES / manifest["tarball"]).write_bytes(tarball)
         (FIXTURES / f"{tag}.json").write_text(json.dumps(manifest, indent=2, ensure_ascii=False, sort_keys=True) + "\n",
@@ -1282,16 +1369,72 @@ class SelfTest(unittest.TestCase):
         self.assertEqual(files["workspace_registry"], "workspace-registry.sqlite3")
 
     def test_verdict_mirrors_rollback_decision(self) -> None:
-        self.assertIsNone(rollback_verdict({"workspace_registry": 15}, {"workspace_registry": 15}))
-        self.assertIsNone(rollback_verdict({"workspace_registry": 14}, {"workspace_registry": 15}))
-        self.assertEqual(rollback_verdict({"workspace_registry": 16}, {"workspace_registry": 15}),
+        kept = "cmux-tui-v9.9.9"
+        self.assertIsNone(rollback_verdict({"workspace_registry": 15}, {"workspace_registry": 15}, kept))
+        self.assertIsNone(rollback_verdict({"workspace_registry": 14}, {"workspace_registry": 15}, kept))
+        self.assertEqual(rollback_verdict({"workspace_registry": 16}, {"workspace_registry": 15}, kept),
                          {"error": STORE_TOO_NEW,
                           "errorDetails": {"store": "workspace_registry", "stored": 16, "readable": 15}})
-        self.assertEqual(rollback_verdict({"conversation_store": 2}, {"workspace_registry": 15}),
+        self.assertEqual(rollback_verdict({"conversation_store": 2}, {"workspace_registry": 15}, kept),
                          {"error": UNKNOWN_STORE, "errorDetails": {"store": "conversation_store"}})
         # Name order, like the Swift decision: the conversation store comes first.
         self.assertEqual(rollback_verdict({"workspace_registry": 16, "conversation_store": 2},
-                                          {"workspace_registry": 15})["error"], UNKNOWN_STORE)
+                                          {"workspace_registry": 15}, kept)["error"], UNKNOWN_STORE)
+        # A kept build that cannot say what it reads is refused before any store is looked at, an empty root too.
+        for stored in ({"workspace_registry": 15}, {}):
+            self.assertEqual(rollback_verdict(stored, None, kept),
+                             {"error": PREDATES_ROLLBACK, "errorDetails": {"kept": kept}})
+
+    def test_verdict_covers_every_store_on_the_root(self) -> None:
+        kept = "cmux-tui-v9.9.9"
+        both = {"workspace_registry": 15, "conversation_store": 2}
+        # The registry case's root also holding a conversation store: the whole root is refused, so the case's
+        # per-store expectation ("ok" for the registry) does not apply and the case fails instead of passing.
+        with self.assertRaises(CaseFailure) as raised:
+            root_verdict(both, "workspace_registry", {"workspace_registry": 15}, kept)
+        self.assertEqual(raised.exception.step, "written")
+        self.assertIsNone(root_verdict({"workspace_registry": 15}, "workspace_registry", {"workspace_registry": 15},
+                                       kept))
+        # The conversation case's root holds both stores; the verdict is the whole root's.
+        self.assertEqual(root_verdict(both, "conversation_store", {"workspace_registry": 15}, kept)["error"],
+                         UNKNOWN_STORE)
+        self.assertEqual(root_verdict(both, "conversation_store", {"workspace_registry": 14, "conversation_store": 2},
+                                      kept)["errorDetails"], {"store": "workspace_registry", "stored": 15,
+                                                              "readable": 14})
+        self.assertIsNone(root_verdict(both, "conversation_store", both, kept))
+        with self.assertRaises(CaseFailure):
+            root_verdict({"workspace_registry": 15}, "conversation_store", both, kept)
+
+    def test_probe_reads_like_store_schema_probe(self) -> None:
+        class Env:
+            def __init__(self, code: int, out: str = "", error: Optional[BaseException] = None):
+                self.code, self.out, self.error = code, out, error
+
+            def run(self, argv: Sequence[str], **_: Any) -> subprocess.CompletedProcess:
+                if self.error is not None:
+                    raise self.error
+                assert list(argv) == ["bin", STORE_SCHEMAS_FLAG]
+                return subprocess.CompletedProcess(argv, self.code, self.out, "")
+
+        self.assertEqual(probe_readable("bin", Env(0, '{"conversation_store":2,"workspace_registry":15}\n')),
+                         {"conversation_store": 2, "workspace_registry": 15})
+        # A build from before the probe: `cmux: unknown resource scope "__store-schemas".`, exit 2.
+        self.assertIsNone(probe_readable("bin", Env(2)))
+        self.assertIsNone(probe_readable("bin", Env(0, "[]")))
+        self.assertIsNone(probe_readable("bin", Env(0, '{"workspace_registry": true}')))
+        self.assertIsNone(probe_readable("bin", Env(0, '{"workspace_registry": "15"}')))
+        self.assertIsNone(probe_readable("bin", Env(0, error=subprocess.TimeoutExpired("bin", 1))))
+        self.assertIsNone(probe_readable("bin", Env(0, error=OSError("no such file"))))
+
+    def test_refusal_compares_every_file_of_the_root(self) -> None:
+        before = {"machine-id": "a", "s/workspace-registry.sqlite3": "b", "s/workspace-registry.sqlite3-wal": "c",
+                  "s/conversations.sqlite3": "d", "s/writer.lock": "e"}
+        self.assertEqual(refusal_changes(before, dict(before, **{"s/new.log": "f"})), [])
+        self.assertEqual(refusal_changes(before, dict(before, **{"s/workspace-registry.sqlite3-wal": "x"})),
+                         ["s/workspace-registry.sqlite3-wal"])
+        gone = {k: v for k, v in before.items() if k != "s/workspace-registry.sqlite3"}
+        self.assertEqual(refusal_changes(before, gone), ["s/workspace-registry.sqlite3"])
+        self.assertEqual(refusal_changes(before, dict(before, **{"machine-id": "x"})), ["machine-id"])
 
     def test_subset_allows_new_members_only(self) -> None:
         old = {"workspaces": [{"id": "ws_1", "name": "a"}], "n": 1}
@@ -1359,8 +1502,10 @@ class SelfTest(unittest.TestCase):
         schema = json.loads(CASE_SCHEMA.read_text(encoding="utf-8"))
         rules = case_checks.Rules(schema)
         manifests = [
-            {"tag": "cmux-tui-v0.13.3", "stored": {"workspace_registry": 15}, "readable": {"workspace_registry": 15}},
-            {"tag": "cmux-tui-v0.13.4", "stored": {"workspace_registry": 15}, "readable": {"workspace_registry": 15}},
+            {"tag": "cmux-tui-v0.13.3", "stored": {"workspace_registry": 15}, "readable": {"workspace_registry": 15},
+             "storeSchemas": {"workspace_registry": 15}},
+            {"tag": "cmux-tui-v0.13.4", "stored": {"workspace_registry": 15}, "readable": {"workspace_registry": 15},
+             "storeSchemas": {"workspace_registry": 15}},
         ]
         cases = corpus(manifests, {"workspace_registry": 16, "conversation_store": 2})
         self.assertEqual(sorted(cases), [
@@ -1377,8 +1522,17 @@ class SelfTest(unittest.TestCase):
         unknown = cases["rollback-v0-13-4-conversation-store.json"]
         self.assertIn("send", [step["id"] for step in unknown["steps"]])
         self.assertEqual(next(s for s in unknown["steps"] if s["op"] == "restart")["expect"]["error"], UNKNOWN_STORE)
+        self.assertEqual(unknown["allow_crashes"][0]["steps"], ["open"])
         same = corpus(manifests, {"workspace_registry": 15})["rollback-v0-13-4-workspace-registry.json"]
         self.assertEqual([s["id"] for s in same["steps"]][-2:], ["open", "read"])
+        # A previous tag without the probe (every tag before #18103): RollbackDecision refuses it outright.
+        predates = [*manifests[:1], dict(manifests[1], storeSchemas=None)]
+        refused = corpus(predates, {"workspace_registry": 15, "conversation_store": 2})
+        for name in ("rollback-v0-13-4-workspace-registry.json", "rollback-v0-13-4-conversation-store.json"):
+            opened = next(step for step in refused[name]["steps"] if step["op"] == "restart")
+            self.assertEqual((opened["expect"]["error"], opened["expect"]["errorDetails"]),
+                             (PREDATES_ROLLBACK, {"kept": "cmux-tui-v0.13.4"}), name)
+            self.assertEqual([f.message for f in case_checks.check_case(refused[name], rules)], [], name)
 
     def test_populate_needs_every_method(self) -> None:
         methods = frozenset(step["args"]["method"] for step in POPULATE)
