@@ -87,6 +87,15 @@ fn name_sender(hub: &Arc<Hub>, conn: &Arc<Conn>, p: &mut Value) {
     }
 }
 
+/// `e` with `data.peer` = `peer`, unless it names one already.
+fn name_peer(mut e: RpcError, peer: &str) -> RpcError {
+    let data = e.data.get_or_insert_with(|| json!({}));
+    if let Some(obj) = data.as_object_mut() {
+        obj.entry("peer").or_insert_with(|| Value::String(peer.to_owned()));
+    }
+    e
+}
+
 pub(super) async fn forward(
     hub: &Arc<Hub>,
     conn: &Arc<Conn>,
@@ -313,6 +322,10 @@ async fn forward_inner(
                                     "peer": peer.name,
                                     "method": m,
                                 }))
+                        } else if m == method::MUX_PERMISSION_RESPOND {
+                            // A refused answer names the peer that refused it, so the app can say
+                            // where to enroll this Mac (`hub/mac_approvers.rs`).
+                            name_peer(e, &peer.name)
                         } else {
                             e
                         }
@@ -433,6 +446,17 @@ fn count_hop(forwarded: &mut Value) -> Result<(), RpcError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A refused answer for a peer's prompt names that peer, so the app can say where to
+    /// enroll this Mac; a peer it names already stays.
+    #[test]
+    fn a_refused_answer_names_the_peer() {
+        let e = name_peer(crate::hub::person::person_required("allowing a permission"), "hb");
+        assert_eq!(e.data.as_ref().unwrap()["peer"], "hb");
+        assert_eq!(e.data.as_ref().unwrap()["reason"], crate::hub::person::REASON);
+        let e = name_peer(RpcError::internal("x").with_data(json!({"peer": "far"})), "hb");
+        assert_eq!(e.data.unwrap()["peer"], "far");
+    }
 
     /// A history read forwarded to a peer names its byte limit: a peer on an older build pages to
     /// no limit of its own, and 5000 records of long tool outputs were one 32.8 MB reply that reset
