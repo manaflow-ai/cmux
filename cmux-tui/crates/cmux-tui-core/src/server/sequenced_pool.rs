@@ -120,11 +120,13 @@ impl SequencePriority {
         }
     }
 
-    /// The workers' QoS class. Input carries every attach view's echo
-    /// (p01-process-125), so it keeps the class of the echo threads it
-    /// replaced (`ECHO_PATH_QOS`), as Chrome's compositor and IO threads keep
-    /// a display-critical class (base/threading/platform_thread.h
-    /// `ThreadType::kDisplayCritical`).
+    /// The workers' QoS class. Input carries the echo of the person's
+    /// attach views (p01-process-125), so it keeps the class of the echo
+    /// threads it replaced (`ECHO_PATH_QOS`), as Chrome's compositor and IO
+    /// threads keep a display-critical class (base/threading/platform_thread.h
+    /// `ThreadType::kDisplayCritical`). Only items a frame waits for run
+    /// there: a view's bulk work and automation's views run at utility
+    /// (`ConnectionClass::view_priority`).
     const fn qos(self) -> ThreadQos {
         match self {
             Self::Input => crate::echo_thread::ECHO_PATH_QOS,

@@ -214,3 +214,11 @@ fn an_automation_viewer_runs_below_the_person() {
     disconnect_client(&mux, agent_client, false);
     mux.shutdown();
 }
+
+/// The view priority of each connection class.
+#[test]
+fn each_connection_class_has_its_view_priority() {
+    assert_eq!(ConnectionClass::Person.view_priority(), SequencePriority::Input);
+    assert_eq!(ConnectionClass::Unclassified.view_priority(), SequencePriority::Control);
+    assert_eq!(ConnectionClass::Automation.view_priority(), SequencePriority::Utility);
+}

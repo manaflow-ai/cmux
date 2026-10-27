@@ -672,7 +672,7 @@ fn attach(
         surface,
         writer: writer.clone(),
         outbound_stream,
-        receiver: stream.receiver,
+        receiver: Arc::new(stream.receiver),
         lifecycle: stream.lifecycle,
         gate: stream.requests,
         generation,
