@@ -46,8 +46,12 @@ on:
 
 permissions: {}
 
+# One group per run: a shared group let a newer request replace a waiting one,
+# so a pulled build could stay on the feed. Two rollbacks never overwrite each
+# other: the feed write is a compare-and-swap on the bytes the plan read
+# (--replace-sha256), and the loser writes nothing and says to run again.
 concurrency:
-  group: nightly-next-rollback
+  group: nightly-next-rollback-${{ github.run_id }}
   cancel-in-progress: false
 
 env:
