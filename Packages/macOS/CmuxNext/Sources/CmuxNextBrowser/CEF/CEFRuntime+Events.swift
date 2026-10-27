@@ -123,7 +123,8 @@ extension CEFRuntime {
             }
         case .reply(_, let id, let value, let json):
             let reply = CEFSiteReply(value: value, json: json)
-            if !builtInLoader.answer(reply: id, value: value), !siteReplies.resolve(id, with: .success(reply)), siteReplyBrowsers[id] != nil {
+            if !surfaceCopies.answer(reply: id, value: value, json: json), !builtInLoader.answer(reply: id, value: value),
+               !siteReplies.resolve(id, with: .success(reply)), siteReplyBrowsers[id] != nil {
                 earlySiteReplies[id] = reply
             }
         case .tab(let kind, let browser, let window, let value):
@@ -284,6 +285,7 @@ extension CEFRuntime {
         devToolsCalls.failAll(where: { $0.browser == browser }, with: BrowserTabError.closed)
         siteReplies.failAll(where: { siteReplyBrowsers[$0] == browser }, with: BrowserTabError.closed)
         failEvaluations(of: browser)
+        surfaceCopies.browserClosed(browser)
         // The fork counts a browser's window until its destructor, after this close.
         if let shim { shutdownSequence?.windowsOpen(Int(shim.windowCount())) }
         shutdownSequence?.browserClosed(remaining: tabsByBrowser.count + pendingWindows.count)

@@ -69,7 +69,7 @@ final class SidebarNowPlayingPlayButton: NSButton {
         layer?.opacity = isHighlighted ? 0.75 : (isEnabled ? 1 : 0.4)
     }
 
-    override func viewDidChangeEffectiveAppearance() {
+    override func viewDidChangeEffectiveAppearance() { // visibility-walk-allow: only invalidates: AppKit draws a hidden view when it shows
         super.viewDidChangeEffectiveAppearance()
         needsDisplay = true
     }

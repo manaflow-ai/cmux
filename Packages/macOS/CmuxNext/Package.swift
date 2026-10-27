@@ -891,7 +891,8 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         ),
         .testTarget(
             name: "CmuxNextPhoneTests",
-            dependencies: ["CmuxNextPhone", "CmuxNextCompat", "CmuxNextWakeups", "CmuxNextWakeupsTestSupport"],
+            dependencies: ["CmuxNextPhone", "CmuxNextCompat", "CmuxNextWakeups", "CmuxNextWakeupsTestSupport",
+                           .product(name: "CmuxFuzzSupport", package: "CmuxFuzzSupport")],
             resources: [.copy("Fixtures")],
             swiftSettings: daemonSwiftSettings
         ),
@@ -1281,7 +1282,8 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         ),
         .testTarget(
             name: "CmuxNextRemoteViewTests",
-            dependencies: ["CmuxNextRemoteView", "CmuxNextTrace", "CmuxNextMetrics", "CmuxNextWakeups", "CmuxNextWakeupsTestSupport"],
+            dependencies: ["CmuxNextRemoteView", "CmuxNextTrace", "CmuxNextMetrics", "CmuxNextWakeups", "CmuxNextWakeupsTestSupport",
+                           .product(name: "CmuxFuzzSupport", package: "CmuxFuzzSupport")],
             swiftSettings: uiSwiftSettings
         ),
         // Remote tab client (remote-tab.md r2): the page of a browser tab
