@@ -15,6 +15,7 @@ import stat
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import unittest
 from argparse import Namespace
@@ -221,6 +222,45 @@ class FinishTest(QueueCase):
         self.queue.backfill([sha(5)], NOW)
         self.assertEqual(self.queue.open_jobs(), [], "a given-up commit is not built again per commit")
 
+    def give_up_per_commit(self, commit: str, at=NOW):
+        self.queue.backfill([commit], at)
+        job, = self.queue.assign(BUILDERS[:1], at)
+        for _ in range(bq.INFRA_ATTEMPTS - 1):
+            self.queue.finish(job.id, 75, None, at)
+            self.assertEqual(self.queue.assign(BUILDERS[:1], at), [job])
+        self.queue.finish(job.id, 75, None, at)
+        self.assertEqual(job.state, bq.GAVE_UP)
+        return job
+
+    def test_each_start_has_its_own_step_key_and_directory(self):
+        self.queue.backfill([sha(1)], NOW)
+        job, = self.queue.assign(BUILDERS[:1], NOW)
+        first = bq.step_argv(job, sha(40))
+        runner = bq.StepRunner(self.dir / "steps")
+        first_dir = runner._dir(job)
+        self.queue.finish(job.id, 75, None, NOW)
+        self.assertEqual(self.queue.assign(BUILDERS[:1], NOW), [job])
+        second = bq.step_argv(job, sha(40))
+        key = lambda argv: argv[argv.index("--key") + 1]
+        self.assertNotEqual(key(first), key(second), "a known key replays its old step")
+        self.assertEqual(key(second), f"perf-lab-build-{sha(1)[:12]}-bench-{job.id}-s2")
+        self.assertNotEqual(first_dir, runner._dir(job))
+
+    def test_per_commit_give_up_is_not_a_failed_build(self):
+        self.give_up_per_commit(sha(5))
+        document = self.queue.scheduler_document()
+        self.assertNotIn([sha(5), "bench"], document["failed"], "exit 75 says the fleet was busy, not the commit")
+        self.queue.backfill([sha(5)], NOW + timedelta(hours=1))
+        self.assertEqual(self.queue.open_jobs(), [], "the backfill waits before it tries the pair again")
+        job = self.queue.enqueue(sha(5), "bench", "bisect:3:try-1", NOW + timedelta(hours=1))
+        self.assertIsNotNone(job, "a midpoint request queues it at once")
+        self.assertEqual((job.kind, self.queue.scheduler_document()["queued"]), ("midpoint", [[sha(5), "bench"]]))
+
+    def test_per_commit_give_up_is_backfilled_again_later(self):
+        self.give_up_per_commit(sha(5))
+        later = NOW + bq.BACKFILL_RETRY_AFTER + timedelta(minutes=1)
+        self.assertEqual([j.sha for j in self.queue.backfill([sha(5)], later)], [sha(5)])
+
     def test_refused_step_gives_up_at_once(self):
         job = self.start(sha(5))
         self.queue.finish(job.id, 2, None, NOW)
@@ -232,22 +272,23 @@ class FinishTest(QueueCase):
         self.assertEqual(job.state, bq.QUEUED)
         self.assertIsNone(builds.BuildLedger(self.ledger).get(sha(6), "bench"))
 
-    def test_same_product_key_takes_the_build_over(self):
-        self.keys = {(sha(5), "bench"): "k1", (sha(6), "bench"): "k1", (sha(6), "bench-checks"): "k1c"}
-        self.build(self.start(sha(5)), digest="e" * 64)
-        self.assertIsNone(self.queue.enqueue(sha(6), "bench", "bisect:1", NOW))
-        record = builds.BuildLedger(self.ledger).get(sha(6), "bench")
-        self.assertEqual((record.digest, record.seconds, record.job), ("e" * 64, 0, f"reuse:{sha(5)}"))
-        self.assertEqual(self.queue.state.jobs[-1].state, bq.REUSED)
-        self.assertIsNotNone(self.queue.enqueue(sha(6), "bench-checks", "tier", NOW), "another config builds")
-
-    def test_queued_job_with_the_key_of_a_new_build_takes_it_over(self):
-        self.keys = {(sha(5), "bench"): "k1", (sha(4), "bench"): "k1", (sha(3), "bench"): "k3"}
-        running = self.start(sha(5))
-        self.queue.backfill([sha(4), sha(3)], NOW)
-        self.build(running)
-        self.assertEqual(builds.BuildLedger(self.ledger).get(sha(4), "bench").job, f"reuse:{sha(5)}")
-        self.assertEqual([j.sha for j in self.queue.open_jobs()], [sha(3)])
+    def test_same_product_key_builds_its_own_commit_on_the_tree_that_holds_the_product(self):
+        self.keys = {(sha(2), "bench"): "k1", (sha(6), "bench"): "k1", (sha(4), "bench"): "k1"}
+        self.build(self.start(sha(2)), digest="e" * 64)  # BUILDERS[0]'s tree holds product k1
+        self.queue.state.last_built[BUILDERS[1]] = {"bench": sha(7)}  # nearer on the chain, another product
+        job = self.queue.enqueue(sha(6), "bench", "bisect:1", NOW)
+        self.assertIsNotNone(job, "a commit with another's product key still builds")
+        self.assertIsNone(builds.BuildLedger(self.ledger).get(sha(6), "bench"))
+        started, = self.queue.assign(BUILDERS, NOW)
+        self.assertEqual((started.builder, started.incremental_from), (BUILDERS[0], sha(2)))
+        self.build(started, digest="f" * 64)
+        running = self.queue.enqueue(sha(4), "bench", "bisect:2", NOW)
+        self.queue.assign(BUILDERS[:1], NOW)
+        self.build(running, digest="a" * 64)
+        digests = {sha(2): "e" * 64, sha(6): "f" * 64, sha(4): "a" * 64}
+        for record in bq.ledger_records(self.ledger):
+            self.assertEqual(record.digest, digests[record.sha], "a record carries only its own commit's build")
+            self.assertFalse((record.job or "").startswith("reuse:"))
 
     def test_scheduler_document_leaves_per_commit_builds_out(self):
         self.queue.backfill(self.newest_first(20, 4), NOW)
@@ -293,7 +334,7 @@ class RunnerTest(QueueCase):
 
     def wait(self, runner, job):
         deadline = time.monotonic() + 10
-        while (result := runner.result(job)) is None:
+        while (result := runner.result(job, NOW)) is None:
             self.assertLess(time.monotonic(), deadline, "the step never wrote its exit code")
             time.sleep(0.05)
         return result
@@ -319,12 +360,68 @@ class RunnerTest(QueueCase):
         self.queue.enqueue(sha(7), "bench", "batch-tip", NOW)
         job, = self.queue.assign(BUILDERS[:1], NOW)
         job.pid = 1
-        self.assertEqual(runner.result(job), (75, None, None))
+        self.assertEqual(runner.result(job, NOW), (75, None, None))
+
+    def test_client_with_no_exit_code_past_its_timeouts_is_lost(self):
+        runner = bq.StepRunner(self.dir / "steps", self.client(), alive=lambda pid: True)  # the pid was reused
+        self.queue.enqueue(sha(7), "bench", "batch-tip", NOW)
+        job, = self.queue.assign(BUILDERS[:1], NOW)
+        job.pid = 4242
+        self.assertIsNone(runner.result(job, NOW + timedelta(hours=1)))
+        self.assertIsNone(runner.result(job, NOW + runner.LOST_AFTER))
+        self.assertEqual(runner.result(job, NOW + runner.LOST_AFTER + timedelta(seconds=1)), (75, None, None))
+        report = bq.tick(self.queue, runner, (), sha(40), [], NOW + runner.LOST_AFTER + timedelta(minutes=1))
+        self.assertEqual(report["reaped"][0]["state"], bq.INFRA)
+        self.assertEqual(job.state, bq.QUEUED, "the builder gets work again")
 
     def test_per_commit_step_runs_in_the_background(self):
         self.queue.backfill([sha(3)], NOW)
         job, = self.queue.assign(BUILDERS[:1], NOW)
         self.assertIn("--background", bq.step_argv(job, sha(40)))
+
+    def fleet(self, state: str):
+        """A spawn seam: the step start prints a pid; `status` reports STATE; every call is kept."""
+        calls = []
+
+        def spawn(argv, **kwargs):
+            calls.append(list(argv))
+            if argv[0] == "/bin/sh":
+                return subprocess.CompletedProcess(argv, 0, "4242\n", "")
+            if argv[1] == "status":
+                return subprocess.CompletedProcess(argv, 0, json.dumps({"id": "0123456789abcdef", "state": state}), "")
+            return subprocess.CompletedProcess(argv, 0, "{}", "")
+        return bq.StepRunner(self.dir / "steps", "cmux-ci", spawn=spawn, alive=lambda pid: True), calls
+
+    def start_per_commit_then_request(self, runner):
+        self.queue.backfill([sha(30)], NOW)
+        report = bq.tick(self.queue, runner, BUILDERS[:1], sha(40), [], NOW)
+        self.assertIn("--background", report["started"][0]["argv"])
+        job, = self.queue.open_jobs(bq.RUNNING)
+        (runner._dir(job) / "step.log").write_text("cmux-ci: step 0123456789abcdef (exclusive, key k)\n")
+        self.assertIsNone(self.queue.enqueue(sha(30), "bench", "batch-tip", NOW + timedelta(minutes=1)))
+        self.assertEqual(self.queue.scheduler_document()["queued"], [[sha(30), "bench"]])
+        return job
+
+    def test_promoted_per_commit_build_is_resubmitted_in_the_foreground(self):
+        runner, calls = self.fleet("queued")
+        job = self.start_per_commit_then_request(runner)
+        report = bq.tick(self.queue, runner, BUILDERS[:1], sha(40), [], NOW + timedelta(minutes=2))
+        self.assertEqual(report["withdrawn"], [job.id])
+        self.assertIn(["cmux-ci", "cancel", "0123456789abcdef", "--reason",
+                       f"perf lab: batch-tip builds {sha(30)[:12]} in the foreground"], calls)
+        again = report["started"][0]
+        self.assertEqual((again["id"], again["kind"]), (job.id, "tip"))
+        self.assertNotIn("--background", again["argv"])
+        self.assertTrue(again["argv"][again["argv"].index("--key") + 1].endswith(f"{job.id}-s2"))
+        self.assertEqual((job.state, job.attempts, job.starts), (bq.RUNNING, 1, 2), "a withdrawn start is no attempt")
+
+    def test_claimed_per_commit_build_keeps_running(self):
+        runner, calls = self.fleet("running")
+        job = self.start_per_commit_then_request(runner)
+        report = bq.tick(self.queue, runner, BUILDERS[:1], sha(40), [], NOW + timedelta(minutes=2))
+        self.assertEqual((report["withdrawn"], report["started"]), ([], []))
+        self.assertEqual((job.state, job.kind, job.starts), (bq.RUNNING, "tip", 1))
+        self.assertFalse(any(call[1:2] == ["cancel"] for call in calls))
 
 
 def git(repo: Path, *args: str, env=None) -> str:
@@ -381,6 +478,53 @@ class CommandTest(QueueCase):
         self.assertEqual(report["tip_build_wait_s"]["max"], 1200)
         text = self.run_command(bq, "builds", self.args(repo, coverage=True, json=False))
         self.assertIn("24 first-parent commits since 24h", text)
+
+    def test_coverage_rows_are_the_commits_jobs_not_their_lost_attempts(self):
+        self.queue.backfill([sha(5)], NOW)
+        job, = self.queue.assign(BUILDERS[:1], NOW)
+        for _ in range(bq.INFRA_ATTEMPTS - 1):
+            self.queue.finish(job.id, 75, None, NOW)
+            self.queue.assign(BUILDERS[:1], NOW)
+        self.queue.finish(job.id, 75, None, NOW)
+        self.queue.backfill([sha(6)], NOW)
+        retried, = self.queue.assign(BUILDERS[:1], NOW)
+        self.queue.finish(retried.id, 75, None, NOW + timedelta(minutes=1))
+        self.queue.assign(BUILDERS[:1], NOW + timedelta(minutes=2))
+        self.build(retried, at=NOW + timedelta(minutes=12), seconds=500)
+        report = bq.coverage([(sha(6), NOW), (sha(5), NOW)], self.queue, NOW, NOW - timedelta(hours=24))
+        self.assertEqual(report["counts"], {"built": 1, bq.GAVE_UP: 1})
+        built = report["rows"][0]
+        self.assertEqual((built["seconds"], built["wall_seconds"]), (500, 600), "the build's, not the lost attempt's")
+
+    def test_tip_build_wait_counts_only_the_window(self):
+        for n, enqueued_h, wait_s in ((1, -30, 7200), (2, -2, 600)):
+            enqueued = NOW + timedelta(hours=enqueued_h)
+            self.queue.state.jobs.append(bq.Job(
+                id=f"b{n:06d}", sha=sha(n), config="bench", kind="tip", reason="batch-tip",
+                enqueued_at=bq.stamp(enqueued), state=bq.DONE, started_at=bq.stamp(enqueued),
+                ended_at=bq.stamp(enqueued + timedelta(seconds=wait_s))))
+        waits = bq.coverage([], self.queue, NOW, NOW - timedelta(hours=24))["tip_build_wait_s"]
+        self.assertEqual((waits["n"], waits["max"]), (1, 600))
+
+    def test_overlapping_runs_keep_both_updates(self):
+        repo, shas = self.fixture_repo(3)
+        state_path = self.dir / "q.json"
+        plan = self.dir / "plan.json"
+        plan.write_text(json.dumps({"builds": [{"sha": shas[-1], "config": "bench", "reason": "batch-tip"}]}))
+        results = []
+        with bq.state_lock(state_path):  # a tick in progress: it read the state and writes it back below
+            queue = bq.BuildQueue(bq.load_state(state_path), self.ledger)
+            queue.enqueue(shas[0], "bench", "bisect:1", NOW)
+            enqueue = threading.Thread(target=lambda: results.append(
+                bq.run("builds", self.args(repo, enqueue=plan), out=io.StringIO(), err=io.StringIO())))
+            enqueue.start()
+            enqueue.join(0.5)
+            self.assertTrue(enqueue.is_alive(), "--enqueue waits for the tick's lock")
+            bq.save_state(state_path, queue.state)
+        enqueue.join(10)
+        self.assertEqual(results, [0])
+        self.assertEqual(sorted((j.sha, j.kind) for j in bq.load_state(state_path).jobs),
+                         sorted([(shas[0], "midpoint"), (shas[-1], "tip")]))
 
     def test_product_key_follows_the_product_closure(self):
         repo, shas = self.fixture_repo(1)

@@ -14,27 +14,35 @@ Chrome's perf waterfall builds commits on dedicated builders and its testers tak
 - Order: batch tips (in commit order), then tier and lane builds, then bisect midpoints (the scheduler's
   BuildRequests, by their `reason`), then each other first-parent commit of the branch, newest first
   (`backfill`, per-commit builds), so a later bisect finds its midpoints built.
-- A (sha, config) with a record in the lab's build ledger (builds.py: ok or failed) gets no job. A commit whose
-  bench product key equals an ok build's gets that build's record (seconds 0) instead of a job: the key is the
-  DEV Release product closure (scripts/ci/job_input_fingerprint.py dev-release-product, the key
-  scripts/ci/dev_release_product_reuse.py reuses compiled apps by) plus that script's RECIPE and the config.
+- A (sha, config) with a record in the lab's build ledger (builds.py: ok or failed) gets no job, and every ledger
+  record is a build of its own commit: run_story.py measures an app only when its CMUXCommit is the record's sha.
 - Each builder keeps one persistent build tree (scripts/measure/perf-lab-build.sh: a source checkout and one
-  DerivedData per config). A job goes to the free builder whose last build of its config is nearest on the
-  first-parent chain, and the job keeps that sha as `incremental_from`.
+  DerivedData per config). A job goes to the free builder whose tree holds a build of the same bench product key
+  (the DEV Release product closure of scripts/ci/job_input_fingerprint.py dev-release-product, the key
+  scripts/ci/dev_release_product_reuse.py reuses compiled apps by, plus that script's RECIPE and the config), so a
+  docs or tests commit builds as a near no-op; else to the one whose last build of its config is nearest on the
+  first-parent chain. The job keeps that sha as `incremental_from`.
 - Per-commit builds run only on idle builders: never while a requested build waits, never on the last free
   builder (BACKFILL_RESERVE keeps it for the next tip), as fleet `--background` steps. They are not in the
-  scheduler's `queued`, so they never put T0 into every-2nd-batch mode.
-- A step that ends for a reason that is not the commit's (exit 75, a lost client) builds again, up to
-  INFRA_ATTEMPTS starts; then the pair is given up and the scheduler reads it as failed. Exit 2 (refused) gives
-  up at once.
+  scheduler's `queued`, so they never put T0 into every-2nd-batch mode. A request for a pair whose per-commit
+  step still waits in the fleet queue cancels that step and starts the pair again as a foreground step.
+- A step that ends for a reason that is not the commit's (exit 75, a lost client, a client past
+  STEP_TIMEOUT + QUEUE_TIMEOUT + LOST_MARGIN) builds again, up to INFRA_ATTEMPTS starts. Every start has its own
+  step key and step directory, so a start never attaches to an earlier start's step. Then a requested pair is
+  given up and the scheduler reads it as failed; a per-commit pair is not (only the fleet was busy): a request
+  queues it again at once and the backfill after BACKFILL_RETRY_AFTER. Exit 2 (refused) gives up at once.
 - Every finished job keeps its build seconds (the receipt's), its wall seconds and whether it was cached or
   incremental; capacity.py reports builder utilization and queue age from that history.
+- The commands that change the state (--enqueue, --tick) hold an exclusive flock on STATE.lock from reading
+  the state to writing it, so overlapping runs never lose each other's updates (builds.py run_locked's lock).
 
 Stdlib only; loads siblings by file path, so it runs under `python3 -I`.
 """
 from __future__ import annotations
 
 import argparse
+import contextlib
+import fcntl
 import hashlib
 import importlib.util
 import json
@@ -64,16 +72,19 @@ PRIORITY = {kind: index for index, kind in enumerate(KINDS)}
 BACKFILL_CONFIG = "bench"  # per-commit builds are for bisects of bench stories; bench-checks builds on request
 BACKFILL_DEPTH = 200  # newest first-parent commits a per-commit build may go to
 BACKFILL_RESERVE = 1  # free builders a per-commit build leaves for the next tip (0 with a single builder)
+BACKFILL_RETRY_AFTER = timedelta(hours=12)  # a per-commit pair the busy fleet timed out waits this long
 INFRA_ATTEMPTS = 3
 HISTORY = 4000  # finished jobs kept for capacity and coverage
 EXPECTED_FROM = 10  # recent built tips whose median wall time is the scheduler's expected_seconds
 STEP_TIMEOUT = 3 * 3600
 QUEUE_TIMEOUT = 2 * 3600
+LOST_MARGIN = 3600  # past STEP_TIMEOUT + QUEUE_TIMEOUT + this, a step with no exit code is lost
 RECEIPT = re.compile(r"perf-lab-build: (\{.*\})\s*$", re.M)
 
 QUEUED, RUNNING = "queued", "running"
-DONE, FAILED, REUSED = "done", "failed", "reused"  # an ok build, a commit's failure, an ok record taken over
-INFRA, GAVE_UP, DROPPED = "infra", "gave-up", "dropped"  # an attempt the builder lost, its last one, a pair built elsewhere
+DONE, FAILED = "done", "failed"  # an ok build, a commit's failure
+# an attempt the builder lost, its last one, a pair the ledger recorded meanwhile
+INFRA, GAVE_UP, DROPPED = "infra", "gave-up", "dropped"
 OPEN = (QUEUED, RUNNING)
 
 
@@ -127,7 +138,9 @@ class Job:
     enqueued_at: str
     position: int | None = None  # on the first-parent chain, counted from the root; None off the chain
     state: str = QUEUED
-    attempts: int = 0
+    attempts: int = 0  # starts that count toward INFRA_ATTEMPTS
+    starts: int = 0  # every start, withdrawn ones too: each start's step key and step directory
+    background: bool = False  # the running start went out as a fleet --background step
     builder: str | None = None
     started_at: str | None = None
     ended_at: str | None = None
@@ -166,19 +179,17 @@ class QueueState:
     seq: int = 0
     jobs: list[Job] = field(default_factory=list)
     last_built: dict[str, dict[str, str]] = field(default_factory=dict)  # builder -> config -> sha in its tree
-    keys: dict[str, str] = field(default_factory=dict)  # bench product key -> "<sha>-<config>" of its newest ok build
 
     def to_document(self) -> dict:
         return {"schema": SCHEMA, "seq": self.seq, "jobs": [asdict(j) for j in self.jobs],
-                "last_built": self.last_built, "keys": self.keys}
+                "last_built": self.last_built}
 
     @classmethod
     def from_document(cls, document: Mapping) -> QueueState:
         if document.get("schema") != SCHEMA:
             raise BuildQueueError(f"queue state schema {document.get('schema')!r} is not {SCHEMA}")
         return cls(seq=int(document.get("seq", 0)), jobs=[Job.from_json(j) for j in document.get("jobs", ())],
-                   last_built={b: dict(c) for b, c in document.get("last_built", {}).items()},
-                   keys=dict(document.get("keys", {})))
+                   last_built={b: dict(c) for b, c in document.get("last_built", {}).items()})
 
 
 def load_state(path: Path) -> QueueState:
@@ -227,8 +238,14 @@ class BuildQueue:
     def _open(self, pair: tuple[str, str]) -> Job | None:
         return next((job for job in self.open_jobs() if job.pair == pair), None)
 
+    def _gave_up(self) -> list[Job]:
+        held = {job.pair for job in self.open_jobs()}
+        return [job for job in self.state.jobs if job.state == GAVE_UP and job.pair not in held]
+
     def given_up(self) -> set[tuple[str, str]]:
-        return {job.pair for job in self.state.jobs if job.state == GAVE_UP} - {j.pair for j in self.open_jobs()}
+        """Requested pairs given up (the scheduler's failed). A per-commit pair given up is not: its steps only
+        waited on a busy fleet or lost their client, and nothing says the commit does not build."""
+        return {job.pair for job in self._gave_up() if job.kind != "backfill"}
 
     def order(self) -> list[Job]:
         """Queued jobs in dispatch order, before builder affinity."""
@@ -245,8 +262,9 @@ class BuildQueue:
     # ---- adding work ----
 
     def enqueue(self, sha: str, config: str, reason: str, now: datetime) -> Job | None:
-        """A job for (sha, config), or None when the ledger has it, a job already holds it, or a build with the same
-        product key is taken over. A requested pair that waits as a per-commit build moves up to the request's class."""
+        """A job for (sha, config), or None when the ledger has it or a job already holds it. A requested pair that
+        waits as a per-commit build moves up to the request's class; when its step already went out as a background
+        step, the next tick withdraws that step (`promoted`)."""
         builds.build_key(sha, config)
         kind = kind_of(reason)
         pair = (sha, config)
@@ -257,12 +275,9 @@ class BuildQueue:
             return None
         if self.ledger.get(sha, config) is not None:
             return None
-        key = self.product_key(sha, config)
-        if self._reuse(sha, config, key, now):
-            return None
         self.state.seq += 1
         job = Job(id=f"b{self.state.seq:06d}", sha=sha, config=config, kind=kind, reason=reason,
-                  enqueued_at=stamp(now), position=self.position(sha), product_key=key)
+                  enqueued_at=stamp(now), position=self.position(sha), product_key=self.product_key(sha, config))
         self.state.jobs.append(job)
         return job
 
@@ -276,9 +291,11 @@ class BuildQueue:
         return added
 
     def backfill(self, newest_first: Sequence[str], now: datetime, *, depth: int = BACKFILL_DEPTH) -> list[Job]:
-        """A per-commit job for each first-parent commit (newest first) with no record and no job; a commit given up
-        on stays given up."""
-        skip = self.given_up()
+        """A per-commit job for each first-parent commit (newest first) with no record and no job. A requested pair
+        given up on stays given up; a per-commit one waits BACKFILL_RETRY_AFTER from its last end."""
+        retry_from = now - BACKFILL_RETRY_AFTER
+        skip = self.given_up() | {job.pair for job in self._gave_up()
+                                  if job.ended_at is None or parse_stamp(job.ended_at) > retry_from}
         added = []
         for sha in newest_first[:depth]:
             if (sha, BACKFILL_CONFIG) in skip:
@@ -287,34 +304,6 @@ class BuildQueue:
             if job is not None:
                 added.append(job)
         return added
-
-    def _reuse(self, sha: str, config: str, key: str | None, now: datetime) -> bool:
-        """Takes over the ok record of a build with the same product key (dev_release_product_reuse.py's rule)."""
-        other = self.state.keys.get(key) if key is not None else None
-        record = self.ledger.get(other[:40], config) if other is not None else None
-        if record is None or record.status != "ok":
-            return False
-        self.ledger.record(builds.BuildRecord(sha=sha, config=config, status="ok", seconds=0, digest=record.digest,
-                                              defines=record.defines, app=record.app, job=f"reuse:{record.sha}"))
-        self.state.seq += 1
-        self._history(Job(id=f"b{self.state.seq:06d}", sha=sha, config=config, kind="backfill", reason="reuse",
-                          enqueued_at=stamp(now), position=self.position(sha), state=REUSED, seconds=0,
-                          digest=record.digest, ended_at=stamp(now), product_key=key,
-                          note=f"same product key as {record.sha}"))
-        return True
-
-    def _built(self, job: Job, now: datetime) -> None:
-        """An ok build: its product key now names it, and each queued job with that key takes its record over."""
-        if job.product_key is None:
-            return
-        self.state.keys.pop(job.product_key, None)
-        self.state.keys[job.product_key] = builds.build_key(job.sha, job.config)
-        for stale in list(self.state.keys)[:max(0, len(self.state.keys) - HISTORY)]:
-            del self.state.keys[stale]
-        for waiting in self.open_jobs(QUEUED):
-            if waiting.product_key == job.product_key and waiting.config == job.config \
-                    and self._reuse(waiting.sha, waiting.config, waiting.product_key, now):
-                waiting.state, waiting.ended_at, waiting.note = DROPPED, stamp(now), f"took over {job.sha}'s build"
 
     def _history(self, job: Job) -> None:
         self.state.jobs.append(job)
@@ -328,14 +317,23 @@ class BuildQueue:
 
     # ---- dispatch ----
 
+    def _tree_key(self, builder: str, config: str) -> str | None:
+        """The product key of the ok build in BUILDER's tree of CONFIG, when its job is in the history."""
+        last = self.state.last_built.get(builder, {}).get(config)
+        built = next((job for job in reversed(self.state.jobs) if job.state == DONE and job.builder == builder
+                      and job.pair == (last, config) and not job.cached), None)
+        return built.product_key if built is not None else None
+
     def _distance(self, builder: str, job: Job) -> tuple[int, int]:
         last = self.state.last_built.get(builder, {}).get(job.config)
         if last is None:
-            return 2, 0
+            return 3, 0
+        if job.product_key is not None and self._tree_key(builder, job.config) == job.product_key:
+            return 0, 0  # the tree holds this product: the build only stamps and packages this commit
         at = self.position(last)
         if at is None or job.position is None:
-            return 1, 0
-        return 0, abs(job.position - at)
+            return 2, 0
+        return 1, abs(job.position - at)
 
     def assign(self, builders: Sequence[str], now: datetime, *, busy: Iterable[str] = ()) -> list[Job]:
         """Starts queued jobs on free builders (in `builders`, not `busy`, running none of ours)."""
@@ -359,6 +357,8 @@ class BuildQueue:
                 requested -= 1
             job.state, job.builder, job.started_at = RUNNING, builder, stamp(now)
             job.attempts += 1
+            job.starts += 1
+            job.background = job.kind == "backfill"
             job.incremental_from = self.state.last_built.get(builder, {}).get(job.config)
             started.append(job)
         return started
@@ -388,8 +388,6 @@ class BuildQueue:
                 job.incremental_from = None
             else:
                 self.state.last_built.setdefault(job.builder, {})[job.config] = job.sha
-            if status == "ok":
-                self._built(job, now)
             self._trim()
             return job
         why = f"exit {exit_code}" + ("" if ours else ", no receipt of this build")
@@ -397,18 +395,36 @@ class BuildQueue:
             job.state, job.note = GAVE_UP, f"{why} (attempt {job.attempts} of {INFRA_ATTEMPTS})"
             self._trim()
             return job
-        attempt = Job.from_json({**asdict(job), "id": f"{job.id}.{job.attempts}", "state": INFRA, "note": why})
-        job.state, job.builder, job.started_at, job.ended_at, job.exit = QUEUED, None, None, None, None
-        job.incremental_from, job.pid, job.step = None, None, None
+        attempt = Job.from_json({**asdict(job), "id": f"{job.id}.{job.starts}", "state": INFRA, "note": why})
+        self._requeue(job)
         self._history(attempt)
         return attempt
+
+    def promoted(self) -> list[Job]:
+        """Running jobs a request moved up while their step waits as a fleet background step."""
+        return [job for job in self.open_jobs(RUNNING) if job.background and job.kind != "backfill"]
+
+    def withdraw(self, job_id: str) -> Job:
+        """A promoted job whose background step was cancelled before a worker claimed it queues again in its
+        requested class; the withdrawn start does not count toward INFRA_ATTEMPTS."""
+        job = next((j for j in self.promoted() if j.id == job_id), None)
+        if job is None:
+            raise BuildQueueError(f"no promoted build job {job_id}")
+        job.attempts -= 1
+        self._requeue(job)
+        return job
+
+    @staticmethod
+    def _requeue(job: Job) -> None:
+        job.state, job.builder, job.started_at, job.ended_at, job.exit = QUEUED, None, None, None, None
+        job.incremental_from, job.pid, job.step, job.background = None, None, None, False
 
     # ---- the scheduler's view ----
 
     def scheduler_document(self) -> dict:
         """scheduler.builds_from_document input: ok and failed ledger records, the requested builds the builders
-        hold (queued or running; per-commit builds are not), given-up pairs as failed, and the median wall time of
-        recent built tips as expected_seconds."""
+        hold (queued or running; per-commit builds are not), given-up requested pairs as failed, and the median wall
+        time of recent built tips as expected_seconds."""
         records = ledger_records(self.ledger_root)
         failed = {r_pair(r) for r in records if r.status == "failed"} | self.given_up()
         tips = [j.wall_seconds for j in self.state.jobs
@@ -425,12 +441,17 @@ def r_pair(record) -> tuple[str, str]:
 
 # ---------- steps on the fleet ----------
 
+def step_key(job: Job) -> str:
+    """One key per start: the controller hands a known key its existing step back, finished or cancelled too."""
+    return f"perf-lab-build-{job.sha[:12]}-{job.config}-{job.id}-s{job.starts}"
+
+
 def step_argv(job: Job, tip: str) -> list[str]:
     """`cmux-ci run` of perf-lab-build.sh at the tip harness on the job's builder; per-commit builds go after every
     foreground job."""
-    background = ["--background"] if job.kind == "backfill" else []
+    background = ["--background"] if job.background else []
     return ["run", "--class", "exclusive", *background, "--target-worker", job.builder, "--no-supersede",
-            "--script", SCRIPT, "--ref", tip, "--key", f"perf-lab-build-{job.sha[:12]}-{job.config}-{job.id}",
+            "--script", SCRIPT, "--ref", tip, "--key", step_key(job),
             "--artifact", ARTIFACT, "--timeout", str(STEP_TIMEOUT), "--queue-timeout", str(QUEUE_TIMEOUT),
             f"--arg=--build-sha={job.sha}", f"--arg=--config={job.config}"]
 
@@ -454,6 +475,7 @@ class StepRunner:
     WRAPPER = '( "$@" > "$CMUX_BUILD_STEP_DIR/step.log" 2>&1; echo $? > "$CMUX_BUILD_STEP_DIR/rc.tmp" && ' \
               'mv "$CMUX_BUILD_STEP_DIR/rc.tmp" "$CMUX_BUILD_STEP_DIR/rc" ) < /dev/null > /dev/null 2>&1 & echo $!'
     STEP_ID = re.compile(r"cmux-ci: step ([0-9a-f]{12,}) ")
+    LOST_AFTER = timedelta(seconds=STEP_TIMEOUT + QUEUE_TIMEOUT + LOST_MARGIN)
 
     def __init__(self, steps_dir: Path | str, client: Path | str = DEFAULT_CLIENT, *,
                  spawn: Callable[..., subprocess.CompletedProcess] = subprocess.run,
@@ -461,7 +483,8 @@ class StepRunner:
         self.steps_dir, self.client, self._spawn, self._alive = Path(steps_dir), str(client), spawn, alive
 
     def _dir(self, job: Job) -> Path:
-        return self.steps_dir / job.id
+        """One directory per start: an earlier start's client that still runs never writes into a later one's."""
+        return self.steps_dir / f"{job.id}-s{job.starts}"
 
     def start(self, job: Job, argv: Sequence[str]) -> int:
         directory = self._dir(job)
@@ -476,13 +499,15 @@ class StepRunner:
             raise OSError(f"could not start {self.client}: {done.stderr.strip()[-300:]}")
         return int(pid)
 
-    def result(self, job: Job) -> tuple[int, dict | None, str | None] | None:
+    def result(self, job: Job, now: datetime) -> tuple[int, dict | None, str | None] | None:
         """(exit code, receipt, step id) once the step ended, else None. A client that is gone without an exit
-        code ended as 75: nothing recorded, built again."""
+        code, or that has none past LOST_AFTER (its own timeouts bound it, so its pid now names another process),
+        ended as 75: nothing recorded, built again."""
         directory = self._dir(job)
         rc = directory / "rc"
         if not rc.is_file():
-            if job.pid is not None and self._alive(job.pid):
+            lost = job.started_at is not None and now - parse_stamp(job.started_at) > self.LOST_AFTER
+            if job.pid is not None and not lost and self._alive(job.pid):
                 return None
             code = 75
         else:
@@ -497,16 +522,44 @@ class StepRunner:
         step = self.STEP_ID.search(log)
         return code, receipt if isinstance(receipt, dict) else None, step.group(1) if step else None
 
+    def withdraw(self, job: Job) -> bool:
+        """Cancels the job's fleet step while no worker has claimed it; True when it was cancelled. A step whose
+        id the client has not printed yet, or that a worker runs, stays (the next tick asks again)."""
+        log = self._dir(job) / "step.log"
+        found = self.STEP_ID.search(log.read_text(errors="replace")) if log.is_file() else None
+        if found is None:
+            return False
+        step = found.group(1)
+        try:
+            if json.loads(self._client("status", step)).get("state") != "queued":
+                return False
+            self._client("cancel", step, "--reason", f"perf lab: {job.reason} builds {job.sha[:12]} in the foreground")
+        except (OSError, subprocess.SubprocessError, ValueError, AttributeError):
+            return False
+        return True
+
+    def _client(self, *argv: str) -> str:
+        done = self._spawn([self.client, *argv], stdin=subprocess.DEVNULL, capture_output=True, text=True,
+                           timeout=60)
+        if done.returncode != 0:
+            raise OSError(f"{self.client} {argv[0]} exited {done.returncode}: {done.stderr.strip()[-300:]}")
+        return done.stdout
+
 
 def tick(queue: BuildQueue, runner: StepRunner, builders: Sequence[str], tip: str, newest_first: Sequence[str],
          now: datetime, *, busy: Iterable[str] = (), dry_run: bool = False) -> dict:
-    """One builder round: reap ended steps, queue per-commit builds, start the free builders."""
+    """One builder round: reap ended steps, withdraw requested pairs' unclaimed background steps, queue per-commit
+    builds, start the free builders."""
     reaped = []
     for job in list(queue.open_jobs(RUNNING)):
-        ended = runner.result(job)
+        ended = runner.result(job, now)
         if ended is not None:
             code, receipt, step = ended
             reaped.append(asdict(queue.finish(job.id, code, receipt, now, step=step)))
+    withdrawn = []
+    for job in queue.promoted():
+        if not dry_run and runner.withdraw(job):
+            withdrawn.append(queue.withdraw(job.id).id)
     added = queue.backfill(newest_first, now)
     started = queue.assign(builders, now, busy=busy)
     for job in started:
@@ -517,25 +570,27 @@ def tick(queue: BuildQueue, runner: StepRunner, builders: Sequence[str], tip: st
         except (OSError, subprocess.SubprocessError) as error:
             queue.finish(job.id, 75, None, now).note = f"could not start the step: {error}"
     started = [job for job in started if job.state == RUNNING]
-    return {"reaped": reaped, "backfilled": len(added),
+    return {"reaped": reaped, "withdrawn": withdrawn, "backfilled": len(added),
             "started": [{"id": j.id, "sha": j.sha, "config": j.config, "kind": j.kind, "builder": j.builder,
                          "incremental_from": j.incremental_from, "argv": step_argv(j, tip)} for j in started]}
 
 
 # ---------- coverage ----------
 
-def coverage(commits: Sequence[tuple[str, datetime]], queue: BuildQueue, now: datetime) -> dict:
-    """Of the first-parent commits in the window (newest first, with their commit times): how many have a bench
-    build (built or taken over), failed, wait in the queue or have nothing, and how long a tip waited for its build."""
-    jobs = {job.sha: job for job in queue.state.jobs if job.config == BACKFILL_CONFIG and job.state not in OPEN}
+def coverage(commits: Sequence[tuple[str, datetime]], queue: BuildQueue, now: datetime, since: datetime) -> dict:
+    """Of the first-parent commits in the window from `since` to `now` (newest first, with their commit times): how
+    many have a bench build, failed, wait in the queue, were given up or have nothing, and how long the tips queued
+    in the window waited for their builds. A commit's row is its job's: an attempt the builder lost and a job
+    dropped for a ledger record are not the commit's."""
+    jobs = {job.sha: job for job in queue.state.jobs
+            if job.config == BACKFILL_CONFIG and job.state not in (*OPEN, INFRA, DROPPED)}
     jobs.update({job.sha: job for job in queue.open_jobs() if job.config == BACKFILL_CONFIG})
     rows = []
     for sha, committed in commits:
         record = queue.ledger.get(sha, BACKFILL_CONFIG)
         job = jobs.get(sha)
         if record is not None:
-            status = "failed" if record.status == "failed" else (REUSED if (record.job or "").startswith("reuse:")
-                                                                else "built")
+            status = "failed" if record.status == "failed" else "built"
         elif job is not None and job.state in OPEN:
             status = job.state
         elif job is not None and job.state == GAVE_UP:
@@ -548,10 +603,11 @@ def coverage(commits: Sequence[tuple[str, datetime]], queue: BuildQueue, now: da
     counts: dict[str, int] = {}
     for row in rows:
         counts[row["status"]] = counts.get(row["status"], 0) + 1
-    covered = counts.get("built", 0) + counts.get(REUSED, 0)
+    covered = counts.get("built", 0)
     tip_waits = sorted(int((parse_stamp(j.ended_at) - parse_stamp(j.enqueued_at)).total_seconds())
-                       for j in queue.state.jobs if j.kind == "tip" and j.state == DONE and j.ended_at)
-    return {"now": stamp(now), "commits": len(rows), "counts": counts,
+                       for j in queue.state.jobs if j.kind == "tip" and j.state == DONE and j.ended_at
+                       and parse_stamp(j.enqueued_at) >= since)
+    return {"now": stamp(now), "since": stamp(since), "commits": len(rows), "counts": counts,
             "built_fraction": round(covered / len(rows), 4) if rows else None,
             "tip_build_wait_s": summary(tip_waits), "rows": rows}
 
@@ -674,51 +730,72 @@ def add_arguments(command: str, parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--now", help=argparse.SUPPRESS)
 
 
+@contextlib.contextmanager
+def state_lock(state_path: Path):
+    """An exclusive flock on STATE.lock (a sidecar: os.replace swaps the state file itself) held over one whole
+    read-change-write of the state."""
+    lock_path = state_path.with_name(state_path.name + ".lock")
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(lock_path, "a+") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(lock, fcntl.LOCK_UN)
+
+
 def run(command: str, args: argparse.Namespace, out=None, err=None) -> int:
     out, err = out or sys.stdout, err or sys.stderr
     state_path = args.state or args.data_dir / "build-queue.json"
+    mutates = args.enqueue is not None or args.tick
     try:
-        now = parse_stamp(args.now) if args.now else datetime.now(timezone.utc)
-        git = Git(args.repo or args.data_dir / "repo", args.mainline)
-        queue = BuildQueue(load_state(state_path), args.ledger or args.data_dir / "builds",
-                           position=git.position, product_key=git.product_key)
-        if args.coverage:
-            report = coverage(git.commits(now - parse_window(args.since), limit=100_000), queue, now)
-            if args.json:
-                json.dump(report, out, indent=1)
-                print(file=out)
-            else:
-                print(format_coverage(report, args.since), file=out)
-            return 0
-        if args.document:
-            json.dump(queue.scheduler_document(), out, indent=1)
-            print(file=out)
-            return 0
-        if args.status:
-            json.dump({"open": [asdict(j) for j in queue.order() + queue.open_jobs(RUNNING)],
-                       "last_built": queue.state.last_built}, out, indent=1)
-            print(file=out)
-            return 0
-        if args.enqueue is not None:
-            text = sys.stdin.read() if str(args.enqueue) == "-" else args.enqueue.read_text()
-            added = queue.enqueue_plan(json.loads(text), now)
-            json.dump({"queued": [j.id for j in added], "builds": []}, out)
-            print(file=out)
-        else:
-            tip = git.tip()
-            if tip is None:
-                raise BuildQueueError(f"{git.repo}: no {args.mainline}; the tick builds with the tip harness")
-            report = tick(queue, StepRunner(args.data_dir / "build-steps", args.client), pool_builders(args.pool),
-                          tip, [sha for sha, _ in git.commits()], now, busy=args.busy, dry_run=args.dry_run)
-            json.dump(report, out, indent=1)
-            print(file=out)
-            if args.dry_run:
-                return 0
-        save_state(state_path, queue.state)
-        return 0
+        with state_lock(state_path) if mutates else contextlib.nullcontext():
+            return _run(args, state_path, out)
     except (BuildQueueError, builds.BuildError, OSError, ValueError, KeyError) as error:
         print(f"builds: {error}", file=err)
         return 2
+
+
+def _run(args: argparse.Namespace, state_path: Path, out) -> int:
+    now = parse_stamp(args.now) if args.now else datetime.now(timezone.utc)
+    git = Git(args.repo or args.data_dir / "repo", args.mainline)
+    queue = BuildQueue(load_state(state_path), args.ledger or args.data_dir / "builds",
+                       position=git.position, product_key=git.product_key)
+    if args.coverage:
+        since = now - parse_window(args.since)
+        report = coverage(git.commits(since, limit=100_000), queue, now, since)
+        if args.json:
+            json.dump(report, out, indent=1)
+            print(file=out)
+        else:
+            print(format_coverage(report, args.since), file=out)
+        return 0
+    if args.document:
+        json.dump(queue.scheduler_document(), out, indent=1)
+        print(file=out)
+        return 0
+    if args.status:
+        json.dump({"open": [asdict(j) for j in queue.order() + queue.open_jobs(RUNNING)],
+                   "last_built": queue.state.last_built}, out, indent=1)
+        print(file=out)
+        return 0
+    if args.enqueue is not None:
+        text = sys.stdin.read() if str(args.enqueue) == "-" else args.enqueue.read_text()
+        added = queue.enqueue_plan(json.loads(text), now)
+        json.dump({"queued": [j.id for j in added], "builds": []}, out)
+        print(file=out)
+    else:
+        tip = git.tip()
+        if tip is None:
+            raise BuildQueueError(f"{git.repo}: no {args.mainline}; the tick builds with the tip harness")
+        report = tick(queue, StepRunner(args.data_dir / "build-steps", args.client), pool_builders(args.pool),
+                      tip, [sha for sha, _ in git.commits()], now, busy=args.busy, dry_run=args.dry_run)
+        json.dump(report, out, indent=1)
+        print(file=out)
+        if args.dry_run:
+            return 0
+    save_state(state_path, queue.state)
+    return 0
 
 
 def format_coverage(report: dict, since: str) -> str:
