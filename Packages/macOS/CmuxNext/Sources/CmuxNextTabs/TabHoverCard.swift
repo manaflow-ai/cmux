@@ -261,6 +261,10 @@ final class TabHoverCardController: HoverCardSource {
         // main-hop-allow: the providers picture their views on the main actor (TabContentCache, ScreenBarController); the card applies the image in this task's one resume, and a retarget cancels it
         thumbnailTask = Task { [weak self] in
             let image = await provider.previewImage(for: id, maxPixelSize: size)
+            // The kept thumbnail is made before the card's checks: with `purgeableImageCaches` on, its copy is
+            // drawn off the main actor.
+            var picture: PurgeablePicture?
+            if let image, let thumbnails = self?.thumbnails { picture = await thumbnails.picture(of: image) }
             guard let self, !Task.isCancelled, self.bodyID == target else { return }
             // No thumbnail (a page never captured): none, not the previous
             // tab's picture kept through the retarget or an empty frame.
@@ -271,7 +275,7 @@ final class TabHoverCardController: HoverCardSource {
                 self.coordinator.contentChanged(target)
                 return
             }
-            self.thumbnails.insert(image, for: id)
+            self.thumbnails.insert(picture, for: id)
             self.noThumbnail.remove(id)
             // A card that showed no frame (the last tab had none) grows one for it.
             let grows = self.body?.showsThumbnail == false
@@ -331,10 +335,10 @@ extension TabHoverCardController: MemoryConsumer {
         return .done
     }
 
-    /// Thumbnail pixels (bytes per row x height each). A sample is a few hundred bytes and
-    /// counts as an entry only.
+    /// Thumbnail pixels (bytes per row x height each), locked apart from volatile (p07-memory-107). A sample
+    /// is a few hundred bytes and counts as an entry only.
     var memoryUsage: MemoryUsage? {
-        MemoryUsage(footprintBytes: thumbnails.bytes, entries: thumbnails.count + lastReports.count)
+        thumbnails.usage(entries: thumbnails.count + lastReports.count)
     }
 
     /// How many tabs' samples it keeps now (tests).

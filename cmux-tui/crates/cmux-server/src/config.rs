@@ -23,7 +23,7 @@ pub struct ServerConfig {
 impl ServerConfig {
     /// Reads `path`; a missing file is an empty config.
     pub fn load(path: &Path) -> Result<ServerConfig> {
-        let root = match std::fs::read(path) {
+        let root = match cmux_blocking::fs::read(path) {
             Ok(bytes) => match serde_json::from_slice::<Value>(&bytes) {
                 Ok(Value::Object(map)) => map,
                 Ok(_) => {
@@ -44,7 +44,7 @@ impl ServerConfig {
     /// Writes the file atomically (0600; the directory 0700 when created).
     pub fn save(&self) -> Result<()> {
         if let Some(dir) = self.path.parent()
-            && !dir.exists()
+            && cmux_blocking::fs::metadata(dir).is_err()
         {
             fsx::ensure_dir(dir, 0o700)?;
         }

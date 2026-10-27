@@ -46,6 +46,7 @@ final class ScreenBarController {
         let node = node ?? content.visibilityNode ?? VisibilityNode(root: "screen-bar", own: .visible)
         view = TabStripView(model: model, input: content.services.inputTap, deadlines: content.services.mainDeadlines, visibilityNode: node)
         view.hoverFrameInput = content.services.hoverFrameInput  // hover once per frame (`pointerFrameHover`)
+        view.scrollFrameInput = content.services.tabScrollFrameInput  // scroll by translation once per frame (`tabStripScrollFrames`)
         preview = ScreenPreviewSource(content: content)
         view.dragsWindowFromEmptySpace = false
         view.renamesOnDoubleClick = true

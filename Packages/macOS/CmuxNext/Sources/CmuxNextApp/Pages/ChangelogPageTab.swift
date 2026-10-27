@@ -1,6 +1,8 @@
 import AppKit
+import CmuxNextFeatures
 import CmuxNextHibernation
 import CmuxNextIcons
+import CmuxNextMemory
 import CmuxNextPages
 import CmuxNextUpdater
 
@@ -106,7 +108,10 @@ extension PageFactory {
     /// The changelog page: `cmux.changelog.` to verified notes, `cmux.app.` to the native ops
     /// (Try it runs only the descriptor's allow-listed actions).
     func changelogPage(route: String? = nil) -> PageWebView? {
-        let provider = changelogNotes(media: services.updater.releaseMedia)
+        let media = services.updater.releaseMedia
+        let provider = changelogNotes(media: media)
+        // memorySmallAppStores (default off): the page's inlined pictures, a memory consumer for the page's life (p07-memory-083).
+        if services.features.isEnabled(.memorySmallAppStores) { provider.mediaMemory = media?.registerMemoryConsumer(with: services.memoryCoordinator) }
         let native = AppPageNativeProvider(services: services, page: .changelog)
         let routes = [PageRoute(prefix: "cmux.changelog.", provider: provider), PageRoute(prefix: "cmux.app.", provider: native)]
         let page = services.webUI.open(PageOpenRequest(descriptor: .changelog, routes: routes, route: route))

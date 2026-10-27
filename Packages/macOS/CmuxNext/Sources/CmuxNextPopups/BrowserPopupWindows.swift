@@ -135,11 +135,12 @@ public final class BrowserPopupWindows {
             contextMenus.present(request, in: page.contentView, leading: hitItems?(request.target, entry.openerKey) ?? [])
         case .resizePopup(let request):
             resize(entry, to: request)
-        case .activate, .notice, .rerouteStore, .takeFocus, .unhandledKey, .verificationPageWaiting, .designMode, .protectedMediaUnavailable:
+        case .activate, .notice, .rerouteStore, .takeFocus, .unhandledKey, .verificationPageWaiting, .designMode, .protectedMediaUnavailable,
+             .contentFullscreen:
             // A popup has no tab to select, no chrome for notices or an
             // editable omnibar to take focus, one store, no page shortcuts, no prompt
             // bar for a verification code offer, and no tab to reopen in WebKit
-            // (its opener's engine holds `window.opener`).
+            // (its opener's engine holds `window.opener`), and no pane to zoom for a fullscreen page.
             break
         case .openURL, .adoptTab, .download, .openLocalFile, .webNotification:
             // A download joins the App's list through the opener's tab, a

@@ -344,7 +344,9 @@ impl Snapshot {
 
     /// The keys as a panic line's `crash_keys` object: each set key by name,
     /// and the hung threads' count and kinds. Ids are left out (they mean
-    /// nothing outside the process).
+    /// nothing outside the process). The std-only writer writes the same
+    /// object by hand (`minimal`).
+    #[cfg(feature = "json")]
     pub fn to_json(&self) -> serde_json::Value {
         let mut object = serde_json::Map::new();
         for key in Key::ALL {
@@ -452,8 +454,11 @@ mod tests {
         assert_eq!(back.get(Key::CefState), 0);
         assert_eq!(back.get(Key::DaemonEpoch), 0);
         assert_eq!(back.hung_threads().map(|thread| thread.kind).collect::<Vec<_>>(), vec![2]);
-        let json = back.to_json().to_string();
-        assert!(!json.contains("secret") && !json.contains("abc"), "{json}");
+        #[cfg(feature = "json")]
+        {
+            let json = back.to_json().to_string();
+            assert!(!json.contains("secret") && !json.contains("abc"), "{json}");
+        }
         assert!(Snapshot::parse("not a record").is_none());
     }
 

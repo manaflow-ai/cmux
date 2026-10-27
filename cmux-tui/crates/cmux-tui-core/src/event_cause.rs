@@ -95,6 +95,18 @@ impl EventCause {
         }
     }
 
+    /// The [`cmux_threads::work::Priority`] of a work item that serves a
+    /// request with this cause, as Chrome posts a task at the priority of
+    /// what it serves (base/task/task_traits.h): the app's requests are
+    /// `UserBlocking`, the rest `UserVisible`. Both run at UserInitiated, the
+    /// class of the request thread that posts them.
+    pub(crate) const fn work_priority(self) -> cmux_threads::work::Priority {
+        match self {
+            Self::Frontend => cmux_threads::work::Priority::UserBlocking,
+            Self::Automation | Self::Program => cmux_threads::work::Priority::UserVisible,
+        }
+    }
+
     /// The wire name (spec/events.md "Event cause"). `program` is never
     /// sent: a missing field means it.
     pub(crate) const fn wire_name(self) -> &'static str {

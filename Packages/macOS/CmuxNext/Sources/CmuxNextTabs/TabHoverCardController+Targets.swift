@@ -14,14 +14,14 @@ extension TabHoverCardController {
         if let group = strip.chipGroup(at: point), let chip = strip.groups.chips[group] {
             // `sidebar.hoverCards.groups.tabGroups` off: a chip opens no card.
             guard DesignSettings.shared.groupHoverCard.tabGroups else { return nil }
-            let anchor = window.convertToScreen(strip.tabsClip.convert(Self.drawn(chip.frame, pill: chip.pillFrame), to: nil))
+            let anchor = window.convertToScreen(strip.tabsClip.convert(Self.drawn(strip.scroller.shownFrame(chip.layer), pill: chip.pillFrame), to: nil))
             return (.groupChip(group), strip.metrics.minInactiveTabWidth, anchor)
         }
         // A New Tab page's card would only repeat its title (Leo 2026-10-11).
         guard let id = strip.tabID(at: point), let cell = strip.cells[id], strip.model.tab(id)?.isNewTabPage != true else { return nil }
         // The speaker shows its own tooltip (Mute tab / Unmute tab), not the card over it.
         guard !strip.isInAudioButton(id, point) else { return nil }
-        return (id, cell.frame.width, window.convertToScreen(strip.tabsClip.convert(Self.drawn(cell.frame, pill: cell.pillFrameInCell), to: nil)))
+        return (id, cell.frame.width, window.convertToScreen(strip.tabsClip.convert(Self.drawn(strip.scroller.shownFrame(cell.layer), pill: cell.pillFrameInCell), to: nil)))
     }
 
     /// `id`'s frame on screen now, nil when it has no visible frame.
@@ -29,10 +29,10 @@ extension TabHoverCardController {
         guard let strip, let window = strip.window else { return nil }
         if let group = id.chipGroupID {
             guard let chip = strip.groups.chips[group], chip.frame.width > 0.5 else { return nil }
-            return window.convertToScreen(strip.tabsClip.convert(Self.drawn(chip.frame, pill: chip.pillFrame), to: nil))
+            return window.convertToScreen(strip.tabsClip.convert(Self.drawn(strip.scroller.shownFrame(chip.layer), pill: chip.pillFrame), to: nil))
         }
         guard let cell = strip.cells[id], cell.frame.width > 0.5 else { return nil }
-        return window.convertToScreen(strip.tabsClip.convert(Self.drawn(cell.frame, pill: cell.pillFrameInCell), to: nil))
+        return window.convertToScreen(strip.tabsClip.convert(Self.drawn(strip.scroller.shownFrame(cell.layer), pill: cell.pillFrameInCell), to: nil))
     }
 
     /// The part of a tab's or chip's slot its pill draws: the card lines up with the edges the

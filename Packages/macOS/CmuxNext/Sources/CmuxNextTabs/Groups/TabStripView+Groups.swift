@@ -140,7 +140,7 @@ extension TabStripView {
         guard local.x >= 0, local.x <= tabsClip.bounds.width, local.y >= 0, local.y <= tabsClip.bounds.height else { return nil }
         guard scrollMapping.showsUnpinned(at: local.x) else { return nil }
         for (group, chip) in groups.chips where !dying.contains(.groupChip(group)) {
-            let frame = chip.frame
+            let frame = scroller.shownFrame(chip.layer)
             if local.x >= frame.minX, local.x < frame.maxX { return group }
         }
         return nil
@@ -176,14 +176,14 @@ extension TabStripView {
     public func showGroupEditor(for group: TabGroupID) {
         guard let item = groups.byID[group], let chip = groups.chips[group], let window else { return }
         hoverCards.dismiss(.action)
-        let anchor = window.convertToScreen(tabsClip.convert(chip.frame, to: nil))
+        let anchor = window.convertToScreen(tabsClip.convert(scroller.shownFrame(chip.layer), to: nil))
         groupEditor.show(group: item, anchor: anchor, parent: window, themeAnchor: self)
     }
 
     /// The group's full menu under its chip (the editor's More row; Option-right-click).
     func showGroupMenu(for group: TabGroupID) {
         guard let menu = contextMenuProvider?(.group(group)), !menu.items.isEmpty, let chip = groups.chips[group] else { return }
-        let frame = tabsClip.convert(chip.frame, to: self)
+        let frame = tabsClip.convert(scroller.shownFrame(chip.layer), to: self)
         menuTracking.begin(menu)
         menu.popUp(positioning: nil, at: CGPoint(x: frame.minX, y: isFlipped ? frame.maxY + 2 : frame.minY - 2), in: self)
         menuTracking.end()
