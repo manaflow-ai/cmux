@@ -8,7 +8,7 @@ public import AppKit
 /// a chord with no menu item does. A chord that a responder item (Copy, Undo, Hide), a system item (Quit) or
 /// an item the bar does not make shares keeps AppKit's search, and so does every undecided key and a click.
 ///
-/// The macOS 26 SDK declares `NSMenu`'s `init(coder:)` and `performKeyEquivalent(with:)` nonisolated, so their
+/// The macOS 26 SDK declares `NSMenu`'s initializers and `performKeyEquivalent(with:)` nonisolated, so their
 /// overrides are too. The bar's state stays on the main actor: the key work runs there, on the main thread
 /// AppKit dispatches keys on, and reads the key-down from the registry (``ActionRegistry/dispatchingInputEvent``),
 /// matched by identity to the one AppKit hands the bar, so no event crosses actors. A key-down that is not the
@@ -48,6 +48,13 @@ public final class ActionMenuBar: NSMenu {
         self.registry = registry
         self.decidedKey = decidedKey
         super.init(title: "")
+    }
+
+    /// A bar with no registry: it refuses no search. `NSMenu`'s designated initializer, written out because Swift's
+    /// implicit stub for it would take the class's main-actor isolation, which the nonisolated original forbids.
+    public nonisolated override init(title: String) {
+        decidedKey = { _ in false }
+        super.init(title: title)
     }
 
     public nonisolated required init(coder: NSCoder) {
