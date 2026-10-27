@@ -288,7 +288,7 @@ import Testing
         defer { frames.close() }
         let ids = (0..<12).map { TabGroupID("saved\($0)") }
         let model = SavedGroupsBarModel(groups: ids.map { SavedTabGroupItem(id: $0, name: "Group \($0)", colorToken: .blue, tabCount: 2) })
-        let bar = SavedGroupsBarView(model: model)
+        let bar = SavedGroupsBarView(model: model, mainWork: MainWorkScheduler(budget: MainFrameBudget()))
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 300, height: SavedGroupsBarView.preferredHeight),
                               styleMask: [.borderless], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false

@@ -61,7 +61,7 @@ public final class WindowOverlayHost {
     var nextID = 1
     /// The window's layout planes need the panel (pages show) even with no overlay presented.
     var planesWantPanel = false
-    var observers: [any NSObjectProtocol] = []
+    var closeWatch: EventSubscription?  // the window's close notice, through its WindowEvents: the host goes with the window
     /// Window notice subscriptions held while the panel is attached.
     var windowObservers: [EventSubscription] = []
     /// Order checks run on a window notice (`debug.layers` `order_checks`; none with pages in the view tree).
@@ -207,12 +207,9 @@ public final class WindowOverlayHost {
         if let host = hosts[key], host.window === window { return host }
         let host = WindowOverlayHost(window: window)
         hosts[key] = host
-        host.observers.append(NotificationCenter.default.addObserver(
-            forName: NSWindow.willCloseNotification, object: window, queue: .main
-        ) { [weak host] _ in
-            // main-proof: observer on queue: .main
-            MainActor.assumeIsolated { host?.tearDown() }
-        })
+        host.closeWatch = WindowEvents.of(window).subscribe(NSWindow.willCloseNotification, owner: "WindowOverlayHost.close") { [weak host] in
+            host?.tearDown()
+        }
         return host
     }
 
@@ -285,8 +282,8 @@ public final class WindowOverlayHost {
     func tearDown() {
         isTearingDown = true
         for handle in handles { handle.dismiss() }
-        observers.forEach(NotificationCenter.default.removeObserver)
-        observers.removeAll()
+        closeWatch?.cancel()
+        closeWatch = nil
         mouseRouting = nil
         updateEscapeIntercept()
         if let keyObserver { NotificationCenter.default.removeObserver(keyObserver) }
@@ -426,19 +423,23 @@ public final class WindowOverlayHost {
     private func observeWindow(_ window: NSWindow) {
         stopObservingWindow()
         let events = WindowEvents.of(window)
-        for name in [NSWindow.didResizeNotification, NSWindow.didMoveNotification, NSWindow.didEnterFullScreenNotification,
-                     NSWindow.didExitFullScreenNotification, NSWindow.didChangeScreenNotification] {
-            windowObservers.append(events.subscribe(name, owner: "WindowOverlayHost.geometry") { [weak self] in
-                self?.windowGeometryDidChange()
-            })
-        }
+        let geometry: @MainActor () -> Void = { [weak self] in self?.windowGeometryDidChange() }
+        windowObservers = [
+            events.subscribe(NSWindow.didResizeNotification, owner: "WindowOverlayHost.geometry", geometry),
+            events.subscribe(NSWindow.didMoveNotification, owner: "WindowOverlayHost.geometry", geometry),
+            events.subscribe(NSWindow.didEnterFullScreenNotification, owner: "WindowOverlayHost.geometry", geometry),
+            events.subscribe(NSWindow.didExitFullScreenNotification, owner: "WindowOverlayHost.geometry", geometry),
+            events.subscribe(NSWindow.didChangeScreenNotification, owner: "WindowOverlayHost.geometry", geometry),
+        ]
         guard PageSurface.of(window) == .childWindows else { return }
-        for name in [NSWindow.didEnterFullScreenNotification, NSWindow.didExitFullScreenNotification, NSWindow.didBecomeKeyNotification,
-                     NSWindow.didChangeOcclusionStateNotification, NSWindow.didDeminiaturizeNotification] {
-            windowObservers.append(events.subscribe(name, owner: "WindowOverlayHost.order") { [weak self] in
-                self?.checkOrder()
-            })
-        }
+        let order: @MainActor () -> Void = { [weak self] in self?.checkOrder() }
+        windowObservers += [
+            events.subscribe(NSWindow.didEnterFullScreenNotification, owner: "WindowOverlayHost.order", order),
+            events.subscribe(NSWindow.didExitFullScreenNotification, owner: "WindowOverlayHost.order", order),
+            events.subscribe(NSWindow.didBecomeKeyNotification, owner: "WindowOverlayHost.order", order),
+            events.subscribe(NSWindow.didChangeOcclusionStateNotification, owner: "WindowOverlayHost.order", order),
+            events.subscribe(NSWindow.didDeminiaturizeNotification, owner: "WindowOverlayHost.order", order),
+        ]
     }
 
     private func stopObservingWindow() {

@@ -82,6 +82,7 @@ final class PaneToolbar {
             }
         }
         // Lives as long as the pane's view; a hidden pane's bar reads nothing and catches up on show.
+        view.follow(pane.visibilityNode, on: services.mainWork)
         observation = VisibleObservation(pane.visibilityNode, owner: "PaneToolbar.state", on: services.mainWork) { [weak pane] in
             pane.map(Self.state)
         } apply: { [weak self] state in
