@@ -26,6 +26,11 @@ final class ChromiumHostWidgetHost {
         var makePanel: @MainActor (_ frame: CGRect, _ takesKey: Bool) -> ChromiumHostWidgetPanel = {
             ChromiumHostWidgetPanel(frame: $0, takesKey: $1)
         }
+        /// A picture-in-picture panel of the content size, placed on the screen (the owner's window's).
+        var makePictureInPicturePanel: @MainActor (_ size: CGSize, _ screen: NSScreen?, _ keepsAspectRatio: Bool,
+                                                   _ takesKey: Bool) -> ChromiumHostPictureInPicturePanel = {
+            ChromiumHostPictureInPicturePanel(contentSize: $0, on: $1, keepsAspectRatio: $2, takesKey: $3)
+        }
         /// An undocked DevTools window: the same window the in-process DevTools uses.
         var makeWindow: @MainActor (_ frame: CGRect, _ owner: NSWindow?) -> CEFDevToolsWindow = {
             CEFDevToolsWindow(frame: $0, owner: $1)
@@ -226,7 +231,27 @@ final class ChromiumHostWidgetHost {
         case .anchored(let takesKey): placeAnchored(entry, takesKey: takesKey)
         case .window: placeInWindow(entry)
         case .fill, .inPage: placeInContainer(entry)
+        case .floating(let keepsAspectRatio, let takesKey): placeFloating(entry, keepsAspectRatio: keepsAspectRatio, takesKey: takesKey)
         }
+    }
+
+    /// Picture-in-picture: its own panel, not a child of the opener's window, so it stays when that
+    /// window is minimized or on another space. The host decides the size; cmux where it is.
+    private func placeFloating(_ entry: Entry, keepsAspectRatio: Bool, takesKey: Bool) {
+        let size = entry.context.bounds.size
+        if let panel = entry.window as? ChromiumHostPictureInPicturePanel {
+            panel.take(contentSize: size, keepsAspectRatio: keepsAspectRatio)
+            return
+        }
+        let panel = seams.makePictureInPicturePanel(size, ownerWindow(entry.context.owner)?.screen ?? NSScreen.main,
+                                                    keepsAspectRatio, takesKey)
+        if let content = panel.contentView {
+            entry.view.frame = content.bounds
+            entry.view.autoresizingMask = [.width, .height]
+            content.addSubview(entry.view)
+        }
+        entry.window = panel
+        seams.order(panel, nil, takesKey)
     }
 
     private func placeAnchored(_ entry: Entry, takesKey: Bool) {

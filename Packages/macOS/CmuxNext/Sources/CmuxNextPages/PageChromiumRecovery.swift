@@ -65,7 +65,7 @@ final class PageChromiumRecovery {
         page.chromiumRecovery = nil
         switch outcome {
         case .gaveUp: page.fallBackToWebKit(.chromiumFailed, detail: "the Chromium browser ended; its supervisor gave up")
-        case .restarted: page.startChromium(hosting: hosting)
+        case .restarted: page.startChromium(hosting: hosting, origin: .user) // it shows now: a person's, never a launch wait
         }
     }
 

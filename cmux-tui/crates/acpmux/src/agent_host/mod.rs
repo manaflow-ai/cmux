@@ -516,6 +516,7 @@ pub fn terminate_unadoptable(
     }
     // SAFETY: the held lock proves `pid` is this session's live host.
     unsafe { libc::kill(pid, libc::SIGTERM) };
+    crate::daemon::hang_watch::will_block();
     if dead_within(TERM_GRACE) {
         return Ok(true);
     }

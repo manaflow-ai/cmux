@@ -139,8 +139,10 @@ final class SidebarListView: NSView {
     var groupEditing: SidebarGroupEditing { SidebarGroupEditing(list: self) }
     /// Drag autoscroll frames from the window's FrameScheduler.
     lazy var autoscroll = SidebarDragAutoscroll(list: self)
+    #if DEBUG || CMUX_BENCH_HOOKS
     /// Per-display-frame samples for the drag feel proof (`debug.sidebar_rows` motion).
     lazy var motionProbe = SidebarMotionProbe(list: self)
+    #endif
     /// Main-thread milliseconds of the last drag move (`SidebarMotionFrame.dragWorkMs`).
     var lastDragWorkMs: Double = 0
     var external: ExternalDrag?
@@ -158,6 +160,10 @@ final class SidebarListView: NSView {
     /// window, outside every window); true takes it over.
     var onDragHandoff: ((SidebarDragHandoff) -> Bool)?
     let tabRowDrag = SidebarTabRowDrag()
+    /// A row drag's moves (`updateDrag`), once per frame on the window's drag frames; the lift past the threshold acts at once.
+    private(set) lazy var dragMoves = PointerFrameDrag(owner: "SidebarListView.drag", view: self) { [weak self] point in
+        self?.updateDrag(windowPoint: point)
+    }
     /// Hover time before an external tab drag over a row selects it.
     var springLoadDelay: Duration = .milliseconds(500)
     /// The app's one deadline placer (the container injects `AppServices.mainDeadlines`). The spring-load hover is a

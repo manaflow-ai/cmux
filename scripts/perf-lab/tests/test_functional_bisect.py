@@ -342,6 +342,12 @@ class SummaryOutcomeTests(unittest.TestCase):
             (STORY, "cmux15", 7, "pass", ""), (STORY, "cmux15", 7, "error", "exit 1"),
             ("split-spring", "cmux15", 7, "env-invalid", "env-invalid after launch: network-egress")])
 
+    def test_a_not_measurable_run_says_nothing_about_its_story(self) -> None:
+        lacking = dict(job_run(False, "not-measurable: the build lacks debug:sidebar", story="split-spring"),
+                       not_measurable=["debug:sidebar"])
+        summary = job_summary(7, [job_run(False, "exit 1"), lacking])
+        self.assertEqual(self.outcomes(summary, host="cmux15", exit_code=1), [(STORY, "cmux15", 7, "error", "exit 1")])
+
     def test_the_host_defaults_to_the_reports_fingerprint(self) -> None:
         self.assertEqual(self.outcomes(job_summary(7, [job_run(True)]))[0][1], "fp-" + "ab" * 6)
 

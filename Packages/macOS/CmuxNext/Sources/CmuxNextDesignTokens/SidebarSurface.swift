@@ -1,4 +1,4 @@
-public import CoreGraphics
+public import Foundation
 
 /// `appearance.sidebarSurface` in cmux.json (Leo 2026-10-12): whether the
 /// sidebar has a surface of its own beside the main pane.
