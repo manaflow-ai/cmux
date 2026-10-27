@@ -83,34 +83,75 @@ struct ConfigFileWatcherNoWaitTests {
         #expect(changes.count.withLock { $0 } == 0, "a quiet start reported a change no save made")
     }
 
-    /// A watch armed after its consumer read the file (the Ghostty config watch, posted after startup,
-    /// p08-startup-086) reports a save made between that read and the arm.
-    @Test func aSaveSinceTheReadIsReportedWhenALaterWatchArms() async throws {
+    /// A watch armed long after its consumer read the file (the Ghostty config watch, posted after
+    /// startup, p08-startup-086) reports a save made between the read's ``mark()`` and the arm: a write
+    /// in place, a rename over the file, a delete, a file that appears.
+    @Test(arguments: SaveKind.allCases)
+    func aSaveSinceTheMarkIsReportedWhenALaterWatchArms(_ save: SaveKind) async throws {
         let url = try ConfigFileWatcherStartTests.file()
         defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
-        let since = ConfigFileWatcher.Since.now
-        try Data(#"{ "appearance": { "density": "compact" } }"#.utf8).write(to: url, options: .atomic)
+        if save == .create { try FileManager.default.removeItem(at: url) }
+        let queue = DispatchQueue(label: "test.config-watcher.mark-save", qos: .utility)
         let changes = ConfigFileWatcherStartTests.Changes()
-        let watcher = ConfigFileWatcher(url: url, queue: DispatchQueue(label: "test.config-watcher.since", qos: .utility)) { changes.record() }
+        let watcher = ConfigFileWatcher(url: url, queue: queue) { changes.record() }
         defer { watcher.stop() }
-        watcher.start(changedSince: since)
+        watcher.mark()
+        await Self.fence(queue)  // the mark is recorded
+        let saved = Data(#"{ "appearance": { "density": "compact" } }"#.utf8)
+        switch save {
+        case .inPlace: try saved.write(to: url)
+        case .atomic: try saved.write(to: url, options: .atomic)
+        case .delete: try FileManager.default.removeItem(at: url)
+        case .create: try saved.write(to: url)
+        }
+        watcher.startFromMark()
         var seen = changes.stream.makeAsyncIterator()
         _ = await seen.next()  // a watch that only heard later edits sends no call and the test hits its time limit
         #expect(changes.count.withLock { $0 } >= 1)
     }
 
-    /// With no save since the read, the later arm reports nothing.
-    @Test func noSaveSinceTheReadReportsNothingWhenALaterWatchArms() async throws {
+    enum SaveKind: CaseIterable, Sendable {
+        case inPlace, atomic, delete, create
+    }
+
+    /// The folder's other entries are not the file: one added, renamed in or removed after the mark (cmux's
+    /// own atomic writes in Application Support, another app's files in ~/.config) reports nothing at the arm.
+    @Test func anotherEntryOfTheFolderSinceTheMarkReportsNothingWhenALaterWatchArms() async throws {
         let url = try ConfigFileWatcherStartTests.file()
-        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
-        let since = ConfigFileWatcher.Since.now
-        let queue = DispatchQueue(label: "test.config-watcher.since-quiet", qos: .utility)
+        let folder = url.deletingLastPathComponent()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        try Data("{}".utf8).write(to: folder.appending(path: "old-sibling.json"))
+        let queue = DispatchQueue(label: "test.config-watcher.mark-sibling", qos: .utility)
         let changes = ConfigFileWatcherStartTests.Changes()
         let watcher = ConfigFileWatcher(url: url, queue: queue) { changes.record() }
         defer { watcher.stop() }
-        watcher.start(changedSince: since)
-        await withCheckedContinuation { (armed: CheckedContinuation<Void, Never>) in queue.async { armed.resume() } }
+        watcher.mark()
+        await Self.fence(queue)
+        try Data("{}".utf8).write(to: folder.appending(path: "sibling.json"))
+        try Data("{}".utf8).write(to: folder.appending(path: "state.json"), options: .atomic)
+        try FileManager.default.removeItem(at: folder.appending(path: "old-sibling.json"))
+        watcher.startFromMark()
+        await Self.fence(queue)  // the arm and its check ran
+        #expect(changes.count.withLock { $0 } == 0, "a later arm reported another file of the folder as a save")
+    }
+
+    /// With no save since the mark, the later arm reports nothing.
+    @Test func noSaveSinceTheMarkReportsNothingWhenALaterWatchArms() async throws {
+        let url = try ConfigFileWatcherStartTests.file()
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+        let queue = DispatchQueue(label: "test.config-watcher.mark-quiet", qos: .utility)
+        let changes = ConfigFileWatcherStartTests.Changes()
+        let watcher = ConfigFileWatcher(url: url, queue: queue) { changes.record() }
+        defer { watcher.stop() }
+        watcher.mark()
+        watcher.startFromMark()
+        await Self.fence(queue)
         #expect(changes.count.withLock { $0 } == 0, "a later arm reported a change no save made")
+    }
+
+    /// Runs after everything already queued on `queue`.
+    private static func fence(_ queue: DispatchQueue) async {
+        await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in queue.async { done.resume() } }
     }
 
     @Test func eventsQueuedBehindAStopAreNotReported() async throws {

@@ -27,11 +27,34 @@ public final class ConfigFileWatcher: @unchecked Sendable { // crash-allow: the 
     private var directorySource: (any DispatchSourceFileSystemObject)?
     private var watchedDirectory: URL?
     private var fileIdentity: (dev: dev_t, ino: ino_t)?
+    private var marked = Mark.unset
 
     private struct Run {
         /// Bumped by every start and stop: an arm queued before a later call does nothing.
         var generation: UInt64 = 0
         var running = false
+    }
+
+    /// When the arm reports its one change.
+    private enum InitialChange {
+        case always
+        /// When the file or its folder changed at or after this time (a quiet start).
+        case changedSince(timespec)
+        /// When the file's state differs from the ``mark()``.
+        case differsFromMark
+    }
+
+    /// The file at a ``mark()``: nil when it did not exist.
+    private struct FileState: Equatable {
+        let dev: dev_t
+        let ino: ino_t
+        let ctimeSeconds: Int
+        let ctimeNanoseconds: Int
+    }
+
+    private enum Mark {
+        case unset
+        case recorded(FileState?)
     }
 
     public convenience init(url: URL, onChange: @escaping @Sendable () -> Void) {
@@ -63,32 +86,32 @@ public final class ConfigFileWatcher: @unchecked Sendable { // crash-allow: the 
     /// save made after this call but before the watch exists is one of them: the arm compares the
     /// file's and its folder's change times with this call's time. A ``stop()`` after it ends the watch.
     public func start(reportInitialChange: Bool = true) {
-        begin(changedSince: reportInitialChange ? nil : Self.wallClock())
+        begin(reportInitialChange ? .always : .changedSince(Self.wallClock()))
     }
 
-    /// A point on the file system's clock, taken when a consumer read the file, for a watch it arms
-    /// later (``start(changedSince:)``).
-    public struct Since: Sendable {
-        fileprivate let time: timespec
-
-        /// Now, on the clock file change times come from.
-        public static var now: Since { Since(time: ConfigFileWatcher.wallClock()) }
+    /// Records the file's state on the watcher's queue (its identity and status change time, or
+    /// that it does not exist), for a consumer that read the file now and arms the watch later with
+    /// ``startFromMark()``. Nothing is watched until then.
+    public func mark() {
+        queue.async { [self] in marked = .recorded(Self.state(of: url.resolvingSymlinksInPath().path)) }
     }
 
-    /// Arms the watch on the watcher's queue and returns at once, for a consumer that read the file
-    /// at `since` and arms its watch later (a launch watch posted after startup): one change is
-    /// reported when the file or its folder changed at or after `since`, else only later edits.
-    public func start(changedSince since: Since) {
-        begin(changedSince: since.time)
+    /// Arms the watch on the watcher's queue and returns at once, for a consumer that called
+    /// ``mark()`` when it read the file and arms later (a launch watch posted after startup). One
+    /// change is reported when the file's state differs from the mark: written, replaced, created or
+    /// deleted. Entries added to or removed from its folder are not changes of the file, so the gap
+    /// between the mark and the arm can be long. Without a mark it reports one change.
+    public func startFromMark() {
+        begin(.differsFromMark)
     }
 
-    private func begin(changedSince: timespec?) {
+    private func begin(_ initial: InitialChange) {
         let generation = run.withLock { run in
             run.generation &+= 1
             run.running = true
             return run.generation
         }
-        queue.async { [self] in arm(generation, changedSince: changedSince) }
+        queue.async { [self] in arm(generation, initial) }
     }
 
     /// The same as ``start(reportInitialChange:)``, which does not wait either.
@@ -109,12 +132,20 @@ public final class ConfigFileWatcher: @unchecked Sendable { // crash-allow: the 
 
     // MARK: - Queue-confined
 
-    /// Arms the watch of start `generation` unless a later start or stop came. With `changedSince`
-    /// nil it reports one change; else one only when the file or its folder changed at or after it.
-    private func arm(_ generation: UInt64, changedSince: timespec?) {
+    /// Arms the watch of start `generation` unless a later start or stop came, then reports one
+    /// change as `initial` says.
+    private func arm(_ generation: UInt64, _ initial: InitialChange) {
         guard run.withLock({ $0.generation == generation }) else { return }
         rearm()
-        if let changedSince, !changed(since: changedSince) { return }
+        switch initial {
+        case .always:
+            break
+        case .changedSince(let time):
+            if !changed(since: time) { return }
+        case .differsFromMark:
+            defer { marked = .unset }
+            if case .recorded(let state) = marked, state == Self.state(of: url.resolvingSymlinksInPath().path) { return }
+        }
         report()
     }
 
@@ -223,7 +254,7 @@ public final class ConfigFileWatcher: @unchecked Sendable { // crash-allow: the 
     }
 
     /// The file system's clock: file change times come from it (`vfs_timestamp`).
-    fileprivate static func wallClock() -> timespec {
+    private static func wallClock() -> timespec {
         var now = timespec()
         clock_gettime(CLOCK_REALTIME, &now)
         return now
@@ -231,6 +262,16 @@ public final class ConfigFileWatcher: @unchecked Sendable { // crash-allow: the 
 
     private static func isAtOrAfter(_ time: timespec, _ reference: timespec) -> Bool {
         time.tv_sec != reference.tv_sec ? time.tv_sec > reference.tv_sec : time.tv_nsec >= reference.tv_nsec
+    }
+
+    /// The file's identity and status change time (a write, a chmod), or nil when it does not exist.
+    private static func state(of path: String) -> FileState? {
+        blockingCall(.fsMetadata) {
+            var info = stat()
+            guard stat(path, &info) == 0 else { return nil }
+            return FileState(dev: info.st_dev, ino: info.st_ino, ctimeSeconds: Int(info.st_ctimespec.tv_sec),
+                             ctimeNanoseconds: Int(info.st_ctimespec.tv_nsec))
+        }
     }
 
     private static func identity(of path: String) -> (dev: dev_t, ino: ino_t)? {
