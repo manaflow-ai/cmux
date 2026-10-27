@@ -8,10 +8,11 @@ export function settleFollowBottom(
   node: Pick<HTMLElement, "scrollTop" | "scrollHeight" | "clientHeight">,
   fallbackEnd = 0,
   exact = true,
+  deadband = 4,
 ): boolean {
   const domEnd = node.scrollHeight - node.clientHeight;
   const end = Math.max(0, node.scrollHeight > 0 ? domEnd : fallbackEnd);
-  if (end === node.scrollTop || (!exact && Math.abs(end - node.scrollTop) <= 8)) return false;
+  if (end === node.scrollTop || (!exact && Math.abs(end - node.scrollTop) <= deadband)) return false;
   node.scrollTop = end;
   return true;
 }

@@ -3167,7 +3167,9 @@ export function VirtualTranscript({
           jumpTarget.current = latest;
           node.scrollTo({ top: latest, behavior: "smooth" });
         }
-        const settled = jumping ? clamped : settleFollowBottom(node, latest, false) || clamped;
+        const settled = jumping
+          ? clamped
+          : settleFollowBottom(node, latest, false, FOLLOW_BOTTOM_DEADBAND_PX) || clamped;
         if (settled) followTrace.set(node.scrollTop);
       } else if (top > 0 || rows[0]?.id !== oldRows[0]?.id) {
         // Keep the row at the top of the viewport where it is as rows above it change height.
@@ -3633,7 +3635,12 @@ export function VirtualTranscript({
       !foldAnchor.current &&
       Math.abs(next - scrolledTo.current.top) <= FOLLOW_BOTTOM_DEADBAND_PX;
     if (layoutDriven) {
-      const settled = settleFollowBottom(node, Math.max(0, layout.totalHeight - node.clientHeight), false);
+      const settled = settleFollowBottom(
+        node,
+        Math.max(0, layout.totalHeight - node.clientHeight),
+        false,
+        FOLLOW_BOTTOM_DEADBAND_PX,
+      );
       const resting = settled ? node.scrollTop : next;
       scrolledTo.current = { top: resting, atLatest: true };
       followTrace.set(resting);
@@ -3665,8 +3672,7 @@ export function VirtualTranscript({
       });
     // Entering follow by scrolling (rather than the jump button) also settles the last few
     // pixels. It may not change the mounted range, so no placement effect need run afterward.
-    const resting =
-      scrolledTo.current.atLatest && settleFollowBottom(node, latest, true) ? node.scrollTop : next;
+    const resting = scrolledTo.current.atLatest && settleFollowBottom(node, latest, true) ? node.scrollTop : next;
     scrolledTo.current = { ...scrolledTo.current, top: resting };
     followTrace.update(node, layout.totalHeight, scrolledTo.current.atLatest);
     seenAnchor.current = restingAnchor(resting, scrolledTo.current.atLatest, layout, rows);

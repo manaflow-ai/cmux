@@ -89,6 +89,9 @@ for (const growth of [1, 2, 3, 4, 20]) {
   assert.equal(settleFollowBottom(node), true);
   assert.equal(node.scrollTop, node.scrollHeight - node.clientHeight, "fractional residual also settles exactly");
 }
+const deadband = { scrollHeight: 1000, clientHeight: 600, scrollTop: 394 };
+assert.equal(settleFollowBottom(deadband, 0, false, 4), true, "exact:false uses the shared 4px deadband");
+assert.equal(deadband.scrollTop, 400);
 const delay = new OlderPageDelay();
 const cancelled = delay.wait(60_000);
 delay.cancel();
