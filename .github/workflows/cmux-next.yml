@@ -3156,7 +3156,8 @@ jobs:
           fi
           broad_status=0
           if ../../../scripts/cmux-next/swift-test-with-hang-sampler.sh --skip-build ${filter[@]+"${filter[@]}"} \
-              ${priority_skip[@]+"${priority_skip[@]}"} --skip CmuxNextControlTests --skip BranchStateResourcesTests --skip CloudBringBackTests; then
+              ${priority_skip[@]+"${priority_skip[@]}"} --skip CmuxNextControlTests --skip BranchStateResourcesTests --skip CloudBringBackTests \
+              --skip CommitBoundaryAppKitTests; then
             :
           else
             broad_status=$?
@@ -3199,6 +3200,18 @@ jobs:
             fi
           done
           exit "$status"
+
+      # The commit-boundary audit reads every observer on the main run loop, so
+      # it runs in its own process: another suite's after-commit observer
+      # (a pending AfterFrameCommit, a view's observer not yet released) is
+      # that suite's state, not AppKit's or Core Animation's.
+      - name: Run the commit-boundary audit in its own process
+        if: ${{ (!cancelled() && steps.build-tests.outcome == 'success' && (env.SWIFT_TARGETS == 'all' || contains(env.SWIFT_TARGETS, 'CmuxNextAppTests'))) && steps.reuse.outputs.hit != 'true' }}
+        timeout-minutes: 10
+        working-directory: Packages/macOS/CmuxNext
+        env:
+          CMUX_NEXT_TEST_HANG_SECONDS: "300"
+        run: ../../../scripts/cmux-next/swift-test-with-hang-sampler.sh --skip-build --no-parallel --filter CommitBoundaryAppKitTests
 
       # Each isolated step below runs when its suites' target is selected and
       # the build succeeded, even after a failed test step, so one red step
