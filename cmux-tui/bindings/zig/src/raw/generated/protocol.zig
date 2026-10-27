@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "0099f55a8d73eeccd65a50020e3ff0c8be1ac82f5723a1d6b384ce58b5e9108c";
+pub const ir_sha256 = "18d0774199b6d6b647ef32fac66965b1a62a8278783444a949f045c242048431";
 
 pub const AccessRequestKind = enum {
     file,
@@ -2791,6 +2791,17 @@ pub const ServerStatsConnections = struct {
     refused: u64,
 };
 
+pub const ServerStatsHangRecord = struct {
+    duration_ms: u64,
+    sequence: u64,
+    span: []const u8,
+};
+
+pub const ServerStatsHangs = struct {
+    over_250ms: u64,
+    records: []const ServerStatsHangRecord,
+};
+
 pub const ServerStatsHistogram = struct {
     count: u64,
     max: u64,
@@ -3001,6 +3012,7 @@ pub const ServerStatsResourceProjection = struct {
 pub const ServerStatsResult = struct {
     connections: ServerStatsConnections,
     dispatch_queue_us: ?ServerStatsHistogram = null,
+    hangs: ?ServerStatsHangs = null,
     ipc: ?ServerStatsIpc = null,
     ipc_methods: ?[]const ServerStatsMethodLatency = null,
     journal_writer: wire.Nullable(ServerStatsJournalWriter),
@@ -3016,6 +3028,7 @@ pub const ServerStatsResult = struct {
 
     pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
         "dispatch_queue_us",
+        "hangs",
         "ipc",
         "ipc_methods",
         "lock_classes",

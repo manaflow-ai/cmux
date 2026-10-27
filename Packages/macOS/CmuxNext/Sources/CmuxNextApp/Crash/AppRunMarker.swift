@@ -106,15 +106,15 @@ final class AppRunMarker {
     /// How the previous run ended when it did not quit as asked (stability.unclean_exit, task 109); nil after a
     /// normal or requested quit, or on a first launch.
     let previousExit: HistogramID.UncleanExit?
+    /// The previous run as its marker left it, whatever its end; nil on a first launch. Its crash event, sent at
+    /// this launch, gets its crash keys and black box (`AppCrashReporting`, p09-observability-079).
+    let previousRun: PreviousRun?
     /// The previous run when it ended with no handler of its own (killed, or the Mac shut down), so no crash report
     /// covers it; its fatal-hang record, if any, is reported (p09-observability-110). Nil after a quit, a crash or none.
     let previousUnreported: PreviousRun?
     /// The crash keys the previous run's crash path wrote (`run.crashkeys`), read by the launch read; nil when that
     /// run ended with no crash path (a normal quit, SIGKILL, power loss) or on a first launch.
     let previousCrashKeys: CrashKeys?
-    /// The previous run as its marker left it, whatever its end; nil on a first launch. Its crash event, sent at
-    /// this launch, gets its crash keys and black box (`AppCrashReporting`, p09-observability-079).
-    let previousRun: PreviousRun?
     private var exceptionFile: URL { directory.appending(path: "run.exception") }
 
     /// The app's marker folder for `bundleID`.
@@ -156,8 +156,8 @@ final class AppRunMarker {
         directory = launch.directory
         file = RunMarkerFile(url: launch.directory.appending(path: "run.json"), signalURL: launch.directory.appending(path: "run.signal"))
         (previousExit, recovery, previousCrashKeys) = (launch.previousExit, launch.recovery, launch.previousCrashKeys)
-        previousUnreported = launch.previousUnreported
         previousRun = launch.previous
+        previousUnreported = launch.previousUnreported
         marker = launch.marker
         start(launch)
     }
@@ -359,7 +359,8 @@ extension AppRunMarker {
     }
 
     /// The launch read's body: blocking, on the files lane. It reads the previous run's files and leaves them as they
-    /// are; the only files it writes are this run's spare ones.
+    /// are; the only files it writes are this run's spare ones. `processStart` is this process's kernel start, stored
+    /// in its marker so the next launch takes only this process's black box and crash-key page (p09-observability-079).
     nonisolated static func prepareLaunch(directory: URL, now: Date, bootSession: String?,
                                           processStart: UInt64? = AppRunMarker.currentProcessStart()) -> Launch {
         let markerURL = directory.appending(path: "run.json"), signalURL = directory.appending(path: "run.signal")

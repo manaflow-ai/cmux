@@ -19,18 +19,29 @@ extension TerminalSurfaceView {
     /// keep parsing output; Ghostty draws the current content on its `.visible` message. GPU memory
     /// comes back before that draw and goes after a pause (``TerminalGPUResidencyGate``). A window an
     /// opaque cmux window covers is occluded too (its ``WindowOcclusionFamily``, p03-rendering-097).
+    /// A shown surface whose window stays off screen counts as away (``TerminalOffScreenRelease``).
     func updateOcclusion() {
         guard surface != nil else { return }
         var inputs = WindowDrawPolicy.inputs(for: self, suspended: isRenderingSuspended, forced: mirrorDemand > 0)
         if let window, WindowOcclusionFamily.installed(on: window)?.isOccluded == true { inputs.windowVisible = false }
         pause = inputs.pause
-        let releases = pause != nil && releasesGPUWhilePaused
+        let shownOffScreen = isShown && inputs.windowOffScreen
+        if let deadline = offScreenRelease.follow(shownOffScreen: shownOffScreen, windowOnScreen: inputs.windowOnScreen) {
+            deadline.schedule(after: WindowDrawPolicy.offScreenGPUReleaseDelay) { [weak self] in self?.offScreenDelayPassed() }
+        }
+        let releases = pause != nil && (releasesGPUWhilePaused || offScreenRelease.isDue)
         gpu.acquire(releases: releases)?.setResident(true, of: self)
         defer { gpu.release(releases: releases)?.setResident(false, of: self) }
         guard (pause == nil) != lastOcclusionVisible else { return }
         lastOcclusionVisible = pause == nil
         heldFrame.hold(volatile: pause != nil, in: frameSource)
         TerminalHostFramePresenter.setOcclusion(of: self, visible: pause == nil)  // shown: drawn frame in this commit
+    }
+
+    /// Its window stayed off screen ``WindowDrawPolicy/offScreenGPUReleaseDelay``: the paused surface
+    /// lets its GPU memory go.
+    private func offScreenDelayPassed() {
+        if offScreenRelease.delayPassed() { updateOcclusion() }
     }
 
     /// The presented frame for one reader (hover pictures; ``TerminalHeldFrame/beginRead(from:)``).

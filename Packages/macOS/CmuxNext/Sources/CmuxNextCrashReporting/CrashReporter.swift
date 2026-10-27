@@ -89,8 +89,8 @@ public final class CrashReporter: Sendable {
     private let recorder: SentryRecorderTransport?
 
     /// - Parameters:
-    ///   - previousRun: The previous run's files, read when its crash event is sent; nil after a clean exit or
-    ///     outside the app process.
+    ///   - previousRun: The previous run's files, read when its crash event is sent; nil after a clean
+    ///     exit or outside the app process.
     ///   - recorder: Records events instead of sending them; by default the one the process
     ///     environment asks for (``SentryRecorderTransport/environmentKey``).
     public init(policy: CrashReportingPolicy,
@@ -105,8 +105,7 @@ public final class CrashReporter: Sendable {
     #else
     /// - Parameter previousRun: The previous run's files, read when its crash event is sent; nil after a clean
     ///   exit or outside the app process.
-    public init(policy: CrashReportingPolicy, hangTracking: HangTracking = .sentry,
-                previousRun: PreviousRunCrashEvidence? = nil) {
+    public init(policy: CrashReportingPolicy, hangTracking: HangTracking = .sentry, previousRun: PreviousRunCrashEvidence? = nil) {
         self.policy = policy
         self.hangTracking = hangTracking
         self.previousRun = previousRun
@@ -153,24 +152,26 @@ public final class CrashReporter: Sendable {
             labels.apply(to: scrubbed)
             return scrubbed
         }
-        options.beforeSend = { event in prepare(event) }
-        // The previous run's crash (p09-observability-079): only the hint form of beforeSend can add an attachment
-        // to one event, and sentry-cocoa 9 calls it instead of beforeSend when it is set (SentryClient
-        // prepareEvent), so it does the whole job. Its tags go on before the scrub, so they are scrubbed with the rest.
-        let decorate: ((Event, Hint) -> Void)? = previousRun.map { evidence in
-            { (event: Event, hint: Hint) in evidence.decorate(event, hint: hint) }
-        }
-        if let decorate {
-            options.beforeSendWithHint = { event, hint in
-                decorate(event, hint)
+        if let previousRun {
+            // The hint form of beforeSend: only its hint can add an attachment to one event (the previous run's
+            // crash). The previous run's tags go on before the scrub, so they are scrubbed with the rest.
+            // sentry-cocoa 9 calls only this one when it is set, never `beforeSend` too.
+            let prepareWithHint: (Event, Hint) -> Event = { event, hint in
+                previousRun.decorate(event, hint: hint)
                 return prepare(event)
             }
+            options.beforeSendWithHint = { event, hint in prepareWithHint(event, hint) }
+            #if DEBUG || CMUX_BENCH_HOOKS
+            recorder?.install(on: options, prepareWithHint: prepareWithHint)
+            #endif
+        } else {
+            options.beforeSend = { event in prepare(event) }
+            #if DEBUG || CMUX_BENCH_HOOKS
+            recorder?.install(on: options, prepare: prepare)
+            #endif
         }
         options.beforeBreadcrumb = { breadcrumb in scrubber.scrub(breadcrumb) }
         options.beforeSendSpan = { span in scrubber.scrub(span) }
-        #if DEBUG || CMUX_BENCH_HOOKS
-        recorder?.install(on: options, prepare: prepare, decorate: decorate)
-        #endif
         return options
     }
 

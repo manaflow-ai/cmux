@@ -37,8 +37,8 @@ public final class PreviousRunCrashEvidence: Sendable {
         public var processStartUnixMicros: UInt64?
         /// The folder of its black box and crash-key page.
         public var traceDirectory: String
-        /// Its crash path's `run.crashkeys` record, which the launch read read before this run's file took its
-        /// place (`AppRunMarker.previousCrashKeys`); nil when there is none.
+        /// Its crash path's `run.crashkeys` record, which this launch's run-marker read took before this run's crash
+        /// path got the file; nil when there is none.
         public var crashPathKeys: CrashKeys?
         /// The process kind in the files' names.
         public var role: TraceRing.Role

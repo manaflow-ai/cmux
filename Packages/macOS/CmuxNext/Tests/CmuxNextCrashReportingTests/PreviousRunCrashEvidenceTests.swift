@@ -169,8 +169,9 @@ import Testing
                                        TraceRing.CatalogName(id: 2, kind: 1, category: 1, text: "key.frame")])
         for index in 0 ..< 30 { ring.write(name: index % 2 == 0 ? 1 : 2, phase: .instant, timestamp: 100 + UInt64(index)) }
         try Data(ring.image()).write(to: URL(filePath: directory + "/" + TraceRingFile.fileName(role: .app, pid: pid)))
+        let crashPathKeys = try #require(CrashKeys(record: "crash_keys daemon_epoch=3\n"))
         let run = PreviousRunCrashEvidence.Run(pid: pid, processStartUnixMicros: Self.start, traceDirectory: directory,
-                                               crashPathKeys: CrashKeys(record: "crash_keys daemon_epoch=3\n"))
+                                               crashPathKeys: crashPathKeys)
 
         let files = PreviousRunCrashEvidence.read(run, blackBox: true)
         #expect(files.tags["crash_key.daemon_pid"] == "77")
@@ -192,11 +193,7 @@ import Testing
     func optionsDecorate() throws {
         let policy = CrashReportingPolicy(bundleID: "com.cmuxterm.app.nightly", shortVersion: "1.0", build: "42", isDebugBuild: false,
                                           telemetryOptIn: true, managedDisablesTelemetry: false, processEnvironment: [:])
-        #if DEBUG || CMUX_BENCH_HOOKS
-        let options = CrashReporter(policy: policy, previousRun: Self.evidence(), recorder: nil).options()
-        #else
         let options = CrashReporter(policy: policy, previousRun: Self.evidence()).options()
-        #endif
         let beforeSend = try #require(options.beforeSendWithHint)
         let hint = Hint()
         let sent = try #require(beforeSend(Self.event(), hint))
@@ -205,25 +202,26 @@ import Testing
     }
 
     #if DEBUG || CMUX_BENCH_HOOKS
-    /// The recorder (p09-observability-086) must see the hint form too: Sentry calls `beforeSendWithHint` instead of
-    /// `beforeSend` when it is set, so a recorder on `beforeSend` alone would let the previous run's crash be sent.
-    @Test("With the recorder on, the previous run's crash is recorded with its blackbox.txt and never sent")
-    func recorderKeepsTheBlackBox() throws {
-        let directory = FileManager.default.temporaryDirectory
-            .appending(path: "previous-run-recorder-\(UUID().uuidString)", directoryHint: .isDirectory)
-        defer { try? FileManager.default.removeItem(at: directory) }
+    /// sentry-cocoa 9 calls only `beforeSendWithHint` when it is set, so the recorder (086) must record there too:
+    /// the previous run's crash lands as a file with its crash keys and `blackbox.txt`, and is never sent.
+    @Test("The recorder records the previous run's crash with its evidence")
+    func recorderKeepsTheEvidence() throws {
         let policy = CrashReportingPolicy(bundleID: "com.cmuxterm.app.nightly", shortVersion: "1.0", build: "42", isDebugBuild: false,
                                           telemetryOptIn: true, managedDisablesTelemetry: false, processEnvironment: [:])
+        let directory = FileManager.default.temporaryDirectory
+            .appending(path: "sentry-recorder-\(UUID().uuidString)", directoryHint: .isDirectory)
+        defer { try? FileManager.default.removeItem(at: directory) }
         let recorder = SentryRecorderTransport(directory: directory, lane: { $0() })
         let options = CrashReporter(policy: policy, previousRun: Self.evidence(), recorder: recorder).options()
-        let send = try #require(options.beforeSendWithHint)
+        let beforeSend = try #require(options.beforeSendWithHint)
+        #expect(!options.enableAutoSessionTracking)
         let event = Self.event()
 
-        #expect(send(event, Hint()) == nil, "a recorded event is never sent")
+        #expect(beforeSend(event, Hint()) == nil, "a recorded event is never sent")
 
-        let text = String(decoding: try Data(contentsOf: recorder.file(eventID: event.eventId.sentryIdString)), as: UTF8.self)
-        #expect(text.contains(#""filename":"blackbox.txt""#))
-        #expect(text.contains("crash_key.daemon_pid"))
+        let file = String(decoding: try Data(contentsOf: recorder.file(eventID: event.eventId.sentryIdString)), as: UTF8.self)
+        #expect(file.contains("crash_key.daemon_pid"))
+        #expect(file.contains(CrashReporter.blackboxFileName))
     }
     #endif
 }
