@@ -127,8 +127,9 @@ Per mode:
            magnify route is p01-process-042's input route with p01-process-054's PinchEvent) says not_measurable.
 
 --native-ui [ROWS] runs instead the native UI rows (chromium_host_native_ui.py), all or the comma-separated ROWS: a
-<select> as a cmux menu while the host is never frontmost (p01-process-060, feature chromiumHostPopupMenus), the
-hosted widget rows (p01-process-066): date, datalist, popup window, DevTools docked and in a window, an extension
+<select> as a cmux menu while the host is never frontmost (p01-process-060, feature chromiumHostPopupMenus), the page
+menu (CONTEXT_MENU and context_menu_done) and a page's download (DOWNLOAD_* and download_continue) in host mode
+(p01-process-069), the hosted widget rows (p01-process-066): date, datalist, popup window, DevTools docked and in a window, an extension
 popup and a side panel, each shown by cmux from the host's layer context (`debug.cef` `host_widgets`), with feature
 chromiumHostWidgets on and two test extensions, then the autofill and password rows (chromium_host_suggestions.py,
 p01-process-061): the field's suggestions in cmux's list (`debug.cef` `host_suggestions`) with feature
@@ -708,7 +709,7 @@ def main():
             RESULT["modes"]["native_ui"], ok = chromium_host_native_ui.run(
                 rpc, wait, lambda script: page_eval(rpc, script, None), url,
                 rows_to_run=[row for row in opts.native_ui if row in chromium_host_native_ui.ROWS], front=front_pid,
-                app_pid=app.process.pid if app.process else None)
+                app_pid=app.process.pid if app.process else None, right_click=page_right_click(rpc))
             dialog_rows = [row for row in opts.native_ui if row in chromium_host_native_ui_dialogs.ROWS]
             if dialog_rows:
                 dialogs, dialogs_ok = chromium_host_native_ui_dialogs.run(
@@ -1136,6 +1137,20 @@ def focused_pane_border(rpc):
     layers = rpc("debug.pane_chrome") or {}
     return next((p.get("border") for w in layers.get("windows") or [] for p in w.get("panes") or []
                  if pane and p.get("pane") == pane and isinstance(p.get("border"), list)), None)
+
+
+def page_right_click(rpc):
+    """A right click (a posted window event, as a person's) on an empty spot of the focused pane's page, low and right
+    of the native-ui probe's controls and below any browser toolbar. The pane is read at each call (the probe's tab
+    opens after this is made); the click returns False when no pane is focused."""
+    def click():
+        border = focused_pane_border(rpc)
+        if not border:
+            return False
+        bx, by, bw, bh = border
+        rpc("debug.mouse", {"x": bx + bw * 0.75, "y": by + bh * 0.8, "button": "right"})
+        return True
+    return click
 
 
 def run_host_probe(rpc, url, record=True):

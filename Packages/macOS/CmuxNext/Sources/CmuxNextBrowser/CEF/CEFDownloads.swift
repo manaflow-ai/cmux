@@ -77,6 +77,9 @@ final class CEFDownloads {
     private var started: [(browser: Int32, url: String)] = []
     /// Page downloads waiting for `admit`'s answer, by token.
     private var admitting: Set<Int32> = []
+    /// How many Chromium Hosts ended (``hostEnded()``): an `admit` answer for a token of an ended host is
+    /// for no download here.
+    private var endedHosts = 0
 
     init(shim: @escaping () -> CEFDownloadShim?) {
         self.shim = shim
@@ -164,8 +167,9 @@ final class CEFDownloads {
             return start(id: id, browser: browser, url: url, suggestedName: suggestedName, total: total, pick: pick)
         }
         admitting.insert(id)
+        let host = endedHosts
         admit(browser) { [weak self] outcome, site in
-            guard let self, admitting.remove(id) != nil else { return }
+            guard let self, host == endedHosts, admitting.remove(id) != nil else { return }
             guard outcome == .allowed else {
                 shim()?.answer(id, "")
                 logger.notice("download \(id) refused for tab \(browser): automatic downloads")
@@ -177,6 +181,26 @@ final class CEFDownloads {
                 return
             }
             start(id: id, browser: browser, url: url, suggestedName: suggestedName, total: total, pick: nil)
+        }
+    }
+
+    /// Chromium's DOWNLOAD_INTERRUPT_REASON_CRASH
+    /// (components/download/public/common/download_interrupt_reason_values.h).
+    static let crashReason: Int64 = 50
+
+    /// The Chromium Host ended (host mode, `CEFRuntime.hostEnded`) with every download it ran: each one
+    /// still running ends interrupted with ``crashReason``, as Chrome ends the downloads its browser
+    /// process was running when it died (download_item_impl.cc: an item restored in progress becomes
+    /// interrupted with CRASH), and keeps Retry, which starts it again on the next host. The next host
+    /// numbers its downloads from 1 again (CEFShim's download_state.h), so nothing the ended host was
+    /// given stays: an old row never takes a new host's download, nor sends it a cancel.
+    func hostEnded() {
+        endedHosts += 1
+        admitting.removeAll()
+        chosen.removeAll()
+        started.removeAll()
+        for id in items.keys.sorted() {
+            handle(.done(id: id, end: .interrupted, reason: Self.crashReason, path: ""))
         }
     }
 
