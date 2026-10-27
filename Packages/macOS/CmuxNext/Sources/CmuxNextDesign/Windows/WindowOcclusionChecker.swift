@@ -1,5 +1,6 @@
 public import AppKit
 import CmuxNextCompat
+public import CmuxNextWakeups
 
 /// What one occlusion decision reads about a window (``WindowOcclusionRule``), so the rule is a
 /// pure function over values and tests describe windows without a screen.
@@ -112,10 +113,13 @@ public nonisolated struct WindowOcclusionRule: Sendable {
 /// owner of window ordering, `WindowActivation`, reports each order it makes
 /// (``windowsDidReorder()``). As in Chrome, events coalesce into one pass on a later main turn
 /// (`performSelector:afterDelay:0`), so the owner's reaction never runs inside a window
-/// notification.
+/// notification: one `visible` task on the app's scheduler (a window coming back on screen resumes
+/// its frames). The notices whose handler needs no sender come through one ``AppEvents`` fan-out,
+/// the displays' sleep through the app's workspace one.
 ///
 /// ```swift
-/// let checker = WindowOcclusionChecker(windows: { controllers.compactMap(\.window) })
+/// let checker = WindowOcclusionChecker(windows: { controllers.compactMap(\.window) },
+///                                      workspaceEvents: services.workspaceEvents, mainWork: services.mainWork)
 /// checker.onChange = { window, offScreen in cache.windowDidChangeOnScreen(window, offScreen: offScreen) }
 /// checker.onClose = { window in cache.offScreenWindowDidClose(window) }
 /// checker.start()
@@ -136,12 +140,19 @@ public nonisolated struct WindowOcclusionRule: Sendable {
     /// Occluded windows draw in this launch (``WindowDrawPolicy/drawsWhenOccluded``): none is off screen.
     private let drawsWhenOccluded: Bool
     private let center: NotificationCenter
-    private let workspaceCenter: NotificationCenter
+    /// The sender-free window and app notices of ``center``, one observer per name.
+    private let notices: AppEvents
+    /// The displays' sleep and wake (NSWorkspace's center).
+    private let workspaceEvents: AppEvents
+    private let mainWork: MainWorkScheduler
     private var rule = WindowOcclusionRule()
     private var offScreen: Set<ObjectIdentifier> = []
     private weak var fullscreenTransition: NSWindow?
+    /// The notices whose handler reads the posting window.
     private var observations: [MainActorObservation] = []
-    private var scheduled: Task<Void, Never>?
+    private var subscriptions: [EventSubscription] = []
+    /// A pass is posted and not run yet; ``update()`` and ``stop()`` clear it, so the posted pass does nothing.
+    private var passPending = false
 
     /// Makes a checker of the windows `windows` returns (the ones whose content counts as hidden
     /// while they are off screen).
@@ -153,78 +164,80 @@ public nonisolated struct WindowOcclusionRule: Sendable {
     ///   - isAppHidden: Whether the app is hidden now.
     ///   - drawsWhenOccluded: Automation launches keep occluded windows drawing, and so on screen here.
     ///   - center: Window and application notifications.
-    ///   - workspaceCenter: The displays' sleep and wake.
+    ///   - workspaceEvents: The displays' sleep and wake: the app's events of NSWorkspace's center.
+    ///   - mainWork: The app's main-thread scheduler, where the coalesced pass is posted.
     public init(windows: @escaping @MainActor () -> [NSWindow],
                 orderedWindows: @escaping @MainActor () -> [NSWindow] = { NSApp?.orderedWindows ?? [] },
                 facts: @escaping @MainActor (NSWindow) -> WindowOcclusionFacts = WindowDrawPolicy.occlusionFacts(of:),
                 isAppHidden: @escaping @MainActor () -> Bool = { NSApp?.isHidden ?? false },
                 drawsWhenOccluded: Bool = WindowDrawPolicy.drawsWhenOccluded,
                 center: NotificationCenter = .default,
-                workspaceCenter: NotificationCenter = NSWorkspace.shared.notificationCenter) {
+                workspaceEvents: AppEvents, mainWork: MainWorkScheduler) {
         self.windows = windows
         self.orderedWindows = orderedWindows
         self.facts = facts
         self.isAppHidden = isAppHidden
         self.drawsWhenOccluded = drawsWhenOccluded
         self.center = center
-        self.workspaceCenter = workspaceCenter
+        notices = AppEvents(center: center)
+        self.workspaceEvents = workspaceEvents
+        self.mainWork = mainWork
     }
 
     /// Observes the window events and runs a first pass on a later turn.
     public func start() {
-        guard observations.isEmpty else { return }
+        guard !isStarted else { return }
         let readWindow: @MainActor (Notification) -> NSWindow? = { $0.object as? NSWindow }
+        // These handlers read the posting window, which an AppEvents call does not carry.
         func on(_ name: Notification.Name, _ handler: @escaping @MainActor (NSWindow) -> Void) {
             observations.append(MainActorObservation(name, center: center, read: readWindow) { window in
                 if let window { handler(window) }
             })
         }
-        on(NSWindow.willMoveNotification) { [weak self] in self?.movingStarted($0) }
-        on(NSWindow.willStartLiveResizeNotification) { [weak self] in self?.movingStarted($0) }
-        on(NSWindow.didMoveNotification) { [weak self] in self?.movingEnded($0) }
-        on(NSWindow.didEndLiveResizeNotification) { [weak self] in self?.movingEnded($0) }
+        on(NSWindow.willMoveNotification) { [weak self] in self?.movingStarted($0) }  // raw-observer-allow: reads the sender
+        on(NSWindow.willStartLiveResizeNotification) { [weak self] in self?.movingStarted($0) }  // raw-observer-allow: reads the sender
+        on(NSWindow.didMoveNotification) { [weak self] in self?.movingEnded($0) }  // raw-observer-allow: reads the sender
+        on(NSWindow.didEndLiveResizeNotification) { [weak self] in self?.movingEnded($0) }  // raw-observer-allow: reads the sender
         // A programmatic or tiling resize; a live resize reports its end instead.
-        on(NSWindow.didResizeNotification) { [weak self] window in
+        on(NSWindow.didResizeNotification) { [weak self] window in  // raw-observer-allow: reads the sender
             if !window.inLiveResize, window.parent == nil { self?.schedule() }
         }
-        on(NSWindow.willCloseNotification) { [weak self] in self?.windowWillClose($0) }
-        for name in [NSWindow.didChangeOcclusionStateNotification, NSWindow.didBecomeMainNotification,
-                     NSWindow.didResignMainNotification] {
-            on(name) { [weak self] _ in self?.schedule() }
-        }
-        for name in [NSWindow.willEnterFullScreenNotification, NSWindow.willExitFullScreenNotification] {
-            on(name) { [weak self] window in self?.fullscreenTransition = window }
-        }
-        for name in [NSWindow.didEnterFullScreenNotification, NSWindow.didExitFullScreenNotification] {
-            on(name) { [weak self] _ in
-                self?.fullscreenTransition = nil
-                self?.schedule()
-            }
-        }
-        // Hiding the app orders every window out without an occlusion change of its own.
-        for name in [NSApplication.didHideNotification, NSApplication.didUnhideNotification] {
-            observations.append(MainActorObservation(name, center: center) { [weak self] in self?.schedule() })
-        }
-        observations.append(MainActorObservation(NSWorkspace.screensDidSleepNotification, center: workspaceCenter) { [weak self] in
-            self?.rule.displaysAsleep = true
+        on(NSWindow.willCloseNotification) { [weak self] in self?.windowWillClose($0) }  // raw-observer-allow: reads the sender
+        on(NSWindow.willEnterFullScreenNotification) { [weak self] in self?.fullscreenTransition = $0 }  // raw-observer-allow: reads the sender
+        on(NSWindow.willExitFullScreenNotification) { [weak self] in self?.fullscreenTransition = $0 }  // raw-observer-allow: reads the sender
+        let owner = "WindowOcclusionChecker"
+        let pass: @MainActor () -> Void = { [weak self] in self?.schedule() }
+        let fullscreenEnded: @MainActor () -> Void = { [weak self] in
+            self?.fullscreenTransition = nil
             self?.schedule()
-        })
-        observations.append(MainActorObservation(NSWorkspace.screensDidWakeNotification, center: workspaceCenter) { [weak self] in
-            self?.rule.displaysAsleep = false
-            self?.schedule()
-        })
+        }
+        subscriptions = [
+            notices.subscribe(NSWindow.didChangeOcclusionStateNotification, owner: owner, pass),
+            notices.subscribe(NSWindow.didBecomeMainNotification, owner: owner, pass),
+            notices.subscribe(NSWindow.didResignMainNotification, owner: owner, pass),
+            notices.subscribe(NSWindow.didEnterFullScreenNotification, owner: owner, fullscreenEnded),
+            notices.subscribe(NSWindow.didExitFullScreenNotification, owner: owner, fullscreenEnded),
+            // Hiding the app orders every window out without an occlusion change of its own.
+            notices.subscribe(NSApplication.didHideNotification, owner: owner, pass),
+            notices.subscribe(NSApplication.didUnhideNotification, owner: owner, pass),
+            workspaceEvents.subscribe(NSWorkspace.screensDidSleepNotification, owner: owner) { [weak self] in self?.displaysSlept(true) },
+            workspaceEvents.subscribe(NSWorkspace.screensDidWakeNotification, owner: owner) { [weak self] in self?.displaysSlept(false) },
+        ]
         schedule()
     }
 
     /// Stops observing; every window it reported off screen is reported back on screen.
     public func stop() {
         observations.removeAll()
-        scheduled?.cancel()
-        scheduled = nil
+        subscriptions.forEach { $0.cancel() }
+        subscriptions.removeAll()
+        passPending = false
         let reported = offScreen
         offScreen.removeAll()
         for id in reported { onChange?(id, false) }
     }
+
+    private var isStarted: Bool { !subscriptions.isEmpty }
 
     /// Whether `window` was last reported off screen.
     public func isOffScreen(_ window: NSWindow) -> Bool { offScreen.contains(ObjectIdentifier(window)) }
@@ -233,14 +246,13 @@ public nonisolated struct WindowOcclusionRule: Sendable {
     /// `orderWindow:relativeTo:` swizzle: a window ordered front without becoming key or main
     /// posts nothing else that starts a pass.
     public func windowsDidReorder() {
-        guard !observations.isEmpty else { return }
+        guard isStarted else { return }
         schedule()
     }
 
     /// Judges every tracked window now and reports the ones whose state changed.
     public func update() {
-        scheduled?.cancel()
-        scheduled = nil
+        passPending = false
         passes += 1
         rule.appHidden = isAppHidden()
         let ordered = orderedWindows().map(facts)
@@ -290,11 +302,17 @@ public nonisolated struct WindowOcclusionRule: Sendable {
         onClose?(id)
     }
 
+    private func displaysSlept(_ asleep: Bool) {
+        rule.displaysAsleep = asleep
+        schedule()
+    }
+
     private func schedule() {
-        guard scheduled == nil else { return }
-        scheduled = Task { @MainActor [weak self] in
-            guard !Task.isCancelled else { return }
-            self?.update()
+        guard !passPending else { return }
+        passPending = true
+        mainWork.post(.visible, owner: "WindowOcclusionChecker.pass") { [weak self] in
+            guard let self, passPending else { return }
+            update()
         }
     }
 

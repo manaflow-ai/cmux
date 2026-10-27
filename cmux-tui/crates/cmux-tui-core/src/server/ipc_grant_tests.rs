@@ -3,8 +3,8 @@
 //! local, bridged, unverified, WebSocket, remote-entry and page-relay
 //! connection, and to a client one API revision behind. Every request takes
 //! the connection's real frame path (`handle_connection_frame`), the remote
-//! relay's gate included. Tests other than the unbound one bind every
-//! transport, as the tasks that land them will.
+//! relay's gate included. Tests other than the bound-transports one bind
+//! every transport, as the tasks that land them will.
 
 use cmux_api_compat::{Change, Compat, MessageChange, Schema};
 
@@ -125,10 +125,11 @@ fn mux(name: &str) -> Arc<Mux> {
 fn ipc_grant_unbound_transports_are_never_advertised_or_granted() {
     let mux = Mux::new_for_test("ipc-grant-unbound", crate::SurfaceOptions::default());
     let local = Connection::local(&mux);
-    assert!(local.advertised().is_empty(), "no frame reader, stream table or ring yet");
+    // The stream table is bound (p05-ipc-074); no frame reader or ring yet.
+    assert_eq!(local.advertised(), ["attach-streams-v1"]);
     assert_eq!(local.ask(13)["ok"], true);
-    assert!(local.granted().is_empty());
-    assert!(local.recorded().is_empty());
+    assert_eq!(local.granted(), ["attach-streams-v1"]);
+    assert_eq!(local.recorded(), ["attach-streams-v1"]);
     mux.shutdown();
 }
 
@@ -286,7 +287,10 @@ fn ipc_grant_rule_table() {
     assert_eq!(IpcCapability::offered(IpcPeer::Local, false, &bound), [AttachStreams]);
     assert_eq!(IpcCapability::offered(IpcPeer::Bridged, true, &bound), [AttachStreams]);
     assert_eq!(IpcCapability::offered(IpcPeer::Unverified, true, &bound), [AttachStreams]);
-    assert!(IpcCapability::offered(IpcPeer::Local, true, &IpcTransports::default()).is_empty());
+    assert_eq!(
+        IpcCapability::offered(IpcPeer::Local, true, &IpcTransports::default()),
+        [AttachStreams]
+    );
     assert!(AttachStreams.allowed(IpcPeer::Local, false));
     assert!(!Frames.allowed(IpcPeer::Local, false));
     assert!(!OutputRing.allowed(IpcPeer::Bridged, true));

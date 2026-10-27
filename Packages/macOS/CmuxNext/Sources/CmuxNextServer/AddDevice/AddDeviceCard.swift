@@ -23,6 +23,7 @@ public final class AddDeviceCard {
         self.panel = panel
         panel.present(over: window)
         // task-owner: one listing per opening; a newer opening's begin() supersedes it (generation)
+        // main-hop-allow: begin is the card model's main-actor async listing (its awaits are the network browse); the card is already on screen
         Task { await model.begin(way: way) }
     }
 

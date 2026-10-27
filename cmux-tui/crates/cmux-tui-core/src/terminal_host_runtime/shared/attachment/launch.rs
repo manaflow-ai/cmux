@@ -282,7 +282,8 @@ fn launch_terminal_host_seeded_in(
     // row Exited.
     let mut attachment = connect_record(record, record_path, OwnerIntent::Surface)?;
     crate::debug_spans::mark("host.connected");
-    attachment.launch_process = Some(process);
+    attachment.launch_process =
+        Some(LaunchedHostProcess { process, panic_log: options.host_panic_log.clone() });
     debug_assert_eq!(
         attachment.launch_activation_pending,
         attachment.protocol_version >= LAUNCH_ACTIVATION_PROTOCOL_VERSION

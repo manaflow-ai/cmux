@@ -58,9 +58,11 @@ public final class ScreenshotsCommands {
         case .rename:
             guard let item = items.first else { return }
             // task-owner: `pendingRename`; one rename sheet; ends when the person answers it
+            // main-hop-allow: an AppKit sheet on the pane's window must begin on the main actor (#24760); the rename after it runs off main in CmuxNextFiles
             pendingRename = Task { await askToRename(item, in: window) }
         case .trash:
             // task-owner: one Move to Trash; ends when the files are moved
+            // main-hop-allow: a person's Move to Trash: the move runs off main in CmuxNextFiles; Put Back registers on the window's undo manager, a main-actor object
             Task {
                 do { try await trash(items, undo: window?.undoManager) } catch { show(error, in: window) }
             }
@@ -99,7 +101,7 @@ public final class ScreenshotsCommands {
         let files = files
         undo.registerUndo(withTarget: self) { target in
             // task-owner: `pendingUndo`; one undo's file operation, ends when it is done
-            target.pendingUndo = Task { try await operation(files) }
+            target.pendingUndo = Task { @concurrent in try await operation(files) }
         }
     }
 

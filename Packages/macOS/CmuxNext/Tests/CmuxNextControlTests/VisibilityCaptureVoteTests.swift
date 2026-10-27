@@ -55,6 +55,29 @@ import Testing
         rig.stop()
     }
 
+    /// p06-scheduler-161: deferred view work (the R-appear and R-hide recipes: a theme recolor, a bar
+    /// reload) runs for a capture as a view observation applies for one, so a screenshot of a hidden
+    /// tab never shows a stale theme; page visibility stays hidden.
+    @Test func aVotedHiddenNodeRunsItsDeferredViewWork() {
+        let window = VisibilityNode(root: "window", own: .hidden)
+        let tab = VisibilityNode("tab", parent: window)
+        var runs: [String] = []
+        tab.deferUntilVisible(key: "appearance") { runs.append("missed") }
+        #expect(runs.isEmpty && tab.deferredCount == 1)
+
+        let vote = window.captureVote(reason: "agent.screenshot", stayHidden: true)
+        #expect(tab.effective == .hidden && tab.wantsFrames)
+        #expect(runs == ["missed"] && tab.deferredCount == 0, "a captured tab drew views its deferred work had not updated")
+        tab.deferUntilVisible(key: "appearance") { runs.append("now") }
+        #expect(runs == ["missed", "now"], "a captured tab held view work")
+
+        vote.release()
+        tab.deferUntilVisible(key: "appearance") { runs.append("shown") }
+        #expect(runs == ["missed", "now"] && tab.deferredCount == 1, "a released tab did view work")
+        window.set(.visible)
+        #expect(runs == ["missed", "now", "shown"] && tab.deferredCount == 0)
+    }
+
     @Test func aStayHiddenVoteFlipsNothingAndItsReleaseNotifiesOnce() {
         let node = VisibilityNode(root: "tab", own: .hidden)
         let hiddenSince = node.hiddenSince

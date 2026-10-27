@@ -239,6 +239,7 @@ final class ImportProfileRow: NSView {
         if editable, bounds.contains(convert(event.locationInWindow, from: nil)) { toggle?() }
     }
 
+    // visibility-walk-allow: repaints its hover fill (ChromeHover) only, no layout
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         hover.refresh(animated: false)

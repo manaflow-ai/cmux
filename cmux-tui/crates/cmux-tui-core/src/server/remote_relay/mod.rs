@@ -243,7 +243,7 @@ impl Mux {
     /// Install the pairing records (`cmux server pair`) the owner scope
     /// reads.
     pub fn set_pairing_records(&self, records: Arc<dyn crate::PairingRecords>) {
-        // Safety: this replaces the whole value, and the lock stays poisoned,
+        // Poison recovery: this replaces the whole value, and the lock stays poisoned,
         // so every owner read still fails closed (`owner_user`).
         *self.remote_relay().pairing.lock().unwrap_or_else(PoisonError::into_inner) = Some(records);
     }
@@ -330,7 +330,7 @@ pub(super) fn handle_watched_frame(
         Some(mut span) if head.cmd().is_some_and(super::fs_wire::is_fs_op) => {
             stage(super::FrameStage::Fs);
             let line = super::routes::RouteLine { mux, client, message, writer, head: &head };
-            match super::fs_wire::handle(&line) {
+            match super::request_hang_watch::route(&head, || super::fs_wire::handle(&line)) {
                 Some(keep_open) => return span.answered(keep_open),
                 None => Some(span),
             }

@@ -142,7 +142,8 @@ import Testing
                                                                            helperApp: { URL(fileURLWithPath: "/nonexistent/cmux-cua-test.app") },
                                                                            spawner: spawner))
         defer { daemon.applicationWillTerminate() }
-        daemon.follow(settings, mainWork: linklessMainWork(), disabledByPolicy: { false })
+        // Real lanes: a legacy apply resolves its candidates on them, so `legacyStarts` counts each one.
+        daemon.follow(settings, mainWork: linklessMainWork(), lanes: BackgroundWork(label: "test.cua-follow"), disabledByPolicy: { false })
         runMainLoopPass(for: 0.05)
         #expect(spawner.spawns == 0, "nothing applies before the settings file's first load")
 

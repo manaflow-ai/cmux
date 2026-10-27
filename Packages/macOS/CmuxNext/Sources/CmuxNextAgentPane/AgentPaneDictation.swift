@@ -75,30 +75,32 @@ final class AgentPaneDictation {
     /// to whichever window is key), only while a hold is armed.
     private var releaseWatch: InputSubscription?
     /// Ends the hold when the app loses focus: the release goes elsewhere.
-    private var resignObserver: MainActorObservation?
+    private var resignObserver: EventSubscription?
     /// Stops the session when the Mac sleeps; observed only while a session runs.
-    private var sleepObserver: MainActorObservation?
-    /// Where sleep is announced (tests post their own).
-    var sleepNotifications: NotificationCenter = NSWorkspace.shared.notificationCenter
+    private var sleepObserver: EventSubscription?
+    /// The app's notice fan-outs: the app's resign (`appEvents`) and the Mac's sleep (`workspaceEvents`), one
+    /// observer per notice for the whole app (tests make their own centers and post to them).
+    private let mainThread: AgentPaneMainThread
     /// The event clock (`NSEvent.timestamp`'s), for telling a fresh key press from a stale one.
     var now: () -> TimeInterval = { ProcessInfo.processInfo.systemUptime }
     static let holdThreshold: TimeInterval = 0.35
 
     /// - Parameters:
-    ///   - deadlines: The app's deadline scheduler (`AppServices.mainDeadlines`), which the default session runs on
-    ///     (its stop deadline and its events).
+    ///   - mainThread: The app's main-thread scheduling; its deadlines run the default session (its stop deadline
+    ///     and its events), and its notices end a hold and stop on sleep.
     ///   - makeSession: Makes the session on first use; nil makes the on-device one.
     init(
         input: InputEventTap,
+        mainThread: AgentPaneMainThread,
         send: @escaping (DictationUpdate) -> Void,
-        deadlines: MainDeadlineScheduler,
         microphone: DictationMicrophone = .shared,
         makeSession: (() -> DictationSession)? = nil
     ) {
         self.input = input
+        self.mainThread = mainThread
         self.send = send
         self.microphone = microphone
-        self.makeSession = makeSession ?? { AgentPaneDictation.defaultSession(deadlines: deadlines) }
+        self.makeSession = makeSession ?? { AgentPaneDictation.defaultSession(deadlines: mainThread.deadlines) }
     }
 
     var phase: DictationPhase { session?.phase ?? .idle }
@@ -148,7 +150,7 @@ final class AgentPaneDictation {
             default: break
             }
         }
-        resignObserver = MainActorObservation(NSApplication.didResignActiveNotification) { [weak self] in
+        resignObserver = mainThread.appEvents.subscribe(NSApplication.didResignActiveNotification, owner: "AgentPaneDictation.hold") { [weak self] in
             self?.endHold()
         }
     }
@@ -222,7 +224,7 @@ final class AgentPaneDictation {
         session.start()
         noteRunning(!phase.isStartable)
         if !phase.isStartable, sleepObserver == nil {
-            sleepObserver = MainActorObservation(NSWorkspace.willSleepNotification, center: sleepNotifications) { [weak self] in
+            sleepObserver = mainThread.workspaceEvents.subscribe(NSWorkspace.willSleepNotification, owner: "AgentPaneDictation.sleep") { [weak self] in
                 self?.session?.stop()
             }
         }

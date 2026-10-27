@@ -53,6 +53,8 @@ pub(crate) fn write(file: &mut File, buffer: &[u8]) -> io::Result<usize> {
 /// Input the program has not read yet, or `None` when the master cannot say.
 fn queued(file: &File) -> Option<usize> {
     let mut count: libc::c_int = 0;
+    // SAFETY: `file` keeps its descriptor open for the call, and FIONREAD writes one c_int through
+    // the pointer to `count`, a live local of that type.
     let status = unsafe { libc::ioctl(file.as_raw_fd(), libc::FIONREAD, &mut count) };
     (status == 0 && count >= 0).then_some(count as usize)
 }

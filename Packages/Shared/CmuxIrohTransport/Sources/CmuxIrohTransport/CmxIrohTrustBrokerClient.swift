@@ -1090,9 +1090,10 @@ public actor CmxIrohTrustBrokerClient: CmxIrohRelayPolicyServing {
         var encoded = String(value)
             .replacingOccurrences(of: "-", with: "+")
             .replacingOccurrences(of: "_", with: "/")
-        let remainder = encoded.utf8.count % 4
-        if remainder != 0 {
-            encoded.append(String(repeating: "=", count: 4 - remainder))
+        switch encoded.utf8.count % 4 {
+        case 2: encoded.append("==")
+        case 3: encoded.append("=")
+        default: break // complete, or a remainder of 1 that no padding makes valid
         }
         return Data(base64Encoded: encoded)
     }

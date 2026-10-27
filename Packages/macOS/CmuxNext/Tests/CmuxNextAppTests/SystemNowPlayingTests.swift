@@ -166,7 +166,7 @@ import Testing
     static func source(_ adapter: any SystemNowPlayingAdapter, ignoring ignored: Set<String> = [],
                        rig: MainDeadlineRig = MainDeadlineRig()) -> SystemNowPlaying {
         SystemNowPlaying(adapter: adapter, ignoring: ignored, labels: Self.labels,
-                         idle: MainDeadline(owner: "test.NowPlaying.adapterIdleStop", workClass: .background, scheduler: rig.deadlines))
+                         deadlines: rig.deadlines)
     }
 
     /// Whether the rig's one pending wake is the idle stop, `SystemNowPlaying.idleStop` from now.
@@ -258,10 +258,11 @@ import Testing
         // Qualified: CmuxNextAgentPane's ProcessLauncher shadows CmuxNextWakeups' in this file.
         let launcher = CmuxNextWakeups.ProcessLauncher(label: "com.cmuxterm.next.test.now-playing", priority: .userVisible,
                                                        spawn: { _ in spawns.add() })
+        let rig = MainDeadlineRig()
         let adapter = MediaRemoteAdapterProcess(script: URL(fileURLWithPath: "/nonexistent/mediaremote-adapter.pl"),
                                                 framework: URL(fileURLWithPath: "/nonexistent/MediaRemoteAdapter.framework"),
+                                                deadlines: rig.deadlines,
                                                 launcher: launcher)
-        let rig = MainDeadlineRig()
         let source = Self.source(adapter, rig: rig)
         #expect(!adapter.isStreaming && spawns.value == 0, "the adapter launched before anything needed it")
         source.run(.shown)
@@ -302,7 +303,7 @@ import Testing
         let sources = NowPlayingSources(player: MusicPlayer(labels: Self.labels), tabs: FakeSource(), system: system, otherApps: { true })
         let model = SidebarModel()
         let flag = Flag(false)
-        let feed = model.followNowPlaying(sources, enabled: { flag.on })
+        let feed = model.followNowPlaying(sources, enabled: { flag.on }, on: linklessMainWork())
         defer { feed.cancel() }
         try await Task.sleep(for: .milliseconds(100))
         #expect(adapter.starts == 0, "the adapter streams while Now Playing is off")
@@ -329,7 +330,7 @@ import Testing
         let sources = NowPlayingSources(player: MusicPlayer(labels: Self.labels), tabs: FakeSource(), system: system, otherApps: { true })
         let model = SidebarModel()
         let dismissal = NowPlayingCardDismissal()
-        let feed = model.followNowPlaying(sources, dismissal: dismissal, enabled: { true })
+        let feed = model.followNowPlaying(sources, dismissal: dismissal, enabled: { true }, on: linklessMainWork())
         defer { feed.cancel() }
         try await Self.until { adapter.starts == 1 }
         adapter.emit(diff: false, Self.spotify)
@@ -367,7 +368,8 @@ import Testing
 
     @Test func theArtworkIsASmallPNG() async throws {
         let adapter = FakeAdapter()
-        let source = Self.source(adapter)
+        let rig = MainDeadlineRig()
+        let source = Self.source(adapter, rig: rig)
         source.run(.shown)
         let bitmap = try #require(NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: 600, pixelsHigh: 600, bitsPerSample: 8,
                                                    samplesPerPixel: 4, hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB,
@@ -377,9 +379,14 @@ import Testing
         payload["artworkData"] = jpeg.base64EncodedString()
         payload["artworkMimeType"] = "image/jpeg"
         adapter.emit(diff: false, payload)
-        // Decoded and drawn off the main actor: the track shows at once, its artwork once ready.
+        // Decoded and drawn off the main actor: the track shows at once, its artwork once ready, as one
+        // visible task on the app's scheduler (the rig's runs at its frames; p06-scheduler-342).
         #expect(source.nowPlaying?.title == "Weightless")
-        try await Self.until { source.nowPlaying?.artwork != nil }
+        #expect(source.nowPlaying?.artwork == nil, "the artwork was drawn on the main actor, in the update's turn")
+        try await Self.until {
+            rig.frame()
+            return source.nowPlaying?.artwork != nil
+        }
         let png = try #require(source.nowPlaying?.artwork)
         let image = try #require(NSBitmapImageRep(data: png))
         #expect(image.pixelsWide == 320 && image.pixelsHigh == 320)
@@ -429,7 +436,7 @@ import Testing
                                         otherApps: { otherApps.on })
         let model = SidebarModel()
         let page = AgentPaneNowPlaying()
-        let feed = model.followNowPlaying(sources, enabled: { true }, onNewTab: { true }, player: page)
+        let feed = model.followNowPlaying(sources, enabled: { true }, onNewTab: { true }, player: page, on: linklessMainWork())
         defer { feed.cancel() }
         try await Task.sleep(for: .milliseconds(100))
         #expect(adapter.starts == 0, "macOS Now Playing was read while other apps are off")

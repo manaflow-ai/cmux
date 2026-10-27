@@ -12,6 +12,10 @@ extension KeyRouter {
         "browser.findPrevious",
     ]
 
+    /// The actions DevTools runs itself before its frontend sees the key.
+    nonisolated static let devToolsActions: Set<ActionID> = ["toggleBrowserDeveloperTools", "showBrowserJavaScriptConsole",
+                                                             "inspectBrowserElement"]
+
     /// The address bar or the find bar of a browser tab has the keyboard.
     nonisolated static func isBrowserChromeField(_ resolved: FocusState.Resolved) -> Bool {
         switch resolved {

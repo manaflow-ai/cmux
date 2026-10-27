@@ -248,23 +248,21 @@ public final class AccountsModel {
         return accounts.first { $0.id == id }
     }
 
-    /// Saves a pasted key to the Keychain; returns the failure text, or nil.
-    @discardableResult
-    public func saveKey(_ key: String, for provider: AIProvider) -> String? {
+    /// Saves a pasted key to the Keychain (off the main thread); `done` gets the failure text, or nil
+    /// once it is saved and the rows refresh.
+    public func saveKey(_ key: String, for provider: AIProvider, done: @escaping @MainActor @Sendable (String?) -> Void) {
         let trimmed = key.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return AccountsStrings.errorNeedsPaste }
-        do {
-            try services.saveKey(trimmed, for: provider)
-        } catch {
-            return AccountsStrings.message(for: error)
+        guard !trimmed.isEmpty else { return done(AccountsStrings.errorNeedsPaste) }
+        services.saveKey(trimmed, for: provider) { [weak self] error in
+            if let error { return done(AccountsStrings.message(for: error)) }
+            self?.refresh()
+            done(nil)
         }
-        refresh()
-        return nil
     }
 
+    /// Deletes the saved key (off the main thread); the rows refresh once it is gone.
     public func deleteSavedKey(for provider: AIProvider) {
-        try? services.deleteSavedKey(for: provider)
-        refresh()
+        services.deleteSavedKey(for: provider) { [weak self] _ in self?.refresh() }
     }
 
     // MARK: Events

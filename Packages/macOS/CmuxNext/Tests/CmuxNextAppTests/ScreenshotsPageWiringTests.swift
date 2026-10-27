@@ -6,7 +6,6 @@ import CmuxNextFileGrid
 import CmuxNextFiles
 import CmuxNextIcons
 import CmuxNextScreenshots
-import CmuxNextWakeups
 import Foundation
 import Testing
 
@@ -33,10 +32,10 @@ import Testing
     }
 
     @Test func thePageFiltersOnFindAndLeavesForAWebAddress() async throws {
-        let model = ScreenshotsModel(watcher: NoWatch())
+        let work = linklessMainWork()
+        let model = ScreenshotsModel(watcher: NoWatch(), mainWork: work)
         let page = ScreenshotsPageTab(id: BrowserTabID(rawValue: "t1"), engine: .webkit, profile: .default, model: model,
-                                      cache: ThumbnailCache(), workspace: RecordingWorkspace(), files: FileOperator(),
-                                      work: MainWorkScheduler(budget: MainFrameBudget()))
+                                      cache: ThumbnailCache(), workspace: RecordingWorkspace(), files: FileOperator(), mainWork: work)
         defer { page.close() }
         #expect(page.state.url == ScreenshotsPageAddress.url)
         #expect(page.state.title == ScreenshotsPageAddress.title)

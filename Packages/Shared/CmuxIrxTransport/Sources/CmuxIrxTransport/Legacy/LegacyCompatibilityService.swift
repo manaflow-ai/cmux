@@ -349,13 +349,14 @@ public actor LegacyCompatibilityService {
     private func clearRefresh() { refresh = nil }
 
     private func apply(_ fact: IrxCtlDirectoryFact) {
-        let entries = Dictionary(uniqueKeysWithValues: fact.payload.bindings.map { item in
+        // An endpoint listed twice keeps its last binding, as in IrxDeviceListSnapshot(fact:).
+        let entries = Dictionary(fact.payload.bindings.map { item in
             (item.endpointID, IrxDeviceListEntry(deviceID: item.deviceID, status: item.status ?? "active",
                 revoked: item.revoked ?? false, appVersion: item.appVersion,
                 releaseTrack: item.releaseTrack, capabilities: item.capabilities,
                 relayURLHint: item.homeRelayURL, bindingID: item.bindingID,
                 tag: item.instanceTag, identityGeneration: item.identityGeneration))
-        })
+        }, uniquingKeysWith: { _, last in last })
         directory.apply(IrxDeviceListSnapshot(entries: entries, rev: fact.rev,
             issuedAt: fact.payload.issuedAt ?? Date(), ttlSeconds: fact.payload.ttlSeconds ?? 3600,
             minimumSupportedMacVersion: fact.payload.minimumSupportedVersion?.mac,

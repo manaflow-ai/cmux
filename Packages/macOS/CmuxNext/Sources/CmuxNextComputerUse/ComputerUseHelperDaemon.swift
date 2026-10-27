@@ -5,7 +5,7 @@ import Darwin
 import Foundation
 public import Observation
 import os
-import CmuxNextCompat
+public import CmuxNextCompat
 public import CmuxNextWakeups
 import class CmuxSafeConcurrency.OnceContinuation
 import enum CmuxSafeConcurrency.OnceContinuationError
@@ -88,7 +88,7 @@ public final class ComputerUseHelperDaemon {
     @ObservationIgnored private var agentToken: String?
     @ObservationIgnored private var hostToken: String?
     @ObservationIgnored private var generation = 0
-    /// The follow of `computerUse` (``follow(_:mainWork:disabledByPolicy:)``).
+    /// The follow of `computerUse` (``follow(_:mainWork:lanes:disabledByPolicy:)``).
     @ObservationIgnored private var observation: ServiceObservation<ComputerUseSettings?>?
     /// The newest value no apply has taken yet, with the policy read when it came.
     @ObservationIgnored private var wanted: (settings: ComputerUseSettings, disabledByPolicy: Bool)?
@@ -96,6 +96,8 @@ public final class ComputerUseHelperDaemon {
     @ObservationIgnored private var applying: Task<Void, Never>?
     /// The helper v2 (`computerUse.driver = "upstream"`).
     @ObservationIgnored public let upstream: ComputerUseHelperV2
+    /// The app's lanes (``follow(_:mainWork:lanes:disabledByPolicy:)``): the helper's signature checks run on their system lane.
+    @ObservationIgnored private var lanes: (any MayBlockRunner)?
 
     init(identity: CuaHelperIdentity = CuaHelperIdentity(),
          candidates: @escaping @Sendable () -> [URL] = { CuaHelperIdentity.installedCandidates(isDevBuild: ComputerUseHelperDaemon.isDevBuild) },
@@ -143,10 +145,15 @@ public final class ComputerUseHelperDaemon {
     /// - Parameters:
     ///   - settings: The app's settings.
     ///   - mainWork: The main-thread scheduler the follow flushes on.
+    ///   - lanes: The app's lanes: the helper v2 reads acpmux's signature on their system lane.
     ///   - disabledByPolicy: Whether DisabledFeatures turns Computer Use off, read with each value.
     ///
     /// Each value applies (a helper start or stop) one at a time, the newest one only.
-    public func follow(_ settings: SettingsController, mainWork: MainWorkScheduler, disabledByPolicy: @escaping () -> Bool) {
+    public func follow(_ settings: SettingsController, mainWork: MainWorkScheduler, lanes: any MayBlockRunner,
+                       disabledByPolicy: @escaping () -> Bool) {
+        self.lanes = lanes
+        upstream.lanes = lanes
+        observation?.cancel()
         // A service observation: the helper starts and stops whether or not anything shows it. `background`: no view
         // waits on it (a person's toggle in Settings flushes as user-blocking). Before the first load the snapshot
         // holds defaults: nothing applies, so a helper the file turns on is never stopped first.
@@ -203,7 +210,7 @@ public final class ComputerUseHelperDaemon {
         let current = generation
         guard enabled else { return stop() }
         if case .running = state { return }
-        let resolution = await Self.resolve(identity, candidates)
+        let resolution = await Self.resolve(identity, candidates, on: lanes)
         guard current == generation else { return }
         guard case .signed(let helper) = resolution else {
             helperLogger.notice("Computer Use is on, but no Developer ID signed cmux Computer Use helper is installed")
@@ -286,9 +293,13 @@ public final class ComputerUseHelperDaemon {
         ]
     }
 
-    @concurrent nonisolated static func resolve(_ identity: CuaHelperIdentity,
-                                                _ candidates: @Sendable () -> [URL]) async -> CuaHelperIdentity.Resolution {
-        identity.resolve(running: nil, installed: candidates())
+    /// The helper to start: signature checks of the candidates, on `lanes`' system lane (no helper
+    /// while the app has not wired its lanes).
+    nonisolated static func resolve(_ identity: CuaHelperIdentity, _ candidates: @escaping @Sendable () -> [URL],
+                                    on lanes: (any MayBlockRunner)?) async -> CuaHelperIdentity.Resolution {
+        let none = CuaHelperIdentity.Resolution.unavailable(.noSignedHelperInstalled)
+        guard let lanes else { return none }
+        return (try? await lanes.runSystem(.userVisible) { identity.resolve(running: nil, installed: candidates()) }) ?? none
     }
 
     public nonisolated static var isDevBuild: Bool {
