@@ -161,6 +161,12 @@ public nonisolated struct HangSample: Codable, Sendable, Equatable {
             self.phase = phase
             self.task = task
         }
+
+        /// The watchdog's `startup_phase` and `startup_task`; nil when the stall named no phase (after startup).
+        public init?(stallPhase: String?, task: String?) {
+            guard let stallPhase else { return nil }
+            self.init(phase: stallPhase, task: task)
+        }
     }
 
     /// The most frames one stack carries.

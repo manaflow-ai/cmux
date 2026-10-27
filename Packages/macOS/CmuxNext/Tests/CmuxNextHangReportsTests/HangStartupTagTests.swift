@@ -57,6 +57,8 @@ struct HangStartupTagTests {
             Self.builder(.v3).build(context: HangReportFixtures.context(), watchdog: Self.aggregate(stall: startup, hang: nil),
                                     metricKit: []).hangs.first { $0.kind == .stall }?.startup
         }
+        #expect(HangSample.Startup(stallPhase: nil, task: "late.step") == nil, "a stall after startup names no phase")
+        #expect(HangSample.Startup(stallPhase: "main", task: nil) == HangSample.Startup(phase: "main", task: nil))
         #expect(sanitized(nil) == nil)
         #expect(sanitized(.init(phase: "made_up", task: "main.warmup")) == nil)
         #expect(sanitized(.init(phase: "main", task: "/Users/someone/secret")) == .init(phase: "main", task: "other"))
