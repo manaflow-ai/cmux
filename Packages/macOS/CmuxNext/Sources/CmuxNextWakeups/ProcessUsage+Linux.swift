@@ -6,7 +6,8 @@ import Foundation
 // The Linux readers of ProcessUsage (p15-oracle-126): `/proc` in place of proc_pid_rusage and libproc,
 // with the counters Chromium reads there (base/process/process_metrics_linux.cc):
 // - CPU time: utime + stime of /proc/<pid>/stat, in clock ticks (`GetCumulativeCPUUsage`);
-// - wakeups: voluntary_ctxt_switches of /proc/<pid>/status (`GetIdleWakeupsPerSecond`). Linux has no
+// - wakeups: voluntary context switches (`GetIdleWakeupsPerSecond`), of every thread as Darwin's
+//   ri_interrupt_wkups counts the whole process, not the main thread's alone that /proc/<pid>/status has. Linux has no
 //   package-idle counter, so ``ProcessUsage/packageIdleWakeups`` is 0 and ``ProcessUsage/wakeups`` counts
 //   each wakeup once;
 // - footprint: RssAnon + VmSwap of /proc/<pid>/status (the private footprint of
@@ -16,18 +17,39 @@ import Foundation
 extension ProcessUsage {
     /// Samples `pid`; nil when it is gone or not ours. Blocking syscalls: call it off the main actor.
     public static func sample(_ pid: pid_t) -> ProcessUsage? {
-        guard let status = LinuxProcStatus(pid: pid), status.isOurs, let stat = LinuxProcStat(pid: pid) else { return nil }
+        guard let status = LinuxProcStatus(pid: pid), status.isOurs, let stat = LinuxProcStat(pid: pid),
+              let wakeups = voluntarySwitches(of: pid) else { return nil }
         return ProcessUsage(pid: pid, parent: stat.parent, path: path(of: pid) ?? "", cpuNanos: stat.cpuNanos,
-                            wakeups: status.voluntarySwitches, interruptWakeups: status.voluntarySwitches,
+                            wakeups: wakeups, interruptWakeups: wakeups,
                             packageIdleWakeups: 0, energyNanojoules: 0, physFootprint: status.privateFootprintBytes,
                             uptimeNanos: monotonicNanos())
     }
 
-    /// ``interruptWakeups`` of `pid` alone (its voluntary context switches), from one read of its status
-    /// file; nil when it is gone or not ours.
+    /// ``interruptWakeups`` of `pid` alone (the voluntary context switches of all its threads); nil when it
+    /// is gone or not ours.
     public static func interruptWakeups(of pid: pid_t) -> UInt64? {
         guard let status = LinuxProcStatus(pid: pid), status.isOurs else { return nil }
-        return status.voluntarySwitches
+        return voluntarySwitches(of: pid)
+    }
+
+    /// The voluntary context switches of every thread of `pid`: the status file of a process counts its main
+    /// thread alone (task_context_switch_counts in fs/proc/array.c). This process reads getrusage, which keeps
+    /// the counts of exited threads too; another process sums `/proc/<pid>/task/*/status`, where an exited
+    /// thread's count leaves the sum (callers skip a period whose count went down).
+    static func voluntarySwitches(of pid: pid_t) -> UInt64? {
+        guard pid == getpid() else { return threadSwitches(of: pid) }
+        var usage = Glibc.rusage()
+        // SAFETY: getrusage writes one rusage into `usage`, a local live for the call.
+        guard unsafe getrusage(Int32(RUSAGE_SELF.rawValue), &usage) == 0 else { return nil }
+        return UInt64(clamping: usage.ru_nvcsw)
+    }
+
+    /// The sum of `voluntary_ctxt_switches` over the live threads of `pid`; nil when its task folder is unreadable.
+    static func threadSwitches(of pid: pid_t) -> UInt64? {
+        guard let threads = try? FileManager.checked.contentsOfDirectory(atPath: "/proc/\(pid)/task") else { return nil }
+        return threads.reduce(0) { sum, thread in
+            sum &+ (LinuxProcStatus(path: "/proc/\(pid)/task/\(thread)/status")?.voluntarySwitches ?? 0)
+        }
     }
 
     /// The executable of `pid` (`/proc/<pid>/exe`); nil when it is gone or not readable by us.
@@ -104,7 +126,12 @@ struct LinuxProcStatus: Equatable {
     var privateFootprintBytes: UInt64
 
     init?(pid: pid_t) {
-        guard let bytes = ProcessUsage.procFile("/proc/\(pid)/status") else { return nil }
+        self.init(path: "/proc/\(pid)/status")
+    }
+
+    /// Reads the status file at `path`, a process's or one thread's (`/proc/<pid>/task/<tid>/status`).
+    init?(path: String) {
+        guard let bytes = ProcessUsage.procFile(path) else { return nil }
         self.init(String(decoding: bytes, as: UTF8.self))
     }
 

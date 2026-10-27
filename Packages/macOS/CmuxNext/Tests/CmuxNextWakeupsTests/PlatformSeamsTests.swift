@@ -43,6 +43,43 @@ import Testing
     }
 
     #if os(Linux)
+    @Test func onlyAKernelWithoutPeerPidfdReadsThePathAlone() throws {
+        var pair: [Int32] = [-1, -1]
+        // SAFETY: socketpair writes two descriptors into `pair`, a local array of two.
+        let made = unsafe socketpair(AF_UNIX, streamSocket, 0, &pair)
+        try #require(made == 0)
+        defer { pair.forEach { close($0) } }
+        let refusal = { (error: Int32) in UnixSocketPeer.PeerProcess(result: -1, pidfd: -1, error: error) }
+        #expect(refusal(ENOPROTOOPT) == .noOption)
+        #expect(UnixSocketPeer(descriptor: pair[0], peerProcess: { _ in refusal(ENOPROTOOPT) })?.pid == getpid(),
+                "a kernel before 6.5 has no SO_PEERPIDFD: the path alone")
+        for error in [EINVAL, ESRCH, ENODATA] {
+            #expect(refusal(error) == nil)
+            #expect(UnixSocketPeer(descriptor: pair[0], peerProcess: { _ in refusal(error) }) == nil,
+                    "errno \(error): the kernel has SO_PEERPIDFD and refused it, as 6.5 to 6.15 do for a reaped peer")
+        }
+    }
+
+    @Test func wakeupsCountEveryThreadOfThisProcess() async throws {
+        let wakes = 50
+        let before = try #require(ProcessUsage.interruptWakeups(of: getpid()))
+        let release = DispatchSemaphore(value: 0)
+        defer { release.signal() }
+        // A second thread sleeps `wakes` times, each a voluntary switch, then stays alive for the task sum.
+        await withCheckedContinuation { (slept: CheckedContinuation<Void, Never>) in
+            Thread {
+                for _ in 0..<wakes { usleep(200) }
+                slept.resume()
+                release.wait()
+            }.start()
+        }
+        let after = try #require(ProcessUsage.interruptWakeups(of: getpid()))
+        #expect(after >= before + UInt64(wakes), "getrusage counts the second thread's \(wakes) sleeps")
+        let mainThread = try #require(LinuxProcStatus(pid: getpid())).voluntarySwitches
+        let threads = try #require(ProcessUsage.threadSwitches(of: getpid()))
+        #expect(threads >= mainThread + UInt64(wakes), "the task sum has the second thread, the status file not")
+    }
+
     @Test func procStatusGivesTheUserTheVoluntarySwitchesAndThePrivateFootprint() throws {
         let text = "Name:\tcmux\nUid:\t1000\t1001\t1001\t1001\nRssAnon:\t   2048 kB\nVmSwap:\t     16 kB\n"
             + "voluntary_ctxt_switches:\t42\nnonvoluntary_ctxt_switches:\t7\n"
