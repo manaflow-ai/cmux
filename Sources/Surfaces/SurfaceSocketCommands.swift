@@ -3,6 +3,7 @@ import CmuxControlSocket
 import CmuxSettings
 import CmuxSurfaceCatalogModel
 import Foundation
+import os
 
 // The socket face of the surface catalog: `surface.catalog`, `surface.project`,
 // `surface.new_terminal`, `surface.new_display`, and the `vm.tree` / `vm.terminal_open` / `vm.terminal_new` /
@@ -125,13 +126,19 @@ extension TerminalController {
             }
             let destination = options.open ? surfaceNewDisplayDestination(params) : nil
             if options.open, destination == nil { return surfaceNewDisplayWorkspaceError(id: id) }
-            return v2VmCall(id: id, timeoutSeconds: 240) {
+            // v2VmCall's closure returns a result payload, so busy is carried
+            // out of it and answered with its own error code here. A timed-out
+            // call returns while its task still runs, hence the lock.
+            let busy = OSAllocatedUnfairLock(initialState: false)
+            let response = v2VmCall(id: id, timeoutSeconds: 240) {
                 do {
                     return try await Self.surfaceNewDisplay(options, destination: destination)
-                } catch is SurfaceDisplayCreationBusy {
-                    return Self.surfaceNewDisplayBusyError(id: id)
+                } catch let error as SurfaceDisplayCreationBusy {
+                    busy.withLock { $0 = true }
+                    throw error
                 }
             }
+            return busy.withLock { $0 } ? Self.surfaceNewDisplayBusyError(id: id) : response
 
         default:
             return v2Error(id: id, code: "method_not_found", message: "Unknown method")
