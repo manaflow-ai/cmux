@@ -89,6 +89,8 @@ export const HIGHLIGHT_EASING = "cubic-bezier(0.23, 1, 0.32, 1)";
 /// Blocks of a reply the preview keeps (the card clamps to three lines).
 const PREVIEW_BLOCKS = 4;
 const PREVIEW_CHARS = 360;
+const METADATA_TEXT_LIMIT = 1024;
+const PR_LINK = /https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/pull\/\d+(?:#[\w.-]+)?/g;
 
 /// How magnified a row is (0 to 1) at `distance` rows from the hovered one; undefined is no hover.
 export function tickProgress(distance: number | undefined): number {
@@ -291,38 +293,33 @@ export function minimapTurns(
   let user: AcpmuxRow | undefined;
   let userIndex = 0;
   let reply: AcpmuxRow | undefined;
-  let activity: AcpmuxRow[] = [];
+  const filePaths = new Set<string>();
+  const links = new Set<string>();
   let summary: AcpmuxRow | undefined;
   const resetTurn = () => {
-    activity = [];
+    filePaths.clear();
+    links.clear();
     summary = undefined;
+  };
+  const addLinks = (text: string | undefined) => {
+    if (!text) return;
+    for (const match of text.slice(0, METADATA_TEXT_LIMIT).matchAll(PR_LINK)) links.add(match[0]);
   };
   const metadata = (): MinimapTurnMetadata | undefined => {
     if (!user) return undefined;
-    const paths = new Set<string>();
-    for (const row of activity) {
-      for (const item of row.items ?? []) {
-        for (const diff of item.tool?.diffs ?? []) paths.add(diff.canonical ?? diff.path);
-        for (const location of item.tool?.locations ?? []) paths.add(location.canonical ?? location.path);
-        if (item.tool?.inputPath) paths.add(item.tool.inputPath.canonical || item.tool.inputPath.path);
-      }
-    }
-    const links = [...`${user.text ?? ""}\n${reply?.text ?? ""}`.matchAll(
-      /https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/pull\/\d+(?:#[\w.-]+)?/g,
-    )].map((match) => match[0]);
     const failure =
       summary?.error ||
       user.error ||
       user.delivery?.error ||
       user.delivery?.reason ||
       (summary?.status === "failed" || summary?.status === "error" ? "Turn failed" : undefined);
-    if (!summary && !paths.size && !links.length && !failure) return undefined;
+    if (!summary && !filePaths.size && !links.size && !failure) return undefined;
     return {
       at: user.at,
       ...(summary?.durationMs !== undefined && { durationMs: summary.durationMs }),
       ...(summary?.toolCount !== undefined && { toolCount: summary.toolCount }),
-      ...(paths.size > 0 && { fileCount: paths.size }),
-      links: [...new Set(links)],
+      ...(filePaths.size > 0 && { fileCount: filePaths.size }),
+      links: [...links],
       ...(failure && { failure }),
     };
   };
@@ -366,9 +363,15 @@ export function minimapTurns(
       user = row;
       userIndex = index;
       resetTurn();
+      addLinks(row.text);
     } else if (user) {
-      if (!reply && row.kind === "assistant" && row.text) reply = row;
-      if (row.kind === "activity") activity.push(row);
+      if (!reply && row.kind === "assistant" && row.text) {
+        reply = row;
+        addLinks(row.text);
+      }
+      if (row.kind === "activity")
+        for (const item of row.items ?? [])
+          for (const diff of item.tool?.diffs ?? []) filePaths.add(diff.canonical ?? diff.path);
       if (row.kind === "turnSummary") summary = row;
     }
   }

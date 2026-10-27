@@ -137,7 +137,7 @@ export const PreviewCard = React.forwardRef<
         </div>
       )}
       {metadata && (
-        <div className="acpmux-minimap__metadata" aria-label="Turn details">
+        <div className="acpmux-minimap__metadata" aria-label={t("minimap.label")}>
           <span className="acpmux-minimap__meta-token" data-meta="time">
             {timeLabel(metadata.at)}
           </span>
@@ -148,12 +148,12 @@ export const PreviewCard = React.forwardRef<
           )}
           {metadata.toolCount !== undefined && (
             <span className="acpmux-minimap__meta-token" data-meta="tools">
-              {metadata.toolCount} {metadata.toolCount === 1 ? "tool" : "tools"}
+              {metadata.toolCount === 1 ? t("toolRun.used.one") : t("toolRun.used.other", { n: metadata.toolCount })}
             </span>
           )}
           {metadata.fileCount !== undefined && (
             <span className="acpmux-minimap__meta-token" data-meta="files">
-              {metadata.fileCount} {metadata.fileCount === 1 ? "file" : "files"}
+              {metadata.fileCount === 1 ? t("toolRun.edited.one") : t("toolRun.edited.other", { n: metadata.fileCount })}
             </span>
           )}
           {metadata.links.map((href) => (
