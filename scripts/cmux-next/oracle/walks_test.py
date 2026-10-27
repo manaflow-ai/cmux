@@ -171,20 +171,29 @@ def synthetic_walk(moves: int = 30) -> Dict[str, Any]:
 
 class FakeSession:
     """A product whose run of a case is a function of its step ids: `fails` says when, and the settled snapshot of
-    each step is `snapshot(step_ids_so_far)`."""
+    each step is `snapshot(step_ids_so_far)`. `random_ids` adds a checklist item whose id is new on every run (from
+    the first step on), as a daemon's random ids are."""
 
     def __init__(self, fails: Callable[[List[str]], bool] = lambda ids: False,
-                 snapshot: Callable[[List[str]], Any] = lambda ids: {"n": len(ids)}, flaky_every: int = 0):
+                 snapshot: Callable[[List[str]], Any] = lambda ids: {"n": len(ids)}, flaky_every: int = 0,
+                 random_ids: bool = False):
         self.fails, self.snapshot_of, self.flaky_every = fails, snapshot, flaky_every
+        self.random_ids = random_ids
         self.runs = 0
         self.roots: List[str] = []
+
+    def daemon_facet(self, ids: List[str], run_key: str) -> Any:
+        facet = self.snapshot_of(ids)
+        if self.random_ids:
+            facet = {**facet, "checklist": [{"items": [{"id": f"item-{run_key}"}]}]}
+        return facet
 
     def run_case(self, case: Dict[str, Any], ctx: Dict[str, Any]) -> Dict[str, Any]:
         self.runs += 1
         self.roots.append(ctx["state_root"])
         ids = [s["id"] for s in case["steps"]]
         checkpoints = [{"step": sid, "checkpoint": "settled",
-                        "snapshot": {"facets": {"daemon": self.snapshot_of(ids[: i + 1])}}}
+                        "snapshot": {"facets": {"daemon": self.daemon_facet(ids[: i + 1], ctx["key"])}}}
                        for i, sid in enumerate(ids)]
         failing = self.fails(ids) and not (self.flaky_every and self.runs % self.flaky_every == 0)
         if failing:
@@ -291,6 +300,65 @@ class MinimizeTests(unittest.TestCase):
         self.assertEqual([s["id"] for s in outcome.case["steps"]], ["fx-a", "m12-workspace-rename"])
         self.assertEqual(outcome.signature.where, "resource.call workspace.rename")
         self.assertEqual(outcome.signature.pointer, "/facets/daemon/renamed")
+
+    @staticmethod
+    def renamed_on_head(ids, **extra):
+        return {"n": len(ids), "renamed": any(i.startswith("m12-") for i in ids), **extra}
+
+    def test_a_pointer_a_rule_explains_is_not_the_divergence(self):
+        """`clock` differs from the first step on and sorts before `renamed`; the Expectations-style rule for the
+        original case id (a candidate's min- id matches none) explains it, as it does for `oracle.py diff`."""
+        case = synthetic_walk()
+        base = FakeSession(snapshot=lambda ids: {"n": len(ids), "renamed": False, "clock": 0})
+        head = FakeSession(snapshot=lambda ids: self.renamed_on_head(ids, clock=1))
+        rule = mz.diff.Rule(pointer="/facets/daemon/clock", reason="the head reports its own clock",
+                            case="walks/seed-0000", source="test")
+        raw = mz.minimize(case, self.prober(base, head))
+        self.assertEqual(raw.signature.pointer, "/facets/daemon/clock", "without the rule the clock comes first")
+        outcome = mz.minimize(case, self.prober(FakeSession(snapshot=base.snapshot_of),
+                                                FakeSession(snapshot=head.snapshot_of)), rules=[rule])
+        self.assertIsNotNone(outcome.case, outcome.message)
+        self.assertEqual(outcome.signature.pointer, "/facets/daemon/renamed")
+        self.assertEqual([s["id"] for s in outcome.case["steps"]], ["fx-a", "m12-workspace-rename"])
+        self.assertIn("from walks/seed-0000:", outcome.case["invariants"][-1])
+        self.assertEqual(mz.origin_id(outcome.case), "walks/seed-0000", "a minimized case keeps its original id")
+
+    def test_a_random_id_on_both_sides_is_noise_and_the_real_divergence_is_kept(self):
+        """A checklist id that is new on every run diverges at the first step (and sorts first); the same-side
+        control sees it differ between two runs of one binary, so the head-only rename is the signature."""
+        case = synthetic_walk()
+        base = FakeSession(snapshot=lambda ids: {"n": len(ids), "renamed": False}, random_ids=True)
+        head = FakeSession(snapshot=self.renamed_on_head, random_ids=True)
+        outcome = mz.minimize(case, self.prober(base, head))
+        self.assertIsNotNone(outcome.case, outcome.message)
+        self.assertEqual(outcome.signature.pointer, "/facets/daemon/renamed")
+        self.assertEqual(outcome.signature.where, "resource.call workspace.rename")
+        self.assertEqual([s["id"] for s in outcome.case["steps"]], ["fx-a", "m12-workspace-rename"])
+
+    def test_a_case_whose_every_divergence_is_noise_is_refused(self):
+        case = synthetic_walk(6)
+        outcome = mz.minimize(case, self.prober(FakeSession(random_ids=True), FakeSession(random_ids=True)), confirm=1)
+        self.assertIsNone(outcome.case)
+        self.assertIn("noise", outcome.message)
+        self.assertIn("/facets/daemon/checklist/N/items/N/id", outcome.message)
+
+    def test_the_cli_rules_are_the_expectations_lines_and_every_expected_file(self):
+        root = self.base / "root"
+        (root / "Expectations.d").mkdir(parents=True)
+        (root / "Expectations.d" / "walks.txt").write_text(
+            "p15-oracle-185 walks/seed-0000#/facets/daemon/clock [ Failure ]\n", encoding="utf-8")
+        expected = self.base / "switch.json"
+        expected.write_text(json.dumps({"expected_differences": [
+            {"pointer": "/facets/daemon/order", "reason": "the new arm sorts", "case": "walks/*"}]}), encoding="utf-8")
+        rules = mz.load_rules([expected], root, "debug")
+        self.assertEqual(sorted(r.pointer for r in rules), ["/facets/daemon/clock", "/facets/daemon/order"])
+        self.assertTrue(all(r.covers("walks/seed-0000", "m01", "settled", r.pointer) for r in rules))
+
+    def test_a_result_that_changes_on_one_binary_is_refused(self):
+        case = synthetic_walk(8)
+        outcome = mz.minimize(case, self.prober(FakeSession(), FakeSession(fails=has("m04-"), flaky_every=2)))
+        self.assertIsNone(outcome.case)
+        self.assertIn("head gives Failure, Pass on the same binary", outcome.message)
 
     def test_allow_crashes_keeps_only_entries_for_kept_steps(self):
         case = synthetic_walk(4)
