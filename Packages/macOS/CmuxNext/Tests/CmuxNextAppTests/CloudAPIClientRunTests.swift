@@ -67,6 +67,8 @@ struct CloudAPIClientRunTests {
         /// A wait that answers 200 with something that is no Run snapshot.
         nonisolated(unsafe) static var malformedWait = false
         nonisolated(unsafe) static var createKeys: [String?] = []
+        /// Every create's bearer token.
+        nonisolated(unsafe) static var createTokens: [String?] = []
 
         override class func canInit(with _: URLRequest) -> Bool { true }
         override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
@@ -76,6 +78,7 @@ struct CloudAPIClientRunTests {
             var body = #"{"id":"run-9","status":"queued"}"#
             if url.path == "/api/runs" {
                 Self.createKeys.append(request.value(forHTTPHeaderField: "Idempotency-Key"))
+                Self.createTokens.append(request.value(forHTTPHeaderField: "Authorization"))
                 if Self.dropCreates > 0 {
                     Self.dropCreates -= 1
                     client?.urlProtocol(self, didFailWithError: URLError(.networkConnectionLost))
@@ -98,12 +101,12 @@ struct CloudAPIClientRunTests {
         override func stopLoading() {}
     }
 
-    private func sandboxAPI() -> CloudAPIClient {
+    private func sandboxAPI(tokens: @escaping CloudAPIClient.Tokens = { ("access", "refresh") }) -> CloudAPIClient {
         let configuration = CloudConfiguration.resolve(bundleID: nil, bundled: ["CMUX_VM_API_BASE_URL": "https://vm-api.standin.invalid"],
                                                        process: [:], isDebugBuild: true)
         let sessionConfiguration = URLSessionConfiguration.ephemeral
         sessionConfiguration.protocolClasses = [SandboxAPI.self]
-        return CloudAPIClient(configuration: configuration, tokens: { ("access", "refresh") }, teamID: { nil },
+        return CloudAPIClient(configuration: configuration, tokens: tokens, teamID: { nil },
                               session: URLSession(configuration: sessionConfiguration))
     }
 
@@ -137,17 +140,24 @@ struct CloudAPIClientRunTests {
         #expect(SandboxAPI.createKeys == ["send-2", "send-2"])
     }
 
-    @Test func noRetryOnceAnotherAccountSignedIn() async throws {
-        // The server scopes the key per account: the retry under another account would start a
-        // second Run, so the outcome stays uncertain and nothing more is sent.
+    @Test func theRetryGoesWithTheFirstCreatesCredentials() async throws {
+        // The server scopes the key per account: had another account signed in between the two
+        // creates, its credentials would start a second Run. Each read of the tokens here is a new
+        // account; both creates still carry the first.
+        final class Accounts: @unchecked Sendable { var reads = 0 }
+        let accounts = Accounts()
         SandboxAPI.waits = 0
         SandboxAPI.finishAfter = 0
         SandboxAPI.dropCreates = 1
         SandboxAPI.createKeys = []
-        await #expect(throws: CloudAPIError.timedOut("/api/runs")) {
-            _ = try await sandboxAPI().runSandbox(task: "hi", timeoutMs: 60_000, idempotencyKey: "send-3", sameAccount: { false })
-        }
-        #expect(SandboxAPI.createKeys == ["send-3"])
+        SandboxAPI.createTokens = []
+        let api = sandboxAPI(tokens: {
+            accounts.reads += 1
+            return ("account-\(accounts.reads)", "refresh")
+        })
+        _ = try await api.runSandbox(task: "hi", timeoutMs: 60_000, idempotencyKey: "send-3")
+        #expect(SandboxAPI.createKeys == ["send-3", "send-3"])
+        #expect(SandboxAPI.createTokens == ["Bearer account-1", "Bearer account-1"])
     }
 
     @Test func aWaitAnswerThatIsNoSnapshotEndsAtOnce() async throws {
