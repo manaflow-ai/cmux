@@ -282,6 +282,7 @@ fn handle_websocket_connection_with_permit(
     connection_permit: Option<ConnectionPermit>,
 ) {
     let mut stream = stream;
+    // wakeup-allow: deadline the handshake's one deadline; the read returns on the request first
     if stream.set_read_timeout(Some(WEBSOCKET_HANDSHAKE_TIMEOUT)).is_err()
         || stream.set_write_timeout(Some(WEBSOCKET_HANDSHAKE_TIMEOUT)).is_err()
     {
@@ -345,6 +346,7 @@ fn handle_websocket_connection_with_permit(
     // The read timeout is the ping clock: a read that sees nothing for one
     // interval returns, and the loop below pings or gives up.
     let keepalive = rules.keepalive;
+    // wakeup-allow: periodic WebSocketListener.keepalive only after a full interval of inbound silence
     if websocket.get_mut().set_read_timeout(Some(keepalive.ping_interval)).is_err() {
         return;
     }

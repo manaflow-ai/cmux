@@ -156,6 +156,7 @@ impl SizeLeases {
             if next <= now {
                 return true;
             }
+            // wakeup-allow: deadline the earliest lease's end; with no lease the worker stops
             state = self
                 .changed
                 .idle()

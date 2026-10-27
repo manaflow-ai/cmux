@@ -438,13 +438,11 @@ impl Shared {
                 // The arming run started after the last tick, so it cannot
                 // overrun before the tick one period on: skip the next one.
                 woke_by_arm = false;
-                self.sleep_until(
-                    now.saturating_add(period).div_ceil(period).saturating_mul(period),
-                );
+                self.park_until(now.saturating_add(period).div_ceil(period).saturating_mul(period));
                 continue;
             }
             if scan.pending || scan.started_since {
-                self.sleep_until(next_tick);
+                self.park_until(next_tick);
                 continue;
             }
             // Disarm, then look again: a run that started after the scan saw
@@ -452,7 +450,7 @@ impl Shared {
             self.armed.store(false, Ordering::SeqCst);
             if self.any_pending() {
                 self.armed.store(true, Ordering::SeqCst);
-                self.sleep_until(next_tick);
+                self.park_until(next_tick);
                 continue;
             }
             while !self.armed.load(Ordering::SeqCst) && !self.stopping.load(Ordering::Acquire) {
@@ -465,12 +463,13 @@ impl Shared {
 
     /// Park until the tick at `target_us`; every return from the park is a
     /// wake.
-    fn sleep_until(&self, target_us: u64) {
+    fn park_until(&self, target_us: u64) {
         loop {
             let now = self.now_us();
             if now >= target_us || self.stopping.load(Ordering::Acquire) {
                 return;
             }
+            // wakeup-allow: deadline the next hang tick, only while a request runs or a hang waits to be written; idle parks untimed
             std::thread::park_timeout(Duration::from_micros(target_us - now));
             self.wakeups.fetch_add(1, Ordering::Relaxed);
         }

@@ -286,6 +286,7 @@ fn read_stamp(stream: &UnixStream) -> Option<cmux_link::stamp::Stamp> {
     let mut byte = [0u8; 1];
     loop {
         let remaining = deadline.checked_duration_since(Instant::now())?;
+        // wakeup-allow: deadline what is left of the stamp's one deadline; each read returns on a byte first
         stream.set_read_timeout(Some(remaining.max(Duration::from_millis(1)))).ok()?;
         match reader.read(&mut byte) {
             Ok(1) if byte[0] == b'\n' => break,
@@ -317,9 +318,8 @@ impl LineAdmission for RemoteAdmission {
 
 /// The refusal of `line`: its `id` when it has one, and no detail.
 pub(super) fn denied(line: &str) -> Value {
-    let id = crate::line_parses::parse::<Value>(line)
-        .ok()
-        .and_then(|frame| frame.get("id").cloned());
+    let id =
+        crate::line_parses::parse::<Value>(line).ok().and_then(|frame| frame.get("id").cloned());
     let mut response = json!({"ok": false, "error": REMOTE_DENIED, "error_code": REMOTE_DENIED});
     if let Some(id) = id {
         response.insert("id", id);

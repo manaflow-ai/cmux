@@ -377,6 +377,7 @@ pub(super) fn ask(
     let stream =
         super::chief_inspect::checked(&path).map_err(|e| failed("unavailable", e.to_string()))?;
     let io = |e: std::io::Error| failed("unavailable", e.to_string());
+    // wakeup-allow: deadline one request's answer deadline; the read returns on the reply first
     stream.set_read_timeout(Some(TIMEOUT)).map_err(io)?;
     stream.set_write_timeout(Some(TIMEOUT)).map_err(io)?;
     (&stream).write_all(format!("{line}\n").as_bytes()).map_err(io)?;

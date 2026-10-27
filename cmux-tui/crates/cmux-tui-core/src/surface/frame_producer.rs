@@ -110,6 +110,7 @@ fn run() {
         if due.is_empty() {
             state = match next {
                 // The cadence of a pending request: a bounded, intended wait.
+                // wakeup-allow: deadline the next frame slot of a pending request; with none pending it waits untimed
                 Some(at) => scheduler.changed.wait_timeout(state, at - now).recover_poison().0,
                 None => scheduler.changed.wait(state).recover_poison(),
             };

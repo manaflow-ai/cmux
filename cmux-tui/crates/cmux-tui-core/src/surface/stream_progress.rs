@@ -169,6 +169,7 @@ impl TerminalStreamProgress {
                         state.waiters -= 1;
                         return None;
                     };
+                    // wakeup-allow: deadline the caller's one deadline; a new revision notifies `changed` first
                     let (next, timeout) = self.changed.wait_timeout(state, remaining).unwrap();
                     state = next;
                     if timeout.timed_out() && state.revision == observed {

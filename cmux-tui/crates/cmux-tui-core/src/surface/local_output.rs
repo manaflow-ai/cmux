@@ -248,7 +248,7 @@ impl LocalOutput {
             let mut remaining = queued_bytes(fd)?;
             #[cfg(test)]
             pty.run_geometry_test_hook(PtyGeometryTestStep::LocalDrainSnapshot);
-            while remaining > 0 && readable(fd, 0)? {
+            while remaining > 0 && readable(fd)? {
                 let count = self.read(pty, |buffer| {
                     // SAFETY: descriptor owns fd, and the initialized buffer
                     // is writable for its full length. local_output serializes reads.
@@ -431,6 +431,7 @@ fn queued_bytes(fd: std::os::fd::RawFd) -> io::Result<usize> {
     let mut event = change;
     let timeout = libc::timespec { tv_sec: 0, tv_nsec: 0 };
     loop {
+        // wakeup-allow: bounded a zero timespec: kevent only reads the queued byte count, it never waits
         // SAFETY: both descriptors and all event/timeout pointers are valid
         // across this nonblocking call; the parser serializes PTY reads.
         let ready = unsafe { libc::kevent(queue.as_raw_fd(), &change, 1, &mut event, 1, &timeout) };
@@ -448,11 +449,12 @@ fn queued_bytes(fd: std::os::fd::RawFd) -> io::Result<usize> {
 }
 
 #[cfg(unix)]
-pub(super) fn readable(fd: std::os::fd::RawFd, timeout: i32) -> io::Result<bool> {
+pub(super) fn readable(fd: std::os::fd::RawFd) -> io::Result<bool> {
     let mut descriptor = libc::pollfd { fd, events: libc::POLLIN, revents: 0 };
     loop {
+        // A zero timeout: poll only reports readiness, it never waits.
         // SAFETY: descriptor is initialized; the caller owns fd across poll.
-        let ready = unsafe { libc::poll(&mut descriptor, 1, timeout) };
+        let ready = unsafe { libc::poll(&mut descriptor, 1, 0) };
         if ready >= 0 {
             if descriptor.revents & libc::POLLNVAL != 0 {
                 return Err(io::Error::new(io::ErrorKind::BrokenPipe, "local PTY closed"));

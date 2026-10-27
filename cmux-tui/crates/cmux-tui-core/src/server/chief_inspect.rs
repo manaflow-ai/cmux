@@ -187,6 +187,7 @@ pub(super) fn inspect_with(
 fn forward(path: &Path, method: &str, params: &Params) -> anyhow::Result<Value> {
     use std::io::{BufRead, BufReader, Read, Write};
     let stream = checked(path)?;
+    // wakeup-allow: deadline one request's answer deadline; the read returns on the reply first
     stream.set_read_timeout(Some(TIMEOUT))?;
     stream.set_write_timeout(Some(TIMEOUT))?;
     let request = serde_json::json!({"tool": "inspect", "method": method, "path": params.path, "query": params.query});

@@ -32,19 +32,12 @@ impl ReaderCompletion {
     }
 
     pub(super) fn wait_until(&self, deadline: Instant) -> bool {
-        let mut finished = self.finished.lock().unwrap();
-        while !*finished {
-            let remaining = deadline.saturating_duration_since(Instant::now());
-            if remaining.is_zero() {
-                return false;
-            }
-            let (next, result) = self.changed.wait_timeout(finished, remaining).unwrap();
-            finished = next;
-            if result.timed_out() && !*finished {
-                return false;
-            }
-        }
-        true
+        let finished = self.finished.lock().unwrap();
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        // wakeup-allow: deadline the caller's one deadline; `complete` notifies `changed` first
+        let (finished, _) =
+            self.changed.wait_timeout_while(finished, remaining, |finished| !*finished).unwrap();
+        *finished
     }
 }
 
@@ -142,7 +135,7 @@ impl PtyTerminalRuntime {
                 self.journal_capture_open.store(false, Ordering::Release);
                 return false;
             }
-            if Instant::now() >= deadline {
+            let until = if Instant::now() >= deadline {
                 if !self.journal_capture_active.load(Ordering::Acquire) {
                     // A read is still blocked or has not started terminal
                     // mutation. Revoke its reservation. The reader checks the
@@ -162,13 +155,13 @@ impl PtyTerminalRuntime {
                     );
                     return true;
                 }
-                let (next, _) = self.journal_capture_idle.wait_timeout(gate, remaining).unwrap();
-                gate = next;
+                active_deadline
             } else {
-                let remaining = deadline.saturating_duration_since(Instant::now());
-                let (next, _) = self.journal_capture_idle.wait_timeout(gate, remaining).unwrap();
-                gate = next;
-            }
+                deadline
+            };
+            let remaining = until.saturating_duration_since(Instant::now());
+            // wakeup-allow: deadline shutdown's capture deadline, then its 2 s active-update grace; the update guard's drop notifies first
+            gate = self.journal_capture_idle.wait_timeout(gate, remaining).unwrap().0;
         }
     }
 }

@@ -223,6 +223,7 @@ impl Drop for HostFrames {
             }
             owed
         };
+        // wakeup-allow: deadline one drain deadline for owed control responses; the read returns on them first
         if owed && self.shutdown.set_read_timeout(Some(CONTROL_RESPONSE_TIMEOUT)).is_ok() {
             return;
         }

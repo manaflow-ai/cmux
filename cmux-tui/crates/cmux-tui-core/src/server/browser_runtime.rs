@@ -179,6 +179,7 @@ impl BrowserRuntimes {
         drop(lifeline);
         let finish = move || {
             cmux_threads::work::will_block(|| {
+                // wakeup-allow: deadline one stop grace; the wait is the child's exit event
                 if !matches!(child.wait_timeout(STOP_GRACE), Ok(Some(_))) {
                     if let Ok(group) = libc::pid_t::try_from(child.id()) {
                         // SAFETY: plain syscall; the group's leader is unreaped.

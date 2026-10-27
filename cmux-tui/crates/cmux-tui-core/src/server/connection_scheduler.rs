@@ -610,6 +610,7 @@ impl ConnectionSurfaceScheduler {
                     break;
                 }
                 let remaining = deadline.saturating_duration_since(Instant::now());
+                // wakeup-allow: deadline the caller's drain timeout; every settle step notifies `changed` first
                 let (next, _) = self.changed.wait_timeout(state, remaining).recover_poison();
                 state = next;
             } else {

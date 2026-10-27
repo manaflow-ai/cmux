@@ -117,6 +117,7 @@ impl Surface {
                 };
             if let Some(acknowledged) = barrier {
                 let remaining = deadline.saturating_duration_since(Instant::now());
+                // wakeup-allow: deadline the caller's settle deadline; the host's acknowledgement ends it first
                 return acknowledged.recv_timeout(remaining).is_ok();
             }
             // A host without viewer size acknowledgements: wait for the

@@ -191,24 +191,23 @@ impl RenderAttachFrameReceiver {
     }
 
     pub fn recv_timeout(&self, timeout: Duration) -> Result<RenderAttachFrame, RecvTimeoutError> {
-        let started = Instant::now();
-        let mut queue = self.state.queue.lock().unwrap();
-        loop {
-            if let Some(event) = queue.pop() {
-                return Ok(event);
-            }
-            if !queue.sender_alive {
-                return Err(RecvTimeoutError::Disconnected);
-            }
-            let Some(remaining) = timeout.checked_sub(started.elapsed()) else {
-                return Err(RecvTimeoutError::Timeout);
-            };
-            let (next, result) = self.state.ready.wait_timeout(queue, remaining).unwrap();
-            queue = next;
-            if result.timed_out() && queue.pending_frame.is_none() && queue.pending_scroll.is_none()
-            {
-                return Err(RecvTimeoutError::Timeout);
-            }
+        let queue = self.state.queue.lock().unwrap();
+        // wakeup-allow: deadline the caller's one timeout; an event or the sender's drop notifies `ready` first
+        let (mut queue, _) = self
+            .state
+            .ready
+            .wait_timeout_while(queue, timeout, |queue| {
+                queue.pending_frame.is_none()
+                    && queue.pending_scroll.is_none()
+                    && queue.sender_alive
+            })
+            .unwrap();
+        if let Some(event) = queue.pop() {
+            Ok(event)
+        } else if !queue.sender_alive {
+            Err(RecvTimeoutError::Disconnected)
+        } else {
+            Err(RecvTimeoutError::Timeout)
         }
     }
 

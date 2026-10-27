@@ -159,6 +159,9 @@ pub(super) trait MessageSink: Send + Sync {
         Ok(())
     }
     fn is_open(&self) -> bool;
+    /// One of this sink's streams was closed outside the sink (a failed
+    /// send): wake what waits for room on it.
+    fn stream_closed(&self) {}
     fn close(&self);
     fn abort(&self) {
         self.close();
@@ -392,7 +395,7 @@ impl MessageWriter {
             .serialize_for(value, stream.client_stream)
             .and_then(|text| self.sink.send_stream(text, stream));
         if result.as_ref().is_err_and(|error| error.kind() != std::io::ErrorKind::WouldBlock) {
-            stream.close();
+            self.close_stream(stream);
         }
         result
     }
@@ -415,7 +418,7 @@ impl MessageWriter {
         }
         let result = self.sink.send_stream_frame(header, text, stream);
         if result.as_ref().is_err_and(|error| error.kind() != std::io::ErrorKind::WouldBlock) {
-            stream.close();
+            self.close_stream(stream);
         }
         result
     }
@@ -470,7 +473,7 @@ impl MessageWriter {
         }
         let result = encoded.and_then(|text| self.sink.send_stream_backpressured(text, stream));
         if result.as_ref().is_err_and(|error| error.kind() != std::io::ErrorKind::WouldBlock) {
-            stream.close();
+            self.close_stream(stream);
         }
         result
     }
@@ -488,7 +491,7 @@ impl MessageWriter {
             .serialize_for(value, stream.client_stream)
             .and_then(|text| self.sink.send_initial(text, stream));
         if result.as_ref().is_err_and(|error| error.kind() != std::io::ErrorKind::WouldBlock) {
-            stream.close();
+            self.close_stream(stream);
         }
         result
     }
@@ -506,7 +509,7 @@ impl MessageWriter {
             .serialize_vt_state_for(value, stream.client_stream)
             .and_then(|text| self.sink.send_initial(text, stream));
         if result.as_ref().is_err_and(|error| error.kind() != std::io::ErrorKind::WouldBlock) {
-            stream.close();
+            self.close_stream(stream);
         }
         result
     }
@@ -579,6 +582,13 @@ impl MessageWriter {
 
     pub(super) fn is_open(&self) -> bool {
         self.open.load(Ordering::Acquire) && self.sink.is_open()
+    }
+
+    /// Closes `stream` after a failed send, waking a producer that waits for
+    /// room on it (the sink's backpressure wait has no re-check period).
+    fn close_stream(&self, stream: &OutboundStream) {
+        stream.close();
+        self.sink.stream_closed();
     }
 
     pub(super) fn set_write_timeout(&self, timeout: Option<Duration>) -> std::io::Result<()> {

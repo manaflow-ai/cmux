@@ -196,6 +196,7 @@ fn next_due(shared: &(Mutex<State>, Condvar)) -> Option<Due> {
             if wait.is_zero() {
                 break;
             }
+            // wakeup-allow: deadline the end of one coalescing window after a change; idle waits untimed below
             state = wake.idle().wait_timeout(state, wait).unwrap_or_else(PoisonError::into_inner).0;
             continue;
         }

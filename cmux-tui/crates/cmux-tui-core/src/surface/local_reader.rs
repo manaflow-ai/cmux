@@ -98,7 +98,7 @@ impl LocalReader {
         // A direct PTY reads only what is there: with nothing, the run still
         // takes the parser once to publish what a resize drained.
         #[cfg(unix)]
-        let ready = self.fd.map_or(Ok(true), |fd| local_output::readable(fd, 0));
+        let ready = self.fd.map_or(Ok(true), local_output::readable);
         #[cfg(not(unix))]
         let ready = std::io::Result::Ok(true);
         #[cfg(all(test, unix))]
@@ -111,7 +111,7 @@ impl LocalReader {
             // Recheck under the parser lock, then parse on that same boundary.
             #[cfg(unix)]
             let ready = match (ready, self.fd) {
-                (Ok(true), Some(fd)) => local_output::readable(fd, 0),
+                (Ok(true), Some(fd)) => local_output::readable(fd),
                 (ready, _) => ready,
             };
             let reader = &mut self.reader;

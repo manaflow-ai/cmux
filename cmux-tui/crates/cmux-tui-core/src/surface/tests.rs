@@ -11,6 +11,7 @@ mod clear_history_tests;
 mod clipboard_read;
 mod cold_scrollback;
 mod colors;
+mod deadline_waits;
 #[cfg(unix)]
 mod echo_flow;
 mod hosted;

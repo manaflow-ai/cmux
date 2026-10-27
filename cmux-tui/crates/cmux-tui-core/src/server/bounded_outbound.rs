@@ -23,7 +23,6 @@
 //! writes its queued messages. A chunk ends its batch, so the one-chunk bound
 //! above holds for the batched writer too.
 
-use super::BACKPRESSURE_RECHECK;
 use super::BudgetedText;
 use super::MAX_SERVER_CONNECTIONS;
 use super::MessageSink;
@@ -66,6 +65,10 @@ use lanes::{LaneTurns, RegularOutbound, StreamLanes};
 #[cfg(test)]
 #[path = "bounded_outbound_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "bounded_outbound_wake_tests.rs"]
+mod wake_tests;
 
 #[path = "outbound_batch.rs"]
 mod batch;
@@ -234,8 +237,7 @@ impl BoundedOutbound {
                 self.changed.notify_all();
                 return result;
             }
-            let (next, _) = self.changed.wait_timeout(state, BACKPRESSURE_RECHECK).recover_poison();
-            state = next;
+            state = waits::wait(&self.changed, state).recover_poison();
         }
     }
 
@@ -367,12 +369,15 @@ impl BoundedOutbound {
         let mut state = self.state.lock().recover_poison();
         stream.close();
         Self::purge_stream_locked(&mut state, stream.id);
-        if state.mark_terminal_queued(stream) {
-            return Ok(());
-        }
-        Self::push_control_locked(&mut state, text)?;
-        self.changed.notify_one();
-        Ok(())
+        let result = if state.mark_terminal_queued(stream) {
+            Ok(())
+        } else {
+            Self::push_control_locked(&mut state, text)
+        };
+        drop(state);
+        // The writer, and any producer waiting for room on this stream.
+        self.changed.notify_all();
+        result
     }
 
     /// Gracefully closes a stream after every item already admitted for it.
@@ -426,8 +431,7 @@ impl BoundedOutbound {
                 self.changed.notify_all();
                 return Ok(());
             }
-            let (next, _) = self.changed.wait_timeout(state, BACKPRESSURE_RECHECK).recover_poison();
-            state = next;
+            state = waits::wait(&self.changed, state).recover_poison();
         }
     }
 
@@ -651,6 +655,7 @@ impl SynchronizedTcpStream {
     }
 
     pub(super) fn set_read_timeout(&self, timeout: Option<Duration>) -> std::io::Result<()> {
+        // wakeup-allow: deadline forwards the caller's own read timeout; it adds none
         self.stream.set_read_timeout(timeout)
     }
 
@@ -849,6 +854,14 @@ impl MessageSink for QueuedSink {
 
     fn is_open(&self) -> bool {
         self.outbound.is_open()
+    }
+
+    /// Wakes the producers waiting for room, so a backpressured push sees
+    /// the close with no re-check period. Taking the lock first means a
+    /// producer between its check and its wait still gets the notification.
+    fn stream_closed(&self) {
+        drop(self.outbound.state.lock().recover_poison());
+        self.outbound.changed.notify_all();
     }
 
     fn set_write_timeout(&self, timeout: Option<Duration>) -> std::io::Result<()> {

@@ -161,6 +161,7 @@ pub fn start_launch_snapshot_writer_with(
                 }
                 let event = match due {
                     // mq14-allow: the snapshot writer thread waits for its own events.
+                    // wakeup-allow: deadline the settle or retry deadline of a pending write; with none it waits untimed
                     Some(due) => thread_events.recv_timeout(due.saturating_duration_since(now)),
                     // mq14-allow: the snapshot writer thread waits for its own events.
                     None => thread_events.recv().map_err(|_| RecvTimeoutError::Disconnected),

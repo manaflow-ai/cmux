@@ -264,6 +264,7 @@ fn read_first_line(stream: &UnixStream, deadline: Duration) -> Option<(Vec<u8>, 
             return Some((buffer, Vec::new()));
         }
         let remaining = end.checked_duration_since(std::time::Instant::now())?;
+        // wakeup-allow: deadline what is left of the first line's one deadline; each read returns on bytes first
         stream.set_read_timeout(Some(remaining.max(Duration::from_millis(1)))).ok()?;
         match (&mut &*stream).read(&mut chunk) {
             Ok(0) if buffer.is_empty() => return None,
@@ -314,6 +315,7 @@ fn serve_stream(
     // its offline limit) gets no stream, and a revocation closes this one.
     let bound = writer.is_open() && mux.bind_remote_peer(client, peer).is_ok();
     if bound {
+        // wakeup-allow: deadline an idle stream ends after STREAM_IDLE_TIMEOUT; reads return on bytes first
         let _ = stream.set_read_timeout(Some(STREAM_IDLE_TIMEOUT));
         let _ = stream.set_write_timeout(Some(STREAM_IDLE_TIMEOUT));
         if let Ok(mut out) = stream.try_clone() {
@@ -397,6 +399,7 @@ impl transport::Stream for Prefixed {
     }
 
     fn set_read_timeout(&self, timeout: Option<Duration>) -> std::io::Result<()> {
+        // wakeup-allow: deadline forwards the caller's own read timeout; it adds none
         self.inner.set_read_timeout(timeout)
     }
 

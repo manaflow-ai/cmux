@@ -101,26 +101,11 @@ impl AttachFrameReceiver {
         }
     }
 
+    /// [`Self::recv_interruptible`] with one deadline `timeout` from now (a
+    /// timeout past the clock's range has none) and nothing to interrupt it.
     pub fn recv_timeout(&self, timeout: Duration) -> Result<AttachFrame, RecvTimeoutError> {
-        let started = Instant::now();
-        let mut queue = self.state.queue.lock().unwrap();
-        loop {
-            if let Some(frame) = Self::pop(&mut queue) {
-                drop(queue);
-                return Ok(frame.into_frame());
-            }
-            if !queue.sender_alive {
-                return Err(RecvTimeoutError::Disconnected);
-            }
-            let Some(remaining) = timeout.checked_sub(started.elapsed()) else {
-                return Err(RecvTimeoutError::Timeout);
-            };
-            let (next, result) = self.state.ready.wait_timeout(queue, remaining).unwrap();
-            queue = next;
-            if result.timed_out() && queue.frames.is_empty() {
-                return Err(RecvTimeoutError::Timeout);
-            }
-        }
+        let never = crate::stream_interrupt::StreamInterrupt::default();
+        self.recv_interruptible(&never, Instant::now().checked_add(timeout))
     }
 
     /// Wakes a blocked `recv_interruptible` when `interrupt` fires.
@@ -159,6 +144,7 @@ impl AttachFrameReceiver {
                     let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
                         return Err(RecvTimeoutError::Timeout);
                     };
+                    // wakeup-allow: deadline the caller's one deadline; a frame, the sender's drop or the interrupt notifies `ready` first
                     self.state.ready.wait_timeout(queue, remaining).unwrap().0
                 }
             };
@@ -563,6 +549,7 @@ impl AttachFrameReceiver {
                     let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
                         return Err(RecvTimeoutError::Timeout);
                     };
+                    // wakeup-allow: deadline the caller's one deadline; a frame, the sender's drop or the interrupt notifies `ready` first
                     self.state.ready.wait_timeout(queue, remaining).unwrap().0
                 }
             };

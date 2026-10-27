@@ -2273,11 +2273,6 @@ impl std::error::Error for DeliveryClassifiedError {
     }
 }
 
-/// Re-check bound for a writer blocked on a full stream queue. It runs only
-/// while a stream is backpressured (active output), never while idle: the
-/// writer thread notifies after every pop, and this bound covers a stream
-/// closed by another thread while its queue stays full.
-const BACKPRESSURE_RECHECK: Duration = Duration::from_millis(100);
 /// First and longest pause after an accept error that can persist.
 const ACCEPT_RETRY_INITIAL: Duration = Duration::from_millis(10);
 const ACCEPT_RETRY_MAX: Duration = Duration::from_secs(1);
