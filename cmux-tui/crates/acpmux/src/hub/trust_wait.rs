@@ -194,7 +194,7 @@ impl Hub {
         family: &str,
     ) -> Result<crate::trust::SessionTrust, crate::trust::Failure> {
         let (paths, cwd, family) = (paths.clone(), cwd.to_owned(), family.to_owned());
-        tokio::task::spawn_blocking(move || crate::trust::session_trust(&paths, &cwd, &family))
+        crate::daemon::spawn_blocking(move || crate::trust::session_trust(&paths, &cwd, &family))
             .await
             .unwrap_or_else(|e| Err(crate::trust::Failure::Record(e.to_string())))
     }
@@ -376,7 +376,7 @@ impl Hub {
     pub(super) async fn trust_made_worktree(&self, cwd: &Path) {
         let Some(paths) = self.trust_gate() else { return };
         let folder = cwd.to_string_lossy().into_owned();
-        let _ = tokio::task::spawn_blocking(move || {
+        let _ = crate::daemon::spawn_blocking(move || {
             let inherited = crate::trust::get(&paths, &folder).is_ok_and(|reply| {
                 reply["level"] == "trusted" && reply["decided"] == true && reply["via"].is_string()
             });
@@ -401,7 +401,7 @@ impl Hub {
         match option {
             Some("trust") => {
                 let (paths, folder) = (paths.clone(), key.to_owned());
-                let set = tokio::task::spawn_blocking(move || {
+                let set = crate::daemon::spawn_blocking(move || {
                     crate::trust::set(&paths, &folder, "trusted")
                 })
                 .await;

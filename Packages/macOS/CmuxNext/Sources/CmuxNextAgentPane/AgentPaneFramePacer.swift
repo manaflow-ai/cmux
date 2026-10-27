@@ -9,7 +9,7 @@ import CmuxNextWakeups
     func deactivate()
 }
 
-/// The one-shot fallback deadline of ``AgentPaneFramePacer`` (a ``DemandTimer``; a fake in tests).
+/// The one-shot fallback deadline of ``AgentPaneFramePacer`` (a ``MainDeadline``; a fake in tests).
 @MainActor public protocol AgentPaneFallbackDeadline: AnyObject {
     func schedule(after delay: Duration, _ action: @escaping @MainActor @Sendable () -> Void)
     func cancel()
@@ -43,7 +43,9 @@ import CmuxNextWakeups
 ///
 /// Whether the pane is seen comes from the visibility tree (``AgentPaneVisibilityProbe``: its node
 /// under the window's, which follows occlusion, minimizing and app hide once per window), and its
-/// frozen state from the page lifecycle (``AgentPageLifecycleTarget``).
+/// frozen state from the page lifecycle (``AgentPageLifecycleTarget``). Its next-turn calls are `visible` tasks
+/// and its fallback a `visible` ``MainDeadline``, on the app's scheduling (``AgentPaneMainThread``): what a shown
+/// chat streams is what it shows, and no input of the person's caused it.
 @MainActor public final class AgentPaneFramePacer: AgentPaneTransportPacer {
     /// One display frame at the slowest rate the pacer assumes.
     public static let frameInterval: TimeInterval = 1.0 / 120
@@ -85,12 +87,11 @@ import CmuxNextWakeups
     /// Calls made (tests).
     private(set) var calls = 0
 
+    /// - Parameters:
+    ///   - nextTurn: Runs a delivery on a later turn (the pane's: a `visible` task on the app's scheduler).
     public init(frames: any AgentPaneFrameTicks, fallback: any AgentPaneFallbackDeadline,
                 now: @escaping @MainActor () -> TimeInterval = { ProcessInfo.processInfo.systemUptime },
-                nextTurn: @escaping @MainActor (@escaping @MainActor @Sendable () -> Void) -> Void = { work in
-                    // task-owner: one next-turn delivery; the pacer runs it once, on the main actor
-                    Task { @MainActor in work() }
-                },
+                nextTurn: @escaping @MainActor (@escaping @MainActor @Sendable () -> Void) -> Void,
                 isHidden: @escaping @MainActor () -> Bool = { false }) {
         self.frames = frames
         self.fallback = fallback
@@ -100,11 +101,14 @@ import CmuxNextWakeups
         frames.onTick = { [weak self] in self?.ticked() }
     }
 
-    /// The pacer of a pane: its window's display frames, a ``DemandTimer`` fallback, and whether the
-    /// pane is seen from its probe's node in the visibility tree (O(1), no view walk).
-    public convenience init(view: NSView) {
+    /// The pacer of a pane: its window's display frames, a ``MainDeadline`` fallback and next-turn deliveries as
+    /// `visible` tasks on the app's scheduling, and whether the pane is seen from its probe's node in the
+    /// visibility tree (O(1), no view walk).
+    public convenience init(view: NSView, mainThread: AgentPaneMainThread) {
         let probe = AgentPaneVisibilityProbe(frame: .zero)
-        self.init(frames: AgentPaneWindowFrames(view: view), fallback: AgentPaneDemandDeadline(),
+        let mainWork = mainThread.mainWork, owner = mainWork.board.owner("agent-pane.transport.next-turn")
+        self.init(frames: AgentPaneWindowFrames(view: view), fallback: AgentPaneMainDeadline(deadlines: mainThread.deadlines),
+                  nextTurn: { work in mainWork.post(.visible, owner: owner, work) },
                   isHidden: { [weak probe] in !(probe?.isSeen ?? false) })
         probe.onChange = { [weak self] in self?.visibilityChanged() }
         view.addSubview(probe)

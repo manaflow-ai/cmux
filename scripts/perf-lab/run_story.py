@@ -73,6 +73,7 @@ SAFE_MODES_MEASURED = ("off", "inactive", None)
 STOP_SIGNALS = (signal.SIGTERM, signal.SIGINT, signal.SIGHUP)
 
 EXIT_OK, EXIT_RUN_FAILED, EXIT_USAGE, EXIT_ENV_INVALID, EXIT_NO_ARTIFACT, EXIT_STORE_DOWN = 0, 1, 2, 3, 4, 5
+ENV_INVALID_AFTER_LAUNCH = "env-invalid after launch"
 
 
 class Refusal(Exception):
@@ -482,7 +483,7 @@ def host_check_reason(run_dir: str) -> Optional[str]:
             reasons += (report.get("reasons") if isinstance(report, dict) else None) or ["not ok"]
     if not count:
         return "no full host validation after the app launched (network-egress unchecked)"
-    return f"env-invalid after launch: {', '.join(sorted(set(reasons)))}" if reasons else None
+    return f"{ENV_INVALID_AFTER_LAUNCH}: {', '.join(sorted(set(reasons)))}" if reasons else None
 
 
 class Runner:
@@ -526,13 +527,15 @@ class Runner:
                 self.stop_current()
         host_reason = host_check_reason(run_dir)
         written, rejected = self.collect(story, run_dir, name, host_reason)
+        env_invalid = False  # the host, not the story, failed the run (harness_alerts.py counts it as no evidence)
         if reason is None and rejected and host_reason:
             reason = host_reason
+            env_invalid = host_reason.startswith(ENV_INVALID_AFTER_LAUNCH)
         if reason is None and not written:
             reason = "wrote no result-v1 file"
         if reason:
             self.teardown(self.app)  # a failed bench may leave its app and daemons to the next story
-        return {"story": story.id, "repeat": repeat, "ok": reason is None, "reason": reason,
+        return {"story": story.id, "repeat": repeat, "ok": reason is None, "reason": reason, "env_invalid": env_invalid,
                 "seconds": round(time.monotonic() - started, 3), "results": written, "rejected": rejected,
                 "log": os.path.relpath(log_path, self.out)}
 
@@ -615,8 +618,9 @@ def parse_args(argv):
 
 
 def not_run(story, repeat: int, reason: str) -> dict:
-    return {"story": story.id, "repeat": repeat, "ok": False, "reason": reason, "seconds": 0, "results": [],
-            "rejected": [], "log": None}
+    """A run the host could not give its story (its virtual display ended): env-invalid, not the story's error."""
+    return {"story": story.id, "repeat": repeat, "ok": False, "reason": reason, "env_invalid": True, "seconds": 0,
+            "results": [], "rejected": [], "log": None}
 
 
 def measure(opts, summary: dict, state: dict, store: ArtifactStore, check_env: Callable[[str, str], dict],

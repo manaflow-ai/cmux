@@ -105,16 +105,33 @@ cmux.33 line `c382c63b`). Nobody has built it or run its test, so 077 is not don
   or as a JPEG. `done` runs exactly once on a thread pool worker, never on the main thread; a 2 s Viz deadline answers
   a page that never draws. `cmux_tab_devtools_state(browser_id)` reports a session on the page (the app's own
   protocol client included) and the process-wide ever-attached flag, which Chromium never clears.
-- No new mouse export. Debug clicks use the API 29 native click that already exists: `cmux_shim_tab_send_click`
-  (`CefBrowserHost::SendMouseClickEvent`, view points, `CEFTab.sendClick`, host op `kOpTabSendClick`). It is a
-  click only. A drag (a move with a button held) has no native path, so 078 keeps DevTools input for it.
-- Binding. The number comes from the fork train (086), on a line that has API 29. The shim wraps the export as
-  `cmux_shim_tab_copy_surface(browser_id, token, max_width, max_height, format, jpeg_quality)`, an `async` entry in
-  `optional_exports` of [chromium-host-ops.json](chromium-host-ops.json) with `fork_api` set to 086's number. Its
-  answer is a `CMUX_SHIM_SURFACE_COPY_RESULT` event carrying the token, as `cmux_shim_tab_evaluate` does with
-  `EVALUATE_RESULT`, so the generated host wire carries it to PL-cef-helper's host. 078 adds the shim wrapper and
-  its ops entry. It gates on `CEFForkFeatures` (the fork API at least that number, plus the shim export), never on
-  a raw dlsym of the fork. DevTools stays only in the older-fork fallback.
+- Native debug input. Debug clicks use the API 29 native click that already exists: `cmux_shim_tab_send_click`
+  (`CefBrowserHost::SendMouseClickEvent`, view points, `CEFTab.sendClick`, host op `kOpTabSendClick`). Debug hovers
+  use a move with no button, `cmux_shim_tab_send_mouse_move(browser_id, x, y, modifiers)`
+  (`CefBrowserHost::SendMouseMoveEvent`, view points, `CEFTab.sendMouseMove`, host op `kOpTabSendMouseMove`): a
+  `post` optional export with `fork_api` 38, which 077's fork line adds next to the capture and the train (086)
+  numbers with it. A drag (a move with a button held) has no native path, so 078 keeps DevTools input for it.
+- Binding (078, as built). The shim wraps the capture export as
+  `cmux_shim_tab_copy_surface(browser_id, reply, max_width, max_height, format, jpeg_quality)`, an `async` entry in
+  `optional_exports` of [chromium-host-ops.json](chromium-host-ops.json) with `fork_api` 38: the app's claimed numbers
+  end at 37 (`CEFForkFeatures.tabVisibilityForkAPI`), and 086 confirms 38 or moves `surfaceCopyForkAPI` with the pin.
+  Its answer is a `CMUX_SHIM_REPLY` under the caller's reply id, as `cmux_shim_download_favicon` answers its image:
+  value = width | height << 32 in pixels (0: no picture), json = the image in base64. The site-reply path already
+  carries that event through the generated host wire, so no new event kind is needed. `CEFTab.copySurface` sends
+  the request in the caller's turn, so the picture the page lifecycle takes as a page hides leaves before the hide.
+  The answer stays base64 text (`CEFSurfaceCopy`, `PageSurfaceCopy`) on the main actor: a full window is megabytes,
+  so its base64 and image decodes run on the `.cpu` lane (the hide picture through `PageSnapshotEncoder.unpack`,
+  the other pictures in `PageWebView.chromiumPictureData`), as Chrome decodes images off its UI thread
+  (services/data_decoder/public/cpp/decode_image.h).
+  Its answer comes in a synchronous turn (`CEFSurfaceCopies`, as the built-in extension loads: the reply, a refused
+  start, a deadline on the main deadline queue, or the browser's close), with no task waiting. It gates on
+  `CEFForkFeatures.surfaceCopy` (the fork API at least 38, plus the shim export), never on a raw dlsym of the fork.
+- The page host's DevTools sites (MQ3, 078). Window image, cover snapshot and debug snapshot use the surface copy
+  (`PageWebView.chromiumPictureData`); the debug press uses the native click and the debug hover the native move,
+  and both report the path in `delivered` (`native` or `devtools`); the menu's Copy sends `execCommand('copy')`
+  through `tabEvaluate` with a user gesture and no waiter (`CEFTab.perform`); the selected text goes through
+  `evaluate`. DevTools stays only in the fallback of a fork without the path (pictures and hovers below API 38,
+  clicks and Copy below 29).
 - Gate. A fork build must pass `ceftests --gtest_filter=CmuxTabSurfaceTest.*` in its own process, in order. Every
   page test fails at once if the ever-attached flag is already set when its page draws. The capture test then checks
   the exact fitted size (including a width limit that floating-point math missed by one pixel), an answer off the

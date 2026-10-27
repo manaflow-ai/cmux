@@ -33,6 +33,25 @@ pub(crate) fn register_main_thread() -> bool {
     cmux_threads::register_current("main", MAIN_THREAD_QOS)
 }
 
+/// Starts the server process's release hang watch (cmux-hang-watch,
+/// Chrome's `base::HangWatcher`): `hangs-<pid>.jsonl` at the state root,
+/// beside the owner's panic and hang logs. Call it before the mux exists
+/// and before any listener starts: a daemon thread (mux-conn, the journal
+/// writer, terminal work) that registers before it is never watched.
+fn start_hang_watch() {
+    let Some(dir) = cmux_tui_core::diagnostics::owner_log_dir() else { return };
+    if let Err(error) = cmux_hang_watch::init(&dir) {
+        crate::client_log::stderr_log!("startup", "{}: {error}", crate::cli::BIN);
+    }
+}
+
+/// The server process's setup before its mux: the hang watch first, then
+/// [`prepare`].
+pub(crate) fn start_server_process(args: &crate::Args) -> anyhow::Result<()> {
+    start_hang_watch();
+    prepare(args)
+}
+
 /// Validate the owner's storage flags and raise its open-file soft limit.
 ///
 /// The owner holds descriptors for every terminal, and the default soft

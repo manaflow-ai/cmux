@@ -375,7 +375,7 @@ final class HomeFirstRunRow: NSView {
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
         for area in trackingAreas where area.owner === self { removeTrackingArea(area) }
-        addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self))
+        addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeForHover, .inVisibleRect], owner: self))
     }
 
     override func mouseEntered(with event: NSEvent) { isHovered = true }

@@ -26,6 +26,7 @@ pub(super) fn install() {
     #[cfg(debug_assertions)]
     if std::env::var(TEST_SLOW_POLL_ENV).as_deref() == Ok("1") {
         // The slow poll under test: this sleep holds a worker for 20 ms.
+        // blocking-allow: the blocked worker is what tests/poll_watch_lab.rs measures; debug builds with TEST_SLOW_POLL_ENV=1 only
         // wakeup-allow: debug the slow poll a test asks for, debug builds only and only with TEST_SLOW_POLL_ENV=1; it runs once
         drop(tokio::spawn(async { std::thread::sleep(std::time::Duration::from_millis(20)) }));
     }
