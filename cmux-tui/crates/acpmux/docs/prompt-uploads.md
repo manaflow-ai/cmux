@@ -20,11 +20,12 @@ binding, and calls this API over its daemon connection.
 
 | part | status |
 |---|---|
-| `file_put_begin` / `_chunk` (base64, at most 512 KiB a chunk) / `_finish` / `_cancel`, no size cap | on #25730 |
-| upload-ref blocks in `session/prompt` (section 5), what the agent gets (section 6), dedupe (section 7) | on #25730 |
-| `promptUploads` feature flag | on #25730 |
-| `_acpmux/file_put_status`, finish `sha256`, the `upload.*` error reasons, `upload.diskFull` | follow-up PR, flag `uploadResume` |
-| binary data frames `_acpmux/file_put_data` on the app's WebSocket, peer chats included | follow-up PR after it, flag `uploadFrames` |
+| `file_put_begin` / `_chunk` (base64, at most 512 KiB a chunk) / `_finish` / `_cancel`, no size cap | landed, #25730 |
+| upload-ref blocks in `session/prompt` (section 5), what the agent gets (section 6), dedupe (section 7) | landed, #25730 |
+| `promptUploads` feature flag | landed, #25730 |
+| `_acpmux/file_put_status`, finish `sha256`, the `upload.*` error reasons, `upload.diskFull` | #25793, flag `uploadResume` |
+| binary data frames `_acpmux/file_put_data` on the app's WebSocket, peer chats included | #25803, flag `uploadFrames` |
+| `acpmux send --attach` and `send_message` send any size and number by reference (no 8 MiB / 10 MiB / 16-file refusal) | #25840 |
 
 A native caller checks the flags, not the PRs. Without `uploadFrames` it sends data with
 `_acpmux/file_put_chunk`; the base64 then travels only on the native-to-daemon socket, never on
