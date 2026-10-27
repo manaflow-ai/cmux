@@ -41,6 +41,10 @@ pub(crate) enum WatchKind {
     AttachOut,
     /// One frame a `mux-render-attach-out` thread encodes for its viewer.
     RenderAttachOut,
+    /// One item a snapshot viewer's drain builds and queues (a READY, a
+    /// history or images chunk, output, a digest): it runs on a worker the
+    /// echo path shares.
+    SnapshotAttachOut,
 }
 
 impl WatchKind {
@@ -55,6 +59,7 @@ impl WatchKind {
             5 => Self::PtyInput,
             6 => Self::AttachOut,
             7 => Self::RenderAttachOut,
+            8 => Self::SnapshotAttachOut,
             _ => Self::MuxConn,
         }
     }
@@ -71,6 +76,7 @@ impl WatchKind {
             Self::PtyInput => 5,
             Self::AttachOut => 6,
             Self::RenderAttachOut => 7,
+            Self::SnapshotAttachOut => 8,
         }
     }
 
@@ -87,6 +93,7 @@ impl WatchKind {
             Self::PtyInput => "mux-pty-input",
             Self::AttachOut => "mux-attach-out",
             Self::RenderAttachOut => "mux-render-attach-out",
+            Self::SnapshotAttachOut => "mux-snapshot-attach-out",
         }
     }
 
@@ -99,16 +106,25 @@ impl WatchKind {
             Self::HolderLink => crate::holder_runtime::HOLDER_LINK_HANG,
             #[cfg(debug_assertions)]
             Self::OwnerTest => Duration::from_millis(500),
-            Self::LineOut | Self::PtyInput | Self::AttachOut | Self::RenderAttachOut => {
-                ECHO_ITEM_HANG
-            }
+            Self::LineOut
+            | Self::PtyInput
+            | Self::AttachOut
+            | Self::RenderAttachOut
+            | Self::SnapshotAttachOut => ECHO_ITEM_HANG,
         }
     }
 
     /// An echo thread's item: its hang tier is under the watchdog's
     /// threshold, which is only the period the watchdog wakes on.
     pub(super) const fn is_echo(self) -> bool {
-        matches!(self, Self::LineOut | Self::PtyInput | Self::AttachOut | Self::RenderAttachOut)
+        matches!(
+            self,
+            Self::LineOut
+                | Self::PtyInput
+                | Self::AttachOut
+                | Self::RenderAttachOut
+                | Self::SnapshotAttachOut
+        )
     }
 
     /// Whether the kind's first tier is the watchdog threshold, recorded in
@@ -128,7 +144,7 @@ impl WatchKind {
             Self::OwnerTest => "owner-hang-test",
             Self::LineOut => "write-item",
             Self::PtyInput => "write-input",
-            Self::AttachOut | Self::RenderAttachOut => "frame",
+            Self::AttachOut | Self::RenderAttachOut | Self::SnapshotAttachOut => "frame",
         }
     }
 }

@@ -68,6 +68,10 @@ public struct DaemonConnectionConfiguration: Sendable {
     /// The framed IPC upgrades the handshake asks for (``DaemonWireUpgrades``); none by default, so the
     /// connection speaks JSON lines whatever the daemon offers.
     public var wireUpgrades = DaemonWireUpgrades.none
+    /// Echoes `diagnostic-sites-v1`, so the daemon pushes its first-seen blocking, inversion and slow-request
+    /// sites as `server-diagnostic-site` events; the connection hands each to ``DaemonConnection/diagnosticSites``.
+    /// Only the app's control connection to its local daemon sets it (`DaemonService.localConfiguration`).
+    public var reportsDiagnosticSites = false
     /// Told each time the connection's quiet-handoff gate parks a wait (a test seam; the default ignores it).
     var handoffWaits: @Sendable (QuietHandoffGate.Wait) -> Void = { _ in }
 
@@ -128,5 +132,6 @@ extension DaemonConnectionConfiguration {
         DaemonCapability.handshakeCapabilities(advertisedCapabilities,
                                                  resolvesShellIntegration: resolvesShellIntegration,
                                                  echoesPlacementShift: echoesPlacementShift)
+            + (reportsDiagnosticSites ? [DaemonCapability.diagnosticSites.rawValue] : [])
     }
 }
