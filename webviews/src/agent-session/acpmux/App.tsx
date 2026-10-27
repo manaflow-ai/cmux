@@ -4404,6 +4404,7 @@ function AcpmuxPane() {
   const allShellRuns = useSyncExternalStore(shellRuns.subscribe, shellRuns.snapshot, shellRuns.snapshot);
   /// This Mac's name, from the handshake.
   const [machineName, setMachineName] = useState<string | undefined>();
+  const [remoteHost, setRemoteHost] = useState(false);
   const [scrollAnchor, setScrollAnchor] = useState<(ScrollAnchor & { sessionId: string }) | undefined>();
   const [githubRepository, setGithubRepository] = useState<string | undefined>();
   /// What the direct client (or the host) last reported; `snapshot` draws a pending harness or
@@ -5494,7 +5495,7 @@ function AcpmuxPane() {
         promptTurns: stablePromptSeqs,
       }),
       promptImage: (id: string) => directClient.current?.promptImage(id) ?? Promise.resolve(undefined),
-      ...((snapshot.summary?.peer || (snapshot.summary?.host && snapshot.summary.hostKind !== "local")) && {
+      ...((remoteHost || snapshot.summary?.peer || (snapshot.summary?.host && snapshot.summary.hostKind !== "local")) && {
         // The host resolves this pane to its owning machine and runs the shared reconnect action.
         // Keeping the failure's prompt in acpmux means reconnect never retries or drops work.
         reconnectHost: () => callNative("action.run", { id: "machine.reconnect" }),
@@ -6942,6 +6943,7 @@ function AcpmuxPane() {
           folderNeeded?: { reason?: unknown };
           pastTurns?: unknown;
           machineName?: unknown;
+          remote?: unknown;
           githubRepository?: unknown;
           harnesses?: unknown;
         }>("ready", reconnect ? { reconnect } : {});
@@ -6977,6 +6979,7 @@ function AcpmuxPane() {
           setSnapshot((previous) => ({ ...emptySnapshot(), sessions: previous.sessions, peers: previous.peers }));
         if (!reconnect) setSurface(readSurface(host.surface));
         setMachineName(typeof host.machineName === "string" && host.machineName ? host.machineName : undefined);
+        setRemoteHost(host.remote === true);
         // Before the transcript's rows arrive: it opens where the reader left it (cx-6bgzj).
         // A woken page (its last one let go while hidden) comes back as it was left.
         const wake = !reconnect ? readWake(host.wake) : undefined;

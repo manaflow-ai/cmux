@@ -83,6 +83,7 @@ nonisolated struct AgentTabRemoteHost: AgentPaneHostProviding {
         if session != nil { handshake.sessionMustExist = true }
         // The composer's machine chip names the chat's machine, not this Mac (cx-k21v).
         handshake.machineName = machine
+        handshake.remote = true
         return handshake
     }
 

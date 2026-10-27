@@ -24,7 +24,7 @@ public nonisolated struct AgentPaneHandshake: Codable, Sendable, Equatable {
     /// The coded fields: everything but ``connection``, which never reaches the page.
     private enum CodingKeys: String, CodingKey {
         case protocolVersion, transport, sessionId, newSession, newTab, cwd, draft, prompt, promptTicket, harness, adopt, surface,
-             linkScheme, sessionMustExist, revealTurn, chooseFolder, startKind, folderNeeded, pastTurns, machineName, githubRepository, harnesses, wake,
+             linkScheme, sessionMustExist, revealTurn, chooseFolder, startKind, folderNeeded, pastTurns, machineName, remote, githubRepository, harnesses, wake,
              workspaceContext
     }
 
@@ -107,6 +107,9 @@ public nonisolated struct AgentPaneHandshake: Codable, Sendable, Equatable {
     /// This Mac's name (System Settings > General > Sharing), for the composer's location row.
     /// Pages that predate it ignore it.
     public var machineName: String?
+    /// True when this pane is attached to a chat whose session daemon runs on another machine.
+    /// The machine name alone is not enough because local handshakes also carry this Mac's name.
+    public var remote: Bool?
     /// The local workspace's GitHub `origin`, used to link bare issue references in prose.
     public var githubRepository: String?
     /// What a hidden chat's released page held that acpmux does not (``AgentPaneWakeState``): the

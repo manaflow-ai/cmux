@@ -100,6 +100,8 @@ export type AcpmuxHostConfig = {
   /** A tab's recorded session (`sessionId`) must exist. When the daemon has no such session, or it
    * goes away, the pane says so rather than showing another chat, and marks nothing seen. */
   sessionMustExist?: boolean;
+  /** The session daemon for this pane runs on another machine. */
+  remote?: boolean;
   /** A new chat's working directory, inherited from the tab it was opened from. */
   cwd?: string;
   /** Text the composer starts with. Shown, never sent by itself. */
