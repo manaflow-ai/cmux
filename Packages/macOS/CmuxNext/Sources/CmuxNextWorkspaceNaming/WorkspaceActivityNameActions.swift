@@ -13,8 +13,9 @@ public protocol WorkspaceActivityNameHost: AnyObject {
     func activityPageTitle(_ tab: TabModel) -> String?
     /// Whether acpmux runs, so ``activityComplete(_:)`` can answer.
     func activityHasAgents() -> Bool
-    /// Runs one `_acpmux/complete` with `params` and answers its text.
-    func activityComplete(_ params: [String: any Sendable]) async throws -> String
+    /// Runs one `_acpmux/complete` with `params` (`fallback` when its harness cannot answer here)
+    /// and answers its text.
+    func activityComplete(_ params: [String: any Sendable], fallback: [String: any Sendable]) async throws -> String
     /// Runs `body` on the daemon that owns `workspace`; false when it failed.
     func activityRun(_ workspace: WorkspaceModel, _ body: @escaping @Sendable (isolated DaemonConnection) async throws -> Void) async -> Bool
     /// Whether the daemon of `workspace` guards a rename by its name revision.
@@ -71,12 +72,12 @@ public final class WorkspaceActivityNameActions {
         // A rename the person makes while the model answers wins: the daemon refuses this one once
         // the name revision read here has moved on.
         let revision = host.activityGuardsRevision(workspace) ? workspace.nameRevision : nil
-        let params = activity.completionParams
+        let params = activity.completionParams, fallback = activity.completionFallbackParams
         // action-wait-allow: the name comes from a model another process runs (acpmux's completion); nothing local can stand in for it
         return .waiting(.externalProcess) {
             let reply: String
             do {
-                reply = try await host.activityComplete(params)
+                reply = try await host.activityComplete(params, fallback: fallback)
             } catch {
                 return ActionWorkFailure(WorkspaceActivityName.Refusal.failed(error.localizedDescription).text)
             }

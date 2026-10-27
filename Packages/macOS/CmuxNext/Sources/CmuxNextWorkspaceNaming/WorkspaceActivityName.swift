@@ -101,9 +101,16 @@ public nonisolated struct WorkspaceActivityName: Equatable, Sendable {
         return text
     }
 
-    /// The `_acpmux/complete` request: ``prompt`` on ``model``, short and bounded.
+    /// The `_acpmux/complete` request: ``prompt`` on ``model`` through the Claude Code harness, short
+    /// and bounded.
     public var completionParams: [String: any Sendable] {
-        ["prompt": prompt, "harness": Self.harness, "model": Self.model, "maxTokens": Self.maxTokens, "timeoutMs": Self.timeoutMs]
+        completionFallbackParams.merging(["harness": Self.harness, "model": Self.model]) { $1 }
+    }
+
+    /// The request when this machine has no Claude Code harness by that id: the default harness on
+    /// its own small model (acpmux picks it: Claude's haiku alias, Codex's mini, and so on).
+    public var completionFallbackParams: [String: any Sendable] {
+        ["prompt": prompt, "maxTokens": Self.maxTokens, "timeoutMs": Self.timeoutMs]
     }
 
     /// The name in the model's reply: its first line, without quotes, a "Name:" label or a final

@@ -9,8 +9,14 @@ import Testing
 struct WorkspaceActivityNameTests {
     private static let host = "install:activity-name"
 
-    @Test func itAsksTheCheapestModel() {
-        #expect(WorkspaceActivityName.model == "claude-haiku-5-5")
+    @Test func itAsksHaikuAndFallsBackToTheDefaultHarnessesSmallModel() {
+        let activity = WorkspaceActivityName(tabs: [.browser(title: "Docs")])
+        #expect(activity.completionParams["model"] as? String == "claude-haiku-5-5")
+        #expect(activity.completionParams["harness"] as? String == "claude")
+        // No harness and no model: acpmux runs the default harness on its own small model.
+        #expect(activity.completionFallbackParams["harness"] == nil)
+        #expect(activity.completionFallbackParams["model"] == nil)
+        #expect(activity.completionFallbackParams["prompt"] as? String == activity.prompt)
     }
 
     @Test func readsChatTitlesNewestPromptsFoldersAndPageTitles() {
