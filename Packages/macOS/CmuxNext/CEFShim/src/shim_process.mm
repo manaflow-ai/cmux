@@ -384,6 +384,7 @@ static void BindForkApi(const char* framework_binary) {
   CMUX_BIND(set_energy_saver, "cmux_cef_set_energy_saver");
   CMUX_BIND(browser_renderer_pid, "cmux_cef_browser_renderer_pid");
   CMUX_BIND(memory_pressure_vote, "cmux_memory_pressure_vote");
+  CMUX_BIND(set_message_loop_time_slice, "cmux_set_message_loop_time_slice");
 #undef CMUX_BIND
 }
 
@@ -526,6 +527,14 @@ int cmux_shim_initialize(const char* framework_dir, const char* main_bundle_path
 
 void cmux_shim_do_work(void) {
   CefDoMessageLoopWork();
+}
+
+int cmux_shim_set_pump_time_slice(int64_t slice_us) {
+  if (!fork_api().set_message_loop_time_slice) {
+    return 0;
+  }
+  fork_api().set_message_loop_time_slice(slice_us);
+  return 1;
 }
 
 void cmux_shim_close_all(void) {

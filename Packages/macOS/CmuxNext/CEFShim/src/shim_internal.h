@@ -178,6 +178,9 @@ struct ForkApi {
   // No API number yet (p07-memory-051; the fork train p07-memory-074 numbers
   // it): cmux's voter in Chromium's MultiSourceMemoryPressureMonitor.
   int (*memory_pressure_vote)(int) = nullptr;
+  // No API number yet (p03-rendering-116; the fork train numbers it): the
+  // slice of the next CefDoMessageLoopWork call only, in microseconds.
+  void (*set_message_loop_time_slice)(int64_t) = nullptr;
 };
 
 struct Host {

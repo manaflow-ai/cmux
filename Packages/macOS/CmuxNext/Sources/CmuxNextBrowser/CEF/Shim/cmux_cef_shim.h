@@ -1327,6 +1327,14 @@ CMUX_SHIM_EXPORT int cmux_cef_end_tracing(const char* path, cmux_cef_trace_writt
 // The trace's "ts" values use this clock; sample it next to the caller's clock for the offset.
 CMUX_SHIM_EXPORT int64_t cmux_cef_now_trace_us(void);
 
+// The time slice of the next cmux_shim_do_work only, in microseconds (fork
+// cmux_set_message_loop_time_slice, p03-rendering-116): that pass runs ready
+// work for at most this long, clamped to 100 us and to the
+// --cmux-pump-time-slice-us slice; 0 or less: the switch's slice. Main thread,
+// in process only. Returns 1 when the fork has the call, 0 otherwise (every
+// pass keeps the switch's slice).
+CMUX_SHIM_EXPORT int cmux_shim_set_pump_time_slice(int64_t slice_us);
+
 #ifdef __cplusplus
 }
 #endif

@@ -963,6 +963,12 @@ CMUX_SHIM_EXPORT int cmux_shim_initialize(const char* framework_dir,
 // No external message pump in host mode (task 034).
 CMUX_SHIM_EXPORT void cmux_shim_do_work(void) {}
 
+// No external message pump in host mode: the host's own pump slices its passes.
+CMUX_SHIM_EXPORT int cmux_shim_set_pump_time_slice(int64_t slice_us) {
+  (void)slice_us;
+  return 0;
+}
+
 // No external message pump in host mode: delayed work never reaches the app.
 CMUX_SHIM_EXPORT int cmux_shim_set_schedule_delayed(cmux_shim_schedule_delayed_fn schedule_delayed) {
   (void)schedule_delayed;

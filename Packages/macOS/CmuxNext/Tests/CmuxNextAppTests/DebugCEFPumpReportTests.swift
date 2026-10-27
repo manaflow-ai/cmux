@@ -30,4 +30,15 @@ import Testing
         stats.earlyPasses = 4
         #expect(DebugCEF.pumpReport(stats)["early_passes"] == .number(4))
     }
+
+    /// The frame deadline's holds (p03-rendering-116): motion-hitches.py and bench-typing.py read them
+    /// next to the pass times.
+    @Test func thePumpReportHasTheFrameDeadlineHolds() {
+        var stats = CEFPumpStats()
+        stats.frameDeadlineWaits = 5
+        stats.frameInputHolds = 2
+        let report = DebugCEF.pumpReport(stats)
+        #expect(report["frame_deadline_waits"] == .number(5))
+        #expect(report["frame_input_holds"] == .number(2))
+    }
 }

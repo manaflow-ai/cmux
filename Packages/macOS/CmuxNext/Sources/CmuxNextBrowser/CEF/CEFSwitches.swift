@@ -55,7 +55,9 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
     static let benchSwitchNames: Set<String> = ["host-resolver-rules", "ignore-certificate-errors-spki-list"]
 
     /// The longest one Chromium pump pass runs before it returns to the main run loop: a quarter
-    /// of a 120 Hz frame, so the app's own frame work and the display link fit beside a pass.
+    /// of a 120 Hz frame, so the app's own frame work and the display link fit beside a pass. It is
+    /// the cap: with feature `cefPumpFrameDeadline` and a fork that takes a slice per call, each pass
+    /// runs only to the frame's commit deadline (``CEFPumpFrameDeadline``, p03-rendering-116).
     static let pumpTimeSliceMicroseconds = 2_000
 
     /// The first fork API with the resize-sync call: the fork waits for a page's frame at a new

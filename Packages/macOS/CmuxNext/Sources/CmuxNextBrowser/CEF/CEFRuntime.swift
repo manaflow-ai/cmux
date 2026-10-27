@@ -170,6 +170,8 @@ final class CEFRuntime {
     /// What the pump's input policy reads, from the engine made last (feature `cefPumpInputPolicy`,
     /// ``CEFPumpInputPolicy``); read at start with ``input``. Nil: the pump never holds for input.
     var pumpInput: CEFPumpInputSeams?
+    /// What the pump's frame-deadline slices read (``CEFPumpFrameDeadline``), read at start; nil: the static slice.
+    var pumpFrames: CEFPumpFrameSeams?
     /// The feature `chromiumSpareAfterFirstTab`, asked at start (the App supplies it).
     var spareAfterFirstTabFeature: @MainActor () -> Bool = { false }
     private(set) var builtInAdBlockerLoaded = false  // this Chromium has the built-in uBlock Origin (at start or first tabs)
@@ -619,7 +621,7 @@ final class CEFRuntime {
         }
         let owner = CEFInProcessPump(
             shim: shim, wakeUps: wakeUps, gate: pumpGate, makeTimer: makePumpTimer, inputPolicy: policy, crashKeys: crashKeys,
-            logger: logger,
+            frames: pumpFrames, input: input, logger: logger,
             work: { [weak self] in CEFStartSteps.shared.pump(windowPending: self?.pendingWindows.isEmpty == false) { self?.shim?.doWork() } }
         )
         inProcessPump = owner

@@ -209,6 +209,8 @@ enum DebugCEF {
             "deferred_for_input": .number(Double(stats.deferredForInput)),
             "pass_ms_p99": .number(stats.passMillisecondsP99),
             "early_passes": .number(Double(stats.earlyPasses)),
+            "frame_deadline_waits": .number(Double(stats.frameDeadlineWaits)),
+            "frame_input_holds": .number(Double(stats.frameInputHolds)),
         ])
     }
 
