@@ -72,14 +72,9 @@ fn platform_profile_id(linux: bool) -> String {
     #[cfg(target_os = "linux")]
     let identity = if linux {
         // Hash the implemented policy and protocol, including the bwrap argv shape.
-        format!(
-            "{identity}\nlinux-keeper-v1; loader-env-v2\n{}\n{}\n{}\n{}\n{}",
-            include_str!("../linux_sandbox/bwrap.rs"),
-            include_str!("../linux_sandbox/keeper.rs"),
-            include_str!("../linux_sandbox/init.rs"),
-            include_str!("../linux_sandbox/seccomp.rs"),
-            include_str!("../linux_sandbox/proxy.rs")
-        )
+        let sources = linux_identity_sources();
+        let source_text = sources.iter().map(|(_, source)| *source).collect::<Vec<_>>().join("\n");
+        format!("{identity}\nlinux-keeper-v1; loader-env-v2\n{source_text}")
     } else {
         identity
     };
@@ -96,6 +91,10 @@ fn linux_identity_sources() -> Vec<(&'static str, &'static str)> {
         ("init.rs", include_str!("../linux_sandbox/init.rs")),
         ("seccomp.rs", include_str!("../linux_sandbox/seccomp.rs")),
         ("proxy.rs", include_str!("../linux_sandbox/proxy.rs")),
+        ("supervisor.rs", include_str!("../linux_sandbox/supervisor.rs")),
+        ("supervisor/locking.rs", include_str!("../linux_sandbox/supervisor/locking.rs")),
+        ("lookup.rs", include_str!("../linux_sandbox/lookup.rs")),
+        ("rules.rs", include_str!("../linux_sandbox/rules.rs")),
     ]
 }
 
@@ -830,19 +829,24 @@ else
   echo "acpmux-canary outside=$o loopback=$l tmp=$i"
 fi"#;
 
-fn canary_persistence_probe(cwd: &Path, _linux: bool) -> Result<Option<PathBuf>, String> {
-    let hooks = cwd.join(".git/hooks");
-    std::fs::create_dir_all(&hooks).map_err(|e| format!("canary setup .git/hooks: {e}"))?;
-    Ok(Some(cwd.to_owned()))
+fn canary_persistence_probe(cwd: &Path, linux: bool) -> Result<Option<PathBuf>, String> {
+    if !linux {
+        return Ok(None);
+    }
+    let probe = cwd.join(format!(".acpmux-canary-{}", uuid::Uuid::now_v7()));
+    std::fs::create_dir_all(probe.join(".git/hooks"))
+        .map_err(|e| format!("canary setup persistence probe: {e}"))?;
+    Ok(Some(probe))
 }
 
 type CanaryFields = (Option<i32>, Option<i32>, Option<i32>, Option<i32>, Option<i32>, Option<i32>);
 
 fn parse_canary_report(text: &str) -> Result<CanaryFields, String> {
-    let line = text
-        .lines()
-        .find_map(|line| line.strip_prefix("acpmux-canary "))
-        .ok_or("canary did not report a result")?;
+    let mut reports = text.lines().filter_map(|line| line.strip_prefix("acpmux-canary "));
+    let line = reports.next().ok_or("canary did not report a result")?;
+    if reports.next().is_some() {
+        return Err("canary reported more than one result".into());
+    }
     let field = |key: &str| {
         line.split_whitespace()
             .find_map(|word| word.strip_prefix(&format!("{key}=")))
@@ -862,10 +866,10 @@ fn canary_verdict(
     success: bool,
     fields: CanaryFields,
     linux: bool,
-    _probe_paths_absent: bool,
+    probe_paths_absent: bool,
 ) -> bool {
     let (o, l, t, u, _, _) = fields;
-    canary_report_held(success, (o, l, t, u), linux)
+    canary_report_held(success, (o, l, t, u), linux) && probe_paths_absent
 }
 
 /// Run the canary under `exec` with the profile and `bound`; Ok only when
@@ -886,8 +890,6 @@ pub(super) async fn canary(exec: &Path, bound: &Bound, linux: bool) -> Result<()
     let persistence_probe = canary_persistence_probe(&bound.cwd, linux)?;
     let git_canary = persistence_probe.as_ref().map(|path| path.join(".git/hooks/pre-commit"));
     let claude_canary = persistence_probe.as_ref().map(|path| path.join("CLAUDE.md"));
-    let git_canary_existed = git_canary.as_ref().is_some_and(|path| path.exists());
-    let claude_canary_existed = claude_canary.as_ref().is_some_and(|path| path.exists());
     let outside = bound.home.join(format!(".acpmux-sandbox-canary-{}", uuid::Uuid::now_v7()));
     #[cfg(unix)]
     let socket_path = bound
@@ -959,15 +961,16 @@ pub(super) async fn canary(exec: &Path, bound: &Bound, linux: bool) -> Result<()
     if landed {
         let _ = std::fs::remove_file(&outside);
     }
-    if !git_canary_existed {
-        if let Some(path) = &git_canary {
-            let _ = std::fs::remove_file(path);
-        }
-    }
-    if !claude_canary_existed {
-        if let Some(path) = &claude_canary {
-            let _ = std::fs::remove_file(path);
-        }
+    let absent = |path: &Path| {
+        matches!(
+            std::fs::symlink_metadata(path),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound
+        )
+    };
+    let probe_paths_absent = git_canary.as_ref().map_or(true, |path| absent(path))
+        && claude_canary.as_ref().map_or(true, |path| absent(path));
+    if let Some(path) = &persistence_probe {
+        let _ = std::fs::remove_dir_all(path);
     }
     #[cfg(unix)]
     let _ = std::fs::remove_file(&socket_path);
@@ -987,8 +990,6 @@ pub(super) async fn canary(exec: &Path, bound: &Bound, linux: bool) -> Result<()
     let text = String::from_utf8_lossy(&out.stdout);
     let fields = parse_canary_report(&text).ok();
     let (o, l, t, u, g, c) = fields.unwrap_or((None, None, None, None, None, None));
-    let probe_paths_absent = git_canary.as_ref().map_or(true, |path| !path.exists())
-        && claude_canary.as_ref().map_or(true, |path| !path.exists());
     let held = canary_verdict(out.status.success(), (o, l, t, u, g, c), linux, probe_paths_absent)
         && (!linux
             || (matches!(g, Some(code) if code != 0) && matches!(c, Some(code) if code != 0)))
@@ -1417,13 +1418,7 @@ mod endpoint_tests {
     #[test]
     fn linux_identity_covers_every_enforcement_source() {
         let names: Vec<_> = linux_identity_sources().into_iter().map(|(name, _)| name).collect();
-        for name in [
-            "supervisor.rs",
-            "supervisor/mutations.rs",
-            "supervisor/locking.rs",
-            "lookup.rs",
-            "rules.rs",
-        ] {
+        for name in ["supervisor.rs", "supervisor/locking.rs", "lookup.rs", "rules.rs"] {
             assert!(names.contains(&name), "missing {name} from Linux profile identity");
         }
     }

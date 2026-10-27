@@ -193,12 +193,28 @@ fn validate_handoff_with_notify(
         return Err("handoff missing supervisor notification fd".into());
     }
     let notify = fds.pop().ok_or("handoff missing supervisor notification fd")?;
-    validate_notify_fd(notify.as_raw_fd())?;
     let listeners = validate_handoff_inner(payload, fds, proxy_port, api_port, true)?;
+    validate_notify_fd(notify.as_raw_fd())?;
     Ok((listeners, notify))
 }
 
 fn validate_notify_fd(_fd: RawFd) -> Result<()> {
+    let mut id = 0u64;
+    let request = libc::SECCOMP_IOCTL_NOTIF_ID_VALID as _;
+    // SAFETY: the request reads the initialized notification id only.
+    let result = unsafe { libc::ioctl(_fd, request, &mut id) };
+    if result == 0 {
+        return Err("handoff fd is not a seccomp listener (notification id accepted)".into());
+    }
+    let error = io::Error::last_os_error();
+    if error.raw_os_error() != Some(libc::ENOENT) {
+        return Err(format!("handoff fd is not a seccomp listener: {error}"));
+    }
+    let target = std::fs::read_link(format!("/proc/self/fd/{_fd}"))
+        .map_err(|e| format!("handoff fd is not a seccomp listener: {e}"))?;
+    if target != Path::new("anon_inode:seccomp notify") {
+        return Err("handoff fd is not a seccomp listener (wrong inode type)".into());
+    }
     Ok(())
 }
 
@@ -419,12 +435,13 @@ fn executable(denies: &[PathBuf], writable: &[PathBuf]) -> Result<(OwnedFd, Path
     }
     Ok((fd, exe))
 }
-/// Stops on child completion (caller drops this future), closed signal stream,
-/// or forwarding error. Only the unreaped direct child's PID is signalled.
-async fn forward_signals(pid: u32, signals: [Signal; 3], _stop: CancellationToken) -> Result<i32> {
+/// Stops on the child-exit cancellation token, closed signal stream, or
+/// forwarding error. Only the unreaped direct child's PID is signalled.
+async fn forward_signals(pid: u32, signals: [Signal; 3], stop: CancellationToken) -> Result<i32> {
     let [mut term, mut int, mut hup] = signals;
     loop {
         let (received, number) = tokio::select! {
+            _ = stop.cancelled() => return Ok(0),
             v = term.recv() => (v, libc::SIGTERM),
             v = int.recv() => (v, libc::SIGINT),
             v = hup.recv() => (v, libc::SIGHUP),
@@ -465,11 +482,15 @@ async fn session(
     socket: UnixStream,
     options: &Options,
     policy: rules::WritePolicy,
+    relay_stop: CancellationToken,
 ) -> Result<i32> {
     socket.set_nonblocking(true).map_err(|e| e.to_string())?;
     let socket = AsyncFd::new(socket).map_err(|e| e.to_string())?;
     let (payload, fds) = tokio::select! {
-        status = child.wait() => return Err(format!("bwrap exited before handoff: {status:?}")),
+        status = child.wait() => {
+            relay_stop.cancel();
+            return Err(format!("bwrap exited before handoff: {status:?}"));
+        },
         result = tokio::time::timeout(Duration::from_secs(20), handoff(&socket)) => result.map_err(|_| "handoff timed out after 20 s")??,
     };
     // G1b SUPERVISOR HOOK: the init helper sends listeners followed by the
@@ -510,7 +531,10 @@ async fn session(
     }
     drop(socket);
     let result = tokio::select! {
-        status = child.wait() => status.map(exit_code).map_err(|e| e.to_string()),
+        status = child.wait() => {
+            relay_stop.cancel();
+            status.map(exit_code).map_err(|e| e.to_string())
+        },
         service = services.join_next() => Err(format!("sandbox service ended: {service:?}")),
     };
     stop.cancel();
@@ -520,7 +544,7 @@ async fn session(
     let supervisor_result = supervisor.stop_join();
     match (result, supervisor_result) {
         (Err(error), _) => Err(error),
-        (Ok(code), Ok(())) => Ok(code),
+        (Ok(code), Ok(_)) => Ok(code),
         (Ok(_), Err(error)) => Err(error),
     }
 }
@@ -547,7 +571,7 @@ fn init_prefix(
         proxy_port.to_string(),
     ]);
     if let Some(api) = api {
-        prefix.extend(["--api-port".into(), api.port().to_string(), "--api-loopback-v4".into()]);
+        prefix.extend(["--api-port".into(), api.port().to_string()]);
     }
     prefix.push("--".into());
     Ok(prefix)
@@ -601,9 +625,8 @@ async fn run(options: Options) -> Result<i32> {
     }
     let (exe_fd, exe) = executable(&denies, &writable)?;
     let bwrap_fd = open_bwrap()?;
-    let mut prefix =
+    let prefix =
         init_prefix(&exe, crate::daemon::daemon_prefix(), 3, options.proxy_port, options.api)?;
-    prefix.push("--".into());
     let (mut argv, bind_fds) = bwrap::plan(paths, &denies, &prefix)?;
     let separator =
         argv.iter().position(|arg| arg == "--").ok_or("bwrap plan has no command separator")?;
@@ -663,9 +686,15 @@ async fn run(options: Options) -> Result<i32> {
     drop(exe_fd);
     drop(bwrap_fd);
     let pid = child.id().ok_or("bwrap has no PID")?;
-    let result = tokio::select! {
-        result = session(&mut child, parent, &options, policy) => result,
-        result = forward_signals(pid, [term, int, hup], CancellationToken::new()) => result,
+    let relay_stop = CancellationToken::new();
+    let relay = tokio::spawn(forward_signals(pid, [term, int, hup], relay_stop.clone()));
+    let result = session(&mut child, parent, &options, policy, relay_stop.clone()).await;
+    relay_stop.cancel();
+    let relay_result = relay.await.map_err(|e| format!("signal relay: {e}"))?;
+    let result = match (result, relay_result) {
+        (Err(error), _) => Err(error),
+        (Ok(code), Ok(_)) => Ok(code),
+        (Ok(_), Err(error)) => Err(error),
     };
     if result.is_err() {
         let _ = tokio::time::timeout(Duration::from_secs(5), child.kill()).await;
