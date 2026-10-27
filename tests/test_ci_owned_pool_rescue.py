@@ -3990,6 +3990,49 @@ class NightlySigningStall(unittest.TestCase):
         self.assertIn("not rescued yet: a sibling came back", summary)
         self.assertEqual(mutations(api), ["cancel", "rerun-failed"])
 
+    def test_a_started_nightly_at_the_signing_cancel_resumes_the_watch(self):
+        # The cancel guard found a nightly job running (NightlyBusy): the watch goes on and rescues later.
+        clock = Clock()
+        api = NightlyAPI(clock, signing_run(), workflow=SIGN_WORKFLOW)
+        real = rescue.rescue_stalled_signing
+        answers = []
+
+        def once(*args, **kwargs):
+            if not answers:
+                answers.append(rescue.NIGHTLY_BUSY + " (publish-nightly)")
+                return answers[0]
+            return real(*args, **kwargs)
+        with unittest.mock.patch.object(rescue, "rescue_stalled_signing", once):
+            _, summary = run_main(api, clock, payload=nightly_event(head_branch="nightly-next"))
+        self.assertIn(rescue.NIGHTLY_BUSY, summary)
+        self.assertEqual(mutations(api), ["cancel", "rerun-failed"])
+        self.assertIn("its signing jobs take their alternate macOS label", summary)
+
+    def test_a_busy_rescue_resumes_into_the_signing_stall_rescue(self):
+        # An ordinary rescue found a started nightly at its cancel; the resumed watch then finds the signing jobs
+        # stalled, with the same first-seen times, and the signing rescue moves them.
+        clock = Clock()
+        api = NightlyAPI(clock, signing_run(), workflow=SIGN_WORKFLOW)
+        real_watch, real_rescue = rescue.watch, rescue.rescue
+        state = {"watched": False, "busy": False}
+
+        def watch(*args, **kwargs):
+            if not state["watched"]:
+                state["watched"] = True
+                return "refused", "a job was refused"
+            return real_watch(*args, **kwargs)
+
+        def rescue_once(*args, **kwargs):
+            if not state["busy"]:
+                state["busy"] = True
+                return rescue.NIGHTLY_BUSY + " (publish-nightly)"
+            return real_rescue(*args, **kwargs)
+        with unittest.mock.patch.object(rescue, "watch", watch), \
+                unittest.mock.patch.object(rescue, "rescue", rescue_once):
+            _, summary = run_main(api, clock, payload=nightly_event(head_branch="nightly-next"))
+        self.assertEqual(mutations(api), ["cancel", "rerun-failed"])
+        self.assertIn("its signing jobs take their alternate macOS label", summary)
+
     def test_signing_stall_rules(self):
         now = START + dt.timedelta(seconds=60 + rescue.SIGN_STALL_SECONDS)
         queued = dict(job("sign-nightly-identity-legacy", labels=[BLACKSMITH], created=60), id=9)

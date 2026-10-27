@@ -2765,27 +2765,39 @@ def follow(client: GitHub, target: Target, *, seconds: int, queue_rounds: str | 
     outcome, reason = watch(client, target, budget_seconds=first_budget, now=clock, sleep=sleep,
                             log=log, deadline=deadline, floor_seconds=effective_seconds, seen=seen,
                             sign_seen=sign_seen, sign_text=sign_text)
-    held = ""
-    while True:
-        if outcome == "rescue" and not target.refusals_only:
-            outcome, reason, held = hold_for_destination(
-                client, target, outcome, reason, budget_seconds=first_budget, floor_seconds=effective_seconds,
-                deadline=deadline, now=clock, sleep=sleep, log=log, seen=seen, sign_seen=sign_seen,
-                sign_text=sign_text)
-        if outcome != "stalled":
-            break
-        log(f"stalled: {reason}")
-        result = rescue_stalled_signing(client, target, now=clock, sleep=rescue_sleep, log=log,
-                                        deadline=rescue_deadline, sign_seen=sign_seen,
-                                        workflow_text=sign_text[0] if sign_text else None)
-        log(result)
-        if not result.startswith(SIGN_NOT_YET) or clock() >= deadline:
-            return "done"
-        # The run changed since the look (a job started, a sibling came back): watch on, next look decides.
-        sleep(POLL_SECONDS)
-        outcome, reason = watch(client, target, budget_seconds=first_budget, now=clock, sleep=sleep,
-                                log=log, deadline=deadline, floor_seconds=effective_seconds, seen=seen,
-                                sign_seen=sign_seen, sign_text=sign_text)
+
+    def settle(outcome: str, reason: str) -> tuple[str, str, str, str]:
+        """The stall hold and the signing-stall rescue on a look's outcome, watching on as they need:
+        (outcome, reason, held, done), where `done` is follow()'s answer once one of them ended the watch."""
+        held = ""
+        while True:
+            if outcome == "rescue" and not target.refusals_only:
+                outcome, reason, held = hold_for_destination(
+                    client, target, outcome, reason, budget_seconds=first_budget, floor_seconds=effective_seconds,
+                    deadline=deadline, now=clock, sleep=sleep, log=log, seen=seen, sign_seen=sign_seen,
+                    sign_text=sign_text)
+            if outcome != "stalled":
+                return outcome, reason, held, ""
+            log(f"stalled: {reason}")
+            result = rescue_stalled_signing(client, target, now=clock, sleep=rescue_sleep, log=log,
+                                            deadline=rescue_deadline, sign_seen=sign_seen,
+                                            workflow_text=sign_text[0] if sign_text else None)
+            log(result)
+            # The run changed since the look (a job started, a sibling came back, a nightly job began running
+            # just before the cancel): watch on, the next look decides.
+            if not (result.startswith(SIGN_NOT_YET) or result.startswith(NIGHTLY_BUSY)):
+                return outcome, reason, held, "done"
+            if clock() >= deadline:
+                return outcome, reason, held, ("stopped: watch limit reached with a started nightly still running"
+                                               if result.startswith(NIGHTLY_BUSY) else "done")
+            sleep(POLL_SECONDS)
+            outcome, reason = watch(client, target, budget_seconds=first_budget, now=clock, sleep=sleep,
+                                    log=log, deadline=deadline, floor_seconds=effective_seconds, seen=seen,
+                                    sign_seen=sign_seen, sign_text=sign_text)
+
+    outcome, reason, held, done = settle(outcome, reason)
+    if done:
+        return done
     if outcome not in ("rescue", "refused"):
         return f"stopped: {reason}" + (f"; kept on the owned pool: {held}" if held else "")
     if target.refusals_only and outcome == "rescue":
@@ -2855,11 +2867,11 @@ def follow(client: GitHub, target: Target, *, seconds: int, queue_rounds: str | 
             if clock() >= deadline:
                 return "stopped: watch limit reached with a started nightly still running"
             outcome, reason = watch(client, target, budget_seconds=first_budget, now=clock, sleep=sleep, log=log,
-                                    deadline=deadline, floor_seconds=effective_seconds, seen=seen)
-            if outcome == "rescue":
-                outcome, reason, held = hold_for_destination(
-                    client, target, outcome, reason, budget_seconds=first_budget, floor_seconds=effective_seconds,
-                    deadline=deadline, now=clock, sleep=sleep, log=log, seen=seen)
+                                    deadline=deadline, floor_seconds=effective_seconds, seen=seen,
+                                    sign_seen=sign_seen, sign_text=sign_text)
+            outcome, reason, held, done = settle(outcome, reason)
+            if done:
+                return done
             if outcome not in ("rescue", "refused"):
                 return f"stopped: {reason}" + (f"; kept on the owned pool: {held}" if held else "")
             log(f"{'rescue' if outcome == 'rescue' else 'refused'}: {reason}")
