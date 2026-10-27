@@ -1,5 +1,5 @@
 import AppKit
-import CmuxNextActions
+import CmuxNextActionsAppKit
 
 /// The link rows of a terminal right-click (cx-k9go): a right-click on a web
 /// link Ghostty underlines offers the page link rows (Open Link in New Tab,

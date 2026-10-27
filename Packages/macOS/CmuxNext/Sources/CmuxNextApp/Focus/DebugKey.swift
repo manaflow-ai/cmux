@@ -1,6 +1,6 @@
 #if DEBUG || CMUX_BENCH_HOOKS
 import AppKit
-import CmuxNextActions
+import CmuxNextActionsAppKit
 import CmuxNextAgentPane
 import CmuxNextSettings
 import CmuxNextBridge

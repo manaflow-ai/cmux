@@ -1,5 +1,5 @@
 import AppKit
-import CmuxNextActions
+import CmuxNextActionsAppKit
 import CmuxNextBookmarks
 import CmuxNextBridge
 import CmuxNextBrowser

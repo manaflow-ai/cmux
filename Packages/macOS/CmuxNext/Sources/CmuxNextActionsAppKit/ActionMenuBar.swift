@@ -1,4 +1,5 @@
 public import AppKit
+public import CmuxNextActions
 
 /// The main menu bar. A key-down the key router decided, whose chord's items are all registry items the menu
 /// gate refuses (``ActionRegistry/menuKeyEquivalentGate``: no system action), is not searched, and the same

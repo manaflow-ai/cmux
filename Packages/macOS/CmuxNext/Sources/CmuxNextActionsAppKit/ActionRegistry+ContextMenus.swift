@@ -1,4 +1,5 @@
 public import AppKit
+public import CmuxNextActions
 
 extension ActionRegistry {
     /// Renders the declared right-click menu for `context`

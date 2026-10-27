@@ -1,4 +1,5 @@
 public import AppKit
+import CmuxNextActions
 
 extension NSMenu {
     /// A workspace menu opened on several selected sidebar rows names what its rows do to them

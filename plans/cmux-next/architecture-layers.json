@@ -8,6 +8,7 @@
     "CmuxNextWakeupsTestSupport": {"layer": "core"},
     "CmuxNextInputCoreTestSupport": {"layer": "core", "note": "FakeInputTap, the one test InputObserving; test targets only"},
     "CmuxNextActions": {"layer": "core"},
+    "CmuxNextActionsAppKit": {"layer": "core", "plan": "exception to core (DESIGN section 2: AppKit value types only): the registry's AppKit side moved out of CmuxNextActions (p15-oracle 128: menu items, right-click and main menus, the shortcut recorder, NSEvent as ActionInputEvent), the layer Actions held before; CmuxNextSettings (domain) builds a menu item with it, so it moves to ui once Settings stops (p15-oracle 133)"},
     "CmuxNextFocus": {"layer": "core"},
     "CmuxNextTerminalGeometry": {"layer": "core"},
     "CmuxNextCopyMode": {"layer": "core"},

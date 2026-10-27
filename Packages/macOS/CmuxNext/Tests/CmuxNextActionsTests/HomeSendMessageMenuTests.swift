@@ -1,5 +1,6 @@
 import AppKit
 @testable import CmuxNextActions
+@testable import CmuxNextActionsAppKit
 import Testing
 
 /// u5402 (Oct 20): "Make sure we can send messages in the iMessage UI via right clicking." The

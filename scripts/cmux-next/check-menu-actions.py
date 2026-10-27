@@ -25,8 +25,10 @@ import sys
 
 SOURCES = "Packages/macOS/CmuxNext/Sources"
 BASELINE = "scripts/cmux-next/check-menu-actions-baseline.txt"
-# The registry builds every action row; the demo app has no registry.
-EXEMPT = ("Packages/macOS/CmuxNext/Sources/CmuxNextActions/", "Packages/macOS/CmuxNext/Sources/CmuxNextTabs/Demo/")
+# The registry builds every action row (its AppKit side, CmuxNextActionsAppKit, makes the items); the demo app
+# has no registry.
+EXEMPT = ("Packages/macOS/CmuxNext/Sources/CmuxNextActions/", "Packages/macOS/CmuxNext/Sources/CmuxNextActionsAppKit/",
+          "Packages/macOS/CmuxNext/Sources/CmuxNextTabs/Demo/")
 ROW = re.compile(r"(NSMenuItem\s*\(|addItem\s*\(\s*withTitle\s*:)[^;{}]*?action\s*:\s*#selector", re.S)
 
 

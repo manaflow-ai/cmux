@@ -1,4 +1,5 @@
 public import AppKit
+import CmuxNextActions
 
 extension NSMenu {
     /// A tab menu opened on several selected tabs names what its rows do to them (Chrome's Close

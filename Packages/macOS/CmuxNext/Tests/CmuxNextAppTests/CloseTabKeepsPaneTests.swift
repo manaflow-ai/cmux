@@ -1,5 +1,5 @@
 import AppKit
-import CmuxNextActions
+import CmuxNextActionsAppKit
 @testable import CmuxNextApp
 import CmuxNextDaemon
 import CmuxNextDesign

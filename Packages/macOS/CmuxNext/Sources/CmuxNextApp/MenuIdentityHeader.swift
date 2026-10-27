@@ -1,5 +1,5 @@
 import AppKit
-import CmuxNextActions
+import CmuxNextActionsAppKit
 import CmuxNextDesign
 
 /// The top of the workspace and group right-click menus, as in Chrome's tab-group menu (Leo

@@ -1,5 +1,5 @@
 import AppKit
-import CmuxNextActions
+import CmuxNextActionsAppKit
 
 /// App actions on an agent chat's own tab: the header's tools and "..." menu
 /// (acpmux header/ChatHeaderTools.tsx), the empty-space right-click menu (`agentChat`

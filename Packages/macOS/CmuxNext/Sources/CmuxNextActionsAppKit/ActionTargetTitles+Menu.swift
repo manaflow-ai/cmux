@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextActions
 
 extension ActionTargetTitles {
     /// Applies the target's title, its toggle state and the target-aware

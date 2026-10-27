@@ -1,5 +1,5 @@
 import AppKit
-import CmuxNextActions
+import CmuxNextActionsAppKit
 import Testing
 
 /// The action contract (plans/cmux-next/REWRITE.md): every action reaches

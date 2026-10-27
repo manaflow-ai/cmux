@@ -1,4 +1,5 @@
 public import AppKit
+import CmuxNextActions
 
 extension ActionRegistry {
     /// A submenu item for a choices entry: one item per value of the

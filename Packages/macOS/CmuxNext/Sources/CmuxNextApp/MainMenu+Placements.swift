@@ -1,5 +1,5 @@
 import AppKit
-import CmuxNextActions
+import CmuxNextActionsAppKit
 
 /// The catalog's Help placements (`mainMenu: .help`), laid out the way Mac
 /// apps lay that menu out. An action placed there that no group names still

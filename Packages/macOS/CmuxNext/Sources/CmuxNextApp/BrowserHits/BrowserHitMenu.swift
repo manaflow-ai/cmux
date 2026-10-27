@@ -1,5 +1,5 @@
 import AppKit
-import CmuxNextActions
+import CmuxNextActionsAppKit
 import CmuxNextBrowser
 
 /// The rows a page right-click shows for its link, image and selection,

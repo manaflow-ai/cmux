@@ -1,4 +1,5 @@
 public import AppKit
+public import CmuxNextActions
 
 extension ActionRegistry {
     // MARK: - Menus

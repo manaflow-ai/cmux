@@ -1,5 +1,5 @@
 import AppKit
-import CmuxNextActions
+import CmuxNextActionsAppKit
 import Testing
 
 /// The shortcut recorder (palette Cmd-K and Settings > Keyboard) answers a

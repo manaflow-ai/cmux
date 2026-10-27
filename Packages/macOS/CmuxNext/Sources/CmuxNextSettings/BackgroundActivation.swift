@@ -1,5 +1,5 @@
 public import AppKit
-public import CmuxNextActions
+public import CmuxNextActionsAppKit
 import CmuxNextDesign
 
 /// Background mode (Leo 2026-10-13, cx-ghagp): with no cmux window open the

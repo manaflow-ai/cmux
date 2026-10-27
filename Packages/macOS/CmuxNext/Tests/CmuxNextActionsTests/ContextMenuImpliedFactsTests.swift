@@ -1,5 +1,6 @@
 import AppKit
 @testable import CmuxNextActions
+@testable import CmuxNextActionsAppKit
 import Testing
 
 /// A menu's own facts (`ActionRegistry.impliedContext(for:)`) enable and run its rows: a Files

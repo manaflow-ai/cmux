@@ -1,5 +1,5 @@
 import AppKit
-public import CmuxNextActions
+public import CmuxNextActionsAppKit
 public import CmuxNextAgentActivity
 public import CmuxNextAgentPane
 import CmuxNextCompat
