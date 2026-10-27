@@ -80,16 +80,19 @@ extension CEFTab {
 extension CEFTab {
     /// Gives (`focused`) or takes the page's focus on cmux's behalf, the backend's way.
     ///
-    /// In process: CEF's `SetFocus`, which makes the page window key. In host mode the page window
-    /// is the Chromium Host's and must never be key (that activates the host, which has cmux's
-    /// bundle id): focus is the pane's page view as cmux's own first responder plus the fork's
-    /// embedder-active state (API 30), a post on the control channel, in order with the page's
-    /// other ops. Chrome splits a page's focus the same way: the app shim's view reports its first
-    /// responder change (`RenderWidgetHostViewCocoa -becomeFirstResponder` to
-    /// `OnFirstResponderChanged`, content/app_shim_remote_cocoa/render_widget_host_view_cocoa.mm)
-    /// and the browser focuses the widget with no window of its own becoming key.
+    /// A page the Chromium Host hosts detached (``hostDetachedPage(browser:)``) has no window that
+    /// orders in: its focus is the fork's embedder-active state (API 30), the key state of a page
+    /// with no key window, posted on the control channel. Chrome focuses a widget whose NSView
+    /// lives in another process the same way: the browser sets the widget's focus and no window of
+    /// its own becomes key (`RenderWidgetHostViewMac::SetActive`,
+    /// content/browser/renderer_host/render_widget_host_view_mac.mm). Every other page (in
+    /// process, or a host page not detached yet, whose page window is the only one that can take
+    /// its keys) keeps CEF's `SetFocus`. With a view input target the pane's page view is also
+    /// cmux's first responder, as Chrome's app shim view reports its first responder change
+    /// (`RenderWidgetHostViewCocoa -becomeFirstResponder` to `OnFirstResponderChanged`,
+    /// content/app_shim_remote_cocoa/render_widget_host_view_cocoa.mm).
     func applyFocus(_ focused: Bool, browser: Int32) {
-        guard host.isHostMode else {
+        guard host.isHostMode, detachedBrowser == browser else {
             if focused { grantFocus(browser) } else { runtime.shim?.setFocus(browser, 0) }
             return
         }
@@ -101,10 +104,22 @@ extension CEFTab {
     }
 
     /// Host mode: the pane's page view became (`true`) or stopped being its window's first
-    /// responder while this tab shows in it (``ChromiumHostPageView/onFocusChange``).
+    /// responder while this tab shows in it (``ChromiumHostPageView/onFocusChange``). Only a
+    /// detached page's focus is embedder-active.
     func hostedPageFocusChanged(_ focused: Bool) {
-        guard host.isHostMode, let browserID else { return }
+        guard host.isHostMode, let browserID, detachedBrowser == browserID else { return }
         setEmbedderActive(focused, browser: browserID)
+    }
+
+    /// The Chromium Host now hosts `browser`'s page detached (fork API 30 `set_detached_hosting`,
+    /// which the host turns on with the page's layer hosting; ``CEFPaneHost/showHostedContext(of:)``
+    /// learns of it from the hosting reply): from here its focus is embedder-active, and focus
+    /// asked for before it applies now.
+    func hostDetachedPage(browser: Int32) {
+        guard host.isHostMode, browserID == browser, detachedBrowser != browser else { return }
+        detachedBrowser = browser
+        embedderActive = nil
+        if pendingFocus, host.visibleTab === self, !isContentHidden { applyFocus(true, browser: browser) }
     }
 
     /// Posts the page's embedder-active state when it differs from the one last posted for `browser`.
