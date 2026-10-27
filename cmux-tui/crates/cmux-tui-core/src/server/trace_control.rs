@@ -468,6 +468,12 @@ impl TraceTargets for LiveTargets<'_> {
         Vec::new()
     }
 
+    // acpmux (agent sessions) is unix-only: no acpmux to trace elsewhere.
+    #[cfg(not(unix))]
+    fn connect_acpmux(&self) -> Option<AcpmuxCall<'_>> {
+        None
+    }
+
     #[cfg(unix)]
     fn connect_acpmux(&self) -> Option<AcpmuxCall<'_>> {
         use super::agent_session_attach::agent_session_link::AcpmuxLink;
@@ -480,14 +486,6 @@ impl TraceTargets for LiveTargets<'_> {
                     .ok_or_else(|| "acpmux sent a malformed trace answer".to_owned())
             })
         }))
-    }
-
-    /// Agent sessions (`agent_session_attach`) are unix-only, so this daemon
-    /// never starts or links acpmux here: there is no acpmux process to
-    /// trace, the same answer as a unix daemon whose acpmux never started.
-    #[cfg(not(unix))]
-    fn connect_acpmux(&self) -> Option<AcpmuxCall<'_>> {
-        None
     }
 }
 

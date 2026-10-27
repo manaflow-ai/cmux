@@ -26,6 +26,7 @@ public struct PageFileDrop {
         keep?.begin(.fileDrop)
         let open = open
         // task-owner: one host read of a dropped file; ends when its owner opened or refused it
+        // main-hop-allow: open is the host's main-actor async read of the drop (the person's drop; its file reads run off main); the task only runs it and ends the page's keep reason
         return Task { @MainActor in
             await open(url)
             keep?.end(.fileDrop)

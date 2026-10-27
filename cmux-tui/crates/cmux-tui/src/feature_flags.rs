@@ -265,12 +265,7 @@ pub(crate) fn daemon_features() -> cmux_features::Snapshot {
         crate::app_identity::AppIdentity::detect(env, exe.as_deref())
             .map(|identity| identity.build().kind())
     };
-    // App identity (`app_identity`: a macOS app bundle, or the bundle id and
-    // tag a cmux app sets in its terminals) is unix-only, so no cmux app owns
-    // this daemon here. `None` is `daemon_snapshot`'s "outside any cmux app":
-    // an unbundled build's channel (dev when built for debug, else release).
-    // CMUX_ENABLE_FEATURES / CMUX_DISABLE_FEATURES, managed policy and the
-    // signed document's DisabledFeatures still apply on top.
+    // app_identity is unix-only: no app channel to read elsewhere.
     #[cfg(not(unix))]
     let kind = None;
     cmux_features::sources::daemon_snapshot(kind)
