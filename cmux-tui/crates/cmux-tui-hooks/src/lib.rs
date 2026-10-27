@@ -44,6 +44,8 @@ use windows_sys::Win32::System::Threading::{
 
 #[cfg(test)]
 mod claude_worktree_tests;
+#[cfg(all(test, unix))]
+mod hermes_reaper_tests;
 mod message_hooks;
 mod status_conflict;
 use message_hooks::{delivers_messages, hook_command, journal_hook_command};

@@ -40,7 +40,9 @@ impl std::fmt::Display for RectOutsidePicture {
 impl std::error::Error for RectOutsidePicture {}
 
 struct Band<'a> {
-    src: &'a [u8],
+    /// The band's two source rows, `w` BGRX pixels each.
+    src0: &'a [u8],
+    src1: &'a [u8],
     y0: &'a mut [u8],
     y1: &'a mut [u8],
     u: &'a mut [u8],
@@ -70,14 +72,16 @@ pub fn bgrx_rect_to_i420(
     let y_plane = dst.y.get_mut(y * dw..(y + h) * dw).ok_or(outside)?;
     let u_plane = dst.u.get_mut((y / 2) * cw..((y + h) / 2) * cw).ok_or(outside)?;
     let v_plane = dst.v.get_mut((y / 2) * cw..((y + h) / 2) * cw).ok_or(outside)?;
-    let mut bands: Vec<Band> = src
-        .chunks_exact(2 * w * 4)
+    let mut src_rows = src.chunks_exact(w * 4);
+    let src_bands = std::iter::from_fn(|| Some((src_rows.next()?, src_rows.next()?)));
+    let mut bands: Vec<Band> = src_bands
         .zip(y_plane.chunks_exact_mut(2 * dw))
         .zip(u_plane.chunks_exact_mut(cw).zip(v_plane.chunks_exact_mut(cw)))
-        .map(|((s, yy), (u, v))| {
+        .map(|(((src0, src1), yy), (u, v))| {
             let (y0, y1) = yy.split_at_mut(dw);
             Some(Band {
-                src: s,
+                src0,
+                src1,
                 y0: y0.get_mut(x..x + w)?,
                 y1: y1.get_mut(x..x + w)?,
                 u: u.get_mut(x / 2..(x + w) / 2)?,
@@ -88,13 +92,14 @@ pub fn bgrx_rect_to_i420(
         .ok_or(outside)?;
     // Small rects (the marker) are cheaper on one thread than the spawn cost.
     if threads <= 1 || w * h < 256 * 1024 {
-        bands.iter_mut().for_each(|b| convert_band(b, w));
+        bands.iter_mut().for_each(convert_band);
         return Ok(());
     }
-    let per = bands.len().div_ceil(threads);
+    // `chunks_mut` needs a nonzero size, and a `src` shorter than one band leaves no bands.
+    let per = bands.len().div_ceil(threads).max(1);
     std::thread::scope(|s| {
         for chunk in bands.chunks_mut(per) {
-            s.spawn(move || chunk.iter_mut().for_each(|b| convert_band(b, w)));
+            s.spawn(move || chunk.iter_mut().for_each(convert_band));
         }
     });
     Ok(())
@@ -105,10 +110,8 @@ fn luma(r: i32, g: i32, b: i32) -> u8 {
     (((66 * r + 129 * g + 25 * b + 128) >> 8) + 16) as u8
 }
 
-fn convert_band(b: &mut Band, w: usize) {
-    // A band's source is two rows of `w` BGRX pixels (chunks_exact in the caller).
-    let Some((s0, s1)) = b.src.split_at_checked(w * 4) else { return };
-    let pairs = s0.as_chunks::<8>().0.iter().zip(s1.as_chunks::<8>().0);
+fn convert_band(b: &mut Band) {
+    let pairs = b.src0.as_chunks::<8>().0.iter().zip(b.src1.as_chunks::<8>().0);
     let outs = b.y0.as_chunks_mut::<2>().0.iter_mut().zip(b.y1.as_chunks_mut::<2>().0.iter_mut());
     let outs = outs.zip(b.u.iter_mut().zip(b.v.iter_mut()));
     for ((p0, p1), ((ya, yb), (u, v))) in pairs.zip(outs) {

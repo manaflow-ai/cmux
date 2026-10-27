@@ -31,6 +31,25 @@ fn a_rect_outside_the_picture_is_an_error_and_leaves_it_unchanged() {
     assert_eq!(pic, before);
 }
 
+#[test]
+fn a_large_rect_converts_on_every_thread() {
+    let mut pic = I420::new(512, 512);
+    let src = vec![255u8; 512 * 512 * 4];
+    bgrx_rect_to_i420(&src, &mut pic, 0, 0, 512, 512, 4).expect("the rect fills the picture");
+    assert!(pic.y.iter().all(|&luma| luma == 235));
+    assert!(pic.u.iter().chain(&pic.v).all(|&chroma| chroma == 128));
+}
+
+#[test]
+fn a_source_shorter_than_one_band_converts_nothing_on_the_threaded_path() {
+    // 512 x 512 is 256K pixels, the threaded path; one source row is no whole 2-row band.
+    let mut pic = I420::new(512, 512);
+    let before = pic.clone();
+    let src = vec![255u8; 512 * 4];
+    bgrx_rect_to_i420(&src, &mut pic, 0, 0, 512, 512, 2).expect("the rect fits the picture");
+    assert_eq!(pic, before);
+}
+
 #[cfg(feature = "openh264-source")]
 #[test]
 fn openh264_from_source_encodes_an_idr_on_request() {

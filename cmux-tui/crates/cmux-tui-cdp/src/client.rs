@@ -1549,9 +1549,18 @@ fn drain_outbound<W: OutboundWriter>(
     }
 }
 
+/// Characters of an inbound message the `CMUX_MUX_CDP_DEBUG` log keeps.
+const DEBUG_EXCERPT_CHARS: usize = 300;
+
+/// The start of an inbound message for the debug log, cut on a character
+/// boundary (a message is UTF-8 text from the browser, of any content).
+fn debug_excerpt(text: &str) -> String {
+    text.chars().take(DEBUG_EXCERPT_CHARS).collect()
+}
+
 fn handle_text(inner: &Arc<Inner>, text: &str) {
     if cdp_debug() {
-        eprintln!("cdp<- {}", text.chars().take(300).collect::<String>());
+        eprintln!("cdp<- {}", debug_excerpt(text));
     }
     let Ok(value) = serde_json::from_str::<Value>(text) else { return };
     if let Some(id) = value.get("id").and_then(|v| v.as_u64()) {
@@ -2145,6 +2154,17 @@ mod tests {
     use tungstenite::{Message, accept, accept_hdr};
 
     use super::*;
+
+    #[test]
+    fn the_debug_excerpt_cuts_a_message_on_a_character_boundary() {
+        // Byte 300 falls inside the two-byte `é` at bytes 299..301: a byte cut panicked.
+        let message = format!("{}é{}", "x".repeat(299), "y".repeat(50));
+        assert!(!message.is_char_boundary(300));
+        let excerpt = debug_excerpt(&message);
+        assert_eq!(excerpt.chars().count(), DEBUG_EXCERPT_CHARS);
+        assert!(excerpt.ends_with('é'));
+        assert_eq!(debug_excerpt("{}"), "{}");
+    }
 
     #[test]
     #[allow(clippy::result_large_err)]

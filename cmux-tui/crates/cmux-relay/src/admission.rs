@@ -86,8 +86,10 @@ fn accept_retry_delay(attempt: u32) -> Duration {
     ACCEPT_RETRY_INITIAL.checked_mul(multiplier).unwrap_or(ACCEPT_RETRY_MAX).min(ACCEPT_RETRY_MAX)
 }
 
-pub struct AdmissionStream {
-    inner: TcpStream,
+/// A connection under the listener's bounds; `S` is the socket (a TCP stream
+/// in the relay, any stream in tests).
+pub struct AdmissionStream<S = TcpStream> {
+    inner: S,
     _permit: OwnedSemaphorePermit,
     deadline: Pin<Box<Sleep>>,
     idle_deadline: Option<Instant>,
@@ -98,9 +100,9 @@ pub struct AdmissionStream {
     header_complete: bool,
 }
 
-impl AdmissionStream {
+impl<S> AdmissionStream<S> {
     fn new(
-        inner: TcpStream,
+        inner: S,
         permit: OwnedSemaphorePermit,
         header_timeout: Duration,
         keepalive_timeout: Duration,
@@ -184,7 +186,7 @@ impl AdmissionStream {
     }
 }
 
-impl AsyncRead for AdmissionStream {
+impl<S: AsyncRead + Unpin> AsyncRead for AdmissionStream<S> {
     fn poll_read(
         mut self: Pin<&mut Self>,
         context: &mut Context<'_>,
@@ -206,7 +208,7 @@ impl AsyncRead for AdmissionStream {
     }
 }
 
-impl AsyncWrite for AdmissionStream {
+impl<S: AsyncWrite + Unpin> AsyncWrite for AdmissionStream<S> {
     fn poll_write(
         mut self: Pin<&mut Self>,
         context: &mut Context<'_>,
@@ -257,5 +259,36 @@ mod tests {
         let config = RelayConfig { allow_open: true, ..RelayConfig::default() };
         let admission = AdmissionListener::new(listener, &config);
         assert_eq!(admission.permits.available_permits(), config.max_http_connections);
+    }
+
+    /// A socket that reports success but takes back what the buffer held.
+    struct RewindsTheBuffer;
+
+    impl AsyncRead for RewindsTheBuffer {
+        fn poll_read(
+            self: Pin<&mut Self>,
+            _context: &mut Context<'_>,
+            buffer: &mut ReadBuf<'_>,
+        ) -> Poll<io::Result<()>> {
+            buffer.set_filled(0);
+            Poll::Ready(Ok(()))
+        }
+    }
+
+    #[tokio::test]
+    async fn a_socket_that_shrinks_the_read_buffer_is_a_read_error() {
+        let permit = std::sync::Arc::new(Semaphore::new(1)).acquire_owned().await.unwrap();
+        let timeout = Duration::from_secs(5);
+        let mut stream = AdmissionStream::new(RewindsTheBuffer, permit, timeout, timeout, 1024);
+        let mut storage = [0u8; 16];
+        let mut buffer = ReadBuf::new(&mut storage);
+        buffer.put_slice(b"GET ");
+        // At the base, slicing `filled()[4..]` of an empty buffer panicked here.
+        let result =
+            std::future::poll_fn(|context| Pin::new(&mut stream).poll_read(context, &mut buffer))
+                .await;
+        let error = result.unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::Other);
+        assert_eq!(error.to_string(), "the inner stream shrank the read buffer");
     }
 }

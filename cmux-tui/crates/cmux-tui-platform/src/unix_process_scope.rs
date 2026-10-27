@@ -744,11 +744,7 @@ impl ProcessScopeTracker {
                 {
                     gate.pause_once();
                 }
-                for (scope, identity) in scan.matches {
-                    if let Some(scope) = scopes.get(scope) {
-                        record_tracked_process(scope, identity);
-                    }
-                }
+                record_scan_matches(&scopes, &scan.matches);
                 if let Some((scope, snapshots, mut matches)) = completed {
                     let snapshots = snapshots.into_values().collect::<Vec<_>>();
                     include_lineage_matches(std::slice::from_ref(&scope), &snapshots, &mut matches);
@@ -770,17 +766,23 @@ impl ProcessScopeTracker {
                     }
                 }
             } else {
-                for (scope, identity) in scan.matches {
-                    if let Some(scope) = scopes.get(scope) {
-                        record_tracked_process(scope, identity);
-                    }
-                }
+                record_scan_matches(&scopes, &scan.matches);
             }
             let state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
             let _ = self
                 .changed
                 .wait_timeout_while(state, TRACK_INTERVAL, |state| state.revision == revision)
                 .unwrap_or_else(PoisonError::into_inner);
+        }
+    }
+}
+
+/// Records each scan match with the scope it was found for: a match's index is
+/// its scope's position in the `scopes` the scan was given.
+fn record_scan_matches(scopes: &[ScopeRegistration], matches: &HashSet<(usize, ProcessIdentity)>) {
+    for (index, scope) in scopes.iter().enumerate() {
+        for (_, identity) in matches.iter().filter(|(scope_index, _)| *scope_index == index) {
+            record_tracked_process(scope, *identity);
         }
     }
 }
@@ -1463,6 +1465,10 @@ fn scan_registered_processes(
 fn process_identity(pid: u32) -> Option<ProcessIdentity> {
     Some(ProcessIdentity { pid, started: 0 })
 }
+
+#[cfg(test)]
+#[path = "unix_process_scope_poison_tests.rs"]
+mod poison_tests;
 
 #[cfg(test)]
 mod launcher_tests {

@@ -118,6 +118,34 @@ impl BlockingKind {
         }
     }
 
+    /// This kind's slot of a per-kind array (`ALL` order).
+    fn slot<T>(self, slots: &[T; KIND_COUNT]) -> &T {
+        let [
+            sqlite,
+            journal_wait,
+            process_spawn,
+            fs_write,
+            host_wait,
+            sleep,
+            proc_scan,
+            child_process,
+            network,
+            lock_hold_over_1ms,
+        ] = slots;
+        match self {
+            Self::Sqlite => sqlite,
+            Self::JournalWait => journal_wait,
+            Self::ProcessSpawn => process_spawn,
+            Self::FsWrite => fs_write,
+            Self::HostWait => host_wait,
+            Self::Sleep => sleep,
+            Self::ProcScan => proc_scan,
+            Self::ChildProcess => child_process,
+            Self::Network => network,
+            Self::LockHoldOver1ms => lock_hold_over_1ms,
+        }
+    }
+
     fn from_index(index: u8) -> Option<Self> {
         Self::ALL.get(usize::from(index)).copied()
     }
@@ -264,7 +292,7 @@ impl RequestPathStats {
 
     /// Notes of `kind` since the daemon started.
     pub fn count(&self, kind: BlockingKind) -> u64 {
-        self.counts.get(kind as usize).map_or(0, |count| count.load(Ordering::Relaxed))
+        kind.slot(&self.counts).load(Ordering::Relaxed)
     }
 
     /// The recorded sites, newest first (empty unless the mode records). A
@@ -273,7 +301,7 @@ impl RequestPathStats {
         let written = self.ring_next.load(Ordering::Acquire);
         (0..written.min(SITE_RING_LEN))
             .filter_map(|age| {
-                let slot = self.ring.get((written - 1 - age) % SITE_RING_LEN)?;
+                let slot = self.ring_slot(written - 1 - age);
                 let site = slot.site.load(Ordering::Acquire);
                 // SAFETY: the ring stores only pointers taken from `&'static Location`.
                 let site: &'static Location<'static> = unsafe { site.as_ref() }?;
@@ -283,21 +311,25 @@ impl RequestPathStats {
             .collect()
     }
 
+    /// The ring slot of the note written `position`-th since the start.
+    #[allow(
+        clippy::indexing_slicing,
+        reason = "INVARIANT: `position % SITE_RING_LEN` is below SITE_RING_LEN, the ring's length"
+    )]
+    fn ring_slot(&self, position: usize) -> &RingSlot {
+        &self.ring[position % SITE_RING_LEN]
+    }
+
     /// Count one note: whether it was recorded, and whether the mode panics
     /// on it.
     fn noted(&self, kind: BlockingKind, site: &'static Location<'static>) -> (Noted, bool) {
-        if let Some(count) = self.counts.get(kind as usize) {
-            count.fetch_add(1, Ordering::Relaxed);
-        }
+        kind.slot(&self.counts).fetch_add(1, Ordering::Relaxed);
         if !self.mode.record {
             return (Noted::Counted, false);
         }
-        if let Some(slot) =
-            self.ring.get(self.ring_next.fetch_add(1, Ordering::AcqRel) % SITE_RING_LEN)
-        {
-            slot.kind.store(kind as u8, Ordering::Relaxed);
-            slot.site.store(std::ptr::from_ref(site).cast_mut(), Ordering::Release);
-        }
+        let slot = self.ring_slot(self.ring_next.fetch_add(1, Ordering::AcqRel));
+        slot.kind.store(kind as u8, Ordering::Relaxed);
+        slot.site.store(std::ptr::from_ref(site).cast_mut(), Ordering::Release);
         let _ = writeln!(
             std::io::stderr().lock(),
             "REQUEST_PATH_IO kind={kind} site={}:{}",
