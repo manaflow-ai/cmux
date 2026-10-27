@@ -37,6 +37,9 @@ actor CodexBrokerSession {
     private let input: FileHandle
     private let output: FileHandle
     private var buffer = Data()
+    private var stopped = false
+    private var exited = false
+    private var exitWaiters: [CheckedContinuation<Void, Never>] = []
     private var nextID = 0
     private var pending: [Int: CheckedContinuation<BrokerResult, any Swift.Error>] = [:]
 
@@ -48,7 +51,9 @@ actor CodexBrokerSession {
         process.executableURL = executable
         process.arguments = executablePrefix + ["codex-auth-broker", "--home", home.path, "--codex", codexExecutable.path]
         var environment = ["PATH": inheritedEnvironment["PATH"] ?? "/usr/bin:/bin", "HOME": inheritedEnvironment["HOME"] ?? FileManager.default.homeDirectoryForCurrentUser.path]
-        if let user = inheritedEnvironment["USER"] { environment["USER"] = user }
+        for key in ["USER", "TMPDIR", "SSL_CERT_FILE", "SSL_CERT_DIR"] {
+            if let value = inheritedEnvironment[key] { environment[key] = value }
+        }
         process.environment = environment
         process.standardInput = inputPipe
         process.standardOutput = outputPipe
@@ -70,7 +75,7 @@ actor CodexBrokerSession {
         }
         process.terminationHandler = { [weak self] _ in
             // task-owner: termination handler reports EOF to the stored reader task.
-            Task { await self?.terminatePending() }
+            Task { await self?.didExit() }
         }
     }
 
@@ -81,6 +86,8 @@ actor CodexBrokerSession {
     }
 
     func request(method: String, force: Bool? = nil, previousAccountID: String? = nil) async throws -> BrokerResult {
+        try Task.checkCancellation()
+        guard !stopped, process.isRunning else { throw Error.invalidReply }
         nextID += 1
         let id = nextID
         let object = BrokerRequest(id: id, method: method, force: force, previousAccountId: previousAccountID)
@@ -91,6 +98,7 @@ actor CodexBrokerSession {
         line.append(0x0A)
         return try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { continuation in
+                guard !Task.isCancelled else { continuation.resume(throwing: CancellationError()); return }
                 pending[id] = continuation
                 do {
                     try input.write(contentsOf: line)
@@ -101,7 +109,7 @@ actor CodexBrokerSession {
             }
         } onCancel: {
             // task-owner: cancellation is sent to the session actor and does not outlive its private child.
-            Task.detached(priority: .utility) { await self.cancelPending() }
+            Task { await self.cancel(id) }
         }
     }
 
@@ -120,6 +128,7 @@ actor CodexBrokerSession {
                   let continuation = pending.removeValue(forKey: reply.id) else { continue }
             if let error = reply.error {
                 if error == "codex_auth_account_changed" { continuation.resume(throwing: Error.accountChanged) }
+                else if error == "codex_auth_timeout" { continuation.resume(throwing: Error.timedOut) }
                 else if error == "codex_auth_unavailable" { continuation.resume(throwing: Error.notAuthenticated) }
                 else { continuation.resume(throwing: Error.invalidReply) }
             } else if let result = reply.result {
@@ -137,16 +146,30 @@ actor CodexBrokerSession {
         for continuation in waiting { continuation.resume(throwing: Error.invalidReply) }
     }
 
-    func shutdown() {
-        cancelPending()
-        if process.isRunning { process.terminate() }
-    }
-
-    private func cancelPending() {
-        guard !pending.isEmpty else { return }
+    /// The holder releases its inherited credential lock only after its child
+    /// exits. Do not allow a replacement to race that cleanup after SIGTERM.
+    func shutdown() async {
+        stopped = true
         let waiting = pending.values
         pending.removeAll()
         for continuation in waiting { continuation.resume(throwing: CancellationError()) }
         if process.isRunning { process.terminate() }
+        if exited || !process.isRunning { return }
+        await withCheckedContinuation { exitWaiters.append($0) }
+    }
+
+    private func didExit() {
+        exited = true
+        stopped = true
+        terminatePending()
+        let waiting = exitWaiters
+        exitWaiters.removeAll()
+        for continuation in waiting { continuation.resume() }
+    }
+
+    private func cancel(_ id: Int) {
+        // The holder serializes provider work. Let its bounded in-flight request
+        // finish, discard this caller's reply, and preserve other callers.
+        pending.removeValue(forKey: id)?.resume(throwing: CancellationError())
     }
 }

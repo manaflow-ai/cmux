@@ -21,6 +21,23 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::process::{Child, ChildStdin, ChildStdout, Command};
 use tokio_util::codec::{FramedRead, FramedWrite, LinesCodec};
 
+#[derive(Debug)]
+struct AccountChanged;
+impl std::fmt::Display for AccountChanged {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("Codex account changed")
+    }
+}
+impl std::error::Error for AccountChanged {}
+
+fn error_code(error: &anyhow::Error) -> &'static str {
+    if error.is::<AccountChanged>() {
+        "codex_auth_account_changed"
+    } else {
+        "codex_auth_unavailable"
+    }
+}
+
 const LIMIT: usize = 64 * 1024;
 const DEADLINE: Duration = Duration::from_secs(8);
 
@@ -72,7 +89,7 @@ async fn serve(owner: &mut Owner, home: &Path) -> Result<()> {
             .ok_or_else(|| anyhow!("broker request needs a numeric id"))?;
         let reply = match tokio::time::timeout(DEADLINE, owner.request(home, &request)).await {
             Ok(Ok(result)) => json!({"id": id, "result": result}),
-            Ok(Err(_)) => json!({"id": id, "error": "codex_auth_unavailable"}),
+            Ok(Err(error)) => json!({"id": id, "error": error_code(&error)}),
             Err(_) => {
                 // A timed-out app-server request may still mutate the cache.
                 // End this owned child before releasing the exclusive lock.
@@ -311,7 +328,9 @@ impl Owner {
     async fn request(&mut self, home: &Path, request: &Value) -> Result<Value> {
         match request.get("method").and_then(Value::as_str) {
             Some("login") => {
-                ensure!(self.account.is_none(), "sign out before changing the broker account");
+                if self.account.is_some() {
+                    return Err(AccountChanged.into());
+                }
                 // Access polling must not return a previous process's cache
                 // before this explicitly requested browser sign-in finishes.
                 self.call("account/logout", json!({})).await?;
@@ -341,10 +360,14 @@ impl Owner {
                     .as_str()
                     .ok_or_else(|| anyhow!("Codex account missing"))?;
                 if let Some(expected) = self.account.as_deref() {
-                    ensure!(account == expected, "Codex account changed");
+                    if account != expected {
+                        return Err(AccountChanged.into());
+                    }
                 }
                 if let Some(expected) = request.get("previousAccountId").and_then(Value::as_str) {
-                    ensure!(account == expected, "Codex account changed");
+                    if account != expected {
+                        return Err(AccountChanged.into());
+                    }
                 }
                 self.account = Some(account.to_owned());
                 Ok(token)
