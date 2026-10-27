@@ -26,18 +26,26 @@
 //!   [`automation_capacity`] of a server cap, the person all of it.
 //! - **The registry lock.** The workspace registry, its connection and the
 //!   mux state lock admit a waiting frontend caller first with a starvation
-//!   bound (priority_gate.rs), keyed on the request's cause, which the
-//!   person's requests carry as `frontend`.
+//!   bound (priority_gate.rs), keyed on the request's scheduling cause. A
+//!   frame takes that cause from the same class ([`RequestClass::cause_of`]):
+//!   a person request is `frontend` and an automation one `automation`,
+//!   whatever its origin derives to, so the app's other connections (an
+//!   `agent` origin from the verified app's process) wait at the lock as
+//!   they do for a worker. An `origin` or `priority` claim on the line can
+//!   still only narrow it (connection_frame.rs).
 //!
-//! The pool and the permits order by class under the default-off daemon
-//! feature [`FEATURE`] (schemas/features/features.d/daemonPersonFirst.json);
-//! with it off every request is the person's, as before. Scheduling only:
-//! authorization reads the request origin (server/origin_gate.rs).
+//! The pool, the permits and the lock order by class under the default-off
+//! daemon feature [`FEATURE`] (schemas/features/features.d/daemonPersonFirst.json);
+//! with it off every request is the person's in the pool and at the
+//! permits, and the lock keys on the origin's cause, as before. Scheduling
+//! only: authorization reads the request origin (server/origin_gate.rs).
 
 use std::collections::VecDeque;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use super::connection_scheduler::connection_qos::{ConnectionClass, ConnectionClassCell};
+use crate::event_cause::EventCause;
+use crate::request_origin::RequestOrigin;
 
 /// The registry name of the feature that orders requests by class.
 pub(crate) const FEATURE: &str = "daemonPersonFirst";
@@ -102,6 +110,32 @@ impl RequestClass {
     /// class with [`FEATURE`] on, the person's with it off.
     pub(in crate::server) fn of_cell(cell: &ConnectionClassCell) -> Self {
         if cell.person_first() { Self::of_connection(cell.get()) } else { Self::Person }
+    }
+
+    /// The scheduling cause of a request whose origin derives to `origin`
+    /// on the connection of `cell`, which the registry, connection and mux
+    /// state locks admit by (priority_gate.rs): its class's
+    /// ([`Self::event_cause`]) with [`FEATURE`] on, so the locks key on the
+    /// class the pool and the permits key on ([`Self::of_cell`]); the
+    /// origin's with it off.
+    pub(in crate::server) fn cause_of(
+        cell: &ConnectionClassCell,
+        origin: RequestOrigin,
+    ) -> EventCause {
+        if cell.person_first() {
+            Self::of_connection(cell.get()).event_cause()
+        } else {
+            origin.event_cause()
+        }
+    }
+
+    /// The cause a request of this class runs under: the person's is
+    /// `frontend`, automation's `automation`.
+    pub(in crate::server) const fn event_cause(self) -> EventCause {
+        match self {
+            Self::Person => EventCause::Frontend,
+            Self::Automation => EventCause::Automation,
+        }
     }
 }
 

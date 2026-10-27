@@ -8,7 +8,11 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use super::*;
+use crate::event_cause::EventCauseScope;
+use crate::panic_free::RecoverPoison;
+use crate::request_origin::HelloRole;
 use crate::server::connection_scheduler::connection_qos::{ConnectionClass, ConnectionClassCell};
+use crate::server::priority_gate::PriorityGate;
 use crate::server::sequenced_pool::{PoolConfig, Sequence, SequencePriority, SequencedPool};
 use crate::server::tests::captured_writer;
 use crate::server::worker_admission::{
@@ -276,4 +280,96 @@ fn request_priority_a_sequence_moved_to_the_person_wakes_a_worker() {
     assert_eq!(ran_rx.recv_timeout(WAIT).ok(), Some(1), "the moved sequence runs");
     assert_eq!(ran_rx.recv_timeout(WAIT).ok(), Some(2));
     drop(release);
+}
+
+/// A verified app connection, then an `agent`-origin connection of the
+/// app's process (its `terminal_attach`, `journal_read`, ...) and one of
+/// another process, with `daemonPersonFirst` `enabled`.
+fn app_process_connections(enabled: bool) -> (Arc<crate::Mux>, u64, u64) {
+    use crate::server::origin_gate::{set_hello, set_install_proved, set_peer_key_for_test};
+    let mux =
+        crate::Mux::new_for_test("request-priority-app-process", crate::SurfaceOptions::default());
+    mux.control_clients.person_first.set_for_test(enabled);
+    let connect = |key: Option<&str>| {
+        let (writer, _outbound) = captured_writer();
+        let client = mux.control_clients.register(ClientTransport::Unix, writer);
+        if let Some(key) = key {
+            set_peer_key_for_test(&mux, client, key);
+        }
+        client
+    };
+    let app_key = "token:5151.3";
+    let app = connect(None);
+    assert!(set_hello(&mux, app, HelloRole::Main, Some(app_key.into()), false, None));
+    assert!(set_install_proved(&mux, app, "install_1"));
+    let app_process = connect(Some(app_key));
+    let other_process = connect(Some("token:6262.1"));
+    for client in [app_process, other_process] {
+        mux.control_clients.classify_connection(client);
+        let state = mux.control_clients.state.lock().recover_poison();
+        assert_eq!(state.clients[&client].origin.derive(), RequestOrigin::Agent);
+    }
+    (mux, app_process, other_process)
+}
+
+/// The class `client`'s next frame takes a `PriorityGate` lock as: the
+/// gate's per-class stats after one uncontended acquisition under the cause
+/// the frame enters (`Mux::frame_client`).
+fn gate_class(mux: &crate::Mux, client: u64) -> RequestClass {
+    let (_, cause) = mux.frame_client(client);
+    let _cause = EventCauseScope::enter(cause);
+    let gate = PriorityGate::new();
+    let lock = Mutex::new(());
+    let admission = gate.admission();
+    let acquired = admission.try_admit(&|| lock.try_lock().ok());
+    assert!(acquired.is_some(), "an uncontended lock admits at once");
+    let stats = gate.snapshot();
+    match (stats.frontend.wait_us.count, stats.automation.wait_us.count) {
+        (1, 0) => RequestClass::Person,
+        (0, 1) => RequestClass::Automation,
+        counts => panic!("one acquisition as frontend or automation, got {counts:?}"),
+    }
+}
+
+/// With `daemonPersonFirst` on, an `agent`-origin connection of the
+/// verified app's process is the person's in the sequenced pool and at the
+/// registry, connection and mux state locks alike; another process's is
+/// automation's at both.
+#[test]
+fn request_priority_one_class_orders_the_pool_and_the_locks() {
+    let (mux, app_process, other_process) = app_process_connections(true);
+    for (client, expected) in
+        [(app_process, RequestClass::Person), (other_process, RequestClass::Automation)]
+    {
+        let pool_class = RequestClass::of_cell(&mux.control_clients.connection_class(client));
+        assert_eq!(pool_class, expected, "the pool's class");
+        assert_eq!(gate_class(&mux, client), expected, "the lock's class");
+    }
+    mux.shutdown();
+}
+
+/// With the feature off the locks key on the origin, as before.
+#[test]
+fn request_priority_locks_key_on_the_origin_without_the_feature() {
+    let (mux, app_process, other_process) = app_process_connections(false);
+    for client in [app_process, other_process] {
+        assert_eq!(gate_class(&mux, client), RequestClass::Automation);
+    }
+    mux.shutdown();
+}
+
+#[test]
+fn request_priority_cause_follows_the_class_with_the_feature() {
+    use ConnectionClass::{Automation, Person, Unclassified};
+    for (class, origin, on, off) in [
+        (Person, RequestOrigin::Agent, EventCause::Frontend, EventCause::Automation),
+        (Automation, RequestOrigin::User, EventCause::Automation, EventCause::Frontend),
+        (Unclassified, RequestOrigin::Page, EventCause::Frontend, EventCause::Automation),
+    ] {
+        for (enabled, expected) in [(true, on), (false, off)] {
+            let cell = ConnectionClassCell::of_client(1, enabled);
+            cell.set(class);
+            assert_eq!(RequestClass::cause_of(&cell, origin), expected, "{class:?} on: {enabled}");
+        }
+    }
 }

@@ -111,18 +111,19 @@ impl super::ClientRegistry {
         self.state.lock().ok()?.clients.get(&client).map(|record| record.transport)
     }
 
-    /// [`Self::transport_of`] with the origin the client derives, in the
-    /// same lock: a frame reads both once.
-    fn transport_and_origin_of(
+    /// [`Self::transport_of`] with the scheduling cause of the client's
+    /// requests (`RequestClass::cause_of`), in the same lock: a frame reads
+    /// both once.
+    fn transport_and_cause_of(
         &self,
         client: u64,
-    ) -> Option<(ClientTransport, crate::request_origin::RequestOrigin)> {
-        self.state
-            .lock()
-            .ok()?
-            .clients
-            .get(&client)
-            .map(|record| (record.transport, record.origin.derive()))
+    ) -> Option<(ClientTransport, crate::event_cause::EventCause)> {
+        self.state.lock().ok()?.clients.get(&client).map(|record| {
+            let origin = record.origin.derive();
+            let cause =
+                super::request_priority::RequestClass::cause_of(&record.connection_class, origin);
+            (record.transport, cause)
+        })
     }
 
     /// True for a connection that came through the remote entry (tests;
@@ -147,9 +148,8 @@ impl Mux {
     /// registry does not list is remote, and its cause is automation, as
     /// the origin gate treats it as an agent.
     pub(super) fn frame_client(&self, client: u64) -> (bool, crate::event_cause::EventCause) {
-        let found = self.control_clients.transport_and_origin_of(client);
-        let cause = found
-            .map_or(crate::event_cause::EventCause::Automation, |(_, origin)| origin.event_cause());
+        let found = self.control_clients.transport_and_cause_of(client);
+        let cause = found.map_or(crate::event_cause::EventCause::Automation, |(_, cause)| cause);
         (self.is_remote_with(client, found.map(|(transport, _)| transport)), cause)
     }
 

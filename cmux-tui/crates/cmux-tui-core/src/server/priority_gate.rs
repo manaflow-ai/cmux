@@ -3,8 +3,9 @@
 //!
 //! The registry lock, the registry connection lock and the mux state lock
 //! each acquire through a [`PriorityGate`]. The class is the thread's
-//! [`EventCause`] (the request's origin, entered by the dispatcher and
-//! carried to pool jobs):
+//! [`EventCause`] (the request's origin, or under `daemonPersonFirst` its
+//! connection's class (server/request_priority.rs), entered by the
+//! dispatcher and carried to pool jobs):
 //!
 //! - a frontend caller that must wait counts itself in `frontend_waiting`
 //!   and queues on the lock;
