@@ -481,9 +481,7 @@ jobs:
   # whose range changes a file in .github/release-surface.txt waits for an
   # approval (await-release-surface-ack, then promote-nightly-next-acked moves
   # it); the surface file's policy line says whether a lander of the range may
-  # give it. The newest request wins: guard.decideNewest() decides the newest
-  # commit among this request and the requests still waiting for that approval,
-  # and await-release-surface-ack cancels the older waiters.
+  # give it.
   #
   # One shared concurrency group keeps a single writer. GitHub keeps only one
   # waiting job in it and cancels that job when another request arrives, so
@@ -601,10 +599,9 @@ jobs:
   # moved nightly-next, which already made every waiter unapprovable
   # (ackDecision refuses a moved nightly-next), so it clears them. A request that
   # a live waiter supersedes ("superseded": the waiter's commit contains the
-  # request's, or the waiter is already approved) never enters. The name carries the
-  # decision; guard.pendingPromotions() reads it, so keep the two in step. When
-  # the guard could not read the other requests, the job waits in its own group
-  # and cancels nothing.
+  # request's, or the waiter is already approved) never enters. When the guard
+  # could not read the other requests, the job waited in its own group and
+  # cancelled nothing. The guard no longer reads this job.
   await-release-surface-ack:
     name: nightly-next promotion ${{ needs.promote-nightly-next.outputs.sha }} from ${{ needs.promote-nightly-next.outputs.current || 'none' }}
     needs: promote-nightly-next
