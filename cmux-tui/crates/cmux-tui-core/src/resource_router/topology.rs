@@ -80,8 +80,7 @@ pub(super) fn dispatch(
             get_resource(mux, &request.selectors, ResourceTarget::Screen, "screens")
         }
         ResourceOperation::ScreenLayoutExport => {
-            Ok(get_resource(mux, &request.selectors, ResourceTarget::Screen, "screens")?["layout"]
-                .clone())
+            screen_layout(get_resource(mux, &request.selectors, ResourceTarget::Screen, "screens")?)
         }
         ResourceOperation::PaneList => {
             let scope = optional_scope(&request.selectors, ResourceTarget::Screen);
@@ -130,14 +129,27 @@ fn list_resources(
     let path = mux.resolve_resource_path(scope, selectors)?;
     let snapshot = public_session_snapshot(mux)?;
     let path_index = SnapshotPathIndex::new(&snapshot);
-    let values = snapshot[collection]
-        .as_array()
+    let values = snapshot
+        .get(collection)
+        .and_then(Value::as_array)
         .ok_or_else(|| malformed_collection(operation, collection))?
         .iter()
         .filter(|value| path_index.contains(collection, value, &path))
         .cloned()
         .collect();
     Ok(Value::Array(values))
+}
+
+/// A public screen always carries its `layout` document (`resource_screen.rs`);
+/// one without it is a broken snapshot, reported rather than exported as `null`.
+fn screen_layout(mut screen: Value) -> Result<Value, ResourceError> {
+    screen.as_object_mut().and_then(|fields| fields.remove("layout")).ok_or_else(|| {
+        ResourceError::operation_failed(
+            ResourceOperation::ScreenLayoutExport.wire_name(),
+            "public screen value omitted its layout",
+            json!({"field":"layout"}),
+        )
+    })
 }
 
 fn malformed_collection(operation: &str, collection: &str) -> ResourceError {
@@ -383,14 +395,18 @@ fn snapshot_mutation_result(
     result_field: &str,
 ) -> Result<Value, ResourceError> {
     let id = result_id(&commit.result, operation, result_field)?;
-    let value = commit.result["public_value"].clone();
-    if !value.is_object() || value["id"].as_str() != Some(id) {
-        return Err(ResourceError::operation_failed(
-            operation,
-            "topology commit omitted its exact public result",
-            json!({"field":"public_value","id":id}),
-        ));
-    }
+    let value = commit
+        .result
+        .get("public_value")
+        .filter(|value| value.get("id").and_then(Value::as_str) == Some(id))
+        .cloned()
+        .ok_or_else(|| {
+            ResourceError::operation_failed(
+                operation,
+                "topology commit omitted its exact public result",
+                json!({"field":"public_value","id":id}),
+            )
+        })?;
     mutation_result(mux, value, commit.revision, commit.replayed)
 }
 
@@ -399,7 +415,7 @@ fn result_id<'a>(
     operation: &str,
     field: &str,
 ) -> Result<&'a str, ResourceError> {
-    result[field].as_str().ok_or_else(|| {
+    result.get(field).and_then(Value::as_str).ok_or_else(|| {
         ResourceError::operation_failed(
             operation,
             "topology commit omitted its public identity",
@@ -1942,6 +1958,7 @@ mod tests {
         );
     }
 
+    mod malformed_result_tests;
     mod snapshot_mutation_tests;
     mod split_events_projection_tests;
 }

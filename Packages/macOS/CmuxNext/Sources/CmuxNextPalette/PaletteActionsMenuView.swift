@@ -160,7 +160,7 @@ final class PaletteActionsMenuView: NSView {
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
         if let tracking { removeTrackingArea(tracking) }
-        let area = NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self)
+        let area = NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeForHover, .inVisibleRect], owner: self)
         addTrackingArea(area)
         tracking = area
     }
@@ -187,6 +187,7 @@ final class PaletteActionsMenuView: NSView {
         press.began(event)
     }
 
+    // input-coalesce: native (a press highlight: a row hit test per event; it selects only when the row changes)
     override func mouseDragged(with event: NSEvent) {
         guard press.isPressed else { return super.mouseDragged(with: event) }
         press.dragged(event)
@@ -243,7 +244,7 @@ final class PaletteMenuRow: NSView {
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
         trackingAreas.forEach(removeTrackingArea)
-        addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .mouseMoved, .activeAlways, .inVisibleRect],
+        addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .mouseMoved, .activeForHover, .inVisibleRect],
                                        owner: self))
     }
 

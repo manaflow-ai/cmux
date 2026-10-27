@@ -28,12 +28,14 @@
 //! terminal-host-parser (`echo_thread::spawn`), and holder-link, which routes
 //! holder output to its surfaces (cmux-holder's `link::LINK_READER_QOS`; that
 //! crate sits below this one, and a test here keeps the two equal). The connection
-//! reader (mux-conn) and the surface request dispatcher
-//! (mux-control-dispatch) serve automation clients too, so they stay below
+//! reader (mux-conn) and the sequenced pool's control workers
+//! (mux-seq-control) serve automation clients too, so they stay below
 //! InputCritical until the client's class is known (p02-threads task 224).
 
 pub use cmux_threads::QosChange;
 use cmux_threads::ThreadQos;
+/// For a Utility or Background thread that may take a ranked lock.
+pub use cmux_tui_platform::qos::spawn_raisable;
 
 /// What a thread does, which sets the QoS class it runs at.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]

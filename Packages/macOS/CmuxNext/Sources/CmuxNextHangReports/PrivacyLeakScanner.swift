@@ -79,6 +79,11 @@ public nonisolated struct PrivacyLeakScanner: Sendable {
         "$.blackbox[].process": HangReport.blackBoxProcesses,
     ]
 
+    /// The fields that hold a hash (schema 3's blocking site ids, ``HangReport/BlockingSiteCount/siteID(location:)``),
+    /// by schema path: a value of exactly 16 lowercase hex digits there is a hash and holds no text, so it is not
+    /// checked for personal terms (a person named Abbe and the id `0abbe12f3c4d5e6f`); any other value there is.
+    static let hashPaths: Set<String> = ["$.blocking_sites[].site"]
+
     private func walk(_ value: Any, path: String, schemaPath: String, into found: inout [Finding]) {
         switch value {
         case let object as [String: Any]:
@@ -99,7 +104,9 @@ public nonisolated struct PrivacyLeakScanner: Sendable {
                 return
             }
             let closedSetMember = Self.closedSetValues[schemaPath]?.contains(string) ?? false
-            if let kind = kind(of: string, personal: !closedSetMember) { found.append(Finding(path: path, kind: kind)) }
+            let hash = Self.hashPaths.contains(schemaPath)
+                && string.range(of: HangReportBuilder.blockingSitePattern, options: .regularExpression) != nil
+            if let kind = kind(of: string, personal: !closedSetMember && !hash) { found.append(Finding(path: path, kind: kind)) }
         default:
             break
         }
