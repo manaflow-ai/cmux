@@ -205,17 +205,30 @@ fn landed_here(mux: &Mux, host: &str, session: &str) -> bool {
 /// client, and never admits a record from another registry host.
 fn live_registry_session(mux: &Mux, host: &str, session: &str) -> bool {
     let own = format!("{MACHINE_HOST_PREFIX}{}", mux.registry_identity().0);
-    host == own
-        && mux.presentation_snapshot().conversation_tabs.values().any(|record| {
-            matches!(
-                record,
-                ConversationTabRecord::AgentSession {
-                    host: existing_host,
-                    session: Some(existing_session),
-                    ..
-                } if existing_host == host && existing_session == session
-            )
-        })
+    if host != own || mux.agent_session_moved_away(session) {
+        return false;
+    }
+    // The presentation registry retains a closed tab record for reopen/history. Only a
+    // resource identity held by a live surface proves that this daemon still serves the tab.
+    let live_content_ids = mux.with_state(|state| {
+        state
+            .surfaces
+            .values()
+            .filter_map(|surface| surface.resource_identity())
+            .map(|identity| identity.content_id.as_str().to_owned())
+            .collect::<Vec<_>>()
+    });
+    let presentation = mux.presentation_snapshot();
+    live_content_ids.into_iter().any(|content_id| {
+        matches!(
+            presentation.conversation_tabs.get(&content_id),
+            Some(ConversationTabRecord::AgentSession {
+                host: existing_host,
+                session: Some(existing_session),
+                ..
+            }) if existing_host == host && existing_session == session
+        )
+    })
 }
 
 #[cfg(unix)]

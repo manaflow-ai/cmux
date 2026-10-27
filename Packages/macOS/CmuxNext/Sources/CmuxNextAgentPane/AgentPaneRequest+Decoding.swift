@@ -342,7 +342,7 @@ extension AgentPaneRequest {
         case "chat.subagentList": self = .subagentList
         case "chat.subagentPane":
             if let id = params?["subagent"] as? String, !id.isEmpty, id.count <= 256 {
-                self = .subagentPane(id, focus: params?["focus"] as? Bool == true, workspace: params?["workspace"] as? Bool == true)
+                self = .subagentPane(id, focus: params?["focus"] as? Bool == true)
             } else { self = .unsupported(method) }
         case "chat.processTerminal":
             if let id = params?["toolCallId"] as? String, AgentPaneProcessViewer.isToken(id) { self = .processTerminal(toolCall: id) } else { self = .unsupported(method) }

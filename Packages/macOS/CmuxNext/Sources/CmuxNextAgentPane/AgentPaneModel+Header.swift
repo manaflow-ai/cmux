@@ -23,7 +23,6 @@ public struct AgentPaneHeaderHooks {
     /// Shows subagent `agent` of session `session` in an agent pane right of the chat
     /// (``AgentSubagentPanes``), focused with `focus`; false when no pane opened.
     public var openSubagentList: (@MainActor (String) -> Bool)?
-    public var openSubagentWorkspace: (@MainActor (String, String) -> Bool)?
     public var openSubagent: @MainActor (_ session: String, _ agent: String, _ focus: Bool) -> Bool
     /// Opens `viewer` (a background process's read-only terminal) in a tab beside the chat; false
     /// when no tab opened.
@@ -181,13 +180,13 @@ extension AgentPaneModel {
                 return AgentPaneReply.failure(code: "unsupported", message: "Unsupported agent pane request: chat.subagentList")
             }
             return AgentPaneReply.success(["opened": header.openSubagentList?(sessionId) ?? false])
-        case .subagentPane(let agent, let focus, let workspace):
+        case .subagentPane(let agent, let focus):
             // The chat's own subagent, in a pane of its own; not from a New Tab page. A refusal
             // answers `opened: false`, leaving the source transcript unchanged.
             guard let sessionId, newTab == nil, let header else {
                 return AgentPaneReply.failure(code: "unsupported", message: "Unsupported agent pane request: chat.subagentPane")
             }
-            return AgentPaneReply.success(["opened": workspace ? (header.openSubagentWorkspace?(sessionId, agent) ?? false) : header.openSubagent(sessionId, agent, focus)])
+            return AgentPaneReply.success(["opened": header.openSubagent(sessionId, agent, focus)])
         case .processTerminal(let call):
             return AgentPaneProcessViewer.open(call, in: self)
         case .chatTab(let chat, let destination):

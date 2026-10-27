@@ -71,6 +71,16 @@ struct AgentSubagentPanesFocusTests {
         #expect(recorder.focused.isEmpty)
     }
 
+    @Test func aSecondBackgroundTabDoesNotStealFocus() {
+        let panes = AgentSubagentPanes()
+        let recorder = Recorder()
+        #expect(panes.open("explore", focus: false, chat: "chat", hooks: recorder.hooks))
+        recorder.land("tab-explore")
+        #expect(panes.open("plan", focus: false, chat: "chat", hooks: recorder.hooks))
+        recorder.land("tab-plan")
+        #expect(recorder.focused.isEmpty, "Cmd-clicking another subagent kept the source focused")
+    }
+
     @Test func aClickKeyPressOrFocusChangeAfterTheClickCancelsTheOwedFocus() {
         let panes = AgentSubagentPanes()
         let recorder = Recorder()

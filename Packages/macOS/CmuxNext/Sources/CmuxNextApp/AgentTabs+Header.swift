@@ -57,9 +57,6 @@ extension AgentTabStore {
             if toggle { toggles.toggle(id, cwd: cwd, extra: extra, chat: chat, store: store, actions: actions) }
             else { toggles.open(id, cwd: cwd, extra: extra, chat: chat, store: store, actions: actions) }
         }
-        model.header?.openSubagentWorkspace = { [weak self] session, agent in
-            self?.openFork(session, at: .workspace, beside: self?.subagentSource(provisional) ?? provisional, reveal: AgentSubagentPanes.reveal(agent)) ?? false
-        }
         model.header?.openSubagentList = { [weak self] session in
             self?.openSubagent(nil, of: session, focus: true, beside: provisional) ?? false
         }
@@ -87,8 +84,8 @@ extension AgentTabStore {
             isOpen: { [weak self] key in self?.isBeside(source, self?.resolve(key) ?? key) ?? false },
             focus: { [weak self] key, script in
                 _ = self?.actionRegistry?.perform("tab.focus", invocation: ActionInvocation(target: ActionTargetRef(kind: .tab, id: self?.resolve(key) ?? key), arguments: script ? ["focus": .bool(true)] : [:], origin: script ? .script : .user))
-            }, reveal: { [weak self] key, agent in
-                self?.revealTurn(AgentSubagentPanes.reveal(agent), in: key)
+            }, reveal: { [weak self] key, _ in
+                self?.revealTurn(reveal, in: key)
             }, place: { [weak self] anchor, hasSide, created, finished in
                 guard let self else { return false }
                 return openBeside(hasSide ? anchor : source, split: !hasSide, origin: focus ? .user : .script, main: source,
@@ -121,7 +118,13 @@ extension AgentTabStore {
         // task-owner: one tab creation, then one move (or, not `split`, one focus) of that tab
         Task { [weak self] in
             guard let tab = try? await pending.value(), let self, await TabMirror.reaches(tab.key, in: locate) else { finished?(false); return }; created?(tab.key)
-            guard split else { _ = actionRegistry?.perform("tab.focus", invocation: ActionInvocation(target: ActionTargetRef(kind: .tab, id: tab.key), origin: origin)); finished?(false); return }
+            guard split else {
+                if origin == .user {
+                    _ = actionRegistry?.perform("tab.focus", invocation: ActionInvocation(target: ActionTargetRef(kind: .tab, id: tab.key), origin: origin))
+                }
+                finished?(false)
+                return
+            }
             _ = actionRegistry?.perform("tab.moveToNewSplit", invocation: ActionInvocation(target: ActionTargetRef(kind: .tab, id: tab.key), arguments: ["direction": .string(direction), "keep_focus": .bool(origin == .script)], origin: origin)) // script: an unfocused subagent open
             if let finished { finished(await TabMirror.reaches(tab.key, in: { [weak self] in self?.locate($0).flatMap { $0.pane != pane ? $0 : nil } })) } // stacking waits for the move
         }
