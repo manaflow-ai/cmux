@@ -185,7 +185,9 @@ test("a read that fails after a lost answer keeps the tab's send spent", async (
   tab.send("first", "claude");
   await new Promise((resolve) => setTimeout(resolve, 0));
   await new Promise((resolve) => setTimeout(resolve, 0));
-  expect(tab.host).toEqual({ kind: "unknown" });
+  // The lost answer stays in view (it may hide a live Run), with Check again.
+  expect(tab.unread).toBe(true);
+  expect(tab.view()).toMatchObject({ task: "first", state: "failed", code: "timeout" });
   expect(tab.spent()).toBe(true);
   expect(tab.send("second", "claude")).toBe(false);
 });
