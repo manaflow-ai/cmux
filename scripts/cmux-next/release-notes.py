@@ -455,8 +455,12 @@ def summary_whats_new_digest(args, lines):
     return document
 
 
-GENERIC_ID = "fixes-and-improvements"
 REPO = "manaflow-ai/cmux"
+# The generic entry, all but its docs link (the span's commits). `check` knows it by every field,
+# so a real highlight that happens to share its id is never taken for it.
+GENERIC_ENTRY = {"id": "fixes-and-improvements", "category": "improved", "title": {"en": "Fixes and improvements"},
+                 "summary": {"en": "This build brings fixes and improvements. The link lists every change in it."},
+                 "platforms": ["macos"], "audience": "all"}
 
 
 def generic_whats_new_digest(args):
@@ -467,10 +471,17 @@ def generic_whats_new_digest(args):
     link = (f"https://github.com/{REPO}/compare/{args.since}...{args.head}" if args.since
             else f"https://github.com/{REPO}/commits/{args.head}")
     return {"schemaVersion": 1, "version": args.short, "channel": "nightly", "date": args.date,
-            "headline": {"en": "Fixes and improvements"},
-            "entries": [{"id": GENERIC_ID, "category": "improved", "title": {"en": "Fixes and improvements"},
-                         "summary": {"en": "This build brings fixes and improvements. The link lists every change in it."},
-                         "platforms": ["macos"], "audience": "all", "docs": link}]}
+            "headline": {"en": "Fixes and improvements"}, "entries": [{**GENERIC_ENTRY, "docs": link}]}
+
+
+def is_generic(entries):
+    """Whether `entries` is exactly the generic entry generic_whats_new_digest writes."""
+    if len(entries) != 1:
+        return False
+    entry = dict(entries[0])
+    docs = entry.pop("docs", "")
+    return entry == GENERIC_ENTRY and isinstance(docs, str) and (
+        docs.startswith(f"https://github.com/{REPO}/compare/") or docs.startswith(f"https://github.com/{REPO}/commits/"))
 
 
 def write_community_summary(digest, args):
@@ -729,7 +740,7 @@ def check(args):
     if problems:
         print("\n".join(problems), file=sys.stderr)
         return 1
-    if [e.get("id") for e in entries] == [GENERIC_ID]:
+    if is_generic(entries):
         message = (f"No What's New entries for {notes.get('shortVersion')}: publishing the generic \"Fixes and "
                    f"improvements\" entry ({entries[0]['docs']}). Land a user-facing commit or add "
                    "release-notes/next/highlights/<name>.md (see release-notes/next/WRITING.md).")

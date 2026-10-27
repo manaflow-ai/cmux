@@ -366,6 +366,24 @@ class ReleaseNotesTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn("docs must be an https URL", result.stderr)
 
+    def test_a_highlight_sharing_the_generic_id_is_not_taken_for_it(self):
+        # Review of #25987: a real highlight named fixes-and-improvements.md gets the generic
+        # entry's id; check treats it as a normal entry (no warning), even with tryIt and no docs.
+        since = self.head
+        with open(os.path.join(self.repo, "release-notes/next/highlights/fixes-and-improvements.md"), "w") as f:
+            f.write("title: Fixes and improvements\naction: palette.checkForUpdates | Try it\n\nTabs open faster.\n")
+        git(self.repo, "add", ".")
+        git(self.repo, "commit", "-q", "-m", "docs: a highlight")
+        self.head = git(self.repo, "rev-parse", "HEAD")
+        notes = self.build(since, build="16")
+        [entry] = notes["whatsNew"]["entries"]
+        self.assertEqual((entry["id"], entry.get("docs")), ("fixes-and-improvements", None))
+        result = self.check(os.path.join(self.repo, "out", "16.json"))
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("ok: 1 What's New entries: Fixes and improvements", result.stdout)
+        self.assertNotIn("::warning", result.stdout)
+        self.assertEqual(result.summary, "")
+
     def test_check_passes_a_build_with_entries(self):
         since = self.commits("feat(next): click a background task to see everything it ran")
         notes = self.build(since, build="9")
