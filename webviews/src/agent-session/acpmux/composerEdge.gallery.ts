@@ -29,7 +29,7 @@ export default agentPaneEntry({
   title: "Transcript edge above the composer",
   area: "Agent pane",
   height: 700,
-  covers: ["agent-session/acpmux/conversation/conversation.css"],
+  covers: ["agent-session/acpmux/App.tsx#VirtualTranscript"],
   checks: {
     anchorMovePx: { value: 0, reason: "Changing an alpha mask must not move transcript or composer geometry." },
   },
