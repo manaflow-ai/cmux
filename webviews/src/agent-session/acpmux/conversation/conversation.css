@@ -1217,9 +1217,11 @@ pre.cv-math-source {
 .acpmux-thread {
   transition: none;
 }
+/* --cv-inset-end: the column's end, moved in while the computer use live preview shows beside it
+   (computerUse/computerUsePreview.css). */
 .acpmux-row {
   left: var(--cv-inset);
-  right: var(--cv-inset);
+  right: var(--cv-inset-end, var(--cv-inset));
 }
 /* Keyboard transcript selection uses a roving article tab stop. The fill is deliberately on the
    row rather than the prose so a range remains visible while its rows virtualize in and out. */
@@ -1264,7 +1266,7 @@ pre.cv-math-source {
 }
 .acpmux-permission {
   padding-left: var(--cv-inset);
-  padding-right: var(--cv-inset);
+  padding-right: var(--cv-inset-end, var(--cv-inset));
 }
 
 /* A tool permission ask (permissions/Panel.tsx, Leo 2026-10-14): the transcript's tool row (its

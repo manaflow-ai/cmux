@@ -1,0 +1,154 @@
+/* The live preview card of computer use (ComputerUsePreviewCard.tsx): a 180px glass card at the
+   chat's top right, under the header, beside the column: while it shows, the column's end keeps its
+   room (--cv-inset-end below), so no message runs under it. The Inspector's glass (inspector.css, the
+   composer's surface: one rule for both) with the floating elevation and its 14px radius; only the
+   frame in it, 6px in from the card's edge on every side (the Codex app's preview). No app name
+   shows (the card's label has it). A round close button sits on the frame's top left corner;
+   done, the frame dims under the app's icon with a green check on the icon's corner. It fades in
+   with the pane's motion tokens, and not at all when motion is off or reduced. */
+/* The column's end while the card shows beside it (App.tsx sets data-cu-preview on .acpmux-main, only
+   in a pane wide enough and with the Inspector closed): the card's 180px, 12px from the edge and a 12px
+   gap, or the column's own inset when that is wider. The transcript's rows, the composer and the dock's
+   bands read it; model.ts transcriptColumn mirrors it (COMPUTER_USE_PREVIEW_RESERVE). */
+.acpmux-main[data-cu-preview] {
+  --cv-inset-end: max(var(--cv-inset), 204px);
+}
+.acpmux-main[data-cu-preview] .acpmux-composer {
+  padding-right: var(--cv-inset-end);
+}
+.acpmux-cu-preview {
+  position: absolute;
+  top: calc(var(--acpmux-header-height, 44px) + 8px);
+  right: 12px;
+  z-index: var(--layer-sticky);
+  /* As wide as the frame, at most 180px (the column's reserve): a tall window gets a narrow card,
+     with no empty glass beside it (the Codex app's preview). */
+  width: fit-content;
+  min-width: 120px;
+  max-width: 180px;
+  border-radius: 14px;
+  overflow: hidden;
+  --glass-elevation: var(--elevation-2);
+  color: var(--agent-text);
+}
+/* With the Inspector open (either place), directly under its card: the layout's 8px gap, right-aligned
+   with it (the Codex app's preview under its summary panel). The Inspector publishes the place on the
+   shell (inspector/underInspector.ts, once per resize of the panel), and the column keeps no room of
+   its own: the Inspector's shift or push keeps the chat clear of both. Closed, the card is back at the
+   top right. */
+.acpmux-shell[data-inspector-chat-placement] .acpmux-cu-preview {
+  top: var(--acpmux-inspector-under-top, calc(var(--acpmux-header-height, 44px) + 8px));
+  right: var(--acpmux-inspector-under-right, 12px);
+}
+
+.acpmux-cu-preview__open {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: start;
+  cursor: default;
+}
+.acpmux-cu-preview__open:focus-visible {
+  outline: 1.5px solid var(--agent-text);
+  outline-offset: -2px;
+  border-radius: 14px;
+}
+
+.acpmux-cu-preview__frame {
+  position: relative;
+  display: grid;
+  place-items: center;
+  /* The frame's even 6px inset from every edge of the card (the Codex app's preview). */
+  margin: 6px;
+  /* Concentric with the card: its 14px less the 6px inset. */
+  border-radius: 8px;
+  overflow: hidden;
+}
+.acpmux-cu-preview__frame > img {
+  display: block;
+  width: auto;
+  max-width: 100%;
+  max-height: 180px;
+}
+.acpmux-cu-preview[data-done] .acpmux-cu-preview__frame > img {
+  opacity: 0.4;
+}
+
+/* Done: the app's icon centered over the dimmed frame, a green check on the icon's lower right
+   corner (the Codex app's done preview). With no icon, the check alone, a little larger. */
+.acpmux-cu-preview__badge {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+}
+.acpmux-cu-preview__mark {
+  position: relative;
+  display: grid;
+  place-items: center;
+}
+.acpmux-cu-preview__mark > img {
+  display: block;
+  width: 40px;
+  aspect-ratio: 1;
+  filter: drop-shadow(0 1px 2px rgb(0 0 0 / 0.3));
+}
+.acpmux-cu-preview__check {
+  display: grid;
+  place-items: center;
+  width: 20px;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  background: var(--agent-status-success);
+  color: #fff;
+}
+.acpmux-cu-preview__mark[data-icon] > .acpmux-cu-preview__check {
+  position: absolute;
+  right: -4px;
+  bottom: -4px;
+  width: 16px;
+  box-shadow: 0 0 0 1.5px var(--agent-page-bg);
+}
+
+/* Close: a small round glass button on the frame's top left corner, 4px in from the frame's
+   edges, always shown (the Codex app's preview). */
+.acpmux-cu-preview__close {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  --glass-elevation: var(--elevation-1);
+  color: var(--agent-text);
+  cursor: default;
+}
+.acpmux-cu-preview__close:focus-visible {
+  outline: 1.5px solid var(--agent-text);
+  outline-offset: 1px;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  :root:not([data-cmux-motion="off"], [data-cmux-motion="reduced"]) .acpmux-cu-preview {
+    transition:
+      opacity var(--agent-motion-in, 120ms) var(--agent-ease-out, ease-out),
+      transform var(--agent-motion-in, 120ms) var(--agent-ease-out, ease-out);
+    @starting-style {
+      opacity: 0;
+      transform: translate3d(0, -4px, 0) scale(0.98);
+    }
+  }
+  :root:not([data-cmux-motion="off"], [data-cmux-motion="reduced"]) .acpmux-cu-preview__frame > img,
+  :root:not([data-cmux-motion="off"], [data-cmux-motion="reduced"]) .acpmux-cu-preview__close {
+    transition: opacity var(--agent-motion-in, 120ms) var(--agent-ease-out, ease-out);
+  }
+}

@@ -1,0 +1,74 @@
+// The live preview card of computer use (B6, as the Codex app draws it): a small glass card at the
+// chat's top right with only the newest frame of the app the agent drives, 6px in on every side.
+// The app's name is for screen readers only (the card's label). The column keeps the card's room, so it covers no message
+// (computerUsePreview.ts). When the session ends, the last frame dims under the app's icon with a
+// green check on the icon's corner; the host hides a done card by itself after a while
+// (ComputerUseLivePreview.autoHideDelay). A click opens Agent Activity on the session; the close
+// button (always shown, on the frame's top left corner) hides the card for that
+// session. The host owns the card; a close hides it here at once, before the host's next push.
+// With the Inspector open, the card sits directly under it (inspector/underInspector.ts) and keeps
+// its own room there.
+import { useState } from "react";
+import { useT } from "../i18n";
+import { Check, Close } from "../conversation/icons";
+import { useUnderInspectorRoom } from "../inspector/underInspector";
+import { closeComputerUsePreview, computerUsePreviewTitle, type ComputerUsePreview } from "./computerUsePreview";
+// The card's glass is the Inspector's, from the same rules (inspector.css).
+import "../inspector/inspector.css";
+import "./computerUsePreview.css";
+
+export function ComputerUsePreviewCard({
+  preview,
+  onOpen,
+  onClose,
+}: {
+  preview: ComputerUsePreview | null;
+  onOpen(session: string): void;
+  onClose(session: string): void;
+}) {
+  const t = useT();
+  const [card, setCard] = useState<HTMLDivElement | null>(null);
+  useUnderInspectorRoom(card);
+  if (!preview) return null;
+  // The app's name is in the label only; with no name and no window title, the label names none
+  // (never "Unknown app").
+  const title = computerUsePreviewTitle(preview);
+  const label = title
+    ? t(preview.done ? "computerUse.preview.doneLabel" : "computerUse.preview.runningLabel", { app: title })
+    : t(preview.done ? "computerUse.preview.doneLabelNoApp" : "computerUse.preview.runningLabelNoApp");
+  return (
+    <div ref={setCard} className="ui-glass ui-glass-floats acpmux-cu-preview" data-done={preview.done ? "" : undefined}>
+      <button
+        type="button"
+        className="acpmux-cu-preview__open"
+        aria-label={label}
+        onClick={() => onOpen(preview.session)}
+      >
+        <span className="acpmux-cu-preview__frame">
+          <img src={preview.frame} alt="" draggable={false} />
+          {preview.done && (
+            <span className="acpmux-cu-preview__badge" aria-hidden="true">
+              <span className="acpmux-cu-preview__mark" data-icon={preview.icon ? "" : undefined}>
+                {preview.icon && <img src={preview.icon} alt="" draggable={false} />}
+                <span className="acpmux-cu-preview__check">
+                  <Check size={10} strokeWidth={2.5} />
+                </span>
+              </span>
+            </span>
+          )}
+        </span>
+      </button>
+      <button
+        type="button"
+        className="ui-glass acpmux-cu-preview__close"
+        aria-label={t("computerUse.preview.close")}
+        onClick={() => {
+          closeComputerUsePreview(preview.session);
+          onClose(preview.session);
+        }}
+      >
+        <Close size={10} />
+      </button>
+    </div>
+  );
+}
