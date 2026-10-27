@@ -12,17 +12,17 @@ use std::sync::PoisonError;
 
 /// How long hosted input waits for a lost host connection to come back (a
 /// reconnect or an in-place replacement host, cx-6so.49) before it fails.
-#[cfg(any(unix, windows))]
 ///
 /// The wait blocks its caller: one control connection's next request, or
 /// the TUI's input worker. It applies only while a host connection is lost,
 /// and a replacement host usually installs within a second.
-const HOST_INPUT_RECONNECT_WAIT: Duration = Duration::from_secs(5);
+#[cfg(any(unix, windows))]
+pub(super) const HOST_INPUT_RECONNECT_WAIT: Duration = Duration::from_secs(5);
 
 /// Whether a host send failed because the host connection is gone (the
 /// host died or its stream broke), not because the frame was refused.
 #[cfg(any(unix, windows))]
-fn host_connection_lost(error: &std::io::Error) -> bool {
+pub(super) fn host_connection_lost(error: &std::io::Error) -> bool {
     matches!(
         error.kind(),
         std::io::ErrorKind::BrokenPipe
