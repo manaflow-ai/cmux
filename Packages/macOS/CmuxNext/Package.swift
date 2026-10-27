@@ -2139,7 +2139,9 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             name: "CmuxNextBrowserTests",
             // Signposts: CEFTabSwitchShowTests' switch.tab interval.
             dependencies: ["CmuxNextBrowser", "CmuxNextCompat", "CmuxNextDesign", "CmuxNextFavicons", "CmuxNextInput", "CmuxNextInputCore", "CmuxNextRemoteFetch", "CmuxNextWakeups", "CmuxNextWakeupsTestSupport", "CmuxNextTrace", "CmuxNextMetrics", "CmuxNextSignposts",
-                           "CmuxNextTestSupport"],
+                           "CmuxNextTestSupport",
+                           // CmuxSafeConcurrency: OnceContinuation (CEFPasswordTests, as PasswordRevealBox takes it).
+                           .product(name: "CmuxSafeConcurrency", package: "CmuxSafeConcurrency")],
             swiftSettings: uiSwiftSettings
         ),
         // The WebKit driver for the Rust browser host (plans/cmux-next/browser-host.md).
