@@ -9,6 +9,8 @@ import {
 } from "../../viewed-files";
 
 const fingerprints = new WeakMap<object, string>();
+const legacyFingerprints = new WeakMap<object, string>();
+let unknownBinaryIdentity = 0;
 
 function hunkFingerprint(file: TurnFile): string {
   const patch = file.edits
@@ -32,24 +34,50 @@ export function diffFileFingerprint(file: TurnFile): string {
   const cached = fingerprints.get(file);
   if (cached !== undefined) return cached;
   const value =
-    file.patch === undefined ? hunkFingerprint(file) : (blobFingerprint(file.patch) ?? patchFingerprint(file.patch));
+    file.blobFingerprint ??
+    (file.binary && file.patch === undefined
+      ? `binary:session-${++unknownBinaryIdentity}`
+      : file.patch === undefined
+        ? hunkFingerprint(file)
+        : (blobFingerprint(file.patch) ?? patchFingerprint(file.patch)));
   fingerprints.set(file, value);
   return value;
 }
 
 /** The old pane identity, accepted only as a compatibility fingerprint for existing marks. */
-export function legacyDiffFileFingerprint(file: TurnFile): string {
-  return hunkFingerprint(file);
+export function legacyDiffFileFingerprint(file: TurnFile): string | undefined {
+  if (file.binary && file.blobFingerprint === undefined) return undefined;
+  const cached = legacyFingerprints.get(file);
+  if (cached !== undefined) return cached;
+  const value = hunkFingerprint(file);
+  legacyFingerprints.set(file, value);
+  return value;
 }
 
 export function diffFileViewedState(entry: ViewedFileEntry | undefined, file: TurnFile): ViewedFileState {
-  return viewedFileState(entry, diffFileFingerprint(file), legacyDiffFileFingerprint(file));
+  const fingerprint = diffFileFingerprint(file);
+  if (entry?.fingerprint === fingerprint) return "viewed";
+  return viewedFileState(entry, fingerprint, legacyDiffFileFingerprint(file));
 }
 
 export function viewedSourceKey(scope: ChangeScope, base?: string): string {
   if (scope === "uncommitted") return "branch:HEAD";
   if (scope === "branch") return `branch:${base ?? "HEAD"}`;
   return scope;
+}
+
+export function nextViewedRequest(generations: Map<string, number>, scopeKey: string): number {
+  const next = (generations.get(scopeKey) ?? 0) + 1;
+  generations.set(scopeKey, next);
+  return next;
+}
+
+export function isCurrentViewedRequest(
+  generations: ReadonlyMap<string, number>,
+  scopeKey: string,
+  requestId: number,
+): boolean {
+  return generations.get(scopeKey) === requestId;
 }
 
 export function observeDiffPanelSize(node: HTMLElement, onWidth: (width: number) => void): () => void {

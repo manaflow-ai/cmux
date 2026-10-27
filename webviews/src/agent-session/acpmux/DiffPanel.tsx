@@ -5,7 +5,14 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useStableCallback } from "@pierre/diffs/react";
 import type { DiffHunk, TurnFile } from "./diff";
-import { diffFileFingerprint, diffFileViewedState, observeDiffPanelSize, viewedSourceKey } from "./diffPanelState";
+import {
+  diffFileFingerprint,
+  diffFileViewedState,
+  isCurrentViewedRequest,
+  nextViewedRequest,
+  observeDiffPanelSize,
+  viewedSourceKey,
+} from "./diffPanelState";
 import { registerAgentDiffTheme } from "./diffTheme";
 import { ChevronLeft, CollapseAll, Panels, SplitView, Wrap } from "./changeIcons";
 import { ChangedFilesTree } from "./changes/ChangedFilesTree";
@@ -398,6 +405,7 @@ export function DiffPanel({
     [viewedScope, files],
   );
   const viewedSession = useRef<ViewedSession | undefined>(undefined);
+  const viewedRequestGenerations = useRef(new Map<string, number>());
   const viewed = useMemo(() => {
     const next = new Set<string>();
     for (const file of files) {
@@ -413,14 +421,23 @@ export function DiffPanel({
     });
   }, [viewed]);
   useEffect(() => {
+    const generations = viewedRequestGenerations.current;
+    const requestId = nextViewedRequest(generations, viewedScopeKey);
     const local = new Map(readLocalViewed(viewedScopeKey).map((entry) => [entry.path, entry] as const));
     const initial = { ...beginViewedLoad(viewedScopeKey), viewedByPath: local };
     const session = { ...initial };
     viewedSession.current = session;
     setViewedEntries(session.viewedByPath);
-    if (!viewedScope) return;
+    if (!viewedScope) {
+      return () => {
+        if (isCurrentViewedRequest(generations, viewedScopeKey, requestId)) {
+          nextViewedRequest(generations, viewedScopeKey);
+        }
+      };
+    }
     void loadViewedFiles(viewedScope).then(
       (entries) => {
+        if (!isCurrentViewedRequest(generations, viewedScopeKey, requestId)) return;
         const merged = applyLoadedViewed(viewedSession.current ?? session, viewedScopeKey, entries);
         if (!merged) return;
         viewedSession.current = merged;
@@ -429,6 +446,11 @@ export function DiffPanel({
       },
       () => undefined,
     );
+    return () => {
+      if (isCurrentViewedRequest(generations, viewedScopeKey, requestId)) {
+        nextViewedRequest(generations, viewedScopeKey);
+      }
+    };
   }, [viewedScope, viewedScopeKey]);
   useEffect(() => {
     let live = true;
