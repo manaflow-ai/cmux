@@ -3,6 +3,7 @@ import CmuxNextDesign
 import CmuxNextInput
 @testable import CmuxNextTabs
 import CmuxNextWakeups
+import CmuxNextWakeupsTestSupport
 import QuartzCore
 import Testing
 
@@ -39,23 +40,19 @@ import Testing
         }
 
         /// Rests the strip at an offset whose two edges are more than `room` points from every tab's edge
-        /// (scrolling back by up to `room` changes no tab in view); nil when the layout has none.
+        /// (scrolling either way by up to `room` changes no tab in view); nil when the layout has none.
         func restAwayFromTabEdges(room: CGFloat) -> CGFloat? {
             let edges = strip.result.slots.flatMap { [$0.x, $0.maxX] }
             let width = strip.viewportWidth
             let maxOffset = TabScrollMath.maxOffset(contentWidth: strip.result.contentWidth, viewportWidth: width)
-            func clear(_ edge: CGFloat) -> Bool { !edges.contains { $0 >= edge - room - 1 && $0 <= edge + 1 } }
+            func clear(_ edge: CGFloat) -> Bool { !edges.contains { $0 >= edge - room - 1 && $0 <= edge + room + 1 } }
             guard let offset = stride(from: maxOffset / 2, to: maxOffset, by: 1).first(where: { clear($0) && clear($0 + width) }) else { return nil }
             strip.restoreScrollOffset(offset)
             return strip.scrollOffset
         }
 
-        /// Where tab `index` shows now (its center), in window coordinates, from the layout and the scroll.
-        func shownCenter(_ index: Int) throws -> CGPoint {
-            let slot = try #require(strip.result.slot(TabID("t\(index)")))
-            let local = CGPoint(x: strip.scrollMapping.viewX(slot.x + slot.width / 2, isPinned: false), y: strip.tabsClip.bounds.midY)
-            return strip.convert(strip.convert(local, from: strip.tabsClip), to: nil)
-        }
+        /// The strip's backing scale, as `cellFrame` rounds with it.
+        var scale: CGFloat { strip.window?.backingScaleFactor ?? 2 }
 
         /// The tab whose center shows nearest the middle of the strip.
         func middleTab() -> Int {
@@ -78,6 +75,11 @@ import Testing
         if let phase { cg.setIntegerValueField(.scrollWheelEventScrollPhase, value: Int64(phase.rawValue)) }
         cg.setIntegerValueField(.scrollWheelEventMomentumPhase, value: Int64(momentum.rawValue))
         return try #require(NSEvent(cgEvent: cg))
+    }
+
+    /// One wheel delivery as the frame wheel hands it to the strip (exact deltas, which a `CGEvent` cannot carry).
+    static func delivery(dx: CGFloat, phase: InputScrollPhase, isPrecise: Bool = true) -> PointerFrameWheel.Scroll {
+        PointerFrameWheel.Scroll(delta: CGVector(dx: dx, dy: 0), isPrecise: isPrecise, phase: phase, location: .zero)
     }
 
     static func mouse(_ type: NSEvent.EventType, at point: CGPoint, in window: NSWindow) throws -> NSEvent {
@@ -118,32 +120,107 @@ import Testing
         #expect(strip.rowPasses.frames == frames, "the scroll laid the strip out \(strip.rowPasses.frames - frames) times")
         let expected = TabScrollMath.clamp(start - sum, contentWidth: strip.result.contentWidth, viewportWidth: strip.viewportWidth)
         #expect(abs(strip.scrollOffset - expected) < 0.01, "offset \(strip.scrollOffset), the clamped sum gives \(expected)")
-        #expect(abs(strip.scroller.translation - (strip.scrollOffset - start)) < 0.01)
+        // The translation is whole device pixels: within half a pixel of the scroll.
+        let pixel = 1 / harness.scale
+        #expect(abs(strip.scroller.translation - (strip.scrollOffset - start)) <= pixel / 2 + 0.001)
         #expect(abs(strip.scrollingLayer.bounds.origin.x - (strip.scrollMapping.band + strip.scroller.translation)) < 0.01)
         for (id, cell) in strip.cells {
             let slot = try #require(strip.result.slot(id))
             let shown = strip.scroller.shownFrame(cell.layer)
-            #expect(abs(shown.minX - (slot.x - strip.scrollOffset)) <= 0.5, "\(id.rawValue) shows at \(shown.minX), its slot at \(slot.x - strip.scrollOffset)")
+            #expect(abs(shown.minX - (slot.x - strip.scrollOffset)) <= pixel + 0.01, "\(id.rawValue) shows at \(shown.minX), its slot at \(slot.x - strip.scrollOffset)")
         }
     }
 
+    /// A trackpad's fractional deltas move the cells by whole device pixels, as `cellFrame` places them:
+    /// no title draws between pixels while the fingers move.
+    @Test func fractionalDeltasTranslateByWholePixels() throws {
+        let harness = Harness()
+        defer { harness.close() }
+        let strip = harness.strip
+        _ = try #require(harness.restAwayFromTabEdges(room: 22))
+        let frames = strip.rowPasses.frames
+        let scale = harness.scale
+        func isWholePixels(_ value: CGFloat) -> Bool { abs(value * scale - (value * scale).rounded()) < 0.001 }
+        strip.scroller.scroll(Self.delivery(dx: 0.37, phase: .began))
+        for _ in 0..<5 {
+            strip.scroller.scroll(Self.delivery(dx: 0.41, phase: .changed))
+            #expect(isWholePixels(strip.scroller.translation), "translation \(strip.scroller.translation) at scale \(scale)")
+            #expect(isWholePixels(strip.scrollingLayer.bounds.origin.x), "bounds origin \(strip.scrollingLayer.bounds.origin.x) at scale \(scale)")
+        }
+        #expect(strip.scroller.translation != 0, "2.42 pt of scroll showed nothing")
+        #expect(strip.rowPasses.frames == frames, "the scroll laid the strip out")
+        for cell in strip.cells.values {
+            #expect(isWholePixels(strip.scroller.shownFrame(cell.layer).minX), "a cell shows at \(strip.scroller.shownFrame(cell.layer).minX)")
+        }
+    }
+
+    /// A mouse wheel's notch has no gesture end: the tabs' accessibility frames follow its translation at once.
+    @Test func aWheelNotchMovesTheAccessibilityFramesWithTheTabs() throws {
+        let harness = Harness()
+        defer { harness.close() }
+        let strip = harness.strip
+        _ = try #require(harness.restAwayFromTabEdges(room: 30))
+        for _ in 0..<2 { strip.scroller.scroll(Self.delivery(dx: 1, phase: .none, isPrecise: false)) }
+        try #require(strip.scroller.translation != 0, "the notches laid the strip out: nothing to follow")
+        let cell = try #require(strip.cells[TabID("t\(harness.middleTab())")])
+        let shown = strip.tabsClip.convert(strip.scroller.shownFrame(cell.layer), to: strip)
+        try #require(shown != strip.tabsClip.convert(cell.frame, to: strip))
+        #expect(cell.accessibility.accessibilityFrameInParentSpace() == shown,
+                "the tab's accessibility frame \(cell.accessibility.accessibilityFrameInParentSpace()) is not where it shows, \(shown)")
+    }
+
+    /// A gesture whose end never arrived (the tabs stopped overflowing, the window changed) does not keep
+    /// the next gesture from dismissing a shown card.
+    @Test func aGestureWithALostEndStillLetsTheNextOneDismissTheCard() throws {
+        let harness = Harness()
+        defer { harness.close() }
+        let strip = harness.strip
+        let coordinator = HoverCardCoordinator(clock: ManualClock())
+        coordinator.appIsActive = { true }
+        coordinator.hoverCardsEnabled = { true }
+        coordinator.mouseButtonDown = { false }
+        coordinator.pointerLocation = { .zero }
+        strip.hoverCards = coordinator
+        defer { coordinator.dismiss(.action) }
+        _ = try #require(harness.restAwayFromTabEdges(room: 22))
+
+        strip.scrollWheel(with: try Self.trackpad(dx: 1, phase: .began))
+        strip.scrollWheel(with: try Self.trackpad(dx: 1, phase: .changed))
+        harness.frames.frame()
+        // Its .ended is lost: the next gesture starts.
+        _ = strip.showHoverCard(for: TabID("t\(harness.middleTab())"))
+        try #require(coordinator.machine.shownTarget != nil, "no card to dismiss")
+        strip.scrollWheel(with: try Self.trackpad(dx: 1, phase: .began))
+        #expect(coordinator.machine.activeTarget == nil, "the new gesture left the card on screen")
+    }
+
     /// A press after a translated scroll lands the frame's pending deltas and lays the cells out where they
-    /// show, and the click selects the tab under the pointer. The hit test agrees before the layout too.
+    /// show, and the click selects the tab under the pointer. The hit test agrees before the layout too, at a
+    /// point the cell's laid-out frame does not cover (the translation moved the tab left over it, so the
+    /// laid-out frames alone put it in the tab before).
     @Test func aClickAfterAScrollHitsTheTabUnderThePointer() throws {
         let harness = Harness()
         defer { harness.close() }
         let strip = harness.strip
         _ = try #require(harness.restAwayFromTabEdges(room: 22))
-        strip.scrollWheel(with: try Self.trackpad(dx: 1, phase: .began))
-        for _ in 0..<15 { strip.scrollWheel(with: try Self.trackpad(dx: 1, phase: .changed)) }
+        strip.scrollWheel(with: try Self.trackpad(dx: -1, phase: .began))
+        for _ in 0..<15 { strip.scrollWheel(with: try Self.trackpad(dx: -1, phase: .changed)) }
         harness.frames.frame()
-        for _ in 0..<5 { strip.scrollWheel(with: try Self.trackpad(dx: 1, phase: .changed)) }
-        try #require(strip.scroller.translation != 0, "the scroll laid the strip out")
+        for _ in 0..<5 { strip.scrollWheel(with: try Self.trackpad(dx: -1, phase: .changed)) }
+        try #require(strip.scroller.translation > 8, "the scroll laid the strip out, or moved it \(strip.scroller.translation) pt")
         let frames = strip.rowPasses.frames
 
         let index = harness.middleTab()
         let id = TabID("t\(index)")
-        let point = try harness.shownCenter(index)
+        let cell = try #require(strip.cells[id])
+        let shown = strip.scroller.shownFrame(cell.layer)
+        // On the tab's leading part, where it shows, and off its laid-out frame.
+        let inClip = CGPoint(x: shown.minX + 6, y: strip.tabsClip.bounds.midY)
+        try #require(inClip.x < cell.frame.minX, "the laid-out frame covers the point too: the test tells nothing apart")
+        if let before = strip.cells[TabID("t\(index - 1)")] {
+            try #require(strip.scroller.shownFrame(before.layer).maxX <= inClip.x, "the tab before shows over the point")
+        }
+        let point = strip.convert(strip.convert(inClip, from: strip.tabsClip), to: nil)
         #expect(strip.tabID(at: strip.convert(point, from: nil)) == id, "the hit test missed the translation")
         strip.mouseDown(with: try Self.mouse(.leftMouseDown, at: point, in: harness.window))
         #expect(!strip.scroller.hasPending, "the press left scroll for a later frame")
@@ -151,9 +228,9 @@ import Testing
         #expect(strip.rowPasses.frames > frames)
         strip.mouseUp(with: try Self.mouse(.leftMouseUp, at: point, in: harness.window))
         #expect(harness.model.selectedID == id, "the click selected \(String(describing: harness.model.selectedID)), not \(id.rawValue)")
-        let cell = try #require(strip.cells[id])
+        let landed = try #require(strip.cells[id])
         let slot = try #require(strip.result.slot(id))
-        #expect(abs(cell.frame.minX - (slot.x - strip.scrollOffset)) <= 0.5)
+        #expect(abs(landed.frame.minX - (slot.x - strip.scrollOffset)) <= 0.5)
     }
 
     /// The fingers lifting ends the gesture: the cells are laid out once where they show.

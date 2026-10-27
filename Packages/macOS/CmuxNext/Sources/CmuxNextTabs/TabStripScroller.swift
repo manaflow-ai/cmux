@@ -119,14 +119,16 @@ import QuartzCore
 
     // MARK: - Deliveries
 
-    /// One wheel delivery: one event, or a frame's events of one phase.
-    private func scroll(_ scroll: PointerFrameWheel.Scroll) { // perf-hot: 50us tab-strip-scroll
+    /// One wheel delivery: one event, or a frame's events of one phase (the wheel calls it; tests too).
+    func scroll(_ scroll: PointerFrameWheel.Scroll) { // perf-hot: 50us tab-strip-scroll
         guard let strip else { return }
         var delta = scroll.delta.dx
         // Vertical wheels scroll the strip too.
         if abs(scroll.delta.dy) > abs(delta) { delta = scroll.delta.dy }
         if !scroll.isPrecise { delta *= 12 }
-        // One dismissal per gesture: the card stays away until the pointer moves.
+        // One dismissal per gesture: the card stays away until the pointer moves. A gesture's start
+        // dismisses again, so a gesture whose end was never delivered does not spare the next one.
+        if scroll.startsGesture { dismissedCard = false }
         if !dismissedCard {
             dismissedCard = true
             strip.hoverCards.dismiss(.action)
@@ -137,9 +139,21 @@ import QuartzCore
         if strip.scrollOffset != laidOutOffset + translation {
             if frames == nil { strip.applyFrames() } else { translate(pointer: scroll.location, in: strip) }
         }
-        if scroll.endsGesture || scroll.isNotch {
-            dismissedCard = false
-            if scroll.endsGesture { land() }
+        if scroll.endsGesture { land() }
+        if scroll.endsGesture || scroll.isNotch { dismissedCard = false }
+        // A notch has no gesture end to land at: its translation stays until the next input or layout, so
+        // the elements' frames follow it now, once per delivery (Chrome sends accessibility location changes
+        // after the frame: content/renderer/accessibility/render_accessibility_impl.cc `SendLocationChanges`).
+        if scroll.isNotch, translation != 0 { writeAccessibilityFrames(in: strip) }
+    }
+
+    /// The tabs' and chips' accessibility frames where they show, the translation included.
+    private func writeAccessibilityFrames(in strip: TabStripView) {
+        for cell in strip.cells.values {
+            cell.accessibility.setAccessibilityFrameInParentSpace(strip.tabsClip.convert(shownFrame(cell.layer), to: strip))
+        }
+        for chip in strip.groups.chips.values {
+            chip.accessibility.setAccessibilityFrameInParentSpace(strip.tabsClip.convert(shownFrame(chip.layer), to: strip))
         }
     }
 
@@ -151,7 +165,10 @@ import QuartzCore
         guard !dragging, shownSpan(mapping, in: strip) == laidOutSpan, !plusMoves(mapping, width: strip.viewportWidth) else {
             return strip.applyFrames()
         }
-        translation = strip.scrollOffset - laidOutOffset
+        // Whole device pixels, as `cellFrame` rounds every edge: a trackpad's fractional deltas never draw
+        // the cells between pixels.
+        let scale = strip.window?.backingScaleFactor ?? 2
+        translation = ((strip.scrollOffset - laidOutOffset) * scale).rounded() / scale
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         scrollingLayer.bounds.origin.x = mapping.band + translation

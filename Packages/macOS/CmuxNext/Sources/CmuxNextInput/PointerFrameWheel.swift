@@ -54,6 +54,14 @@ public final class PointerFrameWheel {
             if case .none = phase { true } else { false }
         }
 
+        /// A trackpad gesture starts: the fingers touched or began to move. Momentum starts no gesture.
+        public var startsGesture: Bool {
+            switch phase {
+            case .mayBegin, .began: true
+            case .none, .changed, .ended, .cancelled, .momentum, .momentumEnded: false
+            }
+        }
+
         /// The gesture is over for now: the fingers lifted (momentum may follow), it was cancelled, or
         /// the momentum ended. A wheel's notch has no gesture and never ends one.
         public var endsGesture: Bool {
