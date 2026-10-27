@@ -2069,6 +2069,52 @@ export class AcpmuxDirectClient {
     );
   }
 
+  /// Whether the selected chat, attached with nothing out, is listed now as another session than
+  /// the one its rows are of: the machine recreated it (another `createdAt`) or it moved to another
+  /// machine (another `peer`, or a peer's chat now on this Mac). Its rows are another journal then,
+  /// and records of the new session would land under them (`apply` takes a record by its id and
+  /// seq alone). A row that names no `createdAt` says nothing of its session.
+  private rowMovedOn(row: SessionSummary): boolean {
+    if (this.attachedGeneration !== this.selectionGeneration || this.attachOut) return false;
+    // Rows proven of a session (an attach set these): none drawn says nothing to compare, so a
+    // read that failed is not tried again on every row change.
+    if (this.rowsPeer === undefined && typeof this.rowsGeneration !== "number") return false;
+    const peer = typeof row.peer === "string" ? row.peer : undefined;
+    if (peer !== this.rowsPeer) return true;
+    return (
+      typeof row.createdAt === "number" &&
+      typeof this.rowsGeneration === "number" &&
+      row.createdAt !== this.rowsGeneration
+    );
+  }
+
+  /// The chat on screen is listed as another session now (`rowMovedOn`): its rows go, and the
+  /// session listed now is read from nothing, as a switch to it would, behind the same snapshot hold
+  /// (the pane keeps what it drew until the page is in). One attach per such row change, owned as
+  /// any (`copyAttaches`): a reconnect's that starts meanwhile decides. Down, the Mac's copy of the
+  /// new session is drawn if it has one (`keepPeerCopy`); else the pane says it could not read it.
+  private async reattachMovedRow(sessionId: string): Promise<void> {
+    // A selection of its own, as a switch takes: every read still out for the session before (an
+    // older page, its commands, the reads after its attach) checks the generation it was asked
+    // under, so it lands on nothing.
+    const generation = ++this.selectionGeneration;
+    const hold = this.holdSnapshots(SWITCH_HOLD_MS);
+    this.resetSessionState();
+    // An older page in flight was read of the session before: it lands on nothing (`fetchOlder`).
+    this.historyEpoch += 1;
+    const mine = ++this.copyAttaches;
+    try {
+      await this.attach(sessionId, generation, 0);
+    } catch (error) {
+      if (mine !== this.copyAttaches) return;
+      if (await this.keepPeerCopy(sessionId, generation, error)) return;
+      if (generation === this.selectionGeneration && this.selectedSessionId === sessionId)
+        this.emit(this.socket?.readyState === WebSocket.OPEN ? "failed" : "disconnected");
+    } finally {
+      this.releaseSnapshots(hold);
+    }
+  }
+
   /// After a copy was marked offline: its row said the machine was back while the copy's attach
   /// or read was out (`copyBack`), so it is read from the machine again now. Once per such row
   /// change, never a loop: an attach that fails again waits for the next one.
@@ -3082,13 +3128,16 @@ export class AcpmuxDirectClient {
       this.commands = keptCommands;
       rememberCommands(sessionId, keptCommands);
       this.emit("commands");
-    } else if (
+    }
+    // Read back once this attach is kept (below): an attempt the row moves on from is retried
+    // under the same generation, so a read it sent could answer for the retry's session.
+    const readCommandsThrough =
       !keptCommands &&
       !page.some((event) => event.kind === COMMANDS_KIND) &&
       typeof result?.lastSeq === "number" &&
       result.lastSeq > 0
-    )
-      void this.fetchCommands(sessionId, generation, result.lastSeq).catch(() => {});
+        ? result.lastSeq
+        : undefined;
     this.summary = detail;
     this.configSeq = Array.isArray(detail.configOptions) && typeof result?.lastSeq === "number" ? result.lastSeq : 0;
     this.limitsSeq = typeof result?.lastSeq === "number" ? result.lastSeq : 0;
@@ -3113,6 +3162,8 @@ export class AcpmuxDirectClient {
     if (!current()) return [];
     // The row moved on while those reads were out: what this attach staged is not the chat's.
     if (strayed() || this.sessions.find((session) => session.sessionId === sessionId)?.peer !== askedOf) return again();
+    if (readCommandsThrough !== undefined)
+      void this.fetchCommands(sessionId, generation, readCommandsThrough).catch(() => {});
     this.turnOpener = opener;
     // Merged after the reads: live events that landed meanwhile are kept.
     this.events = mergeEventRecords(page, this.events);
@@ -3246,6 +3297,7 @@ export class AcpmuxDirectClient {
         if (back) this.copyBack = id;
         void this.redrawPeerCopy(id);
       } else if (copy?.offline && back) void this.reattachPeerCopy(id);
+      else if (!copy && this.rowMovedOn(session)) void this.reattachMovedRow(id);
     }
     if (this.offerChildIds().includes(session.sessionId) || this.isStartedChild(session))
       this.childChanged(session.sessionId);
@@ -4664,9 +4716,15 @@ export class AcpmuxDirectClient {
    *  the session still on screen (a harness pick), and a Send with no session joins it. */
   private creating?: Promise<string | undefined>;
   async ensureSession(): Promise<string | undefined> {
-    // A failed start leaves the selection as it was; the prompt then goes where the pane is.
-    if (this.creating) await this.creating.catch(() => undefined);
-    if (!this.selectedSessionId) await this.create();
+    // This send belongs to the requested chat. A refused or empty start must not send it to
+    // the previous chat, or start the default harness instead of the one the person picked.
+    if (this.creating || !this.selectedSessionId) {
+      const sessionId = await (this.creating ?? this.create());
+      // The app also calls this before send(): an empty result must stop that preflight,
+      // otherwise send() would ensure again after the failed creation has been cleared.
+      if (!sessionId) throw new Error(translate("error.notOpen"));
+      return sessionId;
+    }
     return this.selectedSessionId;
   }
 
