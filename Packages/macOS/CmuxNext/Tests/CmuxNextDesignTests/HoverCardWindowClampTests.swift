@@ -87,7 +87,7 @@ import CmuxNextDesignTokens
         let row = CGRect(x: 110, y: 700, width: 216, height: 32)
         let card = Self.card(row, size: CGSize(width: 280, height: 160))
         #expect(card.maxY == row.maxY)
-        #expect(card.minX == row.maxX + HoverCardEscapeGeometry.rowGap)
+        #expect(card.minX == row.maxX + HoverCardEscapeGeometry.edgeGap(scale: 2))
     }
 
     @Test func aCardTallerThanTheWindowKeepsItsTopInIt() {
