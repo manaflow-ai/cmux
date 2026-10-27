@@ -31,8 +31,10 @@ final class PageClaimState {
     var outcome: PageClaimOutcome?
     /// The fallback deadline's clock (tests inject a manual one).
     var clock: any Clock<Duration> = ContinuousClock() {
+        // timer-class-allow: the claim's one 50 ms fallback on the clock the claim suites inject; it fires at most once per claim
         didSet { deadline = DemandTimer(owner: "PageWebView.claim", clock: clock) }
     }
+    // timer-class-allow: the claim's one 50 ms fallback on the clock the claim suites inject; it fires at most once per claim
     private(set) var deadline = DemandTimer(owner: "PageWebView.claim")
     var budget: Duration = PageWebView.claimAcknowledgementBudget
 
@@ -89,6 +91,7 @@ extension PageWebView {
         applyLiveDocumentAttributes()
         let params: JSONValue = route.map { ["route": .string($0)] } ?? .object([:])
         let router = router
+        // main-hop-allow: callPage is the router's main-actor async page call (the claim runs in the page); the task only records its answer
         Task { @MainActor [weak self] in
             let path: PageClaimOutcome.Path
             do {

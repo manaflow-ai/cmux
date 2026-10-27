@@ -437,7 +437,7 @@ final class AppServices {
     /// The spare React page hosts for Settings, History and Cloud.
     private(set) lazy var pageHostPool: PageHostPool = {
         let pool = PageHostPool(memory: memoryCoordinator, policy: .init(preloadOnMakeVisible: features.isEnabled(.pageRendererAtFirstShow)),
-                                hoverFrameInput: hoverFrameInput)
+                                deadlines: mainDeadlines, hoverFrameInput: hoverFrameInput)
         pool.scriptFrames = pageScriptFrame
         return pool
     }()

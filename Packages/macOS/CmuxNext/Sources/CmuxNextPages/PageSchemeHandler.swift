@@ -123,6 +123,7 @@ final class PageSchemeHandler: NSObject, WKURLSchemeHandler {
         let range = request.value(forHTTPHeaderField: "Range")
         let mainDocument = request.mainDocumentURL
         // task-owner: one file read or dynamic lookup per scheme task; a stopped task is never answered
+        // main-hop-allow: reply and sharedReply are this handler's main-actor async reads (the file reads run off main, a dynamic lookup is the provider's main-actor call); the task only answers WebKit's scheme task, a main-thread-only object
         Task { @MainActor [weak self] in
             guard let self else { return }
             let reply: Reply? = if PageSharedChunks.isShared(url) {

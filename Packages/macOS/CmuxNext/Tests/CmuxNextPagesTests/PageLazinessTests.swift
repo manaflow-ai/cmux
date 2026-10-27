@@ -42,7 +42,8 @@ struct PageLazinessTests {
 
     /// A few main-actor turns: the page's own first tasks (its ui-scale observation) run.
     private func settle() async {
-        for _ in 0..<5 { await PageHostPool.nextTurn() }
+        let work = MainWorkScheduler(budget: MainFrameBudget())
+        for _ in 0..<5 { await work.apply(.background, owner: "PageLazinessTests.settle") { () -> Void in } }
     }
 
     private func makeHost(_ hosting: FakeChromiumHosting?, lazy: Bool = true) -> WebUIHost {
@@ -273,17 +274,18 @@ struct PageLazinessTests {
     }
 
     /// The launch's `noteLikely()` makes no Settings spare until a pooled page was made visible:
-    /// with a build deadline that fires at once, no spare exists after it.
+    /// it arms no build deadline, so no spare exists after it.
     @Test func theSettingsSpareWaitsForAPooledPageToShow() async throws {
         let window = PageHostPoolLaunchWindowTests.shownWindow()
         defer { window.close() }
         let memory = PageTestMemory()
         let pool = PageHostPool(memory: memory.coordinator,
-                                policy: PageHostPool.Policy(preloadOnMakeVisible: true), clock: PageTestClock.immediate,
+                                policy: PageHostPool.Policy(preloadOnMakeVisible: true),
                                 activity: { 0 }, isTrackingMenu: { false })
         defer { pool.dropSpare() }
         pool.follow(window)
         pool.noteLikely()
+        #expect(!pool.timer.isScheduled, "the launch armed a build of a spare nobody opened")
         await settle()
         #expect(!pool.shouldBuild, "the launch made a spare page nobody opened")
         #expect(pool.hostCount == 0 && pool.spareHost == nil && !pool.isBuilding)

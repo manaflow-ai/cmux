@@ -1,8 +1,5 @@
 import AppKit
 import CmuxNextWakeups
-import class CmuxSafeConcurrency.OnceContinuation
-import enum CmuxSafeConcurrency.OnceContinuationError
-import func CmuxSafeConcurrency.withOnceContinuation
 
 extension PageHostPool {
     var shouldBuild: Bool {
@@ -13,7 +10,7 @@ extension PageHostPool {
     func scheduleBuild() {
         guard shouldBuild else { return }
         activityMark = activity()
-        timer.scheduleOnMain(after: policy.idleInput) { [weak self] in
+        timer.schedule(after: policy.idleInput) { [weak self] in
             self?.idleDeadline()
         }
     }
@@ -32,13 +29,14 @@ extension PageHostPool {
             return
         }
         building = true
+        // main-hop-allow: build is the pool's main-actor async build, started from its background deadline; every later step waits for its own background task (nextTurn), so the task only starts it
         Task { @MainActor [weak self] in await self?.build() }
     }
 
-    static func nextTurn() async {
-        try? await withOnceContinuation { (continuation: OnceContinuation<Void, OnceContinuationError>) in
-            RunLoop.main.perform(inModes: [.common]) { continuation.resume(returning: ()) }
-        }
+    /// Waits for one background task of the pool's scheduler: the next build step runs only once input and
+    /// visible work let background work run (Chrome posts spare WebContents work at kBestEffort).
+    func nextTurn() async {
+        await buildWork.apply(.background, owner: "PageHostPool.build") { () -> Void in }
     }
 
     private func build() async {
@@ -52,17 +50,17 @@ extension PageHostPool {
         guard let recipe = measure("pool.makeSpare.configure", {
             PageWebView.pooledHostRecipe(.settings, options: options)
         }) else { return }
-        await Self.nextTurn()
+        await nextTurn()
         let host = measure("pool.makeSpare.create") { PageWebView(recipe: recipe) }
         host.countsTouches = false
-        await Self.nextTurn()
+        await nextTurn()
         guard isLikely, allowsSpare, spare == nil, let content = target?.contentView else {
             host.close()
             return
         }
         measure("pool.makeSpare.park") { park(host, in: content) }
         spare = host
-        await Self.nextTurn()
+        await nextTurn()
         guard spare === host else { return }
         measure("pool.makeSpare.load") { host.startLoading() }
         await host.waitUntilLoaded()

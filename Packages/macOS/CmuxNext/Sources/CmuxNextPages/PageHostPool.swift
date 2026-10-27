@@ -35,7 +35,12 @@ public final class PageHostPool {
     let options: PageEngineOptions
     let activity: () -> UInt64
     let isTrackingMenu: () -> Bool
-    let timer: DemandTimer
+    /// The idle deadline of the next spare build: background work on the app's deadline scheduler, so a spare
+    /// nobody sees waits behind input and every visible task (Chrome's kBestEffort,
+    /// content/browser/scheduler/browser_task_queues.h).
+    let timer: MainDeadline
+    /// Where each step of a build runs, as one background task (``nextTurn()``).
+    let buildWork: MainWorkScheduler
     let parking = PageHostParking()
     var spare: PageWebView?
     var spareReady = false
@@ -69,10 +74,13 @@ public final class PageHostPool {
         init(_ view: PageWebView) { self.view = view }
     }
 
-    /// - Parameter memory: the app's memory coordinator (a test passes one over a source it drives);
-    ///   the pool registers its spare with it at once.
+    /// - Parameters:
+    ///   - memory: the app's memory coordinator (a test passes one over a source it drives); the pool registers
+    ///     its spare with it at once.
+    ///   - deadlines: The app's one deadline scheduler (`AppServices.mainDeadlines`): the build's idle deadline
+    ///     and its steps run on it as background work. A test leaves the default, its own.
     public init(memory: any MemoryConsumerRegistry, policy: Policy = Policy(), options: PageEngineOptions = .standard,
-                clock: any Clock<Duration> = ContinuousClock(),
+                deadlines: MainDeadlineScheduler = MainDeadlineScheduler(work: MainWorkScheduler(budget: MainFrameBudget())),
                 activity: @escaping () -> UInt64 = { ExpectedActivity.shared.total },
                 isTrackingMenu: @escaping () -> Bool = { RunLoop.main.currentMode == .eventTracking },
                 hoverFrameInput: FrameInputCoalescers? = nil) {
@@ -81,7 +89,8 @@ public final class PageHostPool {
         self.options = options
         self.activity = activity
         self.isTrackingMenu = isTrackingMenu
-        timer = DemandTimer(owner: "PageHostPool.build", clock: clock)
+        timer = MainDeadline(owner: "PageHostPool.build", workClass: .background, scheduler: deadlines)
+        buildWork = deadlines.work
         spareMemory = SpareMemoryConsumer(
             name: "page-host-spare", registry: memory, spares: { [weak self] in self?.spare == nil ? 0 : 1 },
             drop: { [weak self] in self?.dropSpare() }, refill: { [weak self] in self?.refillSpare() })
@@ -151,6 +160,7 @@ public final class PageHostPool {
             park(host, in: content)
             spare = host
             spareReady = false
+            // main-hop-allow: resetPooledPage is the parked page's main-actor async reset (its script runs in the page); the task only marks the spare ready after it
             Task { @MainActor [weak self, weak host] in
                 await host?.resetPooledPage()
                 guard let self, let host, self.spare === host else { return }

@@ -383,7 +383,8 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     /// The theme carries the static status look (`data-status-indicators`, cx-sya4n): a change of
     /// the setting or of Reduce Motion pushes the theme again.
     private func observeStatusLook() {
-        statusLookObservation = Task { [weak self] in
+        // main-hop-allow: the loop's only main work is the theme push, which must reach the page shown or hidden (ThemeFollower's rule) and sends nothing for an unchanged payload
+        statusLookObservation = Task { [weak self] in // view-observation-allow: a page push, not a view apply (a ServiceObservation's job once PageWebView takes the app's scheduler); one per page
             for await _ in ObservationStream({ DesignSettings.shared.statusIndicator.animation }) {
                 guard let self else { return }
                 self.applyTheme()
@@ -415,7 +416,8 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     }
 
     private func observeUIScale() {
-        uiScaleObservation = Task { [weak self] in
+        // main-hop-allow: the loop's only main work is the page zoom and its scale push, which must reach the page shown or hidden, so its first frame after a show is at the new scale
+        uiScaleObservation = Task { [weak self] in // view-observation-allow: a page push and zoom, not a hideable view apply (a ServiceObservation's job once PageWebView takes the app's scheduler); one per page
             for await _ in ObservationStream({ (DesignSettings.shared.uiScale, DesignSettings.shared.interfaceScale, DesignSettings.shared.interfaceScaleEnabled) }) {
                 guard let self else { return }
                 self.applyUIScale()
@@ -576,6 +578,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         super.viewDidMoveToWindow()
         // Its tab or window closed: the page's popup ends with it.
         if window == nil { popupHost?.dismiss() }
+        // visibility-walk-allow: the engine's visibility is the AppKit state its view shows in (the freeze guard reads the same); one walk per window move
         setEngineVisible(window != nil && !isHiddenOrHasHiddenAncestor)
         checkFirstShow()
         applyTheme()
@@ -587,18 +590,21 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     }
 
     /// Another tab took the pane: the page's popup ends.
+    // visibility-walk-allow: AppKit's hide is the engine's own visibility signal (WebKit and Chromium throttle the page from it), not hidden-dirty view work; a popup over a hidden page ends
     public override func viewDidHide() {
         super.viewDidHide()
         popupHost?.dismiss()
         setEngineVisible(false)
     }
 
+    // visibility-walk-allow: AppKit's unhide is the engine's own visibility signal, and the first show starts the document (checkFirstShow); no hidden-dirty view work
     public override func viewDidUnhide() {
         super.viewDidUnhide()
         setEngineVisible(window != nil)
         checkFirstShow()
     }
 
+    // visibility-walk-allow: the theme push must reach the page shown or hidden, so its first frame after a show paints in the new colors (ThemeFollower's rule); an unchanged payload sends nothing
     public override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         applyTheme()

@@ -19,6 +19,7 @@ final class PageChromiumSession {
         self.bridge = bridge
         self.work = work
         self.hang = hang
+        // timer-class-allow: the page's one fallback deadline (8 s) on the clock WebUIHost hands in (the page suites pass one that fires at once or never); it fires at most once and the page's first message cancels it
         deadline = DemandTimer(owner: "page.chromium.deadline", clock: clock)
     }
 
