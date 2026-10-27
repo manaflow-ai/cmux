@@ -50,5 +50,11 @@ export default agentPaneEntry({
       snapshot: busy(),
       theme: { workingLook: "breathe", statusIndicators: "static" },
     },
+    saver: {
+      note: "Energy Saver (data-cmux-energy): the ring holds still and the shimmer's band is gone.",
+      snapshot: busy(),
+      theme: { workingLook: "shimmer" },
+      webTheme: { energy: "saver" },
+    },
   },
 });
