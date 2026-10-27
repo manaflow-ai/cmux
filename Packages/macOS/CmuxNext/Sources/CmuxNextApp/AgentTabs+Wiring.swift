@@ -1,5 +1,7 @@
+import CmuxNextActions
 import CmuxNextAgentPane
 import CmuxNextCompat
+import CmuxNextCloud
 import CmuxNextDaemon
 import CmuxNextFloating
 import CmuxNextHomeEngine
@@ -165,6 +167,32 @@ extension AgentTabStore {
             guard let services else { return false }
             return AgentProcessTerminal(services: services).open(viewer, beside: chat)
         }
+        // App-server `vm_…` IDs use a different backend contract; hide the transfer action
+        // until that backend exposes the credential delivery operation. Legacy provider VMs use
+        // the pinned `/api/vm/{id}/exec` path below.
+        tabs.syncCloudCredentialTransferAvailability(services: services)
+        // A pane may outlive the Cloud teardown. Clear the action handler as soon as sign-out
+        // begins so an already-open page cannot call a recovery action that native recovery rejects.
+        services.cloud.willSignOut.append { [weak tabs] in tabs?.cloudCredentialTransfer = nil }
+        // A chat in a plain split (chat | terminal) gets a tab in the pane already on its right; the
+        // side pane (AgentSidePanes) reuses only a pane it made, so it would make a third split.
+        // A pane of another machine holds no chat of this Mac's acpmux: nothing opens there.
+        tabs.openRight = { [weak services, weak tabs] chat, session in
+            guard let services, let tabs, let (_, pane) = services.locateTab(chat), let source = services.paneController(for: pane) else { return false }
+            return services.linkOpener.open(from: source) { target, placed in
+                guard target.daemon.isLocal else { return false }
+                return tabs.openTab(in: target, session: session, select: placed == nil) { [weak services, weak tabs] key in
+                    // task-owner: one creation reply; ends after tree arrival, cancellation or the mirror deadline
+                    Task { [weak services, weak tabs] in
+                        guard let tabs else { return }
+                        await TabMirror.performWhenReached(key, in: tabs.locate) {
+                            if let placed { if let surface = services?.locateTab(key)?.0.surface { placed(surface) }; return }
+                            _ = tabs.actionRegistry?.perform("tab.focus", invocation: ActionInvocation(target: ActionTargetRef(kind: .tab, id: key), origin: .user))
+                        }
+                    }
+                }
+            }
+        }
         tabs.lookup = { [weak services] key in
             guard let services, let (tab, _) = services.locateTab(key), let record = tab.agentSession else { return nil }
             return (record: record, store: services.machines.daemon(forTab: tab).store)
@@ -238,6 +266,9 @@ extension AgentTabStore {
             }
             var host = AgentTabRemoteHost(surface: tab.surface.rawValue, session: session, machine: machine, endpoint: endpoint, servesTrust: daemon.supports(DaemonCapability.agentSessionTrust.rawValue),
                                            servesKeyedReason: daemon.supports(DaemonCapability.agentSessionStartKeyedReason.rawValue))
+            host.cloudMachineID = services.machines.session(daemon.machineID)?.machineID
+            host.cloudCredentialRecoveryAvailable = host.cloudMachineID != nil &&
+                services.cloud.auth.isSignedIn && services.cloud.configuration.linkSource == .legacy
             if started {
                 // The tab may still be provisional here: each handshake reads its store surface.
                 host.existing = { [weak tabs] in
@@ -321,7 +352,8 @@ extension AgentTabStore {
         }
         // task-owner: one read of this Mac's name, shown to Macs that see its tabs and on every
         // pane's location row (a pane's handshake awaits it)
-        let showcase = services.environment.showcase
+        // A showcase run and a run under capture name the showcase Mac (AppEnvironment.namesShowcaseMac).
+        let showcase = services.environment.namesShowcaseMac
         AgentPaneModel.localMachineName = Task { [weak tabs] in
             let name = await AgentTabStore.localMachineName(showcase: showcase) { await MacName().displayName() }
             tabs?.localHostName = name
@@ -352,5 +384,25 @@ extension AgentTabStore {
     func agentAvatarChanged(_ session: String) {
         for view in views.values { view.agentAvatarChanged(session) }
         for view in standaloneViews.allObjects { view.agentAvatarChanged(session) }
+    }
+}
+
+extension AgentTabStore {
+    /// Keep the native recovery callback aligned with the current Cloud account. This runs at
+    /// construction and on each observed sign-in/account transition, so sign-in restores it.
+    func syncCloudCredentialTransferAvailability(services: AppServices) {
+        guard Self.cloudCredentialTransferIsAvailable(
+            linkSource: services.cloud.configuration.linkSource,
+            isSignedIn: services.cloud.auth.isSignedIn) else {
+            cloudCredentialTransfer = nil
+            return
+        }
+        cloudCredentialTransfer = { [weak services] chat, request in
+            guard let services, services.cloud.auth.isSignedIn else { return false }
+            return await CloudPresenter.recoverCredentials(chat: chat, request: request, services: services)
+        }
+    }
+    static func cloudCredentialTransferIsAvailable(linkSource: CloudConfiguration.LinkSource, isSignedIn: Bool) -> Bool {
+        linkSource == .legacy && isSignedIn
     }
 }

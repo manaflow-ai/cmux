@@ -5,6 +5,7 @@
 //! state that died with the previous daemon from that complete log.
 
 use super::full_access_bound::FullAccessEnd;
+use super::full_access_bound::OffLatch;
 use super::person::ANSWERED_BY_SLOT;
 use super::*;
 use crate::agent::Attached;
@@ -140,6 +141,9 @@ impl Hub {
         // still holds the open requests, prompts and turn; recovery would
         // handle them a second time.
         let current = session.child.lock().await.clone();
+        // MDM's off, read once for this re-adoption with the count of offs, so one pushed
+        // while it runs counts too (`OffLatch`, #23322 review 68).
+        let off = self.off_latch();
         // The link closed. Either the harness exited and its host is
         // finishing (wait, bounded, for the host's lock to drop, then let the
         // caller start a fresh agent), or the link alone was lost while the
@@ -162,7 +166,7 @@ impl Hub {
             match child.reattach().await {
                 Ok(()) => {
                     self.append(session, "mux", "host_reattached", json!({"reason": "link_lost"}));
-                    return Some(child.clone());
+                    return self.judged_after_reattach(session, child, &off).await;
                 }
                 Err(e) => {
                     tracing::warn!(session = %session.id, "agent host reattach after a lost link failed: {e:#}");
@@ -171,15 +175,20 @@ impl Hub {
             }
         }
         if let Some(child) = current.filter(|c| c.is_broken()) {
-            if let Err(e) = child.reattach().await {
-                tracing::warn!(session = %session.id, "agent host reattach failed: {e:#}");
+            match child.reattach().await {
+                Ok(()) => {
+                    return self.judged_after_reattach(session, &child, &off).await;
+                }
+                Err(e) => {
+                    tracing::warn!(session = %session.id, "agent host reattach failed: {e:#}")
+                }
             }
             return Some(child);
         }
         let dir = agent_host::hosts_dir();
         let (good, _) = agent_host::load_records(&dir).ok()?;
         let (_, record) = good.into_iter().find(|(_, r)| r.session_id == session.id)?;
-        if let Err(e) = self.adopt_one(session, record).await {
+        if let Err(e) = self.adopt_one(session, record, &off).await {
             tracing::warn!(session = %session.id, "agent host re-adoption failed: {e:#}");
         }
         session.child.lock().await.clone().filter(|c| c.host_record().is_some())
@@ -202,6 +211,42 @@ impl Hub {
         session.backgrounds_work.store(moves, Ordering::SeqCst);
     }
 
+    /// A reattached `child` under MDM's off (#23322, review 63): what its host kept while the link
+    /// was down is judged before the agent is handed out. The replay is waited for (bounded, as
+    /// adoption waits) and the session judged again from the log; an agent that runs in full
+    /// access, or whose replay did not complete, ends, and None is returned (the caller starts a
+    /// fresh agent, or refuses when the host did not end). Without MDM's off (`off`, the caller's
+    /// one read of it, with any off pushed since) it is handed out at once, and the next off judges
+    /// its replay: an earlier read of its log no longer holds (`FloorState::left_host_read`), and
+    /// until the replay is all in the log the agent counts as full access (review 1 of #26057).
+    /// The replay runs to what the host numbered before it handled this daemon's `Resume`, not to
+    /// its hello (`ChildAgent::learn_replay_end`, review 3); with MDM unset that is learned in the
+    /// background, and nothing waits on it.
+    async fn judged_after_reattach(
+        &self,
+        session: &Arc<Session>,
+        child: &Arc<ChildAgent>,
+        off: &OffLatch,
+    ) -> Option<Arc<ChildAgent>> {
+        session.floor.left_host_read.store(false, Ordering::SeqCst);
+        if !off.off() {
+            let learning = child.clone();
+            tokio::spawn(async move { learning.learn_replay_end(REPLAY_STALL).await });
+            return Some(child.clone());
+        }
+        let replayed = match child.learn_replay_end(REPLAY_STALL).await {
+            Some(end) => child.wait_replayed(end, REPLAY_STALL, REPLAY_CEILING).await,
+            None => false,
+        };
+        session.floor.left_host_read.store(false, Ordering::SeqCst);
+        let ended = if replayed {
+            self.end_if_runs_full_access(session, true).await
+        } else {
+            self.end_managed_full_access(session).await
+        };
+        (ended == FullAccessEnd::NotInFullAccess).then(|| child.clone())
+    }
+
     /// Whether a host for `session` may still run (a live or unproven record).
     pub(super) fn host_record_live(session_id: &str) -> bool {
         Self::live_host_sessions().contains(session_id)
@@ -217,8 +262,18 @@ impl Hub {
     /// before agents may spawn; a prompt to a kept session may still adopt
     /// its host first (`readopt`).
     pub async fn adopt_agent_hosts(self: &Arc<Self>) {
-        // MDM's off (start-mode.json, loaded with the hub), read once for this adoption (#23322).
-        let off = self.full_access_managed_off();
+        // MDM's off (start-mode.json, loaded with the hub), read once for this adoption with the
+        // count of offs, so one pushed while it runs counts too (`OffLatch`, #23322 review 68).
+        let off = self.off_latch();
+        // Debug builds only: `ACPMUX_TEST_ADOPT_HOLD_MS` holds adoption here, after it read MDM's
+        // off, so integration tests can push the off meanwhile. Bounded; release builds have no
+        // seam.
+        #[cfg(debug_assertions)]
+        if let Some(ms) =
+            std::env::var("ACPMUX_TEST_ADOPT_HOLD_MS").ok().and_then(|v| v.parse::<u64>().ok())
+        {
+            tokio::time::sleep(std::time::Duration::from_millis(ms.min(10_000))).await;
+        }
         // Pooled sessions of a previous daemon were never taken: end them.
         self.sweep_pool_hosts().await;
         let dir = agent_host::hosts_dir();
@@ -267,7 +322,7 @@ impl Hub {
             // MDM forces full access off (start-mode.json, loaded with the hub): a host left
             // running in it is ended, never adopted (#23322). One whose end failed is not adopted
             // either (review 51).
-            match self.end_if_runs_full_access(&session, off).await {
+            match self.end_if_runs_full_access(&session, off.off()).await {
                 FullAccessEnd::NotInFullAccess => {}
                 FullAccessEnd::Ended => continue,
                 FullAccessEnd::StillRunning => {
@@ -275,7 +330,7 @@ impl Hub {
                     continue;
                 }
             }
-            if let Err(e) = self.adopt_one(&session, record).await {
+            if let Err(e) = self.adopt_one(&session, record, &off).await {
                 tracing::warn!(session = %session.id, "agent host adoption failed: {e:#}");
             }
         }
@@ -289,7 +344,7 @@ impl Hub {
                 // too when its chat runs in full access (`end_unadopted_host`: its nonce proves it).
                 let ended = {
                     let _spawning = session.spawn_lock.lock().await;
-                    self.end_if_runs_full_access(&session, off).await
+                    self.end_if_runs_full_access(&session, off.off()).await
                         != FullAccessEnd::NotInFullAccess
                 };
                 if ended && Self::host_record_gone(&session.id) {
@@ -340,19 +395,21 @@ impl Hub {
         self.save_meta(session);
     }
 
-    /// Adopts `record`'s host. The family gate is held from before the host is reached until
-    /// its log is read and what it may still write is held again (`hold_unwritten`), so no off
-    /// push returns in between. Whatever stops that short (the host can't be reached or spoken
-    /// to, or a remote one's end fails) leaves one hold that only the host's end settles
+    /// Adopts `record`'s host for `session`; `off` is the caller's one read of MDM's off, with any
+    /// off pushed since (`OffLatch`). The family gate is held from before the host is reached
+    /// until its log is read and what it may still write is held again (`hold_unwritten`), so no
+    /// off push returns in between. Whatever stops that short (the host can't be reached or
+    /// spoken to, or a remote one's end fails) leaves one hold that only the host's end settles
     /// (`link::adopt_untold`): fail closed.
     async fn adopt_one(
         self: &Arc<Self>,
         session: &Arc<Session>,
         record: agent_host::HostRecord,
+        off: &OffLatch,
     ) -> anyhow::Result<()> {
         let kept = record.clone();
         let mut hold = Some(self.family_hold().await);
-        let adopted = self.adopt_held(session, record, &mut hold).await;
+        let adopted = self.adopt_held(session, record, off, &mut hold).await;
         if let Some(hold) = hold {
             Self::hold_fences(&session.id, hold, vec![agent_host::link::adopt_untold(&kept)]);
         }
@@ -363,6 +420,7 @@ impl Hub {
         self: &Arc<Self>,
         session: &Arc<Session>,
         record: agent_host::HostRecord,
+        off: &OffLatch,
         hold: &mut Option<super::full_access_bound::FamilyHold>,
     ) -> anyhow::Result<()> {
         if session.meta().remote_origin
@@ -412,6 +470,8 @@ impl Hub {
                 return Ok(());
             }
         };
+        // Its replay is not known to be in the log until its end is learned (below).
+        child.mark_replay_unknown();
         let proven = self.adopt_caller_token(&session.id, caller_token);
         // A fork through an adopted agent asks for the list it started with
         // (`spawn.rs` decides it at session/new for a spawned one).
@@ -437,9 +497,53 @@ impl Hub {
         self.note_host_kind(session, &child, kind).await;
         // Scan only once every entry the host had is in the log: what the
         // previous daemon wrote or answered may still sit in its buffer.
-        let replayed = child.wait_replayed(adopted.last_h, REPLAY_STALL, REPLAY_CEILING).await;
+        // Debug builds only: `ACPMUX_TEST_REPLAY_INCOMPLETE` makes every replay count as incomplete,
+        // as a host that stalls mid-replay does. Release builds have no seam.
+        #[cfg(debug_assertions)]
+        let stalls = std::env::var_os("ACPMUX_TEST_REPLAY_INCOMPLETE").is_some();
+        #[cfg(not(debug_assertions))]
+        let stalls = false;
+        let replayed =
+            !stalls && child.wait_replayed(adopted.last_h, REPLAY_STALL, REPLAY_CEILING).await;
         if !replayed {
             tracing::warn!(session = %session.id, "agent host replay incomplete; recovering from the partial log");
+        }
+        // MDM forces full access off (#23322, review 60): what the host kept while no daemon was
+        // attached is in the log now. A mode or option it moved to then is judged before the
+        // agent is handed out (every caller holds the spawn lock, so `child_for` waits); a later
+        // report reaches `write_mode_state` live.
+        // A replay that did not complete may still hold such a report: under MDM's off the host
+        // is not known to ask, so it ends (review 61).
+        // An off pushed since adoption read the policy counts (review 68): that push may have
+        // read the log before the replay reached it. With MDM unset the agent is handed out, and
+        // the next off reads the log the replay added to: an earlier read of it no longer holds
+        // (review 2 of #26057).
+        // The replay runs to what the host numbered before it handled this daemon's `Resume`, which
+        // may be past its hello's `last_h` (review 3 of #26057): under MDM's off that end is learned
+        // and waited for before the judgement; with MDM unset it is learned in the background and
+        // nothing waits on it, as before.
+        session.floor.left_host_read.store(false, Ordering::SeqCst);
+        if off.off() {
+            let replayed = replayed
+                && match child.learn_replay_end(REPLAY_STALL).await {
+                    Some(end) => child.wait_replayed(end, REPLAY_STALL, REPLAY_CEILING).await,
+                    None => false,
+                };
+            let ended = if replayed {
+                self.end_if_runs_full_access(session, true).await
+            } else {
+                self.end_managed_full_access(session).await
+            };
+            if ended != FullAccessEnd::NotInFullAccess {
+                // Ended: nothing it had can be written now. Still running: held until it ends.
+                if ended == FullAccessEnd::Ended {
+                    hold.take();
+                }
+                return Ok(());
+            }
+        } else {
+            let learning = child.clone();
+            tokio::spawn(async move { learning.learn_replay_end(REPLAY_STALL).await });
         }
         self.append(
             session,
