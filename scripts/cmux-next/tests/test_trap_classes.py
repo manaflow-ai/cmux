@@ -231,6 +231,38 @@ class NotFatalUntilTests(unittest.TestCase):
         self.assertEqual(self.lowered(invariant(120, ".frameSize"), head, "A.swift", "B.swift"),
                          [("B.swift", 1, "Invariant.notFatalUntil .frameSize: build 120 -> 90 (lowered)")])
 
+    def test_an_unchanged_check_beside_a_same_id_not_fatal_until_passes(self):
+        base = '\n'.join([invariant(None, '"x"', "check"), invariant(100, '"x"'), "let y = 1"])
+        head = '\n'.join([invariant(None, '"x"', "check"), invariant(100, '"x"'), "let y = 2"])
+        self.assertEqual(self.lowered(base, head), [])
+
+    def test_one_of_two_same_id_sites_lowered_is_refused(self):
+        base = '\n'.join([invariant(100, '"x"'), "let y = 1", invariant(200, '"x"')])
+        head = '\n'.join([invariant(100, '"x"'), "let y = 1", invariant(101, '"x"')])
+        self.assertEqual(self.lowered(base, head), [("A.swift", 3, 'Invariant.notFatalUntil "x": build 200 -> 101 (lowered)')])
+
+    def test_a_renamed_id_with_a_lower_build_is_refused(self):
+        found = self.lowered(invariant(140), invariant(100, '"frame.size.v2"'))
+        self.assertEqual(found, [("A.swift", 1, 'Invariant.notFatalUntil "frame.size.v2": build 140 -> 100 '
+                                               '(renamed from "frame.size") (lowered)')])
+        self.assertEqual(self.lowered(invariant(140), invariant(150, '"frame.size.v2"')), [])
+
+    def test_a_lowered_constant_behind_an_unchanged_call_is_refused(self):
+        # CrashGuard's shape: the call reads `build: fatalFromBuild`, and only the constant's line changes.
+        def guard(value):
+            return "\n".join(["enum CrashGuard {", f"    static let fatalFromBuild{value}",
+                              "    static func fault() {",
+                              '        _ = Invariant.notFatalUntil(false, invariantID, build: fatalFromBuild)',
+                              "    }", "}"])
+        found = self.lowered(guard(" = UInt64.max"), guard(": UInt64 = 1"))
+        self.assertEqual(len(found), 1)
+        self.assertEqual(found[0][:2], ("A.swift", 4))
+        self.assertIn("build fatalFromBuild (18446744073709551615) -> fatalFromBuild (1) (lowered); set at A.swift:2",
+                      found[0][2])
+        self.assertEqual(self.lowered(guard(" = 1_000"), guard(" = UInt64.max")), [])
+        allowed = guard(": UInt64 = 1 // not-fatal-until-lowered-allow: zero reports for a release cycle")
+        self.assertEqual(self.lowered(guard(" = UInt64.max"), allowed), [])
+
     def test_the_guardrail_refuses_only_a_lowered_build(self):
         path = "Packages/Shared/CmuxSafeConcurrency/Sources/X/A.swift"
         rule = next(r for r in guardrails.RULES if r.id == "not-fatal-until-lowered")
@@ -243,6 +275,19 @@ class NotFatalUntilTests(unittest.TestCase):
         raised = guardrails.FileChange(path, head, [guardrails.Added(path, 2, head[1])],
                                        base_lines=["func f() {", invariant(90), "}"])
         self.assertEqual(rule.find([raised], guardrails.collections.Counter()), [])
+        # An edit next to an unchanged check that shares a notFatalUntil's id refuses nothing.
+        shared = [invariant(None, '"x"', "check"), invariant(100, '"x"'), "let y = 2"]
+        edit = guardrails.FileChange(path, shared, [guardrails.Added(path, 3, shared[2])],
+                                     base_lines=shared[:2] + ["let y = 1"])
+        self.assertEqual(rule.find([edit], guardrails.collections.Counter()), [])
+        # CrashGuard's shape: lowering the constant behind an unchanged call is refused at the call.
+        call = "    _ = Invariant.notFatalUntil(false, invariantID, build: fatalFromBuild)"
+        lowered = ["    static let fatalFromBuild: UInt64 = 1", call]
+        constant = guardrails.FileChange(path, lowered, [guardrails.Added(path, 1, lowered[0])],
+                                         base_lines=["    static let fatalFromBuild = UInt64.max", call])
+        hits = rule.find([constant], guardrails.collections.Counter())
+        self.assertEqual([(h.path, h.number) for h in hits], [(path, 2)])
+        self.assertIn("(lowered); set at " + path + ":1", hits[0].text)
 
 
 if __name__ == "__main__":

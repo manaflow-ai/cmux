@@ -118,6 +118,26 @@ compared, never in crash-safety-baseline.json, and never read by the CI compare 
                       and leaks its task when dropped. Use CmuxSafeConcurrency's withOnceContinuation /
                       withOnceThrowingContinuation (p10-stability-083); CmuxSafeConcurrency itself, which
                       implements them, is not counted
+    trap_api          standard-library calls that trap on a bad argument (queue Q09, p10-stability-092):
+                      `uniqueKeysWithValues:` (a duplicate key), `removeFirst()` / `removeLast()` and their
+                      `(n)` forms (an empty or short collection) with no guard, `Array/ContiguousArray/String/
+                      Data(repeating:count:)` and `repeatElement(_:count:)` (a negative count) unless the count
+                      is literal arithmetic without a minus (`64 * 1024`), a `.count`, `max(0, n)` or `max(n, 0)`, and
+                      `index(_:offsetBy:)` / `formIndex(_:offsetBy:)` without `limitedBy:` (past the end). A
+                      removal is guarded when its receiver's `isEmpty`, `count`, `first`, `last`, `hasPrefix`,
+                      `hasSuffix` or `starts` is read on the same line before it or on one of the 3 lines above
+                      (`guard !queue.isEmpty`, `while let x = queue.first`, `if s.hasPrefix("-") { s.removeFirst() }`);
+                      `popFirst()` / `popLast()` never count
+  The ratchet classes index_subscript and int_conversion are also report classes: by default over INDEX_MODULES
+  (the CI rows, counted and waived together), with --all-modules over every module of every package.
+
+REPORT BASELINE (crash-safety-report-baseline.json next to this script): the report classes' rows,
+{class: {"scope": ..., "modules": {module: hits}}}. Only --report reads it: a class with a row in the scope
+reported gains "baseline" (its total) and "over" ({module: {"baseline": b, "now": n}}) in the JSON, still exit 0.
+--report CLASS --update-report-baseline writes the classes' rows: a class's first row records the tree, after that
+a row only goes down; a row the tree is over stays, is printed, and the run exits 1. index_subscript and
+int_conversion rows are recorded only with --all-modules (their INDEX_MODULES rows are crash-safety-baseline.json's).
+The CI compare (no flag, --baseline-against, --update-baseline) never reads this file.
 
 CLASSIFY (--classify, Q21 of plans/cmux-next/chrome-parity/p10-stability.md, task p10-stability-205): every hit of
 --report's classes (without --report: every counted, waived and banned hit of the ratchet's scan) gets exactly one
@@ -133,7 +153,8 @@ It is a local-only rule: guardrails.py's `not-fatal-until-lowered` runs it on wh
 
 Usage: crash_ratchet.py [--repo ROOT] [--exported-tree]
                         [--update-baseline [--record-waivers] [--base REF] | --baseline-against BASE_TREE]
-       crash_ratchet.py [--repo ROOT] [--exported-tree] --report CLASS[,CLASS] [--classify]
+       crash_ratchet.py [--repo ROOT] [--exported-tree] --report CLASS[,CLASS] [--all-modules]
+                        [--update-report-baseline | --classify]
        crash_ratchet.py [--repo ROOT] [--exported-tree] --classify
 Exit 1 when a module or crate gained a hit or a waived hit; with --update-baseline, when
 a row stays above the baseline; with --baseline-against, when a counted row rose; with --classify, when a
@@ -141,6 +162,7 @@ a row stays above the baseline; with --baseline-against, when a counted row rose
 """
 import argparse
 import bisect
+import difflib
 import fnmatch
 import subprocess
 import json
@@ -152,6 +174,8 @@ from typing import NamedTuple
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 BASELINE = os.path.join(HERE, "crash-safety-baseline.json")
+# Report-only rows (--report); never read by the CI compare.
+REPORT_BASELINE = os.path.join(HERE, "crash-safety-report-baseline.json")
 # The baseline's section of waived hits ({lang: {class: {module: hits}}}), beside the counted ones.
 WAIVED = "waived"
 # The section of a baseline row (section, lang, class, module) that is not waived.
@@ -390,6 +414,112 @@ def checked_slot(code, match):
     base = match.group(0)[:match.group(0).index("[")]
     inner = match.group(1).strip()
     return any(m.group(1) == inner and m.group(2) == base for m in CHECKED_SLOT.finditer(code[:match.start()]))
+
+
+# trap_api (report-only, see the docstring).
+UNIQUE_KEYS = re.compile(r"\buniqueKeysWithValues\s*:")
+REMOVE_END = re.compile(r"\bremove(?:First|Last)\s*\(")
+REPEATING = re.compile(r"(?:(?<![\w.])(?:Array|ContiguousArray|String|Data)\s*(?:<[^()]*>)?"
+                       r"|\[[^\[\]()]+\]|(?<!\w)\.init)\s*\(\s*repeating\s*:|(?<![\w.])repeatElement\s*\(")
+OFFSET_CALL = re.compile(r"(?<![\w])(?:index|formIndex)\s*\(")
+RECEIVER = re.compile(r"((?:[A-Za-z_]\w*\??\.)*[A-Za-z_]\w*)\??\.\s*$")
+SAFE_COUNT = re.compile(r"(?:(?=[^-]*\d)[\d_\s*+<()]+|(?:[A-Za-z_]\w*(?:\(\))?\??\.)+count"
+                        r"|max\(\s*0\s*,.*\)|max\(.*,\s*0\s*\))")
+DECLARED_FUNC = re.compile(r"\bfunc\s+$")
+# A line without one of these words starts no trap_api call (skips swift_code on most lines).
+TRAP_HINT = re.compile(r"uniqueKeysWithValues|remove(?:First|Last)|repeat(?:ing|Element)|[iI]ndex\s*\(")
+# How many lines above a removal may hold its guard, and how many lines a call's arguments may continue on.
+GUARD_LINES = 3
+CALL_LINES = 3
+
+
+def call_arguments(lines, index, code, start):
+    """The argument text of the call whose "(" ends at CODE[start - 1] (CODE is LINES[INDEX] as swift_code
+    reads it), up to its closing parenthesis; the arguments may continue on the next CALL_LINES lines."""
+    text, depth, follow = code[start:], 1, index + 1
+    while True:
+        for pos, ch in enumerate(text):
+            if ch in "([{":
+                depth += 1
+            elif ch in ")]}":
+                depth -= 1
+                if depth == 0:
+                    return text[:pos]
+        if follow >= len(lines) or follow > index + CALL_LINES:
+            return text
+        text += " " + swift_code(lines[follow])
+        follow += 1
+
+
+def top_level_arguments(arguments):
+    """ARGUMENTS split at their top-level commas, each stripped."""
+    parts, depth, current = [], 0, []
+    for ch in arguments:
+        if ch in "([{":
+            depth += 1
+        elif ch in ")]}":
+            depth -= 1
+        if ch == "," and depth == 0:
+            parts.append("".join(current).strip())
+            current = []
+        else:
+            current.append(ch)
+    parts.append("".join(current).strip())
+    return [part for part in parts if part]
+
+
+def labeled(arguments, label):
+    """The value of the top-level argument LABEL in ARGUMENTS, or None."""
+    for part in top_level_arguments(arguments):
+        name, colon, value = part.partition(":")
+        if colon and name.strip() == label:
+            return value.strip()
+    return None
+
+
+def removal_guarded(lines, index, code, start):
+    """Whether the removal at CODE[start] reads its receiver's isEmpty, count, first, last, hasPrefix, hasSuffix
+    or starts before it on its line or on one of the GUARD_LINES lines above. An implicit-self removal looks for a
+    bare `isEmpty`."""
+    before = code[:start]
+    receiver = None
+    if before.rstrip().endswith("."):
+        found = RECEIVER.search(before)
+        if not found:
+            return False  # `rows[i].removeFirst()`: no name to find a guard for
+        receiver = re.sub(r"^self\.", "", found.group(1).replace("?", ""))
+        before = before[:found.start()]
+    name = r"(?:self\.)?" + re.escape(receiver) + r"\??\s*\." if receiver else r"(?:self\.)?"
+    guard = re.compile(r"(?<![\w.])" + name + r"\s*(?:isEmpty|count|first|last|hasPrefix|hasSuffix|starts)\b")
+    window = [before] + [swift_code(lines[i]) for i in range(max(0, index - GUARD_LINES), index)]
+    return any(guard.search(text) for text in window)
+
+
+def trap_api_hits(lines, index, code=None):
+    """trap_api calls that start on LINES[INDEX] (see the docstring); a comment line has none. CODE: the line as
+    swift_code reads it, when the caller has it."""
+    if not TRAP_HINT.search(lines[index]) or lines[index].lstrip().startswith("//"):
+        return 0
+    code = swift_code(lines[index]) if code is None else code
+    hits = len(UNIQUE_KEYS.findall(code))
+    for match in REMOVE_END.finditer(code):
+        if DECLARED_FUNC.search(code[:match.start()]):
+            continue
+        if not removal_guarded(lines, index, code, match.start()):
+            hits += 1
+    for match in REPEATING.finditer(code):
+        count = labeled(call_arguments(lines, index, code, match.end() if match.group(0).endswith("(")
+                                       else code.index("(", match.start()) + 1), "count")
+        if count is not None and not SAFE_COUNT.fullmatch(count):
+            hits += 1
+    for match in OFFSET_CALL.finditer(code):
+        if DECLARED_FUNC.search(code[:match.start()]):
+            continue
+        arguments = call_arguments(lines, index, code, match.end())
+        if labeled(arguments, "offsetBy") is not None and labeled(arguments, "limitedBy") is None:
+            hits += 1
+    return hits
+
 ADD_OBSERVER = re.compile(r"\baddObserver\(")
 SELECTOR_OBSERVER = re.compile(r"addObserver\(\s*[^,()]+?,\s*selector\s*:")
 OBJC_ATTR = re.compile(r"@objc(?![\w(])")
@@ -665,7 +795,7 @@ def file_dictionaries(lines, module_dicts, module_arrays=None):
 
 class Site(NamedTuple):
     """One line's hits of one class, by place (--classify reads these)."""
-    section: str  # counted, waived or banned (the ratchet's scan), or report (a report-only class)
+    section: str  # counted, waived or banned (the ratchet's scan), or report (a --report class)
     lang: str
     kind: str
     module: str
@@ -753,57 +883,129 @@ def report_owned(kind, rel):
     return rel.replace(os.sep, "/").startswith(REPORT_OWNERS.get(kind, ()))
 
 
-def report_sites(repo, exported, kinds):
-    """Site rows (section "report") of the report-only KINDS over package_sources(), each class outside its owner.
-    Comment lines and string contents never count (swift_code); a crash-allow does not hide a hit."""
+# Ratchet classes that are report classes too: counted over INDEX_MODULES, or every module with --all-modules.
+REPORT_INDEX = ("index_subscript", "int_conversion")
+# Report classes judged by a function of (lines, index) instead of one regex.
+REPORT_LINE = {"trap_api": trap_api_hits}
+REPORT_CLASSES = sorted(set(REPORT_SWIFT) | set(REPORT_LINE) | set(REPORT_INDEX))
+SCOPE_PACKAGES, SCOPE_INDEX_MODULES, SCOPE_ALL_MODULES = "packages", "index-modules", "all-modules"
+# A raw line that does not match its class's hint has no hit of the class (so most lines skip swift_code).
+REPORT_HINTS = {"trap_api": TRAP_HINT, "index_subscript": re.compile(r"\["),
+                "int_conversion": re.compile(r"Int(?:8|16|32|64)?\("),
+                **{kind: pattern for kind, pattern in REPORT_SWIFT.items()}}
+
+
+def report_scope(kind, all_modules):
+    """Where the report counts KIND: every package's Sources, INDEX_MODULES of them, or all their modules."""
+    if kind not in REPORT_INDEX:
+        return SCOPE_PACKAGES
+    return SCOPE_ALL_MODULES if all_modules else SCOPE_INDEX_MODULES
+
+
+def collections_by_module(repo, sources):
+    """{module: (names it declares as dictionaries and never otherwise, names it declares as an indexable
+    non-dictionary)} over SOURCES (paths relative to REPO), as module_collections() reads the index modules."""
+    declared = {}
+    for rel in sources:
+        with open(os.path.join(repo, rel), encoding="utf-8", errors="replace") as handle:
+            dicts, arrays, others = collection_kinds(handle.read().split("\n"))
+        entry = declared.setdefault(module_of(rel), (set(), set(), set()))
+        entry[0].update(dicts)
+        entry[1].update(arrays)
+        entry[2].update(others)
+    return {module: (frozenset(d - a - o), frozenset(a)) for module, (d, a, o) in declared.items()}
+
+
+def report_line_hits(kind, lines, index, code, dictionaries):
+    """KIND's hits on LINES[INDEX] (CODE is the line as swift_code reads it)."""
+    if kind in REPORT_LINE:
+        return REPORT_LINE[kind](lines, index, code)
+    if kind == "index_subscript":
+        return index_hits(code, dictionaries)
+    if kind == "int_conversion":
+        return int_conversion_hits(code)
+    return len(REPORT_SWIFT[kind].findall(code))
+
+
+def report_sites(repo, exported, kinds, all_modules=False):
+    """Site rows (section "report") of the report KINDS over package_sources(), each class outside its owner
+    and in its report_scope(): what --report counts and --classify classes. Comment lines and string contents
+    never count (swift_code); a crash-allow does not hide a hit."""
     sites = []
-    for rel in package_sources(repo, exported):
-        path = os.path.join(repo, rel)
-        judged = [kind for kind in kinds if not report_owned(kind, rel)]
-        if not judged or not os.path.isfile(path):
-            continue
-        with open(path, encoding="utf-8", errors="replace") as handle:
-            lines = handle.read().split("\n")
+    sources = [rel for rel in package_sources(repo, exported) if os.path.isfile(os.path.join(repo, rel))]
+
+    def index_scope(module):
+        return all_modules or module in INDEX_MODULES
+
+    collections = {}
+    if any(kind in REPORT_INDEX for kind in kinds):
+        collections = collections_by_module(repo, [rel for rel in sources if index_scope(module_of(rel))])
+    for rel in sources:
         module = module_of(rel)
+        judged = [kind for kind in kinds if not report_owned(kind, rel)
+                  and (kind not in REPORT_INDEX or index_scope(module))]
+        if not judged:
+            continue
+        with open(os.path.join(repo, rel), encoding="utf-8", errors="replace") as handle:
+            lines = handle.read().split("\n")
+        dictionaries = frozenset()
+        if any(kind in REPORT_INDEX for kind in judged):
+            dictionaries = file_dictionaries(lines, *collections.get(module, (frozenset(), frozenset())))
         for index, line in enumerate(lines):
-            if line.lstrip().startswith("//"):
+            here = [kind for kind in judged if REPORT_HINTS[kind].search(line)]
+            if not here or line.lstrip().startswith("//"):
                 continue
             code = swift_code(line)
-            for kind in judged:
-                hits = len(REPORT_SWIFT[kind].findall(code))
+            for kind in here:
+                hits = report_line_hits(kind, lines, index, code, dictionaries)
                 if hits:
                     sites.append(Site("report", "swift", kind, module, rel, index + 1, hits))
     return sites
 
 
-def report_counts(repo, exported, kinds):
-    """{class: {module: hits}} of the report-only KINDS (report_sites)."""
+def report_counts(repo, exported, kinds, all_modules=False):
+    """{class: {module: hits}} of the report KINDS (report_sites)."""
     counts = {kind: {} for kind in kinds}
-    for site in report_sites(repo, exported, kinds):
+    for site in report_sites(repo, exported, kinds, all_modules):
         counts[site.kind][site.module] = counts[site.kind].get(site.module, 0) + site.hits
     return counts
 
 
+def load_report_baseline():
+    """{class: {"scope": ..., "modules": {module: hits}}} of crash-safety-report-baseline.json ({} without it)."""
+    data = load_baseline(REPORT_BASELINE) or {}
+    return {kind: row for kind, row in data.items() if not kind.startswith("_") and isinstance(row, dict)}
+
+
 def report_kinds(names):
-    """The report-only classes that NAMES (comma-separated) lists, or None (printed) when one is unknown or none is."""
+    """The report classes NAMES (comma-separated) asks for, or None (printed) when one is unknown or none is given."""
     kinds = [name for name in (part.strip() for part in names.split(",")) if name]
-    unknown = [kind for kind in kinds if kind not in REPORT_SWIFT]
+    unknown = [kind for kind in kinds if kind not in REPORT_CLASSES]
     if unknown or not kinds:
         print(f"crash-ratchet: unknown report class {', '.join(unknown) or '(none)'}; report classes: "
-              f"{', '.join(sorted(REPORT_SWIFT))}", file=sys.stderr)
+              f"{', '.join(REPORT_CLASSES)}", file=sys.stderr)
         return None
     return kinds
 
 
-def report(repo, exported, names):
-    """Prints the report-only classes NAMES (comma-separated) as JSON; exit 0 (it judges nothing), 2 for an
-    unknown class."""
+def report(repo, exported, names, all_modules=False):
+    """Prints the report classes NAMES (comma-separated) as JSON, each beside its report-baseline row when the
+    row has the same scope; exit 0 (it judges nothing), 2 for an unknown class."""
     kinds = report_kinds(names)
     if kinds is None:
         return 2
-    counts = report_counts(repo, exported, kinds)
-    out = {kind: {"total": sum(modules.values()), "modules": dict(sorted(modules.items()))}
-           for kind, modules in counts.items()}
+    counts = report_counts(repo, exported, kinds, all_modules)
+    baseline = load_report_baseline()
+    out = {}
+    for kind, modules in counts.items():
+        entry = {"total": sum(modules.values()), "modules": dict(sorted(modules.items()))}
+        row = baseline.get(kind)
+        if row and row.get("scope") == report_scope(kind, all_modules):
+            known = row.get("modules", {})
+            entry["baseline"] = sum(known.values())
+            entry["over"] = {module: {"baseline": known.get(module, 0), "now": hits}
+                             for module, hits in sorted(modules.items()) if hits > known.get(module, 0)}
+        out[kind] = entry
     print(json.dumps(out, indent=2, sort_keys=True))
     return 0
 
@@ -1125,14 +1327,15 @@ def classified(classifier, sites):
             "errors": sorted(classifier.errors)}
 
 
-def classify(repo, exported, names):
-    """Prints --classify's JSON for the report-only classes NAMES (None: every hit of the ratchet's scan). It compares
-    nothing: exit 0, 1 when a `// trap-class:` mark is bad, 2 for an unknown report class."""
+def classify(repo, exported, names, all_modules=False):
+    """Prints --classify's JSON for the report classes NAMES (None: every hit of the ratchet's scan), each over the
+    scope --report counts it in (report_sites, --all-modules too). It compares nothing: exit 0, 1 when a
+    `// trap-class:` mark is bad, 2 for an unknown report class."""
     if names is not None:
         kinds = report_kinds(names)
         if kinds is None:
             return 2
-        sites = report_sites(repo, exported, kinds)
+        sites = report_sites(repo, exported, kinds, all_modules)
     else:
         sites = scan_tree(repo, exported, sites=True).sites
     document = classified(TrapClassifier(repo), sites)
@@ -1150,19 +1353,24 @@ INVARIANT_CALL = re.compile(r"\bInvariant\s*\.\s*(?P<api>check|notFatalUntil|dum
 NOT_FATAL_UNTIL_ALLOW = re.compile(r"//\s*not-fatal-until-lowered-allow:\s*\S")
 ARGUMENT_LABEL = re.compile(r"(\w+)\s*:(?!:)")
 INTEGER = re.compile(r"\d[\d_]*")
-CALL_LINES = 12  # an Invariant call's arguments may continue on this many lines
+INTEGER_MAX = {f"{sign}Int{bits}.max": (1 << ((int(bits) if bits else 64) - (0 if sign else 1))) - 1
+               for sign in ("", "U") for bits in ("", "8", "16", "32", "64")}
+# A build: argument that names a constant (`fatalFromBuild`, `Self.fatalFromBuild`); its last component is the name.
+BUILD_NAME = re.compile(r"(?:[A-Za-z_]\w*\s*\.\s*)*(?P<name>[A-Za-z_]\w*)")
+INVARIANT_CALL_LINES = 12  # an Invariant call's arguments may continue on this many lines
 
 
 class InvariantSite(NamedTuple):
     api: str  # check, notFatalUntil or dumpWillBeCheck
     id: str  # the id argument's source text (`"daemon.frame.size"`, `.frameSize`), whitespace folded
-    build: "str | None"  # the build: argument's source text
-    line: int  # 1-based
+    build: "str | None"  # the build: argument's source text, whitespace folded
+    line: int  # 1-based line of `Invariant.`
+    end: int  # 1-based line of the call's closing parenthesis
 
 
-def call_arguments(text, start):
-    """The top-level arguments (source text, stripped) of the call whose `(` is TEXT[START], or None when it does not
-    close in TEXT. String literals and `//` comments never split or close it."""
+def invariant_arguments(text, start):
+    """(top-level arguments (source text, stripped), offset past the `)`) of the call whose `(` is TEXT[START], or
+    None when it does not close in TEXT. String literals and `//` comments never split or close it."""
     args, current, depth, i, n = [], [], 0, start + 1, len(text)
     while i < n:
         ch = text[i]
@@ -1182,7 +1390,7 @@ def call_arguments(text, start):
         elif ch in ")]}":
             if depth == 0:
                 args.append("".join(current).strip())
-                return [arg for arg in args if arg]
+                return [arg for arg in args if arg], i + 1
             depth -= 1
         elif ch == "," and depth == 0:
             args.append("".join(current).strip())
@@ -1202,67 +1410,217 @@ def invariant_sites(lines):
         if line.lstrip().startswith("//"):
             continue
         for match in INVARIANT_CALL.finditer(swift_code(line)):
-            args = call_arguments("\n".join([line[match.end() - 1:]] + lines[index + 1:index + CALL_LINES]), 0)
-            if args is None:
+            text = "\n".join([line[match.end() - 1:]] + lines[index + 1:index + INVARIANT_CALL_LINES])
+            parsed = invariant_arguments(text, 0)
+            if parsed is None:
                 continue
+            args, close = parsed
             labeled, unlabeled = {}, []
             for arg in args:
                 label = ARGUMENT_LABEL.match(arg)
                 if label:
-                    labeled[label.group(1)] = arg[label.end():].strip()
+                    labeled[label.group(1)] = " ".join(arg[label.end():].split())
                 else:
                     unlabeled.append(arg)
             ident = labeled.get("id", unlabeled[1] if len(unlabeled) > 1 else None)
             if ident:
                 sites.append(InvariantSite(match.group("api"), " ".join(ident.split()), labeled.get("build"),
-                                           index + 1))
+                                           index + 1, index + 1 + text.count("\n", 0, close)))
     return sites
 
 
-def build_number(text):
-    return int(text.replace("_", "")) if text and INTEGER.fullmatch(text) else None
+def integer_value(text):
+    """The value of an integer literal (`1_300`) or a fixed-width `.max` (`UInt64.max`), or None."""
+    text = text.strip()
+    if INTEGER.fullmatch(text):
+        return int(text.replace("_", ""))
+    return INTEGER_MAX.get(re.sub(r"\s+", "", text))
 
 
-def not_fatal_change(builds, site):
-    """Why the head call SITE lowers or removes the base's notFatalUntil BUILDS (source texts) of its id, or None."""
-    shown = ", ".join(sorted(set(builds)))
+def build_constant(name, files):
+    """(value, path, 0-based line) of the first `let NAME[: Type] = <integer literal | Int.max form>` in FILES (a
+    list of (path, lines), the call's own file first), or None. A `var` can change at run time, so it never resolves."""
+    declaration = re.compile(r"\blet\s+" + re.escape(name) + r"\s*(?::\s*[\w.]+\s*)?=\s*(?P<value>[^;]+?)\s*$")
+    for path, lines in files:
+        for index, line in enumerate(lines):
+            found = declaration.search(swift_code(line))
+            if found:
+                value = integer_value(found.group("value"))
+                return None if value is None else (value, path, index)
+    return None
+
+
+class Build(NamedTuple):
+    text: str  # the build: argument's source text
+    value: "int | None"  # its value: a literal, an Int.max form, or a `let` constant (None: unknown)
+    constant: "tuple | None"  # (path, 0-based line) of the constant it read, if it read one
+
+
+def resolve_build(text, path, files):
+    """TEXT (a build: argument in PATH) as a Build: a constant is read from PATH first, then the other FILES (one side
+    of the push's changed Swift files, {path: lines})."""
+    value = integer_value(text)
+    if value is not None:
+        return Build(text, value, None)
+    name = BUILD_NAME.fullmatch(text.replace(" ", ""))
+    if not name:
+        return Build(text, None, None)
+    order = [(path, files[path])] + [(p, lines) for p, lines in sorted(files.items()) if p != path]
+    constant = build_constant(name.group("name"), order)
+    if constant is None:
+        return Build(text, None, None)
+    return Build(text, constant[0], constant[1:])
+
+
+def not_fatal_change(base, base_build, site, head_build):
+    """Why the head call SITE lowers or removes the notFatalUntil build of the base call BASE it replaces, or None.
+    BASE_BUILD and HEAD_BUILD are their resolved Builds."""
+    shown = base.build if base_build.value is None or base.build == str(base_build.value) else \
+        f"{base.build} ({base_build.value})"
+    renamed = f" (renamed from {base.id})" if base.id != site.id else ""
     if site.api != "notFatalUntil":
-        return f"build {shown} removed (now Invariant.{site.api})"
-    if site.build is None:
-        return f"build {shown} removed (notFatalUntil without build:)"
-    numbers = [build_number(build) for build in builds]
-    head = build_number(site.build)
-    if head is None or None in numbers:
-        return None if site.build in builds else (f"build {shown} -> {site.build} (not an integer literal: it cannot "
-                                                  "be shown not to be lower)")
-    return f"build {min(numbers)} -> {head} (lowered)" if head < min(numbers) else None
+        return f"build {shown} removed (now Invariant.{site.api}){renamed}"
+    if head_build is None:
+        return f"build {shown} removed (notFatalUntil without build:){renamed}"
+    if base_build.value is None or head_build.value is None:
+        if base_build.value is None and head_build.value is None and base.build == site.build:
+            return None
+        return (f"build {shown} -> {site.build}{renamed} (not an integer literal or a `let` constant of one: it cannot "
+                "be shown not to be lower)")
+    if head_build.value >= base_build.value:
+        return None
+    now = site.build if site.build == str(head_build.value) else f"{site.build} ({head_build.value})"
+    return f"build {shown} -> {now}{renamed} (lowered)"
+
+
+def invariant_pairs(base_lines, head_lines):
+    """[(head site, base site or None)] of one file, and the base sites no head site took. A head call pairs by
+    place, never by its id's text alone (two calls may share an id; Invariant.siteHash keys a site by id, file and
+    line): a call that starts on an unchanged line pairs with the base call on that line; the calls that start in one
+    changed hunk pair with that hunk's base calls, same id first, then in order (a renamed id)."""
+    base_sites, head_sites = invariant_sites(base_lines), invariant_sites(head_lines)
+    base_at = {site.line: site for site in base_sites}
+    taken, pairs = set(), []
+    matcher = difflib.SequenceMatcher(None, base_lines, head_lines, autojunk=False)
+    for tag, i1, i2, j1, j2 in matcher.get_opcodes():
+        heads = [site for site in head_sites if j1 < site.line <= j2]
+        if tag == "equal":
+            for site in heads:
+                base = base_at.get(site.line - j1 + i1)
+                taken.add(base)
+                pairs.append((site, base))
+            continue
+        bases = [site for site in base_sites if i1 < site.line <= i2]
+        paired = {}
+        for site in heads:
+            base = next((b for b in bases if b.id == site.id and b not in paired.values()), None)
+            if base:
+                paired[site] = base
+        rest = [b for b in bases if b not in paired.values()]
+        for site in heads:
+            if site not in paired and rest:
+                paired[site] = rest.pop(0)
+        taken.update(paired.values())
+        pairs.extend((site, paired.get(site)) for site in heads)
+    return pairs, [site for site in base_sites if site not in taken]
 
 
 def lowered_not_fatal_until(base_files, head_files):
-    """[(path, line, why)] for each head Invariant call that lowers or removes a notFatalUntil build the base had for
-    its id. BASE_FILES and HEAD_FILES map a path to its lines on each side (a push's changed Swift files; an id may
-    move between them). The rules (p10-stability-099: the ratchet refuses a lowered or removed N without a reason):
-      - lowered: the head call is notFatalUntil with a build below the lowest base build of the id;
-      - removed: the head call with the id is check or dumpWillBeCheck, or notFatalUntil without build:;
-      - unprovable: a build that is not an integer literal on either side, with a text no base call had (lowered);
-      - a raised build, a new id, and an id that no head call names any more (it left with its code) pass;
-      - `// not-fatal-until-lowered-allow: <reason>` on the head call's line or the line above (allow_lines)
-        passes the call."""
-    base = {}
-    for lines in base_files.values():
-        for site in invariant_sites(lines):
-            if site.api == "notFatalUntil" and site.build is not None:
-                base.setdefault(site.id, []).append(site.build)
+    """[(path, line, why)] for each head Invariant call that lowers or removes the notFatalUntil build of the base
+    call it replaces. BASE_FILES and HEAD_FILES map a path to its lines on each side (a push's changed Swift files).
+    The rules (p10-stability-099: the ratchet refuses a lowered or removed N without a reason):
+      - pairing (invariant_pairs): by place in the file's diff; a renamed id in the same hunk keeps the base build;
+        a head call with no base call in its hunk takes a base call of the same id that left any changed file (it
+        moved), else it is new and passes;
+      - lowered: the paired head call is notFatalUntil with a lower build. A build is an integer literal, an
+        `Int.max` form, or a `let` constant of one (read in the call's file first, then the other changed files), so
+        lowering the constant behind an unchanged call is lowered too;
+      - removed: the paired head call is check or dumpWillBeCheck, or notFatalUntil without build:;
+      - unprovable: a build whose value it cannot read on a side, with a text the base call did not have (lowered);
+      - a raised or unchanged build, a new call, and a base call that left with its code pass;
+      - `// not-fatal-until-lowered-allow: <reason>` on the head call's first line or the line above it, or on the
+        head constant's line or the line above it, passes the call."""
+    pairs, vanished = [], []
+    for path in sorted(set(base_files) | set(head_files)):
+        file_pairs, gone = invariant_pairs(base_files.get(path, []), head_files.get(path, []))
+        pairs.extend((path, site, base) for site, base in file_pairs if path in head_files)
+        vanished.extend((path, site) for site in gone)
     found = []
-    for path, lines in sorted(head_files.items()):
-        for site in invariant_sites(lines):
-            builds = base.get(site.id)
-            if not builds or any(NOT_FATAL_UNTIL_ALLOW.search(lines[i]) for i in allow_lines(lines, site.line - 1)):
+    for path, site, base in pairs:
+        base_path = path
+        if base is None:
+            moved = next((item for item in vanished if item[1].id == site.id), None)
+            if moved is None:
                 continue
-            why = not_fatal_change(builds, site)
-            if why:
-                found.append((path, site.line, f"Invariant.{site.api} {site.id}: {why}"))
+            vanished.remove(moved)
+            base_path, base = moved
+        if base.api != "notFatalUntil" or base.build is None:
+            continue
+        lines = head_files[path]
+        base_build = resolve_build(base.build, base_path, base_files)
+        head_build = None if site.build is None else resolve_build(site.build, path, head_files)
+        why = not_fatal_change(base, base_build, site, head_build)
+        if not why:
+            continue
+        allow = [(lines, site.line - 1)]
+        if head_build and head_build.constant:
+            const_path, const_line = head_build.constant
+            allow.append((head_files[const_path], const_line))
+            if const_path != path or const_line != site.line - 1:
+                why += f"; set at {const_path}:{const_line + 1}"
+        if any(NOT_FATAL_UNTIL_ALLOW.search(text[i]) for text, at in allow for i in allow_lines(text, at)):
+            continue
+        found.append((path, site.line, f"Invariant.{site.api} {site.id}: {why}"))
     return found
+
+
+REPORT_BASELINE_COMMENT = ("Report-only rows of crash_ratchet.py --report (p10-stability rule 1: no CI gates). Written "
+                           "only by --report CLASS --update-report-baseline, which records a class's first row and "
+                           "after that only lowers rows; the CI compare never reads this file.")
+
+
+def update_report_baseline(repo, exported, names, all_modules):
+    """Writes the report-baseline rows of the classes NAMES: a class's first row records the tree, after that each
+    module's row only goes down. Exit 1 when a row stays above (it is printed; the rest is written), 2 for an
+    unknown class or an index class without --all-modules (its index-module rows are the CI baseline's)."""
+    kinds = report_kinds(names)
+    if kinds is None:
+        return 2
+    narrow = [kind for kind in kinds if report_scope(kind, all_modules) == SCOPE_INDEX_MODULES]
+    if narrow:
+        print(f"crash-ratchet: the report baseline records {', '.join(narrow)} over every module only: pass "
+              "--all-modules (the index modules' rows are crash-safety-baseline.json's)", file=sys.stderr)
+        return 2
+    counts = report_counts(repo, exported, kinds, all_modules)
+    data = load_baseline(REPORT_BASELINE) or {}
+    held = []
+    for kind in kinds:
+        scope, found, row = report_scope(kind, all_modules), counts[kind], data.get(kind)
+        if not isinstance(row, dict) or row.get("scope") != scope:
+            modules = dict(found)
+            print(f"crash-ratchet: report baseline: {kind} ({scope}) recorded at {sum(modules.values())}")
+        else:
+            known = row.get("modules", {})
+            modules = {}
+            for module in sorted(set(known) | set(found)):
+                now, was = found.get(module, 0), known.get(module, 0)
+                if now > was:
+                    held.append(f"{kind} {module} {was} -> {now}")
+                modules[module] = min(now, was)
+        data[kind] = {"scope": scope, "modules": {m: n for m, n in sorted(modules.items()) if n}}
+    data["_comment"] = REPORT_BASELINE_COMMENT
+    with open(REPORT_BASELINE, "w") as out:
+        json.dump(data, out, indent=1, sort_keys=True)
+        out.write("\n")
+    totals = ", ".join(f"{kind} {sum(data[kind]['modules'].values())}" for kind in kinds)
+    print(f"crash-ratchet: report baseline written: {totals}")
+    for line in held:
+        print(f"crash-ratchet: not raised: {line}")
+    if held:
+        print(f"crash-ratchet: {len(held)} report row(s) stay above the report baseline; it never raises a row. "
+              "Fix those hits.")
+        return 1
+    return 0
 
 
 def load_allowlist():
@@ -1631,8 +1989,14 @@ def main():
     parser.add_argument("--exported-tree", action="store_true",
                         help="REPO holds only tracked files (git archive): scan every file, no git needed")
     parser.add_argument("--report", metavar="CLASS[,CLASS]",
-                        help="print these report-only classes' counts per module as JSON ("
-                        + ", ".join(sorted(REPORT_SWIFT)) + "); compares nothing")
+                        help="print these report classes' counts per module as JSON ("
+                        + ", ".join(REPORT_CLASSES) + "); compares nothing")
+    parser.add_argument("--all-modules", action="store_true",
+                        help="with --report: count " + " and ".join(REPORT_INDEX)
+                        + " in every module, not only the index modules")
+    parser.add_argument("--update-report-baseline", action="store_true",
+                        help="with --report: lower the classes' rows in crash-safety-report-baseline.json "
+                        "(a class's first row records the tree)")
     parser.add_argument("--classify", action="store_true",
                         help="print every hit (of --report's classes, else of the ratchet's scan) with its trap class "
                         "(input or invariant) and the rule that gave it, as JSON; compares nothing")
@@ -1641,9 +2005,17 @@ def main():
         if opts.update_baseline or opts.record_waivers or opts.base or opts.baseline_against:
             parser.error("--report and --classify only report: they do not go with --update-baseline, --base or "
                          "--baseline-against")
+        if opts.classify and opts.update_report_baseline:
+            parser.error("--classify does not write the report baseline")
+        if opts.all_modules and opts.report is None:
+            parser.error("--all-modules goes with --report")
         if opts.classify:
-            return classify(opts.repo, opts.exported_tree, opts.report)
-        return report(opts.repo, opts.exported_tree, opts.report)
+            return classify(opts.repo, opts.exported_tree, opts.report, opts.all_modules)
+        if opts.update_report_baseline:
+            return update_report_baseline(opts.repo, opts.exported_tree, opts.report, opts.all_modules)
+        return report(opts.repo, opts.exported_tree, opts.report, opts.all_modules)
+    if opts.all_modules or opts.update_report_baseline:
+        parser.error("--all-modules and --update-report-baseline go with --report")
     updating = opts.update_baseline or opts.record_waivers
     if opts.base and not updating:
         parser.error("--base goes with --update-baseline or --record-waivers")

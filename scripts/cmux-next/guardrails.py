@@ -2744,7 +2744,7 @@ RULES += RAW_CONTINUATION_RULES
 # both sides, so an id that moves between files keeps its build. Local only, like every guardrail.
 # The block owns its lines from here to `RULES += NOT_FATAL_UNTIL_RULES`.
 def not_fatal_until_lowered(changes: list[FileChange], moved: collections.Counter) -> list[Added]:
-    """Invariant calls the push changes that lower or remove the base's notFatalUntil build of their id."""
+    """Invariant calls that lower or remove the notFatalUntil build of the base call they replace (paired by place)."""
     judged = [c for c in changes if c.path.endswith(".swift") and "/Sources/" in c.path]
     base = {c.path: c.base_lines for c in judged if not c.is_new}
     head = {c.path: c.head_lines for c in judged if not c.is_deleted}
