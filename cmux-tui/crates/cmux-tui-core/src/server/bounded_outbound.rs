@@ -19,7 +19,6 @@
 use super::BACKPRESSURE_RECHECK;
 use super::BudgetedText;
 use super::MAX_SERVER_CONNECTIONS;
-use super::MessageSink;
 use super::OUTBOUND_BACKPRESSURED_STREAM_CAPACITY;
 use super::OUTBOUND_BYTE_CAPACITY;
 use super::OUTBOUND_CAPACITY;
@@ -28,21 +27,16 @@ use super::OUTBOUND_CONNECTION_CAPACITY;
 use super::OUTBOUND_CONTROL_BYTE_RESERVE;
 use super::OUTBOUND_CONTROL_RESERVE;
 use super::OutboundStream;
-use super::RENDER_ATTACH_MAX_BYTES;
 use super::attach_streams::AttachStreamError;
 use super::attach_streams::ClientStreamId;
 use super::attach_streams::ClientStreams;
 use crate::panic_free::RecoverPoison;
-use crate::platform::transport;
 use cmux_ipc::FrameHeader;
 use cmux_ipc::lane_writer::BULK_FRAME_MAX;
 use cmux_threads::checked::sync as waits;
 use std::collections::HashMap;
 use std::collections::VecDeque;
-use std::io::Read;
 use std::io::Write;
-use std::net::Shutdown;
-use std::net::TcpStream;
 use std::ops::Range;
 use std::sync::Arc;
 use std::sync::Condvar;
@@ -52,8 +46,13 @@ use std::time::Duration;
 
 #[path = "outbound_lanes.rs"]
 mod lanes;
+#[path = "queued_sink.rs"]
+mod queued_sink;
 pub(crate) use lanes::bulk_frame_max_from_env;
 use lanes::{LaneTurns, RegularOutbound, StreamLanes};
+#[cfg(test)]
+pub(super) use queued_sink::websocket_server_frame_header;
+pub(super) use queued_sink::{QueuedSink, SinkControl, SynchronizedTcpStream};
 
 #[cfg(test)]
 #[path = "bounded_outbound_tests.rs"]
@@ -88,6 +87,9 @@ pub(super) struct BoundedOutboundState {
     /// Client-minted stream ids held until their terminal is queued
     /// (attach-streams-v1): freeing one is part of queuing its terminal.
     pub(super) client_streams: ClientStreams,
+    /// Streams with a space hook that dropped below their backpressure cap
+    /// under the lock: woken once it is released.
+    space_woken: Vec<OutboundStream>,
 }
 
 impl BoundedOutboundState {
@@ -507,27 +509,28 @@ impl BoundedOutbound {
     /// order.
     #[cfg(test)]
     pub(super) fn try_pop(&self) -> Option<String> {
-        let mut state = self.state.lock().recover_poison();
         loop {
-            match state.pop() {
-                Some(OutboundItem::Text(text) | OutboundItem::Frame(_, text)) => {
-                    drop(state);
-                    self.changed.notify_all();
+            let mut state = self.state.lock().recover_poison();
+            let item = state.pop();
+            let woken = state.take_space_woken();
+            drop(state);
+            if item.is_some() {
+                self.changed.notify_all();
+            }
+            for stream in woken {
+                stream.space_hook.wake();
+            }
+            match item? {
+                OutboundItem::Text(text) | OutboundItem::Frame(_, text) => {
                     return Some(text.to_string());
                 }
-                Some(OutboundItem::Chunk { text, range, .. }) => {
-                    drop(state);
-                    self.changed.notify_all();
+                OutboundItem::Chunk { text, range, .. } => {
                     let bytes = text.as_bytes().get(range).unwrap_or_default();
                     return Some(String::from_utf8_lossy(bytes).into_owned());
                 }
-                Some(OutboundItem::Flush(flushed)) => {
-                    drop(state);
-                    self.changed.notify_all();
+                OutboundItem::Flush(flushed) => {
                     let _ = flushed.send(());
-                    state = self.state.lock().recover_poison();
                 }
-                None => return None,
             }
         }
     }
@@ -536,8 +539,12 @@ impl BoundedOutbound {
         let mut state = self.state.lock().recover_poison();
         loop {
             if let Some(item) = state.pop() {
+                let woken = state.take_space_woken();
                 drop(state);
                 self.changed.notify_all();
+                for stream in woken {
+                    stream.space_hook.wake();
+                }
                 return Some(item);
             }
             if state.closed {
@@ -549,6 +556,10 @@ impl BoundedOutbound {
 
     pub(super) fn is_open(&self) -> bool {
         !self.state.lock().recover_poison().closed
+    }
+
+    pub(super) fn has_backpressure_room(&self, stream: &OutboundStream) -> bool {
+        self.state.lock().recover_poison().has_backpressure_room(stream)
     }
 
     pub(super) fn close(&self) {
@@ -603,279 +614,5 @@ pub(super) fn write_line_outbound_item<W: Write + ?Sized>(
             let _ = flushed.send(());
             Ok(())
         }
-    }
-}
-
-pub(super) struct QueuedSink {
-    pub(super) outbound: Arc<BoundedOutbound>,
-    pub(super) control: Option<SinkControl>,
-}
-
-pub(super) enum SinkControl {
-    Unix(Box<dyn transport::Stream>),
-    WebSocket(TcpStream),
-}
-
-/// Cloned TCP streams share one write boundary so independent Tungstenite
-/// reader and writer contexts cannot interleave frame bytes. Reads remain
-/// fully blocking and are interrupted by shutting down a clone.
-pub(super) struct SynchronizedTcpStream {
-    pub(super) stream: TcpStream,
-    pub(super) write_lock: Arc<Mutex<()>>,
-    /// Bytes already read from `stream` (the request head the listener read
-    /// to tell a page request from a WebSocket handshake), read first.
-    replay: VecDeque<u8>,
-    /// Bytes this handle has read from `stream`: inbound liveness even while
-    /// a large frame is still arriving.
-    bytes_read: u64,
-}
-
-impl SynchronizedTcpStream {
-    #[cfg(test)]
-    pub(super) fn new(stream: TcpStream) -> Self {
-        Self::with_replay(stream, Vec::new())
-    }
-
-    /// A stream whose reads return `replay` before reading `stream` again.
-    pub(super) fn with_replay(stream: TcpStream, replay: Vec<u8>) -> Self {
-        Self { stream, write_lock: Arc::new(Mutex::new(())), replay: replay.into(), bytes_read: 0 }
-    }
-
-    pub(super) fn try_clone(&self) -> std::io::Result<Self> {
-        Ok(Self {
-            stream: self.stream.try_clone()?,
-            write_lock: self.write_lock.clone(),
-            replay: VecDeque::new(),
-            bytes_read: 0,
-        })
-    }
-
-    /// Bytes read from the socket through this handle (replayed bytes excluded).
-    pub(super) fn bytes_read(&self) -> u64 {
-        self.bytes_read
-    }
-
-    pub(super) fn try_clone_raw(&self) -> std::io::Result<TcpStream> {
-        self.stream.try_clone()
-    }
-
-    pub(super) fn set_read_timeout(&self, timeout: Option<Duration>) -> std::io::Result<()> {
-        self.stream.set_read_timeout(timeout)
-    }
-
-    pub(super) fn set_write_timeout(&self, timeout: Option<Duration>) -> std::io::Result<()> {
-        self.stream.set_write_timeout(timeout)
-    }
-
-    /// One text message; its write calls count in `ipc` (`server-stats`).
-    pub(super) fn write_websocket_text(
-        &mut self,
-        text: &str,
-        ipc: &crate::diagnostics::IpcStats,
-    ) -> std::io::Result<()> {
-        if text.len() > RENDER_ATTACH_MAX_BYTES {
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::InvalidData,
-                "WebSocket outbound message exceeds the protocol limit",
-            ));
-        }
-        let _guard = self.write_lock.lock().recover_poison();
-        write_websocket_frame_to(&mut ipc.counted(&mut self.stream), 0x1, text.as_bytes())
-    }
-
-    pub(super) fn write_websocket_close(&mut self) -> std::io::Result<()> {
-        self.write_websocket_frame(0x8, &[])
-    }
-
-    /// An empty Ping, written whole under the shared write lock so it never
-    /// lands inside another frame.
-    pub(super) fn write_websocket_ping(&mut self) -> std::io::Result<()> {
-        self.write_websocket_frame(0x9, &[])
-    }
-
-    pub(super) fn write_websocket_frame(
-        &mut self,
-        opcode: u8,
-        payload: &[u8],
-    ) -> std::io::Result<()> {
-        let _guard = self.write_lock.lock().recover_poison();
-        write_websocket_frame_to(&mut self.stream, opcode, payload)
-    }
-}
-
-/// One whole server frame; the caller holds the stream's write lock.
-fn write_websocket_frame_to<W: Write + ?Sized>(
-    out: &mut W,
-    opcode: u8,
-    payload: &[u8],
-) -> std::io::Result<()> {
-    let (header, header_len) = websocket_server_frame_header(opcode, payload.len());
-    let header = header.get(..header_len).ok_or(std::io::ErrorKind::InvalidData)?;
-    out.write_all(header)?;
-    out.write_all(payload)?;
-    out.flush()
-}
-
-pub(super) fn websocket_server_frame_header(opcode: u8, payload_len: usize) -> ([u8; 10], usize) {
-    let mut header = [0_u8; 10];
-    header[0] = 0x80 | (opcode & 0x0f);
-    match payload_len {
-        0..=125 => {
-            header[1] = payload_len as u8;
-            (header, 2)
-        }
-        126..=65_535 => {
-            header[1] = 126;
-            header[2..4].copy_from_slice(&(payload_len as u16).to_be_bytes());
-            (header, 4)
-        }
-        _ => {
-            header[1] = 127;
-            header[2..10].copy_from_slice(&(payload_len as u64).to_be_bytes());
-            (header, 10)
-        }
-    }
-}
-
-impl Read for SynchronizedTcpStream {
-    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
-        if !self.replay.is_empty() {
-            return self.replay.read(buf);
-        }
-        let read = self.stream.read(buf)?;
-        self.bytes_read += read as u64;
-        Ok(read)
-    }
-}
-
-impl Write for SynchronizedTcpStream {
-    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
-        let _guard = self.write_lock.lock().recover_poison();
-        self.stream.write_all(buf)?;
-        Ok(buf.len())
-    }
-
-    fn flush(&mut self) -> std::io::Result<()> {
-        let _guard = self.write_lock.lock().recover_poison();
-        self.stream.flush()
-    }
-}
-
-impl SinkControl {
-    pub(super) fn set_write_timeout(&self, timeout: Option<Duration>) -> std::io::Result<()> {
-        match self {
-            Self::Unix(stream) => stream.set_write_timeout(timeout),
-            Self::WebSocket(stream) => stream.set_write_timeout(timeout),
-        }
-    }
-
-    pub(super) fn shutdown(&self) -> std::io::Result<()> {
-        match self {
-            Self::Unix(stream) => stream.shutdown(Shutdown::Both),
-            Self::WebSocket(stream) => stream.shutdown(Shutdown::Both),
-        }
-    }
-}
-
-impl MessageSink for QueuedSink {
-    fn send_initial(
-        &self,
-        text: Arc<BudgetedText>,
-        stream: &OutboundStream,
-    ) -> std::io::Result<()> {
-        self.outbound.push_initial(text, stream)
-    }
-
-    fn send_stream(&self, text: Arc<BudgetedText>, stream: &OutboundStream) -> std::io::Result<()> {
-        self.outbound.push_regular(text, stream)
-    }
-
-    fn send_stream_backpressured(
-        &self,
-        text: Arc<BudgetedText>,
-        stream: &OutboundStream,
-    ) -> std::io::Result<()> {
-        self.outbound.push_regular_backpressured(text, stream)
-    }
-
-    fn send_control(&self, text: Arc<BudgetedText>) -> std::io::Result<()> {
-        self.outbound.push_control(text)
-    }
-
-    fn claim_client_stream(&self, stream: &OutboundStream) -> Result<(), AttachStreamError> {
-        self.outbound.claim_client_stream(stream)
-    }
-
-    fn client_stream(&self, id: ClientStreamId) -> Option<OutboundStream> {
-        self.outbound.client_stream(id)
-    }
-
-    fn send_frame(&self, header: FrameHeader, text: Arc<BudgetedText>) -> std::io::Result<()> {
-        match self.control {
-            Some(SinkControl::Unix(_)) => self.outbound.push_frame(header, text),
-            // Frames are granted only to local Unix peers (p05-ipc-060).
-            Some(SinkControl::WebSocket(_)) | None => Err(std::io::Error::new(
-                std::io::ErrorKind::Unsupported,
-                "frames ride only a local Unix connection",
-            )),
-        }
-    }
-
-    fn send_stream_frame(
-        &self,
-        header: FrameHeader,
-        text: Arc<BudgetedText>,
-        stream: &OutboundStream,
-    ) -> std::io::Result<()> {
-        match self.control {
-            Some(SinkControl::Unix(_)) => self.outbound.push_stream_frame(header, text, stream),
-            Some(SinkControl::WebSocket(_)) | None => Err(std::io::Error::new(
-                std::io::ErrorKind::Unsupported,
-                "frames ride only a local Unix connection",
-            )),
-        }
-    }
-
-    fn send_terminal(
-        &self,
-        text: Arc<BudgetedText>,
-        stream: &OutboundStream,
-    ) -> std::io::Result<()> {
-        self.outbound.push_terminal(text, stream)
-    }
-
-    fn send_ordered_terminal(
-        &self,
-        text: Arc<BudgetedText>,
-        stream: &OutboundStream,
-    ) -> std::io::Result<()> {
-        self.outbound.push_ordered_terminal(text, stream)
-    }
-
-    fn is_open(&self) -> bool {
-        self.outbound.is_open()
-    }
-
-    fn set_write_timeout(&self, timeout: Option<Duration>) -> std::io::Result<()> {
-        self.control.as_ref().map_or(Ok(()), |control| control.set_write_timeout(timeout))
-    }
-
-    fn flush_control(&self, timeout: Duration) -> std::io::Result<()> {
-        self.control.as_ref().map_or(Ok(()), |_| self.outbound.flush_control(timeout))
-    }
-
-    fn close(&self) {
-        self.outbound.close();
-    }
-
-    fn abort(&self) {
-        self.outbound.abort();
-        if let Some(control) = &self.control {
-            let _ = control.shutdown();
-        }
-    }
-
-    fn close_after_control(&self) {
-        self.outbound.close_after_control();
     }
 }

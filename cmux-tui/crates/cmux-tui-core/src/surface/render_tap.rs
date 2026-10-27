@@ -127,6 +127,9 @@ impl RenderTapQueue {
 struct RenderTapState {
     queue: Mutex<RenderTapQueue>,
     ready: Condvar,
+    /// The viewer's drain task when it runs on a sequence instead of
+    /// blocking on `ready` (attach streams, p05-ipc-079).
+    ready_hook: crate::stream_interrupt::ReadyHook,
 }
 
 pub(super) struct RenderTap {
@@ -144,6 +147,7 @@ impl RenderTap {
                 receiver_alive: true,
             }),
             ready: Condvar::new(),
+            ready_hook: Default::default(),
         });
         (
             Self { state: state.clone() },
@@ -159,6 +163,7 @@ impl RenderTap {
         queue.push(event);
         drop(queue);
         self.state.ready.notify_one();
+        self.state.ready_hook.wake();
         true
     }
 }
@@ -167,6 +172,7 @@ impl Drop for RenderTap {
     fn drop(&mut self) {
         self.state.queue.lock().unwrap().sender_alive = false;
         self.state.ready.notify_all();
+        self.state.ready_hook.wake();
     }
 }
 
@@ -177,6 +183,13 @@ pub struct RenderAttachFrameReceiver {
 }
 
 impl RenderAttachFrameReceiver {
+    /// Runs `hook` after each queued event and when the sender is gone, for
+    /// a viewer whose drain polls `try_recv` on a sequence instead of
+    /// blocking. False when a hook is set already.
+    pub(crate) fn on_ready(&self, hook: impl Fn() + Send + Sync + 'static) -> bool {
+        self.state.ready_hook.set(hook)
+    }
+
     pub fn recv(&self) -> Result<RenderAttachFrame, RecvError> {
         let mut queue = self.state.queue.lock().unwrap();
         loop {

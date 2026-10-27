@@ -18,6 +18,7 @@
 //! snapshot. A JSON line is written whole. `BoundedOutboundState`'s queueing
 //! and pop order live here; its budgets stay in server/bounded_outbound.rs.
 
+use super::super::OUTBOUND_BACKPRESSURED_STREAM_CAPACITY;
 use super::BoundedOutbound;
 use super::BoundedOutboundState;
 use super::BudgetedText;
@@ -416,6 +417,7 @@ impl BoundedOutboundState {
             regular_bytes: 0,
             closed: false,
             client_streams: ClientStreams::default(),
+            space_woken: Vec::new(),
         }
     }
 
@@ -506,14 +508,34 @@ impl BoundedOutboundState {
         let bytes = message.text.len();
         self.stream_items = self.stream_items.saturating_sub(1);
         self.regular_bytes = self.regular_bytes.saturating_sub(bytes);
-        let remove = self.stream_usage.get_mut(&message.stream.id).is_some_and(|usage| {
-            usage.messages = usage.messages.saturating_sub(1);
-            usage.bytes = usage.bytes.saturating_sub(bytes);
-            usage.messages == 0
-        });
+        let Some(usage) = self.stream_usage.get_mut(&message.stream.id) else { return };
+        let was_full = usage.messages >= OUTBOUND_BACKPRESSURED_STREAM_CAPACITY;
+        usage.messages = usage.messages.saturating_sub(1);
+        usage.bytes = usage.bytes.saturating_sub(bytes);
+        let remove = usage.messages == 0;
+        // A producer that stopped at the cap is woken once the lock is
+        // released (`BoundedOutbound::recv`).
+        if was_full && message.stream.space_hook.is_set() {
+            self.space_woken.push(message.stream.clone());
+        }
         if remove {
             self.stream_usage.remove(&message.stream.id);
         }
+    }
+
+    /// The streams that got room since the last call, to wake outside the
+    /// lock.
+    pub(super) fn take_space_woken(&mut self) -> Vec<OutboundStream> {
+        std::mem::take(&mut self.space_woken)
+    }
+
+    /// Whether `stream` holds fewer queued items than its backpressure cap.
+    /// A closed connection or stream answers true: the send reports why.
+    pub(super) fn has_backpressure_room(&self, stream: &OutboundStream) -> bool {
+        self.closed
+            || !stream.is_open()
+            || self.stream_usage.get(&stream.id).map_or(0, |usage| usage.messages)
+                < OUTBOUND_BACKPRESSURED_STREAM_CAPACITY
     }
 
     /// Closes every stream and drops its items; replies, terminals and

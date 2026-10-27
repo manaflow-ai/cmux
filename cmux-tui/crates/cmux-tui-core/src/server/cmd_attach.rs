@@ -2,6 +2,10 @@
 //! browser attach with view leases and initial replay), reattach-view,
 //! detach-client and detach-attached-view. Each function is one `Command`
 //! arm of `handle_command_with_cancellation`.
+//!
+//! A legacy view's output runs on threads of its own; a view on a
+//! client-minted attach stream runs as a drain on the daemon-wide sequenced
+//! pool and holds no thread (stream_attach_out.rs, p05-ipc-079).
 
 use super::size_state_for_client;
 use crate::panic_free::RecoverPoison;
@@ -19,6 +23,7 @@ use super::RenderClientState;
 use super::TERMINAL_COLOR_OVERRIDES_CAPABILITY;
 use super::TERMINAL_PENDING_SEQUENCE_CAPABILITY;
 use super::VtStateMessage;
+use super::attach_lifecycle::AttachCommit;
 use super::attach_overflow_json;
 use super::attach_response;
 use super::attach_streams::ClientStreamId;
@@ -56,6 +61,10 @@ use crate::surface::AttachLifecycle;
 use serde_json::Value;
 use serde_json::json;
 use std::sync::Arc;
+
+#[path = "stream_attach_out.rs"]
+mod stream_attach_out;
+use stream_attach_out::StreamView;
 
 /// How long a sized terminal attach waits for its hosted PTY's resize before
 /// it builds the replay anyway (then a `resized` replay follows, as before).
@@ -319,6 +328,19 @@ fn attach_view(
             rollback_failed_attach(mux, client, surface_id, outbound_stream.id, size_rollback);
             return Err(error.into());
         }
+        if outbound_stream.client_stream.is_some() {
+            let commit = AttachCommit { lifecycle, changed: client_changed, size_rollback };
+            StreamView {
+                mux,
+                client,
+                surface: surface_id,
+                writer,
+                stream: &outbound_stream,
+                commit,
+            }
+            .start_render(attach)?;
+            return Ok(attach_response(mux, surface_id, client, lease));
+        }
         let worker_writer = writer.clone();
         let worker_mux = mux.clone();
         let worker_lifecycle = lifecycle.clone();
@@ -425,6 +447,19 @@ fn attach_view(
             handle_attach_send_error(&lifecycle, &error);
             rollback_failed_attach(mux, client, surface_id, outbound_stream.id, size_rollback);
             return Err(error.into());
+        }
+        if outbound_stream.client_stream.is_some() {
+            let commit = AttachCommit { lifecycle, changed: client_changed, size_rollback };
+            StreamView {
+                mux,
+                client,
+                surface: surface_id,
+                writer,
+                stream: &outbound_stream,
+                commit,
+            }
+            .start_browser(frames)?;
+            return Ok(attach_response(mux, surface_id, client, lease));
         }
         if let Err(error) = spawn_attach_notification_stream(
             mux.clone(),
@@ -557,6 +592,12 @@ fn attach_view(
         handle_attach_send_error(&lifecycle, &error);
         rollback_failed_attach(mux, client, surface_id, outbound_stream.id, size_rollback);
         return Err(error.into());
+    }
+    if outbound_stream.client_stream.is_some() {
+        let commit = AttachCommit { lifecycle, changed: client_changed, size_rollback };
+        StreamView { mux, client, surface: surface_id, writer, stream: &outbound_stream, commit }
+            .start_bytes(attach, shape)?;
+        return Ok(attach_response(mux, surface_id, client, lease));
     }
     if let Err(error) = spawn_attach_notification_stream(
         mux.clone(),

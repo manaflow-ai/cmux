@@ -54,6 +54,10 @@ pub(super) struct OutboundStream {
     /// The id the client minted for this stream (attach-streams-v1): every
     /// item carries it as `"stream"` and the terminal is `stream-end`.
     pub(super) client_stream: Option<ClientStreamId>,
+    /// Run when the writer takes an item of this stream while it held its
+    /// backpressure cap: the producer's drain task (p05-ipc-079), which
+    /// stopped at the cap instead of waiting for room.
+    pub(super) space_hook: Arc<crate::stream_interrupt::ReadyHook>,
 }
 
 impl OutboundStream {
@@ -77,7 +81,14 @@ impl OutboundStream {
             overflow_text: Arc::new(Mutex::new(overflow_text)),
             closed: InterruptSet::default(),
             client_stream: None,
+            space_hook: Arc::default(),
         }
+    }
+
+    /// Runs `hook` each time the writer takes an item of this stream while
+    /// it was at its backpressure cap. False when a hook is set already.
+    pub(super) fn on_space(&self, hook: impl Fn() + Send + Sync + 'static) -> bool {
+        self.space_hook.set(hook)
     }
 
     pub(super) fn register_interrupt(&self, interrupt: &Arc<StreamInterrupt>) {
@@ -110,6 +121,12 @@ pub(super) trait MessageSink: Send + Sync {
         self.send_stream(text, stream)
     }
     fn send_control(&self, text: Arc<BudgetedText>) -> std::io::Result<()>;
+    /// Whether `stream` holds fewer queued items than its backpressure cap:
+    /// a producer that does not wait sends only then
+    /// ([`OutboundStream::on_space`] wakes it once there is room).
+    fn stream_has_room(&self, _stream: &OutboundStream) -> bool {
+        true
+    }
     /// Takes `stream`'s client-minted id on this connection until its
     /// terminal is queued (attach-streams-v1).
     fn claim_client_stream(&self, _stream: &OutboundStream) -> Result<(), AttachStreamError> {
@@ -479,6 +496,28 @@ impl MessageWriter {
             .render_service
             .serialize_attach_frame_for(surface, frame, shape, stream.client_stream)
             .and_then(|text| self.sink.send_stream_backpressured(text, stream));
+        if result.as_ref().is_err_and(|error| error.kind() != std::io::ErrorKind::WouldBlock) {
+            stream.close();
+        }
+        result
+    }
+
+    /// [`Self::send_attach_frame_backpressured`] for a producer that checked
+    /// [`MessageSink::stream_has_room`] first: it never waits.
+    pub(super) fn send_attach_frame(
+        &self,
+        surface: SurfaceId,
+        frame: &AttachFrame,
+        shape: AttachWireShape,
+        stream: &OutboundStream,
+    ) -> std::io::Result<()> {
+        if !self.is_open() {
+            return Err(std::io::Error::new(std::io::ErrorKind::BrokenPipe, "connection closed"));
+        }
+        let result = self
+            .render_service
+            .serialize_attach_frame_for(surface, frame, shape, stream.client_stream)
+            .and_then(|text| self.sink.send_stream(text, stream));
         if result.as_ref().is_err_and(|error| error.kind() != std::io::ErrorKind::WouldBlock) {
             stream.close();
         }

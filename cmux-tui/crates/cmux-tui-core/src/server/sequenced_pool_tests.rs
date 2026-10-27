@@ -1,6 +1,7 @@
 //! The sequenced pool (p05-ipc-073): per-sequence FIFO with no overlap,
 //! independent sequences, blocking compensation, fences, caps, no idle
-//! wakeups and a thread count independent of the number of sequences.
+//! wakeups and a thread count independent of the number of sequences;
+//! delayed tasks (p05-ipc-079).
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc;
@@ -410,4 +411,55 @@ fn the_config_follows_the_cores() {
         SequencePriority::ALL.iter().map(|priority| config.workers(*priority)).collect();
     assert_eq!(workers, [2, 8, 2, 1]);
     assert_eq!(PoolConfig::for_cores(2).workers(SequencePriority::Control), 2);
+}
+
+#[test]
+fn a_delayed_task_runs_after_its_delay_behind_earlier_posts() {
+    let pool = pool(PoolConfig::for_cores(4));
+    let sequence = pool.sequence(SequencePriority::Input);
+    let (tx, rx) = mpsc::channel();
+    let posted = Instant::now();
+    let delayed = tx.clone();
+    sequence
+        .post_delayed(Duration::from_millis(60), move || {
+            delayed.send(("delayed", posted.elapsed())).unwrap();
+        })
+        .unwrap();
+    sequence.post(move || tx.send(("now", posted.elapsed())).unwrap()).unwrap();
+    let first = rx.recv_timeout(WAIT).unwrap();
+    let second = rx.recv_timeout(WAIT).unwrap();
+    assert_eq!(first.0, "now");
+    assert_eq!(second.0, "delayed");
+    assert!(second.1 >= Duration::from_millis(60), "ran after {:?}", second.1);
+}
+
+#[test]
+fn an_idle_worker_wakes_for_a_delayed_task_and_not_before() {
+    let pool = pool(PoolConfig::for_cores(4));
+    let sequence = pool.sequence(SequencePriority::Input);
+    let (tx, rx) = mpsc::channel();
+    // A worker exists and is idle before the delayed post.
+    let started = tx.clone();
+    sequence.post(move || started.send(()).unwrap()).unwrap();
+    rx.recv_timeout(WAIT).unwrap();
+    eventually("the worker idles", || sequence.is_idle());
+    let wakeups = pool.idle_wakeups();
+    sequence.post_delayed(Duration::from_millis(80), move || tx.send(()).unwrap()).unwrap();
+    std::thread::sleep(Duration::from_millis(30));
+    assert!(rx.try_recv().is_err(), "a delayed task ran before its delay");
+    rx.recv_timeout(WAIT).expect("the delayed task runs");
+    // The post's notify and the due time: no polling in between.
+    let woke = pool.idle_wakeups() - wakeups;
+    assert!(woke <= 3, "{woke} wakeups");
+}
+
+#[test]
+fn a_delayed_task_of_a_dropped_sequence_is_dropped_unrun() {
+    let pool = pool(PoolConfig::for_cores(4));
+    let sequence = pool.sequence(SequencePriority::Utility);
+    let (tx, rx) = mpsc::channel::<()>();
+    sequence.post_delayed(Duration::from_millis(20), move || tx.send(()).unwrap()).unwrap();
+    drop(sequence);
+    // The sender drops with the task: the channel disconnects, nothing ran.
+    assert_eq!(rx.recv_timeout(WAIT), Err(mpsc::RecvTimeoutError::Disconnected));
 }
