@@ -303,6 +303,69 @@ import Testing
         #expect(runtime.hostStart != nil)
     }
 
+    // MARK: Crash page (p01-process-082)
+
+    /// The host's end shows the sad tab in the exit turn, before the chrome's next render: that turn cleared
+    /// the page's context, so a render one delivery later would leave a frame of the empty page area. It
+    /// says Chromium stopped and offers Reload.
+    @Test func aHostEndShowsTheCrashPageInTheExitTurn() async throws {
+        let (runtime, supervisor, wire) = try await Self.startedRuntime()
+        defer { wire.close() }
+        let tab = Self.tab(runtime, browser: 1)
+        let (status, area) = Self.statusViews(showing: tab)
+        defer { withExtendedLifetime(area) {} }
+        #expect(status.goneView.isHidden)
+
+        supervisor.onHostEnded?(Self.hostKilled)
+
+        #expect(!status.goneView.isHidden, "the crash page waited for the chrome's next render")
+        #expect(status.shown.contains { $0 === status.goneView }, "the crash page is no page hole")
+        #if DEBUG
+        #expect(status.goneView.debugText.contains(Strings.pageGoneChromiumHostMessage))
+        #expect(status.goneView.debugText.contains(Strings.pageGoneReload))
+        #endif
+    }
+
+    /// RENDER_TERMINATED shows the same view in its own turn, with Chrome's sad tab message, only for the
+    /// tab the chrome shows: a tab the chrome switched away from shows its crash page when shown again.
+    @Test func aRendererEndShowsTheCrashPageOfTheShownTabInItsTurn() async throws {
+        let (runtime, _, wire) = try await Self.startedRuntime()
+        defer { wire.close() }
+        Self.rendererEndShowsTheCrashPage(runtime)
+    }
+
+    /// The in-process backend shows the same crash page in the same turn.
+    @Test func inProcessARendererEndShowsTheCrashPageInItsTurn() throws {
+        let root = Self.scratch()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let runtime = CEFRuntime(shim: try CEFShimLibrary.resolving(HostWire.symbol), storage: CEFProfileStorage(root: root))
+        _ = Unmanaged.passRetained(runtime)
+        Self.rendererEndShowsTheCrashPage(runtime)
+    }
+
+    /// The page view drops all the dead host gave it in the exit turn: its context, cursor and the pane's
+    /// cursors by the old host's browser ids (the next host numbers its browsers anew), and the focused field.
+    @Test func aHostEndClearsWhatTheHostGaveThePageView() async throws {
+        let (runtime, supervisor, wire) = try await Self.startedRuntime()
+        defer { wire.close() }
+        let tab = Self.tab(runtime, browser: 1)
+        let page = tab.host.hostedPage()
+        tab.host.pageCursorChanged(.builtIn(1), browser: 1)
+        page.pageCursor = .builtIn(1)
+        #if DEBUG
+        page.applyTextInputState(ChromiumHostTextInputState(type: .password, selection: 0..<0))
+        #endif
+
+        supervisor.onHostEnded?(Self.hostKilled)
+
+        #expect(page.contextID == 0)
+        #expect(page.pageCursor == nil, "the dead page's cursor stayed over its sad tab")
+        #expect(tab.host.pageCursors.isEmpty, "a cursor of the old host's browser id would show on the next host's")
+        #if DEBUG
+        #expect(page.textInput.state.type == .noField, "the dead host's focused field stayed focused")
+        #endif
+    }
+
     #if DEBUG
     /// The supervisor's path from a real host process to the runtime (task 080 conforms the same way): a
     /// stand-in host launched with the host launcher, SIGKILLed, its end mapped with `pageExit` and reported
@@ -347,6 +410,40 @@ import Testing
         try await runtime.start(layout: nil, environment: [:], trigger: "test")
         _ = Unmanaged.passRetained(runtime)
         return (runtime, supervisor, wire)
+    }
+
+    /// A Chromium Host's SIGKILL as the supervisor reports it (``ChromiumHostExit/pageExit``).
+    private static let hostKilled = BrowserProcessExit(reason: .killed, code: Int(SIGKILL), engine: .cef, process: .chromiumHost)
+
+    /// A chrome's status views over its page area (the views' parent, which the caller keeps: they hold it
+    /// weakly), rendered once for `tab` as the chrome renders the tab it binds.
+    private static func statusViews(showing tab: CEFTab) -> (PageStatusViews, NSView) {
+        let status = PageStatusViews()
+        let area = NSView(frame: NSRect(x: 0, y: 0, width: 400, height: 300))
+        status.install(in: area) { tab }
+        status.render(tab: tab)
+        status.layout(over: area.bounds)
+        return (status, area)
+    }
+
+    /// Two tabs; the chrome showed the first, then the second. The first's renderer end shows nothing here;
+    /// the second's shows Chrome's sad tab in its turn, with no render between.
+    private static func rendererEndShowsTheCrashPage(_ runtime: CEFRuntime) {
+        let first = tab(runtime, browser: 1)
+        let second = tab(runtime, browser: 2)
+        let (status, area) = statusViews(showing: first)
+        defer { withExtendedLifetime(area) {} }
+        status.render(tab: second)
+
+        runtime.handle(.renderTerminated(browser: 1, status: 2, code: Int(SIGSEGV), text: "", end: .first))
+        #expect(first.state.processExit?.reason == .crashed)
+        #expect(status.goneView.isHidden, "a tab the chrome no longer shows put up its crash page")
+
+        runtime.handle(.renderTerminated(browser: 2, status: 2, code: Int(SIGSEGV), text: "", end: .first))
+        #expect(!status.goneView.isHidden, "the crash page waited for the chrome's next render")
+        #if DEBUG
+        #expect(status.goneView.debugText.contains(Strings.pageGoneChromiumMessage))
+        #endif
     }
 
     /// A tab of `profile` in a pane of its own whose browser is `browser`.

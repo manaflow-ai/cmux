@@ -82,7 +82,7 @@ final class PaneContentView: NSView, PaneContentChrome {
     var isBandActive: Bool { !bandPins.isEmpty }
     private var reportedChrome: (header: CGFloat, footer: CGFloat) = (-1, -1)
     /// The outgoing view kept while the shown one has not painted (`PaneContentView+PaintHold`).
-    let paintHold = PanePaintHold(owner: "pane.paint-hold")
+    let paintHold: PanePaintHold
     /// The strip the hold's outgoing view showed under, kept until the swap.
     var holdKeepsStrip = false
     /// An agent page's last image under the content at launch (`PaneContentView+LaunchImage`).
@@ -112,6 +112,7 @@ final class PaneContentView: NSView, PaneContentChrome {
         self.node = node
         // The pane's limit for a page that never paints under its launch image: `visible` work.
         launchImageDeadline = MainDeadline(owner: "pane.launch-image", workClass: .visible, scheduler: deadlines)
+        paintHold = PanePaintHold(owner: "pane.paint-hold", deadlines: deadlines)
         super.init(frame: NSRect(x: 0, y: 0, width: 400, height: 300))
         barPosition = DesignSettings.shared.tabBarPosition
         barOrder = DesignSettings.shared.tabBarOrder

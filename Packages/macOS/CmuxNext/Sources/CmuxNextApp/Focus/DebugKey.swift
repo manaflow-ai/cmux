@@ -114,6 +114,8 @@ enum DebugKey {
         defer { services.keyWindowSource = previousKey }
         let isChord = !flags.isDisjoint(with: [.command, .control])
         var trace: [String] = []
+        // This key's key-equivalent work (`key_equivalents`): where the window offered it, what the menu did.
+        let offersBefore = services.keyRouter.decided.offers, menuBefore = services.registry.menuKeyEquivalentCounters
         // The dispatcher's verdict, menu gate answers and host actions this key caused.
         services.keyRouter.trace = { trace.append($0) }
         TerminalKeyEquivalent.trace = { trace.append($0) }
@@ -182,6 +184,8 @@ enum DebugKey {
         var report: [String: JSONValue] = ["handled_by": .string(handledBy), "action": action, "window_kind": .string(kind),
                                            "trace": .array(trace.map(JSONValue.string))]
         report.merge(time.report) { _, new in new }
+        report["key_equivalents"] = keyEquivalentWork(services.keyRouter.decided.offers, since: offersBefore,
+                                                      menu: services.registry.menuKeyEquivalentCounters, since: menuBefore)
         if handledBy == "app", let interception = services.keyRouter.lastInterception {
             report.merge(verdict(interception)) { _, new in new }
         }
@@ -224,6 +228,20 @@ enum DebugKey {
         NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: press.flags, timestamp: time.eventTimestamp,
                          windowNumber: windowNumber, context: nil, characters: press.characters,
                          charactersIgnoringModifiers: press.characters, isARepeat: false, keyCode: press.keyCode)
+    }
+
+    /// One key's key-equivalent work (`key_equivalents`): where the window offered it (the focused surface
+    /// alone, a field's pane, the whole view tree) and the main menu's searches, refusals and validations.
+    static func keyEquivalentWork(_ offers: DecidedKeyEvents.Offers, since before: DecidedKeyEvents.Offers,
+                                  menu: MenuKeyEquivalentCounters, since menuBefore: MenuKeyEquivalentCounters) -> JSONValue {
+        .object([
+            "focused_surface": JSONValue(offers.focusedSurface - before.focusedSurface),
+            "field_pane": JSONValue(offers.fieldPane - before.fieldPane),
+            "window_walks": JSONValue(offers.windowWalks - before.windowWalks),
+            "menu_searches": JSONValue(menu.searches - menuBefore.searches),
+            "menu_searches_skipped": JSONValue(menu.skipped - menuBefore.skipped),
+            "menu_validations": JSONValue(menu.validations - menuBefore.validations),
+        ])
     }
 
     /// What debug.key reports for an intercepted chord: the action when it ran.
