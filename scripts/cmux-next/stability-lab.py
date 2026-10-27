@@ -25,9 +25,13 @@ Subcommands:
         failing check (an update-e2e FAIL row, a skew-matrix FAIL row, a failed restore-journey report row)
         is a `lab-check` signature: exception the lane id, frame the check name with run-specific numbers,
         hashes and paths taken out, so the same check failing on two tips is one issue. Crash, panic,
-        sanitizer and hang files that match the lane's crash_globs give their own signatures. A run that
-        never reached the product (host refused, no lease, no previous build) is `infra` and has no
-        finding. Prints cmux-stability-lane-result/v1 JSON; exit 0 passed, 1 failed, 75 infra.
+        sanitizer and hang files that match the lane's crash_globs give their own signatures; one that gives
+        none is an `unparsed-crash` finding, never dropped. A lane script that rejects its own arguments
+        (argparse `error:`) is a finding of the lane harness. A run that never reached the product (host
+        refused, no lease, no previous build) is `infra` and has no finding. Each occurrence is its own
+        finding (stability_issues.py sync counts them per hash12). A feed lane (tier and subject feed)
+        tests published nightly-next builds, not the tip: its findings carry subject feed and the build.
+        Prints cmux-stability-lane-result/v1 JSON; exit 0 passed, 1 failed, 75 infra.
 
 Inputs (the runner, task p10-stability-003, writes the state; this file reads it):
 
@@ -339,7 +343,11 @@ def cmd_coverage(args: argparse.Namespace) -> int:
 # --- lanes registry -------------------------------------------------------------------------------
 
 LANE_REQUIRED = ("id", "tier", "kind", "host_class", "minutes", "priority", "never_with", "script")
-TIERS = ("fast", "long")
+# fast: each new lab tip, decides its coverage; long: the newest tip; feed: each new newest build of the
+# nightly-next feed (a lane that tests published builds, not a tip, and never counts for coverage).
+TIERS = ("fast", "long", "feed")
+# What a lane's verdict is about: the lab tip it ran for, or the published feed builds it installed.
+SUBJECTS = ("tip", "feed")
 HOST_CLASSES = ("dedicated", "preemptible")
 # What the runner fills in when it submits a lane step. {previous_app} is the DEV build of the lab tip
 # before this one, for lanes that set needs_previous_build.
@@ -375,6 +383,13 @@ def lane_problems(registry: object, repo: Path) -> list[str]:
         problems.extend(f"{name}: no {key}" for key in LANE_REQUIRED if lane.get(key) in (None, "", []))
         if lane.get("tier") not in TIERS:
             problems.append(f"{name}: tier {lane.get('tier')!r} is not one of {', '.join(TIERS)}")
+        subject = lane.get("subject", "tip")
+        if subject not in SUBJECTS:
+            problems.append(f"{name}: subject {subject!r} is not one of {', '.join(SUBJECTS)}")
+        elif (subject == "feed") != (lane.get("tier") == "feed"):
+            problems.append(f"{name}: a feed lane has tier feed and subject feed, a tip lane neither")
+        elif subject == "tip" and lane.get("needs_build") == "none":
+            problems.append(f"{name}: a tip lane must run the tip's build (needs_build none tests nothing of the tip)")
         if lane.get("host_class") not in HOST_CLASSES:
             problems.append(f"{name}: host_class {lane.get('host_class')!r} is not one of {', '.join(HOST_CLASSES)}")
         if not isinstance(lane.get("minutes"), int) or lane.get("minutes", 0) <= 0:
@@ -547,7 +562,14 @@ RESULT_PARSERS = {
 NO_REPORT_FINDINGS = (
     (re.compile(r"the app never opened its control socket"), "app never opened its control socket"),
     (re.compile(r"daemon did not start"), "daemon did not start"),
+    # The tip's own bundle has no CLI: a packaging bug. A missing --old (the previous tip's build) stays infra.
+    (re.compile(r"^skew-matrix: --new .* is not an executable cmux-tui$", re.MULTILINE), "bundled cmux-tui missing"),
 )
+# argparse refused the arguments the lane gave its script: the lane or its harness is wrong, never the host.
+_USAGE_ERROR = re.compile(r"^usage: .*(?:\n.*)*?\n\S+: error: (?P<error>.+)$", re.MULTILINE)
+# update-e2e's first line names the two published builds it installed (a feed lane's subject).
+_FEED_BUILDS = re.compile(r"^feed \S+: \d+ items; (?P<from>\S+) -> (?P<to>\S+)$", re.MULTILINE)
+UNPARSED_CRASH_KIND = "unparsed-crash"
 # A lane script that died on one of these never reached the product (feed download, ssh, lease).
 INFRA_ERRORS = frozenset({"URLError", "HTTPError", "TimeoutError", "timeout", "ConnectionError",
                           "ConnectionResetError", "ConnectionRefusedError", "RemoteDisconnected"})
@@ -573,8 +595,67 @@ def lab_check_signature(lane: str, check: str, detail: str, source: str, cause: 
     ).to_json()
 
 
+def _only_test_panics(text: str) -> bool:
+    """A panic log whose records are all `cargo test` panics: crash_signature skips them on purpose."""
+    records = []
+    for line in filter(None, (raw.strip() for raw in text.splitlines())):
+        try:
+            records.append(json.loads(line))
+        except json.JSONDecodeError:
+            return False
+    return bool(records) and all(isinstance(record, dict) and record.get("test") for record in records)
+
+
+def _crash_process(text: str, name: str) -> str:
+    """The crashed process as the report's header names it, else the file name without its time stamp."""
+    try:
+        header = json.loads(text.split("\n", 1)[0])
+    except json.JSONDecodeError:
+        header = None
+    process = ""
+    if isinstance(header, dict):
+        process = str(header.get("app_name") or header.get("procName") or header.get("name") or "")
+    if not process:
+        process = re.sub(r"[-_.]\d{4}-\d{2}-\d{2}.*$", "", Path(name).stem) or Path(name).stem
+    # A DEV build's name carries its tag, which differs per tip: the same crash must keep one signature.
+    return re.sub(r"^cmux DEV\b.*$", "cmux DEV", process.strip())
+
+
+def unparsed_crash(lane: str, path: Path, text: str, source: str) -> dict | None:
+    """A crash file that matched the lane's crash_globs but gave no signature: still a crash of this run."""
+    if not text.strip():
+        return None
+    kind = crash_signature.detect_kind(text, path.name)
+    if kind == "rust-panic" and _only_test_panics(text):
+        return None
+    file_kind = kind or path.suffix.lstrip(".") or "unknown"
+    process = _crash_process(text, path.name)
+    frames = [file_kind, process]
+    return crash_signature.Signature(
+        kind=UNPARSED_CRASH_KIND, process=process, exception=lane, frames=frames,
+        hash12=crash_signature.signature_hash(UNPARSED_CRASH_KIND, lane, frames), source=source,
+        message=f"{file_kind} report gave no signature: {text.strip()[:200]}"[:crash_signature.MESSAGE_LIMIT],
+        extra={"file_kind": file_kind},
+    ).to_json()
+
+
+def no_report_finding(stdout: str) -> tuple[str, str] | None:
+    """(check, detail) when output without a report still shows a product or harness bug."""
+    usage = _USAGE_ERROR.search(stdout)
+    if usage:
+        return f"lane harness usage error: {usage['error'].strip()}", usage.group(0).strip()[-300:]
+    for pattern, label in NO_REPORT_FINDINGS:
+        match = pattern.search(stdout)
+        if match:
+            return label, match.group(0).strip()[:300]
+    return None
+
+
 def lane_result(lane: dict, out: Path, exit_code: int | None, ignore=None) -> dict:
-    """One finished lane run: its verdict, the lane's checks and one finding per signature."""
+    """One finished lane run: its verdict, the lane's checks and one finding per occurrence.
+
+    A signature that occurs twice is two findings with one hash12: stability_issues.py sync groups them and
+    counts each one. A feed lane's findings carry subject feed and the feed builds, not the lab tip."""
     lane_id = lane["id"]
     stdout_path = Path(expand(lane["stdout"], out)) if lane.get("stdout") else None
     stdout = (read_text(stdout_path) if stdout_path else None) or ""
@@ -594,14 +675,14 @@ def lane_result(lane: dict, out: Path, exit_code: int | None, ignore=None) -> di
                                                 f"exit {exit_code}", source))
     else:
         traceback = _TRACEBACK.search(stdout)
-        known = next((label for pattern, label in NO_REPORT_FINDINGS if pattern.search(stdout)), None)
+        known = no_report_finding(stdout)
         if traceback and traceback["error"].rsplit(".", 1)[-1] in INFRA_ERRORS:
             reason = f"no report: {traceback['error']} (network or host)"
         elif traceback:
             findings.append(lab_check_signature(lane_id, f"lane script error {traceback['error']}",
                                                 stdout[traceback.start():].strip()[-300:], source))
         elif known:
-            findings.append(lab_check_signature(lane_id, known, known, source))
+            findings.append(lab_check_signature(lane_id, known[0], known[1], source))
         elif exit_code == 0:
             findings.append(lab_check_signature(lane_id, "exit 0 without a report", "", source))
         else:
@@ -617,28 +698,38 @@ def lane_result(lane: dict, out: Path, exit_code: int | None, ignore=None) -> di
         except OSError as error:
             reason = reason or f"crash file unreadable: {path}: {error}"
             continue
+        crash_source = os.path.relpath(path, out)
+        if not signatures:
+            fallback = unparsed_crash(lane_id, Path(path), read_text(Path(path)) or "", crash_source)
+            findings.extend([fallback] if fallback else [])
         for signature in signatures:
             record = signature.to_json()
-            record["source"] = os.path.relpath(path, out)
+            record["source"] = crash_source
             findings.append(record)
 
-    by_hash: dict[str, dict] = {}
+    subject = lane.get("subject", "tip")
+    feed = _FEED_BUILDS.search(stdout or report_text or "") if subject == "feed" else None
+    builds = {"from": feed["from"], "to": feed["to"]} if feed else None
     for finding in findings:
         finding["lane"] = lane_id
-        first = by_hash.setdefault(finding["hash12"], {**finding, "count": 0})
-        first["count"] += 1
-    unique = list(by_hash.values())
-    status = FAILED if unique else ("infra" if reason else PASSED)
+        if subject != "tip":
+            finding["subject"] = subject
+            if builds:
+                finding["build"] = builds["to"]
+    status = FAILED if findings else ("infra" if reason else PASSED)
     return {
         "schema": LANE_RESULT_SCHEMA,
         "lane": lane_id,
+        "subject": subject,
+        "builds": builds,
         "status": status,
         "reason": reason,
         "exit": exit_code,
         "checks": None if checks is None else {
             "passed": len(checks.passed), "failed": [check for check, _, _ in checks.failed], "pending": len(checks.pending),
         },
-        "findings": unique,
+        "signatures": sorted({finding["hash12"] for finding in findings}),
+        "findings": findings,
     }
 
 

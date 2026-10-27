@@ -3,6 +3,8 @@
 #
 #   scripts/cmux-next/restore-journey-slot.sh JOB [OUT_DIR] [-- restore-journey args...]
 #
+# RESTORE_JOURNEY_SLOT_PRINT_ARGS=1 prints the JOB, OUT_DIR and journey args it read and exits.
+#
 # JOB is a done `cmux-ci build cmux` job. The build is staged once per host under
 # /Users/Shared/cmux-capture/restore-journey/<JOB> (outside the lease root, so a re-acquire only
 # relaunches), launched in the slot with `capture-host launch`, and the journey runs on the host
@@ -23,7 +25,14 @@ elif [ $# -gt 0 ]; then
   shift
   if [ "${1:-}" = "--" ]; then shift; fi
 fi
-args=$(printf '%q ' "$@")
+# No journey args gives an empty string: `printf '%q '` with no arguments prints '' (one empty argv entry).
+args=
+if [ $# -gt 0 ]; then args=$(printf '%q ' "$@"); fi
+if [ -n "${RESTORE_JOURNEY_SLOT_PRINT_ARGS:-}" ]; then
+  # Test seam (test_stability_lab_lanes.py): show how the arguments were read, then stop before any lease.
+  printf 'job=%s\nout=%s\nargs=%s\n' "$job" "$out" "$args"
+  exit 0
+fi
 here=$(cd "$(dirname "$0")" && pwd)
 mkdir -p "$out"
 stage=/Users/Shared/cmux-capture/restore-journey/$job

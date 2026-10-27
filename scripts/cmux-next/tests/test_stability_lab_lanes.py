@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
-"""stability-lab.py lanes and signatures (p10-stability-196): the update, skew and restore fast lanes.
+"""stability-lab.py lanes and signatures (p10-stability-196): the update, skew and restore lanes.
 
-The registry must declare the three lanes on one lab mini within the fast-lane window, and each lane's
-output must become a verdict with one signature per failing check, the same id across runs.
+The registry must declare the skew and restore fast lanes and the update feed lane on one lab mini within the
+fast-lane window, and each lane's output must become a verdict with one finding per failing check, the same
+signature across runs.
 
-    python3 -I -m unittest scripts/cmux-next/tests/test_stability_lab_lanes.py
+    python3 -I scripts/cmux-next/tests/test_stability_lab_lanes.py
 """
 
 from __future__ import annotations
@@ -13,6 +14,10 @@ import contextlib
 import importlib.util
 import io
 import json
+import os
+import re
+import shlex
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -23,17 +28,20 @@ SCRIPT = HERE / "stability-lab.py"
 REPO = HERE.parents[1]
 REGISTRY = HERE / "stability-lanes.json"
 NEW_LANES = ("skew-matrix", "restore-journey", "update-e2e")
+TIP_LANES = ("skew-matrix", "restore-journey")
+SLOT_SCRIPT = HERE / "restore-journey-slot.sh"
 
 
-def load_lab():
-    spec = importlib.util.spec_from_file_location("stability_lab_lanes", SCRIPT)
+def load(name: str, path: Path):
+    spec = importlib.util.spec_from_file_location(name, path)
     module = importlib.util.module_from_spec(spec)
     sys.modules[spec.name] = module
     spec.loader.exec_module(module)
     return module
 
 
-lab = load_lab()
+lab = load("stability_lab_lanes", SCRIPT)
+issues = load("stability_issues_for_lanes", HERE / "stability_issues.py")
 
 
 def registry() -> dict:
@@ -80,21 +88,41 @@ class RegistryTests(unittest.TestCase):
     def test_registry_has_no_problems(self) -> None:
         self.assertEqual(lab.lane_problems(registry(), REPO), [])
 
-    def test_update_skew_restore_are_fast_lanes_on_one_lab_mini(self) -> None:
+    def test_skew_and_restore_are_fast_lanes_on_one_lab_mini(self) -> None:
         reg = registry()
         lanes = {entry["id"]: entry for entry in lab.lane_entries(reg)}
         for lane_id in NEW_LANES:
             entry = lanes[lane_id]
-            self.assertEqual(entry["tier"], "fast", lane_id)
             self.assertEqual(entry["host_class"], "dedicated", lane_id)
             self.assertEqual(entry["host_group"], "lab-mini-fast", lane_id)
             self.assertIn("bench", entry["never_with"], lane_id)
             self.assertIn(entry["result"]["parser"], lab.RESULT_PARSERS, lane_id)
+        for lane_id in TIP_LANES:
+            self.assertEqual(lanes[lane_id]["tier"], "fast", lane_id)
+            self.assertEqual(lanes[lane_id]["needs_build"], "dev", lane_id)
         group = reg["host_groups"]["lab-mini-fast"]
         self.assertEqual(group["hosts"], 1)
         self.assertEqual(sorted(group["order"]), sorted(NEW_LANES))
-        self.assertLessEqual(sum(lanes[lane_id]["minutes"] for lane_id in NEW_LANES), lab.FAST_GROUP_MINUTES)
-        self.assertIn("update-e2e", lab.fast_lanes(reg))
+        self.assertLessEqual(sum(lanes[lane_id]["minutes"] for lane_id in TIP_LANES), lab.FAST_GROUP_MINUTES)
+        self.assertEqual(sorted(lab.fast_lanes(reg)), sorted(TIP_LANES))
+
+    def test_update_lane_tests_the_feed_and_never_decides_tip_coverage(self) -> None:
+        # A DEV build cannot take a Sparkle update, so the lane installs published builds only; it must not
+        # count as evidence for a lab tip.
+        entry = lane("update-e2e")
+        self.assertEqual((entry["tier"], entry["subject"], entry["needs_build"]), ("feed", "feed", "none"))
+        self.assertNotIn("update-e2e", lab.fast_lanes(registry()))
+
+    def test_a_tip_lane_that_does_not_build_the_tip_is_refused(self) -> None:
+        bad = registry()
+        update = next(entry for entry in bad["lanes"] if entry["id"] == "update-e2e")
+        update["tier"] = "fast"
+        update.pop("subject")
+        problems = "\n".join(lab.lane_problems(bad, REPO))
+        self.assertIn("update-e2e: a tip lane must run the tip's build", problems)
+        update["subject"] = "feed"
+        self.assertIn("update-e2e: a feed lane has tier feed and subject feed",
+                      "\n".join(lab.lane_problems(bad, REPO)))
 
     def test_check_refuses_a_lane_the_runner_cannot_run(self) -> None:
         bad = registry()
@@ -186,6 +214,38 @@ class UpdateLaneTests(unittest.TestCase):
         self.assertEqual(result["findings"][0]["source"], "crashes/panic.jsonl")
         self.assertEqual(result["findings"][0]["lane"], "update-e2e")
 
+    def test_findings_name_the_feed_builds_not_the_tip(self) -> None:
+        run = Run(self)
+        rows = [["relaunched", "PASS", ""], ["agent turn finished", "FAIL", "no after-gate"]]
+        run.write("update-e2e.txt", "feed https://x/appcast.xml: 12 items; 1700 -> 1702\n" + update_output(rows, "1"))
+        result = run.result("update-e2e", 1)
+        self.assertEqual((result["subject"], result["builds"]), ("feed", {"from": "1700", "to": "1702"}))
+        self.assertEqual((result["findings"][0]["subject"], result["findings"][0]["build"]), ("feed", "1702"))
+        skew = Run(self)
+        skew.write("skew-matrix.txt", skew_output([("cli=new daemon=old", "browser-list", "works", "exit 0")]))
+        self.assertEqual(skew.result("skew-matrix", 0)["subject"], "tip")
+
+    def test_a_crash_report_that_gives_no_signature_still_fails_the_lane(self) -> None:
+        run = Run(self)
+        run.write("update-e2e.txt", update_output([["relaunched", "PASS", ""]], "1"))
+        run.write("crashes/a.ips", '{"app_name":"cmux DEV lab-tip-7","bug_type":"309"}\n{"threads": [')
+        result = run.result("update-e2e", 0)
+        self.assertEqual(result["status"], "failed")
+        finding = result["findings"][0]
+        self.assertEqual((finding["kind"], finding["process"], finding["frames"]),
+                         ("unparsed-crash", "cmux DEV", ["ips", "cmux DEV"]))
+        self.assertEqual(finding["source"], "crashes/a.ips")
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(lab.main(["signatures", "--lane", "update-e2e", "--out", str(run.out),
+                                       "--exit-code", "0"]), 1)
+
+    def test_empty_or_test_only_panic_logs_are_not_findings(self) -> None:
+        run = Run(self)
+        run.write("update-e2e.txt", update_output([["relaunched", "PASS", ""]], "1"))
+        run.write("crashes/empty.jsonl", "")
+        run.write("crashes/tests.jsonl", json.dumps({"message": "assert", "backtrace": "", "test": True}) + "\n")
+        self.assertEqual(run.result("update-e2e", 0)["status"], "passed")
+
 
 class SkewLaneTests(unittest.TestCase):
     def test_fail_rows_become_signatures(self) -> None:
@@ -209,14 +269,37 @@ class SkewLaneTests(unittest.TestCase):
         ]))
         result = run.result("skew-matrix", 1)
         self.assertEqual(len(result["checks"]["failed"]), 2)
-        self.assertEqual(len(result["findings"]), 1)
-        self.assertEqual(result["findings"][0]["frames"], ["cli=old daemon=new daemon did not start"])
-        self.assertEqual(result["findings"][0]["count"], 2)
+        self.assertEqual(len(result["signatures"]), 1)
+        self.assertEqual([f["frames"] for f in result["findings"]], [["cli=old daemon=new daemon did not start"]] * 2)
 
-    def test_bad_binary_is_infra(self) -> None:
+    def test_repeated_signature_counts_each_occurrence_in_issue_sync(self) -> None:
+        run = Run(self)
+        start = "daemon did not start: timed out after 30 seconds"
+        run.write("skew-matrix.txt", skew_output([
+            ("cli=old daemon=new", "server-stats", "FAIL", start),
+            ("cli=old daemon=new", "chief-pipe", "FAIL", start),
+        ]))
+        result = run.result("skew-matrix", 1)
+        sync_run = {"schema": issues.RUN_SCHEMA, "run": "lab-1", "tip": "a" * 40,
+                    "lanes": [{"lane": "skew-matrix", "major": "27"}],
+                    "findings": [{**finding, "major": "27"} for finding in result["findings"]]}
+        tracked, _ = issues.plan_sync([], sync_run, lambda fix, sha: None)
+        self.assertEqual(len(tracked), 1)
+        self.assertEqual(tracked[0].state["count"], 2)
+        self.assertEqual(tracked[0].state["per_major"], {"27": 2})
+
+    def test_missing_previous_cli_is_infra(self) -> None:
         run = Run(self)
         run.write("skew-matrix.txt", "skew-matrix: --old /x/cmux-tui is not an executable cmux-tui\n")
         self.assertEqual(run.result("skew-matrix", 2)["status"], "infra")
+
+    def test_missing_bundled_cli_of_the_tip_is_a_finding(self) -> None:
+        run = Run(self)
+        run.write("skew-matrix.txt",
+                  "skew-matrix: --new /lab/cmux DEV t.app/Contents/Resources/bin/cmux-tui is not an executable cmux-tui\n")
+        result = run.result("skew-matrix", 2)
+        self.assertEqual(result["status"], "failed")
+        self.assertEqual(result["findings"][0]["frames"], ["bundled cmux-tui missing"])
 
     def test_green_matrix_passes(self) -> None:
         run = Run(self)
@@ -243,6 +326,32 @@ class RestoreLaneTests(unittest.TestCase):
         result = run.result("restore-journey", 1)
         self.assertEqual(result["status"], "failed")
         self.assertEqual(result["findings"][0]["frames"], ["app never opened its control socket"])
+
+    def test_harness_usage_error_is_a_finding_not_infra(self) -> None:
+        run = Run(self)
+        run.write("restore-journey.txt", "lease slot-3 host cmux16 slot 3\n"
+                  "usage: restore-journey.py [-h] --socket SOCKET [--variants VARIANTS]\n"
+                  "                          [--out OUT]\n"
+                  "restore-journey.py: error: unrecognized arguments: \nresults in /tmp/rj (exit 2)\n")
+        result = run.result("restore-journey", 2)
+        self.assertEqual(result["status"], "failed")
+        self.assertEqual(result["findings"][0]["frames"], ["lane harness usage error: unrecognized arguments:"])
+
+    def test_declared_args_reach_the_journey_through_the_slot_script(self) -> None:
+        # The slot script's own argument reading, as the runner calls it; the journey must get exactly the
+        # args after `--`, with no empty argv entry (`printf '%q '` of nothing is '').
+        declared = [arg.replace("{job}", "job-1").replace("{out}", "/tmp/rj-out") for arg in lane("restore-journey")["args"]]
+        journey = declared[declared.index("--") + 1:]
+        source = (HERE / "restore-journey.py").read_text(encoding="utf-8")
+        options = set(re.findall(r'parser\.add_argument\("(--[a-z-]+)"', source))
+        self.assertTrue(journey, "the lane names the journey's variants")
+        self.assertLessEqual({arg for arg in journey if arg.startswith("--")}, options)
+        for argv, expected in ((declared, journey), (["job-1", "/tmp/rj-out", "--"], []), (["job-1"], [])):
+            printed = subprocess.run(["bash", str(SLOT_SCRIPT), *argv], capture_output=True, text=True, check=True,
+                                     env={**os.environ, "RESTORE_JOURNEY_SLOT_PRINT_ARGS": "1"}).stdout
+            fields = dict(line.split("=", 1) for line in printed.splitlines())
+            self.assertEqual(fields["job"], "job-1")
+            self.assertEqual(shlex.split(fields["args"]), expected, argv)
 
     def test_no_lease_is_infra(self) -> None:
         run = Run(self)

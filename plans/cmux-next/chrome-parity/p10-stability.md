@@ -1918,6 +1918,11 @@ Common acceptance: the Q10 report shows 0 deny hits in the files; baseline lower
 - Change: update-e2e.py (newest nightly-next -> tip with live terminals and an agent turn), skew-matrix.py (CLI N vs daemon
   N+-1), restore-journey.py as fast lanes on one lab mini.
 - Acceptance: Lanes declared with host class and minutes; failures become signatures. Test: one live tick.
+- Gap (landed): update-e2e cannot update to a lab tip yet. A fleet DEV build has its own bundle id and no Sparkle
+  signature, so the lane runs as a `feed` lane: on each new newest nightly-next build it updates the feed's second item
+  to that build, its findings carry subject feed and the build, and it is not a fast lane and not tip coverage.
+  Closing the gap needs a lab-signed build of the tip with the nightly-next bundle id and a local appcast
+  (update-e2e.py `--feed` pointing at it); then the lane becomes fast with needs_build and `--to` the tip.
 
 #### p10-stability-197 Checked arithmetic in wire decoders
 - Files: cmux-tui/crates/{cmux-pane-protocol,cmux-remote-protocol,cmux-rd-proto,cmux-transport,cmux-link}/src/**,

@@ -1,13 +1,13 @@
 {
   "schema": "cmux-stability-lanes/v1",
-  "$comment": "Lanes of the stability lab (plans/cmux-next/chrome-parity/p10-stability.md 3A; runner stability-lab.py). The runner fills {app}, {previous_app}, {job}, {out} and {host}, writes the step's combined stdout and stderr to the lane's stdout path, puts the run's crash reports and panic logs in {out}/crashes, and gives the run to `stability-lab.py signatures`. `stability-lab.py lanes --check` validates this file.",
+  "$comment": "Lanes of the stability lab (plans/cmux-next/chrome-parity/p10-stability.md 3A; runner stability-lab.py). Tiers: fast lanes run on each new lab tip and decide its coverage; long lanes run on the newest tip; feed lanes run when the nightly-next feed has a new newest build and test that build, not a tip (subject feed). The runner fills {app}, {previous_app}, {job}, {out} and {host}, writes the step's combined stdout and stderr to the lane's stdout path, puts the run's crash reports and panic logs in {out}/crashes, and gives the run to `stability-lab.py signatures`. `stability-lab.py lanes --check` validates this file.",
   "host_groups": {
     "lab-mini-fast": {
       "host_class": "dedicated",
       "hosts": 1,
       "pool": "lab M6 minis cmux15-24 except cmux20 (the perf cron's bench host)",
       "order": ["skew-matrix", "restore-journey", "update-e2e"],
-      "note": "The update, skew and restore lanes run one after another on one lab mini per tip (about 30 min). They are preemptible: a foreground step on that mini stops them, and the next tick runs them again."
+      "note": "The skew and restore lanes run one after another on one lab mini per tip (about 15 min); the update lane runs on the same mini when the nightly-next feed has a new newest build. They are preemptible: a foreground step on that mini stops them, and the next tick runs them again."
     }
   },
   "lanes": [
@@ -50,7 +50,7 @@
       "priority": "lowest",
       "never_with": ["bench"],
       "script": "scripts/cmux-next/restore-journey-slot.sh",
-      "args": ["{job}", "{out}", "--"],
+      "args": ["{job}", "{out}", "--", "--variants", "quit,update,crash"],
       "env": {"CAPTURE_HOST_SLOT_HOSTS": "{host}"},
       "stdout": "{out}/restore-journey.txt",
       "result": {"parser": "restore-journey", "path": "{out}/report.json"},
@@ -61,7 +61,8 @@
     {
       "id": "update-e2e",
       "task": "p10-stability-196",
-      "tier": "fast",
+      "tier": "feed",
+      "subject": "feed",
       "kind": "update",
       "host_class": "dedicated",
       "host_group": "lab-mini-fast",
@@ -77,7 +78,7 @@
       "result": {"parser": "update-e2e", "path": "{out}/update-e2e.txt"},
       "crash_globs": ["{out}/crashes/*.ips", "{out}/crashes/*.jsonl"],
       "artifacts": ["{out}/update-e2e.txt", "{out}/crashes"],
-      "pass": "exit 0: no FAIL row (PENDING rows do not count). The feed's second item updates to its newest with live terminals and an agent turn. A fleet DEV build has its own bundle id and no Sparkle signature, so this lane does not update to the tip itself."
+      "pass": "exit 0: no FAIL row (PENDING rows do not count). The feed's second item updates to its newest with live terminals and an agent turn. A fleet DEV build has its own bundle id and no Sparkle signature, so this lane cannot update to a lab tip: it tests the published feed (subject feed), is not a fast lane, does not count for tip coverage, and its findings name the feed builds, not a tip. Gap to the spec (newest nightly-next -> tip): p10-stability.md task 196."
     }
   ]
 }
