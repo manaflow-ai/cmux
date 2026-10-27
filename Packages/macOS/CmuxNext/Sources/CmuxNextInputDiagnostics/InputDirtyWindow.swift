@@ -15,6 +15,8 @@ nonisolated enum InputDirtyRelation: String, Sendable {
     /// The event had no target view (a key with the window as first responder).
     case noTarget = "no_target"
 
+    /// Main actor: it walks the views' hierarchy and reads their windows.
+    @MainActor
     init(of view: NSView?, to target: NSView?) {
         guard let view else { self = .noView; return }
         guard let target else { self = .noTarget; return }

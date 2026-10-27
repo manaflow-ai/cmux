@@ -15,11 +15,13 @@ import QuartzCore
 /// `-[NSView setNeedsDisplay:]`, `-setNeedsDisplayInRect:`, `-setNeedsLayout:`,
 /// `-setNeedsUpdateConstraints:` and `-[CALayer setNeedsLayout]`, `-setNeedsDisplay`,
 /// `-setNeedsDisplayInRect:`, and subscribes to the input tap. An input turn starts at a key down, a
-/// button or a scroll event and ends after the main run loop's commit pass (AppKit's display cycle
-/// and the Core Animation commit), which it times. Each dirty call in a turn (the outermost hooked
-/// call, on the main thread) counts under its site: the call, the receiver's class, its relation to
-/// the target (the key's first responder, the hit view of a pointer event) and its stack, at most
-/// ``InputDirtyLedger/defaultSiteLimit`` sites. The read resolves the stacks off the main thread.
+/// button or a scroll event and ends after the first main run loop commit pass (AppKit's display
+/// cycle and the Core Animation commit) once the event's dispatch returned, which it times. A pass
+/// inside the dispatch (a control's or menu's tracking loop runs the run loop in `.eventTracking`)
+/// does not end it: the control's action and its dirty calls come after that pass. Each dirty call
+/// in a turn (the outermost hooked call, on the main thread) counts under its site: the call, the
+/// receiver's class, its relation to the target (the key's first responder, the hit view of a
+/// pointer event) and its stack, at most ``InputDirtyLedger/defaultSiteLimit`` sites. The read resolves the stacks off the main thread.
 ///
 /// Chrome records the same thing on request: raster invalidation tracking keeps each invalidated
 /// client, rect and reason while DevTools' paint flashing is on
@@ -84,10 +86,12 @@ final class InputDirtyLedger {
     /// Superlayers walked to find a layer's view.
     static let layerWalkLimit = 64
 
-    /// One input turn: from its first event to the end of the commit pass after it.
+    /// One input turn: from its first event to the end of the first commit pass after its dispatch returned.
     private struct Turn {
         var kind: InputDirtyTurnKind
         var target: NSView?
+        /// The turn's events whose dispatch has not returned: no pass ends the turn until it is 0.
+        var openDispatches = 0
         var passStart: UInt64?
         var calls = 0
         var offTarget = 0
@@ -98,7 +102,7 @@ final class InputDirtyLedger {
     private let turnLimit: Int
     private let now: @MainActor () -> UInt64
     private var hooks: [InputDirtyHook] = []
-    private var subscription: InputSubscription?
+    private var subscriptions: [InputSubscription] = []
     private var observers: [MainRunLoopObserver] = []
     private(set) var isInstalled = false
     private var turn: Turn?
@@ -139,8 +143,8 @@ final class InputDirtyLedger {
                 unsafe method_setImplementation(hook.method, hook.original)
             }
             hooks = []
-            subscription?.cancel()
-            subscription = nil
+            for subscription in subscriptions { subscription.cancel() }
+            subscriptions = []
             for observer in observers { observer.invalidate() }
             observers = []
             turn = nil
@@ -154,7 +158,12 @@ final class InputDirtyLedger {
     private func install() {
         hooks = InputDirtyCall.allCases.compactMap { InputDirtyHook(call: $0, ledger: self) }
         for hook in hooks { unsafe method_setImplementation(hook.method, hook.replacement) }
-        subscription = tap.subscribe(class: [.key, .button, .scroll], handler: { [weak self] event in self?.dispatched(event) })
+        subscriptions = [
+            tap.subscribe(class: [.key, .button, .scroll], handler: { [weak self] event in self?.dispatched(event) }),
+            tap.observeDispatchEnd([.key, .button, .scroll]) { [weak self] event, _ in
+                if Self.turnKind(of: event.type) != nil { self?.dispatchEnded() }
+            },
+        ]
         let pass: CFRunLoopActivity = [.beforeWaiting, .exit]
         observers = [
             MainRunLoopObserver(activities: pass, order: CFIndex.min) { [weak self] _ in self?.passBegan() },
@@ -165,35 +174,49 @@ final class InputDirtyLedger {
 
     // MARK: Turns
 
-    private func dispatched(_ event: NSEvent) {
-        switch event.type {
-        case .keyDown:
-            began(.key, target: Self.keyTarget(in: event.window))
-        case .leftMouseDown, .leftMouseUp, .rightMouseDown, .rightMouseUp, .otherMouseDown, .otherMouseUp:
-            began(.click, target: Self.pointerTarget(of: event))
-        case .scrollWheel:
-            began(.scroll, target: Self.pointerTarget(of: event))
-        default:
-            break
+    /// The turn an event of `type` starts, nil for an event that starts none (a key up).
+    static func turnKind(of type: NSEvent.EventType) -> InputDirtyTurnKind? {
+        switch type {
+        case .keyDown: .key
+        case .leftMouseDown, .leftMouseUp, .rightMouseDown, .rightMouseUp, .otherMouseDown, .otherMouseUp: .click
+        case .scrollWheel: .scroll
+        default: nil
         }
     }
 
-    /// An input event is dispatched: a turn starts, or the turn in progress takes its target.
+    private func dispatched(_ event: NSEvent) {
+        guard let kind = Self.turnKind(of: event.type) else { return }
+        began(kind, target: kind == .key ? Self.keyTarget(in: event.window) : Self.pointerTarget(of: event))
+    }
+
+    /// An input event is dispatched: a turn starts, or the turn in progress takes its target. The
+    /// event's dispatch is open until ``dispatchEnded()``.
     func began(_ kind: InputDirtyTurnKind, target: NSView?) {
         guard isInstalled else { return }
         if turn == nil { turn = Turn(kind: kind) }
         turn?.target = target
+        turn?.openDispatches += 1
     }
 
-    /// The first observer of a commit pass ran (tests call it directly).
+    /// The dispatch of an event that ``began(_:target:)`` a turn returned (tests call it directly). A
+    /// dispatch end with no open dispatch (the recorder was installed inside that dispatch) does nothing.
+    func dispatchEnded() {
+        guard let open = turn?.openDispatches, open > 0 else { return }
+        turn?.openDispatches = open - 1
+        turn?.passStart = nil
+    }
+
+    /// The first observer of a commit pass ran (tests call it directly). A pass inside the turn's
+    /// dispatch (a tracking loop's) is not its commit pass.
     func passBegan() {
-        guard turn != nil else { return }
+        guard let current = turn, current.openDispatches == 0 else { return }
         turn?.passStart = now()
     }
 
-    /// The last observer of a commit pass ran: the turn ends with the pass's time (tests call it directly).
+    /// The last observer of a commit pass ran: once the turn's dispatches returned, the turn ends with
+    /// the pass's time (tests call it directly).
     func passEnded() {
-        guard let current = turn, let start = current.passStart else { return }
+        guard let current = turn, current.openDispatches == 0, let start = current.passStart else { return }
         let end = now()
         let pass = InputDirtyWindow.Pass(kind: current.kind, nanos: end >= start ? end - start : 0, calls: current.calls,
                                          offTarget: current.offTarget)
@@ -218,15 +241,9 @@ final class InputDirtyLedger {
 
     // MARK: Dirty calls
 
-    /// Runs `send`, a hooked call's original, recording the call first when `records` (a call that
-    /// dirties) and it is the outermost hooked call on the main thread in an input turn. Any thread: a
-    /// call off the main thread only passes.
-    nonisolated func around(_ call: InputDirtyCall, _ receiver: AnyObject, records: Bool, _ send: () -> Void) {
-        guard Thread.isMainThread else { return send() }
-        MainActor.assumeIsolated { record(call, receiver, records: records, send) } // main-proof: Thread.isMainThread checked above
-    }
-
-    private func record(_ call: InputDirtyCall, _ receiver: AnyObject, records: Bool, _ send: () -> Void) {
+    /// Runs `send`, a hooked call's original on the main thread (``InputDirtyMainSeam``), recording the
+    /// call first when `records` (a call that dirties) and it is the outermost hooked call in an input turn.
+    func record(_ call: InputDirtyCall, _ receiver: AnyObject, records: Bool, _ send: () -> Void) {
         if records, nesting == 0, isInstalled, let current = turn { note(call, receiver, target: current.target, kind: current.kind) }
         nesting += 1
         defer { nesting -= 1 }

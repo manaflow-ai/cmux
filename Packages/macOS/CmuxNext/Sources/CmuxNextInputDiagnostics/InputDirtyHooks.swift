@@ -54,6 +54,7 @@ nonisolated enum InputDirtyCall: UInt8, CaseIterable, Sendable {
     func replacement(calling original: IMP, ledger: InputDirtyLedger) -> IMP {
         let selector = self.selector
         let call = self
+        let ledger = InputDirtyMainSeam(ledger: ledger)
         switch self {
         case .viewNeedsDisplay, .viewNeedsLayout, .viewNeedsUpdateConstraints:
             // SAFETY: `original` is the IMP of `selector`, a `(BOOL)` setter on NSView.

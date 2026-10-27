@@ -22,7 +22,8 @@ private final class DirtyClock {
 /// `debug.input` action `dirty` (p04-input-093): the first request installs the hooks, the tap
 /// subscription and the run-loop observers and `reset` removes them all; a dirty call in an input turn
 /// counts under its view's relation to the target, off-target rows first; calls outside a turn and
-/// calls inside another hooked call do not count; sites and turns stay bounded; the reply encodes.
+/// calls inside another hooked call do not count; a pass inside the event's dispatch (a tracking loop)
+/// does not end the turn; sites and turns stay bounded; the reply encodes.
 /// Serialized: the hooks replace NSView's and CALayer's methods for the whole process.
 @MainActor @Suite(.serialized)
 struct InputDirtyRecorderTests {
@@ -83,6 +84,7 @@ struct InputDirtyRecorderTests {
         }
         for eventClass in [InputEventClass.key, .button, .scroll] {
             #expect(tap.subscriberCount(eventClass, stage: .observe) == 1, "\(eventClass) starts turns")
+            #expect(tap.subscriberCount(eventClass, stage: .dispatchEnd) == 1, "\(eventClass)'s dispatch end lets a pass end the turn")
         }
 
         let second = await recorder.rows(sinceLaunch: false)
@@ -93,6 +95,7 @@ struct InputDirtyRecorderTests {
         #expect(!ledger.isInstalled)
         #expect(implementations() == originals, "reset gives every method its own implementation back")
         #expect(tap.subscriberCount(.key, stage: .observe) == 0)
+        #expect(tap.subscriberCount(.key, stage: .dispatchEnd) == 0)
 
         let again = await recorder.rows(sinceLaunch: false)
         #expect(again.installedNow, "a request after reset installs again")
@@ -117,6 +120,7 @@ struct InputDirtyRecorderTests {
         views.outside.needsLayout = true
         views.container.needsUpdateConstraints = true
         sublayer.setNeedsDisplay()
+        ledger.dispatchEnded()
         clock.nanos = 1_000_000
         ledger.passBegan()
         clock.nanos = 3_500_000
@@ -154,6 +158,7 @@ struct InputDirtyRecorderTests {
             views.child.needsDisplay = true
             views.outside.needsDisplay = true
             views.late.needsDisplay = true
+            ledger.dispatchEnded()
             ledger.passBegan()
             ledger.passEnded()
         }
@@ -172,6 +177,7 @@ struct InputDirtyRecorderTests {
         let views = makeViews()
         ledger.began(.scroll, target: views.target)
         views.outside.needsDisplay = true
+        ledger.dispatchEnded()
         ledger.passBegan()
         ledger.passEnded()
         await recorder.reset()
@@ -182,10 +188,68 @@ struct InputDirtyRecorderTests {
         #expect(sinceReset.rows.isEmpty && sinceReset.turns.isEmpty)
     }
 
+    /// A click on a control runs a tracking loop inside `sendEvent`: its run-loop passes come before the
+    /// control's action, so they must not end the turn. The first pass after the dispatch returns does.
+    @Test func aPassInsideTheDispatchDoesNotEndTheTurn() async throws {
+        let clock = DirtyClock()
+        let ledger = InputDirtyLedger(tap: InputEventTap()) { clock.nanos }
+        let recorder = makeRecorder(ledger)
+        _ = await recorder.rows(sinceLaunch: false)
+        let views = makeViews()
+
+        ledger.began(.click, target: views.target)
+        clock.nanos = 1_000_000
+        ledger.passBegan()  // the tracking loop's pass, inside the dispatch
+        clock.nanos = 9_000_000
+        ledger.passEnded()
+        views.outside.needsDisplay = true  // the control's action, after the tracking loop: counted
+        ledger.began(.click, target: views.target)  // an event the tracking loop sends on: one more open dispatch
+        ledger.dispatchEnded()
+        ledger.passBegan()
+        ledger.passEnded()  // the outer dispatch is still open
+        views.child.needsDisplay = true
+        ledger.dispatchEnded()
+        clock.nanos = 10_000_000
+        ledger.passBegan()
+        clock.nanos = 12_000_000
+        ledger.passEnded()
+        views.late.needsDisplay = true  // after the commit pass: not counted
+
+        let reply = await recorder.rows(sinceLaunch: false)
+        await recorder.reset()
+        #expect(reply.turns == ["click": 1], "the passes inside the dispatch ended no turn")
+        #expect(reply.rows.contains { $0.objectClass == "DirtyOutsideView" && $0.offTarget && $0.kinds == ["click"] })
+        #expect(reply.rows.contains { $0.objectClass == "DirtyChildView" && $0.relation == "target" })
+        #expect(!reply.rows.contains { $0.objectClass == "DirtyLateView" })
+        let pass = try #require(reply.commitPass["click"])
+        #expect(pass.n == 1 && pass.max == 2, "the commit pass after the dispatch, not the tracking loop's, in ms")
+        #expect(reply.calls >= 2 && reply.callsPerTurn["click"]?.max == Double(reply.calls), "one turn holds every counted call")
+    }
+
+    @Test func aDispatchEndWithNoOpenDispatchDoesNothing() async {
+        let ledger = InputDirtyLedger(tap: InputEventTap()) { 0 }
+        let recorder = makeRecorder(ledger)
+        _ = await recorder.rows(sinceLaunch: false)
+        ledger.dispatchEnded()  // installed inside a dispatch: its end has no turn
+        ledger.began(.key, target: nil)
+        ledger.passBegan()
+        ledger.passEnded()
+        let open = await recorder.rows(sinceLaunch: false)
+        ledger.dispatchEnded()
+        ledger.dispatchEnded()  // a second end does not reopen or underflow
+        ledger.passBegan()
+        ledger.passEnded()
+        let ended = await recorder.rows(sinceLaunch: false)
+        await recorder.reset()
+        #expect(open.turns.isEmpty, "the key's dispatch is still open")
+        #expect(ended.turns == ["key": 1])
+    }
+
     @Test func aTurnNeedsTheRecorderInstalled() {
         let ledger = InputDirtyLedger(tap: InputEventTap()) { 0 }
         let views = makeViews()
         ledger.began(.key, target: views.target)
+        ledger.dispatchEnded()
         ledger.passBegan()
         ledger.passEnded()
         let copy = ledger.request(sinceLaunch: true)
