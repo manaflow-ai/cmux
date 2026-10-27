@@ -107,7 +107,7 @@ final class DemoScene {
         case 0xFF08: if !typed.isEmpty { typed.removeLast() }
         case 0xFF0D: typed.append("\n")
         case 0x20 ... 0xFF:
-            var character = Character(Unicode.Scalar(UInt8(keysym)))
+            var character = Character(Unicode.Scalar(UInt8(truncatingIfNeeded: keysym)))
             if shift, character.isLetter { character = Character(character.uppercased()) }
             typed.append(character)
         case 0x0100_0000 ... 0x0110_FFFF:

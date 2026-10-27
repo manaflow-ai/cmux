@@ -147,8 +147,7 @@ pub(super) fn checked(path: &Path) -> anyhow::Result<std::os::unix::net::UnixStr
     let meta = files::symlink_metadata(path)
         .map_err(|e| anyhow::anyhow!("the Chief tools socket is missing: {e}"))?;
     anyhow::ensure!(meta.file_type().is_socket(), "the Chief tools socket is not a socket");
-    // SAFETY: geteuid has no preconditions.
-    let uid = unsafe { libc::geteuid() };
+    let uid = crate::platform::effective_uid();
     anyhow::ensure!(meta.uid() == uid, "the Chief tools socket belongs to another user");
     Ok(cmux_unix_socket::connect(path)?)
 }
@@ -208,7 +207,7 @@ fn forward(_path: &Path, _method: &str, _params: &Params) -> anyhow::Result<Valu
     Err(NotConfigured.into())
 }
 
-/// The asynchronous request path: the forward runs on its own thread (it
+/// The asynchronous request path: the forward runs as a work item (it
 /// waits on another process) and answers through `writer`.
 pub(super) fn start(
     mux: &Arc<Mux>,
@@ -226,14 +225,15 @@ pub(super) fn start(
     let thread_writer = writer.clone();
     let reply_id = id.clone();
     let reply = reply.hand_to_worker();
-    let spawned = std::thread::Builder::new().name("mux-chief-inspect".into()).spawn(move || {
+    // The inspector waits on the Chief's socket (`request_wait.rs`).
+    let worker_mux = Arc::clone(&mux);
+    let posted = mux.post_request_wait(move || {
         let reply = reply.start();
         let _lock_scope = reply.enter_lock_scope();
-        let answer = inspect_with(&mux, client, params, None);
+        let answer = inspect_with(&worker_mux, client, params, None);
         reply.reply(|| respond(&thread_writer, reply_id, answer));
     });
-    spawned.is_ok()
-        || respond(writer, id, Err(anyhow::anyhow!("cannot start the inspector request")))
+    posted.is_ok() || respond(writer, id, Err(anyhow::anyhow!("the daemon is shutting down")))
 }
 
 fn respond(writer: &MessageWriter, id: Option<Value>, answer: anyhow::Result<Value>) -> bool {

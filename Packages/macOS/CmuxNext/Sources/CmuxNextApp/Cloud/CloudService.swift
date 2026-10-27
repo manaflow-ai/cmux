@@ -23,8 +23,7 @@ final class CloudService {
     @ObservationIgnored let api: CloudAPIClient
     @ObservationIgnored let paths: CloudPaths
     @ObservationIgnored private(set) var hub: CloudTunnelHub?
-    /// This Mac's Cloud install principal (cx-wb5.64): install tokens for the
-    /// credential relay; registered at sign-in, revoked at sign-out.
+    /// This Mac's Cloud install principal (cx-wb5.64): install tokens for the credential relay; registered at sign-in, revoked at sign-out.
     @ObservationIgnored let installIdentity: MacInstallIdentity
     /// `phone.cloudReplica`: this Mac's workspace list for phones while it is off.
     @ObservationIgnored let hostReplica: CloudHostReplicaFollower
@@ -55,8 +54,7 @@ final class CloudService {
     @ObservationIgnored let deadlines: MainDeadlineScheduler
     /// The local side event subscription for `cloud.link.changed` (app link).
     @ObservationIgnored private var linkEvents: UInt64?
-    /// The `credential` provider family on the local daemon (cx-wb5.63):
-    /// app servers' Cloud API calls, sent with the install token.
+    /// The `credential` provider family on the local daemon (cx-wb5.63): app servers' Cloud API calls, sent with the install token.
     @ObservationIgnored private let credentialProvider: CloudCredentialProvider?
     @ObservationIgnored private var credentialEvents: UInt64?
     @ObservationIgnored let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.cloud")
@@ -96,9 +94,10 @@ final class CloudService {
     /// Files the person drops or pastes into a moved chat, sent to its machine (``CloudUploads``).
     @ObservationIgnored let uploads: CloudUploads
 
-    /// The app's main-thread scheduler, passed by the composition root: every Cloud machine's event
-    /// batches run on it (one main thread, one budget).
+    /// The app's main-thread scheduler, passed by the composition root: every Cloud machine's event batches run on it (one budget).
     @ObservationIgnored private let mainWork: MainWorkScheduler
+    /// This Mac's install id (``localDeviceID()``): the launch's read has it, a failed read is read again off main.
+    @ObservationIgnored private let deviceID: CloudLocalDeviceID
 
     /// - Parameter auth: The app's sign-in (`AppServices.cloudAuth`); its configuration is this service's.
     /// - Parameter mainWork: The app's ``MainWorkScheduler`` (AppServices passes the one it was built with).
@@ -107,8 +106,9 @@ final class CloudService {
     /// - Parameter deadlines: The app's one ``MainDeadlineScheduler`` (`AppServices.mainDeadlines`).
     /// - Parameter appEvents: The composition root's `NotificationCenter.default` observer (app activation).
     /// - Parameter workspaceEvents: The composition root's NSWorkspace center observer (wake).
+    /// - Parameter deviceID: The launch's read of this Mac's install id (`AppEnvironment.cloudDeviceID`); nil: read at first use.
     init(machines: MachineRegistry, auth: CloudAuth, mainWork: MainWorkScheduler, work: BackgroundWork,
-         deadlines: MainDeadlineScheduler, appEvents: AppEvents, workspaceEvents: AppEvents) {
+         deadlines: MainDeadlineScheduler, appEvents: AppEvents, workspaceEvents: AppEvents, deviceID: CloudDeviceIDSource? = nil) {
         self.machines = machines
         self.mainWork = mainWork
         self.work = work
@@ -120,6 +120,7 @@ final class CloudService {
         configuration = auth.configuration
         self.auth = auth
         paths = CloudPaths.standard(bundleID: configuration.bundleID)
+        self.deviceID = CloudLocalDeviceID(paths: paths, launch: deviceID, work: work, mainWork: mainWork)
         let auth = auth
         api = CloudAPIClient(
             configuration: configuration,
@@ -179,15 +180,10 @@ final class CloudService {
     }
 
     static var deviceName: String { MacName().linkDeviceName() }
-    /// This Mac's install id, read from disk once (it never changes once written); every window
-    /// record save reads it, so a pane focus move does no file I/O (speed-of-sound-DESIGN.md 3.2).
-    func localDeviceID() throws -> String {
-        if let cachedDeviceID { return cachedDeviceID }
-        let id = try paths.loadOrCreateDeviceID()
-        cachedDeviceID = id
-        return id
+    /// This Mac's install id, kept once known (no file I/O per focus move): the launch's read has it (p08-startup-076).
+    func localDeviceID() throws(CloudDeviceIDError) -> String {
+        try deviceID.id()
     }
-    @ObservationIgnored private var cachedDeviceID: String?
 
     var isSignedIn: Bool { auth.isSignedIn }
 

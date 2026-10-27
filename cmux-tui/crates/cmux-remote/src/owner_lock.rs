@@ -23,7 +23,7 @@ impl OwnerFileLock {
     }
 
     pub(crate) async fn acquire_async(path: PathBuf) -> io::Result<Self> {
-        tokio::task::spawn_blocking(move || Self::acquire(&path))
+        cmux_blocking::spawn_blocking(move || Self::acquire(&path))
             .await
             .map_err(|error| io::Error::other(format!("owner-file lock task failed: {error}")))?
     }
@@ -53,7 +53,7 @@ fn open_private_lock(path: &Path) -> io::Result<File> {
 
         options.mode(0o600).custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC);
     }
-    let file = options.open(path)?;
+    let file = cmux_threads::checked::fs::open_with(&options, path)?;
     validate_private_lock(path, &file)?;
     Ok(file)
 }

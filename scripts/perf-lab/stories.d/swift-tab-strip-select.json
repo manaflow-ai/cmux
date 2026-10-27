@@ -1,0 +1,17 @@
+{
+  "id": "swift-tab-strip-select",
+  "tier": "builder",
+  "description": "TabStripSelectionBench: the tab strip's part of a tab switch, each step (sync, separators, occlusion, reveal with and without the spring, hover card, commit) per switch over 2, 10, 30 and 60 tabs.",
+  "command": ["scripts/perf-lab/stories/swift_benches.py", "run", "--story", "swift-tab-strip-select", "--filter", "TabStripSelectionBench"],
+  "session": "light",
+  "engine": "none",
+  "config": "release",
+  "metrics": [
+    {"name": "swift\\.tab_strip_select\\.[a-z.]+\\.[0-9]+", "unit": "us", "better": "lower"}
+  ],
+  "repeats": 1,
+  "seconds": 1200,
+  "needs": ["file:Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/TabStripSelectionBench.swift", "file:Packages/macOS/CmuxNext/Tests/CmuxNextTestSupport/PerfResultWriter.swift"],
+  "owner": "PL-instant",
+  "component": "Tabs>Strip"
+}
