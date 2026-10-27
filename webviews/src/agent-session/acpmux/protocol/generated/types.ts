@@ -400,6 +400,12 @@ export type PermissionGroupList = {
   chatAllowance: ChatAllowance;
   coverage: PermissionCoverage;
   groups: PermissionGroup[];
+  /**
+   * Set (true) beside `allowRefused` when this daemon still counts a group's
+   * one-time allow signed by an enrolled Mac for every pending member
+   * (`_meta.acpmux.approverDecisions`, `hub/mac_approvers.rs`).
+   */
+  macAllowOnce?: (boolean | null);
 } & Record<string, unknown>;
 
 export type PermissionGroupReceipt = {

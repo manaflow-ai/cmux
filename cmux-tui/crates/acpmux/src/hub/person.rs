@@ -53,6 +53,15 @@
 //!   [`decision_answers_proof`]. A proof never
 //!   covers a group's allow, a policy, a rule or a mode: those widen and stay the person's own. A keyed daemon is not dumpable (`daemon.rs`), so an
 //!   agent it starts cannot read the key from its memory.
+//! - A group's one-time allow from a connection that is not the person (peer-route approvals,
+//!   `mac_approvers.rs`) counts only with `_meta.acpmux.approverDecisions`: for EVERY pending
+//!   member of the group at the request's `revision`, by permission id, `{decisionNonce,
+//!   approverDecision}`, the member's own single-prompt signature over its one-time allow option
+//!   (no answers). A missing member, an entry for anything else, a wrong nonce, a stale revision
+//!   or one signature that does not count refuses the whole allow and answers nothing; the
+//!   answer verifies every signature, then spends every nonce, under the prompt state's lock
+//!   (`Hub::respond_permission_group`). `allow_chat` stays the person's own. A non-person read of
+//!   the groups says `macAllowOnce: true` beside `allowRefused`.
 //! - Through a peer (slice 2a, 2b): a daemon that only mirrors a peer's session cannot check a
 //!   proof made with the peer's key, so it forwards every answer for that session (allow, deny,
 //!   cancel) and the peer decides; a forwarded answer counts hops (`server/peer_forward.rs`).
@@ -69,7 +78,7 @@
 //! [`Hub::person_check`] is the one check, run for every request before it is handled or forwarded.
 //! Without the person, a client may read prompts and deny or cancel them, and may narrow (ask,
 //! deny-all, deny rules, asking modes). It may never allow (a permission answer, a question's
-//! answer, a group's allow) and never widen what runs without asking (a policy other than ask or
+//! answer, a group's allow) without a proof or an approver's signature that counts (above), and never widen what runs without asking (a policy other than ask or
 //! deny-all for a session, the daemon default, a family default or a preset; a rule that could
 //! auto-approve; a mode the reviewed asking table does not list; a spawn env). Such a request gets
 //! [`REASON`] and changes nothing: a prompt stays pending. One exception, off by default
@@ -943,6 +952,9 @@ impl Hub {
             }
             method::MUX_PERMISSION_GROUP_RESPOND => match params["decision"].as_str() {
                 Some("deny") => Ok(()),
+                // An enrolled approver's signed one-time allow of every pending member
+                // (`permission_groups.rs`): the answer checks it again and spends it.
+                Some("allow_once") if self.approver_allows_group(params) => Ok(()),
                 _ => Err(person_required("allowing a permission group")),
             },
             method::MUX_SET_POLICY | "_acpmux/set_default_policy" => {

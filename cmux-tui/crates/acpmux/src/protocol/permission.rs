@@ -198,6 +198,11 @@ pub struct PermissionGroupList {
     /// allows a group, and a peer's link never is one). A deny still counts.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub allow_refused: Option<String>,
+    /// Set (true) beside `allowRefused` when this daemon still counts a group's
+    /// one-time allow signed by an enrolled Mac for every pending member
+    /// (`_meta.acpmux.approverDecisions`, `hub/mac_approvers.rs`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mac_allow_once: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]

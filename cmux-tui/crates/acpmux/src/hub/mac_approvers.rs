@@ -18,6 +18,9 @@
 //!   raw `r || s` as lowercase hex, over [`message`]: its own domain, then the
 //!   daemon run, the Mac's id, the session, the permission, the tool call id,
 //!   the option, the prompt's nonce, the expiry and the digest of the answers.
+//! - A group's Allow once (`_acpmux/permission_group_respond`, `permission_groups.rs`) carries
+//!   one such signature per pending member, `_meta.acpmux.approverDecisions = {permissionId:
+//!   {decisionNonce, approverDecision}}`; it counts only when every member's does (`person.rs`).
 //! - It counts once (the person gate's spent-nonce store), only until
 //!   `expiresAt` (at most [`MAX_LIFETIME`] ahead), and only as a one-time allow
 //!   (`allow_once`) of a tool's ask or an agent's question ([`may_allow`]): never
@@ -96,6 +99,12 @@ impl MacApprovers {
             })),
             "file": inner.path,
         })
+    }
+
+    /// Whether this machine's app gave its own key (`set_own`): its app can sign an allow
+    /// for a peer that enrolled it (`server/peer_forward.rs`).
+    pub fn has_own(&self) -> bool {
+        self.own.lock().unwrap_or_else(std::sync::PoisonError::into_inner).is_some()
     }
 
     /// `_acpmux/mac_approver_set {id, publicKey, name}` (the person only): this

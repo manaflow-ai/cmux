@@ -2665,6 +2665,13 @@
             "$ref": "#/types/PermissionGroup"
           },
           "type": "array"
+        },
+        "macAllowOnce": {
+          "description": "Set (true) beside `allowRefused` when this daemon still counts a group's\none-time allow signed by an enrolled Mac for every pending member\n(`_meta.acpmux.approverDecisions`, `hub/mac_approvers.rs`).",
+          "type": [
+            "boolean",
+            "null"
+          ]
         }
       },
       "required": [
