@@ -72,17 +72,17 @@ impl FullAccessView {
 
     /// A session's agent as acpmux records it.
     pub(crate) fn of_session(session: &Session) -> Self {
-        // The count first: the inbound loop applies a report before it takes back the report's
-        // count, so a report applied after this read is in the reads below (review 3 of #26052).
-        let counted = || session.floor.unapplied_full_access.load(Ordering::SeqCst) > 0;
-        let reported = counted();
-        let undeclared_mode =
-            session.floor.undeclared_mode.lock().unwrap_or_else(|e| e.into_inner()).clone();
-        let meta = session.meta();
+        // One snapshot, under the meta lock: the tap counts a report under it (`session_tap`),
+        // and `write_mode_state` applies the report and takes its count back under it, so the
+        // view sees a report counted, applied, or not yet come (reviews 3 to 5 of #26052).
+        let m = session.meta.lock().unwrap_or_else(|e| e.into_inner());
         #[cfg(test)]
         between_view_reads(session);
-        // Again after: one the tap counted while the mode was read is seen too (review 4).
-        let reported = reported || counted();
+        let reported = session.floor.unapplied_full_access.load(Ordering::SeqCst) > 0;
+        let undeclared_mode =
+            session.floor.undeclared_mode.lock().unwrap_or_else(|e| e.into_inner()).clone();
+        let meta = m.clone();
+        drop(m);
         Self {
             mode: crate::web_modes::mode_of(&meta),
             undeclared_mode,
@@ -692,6 +692,15 @@ impl Hub {
             return FullAccessEnd::StillRunning;
         };
         let child = slot.take();
+        // Under the slot's lock the inbound loop checks a mode or option report under: one it
+        // checked before this is applied before this, and one after is dropped, not applied to
+        // the agent after it (`permissions.rs`, reviews 3 and 5 of #26052).
+        if let Some(child) = &child {
+            let mut ended = session.floor.ended_agents.lock().unwrap_or_else(|e| e.into_inner());
+            ended.push(child.generation);
+            let excess = ended.len().saturating_sub(8);
+            ended.drain(..excess);
+        }
         drop(slot);
         let ended = child.is_some() || !Self::host_record_gone(&session.id);
         if let Some(child) = &child {
@@ -703,15 +712,6 @@ impl Hub {
             {
                 let _held = session.permissions.lock().unwrap_or_else(|e| e.into_inner());
                 child.end_on_purpose();
-            }
-            // A mode or option report it sent that the inbound loop has not applied yet is not
-            // the next agent's (review 3 of #26052).
-            {
-                let mut ended =
-                    session.floor.ended_agents.lock().unwrap_or_else(|e| e.into_inner());
-                ended.push(child.generation);
-                let excess = ended.len().saturating_sub(8);
-                ended.drain(..excess);
             }
             self.stop_auto_resume(session);
             self.cancel_pending_permissions(session);
@@ -738,8 +738,8 @@ impl Hub {
         // What its agent reported and nothing applied goes with it; a report it still sends is
         // not counted (its tap's epoch is gone, review 4 of #26052).
         {
-            let mut epoch = session.floor.report_epoch.lock().unwrap_or_else(|e| e.into_inner());
-            *epoch += 1;
+            let _m = session.meta.lock().unwrap_or_else(|e| e.into_inner());
+            session.floor.report_epoch.fetch_add(1, Ordering::SeqCst);
             session.floor.unapplied_full_access.store(0, Ordering::SeqCst);
         }
         // What only the ended agent said goes with it: the mode it reported without declaring
@@ -1082,7 +1082,7 @@ mod tests {
             reporter.await.unwrap();
             assert!(
                 !DONE_IN_READ.load(Ordering::SeqCst) || runs_full_access(&view).is_some(),
-                "a report that came and went while the view was read is not in it (applied: {applied})"
+                "a report that came and went while the view was read is missed ({applied})"
             );
         }
     }

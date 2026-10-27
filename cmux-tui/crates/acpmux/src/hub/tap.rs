@@ -81,7 +81,7 @@ impl Hub {
         let tap_session = session.clone();
         let tap_hub = self.clone();
         // The epoch its reports count in (`FloorState::report_epoch`).
-        let report_epoch = *session.floor.report_epoch.lock().unwrap_or_else(|e| e.into_inner());
+        let report_epoch = session.floor.report_epoch.load(Ordering::SeqCst);
         // A `message_start` was logged and its first delta was not yet.
         let awaiting_first_delta = AtomicBool::new(false);
         Arc::new(move |dir: Direction, msg: &Message, host_seq: Option<u64>| -> bool {
@@ -101,9 +101,9 @@ impl Hub {
                 // Counted before it is logged, so no check waits for the inbound loop to apply
                 // it (review 69 of #23322).
                 if super::full_access_bound::own_full_access_report(&tap_session, p) {
-                    let epoch =
-                        tap_session.floor.report_epoch.lock().unwrap_or_else(|e| e.into_inner());
-                    if *epoch == report_epoch {
+                    // Under the meta lock the view reads it under (`FullAccessView::of_session`).
+                    let _m = tap_session.meta.lock().unwrap_or_else(|e| e.into_inner());
+                    if tap_session.floor.report_epoch.load(Ordering::SeqCst) == report_epoch {
                         tap_session.floor.unapplied_full_access.fetch_add(1, Ordering::SeqCst);
                     }
                 }

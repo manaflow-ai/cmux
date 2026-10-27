@@ -59,10 +59,19 @@ impl Hub {
                             continue;
                         }
                         // A mode or option report of an agent MDM's off ended: its count went with
-                        // it, and it is not the next agent's (review 3 of #26052).
+                        // it, and it is not the next agent's. Checked and applied under the agent
+                        // slot's lock, which that end takes to record the agent, so no end comes
+                        // between the two (reviews 3 and 5 of #26052).
                         let kind =
                             params.as_ref().and_then(|p| p["update"]["sessionUpdate"].as_str());
-                        if matches!(kind, Some("current_mode_update" | "config_option_update"))
+                        let slot =
+                            if matches!(kind, Some("current_mode_update" | "config_option_update"))
+                            {
+                                Some(session.child.lock().await)
+                            } else {
+                                None
+                            };
+                        if slot.is_some()
                             && session
                                 .floor
                                 .ended_agents
@@ -182,7 +191,6 @@ impl Hub {
                     session.floor.harness_grant.store(false, Ordering::SeqCst);
                     session.floor.unsandboxed.store(false, Ordering::SeqCst);
                     *session.floor.undeclared_mode.lock().unwrap_or_else(|e| e.into_inner()) = None;
-                    session.floor.unapplied_full_access.store(0, Ordering::SeqCst);
                     // Its background processes ended with it (`processes.rs`).
                     self.processes_lost(&session, processes::HARNESS_EXIT);
                     // So did its background subagents (`work_below.rs`).
@@ -315,22 +323,19 @@ impl Hub {
         if let Some(claude) = reported_tools {
             self.absorb_reported_tools(session, &claude);
         }
+        // Applied: the tap's count of it goes, under the lock the write publishes its mode under
+        // (`FloorState::unapplied_full_access`, review 5 of #26052).
+        let settles =
+            params.is_some_and(|p| super::full_access_bound::own_full_access_report(session, p));
         // Default deny on drift: also a mode the harness changes by itself.
         if let Some(w) = mode_write {
-            self.write_mode_state(session, [w]);
+            self.write_mode_state_settling(session, [w], settles);
+        } else if settles {
+            let _m = session.meta.lock().unwrap_or_else(|e| e.into_inner());
+            settle_full_access_report(session);
         }
         if mark_cleared {
             self.save_meta(session);
-        }
-        // Applied: the tap's count of it goes (`FloorState::unapplied_full_access`).
-        if let Some(p) = params
-            && super::full_access_bound::own_full_access_report(session, p)
-        {
-            let _ = session.floor.unapplied_full_access.fetch_update(
-                Ordering::SeqCst,
-                Ordering::SeqCst,
-                |n| n.checked_sub(1),
-            );
         }
     }
 
@@ -1345,4 +1350,14 @@ pub(super) fn status_after_ask(session: &Session, prev: SessionStatus) -> Sessio
         (false, SessionStatus::Running | SessionStatus::Waiting) => SessionStatus::Ready,
         (false, prev) => prev,
     }
+}
+
+/// Takes back one count of a full-access report the inbound loop applied
+/// (`FloorState::unapplied_full_access`); the caller holds the session's meta lock.
+pub(super) fn settle_full_access_report(session: &Session) {
+    let _ =
+        session
+            .floor
+            .unapplied_full_access
+            .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |n| n.checked_sub(1));
 }
