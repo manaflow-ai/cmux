@@ -12,8 +12,9 @@ A hosted label reaches runs-on three ways, and this test reads all three:
 - the capability map's manaflow-ai fleet (.github/runners.json), which resolve-runners.yml publishes.
 
 Allowed: the fork branch `github.repository_owner != 'manaflow-ai' && '<label>'` (it never evaluates in
-manaflow-ai; a Blacksmith label would queue forever in a personal fork), fork-only `hosted_runner` matrix
-values, comments, and the exact lines in EXEMPT, each with the reason it cannot move.
+manaflow-ai; a Blacksmith label would queue forever in a personal fork), comments, and the exact lines in
+EXEMPT, each with the reason it cannot move. A `hosted_runner:` matrix row is not exempt: nothing proves
+every reader of it sits behind the fork branch, and no workflow has one today.
 """
 from __future__ import annotations
 
@@ -34,8 +35,6 @@ RUNNERS = ROOT / ".github/runners.json"
 HOSTED_MACOS = re.compile(r"(?<![A-Za-z0-9_.-])macos-(?:latest|[0-9]+)(?:-(?:intel|large|xlarge|arm64))?(?![A-Za-z0-9_.-])")
 # The fork branch: only a repository owner other than manaflow-ai reaches it.
 FORK_BRANCH = re.compile(r"github\.repository_owner != 'manaflow-ai' && ('[A-Za-z0-9._-]+'|matrix\.hosted_runner)")
-# A fork-only matrix value, read only through the fork branch above.
-FORK_MATRIX_ROW = re.compile(r"""(^|[^A-Za-z_])"?hosted_runner"?:\s""")
 # Script test fixtures and unit tests describe hosted jobs they must recognise; they route nothing.
 SCRIPT_SKIP_PARTS = {"tests", "fixtures", "__pycache__", "node_modules"}
 SCRIPT_SUFFIXES = {".py", ".sh", ".rb", ".js", ".mjs", ".ts", ".json", ".yml", ".yaml"}
@@ -66,7 +65,7 @@ def workflow_hits(root: Path) -> list[str]:
                 continue
             for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
                 content = strip_comment(line)
-                if not content or FORK_MATRIX_ROW.search(content):
+                if not content:
                     continue
                 if HOSTED_MACOS.search(FORK_BRANCH.sub("", content)):
                     hits.append(f"{path.relative_to(root)}:{number}:{line}")
@@ -128,7 +127,8 @@ class NoGitHubHostedMacos(unittest.TestCase):
                      "    # runs on hosted macos-26 only in a fork", "      matrix.hosted_runner"):
             with self.subTest(line=line):
                 self.assertFalse(HOSTED_MACOS.search(FORK_BRANCH.sub("", strip_comment(line))))
-        self.assertTrue(FORK_MATRIX_ROW.search('          hosted_runner: macos-15'))
+        # A matrix row is read like any other line: `runs-on: ${{ matrix.hosted_runner }}` would reach it.
+        self.assertTrue(HOSTED_MACOS.search(FORK_BRANCH.sub("", strip_comment("          hosted_runner: macos-15"))))
 
     def test_no_workflow_selects_a_github_hosted_mac(self):
         left = unexempted(workflow_hits(ROOT))
