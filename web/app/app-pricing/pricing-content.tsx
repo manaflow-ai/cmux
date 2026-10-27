@@ -246,6 +246,7 @@ export function AppPricingContent({
                 attribution,
               )}
               requiresSignIn={!pending && !snapshot.authenticated}
+              signInHref={signInHref}
               location="app_pricing"
               plan="go"
             >
@@ -267,6 +268,7 @@ export function AppPricingContent({
         checkoutHrefs={proCheckoutHrefs}
         location="app_pricing"
         requiresSignIn={!pending && !snapshot.authenticated}
+        signInHref={signInHref}
         ctaLabel={pricing.pro.cta}
         badge={
           isProCurrent ? (
@@ -299,6 +301,7 @@ export function AppPricingContent({
         checkoutHrefs={maxCheckoutHrefs}
         location="app_pricing"
         requiresSignIn={!pending && !snapshot.authenticated}
+        signInHref={signInHref}
         ctaLabel={pricing.max.cta}
         badge={
           isMax ? (
@@ -362,6 +365,7 @@ export function AppPricingContent({
           <PricingCheckoutButton
             href={teamCheckoutHref}
             requiresSignIn={!pending && !snapshot.authenticated}
+            signInHref={signInHref}
             location="app_pricing"
             plan="team"
           >

@@ -9,6 +9,7 @@ import type { BillingInterval } from "../../../services/billing/plans";
 export function ProCtaLink({
   checkoutHref,
   requiresSignIn,
+  signInHref,
   children,
   size = "default",
   location = "pricing_page",
@@ -17,6 +18,7 @@ export function ProCtaLink({
 }: {
   checkoutHref: string;
   requiresSignIn?: boolean;
+  signInHref?: string;
   children: React.ReactNode;
   size?: PricingActionSize;
   location?: string;
@@ -27,6 +29,7 @@ export function ProCtaLink({
     <PricingCheckoutButton
       href={checkoutHref}
       requiresSignIn={requiresSignIn}
+      signInHref={signInHref}
       location={location}
       interval={interval}
       plan={plan}

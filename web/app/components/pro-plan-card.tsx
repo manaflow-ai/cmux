@@ -33,6 +33,7 @@ export function ProPlanCard({
   location = "pricing_page",
   surface,
   requiresSignIn,
+  signInHref,
   ctaLabel,
   action,
   monthlyOnly = false,
@@ -49,6 +50,8 @@ export function ProPlanCard({
   location?: string;
   surface: string;
   requiresSignIn: boolean;
+  /** The app pricing page's sign-in, which also signs the app in. */
+  signInHref?: string;
   ctaLabel: string;
   /** A non-checkout action (manage billing, App Store); hides the period toggle. */
   action?: ReactNode;
@@ -132,6 +135,7 @@ export function ProPlanCard({
           <ProCtaLink
             checkoutHref={checkoutHrefs[interval]}
             requiresSignIn={requiresSignIn}
+            signInHref={signInHref}
             interval={interval}
             location={location}
             plan={plan}

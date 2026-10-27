@@ -61,6 +61,14 @@ const proUser = {
   update: mock(async () => undefined),
 };
 
+const freeUser = {
+  id: "user-free",
+  isAnonymous: false,
+  primaryEmail: "free@example.com",
+  clientReadOnlyMetadata: {},
+  update: mock(async () => undefined),
+};
+
 const getUser = mock(async () => currentUser);
 
 mock.module("../app/lib/stack", () => ({
@@ -103,18 +111,20 @@ describe("app pricing page", () => {
   });
 
   test("renders embedded pricing with checkout links carrying the validated scheme", async () => {
+    stackConfigured = true;
+    currentUser = freeUser;
     const element = await AppPricingPage({
       searchParams: Promise.resolve({
         cmux_app: "1",
         cmux_scheme: "cmux-dev-test",
       }),
     });
-    const html = (await renderSettled(element));
+    const html = (await renderSettled(element)).replaceAll("&amp;", "&");
 
-    expect(html).toContain("/handler/native-sign-in?after_auth_return_to=");
-    expect(html).toContain("plan%253Dpro");
-    expect(html).toContain("plan%253Dteam");
-    expect(html).toContain("plan%253Dmax");
+    expect(html).toContain("cmux_scheme=cmux-dev-test");
+    expect(html).toContain("plan=pro");
+    expect(html).toContain("plan=team");
+    expect(html).toContain("plan=max");
     expect(html).toMatch(/plan=max[^"]*interval=year/);
     expect(html).toContain("/mo");
     expect(html).toContain("/user/mo");
@@ -139,9 +149,6 @@ describe("app pricing page", () => {
     expect(html).toContain("Get Go");
     expect(html).toContain("For individuals");
     expect(html).toContain("For teams and businesses");
-    expect(html).toContain("plan%253Dpro");
-    expect(html).toContain("plan%253Dmax");
-    expect(html).toContain("plan%253Dteam");
     expect(html).toContain("Compare plans");
     expect(html).not.toContain("/api/billing/portal");
   });
@@ -169,6 +176,8 @@ describe("app pricing page", () => {
   });
 
   test("forwards the Mac app's checkout attribution to every checkout link", async () => {
+    stackConfigured = true;
+    currentUser = freeUser;
     const element = await AppPricingPage({
       searchParams: Promise.resolve({
         cmux_app: "1",
@@ -180,12 +189,11 @@ describe("app pricing page", () => {
         cmux_app_build: "2026090101",
       }),
     });
-    const html = (await renderSettled(element));
+    const html = (await renderSettled(element)).replaceAll("&amp;", "&");
 
-    expect(html).toContain("plan%253Dpro");
-    expect(html).toContain("plan%253Dteam");
-    expect(html).toContain("cmux_source%253Dmac_help_menu");
-    expect(html).toContain("cmux_app_build%253D2026090101");
+    expect(html).toMatch(/plan=pro[^"]*cmux_source=mac_help_menu/);
+    expect(html).toMatch(/plan=team[^"]*cmux_source=mac_help_menu/);
+    expect(html).toContain("cmux_app_build=2026090101");
   });
 
   test("renders signed-out recovery without claiming Free is the current plan", async () => {
@@ -219,7 +227,27 @@ describe("app pricing page", () => {
     );
   });
 
+  test("signed out, every plan button signs in the app, never a web-only or external sign-in", async () => {
+    const element = await AppPricingPage({
+      searchParams: Promise.resolve({
+        cmux_app: "1",
+        cmux_scheme: "cmux-dev-test",
+      }),
+    });
+    const html = (await renderSettled(element)).replaceAll("&amp;", "&");
+
+    // Get Go, Get Pro, Get Max and Get Team, plus the banner's Sign in.
+    const nativeSignIns = html.match(/href="\/handler\/native-sign-in\?/g) ?? [];
+    expect(nativeSignIns.length).toBeGreaterThanOrEqual(5);
+    // The old buttons went to the web sign-in in the default browser, so a plan
+    // was bought there while the app stayed signed out.
+    expect(html).not.toMatch(/href="[^"]*\/handler\/sign-in\?/);
+    expect(html).not.toContain("plan%253D");
+  });
+
   test("renders monthly pricing and preserves native checkout context", async () => {
+    stackConfigured = true;
+    currentUser = freeUser;
     const element = await AppPricingPage({
       searchParams: Promise.resolve({
         cmux_app: "1",
@@ -249,8 +277,8 @@ describe("app pricing page", () => {
     expect(html).toContain("$160");
     expect(html).toContain("Yearly");
     expect(html).toMatch(/plan=max[^"]*interval=year/);
-    expect(html).toContain("plan%253Dpro");
-    expect(html).toContain("plan%253Dteam");
+    expect(html).toContain("plan=pro");
+    expect(html).toContain("plan=team");
     expect(html).not.toContain("appearance=dark&amp;interval=month");
     expect(html).toContain('data-cmux-app-theme="true"');
     expect(html).toContain("--ghostty-background:#112233");

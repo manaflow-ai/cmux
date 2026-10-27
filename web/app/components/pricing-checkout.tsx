@@ -66,6 +66,7 @@ const PLAN_CTA_EVENTS = {
 export function PricingCheckoutButton({
   href,
   requiresSignIn = false,
+  signInHref,
   children,
   location,
   plan = "pro",
@@ -75,6 +76,8 @@ export function PricingCheckoutButton({
   href: string;
   /** Signed-out visitors authenticate before the server checks subscription state. */
   requiresSignIn?: boolean;
+  /** Where a signed-out click goes instead of the web sign-in (the app's own sign-in). */
+  signInHref?: string;
   children: ReactNode;
   location: string;
   plan?: PricingPlan;
@@ -84,7 +87,7 @@ export function PricingCheckoutButton({
   const pricing = planPrice(plan, interval);
   return (
     <CheckoutButton
-      href={pricingDestination(href, location, requiresSignIn)}
+      href={pricingDestination(href, location, requiresSignIn, signInHref)}
       resolveHref={() =>
         pricingDestination(
           withCheckoutAttribution(
@@ -95,6 +98,7 @@ export function PricingCheckoutButton({
           ),
           location,
           requiresSignIn,
+          signInHref,
         )
       }
       size={size}
@@ -134,7 +138,9 @@ function pricingDestination(
   href: string,
   location: string,
   requiresSignIn: boolean,
+  appSignInHref?: string,
 ) {
+  if (requiresSignIn && appSignInHref) return appSignInHref;
   const checkoutHref = withCheckoutAttribution(href, {
     [CHECKOUT_PLACEMENT_PARAM]: location,
   });
