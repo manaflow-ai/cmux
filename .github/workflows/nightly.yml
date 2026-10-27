@@ -1707,11 +1707,10 @@ jobs:
   # resolved build commit, and uploads the bundles first: the Mac installs them
   # right before xcodebuild, after its own checkout, helper starts and Chromium
   # fetch. build-nightly-app takes each hand-off only when it matches its own
-  # checkout (nightly_linux_inputs.py) and otherwise builds it itself, so it
+  # checkout (nightly_inputs.py) and otherwise builds it itself, so it
   # never waits on this job and a failure here costs only the time it would
   # have saved. No secrets: it uploads two artifacts that the same run reads.
-  build-nightly-linux-inputs:
-    # The id stays (needs, the step coverage map); the check name is neutral.
+  build-nightly-inputs:
     name: build nightly inputs
     needs: [decide, resolve-nightly-cmux-tui-client]
     if: needs.decide.outputs.should_build == 'true' && needs.decide.outputs.track == 'nightly-next' && needs.decide.outputs.continue_only != 'true' && inputs.nightly_next_unsigned_run == '' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *') && needs.resolve-nightly-cmux-tui-client.outputs.already_published != 'true' && needs.resolve-nightly-cmux-tui-client.outputs.superseded != 'true'
@@ -1752,13 +1751,13 @@ jobs:
           set -euo pipefail
           key="$(python3 scripts/cmux-next/web-bundle-key.py . --source)"
           scripts/cmux-next/build-web-bundles.sh --force
-          python3 scripts/ci/nightly_linux_inputs.py pack-web "$RUNNER_TEMP/nightly-linux-inputs/web" --source-key "$key"
+          python3 scripts/ci/nightly_inputs.py pack-web "$RUNNER_TEMP/nightly-inputs/web" --source-key "$key"
 
       - name: Upload the web bundles
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: cmux-nightly-linux-web-bundles
-          path: ${{ runner.temp }}/nightly-linux-inputs/web
+          name: cmux-nightly-web-bundles
+          path: ${{ runner.temp }}/nightly-inputs/web
           if-no-files-found: error
           retention-days: 1
 
@@ -1770,13 +1769,13 @@ jobs:
           set -euo pipefail
           ./scripts/cmux-next/generate-third-party-notices.sh --tui-source tree \
             --cargo-trees "$RUNNER_TEMP/cmux-notices-cargo-trees" --write-cargo-trees
-          python3 scripts/ci/nightly_linux_inputs.py pack-notices "$RUNNER_TEMP/nightly-linux-inputs/notices"
+          python3 scripts/ci/nightly_inputs.py pack-notices "$RUNNER_TEMP/nightly-inputs/notices"
 
       - name: Upload the third-party notices
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: cmux-nightly-linux-notices
-          path: ${{ runner.temp }}/nightly-linux-inputs/notices
+          name: cmux-nightly-notices
+          path: ${{ runner.temp }}/nightly-inputs/notices
           if-no-files-found: error
           retention-days: 1
 
@@ -2308,10 +2307,10 @@ jobs:
 
       # The cmux-next web bundles (agent pane, pages, Activity, palette ranker,
       # webviews app) are built from this commit's sources, never taken from a
-      # committed copy (cx-vn5). build-nightly-linux-inputs builds them on Linux
+      # committed copy (cx-vn5). build-nightly-inputs builds them on Linux
       # beside this job with the same --force build; they are installed here,
       # right before the Release build, only when their source key is this
-      # checkout's (nightly_linux_inputs.py). Otherwise, or when that job has
+      # checkout's (nightly_inputs.py). Otherwise, or when that job has
       # not uploaded them yet, this step builds them as before: it never waits.
       # Nothing earlier reads them: optchat-chief compiles in the committed
       # inspector page (build-web-bundles.sh only checks that page in-tree).
@@ -2336,20 +2335,20 @@ jobs:
         continue-on-error: true
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
-          pattern: cmux-nightly-linux-web-bundles
-          path: ${{ runner.temp }}/nightly-linux-inputs/web
+          pattern: cmux-nightly-web-bundles
+          path: ${{ runner.temp }}/nightly-inputs/web
           merge-multiple: true
 
       - name: Build the web bundles (cmux-next)
         if: (inputs.nightly_next_unsigned_run == '' && (needs.decide.outputs.track == 'nightly-next')) && steps.nightly-product.outputs.hit != 'true'
         run: |
           set -euo pipefail
-          if python3 scripts/ci/nightly_linux_inputs.py install-web "$RUNNER_TEMP/nightly-linux-inputs/web"; then
+          if python3 scripts/ci/nightly_inputs.py install-web "$RUNNER_TEMP/nightly-inputs/web"; then
             exit 0
           else
             status=$?
           fi
-          [ "$status" = 3 ] || echo "::warning title=Linux web bundles::installing the Linux-built web bundles failed (status $status); building them here"
+          [ "$status" = 3 ] || echo "::warning title=Web bundles hand-off::installing the handed-off web bundles failed (status $status); building them here"
           scripts/cmux-next/build-web-bundles.sh --force
 
       - name: Finish fetching the Chromium engine
@@ -2469,7 +2468,7 @@ jobs:
       # cmux-next ships THIRD_PARTY_LICENSES.md for exactly what this nightly
       # bundles: the daemon, app host and Cloud server come from this tree
       # (pin-cmux-tui.sh tree mode), so the notices do too, with exact closures
-      # from `cargo tree`. build-nightly-linux-inputs generates them on Linux
+      # from `cargo tree`. build-nightly-inputs generates them on Linux
       # beside this job; they are taken when generated at this commit, else
       # generated here as before. The Release build copied the committed file;
       # bundle-notices replaces that copy with this tree's. The sign job
@@ -2479,8 +2478,8 @@ jobs:
         continue-on-error: true
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
-          pattern: cmux-nightly-linux-notices
-          path: ${{ runner.temp }}/nightly-linux-inputs/notices
+          pattern: cmux-nightly-notices
+          path: ${{ runner.temp }}/nightly-inputs/notices
           merge-multiple: true
 
       - name: Generate third-party notices (cmux-next)
@@ -2489,20 +2488,20 @@ jobs:
           CMUX_NOTICES_ALLOW_CARGO: "1"
         run: |
           set -euo pipefail
-          if python3 scripts/ci/nightly_linux_inputs.py install-notices "$RUNNER_TEMP/nightly-linux-inputs/notices"; then
+          if python3 scripts/ci/nightly_inputs.py install-notices "$RUNNER_TEMP/nightly-inputs/notices"; then
             status=0
           else
             status=$?
           fi
           if [ "$status" != 0 ]; then
-            [ "$status" = 3 ] || echo "::warning title=Linux notices::taking the Linux-generated notices failed (status $status); generating them here"
+            [ "$status" = 3 ] || echo "::warning title=Notices hand-off::taking the handed-off notices failed (status $status); generating them here"
             # A trusted NEXT worker keeps the crate sources between jobs
             # (nightly_build_state.py); every other runner downloads them.
             export CMUX_NOTICES_CACHE="${CMUX_NEXT_NOTICES_CACHE:-$RUNNER_TEMP/cmux-notices}"
             ./scripts/cmux-next/generate-third-party-notices.sh --tui-source tree \
               --cargo-trees "$RUNNER_TEMP/cmux-notices-cargo-trees" --write-cargo-trees
           fi
-          python3 scripts/ci/nightly_linux_inputs.py bundle-notices build-universal/Build/Products/Release/cmux.app
+          python3 scripts/ci/nightly_inputs.py bundle-notices build-universal/Build/Products/Release/cmux.app
 
       # In Release Xcode merges iroh-ffi's static code into Contents/MacOS/cmux
       # and still embeds Iroh.framework: a 35 KB stub (only __TEXT and
