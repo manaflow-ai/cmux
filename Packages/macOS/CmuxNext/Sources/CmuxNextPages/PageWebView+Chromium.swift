@@ -113,8 +113,7 @@ extension PageWebView {
         page.resources = { [weak self] url in await self?.chromiumResource(url) ?? .notFound }
         do {
             for (method, params) in ChromiumPageHostBridge.setupCalls(handlers: handlers,
-                                                                       documentScripts: scripts.sources,
-                                                                       supportsUploads: chromiumUploadHandler != nil) {
+                                                                       documentScripts: scripts.sources) {
                 _ = try await page.devTools(method, params: params)
             }
         } catch {

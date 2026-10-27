@@ -55,7 +55,7 @@ struct AcpmuxUploadFrameTests {
         let transport = AgentPaneTransport()
         let socket = AcpmuxPaneSocket(
             request: URLRequest(url: URL(string: "ws://127.0.0.1")!),
-            wire: ClosingUploadWire(), limits: transport.limits,
+            wire: UploadWire(closeOnSend: true), limits: transport.limits,
             options: transport.permissionOptions, sessions: transport.sessions,
             ids: AcpmuxRequestIds(), signal: {})
         try await socket.start(timeout: 1)
@@ -122,16 +122,20 @@ struct AcpmuxUploadFrameTests {
         private let lastID = Mutex(0)
         private let holdReply: Bool
         private let holdBegin: Bool
+        private let closeOnSend: Bool
+        private let closed = Mutex<(@Sendable (Int, String) -> Void)?>(nil)
         private let onSend: @Sendable () -> Void
-        init(holdReply: Bool = false, holdBegin: Bool = false, onSend: @escaping @Sendable () -> Void = {}) {
+        init(holdReply: Bool = false, holdBegin: Bool = false, closeOnSend: Bool = false, onSend: @escaping @Sendable () -> Void = {}) {
             self.holdReply = holdReply
             self.holdBegin = holdBegin
+            self.closeOnSend = closeOnSend
             self.onSend = onSend
         }
         private let incoming = Mutex<(@Sendable (String) -> Void)?>(nil)
         func open(onFrame: @escaping @Sendable (String) -> Void,
                   onClose: @escaping @Sendable (Int, String) -> Void) async throws {
             incoming.withLock { $0 = onFrame }
+            closed.withLock { $0 = onClose }
         }
         func send(_ text: String, completion: @escaping @Sendable (Bool) -> Void) {
             sentCount.withLock { $0 += 1 }
@@ -139,6 +143,7 @@ struct AcpmuxUploadFrameTests {
             lastID.withLock { $0 = object?["id"] as? Int ?? 0 }
             completion(true)
             onSend()
+            if closeOnSend { closed.withLock { $0 }?(1006, ""); return }
             if object?["method"] as? String == "_acpmux/file_put_begin" {
                 if !holdBegin { reply(begin: true) }
             } else if !holdReply || object?["method"] as? String == "_acpmux/file_put_cancel" { reply() }
@@ -151,16 +156,4 @@ struct AcpmuxUploadFrameTests {
         func cancel(code: Int, reason: String) {}
     }
 
-    final class ClosingUploadWire: AcpmuxPaneWire, Sendable {
-        private let closed = Mutex<(@Sendable (Int, String) -> Void)?>(nil)
-        func open(onFrame: @escaping @Sendable (String) -> Void,
-                  onClose: @escaping @Sendable (Int, String) -> Void) async throws {
-            closed.withLock { $0 = onClose }
-        }
-        func send(_ text: String, completion: @escaping @Sendable (Bool) -> Void) {
-            completion(true)
-            closed.withLock { $0 }?(1006, "")
-        }
-        func cancel(code: Int, reason: String) {}
-    }
 }
