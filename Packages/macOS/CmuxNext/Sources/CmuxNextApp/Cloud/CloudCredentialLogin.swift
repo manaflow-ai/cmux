@@ -25,7 +25,7 @@ import Security
         guard status == errSecSuccess, let bytes = result as? Data,
               let object = try? JSONSerialization.jsonObject(with: bytes) as? [String: Any],
               let created = object["created"] as? Double,
-              Date().timeIntervalSince1970 - created < 86_400,
+              created > 0,
               let encoded = object["credential"] as? String, let data = Data(base64Encoded: encoded)
         else { if status == errSecSuccess { return nil }; throw Failure.storeFailed }
         try CloudCredentialTransfer.validate(data, provider: provider)
@@ -49,7 +49,9 @@ import Security
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent("cmux-credential-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false,
                                                 attributes: [.posixPermissions: 0o700])
-        defer { try? FileManager.default.removeItem(at: directory) }
+        // The visible terminal owns the provider process. Do not remove this directory while a
+        // cancelled login may still be writing it; the shell's private umask and no shared path
+        // keep a cancelled attempt unreadable. Completed attempts clean up below.
         let script = directory.appendingPathComponent("login.sh")
         try Data(loginScript(provider: provider, directory: directory).utf8).write(to: script)
         try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: script.path)
@@ -61,8 +63,13 @@ import Security
             if let code = try? String(contentsOf: status, encoding: .utf8) {
                 guard code.trimmingCharacters(in: .whitespacesAndNewlines) == "0" else { throw Failure.loginFailed }
                 let value = try Data(contentsOf: directory.appendingPathComponent(provider == .claude ? "output" : "auth.json"))
-                if provider == .claude { return try claudeToken(from: value) }
+                if provider == .claude {
+                    let token = try claudeToken(from: value)
+                    try? FileManager.default.removeItem(at: directory)
+                    return token
+                }
                 try CloudCredentialTransfer.validate(value, provider: provider)
+                try? FileManager.default.removeItem(at: directory)
                 return value
             }
             // condition-wait: the one visible login's private completion marker, bounded to 5 min.
@@ -99,6 +106,9 @@ import Security
             code=$?
             printf '%s' "$code" > \(dir)/status.tmp
             mv \(dir)/status.tmp \(dir)/status
+            # A cancelled parent cannot own this visible terminal process; bound its lifetime and
+            # remove the private scratch after the parent has had time to consume the marker.
+            (sleep 300; rm -rf -- \(dir)) >/dev/null 2>&1 &
             """
     }
 }

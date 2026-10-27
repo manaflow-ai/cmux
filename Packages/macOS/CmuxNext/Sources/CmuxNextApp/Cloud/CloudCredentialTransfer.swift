@@ -4,7 +4,7 @@ import Foundation
 /// Only a native, target/team-scoped confirmation may call this. A repeat reuses the explicit
 /// transfer cache; Retry after a rejected credential passes refresh:true to mint a replacement.
 @MainActor struct CloudCredentialTransfer {
-    enum Provider: String, Sendable { case claude, codex }
+    enum Provider: String, Sendable, Equatable, Hashable { case claude, codex }
     enum Failure: Error, Equatable {
         case consentRequired, scopeChanged, sharedMachine, incompatibleConfiguration
         case localLoginUnavailable, loginFailed, invalidCredential, storeFailed, deliveryFailed
