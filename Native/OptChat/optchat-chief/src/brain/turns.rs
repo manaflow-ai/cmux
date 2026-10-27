@@ -1337,8 +1337,12 @@ impl Brain {
                 (self.log)(&format!(
                     "turn {key} said nothing; it closes its messages with a done marker"
                 ));
+                // The marker stays out of the thread of the message it
+                // closes: the daemon counts every message of a thread as a
+                // reply, so a threaded marker gave the person's message a
+                // reply that opens to nothing, and Home quoted that message
+                // above it (cmux#23810). Its `answers` close the work alone.
                 let mut entry = answer_entry(conversation, key, "", answers, pending);
-                in_thread(&mut entry, thread);
                 if let cmux_conversation::Op::MessageSend { parts, .. } = &mut entry.op {
                     *parts = vec![cmux_conversation::Part::Work {
                         session,
