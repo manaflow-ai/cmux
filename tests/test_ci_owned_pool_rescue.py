@@ -129,7 +129,9 @@ class FakeAPI:
         self.calls.append(f"branch:{branch}")
         return self.head
 
-    def cancel(self, run_id):
+    def cancel(self, run_id, before_send=None):
+        if before_send is not None:
+            before_send()  # as GitHub.request() does, right before the request goes out
         self.calls.append("cancel")
         self.cancelled_at, self.cancel_attempt = self.clock.seconds, self.attempt
         self.first_cancel = getattr(self, "first_cancel", None) or self.clock.seconds
@@ -3445,6 +3447,340 @@ def cancelled_owned_job(name, *, lasted, labels=(LIGHT,), runner="cmux-mini-1-gl
         {"name": "Set up runner", "status": "completed", "conclusion": "success"},
         {"name": "Checkout trusted verification scripts", "status": "completed", "conclusion": "cancelled"}])
     return found
+
+
+SIGN_WORKFLOW = """
+jobs:
+  build-sign-notarize-nightly:
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.run_attempt > 1 && needs.pick-nightly-sign-runner.outputs.alternate || needs.pick-nightly-sign-runner.outputs.runner || 'blacksmith-6vcpu-macos-26' }}
+  sign-nightly-identity-legacy:
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.run_attempt > 1 && needs.legacy-identity-target.outputs.sign_alternate || needs.legacy-identity-target.outputs.sign_runner || 'blacksmith-6vcpu-macos-26' }}
+"""
+# The same jobs before the alternate label (nightly.yml before #26171): a re-run takes the stalled label again.
+SIGN_WORKFLOW_BEFORE = """
+jobs:
+  build-sign-notarize-nightly:
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || needs.pick-nightly-sign-runner.outputs.runner || 'blacksmith-6vcpu-macos-26' }}
+  sign-nightly-identity-legacy:
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || needs.legacy-identity-target.outputs.sign_runner || 'blacksmith-6vcpu-macos-26' }}
+"""
+
+
+def signing_run(*, queued_at=60, sibling_done_at=0, started_at=None):
+    """Run 40489472569's shape: everything before signing finished, then both signing jobs queued on Blacksmith.
+
+    `sibling_done_at` keeps one other job running until then; `started_at` gives the arm64 signing job a runner."""
+    def jobs(seconds):
+        found = [dict(job("decide", status="completed", labels=["blacksmith-4vcpu-ubuntu-2404"]), id=1),
+                 dict(job("build-nightly-app", status="completed", labels=[BLACKSMITH], runner="bs-1"), id=2),
+                 dict(job("build-nightly-ghostty-cli-helper", labels=["blacksmith-4vcpu-ubuntu-2404"], runner="bs-2",
+                          status="completed" if seconds >= sibling_done_at else "in_progress"), id=3)]
+        if seconds >= queued_at:
+            started = started_at is not None and seconds >= started_at
+            found.append(dict(job("build-sign-notarize-nightly (arm64)", labels=[BLACKSMITH], created=queued_at,
+                                  status="in_progress" if started else "queued", runner="bs-3" if started else ""),
+                              id=4))
+            found.append(dict(job("sign-nightly-identity-legacy", labels=[BLACKSMITH], created=queued_at + 10),
+                              id=5))
+        return found
+    return jobs
+
+
+def mutations(api):
+    return [call for call in api.calls if call in ("cancel", "force-cancel", "rerun", "rerun-failed")]
+
+
+def cancel_times(api):
+    """When each cancel was sent (FakeAPI forgets cancelled_at once the re-run starts)."""
+    times, cancel = [], api.cancel
+
+    def recorded(run_id, before_send=None):
+        times.append(api.clock.seconds)
+        cancel(run_id, before_send)
+    api.cancel = recorded
+    return times
+
+
+class NightlySigningStall(unittest.TestCase):
+    """nightly-next's signing jobs on a stalled Blacksmith macOS label: cancel and re-run failed jobs, only when the
+    cancel loses no work."""
+
+    def test_stalled_signing_jobs_with_nothing_else_running_are_cancelled_and_their_failed_jobs_re_run(self):
+        clock = Clock()
+        api = NightlyAPI(clock, signing_run(), workflow=SIGN_WORKFLOW)
+        cancelled = cancel_times(api)
+        code, summary = run_main(api, clock, payload=nightly_event(head_branch="nightly-next"))
+        self.assertEqual(code, 0)
+        self.assertEqual(mutations(api), ["cancel", "rerun-failed"])
+        self.assertIn("past the 600s Blacksmith stall time, and every other job of the run has finished", summary)
+        self.assertIn("its signing jobs take their alternate macOS label", summary)
+        # Not before the stall time: both jobs had waited at least 10 minutes when the run was cancelled.
+        self.assertGreaterEqual(cancelled[0], 70 + rescue.SIGN_STALL_SECONDS)
+
+    def test_another_job_in_progress_holds_the_rescue_until_it_finishes(self):
+        clock = Clock()
+        done_at = 60 + rescue.SIGN_STALL_SECONDS + 900
+        api = NightlyAPI(clock, signing_run(sibling_done_at=done_at), workflow=SIGN_WORKFLOW)
+        cancelled = cancel_times(api)
+        _, summary = run_main(api, clock, payload=nightly_event(head_branch="nightly-next"))
+        self.assertIn("but build-nightly-ghostty-cli-helper not finished; cancelling the run would lose that work",
+                      summary)
+        # Nothing was cancelled while that job ran; once it finished the next look rescued.
+        self.assertGreaterEqual(cancelled[0], done_at)
+        self.assertEqual(mutations(api), ["cancel", "rerun-failed"])
+
+    def test_a_job_still_running_at_the_watch_limit_is_never_cancelled(self):
+        clock = Clock()
+        api = NightlyAPI(clock, signing_run(sibling_done_at=10 ** 9), workflow=SIGN_WORKFLOW)
+        _, summary = run_main(api, clock, payload=nightly_event(head_branch="nightly-next"))
+        self.assertIn("stopped: watch limit reached", summary)
+        self.assertEqual(mutations(api), [])
+
+    def test_a_signing_job_that_started_holds_the_other(self):
+        # The arm64 job got a runner: it is running, so the legacy job's stall waits for it.
+        clock = Clock()
+        api = NightlyAPI(clock, signing_run(started_at=300), workflow=SIGN_WORKFLOW)
+        _, summary = run_main(api, clock, payload=nightly_event(head_branch="nightly-next"))
+        self.assertIn("but build-sign-notarize-nightly (arm64) not finished", summary)
+        self.assertEqual(mutations(api), [])
+
+    def test_no_rescue_without_the_alternate_label_on_a_re_run(self):
+        for workflow in (SIGN_WORKFLOW_BEFORE, None):
+            clock = Clock()
+            api = NightlyAPI(clock, signing_run(), workflow=workflow)
+            _, summary = run_main(api, clock, payload=nightly_event(head_branch="nightly-next"))
+            self.assertIn("takes no alternate label on a re-run", summary)
+            self.assertEqual(mutations(api), [])
+            # The file is read once per watch, not every look.
+            self.assertEqual(sum(call.startswith("workflow:") for call in api.calls), 1)
+
+    def test_only_nightly_next_s_first_attempt(self):
+        # Main's nightly takes no alternate signing label: this rule leaves it alone.
+        clock = Clock()
+        api = NightlyAPI(clock, signing_run(), workflow=SIGN_WORKFLOW)
+        run_main(api, clock, payload=nightly_event())
+        self.assertEqual(mutations(api), [])
+        # Attempt 2 is already on the alternate label: it is never cancelled again for a stall.
+        target = rescue.target_from_event(nightly_event(head_branch="nightly-next"), "manaflow-ai/cmux")
+        target = dataclasses.replace(target, attempt=2)
+        clock = Clock()
+        api = NightlyAPI(clock, signing_run(), workflow=SIGN_WORKFLOW, rerun_jobs=signing_run())
+        api.attempt = 2
+        outcome, _ = rescue.watch(api, target, budget_seconds=600, now=clock.now, sleep=clock.sleep,
+                                  log=lambda text: None, deadline=clock.now() + dt.timedelta(hours=1))
+        self.assertNotEqual(outcome, "stalled")
+        self.assertEqual(mutations(api), [])
+
+    def test_the_look_before_the_cancel_sees_a_job_that_started(self):
+        clock = Clock()
+        api = NightlyAPI(clock, signing_run(started_at=0), workflow=SIGN_WORKFLOW)
+        target = rescue.target_from_event(nightly_event(head_branch="nightly-next"), "manaflow-ai/cmux")
+        clock.seconds = 60 + rescue.SIGN_STALL_SECONDS + 30
+        result = rescue.rescue_stalled_signing(api, target, now=clock.now, sleep=clock.sleep, log=lambda text: None,
+                                               deadline=clock.now() + dt.timedelta(hours=1))
+        self.assertTrue(result.startswith(rescue.SIGN_NOT_YET), result)
+        self.assertEqual(mutations(api), [])
+        # Nor does a job whose runs-on has no alternate, though the watch's look had passed the gate.
+        api = NightlyAPI(clock, signing_run(), workflow=SIGN_WORKFLOW)
+        result = rescue.rescue_stalled_signing(api, target, now=clock.now, sleep=clock.sleep, log=lambda text: None,
+                                               deadline=clock.now() + dt.timedelta(hours=1),
+                                               sign_seen={4: START, 5: START}, workflow_text=SIGN_WORKFLOW_BEFORE)
+        self.assertIn("takes no alternate label on a re-run", result)
+        self.assertEqual(mutations(api), [])
+        # A job first seen queued late counts from then, not from its created_at.
+        result = rescue.rescue_stalled_signing(api, target, now=clock.now, sleep=clock.sleep, log=lambda text: None,
+                                               deadline=clock.now() + dt.timedelta(hours=1),
+                                               sign_seen={4: clock.now(), 5: clock.now()}, workflow_text=SIGN_WORKFLOW)
+        self.assertTrue(result.startswith(rescue.SIGN_NOT_YET), result)
+        self.assertEqual(mutations(api), [])
+
+    def test_a_job_that_starts_after_the_last_look_is_seen_before_the_cancel(self):
+        # rescue() reads the run (which can wait out a rate limit) between the last look and the cancel: the
+        # arm64 signing job gets a runner then, so the look right before the cancel leaves the run alone.
+        clock = Clock()
+        state = {"started": False}
+        stalled, started = signing_run(), signing_run(started_at=0)
+        api = NightlyAPI(clock, lambda seconds: started(seconds) if state["started"] else stalled(seconds),
+                         workflow=SIGN_WORKFLOW)
+        read_run = api.run
+
+        def run(run_id):
+            if "jobs" in api.calls and any("workflow:" in call for call in api.calls):
+                state["started"] = True
+            return read_run(run_id)
+        api.run = run
+        _, summary = run_main(api, clock, payload=nightly_event(head_branch="nightly-next"))
+        self.assertIn("not rescued yet: ", summary)
+        self.assertIn("build-sign-notarize-nightly (arm64) not finished", summary)
+        self.assertEqual(mutations(api), [])
+
+    def test_the_guard_runs_after_a_token_mint_and_before_every_send_of_the_cancel(self):
+        api = rescue.GitHub("token", "manaflow-ai/cmux")
+        order: list[str] = []
+        api._fresh_token = lambda stale=None: order.append("mint")
+        lock = api._lock
+
+        class Recorded:
+            # The shared lock another thread may hold through a slow mint: the guard runs after it is released.
+            def __enter__(self):
+                order.append("lock")
+                return lock.__enter__()
+
+            def __exit__(self, *exc):
+                order.append("unlock")
+                return lock.__exit__(*exc)
+        api._lock = Recorded()
+
+        def opened(request, timeout):
+            order.append(f"send:{request.get_method()}")
+            raise urllib.error.HTTPError(request.full_url, 403, "rate limited", {}, None)
+        waits = iter([True, False])
+        api._wait_for_rate_limit = lambda method, path, error: next(waits)
+        with unittest.mock.patch("urllib.request.urlopen", opened):
+            with self.assertRaises(urllib.error.HTTPError):
+                api.cancel(RUN_ID, before_send=lambda: order.append("guard"))
+        # Mint, lock, guard, send; after the rate-limit wait the same again.
+        attempt = ["mint", "lock", "unlock", "guard", "send:POST"]
+        self.assertEqual([step for step in order if step in attempt][:5], attempt)
+        self.assertEqual(order.count("guard"), 2)
+        for at, step in enumerate(order):
+            if step == "send:POST":
+                self.assertEqual(order[at - 1], "guard")
+        # A guard that raises drops the request before it is sent.
+        order.clear()
+
+        def stop():
+            raise rescue.SignStallChanged("a signing job started")
+        with unittest.mock.patch("urllib.request.urlopen", opened):
+            with self.assertRaises(rescue.SignStallChanged):
+                api.cancel(RUN_ID, before_send=stop)
+        self.assertNotIn("send:POST", order)
+
+    def test_a_finished_signing_job_the_re_run_repeats_is_gated_too(self):
+        # The legacy signer already failed: the re-run of failed jobs repeats it, so its runs-on must have the
+        # alternate as well, or nothing is rescued.
+        now = START + dt.timedelta(seconds=60 + rescue.SIGN_STALL_SECONDS)
+        stalled = dict(job("build-sign-notarize-nightly (arm64)", labels=[BLACKSMITH], created=60), id=4)
+        failed = dict(job("sign-nightly-identity-legacy", status="completed", labels=[BLACKSMITH], runner="bs"),
+                      id=5, conclusion="failure")
+        only_arm64 = SIGN_WORKFLOW.split("  sign-nightly-identity-legacy:")[0]
+        self.assertEqual(rescue.gated_signing_stall([stalled, failed], now, {}, SIGN_WORKFLOW).action, "stalled")
+        look = rescue.gated_signing_stall([stalled, failed], now, {}, only_arm64)
+        self.assertEqual(look.action, "watch")
+        self.assertIn("sign-nightly-identity-legacy", look.reason)
+
+    def test_the_guard_never_cancels_an_attempt_someone_else_started(self):
+        clock = Clock()
+        clock.seconds = 60 + rescue.SIGN_STALL_SECONDS + 30
+        api = NightlyAPI(clock, signing_run(), workflow=SIGN_WORKFLOW)
+        target = rescue.target_from_event(nightly_event(head_branch="nightly-next"), "manaflow-ai/cmux")
+        reads = {"count": 0}
+        read_run = api.run
+
+        def run(run_id):
+            # The first look's and rescue()'s own reads see attempt 1; by the read right before the cancel,
+            # another watcher has started attempt 2.
+            reads["count"] += 1
+            found = dict(read_run(run_id))
+            if reads["count"] > 2:
+                found.update(run_attempt=2, status="in_progress")
+            return found
+        api.run = run
+        result = rescue.rescue_stalled_signing(api, target, now=clock.now, sleep=clock.sleep, log=lambda text: None,
+                                               deadline=clock.now() + dt.timedelta(hours=1),
+                                               sign_seen={4: START, 5: START}, workflow_text=SIGN_WORKFLOW)
+        self.assertTrue(result.startswith(rescue.SIGN_NOT_YET), result)
+        self.assertIn("not attempt 1 in progress", result)
+        self.assertEqual(reads["count"], 3)
+        self.assertEqual(mutations(api), [])
+
+    def test_a_stall_found_while_held_keeps_its_first_seen_times(self):
+        # follow() hands its signing state to hold_for_destination(), whose watch() can be the one that finds
+        # the stall; the guard then judges with the same times, so the stall is rescued, not restarted.
+        clock = Clock()
+        api = NightlyAPI(clock, signing_run(), workflow=SIGN_WORKFLOW)
+        calls = []
+
+        def hold(client, target, outcome, reason, **kwargs):
+            calls.append(kwargs)
+            outcome, reason = rescue.watch(client, target, budget_seconds=kwargs["budget_seconds"],
+                                           now=kwargs["now"], sleep=kwargs["sleep"], log=kwargs["log"],
+                                           deadline=kwargs["deadline"], seen=kwargs["seen"],
+                                           sign_seen=kwargs["sign_seen"], sign_text=kwargs["sign_text"])
+            return outcome, reason, ""
+        real_watch = rescue.watch
+        first = {"done": False}
+
+        def watch(*args, **kwargs):
+            if not first["done"]:
+                first["done"] = True
+                return "rescue", "an owned job is stuck"
+            return real_watch(*args, **kwargs)
+        with unittest.mock.patch.object(rescue, "watch", watch), \
+                unittest.mock.patch.object(rescue, "hold_for_destination", hold):
+            _, summary = run_main(api, clock, payload=nightly_event(head_branch="nightly-next"))
+        self.assertTrue(calls[0]["sign_seen"])
+        self.assertTrue(calls[0]["sign_text"])
+        self.assertEqual(mutations(api), ["cancel", "rerun-failed"])
+
+    def test_every_retry_inside_request_keeps_the_guard(self):
+        import inspect
+        import re as re_module
+        source = inspect.getsource(rescue.GitHub.request)
+        retries = re_module.findall(r"return self\.request\(method, path,.*?refreshed=[^,)]+[^\n]*", source, re_module.S)
+        self.assertGreaterEqual(len(retries), 4)
+        for call in retries:
+            self.assertIn("before_send=before_send", call)
+
+    def test_a_signing_job_first_seen_at_the_last_look_is_not_stalled_yet(self):
+        clock = Clock()
+        clock.seconds = 60 + rescue.SIGN_STALL_SECONDS + 30
+        api = NightlyAPI(clock, signing_run(), workflow=SIGN_WORKFLOW)
+        target = rescue.target_from_event(nightly_event(head_branch="nightly-next"), "manaflow-ai/cmux")
+        seen = {4: START}  # the watch saw the arm64 job, never the legacy one
+        result = rescue.rescue_stalled_signing(api, target, now=clock.now, sleep=clock.sleep, log=lambda text: None,
+                                               deadline=clock.now() + dt.timedelta(hours=1), sign_seen=seen,
+                                               workflow_text=SIGN_WORKFLOW)
+        self.assertTrue(result.startswith(rescue.SIGN_NOT_YET), result)
+        self.assertIn("sign-nightly-identity-legacy not finished", result)
+        self.assertEqual(seen[5], clock.now())
+        self.assertEqual(mutations(api), [])
+
+    def test_a_change_at_the_last_look_resumes_the_watch(self):
+        # The final look finds a sibling running again; the watch goes on and rescues once it finishes.
+        clock = Clock()
+        api = NightlyAPI(clock, signing_run(), workflow=SIGN_WORKFLOW)
+        real = rescue.rescue_stalled_signing
+        answers = []
+
+        def once(*args, **kwargs):
+            if not answers:
+                answers.append(rescue.SIGN_NOT_YET + "a sibling came back")
+                return answers[0]
+            return real(*args, **kwargs)
+        with unittest.mock.patch.object(rescue, "rescue_stalled_signing", once):
+            _, summary = run_main(api, clock, payload=nightly_event(head_branch="nightly-next"))
+        self.assertIn("not rescued yet: a sibling came back", summary)
+        self.assertEqual(mutations(api), ["cancel", "rerun-failed"])
+
+    def test_signing_stall_rules(self):
+        now = START + dt.timedelta(seconds=60 + rescue.SIGN_STALL_SECONDS)
+        queued = dict(job("sign-nightly-identity-legacy", labels=[BLACKSMITH], created=60), id=9)
+        self.assertEqual(rescue.signing_stall([queued], now).action, "stalled")
+        self.assertIsNone(rescue.signing_stall([queued], now - dt.timedelta(seconds=1)))
+        # An owned label is the owned-pool rescue's, and a job that is not a signing job is not this rule's.
+        self.assertIsNone(rescue.signing_stall([dict(queued, labels=[MINI])], now))
+        self.assertIsNone(rescue.signing_stall([dict(queued, name="build-nightly-app")], now))
+        self.assertIsNone(rescue.signing_stall([dict(queued, runner_name="bs-1")], now))
+        # Any Blacksmith macOS size and image suffix (the module has a narrower BLACKSMITH_MACOS_LABEL too).
+        for label in ("blacksmith-12vcpu-macos-26", "blacksmith-6vcpu-macos-26-arm64"):
+            self.assertEqual(rescue.signing_stall([dict(queued, labels=[label])], now).action, "stalled", label)
+        # A verify leg's rendered matrix name maps to its job.
+        self.assertEqual(rescue.sign_job_key({"name": "Verify signed nightly app (arm64)"}), "verify-signed-nightly")
+        self.assertEqual(rescue.sign_stall_gate(SIGN_WORKFLOW, ["build-sign-notarize-nightly"]), [])
+        self.assertEqual(rescue.sign_stall_gate(SIGN_WORKFLOW, ["verify-signed-nightly"]), ["verify-signed-nightly"])
+        self.assertEqual(rescue.sign_stall_gate("jobs: [", ["build-sign-notarize-nightly"]),
+                         ["build-sign-notarize-nightly"])
 
 
 class FeedTimeouts(unittest.TestCase):

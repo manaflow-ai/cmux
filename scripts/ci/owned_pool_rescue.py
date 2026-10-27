@@ -237,6 +237,19 @@ newer head. A superseded run that has not finished (a refusal at the watch's
 end, or a stuck job with no reserved runner) is cancelled, not re-run, so the
 newer run starts; a build waiting on its reserved runner never gets that far.
 
+nightly-next's signing jobs, and the jobs that verify, recover or follow them
+(NIGHTLY_SIGN_ALTERNATES), stay on Blacksmith macOS. One queued there with no
+runner past the Blacksmith stall time (simple_pool_picker's
+BLACKSMITH_STALL_MINUTES) is moved by a re-run of failed jobs, whose attempt 2
+takes the alternate label nightly_sign_runner.py picked on attempt 1. GitHub
+re-runs jobs only in a finished run, so this cancels the run first, which a
+started nightly allows only when it loses no work: every other job of the run
+has finished and no runner has taken the stalled jobs (signing_stall()). While
+any other job is still running or queued the rescue only logs and looks again.
+It acts only on attempt 1, and only when the run's own nightly.yml has the
+attempt-2 alternate in the job's runs-on (sign_stall_gate()); otherwise the
+re-run would queue on the same label.
+
 A job stuck with no runner is not rescued while another job of its run is
 running on a persistent runner, whatever the workflow: the rescue cancels the
 whole run, which would move that job to Blacksmith too (#16463). The stuck
@@ -654,6 +667,104 @@ def started_dev_compile(jobs: Sequence[Mapping[str, Any]]) -> str | None:
             if DEV_LABEL.fullmatch(str(label)):
                 return str(label)
     return None
+
+
+# nightly-next's Blacksmith macOS jobs (nightly.yml on feat-cmux-next): the signing jobs, which hold the release
+# keys, and the jobs that verify, recover or follow them. On 2026-10-27 build-sign-notarize-nightly and
+# sign-nightly-identity-legacy sat 16 minutes (10:58 to 11:14Z) on a starved blacksmith-6vcpu-macos-26 in run
+# 40489472569. From attempt 2 on, each job's runs-on reads `github.run_attempt > 1 && needs.<job>.outputs.<name>`:
+# an alternate macOS 26 label nightly_sign_runner.py picked on attempt 1 (#26171), which a re-run of failed
+# jobs keeps. Each job maps to its jobs-API name (a matrix leg adds ` (arm64)`) and that expression. The rescue
+# acts on a job only when the run's own nightly.yml has the expression in the job's runs-on
+# (sign_stall_gate()); without it a re-run would queue on the same stalled label, so the job is left alone.
+_SIGN_ALTERNATE = "github.run_attempt > 1 && needs.pick-nightly-sign-runner.outputs.alternate"
+_RECOVERY_ALTERNATE = "github.run_attempt > 1 && needs.find-nightly-next-recovery.outputs.sign_alternate"
+_LEGACY_ALTERNATE = "github.run_attempt > 1 && needs.legacy-identity-target.outputs.sign_alternate"
+NIGHTLY_SIGN_ALTERNATES: dict[str, tuple[str, str]] = {
+    "build-sign-notarize-nightly": ("build-sign-notarize-nightly", _SIGN_ALTERNATE),
+    "verify-signed-nightly": ("Verify signed nightly app", _SIGN_ALTERNATE),
+    "verify-final-dmg-nightly": ("Verify final nightly DMG", _SIGN_ALTERNATE),
+    "generate-nightly-deltas": ("generate-nightly-deltas", _SIGN_ALTERNATE),
+    "recover-nightly-next-notarization": ("recover-nightly-next-notarization", _RECOVERY_ALTERNATE),
+    "verify-recovered-nightly-next": ("verify-recovered-nightly-next", _RECOVERY_ALTERNATE),
+    "sign-nightly-identity-legacy": ("sign-nightly-identity-legacy", _LEGACY_ALTERNATE),
+    "verify-nightly-identity-legacy": ("verify-nightly-identity-legacy", _LEGACY_ALTERNATE),
+}
+SIGN_BLACKSMITH_LABEL = re.compile(r"blacksmith-[0-9]+vcpu-macos-[0-9]+(?:-[a-z0-9]+)*")
+# simple_pool_picker.blacksmith_stalled()'s rule: a Blacksmith job with no runner this long is on a stalled label.
+SIGN_STALL_SECONDS = simple_pool_picker.BLACKSMITH_STALL_MINUTES * 60
+
+
+def sign_job_key(job: Mapping[str, Any]) -> str | None:
+    """The NIGHTLY_SIGN_ALTERNATES job a jobs-API job is, if any."""
+    name = str(job.get("name") or "")
+    return next((key for key, (shown, _) in NIGHTLY_SIGN_ALTERNATES.items()
+                 if name == shown or name.startswith(shown + " (")), None)
+
+
+def signing_stall(jobs: Sequence[Mapping[str, Any]], now: dt.datetime,
+                  first_seen: Mapping[Any, dt.datetime] | None = None) -> Look | None:
+    """nightly-next's signing jobs (NIGHTLY_SIGN_ALTERNATES) queued on Blacksmith macOS past SIGN_STALL_SECONDS
+    with no runner, or None.
+
+    GitHub re-runs jobs only in a finished run, so moving a queued job means cancelling the run first,
+    and a started nightly is never cancelled for a slow runner. A cancel here loses no work only when
+    every other job of the run has finished: then the run holds nothing but the stalled jobs, which no
+    runner has taken. So Look "stalled" (cancel, then re-run failed jobs, so only those jobs run again)
+    needs both. Anything else still in progress or queued (the other signing job included, until it
+    stalls too) gives Look "watch": the next look decides again.
+    """
+    seen = first_seen or {}
+    stalled = [job for job in jobs if sign_job_key(job) and waiting_for_runner(job)
+               and any(SIGN_BLACKSMITH_LABEL.fullmatch(str(label)) for label in job.get("labels") or [])
+               and queued_seconds(job, now, seen.get(job.get("id"))) >= SIGN_STALL_SECONDS]
+    if not stalled:
+        return None
+    names = ", ".join(sorted(str(job.get("name") or job.get("id")) for job in stalled))
+    label = next(str(label) for label in stalled[0].get("labels") or [] if SIGN_BLACKSMITH_LABEL.fullmatch(str(label)))
+    busy = sorted(str(job.get("name") or job.get("id")) for job in jobs
+                  if job.get("status") != "completed" and not any(job is other for other in stalled))
+    if busy:
+        return Look("watch", f"{names} queued on {label} with no runner past the {SIGN_STALL_SECONDS}s Blacksmith "
+                             f"stall time, but {', '.join(busy)} not finished; cancelling the run would lose that "
+                             "work, so it is not rescued on this look", waiting=True)
+    return Look("stalled", f"{names} queued on {label} with no runner past the {SIGN_STALL_SECONDS}s Blacksmith "
+                           "stall time, and every other job of the run has finished")
+
+
+def gated_signing_stall(jobs: Sequence[Mapping[str, Any]], now: dt.datetime, first_seen: Mapping[Any, dt.datetime],
+                        workflow_text: str | None) -> Look | None:
+    """signing_stall(), with Look "stalled" turned into "watch" unless the runs-on in `workflow_text` of every
+    covered job of the run takes its alternate label on a re-run (sign_stall_gate())."""
+    stall = signing_stall(jobs, now, first_seen)
+    if stall is None or stall.action != "stalled":
+        return stall
+    # Every covered job of the run, finished or not: a re-run of failed jobs also re-runs a signing job that
+    # failed or was cancelled, and that one must take its alternate label too.
+    keys = sorted({key for job in jobs for key in [sign_job_key(job)] if key})
+    missing = sign_stall_gate(workflow_text, keys)
+    if missing:
+        return Look("watch", f"{stall.reason}, but the runs-on of {', '.join(missing)} at the run's head takes no "
+                             "alternate label on a re-run, so a re-run would queue on the same label; not rescued",
+                    waiting=True)
+    return stall
+
+
+def sign_stall_gate(workflow_text: str | None, keys: Sequence[str]) -> list[str]:
+    """The jobs among `keys` whose runs-on in `workflow_text` lacks their attempt-2 alternate label expression
+    (NIGHTLY_SIGN_ALTERNATES). Fails closed: a missing or unreadable file, or a missing job, counts."""
+    if not workflow_text:
+        return sorted(keys)
+    try:
+        spec = owned_pool_sources._load(workflow_text).get("jobs") or {}
+    except Exception:  # noqa: BLE001 - an unparseable file, or no PyYAML, takes no re-run
+        return sorted(keys)
+    missing = []
+    for key in keys:
+        runs_on = str((spec.get(key) or {}).get("runs-on") or "") if isinstance(spec.get(key), Mapping) else ""
+        if NIGHTLY_SIGN_ALTERNATES[key][1] not in runs_on:
+            missing.append(key)
+    return sorted(missing)
 
 
 def waiting_for_runner(job: Mapping[str, Any]) -> bool:
@@ -1334,7 +1445,8 @@ class GitHub:
         return True
 
     def request(self, method: str, path: str, *, own_token: bool = False, body: Mapping | None = None,
-                before_retry: Callable[[], None] | None = None, refreshed: bool = False) -> Any:
+                before_retry: Callable[[], None] | None = None, refreshed: bool = False,
+                before_send: Callable[[], None] | None = None) -> Any:
         self._fresh_token()
         headers = self.read_headers if method == "GET" and not own_token else self.headers
         with self._lock:
@@ -1349,6 +1461,11 @@ class GitHub:
         if cached is not None:
             # Always asked again (never served from memory): a 304 says the answer is still current.
             request.add_header("If-None-Match", cached[0])
+        if before_send is not None:
+            # Last, after any token mint and outside the lock another thread may hold through one, right
+            # before the request goes out (and again before any retry of it): raises to drop the request
+            # (GitHub.cancel()).
+            before_send()
         try:
             with urllib.request.urlopen(request, timeout=20) as response:
                 body = response.read()
@@ -1382,7 +1499,7 @@ class GitHub:
                 if before_retry is not None:
                     before_retry()  # what a write acts on may have changed while the token was minted
                 return self.request(method, path, own_token=own_token,
-                                    body=json.loads(data) if data is not None else None, before_retry=before_retry,
+                                    body=json.loads(data) if data is not None else None, before_retry=before_retry, before_send=before_send,
                                     refreshed=True)
             if headers is self.headers and error.code in (403, 429) and self._wait_for_rate_limit(method, path, error):
                 # The same request again, after the wait (a refused request did nothing on GitHub's side),
@@ -1390,19 +1507,19 @@ class GitHub:
                 if before_retry is not None:
                     before_retry()
                 return self.request(method, path, own_token=own_token,
-                                    body=json.loads(data) if data is not None else None, before_retry=before_retry,
+                                    body=json.loads(data) if data is not None else None, before_retry=before_retry, before_send=before_send,
                                     refreshed=refreshed)
             if error.code not in (401, 403, 429) or headers is self.headers:
                 raise
             if error.code in (403, 429):
                 # The installation lacks this read's permission, or its budget is spent: this one
                 # read goes on GITHUB_TOKEN (which waits through a rate limit).
-                return self.request(method, path, own_token=True, refreshed=refreshed)
+                return self.request(method, path, own_token=True, refreshed=refreshed, before_send=before_send)
             with self._lock:
                 self.read_headers = self.headers
                 self._budget = (-1e9, None, None)  # another token's pool: read it afresh
                 self._pool += 1
-            return self.request(method, path, refreshed=refreshed)
+            return self.request(method, path, refreshed=refreshed, before_send=before_send)
         return json.loads(body) if body else None
 
     remaining = ""  # the token's requests left this hour, from the last response
@@ -1564,8 +1681,10 @@ class GitHub:
     def branch_head(self, branch: str) -> str:
         return str(((self.request("GET", f"/branches/{branch}") or {}).get("commit") or {}).get("sha") or "")
 
-    def cancel(self, run_id: int) -> None:
-        self.request("POST", f"/actions/runs/{run_id}/cancel")
+    def cancel(self, run_id: int, before_send: Callable[[], None] | None = None) -> None:
+        """`before_send` runs right before the cancel is sent, after any token mint, and before every re-send
+        after a rate-limit wait or a token refresh; it raises to drop the cancel (rescue(before_cancel=...))."""
+        self.request("POST", f"/actions/runs/{run_id}/cancel", before_send=before_send)
 
     def force_cancel(self, run_id: int) -> None:
         self.request("POST", f"/actions/runs/{run_id}/force-cancel")
@@ -1767,8 +1886,13 @@ def read(call: Callable[[], Any], sleep: Callable[[float], None], log: Callable[
 def watch(api: GitHub, target: Target, *, budget_seconds: int,
           now: Callable[[], dt.datetime], sleep: Callable[[float], None],
           log: Callable[[str], None], deadline: dt.datetime | None = None,
-          floor_seconds: int | None = None, seen: dict[Any, dt.datetime] | None = None) -> tuple[str, str]:
+          floor_seconds: int | None = None, seen: dict[Any, dt.datetime] | None = None,
+          sign_seen: dict[Any, dt.datetime] | None = None,
+          sign_text: list[str | None] | None = None) -> tuple[str, str]:
     """Watch until a stop, a rescue or `deadline`. Returns (outcome, reason).
+
+    `sign_seen` and `sign_text` (when each signing job was first seen queued, and the run's workflow file once
+    read) carry over from an earlier watch of the same attempt (follow()), so a stall keeps counting.
 
     A job's budget is cut to end before `deadline`, never below
     `floor_seconds` (job_budget()). `seen` (when each job was first seen
@@ -1785,16 +1909,43 @@ def watch(api: GitHub, target: Target, *, budget_seconds: int,
     on_persistent = False
     picker_marker: bool | None = None
     first_seen: dict[Any, dt.datetime] = {} if seen is None else seen
+    sign_seen = {} if sign_seen is None else sign_seen
+    sign_said = ""
+    sign_text = [] if sign_text is None else sign_text  # the run's workflow file, read once a signing job stalls
     while True:
         looks += 1
         jobs = read(lambda: api.jobs(target.run_id, target.attempt), sleep, log)
+        if target.late_owned_jobs and target.attempt == 1:
+            # nightly-next's signing jobs on a stalled Blacksmith macOS label (signing_stall()).
+            seen_at = now()
+            for job in jobs:
+                if sign_job_key(job) and waiting_for_runner(job):
+                    sign_seen.setdefault(job.get("id"), seen_at)
+            stall = signing_stall(jobs, seen_at, sign_seen)
+            if stall is not None and stall.action == "stalled":
+                if not sign_text:
+                    try:
+                        sign_text.append(read(lambda: api.workflow_file(target.path, target.head_sha), sleep, log))
+                    except READ_ERRORS as error:
+                        log(f"could not read {target.path} at {target.head_sha[:12]} ({error})")
+                        sign_text.append(None)
+                stall = gated_signing_stall(jobs, seen_at, sign_seen, sign_text[0])
+                if stall is not None and stall.action == "stalled":
+                    log(f"look {looks}: {stall.reason}")
+                    return "stalled", stall.reason
+            if stall is not None and stall.reason != sign_said:
+                sign_said = stall.reason
+                log(f"look {looks}: {stall.reason}")
         if not on_persistent and target.side:
             # No picker: a job that asks for an owned label is the choice. A
             # gated job (cloud-machine-tests) appears once its Linux gate ends.
             if any(job_pool(job) for job in jobs):
                 on_persistent = True
                 log("a side-lane job asked for a persistent pool")
-            elif run_finished(jobs):
+            elif run_finished(jobs) and not (target.late_owned_jobs and read(
+                    lambda: api.run(target.run_id), sleep, log).get("status") != "completed"):
+                # nightly-next's signing jobs appear only once the jobs they need finish (signing_stall()), so
+                # its watch ends with the run, not with the jobs listed so far.
                 return "stop", "no job of the run asked for a persistent pool"
             elif not jobs and read(lambda: api.run(target.run_id), sleep, log).get("status") == "completed":
                 # A pending run cancelled before any job (a newer nightly took its place).
@@ -1931,8 +2082,12 @@ STALL_RECHECK_SECONDS = 5 * 60
 def hold_for_destination(client: GitHub, target: Target, outcome: str, reason: str, *, budget_seconds: int,
                          floor_seconds: int | None, deadline: dt.datetime, now: Callable[[], dt.datetime],
                          sleep: Callable[[float], None], log: Callable[[str], None],
-                         seen: dict[Any, dt.datetime]) -> tuple[str, str, str]:
+                         seen: dict[Any, dt.datetime], sign_seen: dict[Any, dt.datetime] | None = None,
+                         sign_text: list[str | None] | None = None) -> tuple[str, str, str]:
     """Keep a queue rescue off a Blacksmith label with no room: returns (outcome, reason, held).
+
+    `sign_seen` and `sign_text` go to its watch() so a signing stall (signing_stall()) found while held keeps
+    the times follow() rescues it by.
 
     The re-run of a rescued run takes its workflow's Blacksmith retry label (move_verdict()). While that
     label is stalled the run stays queued on its owned pool, however long, until the label moves, a
@@ -1980,7 +2135,8 @@ def hold_for_destination(client: GitHub, target: Target, outcome: str, reason: s
         current = max(budget_seconds, OWNED_WAIT_FLOOR_SECONDS)
         floor = OWNED_WAIT_FLOOR_SECONDS
         outcome, reason = watch(client, target, budget_seconds=current, now=now, sleep=sleep, log=log,
-                                deadline=deadline, floor_seconds=floor, seen=seen)
+                                deadline=deadline, floor_seconds=floor, seen=seen, sign_seen=sign_seen,
+                                sign_text=sign_text)
     return outcome, reason, held
 
 
@@ -2199,8 +2355,12 @@ def pull_moved(api: GitHub, target: Target, sleep: Callable[[float], None],
 
 def rescue(api: GitHub, target: Target, *, now: Callable[[], dt.datetime], sleep: Callable[[float], None],
            log: Callable[[str], None], failed_only: bool = False,
-           deadline: dt.datetime | None = None, refused: bool | None = None, refusal: bool = False) -> str:
+           deadline: dt.datetime | None = None, refused: bool | None = None, refusal: bool = False,
+           before_cancel: Callable[[], None] | None = None) -> str:
     """Cancel and re-run, unless the pull request has moved on. Returns what happened.
+
+    `before_cancel` runs right before the cancel is sent and before every re-send of it (GitHub.cancel()), and
+    raises to leave the run alone (rescue_stalled_signing()).
 
     `failed_only` (a refused job) re-runs only the failed and cancelled jobs,
     keeping what passed, and needs no cancel when the run already finished.
@@ -2269,7 +2429,10 @@ def rescue(api: GitHub, target: Target, *, now: Callable[[], dt.datetime], sleep
         slot = started_dev_compile(jobs)
         if slot:
             return f"not rescued: a DEV feed compile started on {slot}; a started dev build is never cancelled"
-    api.cancel(target.run_id)
+    if before_cancel is not None:
+        api.cancel(target.run_id, before_send=before_cancel)
+    else:
+        api.cancel(target.run_id)
     log(f"cancelled run {target.run_id}")
     started = now()
     # Time spent waiting through rate limits (GitHub.request) is not the run's settling time:
@@ -2312,6 +2475,63 @@ def rescue(api: GitHub, target: Target, *, now: Callable[[], dt.datetime], sleep
         return (f"re-ran run {target.run_id}; attempt {target.attempt + 1} picks again, the owned machines "
                 "free now first, and the sweeper watches it")
     return f"re-ran run {target.run_id}; attempt {target.attempt + 1} takes an ephemeral pool"
+
+
+# rescue_stalled_signing()'s answer when its own last look found the run changed; follow() watches on after it.
+SIGN_NOT_YET = "not rescued yet: "
+
+
+class SignStallChanged(Aborted):
+    """A signing stall no longer holds at the look right before its cancel (rescue_stalled_signing())."""
+
+
+def rescue_stalled_signing(api: GitHub, target: Target, *, now: Callable[[], dt.datetime],
+                           sleep: Callable[[float], None], log: Callable[[str], None],
+                           deadline: dt.datetime | None, sign_seen: Mapping[Any, dt.datetime] | None = None,
+                           workflow_text: str | None = None) -> str:
+    """Cancel a nightly-next run whose only unfinished jobs are signing jobs stalled on Blacksmith macOS, then
+    re-run its failed jobs: only those jobs (and what needs them) run again, on their alternate label.
+
+    The jobs are read again first, with the watch's first-seen times and the gate (gated_signing_stall()), so
+    a job that started, a sibling that came back or a job without the alternate leaves the run alone, and
+    rescue() reads the run's attempt and status before it cancels. The same look runs again right before
+    the cancel is sent, after any token mint, and before every re-send of it (a rate-limit wait can last
+    minutes), so a job that started in the meantime leaves the run alone; only the cancel request itself
+    remains between that look and GitHub acting on it, in which a job a runner just took has done no work. A cancel whose re-run fails
+    leaves the run cancelled, which gave_up() annotates and nightly-next-tick.yml re-runs
+    (scripts/ci/nightly_next_cancelled_tip.sh).
+    """
+    seen: dict[Any, dt.datetime] = {} if sign_seen is None else sign_seen
+
+    def look() -> Look | None:
+        jobs = read(lambda: api.jobs(target.run_id, target.attempt), sleep, log)
+        at = now()
+        for job in jobs:
+            # A job first seen queued here counts from now, as in watch(): it is not stalled yet.
+            if sign_job_key(job) and waiting_for_runner(job):
+                seen.setdefault(job.get("id"), at)
+        return gated_signing_stall(jobs, at, seen, workflow_text)
+
+    def still_stalled() -> None:
+        # The cancel acts on the run's current attempt: never one someone else started since.
+        run = read(lambda: api.run(target.run_id), sleep, log) or {}
+        if int(run.get("run_attempt") or 0) != target.attempt or run.get("status") == "completed":
+            raise SignStallChanged(f"the run is at attempt {run.get('run_attempt')} "
+                                   f"({run.get('status') or 'unknown'}), not attempt {target.attempt} in progress")
+        found = look()
+        if found is None or found.action != "stalled":
+            raise SignStallChanged(found.reason if found else "no signing job is stalled any more")
+
+    try:
+        still_stalled()
+        result = rescue(api, target, now=now, sleep=sleep, log=log, failed_only=True, deadline=deadline,
+                        refused=False, before_cancel=still_stalled)
+    except SignStallChanged as changed:
+        # Raised before the cancel was sent (or re-sent): the run is as GitHub has it.
+        return f"{SIGN_NOT_YET}{changed}"
+    if result.startswith("re-ran the failed jobs"):
+        result += "; its signing jobs take their alternate macOS label on that attempt"
+    return result
 
 
 def gave_up(target: Target, error: BaseException) -> str:
@@ -2443,13 +2663,32 @@ def follow(client: GitHub, target: Target, *, seconds: int, queue_rounds: str | 
     # Every attempt gets the queue allowance: a re-run's owned jobs queue on the owned labels like attempt 1's.
     first_budget = effective_seconds + queue_extra
     seen: dict[Any, dt.datetime] = {}
+    sign_seen: dict[Any, dt.datetime] = {}
+    sign_text: list[str | None] = []
     outcome, reason = watch(client, target, budget_seconds=first_budget, now=clock, sleep=sleep,
-                            log=log, deadline=deadline, floor_seconds=effective_seconds, seen=seen)
+                            log=log, deadline=deadline, floor_seconds=effective_seconds, seen=seen,
+                            sign_seen=sign_seen, sign_text=sign_text)
     held = ""
-    if outcome == "rescue" and not target.refusals_only:
-        outcome, reason, held = hold_for_destination(
-            client, target, outcome, reason, budget_seconds=first_budget, floor_seconds=effective_seconds,
-            deadline=deadline, now=clock, sleep=sleep, log=log, seen=seen)
+    while True:
+        if outcome == "rescue" and not target.refusals_only:
+            outcome, reason, held = hold_for_destination(
+                client, target, outcome, reason, budget_seconds=first_budget, floor_seconds=effective_seconds,
+                deadline=deadline, now=clock, sleep=sleep, log=log, seen=seen, sign_seen=sign_seen,
+                sign_text=sign_text)
+        if outcome != "stalled":
+            break
+        log(f"stalled: {reason}")
+        result = rescue_stalled_signing(client, target, now=clock, sleep=rescue_sleep, log=log,
+                                        deadline=rescue_deadline, sign_seen=sign_seen,
+                                        workflow_text=sign_text[0] if sign_text else None)
+        log(result)
+        if not result.startswith(SIGN_NOT_YET) or clock() >= deadline:
+            return "done"
+        # The run changed since the look (a job started, a sibling came back): watch on, next look decides.
+        sleep(POLL_SECONDS)
+        outcome, reason = watch(client, target, budget_seconds=first_budget, now=clock, sleep=sleep,
+                                log=log, deadline=deadline, floor_seconds=effective_seconds, seen=seen,
+                                sign_seen=sign_seen, sign_text=sign_text)
     if outcome not in ("rescue", "refused"):
         return f"stopped: {reason}" + (f"; kept on the owned pool: {held}" if held else "")
     if target.refusals_only and outcome == "rescue":
