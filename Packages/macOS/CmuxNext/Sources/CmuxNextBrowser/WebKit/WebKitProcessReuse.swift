@@ -50,7 +50,7 @@ public final class WebKitProcessReuse {
     }
 
     /// The app's reuse: the bundled list is read on `work`'s files lane at best effort and lands on `mainWork`;
-    /// tabs made before it lands start their own processes.
+    /// tabs made before it lands start their own processes, and new tabs join them once it has landed.
     public static func loading(rendererLimit: Int, work: BackgroundWork, mainWork: MainWorkScheduler) -> WebKitProcessReuse {
         let reuse = WebKitProcessReuse(rendererLimit: rendererLimit)
         work.run(.bestEffort, mayBlock: .files) { PublicSuffixList.bundled() }
@@ -95,7 +95,7 @@ public final class WebKitProcessReuse {
         // IsSuitableHost: a process locked to this site, of this profile and its store (incognito never mixes).
         let store = configuration.websiteDataStore
         let suitable = processes.values.filter { members in
-            members.allSatisfy { $0.processSite == site && $0.profileID == profile
+            members.allSatisfy { self.site(of: $0) == site && $0.profileID == profile
                 && $0.webView.configuration.websiteDataStore === store }
         }
         // The process with the fewest tabs, so load spreads as Chrome's random pick spreads it.
@@ -105,10 +105,18 @@ public final class WebKitProcessReuse {
         return anchor
     }
 
+    /// The site `tab`'s process holds: its committed (or first) document's, or, for a tab whose site was decided
+    /// before ``publicSuffixes`` landed, its page's now.
+    private func site(of tab: WebKitTab) -> Site? {
+        tab.processSite ?? site(of: tab.webView.url)
+    }
+
     /// The process `tab` runs in: its WebContent pid, else (before it runs) its anchor's, else the anchor itself
-    /// while it has a page to load. Nil for a tab that never loaded anything (no process yet).
+    /// while it has a page to load. Nil for a tab that never loaded anything or whose process ended (a crash or a
+    /// jetsam kill: no process until its next load).
     private func processKey(of tab: WebKitTab) -> ProcessKey? {
         if let pid = processIdentifier(tab), pid > 0 { return .pid(pid) }
+        guard tab.state.processExit == nil else { return nil }
         let root = tab.processAnchor ?? tab
         if root !== tab, let pid = processIdentifier(root), pid > 0 { return .pid(pid) }
         guard tab.processSite != nil || tab.webView.url != nil else { return nil }

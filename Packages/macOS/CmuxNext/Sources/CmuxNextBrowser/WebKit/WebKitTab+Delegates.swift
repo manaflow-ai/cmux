@@ -174,6 +174,7 @@ extension WebKitTab: WKNavigationDelegate {
         setDrawsPageBackground(true)
         removeStandIn()
         apply(.processExited(BrowserProcessExit(reason: .crashed)))
+        processSiteEnded()
         firstContentFrame.contentShown() // the sad tab is what the new tab shows
     }
 

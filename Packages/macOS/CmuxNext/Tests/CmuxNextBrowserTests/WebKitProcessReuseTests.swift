@@ -154,6 +154,38 @@ import WebKit
         #expect(related(next) == nil)
     }
 
+    @Test func aTabMadeBeforeTheListLandsIsJoinedOnceItHasLanded() {
+        let rig = Rig(limit: 2, suffixes: nil)
+        defer { rig.close() }
+        // Session restore: tabs made, and a document committed, while the list is still being read.
+        let early = rig.tab("https://a.test/1")
+        early.processSiteCommitted()
+        _ = rig.tab("https://b.test/1")
+        rig.reuse.publicSuffixes = Self.suffixes
+        let next = rig.tab("https://www.a.test/2")  // 2 live processes, at the limit
+
+        #expect(early.processSite == nil)
+        #expect(next.processAnchor === early)
+        #expect(related(next) === early.webView)
+    }
+
+    @Test func aTabWhoseProcessEndedNeitherCountsNorTakesANewTab() {
+        let rig = Rig(limit: 2)
+        defer { rig.close() }
+        let crashed = rig.tab("https://a.test/1")
+        _ = rig.tab("https://b.test/1")
+        // A crash or a jetsam kill: the tab stays open with no process (pid 0).
+        crashed.webViewWebContentProcessDidTerminate(crashed.webView)
+        let below = rig.tab("https://a.test/2")  // 1 live process (b), below 2
+        let next = rig.tab("https://www.a.test/3")  // 2 live processes (b and below), at the limit
+
+        #expect(crashed.processSite == nil)
+        #expect(below.processAnchor == nil)
+        #expect(related(below) == nil)
+        #expect(next.processAnchor === below)
+        #expect(related(next) === below.webView)
+    }
+
     @Test func aSiteIsTheSchemeAndRegistrableDomainAndFailsClosed() {
         let reuse = WebKitProcessReuse(rendererLimit: 1, publicSuffixes: Self.suffixes)
 

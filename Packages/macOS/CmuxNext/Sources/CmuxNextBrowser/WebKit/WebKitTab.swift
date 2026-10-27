@@ -390,6 +390,13 @@ public final class WebKitTab: NSObject, BrowserTab {
         processSite = reuse.site(of: webView.url)
     }
 
+    /// Its WebContent process ended: it holds no site and no longer runs in the process it joined; its next load
+    /// starts a process of its own.
+    func processSiteEnded() {
+        processSite = nil
+        processAnchor = nil
+    }
+
     func emit(_ intent: BrowserTabIntent) {
         delegate?.browserTab(self, didRequest: intent)
     }
