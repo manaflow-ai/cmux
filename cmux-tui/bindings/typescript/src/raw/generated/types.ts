@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 3beb1867b44940d1c732c29d94979ae115158ca4f67c1f642ced2ef2113e5eda. */
+/* cmux-tui mux protocol 12, IR b4cbcd5e1cff6ed7a4f4ff8b4e4b29747510b8c6eb30f11155b70ed1d0b8c7b5. */
 
 
 /** JSON accepted by the wire codec. bigint is serialized as an exact JSON integer. */
@@ -1445,6 +1445,17 @@ export type ServerStatsConnections = {
   "refused": bigint;
 };
 
+export type ServerStatsHangRecord = {
+  "duration_ms": bigint;
+  "sequence": bigint;
+  "span": string;
+};
+
+export type ServerStatsHangs = {
+  "over_250ms": bigint;
+  "records": Array<ServerStatsHangRecord>;
+};
+
 export type ServerStatsHistogram = {
   "count": bigint;
   "max": bigint;
@@ -1646,6 +1657,7 @@ export type ServerStatsResourceProjection = {
 export type ServerStatsResult = {
   "connections": ServerStatsConnections;
   "dispatch_queue_us"?: ServerStatsHistogram;
+  "hangs"?: ServerStatsHangs;
   "ipc"?: ServerStatsIpc;
   "ipc_methods"?: Array<ServerStatsMethodLatency>;
   "journal_writer": (ServerStatsJournalWriter) | null;

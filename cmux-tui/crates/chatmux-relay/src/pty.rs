@@ -2441,7 +2441,12 @@ mod tests {
     /// per directory) run on a blocking thread, never there.
     #[test]
     fn pty_open_checks_its_cwd_off_the_runtime_driver() {
-        let runtime = cmux_blocking::runtime::current_thread().build().expect("runtime");
+        let runtime = cmux_blocking::runtime::current_thread(
+            "chatmux-relay-test",
+            cmux_threads::ThreadQos::Utility,
+        )
+        .build()
+        .expect("runtime");
         let stalled = cmux_blocking::counts().stalled;
         let sent = cmux_blocking::runtime::block_on(&runtime, async {
             let h = harness(None, None);

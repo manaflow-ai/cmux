@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 3beb1867b44940d1c732c29d94979ae115158ca4f67c1f642ced2ef2113e5eda.
+// cmux-tui mux protocol 12, IR b4cbcd5e1cff6ed7a4f4ff8b4e4b29747510b8c6eb30f11155b70ed1d0b8c7b5.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use crate::{Nullable, Optional};
@@ -2428,6 +2428,21 @@ pub struct ServerStatsConnections {
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ServerStatsHangRecord {
+    pub duration_ms: u64,
+    pub sequence: u64,
+    pub span: String,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ServerStatsHangs {
+    pub over_250ms: u64,
+    pub records: Vec<ServerStatsHangRecord>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ServerStatsHistogram {
     pub count: u64,
     pub max: u64,
@@ -2679,6 +2694,8 @@ pub struct ServerStatsResult {
     pub connections: ServerStatsConnections,
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub dispatch_queue_us: Option<ServerStatsHistogram>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub hangs: Option<ServerStatsHangs>,
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub ipc: Option<ServerStatsIpc>,
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
