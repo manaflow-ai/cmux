@@ -565,6 +565,9 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
     parser.add_argument("--test-filter", default=None, help="the workflow's test_filter input")
     parser.add_argument("--owned-ui", default="", help=f"vars.{OWNED_UI_VARIABLE}")
     parser.add_argument("--retry-of", help="print the pool a re-run of this label takes, and nothing else")
+    parser.add_argument("--jobs", type=int, default=E2E_JOBS,
+                        help="machines the run holds at once; an auto pick names an owned pool only with "
+                             "that many free (cmux-next-dev-daily.yml asks 2 for verify and tip-dmg-build)")
     args = parser.parse_args(argv)
 
     # Auto choices use the shared live rule. Explicit labels retain the
@@ -581,7 +584,7 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
         choice = simple_pool_picker.pick(simple_pool_picker.observe(
             token=values.get("ROUTE_TOKEN") or values.get("GH_TOKEN") or "",
             repository=values.get("GH_REPO") or values.get("GITHUB_REPOSITORY") or "",
-            jobs=1, env=values,
+            jobs=max(1, args.jobs), env=values,
             fork=values.get("FORK_PULL_REQUEST") == "true"
             or (values.get("HEAD_REPO") or values.get("GITHUB_REPOSITORY"))
             != (values.get("GH_REPO") or values.get("GITHUB_REPOSITORY"))))
