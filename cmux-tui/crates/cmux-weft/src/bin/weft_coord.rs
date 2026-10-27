@@ -6,6 +6,8 @@
 //! - `WEFT_RELAYS` (required): `region=wss://host/v1/relay,region=...`
 //! - `WEFT_DB` (default `/data/weft.sqlite`), `PORT` (default 8080)
 
+#![forbid(unsafe_code)]
+
 use anyhow::{Context, bail};
 use cmux_weft::coord::{CoordConfig, serve_coord};
 use cmux_weft::keys::SigningKey;

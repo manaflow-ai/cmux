@@ -6,6 +6,8 @@
 //! existing `ServiceControl::Open` in `cmux-remote-protocol`; this crate only
 //! owns the page codec, sans-I/O, so the daemon, the app FFI and tests share it.
 
+#![forbid(unsafe_code)]
+
 mod transcript;
 
 pub use transcript::*;

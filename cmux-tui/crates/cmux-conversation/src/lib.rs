@@ -7,6 +7,8 @@
 //! The local owner (the cmux daemon) and the cloud owner (`ConversationDO`)
 //! run the same reducer, so both speak the same ops and events.
 
+#![forbid(unsafe_code)]
+
 mod attachments;
 mod budget;
 mod home;

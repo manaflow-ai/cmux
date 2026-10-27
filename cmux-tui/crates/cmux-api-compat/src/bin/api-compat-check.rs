@@ -24,6 +24,8 @@
 //! refuses a change. With `--base` it also puts back ledger entries edited
 //! by hand.
 
+#![forbid(unsafe_code)]
+
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode};

@@ -30,6 +30,8 @@
 //! assert_eq!(&*back, old);
 //! ```
 
+#![forbid(unsafe_code)]
+
 mod change;
 mod compat;
 pub mod coverage;

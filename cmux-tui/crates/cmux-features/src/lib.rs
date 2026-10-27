@@ -20,6 +20,8 @@
 //! `FeatureList::AddFeaturesToCommandLine` gives a child process only the
 //! overridden features.
 
+#![forbid(unsafe_code)]
+
 /// Defines `pub const HANDLE: Feature` for each `HANDLE = "name"` (with its doc
 /// comment): the index of `name` in `table`. A name the table lacks fails the
 /// build; every check is a `const` item, so none of it runs in the daemon.

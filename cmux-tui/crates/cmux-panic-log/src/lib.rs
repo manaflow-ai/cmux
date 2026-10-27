@@ -19,6 +19,8 @@
 //! The hang log beside it ([`hang`]) gets one JSON line per watched scope
 //! that runs past its hang deadline, with the hung thread's stack.
 
+#![forbid(unsafe_code)]
+
 pub mod crash_keys;
 pub mod hang;
 

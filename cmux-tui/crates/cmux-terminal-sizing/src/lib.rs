@@ -15,6 +15,8 @@
 //! (`cmux-tui-core::sizing_policy` re-exports it) and the iOS and Android
 //! core (`cmux-mobile-core`, bound by `cmux-mobile-ffi`).
 
+#![forbid(unsafe_code)]
+
 use serde::{Deserialize, Deserializer, Serialize};
 
 /// A terminal grid in cells.
