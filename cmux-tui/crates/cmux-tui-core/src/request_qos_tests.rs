@@ -1,7 +1,7 @@
 //! The request class gate and the cause scope (crate::request_qos). The
-//! classes each scope entered on this thread are noted, so a test can see
-//! the class a request asked for also where the platform refuses it (Linux
-//! without `RLIMIT_NICE`).
+//! classes each scope and each upkeep or `enter_class` pass entered on this
+//! thread are noted, so a test can see the class a request asked for also
+//! where the platform refuses it (Linux without `RLIMIT_NICE`).
 
 use std::cell::RefCell;
 
@@ -18,7 +18,8 @@ pub(super) fn note_entered(class: ThreadQos) {
     ENTERED.with(|entered| entered.borrow_mut().push(class));
 }
 
-/// The classes cause scopes entered on this thread since the last call.
+/// The classes cause scopes and passes entered on this thread since the
+/// last call.
 pub(crate) fn take_entered() -> Vec<ThreadQos> {
     ENTERED.with(|entered| std::mem::take(&mut *entered.borrow_mut()))
 }

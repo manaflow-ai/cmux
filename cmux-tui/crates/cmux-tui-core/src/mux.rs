@@ -673,7 +673,7 @@ pub struct Mux {
     /// again. The rows live in the workspace registry (`terminal_commands`).
     terminal_command_history: AtomicBool,
     /// The command history worker's bounded queue (`mux/command_history.rs`).
-    command_history_worker: Mutex<Option<SyncSender<command_history::CommandHistoryMessage>>>,
+    command_history_worker: Mutex<Option<command_history::CommandHistoryQueue>>,
     notification_ledger: Mutex<VecDeque<ResourceNotification>>,
     /// Per-client read marks. The shared unread marker above answers "does this terminal need
     /// attention on the shared console"; this map answers "has this client install seen this

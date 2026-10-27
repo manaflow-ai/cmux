@@ -45,7 +45,9 @@ fn declared_rows(name: &str) -> Vec<ThreadQos> {
     }
 }
 
-fn assert_declared(name: &str, qos: ThreadQos) {
+/// Every running thread named `name` is registered at `qos`; waits up to
+/// 5 s for the first.
+pub(crate) fn assert_declared(name: &str, qos: ThreadQos) {
     let rows = declared_rows(name);
     assert!(!rows.is_empty(), "{name} is registered while it runs");
     assert!(rows.iter().all(|declared| *declared == qos), "{name}: {rows:?}");
@@ -71,6 +73,20 @@ fn command_history_worker_is_an_upkeep_thread() {
     mux.set_terminal_command_history(false, None).expect("the switch is stored");
     assert_declared("terminal-command-history", crate::request_qos::UPKEEP_THREAD_QOS);
     mux.shutdown();
+}
+
+/// The project sources thread is an upkeep thread: declared at the upkeep
+/// class, each import pass lowered to utility (p04-input-084).
+#[test]
+fn project_sources_thread_is_an_upkeep_thread() {
+    let (release, released) = std::sync::mpsc::channel::<()>();
+    let thread = crate::state::project_watch::spawn_thread(move || {
+        let _ = released.recv();
+    })
+    .expect("the project sources thread starts");
+    assert_declared("mux-project-sources", crate::request_qos::UPKEEP_THREAD_QOS);
+    drop(release);
+    thread.join().expect("the project sources thread ends");
 }
 
 /// The echo path threads (`echo_thread::spawn`) declare the InputCritical

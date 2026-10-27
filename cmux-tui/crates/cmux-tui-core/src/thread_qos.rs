@@ -36,11 +36,12 @@
 //! InputCritical too (p04-input-084). Watchers and best-effort writers are
 //! Utility: sqlite-wal-sync, mux-session-journal-fanout, mux-inventory-watch,
 //! terminal-host-record-mirror and cmux-config-watch (cmux-config's
-//! `watch::WATCH_THREAD_QOS`, kept equal by a test here). Upkeep threads that
-//! hold the workspace registry a request waits for (mux-project-sources,
-//! terminal-command-history, mux-output-store-writer) start at
-//! `request_qos::UPKEEP_THREAD_QOS` and run each pass at utility, so the
-//! lock can raise them.
+//! `watch::WATCH_THREAD_QOS`, kept equal by a test here; the daemon's
+//! settings and keybindings reloads run on a work lane, not on it). Upkeep
+//! threads that hold the workspace registry a request waits for
+//! (mux-project-sources, terminal-command-history, mux-output-store-writer)
+//! start at `request_qos::UPKEEP_THREAD_QOS` and run each pass at utility,
+//! so the lock can raise them.
 
 pub use cmux_threads::QosChange;
 use cmux_threads::ThreadQos;
@@ -94,4 +95,4 @@ pub fn set(thread_type: ThreadType) -> QosChange {
 
 #[cfg(test)]
 #[path = "thread_qos_tests.rs"]
-mod tests;
+pub(crate) mod tests;

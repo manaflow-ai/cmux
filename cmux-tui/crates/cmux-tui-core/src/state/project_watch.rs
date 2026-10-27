@@ -28,13 +28,18 @@ pub(crate) fn start(mux: &Arc<Mux>) {
     }
     let Some(layout) = Layout::current() else { return };
     let weak = Arc::downgrade(mux);
-    // An upkeep thread (p04-input-084): each import pass runs at utility
-    // (`import_changed`), raised while it holds the registry a request waits for.
-    let qos = crate::request_qos::UPKEEP_THREAD_QOS;
-    let spawned = cmux_threads::spawn("mux-project-sources", qos, move || run(&weak, &layout));
-    if let Err(error) = spawned {
+    if let Err(error) = spawn_thread(move || run(&weak, &layout)) {
         note(&format!("project sources thread did not start: {error}"));
     }
+}
+
+/// Starts `body` on the `mux-project-sources` thread. An upkeep thread
+/// (p04-input-084): each import pass runs at utility (`import_changed`),
+/// raised while it holds the registry a request waits for.
+pub(crate) fn spawn_thread(
+    body: impl FnOnce() + Send + 'static,
+) -> std::io::Result<std::thread::JoinHandle<()>> {
+    cmux_threads::spawn("mux-project-sources", crate::request_qos::UPKEEP_THREAD_QOS, body)
 }
 
 fn note(message: &str) {
@@ -176,6 +181,23 @@ mod tests {
         assert!(relevant(&event("/a/.t3/userdata/state.sqlite-wal")));
         assert!(relevant(&event("/a/User/globalStorage/storage.json")));
         assert!(!relevant(&event("/a/.codex/logs_2.sqlite-wal")));
+    }
+
+    /// An import pass runs at utility with `daemonRequestQos` on, and at
+    /// the declared class with it off (p04-input-084).
+    #[test]
+    fn an_import_pass_runs_at_utility_with_the_feature_on() {
+        use crate::request_qos::tests::take_entered;
+        let home = std::env::temp_dir().join(format!("cmux-project-qos-{}", std::process::id()));
+        let layout = Layout::linux(&home, None, None);
+        let mux = Mux::new_for_test("project-import-qos", crate::SurfaceOptions::default());
+        let weak = Arc::downgrade(&mux);
+        let _ = take_entered();
+        assert!(import_changed(&weak, &layout, &mut HashMap::new()));
+        assert!(take_entered().is_empty(), "the feature is off");
+        mux.set_request_qos_for_test(true);
+        assert!(import_changed(&weak, &layout, &mut HashMap::new()));
+        assert_eq!(take_entered(), vec![cmux_threads::ThreadQos::Utility]);
     }
 
     #[test]
