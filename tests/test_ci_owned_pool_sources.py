@@ -161,13 +161,17 @@ class OwnedPoolSources(unittest.TestCase):
         self.assertFalse(self.watched & self.unrescued, "a workflow is both watched and left to a person")
 
     def test_the_markers_come_from_the_pool_code(self) -> None:
-        markers = sources.Markers(sources.Tree(ROOT))
-        self.assertEqual(markers.literal, "glaeda-")
-        for variable in ("CI_PR_POOL_OWNED", "CI_SIDE_LANE_RUNNER", "CI_LIGHT_LANE_RUNNER", "CI_SEED_TRUSTED_POOL",
-                         "CI_NIGHTLY_TRUSTED_RUNNER"):
-            self.assertIn(variable, markers.variables)
-        self.assertNotIn("LINUX_RUNNER", markers.variables)
-        self.assertNotIn("MACOS_RUNNER_26", markers.variables)
+        # Both branches' policies: feat-cmux-next's drifted_runner_variables() also names LINUX_RUNNER and the
+        # hosted-Mac fallbacks in a no-hosted-Mac guard, which once made ~130 workflows look owned on every PR.
+        for tree in self.trees:
+            with self.subTest(tree=str(tree)):
+                markers = sources.Markers(tree)
+                self.assertEqual(markers.literal, "glaeda-")
+                for variable in ("CI_PR_POOL_OWNED", "CI_SIDE_LANE_RUNNER", "CI_LIGHT_LANE_RUNNER",
+                                 "CI_SEED_TRUSTED_POOL", "CI_NIGHTLY_TRUSTED_RUNNER"):
+                    self.assertIn(variable, markers.variables)
+                for hosted in ("LINUX_RUNNER", "MACOS_RUNNER_15", "MACOS_RUNNER_26", "NIGHTLY_NEXT_TRAIN_RUNNER"):
+                    self.assertNotIn(hosted, markers.variables)
 
     def test_a_runs_on_is_owned_by_a_label_a_pool_variable_or_a_picker_output(self) -> None:
         markers = sources.Markers(sources.Tree(ROOT))
