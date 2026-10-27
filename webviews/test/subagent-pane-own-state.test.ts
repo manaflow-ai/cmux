@@ -239,7 +239,7 @@ await requireBrowserLane("subagent-pane-own-state.test.ts", async () => {
     expect((await bottom(page)).composer).toBe(1);
     await reveal(page, "subagents:list");
     await page
-      .locator(".acpmux-main")
+      .locator('.acpmux-main[aria-label="Subagents"]')
       .getByRole("button", { name: /Finished reviewer 6/ })
       .waitFor();
     expect((await bottom(page)).composer).toBe(0);
