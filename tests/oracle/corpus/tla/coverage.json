@@ -1,0 +1,195 @@
+{
+  "generator": "scripts/cmux-next/oracle/gen_tla.py",
+  "actionmap": "plans/cmux-next/formal/oracle-actionmap.json",
+  "actionmap_sha256": "ab78712fec65690f84d6b5bf6a0b31097ce02882b8fd462881044e406653e61b",
+  "tlc": "tla2tools 1.7.4 (tlc.sh pin)",
+  "suite": "tla",
+  "total": 55,
+  "covered": 43,
+  "verdicts": "not run",
+  "excluded": {
+    "LayoutRows:op/newrow": "rows-v1 New Row has no resource-operations-v2 op (only cmux-tui's legacy new-row command, server.rs NewRow)",
+    "LayoutRows:op/torow": "rows-v1 move tab to a new row has no resource-operations-v2 op",
+    "LayoutRows:op/heights": "column.row_heights.set (mux/rows.rs) is not in resource-operations-v2",
+    "LayoutRows:op/pinrow": "edge docks of layout-model.md (FRAME = TRUE) have no resource-operations-v2 op",
+    "LayoutRows:op/orient": "the frame orientation of layout-model.md (FRAME = TRUE) has no resource-operations-v2 op",
+    "TabLayout:DropTearOff": "a trace whose tear-off reaches the owner is dropped (op tearoff has no product op), and in 1,000 simulated traces of TabLayout_fixed.cfg none lost its tear-off before the owner applied it",
+    "TabLayout:DuplicateBatch": "client channel only (the owner and so the daemon facet never see it), and TLC's random simulation took it in none of 1,000 traces of TabLayout_fixed.cfg: the one fault of MaxFaults = 1 goes to Disconnect, OwnerRestart or ReplayRequest first",
+    "TabLayout:op/split": "SplitWithTab has no resource-operations-v2 op: pane.split always starts a new terminal in the new pane",
+    "TabLayout:op/splitRespawn": "SplitRespawn (tab-split-respawn-v1) has no resource-operations-v2 op",
+    "TabLayout:op/tearoff": "MoveToNewWorkspace (tear-off) has no resource-operations-v2 op: workspace.create starts its own terminal or none",
+    "OwnershipConvergence:op/move-to-empty-pane": "the model keeps an emptied pane and moves a tab into it; the daemon has no empty pane to name (an emptied pane is removed in the same commit), and moving a tab into a new pane has no resource-operations-v2 op",
+    "OwnershipConvergence:op/write": "a client-owned record write needs the writer's connection identity; the case driver has one connection (a second identified connection is p15-oracle-237's user connection)"
+  },
+  "missing": [],
+  "specs": {
+    "LayoutRows": {
+      "cfgs": {
+        "one": "LayoutRows.cfg",
+        "dock3": "LayoutRows_dock3.cfg",
+        "two-clients": "LayoutRows_2clients.cfg"
+      },
+      "cases": 220,
+      "traces": {
+        "one": {
+          "simulated": 15116,
+          "batches": 16,
+          "kept": 120,
+          "duplicates": 0,
+          "no_owner_step": 0,
+          "dropped": {
+            "LayoutRows:op/dock-no-column": 982,
+            "LayoutRows:op/heights": 678,
+            "LayoutRows:op/newcol-short-row": 713,
+            "LayoutRows:op/newrow": 1387,
+            "LayoutRows:op/torow": 11211,
+            "LayoutRows:reject/id-pool": 25
+          },
+          "dropped_total": 14996
+        },
+        "dock3": {
+          "simulated": 1125,
+          "batches": 2,
+          "kept": 60,
+          "duplicates": 0,
+          "no_owner_step": 0,
+          "dropped": {
+            "LayoutRows:op/dock-no-column": 1,
+            "LayoutRows:op/heights": 85,
+            "LayoutRows:op/newcol-short-row": 37,
+            "LayoutRows:op/newrow": 64,
+            "LayoutRows:op/torow": 877,
+            "LayoutRows:reject/id-pool": 1
+          },
+          "dropped_total": 1065
+        },
+        "two-clients": {
+          "simulated": 1247,
+          "batches": 2,
+          "kept": 40,
+          "duplicates": 0,
+          "no_owner_step": 0,
+          "dropped": {
+            "LayoutRows:op/dock-no-column": 73,
+            "LayoutRows:op/heights": 52,
+            "LayoutRows:op/newcol-short-row": 64,
+            "LayoutRows:op/newrow": 105,
+            "LayoutRows:op/torow": 913
+          },
+          "dropped_total": 1207
+        }
+      },
+      "exercised": {
+        "LayoutRows:Focus": 202,
+        "LayoutRows:Issue": 220,
+        "LayoutRows:Process": 220,
+        "LayoutRows:Process/replay": 98,
+        "LayoutRows:Replay": 100,
+        "LayoutRows:Sync": 213,
+        "LayoutRows:op/close": 88,
+        "LayoutRows:op/dock": 53,
+        "LayoutRows:op/move": 137,
+        "LayoutRows:op/newcol": 98,
+        "LayoutRows:op/split": 85
+      }
+    },
+    "TabLayout": {
+      "cfgs": {
+        "fixed": "TabLayout_fixed.cfg"
+      },
+      "cases": 220,
+      "traces": {
+        "fixed": {
+          "simulated": 298,
+          "batches": 1,
+          "kept": 220,
+          "duplicates": 30,
+          "no_owner_step": 0,
+          "dropped": {
+            "TabLayout:op/split": 29,
+            "TabLayout:op/tearoff": 19
+          },
+          "dropped_total": 48
+        }
+      },
+      "exercised": {
+        "TabLayout:CancelDrag": 59,
+        "TabLayout:CloseTab": 214,
+        "TabLayout:Disconnect": 171,
+        "TabLayout:DropMove": 110,
+        "TabLayout:DropSplit": 36,
+        "TabLayout:OwnerApply": 220,
+        "TabLayout:OwnerApply/replay": 3,
+        "TabLayout:OwnerRestart": 28,
+        "TabLayout:Receive": 220,
+        "TabLayout:ReceiveSettled": 220,
+        "TabLayout:Reconnect": 199,
+        "TabLayout:ReplayRequest": 21,
+        "TabLayout:StartDrag": 163,
+        "TabLayout:op/close": 214,
+        "TabLayout:op/move": 69
+      }
+    },
+    "closefocus": {
+      "cfgs": {
+        "strip": "closefocus-strip.cfg"
+      },
+      "cases": 220,
+      "traces": {
+        "strip": {
+          "simulated": 220,
+          "batches": 1,
+          "kept": 220,
+          "duplicates": 0,
+          "no_owner_step": 0,
+          "dropped": {},
+          "dropped_total": 0
+        }
+      },
+      "exercised": {
+        "closefocus:Animate": 96,
+        "closefocus:Close": 216,
+        "closefocus:Create": 200,
+        "closefocus:Focus": 190,
+        "closefocus:Resync": 220
+      }
+    },
+    "OwnershipConvergence": {
+      "cfgs": {
+        "faults": "OwnershipConvergence.cfg"
+      },
+      "cases": 220,
+      "traces": {
+        "faults": {
+          "simulated": 910,
+          "batches": 1,
+          "kept": 220,
+          "duplicates": 0,
+          "no_owner_step": 0,
+          "dropped": {
+            "OwnershipConvergence:op/move-to-empty-pane": 342,
+            "OwnershipConvergence:op/write": 348
+          },
+          "dropped_total": 690
+        }
+      },
+      "exercised": {
+        "OwnershipConvergence:Commit": 220,
+        "OwnershipConvergence:Disconnect": 71,
+        "OwnershipConvergence:IssueAny": 220,
+        "OwnershipConvergence:OwnerReceive": 220,
+        "OwnershipConvergence:OwnerReceive/replay": 181,
+        "OwnershipConvergence:OwnerRestart": 149,
+        "OwnershipConvergence:OwnerSnap": 218,
+        "OwnershipConvergence:ReceiveDelta": 219,
+        "OwnershipConvergence:ReceiveSettled": 220,
+        "OwnershipConvergence:ReceiveSnap": 213,
+        "OwnershipConvergence:Reconnect": 220,
+        "OwnershipConvergence:Retry": 218,
+        "OwnershipConvergence:SettleHeld": 159,
+        "OwnershipConvergence:op/close": 151,
+        "OwnershipConvergence:op/move": 167
+      }
+    }
+  }
+}
