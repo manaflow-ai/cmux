@@ -124,8 +124,8 @@ class StatusMapping(unittest.TestCase):
         # of 10 s) fits after it: 40 min + 110 s, inside the step's 50, the job's 55 and the token's 60.
         run = step["run"]
         self.assertLess(run.index("deadline=$((SECONDS"), run.index("post pending"))
-        self.assertIn("--max-time 30 --retry 2 --retry-delay 10", run)
-        self.assertLessEqual(2400 + 3 * 30 + 2 * 10, step["timeout-minutes"] * 60 - 300)
+        self.assertIn("timeout 110 curl -sS --fail-with-body", run)
+        self.assertLessEqual(2400 + 110, step["timeout-minutes"] * 60 - 300)
         self.assertLessEqual(step["timeout-minutes"], job()["timeout-minutes"])
         self.assertLess(job()["timeout-minutes"], 60)
 
