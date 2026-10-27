@@ -54,7 +54,7 @@
   --cv-meta-row: 24px; /* the meta row's line */
   --cv-message-gap: 8px; /* a message (or its meta row) to the next row in its turn */
   --cv-live-gap: 10px; /* over the running turn's live line, inside its row: 16px under a reply */
-  --cv-turn-gap: 24px; /* a turn's footer to the next prompt */
+  --cv-turn-gap: 16px; /* a paragraph gap (14px) plus a small separator to the next message */
   /* Tool rows follow Codex's compact transcript rhythm: a 22px line with a small, quiet gap
      after the run before the next reply. Gallery-only attributes compare this against the prior
      roomier rhythm without adding a product setting. */
@@ -2615,7 +2615,7 @@ a.cv-sha:focus-visible {
 }
 /* An empty footer (turns.ts isEmptyFooter: no label, no answer to copy, only Pin, Fork and the age,
    all hover-only) takes no line: the row is its turn gap alone, and pointed at, the controls show
-   over that gap (24px, the line's height), so nothing moves (Leo, 2026-10-21: a "Worked for 0s" row
+   over that gap (at least the meta line's height), so nothing moves (Leo, 2026-10-21: a "Worked for 0s" row
    took a full line). The chat's last footer keeps that same gap, so its hidden controls never add a
    second band over the composer. */
 .cv-turn-actions--empty {
@@ -3884,7 +3884,8 @@ article.acpmux-row:empty {
   padding-bottom: var(--cv-meta-gap);
 }
 .acpmux-row.acpmux-turnSummary {
-  min-height: 0;
+  /* An empty footer's absolute hover controls still need their complete line. */
+  min-height: var(--cv-meta-row);
   padding-bottom: var(--cv-turn-gap);
 }
 /* The chat's last footer keeps the normal turn gap above the composer. */
