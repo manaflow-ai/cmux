@@ -190,7 +190,18 @@ export function EnvironmentPicker({
         ]
       : []),
     ...(onConnect
-      ? [{ value: ACTION + "ssh", text: t("composer.connectSSH"), kind: "ssh" as const, run: () => onConnect("ssh") }]
+      ? [
+          { value: ACTION + "ssh", text: t("composer.connectSSH"), kind: "ssh" as const, run: () => onConnect("ssh") },
+          // The list's last row: Add Device, where a machine on the tailnet or in ~/.ssh/config is
+          // one Add away (its agent daemon installed and kept current), or a new Cloud VM.
+          {
+            value: ACTION + "addMachine",
+            text: t("composer.addMachine"),
+            kind: "ssh" as const,
+            icon: <PlusIcon />,
+            run: () => onConnect("addMachine"),
+          },
+        ]
       : []),
   ];
   const suggestions = [
@@ -282,7 +293,7 @@ export function EnvironmentPicker({
           data-section={section}
           data-first-section={first ? "" : undefined}
         >
-          {action.kind === "saved" ? action.icon : <EnvironmentIcon kind={action.kind} />}
+          {action.icon ?? <EnvironmentIcon kind={action.kind === "saved" ? "local" : action.kind} />}
           <span className="acpmux-menu-text acpmux-location-name">
             <span className="acpmux-menu-label">{action.text}</span>
             {action.detail && <span className="acpmux-env-detail">{action.detail}</span>}
