@@ -557,6 +557,36 @@ class MainTests(unittest.TestCase):
         self.assertEqual(self.summary()["env"]["hz"], 60)
         self.assertEqual(self.bench_runs()[0]["env"]["PERF_LAB_HZ"], "60")
 
+    def claim_a_120hz_row(self, story_id):
+        """targets.json gets one row judged at 120 Hz, and `story_id` claims it (p12-perf-process-160)."""
+        row = {"id": "frames", "hz": 120,
+               "checks": [{"metric": "key_to_frame_ms", "stat": "p50", "op": "<=", "value": 8.3, "unit": "ms"}]}
+        with open(os.path.join(self.root, "scripts/perf-lab/targets.json"), "w") as f:
+            json.dump({"schema": "cmux-perf-targets/v1",
+                       "targets": [{"id": "frames", "text": "frames", "browser": False, "rows": [row]}]}, f)
+        path = os.path.join(self.root, "scripts/perf-lab/stories.d", f"{story_id}.json")
+        with open(path) as f:
+            doc = json.load(f)
+        doc["metrics"][0]["target_ref"] = {"target": "frames"}
+        with open(path, "w") as f:
+            json.dump(doc, f)
+
+    def test_a_60hz_host_skips_its_120hz_frame_target_stories_and_runs_the_others(self):
+        self.claim_a_120hz_row("term-key")
+        self.hz = 60
+        self.assertEqual(self.run_main("--stories", "term-key,idle", "--repeats", "1"), 0)
+        self.assertEqual([r["story"] for r in self.bench_runs()], ["idle"])
+        summary = self.summary()
+        self.assertEqual([r["story"] for r in summary["runs"]], ["idle"])
+        self.assertEqual([s["story"] for s in summary["skipped"]], ["term-key"])
+        self.assertIn("frames at 120 Hz", summary["skipped"][0]["reason"])
+
+    def test_a_120hz_host_runs_its_frame_target_stories(self):
+        self.claim_a_120hz_row("term-key")
+        self.assertEqual(self.run_main("--stories", "term-key,idle", "--repeats", "1"), 0)
+        self.assertEqual(sorted(r["story"] for r in self.bench_runs()), ["idle", "term-key"])
+        self.assertEqual(self.summary()["skipped"], [])
+
     def test_host_env_without_a_report_or_file_is_env_invalid(self):
         with self.assertRaises(rs.EnvInvalid):
             rs.host_env_check("vd", "host", path=os.path.join(self.tmp, "absent.py"))

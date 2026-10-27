@@ -4,13 +4,15 @@
   "notes": [
     "The 6 lab hosts (plans/cmux-next/perf-lab-DESIGN.md section 3, task p12-perf-process-130). Host names follow decision D4; host-setup.sh checks each host's chip and memory against its host_class.",
     "class is the shard_map.json class; host_class is the series host class (store.host_class: chip/memory/Hz). refresh_ms and env_job are recorded by task 160 from perf-lab.sh --env-only.",
+    "refresh_ms is the p50 frame interval the scripts/ci/frame-pacing/vdisplay.m helper measured on a 120 Hz virtual main display (its `ready ID P50_MS` line), and env_job the controller job that printed it. host_env.pool_hz reads the rate from them (120 at <= 8.75 ms); a measured host's host_class ends in that rate, so a host that cannot hold 8.33 ms is /60hz and its 120 Hz frame-target stories are skipped (run_story.py). A host with null refresh_ms and env_job is unmeasured: its host_class rate is nominal and catalog.py counts it for no row that names an hz.",
+    "2026-10-27: perf-lab.sh cannot run on the fleet yet (it is not on feat-cmux-next, and the deployed controller has no perf_lab.go), so cmux21's measurement is the vdisplay line of split-spring.sh --vdisplay=120 job bce56076c5caec1d7794f34c on cmux21-perf (2026-10-26). cmux17, cmux18 and cmux24 refused that script's app build (40 GiB free needed, 34 GiB free); cmux20-bench and aws-m4pro-9 were offline. Measure them with perf-lab.sh --env-only when it runs.",
     "builders build bench artifacts (task 234); they never measure and are not lab hosts.",
     "privileged lists the only commands the bench user may run with sudo when host-setup.sh --grant-privileged ran (decision D3); callers run exactly these argv. powermetrics samples 600 times at 1 s and ends by itself after 10 min (a caller stops it sooner with SIGINT), so a killed job never leaves a root sampler running; host_env.py refuses a host where one still runs."
   ],
   "hosts": [
     {"name": "cmux17", "role": "waterfall", "class": "m6", "host_class": "apple-m6/16gb/120hz", "shard": 0, "refresh_ms": null, "env_job": null},
     {"name": "cmux18", "role": "waterfall", "class": "m6", "host_class": "apple-m6/16gb/120hz", "shard": 1, "refresh_ms": null, "env_job": null},
-    {"name": "cmux21", "role": "pinpoint", "class": "m6", "host_class": "apple-m6/16gb/120hz", "refresh_ms": null, "env_job": null},
+    {"name": "cmux21", "role": "pinpoint", "class": "m6", "host_class": "apple-m6/16gb/120hz", "refresh_ms": 8.33, "env_job": "bce56076c5caec1d7794f34c"},
     {"name": "cmux24", "role": "pinpoint", "class": "m6", "host_class": "apple-m6/16gb/120hz", "refresh_ms": null, "env_job": null},
     {"name": "cmux20-bench", "role": "waterfall", "class": "cmux20-bench", "host_class": "apple-m6/16gb/120hz", "shard": 0, "refresh_ms": null, "env_job": null},
     {"name": "aws-m4pro-9", "role": "waterfall", "class": "aws-m4pro", "host_class": "apple-m4-pro/48gb/120hz", "shard": 0, "refresh_ms": null, "env_job": null}

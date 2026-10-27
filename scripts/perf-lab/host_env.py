@@ -29,6 +29,8 @@ Checks (each failing one adds its own reason code; a probe that cannot be read f
 - `vdisplay-not-ready`, `refresh-below-60`: the vdisplay `ready ID P50_MS ...` (or `probe`'s `main ID P50_MS`) line
   is missing or ticks slower than 60 Hz. A display that cannot hold 8.33 ms is hz=60, not a refusal: its frame-target
   stories are skipped (p12-perf-process-160).
+  pool.json records each lab host's measured interval and the env-only job that measured it (refresh_ms, env_job);
+  pool_hz reads its rate from them; a host no job measured has no rate yet (pool_problems checks the record).
 - `host-unknown`: chip, memory or macOS build could not be read.
 
 The host block (fingerprint = sha256(chip, macOS build, Hz, memory), class = chip + memory + Hz with no macOS build,
@@ -266,6 +268,61 @@ def hz_for(p50_ms):
     if p50_ms <= FRAME_60_MS * FRAME_TOLERANCE:
         return 60
     return None
+
+
+CONTROLLER_JOB = re.compile(r"^[0-9a-f]{24}$")
+HOST_CLASS_HZ = re.compile(r"/(\d+)hz$")
+
+
+def measured_refresh(host):
+    """A pool.json host's recorded display interval in ms, or None when no env-only job measured it."""
+    refresh = host.get("refresh_ms")
+    if isinstance(refresh, bool) or not isinstance(refresh, (int, float)) or refresh <= 0:
+        return None
+    return float(refresh)
+
+
+def pool_hz(host):
+    """The display rate a pool.json lab host was measured at (p12-perf-process-160): hz_for of the interval its
+    env-only job measured (refresh_ms, env_job), so 60 for a host that cannot hold 8.33 ms. None when no job measured
+    it: its host_class Hz is only nominal, and a row that names an hz counts none of its stories (catalog.py)."""
+    refresh = measured_refresh(host)
+    return None if refresh is None else hz_for(refresh)
+
+
+def pool_problems(pool):
+    """Why pool.json's measured display rates cannot be trusted: a refresh_ms without the env_job that measured it
+    (or the reverse), a measured display slower than 60 Hz, or a measured host whose host_class Hz is not pool_hz."""
+    hosts = pool.get("hosts") if isinstance(pool, dict) else None
+    if not isinstance(hosts, list):
+        return ["no hosts list"]
+    problems = []
+    for index, host in enumerate(hosts):
+        if not isinstance(host, dict):
+            problems.append(f"hosts[{index}] is not an object")
+            continue
+        name = host.get("name") or f"hosts[{index}]"
+        refresh, job = host.get("refresh_ms"), host.get("env_job")
+        if refresh is not None and measured_refresh(host) is None:
+            problems.append(f"{name}: refresh_ms {refresh!r} is not a positive number of ms")
+            continue
+        if (refresh is None) != (job is None):
+            problems.append(f"{name}: refresh_ms and env_job are recorded together (the job that measured it)")
+            continue
+        if job is not None and not (isinstance(job, str) and CONTROLLER_JOB.match(job)):
+            problems.append(f"{name}: env_job {job!r} is not a controller job id")
+            continue
+        if job is None:
+            continue
+        hz = pool_hz(host)
+        if hz is None:
+            problems.append(f"{name}: its display ticks every {refresh} ms, slower than 60 Hz: not a lab host")
+            continue
+        match = HOST_CLASS_HZ.search(str(host.get("host_class") or ""))
+        if match is None or int(match.group(1)) != hz:
+            problems.append(f"{name}: host_class {host.get('host_class')!r} must end in /{hz}hz "
+                            f"(job {job} measured {refresh} ms)")
+    return problems
 
 
 def host_reader(path):

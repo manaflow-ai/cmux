@@ -427,5 +427,53 @@ class Parsers(unittest.TestCase):
         self.assertEqual([pid for pid, _ in host_env.parse_cmux_apps(PS_OTHER)], [APP_PID, 900])
 
 
+def pool_host(name="cmux17", hz_tail="120hz", refresh_ms=8.33, env_job="9d680ac2fd82628fdee6a038", **changes):
+    host = {"name": name, "role": "waterfall", "class": "m6", "host_class": f"apple-m6/16gb/{hz_tail}", "shard": 0,
+            "refresh_ms": refresh_ms, "env_job": env_job}
+    host.update(changes)
+    return host
+
+
+class PoolRates(unittest.TestCase):
+    """pool.json's measured rate per lab host (p12-perf-process-160): hz from the recorded interval, 60 unmeasured."""
+
+    def test_a_host_that_held_8_33_ms_is_120hz(self):
+        self.assertEqual(host_env.pool_hz(pool_host()), 120)
+        self.assertEqual(host_env.pool_problems({"hosts": [pool_host()]}), [])
+
+    def test_a_host_that_could_not_hold_8_33_ms_is_60hz(self):
+        host = pool_host(hz_tail="60hz", refresh_ms=16.67)
+        self.assertEqual(host_env.pool_hz(host), 60)
+        self.assertEqual(host_env.pool_problems({"hosts": [host]}), [])
+
+    def test_an_unmeasured_host_has_no_rate_and_keeps_its_nominal_class(self):
+        host = pool_host(refresh_ms=None, env_job=None)
+        self.assertIsNone(host_env.pool_hz(host))
+        self.assertEqual(host_env.pool_problems({"hosts": [host]}), [])
+
+    def test_a_60hz_measurement_cannot_keep_a_120hz_class(self):
+        problems = host_env.pool_problems({"hosts": [pool_host(refresh_ms=16.67)]})
+        self.assertEqual(len(problems), 1)
+        self.assertIn("must end in /60hz (job 9d680ac2fd82628fdee6a038 measured 16.67 ms)", problems[0])
+
+    def test_refresh_and_job_are_recorded_together(self):
+        for host in (pool_host(env_job=None), pool_host(hz_tail="60hz", refresh_ms=None)):
+            self.assertIn("recorded together", host_env.pool_problems({"hosts": [host]})[0])
+
+    def test_bad_records_are_problems(self):
+        cases = {"not a positive number": pool_host(refresh_ms=0), "not a controller job id": pool_host(env_job="x"),
+                 "slower than 60 Hz": pool_host(refresh_ms=40.0)}
+        for fragment, host in cases.items():
+            with self.subTest(fragment):
+                self.assertIn(fragment, host_env.pool_problems({"hosts": [host]})[0])
+        self.assertEqual(host_env.pool_problems({}), ["no hosts list"])
+
+    def test_the_checkout_pool_is_consistent(self):
+        pool = json.loads((HERE.parent / "pool.json").read_text())
+        self.assertEqual(host_env.pool_problems(pool), [])
+        measured = [host for host in pool["hosts"] if host_env.pool_hz(host) is not None]
+        self.assertTrue(measured, "task 160 recorded at least one host's measured refresh")
+
+
 if __name__ == "__main__":
     unittest.main()

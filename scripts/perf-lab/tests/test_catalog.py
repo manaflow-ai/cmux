@@ -96,6 +96,21 @@ class FixtureTree:
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(text)
 
+    def lab(self, hosts: dict[str, tuple[float | None, list[str]]]) -> None:
+        """pool.json and shard_map.json: one waterfall host (class "c", its own shard) per name, with its measured
+        refresh_ms (None: no env-only job measured it, its class keeps the nominal 120 Hz) and the stories its shard
+        runs."""
+        pool, shards = [], []
+        for index, (name, (refresh_ms, story_ids)) in enumerate(hosts.items()):
+            measured = refresh_ms is not None
+            hz = 60 if measured and refresh_ms > 8.75 else 120
+            pool.append({"name": name, "role": "waterfall", "class": "c", "host_class": f"apple-m6/16gb/{hz}hz",
+                         "shard": index, "refresh_ms": refresh_ms,
+                         "env_job": f"{index:024x}" if measured else None})
+            shards.append({"index": index, "seconds": {"T1": 60}, "stories": {"T1": story_ids}})
+        self.write(catalog.POOL_PATH, json.dumps({"hosts": pool}))
+        self.write(catalog.SHARD_MAP_PATH, json.dumps({"classes": {"c": {"tiers": ["T1"], "shards": shards}}}))
+
     def load(self):
         return catalog.load_catalog(self.root)
 
@@ -231,7 +246,9 @@ class CheckoutCatalogTests(unittest.TestCase):
         expected = []
         for target in self.catalog.targets:
             for row in target.rows:
-                missing = list(dict.fromkeys(c.metric for c in row.checks if (row.id, c.metric) not in claims))
+                missing = list(dict.fromkeys(
+                    c.metric for c in row.checks
+                    if not catalog.at_row_hz(self.catalog, row, claims.get((row.id, c.metric), ()))))
                 if missing:
                     expected.append(f"{target.id}\t{row.id}\t{' '.join(missing)}")
         code = subprocess.run([sys.executable, "-I", str(CATALOG_PY), "targets", "--uncovered"],
@@ -239,7 +256,11 @@ class CheckoutCatalogTests(unittest.TestCase):
         self.assertEqual(code.returncode, 0, code.stderr)
         self.assertEqual(code.stdout.splitlines(), expected)
         printed = {line.split("\t")[1] for line in expected}
-        self.assertNotIn("motion-dropped", printed)  # pane-stress and chat-anim claim both of its checks
+        rows = {row.id: row for target in self.catalog.targets for row in target.rows}
+        for row_id in printed:  # a claimed row is printed only when no waterfall host measured its rate runs it
+            if rows[row_id].hz is not None:
+                self.assertFalse(catalog.at_row_hz(self.catalog, rows[row_id], {s for (r, _), ss in claims.items()
+                                                                                 if r == row_id for s in ss}))
         self.assertNotIn("launch.warm", printed)
         self.assertNotIn("launch.cold", printed)  # launch-cold and launch-after-reboot claim it (task 033)
 
@@ -380,6 +401,7 @@ class TargetTests(FixtureTestCase):
                          metrics=[claim("crash-survival.chromium", "crash_survival\\.chromium", "ratio")]),
                    story("keys", metrics=[claim("key-frame.light", "terminal\\.key_to_frame", "ms")])]
         tree = self.tree(stories)
+        tree.lab({"cmux17": (8.33, ["drops", "keys"])})
         code, out, _ = tree.run("targets", "--uncovered")
         self.assertEqual(code, 0)
         rows = [line.split("\t")[1] for line in out.splitlines()]
@@ -390,17 +412,57 @@ class TargetTests(FixtureTestCase):
 
     def test_a_row_with_one_unclaimed_check_stays_uncovered(self) -> None:
         stories = [*baseline_stories(), story("drops", metrics=[claim("motion-dropped", "anim\\.[^.]+\\.dropped")])]
-        code, out, _ = self.tree(stories).run("targets", "--uncovered")
+        tree = self.tree(stories)
+        tree.lab({"cmux17": (8.33, ["drops"])})
+        code, out, _ = tree.run("targets", "--uncovered")
         self.assertIn("motion-dropped\tmotion-dropped\tpanes\\.[^.]+\\.[^.]+\\.missed\n", out)
 
     def test_check_counts_mapped_targets(self) -> None:
         stories = [*baseline_stories(),
                    story("drops", metrics=[claim("motion-dropped", "panes\\.[^.]+\\.[^.]+\\.missed"),
                                            claim("motion-dropped", "anim\\.[^.]+\\.dropped")])]
-        code, out, _ = self.tree(stories).run("targets", "--check")
+        tree = self.tree(stories)
+        tree.lab({"cmux17": (8.33, ["drops"])})
+        code, out, _ = tree.run("targets", "--check")
         self.assertEqual(code, 1)
         self.assertIn("ok motion-dropped\n", out)
         self.assertTrue(out.endswith("targets mapped: 1/12\n"))
+
+    def test_a_120hz_row_counts_only_a_story_a_120hz_host_runs(self) -> None:
+        """p12-perf-process-160: motion-dropped says hz 120, so a story counts for it only from a 120 Hz series."""
+        drops = story("drops", metrics=[claim("motion-dropped", "panes\\.[^.]+\\.[^.]+\\.missed"),
+                                        claim("motion-dropped", "anim\\.[^.]+\\.dropped")])
+        for name, hosts in {"60 Hz host": {"cmux17": (16.67, ["drops"])},
+                            "unmeasured host": {"cmux17": (None, ["drops"])},
+                            "no host runs it": {"cmux17": (8.33, [])}}.items():
+            with self.subTest(name):
+                tree = self.tree([*baseline_stories(), drops])
+                tree.lab(hosts)
+                self.assertEqual(list(tree.load().problems), [])
+                code, out, _ = tree.run("targets", "--check")
+                self.assertEqual(code, 1)
+                self.assertIn("unmapped motion-dropped (rows: motion-dropped at 120 Hz)\n", out)
+                self.assertTrue(out.endswith("targets mapped: 0/12\n"))
+                self.assertIn("motion-dropped\tmotion-dropped\t", tree.run("targets", "--uncovered")[1])
+        tree = self.tree([*baseline_stories(), drops])
+        tree.lab({"cmux17": (16.67, ["drops"]), "cmux18": (8.33, ["drops"])})
+        self.assertIn("ok motion-dropped\n", tree.run("targets", "--check")[1])
+
+    def test_a_row_without_hz_counts_a_story_on_any_host(self) -> None:
+        tree = self.tree([*baseline_stories(), story("turn", metrics=[claim("main-turn", "main_turn\\.p99", "ms")])])
+        tree.lab({"cmux17": (16.67, ["turn"])})
+        self.assertIn("ok main-turn\n", tree.run("targets", "--check")[1])
+
+    def test_an_inconsistent_pool_is_a_catalog_problem(self) -> None:
+        tree = self.tree(baseline_stories())
+        tree.lab({"cmux17": (8.33, [])})
+        pool = json.loads((tree.root / catalog.POOL_PATH).read_text())
+        pool["hosts"][0]["host_class"] = "apple-m6/16gb/60hz"
+        tree.write(catalog.POOL_PATH, json.dumps(pool))
+        problems = list(tree.load().problems)
+        self.assertEqual(len(problems), 1)
+        self.assertIn("pool.json: cmux17: host_class 'apple-m6/16gb/60hz' must end in /120hz", problems[0])
+        self.assertEqual(tree.load().story_hz, {})
 
     def test_check_passes_when_every_row_is_claimed(self) -> None:
         targets = json.loads((REPO_ROOT / catalog.TARGETS_PATH).read_text())
@@ -411,6 +473,7 @@ class TargetTests(FixtureTestCase):
                 fields = {k: row[k] for k in ("engine", "session", "config") if k in row}
                 stories.append(story(row["id"], metrics=metrics, **fields))
         tree = self.tree(stories)
+        tree.lab({"cmux17": (8.33, [s["id"] for s in stories])})
         self.assertEqual(list(tree.load().problems), [])
         code, out, _ = tree.run("targets", "--check")
         self.assertEqual(code, 0, out)

@@ -20,7 +20,9 @@ Steps, each refusing with its own exit code and one reason line (stderr and `sum
    invalid host exits 3 (env-invalid) and stores nothing;
 5. run the stories with interleaved repeats (round r runs every story that has more than r repeats, in id order, as
    Telemetry's `--pageset-repeat` interleaves pages), each in its own process group with the bench env
-   (bench_env.py) and its own out folder `<out>/runs/<story>-<repeat>/`;
+   (bench_env.py) and its own out folder `<out>/runs/<story>-<repeat>/`. A story that claims a target row judged at
+   another rate than the host's measured Hz (a 120 Hz frame target on a 60 Hz host) is skipped, with its reason in
+   the summary's `skipped` (p12-perf-process-160);
 6. move each result-v1 file a run wrote (in any subfolder) to `<out>/results/`. A file that is not valid result-v1,
    names another build or story, or ran under a triggered safe mode, moves to `<out>/rejected/` so the ingest never
    stores it; so does every file of a run whose app had no ok full host validation after launch (BenchApp's
@@ -111,13 +113,32 @@ def bench_launch():
     return load_by_path("bench_launch", os.path.join(ROOT, "scripts", "cmux-next", "bench_launch.py"))
 
 
-def load_stories(root: str = ROOT) -> Tuple[Dict[str, object], Tuple[str, ...]]:
-    """({id: catalog.Story}, the catalog's lint problems) of the stories.d under `root`."""
+def read_catalog(root: str = ROOT):
     try:
-        loaded = catalog.load_catalog(root)
+        return catalog.load_catalog(root)
     except catalog.CatalogError as error:
         raise Refusal(f"the story catalog cannot be read: {error}") from None
+
+
+def load_stories(root: str = ROOT) -> Tuple[Dict[str, object], Tuple[str, ...]]:
+    """({id: catalog.Story}, the catalog's lint problems) of the stories.d under `root`."""
+    loaded = read_catalog(root)
     return {story.id: story for story in loaded.stories}, loaded.problems
+
+
+def other_rate_stories(stories: Sequence, targets: Sequence, hz) -> Dict[str, str]:
+    """{story id: why it is skipped} for each story that claims a target row judged at another display rate than the
+    host measured (targets.json `hz`, p12-perf-process-160): a host that cannot hold 8.33 ms skips its 120 Hz
+    frame-target stories, and the others run. Its series would be keyed at 60 Hz, which no such row judges."""
+    row_hz = {row.id: row.hz for target in targets for row in target.rows if row.hz is not None}
+    skipped = {}
+    for story in stories:
+        rows = sorted({f"{m.target} at {row_hz[m.target]} Hz" for m in story.metrics
+                       if m.target in row_hz and row_hz[m.target] != hz})
+        if rows:
+            skipped[story.id] = f"the display holds {hz} Hz; its target rows are judged at another rate " \
+                                f"({', '.join(rows)})"
+    return skipped
 
 
 def shard_assignment(stories: Sequence, count: int) -> Dict[str, int]:
@@ -635,8 +656,9 @@ def measure(opts, summary: dict, state: dict, store: ArtifactStore, check_env: C
             raise Refusal(f"--config={opts.config!r}: one of {', '.join(CONFIGS)}")
         if opts.repeats is not None and opts.repeats < 1:
             raise Refusal("--repeats must be >= 1")
-        catalog_stories, problems = load_stories(root)
-        stories = select_stories(catalog_stories, opts.config, opts.stories, opts.shard, opts.tier, problems)
+        loaded = read_catalog(root)
+        stories = select_stories({story.id: story for story in loaded.stories}, opts.config, opts.stories,
+                                 opts.shard, opts.tier, loaded.problems)
         if not stories:
             raise Refusal("no story to run")
         unrunnable = [p for story in stories for p in contract_problems(story, root)]
@@ -661,6 +683,9 @@ def measure(opts, summary: dict, state: dict, store: ArtifactStore, check_env: C
         summary["env"] = check_env(display.out_path, os.path.join(opts.out, "host.json"))
         if opts.env_only:
             return EXIT_OK
+        skipped = other_rate_stories(stories, loaded.targets, summary["env"].get("hz"))
+        summary["skipped"] = [{"story": story_id, "reason": why} for story_id, why in sorted(skipped.items())]
+        runs = [(story, repeat) for story, repeat in runs if story.id not in skipped]
         runner = Runner(opts.out, state["app"], tag, opts.sha, opts.config, summary["env"].get("hz"), teardown,
                         display.out_path, root)
         summary["runs"] = []
@@ -702,6 +727,8 @@ def main(argv=None, store=None, check_env=host_env_check, display_factory=Virtua
         raise
     finally:
         write_json(os.path.join(opts.out, "env.json" if opts.env_only else "summary.json"), summary)
+    for skip in summary.get("skipped", []):
+        print(f"perf-lab: {skip['story']} skipped: {skip['reason']}")
     for run in summary.get("runs", []):
         print(f"perf-lab: {run['story']}#{run['repeat']} {'ok' if run['ok'] else 'FAILED: ' + run['reason']} "
               f"({len(run['results'])} result files, {run['seconds']} s)")

@@ -22,6 +22,10 @@ limit or noise floor is a reference {path, key} into the file that already owns 
 lint refuses a number anywhere in a story except `repeats` and `seconds`, and in targets.json anywhere except a
 check's `value` and a row's `hz`.
 
+A row with an `hz` is mapped only from series at that rate (p12-perf-process-160). A series is keyed by its host's
+display rate, so a story counts for the row only when a waterfall host whose shard (shard_map.json) runs it measured
+that rate (pool.json refresh_ms, host_env.pool_hz); a host no env-only job measured counts for no such row.
+
 Stdlib only; loads perf_result.py by file path, so it runs under `python3 -I`.
 """
 from __future__ import annotations
@@ -32,7 +36,7 @@ import importlib.util
 import json
 import re
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Iterable
 
@@ -58,6 +62,8 @@ STORIES_DIR = "scripts/perf-lab/stories.d"
 TARGETS_PATH = "scripts/perf-lab/targets.json"
 OWNERS_PATH = "plans/cmux-next/OWNERS.md"
 HOT_PATHS_PATH = "scripts/cmux-next/perf-hot-benches.json"
+POOL_PATH = "scripts/perf-lab/pool.json"
+SHARD_MAP_PATH = "scripts/perf-lab/shard_map.json"
 PERF_CRON_PATH = "scripts/cmux-next/perf-cron.py"
 
 TARGETS_SCHEMA = "cmux-perf-targets/v1"
@@ -193,6 +199,9 @@ class Catalog:
     hot_paths: dict[str, dict[str, Any]]
     cron_parts: tuple[str, ...]
     problems: tuple[str, ...]
+    # story id -> the display rates of the waterfall hosts that run it (pool.json, shard_map.json): the Hz its series
+    # are keyed at. Empty without a pool, so no row that names an hz is mapped.
+    story_hz: dict[str, frozenset[int]] = field(default_factory=dict)
 
 
 # ---------- references into existing threshold files ----------
@@ -571,6 +580,38 @@ def _claim_problems(problems: list[str], where: str, story: dict, metric: dict, 
             problems.append(f"{where}: target row {row.id} needs {field} {want}, the story has {story.get(field)}")
 
 
+def _story_hz(root: Path, problems: list[str]) -> dict[str, frozenset[int]]:
+    """story id -> the measured display rates (host_env.pool_hz) of the waterfall hosts whose shard runs it. Pinpoint
+    hosts are left out: they rerun a waterfall series, they never start one. A host no job measured adds no rate.
+    No pool or shard map: no rates."""
+    if not (root / POOL_PATH).is_file() or not (root / SHARD_MAP_PATH).is_file():
+        return {}
+    pool, shard_map = _read_json(root / POOL_PATH), _read_json(root / SHARD_MAP_PATH)
+    host_env = _load_sibling("host_env")
+    pool_problems = [f"{POOL_PATH}: {problem}" for problem in host_env.pool_problems(pool)]
+    classes = shard_map.get("classes") if isinstance(shard_map, dict) else None
+    if not isinstance(classes, dict):
+        pool_problems.append(f"{SHARD_MAP_PATH}: no classes")
+    if pool_problems:
+        problems.extend(pool_problems)
+        return {}
+    rates: dict[str, set[int]] = {}
+    for host in pool["hosts"]:
+        hz = host_env.pool_hz(host)
+        if host.get("role") != "waterfall" or hz is None:
+            continue
+        shards = classes.get(host.get("class"), {}).get("shards") or ()
+        shard = next((s for s in shards if isinstance(s, dict) and s.get("index") == host.get("shard")), None)
+        if shard is None:
+            problems.append(f"{POOL_PATH}: {host.get('name')} holds shard {host.get('shard')} of class "
+                            f"{host.get('class')!r}, which {SHARD_MAP_PATH} does not have")
+            continue
+        for story_ids in (shard.get("stories") or {}).values():
+            for story_id in story_ids:
+                rates.setdefault(story_id, set()).add(hz)
+    return {story_id: frozenset(hz) for story_id, hz in rates.items()}
+
+
 def load_catalog(root: Path = REPO_ROOT) -> Catalog:
     """Read every catalog input under root. Problems are collected, never raised, so one lint run lists them all.
     Raises CatalogError only when an input file is missing or is not JSON."""
@@ -605,7 +646,8 @@ def load_catalog(root: Path = REPO_ROOT) -> Catalog:
     for part in parts:
         if part not in covered:
             problems.append(f"{STORIES_DIR}: perf-cron.py part {part} has no story (perf_cron_part)")
-    return Catalog(root, tuple(stories), targets, owners, hot_paths, parts, tuple(problems))
+    story_hz = _story_hz(root, problems)
+    return Catalog(root, tuple(stories), targets, owners, hot_paths, parts, tuple(problems), story_hz)
 
 
 # ---------- queries ----------
@@ -620,13 +662,21 @@ def claimed_checks(catalog: Catalog) -> dict[tuple[str, str], list[str]]:
     return claims
 
 
+def at_row_hz(catalog: Catalog, row: Row, stories: Iterable[str]) -> list[str]:
+    """The claiming `stories` whose series can judge `row`: all of them, or when the row names an hz, those a
+    waterfall host measured at that rate runs (a 60 Hz series never counts for a 120 Hz row)."""
+    return [story for story in stories if row.hz is None or row.hz in catalog.story_hz.get(story, ())]
+
+
 def uncovered_rows(catalog: Catalog) -> list[tuple[Row, list[str]]]:
-    """Each target row with a check no story claims, and those checks' metric patterns, in targets.json order."""
+    """Each target row with a check no story claims at the row's hz (at_row_hz), and those checks' metric
+    patterns, in targets.json order."""
     claims = claimed_checks(catalog)
     out = []
     for target in catalog.targets:
         for row in target.rows:
-            missing = list(dict.fromkeys(c.metric for c in row.checks if (row.id, c.metric) not in claims))
+            missing = list(dict.fromkeys(c.metric for c in row.checks
+                                         if not at_row_hz(catalog, row, claims.get((row.id, c.metric), ()))))
             if missing:
                 out.append((row, missing))
     return out
@@ -653,7 +703,8 @@ def story_for_row(catalog: Catalog, row_name: str) -> list[Story]:
 
 LAB_COMMANDS = {
     "stories": "List the lab stories (stories.d/); --lint checks owners, paths, configs and copied thresholds.",
-    "targets": "The 12 fixed targets: --check prints N/12 mapped, --uncovered prints each row no story claims.",
+    "targets": "The 12 fixed targets: --check prints N/12 mapped, --uncovered prints each row no story claims "
+               "(a row with an hz: from a host measured at that rate).",
     "hot-paths": "perf-hot-benches.json paths: --uncovered prints each hot path whose bench is not a lab story.",
 }
 
@@ -692,7 +743,7 @@ def run(command: str, args: argparse.Namespace, out=None, err=None) -> int:
         mapped = mapped_targets(catalog)
         open_rows = {row.id for row, _ in uncovered_rows(catalog)}
         for target, ok in mapped:
-            rows = [r.id for r in target.rows if r.id in open_rows]
+            rows = [r.id + (f" at {r.hz} Hz" if r.hz is not None else "") for r in target.rows if r.id in open_rows]
             print(f"{'ok' if ok else 'unmapped'} {target.id}" + ("" if ok else f" (rows: {', '.join(rows)})"), file=out)
         count = sum(ok for _, ok in mapped)
         print(f"targets mapped: {count}/{len(mapped)}", file=out)
