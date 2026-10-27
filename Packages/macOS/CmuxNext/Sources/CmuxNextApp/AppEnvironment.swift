@@ -1,3 +1,4 @@
+import CmuxNextCloud
 import CmuxNextCompat
 import CmuxNextControl
 import CmuxNextDaemon
@@ -6,6 +7,7 @@ import CmuxNextFeatures
 import CmuxNextHomeEngine
 import CmuxNextLaunch
 import CmuxNextTerminal
+import CmuxNextWebUpdates
 import Foundation
 
 /// How this process was launched. Identity (bundle, tag, control socket)
@@ -69,6 +71,9 @@ struct AppEnvironment: Sendable {
     /// One picture per window from the last quit (`WindowPictureStore`, feature `savedWindowPicture`). Only the real
     /// app process makes it; without it no window picture is written (tests that build `AppServices`).
     var windowPictures: WindowPictureStore?
+    /// The kept web update (`WebUpdates`, NIGHTLY): its state and verified tree, read on a launch lane from `main`.
+    /// Nil where the bundle takes no web updates and in tests that build `AppServices`.
+    var webUpdates: LaunchRead<WebUpdates.Launch?>?
     /// The daemon's launch snapshot, read and decoded on the files lane from `main` (p08-startup-074): the local
     /// daemon's start takes it over. Without it (tests that build `AppServices`) the start posts its own read.
     var launchSnapshot: LaunchSnapshotPrefetch?
@@ -84,6 +89,9 @@ struct AppEnvironment: Sendable {
     /// `main` before the settings read, so `AppServices` resolves its features with them. DEV and NIGHTLY only; nil in
     /// Release and in tests that build `AppServices`.
     var featureLocalOverridesFile: URL?
+    /// The launch's daemon features for every hello to the local daemon and their last answer (`features.list`),
+    /// made in `main` once the features resolve (p12-perf-process-150). Nil in tests that build `AppServices`.
+    var daemonFeatureHello: DaemonFeatureHello?
     var featureLocalOverrides: LaunchRead<FeatureLocalOverrides>?
     /// The Debug tunables features replace (``Feature/replaces``), as the build's debug-tunables.json holds them,
     /// read on a launch lane from `main` beside ``featureLocalOverrides``: their features' local overrides
@@ -98,6 +106,13 @@ struct AppEnvironment: Sendable {
     /// it each `HomeService` uses a temporary folder of its own (tests that build `AppServices`), so
     /// no test reads a draft another test typed in the same conversation.
     var homeCachesDirectory: URL?
+    /// The Home list's caches (its conversations and its last list) of this build's Chief owner, read on a launch
+    /// lane from `main` (p08-startup-076): the Home list's first frame never reads them on the main thread. Only the
+    /// real app process starts it; without it `HomeService` starts its own as it is made (tests that build `AppServices`).
+    var homeListRead: HomeListLaunchRead?
+    /// This Mac's install id, read on a launch lane from `main` before the settings read (p08-startup-076). Only the
+    /// real app process starts it; without it `CloudService` reads the id at its first use (tests that build `AppServices`).
+    var cloudDeviceID: CloudDeviceIDSource?
     /// `CMUX_NEXT_ORACLE_ROOT` and `HOME` of the launch: the oracle case root (its aliases separated by `:`) and the
     /// hermetic home the `terminals` facet rewrites to `$ROOT` and `$HOME` before hashing (schemas/oracle/README.md).
     var oracleRoot: String?

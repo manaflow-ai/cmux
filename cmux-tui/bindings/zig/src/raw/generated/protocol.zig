@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "df10717146553dfa363854f65845a400d363319d750b9f1e04386389220171be";
+pub const ir_sha256 = "7eb274630f633e9ac0d047904d92944dbb00b4f9dcb8b2c809d8a6871ce0a777";
 
 pub const AccessRequestKind = enum {
     file,
@@ -937,6 +937,27 @@ pub const CellPixelSurface = struct {
     width_px: u16,
 };
 
+pub const ClientHelloFeaturePending = struct {
+    app: bool,
+    daemon: bool,
+    name: []const u8,
+};
+
+pub const ClientHelloFeatureReport = struct {
+    applied: []const []const u8,
+    hash: []const u8,
+    pending: []const ClientHelloFeaturePending,
+};
+
+pub const ClientHelloFeatures = struct {
+    hash: ?[]const u8 = null,
+    values: wire.Map(bool),
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "hash",
+    };
+};
+
 pub const ClientHelloPageOperations = struct {
     confirm: []const []const u8,
     gesture: []const []const u8,
@@ -945,6 +966,7 @@ pub const ClientHelloPageOperations = struct {
 
 pub const ClientHelloResult = struct {
     connection_id: []const u8,
+    features: ?ClientHelloFeatureReport = null,
     install_id: ?[]const u8 = null,
     nonce: ?[]const u8 = null,
     page: ?[]const u8 = null,
@@ -954,6 +976,7 @@ pub const ClientHelloResult = struct {
     verified: ?bool = null,
 
     pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "features",
         "install_id",
         "nonce",
         "page",
@@ -6220,6 +6243,7 @@ pub fn clientFocus(client: anytype, request: ClientFocusRequest) !wire.Decoded(C
 }
 
 pub const ClientHelloRequest = struct {
+    features: wire.Field(ClientHelloFeatures) = .absent,
     install_id: ?[]const u8 = null,
     page: wire.Field([]const u8) = .absent,
     proof: ?[]const u8 = null,
