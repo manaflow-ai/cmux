@@ -66,7 +66,7 @@ pub(super) fn load_or_create(path: &Path) -> anyhow::Result<MachineIdentity> {
 fn remove_orphaned_temporary_links(path: &Path) -> anyhow::Result<()> {
     let target = fs::symlink_metadata(path)?;
     if !target.file_type().is_file()
-        || target.uid() != unsafe { libc::geteuid() }
+        || target.uid() != cmux_tui_core::platform::effective_uid()
         || target.permissions().mode() & 0o777 != 0o600
     {
         return Ok(());
@@ -215,7 +215,7 @@ fn ensure_private_parent(path: &Path) -> anyhow::Result<()> {
     if metadata.file_type().is_symlink() || !metadata.is_dir() {
         anyhow::bail!("machine-agent state directory must be a real directory");
     }
-    if metadata.uid() != unsafe { libc::geteuid() } {
+    if metadata.uid() != cmux_tui_core::platform::effective_uid() {
         anyhow::bail!("machine-agent state directory must be owned by the current user");
     }
     if metadata.permissions().mode() & 0o077 != 0 {
@@ -229,7 +229,7 @@ fn verify_private_file(file: &File, label: &str) -> anyhow::Result<()> {
     if !metadata.is_file() {
         anyhow::bail!("{label} must be a regular file");
     }
-    if metadata.uid() != unsafe { libc::geteuid() } {
+    if metadata.uid() != cmux_tui_core::platform::effective_uid() {
         anyhow::bail!("{label} must be owned by the current user");
     }
     if metadata.permissions().mode() & 0o777 != 0o600 {
@@ -247,6 +247,7 @@ pub(super) struct RegistrationLock {
 
 impl Drop for RegistrationLock {
     fn drop(&mut self) {
+        // SAFETY: `self.file` is open until this drop returns and flock takes no pointer.
         unsafe {
             libc::flock(self.file.as_raw_fd(), libc::LOCK_UN);
         }
@@ -273,6 +274,7 @@ pub(super) fn acquire_registration_lock(
         .custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC)
         .open(&lock_path)?;
     verify_private_file(&file, "machine-agent registration lock")?;
+    // SAFETY: `file` is open for the call and flock takes no pointer.
     let result = unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) };
     if result != 0 {
         let error = io::Error::last_os_error();
