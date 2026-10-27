@@ -259,3 +259,86 @@ test("opening the view on a folded generated file unfolds it", async () => {
     await act(async () => root.unmount());
   }
 });
+
+test("a git scope that left files out never says no test changed", async () => {
+  const patch = (path: string) =>
+    `diff --git a/${path} b/${path}\n--- a/${path}\n+++ b/${path}\n@@ -1 +1 @@\n-one\n+two\n`;
+  const listed = (path: string) => ({ path, status: "modified", additions: 1, deletions: 1, patch: patch(path) });
+  for (const omitted of [{ files_omitted: 2 }, { untracked_skipped: 1 }]) {
+    // The omitted file may be the test.
+    const source = { diff: async () => ({ root: "/repo", files: [listed("src/a.ts")], ...omitted }) };
+    const container = dom.window.document.getElementById("root")!;
+    const root = createRoot(container);
+    await act(async () => root.render(<DiffPanel files={[]} onClose={() => {}} source={source} />));
+    await act(async () => container.querySelector<HTMLButtonElement>(".acpmux-diff-scope")!.click());
+    await settle();
+    const unstaged = [...dom.window.document.querySelectorAll<HTMLElement>('[role="menuitemradio"]')].find(
+      (item) => item.textContent === "Unstaged",
+    )!;
+    await act(async () => unstaged.click());
+    await settle();
+    try {
+      expect(container.querySelectorAll(".acpmux-diff-file").length).toBe(1);
+      expect(container.querySelector(".acpmux-diff-no-tests")).toBeNull();
+    } finally {
+      await act(async () => root.unmount());
+    }
+  }
+});
+
+test("a partial checkpoint for Last turn never says no test changed", async () => {
+  const container = dom.window.document.getElementById("root")!;
+  const root = createRoot(container);
+  try {
+    await act(async () =>
+      root.render(
+        <DiffPanel
+          files={turn(["/repo/src/a.ts"])}
+          turn={{ source: "checkpoint", partial: true }}
+          root="/repo"
+          onClose={() => {}}
+        />,
+      ),
+    );
+    await settle();
+    expect(container.querySelector(".acpmux-diff-no-tests")).toBeNull();
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
+
+test("a view opened on a relative tool path keeps that generated file open once the checkpoint lists it by its absolute path", async () => {
+  const container = dom.window.document.getElementById("root")!;
+  const root = createRoot(container);
+  const folded = () =>
+    [...container.querySelectorAll<HTMLElement>(".acpmux-diff-file")]
+      .filter((block) => block.dataset.collapsed !== undefined)
+      .map((block) => block.dataset.path);
+  try {
+    // The tool call wrote `bun.lock` relative to the chat's folder; the view opens on it.
+    await act(async () =>
+      root.render(
+        <DiffPanel files={turn(["src/a.ts", "bun.lock"])} root="/repo" initialPath="bun.lock" onClose={() => {}} />,
+      ),
+    );
+    await settle();
+    expect(folded()).toEqual([]);
+    // The checkpoint loads and lists the same files under the repository's absolute path; another
+    // generated file beside it still folds.
+    await act(async () =>
+      root.render(
+        <DiffPanel
+          files={turn(["/repo/src/a.ts", "/repo/bun.lock", "/repo/yarn.lock"])}
+          turn={{ source: "checkpoint" }}
+          root="/repo"
+          initialPath="bun.lock"
+          onClose={() => {}}
+        />,
+      ),
+    );
+    await settle();
+    expect(folded()).toEqual(["/repo/yarn.lock"]);
+  } finally {
+    await act(async () => root.unmount());
+  }
+});

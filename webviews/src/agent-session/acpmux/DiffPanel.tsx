@@ -89,6 +89,29 @@ export function kindPath(scope: ChangeScope, file: TurnFile, root: string | unde
   return file.path.slice(file.path.lastIndexOf("/") + 1);
 }
 
+/// `path` as an absolute path: a relative one is the agent's, under the chat's folder `root`. The
+/// /private spelling of /tmp, /var and /etc reads as the short one, as acpmux's canonical path may
+/// name either.
+function absolute(path: string, root: string | undefined): string | undefined {
+  const top = root && resolved(root);
+  const full = path.startsWith("/") ? resolved(path) : top ? resolved(`${top}/${path}`) : undefined;
+  return full?.replace(/^\/private(?=\/(?:tmp|var|etc)(?:\/|$))/, "");
+}
+
+/// The listed file `path` names, by its path or canonical path, as written or resolved from the
+/// chat's folder: a tool call's relative path opens the view, then the loaded checkpoint lists
+/// the same file by its absolute path. `path` itself when no listed file is it.
+export function listedPath(files: readonly TurnFile[], path: string, root: string | undefined): string {
+  const exact = files.find((file) => file.path === path || file.canonical === path);
+  if (exact) return exact.path;
+  const wanted = absolute(path, root);
+  if (!wanted) return path;
+  const match = files.find((file) =>
+    [file.path, file.canonical].some((spelling) => spelling !== undefined && absolute(spelling, root) === wanted),
+  );
+  return match?.path ?? path;
+}
+
 export function bindDiffPanelEscape(panel: HTMLElement, onClose: () => void): () => void {
   const ownerDocument = panel.ownerDocument;
   const ownerWindow = ownerDocument.defaultView;
@@ -140,7 +163,7 @@ export function DiffPanel({
   /// Tool-call files remain the source of revert patches when Last turn is showing a checkpoint.
   reviewFiles?: TurnFile[];
   /// Where Last turn's files came from, and why a checkpoint isn't shown when one was expected.
-  turn?: { source: "checkpoint" | "tools"; note?: string };
+  turn?: { source: "checkpoint" | "tools"; note?: string; partial?: true };
   /// The palette's Commit or Push (`agentPane.git.*`): each new nonce opens the commit form or
   /// pushes, as the toolbar's buttons do.
   gitIntent?: { op: GitWriteOp; nonce: number };
@@ -227,8 +250,14 @@ export function DiffPanel({
       : load.state === "loaded"
         ? "empty"
         : load.state;
-  // Code changed and no test did: the pull request card's warning, in its words.
-  const noTests = !scopeState && missingTests(files.map((file) => ({ path: kindPath(scope, file, root) })));
+  // Code changed and no test did: the pull request card's warning, in its words. Not when the
+  // host left files out (a partial git answer or checkpoint): an omitted file may be the test.
+  const partial =
+    scope === "lastTurn"
+      ? turn?.partial === true
+      : load.state === "loaded" &&
+        ((load.changeSet.filesOmitted ?? 0) > 0 || (load.changeSet.untrackedSkipped ?? 0) > 0);
+  const noTests = !scopeState && !partial && missingTests(files.map((file) => ({ path: kindPath(scope, file, root) })));
   const [layout, setLayout] = useState<DiffLayout>(() => (stored(LAYOUT_KEY) === "split" ? "split" : "unified"));
   const [wrap, setWrap] = useState(() => stored(WRAP_KEY) === "on");
   const [showTree, setShowTree] = useState(() => stored(TREE_KEY) !== "off");
@@ -241,10 +270,13 @@ export function DiffPanel({
     [files, scope, root],
   );
   const [folded, setFolded] = useState<ReadonlySet<string>>(() => new Set());
+  // The file the view was opened on, as the list names it now (a tool call's relative path, then
+  // the checkpoint's absolute one).
+  const openedPath = initialPath === undefined ? undefined : listedPath(files, initialPath, root);
   const unfolded = generated.filter((path) => !folded.has(path));
   if (unfolded.length > 0) {
     setFolded(new Set([...folded, ...unfolded]));
-    const fold = unfolded.filter((path) => path !== initialPath);
+    const fold = unfolded.filter((path) => path !== openedPath);
     if (fold.length > 0) setCollapsed((current) => new Set([...current, ...fold]));
   }
   const [viewed, setViewed] = useState<ReadonlySet<string>>(() => new Set());
@@ -304,7 +336,7 @@ export function DiffPanel({
     };
   }, []);
   const onPainted = useStableCallback(() => {
-    if (revealing.current) reveal(revealing.current);
+    if (revealing.current) reveal(listedPath(files, revealing.current, root));
   });
   // Focus moves into the view, so keys reach it and a screen reader announces it.
   useEffect(() => {
