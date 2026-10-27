@@ -72,7 +72,7 @@ PER_LINE_RULE = "a main-actor Task per line or event (batch with MainActorLineBa
 
 ALLOW = re.compile(r"//\s*main-actor-ok:\s*\S")
 COMMENT_ONLY = re.compile(r"^\s*(//|\*|/\*)")
-OFF_MAIN = re.compile(r"\bnonisolated\b(?!\s*\(unsafe\))|@concurrent\b|(^|\s)(distributed\s+)?actor\s+\w+|\bTask\.detached\b"
+OFF_MAIN = re.compile(r"\bnonisolated\b(?!\s*\(unsafe\))|@concurrent\b|(^|\s)(distributed\s+)?actor\s+\w+|\b(?:Traced)?Task\.detached\b"
                       r"|\bDispatchQueue\.global\(|\bDispatchQueue\(label:")
 MAIN = re.compile(r"@MainActor\b")
 STRING_LITERAL = re.compile(r'"(?:\\.|[^"\\])*"')
@@ -356,8 +356,9 @@ def main_actor_lines(lines: list[str], default_main: bool) -> list[bool]:
     """Whether each line is main-actor code, by lexical scope (brace depth).
 
     The innermost enclosing `nonisolated` / `@concurrent` declaration, `actor`,
-    `Task.detached` or global-queue closure makes a scope off-main; an
-    `@MainActor` declaration makes it main; otherwise the target default holds.
+    `Task.detached` / `TracedTask.detached` or global-queue closure makes a
+    scope off-main; an `@MainActor` declaration makes it main; otherwise the
+    target default holds.
     """
     return [main for main, _ in main_actor_scopes(lines, default_main)]
 

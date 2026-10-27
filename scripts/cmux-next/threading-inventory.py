@@ -368,7 +368,7 @@ NEVER = re.compile(r"(?!)")
 MAIN_CALL = re.compile(r"\b(?:DispatchQueue|RunLoop|OperationQueue)\.main\s*\.\s*(?:async|asyncAfter|sync|perform|addOperation)\b"
                        r"[^{]*\{$|\bMainActor\s*\.\s*(?:run|assumeIsolated)\b[^{]*\{$")
 CLOSURE_ATTRIBUTES = re.compile(r"\s*(?:@\w+(?:\([^)]*\))?\s*)*")
-POOL_OPENER = re.compile(r"\bTask\.detached\b|\bDispatchQueue\.global\(|\.concurrentPerform\b|\bdetachNewThread\b"
+POOL_OPENER = re.compile(r"\b(?:Traced)?Task\.detached\b|\bDispatchQueue\.global\(|\.concurrentPerform\b|\bdetachNewThread\b"
                          r"|(?:^|[=(,]\s*|\breturn\s+)Thread\s*(\{|\(block:)|\baddOperation\s*\{"
                          r"|\baddTask(?:UnlessCancelled)?\s*(\([^{]*\))?\s*\{"
                          r"|(?<!\bmain)\.async(After)?\s*(\([^{]*\))?\s*\{")

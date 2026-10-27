@@ -339,11 +339,20 @@ def pool(directory: str, text: str) -> bool:
 class PoolBlockingTests(unittest.TestCase):
     def test_a_detached_body_is_refused_in_every_target(self):
         for header in ("Task.detached {", "Task.detached(priority: .utility) {", "Task.detached { [weak self] in",
-                       "let data = await Task.detached(operation: {"):
+                       "let data = await Task.detached(operation: {", "TracedTask.detached(priority: .bestEffort) {",
+                       "let data = await TracedTask.detached(priority: .userVisible, operation: {"):
             for directory in (UI, SERVICE):
                 with self.subTest(header=header, directory=directory):
                     text = f"func f() {{\n    {header}\n        {SEAM}\n    }}\n}}\n"
                     self.assertEqual(refused(directory, text), {"pool-blocking"})
+
+    def test_a_traced_task_names_itself(self):
+        # TracedTask.detached (p09-observability-124) is a detached task on the pool with its post site traced.
+        for header, name in (("Task.detached(priority: .utility) {", "Task.detached"),
+                             ("TracedTask.detached(priority: .bestEffort) {", "TracedTask.detached")):
+            with self.subTest(header=header):
+                text = f"func f() {{\n    {header}\n        {SEAM}\n    }}\n}}\n"
+                self.assertEqual(seam_context(SERVICE, text), name)
 
     def test_a_raw_call_in_a_detached_body_is_raw_and_pool_blocking(self):
         text = f"func f() {{\n    Task.detached(priority: .utility) {{\n        {RAW}\n    }}\n}}\n"

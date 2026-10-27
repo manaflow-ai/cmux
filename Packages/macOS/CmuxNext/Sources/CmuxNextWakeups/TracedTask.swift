@@ -7,8 +7,10 @@ public import CmuxNextTrace
 /// While the `task` trace category records, the post writes a ``TaskTrace`` `task.post` flow-out named by the
 /// caller's `#fileID` and `#line`, and the run opens a `task.run` async slice with the pool lane, the priority and
 /// the time the task waited for the pool, ends the flow in it, and closes it when the operation returns. The slice is
-/// AB/AE because a task can resume on another thread (``TaskTrace/Ticket/beginAsyncRun(priority:)``). While the
-/// category is off, a post costs one relaxed load more than `Task.detached` and the task runs the operation as is.
+/// AB/AE because a task can resume on another thread (``TaskTrace/Ticket/beginAsyncRun(priority:)``). The run reads
+/// the category again, as `TaskAnnotator::RunTask` does: a task posted before a recording started still gets its
+/// `task.run` slice, with no flow and an unknown queue wait. While the category is off, a post and a run cost one
+/// relaxed load each more than `Task.detached`.
 ///
 /// The priority has no default: every detached task says how much a person waits for it
 /// (plans/cmux-next/PATTERNS.md P14, Chrome's `base::TaskPriority`). Work that may block (file I/O, a process wait,
@@ -74,12 +76,9 @@ public struct TracedTask: Sendable {
         operation: sending @escaping @isolated(any) () async -> Success
     ) -> Task<Success, Never> {
         let ticket = trace.post(fileID: file, line: line, lane: .pool)
-        guard ticket.isTraced else { return Task.detached(priority: priority.taskPriority, operation: operation) }
         let code = Self.code(priority)
         return Task.detached(priority: priority.taskPriority) {
-            let run = ticket.beginAsyncRun(priority: code)
-            defer { run.end() }
-            return await operation()
+            await Self.run(ticket, priority: code) { await operation() }
         }
     }
 
@@ -97,13 +96,26 @@ public struct TracedTask: Sendable {
         operation: sending @escaping @isolated(any) () async throws -> Success
     ) -> Task<Success, any Error> {
         let ticket = trace.post(fileID: file, line: line, lane: .pool)
-        guard ticket.isTraced else { return Task.detached(priority: priority.taskPriority, operation: operation) }
         let code = Self.code(priority)
         return Task.detached(priority: priority.taskPriority) {
-            let run = ticket.beginAsyncRun(priority: code)
-            defer { run.end() }
-            return try await operation()
+            try await Self.run(ticket, priority: code) { try await operation() }
         }
+    }
+
+    /// Runs `operation` inside the `task.run` async slice of `ticket`'s post when the `task` category is on now,
+    /// whether or not it was on at the post (``TaskTrace/Ticket/beginAsyncRun(priority:)``).
+    ///
+    /// - Parameters:
+    ///   - ticket: The post's ticket.
+    ///   - priority: The priority code the run starts at (``code(_:)``).
+    ///   - operation: The work.
+    /// - Returns: What `operation` returns.
+    static func run<Success>(
+        _ ticket: TaskTrace.Ticket, priority: UInt8, _ operation: () async throws -> Success
+    ) async rethrows -> Success {
+        let run = ticket.beginAsyncRun(priority: priority)
+        defer { run.end() }
+        return try await operation()
     }
 
     /// The `task.run` priority code of `priority`: its `rawValue`, as a lane item's.

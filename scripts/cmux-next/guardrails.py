@@ -3741,8 +3741,9 @@ def maybe_blocking_on_main(changes: list[FileChange], moved: collections.Counter
 # cooperative pool (Task.detached, child tasks, `Task {` off any actor, default actor executors, @concurrent) and the
 # GCD root queues. One blocked pool thread is a whole core's worth of async work stalled (the pool has one per core).
 # The body as a trailing closure, or as the `operation:` argument (`Task.detached(operation: { ... })`).
+# `TracedTask.detached` (p09-observability-124) is the same detached task on the cooperative pool, traced.
 TASK_BODY = r"(?:\s*(\([^{]*\))?\s*\{$|\s*\([^{]*\boperation:\s*\{$)"
-POOL_DETACHED = re.compile(r"\bTask\.detached" + TASK_BODY)
+POOL_DETACHED = re.compile(r"\b(?P<name>(?:Traced)?Task\.detached)" + TASK_BODY)
 POOL_CHILD = re.compile(r"\baddTask(UnlessCancelled)?" + TASK_BODY + r"|\bDispatchQueue\.global\([^{]*\)\s*\.\s*"
                         r"async(After)?\s*(\([^{]*\))?\s*\{$|\.concurrentPerform\s*\([^{]*\)\s*\{$")
 TASK_INHERITS = re.compile(r"(?<![\w.])Task\s*(<[^{]*>)?\s*(\([^{]*\))?\s*\{$")
@@ -3965,10 +3966,10 @@ def declares_async(header: str) -> bool:
 
 
 def pool_context(version: Version, index: int) -> str | None:
-    """Where VERSION's line INDEX runs if that is a shared pool thread, else None: "Task.detached", "a child task"
-    (`addTask {`, a global queue, `concurrentPerform`), "a child task (async let)", "an @concurrent function", "a
-    `Task {` in a nonisolated function", or "an actor method" (an actor without a custom executor, resolved against
-    the ActorIndex in VERSION.memo["actors"]). Any other closure (`work.run {`, a completion handler, a serial
+    """Where VERSION's line INDEX runs if that is a shared pool thread, else None: "Task.detached" or
+    "TracedTask.detached", "a child task" (`addTask {`, a global queue, `concurrentPerform`), "a child task (async
+    let)", "an @concurrent function", "a `Task {` in a nonisolated function", or "an actor method" (an actor without
+    a custom executor, resolved against the ActorIndex in VERSION.memo["actors"]). Any other closure (`work.run {`, a completion handler, a serial
     queue's `async {`) is not judged: it runs where its API says."""
     answers = version.memo.setdefault("pool_context", {})
     if index not in answers:
@@ -4002,8 +4003,8 @@ def _pool_walk(version: Version, index: int, prefix: str, in_task: bool) -> str 
         line = code_of(lines[number - 1])
         if MAIN_OPENER.search(opener) or MAIN_OPENER.search(line) or CLOSURE_ON_MAIN.search(line[len(opener) - 1:]):
             return None
-        if POOL_DETACHED.search(header):
-            return "Task.detached"
+        if detached := POOL_DETACHED.search(header):
+            return detached["name"]
         if POOL_CHILD.search(header):
             return "a child task"
         if TASK_INHERITS.search(header):

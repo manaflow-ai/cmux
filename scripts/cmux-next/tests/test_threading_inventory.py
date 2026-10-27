@@ -445,6 +445,21 @@ struct Hops {
         self.assertEqual(hit(hits, "raw-blocking", "Data(contentsOf").isolation, "pool")
         self.assertEqual(hit(hits, "main-blocking", "String(contentsOf").isolation, "main")
 
+    def test_a_traced_task_body_is_the_pool(self):
+        # TracedTask.detached (p09-observability-124) is Task.detached with a post site: its body runs on the pool.
+        source = {SRC + "CmuxNextUI/Traced.swift": """import Foundation
+
+final class Traced {
+    func start(_ url: URL) {
+        TracedTask.detached(priority: .bestEffort) {
+            _ = try? Data(contentsOf: url)
+        }
+    }
+}
+"""}
+        hits = inventory.inventory(tree(source))
+        self.assertEqual(hit(hits, "raw-blocking", "Data(contentsOf").isolation, "pool")
+
     def test_attribute_on_its_own_line(self):
         # guardrails' block_header stops at an attribute line; the inventory reads the attribute into the declaration.
         source = {SRC + "CmuxNextCore/Off.swift": """import Foundation

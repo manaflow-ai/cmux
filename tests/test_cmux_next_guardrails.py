@@ -2461,6 +2461,14 @@ class MainClassRuleTests(Fixture):
         # main_actor_lines (check-concurrency.sh's and check-main-actor-work.py's reading) is unchanged by UI types.
         self.assertFalse(scope.main_actor_lines(lines, False)[4])
 
+    def test_a_detached_body_is_off_main_in_a_main_actor_target(self):
+        # TracedTask.detached (p09-observability-124) is Task.detached with a post site: its body runs on the pool.
+        scope = guardrails.main_actor_work
+        for opener in ("Task.detached(priority: .utility) {", "TracedTask.detached(priority: .bestEffort) {"):
+            with self.subTest(opener=opener):
+                lines = f"func q() {{\n    {opener}\n        work()\n    }}\n    work()\n}}\n".split("\n")
+                self.assertEqual(scope.main_actor_lines(lines, True)[1:5], [False, False, False, True])
+
     def test_annotating_the_scope_makes_its_old_tasks_new_debt(self):
         self.rebase_on({f"{PKG}/Package.swift": "// swift-tools-version: 6.2\nimport PackageDescription\n"
                         "let package = Package(name: \"CmuxNext\", targets: [\n    .target(name: \"CmuxNextKit\"),\n])\n",

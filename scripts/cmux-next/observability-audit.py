@@ -47,7 +47,8 @@ Where a queue's text in the plan cannot be run literally, the script keeps its i
   that `server/command_names.rs` does not name.
 - MQ12 reads only `case` declarations (not `case let` arms of the name switch).
 - MQ14 matches `Task.detached` at a word boundary, so the TracedTask.detached replacement is not a hit. It lists
-  CmuxNextCompat's sites as excluded: Wakeups depends on Compat, so they cannot call TracedTask (task 124).
+  CmuxNextCompat's sites as excluded: Wakeups depends on Compat, so they cannot call TracedTask (task 124). It also
+  lists CmuxNextWakeups/TracedTask.swift's own `Task.detached` calls as excluded: they are the traced post itself.
 """
 
 from __future__ import annotations
@@ -976,7 +977,7 @@ class Audit:
             if is_comment(m.text):
                 continue
             hit = Hit(m.file, m.line, m.text.strip()[:120])
-            (excluded if "/CmuxNextCompat/" in m.file else hits).append(hit)
+            (excluded if mq14_excluded(m.file) else hits).append(hit)
         q = Queue("MQ14", "TracedTask.detached for the detached task", hits, "<=30 hits", "untraced_detached_tasks")
         q.batches = by_hits(hits, 30)
         q.notes = {"excluded_compat": [h.to_json() for h in excluded]}
@@ -1361,6 +1362,12 @@ def summary(queues: List[Queue], counts: Dict[str, object]) -> str:
 # Self-test: every query against fixture strings, and the done rules against in-memory files.
 
 
+def mq14_excluded(file: str) -> bool:
+    """Whether an MQ14 hit in FILE is listed as excluded, not queued: CmuxNextCompat cannot call TracedTask (Wakeups
+    depends on it), and TracedTask.swift's `Task.detached` calls are the traced post itself (task 124)."""
+    return "/CmuxNextCompat/" in file or file.endswith("/CmuxNextWakeups/TracedTask.swift")
+
+
 def self_test() -> int:
     rg = Rg(Path.cwd())
     checks = 0
@@ -1548,6 +1555,10 @@ def self_test() -> int:
     expect("MQ14", lines_of(Q.MQ14, "Task.detached(priority: .utility) {}\nTask {}\n"
                                     "TracedTask.detached(priority: .utility) {}\n_Concurrency.Task.detached {}\n"),
            ["Task.detached(priority: .utility) {}", "_Concurrency.Task.detached {}"])
+    expect("MQ14 excluded", [mq14_excluded(f"{SOURCES}/{f}") for f in
+                             ("CmuxNextWakeups/TracedTask.swift", "CmuxNextCompat/Lock.swift",
+                              "CmuxNextWakeups/BackgroundWork.swift", "CmuxNextHomeEngine/HomeChiefFiles.swift")],
+           [True, True, False, False])
     expect("MQ15", len(lines_of(Q.MQ15, "let c = ContinuousClock()\nlet s = SuspendingClock()\n")), 1)
     def clock_done(lines: List[str], line: int) -> bool:
         return marked(lines, line, CONTINUOUS_CLOCK_REPLACED, CONTINUOUS_CLOCK_ESCAPE)

@@ -143,13 +143,16 @@ import Testing
         #expect(records.named(.taskRun, .asyncEnd).count == 1)
     }
 
-    @Test func aRunWhosePostWasNotTracedHasNoFlowAndAnUnknownWait() throws {
+    /// A task posted before the recording started still gets its `task.run` slice: the run reads the category
+    /// again, as Chrome's `TaskAnnotator::RunTask` does. The run is the one every ``TracedTask`` runs through.
+    @Test func aTaskPostedBeforeTheRecordingStartedRunsInASliceWithNoFlowAndAnUnknownWait() async throws {
         let ring = TraceRing(records: 4096, role: .app)
         let runtime = Self.runtime(ring, [])
         let ticket = TaskTrace(runtime: runtime).post(fileID: #fileID, line: #line, lane: .pool)
         #expect(!ticket.isTraced)
         runtime.setCategoryMask(1 << UInt64(SignpostCategory.task.traceBit))
-        ticket.beginAsyncRun(priority: TracedTask.code(.bestEffort)).end()
+        let value = await TracedTask.run(ticket, priority: TracedTask.code(.bestEffort)) { 5 }
+        #expect(value == 5)
 
         let records = try TaskRecords(ring)
         #expect(records.named(.taskPost, .flowOut).isEmpty)
