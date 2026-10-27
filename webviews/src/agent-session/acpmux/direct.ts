@@ -3032,13 +3032,16 @@ export class AcpmuxDirectClient {
       this.commands = keptCommands;
       rememberCommands(sessionId, keptCommands);
       this.emit("commands");
-    } else if (
+    }
+    // Read back once this attach is kept (below): an attempt the row moves on from is retried
+    // under the same generation, so a read it sent could answer for the retry's session.
+    const readCommandsThrough =
       !keptCommands &&
       !page.some((event) => event.kind === COMMANDS_KIND) &&
       typeof result?.lastSeq === "number" &&
       result.lastSeq > 0
-    )
-      void this.fetchCommands(sessionId, generation, result.lastSeq).catch(() => {});
+        ? result.lastSeq
+        : undefined;
     this.summary = detail;
     this.configSeq = Array.isArray(detail.configOptions) && typeof result?.lastSeq === "number" ? result.lastSeq : 0;
     this.goalSeq = typeof result?.lastSeq === "number" ? result.lastSeq : 0;
@@ -3061,6 +3064,8 @@ export class AcpmuxDirectClient {
     if (!current()) return [];
     // The row moved on while those reads were out: what this attach staged is not the chat's.
     if (strayed() || this.sessions.find((session) => session.sessionId === sessionId)?.peer !== askedOf) return again();
+    if (readCommandsThrough !== undefined)
+      void this.fetchCommands(sessionId, generation, readCommandsThrough).catch(() => {});
     this.turnOpener = opener;
     // Merged after the reads: live events that landed meanwhile are kept.
     this.events = mergeEventRecords(page, this.events);
