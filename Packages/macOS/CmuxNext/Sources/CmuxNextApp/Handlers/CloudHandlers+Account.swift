@@ -1,6 +1,10 @@
 import AppKit
 import CmuxNextActions
 import CmuxNextCloud
+import CmuxNextCloudUI
+import CmuxNextCloudCredentials
+import CmuxNextCompat
+import CmuxNextDesign
 import CmuxNextControl
 import CmuxNextDaemon
 import CmuxNextSettings
@@ -13,6 +17,10 @@ extension CloudHandlers {
         bind("newCloudMachine", registry, reason: reason) { invocation in
             let request = try newMachineRequest(invocation)
             let window = invocation.allowsViewChange ? context.services.windows.active?.state : nil
+            if request.isDefault, origin(of: invocation) == .user, window != nil {
+                beginWorkspaceSetup(context, window: window, askedBy: invocation.callerAgentSession)
+                return
+            }
             let flow = creationFlow(context, startedByPerson: invocation.origin == .user, askedBy: invocation.callerAgentSession)
             guard request.isDefault else { return createRequested(request, flow: flow, window: window, context) }
             // The new machine's progress shows in the window at once; its
@@ -23,6 +31,10 @@ extension CloudHandlers {
             let target = try workspaceMachine(invocation, context)
             let window = invocation.allowsViewChange ? context.services.windows.active?.state : nil
             guard let session = target, session.daemon.connection != nil else {
+                if target == nil, origin(of: invocation) == .user, window != nil {
+                    beginWorkspaceSetup(context, window: window, askedBy: invocation.callerAgentSession)
+                    return
+                }
                 // A new machine, or one still on its way: show its progress
                 // now. An ended app link connects again on this gesture, and
                 // a paused machine resumes (idle auto-pause).
@@ -40,6 +52,68 @@ extension CloudHandlers {
                 guard let id else { throw ActionFailure(message: CloudStrings.notConnected) }
                 show(id, context)
                 return machineFields(session.machineID, ["workspace_id": .string(id)])
+            }
+        }
+    }
+
+    static func beginWorkspaceSetup(_ context: AppActionContext, window: WindowState?, askedBy: String?) {
+        runTracked("new Cloud workspace", context) {
+            let cloud = context.services.cloud, services = context.services
+            let userID = cloud.auth.user?.id, teamID = cloud.auth.teamID
+            let availability = CloudWorkspaceSetupWizard.CredentialAvailability.resolve(
+                teamID: cloud.auth.teamID, supportsFileRoute: cloud.configuration.linkSource == .legacy)
+            let present: (CmuxDialogSpec) async -> CmuxDialogAnswer = { spec in
+                let scope: CmuxDialogScope = services.windows.active?.window.map(CmuxDialogScope.window) ?? .app
+                return await CmuxDialogCenter.shared.present(spec, in: scope)
+            }
+            let wizard = CloudWorkspaceSetupWizard()
+            guard let plan = try await wizard.choosePlan(availability: availability, present: present) else { return }
+            var request = plan.request
+            request.script = try await request.loadScript(work: services.work)
+            let creation = creationFlow(context, startedByPerson: true, askedBy: askedBy).start(in: window, existing: nil, request: request)
+            guard case .created? = await settledCreation(creation, in: cloud.creations), let session = creation.session else { return }
+            // End the observer when creation is dismissed or removed. A completed workspace
+            // can already have replaced its progress row before this observer starts.
+            for await stage in ObservationStream({
+                creation.workspaceID != nil ? CloudMachineStage.ready :
+                    (cloud.creations.creation(creation.id) == nil ? nil : creation.stage)
+            }) {
+                guard let stage else { return }
+                if stage == .ready { break }
+                if stage.isFinished { return }
+            }
+            try Task.checkCancellation()
+            if plan.repository != nil {
+                // The completion task outlives the progress row. Account changes wake this observer;
+                // the bootstrap's bounded completion result ends it on success or failure.
+                for await (completion, currentUser, currentTeam) in ObservationStream({
+                    (creation.bootstrapCompletion, cloud.auth.user?.id, cloud.auth.teamID)
+                }) {
+                    guard currentUser == userID, currentTeam == teamID else { return }
+                    guard let completion else { continue }
+                    try Task.checkCancellation()
+                    try await wizard.finishBootstrap(completion) { path in
+                        guard let id = await services.windows.createWorkspace(cwd: path, on: session.daemon, into: window?.id) else {
+                            throw ActionFailure(message: CloudStrings.notConnected)
+                        }
+                        try Task.checkCancellation()
+                        guard cloud.auth.user?.id == userID, cloud.auth.teamID == teamID else { return }
+                        show(id, context)
+                    }
+                    break
+                }
+            }
+            try Task.checkCancellation()
+            guard availability == .available, let userID,
+                  cloud.auth.user?.id == userID, cloud.auth.teamID == teamID else { return }
+            try await wizard.offerCredentialSetup(machine: session.machine.title,
+                account: cloud.auth.activeTeam.team?.displayName ?? String(localized: "cloud.workspaceSetup.personalAccount", defaultValue: "Personal account", table: "Cloud", bundle: .module), present: present) { provider in
+                let transfer = CloudCredentialTransfer(provider: provider == .claude ? .claude : .codex,
+                    machineID: session.machineID, teamID: teamID, userID: userID, openTerminal: { [weak services] line in
+                        await services?.openLocalProviderLogin(line) ?? false
+                    })
+                try await transfer.run(api: cloud.api, currentTeamID: { cloud.auth.teamID },
+                                       currentUserID: { cloud.auth.user?.id }, confirmed: true)
             }
         }
     }
