@@ -70,10 +70,11 @@ export async function resolveVmGuestKind(
  * caller's own personal account (owner_team_id is the caller's user id) that
  * the caller created. Every Stack team is `team`, even while the caller is its
  * only member, and so is a machine the caller reaches but did not create. A
- * row with no usable billing owner is null. Computed per request, never stored.
+ * row with no usable billing owner is null. Ids compare exactly. Computed per
+ * request, never stored.
  */
 export function vmKindForCaller(row: VmGuestKindRow, callerUserId: string): VmGuestKind | null {
   if (!row.ownerTeamId.trim()) return null;
-  const caller = callerUserId.trim();
-  return caller !== "" && vmIsOnPersonalAccount(row) && row.userId.trim() === caller ? "owner" : "team";
+  // Exact ids, no trimming: a padded id is not the caller.
+  return callerUserId !== "" && row.ownerTeamId === callerUserId && row.userId === callerUserId ? "owner" : "team";
 }

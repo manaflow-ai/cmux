@@ -116,6 +116,10 @@ describe("attach-endpoint vmKind", () => {
     // creator, that caller is not its owner.
     expect(await cmuxRemoteKind(personalVm, MEMBER, CREATOR)).toBe("team");
     expect(await websocketKind(personalVm, MEMBER, CREATOR)).toBe("team");
+    // A creator id that differs from the caller only by padding is not the caller.
+    const padded = row({ userId: ` ${CREATOR} ` });
+    expect(await cmuxRemoteKind(padded, CREATOR, CREATOR)).toBe("team");
+    expect(await websocketKind(padded, CREATOR, CREATOR)).toBe("team");
   });
 
   test("a team whose only member is the creator is still team", async () => {
@@ -141,7 +145,6 @@ describe("attach-endpoint vmKind", () => {
 describe("vmKindForCaller", () => {
   test("owner only for the caller's own personal machine", () => {
     expect(vmKindForCaller({ userId: CREATOR, ownerTeamId: CREATOR }, CREATOR)).toBe("owner");
-    expect(vmKindForCaller({ userId: ` ${CREATOR} `, ownerTeamId: CREATOR }, ` ${CREATOR}`)).toBe("owner");
   });
 
   test("anyone else, any team, and a blank caller get team", () => {
@@ -152,6 +155,10 @@ describe("vmKindForCaller", () => {
     expect(vmKindForCaller({ userId: CREATOR, ownerTeamId: TEAM }, TEAM)).toBe("team");
     expect(vmKindForCaller({ userId: CREATOR, ownerTeamId: CREATOR }, "")).toBe("team");
     expect(vmKindForCaller({ userId: "", ownerTeamId: CREATOR }, CREATOR)).toBe("team");
+    // Ids compare exactly: padding never makes someone the owner.
+    expect(vmKindForCaller({ userId: ` ${CREATOR} `, ownerTeamId: CREATOR }, CREATOR)).toBe("team");
+    expect(vmKindForCaller({ userId: CREATOR, ownerTeamId: ` ${CREATOR}` }, CREATOR)).toBe("team");
+    expect(vmKindForCaller({ userId: CREATOR, ownerTeamId: CREATOR }, ` ${CREATOR}`)).toBe("team");
   });
 
   test("no usable billing owner is null", () => {
