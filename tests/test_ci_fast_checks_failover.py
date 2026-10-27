@@ -1,15 +1,15 @@
 #!/usr/bin/env python3
-"""fast-checks.yml fails over with the Blacksmith overflow switch.
+"""fast-checks.yml fails over to another Blacksmith Linux size with the overflow switch.
 
-On 2026-10-27 Blacksmith Linux started no job for the organization for a while.
-ci-cloud-overflow-probe.yml pointed LINUX_RUNNER at GitHub-hosted Linux and wrote
+On 2026-10-27 the 32 vCPU Blacksmith Linux label started no job for the
+organization for a while. ci-cloud-overflow-probe.yml wrote
 CI_CLOUD_OVERFLOW_SAVED, but fast-checks.yml named blacksmith-32vcpu-ubuntu-2404
-directly, so its runs got no runner at all. While the record is set these jobs
-take LINUX_RUNNER, which the switch has pointed at its failover; an unset record
-is falsy, so healthy routing is unchanged. No literal GitHub-hosted label is named
-(tests/test_ci_self_hosted_guard.sh).
-Sticky disks exist only on Blacksmith, so fast checks skip them (and the
-sanitizer that works inside the mounted checkout) elsewhere.
+directly, so its runs waited on that label. While the record is set the job takes
+blacksmith-16vcpu-ubuntu-2404 instead; an unset record is falsy, so healthy
+routing is unchanged. The failover stays on Blacksmith: no job runs on
+GitHub-hosted Ubuntu, so it never names vars.LINUX_RUNNER (which the switch may
+point at hosted Linux) or a hosted label. Sticky disks work on every Blacksmith
+Linux size, so the cache steps stay as they are.
 """
 
 from __future__ import annotations
@@ -18,35 +18,31 @@ import re
 import unittest
 from pathlib import Path
 
-WORKFLOWS = Path(__file__).resolve().parents[1] / ".github" / "workflows"
-LABEL = re.compile(r"'blacksmith-[0-9]+vcpu-ubuntu-2404'")
-FAILOVER = "vars.CI_CLOUD_OVERFLOW_SAVED && vars.LINUX_RUNNER || 'blacksmith-"
-ON_BLACKSMITH = "if: startsWith(runner.name, 'blacksmith-')"
+WORKFLOW = Path(__file__).resolve().parents[1] / ".github" / "workflows" / "fast-checks.yml"
+FAILOVER = ("vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-16vcpu-ubuntu-2404'"
+            " || 'blacksmith-32vcpu-ubuntu-2404' }}")
 
 
-def runs_on_lines(name: str) -> list[str]:
-    text = (WORKFLOWS / name).read_text(encoding="utf-8")
+def runs_on_lines() -> list[str]:
+    text = WORKFLOW.read_text(encoding="utf-8")
     return [line for line in text.splitlines() if re.match(r"^\s*runs-on\s*:", line)]
 
 
 class FastChecksFailoverTests(unittest.TestCase):
-    def test_literal_linux_labels_fail_over_while_the_record_is_set(self) -> None:
-        for name in ("fast-checks.yml",):
-            literal = [line for line in runs_on_lines(name) if LABEL.search(line)]
-            self.assertTrue(literal, name)
-            for line in literal:
-                self.assertIn(FAILOVER, line, f"{name}: {line.strip()}")
-                # The failover term sits right before the Blacksmith fallback, after the fork check.
-                self.assertTrue(line.rstrip().endswith("' }}"), line)
+    def test_blacksmith_linux_label_fails_over_to_another_blacksmith_size(self) -> None:
+        lines = [line for line in runs_on_lines() if "blacksmith-32vcpu-ubuntu-2404" in line]
+        self.assertTrue(lines)
+        for line in lines:
+            self.assertTrue(line.rstrip().endswith(FAILOVER), line.strip())
 
-    def test_fast_checks_mounts_sticky_disks_only_on_blacksmith(self) -> None:
-        text = (WORKFLOWS / "fast-checks.yml").read_text(encoding="utf-8")
-        for step in ("Mount warm checkout", "Sanitize persistent checkout metadata",
-                     "Mount package and compilation caches"):
-            body = re.search(rf"- name: {re.escape(step)}\n((?:[ ]{{8}}[^\n]*\n)+)", text)
-            self.assertIsNotNone(body, step)
-            self.assertIn(ON_BLACKSMITH, body.group(1), step)
-        self.assertEqual(text.count("useblacksmith/stickydisk"), 2)
+    def test_failover_never_reaches_github_hosted_linux(self) -> None:
+        for line in runs_on_lines():
+            self.assertNotIn("LINUX_RUNNER", line, line.strip())
+            # The only hosted label allowed is the fork branch that predates this change.
+            hosted = re.findall(r"'ubuntu-[0-9.]+'", line)
+            self.assertLessEqual(len(hosted), 1, line.strip())
+            if hosted:
+                self.assertIn("github.repository_owner != 'manaflow-ai' && 'ubuntu-", line)
 
 
 if __name__ == "__main__":
