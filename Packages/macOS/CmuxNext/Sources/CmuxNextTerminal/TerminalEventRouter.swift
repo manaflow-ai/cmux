@@ -32,14 +32,27 @@ nonisolated struct TerminalEventRouter: Sendable {
     /// Names the lane the IO's reader may feed live output to (p04-input-083): the live surface's once
     /// it has content, after each event (nil: the IO keeps every chunk on its events).
     let outputLane: TerminalOutputLaneNamer?
+    /// Advanced by the session when it released or rebuilt its surface (``TerminalSurfaceRelease``): the
+    /// loop then takes the session's current lane through ``handoff`` before its next event.
+    let epoch: TerminalSurfaceEpoch?
+    /// The session's current lane, read on the main actor (nil: the session is gone).
+    let handoff: (@Sendable () async -> TerminalLaneHandoff?)?
+    /// The ``epoch`` value ``lane`` belongs to.
+    private var seenEpoch: UInt64
+    /// The session's surface is released: content is dropped, the rebuild's READY carries it.
+    private(set) var released = false
 
     init(lane: TerminalOutputLane?, mailbox: TerminalEventMailbox, input: TerminalInputSink,
-         outputLane: TerminalOutputLaneNamer? = nil,
+         outputLane: TerminalOutputLaneNamer? = nil, epoch: TerminalSurfaceEpoch? = nil,
+         handoff: (@Sendable () async -> TerminalLaneHandoff?)? = nil,
          replace: @escaping @Sendable (TerminalIOEvent) async -> TerminalOutputLane??) {
         self.lane = lane
         self.mailbox = mailbox
         self.input = input
         self.outputLane = outputLane
+        self.epoch = epoch
+        self.handoff = handoff
+        seenEpoch = epoch?.current ?? 0
         self.replace = replace
     }
 
@@ -53,12 +66,36 @@ nonisolated struct TerminalEventRouter: Sendable {
             resume.resume()
             return true
         }
+        if let epoch, let handoff, epoch.current != seenEpoch {
+            guard let current = await handoff() else { return false }
+            adopt(current)
+        }
         let alive = await routeInOrder(event)
         if alive { outputLane?.name(hasContent ? lane : nil) }
         return alive
     }
 
+    /// Takes the session's surface after a release or a rebuild: a fresh lane has no content yet.
+    private mutating func adopt(_ current: TerminalLaneHandoff) {
+        seenEpoch = current.epoch
+        lane = current.lane
+        released = current.released
+        hasContent = false
+        restored = TerminalRestoredContent()
+        restoreQueued = false
+    }
+
+    /// Whether `event` puts content into the surface (dropped while it is released). A new kind of
+    /// event counts as content until it is listed here.
+    private static func carriesContent(_ event: TerminalIOEvent) -> Bool {
+        switch event {
+        case .resize, .exited, .status, .sizedFor, .outputResume: false
+        default: true
+        }
+    }
+
     private mutating func routeInOrder(_ event: TerminalIOEvent) async -> Bool {
+        if released, Self.carriesContent(event) { return true }
         if let lane, await lane.takeOffMain(event) {
             if case .output = event { contentQueued() }
             return true

@@ -1,0 +1,14 @@
+{
+  "$schema": "../features.schema.json",
+  "name": "terminalHiddenSurfaceRelease",
+  "owner": "PL-memory",
+  "description": "A terminal hidden for 30 s frees its Ghostty surface (renderer, IO threads, font atlases, GPU buffers) and keeps only its last frame; shown again it rebuilds from the daemon's snapshot and the stream after it while the last frame shows.",
+  "defaults": { "dev": false, "nightly": false, "release": false },
+  "kind": "perfPath",
+  "expires": "2026-12-20",
+  "process": "app",
+  "params": [],
+  "stories": ["memory-hidden", "switch"],
+  "sticky": false,
+  "runtimeMutable": false
+}

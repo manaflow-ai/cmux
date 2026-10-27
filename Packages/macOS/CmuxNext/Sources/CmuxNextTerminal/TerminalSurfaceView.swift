@@ -22,7 +22,7 @@ public final class TerminalSurfaceView: NSView {
 
     /// SAFETY: the view's live surface: made in `init`, freed only in `deinit`, and never
     /// replaced, so a non-nil read on the main actor is a live handle for that turn. Off-main
-    /// work reaches it only through ``lane``, which `deinit` closes before the free.
+    /// work reaches it only through ``lane``, which `deinit` closes before the free. Nil for good in a stand-in.
     @safe private(set) var surface: ghostty_surface_t?
     /// The light/dark scheme last given to this surface (diagnostics).
     var colorSchemeIsDark = false
@@ -169,7 +169,7 @@ public final class TerminalSurfaceView: NSView {
     init(io mode: ghostty_surface_io_mode_e, input: TerminalInputSink, session: TerminalSession?,
          echoStages: TerminalEchoStages, hangWatch: (any HangWatchScoping)? = nil, secureInput: TerminalSecureInput,
          modifiers: TerminalModifierWatch? = nil, pointerFrames: FrameInputCoalescers? = nil,
-         mainWork: MainWorkScheduler, node: VisibilityNode? = nil, gpuResidency: (any TerminalGPUResidency)? = nil) {
+         mainWork: MainWorkScheduler, node: VisibilityNode? = nil, gpuResidency: (any TerminalGPUResidency)? = nil, makesSurface: Bool = true) {
         let echoStage = echoStages.makeStage() // before the surface: the trace hook may see its first frame
         let bridge = SurfaceBridge(input: input, echoStage: echoStage, frameMarks: echoStages.frameMarks)
         // SAFETY: balanced by the one release in `deinit` (`bridge`'s note).
@@ -186,7 +186,7 @@ public final class TerminalSurfaceView: NSView {
         bridge.target = self
         windowWatch.onChange = { [weak self] change in self?.windowStateChanged(change) }
         bridge.followLinkAnswers(on: mainWork)
-        createSurface(mode: mode, echoStage: echoStage, contentsGate: echoStages.contentsGate)
+        if makesSurface { createSurface(mode: mode, echoStage: echoStage, contentsGate: echoStages.contentsGate) } // else a released terminal's stand-in
     }
 
     @available(*, unavailable)

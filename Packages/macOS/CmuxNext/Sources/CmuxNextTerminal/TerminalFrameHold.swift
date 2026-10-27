@@ -68,13 +68,16 @@ final class TerminalFrameHold {
 
     /// Paints `frame` (an evicted terminal's last frame, an IOSurface; or its frame from the last
     /// quit, a CGImage) over `fresh`, a new session's first surface, until the first content
-    /// queued on its lane (``contentQueued()``) is parsed and drawn.
-    func begin(lastFrame frame: Any, over fresh: TerminalSurfaceView, in host: NSView) {
+    /// queued on its lane (``contentQueued()``) is parsed and drawn. `contentLimit`: the longest it waits for
+    /// that content; nil waits until it comes (a released terminal whose stream ended keeps its last screen).
+    func begin(lastFrame frame: Any, over fresh: TerminalSurfaceView, in host: NSView,
+               contentLimit: Duration? = TerminalFrameHold.contentLimit) {
         end()
         show(frame, over: fresh, like: fresh.layer, in: host)
         awaitingContent = true
         let generation = generation
-        deadline.schedule(after: Self.contentLimit) { [weak self] in
+        guard let contentLimit else { return }
+        deadline.schedule(after: contentLimit) { [weak self] in
             guard let self, self.generation == generation, self.awaitingContent else { return }
             self.end()
         }

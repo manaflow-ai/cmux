@@ -49,24 +49,6 @@ public final class TerminalSession {
         didSet { surfaceView.ownsGeometry = ownsGeometry }
     }
 
-    /// The grid a new terminal in this terminal's pane would fit: this view's
-    /// fitted grid while it is in a window at the configured font size. Nil
-    /// before its first layout, out of a window, or with its font zoomed (a
-    /// new terminal starts at the configured size).
-    public var gridForNewTerminal: TerminalGridSize? {
-        guard surfaceView.window != nil, TerminalFontScale(surfaceView).current == nil else { return nil }
-        return surfaceView.fittedGrid
-    }
-
-    /// Ghostty's cell size in backing pixels at the configured font size, for
-    /// working out a new terminal's grid (``TerminalGridEstimate``). Nil while
-    /// unknown or with this terminal's font zoomed.
-    public var configuredCellPixelSize: CGSize? {
-        let cell = model.cellPixelSize
-        guard cell.width > 0, cell.height > 0, TerminalFontScale(surfaceView).current == nil else { return nil }
-        return cell
-    }
-
     /// Why a dead terminal's host was lost (nil: its process ended, or it runs).
     public var hostLoss: TerminalHostLoss? {
         didSet { if hostLoss != oldValue { view.showHostLoss(hostLoss, cause: hostLossCause) } }
@@ -87,7 +69,7 @@ public final class TerminalSession {
     /// Pauses rendering while the terminal is scrolled off-screen (strip
     /// columns) or its tab is not selected. Output keeps being parsed.
     public var isRenderingSuspended = false {
-        didSet { surfaceView.isRenderingSuspended = isRenderingSuspended }
+        didSet { surfaceView.isRenderingSuspended = isRenderingSuspended; updateSurfaceRelease() }
     }
 
     /// Outside the keep-alive band (the App's surface ledger): paused, the surface lets its GPU memory
@@ -118,7 +100,7 @@ public final class TerminalSession {
     /// Mirrors currently shown. Forwarded to whichever surface is live so a
     /// hover preview stays live across a surface swap.
     var mirrorDemand = 0 {
-        didSet { surfaceView.mirrorDemand = mirrorDemand }
+        didSet { surfaceView.mirrorDemand = mirrorDemand; updateSurfaceRelease() }
     }
 
     let io: any TerminalIO
@@ -133,10 +115,14 @@ public final class TerminalSession {
     private let pointerFrames: FrameInputCoalescers?
     /// Passed to each surface view this session makes: their GPU memory release while away.
     private let gpuResidency: (any TerminalGPUResidency)?
-    private let input: TerminalInputSink
+    let input: TerminalInputSink
     /// The lane the IO's reader feeds live output to (``TerminalIO/setOutputLane(_:)``): the events loop
-    /// names it, close names none.
-    private let outputLane: TerminalOutputLaneNamer
+    /// names it, a surface release and close name none.
+    let outputLane: TerminalOutputLaneNamer
+    /// Its hidden surface's release (``TerminalSurfaceRelease``); nil keeps the surface while hidden.
+    let surfaceRelease: TerminalSurfaceReleaseState?
+    /// Advanced by each release and rebuild, so the events loop takes the new lane (``TerminalLaneHandoff``).
+    let surfaceEpoch = TerminalSurfaceEpoch()
     private let echoStages: TerminalEchoStages
     /// What the events loop changed for the main actor, applied once per frame (``applyEvents()``).
     let events: TerminalEventMailbox
@@ -177,13 +163,14 @@ public final class TerminalSession {
     ///     its `MainDeadline` placer (nil makes one): the find bar, scrollbar, TextBox and window watches apply only while it shows.
     ///   - gpuResidency: Lets the surfaces' GPU memory go while ``releasesGPUWhilePaused`` and paused;
     ///     nil keeps them resident (a GhosttyNextKit pin without the switch, or `terminalGPURelease` off).
+    ///   - surfaceRelease: Frees the surface after a hidden grace (`terminalHiddenSurfaceRelease`); nil keeps it.
     public init(io: any TerminalIO, ownsGeometry: Bool = true,
                 echoStages: TerminalEchoStages = GhosttyRuntime.shared.echoStages,
                 hangWatch: (any HangWatchScoping)? = nil,
                 secureInput: TerminalSecureInput = GhosttyRuntime.shared.secureInput,
                 modifiers: TerminalModifierWatch? = nil, pointerFrames: FrameInputCoalescers? = nil,
                 mainWork: MainWorkScheduler, node: VisibilityNode? = nil, deadlines: MainDeadlineScheduler? = nil,
-                gpuResidency: (any TerminalGPUResidency)? = nil) {
+                gpuResidency: (any TerminalGPUResidency)? = nil, surfaceRelease: TerminalSurfaceRelease? = nil) {
         self.io = io
         self.ownsGeometry = ownsGeometry
         self.echoStages = echoStages
@@ -198,7 +185,9 @@ public final class TerminalSession {
         outputLane = TerminalOutputLaneNamer(io: io)
         input = TerminalInputSink(lane: TerminalInputLane(drain: io.inputDrain()), typingSurface: TypingLatencyProbe.shared.makeSurfaceKey())
 
-        frameHold = TerminalFrameHold(deadlines: deadlines ?? MainDeadlineScheduler(work: mainWork))
+        let deadlines = deadlines ?? MainDeadlineScheduler(work: mainWork)
+        frameHold = TerminalFrameHold(deadlines: deadlines)
+        self.surfaceRelease = surfaceRelease.map { TerminalSurfaceReleaseState(policy: $0, deadlines: deadlines) }
         // node-free: the model's connection, grid and content are read while the tab is hidden
         // (its sidebar status, a click's reconnect, the frame hold); the view work it does is a
         // chip and a banner, once per frame at most.
@@ -220,7 +209,8 @@ public final class TerminalSession {
 
         target.session = self
         eventsTask = Self.consume(io.events, from: io, with: TerminalEventRouter(
-            lane: surfaceView.lane, mailbox: events, input: input, outputLane: outputLane,
+            lane: surfaceView.lane, mailbox: events, input: input, outputLane: outputLane, epoch: surfaceEpoch,
+            handoff: { [weak self] in await self?.laneHandoff() },
             replace: { [weak self] event -> TerminalOutputLane?? in
                 guard let self else { return nil }
                 return await self.replace(event)
@@ -294,7 +284,8 @@ public final class TerminalSession {
 
     /// ``snapshot(maxPixelSize:)`` rendered off the main thread (it waits on the GPU).
     public func snapshotInBackground(maxPixelSize: CGFloat = 480) async -> CGImage? {
-        await surfaceView.snapshotInBackground(maxPixelSize: maxPixelSize)
+        if let frame = surfaceRelease?.frame { return await frame.snapshot(maxPixelSize: maxPixelSize) } // released: its last frame
+        return await surfaceView.snapshotInBackground(maxPixelSize: maxPixelSize)
     }
 
     /// Stops consuming events and detaches the surface. The IO owner decides
@@ -305,6 +296,7 @@ public final class TerminalSession {
         eventsTask = nil
         closeCancels.forEach { $0.cancel() }
         closeCancels = []
+        surfaceRelease?.deadline.cancel()
         input.finish()
         outputLane.close() // the IO's reader feeds no lane of this session again
         surfaceView.removeFromSuperview()
@@ -332,7 +324,12 @@ public final class TerminalSession {
     /// lane, for the loop's later events.
     private func replace(_ event: TerminalIOEvent) -> TerminalOutputLane? {
         applyEvents()
+        guard !isSurfaceReleased else { return nil } // released meanwhile: the rebuild's READY carries the replay
         swapSurface()
+        swappedSurfaces += 1
+        #if DEBUG || CMUX_BENCH_HOOKS
+        if NewTerminalTrace.shared.isArmed { traceSurfaceSwapped(surfaceView) }
+        #endif
         switch event {
         case .replay(let data): surfaceView.lane?.processOutput(data)
         case .kittyReplay(let replay): surfaceView.lane?.processOutput(replay.vt)
@@ -358,6 +355,7 @@ public final class TerminalSession {
             view.showStatus(status)
         }
         if pending.exited { model.hasExited = true }
+        if pending.status != nil || pending.exited { updateSurfaceRelease() } // a released surface needs a live stream
         if let sizedFor = pending.sizedFor {
             view.showSizedFor(model.connection == .connected ? sizedFor : nil)
         }
@@ -397,19 +395,16 @@ public final class TerminalSession {
     }
 
     /// Ghostty has no reset API, so a new replay goes into a new surface
-    /// that takes the old one's place (cmux-tui-contract.md 3.2).
-    private func swapSurface() {
+    /// that takes the old one's place (cmux-tui-contract.md 3.2). `makesSurface: false` swaps in a released
+    /// terminal's stand-in, with no Ghostty surface (``TerminalSurfaceRelease``).
+    func swapSurface(makesSurface: Bool = true) {
         let old = surfaceView
         applyWaitingActions() // the old surface's held pwd and progress: the fresh one starts from the model
         old.clipboardRequests.cancelPendingWrite()
         let wasFirstResponder = old.isFirstResponder
         let fresh = TerminalSurfaceView(io: ioMode, input: input, session: self, echoStages: echoStages, hangWatch: hangWatch,
                                         secureInput: secureInput, modifiers: modifiers, pointerFrames: pointerFrames,
-                                        mainWork: view.mainWork, node: view.node, gpuResidency: gpuResidency)
-        swappedSurfaces += 1
-        #if DEBUG || CMUX_BENCH_HOOKS
-        if NewTerminalTrace.shared.isArmed { traceSurfaceSwapped(fresh) }
-        #endif
+                                        mainWork: view.mainWork, node: view.node, gpuResidency: gpuResidency, makesSurface: makesSurface)
         fresh.ownsGeometry = ownsGeometry
         // The draw demand first: a fresh surface a live mirror draws is never released, even for one turn.
         fresh.mirrorDemand = mirrorDemand

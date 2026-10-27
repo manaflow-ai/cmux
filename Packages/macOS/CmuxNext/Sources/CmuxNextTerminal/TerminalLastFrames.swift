@@ -128,7 +128,8 @@ public final class TerminalLastFrames {
     /// eviction is a pressure drop (`atOnce`), no frame may be kept (capacity 0 or the critical
     /// memory limit) or the terminal shows no output yet.
     public func evict(_ session: TerminalSession, key: String, atOnce: Bool) {
-        evict(key, atOnce: atOnce, showsOutput: session.showsOutput) { TerminalLastFrame(of: session) }
+        // A released surface (``TerminalSurfaceRelease``) already kept its frame.
+        evict(key, atOnce: atOnce, showsOutput: session.showsOutput) { session.takeReleasedFrame() ?? TerminalLastFrame(of: session) }
     }
 
     /// ``evict(_:key:atOnce:)``'s decision apart from the session: `frame` is read only when the
