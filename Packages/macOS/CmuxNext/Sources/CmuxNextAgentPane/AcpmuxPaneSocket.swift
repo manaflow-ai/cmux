@@ -1,5 +1,6 @@
 import Foundation
 import CmuxNextCompat
+import CmuxNextWakeups
 
 /// The URLSession WebSocket behind ``AgentPaneTransport``. Its callbacks run on its own serial
 /// queue; the queues are guarded by one Mutex that is never held across IO.
@@ -383,32 +384,55 @@ nonisolated final class AcpmuxPaneSocket: NSObject, URLSessionWebSocketDelegate,
     }
 
     private func hostReply(id: Int, text: String) async throws -> [String: Any] {
-        try await withCheckedThrowingContinuation { continuation in
-            let callback: @Sendable ([String: Any]) -> Void = { object in
-                if let error = object["error"] as? [String: Any] {
-                    continuation.resume(throwing: AgentPaneUploadError.rpc(error["message"] as? String ?? "upload refused"))
-                } else {
-                    continuation.resume(returning: object["result"] as? [String: Any] ?? [:])
+        let timeout = DemandTimer(owner: "agent-pane.upload.rpc")
+        timeout.schedule(after: .seconds(AgentPaneUserGestures.uploadStallLimit)) { [weak self] in self?.cancelHostReply(id) }
+        defer { timeout.cancel() }
+        return try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                let callback: @Sendable ([String: Any]) -> Void = { object in
+                    if object["_cmuxCancelled"] as? Bool == true {
+                        continuation.resume(throwing: CancellationError())
+                    } else if let error = object["error"] as? [String: Any] {
+                        continuation.resume(throwing: AgentPaneUploadError.rpc(error["message"] as? String ?? "upload refused"))
+                    } else {
+                        continuation.resume(returning: object["result"] as? [String: Any] ?? [:])
+                    }
                 }
-            }
-            let registered = state.withLock { state in
-                guard state.closed == nil else { return false }
-                state.hostReplies[id] = callback
-                return true
-            }
-            let failed: @Sendable () -> Void = { [self] in
-                _ = ids.isHost(id)
-                if state.withLock({ $0.hostReplies.removeValue(forKey: id) }) != nil {
+                let registered = state.withLock { state in
+                    guard state.closed == nil else { return false }
+                    state.hostReplies[id] = callback
+                    return true
+                }
+                let failed: @Sendable () -> Void = { [self] in
+                    _ = ids.isHost(id)
+                    if state.withLock({ $0.hostReplies.removeValue(forKey: id) }) != nil {
+                        continuation.resume(throwing: AgentPaneTransportError.closed)
+                    }
+                }
+                guard registered else {
+                    _ = ids.isHost(id)
                     continuation.resume(throwing: AgentPaneTransportError.closed)
+                    return
                 }
+                if Task.isCancelled { cancelHostReply(id) }
+                else if send(text) != nil { failed() }
             }
-            guard registered else {
-                _ = ids.isHost(id)
-                continuation.resume(throwing: AgentPaneTransportError.closed)
-                return
-            }
-            if send(text) != nil { failed() }
-        }
+        } onCancel: { self.cancelHostReply(id) }
+    }
+
+    private func cancelHostReply(_ id: Int) {
+        _ = ids.isHost(id)
+        state.withLock { $0.hostReplies.removeValue(forKey: id) }?(["_cmuxCancelled": true])
+    }
+
+    /// Cleanup never waits for the daemon's cancellation response.
+    func cancelUpload(sessionId: String, uploadId: String) {
+        let id = ids.hostID()
+        let frame: [String: Any] = ["jsonrpc": "2.0", "id": id, "method": "_acpmux/file_put_cancel",
+                                   "params": ["sessionId": sessionId, "uploadId": uploadId]]
+        if let data = try? JSONSerialization.data(withJSONObject: frame),
+           let text = String(data: data, encoding: .utf8), send(text) == nil { return }
+        _ = ids.isHost(id)
     }
 
     // MARK: Close

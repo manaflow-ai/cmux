@@ -287,6 +287,10 @@ import CmuxNextCompat
         return try await socket.uploadChunk(sessionId: sessionId, uploadId: uploadId, offset: offset, bytes: bytes)
     }
 
+    func cancelUpload(connection id: Int, sessionId: String, uploadId: String) {
+        (try? uploadSocket(connection: id, sessionId: sessionId))?.cancelUpload(sessionId: sessionId, uploadId: uploadId)
+    }
+
     private func uploadSocket(connection id: Int, sessionId: String?) throws -> AcpmuxPaneSocket {
         guard id == current, let socket else { throw AgentPaneUploadError.rpc("stale upload connection") }
         guard uploadOriginAllowed else { throw AgentPaneUploadError.rpc("uploads require a native app connection") }

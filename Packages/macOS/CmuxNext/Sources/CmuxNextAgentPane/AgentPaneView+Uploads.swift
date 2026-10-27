@@ -11,8 +11,10 @@ extension AgentPaneView {
     /// This callback sends only metadata and native socket upload chunks; no bytes enter the page binding.
     @MainActor static func chromiumUploadHandler(for model: AgentPaneModel?) -> ChromiumPageHostBridge.UploadHandler? {
         guard let model else { return nil }
-        var endedUploads = Set<String>()
-        model.transport.gestures.onUploadHoldsEnded = { endedUploads.formUnion($0) }
+        var active: [String: Task<[String: Any], Never>] = [:]
+        model.transport.gestures.onUploadHoldsEnded = { ended in
+            for upload in ended { active[upload]?.cancel() }
+        }
         return { page, context, params, chunks in
             guard AgentPaneView.nativeUploadTicket(params) != nil,
                   params["type"] is String,
@@ -30,53 +32,59 @@ extension AgentPaneView {
             let size = Int(sizeNumber.int64Value)
             let upload = UUID().uuidString
             guard model.transport.holdSendTicket(ticket, upload: upload, sessionId: sessionId, promptId: promptId) else {
-                return AgentPaneReply.failure(code: "gesture_required", message: "Send again to authorize this upload")
+                return AgentPaneReply.failure(code: "transport.gesture_required", message: "Send again to authorize this upload")
             }
-            var held = true
-            var uploadId: String?
-            var offset = 0
-            do {
-                let started = try await model.transport.uploadControl(connection: connection, method: "_acpmux/file_put_begin",
-                    params: ["sessionId": sessionId, "fileName": name, "size": size])
-                guard let id = started["uploadId"] as? String, !id.isEmpty else { throw AgentPaneUploadError.rpc("missing upload id") }
-                uploadId = id
-                offset = (started["offset"] as? NSNumber)?.intValue ?? 0
-                guard offset == 0 else { throw AgentPaneUploadError.rpc("invalid initial upload offset") }
-                for try await chunk in chunks {
-                    var at = 0
-                    while at < chunk.count {
-                        let end = min(at + 512 * 1024, chunk.count)
-                        let part = Data(chunk[at..<end])
-                        let sentOffset = offset
-                        let reply = try await model.transport.uploadChunk(connection: connection,
-                            sessionId: sessionId, uploadId: id, offset: offset, bytes: part)
-                        guard let acknowledged = reply["offset"] as? NSNumber,
-                              acknowledged.intValue == sentOffset + part.count
-                        else { throw AgentPaneUploadError.rpc("invalid upload offset") }
-                        offset = acknowledged.intValue
-                        guard endedUploads.remove(upload) == nil,
-                              model.transport.gestures.uploadProgressed(upload) else {
-                            throw AgentPaneUploadError.rpc("gesture_required")
+            // task-owner: this upload; ticket revocation cancels it, completion removes it.
+            let task = Task { @MainActor () -> [String: Any] in
+                defer { _ = model.transport.gestures.releaseUpload(upload) }
+                var uploadId: String?
+                var offset = 0
+                do {
+                    try Task.checkCancellation()
+                    let started = try await model.transport.uploadControl(connection: connection, method: "_acpmux/file_put_begin",
+                        params: ["sessionId": sessionId, "fileName": name, "size": size])
+                    guard let id = started["uploadId"] as? String, !id.isEmpty else { throw AgentPaneUploadError.rpc("missing upload id") }
+                    uploadId = id
+                    try Task.checkCancellation()
+                    offset = (started["offset"] as? NSNumber)?.intValue ?? 0
+                    guard offset == 0 else { throw AgentPaneUploadError.rpc("invalid initial upload offset") }
+                    for try await chunk in chunks {
+                        try Task.checkCancellation()
+                        var at = 0
+                        while at < chunk.count {
+                            let end = min(at + 512 * 1024, chunk.count)
+                            let part = Data(chunk[at..<end])
+                            let sentOffset = offset
+                            let reply = try await model.transport.uploadChunk(connection: connection,
+                                sessionId: sessionId, uploadId: id, offset: offset, bytes: part)
+                            guard let acknowledged = reply["offset"] as? NSNumber,
+                                  acknowledged.intValue == sentOffset + part.count
+                            else { throw AgentPaneUploadError.rpc("invalid upload offset") }
+                            offset = acknowledged.intValue
+                            guard model.transport.gestures.uploadProgressed(upload) else { throw CancellationError() }
+                            at = end
                         }
-                        at = end
                     }
+                    try Task.checkCancellation()
+                    guard offset == size else { throw AgentPaneUploadError.rpc("upload size mismatch") }
+                    let finished = try await model.transport.uploadControl(connection: connection, method: "_acpmux/file_put_finish",
+                        params: ["sessionId": sessionId, "uploadId": id, "fileName": name, "size": size])
+                    try Task.checkCancellation()
+                    guard model.transport.gestures.releaseUpload(upload) else { throw CancellationError() }
+                    var result: [String: Any] = ["token": token, "uploadId": id, "offset": offset, "size": size]
+                    if let path = finished["path"] as? String { result["path"] = path }
+                    return AgentPaneReply.success(result)
+                } catch {
+                    if let id = uploadId {
+                        model.transport.cancelUpload(connection: connection, sessionId: sessionId, uploadId: id)
+                    }
+                    return AgentPaneReply.failure(code: "upload_failed", message: "The upload could not be completed")
                 }
-                guard offset == size else { throw AgentPaneUploadError.rpc("upload size mismatch") }
-                let finished = try await model.transport.uploadControl(connection: connection, method: "_acpmux/file_put_finish",
-                    params: ["sessionId": sessionId, "uploadId": id, "fileName": name, "size": size])
-                _ = model.transport.gestures.releaseUpload(upload)
-                held = false
-                var result: [String: Any] = ["token": token, "uploadId": id, "offset": offset, "size": size]
-                if let path = finished["path"] as? String { result["path"] = path }
-                return AgentPaneReply.success(result)
-            } catch {
-                if let id = uploadId {
-                    _ = try? await model.transport.uploadControl(connection: connection, method: "_acpmux/file_put_cancel",
-                        params: ["sessionId": sessionId, "uploadId": id])
-                }
-                if held { _ = model.transport.gestures.releaseUpload(upload) }
-                return AgentPaneReply.failure(code: "upload_failed", message: "The upload could not be completed")
             }
+            active[upload] = task
+            let result = await task.value
+            active[upload] = nil
+            return result
         }
     }
 }

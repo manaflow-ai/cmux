@@ -40,6 +40,7 @@ final class ChromiumUploadBlobReader {
             }
             guard let handle else { throw AgentPageUploadError.invalidBlob }
             let read = try await page.devTools("IO.read", params: ["handle": handle, "size": 1 << 20])
+            try Task.checkCancellation()
             guard let object = ChromiumPageHostWire.object(read), let text = object["data"] as? String
             else { throw AgentPageUploadError.invalidBlob }
             let chunk: Data
