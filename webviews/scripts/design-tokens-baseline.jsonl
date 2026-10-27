@@ -1,7 +1,7 @@
-{"file":"agent-activity/styles.css","kind":"height","property":"height","values":{"8px":1,"22px":1,"min(70%, 420px)":1,"36px":1,"110px":1}}
-{"file":"agent-activity/styles.css","kind":"height","property":"min-height","values":{"40px":1,"260px":1,"60px":1}}
-{"file":"agent-activity/styles.css","kind":"spacing","property":"gap","values":{"10px":1,"1px":1,"6px 10px":1,"5px":3,"6px":1}}
-{"file":"agent-activity/styles.css","kind":"spacing","property":"padding","values":{"1px":1,"1px 10px":1,"5px":1,"3px 8px":1,"4px 14px":1,"14px":2}}
+{"file":"agent-activity/styles.css","kind":"height","property":"height","values":{"8px":1,"22px":1}}
+{"file":"agent-activity/styles.css","kind":"height","property":"min-height","values":{"40px":1,"60px":1}}
+{"file":"agent-activity/styles.css","kind":"spacing","property":"gap","values":{"10px":1,"1px":1,"6px 10px":1,"5px":2,"6px":1}}
+{"file":"agent-activity/styles.css","kind":"spacing","property":"padding","values":{"1px":1,"1px 10px":1,"14px":2}}
 {"file":"agent-session/acpmux-preview/styles.css","kind":"spacing","property":"gap","values":{"10px":1}}
 {"file":"agent-session/acpmux-preview/styles.css","kind":"spacing","property":"padding","values":{"14px":1,"6px":1,"7px":1}}
 {"file":"agent-session/acpmux-preview/styles.css","kind":"spacing","property":"padding-left","values":{"20px":1,"10px":1}}
