@@ -70,19 +70,16 @@
    being a little bit glassy and stuff, as well as the session rail"): on an opaque window the composer
    surface at 70% under a 24px blur, over art or a see-through window 50% under the shared blur. Lens and
    Spectrum keep the liquid glass's own tint and Reduce Transparency the solid surface (glass.css). It
-   blurs its own box only, the same cost as the composer's card over the scrolling transcript. The
-   computer use live preview under it (computerUse/computerUsePreview.css) is the same glass, from these
-   same rules (Lucas, 2026-10-27: "I don't see the liquid glass" on the card while the panel had it). */
-:root:not([data-cmux-see-through]) :is(.acpmux-chat-inspector, .acpmux-cu-preview).ui-glass {
+   blurs its own box only, the same cost as the composer's card over the scrolling transcript. */
+:root:not([data-cmux-see-through]) .acpmux-chat-inspector.ui-glass {
   --glass-tint: color-mix(in srgb, var(--acpmux-composer-solid, var(--glass-surface)) 70%, transparent);
   --glass-backdrop: blur(24px) saturate(1.25);
 }
-:root[data-cmux-see-through]:not([data-glass="lens"], [data-glass="spectrum"])
-  :is(.acpmux-chat-inspector, .acpmux-cu-preview).ui-glass {
+:root[data-cmux-see-through]:not([data-glass="lens"], [data-glass="spectrum"]) .acpmux-chat-inspector.ui-glass {
   --glass-tint: color-mix(in srgb, var(--acpmux-composer-solid, var(--glass-surface)) 50%, transparent);
   --glass-backdrop: var(--surface-blur);
 }
-:is(.acpmux-chat-inspector, .acpmux-cu-preview).ui-glass {
+.acpmux-chat-inspector.ui-glass {
   /* glass-opaque-allow: the Reduce Transparency fill only, the composer's (glass.css applies it under that setting) */
   --glass-opaque: var(--acpmux-composer-solid, var(--glass-surface));
 }

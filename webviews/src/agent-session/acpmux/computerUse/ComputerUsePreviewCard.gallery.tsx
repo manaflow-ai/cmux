@@ -99,6 +99,12 @@ function GalleryComputerUsePreview({ preview, chat, inspector }: Props) {
   );
 }
 
+/// The close button hovered: a little brighter and a little larger.
+const closeHover: Play = async (ctx) => {
+  await ctx.hover({ role: "button", name: "Hide Preview" });
+};
+
+/// A close plays the card's exit, then the card is gone.
 const close: Play = async (ctx) => {
   await ctx.click({ role: "button", name: "Hide Preview" });
   await ctx.waitFor(() => !ctx.document.querySelector(".acpmux-cu-preview"));
@@ -126,15 +132,15 @@ export default componentEntry<Props>({
   load: async () => GalleryComputerUsePreview,
   variants: {
     running: {
-      note: "While the agent uses the app: only its newest frame, 6px in on every side, with the close button on its top left corner. The name is in the label only.",
+      note: "While the agent uses the app: its window alone, with its own rounded corners and a soft shadow, no card around it. The small dark close button sits on its top left corner. The name is in the label only.",
       props: { preview: running },
     },
     done: {
-      note: "After the session ended: the last frame dimmed, the app's icon centered, a check on its corner. The host hides it 30 s later.",
+      note: "After the session ended: the window dims, the app's icon (40px) scales in at its center and a 16px green check pops in on the icon's corner. The host hides it 30 s later, with a short fade and scale down.",
       props: { preview: done },
     },
     "done-no-icon": {
-      note: "Done, with no icon found: the check alone.",
+      note: "Done, with no icon found: the check alone, a little larger.",
       props: { preview: { ...done, icon: undefined } },
     },
     "beside-chat": {
@@ -149,8 +155,13 @@ export default componentEntry<Props>({
       note: "The Inspector pushing the chat (Settings Push always): the card sits under it, outside the chat, which keeps no room for it.",
       props: { preview: running, chat: true, inspector: "push" },
     },
+    "close-hover": {
+      note: "The close button hovered: its fill a little brighter, scaled up a little. The card itself does not move on hover.",
+      props: { preview: running },
+      play: closeHover,
+    },
     close: {
-      note: "The round glass close button on the frame's top left corner, always shown.",
+      note: "A close: the card fades and scales down, then it is gone.",
       props: { preview: running },
       play: close,
     },

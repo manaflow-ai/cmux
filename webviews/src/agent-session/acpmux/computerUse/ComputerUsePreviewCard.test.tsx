@@ -11,6 +11,9 @@ const markup = (preview: ComputerUsePreview) =>
 
 test("a running card is only the frame, with no live dot and the app's name in its label", () => {
   const html = markup(running);
+  // The window alone: no glass card around it.
+  expect(html).toMatch(/^<div class="acpmux-cu-preview">/);
+  expect(html).not.toContain("ui-glass");
   expect(html).not.toContain("acpmux-cu-preview__title");
   expect(html).not.toContain(">Calculator<");
   expect(html).toContain('aria-label="Calculator, live. Open in Agent Activity"');
@@ -19,9 +22,9 @@ test("a running card is only the frame, with no live dot and the app's name in i
   expect(html).not.toContain("acpmux-cu-preview__badge");
 });
 
-test("the close button is there, as a round glass button", () => {
+test("the close button is there and labelled, with no glass", () => {
   const html = markup(running);
-  expect(html).toContain('class="ui-glass acpmux-cu-preview__close" aria-label="Hide Preview"');
+  expect(html).toContain('<button type="button" class="acpmux-cu-preview__close" aria-label="Hide Preview">');
 });
 
 test("with no name the label names no app and never says Unknown app", () => {

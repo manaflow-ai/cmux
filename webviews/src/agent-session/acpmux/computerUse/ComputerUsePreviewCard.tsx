@@ -1,20 +1,21 @@
-// The live preview card of computer use (B6, as the Codex app draws it): a small glass card at the
-// chat's top right with only the newest frame of the app the agent drives, 6px in on every side.
-// The app's name is for screen readers only (the card's label). The column keeps the card's room, so it covers no message
-// (computerUsePreview.ts). When the session ends, the last frame dims under the app's icon with a
-// green check on the icon's corner; the host hides a done card by itself after a while
-// (ComputerUseLivePreview.autoHideDelay). A click opens Agent Activity on the session; the close
-// button (always shown, on the frame's top left corner) hides the card for that
-// session. The host owns the card; a close hides it here at once, before the host's next push.
+// The live preview card of computer use (B6, as the Codex app draws it): at the chat's top right, the
+// app the agent drives as its own window and nothing around it (the frame's rounded corners are
+// its own, with a soft shadow that follows them). The app's name is for screen readers only (the
+// card's label). The column keeps the card's room, so it covers no message (computerUsePreview.ts).
+// When the session ends, the window dims under the app's icon with a green check on the icon's
+// corner; the host hides a done card by itself after a while (ComputerUseLivePreview.autoHideDelay).
+// A click opens Agent Activity on the session; the close button (always shown, on the window's top
+// left corner) hides the card for that session. The host owns the card; a close hides it here at
+// once, before the host's next push. It eases in, and when it goes it plays a short exit first
+// (cardMotion.ts); a new frame shows once it has decoded, so the stream never blanks.
 // With the Inspector open, the card sits directly under it (inspector/underInspector.ts) and keeps
 // its own room there.
 import { useState } from "react";
 import { useT } from "../i18n";
 import { Check, Close } from "../conversation/icons";
 import { useUnderInspectorRoom } from "../inspector/underInspector";
+import { useLeavingCard, useLoadedFrame } from "./cardMotion";
 import { closeComputerUsePreview, computerUsePreviewTitle, type ComputerUsePreview } from "./computerUsePreview";
-// The card's glass is the Inspector's, from the same rules (inspector.css).
-import "../inspector/inspector.css";
 import "./computerUsePreview.css";
 
 export function ComputerUsePreviewCard({
@@ -28,30 +29,38 @@ export function ComputerUsePreviewCard({
 }) {
   const t = useT();
   const [card, setCard] = useState<HTMLDivElement | null>(null);
+  const { card: shown, leaving } = useLeavingCard(preview, card);
+  const frame = useLoadedFrame(shown?.frame);
   useUnderInspectorRoom(card);
-  if (!preview) return null;
+  if (!shown) return null;
   // The app's name is in the label only; with no name and no window title, the label names none
   // (never "Unknown app").
-  const title = computerUsePreviewTitle(preview);
+  const title = computerUsePreviewTitle(shown);
   const label = title
-    ? t(preview.done ? "computerUse.preview.doneLabel" : "computerUse.preview.runningLabel", { app: title })
-    : t(preview.done ? "computerUse.preview.doneLabelNoApp" : "computerUse.preview.runningLabelNoApp");
+    ? t(shown.done ? "computerUse.preview.doneLabel" : "computerUse.preview.runningLabel", { app: title })
+    : t(shown.done ? "computerUse.preview.doneLabelNoApp" : "computerUse.preview.runningLabelNoApp");
   return (
-    <div ref={setCard} className="ui-glass ui-glass-floats acpmux-cu-preview" data-done={preview.done ? "" : undefined}>
+    <div
+      ref={setCard}
+      className="acpmux-cu-preview"
+      data-done={shown.done ? "" : undefined}
+      data-leaving={leaving ? "" : undefined}
+      inert={leaving || undefined}
+    >
       <button
         type="button"
         className="acpmux-cu-preview__open"
         aria-label={label}
-        onClick={() => onOpen(preview.session)}
+        onClick={() => onOpen(shown.session)}
       >
         <span className="acpmux-cu-preview__frame">
-          <img src={preview.frame} alt="" draggable={false} />
-          {preview.done && (
+          <img src={frame} alt="" draggable={false} />
+          {shown.done && (
             <span className="acpmux-cu-preview__badge" aria-hidden="true">
-              <span className="acpmux-cu-preview__mark" data-icon={preview.icon ? "" : undefined}>
-                {preview.icon && <img src={preview.icon} alt="" draggable={false} />}
+              <span className="acpmux-cu-preview__mark" data-icon={shown.icon ? "" : undefined}>
+                {shown.icon && <img src={shown.icon} alt="" draggable={false} />}
                 <span className="acpmux-cu-preview__check">
-                  <Check size={10} strokeWidth={2.5} />
+                  <Check size={shown.icon ? 10 : 12} strokeWidth={2.5} />
                 </span>
               </span>
             </span>
@@ -60,11 +69,11 @@ export function ComputerUsePreviewCard({
       </button>
       <button
         type="button"
-        className="ui-glass acpmux-cu-preview__close"
+        className="acpmux-cu-preview__close"
         aria-label={t("computerUse.preview.close")}
         onClick={() => {
-          closeComputerUsePreview(preview.session);
-          onClose(preview.session);
+          closeComputerUsePreview(shown.session);
+          onClose(shown.session);
         }}
       >
         <Close size={10} />

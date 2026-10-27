@@ -9799,14 +9799,13 @@ function AcpmuxPane() {
                   />
                 )}
                 {snapshot.peerCopy?.offline && <PeerCopyBanner copy={snapshot.peerCopy} />}
-                {/* Computer use's live preview: the app this chat's agent drives, at the top right. */}
-                {previewShown && (
-                  <ComputerUsePreviewCard
-                    preview={computerUsePreview}
-                    onOpen={() => ignoreFailure(callNative("chat.computerUsePreview", { action: "open" }))}
-                    onClose={() => ignoreFailure(callNative("chat.computerUsePreview", { action: "close" }))}
-                  />
-                )}
+                {/* Computer use's live preview: the app this chat's agent drives, at the top right. Always
+                    mounted: with no card it draws the last one's exit, then nothing (cardMotion.ts). */}
+                <ComputerUsePreviewCard
+                  preview={previewShown ? computerUsePreview : null}
+                  onOpen={() => ignoreFailure(callNative("chat.computerUsePreview", { action: "open" }))}
+                  onClose={() => ignoreFailure(callNative("chat.computerUsePreview", { action: "close" }))}
+                />
                 {snapshot.summary?.watching && !snapshot.liveTakeOver && (
                   <WatchBanner
                     family={snapshot.summary.watching}
