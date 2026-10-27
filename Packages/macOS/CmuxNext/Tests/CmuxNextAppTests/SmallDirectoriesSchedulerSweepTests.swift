@@ -268,7 +268,7 @@ private final class SweepVaultSource: VaultSessionSource {
 }
 
 /// Records what Copy writes, with no pasteboard server.
-private final class SweepPasteboard: BrowserPasteboard {
+private nonisolated final class SweepPasteboard: BrowserPasteboard {
     var images = 0
     func writePageURL(_ url: URL) {}
     func writeText(_ text: String) {}
