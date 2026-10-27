@@ -260,6 +260,10 @@ final class TabHoverCardController: HoverCardSource {
         let target = Self.targetID(id)
         thumbnailTask = Task { [weak self] in
             let image = await provider.previewImage(for: id, maxPixelSize: size)
+            // The kept thumbnail is made before the card's checks: with `purgeableImageCaches` on, its copy is
+            // drawn off the main actor.
+            var picture: PurgeablePicture?
+            if let image, let thumbnails = self?.thumbnails { picture = await thumbnails.picture(of: image) }
             guard let self, !Task.isCancelled, self.bodyID == target else { return }
             // No thumbnail (a page never captured): none, not the previous
             // tab's picture kept through the retarget or an empty frame.
@@ -270,7 +274,7 @@ final class TabHoverCardController: HoverCardSource {
                 self.coordinator.contentChanged(target)
                 return
             }
-            self.thumbnails.insert(image, for: id)
+            self.thumbnails.insert(picture, for: id)
             self.noThumbnail.remove(id)
             // A card that showed no frame (the last tab had none) grows one for it.
             let grows = self.body?.showsThumbnail == false

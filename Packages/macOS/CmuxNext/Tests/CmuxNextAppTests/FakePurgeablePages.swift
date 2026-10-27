@@ -1,4 +1,5 @@
 import CmuxNextCompat
+import Foundation
 
 /// Purgeable pages a test empties on demand (the ``PurgeablePages`` seam, p07-memory-107): heap bytes whose
 /// volatile state is a flag, emptied by ``purge()`` only while volatile, as memory pressure would.
@@ -46,18 +47,23 @@ nonisolated final class FakePurgeablePages: PurgeablePages {
     }
 }
 
-/// An allocator of ``FakePurgeablePages`` that keeps every pages it made, in order, for a test to purge.
+/// An allocator of ``FakePurgeablePages`` that keeps every pages it made, in order, for a test to purge, and
+/// whether each was made on the main thread (a picture's pixels are copied where its pages are made).
 nonisolated final class FakePurgeableAllocations: Sendable {
-    private let made = Mutex<[FakePurgeablePages]>([])
+    private let made = Mutex<[(pages: FakePurgeablePages, onMain: Bool)]>([])
 
     var allocator: PurgeableAllocator {
         PurgeableAllocator { [self] count in
             let pages = FakePurgeablePages(byteCount: count)
-            if let pages { made.withLock { $0.append(pages) } }
+            let onMain = Thread.isMainThread
+            if let pages { made.withLock { $0.append((pages, onMain)) } }
             return pages
         }
     }
 
     /// Every pages made so far, oldest first.
-    var pages: [FakePurgeablePages] { made.withLock { $0 } }
+    var pages: [FakePurgeablePages] { made.withLock { $0.map { $0.pages } } }
+
+    /// How many pages were made on the main thread.
+    var madeOnMain: Int { made.withLock { $0.filter { $0.onMain }.count } }
 }

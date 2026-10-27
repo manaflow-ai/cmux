@@ -10,9 +10,10 @@ import CoreGraphics
 /// the hover card's memory release drops entries over them (`removeOldest`), as does
 /// the next insert.
 ///
-/// The pixels live in ``PurgeableBitmap``s (p07-memory-107): with feature `purgeableImageCaches` on they are
-/// volatile purgeable pages except while a card shows them, so the kernel takes them back under pressure; a
-/// purged thumbnail is a miss (the card pictures the tab again), never a blank card.
+/// It keeps ``PurgeablePicture``s that ``picture(of:)`` made (p07-memory-107), so an insert copies no pixels. With
+/// feature `purgeableImageCaches` on, a thumbnail is a copy drawn off the main actor into purgeable pages, volatile
+/// except while a card shows it, so the kernel takes it back under pressure; a purged thumbnail is a miss (the card
+/// pictures the tab again), never a blank card. Off, a thumbnail is the image itself, as before.
 struct TabThumbnailCache {
     /// The bounds at a 100 % memory limit.
     let maxCount: Int
@@ -23,7 +24,7 @@ struct TabThumbnailCache {
     private let allocator: PurgeableAllocator
     /// The thumbnails' locked bytes (a card shows them, or the pages are resident).
     private let ledger = PurgeableLedger()
-    private var entries: [TabID: PurgeableBitmap] = [:]
+    private var entries: [TabID: PurgeablePicture] = [:]
     /// Least recently used first.
     private var order: [TabID] = []
     private(set) var bytes = 0
@@ -31,7 +32,7 @@ struct TabThumbnailCache {
     /// - Parameters:
     ///   - maxCount: The most thumbnails it keeps at a 100 % limit.
     ///   - maxBytes: The most decoded bytes it keeps at a 100 % limit.
-    ///   - allocator: Makes the thumbnails' pages: purgeable ones with `purgeableImageCaches` on.
+    ///   - allocator: Makes the thumbnails: purgeable pages with `purgeableImageCaches` on, the images themselves otherwise.
     init(maxCount: Int = 24, maxBytes: Int = 48 << 20, allocator: PurgeableAllocator = .resident) {
         self.maxCount = maxCount
         self.maxBytes = maxBytes
@@ -50,8 +51,8 @@ struct TabThumbnailCache {
     /// The image for `tab`, now the most recently used, its pixels locked while the image lives. Nil when
     /// there is none or the kernel purged it: a purged thumbnail leaves the cache.
     mutating func image(for tab: TabID) -> CGImage? {
-        guard let bitmap = entries[tab] else { return nil }
-        guard let image = bitmap.image() else {
+        guard let picture = entries[tab] else { return nil }
+        guard let image = picture.image() else {
             remove(tab)
             return nil
         }
@@ -59,14 +60,25 @@ struct TabThumbnailCache {
         return image
     }
 
-    /// Keeps a copy of `image`'s pixels within the current bounds: at a count bound of 0 it keeps nothing.
-    mutating func insert(_ image: CGImage, for tab: TabID) {
+    /// `image` as the cache keeps it, for ``insert(_:for:)``: the image itself with feature `purgeableImageCaches`
+    /// off, else a copy drawn into purgeable pages off the main actor. Nil, with no copy made, at a count bound of 0
+    /// or when the pages cannot be made.
+    ///
+    /// - Parameter image: The thumbnail.
+    func picture(of image: CGImage) async -> PurgeablePicture? {
+        guard countLimit > 0 else { return nil }
+        return await PurgeablePicture.keeping(image, allocator: allocator)
+    }
+
+    /// Keeps `picture` (from ``picture(of:)``; it copies no pixels) within the current bounds: at a count bound of 0
+    /// it keeps nothing, and none (nil) drops the tab's older one.
+    mutating func insert(_ picture: PurgeablePicture?, for tab: TabID) {
         remove(tab)
-        guard countLimit > 0, let bitmap = PurgeableBitmap(image, allocator: allocator) else { return }
-        bitmap.attach(to: ledger)
-        entries[tab] = bitmap
+        guard countLimit > 0, let picture else { return }
+        picture.attach(to: ledger)
+        entries[tab] = picture
         order.append(tab)
-        bytes += bitmap.byteCount
+        bytes += picture.byteCount
         trimToLimits()
     }
 
@@ -94,9 +106,9 @@ struct TabThumbnailCache {
     }
 
     mutating func remove(_ tab: TabID) {
-        guard let bitmap = entries.removeValue(forKey: tab) else { return }
-        bitmap.attach(to: nil)
-        bytes -= bitmap.byteCount
+        guard let picture = entries.removeValue(forKey: tab) else { return }
+        picture.attach(to: nil)
+        bytes -= picture.byteCount
         order.removeAll { $0 == tab }
     }
 

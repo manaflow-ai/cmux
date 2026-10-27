@@ -12,11 +12,12 @@ public import CoreGraphics
 /// its size before the insert, and the coordinator's release slices drop the oldest images past the cap,
 /// on later frames.
 ///
-/// The pixels live in ``PurgeableBitmap``s from its allocator (p07-memory-107): with feature `purgeableImageCaches`
-/// on they are volatile purgeable pages whenever nothing draws them, so the kernel takes them back under pressure
-/// with no call into cmux, as Chrome keeps decoded images in discardable memory. ``image(for:)`` locks a picture for
-/// as long as its image lives; a picture the kernel purged is a miss and leaves the cache, never a blank draw. The
-/// memory report splits locked (footprint) bytes from volatile ones.
+/// It keeps ``PurgeablePicture``s that ``picture(of:)`` made from its ``allocator`` (p07-memory-107), so an insert
+/// copies no pixels. With feature `purgeableImageCaches` on, a picture is a copy drawn off the main actor into purgeable
+/// pages, volatile whenever nothing draws it, so the kernel takes it back under pressure with no call into cmux, as
+/// Chrome keeps decoded images in discardable memory; ``image(for:)`` locks a picture for as long as its image lives,
+/// and a picture the kernel purged is a miss that leaves the cache, never a blank draw. Off, a picture is the image
+/// itself, as before. The memory report splits locked (footprint) bytes from volatile ones.
 public final class PreviewImageCache {
     /// What the cache holds, which decides when the memory coordinator takes its images.
     public enum Contents: Sendable {
@@ -60,10 +61,11 @@ public final class PreviewImageCache {
     /// The limit the memory coordinator gave last.
     public private(set) var memoryLimit: MemoryLimit = .default
     public private(set) var totalBytes = 0
-    private let allocator: PurgeableAllocator
+    /// Makes its pictures: purgeable pages with `purgeableImageCaches` on, the images themselves otherwise.
+    public let allocator: PurgeableAllocator
     /// Its pictures' locked bytes, which readers on any thread move in and out.
     private let ledger = PurgeableLedger()
-    private var images: [String: PurgeableBitmap] = [:]
+    private var images: [String: PurgeablePicture] = [:]
     /// Least recently used first.
     private var order: [String] = []
     private var memoryRegistration: MemoryConsumerRegistration?
@@ -71,7 +73,7 @@ public final class PreviewImageCache {
     /// - Parameters:
     ///   - fullCapacityBytes: The cap at the default limit (a share of `SubsystemBudget.imageCacheBytes`).
     ///   - contents: Whether its pictures can be taken again.
-    ///   - allocator: Makes its pictures' pages: purgeable ones with `purgeableImageCaches` on, resident ones otherwise.
+    ///   - allocator: Makes its pictures: purgeable pages with `purgeableImageCaches` on, the images themselves otherwise.
     public init(fullCapacityBytes: Int, contents: Contents = .rebuildable, allocator: PurgeableAllocator = .resident) {
         self.fullCapacityBytes = max(0, fullCapacityBytes)
         self.allocator = allocator
@@ -96,8 +98,8 @@ public final class PreviewImageCache {
     /// Nil when there is none or the kernel purged its pages: a purged picture leaves the cache, so its owner
     /// takes it again or shows none.
     public func image(for key: String) -> CGImage? {
-        guard let bitmap = images[key] else { return nil }
-        guard let image = bitmap.image() else {
+        guard let picture = images[key] else { return nil }
+        guard let image = picture.image() else {
             remove(key)
             return nil
         }
@@ -108,22 +110,31 @@ public final class PreviewImageCache {
     /// Whether an image of `bytes` would be kept now: a caller skips work whose picture would be refused.
     public func fits(bytes: Int) -> Bool { bytes <= capacityBytes }
 
-    /// Keeps a copy of `image`'s pixels for `key` as the most recent one (the one copy: reads wrap the kept
-    /// pixels). An image larger than the cap now is not kept, and the key's older image goes with it. Older
-    /// images are dropped only as far as the cache would grow past its size before the insert: the drop down
-    /// to a lowered cap is the release slices' work.
+    /// `image` as this cache keeps it, for ``insert(_:for:)``: the image itself with feature `purgeableImageCaches`
+    /// off, else a copy drawn into purgeable pages off the main actor. Nil, with no copy made, when the cache would
+    /// refuse it now or the pages cannot be made.
     ///
-    /// - Returns: Whether `image` was kept.
+    /// - Parameter image: The picture.
+    public func picture(of image: CGImage) async -> PurgeablePicture? {
+        guard fits(bytes: PurgeablePicture.byteCount(keeping: image, allocator: allocator)) else { return nil }
+        return await PurgeablePicture.keeping(image, allocator: allocator)
+    }
+
+    /// Keeps `picture` (from ``picture(of:)``) for `key` as the most recent one; it copies no pixels. A picture
+    /// larger than the cap now, or none (nil: refused or not made), is not kept, and the key's older one goes with
+    /// it. Older pictures are dropped only as far as the cache would grow past its size before the insert: the
+    /// drop down to a lowered cap is the release slices' work.
+    ///
+    /// - Returns: Whether `picture` was kept.
     @discardableResult
-    public func insert(_ image: CGImage, for key: String) -> Bool {
-        let cost = Self.cost(image)
+    public func insert(_ picture: PurgeablePicture?, for key: String) -> Bool {
         let ceiling = max(capacityBytes, totalBytes)
         remove(key)
-        guard cost <= capacityBytes, let bitmap = PurgeableBitmap(image, allocator: allocator) else { return false }
-        bitmap.attach(to: ledger)
-        images[key] = bitmap
+        guard let picture, picture.byteCount <= capacityBytes else { return false }
+        picture.attach(to: ledger)
+        images[key] = picture
         order.append(key)
-        totalBytes += bitmap.byteCount
+        totalBytes += picture.byteCount
         while totalBytes > ceiling, order.first != key, let oldest = order.first {
             remove(oldest)
         }
@@ -131,15 +142,10 @@ public final class PreviewImageCache {
     }
 
     public func remove(_ key: String) {
-        guard let bitmap = images.removeValue(forKey: key) else { return }
-        bitmap.attach(to: nil)
-        totalBytes -= bitmap.byteCount
+        guard let picture = images.removeValue(forKey: key) else { return }
+        picture.attach(to: nil)
+        totalBytes -= picture.byteCount
         order.removeAll { $0 == key }
-    }
-
-    /// The bytes `image` takes in the cache, known before its copy is made.
-    static func cost(_ image: CGImage) -> Int {
-        PurgeableBitmap.byteCount(width: image.width, height: image.height)
     }
 
     private func touch(_ key: String) {

@@ -26,12 +26,20 @@ public protocol PurgeablePages: AnyObject, Sendable {
 /// memory (``resident``, the behavior with feature `purgeableImageCaches` off), or a test's pages.
 public struct PurgeableAllocator: Sendable {
     private let make: @Sendable (Int) -> (any PurgeablePages)?
+    /// Whether it is ``resident``: a cache keeps a decoded picture as the image itself (no copy, no color
+    /// conversion), as it did before feature `purgeableImageCaches` (``PurgeablePicture/keeping(_:allocator:)``).
+    public let isResident: Bool
 
     /// An allocator that calls `make` with a byte count.
     ///
     /// - Parameter make: Returns pages of at least that many bytes, or nil when it cannot.
     public init(_ make: @escaping @Sendable (Int) -> (any PurgeablePages)?) {
+        self.init(make: make, isResident: false)
+    }
+
+    private init(make: @escaping @Sendable (Int) -> (any PurgeablePages)?, isResident: Bool) {
         self.make = make
+        self.isResident = isResident
     }
 
     /// New pages of at least `byteCount` bytes, non-volatile; nil when the allocation fails.
@@ -44,6 +52,7 @@ public struct PurgeableAllocator: Sendable {
     /// `VM_FLAGS_PURGABLE` regions (``VirtualMemoryPurgeablePages``).
     public static let virtualMemory = PurgeableAllocator { VirtualMemoryPurgeablePages(byteCount: $0) }
 
-    /// Heap pages that are never purged (``ResidentPages``).
-    public static let resident = PurgeableAllocator { ResidentPages(byteCount: $0) }
+    /// Heap pages that are never purged (``ResidentPages``), for encoded bytes; a decoded picture stays the image
+    /// it was (``isResident``).
+    public static let resident = PurgeableAllocator(make: { ResidentPages(byteCount: $0) }, isResident: true)
 }

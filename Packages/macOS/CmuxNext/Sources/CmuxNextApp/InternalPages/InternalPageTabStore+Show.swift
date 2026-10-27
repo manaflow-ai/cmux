@@ -182,10 +182,11 @@ extension InternalPageTabStore {
         records.pictures[key]?.task?.cancel()
         // task-owner: discardRecords.pictures[key]; cancelled by the next hide's capture or the tab's close
         let task = Task { [weak self, weak view, weak cache, weak records] in
-            guard let image = await view?.lastPicture(), !Task.isCancelled, let self, let cache,
-                  cache.lifecycle.accepts(tab, token), self.existingView(tab) === view else { return }
-            // A picture the store refused keeps no version: the next hide pictures the page again.
-            records?.pictures[key]?.version = cache.internalPagePictures.insert(image, for: tab) ? version : nil
+            guard let image = await view?.lastPicture() else { return }
+            let picture = await cache?.internalPagePictures.picture(of: image)
+            guard !Task.isCancelled, let self, let cache, cache.lifecycle.accepts(tab, token), self.existingView(tab) === view else { return }
+            // A picture the store refused (nil) keeps no version: the next hide pictures the page again.
+            records?.pictures[key]?.version = cache.internalPagePictures.insert(picture, for: tab) ? version : nil
         }
         records.pictures[key] = ContentDiscardRecords.Picture(task: task, version: records.pictures[key]?.version)
     }

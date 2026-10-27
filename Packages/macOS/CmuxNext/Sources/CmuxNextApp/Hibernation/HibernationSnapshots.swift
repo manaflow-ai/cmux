@@ -168,10 +168,10 @@ final class HibernationSnapshots {
         compressed(image, quality: quality, allocator: allocator)
     }
 
-    /// `image`'s decoded pixels in pages from `allocator` (feature `compressedSnapshots` off), copied off the
-    /// main actor; nil when the pages cannot be made.
-    @concurrent nonisolated static func decoded(_ image: CGImage, allocator: PurgeableAllocator) async -> PurgeablePicture? {
-        PurgeablePicture(decoding: image, allocator: allocator)
+    /// `image` decoded (`compressedSnapshots` off): the image itself with `purgeableImageCaches` off, else its pixels
+    /// copied off the main actor into pages from `allocator` (``PurgeablePicture/keeping(_:allocator:)``).
+    nonisolated static func decoded(_ image: CGImage, allocator: PurgeableAllocator) async -> PurgeablePicture? {
+        await PurgeablePicture.keeping(image, allocator: allocator)
     }
 
     nonisolated static func compressed(_ image: CGImage, quality: Double, allocator: PurgeableAllocator) -> PurgeablePicture? {

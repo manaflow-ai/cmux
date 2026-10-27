@@ -5,7 +5,8 @@ import Testing
 
 /// Hover card thumbnails in purgeable pages (p07-memory-107): volatile except while a card shows one, a
 /// thumbnail the kernel purged is a miss that leaves the cache (the card pictures the tab again), and the
-/// hover cards' consumer reports locked bytes apart from volatile ones.
+/// hover cards' consumer reports locked bytes apart from volatile ones. The copy is drawn off the main actor,
+/// and with feature `purgeableImageCaches` off the cache keeps the image itself.
 @MainActor @Suite struct TabThumbnailCacheTests {
     private static let side = 32
     private static let bytes = side * side * 4
@@ -16,11 +17,13 @@ import Testing
         return try #require(context.makeImage())
     }
 
-    @Test func aPurgedThumbnailIsAMissAndLeavesTheCache() throws {
+    @Test func aPurgedThumbnailIsAMissAndLeavesTheCache() async throws {
         let fakes = FakePurgeableAllocations()
         var cache = TabThumbnailCache(allocator: fakes.allocator)
-        cache.insert(try Self.image(), for: TabID("a"))
-        cache.insert(try Self.image(), for: TabID("b"))
+        let first = try await cache.picture(of: Self.image())
+        cache.insert(first, for: TabID("a"))
+        let second = try await cache.picture(of: Self.image())
+        cache.insert(second, for: TabID("b"))
         #expect(cache.bytes == 2 * Self.bytes)
         #expect(fakes.pages[0].purge())
         #expect(cache.image(for: TabID("a")) == nil, "a purged thumbnail was returned")
@@ -28,12 +31,14 @@ import Testing
         #expect(cache.image(for: TabID("b")) != nil)
     }
 
-    @Test func theHoverCardsReportLockedAndVolatileBytesApart() throws {
+    @Test func theHoverCardsReportLockedAndVolatileBytesApart() async throws {
         let fakes = FakePurgeableAllocations()
         let controller = TabHoverCardController()
         controller.thumbnails = TabThumbnailCache(allocator: fakes.allocator)
-        controller.thumbnails.insert(try Self.image(), for: TabID("a"))
-        controller.thumbnails.insert(try Self.image(), for: TabID("b"))
+        for tab in ["a", "b"] {
+            let picture = try await controller.thumbnails.picture(of: Self.image())
+            controller.thumbnails.insert(picture, for: TabID(tab))
+        }
         #expect(controller.memoryUsage == MemoryUsage(footprintBytes: 0, volatileBytes: 2 * Self.bytes, entries: 2))
         try withExtendedLifetime(try #require(controller.thumbnails.image(for: TabID("a")))) { _ in
             #expect(controller.memoryUsage == MemoryUsage(footprintBytes: Self.bytes, volatileBytes: Self.bytes, entries: 2),
@@ -43,10 +48,24 @@ import Testing
         #expect(controller.memoryUsage == MemoryUsage(footprintBytes: 0, volatileBytes: 2 * Self.bytes, entries: 2))
     }
 
-    /// Resident pages (`purgeableImageCaches` off, the default) keep the report as before: all footprint.
-    @Test func residentThumbnailsAreAllFootprint() throws {
+    /// The thumbnail's pixels are copied off the main actor, when its picture is made; the insert copies nothing.
+    @Test func anInsertCopiesNoPixelsOnTheMainActor() async throws {
+        let fakes = FakePurgeableAllocations()
+        var cache = TabThumbnailCache(allocator: fakes.allocator)
+        let picture = try await cache.picture(of: Self.image())
+        #expect(fakes.pages.count == 1 && fakes.madeOnMain == 0, "the thumbnail's pixels were copied on the main thread")
+        cache.insert(picture, for: TabID("a"))
+        #expect(fakes.pages.count == 1, "the insert copied the pixels")
+    }
+
+    /// `purgeableImageCaches` off (the default allocator): the cache keeps the image itself, as before, with no
+    /// copy and no color conversion, and its bytes are all footprint.
+    @Test func residentThumbnailsAreTheInsertedImagesAndAllFootprint() async throws {
         var cache = TabThumbnailCache()
-        cache.insert(try Self.image(), for: TabID("a"))
+        let inserted = try Self.image()
+        let picture = await cache.picture(of: inserted)
+        cache.insert(picture, for: TabID("a"))
+        #expect(cache.image(for: TabID("a")) === inserted, "the cache returned a copy, not the inserted image")
         #expect(cache.usage(entries: 1) == MemoryUsage(footprintBytes: Self.bytes, entries: 1))
     }
 }

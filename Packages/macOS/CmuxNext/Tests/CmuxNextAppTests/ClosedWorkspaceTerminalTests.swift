@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextBridge
+import CmuxNextCompat
 @testable import CmuxNextApp
 @testable import CmuxNextDaemon
 import Foundation
@@ -47,7 +48,7 @@ import Testing
         _ = cache.terminal(for: kept, daemon: daemon)
         _ = cache.terminal(for: closed, daemon: daemon)
         // Hidden once (its pane closed): the preview a hidden terminal leaves.
-        cache.previews.insert(try Self.preview(), for: closed.id)
+        cache.previews.insert(PurgeablePicture(resident: try Self.preview()), for: closed.id)
 
         // Workspace 2 closes: the tree no longer lists its tab.
         store.apply(snapshot: Self.tree([1]))

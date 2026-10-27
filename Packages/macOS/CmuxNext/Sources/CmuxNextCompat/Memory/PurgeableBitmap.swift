@@ -28,7 +28,8 @@ public struct PurgeableBitmap: Sendable {
     }
 
     /// Copies `image`'s pixels into new pages from `allocator`, volatile; nil for an empty image or when the
-    /// pages or the drawing context cannot be made.
+    /// pages or the drawing context cannot be made. It draws the whole picture here: stores make one off the
+    /// main actor, through ``PurgeablePicture/keeping(_:allocator:)``.
     ///
     /// - Parameters:
     ///   - image: The picture.
