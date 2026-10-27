@@ -1,5 +1,5 @@
 import CmuxNextCompat
-import CmuxNextMemory
+@testable import CmuxNextMemory
 import CmuxNextWakeups
 import Testing
 
@@ -70,11 +70,13 @@ import Testing
         rig.fireAndRun()
         await gate.reached()
         emitter.stop()
+        #expect(emitter.isSampling)
         await gate.open()
-        for _ in 0..<50 {
+        for _ in 0..<10_000 where emitter.isSampling {
             await Task.yield()
             rig.frame()
         }
+        try #require(!emitter.isSampling, "the sample's record never ran")
         #expect(histograms.snapshot().appFootprintMiB.count == 0, "a sample read across stop was recorded")
         #expect(!rig.hasArmedWake, "a stopped emitter armed its next sample")
     }

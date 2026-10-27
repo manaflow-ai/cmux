@@ -1,7 +1,5 @@
 public import CmuxNextCompat
-#if DEBUG || CMUX_BENCH_HOOKS
 public import CmuxNextWakeups
-#endif
 public import Foundation
 import Observation
 

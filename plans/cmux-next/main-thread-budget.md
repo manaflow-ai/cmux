@@ -465,7 +465,13 @@ and after), light and STRESS, on a GUI host with the input grant that passes `be
 p99 <= 16.7 ms during the storm; every run-loop turn p99 <= 4 ms). Results: perf-lead.md section 5. The pilot's
 numbers (task 205) and the test phase (task 160) are recorded there with sha and host.
 
-## 16. Queue close-out counts (task 347)
+## 16. Queue close-out counts (task 347, open)
+
+Task 347 is not done. Its first pass is a partial residual sweep only: it migrated the residual hits that no
+in-flight task holds. Its acceptance ("every done-check ratchet count is at its target") is not met, and
+`arch-ratchet.json` is not updated. The task stays open until file groups 300-346 land. Then it migrates the
+hits that are left, places `layer_hard` and `layer_unplaced` (or gives them a reviewed exception), runs
+`arch-ratchet.py --update`, commits `arch-ratchet.json` and replaces the table below with counts at target.
 
 The spec's section 5 check 11, measured at `6061b2d824b` (perf/chrome-parity `17f2e8b9979` plus task 347) with
 `p06_queue.py`'s queues: "open" is a hit with no reviewed escape that is not settled (section 11). The cut is

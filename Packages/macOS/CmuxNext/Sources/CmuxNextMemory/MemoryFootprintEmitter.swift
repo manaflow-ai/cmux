@@ -27,6 +27,9 @@ public final class MemoryFootprintEmitter {
     /// The footprint read in flight; its record arms the next deadline.
     private var sampling: Task<Void, Never>?
 
+    /// A footprint read is in flight and its record has not run yet.
+    var isSampling: Bool { sampling != nil }
+
     /// - Parameters:
     ///   - histograms: The histograms the samples go in.
     ///   - webContentPIDs: The live WebContent processes, read on the main actor.
