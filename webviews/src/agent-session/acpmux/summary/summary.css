@@ -126,7 +126,7 @@ html[data-pr-dock="tight"] .acpmux-pr-dock{gap:4px}
   position: relative;
   display: inline-flex;
   flex: 1 1 220px;
-  min-width: 64px;
+  min-width: 80px;
   max-width: 320px;
   align-items: center;
   justify-content: flex-end;
@@ -217,6 +217,7 @@ html[data-pr-dock="tight"] .acpmux-pr-dock{gap:4px}
 .cv-block-tail{display:flex;align-items:flex-end;gap:8px;min-width:0}
 .cv-block-tail>div:first-child{flex:1;min-width:0}
 .cv-block-tail>.acpmux-pr-dock{flex:0 1 220px;max-width:45%;height:1lh}
+.cv-received__line:has(>.acpmux-pr-dock)>.cv-received__name{flex:0 1 auto;min-width:0}
 /* Keep the links visible while the existing action buttons retain their hover behavior. */
 .acpmux-turnSummary .cv-turn-actions:has(> .acpmux-pr-dock) {
   opacity: 1;

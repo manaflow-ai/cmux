@@ -69,7 +69,7 @@ await requireBrowserLane("pr-dock-inline-layout.test.ts", () => {
           });
         await page.keyboard.press("Escape");
         expect(await more.getAttribute("aria-expanded")).toBe("false");
-        expect(await more.evaluate((node) => node === document.activeElement)).toBe(true);
+        await page.waitForFunction(() => document.activeElement?.matches(".acpmux-pr-dock__more"));
         expect(await geometry()).toEqual(before);
       } finally {
         await page.close();
