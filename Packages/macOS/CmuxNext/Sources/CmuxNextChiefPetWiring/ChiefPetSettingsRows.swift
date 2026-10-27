@@ -14,12 +14,16 @@ public import CmuxNextSettings
 ///
 /// The person's own upload is that Chief's character too (``ChiefAvatarUploads``; Leo 2026-10-26:
 /// "upload their own if they have things from elsewhere"): Upload Your Own… (the grid's "+" tile, a
-/// file picker) wears it, a click on a character wears that and keeps
+/// file picker) or a picture dropped on the grid wears it, a click on a character wears that and keeps
 /// the upload, and Remove Upload deletes it, so the character picked before shows again.
 @MainActor
 public final class ChiefPetSettingsRows: NSObject {
     let toggle = NSSwitch()
     let mascot = ChiefPetMascotGrid(items: ChiefPetSettingsRows.mascotItems())
+    /// Upload Your Own… under the grid (``ChiefPetUploadAffordance/button``).
+    let uploadButton = NSButton(title: ChiefAvatarUploads.chooseTitle, target: nil, action: nil)
+    /// The drop hint under the grid (``ChiefPetUploadAffordance/drop``).
+    let dropHint = ThemedLabel(wrappingLabelWithString: ChiefAvatarUploads.dropHint)
     private let settings: @MainActor @Sendable () -> SettingsController?
     private let picks: ChiefMascotPicks
     /// The person's own uploads; nil offers none.
@@ -49,6 +53,8 @@ public final class ChiefPetSettingsRows: NSObject {
         var enabledManaged: Bool
         var mascotManaged: Bool
         var upload: ChiefAvatarUploads.Upload?
+        /// How the grid offers an upload before there is one (``ChiefPetTunables/uploadAffordance``).
+        var affordance = ChiefPetUploadAffordance.tile
 
         /// What the Chief wears: its worn upload, else its character.
         var face: String { isWorn ? upload?.still.path ?? mascot : mascot }
@@ -71,6 +77,15 @@ public final class ChiefPetSettingsRows: NSObject {
         toggle.action = #selector(toggled)
         toggle.setAccessibilityIdentifier("cmux.home.chief.petEnabled")
         mascot.onPick = { [weak self] id in self?.pick(id) }
+        guard uploads != nil else { return }
+        mascot.onDrop = { [weak self] file in self?.upload(file) }
+        uploadButton.target = self
+        uploadButton.action = #selector(chooseUpload)
+        uploadButton.bezelStyle = .push
+        uploadButton.controlSize = .small
+        uploadButton.setAccessibilityIdentifier("cmux.home.chief.petUpload")
+        dropHint.font = Typography.caption
+        dropHint.ink = .secondary
     }
 
     /// Adds Show Chief Pet and the pet's character through `addRow` (the Chief Settings
@@ -83,7 +98,7 @@ public final class ChiefPetSettingsRows: NSObject {
         let enabledTitle = SettingsSchema.descriptor(for: HomeChiefPetSetting.configPath)?.title ?? ""
         toggle.setAccessibilityLabel(enabledTitle)
         addRow(enabledTitle, toggle)
-        addRow(ChiefPetMascot.pickerTitle, mascot)
+        addRow(ChiefPetMascot.pickerTitle, uploads == nil ? mascot : uploadStack())
         follow()
     }
 
@@ -104,6 +119,15 @@ public final class ChiefPetSettingsRows: NSObject {
         if let shown = Self.shown(settings(), picks: picks, uploads: uploads, chief: chief) { show(shown) }
     }
 
+    /// The grid with Upload Your Own… and the drop hint under it (`show` shows the one the affordance names).
+    private func uploadStack() -> NSView {
+        let stack = NSStackView(views: [mascot, uploadButton, dropHint])
+        stack.orientation = .vertical
+        stack.alignment = .leading
+        stack.spacing = Metrics.space1
+        return stack
+    }
+
     // As HomeHostView's: not an isolated deinit; the watch ends with the rows (their Home view).
     nonisolated deinit {
         guard Thread.isMainThread else { return } // main-proof: returns off the main thread
@@ -120,16 +144,20 @@ public final class ChiefPetSettingsRows: NSObject {
                      enabledManaged: settings.managedKeys[HomeChiefPetSetting.configPath.joined(separator: ".")] != nil,
                      mascotManaged: picks.isDefault(chief)
                          && settings.managedKeys[HomeChiefPetSetting.mascotPath.joined(separator: ".")] != nil,
-                     upload: uploads?.uploads[ChiefAvatarUploads.key(chief: chief ?? picks.defaultChief)])
+                     upload: uploads?.uploads[ChiefAvatarUploads.key(chief: chief ?? picks.defaultChief)],
+                     affordance: ChiefPetTunables.uploadAffordance.value)
     }
 
     func show(_ shown: Shown) {
         toggle.state = shown.enabled ? .on : .off
         toggle.isEnabled = !shown.enabledManaged
         if uploads != nil {
-            mascot.showUpload(shown.upload.map { (uploads?.image(at: $0.still), $0.still) }, tile: true)
+            mascot.showUpload(shown.upload.map { (uploads?.image(at: $0.still), $0.still) }, tile: shown.affordance == .tile)
+            uploadButton.isHidden = shown.affordance != .button || shown.upload != nil
+            dropHint.isHidden = shown.affordance != .drop || shown.upload != nil
         }
         mascot.select(shown.isWorn ? ChiefPetMascotGrid.uploadID : shown.mascot, enabled: !shown.mascotManaged)
+        uploadButton.isEnabled = !shown.mascotManaged
         if shown.face != shownMascot {
             shownMascot = shown.face
             onMascot?()

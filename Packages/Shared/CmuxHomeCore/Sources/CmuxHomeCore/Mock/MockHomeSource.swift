@@ -463,7 +463,15 @@ public actor MockHomeSource: HomeSource {
     /// Posts `text` as `author` under `key` (a Chief's reply carries its turn key) and returns its seq.
     @discardableResult
     public func post(_ text: String, from author: ParticipantID, in conversation: ConversationID, key: IdempotencyKey) -> Seq? {
-        guard (try? commitMessage(in: conversation, author: author, parts: [.text(text)], key: key)) != nil else { return nil }
+        post([.text(text)], from: author, in: conversation, key: key)
+    }
+
+    /// Posts `parts` as `author` under `key`, in `threadRoot`'s thread when one is given (a Chief's
+    /// done marker answers the message it closes), and returns its seq.
+    @discardableResult
+    public func post(_ parts: [MessagePart], from author: ParticipantID, in conversation: ConversationID, key: IdempotencyKey,
+                     threadRoot: MessageID? = nil) -> Seq? {
+        guard (try? commitMessage(in: conversation, author: author, parts: parts, key: key, threadRoot: threadRoot)) != nil else { return nil }
         return conversations[conversation]?.lastSeq
     }
 

@@ -26,6 +26,9 @@ public nonisolated protocol AgentPaneHostProviding: Sendable {
     /// app's. Only while `owner`, the binary the refusal named, still holds the socket. True when
     /// it stopped.
     func restartAcpmux(owner: AcpmuxSocketOwner) async -> Bool
+    /// The acpmux whose socket is `socket`, for an answer the host gives itself on the person's
+    /// behalf (``AgentPaneAskAnswer``): nil when this host's daemon listens elsewhere, or it has none.
+    func answerEnvironment(socket: String) async -> AcpmuxEnvironment?
 }
 
 extension AgentPaneHostProviding {
@@ -41,6 +44,9 @@ extension AgentPaneHostProviding {
 
     /// Hosts without a daemon have none to restart.
     public func restartAcpmux(owner: AcpmuxSocketOwner) async -> Bool { false }
+
+    /// Hosts without a daemon answer nothing themselves.
+    public func answerEnvironment(socket: String) async -> AcpmuxEnvironment? { nil }
 
     /// Hosts without a daemon take no files.
     public func putFile(sessionId: String, name: String, data: Data) async throws -> String {
@@ -223,6 +229,14 @@ public actor AcpmuxHost: AgentPaneHostProviding {
         if environment == nil { environment = resolveEnvironment() }
         guard let environment, !environment.isAttached, owner.socketPath == environment.socketPath else { return false }
         return await AcpmuxSocketOwner.takeOver(environment: environment, owner: owner)
+    }
+
+    /// This host's own daemon, only when `socket` is its socket: the Chief home's host answers for
+    /// the Chief home's chats, the app's for the app's.
+    public func answerEnvironment(socket: String) async -> AcpmuxEnvironment? {
+        if environment == nil { environment = resolveEnvironment() }
+        guard let environment, environment.socketPath == socket else { return nil }
+        return environment
     }
 
     private func endpoint(startsDaemon asked: Bool) async throws -> AcpmuxWebEndpoint {
@@ -489,6 +503,9 @@ public actor AcpmuxHost: AgentPaneHostProviding {
             } catch {
                 throw failure(environment, .exited, detail: String(describing: error))
             }
+        } catch AcpmuxDaemonLauncher.Failure.refused(let why) {
+            logger.error("acpmux daemon refused to start: \(why, privacy: .public)")
+            throw failure(environment, .refused(why), detail: why)
         } catch is AgentPaneDeadlineExceeded {
             logger.error("acpmux launcher timed out log=\(environment.logPath, privacy: .public)")
             throw AgentPaneHostError.timedOut
