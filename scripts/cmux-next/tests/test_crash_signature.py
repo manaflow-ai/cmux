@@ -7,6 +7,7 @@ import importlib.util
 import io
 import json
 import sys
+import tempfile
 import unittest
 from contextlib import redirect_stdout
 from pathlib import Path
@@ -306,14 +307,14 @@ class NonCrashKindsTests(unittest.TestCase):
         "rust-blocking": "72ca907114d9",
         "bad-message": "4ae6aa9d881c",
         "invariant": "305d828c5666",
-        "page-js-error": "d4b4c1075657",
+        "page-js-error": "4b2d5cef52f0",
         "error-fault": "3a4a60fa02a8",
     }
 
     def test_every_kind_has_its_pinned_hash(self):
         found = {}
         for name in ("rust-hangs-build-a.jsonl", "slow-polls.jsonl", "bad-messages.log",
-                     "error-journal-segment.ndjson"):
+                     "error-journal-segment.ndjson", "invariant-events.jsonl"):
             for sig in sigs(name):
                 found.setdefault(sig.kind, sig.hash12)
         self.assertEqual(found, self.PINNED)
@@ -376,8 +377,8 @@ class NonCrashKindsTests(unittest.TestCase):
         self.assertEqual(len(sigs("slow-polls.jsonl")), 4)
 
     def test_bad_messages_bucket_by_reason_and_peer(self):
-        daemon_a, daemon_b, method, app, _ = sigs("bad-messages.log")
-        self.assertEqual([s.kind for s in (daemon_a, daemon_b, method, app)], ["bad-message"] * 4)
+        daemon_a, daemon_b, method, app, daemon_utf8, app_utf8 = sigs("bad-messages.log")
+        self.assertEqual({s.kind for s in sigs("bad-messages.log")}, {"bad-message"})
         self.assertEqual(daemon_a.hash12, daemon_b.hash12)
         self.assertEqual((method.exception, method.frames), ("unknown_method", ["socket-client"]))
         self.assertNotEqual(daemon_a.hash12, method.hash12)
@@ -387,37 +388,94 @@ class NonCrashKindsTests(unittest.TestCase):
         [record] = [s for s in sigs("invariant-events.jsonl") if s.kind == "bad-message"]
         self.assertEqual((record.exception, record.frames, record.process), ("truncated", ["daemon"], "cmux NEXT"))
 
-    def test_invariant_is_its_id_and_file_from_every_source(self):
-        logged = sigs("bad-messages.log")[-1]
+    def test_bad_message_reasons_with_digits_are_whole_on_both_peers(self):
+        # cmux-ipc frame.rs and FrameReader.swift name BadMessage::InvalidUtf8 `invalid_utf8`.
+        _, _, _, _, daemon, app = sigs("bad-messages.log")
+        self.assertEqual((daemon.exception, daemon.frames), ("invalid_utf8", ["socket-client"]))
+        self.assertEqual((app.exception, app.frames), ("invalid_utf8", ["daemon"]))
+        self.assertNotEqual(daemon.hash12, app.hash12)
+
+    def test_invariant_is_its_id_and_file_from_every_writer(self):
         first, moved, sentry, _ = sigs("invariant-events.jsonl")
-        self.assertEqual(logged.kind, "invariant")
-        self.assertEqual(logged.frames, ["tab-in-its-workspace", "CmuxNextApp/WorkspaceStore.swift"])
+        self.assertEqual(first.kind, "invariant")
+        self.assertEqual(first.frames, ["tab-in-its-workspace", "CmuxNextApp/WorkspaceStore.swift"])
         # The site's line moves with edits; the bug does not.
-        self.assertEqual({logged.hash12, first.hash12, moved.hash12}, {logged.hash12})
+        self.assertEqual(first.hash12, moved.hash12)
         self.assertEqual(first.extra["tier"], "not_fatal_until")
         self.assertEqual(sentry.frames, ["selection-in-range", "CmuxNextTerminal/Selection.swift"])
         self.assertEqual(sentry.extra["tier"], "dump_will_be_check")
 
-    def test_error_journal_page_errors_faults_and_invariants(self):
+    def test_an_invariant_trap_is_left_to_its_crash_report(self):
+        # Invariant.trap's fatalError text also leaves an .ips, which files it as a crash: one bug, one finding.
+        trap = ("CmuxSafeConcurrency/Invariant.swift:294: Fatal error: invariant tab-in-ws failed at "
+                "CmuxNextApp/Store.swift:12")
+        self.assertEqual(cs.signatures_from_text(f"{trap}\n", "app-stderr.log", IGNORE), [])
+        self.assertNotIn("invariant", {s.kind for s in sigs("bad-messages.log")})
+        self.assertNotIn("4a1b2c3d4e5f6071", {s.extra["journal_fp"] for s in sigs("error-journal-segment.ndjson")})
+
+    def test_error_journal_page_errors_and_faults(self):
         found = sigs("error-journal-segment.ndjson")
         self.assertEqual([s.kind for s in found],
-                         ["page-js-error", "page-js-error", "page-js-error", "error-fault", "invariant"])
-        build_a, build_b, minified, fault, invariant = found
+                         ["page-js-error", "page-js-error", "error-fault", "page-js-error", "page-js-error"])
+        build_b, minified, fault, other_page, build_a = found
         # Two builds' chunk hashes, a V8 and a JSC frame: one bug.
-        self.assertEqual(build_a.frames, ["renderRows @ index.js"])
+        self.assertEqual(build_a.frames, ["page:settings", "renderRows @ index.js"])
         self.assertEqual(build_a.hash12, build_b.hash12)
         self.assertEqual(build_a.process, "page:settings")
-        self.assertEqual(build_a.extra["journal_count"], 3)
-        # A minified name says nothing; the script and the message do.
+        # A minified name says nothing; the page, the script and the message do.
         self.assertEqual((minified.exception, minified.frames),
-                         ("unhandled rejection: fetch failed after <n> tries", ["index.js"]))
+                         ("unhandled rejection: fetch failed after <n> tries", ["page:diff", "index.js"]))
         self.assertEqual((fault.exception, fault.frames), ("session journal write failed at offset <n>", ["app"]))
-        self.assertEqual(invariant.frames, ["pane-has-surface", "CmuxNextApp/PaneStore.swift"])
+        # One template and frame on two pages: two bugs.
+        self.assertEqual((other_page.exception, other_page.frames[1]), (build_a.exception, build_a.frames[1]))
+        self.assertNotEqual(other_page.hash12, build_a.hash12)
+
+    def test_error_journal_entry_flushed_twice_is_one_finding(self):
+        # ErrorSegmentStore appends a new snapshot of fp 0a1b... when its count goes 3 -> 4: the newest wins.
+        found = [s for s in sigs("error-journal-segment.ndjson") if s.extra["journal_fp"] == "0a1b2c3d4e5f6071"]
+        self.assertEqual([s.extra["journal_count"] for s in found], [4])
+
+    def test_journal_segments_are_one_journal_in_segment_order(self):
+        def entry(count: int) -> str:
+            return json.dumps({"count": count, "fp": "0a1b2c3d4e5f6071", "level": "error", "source": "page:settings",
+                               "frame": "renderRows (cmux-page://settings/assets/index-B3x9kQ1z.js:1:4410)",
+                               "sample": "TypeError: x", "template": "TypeError: x"}) + "\n"
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "segment-000010.ndjson").write_text(entry(7), encoding="utf-8")
+            (root / "segment-000009.ndjson").write_text(entry(5) + entry(6), encoding="utf-8")
+            other = root / "lane.log"
+            other.write_text("cmux-tui: client 1 closed: bad_message truncated: x\n", encoding="utf-8")
+            paths = sorted(root.iterdir())
+            groups = cs.artifact_groups(paths)
+            self.assertEqual([[path.name for path in group] for group in groups],
+                             [["lane.log"], ["segment-000009.ndjson", "segment-000010.ndjson"]])
+            [(path, sig)] = cs.signatures_from_group(groups[1], IGNORE)
+            self.assertEqual((path.name, sig.extra["journal_count"]), ("segment-000010.ndjson", 7))
+            out = io.StringIO()
+            with redirect_stdout(out):
+                self.assertEqual(cs.main([str(path) for path in paths]), 0)
+            self.assertEqual([json.loads(line)["kind"] for line in out.getvalue().splitlines()],
+                             ["bad-message", "page-js-error"])
 
     def test_warnings_journal_panics_and_crash_entries_are_left_to_their_own_readers(self):
         processes = {sig.process for sig in sigs("error-journal-segment.ndjson")}
         self.assertNotIn("acpmux", processes)
         self.assertNotIn("crash", processes)
+
+    def test_log_that_starts_with_a_json_line_keeps_its_sanitizer_report(self):
+        asan = (FIXTURES / "asan-uaf.txt").read_text(encoding="utf-8")
+        text = '{"ts": 1, "level": "info", "msg": "owner start"}\n' + asan
+        self.assertEqual([s.hash12 for s in cs.signatures_from_text(text, "lane.log", IGNORE)],
+                         [one("asan-uaf.txt").hash12])
+
+    def test_report_and_event_lines_in_one_log_are_all_read(self):
+        bad = "cmux NEXT[4410:88] [daemon] connection lost: bad message: truncated\n"
+        hang_line = (FIXTURES / "rust-hangs-build-b.jsonl").read_text(encoding="utf-8").splitlines()[0]
+        for report, kind in (("asan-uaf.txt", "asan"), ("hang-sample.txt", "hang")):
+            text = bad + (FIXTURES / report).read_text(encoding="utf-8") + "\n" + hang_line + "\n"
+            kinds = sorted(s.kind for s in cs.signatures_from_text(text, "lane.log", IGNORE))
+            self.assertEqual(kinds, sorted([kind, "bad-message", "rust-hang"]), report)
 
     def test_js_frame_labels(self):
         cases = {
@@ -444,12 +502,12 @@ class NonCrashKindsTests(unittest.TestCase):
         text = '{"message": "lane passed", "status": "ok"}\n{"kind": "slow_poll_summary", "slow": 1}\n[1, 2]\n'
         self.assertEqual(cs.signatures_from_text(text, "result.json", IGNORE), [])
 
-    def test_the_fixtures_hold_fifteen_distinct_bugs(self):
-        # 2 hangs, 2 slow-poll sites, 1 blocking stall, 4 (reason, peer) pairs, 3 invariants, 2 page errors, 1 fault.
+    def test_the_fixtures_hold_seventeen_distinct_bugs(self):
+        # 2 hangs, 2 slow-poll sites, 1 blocking stall, 6 (reason, peer) pairs, 2 invariants, 3 page errors, 1 fault.
         every = {sig.hash12 for name in ("rust-hangs-build-a.jsonl", "rust-hangs-build-b.jsonl", "slow-polls.jsonl",
                                          "bad-messages.log", "error-journal-segment.ndjson", "invariant-events.jsonl")
                  for sig in sigs(name)}
-        self.assertEqual(len(every), 15)
+        self.assertEqual(len(every), 17)
 
 
 class NormalizeTests(unittest.TestCase):

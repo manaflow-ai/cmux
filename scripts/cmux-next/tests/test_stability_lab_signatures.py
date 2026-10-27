@@ -44,6 +44,7 @@ class LaneArtifacts(unittest.TestCase):
         shutil.copy(FIXTURES / "slow-polls.jsonl", self.root / "owner" / "hangs.jsonl")
         shutil.copy(FIXTURES / "bad-messages.log", self.root / "app-stderr.log")
         shutil.copy(FIXTURES / "error-journal-segment.ndjson", self.root / "journal" / "segment-3.ndjson")
+        shutil.copy(FIXTURES / "invariant-events.jsonl", self.root / "invariant-sink.jsonl")
         (self.root / "screenshot.png").write_bytes(b"\x89PNG\r\n\x1a\n" + b"bad message: line_too_long")
         (self.root / "lane-result.json").write_text('{"message": "lane passed", "status": "ok"}\n', encoding="utf-8")
 
@@ -71,6 +72,16 @@ class LaneArtifacts(unittest.TestCase):
         self.assertEqual(len(tracked), len({finding["hash12"] for finding in findings}))
         self.assertLess(len(tracked), len(findings))
 
+    def test_a_journal_entry_in_two_segments_is_one_finding_from_the_newer(self):
+        # ErrorSegmentStore keeps appending to the newest segment; an older one can still hold a stale snapshot.
+        newer = json.dumps({"count": 9, "fp": "3a1b2c3d4e5f6071", "level": "fault", "source": "app",
+                            "sample": "session journal write failed at offset 8192",
+                            "template": "session journal write failed at offset <n>"})
+        (self.root / "journal" / "segment-10.ndjson").write_text(newer + "\n", encoding="utf-8")
+        faults = [finding for finding in lab.lane_findings([self.root]) if finding["kind"] == "error-fault"]
+        self.assertEqual([(finding["source"], finding["journal_count"]) for finding in faults],
+                         [("journal/segment-10.ndjson", 9)])
+
     def test_the_same_artifacts_give_the_same_hashes(self):
         first = [finding["hash12"] for finding in lab.lane_findings([self.root])]
         again = [finding["hash12"] for finding in lab.lane_findings([self.root])]
@@ -84,7 +95,7 @@ class LaneArtifacts(unittest.TestCase):
                                "--json-out", str(out_path)])
         self.assertEqual(status, 0)
         lines = [json.loads(line) for line in out.getvalue().splitlines()]
-        self.assertEqual([line["kind"] for line in lines], ["bad-message"] * 4 + ["invariant"])
+        self.assertEqual([line["kind"] for line in lines], ["bad-message"] * 6)
         self.assertEqual({line["source"] for line in lines}, {"app-stderr.log"})
         self.assertEqual(json.loads(out_path.read_text(encoding="utf-8"))["findings"], lines)
 

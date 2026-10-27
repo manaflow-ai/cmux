@@ -19,8 +19,9 @@ Subcommands:
         Reads every artifact a lane left in DIR (recursively) with crash_signature.py and prints its
         findings, the `findings` of a cmux-stability-run/v1 file (stability_issues.py sync). Crashes and
         non-crash failures alike: crash and hang reports, Rust panic and hang JSONL (hangs, blocking stalls,
-        slow polls), sanitizer output, BadMessage closes and invariant failures in logs, and ErrorJournal
-        segments (page JS errors, faults). Each finding names its artifact relative to DIR.
+        slow polls), sanitizer output, BadMessage closes in logs, invariant records, and ErrorJournal
+        segments (page JS errors, faults; one directory's segments are one journal, the newest snapshot of
+        each entry counts). Each finding names its artifact relative to DIR.
 
 Inputs (the runner, task p10-stability-003, writes the state; this file reads it):
 
@@ -361,13 +362,13 @@ def lane_findings(roots: list[Path], lane: str = "", major: str = "", sha: str =
     ignore = cs.IgnoreList.load()
     findings = []
     for root in roots:
-        for path in artifact_paths(root):
+        for group in cs.artifact_groups(artifact_paths(root)):
             try:
-                signatures = cs.signatures_from_path(path, ignore)
+                signatures = cs.signatures_from_group(group, ignore)
             except OSError as error:
-                raise LabError(f"cannot read {path}: {error}") from None
-            artifact = path.name if root.is_file() else path.relative_to(root).as_posix()
-            for signature in signatures:
+                raise LabError(f"cannot read {group[0]}: {error}") from None
+            for path, signature in signatures:
+                artifact = path.name if root.is_file() else path.relative_to(root).as_posix()
                 finding = signature.to_json()
                 finding["source"] = artifact
                 finding.update({key: value for key, value in (("lane", lane), ("major", major), ("sha", sha))

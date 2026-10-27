@@ -18,11 +18,13 @@ Failures that end no process (see "non-crash failures" below for each one's iden
   rust-hang, rust-blocking, slow-poll
                the Rust hang JSONL (hangs.jsonl, owner-hangs-<session>.jsonl)
   bad-message  a peer closed for a bad message, in a log or a JSONL record
-  invariant    an Invariant.notFatalUntil / dumpWillBeCheck failure
+  invariant    an Invariant.notFatalUntil / dumpWillBeCheck failure (its Sentry event or a sink's record)
   page-js-error, error-fault
                ErrorJournal segment lines (segment-N.ndjson)
 
-A JSONL file may mix panic, hang, journal and record lines; each line is read by its writer's shape.
+A log may mix panic, hang, journal and record JSON lines with a text report and BadMessage lines; each JSON
+line is read by its writer's shape and the remaining text by the report readers and the event-line scan. One
+directory's journal segments are read as one journal: the newest snapshot of each entry counts.
 
 The signature is ClusterFuzz's crash state (google/clusterfuzz
 src/clusterfuzz/stacktraces/__init__.py, constants.py): drop the frames that
@@ -803,9 +805,11 @@ def _heaviest_path(nodes: list[tuple[int, int, str, str, int | None]]) -> list[t
 #                  buckets ReceivedBadMessage by its reason enum (content/browser/bad_message.h)
 #   invariant      an `Invariant.notFatalUntil` / `dumpWillBeCheck` failure (CmuxSafeConcurrency Invariant.swift,
 #                  Chrome's base/not_fatal_until.h): the invariant's id and file, as InvariantSink fingerprints
-#                  it in Sentry, without the line
+#                  it in Sentry, without the line. Read only from that Sentry event or a lab sink's
+#                  `"kind": "invariant"` record; no process logs the event as text. The text `invariant <id>
+#                  failed at <file>:<line>` is Invariant.trap's fatalError, whose .ips files it as a crash.
 #   page-js-error  an app page's uncaught error or console.error in the ErrorJournal (`page:<page>` source):
-#                  the message template and the top JS frame
+#                  the page, the message template and the top JS frame
 #   error-fault    any other ErrorJournal entry at level fault: its source, message template and top frame
 #
 # Only the hang stack goes through the ignore list; every other kind's frames are stable labels already (a
@@ -918,9 +922,9 @@ def _bad_message_record(record: dict, source: str) -> Signature | None:
                                  str(record.get("detail") or ""))
 
 
-# InvariantEvent.message: `invariant tab-in-its-workspace failed at CmuxNextApp/Store.swift:120`.
-_INVARIANT_TEXT = re.compile(r"\binvariant (?P<id>\S+) failed at (?P<file>[^\s:]+\.swift):\d+")
 _INVARIANT_TIERS = {"notFatalUntil": "not_fatal_until", "dumpWillBeCheck": "dump_will_be_check"}
+# Invariant.trap's fatalError text (`invariant <id> failed at <fileID>:<line>`): the trap's .ips is its finding.
+_INVARIANT_TRAP = re.compile(r"\binvariant \S+ failed at \S+\.swift:\d+")
 
 
 def invariant_signature(invariant_id: str, file_id: str, process: str, source: str = "", tier: str = "",
@@ -994,10 +998,11 @@ def js_frame_label(frame: str) -> str:
 
 
 def _journal_entry(record: dict, source: str) -> Signature | None:
-    """An ErrorJournal segment line (ErrorEntry.swift): a page error, an invariant or a fault, else nothing.
+    """An ErrorJournal segment line (ErrorEntry.swift): a page error or a fault, else nothing.
 
     Crash-level entries are the system's crash reports, read as .ips; journal panics (`panic: ...`) come from
-    a process's log and are read from its panic JSONL. Errors and warnings are expected failures, not bugs.
+    a process's log and are read from its panic JSONL; an invariant trap's message is its .ips crash. Errors and
+    warnings are expected failures, not bugs.
     """
     origin = str(record.get("source") or "")
     level = str(record.get("level") or "")
@@ -1005,12 +1010,13 @@ def _journal_entry(record: dict, source: str) -> Signature | None:
     template = message_template(str(record.get("template") or sample))
     frame = str(record.get("frame") or "")
     extra = {"journal_fp": record.get("fp", ""), "journal_count": record.get("count", 0)}
-    invariant = _INVARIANT_TEXT.search(sample)
-    if invariant and level in ("error", "fault"):
-        return invariant_signature(invariant.group("id"), invariant.group("file"), origin or "app", source)
+    if _INVARIANT_TRAP.search(sample):
+        return None
     if origin.startswith("page:") and level in ("error", "fault"):
-        return make_labeled_signature("page-js-error", origin, template or "error", [js_frame_label(frame)], source,
-                                      sample, **extra)
+        # The page is part of the bug, as the source is in ErrorFingerprint.swift's: one template on two pages
+        # is two bugs.
+        return make_labeled_signature("page-js-error", origin, template or "error", [origin, js_frame_label(frame)],
+                                      source, sample, **extra)
     if level == "fault" and not template.startswith("panic: "):
         # ErrorFingerprint.swift's identity (source, template, top frame), with the frame's line dropped.
         label = _LINE_SUFFIX.sub("", normalize_function(frame)) if frame else ""
@@ -1037,108 +1043,166 @@ def _record_kind(record: dict) -> str:
     return ""
 
 
-def parse_jsonl(text: str, ignore: IgnoreList, source: str = "", include_test: bool = False) -> list[Signature]:
-    """Any mix of cmux JSONL lines: Rust panics and supervised exits, the hang log, journal segments, records."""
-    signatures: list[Signature] = []
-    for raw in text.splitlines():
-        line = raw.strip()
-        if not line:
+def _json_object(line: str) -> dict | None:
+    """One JSONL line's object, or None for any other line (text, an array, a torn write)."""
+    line = line.strip()
+    if not line.startswith("{"):
+        return None
+    try:
+        record = json.loads(line)
+    except json.JSONDecodeError:
+        return None
+    return record if isinstance(record, dict) else None
+
+
+def _record_signatures(kind: str, line: str, record: dict, ignore: IgnoreList, source: str,
+                       include_test: bool) -> list[Signature]:
+    signature: Signature | None = None
+    if kind == "panic":
+        return parse_rust_panic_jsonl(line, ignore, source, include_test)
+    if kind == "hang":
+        signature = _rust_hang(record, ignore, source)
+    elif kind == "blocking":
+        signature = _rust_blocking(record, source)
+    elif kind == "slow_poll":
+        signature = _slow_poll(record, source)
+    elif kind == "bad_message":
+        signature = _bad_message_record(record, source)
+    elif kind == "invariant":
+        signature = _invariant_record(record, source)
+    elif kind == "journal":
+        signature = _journal_entry(record, source)
+    return [signature] if signature is not None else []
+
+
+def jsonl_signatures(lines: list[tuple[str, str]], ignore: IgnoreList,
+                     include_test: bool = False) -> list[tuple[str, Signature]]:
+    """`(source, line)` pairs in write order -> `(source, signature)` pairs.
+
+    ErrorSegmentStore appends a new snapshot of a journal entry each time it changes, and the newest line per
+    fingerprint is the entry (ErrorSegmentStore.swift): only that line is signed, so N flushes are one finding.
+    """
+    records = [(source, line, record) for source, line in lines if (record := _json_object(line)) is not None]
+    kinds = [_record_kind(record) for _, _, record in records]
+    newest = {str(record["fp"]): index for index, ((_, _, record), kind) in enumerate(zip(records, kinds))
+              if kind == "journal"}
+    signatures: list[tuple[str, Signature]] = []
+    for index, ((source, line, record), kind) in enumerate(zip(records, kinds)):
+        if kind == "journal" and newest[str(record["fp"])] != index:
             continue
-        try:
-            record = json.loads(line)
-        except json.JSONDecodeError:
-            continue
-        if not isinstance(record, dict):
-            continue
-        kind = _record_kind(record)
-        signature: Signature | None = None
-        if kind == "panic":
-            signatures.extend(parse_rust_panic_jsonl(line, ignore, source, include_test))
-        elif kind == "hang":
-            signature = _rust_hang(record, ignore, source)
-        elif kind == "blocking":
-            signature = _rust_blocking(record, source)
-        elif kind == "slow_poll":
-            signature = _slow_poll(record, source)
-        elif kind == "bad_message":
-            signature = _bad_message_record(record, source)
-        elif kind == "invariant":
-            signature = _invariant_record(record, source)
-        elif kind == "journal":
-            signature = _journal_entry(record, source)
-        if signature is not None:
-            signatures.append(signature)
+        signatures.extend((source, signature)
+                          for signature in _record_signatures(kind, line, record, ignore, source, include_test))
     return signatures
 
 
+def parse_jsonl(text: str, ignore: IgnoreList, source: str = "", include_test: bool = False) -> list[Signature]:
+    """Any mix of cmux JSONL lines: Rust panics and supervised exits, the hang log, journal segments, records."""
+    return [signature for _, signature in
+            jsonl_signatures([(source, line) for line in text.splitlines()], ignore, include_test)]
+
+
 # cmux-tui server/line_connection.rs: `cmux-tui: client 7 closed: bad_message line_too_long: ...`.
-_DAEMON_BAD_MESSAGE = re.compile(r"\bclient \S+ closed: bad_message (?P<reason>[a-z_]+)")
+# Reasons are cmux-ipc's BadMessage::reason() strings (frame.rs), digits included (`invalid_utf8`).
+_DAEMON_BAD_MESSAGE = re.compile(r"\bclient \S+ closed: bad_message (?P<reason>[a-z0-9_]+)")
 # The app's LineTransport close detail: `bad message: frames_not_negotiated`.
-_APP_BAD_MESSAGE = re.compile(r"\bbad message: (?P<reason>[a-z_]+)\b")
+_APP_BAD_MESSAGE = re.compile(r"\bbad message: (?P<reason>[a-z0-9_]+)\b")
 
 
 def parse_event_lines(text: str, source: str = "", process: str = "") -> list[Signature]:
-    """BadMessage closes and invariant failures in a process's text log (stderr, `log show`, a lane's output)."""
+    """BadMessage closes in a process's text log (stderr, `log show`, a lane's output)."""
     signatures: list[Signature] = []
     for line in text.splitlines():
         daemon = _DAEMON_BAD_MESSAGE.search(line)
         app = _APP_BAD_MESSAGE.search(line)
-        invariant = _INVARIANT_TEXT.search(line)
         if daemon:
             signatures.append(bad_message_signature(daemon.group("reason"), "socket-client", process or "cmux-tui",
                                                     source, line.strip()))
         elif app:
             signatures.append(bad_message_signature(app.group("reason"), "daemon", process or "app", source,
                                                     line.strip()))
-        elif invariant:
-            signatures.append(invariant_signature(invariant.group("id"), invariant.group("file"), process or "app",
-                                                  source, message=line.strip()))
     return signatures
-
-
-def _has_event_lines(text: str) -> bool:
-    return any(pattern.search(text) for pattern in (_DAEMON_BAD_MESSAGE, _APP_BAD_MESSAGE, _INVARIANT_TEXT))
 
 
 # ---------------------------------------------------------------- dispatch
 
 def detect_kind(text: str, name: str = "") -> str:
-    """ips, jsonl, sanitizer, hang, events or "" for a report this module cannot read."""
+    """ips, sanitizer, hang or "" for the report in `text` (its JSON lines and BadMessage lines aside)."""
     first = text.lstrip()[:1]
     if name.endswith(".ips") or (first == "{" and '"bug_type"' in text.split("\n", 1)[0]):
         return "ips"
-    if first == "{":
-        return "jsonl"
     if re.search(r"==\d+==ERROR: (?:Address|Leak)Sanitizer|WARNING: ThreadSanitizer:|: runtime error: ", text):
         return "sanitizer"
     if "Call graph:" in text or "Heaviest stack" in text or re.search(r"^\s*Thread 0x[0-9a-f]+", text, re.MULTILINE):
         return "hang"
-    if _has_event_lines(text):
-        return "events"
     return ""
 
 
 def signatures_from_text(text: str, name: str = "", ignore: IgnoreList | None = None,
                          include_test: bool = False, process: str = "") -> list[Signature]:
+    """Every signature in one artifact. An .ips is one report. Any other text is split by line, because a lane's
+    log interleaves JSON lines (panic and hang logs, records), a sanitizer or hang report and BadMessage closes:
+    the JSON lines go to parse_jsonl, the rest to the report readers and the event-line scan."""
     ignore = ignore or IgnoreList.load()
-    kind = detect_kind(text, name)
-    if kind == "ips":
+    if detect_kind(text, name) == "ips":
         return parse_ips(text, ignore, name)
-    if kind == "jsonl":
-        return parse_jsonl(text, ignore, name, include_test)
+    json_lines: list[str] = []
+    text_lines: list[str] = []
+    for line in text.splitlines():
+        (json_lines if _json_object(line) is not None else text_lines).append(line)
+    signatures = parse_jsonl("\n".join(json_lines), ignore, name, include_test)
+    report = "\n".join(text_lines)
+    kind = detect_kind(report, name)
     if kind == "sanitizer":
-        return parse_sanitizer(text, ignore, name, process)
-    if kind == "hang":
-        return parse_hang(text, ignore, name)
-    if kind == "events":
-        return parse_event_lines(text, name, process)
-    return []
+        signatures += parse_sanitizer(report, ignore, name, process)
+    elif kind == "hang":
+        signatures += parse_hang(report, ignore, name)
+    return signatures + parse_event_lines(report, name, process)
 
 
 def signatures_from_path(path: Path, ignore: IgnoreList | None = None, include_test: bool = False,
                          process: str = "") -> list[Signature]:
     text = Path(path).read_text(encoding="utf-8", errors="replace")
     return signatures_from_text(text, os.path.basename(str(path)), ignore, include_test, process)
+
+
+# An ErrorJournal segment (ErrorSegmentStore.swift): `segment-000003.ndjson`.
+_JOURNAL_SEGMENT = re.compile(r"^segment-(?P<sequence>\d+)\.ndjson$")
+
+
+def _journal_sequence(path: Path) -> int | None:
+    match = _JOURNAL_SEGMENT.match(Path(path).name)
+    return int(match.group("sequence")) if match else None
+
+
+def artifact_groups(paths: list[Path]) -> list[list[Path]]:
+    """Each artifact alone, except one directory's journal segments: one group, in segment order."""
+    groups: list[list[Path]] = []
+    journals: dict[Path, list[Path]] = {}
+    for path in map(Path, paths):
+        if _journal_sequence(path) is None:
+            groups.append([path])
+            continue
+        if path.parent not in journals:
+            journals[path.parent] = []
+            groups.append(journals[path.parent])
+        journals[path.parent].append(path)
+    for segments in journals.values():
+        segments.sort(key=_journal_sequence)
+    return groups
+
+
+def signatures_from_group(group: list[Path], ignore: IgnoreList | None = None, include_test: bool = False,
+                          process: str = "") -> list[tuple[Path, Signature]]:
+    """`(artifact, signature)` for one artifact_groups() group. A journal's segments are read as one journal, so
+    an entry's newest snapshot wins across segments; each signature names the segment that held that snapshot."""
+    ignore = ignore or IgnoreList.load()
+    if _journal_sequence(group[0]) is None:
+        [path] = group
+        return [(path, signature) for signature in signatures_from_path(path, ignore, include_test, process)]
+    by_name = {path.name: path for path in group}
+    lines = [(path.name, line) for path in group
+             for line in path.read_text(encoding="utf-8", errors="replace").splitlines()]
+    return [(by_name[source], signature) for source, signature in jsonl_signatures(lines, ignore, include_test)]
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -1151,14 +1215,14 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     ignore = IgnoreList.load(args.ignore)
     status = 0
-    for path in args.paths:
+    for group in artifact_groups(args.paths):
         try:
-            signatures = signatures_from_path(path, ignore, args.include_test, args.process)
+            signatures = signatures_from_group(group, ignore, args.include_test, args.process)
         except OSError as error:
-            print(f"crash_signature: {path}: {error}", file=sys.stderr)
+            print(f"crash_signature: {group[0]}: {error}", file=sys.stderr)
             status = 1
             continue
-        for signature in signatures:
+        for _, signature in signatures:
             print(json.dumps(signature.to_json(), sort_keys=True))
     return status
 
