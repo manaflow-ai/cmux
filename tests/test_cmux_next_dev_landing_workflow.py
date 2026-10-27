@@ -101,7 +101,7 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(job["needs"], ["dev-landing-place", "dev-landing-compile"])
         condition = job["if"]
         self.assertTrue(condition.startswith("${{ !cancelled()"), "a failed compile must still ask for a DEV build")
-        self.assertIn("needs.dev-landing-place.result == 'success'", condition)
+        self.assertNotIn("needs.dev-landing-place.result", condition, "a failed or skipped placement still asks for a DEV build")
         self.assertIn("github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next'", condition)
         self.assertNotIn("concurrency", job, "a handoff never cancels or replaces another")
         self.assertEqual(job["permissions"], {"actions": "write"})
