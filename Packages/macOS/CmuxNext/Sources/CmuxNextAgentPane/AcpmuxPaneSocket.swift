@@ -11,6 +11,11 @@ nonisolated final class AcpmuxPaneSocket: NSObject, URLSessionWebSocketDelegate,
         var more: Bool
     }
 
+    private struct UploadOwnerKey: Hashable {
+        let sessionId: String
+        let uploadId: String
+    }
+
     private struct State {
         var session: URLSession?
         var task: URLSessionWebSocketTask?
@@ -37,6 +42,8 @@ nonisolated final class AcpmuxPaneSocket: NSObject, URLSessionWebSocketDelegate,
         var challenge: AcpmuxPersonChallenge?
         var challengeWaiters: [CheckedContinuation<AcpmuxPersonChallenge?, Never>] = []
         var hostReplies: [Int: @Sendable ([String: Any]) -> Void] = [:]
+        // Daemon-issued deletion authority stays on this connection, never in page results.
+        var uploadOwners: [UploadOwnerKey: String] = [:]
 
         /// A full flush waits: it goes even to a pane nobody can see (``pageWaits``).
         func backlogged(_ limits: AgentPaneTransport.Limits) -> Bool {
@@ -372,6 +379,13 @@ nonisolated final class AcpmuxPaneSocket: NSObject, URLSessionWebSocketDelegate,
 
     /// A host-owned JSON-RPC request never enters the page queue.
     func callHost(_ method: String, params: [String: Any]) async throws -> [String: Any] {
+        var params = params
+        if method == "_acpmux/file_put_cancel" {
+            guard let sessionId = params["sessionId"] as? String, let uploadId = params["uploadId"] as? String,
+                  let owned = uploadCancelParams(sessionId: sessionId, uploadId: uploadId)
+            else { throw AgentPaneUploadError.rpc("missing upload cleanup ownership") }
+            params = owned
+        }
         let id = ids.hostID()
         let request: [String: Any] = ["jsonrpc": "2.0", "id": id, "method": method, "params": params]
         guard JSONSerialization.isValidJSONObject(request),
@@ -381,14 +395,42 @@ nonisolated final class AcpmuxPaneSocket: NSObject, URLSessionWebSocketDelegate,
             throw AgentPaneTransportError.invalidFrame
         }
         var lateReply: (@Sendable ([String: Any]) -> Void)?
-        if method == "_acpmux/file_put_begin", let sessionId = params["sessionId"] as? String {
+        let ownedBegin = method == "_acpmux/file_put_begin" && params["forPrompt"] as? Bool == true
+        if ownedBegin, let sessionId = params["sessionId"] as? String {
             lateReply = { [weak self] object in
-                if let result = object["result"] as? [String: Any], let uploadId = result["uploadId"] as? String {
-                    self?.cancelUpload(sessionId: sessionId, uploadId: uploadId)
+                if let self, let result = object["result"] as? [String: Any],
+                   let uploadId = result["uploadId"] as? String,
+                   (try? self.retainUploadOwner(result, sessionId: sessionId)) != nil {
+                    self.cancelUpload(sessionId: sessionId, uploadId: uploadId)
                 }
             }
         }
-        return try await hostReply(id: id, text: text, lateReply: lateReply)
+        var result = try await hostReply(id: id, text: text, lateReply: lateReply)
+        if ownedBegin, let sessionId = params["sessionId"] as? String {
+            try retainUploadOwner(result, sessionId: sessionId)
+        }
+        result.removeValue(forKey: "ownerToken")
+        return result
+    }
+
+    private func retainUploadOwner(_ result: [String: Any], sessionId: String) throws {
+        guard let uploadId = result["uploadId"] as? String, !uploadId.isEmpty,
+              let token = result["ownerToken"] as? String, token.utf8.count == 32,
+              token.utf8.allSatisfy({ (48...57).contains($0) || (97...102).contains($0) })
+        else { throw AgentPaneUploadError.rpc("missing or invalid upload cleanup ownership") }
+        let key = UploadOwnerKey(sessionId: sessionId, uploadId: uploadId)
+        let retained = state.withLock { state in
+            if let previous = state.uploadOwners[key], previous != token { return false }
+            state.uploadOwners[key] = token
+            return true
+        }
+        guard retained else { throw AgentPaneUploadError.rpc("upload cleanup ownership changed") }
+    }
+
+    private func uploadCancelParams(sessionId: String, uploadId: String) -> [String: Any]? {
+        guard let token = state.withLock({ $0.uploadOwners[UploadOwnerKey(sessionId: sessionId, uploadId: uploadId)] })
+        else { return nil }
+        return ["sessionId": sessionId, "uploadId": uploadId, "ownerToken": token]
     }
 
     private func hostReply(id: Int, text: String, lateReply: (@Sendable ([String: Any]) -> Void)?) async throws -> [String: Any] {
@@ -456,9 +498,9 @@ nonisolated final class AcpmuxPaneSocket: NSObject, URLSessionWebSocketDelegate,
 
     /// Cleanup never waits for the daemon's cancellation response (used by late begin replies).
     func cancelUpload(sessionId: String, uploadId: String) {
+        guard let params = uploadCancelParams(sessionId: sessionId, uploadId: uploadId) else { return }
         let id = ids.hostID()
-        let frame: [String: Any] = ["jsonrpc": "2.0", "id": id, "method": "_acpmux/file_put_cancel",
-                                   "params": ["sessionId": sessionId, "uploadId": uploadId]]
+        let frame: [String: Any] = ["jsonrpc": "2.0", "id": id, "method": "_acpmux/file_put_cancel", "params": params]
         if let data = try? JSONSerialization.data(withJSONObject: frame),
            let text = String(data: data, encoding: .utf8), send(text) == nil { return }
         _ = ids.isHost(id)

@@ -125,7 +125,7 @@ extension AgentPaneView {
                 do {
                     try Task.checkCancellation()
                     let started = try await model.transport.uploadControl(connection: connection, method: "_acpmux/file_put_begin",
-                        params: ["sessionId": sessionId, "fileName": name, "size": size])
+                        params: ["sessionId": sessionId, "fileName": name, "size": size, "forPrompt": true])
                     guard let id = started["uploadId"] as? String, !id.isEmpty else { throw AgentPaneUploadError.rpc("missing upload id") }
                     uploadId = id
                     coordinator.assigned(token, uploadId: id)
