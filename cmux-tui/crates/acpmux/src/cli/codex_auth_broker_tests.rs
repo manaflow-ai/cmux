@@ -150,7 +150,6 @@ for line in sys.stdin:
         json!({"method": "access", "force": true, "previousAccountId": "different-account"});
     assert!(owner.request(&home.0, &mismatch).await.is_err());
     assert!(owner.request(&home.0, &json!({"method": "login"})).await.is_err());
-    owner.child.kill().await.unwrap();
-    owner.child.wait().await.unwrap();
+    owner.stop().await;
     assert!(prepare(&home.0).is_ok());
 }

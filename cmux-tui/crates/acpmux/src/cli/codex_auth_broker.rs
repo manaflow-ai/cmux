@@ -34,15 +34,14 @@ pub async fn run(home: PathBuf, codex: PathBuf) -> Result<()> {
     ensure!(home.is_absolute() && codex.is_absolute(), "broker paths must be absolute");
     let checked_home = home.clone();
     let lock = tokio::task::spawn_blocking(move || prepare(&checked_home)).await??;
-    let mut owner = Owner::start(&home, &codex, &lock).await?;
     let mut terminate = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;
+    let mut owner = Owner::start(&home, &codex, &lock).await?;
     let result = tokio::select! {
         result = serve(&mut owner, &home) => result,
         _ = terminate.recv() => Ok(()),
         _ = tokio::signal::ctrl_c() => Ok(()),
     };
-    owner.child.kill().await.ok();
-    owner.child.wait().await.ok();
+    owner.stop().await;
     result
 }
 
@@ -65,7 +64,7 @@ async fn serve(owner: &mut Owner, home: &Path) -> Result<()> {
             Err(_) => {
                 // A timed-out app-server request may still mutate the cache.
                 // End this owned child before releasing the exclusive lock.
-                owner.child.kill().await.ok();
+                owner.stop().await;
                 tokio::time::timeout(
                     DEADLINE,
                     write_reply(&output, &json!({"id": id, "error": "codex_auth_timeout"})),
@@ -193,8 +192,20 @@ struct Owner {
 }
 
 impl Owner {
+    async fn stop(&mut self) {
+        if let Some(pid) = self.child.id() {
+            // SAFETY: this unreaped child leads the process group we created.
+            // End a CLI wrapper's children too, before releasing the auth lock.
+            unsafe {
+                libc::killpg(pid as libc::pid_t, libc::SIGKILL);
+            }
+            self.child.wait().await.ok();
+        }
+    }
+
     async fn start(home: &Path, codex: &Path, lock: &File) -> Result<Self> {
         let mut command = Command::new(codex);
+        command.process_group(0);
         let lock_fd = lock.as_raw_fd();
         // SAFETY: the lock lives through this child. fcntl is async-signal-safe.
         // The child retains the same locked open-file description if its parent
@@ -245,11 +256,13 @@ impl Owner {
         )
         .await;
         if !matches!(initialized, Ok(Ok(_))) {
-            owner.child.kill().await.ok();
-            owner.child.wait().await.ok();
+            owner.stop().await;
             return Err(anyhow!("Codex initialization failed"));
         }
-        owner.input.send(json!({"method": "initialized"}).to_string()).await?;
+        if owner.input.send(json!({"method": "initialized"}).to_string()).await.is_err() {
+            owner.stop().await;
+            return Err(anyhow!("Codex initialization failed"));
+        }
         Ok(owner)
     }
 
