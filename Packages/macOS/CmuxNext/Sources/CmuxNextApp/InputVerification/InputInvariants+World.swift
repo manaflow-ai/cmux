@@ -70,9 +70,13 @@ extension InputInvariants {
         } else if !window.ghosttyFocused.isEmpty {
             fail(.ghosttyMatches, "ghostty \(window.ghosttyFocused) while model is \(resolved.kind)\(window.isKey ? "" : ", window not key")")
         }
-        // Under an overlay the applier leaves page focus alone (keys go to
-        // the overlay); closing it re-applies.
-        if model.overlays.isEmpty, window.childPage != childPage {
+        // A hosted page (host mode) has no page window: its page view in the pane has the keys, so
+        // the applier never gives it page window focus, under an overlay either.
+        if let focused = window.childPage, window.hostPageTabs?.contains(focused) == true {
+            fail(.chromiumMatches, "hosted page \(focused) has page window focus; a hosted context has no page window")
+        } else if model.overlays.isEmpty, window.childPage != childPage {
+            // Under an overlay the applier leaves page focus alone (keys go to
+            // the overlay); closing it re-applies.
             fail(.chromiumMatches, "chromium page \(window.childPage ?? "nil") != model \(childPage ?? "nil")")
         }
         return out
@@ -118,7 +122,9 @@ extension InputInvariants {
             default: false
             }
             if !isChildPage, window.model.overlays.isEmpty {
-                fail(id, "a Chromium page window has the keys while the model targets \(underlying.kind)")
+                // A hosted page's keys go to its page view in this window, never to a page window.
+                let hosted = underlying.tab.map { window.hostPageTabs?.contains($0) == true } ?? false
+                fail(id, "a Chromium page window has the keys while the model targets \(hosted ? "hosted " : "")\(underlying.kind)")
             }
         case .panel(let id?, let kind):
             if observation.window(id)?.model.overlays.isEmpty == true {

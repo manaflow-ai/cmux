@@ -30,12 +30,16 @@ enum InputObservationBuilder {
         let window = controller.window
         var presented: [String: String] = [:]
         var childWindowTabs: [String] = []
+        var hostPageTabs: [String] = []
         // A cmux page's Chromium tab has its own id; the model knows the page by its tab key.
         var pageTabKeys: [String: String] = [:]
         for pane in controller.content?.panes.values.map({ $0 }) ?? [] {
             guard let key = pane.currentTabKey else { continue }
             presented[pane.paneKey] = key
-            if let tab = pane.currentContent?.childWindowTab { childWindowTabs.append(key); pageTabKeys[tab.id.rawValue] = key }
+            guard let tab = pane.currentContent?.chromiumTab else { continue }
+            pageTabKeys[tab.id.rawValue] = key
+            // In process the page is a child window; in host mode a hosted context in the pane (``BrowserPresentation``).
+            if tab.presentation == .childWindow { childWindowTabs.append(key) } else { hostPageTabs.append(key) }
         }
         return InputObservation.Window(
             id: controller.state.id,
@@ -48,6 +52,7 @@ enum InputObservationBuilder {
             childPage: controller.focusApplier.focusedChildWindowPageID.map { pageTabKeys[$0] ?? $0 },
             presented: presented,
             childWindowTabs: childWindowTabs.sorted(),
+            hostPageTabs: hostPageTabs.sorted(),
             hasSheet: window?.attachedSheet != nil, topPage: controller.shownTopPage != nil
         )
     }

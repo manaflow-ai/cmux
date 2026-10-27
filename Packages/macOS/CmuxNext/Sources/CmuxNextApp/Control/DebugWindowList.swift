@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextBrowser
 import CmuxNextDesign
 import CmuxNextSettings
 
@@ -10,10 +11,25 @@ import CmuxNextSettings
 /// `popover`, `sheet`, `panel`, the `cmux.` identifier, or the class name),
 /// `title`, `frame` (x, y, width, height in screen points), `visible`,
 /// `parent` (the window number of its sheet parent or parent window, or null),
-/// `class`, `level`, `ignores_mouse`, `key` and `alpha` (Chromium popup windows).
+/// `class`, `level`, `ignores_mouse`, `key`, `alpha` (Chromium popup windows) and
+/// `chromium_page` (a Chromium page window over a cmux window: in process only).
+/// `hosted_pages`: the context ids of the Chromium pages shown as hosted views in a
+/// pane (host mode), which have no window of their own.
 enum DebugWindowList {
     static func list(services: AppServices) -> JSONValue {
-        .object(["windows": .array(NSApp.windows.map { entry($0, services: services) })])
+        .object(["windows": .array(NSApp.windows.map { entry($0, services: services) }), "hosted_pages": .array(hostedPages(services))])
+    }
+
+    /// The context id each hosted page view of a shown Chromium tab shows, window by window.
+    private static func hostedPages(_ services: AppServices) -> [JSONValue] {
+        services.windows.controllers.flatMap { controller in
+            (controller.content?.panes.values.map { $0 } ?? []).compactMap { pane -> JSONValue? in
+                guard let tab = pane.currentContent?.chromiumTab, tab.presentation == .inView,
+                      let page = ChromiumHostPageView.first(in: tab.contentView) else { return nil }
+                return .object(["window": .string(controller.state.id), "pane": .string(pane.paneKey),
+                                "context_id": .number(Double(page.shownContextID)), "takes_input": .bool(page.takesPageInput)])
+            }
+        }
     }
 
     static func entry(_ window: NSWindow, services: AppServices) -> JSONValue {
@@ -36,6 +52,7 @@ enum DebugWindowList {
             "occluded": .bool(!window.occlusionState.contains(.visible)),
             "miniaturized": .bool(window.isMiniaturized),
             "alpha": .number(Double(window.alphaValue)),
+            "chromium_page": .bool(WindowOverlayHost.isPageWindow(window)),
         ])
     }
 

@@ -1,5 +1,6 @@
 #if DEBUG || CMUX_BENCH_HOOKS
 import AppKit
+import CmuxNextBrowser
 import CmuxNextControl
 import CmuxNextSettings
 
@@ -52,7 +53,8 @@ extension DebugKey {
 
     /// Makes the `wanted` window (`shell`, or the `page` window of `params["pane"]` or the focused
     /// pane) of `params["window"]` (default: the active window) the app's key window without
-    /// activating the app; returns why it could not, or nil.
+    /// activating the app; returns why it could not, or nil. A hosted page has no window: for `page`
+    /// the shell window becomes key with the page view as its first responder (``hostPage(of:in:)``).
     @MainActor private static func makeKey(_ wanted: String, _ params: [String: JSONValue], services: AppServices) -> String? {
         let windowID = params["window"]?.stringValue
         let controller = windowID.map { id in services.windows.controllers.first { $0.state.id == id } } ?? services.windows.active
@@ -62,9 +64,17 @@ extension DebugKey {
         case "shell":
             window = shell
         case "page":
-            guard let pane = params["pane"]?.stringValue ?? controller.focus.state.pane,
-                  let page = pageWindow(of: pane, in: controller) else { return "no Chromium page window for pane" }
-            window = page
+            guard let pane = params["pane"]?.stringValue ?? controller.focus.state.pane else { return "no Chromium page for pane" }
+            if let hosted = hostPage(of: pane, in: controller) {
+                guard shell.firstResponder === hosted || shell.makeFirstResponder(hosted) else {
+                    return "the hosted page view did not take the keyboard"
+                }
+                window = shell
+            } else if let page = pageWindow(of: pane, in: controller) {
+                window = page
+            } else {
+                return "no Chromium page for pane"
+            }
         default:
             return "key_window must be shell or page"
         }

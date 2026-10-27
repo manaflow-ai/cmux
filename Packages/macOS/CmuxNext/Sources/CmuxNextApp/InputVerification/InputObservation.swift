@@ -39,6 +39,9 @@ nonisolated struct InputObservation: Hashable, Sendable, Codable {
         var presented: [String: String]
         /// Tabs whose page lives in a child window (Chromium).
         var childWindowTabs: [String] = []
+        /// Tabs whose Chromium page shows in a hosted context in its pane (host mode: no page window;
+        /// the page view in the pane has the keys). Optional for old journals.
+        var hostPageTabs: [String]?
         /// A sheet is attached to the window.
         var hasSheet = false
         /// A top page (History, Settings, the App Store) covers the workspace: the model still

@@ -16,7 +16,9 @@ import Darwin
 /// (`tracker`; in host mode only `tracker.hosted_pages`) and, in process only,
 /// the external pump's counters (`pump`), the page windows over each
 /// DevTools tab (`devtools[].child_windows`) and what swipe gestures asked
-/// of their pages (`swipe`: page probes, wheel acks).
+/// of their pages (`swipe`: page probes, wheel acks). Host mode: `pump_free`
+/// (no pump in this process), the remote shim's wire counters (`host_wire`)
+/// and each hosted page view's context id and wire state (`host_pages`).
 /// Helper processes are separate; measure them with `ps`.
 @MainActor
 enum DebugCEF {
@@ -68,6 +70,9 @@ enum DebugCEF {
                      "waiting": .number(Double(report.waiting))])
         } ?? .null
         object["host_resize"] = services.cache.cef.hostResizeCounters.map { counters in .object(counters.mapValues { value in .number(value) }) } ?? .null
+        // Host mode (p01-process-224): the remote shim's control channel counters (null in process) and the page views.
+        object["host_wire"] = hostWire(services.cache.cef.hostWireStats)
+        object["host_pages"] = .array(hostPages(services))
         // Swipes over Chromium pages (p01-process-234): a hosted page on a host that acks wheels probes nothing.
         let swipe = services.cache.cef.swipeStats
         object["swipe"] = .object([
@@ -106,6 +111,8 @@ enum DebugCEF {
                     "page_tooltip": ChromiumHostPageView.first(in: tab.contentView)?.pageTooltipText.map(JSONValue.string) ?? .null,
                     "tooltip_shown": TooltipPresenter.shared.shown.map { JSONValue.string($0.text) } ?? .null,
                     "page_accessibility": ChromiumHostPageView.first(in: tab.contentView)?.remoteAccessibilityPhaseName.map(JSONValue.string) ?? .null,
+                    // The Core Animation context the tab's page view shows (0: none yet); null without a page view.
+                    "context_id": ChromiumHostPageView.first(in: tab.contentView).map { .number(Double($0.shownContextID)) } ?? .null,
                     // Host mode: drags the page view sent as DragTarget calls (null in process).
                     "page_drag": ChromiumHostPageView.first(in: tab.contentView).map { pageDrag($0.dragCounts) } ?? .null,
                 ]
@@ -127,6 +134,43 @@ enum DebugCEF {
                     }
                 }
                 out.append(.object(object))
+            }
+        }
+        return out
+    }
+
+    /// `host_wire`: the remote shim's counters (``ChromiumHostRemoteWireStats``), null in process or with no host
+    /// attached. `ring_depth`, `unacked_seq` and `ime_sync_requests` stay null until something counts them: the
+    /// runtime's host gets no input ring before tasks 041 and 042, and the input method client sends no request
+    /// that waits (task 043).
+    static func hostWire(_ stats: ChromiumHostRemoteWireStats?) -> JSONValue {
+        guard let stats else { return .null }
+        var fields = stats.report.mapValues(JSONValue.number)
+        for unmeasured in ["ring_depth", "unacked_seq", "ime_sync_requests"] { fields[unmeasured] = .null }
+        return .object(fields)
+    }
+
+    /// `host_pages`: the hosted page view of each shown Chromium tab, in every window: the context it shows,
+    /// whether it takes the page's input (host mode) and has the window's keyboard, and its side of the wire.
+    private static func hostPages(_ services: AppServices) -> [JSONValue] {
+        var out: [JSONValue] = []
+        for controller in services.windows.controllers {
+            for pane in controller.content?.panes.values.map({ $0 }) ?? [] {
+                guard let tab = pane.currentContent?.chromiumTab, let page = ChromiumHostPageView.first(in: tab.contentView) else { continue }
+                var fields: [String: JSONValue] = [
+                    "window": .string(controller.state.id), "pane": .string(pane.paneKey), "tab": .string(tab.id.rawValue),
+                    "context_id": .number(Double(page.shownContextID)), "takes_input": .bool(page.takesPageInput),
+                    "first_responder": .bool(page.window?.firstResponder === page),
+                ]
+                #if DEBUG || CMUX_BENCH_HOOKS
+                let wire = page.wireReport
+                fields["input_route"] = .bool(wire.hasInputRoute)
+                fields["held_key_downs"] = .number(Double(wire.heldKeyDowns))
+                fields["last_wheel_seq"] = .number(Double(wire.lastWheelSeq))
+                fields["password_input"] = .bool(wire.passwordInput)
+                for (name, count) in wire.textInput { fields[name] = .number(Double(count)) }
+                #endif
+                out.append(.object(fields))
             }
         }
         return out
@@ -186,11 +230,12 @@ enum DebugCEF {
     /// page tracker's (`tracker`). In host mode the pump and the fork's tracker run in the Chromium
     /// Host; this process still counts its hosted page views (`ChromiumHostPageView`), so `tracker`
     /// has `hosted_pages` alone.
+    /// `pump_free`: host mode with no pump in this process (Chromium's message loop runs in the host).
     static func engineCounters(backend: BrowserBackend, pump: CEFPumpStats?, tracker: CEFTrackerStats) -> [String: JSONValue] {
         guard backend == .inProcess else {
-            return ["tracker": .object(["hosted_pages": .number(Double(tracker.hostedPages))])]
+            return ["tracker": .object(["hosted_pages": .number(Double(tracker.hostedPages))]), "pump_free": .bool(pump == nil)]
         }
-        var counters: [String: JSONValue] = ["tracker": trackerReport(tracker)]
+        var counters: [String: JSONValue] = ["tracker": trackerReport(tracker), "pump_free": .bool(false)]
         if let pump { counters["pump"] = pumpReport(pump) }
         return counters
     }

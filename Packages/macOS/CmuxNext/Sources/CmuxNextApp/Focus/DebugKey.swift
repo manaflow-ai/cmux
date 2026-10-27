@@ -14,8 +14,12 @@ import CmuxNextWakeups
 /// does for the key window: the app-wide interceptor (`KeyRouter`, tiers 0
 /// and 1), then window key equivalents (tier 2), then the main menu (gated
 /// by the router), then the window's responder chain. With
-/// `"target": "page"` the key goes to the Chromium page window of `pane`
-/// (default: the focused pane), as when that page window is key.
+/// `"target": "page"` the key goes to the Chromium page of `pane` (default:
+/// the focused pane): a hosted page view that takes the page's input (host
+/// mode, or the Chromium Host prototype's page) becomes the cmux window's
+/// first responder, as a click into it makes it, and the key takes the cmux
+/// window's own path to it; in process the key goes to the page window, as
+/// when that page window is key. Host mode never looks for a page window.
 /// Lets automation verify key routing and focus on a window that is never
 /// key (`CMUX_NEXT_NO_ACTIVATE=1`). A key the responder chain gets passes the
 /// local event monitors as a real key does (DebugNativeInput), so a key in an
@@ -67,12 +71,21 @@ enum DebugKey {
         let palettePanel = params["target"]?.stringValue == "palette" && windowID == nil ? services.palettes.built?.visiblePanel : nil
         guard let shell = controller?.window ?? palettePanel else { return .object(["error": .string("no window")]) }
         var window: NSWindow = shell
+        // The hosted page view the key goes to through the shell window (host mode).
+        var hostedPage: ChromiumHostPageView?
         if params["target"]?.stringValue == "page" {
             let pane = params["pane"]?.stringValue ?? controller?.focus.state.pane
-            guard let controller, let pane, let page = pageWindow(of: pane, in: controller) else {
-                return .object(["error": .string("no Chromium page window for pane")])
+            guard let controller, let pane else { return .object(["error": .string("no Chromium page for pane")]) }
+            if let page = hostPage(of: pane, in: controller) {
+                if shell.firstResponder !== page, !shell.makeFirstResponder(page) {
+                    return .object(["error": .string("the hosted page view did not take the keyboard")])
+                }
+                hostedPage = page
+            } else if let page = pageWindow(of: pane, in: controller) {
+                window = page
+            } else {
+                return .object(["error": .string("no Chromium page for pane")])
             }
-            window = page
         } else if params["target"]?.stringValue == "palette" {
             guard let panel = services.palettes.built?.visiblePanel else { return .object(["error": .string("the palette is not open")]) }
             window = panel
@@ -123,7 +136,7 @@ enum DebugKey {
             if services.routeKeyDown(event, window) {
                 return ("app", services.keyRouter.lastInterception.map { verdict($0)["action"] ?? .null } ?? .null)
             } else if isChord, window.performKeyEquivalent(with: event) {
-                return (window === shell ? "window" : params["target"]?.stringValue == "devtools" ? "devtools" : "page", .null)
+                return (window === shell && hostedPage == nil ? "window" : params["target"]?.stringValue == "devtools" ? "devtools" : "page", .null)
             } else if isChord, NSApp.mainMenu?.performKeyEquivalent(with: event) == true {
                 return ("menu", NSApp.mainMenu.flatMap { menuItem(matching: event, in: $0) }.map { .string($0.title) } ?? .null)
             }
@@ -141,7 +154,7 @@ enum DebugKey {
             // `probe: "commit"`: the key went to a text view (Home's composer, the omnibar), so the
             // typing probe writes its row at the frame that commits the edit, not at a terminal echo.
             if params["probe"]?.stringValue == "commit" { TypingLatencyProbe.shared.closeAtCommit() }
-            return (window !== shell ? "page" : "responder", .null)
+            return (window !== shell || hostedPage != nil ? "page" : "responder", .null)
         }
         if params["target"]?.stringValue == "palette" {
             // The palette's own report: open or closed, its page, a refusal
@@ -178,9 +191,17 @@ enum DebugKey {
             return .object(["handled_by": .string(handledBy == "page" ? "debugSettings" : handledBy), "action": action,
                             "window_kind": .string("debugSettings"), "debug_settings": DebugTunables.state(services)])
         }
-        let kind = window === shell ? "shell" : params["target"]?.stringValue == "devtools" ? "chromium_devtools" : "chromium_page"
+        let kind = hostedPage != nil ? "chromium_page" : window === shell ? "shell"
+            : params["target"]?.stringValue == "devtools" ? "chromium_devtools" : "chromium_page"
         var report: [String: JSONValue] = ["handled_by": .string(handledBy), "action": action, "window_kind": .string(kind),
                                            "trace": .array(trace.map(JSONValue.string))]
+        if let hostedPage {
+            // The page took the key in the cmux window (no page window); it still has the keyboard after it.
+            report["page_input"] = .string("hosted_view")
+            report["page_has_keyboard"] = .bool(shell.firstResponder === hostedPage)
+        } else if kind == "chromium_page" {
+            report["page_input"] = .string("page_window")
+        }
         report.merge(time.report) { _, new in new }
         if handledBy == "app", let interception = services.keyRouter.lastInterception {
             report.merge(verdict(interception)) { _, new in new }
@@ -253,10 +274,21 @@ enum DebugKey {
         return WindowOverlayLayer.contentChildWindows(of: window).first { devTools.devToolsContains(window: $0) }
     }
 
+    /// The hosted page view in `pane` that takes the page's input, in the pane's window: its tab's page
+    /// in host mode, or the Chromium Host prototype's page over the pane (`debug.chromium_host`). AppKit
+    /// gives it the page's events through that window, as Chrome's app shim gives them to its page view.
+    static func hostPage(of pane: String, in controller: WindowController) -> ChromiumHostPageView? {
+        guard let window = controller.window, let paneController = controller.content?.paneController(key: pane),
+              let page = ChromiumHostPageView.firstTakingInput(in: paneController.view), page.window === window else { return nil }
+        return page
+    }
+
     /// The Chromium page window over `pane`'s selected Chromium tab, over its agent chat when
     /// the chat shows in Chromium (the `agent.chromium` spike), or over its cmux page tab when the
-    /// page shows in Chromium (``TabContent/childWindowTab``).
+    /// page shows in Chromium (``TabContent/childWindowTab``). In process only: in host mode no page
+    /// has a window (``hostPage(of:in:)``), so a window over the pane is never taken for its page.
     static func pageWindow(of pane: String, in controller: WindowController) -> NSWindow? {
+        guard ChildPageGeometry.hasPageWindows(controller.services.chromiumRuntime.backend) else { return nil }
         guard let window = controller.window, let paneController = controller.content?.paneController(key: pane) else { return nil }
         let content: NSView
         var devTools: (any BrowserDevToolsHosting)?

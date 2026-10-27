@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextBridge
+import CmuxNextBrowser
 import CmuxNextDesign
 import CmuxNextLayout
 import CmuxNextSettings
@@ -15,7 +16,9 @@ import CmuxNextSettings
 /// (`hosted_context_layer_hosts`: the hosted `CAContext` lives in this process, so its layers are
 /// readable; null when the pane shows no context or QuartzCore has no `allContexts`), and the
 /// page window's (`page_window_layer_hosts`). A page the fork really hosts has >= 1 in the hosted
-/// context (Chromium's GPU output, there once Chromium drew) and 0 in its page window.
+/// context (Chromium's GPU output, there once Chromium drew) and 0 in its page window. A hosted
+/// page (host mode) reports its `context_id`, who takes its input (`page_input`) and the Chromium
+/// page windows over it (`page_windows_over_page`: 0, it has none).
 /// `frame_sources: true` adds the frame sources no FrameScheduler sees (``frameSources(services:)``).
 enum DebugLayers {
     static func report(services: AppServices, params: [String: JSONValue] = [:]) -> JSONValue {
@@ -133,6 +136,16 @@ enum DebugLayers {
                 fields["hosted_layer_hosts"] = .number(Double(layerHostCount(content.layer)))
                 fields["hosted_context_layer_hosts"] = hostedContextLayerHostCount(content.layer).map { .number(Double($0)) } ?? .null
                 fields["page_window_layer_hosts"] = page.map { .number(Double(layerHostCount($0.contentView?.layer))) } ?? .null
+            } else if entry.tab.presentation == .inView, content.window === window, let page = ChromiumHostPageView.first(in: content) {
+                // Host mode: the page is a hosted context in the pane. No Chromium page window may lie over it,
+                // and the context it shows holds Chromium's layers once Chromium drew.
+                let host = window.convertToScreen(content.convert(content.bounds, to: nil))
+                fields["host_screen_rect"] = rect(host)
+                fields["context_id"] = .number(Double(page.shownContextID))
+                fields["page_input"] = .string(page.takesPageInput ? "hosted_view" : "page_window")
+                fields["page_windows_over_page"] = .number(Double(pageWindows.filter { WindowOverlayHost.isPageWindow($0) && $0.frame.intersects(host) }.count))
+                fields["hosted_layer_hosts"] = .number(Double(layerHostCount(page.layer)))
+                fields["hosted_context_layer_hosts"] = hostedContextLayerHostCount(page.layer).map { .number(Double($0)) } ?? .null
             }
             return .object(fields)
         }
