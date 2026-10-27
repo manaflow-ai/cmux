@@ -172,7 +172,7 @@ public final class TypingLatencyProbe: Sendable {
     /// The `key.flow` signposter, gated by ``trace``'s keystroke-timing gate.
     private let signposter: Signposter
     /// The runtime whose keystroke-timing gate stops sampling (the app's: ``TraceRuntime/shared``).
-    private let trace: TraceRuntime
+    let trace: TraceRuntime
     /// Every `key.flow` hop emitted, before its signpost (tests).
     private let hopRecorder: (@Sendable (_ hop: String, _ flow: UInt64) -> Void)?
     let state = Mutex(State())
@@ -262,7 +262,11 @@ public final class TypingLatencyProbe: Sendable {
             return state.echoCommits
         }
         guard flowsStarted else { return }
-        for commit in commits { emitHop(.appFrameCommit, flow: commit.flow) }
+        for commit in commits {
+            // Main's turn that set the echo's frame ends here: the frame's handoff to main ends (p09-observability-102).
+            taken(.contents, flow: commit.flow)
+            emitHop(.appFrameCommit, flow: commit.flow)
+        }
     }
 
     /// Opens a sample for a key-down whose `NSEvent.timestamp` is `eventTimestamp`: while the probe records, or when

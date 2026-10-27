@@ -68,6 +68,8 @@ pub mod net_keepalive;
 mod oracle_state;
 /// Remote access state; the cmux-tui-remote-access crate, re-exported at the old paths.
 use cmux_tui_remote_access::pairing;
+#[cfg(test)]
+mod flow_trace_tests;
 mod input_flow;
 mod output_store;
 /// `RecoverPoison` and `JsonFields` (panic-free lane).

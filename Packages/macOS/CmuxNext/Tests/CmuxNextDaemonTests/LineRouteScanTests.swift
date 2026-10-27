@@ -68,4 +68,21 @@ import Testing
         let line = #"{"id":9,"x":"# + String(repeating: "[", count: depth) + String(repeating: "]", count: depth) + "}"
         #expect(Self.scan(line)?.id == 9)
     }
+
+    /// An event's `flow` (the key press an `output` echoes) is read with the routing fields, so the reader marks
+    /// the echo's handoff before it decodes the line (p09-observability-102); a value the decoder would read
+    /// differently, or a `flow` outside an event, is no flow, and the line still routes.
+    @Test func anEventsFlowIsRead() throws {
+        let flow: UInt64 = 0x1234 << 32 | 7
+        let echo = try #require(Self.scan(#"{"event":"output","surface":3,"data":"YQ==","flow":\#(flow)}"#))
+        #expect(echo.event == "output")
+        #expect(echo.flow == flow)
+        #expect(Self.scan(#"{"event":"output","flow":18446744073709551615}"#)?.flow == UInt64.max)
+        for line in [#"{"event":"output","data":"YQ=="}"#, #"{"event":"output","flow":1.5}"#,
+                     #"{"event":"output","flow":18446744073709551616}"#, #"{"event":"output","flow":"7"}"#,
+                     #"{"id":4,"ok":true,"flow":7}"#] {
+            let scan = try #require(Self.scan(line), "the scan gave up \(line)")
+            #expect(scan.flow == nil, "\(line)")
+        }
+    }
 }

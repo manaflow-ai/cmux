@@ -5,6 +5,7 @@
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::cell::Cell;
 
+use cmux_flow_trace::{Handoff, Terminal};
 use cmux_trace::{Phase, Role, decode};
 
 /// Counts the allocations of the calling thread only.
@@ -49,6 +50,14 @@ fn hops_are_ring_records_in_the_recording_and_allocate_nothing() {
     cmux_flow_trace::hop("daemon.send.write", 42, "00ff");
     cmux_flow_trace::hop("daemon.send.written", 42, "00ff");
     cmux_flow_trace::hop_id("host.pty.write", 0, &[0xab; 16]);
+    // One echo through every Rust handoff: a flow out where a thread queues it, a flow in where the
+    // next takes it. An item no press waits for (flow 0) writes nothing.
+    for handoff in Handoff::ALL {
+        cmux_flow_trace::queued(handoff, 42, Terminal::Id(&[0xab; 16]));
+        cmux_flow_trace::taken(handoff, 42, Terminal::Unknown);
+        cmux_flow_trace::queued(handoff, 0, Terminal::Hex("00ff"));
+        cmux_flow_trace::taken(handoff, 0, Terminal::Hex("00ff"));
+    }
     let after = ALLOCATIONS.with(Cell::get);
     assert_eq!(after - before, 0, "a hop allocated on the caller's thread");
     assert!(cmux_flow_trace::flush());
@@ -93,6 +102,30 @@ fn hops_are_ring_records_in_the_recording_and_allocate_nothing() {
     assert!(written.t_ns >= sent.t_ns && sent.t_ns > 0);
     let thread = decoded.thread_of(sent).expect("the hop names its thread");
     assert_ne!(thread.tid, 0);
+
+    let mut handoffs: Vec<_> = decoded
+        .records
+        .iter()
+        .filter_map(|record| {
+            let name = decoded.name(record.name)?;
+            Handoff::ALL.iter().any(|handoff| handoff.text() == name).then_some((name, record))
+        })
+        .collect();
+    handoffs.sort_by_key(|(_, record)| record.t_ns);
+    let shape: Vec<_> = handoffs
+        .iter()
+        .map(|(name, record)| (*name, record.phase, record.arg0, record.arg1))
+        .collect();
+    let expected: Vec<_> = Handoff::ALL
+        .iter()
+        .flat_map(|handoff| {
+            [
+                (handoff.text(), step_out, 0xabab_abab_abab_abab, 42),
+                (handoff.text(), step_in, 0, 42),
+            ]
+        })
+        .collect();
+    assert_eq!(shape, expected, "each handoff is a flow out where queued, a flow in where taken");
 
     // After a stop, the key category is still on for the black box, but a hop writes nothing.
     cmux_trace::stop().expect("the recording stops");

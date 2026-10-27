@@ -112,6 +112,17 @@ pub fn split_flow_trailer(flags: u32, payload: &[u8]) -> Option<(&[u8], u64)> {
     let (bytes, trailer) = payload.split_at(at);
     Some((bytes, u64::from_le_bytes(trailer.try_into().ok()?)))
 }
+
+/// The key press a live `Output` frame echoes (its [`FLAG_INPUT_FLOW`]
+/// trailer), 0 for any other frame or a short trailer: the flow its
+/// thread handoffs mark (`cmux_flow_trace::Handoff`).
+pub fn output_flow(frame: &Frame) -> u64 {
+    if frame.kind != MessageKind::Output || frame.flags & FLAG_INPUT_FLOW == 0 {
+        return 0;
+    }
+    split_flow_trailer(frame.flags, &frame.payload).map_or(0, |(_, flow)| flow)
+}
+
 /// ResizeAck payload flag: this request changed the canonical grid and its
 /// sequenced Resized+Colors transition was enqueued immediately before the
 /// targeted acknowledgement.

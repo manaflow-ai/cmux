@@ -347,6 +347,9 @@ pub(crate) fn publish_pty_output_flow(host: &HostShared, bytes: &[u8], flow: u64
 
 fn publish_pty_frame(host: &HostShared, bytes: Vec<u8>, flow: u64) -> bool {
     let count = bytes.len();
+    // The frame goes to the client writers' queues (`smart.publish`); marked before the locks.
+    let terminal = cmux_flow_trace::Terminal::Id(host.terminal_id.as_bytes());
+    cmux_flow_trace::queued(cmux_flow_trace::Handoff::HostPtyRead, flow, terminal);
     let _source_order = host.source_order_lock.lock().recover_poison();
     host.parser_budget.reserve(count);
     // The smart stream's frame carries the flow; the writer of a client that

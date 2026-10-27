@@ -134,6 +134,9 @@ pub(super) struct BudgetedText {
     pub(super) text: String,
     pub(super) retained_bytes: usize,
     pub(super) budget: Arc<OutboundByteBudget>,
+    /// The key press this text's `output` event echoes (0: none): its queue item's flow, which the
+    /// line-out thread's handoffs mark (`key.echo.attach_encode`, `key.echo.line_out`).
+    pub(super) flow: u64,
 }
 
 impl Deref for BudgetedText {
@@ -159,6 +162,8 @@ pub(super) struct BudgetedJsonWriter {
     pub(super) budget: Arc<OutboundByteBudget>,
     /// The client stream id spliced into the object this writer serializes.
     tag: StreamTagSplice,
+    /// The finished text's [`BudgetedText::flow`].
+    flow: u64,
 }
 
 impl BudgetedJsonWriter {
@@ -169,7 +174,13 @@ impl BudgetedJsonWriter {
             reservation_bytes: 0,
             budget,
             tag: StreamTagSplice::Done,
+            flow: 0,
         }
+    }
+
+    /// The text this writer finishes is the event that echoes key press `flow` (0: none).
+    pub(super) fn set_flow(&mut self, flow: u64) {
+        self.flow = flow;
     }
 
     /// A writer whose one JSON object gets `"stream": id` as its first
@@ -270,7 +281,12 @@ impl BudgetedJsonWriter {
         // serde_json emits UTF-8; a lossy decode keeps this path panic-free.
         let text = String::from_utf8(bytes)
             .unwrap_or_else(|error| String::from_utf8_lossy(error.as_bytes()).into_owned());
-        Arc::new(BudgetedText { text, retained_bytes, budget: self.budget.clone() })
+        Arc::new(BudgetedText {
+            text,
+            retained_bytes,
+            budget: self.budget.clone(),
+            flow: self.flow,
+        })
     }
 }
 
@@ -371,7 +387,19 @@ impl RenderService {
         value: &T,
         stream: Option<ClientStreamId>,
     ) -> std::io::Result<Arc<BudgetedText>> {
+        self.serialize_echo_for(value, 0, stream)
+    }
+
+    /// [`Self::serialize_for`] of an event that echoes key press `flow` (0: none), which its
+    /// text carries to the line-out thread ([`BudgetedText::flow`]).
+    pub(super) fn serialize_echo_for<T: Serialize + ?Sized>(
+        &self,
+        value: &T,
+        flow: u64,
+        stream: Option<ClientStreamId>,
+    ) -> std::io::Result<Arc<BudgetedText>> {
         let mut writer = BudgetedJsonWriter::tagged(self.outbound_budget.clone(), stream);
+        writer.set_flow(flow);
         serde_json::to_writer(&mut writer, value).map_err(json_error_to_io)?;
         writer.finish_tagged()
     }
@@ -449,6 +477,7 @@ impl RenderService {
         stream: Option<ClientStreamId>,
     ) -> std::io::Result<Arc<BudgetedText>> {
         let mut writer = BudgetedJsonWriter::tagged(self.outbound_budget.clone(), stream);
+        writer.set_flow(frame.flow());
         if let AttachFrame::ColorsChanged(colors) = frame {
             write_colors_changed_json(&mut writer, surface, colors, shape)?;
         } else if let Some(resize) = frame.resize() {

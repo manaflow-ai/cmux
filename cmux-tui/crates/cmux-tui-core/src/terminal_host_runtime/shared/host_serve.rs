@@ -726,12 +726,17 @@ pub(crate) fn serve_client_with_snapshot_timeout(
 
     // The output loop is echo path: every PTY byte the client sees crosses
     // it, so it writes its own socket only and blocks on nothing else.
+    let terminal = cmux_flow_trace::Terminal::Id(host.terminal_id.as_bytes());
     crate::echo_thread::with_own_host_stream(&stream, |output| {
         while let Ok(frame) = receiver.recv() {
             if frame.kind == MessageKind::ResyncRequired && frame.sequence == 0 {
                 tap.release(&frame);
                 break;
             }
+            // A client that negotiated the flag reads the echo's flow with the frame.
+            let flow = if input_flow { output_flow(&frame) } else { 0 };
+            cmux_flow_trace::taken(cmux_flow_trace::Handoff::HostPtyRead, flow, terminal);
+            cmux_flow_trace::queued(cmux_flow_trace::Handoff::HostClientWrite, flow, terminal);
             let write_result = write_frame(output, &client_wire_frame(&frame, input_flow));
             tap.release(&frame);
             if write_result.is_err() {

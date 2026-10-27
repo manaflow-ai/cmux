@@ -79,6 +79,8 @@ final class LineTransport: Sendable {
     /// Where each request's `daemon.request` slice goes (LineTransport+RequestTrace.swift), the top bits of its
     /// async id (``traceConnectionBits(scope:)``) and its flow's seed (``requestFlowSeed(pid:)``).
     let trace: TraceRuntime, traceConnection: UInt64, traceFlowSeed: UInt64
+    /// Where an echo's arrival is marked (``markEchoArrived(flow:)``).
+    let probe: TypingLatencyProbe
 
     /// - Parameter opened: An opened bridge (``open(path:bridge:role:stats:hangs:writerTarget:trace:)``); nil connects to `path`.
     /// - Parameter stats: Where the connection counts (``DaemonEndpoint/wireStats``); nil for none.
@@ -86,10 +88,11 @@ final class LineTransport: Sendable {
     /// - Parameter clock: What reply deadlines are measured and slept on; tests pass a `ManualClock`.
     init(path: String, opened: DaemonBridge.Opened? = nil, role: DaemonWireStats.Role, stats: DaemonWireStats?,
          hangs: (any HangWatchScoping)? = nil, writerTarget: DispatchQueue? = nil, trace: TraceRuntime = .shared,
-         clock: any Clock<Duration> = ContinuousClock()) throws(DaemonError) {
+         probe: TypingLatencyProbe = .shared, clock: any Clock<Duration> = ContinuousClock()) throws(DaemonError) {
         self.path = path
         self.role = role
         self.trace = trace
+        self.probe = probe
         traceConnection = Self.traceConnectionBits(scope: trace.nextAsyncScope())
         traceFlowSeed = Self.requestFlowSeed(pid: getpid())
         deadlineTimer = DemandTimer(owner: "LineTransport.deadline", clock: clock)

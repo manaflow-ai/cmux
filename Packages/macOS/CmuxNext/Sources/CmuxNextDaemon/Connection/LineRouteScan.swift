@@ -17,6 +17,10 @@ struct LineRouteScan: Equatable {
     var type: String?
     var streamID: String?
     var cause: String?
+    /// An event's `flow`: the key press an `output` event echoes (p09-observability-018), read so the reader
+    /// marks the echo's handoff before it decodes the line (p09-observability-102). Nil without one, or for a
+    /// value that is not a plain non-negative integer (the decoder reads that one).
+    var flow: UInt64?
 
     /// Containers deeper than this are left to the decoder, so the scan's recursion stays shallow.
     static let maxDepth = 64
@@ -36,7 +40,7 @@ struct LineRouteScan: Equatable {
     }
 
     private enum Field: UInt8 {
-        case id = 1, ok = 2, event = 4, type = 8, streamID = 16, cause = 32
+        case id = 1, ok = 2, event = 4, type = 8, streamID = 16, cause = 32, flow = 64
 
         init?(key: some Sequence<UInt8>) {
             if key.elementsEqual(Byte.idKey) {
@@ -51,6 +55,8 @@ struct LineRouteScan: Equatable {
                 self = .streamID
             } else if key.elementsEqual(Byte.causeKey) {
                 self = .cause
+            } else if key.elementsEqual(Byte.flowKey) {
+                self = .flow
             } else {
                 return nil
             }
@@ -85,7 +91,10 @@ struct LineRouteScan: Equatable {
             }
             skipSpace()
             guard complete, index == bytes.endIndex else { return nil }
-            if fields.event == nil { fields.cause = nil }
+            if fields.event == nil {
+                fields.cause = nil
+                fields.flow = nil
+            }
             return fields
         }
 
@@ -152,6 +161,12 @@ struct LineRouteScan: Equatable {
                     return true
                 }
                 return skipValue(depth: 1)
+            case .flow:
+                guard Byte.isDigit(first) else { return skipValue(depth: 1) }
+                let start = index
+                guard skipNumber() else { return false }
+                fields.flow = Self.plainInteger(slice(start..<index))
+                return true
             case .event, .type, .streamID, .cause:
                 guard first == Byte.quote else { return skipValue(depth: 1) }
                 guard let text = plainText() else { return false }
@@ -160,10 +175,24 @@ struct LineRouteScan: Equatable {
                 case .type: fields.type = text
                 case .streamID: fields.streamID = text
                 case .cause: fields.cause = text
-                case .id, .ok: break  // read above
+                case .id, .ok, .flow: break  // read above
                 }
                 return true
             }
+        }
+
+        /// `digits` as a UInt64, read in place (a flow has up to 20 digits, past a small string's 15 bytes);
+        /// nil for a fraction, an exponent or an overflow.
+        private static func plainInteger(_ digits: Line.SubSequence) -> UInt64? {
+            var value: UInt64 = 0
+            for digit in digits {
+                guard Byte.isDigit(digit) else { return nil }
+                let (times10, over1) = value.multipliedReportingOverflow(by: 10)
+                let (sum, over2) = times10.addingReportingOverflow(UInt64(truncatingIfNeeded: digit &- UInt8(ascii: "0")))
+                guard !over1, !over2 else { return nil }
+                value = sum
+            }
+            return value
         }
 
         /// A string with no escape and no control byte, as text; nil otherwise.
@@ -287,6 +316,7 @@ struct LineRouteScan: Equatable {
         static let typeKey = Array("type".utf8)
         static let streamIDKey = Array("stream_id".utf8)
         static let causeKey = Array("cause".utf8)
+        static let flowKey = Array("flow".utf8)
         /// The one-letter escapes after a backslash: `"`, `\`, `/`, `b`, `f`, `n`, `r`, `t`.
         static let simpleEscapes: Set<UInt8> = Set("\"\\/bfnrt".utf8)
 

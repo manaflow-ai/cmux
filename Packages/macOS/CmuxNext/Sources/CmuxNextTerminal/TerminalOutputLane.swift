@@ -36,6 +36,9 @@ nonisolated final class TerminalOutputLane: Sendable {
     private let readyRestored = Atomic<Bool>(false)
     /// The surface's host-owned grid and its generation, read and changed only on `queue`.
     let gridLock = TerminalGridLock()
+    /// The key press whose echo the next output chunk carries (``TerminalIOEvent/inputEcho(flow:)``, which comes
+    /// just before it), 0 for none. Only the session's event loop reads and writes it, one event at a time.
+    private let nextChunkEcho = Atomic<UInt64>(0)
 
     private struct Backlog {
         var bytes = 0
@@ -116,7 +119,7 @@ nonisolated final class TerminalOutputLane: Sendable {
             outputReceived()
             ExpectedActivity.shared.note(.terminalOutput)
             await waitForCapacity()
-            processOutput(data)
+            processOutput(data, echo: nextChunkEcho.exchange(0, ordering: .relaxed))
             return true
         case .inputEcho(let flow):
             echoReceived(flow)
@@ -132,31 +135,42 @@ nonisolated final class TerminalOutputLane: Sendable {
         if let keyFlows { probe.mark(.outputReceived, surface: keyFlows) }
     }
 
-    /// The chunk the session just queued here carries the echo of key press `flow`
-    /// (``TerminalIOEvent/inputEcho(flow:)``): that press's `app.output.received` hop now, and its
-    /// `app.output.parsed` hop once the lane parsed that chunk, never another chunk's.
+    /// The next chunk the session queues here carries the echo of key press `flow`
+    /// (``TerminalIOEvent/inputEcho(flow:)``): the session's handoff to this lane ends and that press's
+    /// `app.output.received` hop runs now; the chunk's lane item carries the flow to its parse
+    /// (``processOutput(_:echo:)``), so no other chunk marks it.
     func echoReceived(_ flow: UInt64) {
+        probe.taken(.mainActor, flow: flow, surface: surfaceTraceID)
         probe.mark(.outputReceived, flow: flow)
-        queue.async { [self] in
-            guard !closing.load(ordering: .relaxed) else { return }
-            probe.mark(.outputParsed, flow: flow)
-        }
+        nextChunkEcho.store(flow, ordering: .relaxed)
     }
 
     /// Bytes queued but not parsed yet.
     var pendingBytes: Int { backlog.withLock { $0.bytes } }
 
-    func processOutput(_ data: Data) {
+    /// The surface's number in trace records (``TypingLatencyProbe/SurfaceKey/traceID``), 0 without one.
+    private var surfaceTraceID: UInt64 { keyFlows?.traceID ?? 0 }
+
+    /// Queues `data` for its parse on the lane. `echo` is the key press whose echo it carries (0: none): the
+    /// item's flow, marked where the lane takes it and parses it, and handed on to the renderer.
+    func processOutput(_ data: Data, echo: UInt64 = 0) {
         guard !data.isEmpty else { return }
         // A key armed after these bytes reached the lane cannot be their echo.
         let armedBefore = echoStage?.armedCount ?? 0
         backlog.withLock { $0.bytes += data.count }
+        probe.queued(.outputLane, flow: echo, surface: surfaceTraceID)
         queue.async { [self] in
             defer { parsed(data.count) }
             guard let surface = liveSurface else { return }
+            probe.taken(.outputLane, flow: echo, surface: surfaceTraceID)
             // SAFETY: ``liveSurface`` on the lane: alive until close() fences the lane.
             unsafe feed(surface, data)
             echoStage?.outputParsed(armedBefore: armedBefore)
+            if echo != 0 {
+                probe.mark(.outputParsed, flow: echo)
+                // The parse woke the renderer thread, which draws the echo's frame.
+                probe.queued(.renderer, flow: echo, surface: surfaceTraceID)
+            }
             if let keyFlows { probe.mark(.outputParsed, surface: keyFlows) }
             #if DEBUG || CMUX_BENCH_HOOKS
             if NewTerminalTrace.shared.isArmed { NewTerminalTrace.shared.parsed(lane: ObjectIdentifier(self), data) }

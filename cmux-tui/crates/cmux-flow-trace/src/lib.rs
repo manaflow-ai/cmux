@@ -30,6 +30,10 @@
 //! mapped as a file), [`init`] stops a recording it started, writes one line to stderr and leaves
 //! flows off. Ring files are unix only until task p09-observability-132, so flows are too.
 //!
+//! The echo's thread handoffs ([`Handoff`], `key.echo.*` catalog names) are records of the same
+//! gate: [`queued`] where a thread hands the echo's item on, [`taken`] where the next thread picks
+//! it up, each with the flow id its queue item carries.
+//!
 //! std and libc only (cmux-trace is too): the holder (`cmux-holder`) links it.
 
 #![cfg_attr(not(test), deny(clippy::disallowed_methods))]
@@ -40,6 +44,9 @@ use std::sync::OnceLock;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use cmux_trace::{InternedName, Phase, Role, category};
+
+mod handoff;
+pub use handoff::{Handoff, Terminal, queued, taken};
 
 /// The key category's bit index: the `category` byte of every hop name.
 const KEY_BIT: u8 = category::KEY.trailing_zeros() as u8;
@@ -170,10 +177,15 @@ pub fn hop(name: &'static str, flow: u64, terminal: &str) {
 #[inline]
 pub fn hop_id(name: &'static str, flow: u64, terminal: &[u8; 16]) {
     if on() {
-        let mut first = [0u8; 8];
-        first.copy_from_slice(&terminal[..8]);
-        write_hop(name, flow, u64::from_be_bytes(first));
+        write_hop(name, flow, id_key(terminal));
     }
+}
+
+/// The terminal key of 16 raw id bytes: the first 8, big-endian ([`terminal_key`]'s number for their hex).
+fn id_key(terminal: &[u8; 16]) -> u64 {
+    let mut first = [0u8; 8];
+    first.copy_from_slice(&terminal[..8]);
+    u64::from_be_bytes(first)
 }
 
 /// A hop's records: one instant with no flow id, else a flow step (see the module doc).

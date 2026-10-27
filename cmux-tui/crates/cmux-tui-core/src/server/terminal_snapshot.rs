@@ -599,7 +599,12 @@ struct SnapshotWorker {
 
 impl SnapshotWorker {
     fn send(&self, value: &Value) -> bool {
-        match self.writer.send_stream_backpressured(value, &self.outbound_stream) {
+        self.send_echo(value, 0)
+    }
+
+    /// [`Self::send`] of an event that echoes key press `flow` (0: none).
+    fn send_echo(&self, value: &Value, flow: u64) -> bool {
+        match self.writer.send_echo_backpressured(value, flow, &self.outbound_stream) {
             Ok(()) => true,
             Err(error) => {
                 handle_attach_send_error(&self.lifecycle, &error);
@@ -704,7 +709,7 @@ impl SnapshotWorker {
                         digest_at = Some(Instant::now() + SNAPSHOT_DIGEST_IDLE);
                     }
                     match frame_json(self.surface_id, &frame, self.generation, self.offset) {
-                        Some(value) => self.send(&value),
+                        Some(value) => self.send_echo(&value, frame.flow()),
                         None => true,
                     }
                 }

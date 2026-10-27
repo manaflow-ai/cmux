@@ -434,6 +434,21 @@ impl MessageWriter {
         self.send_encoded_backpressured(self.encode(value, stream), stream)
     }
 
+    /// [`Self::send_stream_backpressured`] of an event that echoes key press
+    /// `flow` (0: none): its text carries the flow to the line-out thread.
+    pub(super) fn send_echo_backpressured<T: Serialize + ?Sized>(
+        &self,
+        value: &T,
+        flow: u64,
+        stream: &OutboundStream,
+    ) -> std::io::Result<()> {
+        if !self.is_open() {
+            return Err(std::io::Error::new(std::io::ErrorKind::BrokenPipe, "connection closed"));
+        }
+        let encoded = self.render_service.serialize_echo_for(value, flow, stream.client_stream);
+        self.send_encoded_backpressured(encoded, stream)
+    }
+
     /// The first half of [`Self::send_stream_backpressured`]: `value` as
     /// the text it sends on `stream` (tagged with its client-minted id, if
     /// any). An echo thread watches this half as its frame's work, not the
@@ -468,7 +483,12 @@ impl MessageWriter {
         if !self.is_open() {
             return Err(std::io::Error::new(std::io::ErrorKind::BrokenPipe, "connection closed"));
         }
-        let result = encoded.and_then(|text| self.sink.send_stream_backpressured(text, stream));
+        let result = encoded.and_then(|text| {
+            // The echo's item goes to the line-out thread's queue (the wait for room is its queue time).
+            let terminal = cmux_flow_trace::Terminal::Unknown;
+            cmux_flow_trace::queued(cmux_flow_trace::Handoff::AttachEncode, text.flow, terminal);
+            self.sink.send_stream_backpressured(text, stream)
+        });
         if result.as_ref().is_err_and(|error| error.kind() != std::io::ErrorKind::WouldBlock) {
             stream.close();
         }

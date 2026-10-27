@@ -122,7 +122,7 @@ impl PtySurface {
     /// press `flow` (0: none): the read that took it from its
     /// [`crate::input_flow::InputFlowSlot`], or the flow the host sent with it.
     pub(super) fn broadcast_attach_output_flow(&self, bytes: &[u8], flow: u64) -> bool {
-        cmux_flow_trace::hop("daemon.output.attach", flow, self.flow_terminal_id());
+        self.mark_attach_output(flow);
         self.snapshot_position.add_output(bytes.len());
         let mut taps = self.taps.lock().unwrap();
         let Some(chunk) = taps.output_chunk(bytes) else { return false };
@@ -134,6 +134,15 @@ impl PtySurface {
             self.mark_attach_output_sent();
         }
         sent
+    }
+
+    /// Output that echoes key press `flow` goes to the attach viewers' queues: the
+    /// `daemon.output.attach` hop and the surface parse's handoff to the attach-out
+    /// threads, marked before the taps lock.
+    fn mark_attach_output(&self, flow: u64) {
+        cmux_flow_trace::hop("daemon.output.attach", flow, self.flow_terminal_id());
+        let terminal = cmux_flow_trace::Terminal::Hex(self.flow_terminal_id());
+        cmux_flow_trace::queued(cmux_flow_trace::Handoff::SurfaceParse, flow, terminal);
     }
 
     /// The first output a followed terminal sends an attachment
@@ -186,7 +195,7 @@ impl PtySurface {
 
     pub(super) fn broadcast_attach_frame(&self, frame: AttachFrame) {
         if frame.output().is_some() {
-            cmux_flow_trace::hop("daemon.output.attach", frame.flow(), self.flow_terminal_id());
+            self.mark_attach_output(frame.flow());
         }
         self.snapshot_position.observe_frame(&frame);
         let mut taps = self.taps.lock().unwrap();

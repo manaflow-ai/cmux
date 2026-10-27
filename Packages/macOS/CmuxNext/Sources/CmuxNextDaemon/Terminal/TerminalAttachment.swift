@@ -137,7 +137,8 @@ public actor TerminalAttachment: TerminalByteChannel {
         resolvedSurface = SurfaceBox(surface)
         let queue = TerminalEventQueue(recorder: transport.recorder)
         self.queue = queue
-        events = AsyncStream(unfolding: { await queue.next() }, onCancel: { queue.cancel() })
+        let probe = transport.probe
+        events = AsyncStream(unfolding: { await TerminalAttachment.next(from: queue, marking: probe) }, onCancel: { queue.cancel() })
     }
 
     /// Output bytes waiting for the consumer (diagnostics, tests).
@@ -170,8 +171,8 @@ public actor TerminalAttachment: TerminalByteChannel {
                     queue.finish(event)
                 } else {
                     if case .output = event { TypingLatencyProbe.shared.outputDecoded(flow: decoded.flow) }
+                    if let flow = decoded.flow { queue.pushWithoutWaiting(.inputEcho(flow: flow)) } // just before its chunk
                     queue.push(event)
-                    if let flow = decoded.flow { queue.pushWithoutWaiting(.inputEcho(flow: flow)) } // rides behind its chunk
                 }
             },
             onClose: { reason in

@@ -43,10 +43,11 @@ import Testing
         probe.outputDecoded(flow: first)
         probe.outputDecoded(flow: second)
 
-        #expect(await lane.takeOffMain(.output(Data("a".utf8))))
+        // Each echo marker comes just before the chunk that carries its echo (TerminalAttachment).
         #expect(await lane.takeOffMain(.inputEcho(flow: first)))
-        #expect(await lane.takeOffMain(.output(Data("b".utf8))))
+        #expect(await lane.takeOffMain(.output(Data("a".utf8))))
         #expect(await lane.takeOffMain(.inputEcho(flow: second)))
+        #expect(await lane.takeOffMain(.output(Data("b".utf8))))
         var iterator = parsedChunks.makeAsyncIterator()
         #expect(await iterator.next() == Data("a".utf8))
         #expect(await iterator.next() == Data("b".utf8))

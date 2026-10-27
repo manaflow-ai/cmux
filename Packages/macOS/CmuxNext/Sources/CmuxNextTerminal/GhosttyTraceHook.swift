@@ -192,11 +192,14 @@ extension GhosttyTraceHook {
         /// Every frame below this seq finished its GPU work.
         let gpuDoneBelow = Atomic<UInt64>(0)
         let gpuWaits: [GPUWait]
+        /// The echo flows of the frames in flight (GhosttyTraceHook+FrameFlow.swift).
+        let frameFlows: [FrameFlow]
 
         init(key: TypingLatencyProbe.SurfaceKey, echoStage: TerminalEchoStage?) {
             self.key = key
             self.echoStage = echoStage
             gpuWaits = (0..<Self.gpuWaitCapacity).map { _ in GPUWait() }
+            frameFlows = (0..<Self.frameFlowCapacity).map { _ in FrameFlow() }
         }
 
         /// Holds `flows` of frame `seq` for its GPU completion; returns the ones it already had.
@@ -279,12 +282,17 @@ extension GhosttyTraceHook {
         func record(_ event: Event, on surface: Surface, seq: UInt64) {
             switch event {
             case .frameBegin:
-                guard trace.isEnabled(categoryBit: SignpostName.ghosttyRender.traceCategory.traceBit) else { return }
-                let flow = probe.echoFlow(on: surface.key) ?? 0
+                let renders = trace.isEnabled(categoryBit: SignpostName.ghosttyRender.traceCategory.traceBit)
+                let flow = renders || probe.flowsStarted ? probe.echoFlow(on: surface.key) ?? 0 : 0
+                surface.noteFrame(seq: seq, flow: flow)
+                probe.taken(.renderer, flow: flow, surface: surface.key.traceID)
+                guard renders else { return }
                 if trace.begin(.ghosttyRender, arg0: surface.key.traceID, arg1: flow) {
                     surface.renderOpen.store(true, ordering: .relaxed)
                 }
             case .frameEnd, .surfaceDestroy:
+                // The frame's GPU work is committed: its Metal completion handler takes the echo next.
+                if event == .frameEnd { probe.queued(.gpuDone, flow: surface.frameFlow(seq: seq), surface: surface.key.traceID) }
                 guard surface.renderOpen.exchange(false, ordering: .relaxed) else { return }
                 trace.writeEnd(name: SignpostName.ghosttyRender.rawValue, categoryBit: SignpostName.ghosttyRender.traceCategory.traceBit,
                                phase: .end, arg0: surface.key.traceID)
@@ -294,6 +302,7 @@ extension GhosttyTraceHook {
                 frameShown(on: surface, seq: seq, gpuMayRun: true)
             case .gpuDone:
                 trace.event(.frameGPUDone, arg0: surface.key.traceID, arg1: seq)
+                probe.taken(.gpuDone, flow: surface.frameFlow(seq: seq), surface: surface.key.traceID)
                 deliver(surface.gpuDidFinish(seq: seq))
             case .ioWrite:
                 return // Ghostty's io_write_cb marks the write (``TypingLatencyProbe/inputWritten(on:)``).
@@ -317,6 +326,8 @@ extension GhosttyTraceHook {
             if NewTerminalTrace.shared.isArmed { NewTerminalTrace.shared.contents(layer: ObjectIdentifier(surface)) }
             #endif
             guard probe.isRecording else { return }
+            // The frame goes to its layer: main's run-loop turn that sets it takes the echo next (its commit mark).
+            probe.queued(.contents, flow: surface.frameFlow(seq: seq), surface: surface.key.traceID)
             let awaitsGPU = gpuMayRun && deliversGPU && surface.gpuDoneBelow.load(ordering: .acquiring) <= seq
             let flows = probe.mark(.contents, surface: surface.key, awaitsGPU: awaitsGPU)
             guard awaitsGPU, !flows.isEmpty else { return }

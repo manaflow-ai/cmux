@@ -113,6 +113,48 @@ fn echo_flow_host_writes_the_input_and_its_next_read_carries_the_flow_once() {
     finish(served);
 }
 
+/// The host's thread handoffs of the echo (p09-observability-102): its PTY thread queues the read
+/// for the client writer (`key.echo.host_pty_read`), and the writer takes it and writes it to the
+/// daemon (`key.echo.host_client_write`), each with the flow the queued frame carries. Output that
+/// echoes nothing marks no handoff.
+#[test]
+fn echo_handoffs_host_pty_thread_and_client_writer_carry_the_flow() {
+    if !crate::flow_trace_tests::in_recording_child(
+        "terminal_host_runtime::unix::tests::input_flow::\
+         echo_handoffs_host_pty_thread_and_client_writer_carry_the_flow",
+    ) {
+        return;
+    }
+    let mut served = served_host(SMART_FLOW);
+    write_frame(&mut served.client, &flagged_input(b"ls\r", 4242)).unwrap();
+    let mut written = [0u8; 3];
+    served.pty.read_exact(&mut written).unwrap();
+    served.pty.write_all(b"ls\r\n").unwrap();
+    read_once(&served);
+    let echo = read_required_frame(&mut served.client, "echo").unwrap();
+    assert_eq!(output_flow(&echo), 4242);
+    served.pty.write_all(b"$ ").unwrap();
+    read_once(&served);
+    let next = read_required_frame(&mut served.client, "prompt").unwrap();
+    assert_eq!(output_flow(&next), 0);
+
+    assert_eq!(
+        crate::flow_trace_tests::flow_steps(4242),
+        [
+            "host.pty.write<",
+            "host.pty.write>",
+            "host.pty.read<",
+            "host.pty.read>",
+            "key.echo.host_pty_read>",
+            "key.echo.host_pty_read<",
+            "key.echo.host_client_write>",
+        ]
+    );
+    let handoffs = crate::flow_trace_tests::handoff_steps(0);
+    assert!(handoffs.is_empty(), "output with no flow marked a handoff: {handoffs:?}");
+    finish(served);
+}
+
 #[test]
 fn echo_flow_host_refuses_a_trailer_it_did_not_negotiate() {
     let mut served = served_host(FLAG_SMART_RENDERER | FLAG_VIEWER_SIZE_ACKS);

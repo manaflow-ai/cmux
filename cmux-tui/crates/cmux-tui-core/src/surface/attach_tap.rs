@@ -299,11 +299,24 @@ enum TakenFrame {
 
 impl TakenFrame {
     fn into_frame(self) -> AttachFrame {
-        match self {
+        taken(match self {
             Self::Output(rope) => rope.into_frame(),
             Self::Frame(frame) => frame,
-        }
+        })
     }
+}
+
+/// The viewer's attach-out thread took `frame` from its queue, after the queue lock: the surface
+/// parse's handoff of the echo `frame` carries (`key.echo.surface_parse`, task 102). The queue is the
+/// viewer's, which names no terminal; the flow id names the press.
+fn taken(frame: AttachFrame) -> AttachFrame {
+    let flow = frame.flow();
+    cmux_flow_trace::taken(
+        cmux_flow_trace::Handoff::SurfaceParse,
+        flow,
+        cmux_flow_trace::Terminal::Unknown,
+    );
+    frame
 }
 
 /// A grid replacement (`Resized` or `ResizedWithColors`) by reference.
@@ -545,9 +558,12 @@ impl AttachFrameReceiver {
             match Self::pop_item(&mut queue) {
                 Some(QueuedFrame::Output(rope)) => {
                     drop(queue);
-                    return Ok(ViewerEvent::Frame(rope.into_frame()));
+                    return Ok(ViewerEvent::Frame(taken(rope.into_frame())));
                 }
-                Some(QueuedFrame::Frame(frame)) => return Ok(ViewerEvent::Frame(frame)),
+                Some(QueuedFrame::Frame(frame)) => {
+                    drop(queue);
+                    return Ok(ViewerEvent::Frame(taken(frame)));
+                }
                 Some(QueuedFrame::LocalReady(ready)) => return Ok(ViewerEvent::LocalReady(ready)),
                 None => {}
             }

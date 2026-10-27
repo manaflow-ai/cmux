@@ -38,7 +38,8 @@ use crate::terminal_host_protocol::{
     LAUNCH_ACTIVATION_PROTOCOL_VERSION, MAX_FRAME_PAYLOAD, MAX_KITTY_IMAGE_ALIASES, MessageKind,
     PROTOCOL_VERSION, RESIZE_ACK_CANONICAL_CHANGED, TerminalExit, decode_host_launch_failure,
     decode_terminal_exit, encode_host_launch_failure, encode_terminal_exit, flow_trailer_payload,
-    read_frame, split_flow_trailer, wait_for_native_child_status_with_reap_result, write_frame,
+    output_flow, read_frame, split_flow_trailer, wait_for_native_child_status_with_reap_result,
+    write_frame,
 };
 
 mod grant_failure;

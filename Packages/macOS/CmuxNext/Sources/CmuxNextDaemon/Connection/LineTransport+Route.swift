@@ -1,10 +1,19 @@
 import CmuxNextIPC
+import CmuxNextWakeups
 import Foundation
 
 extension LineTransport {
     /// The reader's next whole message (nil: it needs more bytes), or the bad message that ends the connection.
     static func nextMessage(_ reader: inout FrameReader) -> Result<FrameReader.Message?, BadMessage> {
         Result { () throws(BadMessage) -> FrameReader.Message? in try reader.next() }
+    }
+
+    /// The reader read an event that echoes key press `flow` (its `flow` field) and hands it to its handler,
+    /// which decodes and queues it: the line-out thread's handoff ends here and the reader's begins
+    /// (p09-observability-102). Marked before the decode, which is the reader's own hop (`app.output.decoded`).
+    func markEchoArrived(flow: UInt64) {
+        probe.taken(.lineOut, flow: flow)
+        probe.queued(.appTransportRead, flow: flow)
     }
 
     /// Routes one line by its fields, on the reader thread. ``LineRouteScan`` reads them from the reader's
@@ -15,8 +24,10 @@ extension LineTransport {
         let line = Data(bytes)
         let envelope: Envelope
         var decoded = false
+        var echo: UInt64 = 0
         if let scanned = LineRouteScan(bytes) {
             envelope = scanned.envelope
+            echo = scanned.flow ?? 0
         } else if let full = try? decoder.decode(Envelope.self, from: line) {
             envelope = full
             decoded = true
@@ -55,6 +66,7 @@ extension LineTransport {
                 return state.eventCount
             }
             recorder?.lineRead(streamed ? streamKind : .event)
+            if echo != 0 { markEchoArrived(flow: echo) }
             onEvent(name, line, index, envelope.cause)
             return
         }

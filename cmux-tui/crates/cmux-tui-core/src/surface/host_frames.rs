@@ -46,7 +46,11 @@ use std::collections::VecDeque;
 use std::io::Read;
 use std::sync::{Arc, Condvar, Mutex};
 
-use crate::terminal_host_protocol::{Frame, MAX_FRAME_PAYLOAD, MessageKind, read_frame};
+use cmux_flow_trace::{Handoff, Terminal};
+
+use crate::terminal_host_protocol::{
+    Frame, MAX_FRAME_PAYLOAD, MessageKind, output_flow, read_frame,
+};
 use crate::terminal_host_runtime::HostStream as UnixStream;
 use crate::terminal_host_runtime::{CONTROL_RESPONSE_TIMEOUT, ControlResponses};
 
@@ -271,6 +275,9 @@ fn read_stream(
             break;
         }
         let Ok(Some(frame)) = read_frame(&mut stream, MAX_FRAME_PAYLOAD) else { break };
+        // The echo's flow rides the Output frame; the surface's reader checks the frame itself.
+        let flow = output_flow(&frame);
+        cmux_flow_trace::taken(Handoff::HostClientWrite, flow, Terminal::Unknown);
         // A host-originated clipboard read is outside the live sequence and
         // waits for the user, so it never enters the ordered queue.
         if frame.kind == MessageKind::ClipboardReadRequest {
@@ -322,6 +329,8 @@ fn read_stream(
         state.queued_payload += frame.payload.len();
         state.frames.push_back(HostFrame::Frame(frame));
         queue.changed.notify_all();
+        drop(state);
+        cmux_flow_trace::queued(Handoff::DaemonFrames, flow, Terminal::Unknown);
     }
     control_responses.end_clipboard_reads();
     let mut state = queue.state.lock().unwrap();
@@ -483,6 +492,35 @@ mod tests {
         assert!(kitty.recv_timeout(Duration::from_secs(1)).is_ok());
         let state = queue.state.lock().unwrap();
         assert!(state.frames.is_empty() && state.queued_payload == 0);
+    }
+
+    /// The frames thread's handoffs of the echo (p09-observability-102): it takes
+    /// the host writer's frame from the socket (`key.echo.host_client_write`) and
+    /// queues it for the surface's reader (`key.echo.daemon_frames`), with the
+    /// flow of the frame's trailer. A frame that echoes nothing marks neither.
+    #[test]
+    fn echo_handoffs_frames_thread_takes_the_write_and_queues_it() {
+        if !crate::flow_trace_tests::in_recording_child(
+            "surface::host_frames::tests::echo_handoffs_frames_thread_takes_the_write_and_queues_it",
+        ) {
+            return;
+        }
+        let version = version();
+        let responses = ControlResponses::new_for_test();
+        let queue = queue();
+        let payload = crate::terminal_host_protocol::flow_trailer_payload(b"ls\r\n", 4343);
+        let mut echo = Frame::new(MessageKind::Output, payload);
+        echo.flags = crate::terminal_host_protocol::FLAG_INPUT_FLOW;
+        echo.version = version;
+        let mut plain = Frame::new(MessageKind::Output, b"$ ".to_vec());
+        plain.version = version;
+        read_stream(stream_of(&[echo, plain]), &responses, version, SMART, &queue);
+        assert_eq!(queue.state.lock().unwrap().frames.len(), 2, "both frames are ordered");
+        assert_eq!(
+            crate::flow_trace_tests::handoff_steps(4343),
+            ["key.echo.host_client_write<", "key.echo.daemon_frames>"]
+        );
+        assert!(crate::flow_trace_tests::handoff_steps(0).is_empty());
     }
 
     /// A Kitty limits acknowledgement whose requester already gave up does

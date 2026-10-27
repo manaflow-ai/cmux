@@ -34,16 +34,18 @@ struct TerminalAttachmentFlowTests {
         #expect(decoded.flow == nil)
     }
 
-    /// The flow rides behind its chunk to the session (`inputEcho`): the queue merges output before it
-    /// into that chunk, never output after it, so the session and the lane mark the chunk that echoes.
-    @Test func anEchoMarkerStaysBehindItsChunk() async {
+    /// The flow goes just before its chunk to the session (`inputEcho`, p09-observability-102), so the lane
+    /// queues that chunk with the flow: the queue never merges output from before the marker into the chunk
+    /// after it, and output after the chunk only extends the chunk that carries the echo.
+    @Test func anEchoMarkerGoesJustBeforeItsChunk() async {
         let queue = TerminalEventQueue(recorder: nil)
         queue.push(.output(Data("a".utf8), colors: nil))
         queue.push(.output(Data("b".utf8), colors: nil))
         queue.pushWithoutWaiting(.inputEcho(flow: 7))
         queue.push(.output(Data("c".utf8), colors: nil))
+        queue.push(.output(Data("d".utf8), colors: nil))
         #expect(await queue.next() == .output(Data("ab".utf8), colors: nil))
         #expect(await queue.next() == .inputEcho(flow: 7))
-        #expect(await queue.next() == .output(Data("c".utf8), colors: nil))
+        #expect(await queue.next() == .output(Data("cd".utf8), colors: nil))
     }
 }

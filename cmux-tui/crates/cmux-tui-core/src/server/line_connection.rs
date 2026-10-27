@@ -76,6 +76,29 @@ pub(super) fn spawn_connection_reader(
     })
 }
 
+/// The line-out thread took `batch` from the attach-out threads and writes it
+/// to the app: each item that carries an echo ends `key.echo.attach_encode`
+/// and begins `key.echo.line_out` (p09-observability-102).
+fn mark_echo_items(batch: &[OutboundItem]) {
+    let terminal = cmux_flow_trace::Terminal::Unknown;
+    for item in batch {
+        let flow = echo_flow(item);
+        cmux_flow_trace::taken(cmux_flow_trace::Handoff::AttachEncode, flow, terminal);
+        cmux_flow_trace::queued(cmux_flow_trace::Handoff::LineOut, flow, terminal);
+    }
+}
+
+/// The key press the event `item` carries echoes (its text's flow, 0: none):
+/// the flow of the line-out thread's handoffs. A frame cut in chunks carries
+/// it on its first chunk.
+fn echo_flow(item: &OutboundItem) -> u64 {
+    match item {
+        OutboundItem::Text(text) | OutboundItem::Frame(_, text) => text.flow,
+        OutboundItem::Chunk { text, range, .. } if range.start == 0 => text.flow,
+        OutboundItem::Chunk { .. } | OutboundItem::Flush(_) => 0,
+    }
+}
+
 /// One JSON line per message, and frames once granted. `admission` sees
 /// every line before anything parses or dispatches it, and may answer it
 /// instead (the remote entry).
@@ -209,6 +232,7 @@ pub(super) fn serve_connection(
         while writer_outbound.recv_batch(&mut batch) {
             // Each batch's write is a 100 ms hang scope; the wait above is not.
             let _batch = writer_hangs.item(WatchKind::LineOut);
+            mark_echo_items(&batch);
             let written = write_counted_batch(&mut *write_half, &writer_ipc, &batch);
             // The written texts go now, not when the next item arrives.
             batch.clear();

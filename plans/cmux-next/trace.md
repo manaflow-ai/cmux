@@ -191,6 +191,27 @@ files.
 | `app.frame.contents` | app main (`setContents:` of the terminal layer: Ghostty's frame) | flow id |
 | `app.frame.commit` | app main (the run-loop end after it: the Core Animation commit to the screen) | flow id |
 
+The 12 thread handoffs of the echo (ghostty-integration-DESIGN.md "Key to frame", p09-observability-102) are
+`key.echo.<handoff>` ring records with the press's flow id in arg1: a flow out (`s`) where a thread queues the
+echo's item and a flow in (`f`) where the next thread takes it, as Chrome's `TaskAnnotator` marks a posted task
+(base/task/common/task_annotator.cc). The queue item carries the flow (0 when it echoes nothing, which marks
+nothing), so a mark is one load while flows are off.
+
+| Handoff | Queued (`s`) | Taken (`f`) |
+|---|---|---|
+| `host_pty_read` | `terminal-host-pty`, publishing the read (`publish_pty_frame`) | the host's client writer |
+| `host_client_write` | the host's client writer, writing the frame | the daemon's host frames thread (`host_frames.rs`) |
+| `daemon_frames` | the frames thread, queueing it for the surface | `surface-<id>-host` (`apply_output`) |
+| `surface_parse` | the surface, queueing it for each attach viewer (`mark_attach_output`) | `mux-attach-out` / `mux-snapshot-attach-out` |
+| `attach_encode` | the attach-out thread, handing the encoded event to its connection | `mux-line-out` |
+| `line_out` | `mux-line-out`, writing it | the app's attach reader (`LineTransport`, from the line's `flow`) |
+| `app_transport_read` | the attach reader, before its decode (`app.output.decoded`) | the session's event loop (`TerminalAttachment.events`) |
+| `main_actor` | the event loop, toward the lane's router (no main hop since G4) | the lane (`TerminalOutputLane.echoReceived`) |
+| `output_lane` | the router, queueing the echo's chunk (the `inputEcho` marker goes just before it) | the lane's queue, before the parse |
+| `renderer` | the lane, after the parse | the renderer thread, at the begin of the frame that draws it (hook) |
+| `gpu_done` | the renderer, at the frame's end | the Metal completion handler, after `frame.gpu_done` |
+| `contents` | the frame's handoff to its layer (hook) | main, at the end of the run-loop turn that commits it |
+
 A hop with no flow id is placed by windows on the terminal the press was sent to. The presses on one terminal
 are taken in send order; for each such hop, a press's window runs from the hop that causes it (the daemon's
 `send.write` for a PTY write; the PTY write for the echo read; the read for the daemon's output; the output for
