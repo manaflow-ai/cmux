@@ -38,6 +38,7 @@ struct SessionPriorityCoordinatorState: Equatable {
         /// A manual signal seen on the pane's screen during this session. It outlives the text.
         var stickyManual: SessionPriorityManualSignal?
         /// How the last restart attempt ended, e.g. `held.draft`. Never the resume command.
+        /// Cleared when the pane becomes manual, so its status shows the manual signal instead.
         var lastResultDescription: String?
         /// The last restart made, which is not made again for the same session and target.
         var lastAttempt: Attempt?
@@ -155,6 +156,7 @@ struct SessionPriorityCoordinatorState: Equatable {
         record.awaitingSessionStartUntilMs = nil
         record.stickyManual = .userCommandOnScreen
         record.state = .manual(.userCommandOnScreen)
+        record.lastResultDescription = nil
         records[panelId] = record
     }
 
@@ -347,6 +349,8 @@ struct SessionPriorityCoordinatorState: Equatable {
         case .leave(.manual(let signal)):
             if signal == .userCommandOnScreen { record.stickyManual = signal }
             record.state = .manual(signal)
+            // The pane is left alone now: an earlier hold or refusal no longer describes it.
+            record.lastResultDescription = nil
         case .leave(.noTarget), .leave(.nothingToApply), .leave(.upToDate):
             record.state = .upToDate
         case .restart:
