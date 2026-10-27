@@ -1739,6 +1739,23 @@ nonisolated extension Feature {
         replaces: ["memory.discard.terminalGPURelease"]
     )
 
+    /// A hidden terminal's working directory, progress, scrollbar and other state from its program wait until it shows, latest wins; its title still changes at the next frame, quit and a surface swap apply what waits first, and bells, exits and clipboard requests run at once, in order.
+    public static let terminalHiddenActionHold = Feature(
+        index: 96,
+        name: "terminalHiddenActionHold",
+        owner: "PL-ghostty",
+        description: "A hidden terminal's working directory, progress, scrollbar and other state from its program wait until it shows, latest wins; its title still changes at the next frame, quit and a surface swap apply what waits first, and bells, exits and clipboard requests run at once, in order.",
+        kind: .perfPath,
+        process: .app,
+        chromiumFeature: nil,
+        defaults: FeatureDefaults(dev: false, nightly: false, release: false),
+        expires: "2026-12-24",
+        params: [],
+        stories: ["idle-tabs", "automation-typing"],
+        sticky: false,
+        runtimeMutable: false
+    )
+
     /// New terminals run on the install's one PTY holder process, and the daemon parses their output, instead of one terminal host process each (terminal-host-model-DESIGN.md option D).
     public static let terminalHolder = Feature(
         index: 97,
@@ -2092,6 +2109,7 @@ nonisolated extension Feature {
         .stripPanResampling,
         .taskManagerMemorySaved,
         .terminalGPURelease,
+        .terminalHiddenActionHold,
         .terminalHolder,
         .terminalPointerFrames,
         .terminalPreCommitPresent,
@@ -2210,6 +2228,7 @@ nonisolated extension Feature {
         .stripPanResampling,
         .taskManagerMemorySaved,
         .terminalGPURelease,
+        .terminalHiddenActionHold,
         .terminalHolder,
         .terminalPointerFrames,
         .terminalPreCommitPresent,
