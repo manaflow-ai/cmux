@@ -26,9 +26,9 @@ def unguarded(body: str) -> list[str]:
 
 class Classes(unittest.TestCase):
     def test_optional_class_lookup_passes(self):
-        self.assertEqual(verdicts('func f() -> AnyClass? {\n    guard let c = NSClassFromString("CefNSWindow") else '
+        self.assertEqual(verdicts('func f() -> AnyClass? {\n    guard let c = NSClassFromString("CABackdropLayer") else '
                                   '{ return nil }\n    return c\n}\n'),
-                         [("NSClassFromString", "class CefNSWindow", True)])
+                         [("NSClassFromString", "class CABackdropLayer", True)])
 
     def test_forced_and_cast_lookups_refused(self):
         self.assertEqual(unguarded('let a = NSClassFromString("X")!\n'), ["NSClassFromString"])
@@ -47,6 +47,27 @@ class Classes(unittest.TestCase):
                                    '"swift_demangle") else { return }\n}\n')
         self.assertEqual([(l.key, l.guarded) for l in found], [("symbol swift_demangle", True)])
 
+    def test_implicitly_unwrapped_dlsym_refused(self):
+        # dlsym is imported as `-> UnsafeMutableRawPointer!`: a member access or a non-optional binding unwraps it.
+        self.assertEqual(unguarded('func f() -> CFString {\n    return dlsym(UnsafeMutableRawPointer(bitPattern: -2), '
+                                   '"kFoo").assumingMemoryBound(to: CFString.self).pointee\n}\n'), ["dlsym"])
+        self.assertEqual(unguarded('func f() {\n    let p: UnsafeMutableRawPointer = dlsym(h, "kFoo")\n    use(p)\n}\n'),
+                         ["dlsym"])
+        self.assertEqual(unguarded('let p = objc_getClass("X").debugDescription\n'), [])
+        self.assertEqual(unguarded('let p = objc_getClass("X").hash\n'), ["objc_getClass"])
+        self.assertEqual(unguarded('func f() {\n    let p: UnsafeMutableRawPointer? = dlsym(h, "kFoo")\n    use(p)\n}\n'), [])
+        self.assertEqual(unguarded('let p = dlsym(h, "kFoo")?.load(as: Int.self)\n'), [])
+        self.assertEqual(unguarded('let p = dlsym(h, "kFoo").map { $0 }\n'), [])
+
+    def test_wrapped_bitcast_iuo_binding_and_grouped_force_refused(self):
+        self.assertEqual(unguarded('let f = unsafeBitCast(\n    dlsym(UnsafeMutableRawPointer(bitPattern: -2), '
+                                   '"CGSMainConnectionID"),\n    to: F.self)\n'), ["dlsym"])
+        self.assertEqual(unguarded('let c: AnyClass! = NSClassFromString("X")\n'), ["NSClassFromString"])
+        self.assertEqual(unguarded('let c = (NSClassFromString("X"))!\n'), ["NSClassFromString"])
+        self.assertEqual(unguarded('let c = (NSClassFromString("X") as? NSView.Type)!\n'), ["NSClassFromString"])
+        self.assertEqual(unguarded('let c = (NSClassFromString("X") as? NSView.Type)?.init()\n'), [])
+        self.assertEqual(unguarded('let n = use(NSClassFromString("X"))!\n'), [])  # the call's result, not the lookup
+
     def test_condition_list_continuation_is_conditional(self):
         body = ('func f() {\n    guard let x = y,\n          let c = NSClassFromString("X") else { return }\n'
                 '    use(c)\n}\n')
@@ -61,7 +82,27 @@ class Selectors(unittest.TestCase):
     def test_bound_selector_checked_in_function(self):
         body = ('func f(_ v: NSView) {\n    let sel = NSSelectorFromString("_x")\n    guard v.responds(to: sel) '
                 'else { return }\n    v.perform(sel)\n}\n')
-        self.assertEqual(verdicts(body), [("NSSelectorFromString", "selector _x", True)])
+        self.assertEqual(verdicts(body), [("NSSelectorFromString", "selector NSView _x", True)])
+
+    def test_each_use_of_a_bound_selector_is_judged(self):
+        # A safe use (an action, a comparison) does not cover a send in the same function.
+        body = ('func f(_ v: NSView) {\n    let sel = NSSelectorFromString("_foo:")\n'
+                '    let item = NSMenuItem(title: "", action: sel, keyEquivalent: "")\n    v.perform(sel, with: item)\n}\n')
+        self.assertEqual(unguarded(body), ["NSSelectorFromString"])
+        body = ('func f(_ v: NSView, _ i: NSMenuItem) {\n    let sel = NSSelectorFromString("_foo:")\n'
+                '    if i.action == sel {}\n    v.perform(sel, with: i)\n}\n')
+        self.assertEqual(unguarded(body), ["NSSelectorFromString"])
+        body = ('func f(_ v: NSView, _ i: NSMenuItem) {\n    let sel = NSSelectorFromString("_foo:")\n'
+                '    i.action = sel\n    if i.action == sel {}\n}\n')
+        self.assertEqual(unguarded(body), [])
+
+    def test_check_after_the_send_does_not_count(self):
+        body = ('func f(_ v: NSView) {\n    let sel = NSSelectorFromString("_foo:")\n    v.perform(sel)\n'
+                '    _ = v.responds(to: sel)\n}\n')
+        self.assertEqual(unguarded(body), ["NSSelectorFromString"])
+        body = ('enum E {\n    static let sel = NSSelectorFromString("_x")\n}\n'
+                'func f(_ v: NSView) {\n    v.perform(E.sel)\n    _ = v.responds(to: E.sel)\n}\n')
+        self.assertEqual(unguarded(body), ["NSSelectorFromString"])
 
     def test_check_in_another_function_does_not_count(self):
         body = ('func f(_ v: NSView) {\n    let sel = NSSelectorFromString("_x")\n    v.perform(sel)\n}\n'
@@ -85,6 +126,10 @@ class Selectors(unittest.TestCase):
         self.assertEqual(unguarded('textView.doCommand(by: NSSelectorFromString(name))\n'), [])
         body = 'static let act = NSSelectorFromString("t:")\nfunc v(_ i: NSMenuItem) -> Bool {\n    switch i.action {\n' \
                '    case Self.act: return true\n    default: return false\n    }\n}\n'
+        self.assertEqual(unguarded(body), [])
+        # `case Self.act:` is a comparison, not a label.
+        body = 'extension C {\n    static let act = NSSelectorFromString("t:")\n    func v(_ i: NSMenuItem) {\n' \
+               '        switch i.action {\n        case Self.act: break\n        default: break\n        }\n    }\n}\n'
         self.assertEqual(unguarded(body), [])
 
     def test_selector_conversion_is_not_a_lookup(self):
@@ -129,13 +174,57 @@ class Swizzles(unittest.TestCase):
         self.assertEqual(unguarded("func h(_ m: Method, _ i: IMP) {\n    method_setImplementation(m, i)\n}\n"), [])
 
 
+class Receivers(unittest.TestCase):
+    """A selector or KVC key is probed on the class the source sends it to, or not at all."""
+
+    def keys(self, body: str) -> list[str | None]:
+        return [l.key for l in check.scan_lookups(body)]
+
+    def test_declared_parameter_and_extension_self(self):
+        body = ('func f(_ webView: WKWebView) {\n    guard webView.responds(to: NSSelectorFromString("_inspector")) else '
+                '{ return }\n    _ = webView.value(forKey: "_inspector")\n}\n')
+        self.assertEqual(self.keys(body), ["selector WKWebView _inspector", "kvc-get WKWebView _inspector"])
+        body = ('extension NSWindow {\n    var radius: CGFloat {\n        guard responds(to: NSSelectorFromString("_r")) '
+                'else { return 0 }\n        return self.value(forKey: "_r") as? CGFloat ?? 0\n    }\n}\n')
+        self.assertEqual(self.keys(body), [None, "kvc-get NSWindow _r"])  # a bare responds(...) names no receiver
+
+    def test_class_lookup_instances_and_class_methods(self):
+        body = ('func f() {\n    guard let cls = NSClassFromString("_WKContentWorldConfiguration") as? NSObject.Type '
+                'else { return }\n    let config = cls.init()\n    let sel = NSSelectorFromString("setName:")\n'
+                '    let make = NSSelectorFromString("_worldWith:")\n'
+                '    guard config.responds(to: sel), (WKContentWorld.self as AnyObject).responds(to: make) else { return }\n'
+                '    config.setValue("n", forKey: "name")\n}\n')
+        self.assertEqual(self.keys(body), ["class _WKContentWorldConfiguration",
+                                           "selector _WKContentWorldConfiguration setName:",
+                                           "selector +WKContentWorld _worldWith:",
+                                           "kvc-set _WKContentWorldConfiguration name"])
+        self.assertEqual(self.keys('let ok = WKWebView.instancesRespond(to: NSSelectorFromString("_frames:"))\n'),
+                         ["selector WKWebView _frames:"])
+
+    def test_generic_unknown_and_non_os_receivers_not_probed(self):
+        body = ('func f(_ node: AnyObject, _ o: NSObject) {\n    guard node.responds(to: NSSelectorFromString("info")), '
+                'o.responds(to: NSSelectorFromString("key")) else { return }\n    _ = node.value(forKey: "info")\n'
+                '    _ = o.value(forKey: "key")\n    _ = $0.value(forKey: "key")\n}\n')
+        self.assertEqual(self.keys(body), [None] * 5)
+        body = ('func f(_ w: CefNSWindow, _ filter: CIFilter) {\n    guard w.responds(to: NSSelectorFromString("_x")) else '
+                '{ return }\n    filter.setValue(v, forKey: "inputRVector")\n}\n')
+        self.assertEqual(self.keys(body), [None, None])
+        self.assertEqual(self.keys('let a: AnyClass? = NSClassFromString("CefNSWindow")\n'
+                                   'let b = dlsym(h, "ghostty_set_trace_hook")\nlet c = dlsym(h, "CGSMainConnectionID")\n'),
+                         [None, None, "symbol CGSMainConnectionID"])
+
+
 class Probe(unittest.TestCase):
-    KEYS = ["class CefNSWindow", "kvc-get visible", "selector _x:", "symbol swift_demangle"]
+    KEYS = ["class CABackdropLayer", "kvc-get WKWebView _inspector", "selector WKWebView _x:", "symbol swift_demangle"]
 
     def test_plans(self):
-        self.assertEqual(check.probe_plan("kvc-get visible")[1], ["getVisible", "visible", "isVisible", "_visible"])
-        self.assertEqual(check.probe_plan("kvc-set name")[1], ["setName:", "_setName:"])
-        self.assertEqual(check.probe_plan("selector _x:"), ("method", ["_x:"], []))
+        self.assertEqual(check.probe_plan("kvc-get NSWindow visible")[:3],
+                         ("method", "NSWindow", ["getVisible", "visible", "isVisible", "_visible"]))
+        self.assertEqual(check.probe_plan("kvc-set _WKContentWorldConfiguration name")[2], ["setName:", "_setName:"])
+        self.assertEqual(check.probe_plan("selector WKWebView _x:"), ("method", "WKWebView", ["_x:"], []))
+        self.assertEqual(check.probe_plan("selector +CAFilter filterWithType:"),
+                         ("classmethod", "CAFilter", ["filterWithType:"], []))
+        self.assertEqual(check.probe_plan("symbol swift_demangle"), ("symbol", "", ["swift_demangle"], []))
 
     def test_source_round_trips_and_rejects_hand_edits(self):
         source = check.probe_source(self.KEYS)
@@ -153,17 +242,17 @@ class Probe(unittest.TestCase):
 
     def test_output_parsing(self):
         keyset = check.keyset_id(self.KEYS)
-        out = f"ABSENT selector _x:\nobjc-lookups macOS 14.8.7 keyset {keyset}: 4 keys, 1 absent\n"
+        out = f"ABSENT selector WKWebView _x:\nobjc-lookups macOS 14.8.7 keyset {keyset}: 4 keys, 1 absent\n"
         version, answers = check.parse_probe_output(out, keyset, self.KEYS)
         self.assertEqual(version, "14.8.7")
-        self.assertEqual(answers["selector _x:"], False)
-        self.assertEqual(answers["class CefNSWindow"], True)
+        self.assertEqual(answers["selector WKWebView _x:"], False)
+        self.assertEqual(answers["class CABackdropLayer"], True)
         with self.assertRaises(ValueError):  # cut output
             check.parse_probe_output(f"objc-lookups macOS 14.8.7 keyset {keyset}: 4 keys, 1 absent\n", keyset, self.KEYS)
         with self.assertRaises(ValueError):  # another key set
             check.parse_probe_output("objc-lookups macOS 14.8.7 keyset 0000: 4 keys, 0 absent\n", keyset, self.KEYS)
         with self.assertRaises(ValueError):  # no summary
-            check.parse_probe_output("ABSENT selector _x:\n", keyset, self.KEYS)
+            check.parse_probe_output("ABSENT selector WKWebView _x:\n", keyset, self.KEYS)
 
 
 class Record(unittest.TestCase):
@@ -171,7 +260,7 @@ class Record(unittest.TestCase):
 
     SOURCE = ('func f(_ v: WKWebView) {\n    let sel = NSSelectorFromString("_x:")\n'
               '    guard v.responds(to: sel) else { return }\n    v.perform(sel, with: nil)\n}\n'
-              'let cls: AnyClass? = NSClassFromString("CefNSWindow")\n')
+              'let cls: AnyClass? = NSClassFromString("CABackdropLayer")\n')
 
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
@@ -209,18 +298,18 @@ class Record(unittest.TestCase):
         self.assertIn("does not probe the current lookups", stale.stderr)
         self.assertEqual(self.run_check("--write-probe").returncode, 0)
         self.assertEqual(self.run_check("--lookups").returncode, 0)
-        out = self.results({"14.8.7": {"selector _x:"}, "15.7.7": set(), "26.6.2": set(), "27.0": set()})
+        out = self.results({"14.8.7": {"selector WKWebView _x:"}, "15.7.7": set(), "26.6.2": set(), "27.0": set()})
         done = self.run_check("--record", str(out), "--write")
         self.assertEqual(done.returncode, 0, done.stderr)
         table = json.loads((self.root / check.TABLE).read_text())
         self.assertEqual(table["lookup_majors"], ["14", "15", "26", "27"])
-        self.assertEqual(table["lookups"]["selector _x:"], {"14": False, "15": True, "26": True, "27": True})
-        self.assertEqual(table["lookups"]["class CefNSWindow"], {"14": True, "15": True, "26": True, "27": True})
+        self.assertEqual(table["lookups"]["selector WKWebView _x:"], {"14": False, "15": True, "26": True, "27": True})
+        self.assertEqual(table["lookups"]["class CABackdropLayer"], {"14": True, "15": True, "26": True, "27": True})
         # A later run where macOS 27 lost a recorded name fails without --write.
-        gone = self.results({"27.1": {"class CefNSWindow"}})
+        gone = self.results({"27.1": {"class CABackdropLayer"}})
         refused = self.run_check("--record", str(gone))
         self.assertEqual(refused.returncode, 1)
-        self.assertIn("macOS 27 no longer has class CefNSWindow", refused.stderr)
+        self.assertIn("macOS 27 no longer has class CABackdropLayer", refused.stderr)
 
     def test_no_verdict_major_is_reported_not_recorded(self):
         self.run_check("--write-probe")

@@ -6187,6 +6187,25 @@ OBJC_LOOKUP_CASES = (
      _lookup_edit("typealias F = @convention(c) () -> Int32\n"
                   "let f = unsafeBitCast(dlsym(UnsafeMutableRawPointer(bitPattern: -2), \"CGSMainConnectionID\"), to: F.self)\n"),
      True),
+    ("a dlsym bit-cast wrapped over lines",
+     _lookup_edit("typealias F = @convention(c) () -> Int32\nlet f = unsafeBitCast(\n"
+                  "    dlsym(UnsafeMutableRawPointer(bitPattern: -2), \"CGSMainConnectionID\"),\n    to: F.self)\n"),
+     True),
+    ("a member access on dlsym's implicitly unwrapped result",
+     _lookup_edit("func key() -> CFString {\n    dlsym(UnsafeMutableRawPointer(bitPattern: -2), \"kFoo\")"
+                  ".assumingMemoryBound(to: CFString.self).pointee\n}\n"), True),
+    ("dlsym bound to a non-optional type",
+     _lookup_edit("let p: UnsafeMutableRawPointer = dlsym(UnsafeMutableRawPointer(bitPattern: -2), \"kFoo\")\n"), True),
+    ("a class lookup bound implicitly unwrapped", _lookup_edit("let c: AnyClass! = NSClassFromString(\"CABackdropLayer\")\n"),
+     True),
+    ("a class lookup forced through parentheses", _lookup_edit("let c = (NSClassFromString(\"CABackdropLayer\"))!\n"), True),
+    ("a selector used as an action, then sent unchecked",
+     _lookup_edit("func menu(_ view: NSView) {\n    let sel = NSSelectorFromString(\"_foo:\")\n"
+                  "    let item = NSMenuItem(title: \"\", action: sel, keyEquivalent: \"\")\n"
+                  "    view.perform(sel, with: item)\n}\n"), True),
+    ("a selector checked only after its send",
+     _lookup_edit("func kill(_ view: NSView) {\n    let sel = NSSelectorFromString(\"_foo\")\n    view.perform(sel)\n"
+                  "    _ = view.responds(to: sel)\n}\n"), True),
     ("KVC by a private key without a check",
      _lookup_edit("func draws(_ view: WKWebView) {\n    view.setValue(false, forKey: \"drawsBackground\")\n}\n"), True),
     ("deleting the guard of an old lookup",

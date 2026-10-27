@@ -42,10 +42,13 @@ literal key (raises on an unknown key) and swizzles (method_exchangeImplementati
 method_setImplementation, class_replaceMethod, class_addMethod). Each needs a guard, as
 Chromium guards its SPI with respondsToSelector: and its swizzles with a found method
 (base/apple/scoped_objc_class_swizzler.mm):
-- a nil lookup is never force-unwrapped, `as!`-cast or bit-cast before a nil check;
-- a selector is checked with responds(to:) / instancesRespond(to:) /
-  class_respondsToSelector / class_getInstanceMethod in its function (its file for a
-  stored one), or only goes where an unanswered selector is safe (`action:`, doCommand(by:));
+- a nil lookup is never force-unwrapped, `as!`-cast or bit-cast before a nil check, through
+  parentheses or a call wrapped over lines too; nor bound implicitly unwrapped (`: AnyClass!`),
+  and the implicitly unwrapped imports (dlsym, objc_getClass) take no member access and no
+  non-optional binding;
+- each use of a selector is a responds(to:) / instancesRespond(to:) / class_respondsToSelector /
+  class_getInstanceMethod check, a place where an unanswered selector is safe (`action:`,
+  doCommand(by:), a comparison), or comes after such a check of it in its function;
 - a literal KVC key's accessor (key, setKey:, _key, _setKey:, isKey, getKey) is checked so
   in its function before the call;
 - a swizzle follows a class_getInstanceMethod / class_getClassMethod or a responds check in
@@ -53,7 +56,11 @@ Chromium guards its SPI with respondsToSelector: and its swizzles with a found m
 `// selector-allow: <reason>` (or the crash ratchet's `// crash-allow:`) on the line or the
 three above escapes one. The guardrail `objc-private-lookup` refuses an unguarded lookup a
 push adds (the local tier); CI does not run `--lookups`, which fails for an unguarded site
-missing from the table's reviewed `lookup_baseline` (`--lookups --write` rewrites it). The literal names are probed per macOS major into the table's `lookups`:
+missing from the table's reviewed `lookup_baseline` (`--lookups --write` rewrites it). The literal OS names are
+probed per macOS major into the table's `lookups`: a class or a symbol by name, a selector or a KVC key on the
+receiver class the source sends it to ("selector WKWebView _inspector", `+Class` for a class method). A name
+whose receiver the source does not say, a generic one (NSObject, AnyObject) or a non-OS name (Chromium's,
+SimulatorKit's, ghostty's) is not probed:
 `--probe --write` on a Mac, and in Tart VMs `--write-probe` (regenerates
 scripts/fuzz/macos-matrix/probes/objc-lookups.swift), then `scripts/cmux-next/os-matrix.sh
 --build JOB --os 14,15,26,27 --suite exec:objc-lookups --out DIR` and `--record DIR --write`.
@@ -472,7 +479,7 @@ class Runtime:
         return False
 
 
-    def lookup_present(self, plans: dict[str, tuple[str, list[str], list[str]]]) -> dict[str, bool]:
+    def lookup_present(self, plans: dict[str, tuple[str, str, list[str], list[str]]]) -> dict[str, bool]:
         """{key: whether this Mac has the name} for each probe_plan(); the same answers as PROBE_FILE's."""
         c, objc = self.c, self.objc
         for library in PROBE_LIBRARIES:
@@ -484,35 +491,12 @@ class Runtime:
         libc.dlsym.restype, libc.dlsym.argtypes = c.c_void_p, [c.c_void_p, c.c_char_p]
         vp, cp = c.c_void_p, c.c_char_p
         objc.objc_getProtocol.restype, objc.objc_getProtocol.argtypes = vp, [cp]
-        objc.objc_copyClassList.restype, objc.objc_copyClassList.argtypes = c.POINTER(vp), [c.POINTER(c.c_uint)]
         objc.object_getClass.restype, objc.object_getClass.argtypes = vp, [vp]
         objc.class_copyIvarList.restype = c.POINTER(vp)
         objc.class_copyIvarList.argtypes = [vp, c.POINTER(c.c_uint)]
         objc.ivar_getName.restype, objc.ivar_getName.argtypes = cp, [vp]
-        wanted_methods = {n for kind, names, _ in plans.values() if kind == "method" for n in names}
-        wanted_ivars = {n for kind, _, ivars in plans.values() if kind == "method" for n in ivars}
-        methods_found: set[str] = set()
-        ivars_found: set[str] = set()
-        if wanted_methods or wanted_ivars:
-            count = c.c_uint()
-            classes = objc.objc_copyClassList(c.byref(count))
-            for k in range(count.value):
-                cls = classes[k]
-                for owner in (cls, objc.object_getClass(cls)):
-                    n = c.c_uint()
-                    methods = objc.class_copyMethodList(owner, c.byref(n))
-                    for m in range(n.value):
-                        name = objc.sel_getName(objc.method_getName(methods[m])).decode("utf-8", "replace")
-                        if name in wanted_methods:
-                            methods_found.add(name)
-                n = c.c_uint()
-                ivars = objc.class_copyIvarList(cls, c.byref(n))
-                for m in range(n.value):
-                    name = (objc.ivar_getName(ivars[m]) or b"").decode("utf-8", "replace")
-                    if name in wanted_ivars:
-                        ivars_found.add(name)
         answers = {}
-        for key, (kind, names, ivars) in plans.items():
+        for key, (kind, cls_name, names, ivars) in plans.items():
             if kind == "class":
                 answers[key] = any(objc.objc_getClass(n.encode()) for n in names)
             elif kind == "protocol":
@@ -520,8 +504,25 @@ class Runtime:
             elif kind == "symbol":
                 answers[key] = any(libc.dlsym(c.c_void_p(-2), n.encode()) for n in names)
             else:
-                answers[key] = any(n in methods_found for n in names) or any(n in ivars_found for n in ivars)
+                # The receiver class and its superclasses, read from their lists: no message, so no +initialize.
+                cls = objc.objc_getClass(cls_name.encode()) or None
+                if cls and kind == "classmethod":
+                    cls = objc.object_getClass(cls) or None
+                answers[key] = bool(cls) and (any(n in self.selectors(cls) for n in names)
+                                              or any(n in self.ivars(cls) for n in ivars))
         return answers
+
+    def ivars(self, cls: int) -> set[str]:
+        """The instance variable names of CLS and its superclasses."""
+        c, objc = self.c, self.objc
+        names: set[str] = set()
+        current = cls
+        while current:
+            count = c.c_uint()
+            ivars = objc.class_copyIvarList(current, c.byref(count))
+            names |= {(objc.ivar_getName(ivars[k]) or b"").decode("utf-8", "replace") for k in range(count.value)}
+            current = objc.class_getSuperclass(current)
+        return names
 
 
 def macos_version() -> str:
@@ -542,6 +543,9 @@ NIL_LOOKUPS = {
     "objc_getMetaClass": ("class", 0), "NSProtocolFromString": ("protocol", 0), "objc_getProtocol": ("protocol", 0),
     "dlsym": ("symbol", 1), "class_getInstanceMethod": ("method", None), "class_getClassMethod": ("method", None),
 }
+# The lookups Swift imports with an implicitly unwrapped result (`-> UnsafeMutableRawPointer!`, `-> Any!`): a member
+# access or a non-optional binding unwraps it, as `!` does.
+IUO_LOOKUPS = {"dlsym", "objc_getClass", "objc_getMetaClass"}
 SELECTOR_LOOKUPS = ("NSSelectorFromString", "Selector", "sel_registerName", "sel_getUid")
 SWIZZLES = ("method_exchangeImplementations", "method_setImplementation", "class_replaceMethod", "class_addMethod")
 KVC_CALLS = ("value", "setValue")
@@ -563,7 +567,27 @@ SAFE_OPEN = re.compile(SAFE_CONSUMER + "$")
 LOOKUP_ALLOW = re.compile(r"//\s*(?:selector|crash)-allow:\s*\S")
 SWIZZLE_GUARD = re.compile(r"\b(?:class_getInstanceMethod|class_getClassMethod|class_respondsToSelector)\s*\(|"
                            r"\b(?:responds|instancesRespond)\s*\(\s*to:")
-BINDING = re.compile(r"\b(?:let|var)\s+([A-Za-z_]\w*)\s*(?::[^=\n]*)?=\s*(?:unsafe\s+)?(?:try[?!]?\s+)?$")
+BINDING = re.compile(r"\b(?:let|var)\s+([A-Za-z_]\w*)\s*(?::([^=\n]*))?=\s*(?:unsafe\s+)?(?:try[?!]?\s+)?$")
+# Words before a `(` that make it a grouping parenthesis, not a call.
+NOT_CALLEE = {"return", "if", "guard", "while", "in", "case", "try", "await", "unsafe", "as", "is", "else", "let",
+              "var", "throw", "where", "switch", "repeat", "defer", "do", "catch"}
+# The probe asks only OS names: a class with an Apple framework prefix, or a symbol of libSystem, the Swift runtime
+# or an Apple framework. Chromium's (CefNSWindow, NativeWidgetMacNSWindow), CoreSimulator's and SimulatorKit's
+# (SimServiceContext, _TtC12SimulatorKit...) and ghostty's are absent from every guest that loads PROBE_LIBRARIES,
+# so their answers would be noise.
+OS_CLASS = re.compile(r"^_?(?:NS|WK|CA|CI|AV|MK|PDF|SC|UN|QL|AS|SK|SCN|MTK|UT|CK|CL|EK|CN|PK|GK|IK|QC|ASW)[A-Z]")
+OS_SYMBOL = re.compile(r"^_?(?:CG|CF|CT|AX|SLS|kCF|kCG|kAX|NS|swift_|dispatch_|pthread_|responsibility_|sandbox_|objc_|"
+                       r"os_|xpc_|dyld_|mach_|malloc_)")
+# Receiver types too generic to say which class answers: the probe would ask a class that never has the name.
+GENERIC_TYPES = {"NSObject", "NSObjectProtocol", "AnyObject", "Any", "AnyClass", "Self"}
+# Receivers whose KVC keys are a subclass's attributes, not the declared class's methods: CIFilter(name:) makes a
+# CIColorMatrix whose `inputRVector` the CIFilter class never has, so asking CIFilter answers absent everywhere.
+KVC_ATTRIBUTE_CLASSES = {"CIFilter"}
+# Optional's own members: `lookup.map { ... }` keeps the optional, so it is no unwrap.
+OPTIONAL_MEMBERS = {"map", "flatMap", "debugDescription", "customMirror", "hashValue", "publisher", "self"}
+OPTIONAL_MEMBER_NAMES = "|".join(sorted(OPTIONAL_MEMBERS))
+# A class lookup's literal name, read from where the call starts.
+LITERAL_CLASS = re.compile(r'(?:NSClassFromString|objc_getClass|objc_lookUpClass)\s*\(\s*"([^"\\\n]*)"')
 CONDITION = re.compile(r"\b(?:if|guard|while|case)\b")
 # A string literal argument, in `Selector(("name"))`'s extra parentheses too.
 LITERAL = re.compile(r'\s*(\(\s*)?"([^"\\\n]*)"\s*(?(1)\))\s*$')
@@ -584,7 +608,9 @@ class Lookup:
     line: int
     call: str
     kind: str  # class, protocol, symbol, method, selector, kvc-get, kvc-set, swizzle
-    key: str | None  # the probed name ("class CABackdropLayer"); None for a computed name, a method or a swizzle
+    # The probed name ("class CABackdropLayer", "selector WKWebView _inspector"); None when not probed: a computed
+    # name, a method or a swizzle, a non-OS name, or a selector or KVC key with no known OS receiver.
+    key: str | None
     guarded: bool
     how: str  # the guard, or what is missing
     text: str = ""  # the line, stripped (the baseline's key with the path)
@@ -649,53 +675,264 @@ def kvc_forms(key: str) -> set[str]:
     return {key, f"get{cap}", f"is{cap}", f"_{key}", f"set{cap}:", f"_set{cap}:"}
 
 
-def probe_plan(key: str) -> tuple[str, list[str], list[str]]:
-    """(how to probe, the names any of which answers, the ivars any of which answers) for a lookup key."""
-    kind, name = key.split(" ", 1)
+def probe_plan(key: str) -> tuple[str, str, list[str], list[str]]:
+    """(how to probe, the receiver class, the names any of which answers, the ivars any of which answers) for a
+    lookup key. A selector or KVC key names its receiver ("selector WKWebView _killWebContentProcess"; `+Class` for
+    the class object): it is asked of that class and its superclasses, as the send is."""
+    kind, rest = key.split(" ", 1)
     if kind in ("class", "protocol", "symbol"):
-        return kind, [name], []
+        return kind, "", [rest], []
+    receiver, name = rest.split(" ", 1)
+    how = "classmethod" if receiver.startswith("+") else "method"
+    cls = receiver.lstrip("+")
     if kind == "selector":
-        return "method", [name], []
+        return how, cls, [name], []
     cap = name[:1].upper() + name[1:]
-    ivars = [f"_{name}", f"_is{cap}", name, f"is{cap}"]
+    ivars = [f"_{name}", f"_is{cap}", name, f"is{cap}"] if how == "method" else []
     if kind == "kvc-get":
-        return "method", [f"get{cap}", name, f"is{cap}", f"_{name}"], ivars
-    return "method", [f"set{cap}:", f"_set{cap}:"], ivars
+        return how, cls, [f"get{cap}", name, f"is{cap}", f"_{name}"], ivars
+    return how, cls, [f"set{cap}:", f"_set{cap}:"], ivars
+
+
+def os_name(kind: str, name: str) -> bool:
+    """Whether NAME is an OS class or symbol the probe can answer (see OS_CLASS)."""
+    if kind == "symbol":
+        return OS_SYMBOL.match(name) is not None
+    if kind == "protocol":
+        return OS_CLASS.match(name) is not None
+    return OS_CLASS.match(name.lstrip("+")) is not None and name.lstrip("+") not in GENERIC_TYPES
+
+
+class SwiftSource:
+    """One Swift file with its comments and strings blanked, and the lexical questions the lookup scan asks of it:
+    the function around an offset, the call around an expression, the class a receiver is."""
+
+    def __init__(self, text: str) -> None:
+        self.text = text
+        self.clean = blank_comments_and_strings(text)
+        self.starts = [0] + [i + 1 for i, c in enumerate(self.clean) if c == "\n"]
+        self.spans = function_spans(self.clean)
+
+    def line_of(self, pos: int) -> int:
+        return bisect.bisect_right(self.starts, pos)
+
+    def line_head(self, pos: int) -> str:
+        """The code on POS's line before POS."""
+        return self.clean[self.starts[self.line_of(pos) - 1]:pos]
+
+    def scope(self, pos: int) -> tuple[int, int]:
+        inner = [(s, e) for s, e in self.spans if s < pos < e]
+        return max(inner) if inner else (0, len(self.clean))
+
+    def enclosing_open(self, pos: int) -> int | None:
+        """The `(` of the innermost parenthesis around POS; None when a bracket or a brace comes first."""
+        depth = 0
+        for i in range(pos - 1, -1, -1):
+            c = self.clean[i]
+            if c in ")]}":
+                depth += 1
+            elif c in "([{":
+                if depth == 0:
+                    return i if c == "(" else None
+                depth -= 1
+        return None
+
+    def callee(self, open_index: int) -> tuple[str, int] | None:
+        """(the name called by the `(` at OPEN_INDEX, its offset); ("", -1) for a call of an expression's result;
+        None for a grouping parenthesis."""
+        start = max(0, open_index - 200)
+        head = self.clean[start:open_index].rstrip()
+        m = re.search(r"([A-Za-z_]\w*)$", head)
+        if m and m.group(1) not in NOT_CALLEE:
+            return m.group(1), start + m.start(1)
+        return ("", -1) if head.endswith((")", "]")) else None
+
+    def forced(self, pos: int, close: int, implicitly_unwrapped: bool) -> str | None:
+        """Why the nil lookup clean[pos:close + 1] is unwrapped before a nil check, seen through the grouping
+        parentheses around it; None when its optional is kept."""
+        start, end = pos, close
+        while True:
+            after = self.clean[end + 1:end + 200]
+            if re.match(r"[ \t]*!(?!=)|\s*as!|\s*\.\s*unsafelyUnwrapped\b", after):
+                return "force-unwrapped or `as!`-cast where the OS may answer nil"
+            member = re.match(r"\s*\.\s*([A-Za-z_]\w*)", after)
+            if implicitly_unwrapped and member and member.group(1) not in OPTIONAL_MEMBERS:
+                return "a member access unwraps its implicitly unwrapped result where the OS may answer nil"
+            group = self.enclosing_open(start)
+            if group is None:
+                return None
+            called = self.callee(group)
+            if called is not None and called[0] == "unsafeBitCast":
+                return "bit-cast before a nil check"
+            if called is not None:
+                return None
+            group_close = split_args(self.clean, group)[1]
+            if (self.clean[group + 1:start].strip() not in ("", "unsafe", "try")
+                    or not re.fullmatch(r"\s*(?:as\?\s*[\w.]+\s*)?", self.clean[end + 1:group_close])):
+                return None
+            start, end = group, group_close
+
+    def receiver_expr(self, dot: int) -> str | None:
+        """The receiver written before the member `.` at DOT (`webView`, `self.webView`, the inside of
+        `(WKContentWorld.self as AnyObject)`); None for a call's result or anything else."""
+        end = dot
+        while end > 0 and self.clean[end - 1] in " \t\n?!":
+            end -= 1
+        if end and self.clean[end - 1] == ")":
+            depth = 0
+            for i in range(end - 1, -1, -1):
+                c = self.clean[i]
+                if c == ")":
+                    depth += 1
+                elif c == "(":
+                    depth -= 1
+                    if depth == 0:
+                        return self.clean[i + 1:end - 1].strip() if self.callee(i) is None else None
+            return None
+        m = re.search(r"(?<![\w$.])((?:[A-Za-z_]\w*\s*\.\s*)*[A-Za-z_]\w*)$", self.clean[max(0, end - 200):end])
+        return m.group(1) if m else None
+
+    def member_receiver(self, name_pos: int) -> str | None:
+        """The resolved receiver of the member call whose name starts at NAME_POS (`x.responds(`)."""
+        k = name_pos - 1
+        while k >= 0 and self.clean[k] in " \t\n":
+            k -= 1
+        if k < 0 or self.clean[k] != ".":
+            return None
+        expr = self.receiver_expr(k)
+        return self.resolve(expr, name_pos) if expr else None
+
+    def close_brace(self, open_index: int) -> int:
+        depth = 0
+        for i in range(open_index, len(self.clean)):
+            if self.clean[i] == "{":
+                depth += 1
+            elif self.clean[i] == "}":
+                depth -= 1
+                if depth == 0:
+                    return i
+        return len(self.clean)
+
+    def self_type(self, pos: int) -> str | None:
+        """The type an `extension` around POS extends: `self` there is one of it."""
+        for m in reversed(list(re.finditer(r"\bextension\s+([A-Z]\w*)\b[^{}]*\{", self.clean[:pos]))):
+            if pos < self.close_brace(m.end() - 1):
+                return None if m.group(1) in GENERIC_TYPES else m.group(1)
+        return None
+
+    def resolve(self, expr: str, pos: int, depth: int = 0) -> str | None:
+        """The class EXPR's value is an instance of ("WKWebView"), or `+Class` for the class object itself; None
+        when the source does not say, or says only NSObject / AnyObject."""
+        expr = re.sub(r"^(?:(?:unsafe|try[?!]?)\s+)+", "", expr.strip())
+        if depth > 3 or not expr:
+            return None
+        if m := re.fullmatch(r"([A-Z]\w*)(?:\s*\.\s*self)?(?:\s+as[!?]?\s+\w+(?:\.Type)?)?", expr):
+            return None if m.group(1) in GENERIC_TYPES else "+" + m.group(1)
+        if expr == "self":
+            return self.self_type(pos)
+        if m := re.fullmatch(r"(?:(?:self|Self|[A-Z]\w*)\s*\.\s*)?([a-z_]\w*)", expr):
+            return self.declared_type(m.group(1), pos, depth)
+        return self.resolve_value(expr, pos, depth)
+
+    def resolve_value(self, expr: str, pos: int, depth: int, offset: int | None = None) -> str | None:
+        """The class of the value EXPR makes (a class lookup, an `init`, an `as?` cast or a constructor); OFFSET is
+        where EXPR starts in the file, for a class lookup's literal."""
+        lead = re.match(r"\s*(?:(?:unsafe|try[?!]?)\s+)*", expr)
+        expr = re.split(r"\s+else\b|\{|,\s*(?:let|var|case)\b", expr[lead.end():], maxsplit=1)[0].strip()
+        offset = None if offset is None else offset + lead.end()
+        if m := re.search(r"\bas[!?]\s*([A-Z]\w*)(\.Type)?\s*\??$", expr):
+            if m.group(1) not in GENERIC_TYPES:
+                return ("+" if m.group(2) else "") + m.group(1)
+            expr = expr[:m.start()].strip()
+        if re.match(r"(?:NSClassFromString|objc_getClass|objc_lookUpClass)\s*\(", expr):
+            literal = None if offset is None else LITERAL_CLASS.match(self.text, offset)
+            return "+" + literal.group(1) if literal and PROBE_KEY.match(literal.group(1)) else None
+        if m := re.fullmatch(r"(.+?)\s*(?:\.\s*init)?\s*\(\s*\)", expr):
+            made = self.resolve(m.group(1), pos, depth + 1)
+            return made[1:] if made and made.startswith("+") else None
+        if m := re.match(r"([A-Z]\w*)\s*\(", expr):
+            return None if m.group(1) in GENERIC_TYPES else m.group(1)
+        return None
+
+    def declared_type(self, name: str, pos: int, depth: int) -> str | None:
+        """The class of NAME's declaration: the last one in its function before POS, else the file's first."""
+        annotation = re.compile(rf"(?<![\w.$]){re.escape(name)}\s*:\s*(?:inout\s+|any\s+|some\s+)?([A-Z]\w*)(\.Type)?"
+                                r"(?![\w.<(])")
+        binding = re.compile(rf"\b(?:let|var)\s+{re.escape(name)}\s*=\s*([^\n]+)")
+        lo, _ = self.scope(pos)
+        for start, end, last in ((lo, pos, True), (0, len(self.clean), False)):
+            found = sorted([*annotation.finditer(self.clean, start, end), *binding.finditer(self.clean, start, end)],
+                           key=lambda m: m.start(), reverse=last)
+            for m in found:
+                if m.re is binding:
+                    return self.resolve_value(m.group(1), m.start(1), depth + 1, m.start(1))
+                return None if m.group(1) in GENERIC_TYPES else ("+" if m.group(2) else "") + m.group(1)
+        return None
+
+    def checks(self, start: int, end: int) -> list[tuple[str, str | None]]:
+        """(the selector argument as written, the class it is checked on or None) of every responds-style check in
+        clean[start:end]."""
+        found = []
+        for m in SELECTOR_CHECK.finditer(self.clean, start, end):
+            fn = m.group(1)
+            args, _ = split_args(self.clean, m.end() - 1)
+            label, index = SELECTOR_CHECKS[fn]
+            arg = next((a for a in args if label and a[0] == label), None) or (
+                args[index] if len(args) > index and args[index][0] is None else None)
+            if not arg:
+                continue
+            if fn == "responds":
+                receiver = self.member_receiver(m.start(1))
+            else:
+                # A class's instances (instancesRespond, the runtime functions' class argument), or the class
+                # object's own methods (class_getClassMethod).
+                cls = self.member_receiver(m.start(1)) if fn == "instancesRespond" else (
+                    self.resolve(self.clean[args[0][1]:args[0][2]], m.start()) if args[0] is not arg else None)
+                receiver = None
+                if cls and cls.startswith("+"):
+                    receiver = cls if fn == "class_getClassMethod" else cls[1:]
+            found.append((normalized(self.text[arg[1]:arg[2]]), receiver))
+        return found
+
+    def uses(self, var: str, lo: int, hi: int, skip: int) -> list[tuple[int, int]]:
+        """(start, end) of each use of the selector name VAR in clean[lo:hi] as a value (`sel`, `Self.sel`,
+        `Flags.sel`): not its declaration at SKIP, a label, another declaration or another value's member."""
+        out = []
+        for m in re.compile(rf"(?<![\w$]){re.escape(var)}\b").finditer(self.clean, lo, hi):
+            head = self.clean[max(0, m.start() - 160):m.start()]
+            # An argument label or a parameter (`f(sel: x)`, `_ sel: Selector`, `with sel: Selector`).
+            label = re.match(r":(?!:)", self.clean[m.end():m.end() + 2]) and re.search(r"[(,]\s*(?:\w+\s+)?$", head)
+            if m.start() == skip or label:
+                continue
+            qualifier = re.search(r"((?:[A-Za-z_]\w*\s*\.\s*)+)$", head)
+            if qualifier:
+                first = re.match(r"[A-Za-z_]\w*", qualifier.group(1)).group(0)
+                if not (first[0].isupper() or first == "self"):
+                    continue
+                start = m.start() - len(qualifier.group(1))
+            elif re.search(r"[.$]\s*$", head):
+                continue
+            else:
+                start = m.start()
+            if re.search(r"\b(?:let|var|func|for)\s+$", self.clean[max(0, start - 40):start]):
+                continue
+            out.append((start, m.end()))
+        return out
 
 
 def scan_lookups(text: str, path: str = "") -> list[Lookup]:
     """Every private API lookup in one Swift file, judged."""
     if not LOOKUP_HINT.search(text):
         return []
-    clean = blank_comments_and_strings(text)
+    src = SwiftSource(text)
+    clean, line_of, scope = src.clean, src.line_of, src.scope
     raw_lines = text.split("\n")
     clean_lines = clean.split("\n")
-    starts = [0] + [i + 1 for i, c in enumerate(clean) if c == "\n"]
-    spans = function_spans(clean)
-
-    def line_of(pos: int) -> int:
-        return bisect.bisect_right(starts, pos)
-
-    def scope(pos: int) -> tuple[int, int]:
-        inner = [(s, e) for s, e in spans if s < pos < e]
-        return max(inner) if inner else (0, len(clean))
-
-    def checked_selectors(start: int, end: int) -> list[str]:
-        """The selector argument of every responds-style check in clean[start:end], as written."""
-        found = []
-        for m in SELECTOR_CHECK.finditer(clean, start, end):
-            args, _ = split_args(clean, m.end() - 1)
-            label, index = SELECTOR_CHECKS[m.group(1)]
-            arg = next((a for a in args if label and a[0] == label), None) or (
-                args[index] if len(args) > index and args[index][0] is None else None)
-            if arg:
-                found.append(normalized(text[arg[1]:arg[2]]))
-        return found
 
     calls = []
     for m in LOOKUP_CALL.finditer(clean):
         name, pos = m.group(1), m.start(1)
-        before = clean[starts[line_of(pos) - 1]:pos]
+        before = src.line_head(pos)
         if re.search(r"\bfunc\s+$", before):
             continue
         args, close = split_args(clean, m.end() - 1)
@@ -710,7 +947,7 @@ def scan_lookups(text: str, path: str = "") -> list[Lookup]:
 
     def literal_selectors(start: int, end: int) -> set[str]:
         out: set[str] = set()
-        for arg in checked_selectors(start, end):
+        for arg, _ in src.checks(start, end):
             if m := SELECTOR_LITERAL.fullmatch(arg):
                 out.add(m.group(2))
             elif m := re.fullmatch(r"#selector\(\s*(getter|setter)\s*:\s*(?:[\w.]*\.)?(\w+)\s*\)", arg):
@@ -718,6 +955,16 @@ def scan_lookups(text: str, path: str = "") -> list[Lookup]:
             elif (n := last_name(arg)) is not None:
                 out |= bound_literals.get(n, set())
         return out
+
+    def probed(kind: str, receivers: list[str | None], name: str | None) -> str | None:
+        """The probe key of a selector or KVC NAME sent to the first OS class of RECEIVERS; None (not probed) when
+        the source names no OS receiver: an any-class answer would not be the receiver's."""
+        receiver = next((r for r in receivers if r and os_name("class", r)), None)
+        if not name or not PROBE_KEY.match(name) or receiver is None:
+            return None
+        if kind.startswith("kvc") and receiver in KVC_ATTRIBUTE_CLASSES:
+            return None
+        return f"{kind} {receiver} {name}"
 
     found = []
     for name, pos, args, close, before in calls:
@@ -743,16 +990,22 @@ def scan_lookups(text: str, path: str = "") -> list[Lookup]:
         if name in NIL_LOOKUPS:
             kind, index = NIL_LOOKUPS[name]
             literal = arg_literal(index) if index is not None else None
-            key = f"{kind} {literal}" if literal and PROBE_KEY.match(literal) else None
-            after = clean[close + 1:close + 8]
-            if re.match(r"\s*(?:!(?!=)|as!)", after):
-                record(kind, key, False, "force-unwrapped or `as!`-cast where the OS may answer nil")
-            elif re.search(r"\bunsafeBitCast\s*\(\s*(?:unsafe\s+)?$", before):
-                record(kind, key, False, "bit-cast before a nil check")
+            key = f"{kind} {literal}" if literal and PROBE_KEY.match(literal) and os_name(kind, literal) else None
+            implicitly_unwrapped = name in IUO_LOOKUPS
+            annotation = (binding.group(2) or "").strip() if binding and not conditional else ""
+            if problem := src.forced(pos, close, implicitly_unwrapped):
+                record(kind, key, False, problem)
+            elif annotation.endswith("!"):
+                record(kind, key, False, f"`{binding.group(1)}: {annotation}` is implicitly unwrapped: a use traps "
+                                         "where the OS answers nil")
+            elif implicitly_unwrapped and annotation and not annotation.endswith("?") and annotation != "Any":
+                record(kind, key, False, f"`{binding.group(1)}: {annotation}` unwraps the implicitly unwrapped "
+                                         "result where the OS may answer nil")
             elif binding and not conditional:
                 var = re.escape(binding.group(1))
                 rest = clean[close:hi]
-                force = re.search(rf"\b{var}!(?!=)|\bunsafeBitCast\s*\(\s*(?:unsafe\s+)?{var}\b|\b{var}\s+as!", rest)
+                force = re.search(rf"\b{var}!(?!=)|\bunsafeBitCast\s*\(\s*(?:unsafe\s+)?{var}\b|\b{var}\s+as!"
+                                  rf"|(?<![\w.$]){var}\s*\.\s*(?!(?:{OPTIONAL_MEMBER_NAMES})\b)[A-Za-z_]", rest)
                 check = re.search(rf"\b(?:if|guard|while)\b[^\n]*\blet\s+(?:{var}\b(?!\s*=)|\w+\s*=\s*(?:unsafe\s+)?{var}\b)"
                                   rf"|\b{var}\s*[!=]=\s*nil\b|\bnil\s*[!=]=\s*{var}\b", rest)
                 if force and not (check and check.start() < force.start()):
@@ -766,24 +1019,44 @@ def scan_lookups(text: str, path: str = "") -> list[Lookup]:
             if name == "Selector" and arg_literal(0) is None:
                 continue  # Selector(someSelector): a conversion, not a lookup
             literal = arg_literal(0)
-            key = f"selector {literal}" if literal and PROBE_KEY.match(literal) else None
-            if CHECK_OPEN.search(before) or SAFE_OPEN.search(before):
-                record("selector", key, True, "checked where it is looked up")
-                continue
             if binding and not conditional:
                 var = binding.group(1)
-                # A stored selector (a property or a global: no function scope) is checked anywhere in its file.
-                names = {last_name(a) for a in checked_selectors(lo, hi)}
-                safe = re.search(SAFE_CONSUMER + rf"(?:[\w.]*\.)?{re.escape(var)}\b", clean[lo:hi])
-                record("selector", key, var in names or safe is not None,
-                       f"`{var}` is checked before a send" if var in names else
-                       f"`{var}` is only an action or compared" if safe else
+                local = (lo, hi) != (0, len(clean))
+                safe_uses, checked_uses, bad = 0, 0, None
+                # Each use on its own: a check, an action or a comparison is safe; any other use (a send) needs a
+                # check of the name before it, in its function (a stored selector's use: the function of the use).
+                for start, end in src.uses(var, lo, hi, src.starts[line - 1] + binding.start(1)):
+                    head = src.line_head(start)
+                    if CHECK_OPEN.search(head) or SAFE_OPEN.search(head) or re.match(r"\s*[!=]==?", clean[end:end + 5]):
+                        safe_uses += 1
+                    elif var in {last_name(a) for a, _ in src.checks(lo if local else scope(start)[0], start)}:
+                        checked_uses += 1
+                    else:
+                        bad = start
+                        break
+                guarded = bad is None and safe_uses + checked_uses > 0
+                how = (f"`{var}` is used at line {line_of(bad)} with no responds(to:) / instancesRespond(to:) check "
+                       "before it" if bad is not None else
+                       f"`{var}` is checked before each send" if checked_uses else
+                       f"`{var}` is only checked, an action or compared" if safe_uses else
                        f"`{var}` is never checked with responds(to:) / instancesRespond(to:)")
+                receivers = [r for a, r in src.checks(lo, hi) if last_name(a) == var]
             else:
                 own = normalized(text[pos:close + 1])
-                ok = own in checked_selectors(lo, hi)
-                record("selector", key, ok, "the same lookup is checked" if ok else
-                       "sent without a responds(to:) check")
+                checked = src.checks(lo, hi)
+                here = CHECK_OPEN.search(before) or SAFE_OPEN.search(before)
+                guarded = bool(here) or own in [a for a, _ in checked]
+                how = ("checked where it is looked up" if here else
+                       "the same lookup is checked" if guarded else "sent without a responds(to:) check")
+                receivers = [r for a, r in checked if a == own]
+                group = src.enclosing_open(pos)
+                called = src.callee(group) if group is not None else None
+                if called and called[0] in ("perform", "method", "responds", "instancesRespond"):
+                    target = src.member_receiver(called[1])
+                    if called[0] == "instancesRespond":
+                        target = target[1:] if target and target.startswith("+") else None
+                    receivers.append(target)
+            record("selector", probed("selector", receivers, literal), guarded, how)
         elif name in KVC_CALLS:
             if name == "value" and not (len(args) == 1 and args[0][0] in ("forKey", "forKeyPath")):
                 continue
@@ -794,7 +1067,7 @@ def scan_lookups(text: str, path: str = "") -> list[Lookup]:
                 continue  # a computed key or a key path: not one private name to probe
             kind = "kvc-get" if name == "value" else "kvc-set"
             ok = bool(kvc_forms(key) & literal_selectors(lo, pos))
-            record(kind, f"{kind} {key}", ok, "its accessor is checked" if ok else
+            record(kind, probed(kind, [src.member_receiver(pos)], key), ok, "its accessor is checked" if ok else
                    f"no responds(to:) check of `{key}` (or its setter) before it in its function")
         elif name in ("method_exchangeImplementations", "method_setImplementation"):
             record("swizzle", None, True, "a Method is non-optional in Swift: it came from a lookup that was checked")
@@ -830,15 +1103,15 @@ def probe_source(keys: list[str]) -> str:
 
     rows = []
     for key in keys:
-        kind, names, ivars = probe_plan(key)
-        rows.append(f"    ({json.dumps(key)}, {json.dumps(kind)}, {swift(names)}, {swift(ivars)}),")
+        kind, cls, names, ivars = probe_plan(key)
+        rows.append(f"    ({json.dumps(key)}, {json.dumps(kind)}, {json.dumps(cls)}, {swift(names)}, {swift(ivars)}),")
     generated = "\n".join([
         "// BEGIN GENERATED (scripts/cmux-next/check-objc-selectors.py --write-probe)",
         f"let keySet = {json.dumps(keyset_id(keys))}",
         "let libraries: [String] = [",
         *[f"    {json.dumps(lib)}," for lib in PROBE_LIBRARIES],
         "]",
-        "let plan: [(key: String, kind: String, names: [String], ivars: [String])] = [",
+        "let plan: [(key: String, kind: String, cls: String, names: [String], ivars: [String])] = [",
         *rows,
         "]",
         "// END GENERATED",
@@ -848,7 +1121,8 @@ def probe_source(keys: list[str]) -> str:
 
 PROBE_HEAD = """\
 // OS probe (vm.sh --suite exec --probe objc-lookups), p10-stability-193: which private names cmux looks up at run
-// time (classes, protocols, symbols, selectors, KVC accessors) this macOS has. Generated by
+// time (classes, protocols, symbols, and selectors and KVC accessors on their receiver class) this macOS has. A
+// selector or KVC key is asked of the class the source sends it to and its superclasses, as the send is. Generated by
 // scripts/cmux-next/check-objc-selectors.py --write-probe, whose --record reads the output of
 // `os-matrix.sh --suite exec:objc-lookups` into objc-selector-table.json per macOS major. Prints "ABSENT <key>" per
 // missing name, then the summary line, and exits 0 when it ran (the answers are the data, not a verdict); 2 when
@@ -860,7 +1134,6 @@ import Foundation
 PROBE_BODY = r"""
 typealias CString = UnsafePointer<CChar>
 typealias ByName = @convention(c) (CString) -> UnsafeRawPointer?
-typealias CopyClassList = @convention(c) (UnsafeMutablePointer<UInt32>?) -> UnsafeMutablePointer<UnsafeRawPointer?>?
 typealias CopyList = @convention(c) (UnsafeRawPointer?, UnsafeMutablePointer<UInt32>?) -> UnsafeMutablePointer<OpaquePointer?>?
 typealias NameOf = @convention(c) (OpaquePointer) -> CString?
 typealias SelectorOf = @convention(c) (OpaquePointer) -> OpaquePointer?
@@ -881,59 +1154,50 @@ func runtime<T>(_ name: String, as type: T.Type) -> T {
 for library in libraries { _ = dlopen(library, RTLD_LAZY | RTLD_GLOBAL) }
 let getClass = runtime("objc_getClass", as: ByName.self)
 let getProtocol = runtime("objc_getProtocol", as: ByName.self)
-let copyClassList = runtime("objc_copyClassList", as: CopyClassList.self)
 let copyMethodList = runtime("class_copyMethodList", as: CopyList.self)
 let copyIvarList = runtime("class_copyIvarList", as: CopyList.self)
 let methodName = runtime("method_getName", as: SelectorOf.self)
 let selectorName = runtime("sel_getName", as: NameOf.self)
 let ivarName = runtime("ivar_getName", as: NameOf.self)
 let classOf = runtime("object_getClass", as: ClassOf.self)
+let superclassOf = runtime("class_getSuperclass", as: ClassOf.self)
 
-var wantedMethods = Set<String>()
-var wantedIvars = Set<String>()
-for entry in plan where entry.kind == "method" {
-    wantedMethods.formUnion(entry.names)
-    wantedIvars.formUnion(entry.ivars)
-}
-var foundMethods = Set<String>()
-var foundIvars = Set<String>()
-
-/// The names in a runtime list of COUNT methods or ivars that WANTED holds; frees the list.
-func matches(_ list: UnsafeMutablePointer<OpaquePointer?>?, _ count: UInt32, _ wanted: Set<String>,
-             _ name: (OpaquePointer) -> CString?) -> [String] {
+/// The names in a runtime list of COUNT methods or ivars; frees the list.
+func names(_ list: UnsafeMutablePointer<OpaquePointer?>?, _ count: UInt32, _ name: (OpaquePointer) -> CString?) -> [String] {
     guard let list else { return [] }
     defer { free(list) }
     var out: [String] = []
     for index in 0..<Int(count) {
         guard let item = list[index], let cName = name(item) else { continue }
-        let text = String(cString: cName)
-        if wanted.contains(text) { out.append(text) }
+        out.append(String(cString: cName))
     }
     return out
 }
 
-if !wantedMethods.isEmpty || !wantedIvars.isEmpty {
-    var classCount: UInt32 = 0
-    guard let classes = copyClassList(&classCount) else {
-        print("objc-lookups: objc_copyClassList answered nil")
-        exit(2)
+/// The selector and ivar names of CLS and its superclasses, read from the runtime's lists: no message is sent.
+func members(of cls: UnsafeRawPointer) -> (methods: Set<String>, ivars: Set<String>) {
+    var methods = Set<String>()
+    var ivars = Set<String>()
+    var current: UnsafeRawPointer? = cls
+    while let owner = current {
+        var methodCount: UInt32 = 0
+        let methodList = copyMethodList(owner, &methodCount)
+        methods.formUnion(names(methodList, methodCount) { method in methodName(method).flatMap { selectorName($0) } })
+        var ivarCount: UInt32 = 0
+        let ivarList = copyIvarList(owner, &ivarCount)
+        ivars.formUnion(names(ivarList, ivarCount) { ivarName($0) })
+        current = superclassOf(owner)
     }
-    for index in 0..<Int(classCount) {
-        guard let cls = classes[index] else { continue }
-        for owner in [cls, classOf(cls)] {
-            var count: UInt32 = 0
-            let list = copyMethodList(owner, &count)
-            foundMethods.formUnion(matches(list, count, wantedMethods) { method in
-                methodName(method).flatMap { selectorName($0) }
-            })
-        }
-        var count: UInt32 = 0
-        let list = copyIvarList(cls, &count)
-        foundIvars.formUnion(matches(list, count, wantedIvars) { ivarName($0) })
-    }
-    free(classes)
+    return (methods, ivars)
 }
 
+/// The class a method row is asked of: the named class, or its metaclass for a class method.
+func receiver(_ cls: String, classMethod: Bool) -> UnsafeRawPointer? {
+    guard let found = cls.withCString({ getClass($0) }) else { return nil }
+    return classMethod ? classOf(found) : found
+}
+
+var membersByReceiver: [String: (methods: Set<String>, ivars: Set<String>)] = [:]
 var absent: [String] = []
 for entry in plan {
     let present: Bool
@@ -941,7 +1205,14 @@ for entry in plan {
     case "class": present = entry.names.contains { name in name.withCString { getClass($0) } != nil }
     case "protocol": present = entry.names.contains { name in name.withCString { getProtocol($0) } != nil }
     case "symbol": present = entry.names.contains { dlsym(defaultHandle, $0) != nil }
-    case "method": present = entry.names.contains { foundMethods.contains($0) } || entry.ivars.contains { foundIvars.contains($0) }
+    case "method", "classmethod":
+        let cacheKey = entry.kind + " " + entry.cls
+        if membersByReceiver[cacheKey] == nil {
+            let cls = receiver(entry.cls, classMethod: entry.kind == "classmethod")
+            membersByReceiver[cacheKey] = cls.map { members(of: $0) } ?? (methods: [], ivars: [])
+        }
+        let found = membersByReceiver[cacheKey] ?? (methods: [], ivars: [])
+        present = entry.names.contains { found.methods.contains($0) } || entry.ivars.contains { found.ivars.contains($0) }
     default:
         print("objc-lookups: unknown kind \(entry.kind)")
         exit(2)
@@ -1037,7 +1308,7 @@ def read_matrix(out: Path, keyset: str, keys: list[str]) -> tuple[dict[str, dict
 
 def lookup_presence(table: dict, key: str | None) -> str:
     if key is None:
-        return "-"
+        return "not probed (no OS name with a known receiver)"
     rec = table.get("lookups", {}).get(key)
     if not rec:
         return "unprobed"
