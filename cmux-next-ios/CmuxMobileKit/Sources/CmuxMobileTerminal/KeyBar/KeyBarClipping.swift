@@ -28,30 +28,6 @@ public struct KeyBarClipping: Sendable {
     }
 }
 
-/// The key bar scroller's edge fades (SPEC B2): 12 pt gradient masks, the
-/// leading one only once the row is scrolled (at rest the first key starts
-/// at a hard edge), the trailing one while more keys wait to the right.
-public struct KeyBarScrollEdges: Equatable, Sendable {
-    public static let fade: CGFloat = 12
-    /// The trailing fade, 12 pt as specified (R2-4). It shows only while the
-    /// row moves: at rest the row draws whole keys only, so the last one is
-    /// at full brightness.
-    public static let trailingFade: CGFloat = 12
-
-    public var offset: CGFloat
-    public var contentWidth: CGFloat
-    public var visibleWidth: CGFloat
-
-    public init(offset: CGFloat = 0, contentWidth: CGFloat = 0, visibleWidth: CGFloat = 0) {
-        self.offset = offset
-        self.contentWidth = contentWidth
-        self.visibleWidth = visibleWidth
-    }
-
-    public var fadesLeading: Bool { offset > 0.5 }
-    public var fadesTrailing: Bool { offset + visibleWidth < contentWidth - 0.5 }
-}
-
 /// What the bottom dock shows (classic cmux iOS's dock): the key row is
 /// always there, keyboard up or down; the composer is open by default and can
 /// be closed with the compose key; Hide Toolbar takes both away (and the

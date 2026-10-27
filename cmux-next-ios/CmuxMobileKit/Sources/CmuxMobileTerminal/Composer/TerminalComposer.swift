@@ -59,7 +59,7 @@ struct TerminalComposer: View {
                 AttachmentStrip(model: model)
                     .transition(.move(edge: .bottom).combined(with: .opacity))
             }
-            GlassEffectContainer {
+            GlassEffectContainer(spacing: 0) {
                 HStack(alignment: .bottom, spacing: 8) {
                     if model.attachmentsAvailable { attachMenu }
                     micButton
@@ -329,11 +329,11 @@ struct ComposerCircleLabel: View {
 }
 
 extension View {
-    /// cmux NEXT's composer glass: Liquid Glass on 85 % of the terminal
-    /// background, so rows that scroll under it are not legible through it (SPEC M3).
+    /// The composer's Liquid Glass (classic: the field container and the
+    /// round buttons). No opaque backing: the screen's own backing under the
+    /// dock keeps scrolled rows from showing through (SPEC M3).
     func glassSurface(in shape: some Shape) -> some View {
-        background(Color(uiColor: CmuxMobileGhosttyApp.background).opacity(0.85), in: shape)
-            .glassEffect(.regular.interactive(), in: shape)
+        glassEffect(.regular.interactive(), in: shape)
     }
 }
 

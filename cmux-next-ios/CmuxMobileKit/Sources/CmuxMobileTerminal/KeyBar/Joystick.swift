@@ -177,9 +177,11 @@ struct Joystick: View {
         // Classic cmux iOS's arrow nub: a 28 pt circle with a 12 pt dot.
         let size = JoystickGeometry.circle
         ZStack {
-            Circle()
-                .fill(Color.primary.opacity(engine.gear > 0 ? 0.22 : 0.1))
+            // A glass circle, as classic's nub (`UIGlassEffect`); not
+            // interactive: the drag owns the touch.
+            Color.clear
                 .frame(width: size, height: size)
+                .glassEffect(engine.gear > 0 ? .regular.tint(Color.primary.opacity(0.2)) : .regular, in: .circle)
             Circle()
                 .fill(Color.primary.opacity(0.9))
                 .frame(width: 12, height: 12)

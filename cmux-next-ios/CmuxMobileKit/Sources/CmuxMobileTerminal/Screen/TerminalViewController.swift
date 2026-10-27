@@ -75,8 +75,8 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     /// M-SIZELOG (G-07): when the last reset came and the bytes of its replay.
     private var replayStartedAt: CFTimeInterval?
     private var replayBytes = 0
-    /// Clips the key row while Hide Toolbar folds it to 0; the row itself
-    /// keeps its 28 pt layout pinned to the clip's top.
+    /// Holds the key row; Hide Toolbar folds it to 0 and hides it. The row
+    /// keeps its 28 pt layout pinned to the top.
     private let keyBarClip = UIView()
     private let scrollToBottomButton = UIButton(configuration: .glass())
     private var scrollButtonVisibility = JumpToBottomVisibility()
@@ -353,7 +353,9 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         }
         keyBarHost = keyBar
         composerHost = composer
-        keyBarClip.clipsToBounds = true
+        // Not clipped: the keys' glass lifts past the row on touch. Hide
+        // Toolbar folds the row by hiding it, not by clipping it to 0.
+        keyBarClip.clipsToBounds = false
         // A rightward swipe on the key bar scrolls it or moves the joystick;
         // it never swipes back to the workspaces (R4-1).
         NavigationPopExclusion.shared.exclude(keyBarClip)

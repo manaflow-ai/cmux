@@ -167,13 +167,6 @@ import Testing
         #expect(zoom.step(24, larger: true) == 24)
         #expect(zoom.step(9, larger: false) == 9)
     }
-
-    @Test func leadingEdgeIsHardAtRest() {
-        let rest = KeyBarScrollEdges(offset: 0, contentWidth: 900, visibleWidth: 186)
-        #expect(!rest.fadesLeading)
-        let scrolled = KeyBarScrollEdges(offset: 120, contentWidth: 900, visibleWidth: 186)
-        #expect(scrolled.fadesLeading)
-    }
 }
 
 /// Classic cmux iOS's compose key (`ComposerDockState`): a tap never closes
