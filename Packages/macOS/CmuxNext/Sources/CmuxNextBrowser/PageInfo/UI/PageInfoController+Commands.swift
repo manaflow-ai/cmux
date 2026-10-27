@@ -13,7 +13,7 @@ extension PageInfoController {
             store.set(setting, kind, for: origin)
             provider.pageInfoActivity.recordChange(kind)
             model.needsReload = true
-            Task { await provider.pageInfoDidChange(kind, to: setting, origin: origin) }
+            engineCall { await provider.pageInfoDidChange(kind, to: setting, origin: origin) }
             refreshPermissions()
         case .resetPermissions:
             guard let origin = site.origin, let store, let provider else { return }
@@ -22,7 +22,7 @@ extension PageInfoController {
             provider.pageInfoActivity.recordChanges(changed)
             model.needsReload = !changed.isEmpty || model.needsReload
             // Chromium remembers its own prompt answers: set those back too.
-            Task { for kind in changed { await provider.pageInfoDidChange(kind, to: kind.defaultSetting, origin: origin) } }
+            engineCall { for kind in changed { await provider.pageInfoDidChange(kind, to: kind.defaultSetting, origin: origin) } }
             refreshPermissions()
         case .showCertificate:
             showCertificate(site: site)
@@ -37,7 +37,7 @@ extension PageInfoController {
         case .deleteSiteData(let domain):
             guard let provider else { return }
             let host = site.host
-            Task { [weak self] in
+            engineCall { [weak self] in
                 let targets: [String]
                 if let domain {
                     targets = [domain]
@@ -56,7 +56,7 @@ extension PageInfoController {
             close()
             // The notice says what was turned on: Chromium clears every site of the profile.
             let notice = PageInfoStrings.certificateWarningsOnAgain(revoking.certificateWarningScope)
-            Task {
+            engineCall {
                 guard await revoking.turnOnCertificateWarnings() else { return }
                 tab.delegate?.browserTab(tab, didRequest: .notice(notice))
             }
@@ -78,7 +78,7 @@ extension PageInfoController {
         guard let provider else { return }
         close()
         let failure = provider.pageInfoActivity.failedCertificateReason
-        Task { [weak self] in
+        engineCall { [weak self] in
             let chain = await provider.pageInfoCertificateChain().compactMap { try? PageInfoCertificate(der: $0) }
             self?.windows.showCertificate(chain, site: site, failure: failure)
         }
@@ -94,7 +94,9 @@ extension PageInfoController {
         observation = ObservationLoop(owner: "browser.pageInfo", delivery: .visible(nil), on: mainWork) { [weak self] in
             guard let self, let tab = self.tab else { return }
             if tab.state.url != self.openedURL {
-                Task { @MainActor [weak self] in self?.close() }
+                // Closed after this observed pass, never inside it.
+                // node-free: the bubble is open only over its shown page
+                self.mainWork.post(.visible, owner: "browser.pageInfo.close") { [weak self] in self?.close() }
                 return
             }
             self.refreshPermissions()
@@ -143,7 +145,7 @@ extension PageInfoController {
         let origin = model.site.origin
         let host = model.site.host
         livePermissions = [:]
-        loadTask = Task { [weak self] in
+        loadTask = engineCall { [weak self] in
             if let origin {
                 let live = await provider.pageInfoLivePermissions(origin: origin)
                 guard !Task.isCancelled, let self else { return }
@@ -161,10 +163,17 @@ extension PageInfoController {
         }
     }
 
+    /// Starts `work`, calls into the page's engine (``PageInfoProviding``) whose answer the bubble or its windows show.
+    @discardableResult
+    func engineCall(_ work: @escaping @MainActor () async -> Void) -> Task<Void, Never> {
+        // main-hop-allow: every PageInfoProviding call is the engine's main-actor async API (WebKit's data store, Chromium's IPC) with state checks between; the task only starts it and shows its answer in the bubble's own state
+        Task { await work() }
+    }
+
     func reloadSiteData() {
         guard let provider else { return }
         let host = model.site.host
-        Task { [weak self] in
+        engineCall { [weak self] in
             let data = await provider.pageInfoSiteData(pageHost: host)
             self?.model.siteData = data
             self?.windows.siteDataChanged(data)

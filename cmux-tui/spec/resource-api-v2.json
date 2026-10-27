@@ -33,6 +33,10 @@
         "confirmation": {"type": "string", "minLength": 1}
       }
     },
+    "requestPriority": {
+      "description": "Capability request-priority-v1. Who the request serves: user (the person waits on it) or automation. Like an origin claim it only narrows the class the daemon derives from the connection: automation runs the request at the automation class, user never raises a request above its connection's. Scheduling only; authorization never reads it. A request without it keeps the derived class.",
+      "enum": ["user", "automation"]
+    },
     "decimal": {
       "type": "string",
       "pattern": "^(0|[1-9][0-9]*)$",
@@ -692,6 +696,7 @@
         "params": {"type": "object"},
         "idempotency_key": {"$ref": "#/$defs/idempotencyKey"},
         "origin": {"$ref": "#/$defs/originClaim"},
+        "priority": {"$ref": "#/$defs/requestPriority"},
         "credential": {"type": "string", "minLength": 1, "maxLength": 2048}
       },
       "allOf": [

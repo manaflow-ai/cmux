@@ -4,6 +4,7 @@ import CmuxNextCompat
 @testable import CmuxNextSignposts
 @testable import CmuxNextTrace
 import Testing
+import CmuxNextWakeups
 
 /// Each icon picker open is one `stall.icon_picker_open` thread slice (p09-observability task 036): its begin and
 /// its end are written in the open's own call, warming the picker up writes none, and a first open's catalog load
@@ -33,7 +34,7 @@ struct IconPickerOpenSignpostTests {
 
     @Test func eachWarmOpenIsOneSliceThatEndsInItsCall() async {
         let log = RecordLog()
-        let picker = IconPickerService(services: nil, webUI: .iconPickerTestHost())
+        let picker = IconPickerService(services: nil, webUI: .iconPickerTestHost(), mainWork: MainWorkScheduler(budget: MainFrameBudget()))
         picker.stallSignposter = log.signposter()
         await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in picker.prepare { done.resume() } }
         #expect(log.phases.isEmpty, "warming up is not an open")
@@ -48,7 +49,7 @@ struct IconPickerOpenSignpostTests {
 
     @Test func aColdOpensSliceBeginsWhenTheCatalogIsIn() async {
         let log = RecordLog()
-        let picker = IconPickerService(services: nil, webUI: .iconPickerTestHost())
+        let picker = IconPickerService(services: nil, webUI: .iconPickerTestHost(), mainWork: MainWorkScheduler(budget: MainFrameBudget()))
         picker.stallSignposter = log.signposter()
         await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in
             picker.onOpened = { [weak picker] _ in

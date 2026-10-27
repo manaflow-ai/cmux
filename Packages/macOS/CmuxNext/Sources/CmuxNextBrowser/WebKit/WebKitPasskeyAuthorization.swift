@@ -44,6 +44,7 @@ public final class WebKitPasskeyAuthorization {
         guard current == .notDetermined else { return current }
         if let pending { return await pending.value }
         let backend = backend
+        // main-hop-allow: the one system prompt every caller shares: request is the backend's main-actor async call (AuthenticationServices answers it); the task only holds its answer
         let task = Task { @MainActor in await backend.request() }
         pending = task
         let result = await task.value

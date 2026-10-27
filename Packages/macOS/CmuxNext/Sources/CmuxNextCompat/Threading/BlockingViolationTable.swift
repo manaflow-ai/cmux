@@ -4,6 +4,9 @@ internal import CoreFoundation
 internal import Darwin
 internal import Dispatch
 internal import Foundation
+internal import class CmuxSafeConcurrency.OnceContinuation
+internal import enum CmuxSafeConcurrency.OnceContinuationError
+internal import func CmuxSafeConcurrency.withOnceContinuation
 #if DEBUG
 internal import os
 #endif
@@ -404,10 +407,10 @@ final class BlockingViolationTable: Sendable {
 
     /// Waits until the drain has handled every site recorded before the call (tests).
     func flush() async {
-        await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in
+        _ = try? await withOnceContinuation { (done: OnceContinuation<Void, OnceContinuationError>) in
             drainQueue.async { [self] in
                 watched { drain() }
-                done.resume()
+                done.resume(returning: ())
             }
         }
     }

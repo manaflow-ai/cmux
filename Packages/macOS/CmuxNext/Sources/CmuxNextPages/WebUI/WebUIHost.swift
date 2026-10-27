@@ -26,6 +26,9 @@ public final class WebUIHost {
     /// The shared web content processes of the WebKit pages that ask for them
     /// (``PageEngineOptions/sharesWebKitProcess``, the agent pages).
     public let processGroups: WebProcessGroups
+    /// The daemon relay channels of the pages (one per daemon page id), kept here instead of a
+    /// static (p13-webui-066): each closes its daemon connection when idle.
+    public let relayChannels = PageRelayChannels()
     /// Every page's Active, Hidden, Frozen and Discarded states (p13-webui.md 3.C), fed by the tab
     /// content lifecycle; a page it holds leaves it on ``close(_:)``. Nil while `pageLifecycle` is off:
     /// the composition root sets it.

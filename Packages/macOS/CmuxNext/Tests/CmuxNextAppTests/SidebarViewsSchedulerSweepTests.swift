@@ -1,165 +1,217 @@
 import AppKit
-@testable import CmuxNextDesign
 @testable import CmuxNextSidebar
 import CmuxNextWakeups
+import Foundation
 import Testing
 
-/// The p06-scheduler-328 sweep of CmuxNextSidebar/Views (second half): the notice card reads its own
-/// visibility node instead of walking its ancestors, and the sidebar list follows the scroll-bar setting
-/// through the app's one observer, and the sidebar's draw and the rail's marks are visible observations of
-/// their own nodes while the list settings reach the model on a service observation
-/// (plans/cmux-next/chrome-parity/p06-scheduler.md, recipes R-obs, R-vis, R-hide, R-appear and R-notif; rule 9).
+/// The CmuxNextSidebar/Views sweep, first half (plans/cmux-next/chrome-parity/p06-scheduler.md, task
+/// p06-scheduler-327, rule 9): one case per migrated owner class.
+/// - Hidden: the Priority view's minute redraw is a deadline aligned on the sidebar's node, and a minute that comes
+///   while the sidebar is hidden redraws once, on show, and wakes no more until then (R-timer, rule 4).
+/// - Visible: a shown sidebar's minute redraws in its wake and arms the next one.
+/// - Service: the container's presentation and width observation applies as one posted task on the scheduler,
+///   off the change's turn, with no window (a model side effect runs while hidden, rule 3).
+/// - Person: a person's width change applies in the input-response pass, before the commit (rule 2). The spring-load
+///   hover of an external tab drag is a userBlocking deadline, cancelled when the tab leaves the row (R-timer, rule 6).
+/// - Person and window input state: the list ends a held gesture on the app's resign-active through the injected
+///   AppEvents and on its window's resign-key through WindowEvents, with no NotificationCenter observer of its own.
+/// - The key-window repaint is one WindowEvents observer per window and notice, however many views follow it.
 @MainActor @Suite(.serialized) struct SidebarViewsSchedulerSweepTests {
-    static let tip = SidebarNoticeCard(id: "tip", title: "Command Palette", dismissLabel: "Close", shownAction: "tip.shown")
+    private static func working() -> SidebarPriorityPanel {
+        SidebarPriorityPanel(entries: [SidebarPriorityEntry(id: "chat", title: "chat", state: .working(since: Date()))])
+    }
 
-    /// A window whose node reads visible (it is never ordered in), holding `host`.
-    private static func window(holding host: NSView) -> NSWindow {
+    // MARK: Hidden and visible: the Priority view's minute (R-timer)
+
+    @Test func aHiddenSidebarsMinuteRedrawsOnceOnShow() {
+        let rig = MainDeadlineRig()
+        let node = VisibilityNode(root: "sidebar.list", own: .hidden)
+        let view = SidebarPriorityPanelView(frame: NSRect(x: 0, y: 0, width: 240, height: 600))
+        view.follow(rig.deadlines, visibility: node)
+        #expect(!rig.hasArmedWake, "a panel with no working chip armed its minute")
+
+        view.show(Self.working())
+        #expect(rig.hasArmedWake, "a working chip armed no minute")
+        rig.fireAndRun()
+        #expect(rig.elapsed >= 60, "the minute fired \(rig.elapsed) s in")
+        #expect(node.deferredCount == 1, "the hidden sidebar's minute did not wait for it to show")
+        #expect(!rig.hasArmedWake, "a hidden sidebar kept waking each minute")
+
+        node.set(.visible)
+        #expect(node.deferredCount == 0, "the minute did not redraw on show")
+        #expect(rig.hasArmedWake, "the shown panel armed no next minute")
+    }
+
+    @Test func aShownSidebarsMinuteRedrawsInItsWakeAndStopsWithTheLastWorkingChip() {
+        let rig = MainDeadlineRig()
+        let node = VisibilityNode(root: "sidebar.list", own: .visible)
+        let view = SidebarPriorityPanelView(frame: NSRect(x: 0, y: 0, width: 240, height: 600))
+        view.follow(rig.deadlines, visibility: node)
+        view.show(Self.working())
+
+        rig.fireAndRun()
+        #expect(node.deferredCount == 0, "a shown sidebar's minute waited")
+        #expect(rig.hasArmedWake, "the minute armed no next one")
+
+        view.show(SidebarPriorityPanel(entries: []))
+        #expect(!rig.hasArmedWake, "the minute stayed armed with no working chip")
+    }
+
+    // MARK: Service: the container's presentation and width observation (R-obs)
+
+    @Test func aWidthChangeAppliesAsOnePostedTaskWithNoWindow() {
         _ = NSApplication.shared
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 400), styleMask: [.titled], backing: .buffered,
-                              defer: true)
-        window.isReleasedWhenClosed = false
-        _ = WindowVisibilitySource.of(window, read: { _ in .visible })
-        window.contentView = host
-        return window
-    }
-
-    /// A notice under a collapsed sidebar is not reported shown; the sidebar opening reports it once,
-    /// through the card's node (no unhide override does it any more).
-    @Test func aNoticeIsReportedShownWhenItsNodeShows() {
-        let host = NSView(frame: NSRect(x: 0, y: 0, width: 400, height: 400))
-        let window = Self.window(holding: host)
-        defer { window.close() }
-        host.isHidden = true
-        let card = SidebarNoticeCardView(frame: NSRect(x: 0, y: 0, width: 240, height: SidebarNoticeCardView.height(for: Self.tip)))
-        host.addSubview(card)
-        var sent: [String] = []
-        card.onAction = { _, action in sent.append(action) }
-        card.configure(Self.tip)
-        #expect(!card.loopNode.isVisible, "the card's node is visible under a hidden sidebar")
-        #expect(sent.isEmpty, "a notice under a hidden sidebar was reported shown: \(sent)")
-        host.isHidden = false
-        #expect(card.loopNode.isVisible, "the card's node did not show with the sidebar")
-        #expect(sent == ["tip.shown"], "showing the sidebar did not report the notice once: \(sent)")
-        host.isHidden = true
-        host.isHidden = false
-        #expect(sent == ["tip.shown"], "a second show reported the same notice again: \(sent)")
-    }
-
-    /// An appearance change while the card is hidden repaints nothing then and once when it shows.
-    @Test func aHiddenCardRepaintsItsAppearanceOnceOnShow() {
-        let host = NSView(frame: NSRect(x: 0, y: 0, width: 400, height: 400))
-        let window = Self.window(holding: host)
-        defer { window.close() }
-        let card = SidebarNoticeCardView(frame: NSRect(x: 0, y: 0, width: 240, height: SidebarNoticeCardView.height(for: Self.tip)))
-        host.addSubview(card)
-        card.configure(Self.tip)
-        #expect(card.loopNode.isVisible, "a shown card's node is not visible")
-        host.isHidden = true
-        card.appearance = NSAppearance(named: .darkAqua)
-        card.appearance = NSAppearance(named: .aqua)
-        #expect(card.loopNode.deferredCount == 1, "two hidden appearance changes left \(card.loopNode.deferredCount) repaints, not one")
-        host.isHidden = false
-        #expect(card.loopNode.deferredCount == 0, "the deferred repaint did not run on show")
-        card.appearance = NSAppearance(named: .darkAqua)
-        #expect(card.loopNode.deferredCount == 0, "a shown card deferred its repaint")
-    }
-
-    /// A change of the "Show scroll bars" setting reaches the sidebar through SystemScrollers: the scroller
-    /// stays the overlay one and the list fits the clip again.
-    @Test func theListFitsTheClipAfterAScrollBarSettingChange() {
-        let sidebar = SidebarView(model: SidebarModel(), design: DesignSettings())
-        sidebar.frame = NSRect(x: 0, y: 0, width: 260, height: 600)
-        sidebar.layoutSubtreeIfNeeded()
-        let clipWidth = sidebar.scrollView.contentView.bounds.width
-        #expect(clipWidth > 0, "the sidebar's clip has no width")
-        sidebar.scrollView.scrollerStyle = .legacy
-        sidebar.list.setFrameSize(NSSize(width: 10, height: sidebar.list.frame.height))
-        SystemScrollers.systemStyleDidChange()
-        #expect(sidebar.scrollView.scrollerStyle == SystemScrollers.nativeStyle, "the sidebar's scroller left the overlay style")
-        #expect(sidebar.list.frame.width == sidebar.scrollView.contentView.bounds.width,
-                "the list is \(sidebar.list.frame.width) wide, the clip \(sidebar.scrollView.contentView.bounds.width)")
-    }
-
-    // MARK: Rule 9: hidden is model only
-
-    /// A collapsed sidebar (its panel hidden) evaluates and draws nothing on a model change, and draws once
-    /// when it shows. Before, its `ObservationStream` rendered on every change while hidden.
-    @Test func aHiddenSidebarDrawsNothingAndShowingItDrawsOnce() throws {
-        let work = MainWorkScheduler(budget: MainFrameBudget())
-        let panel = NSView(frame: NSRect(x: 0, y: 0, width: 400, height: 400))
-        let window = Self.window(holding: panel)
-        defer { window.close() }
+        let rig = MainDeadlineRig()
         let model = SidebarModel()
-        let sidebar = SidebarView(model: model, design: DesignSettings(), mainWork: work)
-        sidebar.frame = NSRect(x: 0, y: 0, width: 260, height: 400)
-        panel.addSubview(sidebar)
-        #expect(sidebar.visibility.node.isVisible, "a sidebar in a shown window is not visible")
-        panel.isHidden = true
-        #expect(!sidebar.visibility.node.isVisible, "hiding the panel did not reach the sidebar's node")
-        let hidden = try Self.counts(work, "Sidebar.render")
-        for index in 0..<20 { model.filterText = "find \(index)" }
-        let changed = try Self.counts(work, "Sidebar.render")
-        #expect(changed.evaluations == hidden.evaluations, "a hidden sidebar evaluated what it draws")
-        #expect(changed.applies == hidden.applies, "a hidden sidebar drew")
-        #expect(sidebar.lastState?.filter == "", "a hidden sidebar drew the new filter")
-        panel.isHidden = false
-        let shown = try Self.counts(work, "Sidebar.render")
-        #expect(shown.showRereads == hidden.showRereads + 1, "showing the sidebar did not read once")
-        #expect(shown.applies == hidden.applies + 1, "showing the sidebar did not draw once")
-        #expect(sidebar.lastState?.filter == "find 19", "the shown sidebar draws the filter it missed")
+        let container = SidebarContainerView(model: model, deadlines: rig.deadlines, appEvents: AppEvents(center: NotificationCenter()))
+        rig.frame()
+        let before = container.panelWidth.constant
+        let posted = rig.work.postedCount(.visible)
+
+        model.width = before + 20
+        #expect(container.panelWidth.constant == before, "the width applied in the change's own turn")
+        #expect(rig.work.postedCount(.visible) > posted, "the width's flush is not a posted visible task")
+        rig.frame()
+        #expect(container.panelWidth.constant == model.width, "the posted flush did not apply the width")
+        #expect(container.window == nil)
     }
 
-    /// The list settings still reach the model while the sidebar is hidden (rule 3): with the rail shown and
-    /// the full sidebar collapsed, a change of `sidebar.style` must still change the model's style.
-    @Test func aHiddenSidebarStillCarriesItsListSettingsToTheModel() async {
-        let work = MainWorkScheduler(budget: MainFrameBudget())
-        let panel = NSView(frame: NSRect(x: 0, y: 0, width: 400, height: 400))
-        let window = Self.window(holding: panel)
+    /// Rule 2: the person's own width change (a drag of the handle, a toggle) applies in the input-response pass, before
+    /// the commit of their input, not in the posted visible task a program change waits for.
+    @Test func aPersonsWidthChangeAppliesInTheInputResponsePassBeforeAnyFrame() {
+        _ = NSApplication.shared
+        let rig = MainDeadlineRig()
+        let model = SidebarModel()
+        let container = SidebarContainerView(model: model, deadlines: rig.deadlines, appEvents: AppEvents(center: NotificationCenter()))
+        rig.frame()
+        let before = container.panelWidth.constant
+
+        rig.work.causes.withCause(.person) { model.width = before + 20 }
+        #expect(container.panelWidth.constant == before, "the width applied inside the change's will-set")
+        #expect(rig.work.causes.flushPersonCaused() >= 1, "the person's width change did not reach the input-response pass")
+        #expect(container.panelWidth.constant == model.width, "the person's width waited for a frame or a posted task")
+        #expect(model.width == before + 20)
+    }
+
+    // MARK: Person input state: the list's gesture ends on focus loss (R-notif)
+
+    /// A list in a window whose notices post on `windowCenter` (the window's WindowEvents is made on it first).
+    private static func list(events: AppEvents, windowCenter: NotificationCenter = NotificationCenter()) -> (SidebarListView, NSWindow) {
+        _ = NSApplication.shared
+        let ws = { (id: String) in SidebarWorkspace(id: WorkspaceID(id), title: id) }
+        let machine = SidebarMachine(id: .local, name: "This Mac", kind: .local)
+        let model = SidebarModel(sections: [SidebarSection(kind: .machine(machine), nodes: [.workspace(ws("x")), .workspace(ws("y"))])],
+                                 activeWorkspaceID: WorkspaceID("x"))
+        let list = SidebarListView(model: model)
+        list.appEvents = events // before the window: the list subscribes when it moves into one
+        let window = NSWindow(contentRect: NSRect(x: 100, y: 100, width: 240, height: 600), styleMask: [.borderless],
+                              backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        _ = WindowEvents.of(window, center: windowCenter)
+        let root = NSView(frame: NSRect(x: 0, y: 0, width: 240, height: 600))
+        window.contentView = root
+        list.frame = root.bounds
+        root.addSubview(list)
+        window.orderFrontRegardless()
+        list.reload(animated: false)
+        return (list, window)
+    }
+
+    @Test func theAppResigningActiveEndsAHeldDragThroughTheInjectedAppEvents() throws {
+        let center = NotificationCenter()
+        let events = AppEvents(center: center)
+        let (list, window) = Self.list(events: events)
         defer { window.close() }
-        let model = SidebarModel(), design = DesignSettings()
-        let sidebar = SidebarView(model: model, design: design, mainWork: work)
-        panel.addSubview(sidebar)
-        panel.isHidden = true
-        #expect(model.style == .standard)
-        design.sidebarSections.style = .rail
-        await drainMainTurns()
-        #expect(model.style == .rail, "a hidden sidebar left the list settings off the model")
-        #expect(sidebar.lastState?.preferences.style == .standard, "a hidden sidebar drew the settings change")
+        #expect(events.subscriberCount(NSApplication.didResignActiveNotification) == 1)
+        let start = try SidebarPointerGestureTests.point(list, .workspace(WorkspaceID("x")))
+        try SidebarPointerGestureTests.press(list, at: start, moves: [CGVector(dx: 0, dy: 10), CGVector(dx: 0, dy: 30)], release: false)
+        #expect(list.drag != nil)
+
+        center.post(name: NSApplication.didResignActiveNotification, object: nil)
+        #expect(list.drag == nil, "the drag outlived the app's focus")
+        if let landing = list.landing { list.finishLand(landing, then: nil) }
     }
 
-    /// A hidden rail (the full sidebar shown) reads no marks on a model change and draws them once when it shows.
-    @Test func aHiddenRailReadsNoMarksAndShowingItDrawsThemOnce() throws {
-        let work = MainWorkScheduler(budget: MainFrameBudget())
-        let host = NSView(frame: NSRect(x: 0, y: 0, width: 400, height: 400))
-        let window = Self.window(holding: host)
+    @Test func theWindowResigningKeyWithTheButtonUpEndsAHeldPress() throws {
+        let center = NotificationCenter()
+        let (list, window) = Self.list(events: AppEvents(center: NotificationCenter()), windowCenter: center)
         defer { window.close() }
-        let model = SidebarModel(sections: [Self.section(["a"])])
-        let rail = SidebarRailView()
-        rail.frame = NSRect(x: 0, y: 0, width: 12, height: 400)
-        host.addSubview(rail)
-        rail.bind(model, on: work)
-        #expect(rail.railLayout.ticks.count == 1, "the shown rail did not draw its mark")
-        rail.isHidden = true
-        #expect(!rail.visibility.node.isVisible, "hiding the rail did not reach its node")
-        let hidden = try Self.counts(work, "SidebarRail.marks")
-        model.sections = [Self.section(["a", "b", "c"])]
-        let changed = try Self.counts(work, "SidebarRail.marks")
-        #expect(changed.evaluations == hidden.evaluations, "a hidden rail read its marks")
-        #expect(changed.applies == hidden.applies, "a hidden rail drew its marks")
-        #expect(rail.railLayout.ticks.count == 1, "a hidden rail laid out the new marks")
-        rail.isHidden = false
-        let shown = try Self.counts(work, "SidebarRail.marks")
-        #expect(shown.showRereads == hidden.showRereads + 1, "showing the rail did not read once")
-        #expect(shown.applies == hidden.applies + 1, "showing the rail did not draw once")
-        #expect(rail.railLayout.ticks.count == 3, "the shown rail did not draw the marks it missed")
+        let events = WindowEvents.of(window)
+        #expect(events.subscriberCount(NSWindow.didResignKeyNotification) >= 1)
+        list.leftButtonIsDown = { false }
+        let start = try SidebarPointerGestureTests.point(list, .workspace(WorkspaceID("y")))
+        try SidebarPointerGestureTests.press(list, at: start, moves: [], release: false)
+        #expect(list.holdsPointerGesture)
+
+        center.post(name: NSWindow.didResignKeyNotification, object: window)
+        #expect(!list.holdsPointerGesture, "the press outlived its window's key with the button up")
     }
 
-    private static func section(_ ids: [String]) -> SidebarSection {
-        SidebarSection(kind: .machine(SidebarMachine(id: .local, name: "This Mac", kind: .local)),
-                       nodes: ids.map { .workspace(SidebarWorkspace(id: WorkspaceID($0), title: $0)) })
+    // MARK: Person: the spring-load hover of an external tab drag (R-timer)
+
+    @Test func theSpringLoadIsAUserBlockingDeadlineThatLeavingTheRowCancels() throws {
+        let rig = MainDeadlineRig()
+        let (list, window) = Self.list(events: AppEvents(center: NotificationCenter()))
+        defer { window.close() }
+        list.deadlines = rig.deadlines
+        let spring = try #require(list.springLoad, "the injected deadlines made no spring-load deadline")
+        #expect(spring.workClass == .userBlocking, "the hover a person waits on is not the rest of their action")
+        let y = try SidebarPointerGestureTests.point(list, .workspace(WorkspaceID("y")))
+        let hit = list.externalDragMoved(windowPoint: list.convert(y, to: nil), sourceMachine: nil)
+        try #require(hit?.0 == .intoWorkspace(WorkspaceID("y")), "no workspace drop on y: \(String(describing: hit))")
+        #expect(spring.isScheduled && rig.hasArmedWake, "holding the tab on a row armed no spring-load")
+
+        list.externalDragExited()
+        #expect(!spring.isScheduled, "the spring-load stayed armed after the tab left the row")
+        rig.fireAndRun()
+        #expect(!list.model.selection.contains(WorkspaceID("y")), "a cancelled spring-load selected the row")
     }
 
-    private static func counts(_ work: MainWorkScheduler, _ owner: String) throws -> ObservationLedger.Entry {
-        try #require(work.observations.snapshot(matching: owner).first { $0.owner == owner })
+    @Test func theSpringLoadSelectsTheHeldRowAtItsDeadlineAndNotBefore() throws {
+        let rig = MainDeadlineRig()
+        let (list, window) = Self.list(events: AppEvents(center: NotificationCenter()))
+        defer { window.close() }
+        list.deadlines = rig.deadlines
+        let y = try SidebarPointerGestureTests.point(list, .workspace(WorkspaceID("y")))
+        let hit = list.externalDragMoved(windowPoint: list.convert(y, to: nil), sourceMachine: nil)
+        try #require(hit?.0 == .intoWorkspace(WorkspaceID("y")), "no workspace drop on y: \(String(describing: hit))")
+
+        rig.advance(by: .milliseconds(100))
+        rig.fireAtNow()
+        #expect(!list.model.selection.contains(WorkspaceID("y")), "the spring-load selected the row before its delay")
+        rig.fireAndRun()
+        #expect(rig.elapsed >= 0.5, "the spring-load fired \(rig.elapsed) s in")
+        #expect(list.model.selection.contains(WorkspaceID("y")), "the held row was not selected at its deadline")
+        #expect(list.springLoad?.isScheduled == false)
+        _ = list.externalDragEnded()
+    }
+
+    // MARK: The key-window repaint (R-notif)
+
+    @Test func keyWindowRepaintsShareOneObserverPerWindowAndNotice() {
+        _ = NSApplication.shared
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 200, height: 200), styleMask: [.borderless],
+                              backing: .buffered, defer: true)
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
+        let center = NotificationCenter()
+        let events = WindowEvents.of(window, center: center) // made first: the repaints' WindowEvents.of(window) returns it
+        let root = NSView(frame: NSRect(x: 0, y: 0, width: 200, height: 200))
+        window.contentView = root
+        let views = [NSView(frame: NSRect(x: 0, y: 0, width: 20, height: 20)), NSView(frame: NSRect(x: 20, y: 0, width: 20, height: 20))]
+        let repaints = views.map { view in
+            root.addSubview(view)
+            return KeyWindowRepaint(view)
+        }
+        for repaint in repaints { repaint.track() }
+        #expect(events.subscriberCount(NSWindow.didBecomeKeyNotification) == 2)
+        #expect(events.subscriberCount(NSWindow.didResignKeyNotification) == 2)
+        let delivered = events.deliveries(NSWindow.didResignKeyNotification)
+        for view in views { view.needsDisplay = false }
+
+        center.post(name: NSWindow.didResignKeyNotification, object: window)
+        #expect(events.deliveries(NSWindow.didResignKeyNotification) == delivered + 1, "one post reached the window more than once")
+        #expect(views.allSatisfy { $0.needsDisplay }, "a view did not repaint for its window's key change")
+        withExtendedLifetime(repaints) {}
     }
 }

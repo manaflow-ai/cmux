@@ -98,6 +98,15 @@ public protocol ChatWakeScheduler: AnyObject {
     /// Replaces any pending wake-up.
     func schedule(after seconds: Double, _ action: @escaping @MainActor @Sendable () -> Void)
     func cancel()
+    /// A new one-shot deadline for a view of the transcript (the scroller's fade-in, widen and hide),
+    /// named `owner` in the host's wakeup ledger. `exact`: it fires at its time, with no leeway (a
+    /// delay measured to the frame); else the host may move it by its leeway to share a wake.
+    /// Default: a ``RunLoopDeadline``.
+    @MainActor func makeDeadline(owner: String, exact: Bool) -> any ViewDeadline
+}
+
+extension ChatWakeScheduler {
+    @MainActor public func makeDeadline(owner: String, exact: Bool) -> any ViewDeadline { RunLoopDeadline(exact: exact) }
 }
 
 extension ChatIntents {

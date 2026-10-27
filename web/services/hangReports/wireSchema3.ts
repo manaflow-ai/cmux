@@ -220,6 +220,23 @@ export const WatchedThread = Schema.Struct({
   kind: Schema.String.pipe(Schema.pattern(RAW_LABEL_PATTERN)),
 });
 
+/** Non-default features one report names (the client's `HangReport.maxFeatures`). */
+export const MAX_FEATURES = 64;
+
+/** `features_hash`: the hash of every feature's value (`FeatureFieldState.hash`), 16 lowercase hex digits. */
+export const FeaturesHash = Schema.String.pipe(Schema.pattern(/^[0-9a-f]{16}$/));
+
+/**
+ * One `features[]` entry (p12-perf-process-151): a feature an override decided,
+ * by its registry name (`schemas/features/features.d/<name>.json`), its state
+ * and the input that decided it (`Feature.Source`, the channel default left out).
+ */
+export const FeatureEntry = Schema.Struct({
+  name: Schema.String.pipe(Schema.pattern(/^[A-Za-z][A-Za-z0-9]{0,63}$/)),
+  state: Schema.Literal("on", "off"),
+  source: Schema.Literal("policy", "env", "local", "remote", "trial"),
+});
+
 // MARK: the client's closed sets
 
 /** `TraceRuntime.Role` through `HangReport.blackBoxProcess`. */

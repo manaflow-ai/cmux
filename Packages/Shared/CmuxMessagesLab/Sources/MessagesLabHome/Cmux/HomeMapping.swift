@@ -195,9 +195,11 @@ enum HomeMapping {
 
     /// `text` cut at its Mermaid fences: the text pieces by `textParts`, each fence the renderer
     /// draws as a diagram bubble, a refused fence kept in the text around it. nil when no fence
-    /// becomes a diagram (the text then maps as it always did).
+    /// becomes a diagram (the text then maps as it always did). A Mermaid fence still streaming in
+    /// warms the engine off the main thread, so the closed fence finds it loaded; the word alone does not.
     static func diagramParts(_ text: String, diagrams: HomeDiagramRowProvider, _ textParts: (String) -> [Part]) -> [Part]? {
-        let segments = HomeMermaidSplitter().segments(in: text)
+        let (segments, opensDiagram) = HomeMermaidSplitter().split(text)
+        if opensDiagram { diagrams.warm() }
         guard segments.contains(where: { if case .mermaid = $0 { return true } else { return false } }) else { return nil }
         var out: [Part] = []
         var pending = ""

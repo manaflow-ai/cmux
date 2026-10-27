@@ -42,6 +42,7 @@ final class PageInfoCardView: NSView {
         applyColors()
     }
 
+    // visibility-walk-allow: the glass tint of the bubble's own panel, which no tab node holds (it is ordered out while closed); a few color stores, no layout
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         applyColors()

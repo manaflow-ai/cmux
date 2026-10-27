@@ -22,6 +22,20 @@ public protocol SidebarSurfaceIsland: AnyObject {
     var onDismiss: (() -> Void)? { get set }
     /// The sidebar went away: the page cancels its subscriptions.
     func close()
+    /// A hover asks for the surface: a page not made yet, or let go while it waited, is made now; its height
+    /// arrives through ``onHeightChange``.
+    func willShow()
+    /// The surface shows (its popover opened).
+    func didShow()
+    /// The surface waits parked in its card (made, or its popover closed).
+    func didPark()
+}
+
+extension SidebarSurfaceIsland {
+    /// A surface that keeps its page while it waits has nothing to make or report.
+    public func willShow() {}
+    public func didShow() {}
+    public func didPark() {}
 }
 
 /// Makes the update surfaces (set by the App on each sidebar).

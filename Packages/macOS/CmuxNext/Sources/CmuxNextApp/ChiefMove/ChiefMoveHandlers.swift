@@ -6,6 +6,7 @@ import CmuxNextDesign
 import CmuxNextHomeEngine
 import CmuxNextRemote
 import CmuxNextSidebar
+import CmuxNextWakeups
 import Foundation
 import class CmuxSafeConcurrency.OnceContinuation
 import enum CmuxSafeConcurrency.OnceContinuationError
@@ -103,66 +104,112 @@ enum ChiefMoveHandlers {
         let targetHome = ChiefMovePlan.targetHome(home: ChiefHome.resolve(tag: context.services.environment.tag).root.path,
                                                   userHome: FileManager.default.homeDirectoryForCurrentUser.path)
         let window = CloudHandlers.window(context)
-        let cloud = context.services.cloud
+        let auth = context.services.cloud.auth, work = context.services.work
         let title = name(target)
-        let work: ActionWork = Task {
-            var tokenDir: URL?
-            defer { if let tokenDir { try? FileManager.default.removeItem(at: tokenDir) } }
-            var tokenFile: String?
-            if case .cloud = target.kind {
-                do {
-                    let (dir, file) = try await writeToken(cloud)
-                    (tokenDir, tokenFile) = (dir, file.path)
-                } catch {
-                    return ActionWorkFailure(ChiefMoveStrings.failedTitle(title) + ": " + String(describing: error))
-                }
-            }
-            let plan = ChiefMovePlan(to: to, kind: target.kind, targetHome: targetHome, tokenFile: tokenFile)
-            let report = await run(cli, plan.dryRun, timeout: .seconds(180))
-            guard report.ok else {
-                if interactive { CloudPresenter.show(ChiefMoveStrings.failedTitle(title), report.text, copyable: true, in: window) }
-                return ActionWorkFailure(report.text)
-            }
-            if interactive {
-                // A dialog that goes unanswered is a no.
-                let go = (try? await withOnceContinuation { (done: OnceContinuation<Bool, OnceContinuationError>) in
-                    CloudPresenter.confirm(ChiefMoveStrings.confirmTitle(title), report.text, button: ChiefMoveStrings.move,
+        // Everything the steps need is made here, on main and without I/O: the token file's place (a Cloud target
+        // only) and the plan that names it.
+        var tokenDir: URL?
+        if case .cloud = target.kind {
+            tokenDir = FileManager.default.temporaryDirectory.appendingPathComponent("cmux-chief-move-\(UUID().uuidString)")
+        }
+        let token = tokenDir.map { (dir: $0, file: $0.appendingPathComponent("session-token")) }
+        let plan = ChiefMovePlan(to: to, kind: target.kind, targetHome: targetHome, tokenFile: token?.file.path)
+        let reach: (URL, [String])? = switch plan.reach {
+        case .cli(let arguments): (cli, arguments)
+        case .remote(let command): (URL(fileURLWithPath: "/usr/bin/env"), command)
+        case .none: nil
+        }
+        let steps = Steps(cli: cli, dryRun: plan.dryRun, move: plan.move, reach: reach, token: token)
+        // R-hop: the steps run off main (ProcessRunner, the token file on the files lane); the confirmation and the
+        // end are main-thread tasks of the run's class (userBlocking for the person's move, p06 rule 2).
+        let end = registry.completion(on: context.services.mainWork)
+        let confirm: @Sendable (String) async -> Bool = { report in
+            guard interactive else { return true }
+            // A dialog that goes unanswered (or a post that is dropped) is a no.
+            return (try? await withOnceContinuation { (done: OnceContinuation<Bool, OnceContinuationError>) in
+                end.post(owner: "ChiefMoveHandlers.confirm") {
+                    CloudPresenter.confirm(ChiefMoveStrings.confirmTitle(title), report, button: ChiefMoveStrings.move,
                                            identifier: "cmux.dialog.chief.move", in: window) { done.resume(returning: $0) }
-                }) ?? false
-                guard go else { return nil }
+                }
+            }) ?? false
+        }
+        registry.track(end.start {
+            let ended = await Self.perform(steps, auth: auth, work: work, priority: end.priority, confirm: confirm)
+            return await end.apply(owner: "ChiefMoveHandlers.ended", answering: true) {
+                Self.finish(ended, title: title, interactive: interactive, window: window)
             }
-            let moved = await run(cli, plan.move, timeout: .seconds(1800))
-            guard moved.ok else {
-                if interactive { CloudPresenter.show(ChiefMoveStrings.failedTitle(title), moved.text, copyable: true, in: window) }
-                return ActionWorkFailure(moved.text, mayHaveApplied: true)
+        })
+    }
+
+    /// The commands of one move and its token file's place, made on main.
+    nonisolated private struct Steps: Sendable {
+        var cli: URL
+        var dryRun: [String]
+        var move: [String]
+        /// The reach probe's executable and arguments; nil when there is no home to probe.
+        var reach: (URL, [String])?
+        var token: (dir: URL, file: URL)?
+    }
+
+    /// How a move ended, decided off main; ``finish(_:title:interactive:window:)`` shows it on main.
+    nonisolated private enum Ended: Sendable {
+        case tokenFailed(String)
+        /// A step failed with its report; after the move started it may have applied.
+        case failed(String, mayHaveApplied: Bool)
+        case declined
+        /// The move's report and the reach probe's.
+        case moved(String)
+    }
+
+    /// The steps, off main: the token file (Cloud), the dry run, the person's confirmation of its report, the move and
+    /// the reach probe. The token file is deleted when they end.
+    nonisolated private static func perform(_ steps: Steps, auth: CloudAuth, work: BackgroundWork, priority: WorkPriority,
+                                            confirm: @Sendable (String) async -> Bool) async -> Ended {
+        defer { if let token = steps.token { try? FileManager.default.removeItem(at: token.dir) } }
+        if let token = steps.token {
+            do {
+                let access = try await auth.tokens().access
+                try await work.run(priority, mayBlock: .files) { try writeToken(access, dir: token.dir, file: token.file) }
+            } catch {
+                return .tokenFailed(String(describing: error))
             }
-            var summary = moved.text
-            switch plan.reach {
-            case .cli(let arguments): summary += "\n\n" + (await run(cli, arguments, timeout: .seconds(120))).text
-            case .remote(let command): summary += "\n\n" + (await run(URL(fileURLWithPath: "/usr/bin/env"), command, timeout: .seconds(120))).text
-            case .none: break
-            }
+        }
+        let report = await run(steps.cli, steps.dryRun, timeout: .seconds(180))
+        guard report.ok else { return .failed(report.text, mayHaveApplied: false) }
+        guard await confirm(report.text) else { return .declined }
+        let moved = await run(steps.cli, steps.move, timeout: .seconds(1800))
+        guard moved.ok else { return .failed(moved.text, mayHaveApplied: true) }
+        guard let reach = steps.reach else { return .moved(moved.text) }
+        return .moved(moved.text + "\n\n" + (await run(reach.0, reach.1, timeout: .seconds(120))).text)
+    }
+
+    /// Shows how the move ended (when a person asked) and returns the run's failure.
+    private static func finish(_ ended: Ended, title: String, interactive: Bool, window: NSWindow?) -> ActionWorkFailure? {
+        switch ended {
+        case .tokenFailed(let error):
+            return ActionWorkFailure(ChiefMoveStrings.failedTitle(title) + ": " + error)
+        case .failed(let text, let mayHaveApplied):
+            if interactive { CloudPresenter.show(ChiefMoveStrings.failedTitle(title), text, copyable: true, in: window) }
+            return ActionWorkFailure(text, mayHaveApplied: mayHaveApplied)
+        case .declined:
+            return nil
+        case .moved(let summary):
             if interactive { CloudPresenter.show(ChiefMoveStrings.doneTitle(title), summary, copyable: true, in: window) }
             return nil
         }
-        registry.track(work)
     }
 
-    /// The Cloud session token in a 0600 file inside a 0700 folder of its own.
-    private static func writeToken(_ cloud: CloudService) async throws -> (URL, URL) {
-        let token = try await cloud.auth.tokens().access
-        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("cmux-chief-move-\(UUID().uuidString)")
+    /// The Cloud session token in a 0600 file inside a 0700 folder of its own. Blocking file calls: the files lane only.
+    nonisolated private static func writeToken(_ token: String, dir: URL, file: URL) throws {
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: false, attributes: [.posixPermissions: 0o700])
-        let file = dir.appendingPathComponent("session-token")
         guard FileManager.default.createFile(atPath: file.path, contents: Data(token.utf8), attributes: [.posixPermissions: 0o600]) else {
             throw CocoaError(.fileWriteUnknown)
         }
-        return (dir, file)
     }
 
-    private struct Output { var ok: Bool; var text: String }
+    nonisolated private struct Output { var ok: Bool; var text: String }
 
-    private static func run(_ executable: URL, _ arguments: [String], timeout: Duration) async -> Output {
+    nonisolated private static func run(_ executable: URL, _ arguments: [String], timeout: Duration) async -> Output {
         do {
             let result = try await ProcessRunner.run(executable: executable, arguments: arguments, environment: nil,
                                                      timeout: timeout, clock: ContinuousClock())
