@@ -5,6 +5,7 @@ import CmuxNextBrowserHistory
 @testable import CmuxNextDaemon
 import CmuxNextDaemonService
 import CmuxNextInput
+import CmuxNextWakeups
 import Foundation
 import Testing
 
@@ -162,7 +163,8 @@ struct BrowserPageStateHistoryTests {
 
     private static func writer(_ tab: MockBrowserTab, keepsEngineState: Bool, sent: Sent) -> BrowserHistoryWriter {
         BrowserHistoryWriter(page: tab, recorded: nil, keepsEngineState: keepsEngineState, delay: .seconds(3600),
-                             sleep: { try await Task.sleep(for: $0) }, center: NotificationCenter(),
+                             sleep: { try await Task.sleep(for: $0) }, mainWork: taskTurnMainWork(),
+                             appEvents: AppEvents(center: NotificationCenter()),
                              send: { history in sent.histories.append(history); return true })
     }
 }

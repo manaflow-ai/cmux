@@ -1,4 +1,4 @@
-public import CmuxNextDesign
+public import CmuxNextDesignTokens
 public import CoreGraphics
 
 /// Column and split defaults in cmux.json (plans/cmux-next/column-sizing.md):

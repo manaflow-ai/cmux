@@ -3,6 +3,7 @@ import AppKit
 import CmuxNextBrowser
 import CmuxNextBrowserHistory
 import CmuxNextDaemon
+import CmuxNextWakeups
 import Foundation
 import Testing
 
@@ -19,11 +20,14 @@ struct BrowserScrollSaveTests {
         tab.scrollPosition = { 640 }
         let sent = Sent()
         let center = NotificationCenter()
+        // The app's one fan-out of the notices (its subscriptions hold it weakly).
+        let events = AppEvents(center: center)
         // The navigation write-back waits an hour: only leaving the app writes.
         let writer = BrowserHistoryWriter(page: tab, recorded: nil, delay: .seconds(3600),
-                                          sleep: { try await Task.sleep(for: $0) }, center: center,
+                                          sleep: { try await Task.sleep(for: $0) }, mainWork: taskTurnMainWork(), appEvents: events,
                                           send: { history in sent.histories.append(history); return true })
         defer { writer.cancel() }
+        #expect(events.subscriberCount(NSApplication.didResignActiveNotification) == 1, "each writer must not observe the notice itself")
 
         center.post(name: NSApplication.didResignActiveNotification, object: nil)
         let deadline = ContinuousClock.now + .seconds(5)
