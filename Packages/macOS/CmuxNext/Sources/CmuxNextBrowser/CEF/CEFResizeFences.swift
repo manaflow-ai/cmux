@@ -51,10 +51,11 @@ final class CEFResizeFences {
                                holdCommit: { context.setFencePort($0) })
             },
             afterCommit: { block in
+                // The SDK's API notes import the SPI selector `addCommitHandler:forPhase:` as `addCommitHandler(_:for:)`.
                 CATransaction.addCommitHandler({
                     // main-proof: CATransaction runs a main-thread transaction's commit handlers on the main thread
                     MainActor.assumeIsolated { block() }
-                }, forPhase: kCATransactionPhasePostCommit)
+                }, for: kCATransactionPhasePostCommit)
             },
             release: { fence in _ = mach_port_deallocate(mach_task_self_, fence) })
     }
