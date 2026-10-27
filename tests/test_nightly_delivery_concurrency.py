@@ -16,6 +16,39 @@ WORKFLOWS = ROOT / ".github" / "workflows"
 sys.path.insert(0, str(ROOT / "scripts" / "ci"))
 from delivery_workflows import (  # noqa: E402
     DELIVERY_GLOBS, DELIVERY_RUN_NAME_PREFIXES, REQUIRED_DELIVERY_WORKFLOWS, is_delivery_run, is_delivery_workflow)
+from delivery_concurrency import can_be_shared, findings, stale_allowances  # noqa: E402
+
+# Shared groups in delivery workflows that may replace a waiting run, and why. Each is a run that
+# builds and publishes nothing itself, or whose waiting runs are interchangeable (it reads the tip or
+# the feed when it starts), or whose replaced request the job itself recovers. Anything else is keyed
+# per run, SHA or build (scripts/ci/delivery_concurrency.py; the same check runs in
+# manaflow-ai/cmuxterm-hq and teamleaderleo/glaeda).
+ALLOWED_SHARED: dict[tuple[str, str], str] = {
+    ("cmux-next-dev-daily-dispatch.yml", ""): (
+        "the dispatcher snapshots the branch tip when it starts and builds nothing itself; the run that "
+        "waits does the work of any it replaced"),
+    ("nightly-next-canary.yml", ""): (
+        "the scheduled 'feed' tick canaries the feed's newest build when it starts; a dispatch for one "
+        "build and a pull request run have their own groups"),
+    ("nightly-next-feed-watch.yml", ""): "a schedule-only watch that reads the feed when it starts",
+    ("nightly-next-tick.yml", "request"): (
+        "the tick dispatches no build itself (test_delivery_coalescers_have_fixed_backstops...); a sha "
+        "request has its own group"),
+    ("nightly-next-train.yml", "drive"): (
+        "the train planner builds and publishes nothing; it plans from the durable verdict to the newest "
+        "tip when it starts, and a candidate build runs in its own mode build run"),
+    ("nightly.yml", ""): (
+        "every push run and promotion request is keyed by its run id; the shared lanes are the scheduled "
+        "cache seed and manual fast/full dispatches, which build the branch tip when they start "
+        "(test_nightly_push_runs_never_share_a_build_group)"),
+    ("nightly.yml", "promote-nightly-next"): (
+        "a promotion request builds nothing; decideNewest() also decides the newest request GitHub "
+        "evicted from this queue"),
+    ("nightly.yml", "await-release-surface-ack"): "retired (if: false); it never runs",
+    ("nightly.yml", "publish-nightly"): (
+        "runs only for private branch artifacts (should_publish != 'true'); published channels publish "
+        "through auto-resume-nightly-notarization.yml under one R2 lease, with no group"),
+}
 
 # Workflows whose listed jobs take no concurrency group at all, top-level or
 # job-level, not even a non-cancelling one: GitHub keeps one pending run per
@@ -76,6 +109,58 @@ def test_delivery_workflows_never_cancel_in_progress_work() -> None:
     for path in delivery_workflows():
         text = path.read_text(encoding="utf-8")
         assert not re.search(r"(?m)^\s*cancel-in-progress:\s*true\s*$", text), path
+
+
+def test_delivery_groups_are_keyed_per_run_or_payload() -> None:
+    # A fixed group drops queued delivery runs: GitHub keeps one pending run per group.
+    workflows = delivery_workflows()
+    problems = [problem for path in workflows for problem in findings(path, ALLOWED_SHARED)]
+    problems += stale_allowances(workflows, ALLOWED_SHARED)
+    assert not problems, "\n".join(problems)
+
+
+def test_the_shared_group_check_tells_keyed_groups_from_fixed_ones() -> None:
+    assert can_be_shared("nightly-next-linux")
+    assert can_be_shared("x-${{ inputs.channel }}-${{ inputs.variant }}")
+    assert can_be_shared("${{ inputs.sha != '' && format('t-{0}', github.run_id) || 't' }}")
+    assert can_be_shared("c-${{ github.event.pull_request.number || 'feed' }}")
+    assert not can_be_shared("x-${{ github.run_id }}")
+    assert not can_be_shared("x-${{ github.sha }}")
+    assert not can_be_shared("s-${{ github.event.workflow_run.id || inputs.source_run_id }}")
+    assert not can_be_shared("v-${{ needs.decide.outputs.build }}")
+    assert not can_be_shared("p-${{ (github.ref_name == 'main') && 'a' || 'b' }}-${{ format('p-{0}', github.run_id) }}")
+    assert can_be_shared("p-${{ github.event_name == 'push' && format('p-{0}', github.run_id) || 'full' }}")
+
+
+def test_the_check_reads_every_concurrency_form_in_a_workflow(tmp_path: Path | None = None) -> None:
+    import tempfile
+
+    sample = """on: push
+concurrency: one-group
+jobs:
+  a:
+    runs-on: x
+    concurrency:
+      group: job-${{ github.run_id }}
+      cancel-in-progress: true
+  b:
+    runs-on: x
+    strategy:
+      matrix:
+        concurrency: [1, 2]
+    concurrency:
+      group: fixed
+      cancel-in-progress: false
+"""
+    with tempfile.TemporaryDirectory() as folder:
+        path = Path(folder) / "nightly-sample.yml"
+        path.write_text(sample, encoding="utf-8")
+        found = findings(path, {})
+    assert any("top-level: group 'one-group'" in p for p in found), found
+    assert any("job a: cancel-in-progress is 'true'" in p for p in found), found
+    assert any("job b: group 'fixed'" in p for p in found), found
+    assert not any("job a: group" in p for p in found), found
+    assert len(found) == 3, found
 
 
 def test_newest_wins_jobs_take_no_concurrency_group() -> None:
@@ -157,6 +242,9 @@ if __name__ == "__main__":
     test_the_declared_list_matches_every_delivery_workflow_path()
     test_dev_source_runs_are_named_as_the_declared_list_expects()
     test_delivery_workflows_never_cancel_in_progress_work()
+    test_delivery_groups_are_keyed_per_run_or_payload()
+    test_the_shared_group_check_tells_keyed_groups_from_fixed_ones()
+    test_the_check_reads_every_concurrency_form_in_a_workflow()
     test_newest_wins_jobs_take_no_concurrency_group()
     test_delivery_coalescers_have_fixed_backstops_and_non_cancelling_groups()
     test_nightly_push_runs_never_share_a_build_group()

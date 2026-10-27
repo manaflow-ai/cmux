@@ -36,8 +36,11 @@ permissions:
   actions: read
   contents: read
 
+# Per recovery: a group per channel and variant let a newer recovery replace a
+# waiting one for another source run, whose accepted DMG then never published.
+# Two requests for the same recovery artifact still take turns.
 concurrency:
-  group: notarization-recovery-${{ inputs.channel }}-${{ inputs.variant }}
+  group: notarization-recovery-${{ inputs.channel }}-${{ inputs.variant }}-${{ inputs.source_run_id }}-${{ inputs.recovery_artifact }}
   cancel-in-progress: false
 
 jobs:
