@@ -174,6 +174,7 @@ every poll and holds only when it holds together with the positive ones at the e
 | `{"app_tab_gone": "N"}` | app | terminal N is in no tab of the topology |
 | `{"app_rpc": {"method": M, "params": P, "path": "a.b.0", "equals"\|"contains"\|"len"\|"len_gte"\|"gt"\|...: V}}` | app | one control-socket read; the value at `path` meets every rule (also `not_equals`, `in`, `not_in`: a missing value fails them); `bind: NAME` keeps the value as `${NAME}` |
 | `{"app_grid": {"cell_height_gt": V}}` | app | the pane's drawn grid (`cell_height`, `cell_width` with `equals`, `lt`, `gt`, ...) |
+| `{"daemon_terminal_gone": "N"}` | daemon | the daemon's terminal list has no terminal N, or its lifecycle says it ended (`exited`, `closed`, `dead`): a shell that exited closed its terminal |
 
 `within` (seconds) makes a timing claim: each condition must first hold within that long of
 `since`, or it fails with the measured time. Frame checks are read after the other conditions
