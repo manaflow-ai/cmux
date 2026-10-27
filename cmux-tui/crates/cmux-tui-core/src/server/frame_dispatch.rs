@@ -27,6 +27,12 @@
 //! reply (server/pending_streams.rs, p05-ipc-087); a frame naming a stream
 //! that was never announced is a bad message.
 //!
+//! Frames are granted only at this daemon's API revision (capabilities.rs,
+//! `still_allowed`, checked again before every frame), so a body is never
+//! upgraded from another revision (`MessageWriter::upgrade_request`). While a
+//! daemon handoff is pending, a REQUEST gets its line's refusal as its ERROR
+//! frame (server/pending_handoff.rs).
+//!
 //! Only `Command` methods answer on frames yet. A feature route or a v2
 //! operation replies on its own writer, so a frame naming one gets the ERROR
 //! [`METHOD_NOT_FRAMED`] and the client sends that method as a line; the
@@ -73,7 +79,13 @@ pub(super) struct FrameCall {
 }
 
 impl FrameCall {
-    fn new(stream: u16, call: CallAux, opens: Option<Arc<StreamEndpoint>>) -> Self {
+    /// A request that opens no stream.
+    pub(super) fn new(stream: u16, call: CallAux) -> Self {
+        Self::opening(stream, call, None)
+    }
+
+    /// A request that opens `opens` when it is an opener (p05-ipc-087).
+    fn opening(stream: u16, call: CallAux, opens: Option<Arc<StreamEndpoint>>) -> Self {
         FrameCall {
             stream,
             call: CallAux { flags: CallFlags::empty(), ..call },
@@ -315,13 +327,13 @@ impl RequestFrames {
         // the body parses below and on its line's path count toward it.
         let _parses = JsonParseScope::enter(connection.mux.ipc_stats(), IpcTransport::Frames);
         if !self.served_on_frames(method) {
-            let call = Arc::new(FrameCall::new(stream, call, None));
+            let call = Arc::new(FrameCall::new(stream, call));
             return Ok(send_not_framed(&connection.writer.replying_to(call), method));
         }
         names_method(body, method).map_err(ConnectionBadMessage::Call)?;
         let opens =
             matches!(lane, RequestLane::Open).then(|| self.streams.announce(stream, connection));
-        let frame_call = Arc::new(FrameCall::new(stream, call, opens));
+        let frame_call = Arc::new(FrameCall::opening(stream, call, opens));
         let writer = connection.writer.replying_to(frame_call.clone());
         self.in_flight.insert(call.request_id, frame_call.clone());
         match lane {

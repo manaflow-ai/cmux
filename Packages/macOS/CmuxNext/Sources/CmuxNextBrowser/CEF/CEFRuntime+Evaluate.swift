@@ -34,6 +34,16 @@ extension CEFRuntime {
         if tabEvaluate(browser, token, world, script, 0) != 1, latestEvaluation?.token == token { latestEvaluation.take()?.done(nil) }
     }
 
+    /// Runs `script` in `browser`'s main frame (`world` "" = the page's world) and keeps no answer: for a
+    /// command whose value nobody reads (a menu's Copy). Its EVALUATE_RESULT finds no caller and is dropped.
+    /// False when the shim cannot evaluate or refused the call.
+    func perform(_ browser: Int32, world: String, script: String, userGesture: Bool) -> Bool {
+        guard let tabEvaluate = shim?.tabEvaluate else { return false }
+        let token = nextEvaluation
+        nextEvaluation = nextEvaluation == .max ? 1 : nextEvaluation + 1
+        return tabEvaluate(browser, token, world, script, userGesture ? 1 : 0) == 1
+    }
+
     /// EVALUATE_RESULT: resumes its caller. An answer inside `tabEvaluate` (before the caller
     /// waits) is kept for it.
     func evaluationAnswered(token: Int32, _ result: CEFEvaluationResult) {
