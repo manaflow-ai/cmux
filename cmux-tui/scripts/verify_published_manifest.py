@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import http.client
 import json
 import re
 import sys
@@ -46,6 +47,10 @@ MAX_ARTIFACT_BYTES = 512 << 20
 # A wrong binary read is fetched again this many times, from a fresh URL, before it fails.
 BINARY_READ_ATTEMPTS = 3
 RETRY_PAUSE_SECONDS = 5
+# A fetch that times out, drops its connection or gets a 5xx is read again, up
+# to FETCH_ATTEMPTS times with a doubling pause. Run 40466861832 lost a whole
+# tree's publish to one read timeout here. A 4xx or a wrong body fails at once.
+FETCH_ATTEMPTS = 3
 DIAGNOSTIC_HEADERS = ("Content-Length", "ETag", "Last-Modified", "CF-Cache-Status", "CF-Ray", "Age")
 
 
@@ -173,14 +178,20 @@ def _verify_machine_binary_digests(
             assert isinstance(name, str)
             assert isinstance(expected_digest, str)
             assert isinstance(expected_size, int)
-            if artifact_directory is not None:
-                payload = _read_file(artifact_directory / name, max_bytes=MAX_ARTIFACT_BYTES)
-            else:
+            if artifact_directory is None:
+                # A remote read can come back short (run 40386462365 read 5636096 of
+                # 96299600 bytes of a write-once object) or wrong; read it again from a
+                # fresh URL as binaries are, and fail only when every read disagrees.
                 assert artifact_base_url is not None
-                payload = _read_url(
+                _verify_remote_binary(
                     f"{artifact_base_url.rstrip('/')}/{quote(name, safe='')}",
-                    max_bytes=MAX_ARTIFACT_BYTES,
+                    name,
+                    expected_digest,
+                    source=source,
+                    expected_size=expected_size,
                 )
+                continue
+            payload = _read_file(artifact_directory / name, max_bytes=MAX_ARTIFACT_BYTES)
             if len(payload) != expected_size:
                 raise ManifestError(
                     f"{source} size mismatch for {name}: expected {expected_size}, got {len(payload)}"
@@ -334,8 +345,27 @@ def _validate_manifest(
             raise ManifestError(f"{source} has invalid cmux-tui SHA-256 for {artifact}")
 
 
+class _TransientFetchError(ManifestError):
+    """A fetch that may succeed if read again: a timeout, a dropped connection or a 5xx."""
+
+
 def _read_url(
     url: str, *, max_bytes: int = MAX_MANIFEST_BYTES, headers_out: dict[str, str] | None = None
+) -> bytes:
+    for attempt in range(FETCH_ATTEMPTS):
+        try:
+            return _read_url_once(url, max_bytes=max_bytes, headers_out=headers_out)
+        except _TransientFetchError as error:
+            if attempt + 1 >= FETCH_ATTEMPTS:
+                raise ManifestError(f"{error} (after {FETCH_ATTEMPTS} reads)") from error
+            pause = RETRY_PAUSE_SECONDS * (2 ** attempt)
+            print(f"warning: {error}; reading again in {pause}s", file=sys.stderr)
+            time.sleep(pause)
+    raise AssertionError("unreachable")
+
+
+def _read_url_once(
+    url: str, *, max_bytes: int, headers_out: dict[str, str] | None
 ) -> bytes:
     request = urllib.request.Request(
         url,
@@ -376,15 +406,25 @@ def _read_url(
                     )
                 chunks.append(chunk)
             return b"".join(chunks)
-    except (OSError, urllib.error.URLError) as error:
+    except urllib.error.HTTPError as error:
+        if error.code >= 500:
+            raise _TransientFetchError(f"could not fetch {url}: {error}") from error
         raise ManifestError(f"could not fetch {url}: {error}") from error
+    except (OSError, urllib.error.URLError, http.client.HTTPException) as error:
+        # Timeouts, resets, DNS or connection failures, and a body cut off
+        # mid-read (http.client.IncompleteRead): no complete answer came.
+        raise _TransientFetchError(f"could not fetch {url}: {error}") from error
 
 
-def _verify_remote_binary(url: str, artifact: str, expected: str, *, source: str) -> None:
-    """Compare a published binary with its digest, reading it again from a fresh URL on a mismatch.
+def _verify_remote_binary(
+    url: str, artifact: str, expected: str, *, source: str, expected_size: int | None = None
+) -> None:
+    """Compare a published binary with its digest (and size, when known), reading it again
+    from a fresh URL on a mismatch.
 
-    Write-once objects never change, so a wrong read is a transient fetch problem, not a
-    different build. Run 37505519359 failed on one such read while R2 held the right bytes.
+    Write-once objects never change, so a wrong or short read is a transient fetch problem,
+    not a different build. Run 37505519359 failed on one such read while R2 held the right
+    bytes, and run 40386462365 on a short one.
     """
 
     reads: list[str] = []
@@ -393,15 +433,16 @@ def _verify_remote_binary(url: str, artifact: str, expected: str, *, source: str
         fetch_url = url if attempt == 0 else f"{url}?verify={time.time_ns()}"
         payload = _read_url(fetch_url, max_bytes=MAX_ARTIFACT_BYTES, headers_out=headers)
         actual = hashlib.sha256(payload).hexdigest()
-        if actual.lower() == expected.lower():
+        if actual.lower() == expected.lower() and (expected_size is None or len(payload) == expected_size):
             return
         details = ", ".join(f"{name} {value}" for name, value in headers.items())
         reads.append(f"read {attempt + 1}: got {actual}, size {len(payload)}" + (f", {details}" if details else ""))
         if attempt + 1 < BINARY_READ_ATTEMPTS:
             print(f"warning: {source} digest mismatch for {artifact} on {reads[-1]}; reading again", file=sys.stderr)
             time.sleep(RETRY_PAUSE_SECONDS)
+    expected_text = expected if expected_size is None else f"{expected}, size {expected_size}"
     raise ManifestError(
-        f"{source} digest mismatch for {artifact}: expected {expected} after {BINARY_READ_ATTEMPTS} reads ({'; '.join(reads)})"
+        f"{source} digest mismatch for {artifact}: expected {expected_text} after {BINARY_READ_ATTEMPTS} reads ({'; '.join(reads)})"
     )
 
 

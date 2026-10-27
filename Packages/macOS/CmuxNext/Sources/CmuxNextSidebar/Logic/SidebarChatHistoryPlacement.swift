@@ -17,11 +17,12 @@ nonisolated struct SidebarChatHistoryPlacement {
         spacing = m.sectionSpacing
     }
 
-    /// Pinned at `y`, once, with a section's spacing under it.
+    /// Pinned at `y`, once. Its rows end with the row spacing, so the first workspace row follows its last
+    /// pinned chat as the next row does any other (no section gap after the pins, Leo 2026-10-21).
     mutating func placePinned(_ y: inout CGFloat) {
         guard pinnedY == nil, pinnedHeight > 0 else { return }
         pinnedY = y
-        y += pinnedHeight + spacing
+        y += pinnedHeight
     }
 
     /// Earlier a section's spacing under `y`, once; Pinned first when no computer took it.

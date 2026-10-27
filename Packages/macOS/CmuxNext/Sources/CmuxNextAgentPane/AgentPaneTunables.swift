@@ -397,6 +397,16 @@ public nonisolated struct AgentPaneTunables {
         help: "Visual treatment for the session sidebar's latest-reply hover preview: card, quiet, or outline.",
         default: .card, code: "AgentPaneTunables.sidebarPreviewVariant")
 
+    /// Whether a prompt the daemon dropped with its connection before acpmux took it (an acpmux
+    /// restart, a reset socket) goes again on the pane's next connection, under its promptId, so
+    /// acpmux runs it at most once (``AgentPanePromptJournal``). Off (the default), the page says
+    /// "Not sent" with Retry, as before; the page's recovery for a prompt sent again after its
+    /// "Not sent" lands with turning this on.
+    public static let lostPromptReplay = Tunable<Bool>.toggle(
+        "agentPane.debug.lostPromptReplay", PageTunables.section, "Send again a prompt a dropped connection lost",
+        help: "A prompt acpmux never took because its connection dropped goes again on the next connection.",
+        default: false, code: "AgentPaneTunables.lostPromptReplay")
+
     public static var all: [TunableDescriptor] {
         [
             agentPairGuard.descriptor,
@@ -411,6 +421,7 @@ public nonisolated struct AgentPaneTunables {
             harnessSwitchInStartedChat.descriptor,
             liveLineBelow.descriptor,
             liveThoughtViewport.descriptor,
+            lostPromptReplay.descriptor,
             modelMenu.descriptor,
             needsYou.descriptor,
             needsYouPill.descriptor,

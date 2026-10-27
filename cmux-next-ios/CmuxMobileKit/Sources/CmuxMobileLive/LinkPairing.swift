@@ -23,12 +23,17 @@ public struct LinkPairing: Sendable {
     /// has no shared keychain group (or in tests): pushes stay unsealed.
     public let push: PushKeys?
 
-    public init(keys: PhoneKeys, phoneID: String, name: String, pins: MacPins = .standard, push: PushKeys? = nil) {
+    /// A scanned pairing code waiting for its Mac's challenge (``PairInvite``).
+    public let invites: PairInvites
+
+    public init(keys: PhoneKeys, phoneID: String, name: String, pins: MacPins = .standard, push: PushKeys? = nil,
+                invites: PairInvites = PairInvites()) {
         self.keys = keys
         self.phoneID = phoneID
         self.name = name
         self.pins = pins
         self.push = push
+        self.invites = invites
     }
 
     /// What the phone says when a paired Mac's identity changed.
@@ -198,8 +203,11 @@ public struct LinkPairing: Sendable {
                     return .refused(LinkError(code: "wrong_mac", message: "The Mac answered with another device id"))
                 }
                 // The Mac's identity key: its proof must hold, and match the pin.
+                var provenNow: String?
                 switch Self.check(value, mac: mac, phone: phoneID, macNonce: opened.macNonce, challenge: nonce, pinned: pinned) {
-                case .proven(let key): proven = key
+                case .proven(let key):
+                    proven = key
+                    provenNow = key
                 case .unproven: break
                 case .refused(let error): return .refused(error)
                 }
@@ -208,8 +216,11 @@ public struct LinkPairing: Sendable {
                 let payload = LinkAuthPayload(mac: mac, phone: phoneID, nonce: nonce, identityKey: identity,
                                               approvalKey: approval, action: "pair")
                 let signature = try keys.signIdentity(payload.message)
-                let reply = try JSONEncoder().encode(JSONValue.object(["signature": .string(ApprovalPayload.hex(signature))]))
-                try await channel.send(reply)
+                var reply: [String: JSONValue] = ["signature": .string(ApprovalPayload.hex(signature))]
+                // A scanned code stands in for the Mac's Allow prompt, only on the Mac that just
+                // proved the key the code names (never in `open`'s args, sent before any proof).
+                if let token = invites.token(mac: mac, provenKey: provenNow) { reply["pairToken"] = .string(token) }
+                try await channel.send(try JSONEncoder().encode(JSONValue.object(reply)))
             }
         } catch let error as LinkError {
             return .refused(error)
