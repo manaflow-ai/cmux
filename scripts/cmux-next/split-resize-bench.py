@@ -97,5 +97,5 @@ if opts.json:
     Path(opts.json).parent.mkdir(parents=True, exist_ok=True)
     Path(opts.json).write_text(json.dumps(result, indent=1) + "\n")
 # No variant measured: the step fails (its report, written above, says why).
-if all("error" in report for report in reports):
+if not any(report.get("measured") for report in reports):
     sys.exit(1)

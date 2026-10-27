@@ -258,7 +258,7 @@ def judge(data: dict, refresh: float) -> dict:
         "layout_lag_max": worst("layout_lag", "max"),
         "layout_lag_ms_p95": worst("layout_lag_ms", "p95"),
         "stale_frames": sum(drag["stale_frames"] for drag in measured),
-        "moving_frames": sum(drag["area_moving_frames"] for drag in measured),
+        "moving_frames": sum(drag["divider_moving_frames"] for drag in measured),  # the frames stale_frames reads
         "relayouts": sum(drag["relayouts"] for drag in measured),
         "settle_ms_max": max(settles, default=None),
         "area_lag_max": worst("area_lag", "max"),

@@ -30,6 +30,20 @@ struct BrowserDragResizeLaunchTests {
         #expect(store.override(BrowserResizeTunables.dragResize.key) == .choice("synced"))
     }
 
+    /// Setting the default (`hold`, a reset) before Chromium starts wins over the file's `synced`, at launch
+    /// and once the store's read lands.
+    @Test func aResetBeforeTheReadLandsWins() async throws {
+        let file = try Self.file(#"{"browserResize.dragResize": "synced"}"#)
+        defer { try? FileManager.default.removeItem(at: file) }
+        let store = TunableStore()
+        store.register(BrowserResizeTunables.all)
+        store.activate(file: file)
+        store.set(BrowserResizeTunables.dragResize.key, nil)
+        #expect(store.settledOverride(BrowserResizeTunables.dragResize.key) == nil)
+        try await Task.sleep(for: .milliseconds(300))  // the store's read lands on the main actor
+        #expect(store.override(BrowserResizeTunables.dragResize.key) == nil)
+    }
+
     /// A file from before the three modes: `holdDuringDrag` off is `live`, on is `hold`; the new key wins.
     @Test(arguments: [(#""browserResize.holdDuringDrag": false"#, "live"), (#""browserResize.holdDuringDrag": true"#, "hold"),
                       (#""browserResize.holdDuringDrag": false, "browserResize.dragResize": "synced""#, "synced")])

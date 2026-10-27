@@ -32,6 +32,9 @@ public nonisolated final class TunableStore: Observable, Sendable {
         /// Keys a tunable had before (`registerRename`): the old key's file value, mapped, when the file
         /// has no value under the new key.
         package var renames: [String: Rename] = [:]
+        /// Keys reset while the file read was pending (setting a choice back to its default is a reset):
+        /// the file's value for them is not applied when the read lands.
+        package var cleared: Set<String> = []
 
         package init(loading: Bool = false, overrides: [String: TunableValue] = [:], descriptors: [String: TunableDescriptor] = [:], revision: Int = 0, keyPaths: [String: KeyPath<TunableStore, Int> & Sendable] = [:]) {
             self.loading = loading
@@ -143,7 +146,7 @@ public nonisolated final class TunableStore: Observable, Sendable {
     /// a `set` that lands during the read wins, and the caller gets that value.
     public func settledOverride(_ key: String) -> TunableValue? {
         guard active.load(ordering: .acquiring) else { return nil }
-        let pending = state.withLock { state -> Bool in state.loading && state.overrides[key] == nil }
+        let pending = state.withLock { state -> Bool in state.loading && state.overrides[key] == nil && !state.cleared.contains(key) }
         guard pending, let url = file.withLock({ $0 }) else { return state.withLock { $0.overrides[key] } }
         // concurrency-allow: one small Debug Settings file, read once when Chromium starts and only while the
         // store's own read of it is still pending (DEV and NIGHTLY)
@@ -175,7 +178,10 @@ public nonisolated final class TunableStore: Observable, Sendable {
 
     /// Removes the overrides of `keys`.
     public func reset(_ keys: [String]) {
-        let present = state.withLock { state in keys.filter { state.overrides[$0] != nil } }
+        let present = state.withLock { state in
+            if state.loading { state.cleared.formUnion(keys) }
+            return keys.filter { state.overrides[$0] != nil }
+        }
         guard !present.isEmpty else { return }
         mutate(present) { overrides in present.forEach { overrides[$0] = nil } }
     }
@@ -209,11 +215,12 @@ public nonisolated final class TunableStore: Observable, Sendable {
     }
 
     @MainActor private func finishLoad(_ values: [String: TunableValue]) {
-        let changedBeforeLoad = state.withLock { state in
+        let (changedBeforeLoad, kept) = state.withLock { state in
             state.loading = false
-            return !state.overrides.isEmpty
+            defer { state.cleared = [] }
+            return (!state.overrides.isEmpty || !state.cleared.isEmpty, values.filter { !state.cleared.contains($0.key) })
         }
-        merge(values)
+        merge(kept)
         // A change made while the read was pending was held back; write the
         // merged set now.
         if changedBeforeLoad {
@@ -223,7 +230,7 @@ public nonisolated final class TunableStore: Observable, Sendable {
     }
 
     private func merge(_ values: [String: TunableValue]) {
-        let fresh = state.withLock { state in values.filter { state.overrides[$0.key] == nil } }
+        let fresh = state.withLock { state in values.filter { state.overrides[$0.key] == nil && !state.cleared.contains($0.key) } }
         guard !fresh.isEmpty else { return }
         mutate(Array(fresh.keys), persist: false) { overrides in
             for (key, value) in fresh where overrides[key] == nil { overrides[key] = value }
