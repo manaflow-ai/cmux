@@ -370,15 +370,15 @@ public final class MessagesLabHomeView: NSView {
     /// is still loading the field does not exist yet; it takes the keyboard once installed, unless
     /// the keyboard moved somewhere else in between (a click in another field, a text selection).
     /// Never brings the window forward.
-    /// - Parameter allowed: Whether the field may still take the keyboard, asked now and when it is
-    ///   installed. The host passes its focus rule when nobody opened the conversation (its default one
+    /// - Parameter allowed: Whether the field may take the keyboard, asked when it does (now, or when the
+    ///   field is installed). The host passes its focus rule when nobody opened the conversation (its default one
     ///   shown by itself): another pane of the window may have the keyboard although no view of the window
     ///   holds it (a page in its own window).
     public func takeKeyboardOnOpen(while allowed: @escaping @MainActor () -> Bool = { true }) {
-        guard !ChatController.noFocus, let window, allowed() else { return }
+        guard !ChatController.noFocus, let window else { return }
         if let field = controller.demo?.compose.textView.view {
             openKeyboardWaits = false
-            if window.firstResponder !== field { window.makeFirstResponder(field) }
+            if window.firstResponder !== field, allowed() { window.makeFirstResponder(field) }
             return
         }
         openKeyboardWaits = true

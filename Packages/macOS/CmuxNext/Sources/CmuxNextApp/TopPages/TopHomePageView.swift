@@ -386,9 +386,8 @@ final class TopHomePageView: NSView {
     /// message box is installed (`NSWindow.keyboardIsFree(for:)`). In a pane that is the focus model's answer, so
     /// a browser page focused beside Home keeps the keys (QA chrome-parity-v2-2-2 bug 1).
     private func focusPrimaryInputUnasked(in window: NSWindow) {
-        guard window.keyboardIsFree(for: self) else { return }
         if isComposingNewMessage {
-            if let target = newMessage?.focusTarget { window.makeFirstResponder(target) }
+            if let target = newMessage?.focusTarget, window.keyboardIsFree(for: self) { window.makeFirstResponder(target) }
             return
         }
         host?.takeKeyboardOnOpen { [weak self] in

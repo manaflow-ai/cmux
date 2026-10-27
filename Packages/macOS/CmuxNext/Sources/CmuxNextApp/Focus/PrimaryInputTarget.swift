@@ -102,14 +102,17 @@ extension NSWindow {
     /// `view` is in a pane of a cmux window, its focus model keeps the keyboard in that pane's content.
     /// The first responder alone cannot say it: a Chromium page that has the keys leaves the cmux window
     /// itself first responder, and Home took them from a restored browser page (QA chrome-parity-v2-2-2
-    /// bug 1). Outside every pane (classic Home as a top page) the first responder rule alone decides.
+    /// bug 1). Outside every pane (classic Home as a top page), or in a pane the focus model does not
+    /// know yet (its first topology still to come), the first responder rule alone decides.
     /// - Parameter view: The surface's view, in this window.
     /// - Returns: True when the surface may give its primary input the keyboard now.
     @MainActor func keyboardIsFree(for view: NSView) -> Bool {
         guard firstResponder === self || firstResponder == nil else { return false }
         guard let controller = windowController as? WindowController,
               case .content(let pane) = FocusResponderClassifier.classify(view, in: controller) else { return true }
-        return controller.focus.currentState().keepsKeyboard(inContentOf: pane)
+        let focus = controller.focus.currentState()
+        guard focus.topology.panes.contains(where: { $0.id == pane }) else { return true }
+        return focus.keepsKeyboard(inContentOf: pane)
     }
 }
 
