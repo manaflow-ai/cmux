@@ -191,6 +191,7 @@ export interface AcpmuxRequests {
   "_acpmux/peers": { params: unknown; result: unknown };
   "_acpmux/peer_status": { params: unknown; result: unknown };
   "_acpmux/host_health": { params: unknown; result: unknown };
+  "_acpmux/vm_host": { params: unknown; result: unknown };
   "_acpmux/place": { params: unknown; result: unknown };
   "_acpmux/peer_add": { params: unknown; result: unknown };
   "_acpmux/peer_lease": { params: unknown; result: unknown };
@@ -438,6 +439,7 @@ export const ACPMUX_METHODS: ReadonlyArray<{ name: string; kind: AcpmuxMethodKin
   { name: "_acpmux/peers", kind: "request", acp: false, typed: false },
   { name: "_acpmux/peer_status", kind: "request", acp: false, typed: false },
   { name: "_acpmux/host_health", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/vm_host", kind: "request", acp: false, typed: false },
   { name: "_acpmux/place", kind: "request", acp: false, typed: false },
   { name: "_acpmux/peer_add", kind: "request", acp: false, typed: false },
   { name: "_acpmux/peer_lease", kind: "request", acp: false, typed: false },
