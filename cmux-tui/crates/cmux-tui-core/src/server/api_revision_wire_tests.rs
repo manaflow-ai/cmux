@@ -144,7 +144,7 @@ fn frame_writer(writer: &MessageWriter) -> MessageWriter {
         priority: method.priority,
         flags: cmux_ipc::CallFlags::empty(),
     };
-    writer.replying_to(Arc::new(frame_dispatch::FrameCall::new(0, call, method)))
+    writer.replying_to(Arc::new(frame_dispatch::FrameCall::new(0, call)))
 }
 
 /// The upgrade of `line` through `writer`, and the JSON parses it took.

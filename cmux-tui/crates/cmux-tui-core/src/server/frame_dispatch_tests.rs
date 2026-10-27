@@ -380,8 +380,8 @@ fn frame_dispatch_a_cancel_must_name_its_request_method() {
 
 /// While a daemon handoff is pending, a framed request is refused unexecuted
 /// with its line's body (the same `daemon_shutdown_pending` code) as an
-/// ERROR frame; its body is read for its `id` only, never parsed into a
-/// command, and the connection stays up.
+/// ERROR frame (a body with bad parameters gets its line's bad request); it
+/// never runs, and the connection stays up.
 #[test]
 fn frame_dispatch_pending_handoff_refuses_with_the_line_error() {
     let mut client = Client::granted("pending-handoff");
@@ -408,16 +408,19 @@ fn frame_dispatch_pending_handoff_refuses_with_the_line_error() {
     );
     assert_eq!(mux.with_state(|state| state.workspaces.len()), workspaces);
 
-    // Bad parameters are not parsed either: the header named the method.
+    // Bad parameters fail like their line: a bad request, not a refusal to
+    // retry after the handoff.
     let bad = json!({"id": 9, "cmd": "read-screen", "surface": "not-a-surface"});
+    let line = client.line_reply(&bad);
+    assert_ne!(line["error_code"], json!(DAEMON_SHUTDOWN_PENDING_CODE), "{line}");
     let (header, framed) = client.frame_reply(9, &bad);
     assert_answers(&header, FrameKind::Error, 9, "read-screen");
-    assert_eq!(framed["error_code"], json!(DAEMON_SHUTDOWN_PENDING_CODE), "{framed}");
-    assert_eq!(framed["id"], json!(9));
+    assert_eq!(framed, line);
 
-    // The header check's body parse and the refusal's `id` read, per frame.
+    // The header check's body parse and the refusal's `Request` parse, per
+    // frame (no resource-envelope probe), and the bad request's `id` read.
     let parses = mux.ipc_stats().snapshot().parses.frames;
-    assert_eq!((parses.requests, parses.json_parses), (4, 8), "{parses:?}");
+    assert_eq!((parses.requests, parses.json_parses), (4, 9), "{parses:?}");
 
     // A failed handoff leaves the connection serving frames.
     mux.cancel_daemon_handoff(client.client_id());
