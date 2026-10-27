@@ -268,7 +268,6 @@ extension Workspace {
         taskCreateOperationID = snapshot.taskCreateOperationID
 
         restoredTerminalScrollbackByPanelId.removeAll(keepingCapacity: false)
-        restoredTerminalScrollbackWasTruncatedByPanelId.removeAll(keepingCapacity: false)
 #if DEBUG
         debugSessionSnapshotScrollbackFallbackPanelIds.removeAll(keepingCapacity: false)
         debugSessionSnapshotSyntheticScrollbackByPanelId.removeAll(keepingCapacity: false)
@@ -458,6 +457,7 @@ extension Workspace {
         return oldToNewPanelIds
     }
 
+    /// Builds one workspace panel's session snapshot, including bounded scrollback and its truncation marker.
     private func sessionPanelSnapshot(
         panelId: UUID,
         includeScrollback: Bool,
@@ -1271,6 +1271,10 @@ extension Workspace {
             )
         )
     }
+    /// Bounds captured scrollback, falling back to the restored tail for this panel.
+    ///
+    /// The stored entry is replaced with the value that will be snapshotted, so
+    /// a fresh complete capture clears an earlier truncation marker.
     private func terminalSnapshotScrollback(
         panelId: UUID,
         capturedScrollback: String?,
@@ -1287,14 +1291,14 @@ extension Workspace {
 #else
         let debugFallback: String? = nil
 #endif
+        let storedFallback = restoredTerminalScrollbackByPanelId[panelId]
         let fallback = allowFallbackScrollback
-            ? (debugFallback ?? restoredTerminalScrollbackByPanelId[panelId])
+            ? (debugFallback ?? storedFallback?.text)
             : nil
         let persisted = SessionPersistencePolicy.persistedSnapshotScrollback(
             capturedScrollback: capturedScrollback,
             fallbackScrollback: fallback,
-            fallbackWasTruncated: debugFallback == nil
-                && restoredTerminalScrollbackWasTruncatedByPanelId[panelId] == true,
+            fallbackWasTruncated: debugFallback == nil && storedFallback?.wasTruncated == true,
             allowFallbackScrollback: allowFallbackScrollback
         )
 #if DEBUG
@@ -1304,9 +1308,9 @@ extension Workspace {
             return persisted
         }
 #endif
-        rememberRestoredTerminalScrollback(
+        restoredTerminalScrollbackByPanelId.rememberRestoredScrollback(
             persisted.text,
-            panelId: panelId,
+            for: panelId,
             wasTruncated: persisted.wasTruncated
         )
         return persisted
@@ -1630,6 +1634,7 @@ extension Workspace {
         return storedBinding
     }
 
+    /// Creates one panel from a session snapshot and restores that panel's surface.
     func createPanel(
         from snapshot: SessionPanelSnapshot,
         inPane paneId: PaneID,
@@ -2214,9 +2219,9 @@ extension Workspace {
                 restoredGuardedWorkingDirectoriesByPanelId.removeValue(forKey: terminalPanel.id)
             }
             let fallbackScrollback = SessionPersistencePolicy.truncatedScrollback(restoredScrollback)
-            rememberRestoredTerminalScrollback(
+            restoredTerminalScrollbackByPanelId.rememberRestoredScrollback(
                 fallbackScrollback,
-                panelId: terminalPanel.id,
+                for: terminalPanel.id,
                 wasTruncated: fallbackScrollback != nil && scrollbackWasTruncated
             )
             terminalStartupRestoreCoordinator.stage(
@@ -3520,30 +3525,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     let todoState = WorkspaceTodoState()
     let sidebarProcessTitleObservation: WorkspaceSidebarProcessTitleObservationModel
     let nativeSSHConnectionBroker: NativeSSHConnectionBroker
-    var restoredTerminalScrollbackByPanelId: [UUID: String] = [:]
-    /// Mirrors `restoredTerminalScrollbackByPanelId` when that tail dropped older output.
-    var restoredTerminalScrollbackWasTruncatedByPanelId: [UUID: Bool] = [:]
-
-    /// Stores the restored scrollback tail for `panelId`, and whether it is
-    /// truncated, so the next snapshot can fall back to it. A nil `text` clears
-    /// both.
-    func rememberRestoredTerminalScrollback(
-        _ text: String?,
-        panelId: UUID,
-        wasTruncated: Bool
-    ) {
-        if let text {
-            restoredTerminalScrollbackByPanelId[panelId] = text
-            if wasTruncated {
-                restoredTerminalScrollbackWasTruncatedByPanelId[panelId] = true
-            } else {
-                restoredTerminalScrollbackWasTruncatedByPanelId.removeValue(forKey: panelId)
-            }
-        } else {
-            restoredTerminalScrollbackByPanelId.removeValue(forKey: panelId)
-            restoredTerminalScrollbackWasTruncatedByPanelId.removeValue(forKey: panelId)
-        }
-    }
+    /// Restored scrollback tails, each carrying its text and truncation state.
+    var restoredTerminalScrollbackByPanelId: [UUID: SessionPersistedScrollback] = [:]
     /// Wake checks for agents resumed from hibernation; see
     /// `Workspace+AgentWakeVerification.swift`.
     var agentWakeVerificationsByPanelId: [UUID: AgentWakeVerification] = [:]
@@ -11323,6 +11306,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             teardownPanelResources(retireDock: retireDock)
         }
     }
+    /// Releases panel resources for this workspace and clears restored scrollback.
     private func teardownPanelResources(retireDock: Bool) {
         cancelAllReservedCloudTerminalPanes()
         cloudPaneCreationFailureStore.cancelAll()
@@ -11361,7 +11345,6 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         recomputeListeningPorts()
         clearRemoteConfigurationIfWorkspaceBecameLocal()
         restoredTerminalScrollbackByPanelId.removeAll(keepingCapacity: false)
-        restoredTerminalScrollbackWasTruncatedByPanelId.removeAll(keepingCapacity: false)
 #if DEBUG
         debugSessionSnapshotScrollbackFallbackPanelIds.removeAll(keepingCapacity: false)
         debugSessionSnapshotSyntheticScrollbackByPanelId.removeAll(keepingCapacity: false)

@@ -1,5 +1,6 @@
 import CmuxCore
 import CmuxRemoteSession
+import CmuxWorkspaces
 import Foundation
 import Testing
 
@@ -99,8 +100,8 @@ struct RemoteDisconnectLifecycleTests {
             focus: false
         ))
         defer { Self.removeTransitionArtifacts(workspace: workspace, panelIds: [first.id, second.id]) }
-        workspace.restoredTerminalScrollbackByPanelId[first.id] = "first-output\n"
-        workspace.restoredTerminalScrollbackByPanelId[second.id] = "second-output\n"
+        workspace.restoredTerminalScrollbackByPanelId.rememberRestoredScrollback("first-output\n", for: first.id, wasTruncated: false)
+        workspace.restoredTerminalScrollbackByPanelId.rememberRestoredScrollback("second-output\n", for: second.id, wasTruncated: false)
 
         #expect(workspace.activeRemoteTerminalSessionCount == 3)
         workspace.markRemoteTerminalSessionEnded(surfaceId: first.id, relayPort: 64007)
@@ -132,7 +133,7 @@ struct RemoteDisconnectLifecycleTests {
         defer { Self.removeTransitionArtifacts(workspace: workspace, panelIds: [first.id, second.id]) }
 
         for panel in [first, second] {
-            workspace.restoredTerminalScrollbackByPanelId[panel.id] = "remote-output\n"
+            workspace.restoredTerminalScrollbackByPanelId.rememberRestoredScrollback("remote-output\n", for: panel.id, wasTruncated: false)
             workspace.markRemoteTerminalSessionEnded(surfaceId: panel.id, relayPort: 64007)
             #expect(workspace.transitionRemoteTerminalToDisconnectedPlaceholder(surfaceId: panel.id))
             await workspace.waitForRemoteDisconnectTransition(surfaceId: panel.id)
@@ -189,7 +190,7 @@ struct RemoteDisconnectLifecycleTests {
         let workspace = Workspace()
         workspace.configureRemoteConnection(Self.remoteConfiguration(), autoConnect: false)
         let panel = try #require(workspace.focusedTerminalPanel)
-        workspace.restoredTerminalScrollbackByPanelId[panel.id] = "remote-output\n"
+        workspace.restoredTerminalScrollbackByPanelId.rememberRestoredScrollback("remote-output\n", for: panel.id, wasTruncated: false)
         defer { Self.removeTransitionArtifacts(workspace: workspace, panelIds: [panel.id]) }
 
         workspace.markRemoteTerminalSessionEnded(surfaceId: panel.id, relayPort: 64007)
@@ -210,7 +211,7 @@ struct RemoteDisconnectLifecycleTests {
         let workspace = Workspace()
         workspace.configureRemoteConnection(Self.remoteConfiguration(), autoConnect: false)
         let panel = try #require(workspace.focusedTerminalPanel)
-        workspace.restoredTerminalScrollbackByPanelId[panel.id] = "\u{001B}]0;unterminated-title"
+        workspace.restoredTerminalScrollbackByPanelId.rememberRestoredScrollback("\u{001B}]0;unterminated-title", for: panel.id, wasTruncated: false)
 
         workspace.markRemoteTerminalSessionEnded(surfaceId: panel.id, relayPort: 64007)
         #expect(workspace.transitionRemoteTerminalToDisconnectedPlaceholder(surfaceId: panel.id))
@@ -238,7 +239,7 @@ struct RemoteDisconnectLifecycleTests {
         ))
         #expect(workspace.markRemoteTerminalSessionConnected(surfaceId: panel.id, relayPort: 64007))
         #expect(workspace.markRemoteTerminalSessionConnected(surfaceId: sibling.id, relayPort: 64007))
-        workspace.restoredTerminalScrollbackByPanelId[panel.id] = "remote-output\n"
+        workspace.restoredTerminalScrollbackByPanelId.rememberRestoredScrollback("remote-output\n", for: panel.id, wasTruncated: false)
 
         manager.closePanelAfterChildExited(tabId: workspace.id, surfaceId: panel.id)
         await workspace.waitForRemoteDisconnectTransition(surfaceId: panel.id)
@@ -270,7 +271,7 @@ struct RemoteDisconnectLifecycleTests {
         let workspace = Workspace()
         workspace.configureRemoteConnection(Self.remoteConfiguration(), autoConnect: false)
         let panel = try #require(workspace.focusedTerminalPanel)
-        workspace.restoredTerminalScrollbackByPanelId[panel.id] = "remote-output\n"
+        workspace.restoredTerminalScrollbackByPanelId.rememberRestoredScrollback("remote-output\n", for: panel.id, wasTruncated: false)
 
         workspace.markRemoteTerminalSessionEnded(surfaceId: panel.id, relayPort: 64007)
         #expect(workspace.transitionRemoteTerminalToDisconnectedPlaceholder(surfaceId: panel.id))
@@ -311,7 +312,7 @@ struct RemoteDisconnectLifecycleTests {
         let panel = try #require(workspace.focusedTerminalPanel)
         let exitedRuntime = panel.surface
         workspace.configureRemoteConnection(Self.remoteConfiguration(), autoConnect: false)
-        workspace.restoredTerminalScrollbackByPanelId[panel.id] = "remote-output\n"
+        workspace.restoredTerminalScrollbackByPanelId.rememberRestoredScrollback("remote-output\n", for: panel.id, wasTruncated: false)
 
         workspace.markRemoteTerminalSessionEnded(surfaceId: panel.id, relayPort: 64007)
         #expect(workspace.transitionRemoteTerminalToDisconnectedPlaceholder(surfaceId: panel.id))

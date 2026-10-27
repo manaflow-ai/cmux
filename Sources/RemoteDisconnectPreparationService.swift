@@ -2,6 +2,7 @@ import Foundation
 
 /// Performs disconnected-placeholder filesystem preparation away from the main actor.
 actor RemoteDisconnectPreparationService {
+    /// Writes the disconnect placeholder and, when scrollback exists, its replay file.
     func prepare(
         target: String,
         reconnectCommand: String?,
