@@ -223,11 +223,12 @@ final class ComputerUseSetup {
     /// closure literal: an async closure default argument is a crash class (crash_ratchet).
     static func noHelperRestart() async {}
 
-    /// One `request_system_permission` to the helper with the host token.
+    /// One `request_system_permission` to the helper with the host token (on the
+    /// main actor, as `socketRead`: `CuaSocketClient` runs the socket work off it).
     /// It answers at once and raises the prompt itself; a refusal (an older
     /// helper) only means no prompt.
-    nonisolated static func socketRequestGrant(_ configuration: AgentActivitySocketSource.Configuration,
-                                               _ pane: ComputerUsePermissionPane) async {
+    static func socketRequestGrant(_ configuration: AgentActivitySocketSource.Configuration,
+                                   _ pane: ComputerUsePermissionPane) async {
         let name = switch pane {
         case .accessibility: "accessibility"
         case .screenRecording: "screen_recording"
