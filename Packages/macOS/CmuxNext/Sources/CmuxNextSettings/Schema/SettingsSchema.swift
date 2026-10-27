@@ -1,5 +1,5 @@
 public import CmuxNextActions
-public import CmuxNextDesign
+public import CmuxNextDesignTokens
 public import CoreGraphics
 
 /// Every cmux.json setting the Settings window edits, in display order. A
