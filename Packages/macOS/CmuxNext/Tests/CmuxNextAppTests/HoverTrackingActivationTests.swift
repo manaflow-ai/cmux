@@ -59,9 +59,10 @@ struct HoverTrackingActivationTests {
     /// not ones AppKit keeps for the view's superclass.
     private static func addedAreas(_ view: NSView) -> [NSTrackingArea] {
         view.frame = NSRect(x: 0, y: 0, width: 240, height: 40)
-        let before = Set(view.trackingAreas.map(ObjectIdentifier.init))
+        // Held, so a replaced area cannot free its address for the new one.
+        let before = view.trackingAreas
         view.updateTrackingAreas()
-        return view.trackingAreas.filter { !before.contains(ObjectIdentifier($0)) && $0.options.contains(.inVisibleRect) }
+        return view.trackingAreas.filter { area in !before.contains { $0 === area } && area.options.contains(.inVisibleRect) }
     }
 
     private static func areas(noActivate: Bool) -> [(String, [NSTrackingArea])] {
