@@ -98,10 +98,6 @@ final class KeyRouter: BrowserKeyRouting {
         return allows(tier, focus: focus)
     }
 
-    /// The actions DevTools runs itself before its frontend sees the key.
-    nonisolated static let devToolsActions: Set<ActionID> = ["toggleBrowserDeveloperTools", "showBrowserJavaScriptConsole",
-                                                             "inspectBrowserElement"]
-
     /// Only chords AppKit treats as key equivalents are candidates, so plain
     /// typing, Option characters and IME input are never intercepted.
     nonisolated static func isChord(_ flags: NSEvent.ModifierFlags) -> Bool {
@@ -406,6 +402,8 @@ final class KeyRouter: BrowserKeyRouting {
     /// Ends the topmost sheet on a window as cancelled; returns whether one
     /// ended. A seam: tests without a window session (no sheets) replace it.
     var endTopmostSheet: (NSWindow) -> Bool = { SheetDismissal.endTopmost(of: $0) }
+    /// The menu gate's ``KeyFacts/pageLocksKeys`` of the key window (its live facts when nil); tests set it.
+    var keyWindowPageLocksKeys: (() -> Bool)?
     /// The toasts Cmd-Z may undo (`runsUndoToast`); tests replace it.
     var undoToasts: CmuxToastCenter = .shared
 

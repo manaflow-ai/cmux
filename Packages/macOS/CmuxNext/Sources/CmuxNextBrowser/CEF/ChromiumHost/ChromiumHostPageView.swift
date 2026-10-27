@@ -309,6 +309,7 @@ public final class ChromiumHostPageView: NSView {
         observeWindow()
         observeVisibility()
         observeScreen()
+        followWindowForExclusiveAccess()
         // Another window: the page is placed again, at the view's origin in that window.
         screenInfo = nil
         placedScreenInfo = nil

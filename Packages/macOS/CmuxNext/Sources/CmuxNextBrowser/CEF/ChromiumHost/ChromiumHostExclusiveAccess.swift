@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextWakeups
 import CoreGraphics
 
 /// What a page view's exclusive access asks of the page's browser: the shim's lock calls and the
@@ -15,43 +16,29 @@ protocol ChromiumHostExclusiveAccessWire: AnyObject {
     func sendLockedMove(_ browser: Int32, dx: Double, dy: Double, modifiers: Int32)
 }
 
-/// Hides the cursor and holds it where it is while a page holds the pointer lock, as
-/// `-[RenderWidgetHostViewCocoa setCursorLocked:]` does
-/// (content/app_shim_remote_cocoa/render_widget_host_view_cocoa.mm):
-/// `CGAssociateMouseAndMouseCursorPosition(NO)` and `[NSCursor hide]`, undone in the other order.
-/// Tests pass a recorder.
-struct ChromiumHostCursorLock {
-    let lock: @MainActor () -> Void
-    let unlock: @MainActor () -> Void
-
-    @MainActor static let system = ChromiumHostCursorLock(
-        lock: {
-            NSCursor.hide()
-            _ = CGAssociateMouseAndMouseCursorPosition(0)
-        },
-        unlock: {
-            _ = CGAssociateMouseAndMouseCursorPosition(1)
-            NSCursor.unhide()
-        })
-}
-
 /// A hosted page's HTML fullscreen, pointer lock and keyboard lock (task p01-process-229 of
 /// plans/cmux-next/chrome-parity/p01-process.md), as Chrome's ExclusiveAccessManager keeps them for
 /// a tab (chrome/browser/ui/exclusive_access/exclusive_access_manager.cc, with its
 /// FullscreenController, PointerLockController and KeyboardLockController). The Chromium Host runs the
-/// fork's lock delegate; cmux decides, locks its own cursor and keys and answers. Fullscreen stays in
-/// the page's pane, as WebKit's `PaneFullscreenScript` keeps it: the toolbar hides and the page view
-/// fills the pane, and no host window goes fullscreen.
+/// fork's lock delegate; cmux decides, locks its own cursor and keys and answers. No host window goes
+/// fullscreen: the page's tab hides its toolbar and its pane zooms to fill the window
+/// (``BrowserTabIntent/contentFullscreen(_:)``).
 ///
 /// - Only the page that has the keyboard in the key window of the active app takes a lock
 ///   (``mayLock(_:)``), as Chrome locks only for the focused widget.
-/// - Escape ends both locks and the fullscreen at once, and the page does not get it
-///   (`ExclusiveAccessManager::HandleUserKeyEvent`). While a keyboard lock takes Escape the page gets
-///   it, and only Escape held for ``holdEscape`` ends them (KeyboardLockController's press and hold).
+/// - Escape ends what is active at once, and the page does not get it
+///   (`ExclusiveAccessManager::HandleUserKeyEvent`): the pointer lock, the fullscreen, and the keyboard
+///   lock only while it holds keys. While a keyboard lock takes Escape the page gets it, and only
+///   Escape held for ``holdEscape`` ends them (KeyboardLockController's press and hold, a one-shot
+///   timer from the key down).
 /// - A keyboard lock holds keys only while its page is in fullscreen, as Chrome activates it only in
-///   tab fullscreen: a page cannot take cmux's shortcuts outside it.
-/// - Leaving the keyboard ends the pointer lock (`RenderWidgetHostViewMac` loses it with the focus);
-///   showing another page or leaving the window ends everything.
+///   tab fullscreen: a page cannot take cmux's shortcuts outside it, and a lock asked for before the
+///   fullscreen stays pending, with Escape the page's (`HandleUserPressedEscape` answers false while
+///   `!IsKeyboardLockActive()`).
+/// - Leaving the keyboard ends the pointer lock (`RenderWidgetHostViewMac` loses it with the focus),
+///   and so do the window resigning key and the app resigning active
+///   (`RenderWidgetHostViewMac::SetActive(false)` unlocks the pointer); showing another page or leaving
+///   the window ends everything.
 ///
 /// Nothing here runs without ``wire`` (feature `chromiumHostLocks` off): no request is granted and
 /// Escape stays the page's.
@@ -68,8 +55,8 @@ final class ChromiumHostExclusiveAccess {
         let escapeLocked: Bool
     }
 
-    /// How long Escape is held to end a lock that takes Escape (Chrome's keyboard_lock_controller.cc).
-    static let holdEscape: TimeInterval = 1.5
+    /// How long Escape is held to end a lock that takes Escape (`kHoldEscapeTime`, keyboard_lock_controller.cc).
+    static let holdEscape: Duration = .milliseconds(1500)
     /// Escape's key code.
     static let escapeKeyCode: UInt16 = 53
 
@@ -77,11 +64,20 @@ final class ChromiumHostExclusiveAccess {
     private(set) var keyboardLock: KeyboardLock?
     /// The browser whose page is in HTML fullscreen (FULLSCREEN a = 1), nil while none.
     private(set) var fullscreen: Int32?
-    /// When the Escape held now went down, while a lock takes Escape.
-    private var escapeHeldSince: TimeInterval?
-    let cursor: ChromiumHostCursorLock
+    /// The held Escape's deadline is armed (an Escape went down while a lock takes Escape).
+    private(set) var isHoldingEscape = false
+    /// The pointer lock holds the system cursor: hidden and dissociated (``ChromiumHostCursorLock/lock`` succeeded).
+    private(set) var holdsCursor = false
+    /// The cursor's lock: the system's in the app, a recorder in tests.
+    var cursor: ChromiumHostCursorLock
     /// Where exits and locked moves go; nil leaves everything to the page.
     weak var wire: (any ChromiumHostExclusiveAccessWire)?
+    /// The held Escape's deadline (``CEFHostLocks/serve(_:)`` sets it with ``wire``).
+    var holdTimer: (any ChromiumHostHoldTimer)?
+    /// The app's notices (`AppServices.appEvents`): its resign-active ends the pointer lock.
+    var appEvents: AppEvents?
+    /// The page view's window resigning key and the app resigning active, while a wire is set.
+    private var focusWatch: [EventSubscription] = []
 
     init(cursor: ChromiumHostCursorLock) {
         self.cursor = cursor
@@ -106,7 +102,7 @@ final class ChromiumHostExclusiveAccess {
         case .pointerLockRequested:
             guard wire != nil, mayLock else { return false }
             if let held = pointerLock, held.browser != browser { wire?.exitPointerLock(held.browser, byUser: false) }
-            if pointerLock == nil { cursor.lock() }
+            if pointerLock == nil { holdsCursor = cursor.lock() }
             pointerLock = PointerLock(browser: browser, unadjustedMovement: detail != 0)
             return true
         case .pointerUnlocked:
@@ -117,12 +113,12 @@ final class ChromiumHostExclusiveAccess {
             guard wire != nil, mayLock else { return false }
             if let held = keyboardLock, held.browser != browser { wire?.exitKeyboardLock(held.browser) }
             keyboardLock = KeyboardLock(browser: browser, escapeLocked: detail != 0)
-            escapeHeldSince = nil
+            stopHoldingEscape()
             return true
         case .keyboardUnlocked:
             guard keyboardLock?.browser == browser else { return false }
             keyboardLock = nil
-            escapeHeldSince = nil
+            stopHoldingEscape()
             return true
         }
     }
@@ -133,33 +129,45 @@ final class ChromiumHostExclusiveAccess {
             fullscreen = browser
         } else if fullscreen == browser {
             fullscreen = nil
-            escapeHeldSince = nil
+            stopHoldingEscape()
         }
     }
 
-    /// An Escape key down (`down`) or up of the page view. Returns true when it is taken here and
-    /// the page never gets it.
-    func escape(down: Bool, isRepeat: Bool, at time: TimeInterval) -> Bool {
-        guard wire != nil, isActive else {
-            escapeHeldSince = nil
+    /// An Escape key down (`down`: a press or an auto-repeat, which never restarts the held deadline) or up of
+    /// the page view. Returns true when it is taken here and the page never gets it. Only what is active
+    /// takes it: a keyboard lock outside its page's fullscreen is pending, and Escape is the page's then.
+    func escape(down: Bool) -> Bool {
+        guard wire != nil, pointerLock != nil || fullscreen != nil else {
+            stopHoldingEscape()
             return false
         }
         guard holdsKeys, keyboardLock?.escapeLocked == true else {
             guard down else { return false }
-            exitAll(byUser: true)
+            exitActive(byUser: true)
             return true
         }
-        guard down else {
-            escapeHeldSince = nil
-            return false
+        // The lock takes Escape: the page gets every press, and the deadline armed on the key down
+        // ends the locks unless the key comes up first.
+        if !down {
+            stopHoldingEscape()
+        } else if !isHoldingEscape, let holdTimer {
+            isHoldingEscape = true
+            holdTimer.start(after: Self.holdEscape) { [weak self] in self?.heldEscapeFired() }
         }
-        guard isRepeat, let since = escapeHeldSince else {
-            escapeHeldSince = time
-            return false
-        }
-        guard time - since >= Self.holdEscape else { return false }
-        exitAll(byUser: true)
-        return true
+        return false
+    }
+
+    /// Escape was held for ``holdEscape``.
+    private func heldEscapeFired() {
+        guard isHoldingEscape else { return }
+        isHoldingEscape = false
+        exitActive(byUser: true)
+    }
+
+    private func stopHoldingEscape() {
+        guard isHoldingEscape else { return }
+        isHoldingEscape = false
+        holdTimer?.stop()
     }
 
     /// A mouse move or drag of the page view while the pointer is locked: its movement goes to the
@@ -173,7 +181,8 @@ final class ChromiumHostExclusiveAccess {
         return true
     }
 
-    /// The page view left the keyboard: the pointer lock ends (not by the person).
+    /// The page view left the keyboard, its window resigned key or the app resigned active: the
+    /// pointer lock ends (not by the person).
     func focusLost() {
         guard let pointerLock else { return }
         releasePointer()
@@ -188,25 +197,54 @@ final class ChromiumHostExclusiveAccess {
         }
         if let keyboardLock, keyboardLock.browser != browser {
             self.keyboardLock = nil
-            escapeHeldSince = nil
+            stopHoldingEscape()
             wire?.exitKeyboardLock(keyboardLock.browser)
         }
         if let fullscreen, fullscreen != browser {
             self.fullscreen = nil
+            stopHoldingEscape()
             wire?.exitFullscreen(fullscreen)
         }
     }
 
-    /// Ends both locks and the fullscreen, as Escape does. The fullscreen ends when the page says so
+    /// Ends what is active, as Escape does: the pointer lock, the fullscreen, and the keyboard lock
+    /// while it holds keys (a pending one stays). The fullscreen ends when the page says so
     /// (FULLSCREEN a = 0).
-    func exitAll(byUser: Bool) {
-        let (pointer, keyboard, shown) = (pointerLock, keyboardLock, fullscreen)
+    func exitActive(byUser: Bool) {
+        let (pointer, shown) = (pointerLock, fullscreen)
+        let keyboard = holdsKeys ? keyboardLock : nil
         releasePointer()
-        keyboardLock = nil
-        escapeHeldSince = nil
+        if keyboard != nil { keyboardLock = nil }
+        stopHoldingEscape()
         if let pointer { wire?.exitPointerLock(pointer.browser, byUser: byUser) }
         if let keyboard { wire?.exitKeyboardLock(keyboard.browser) }
         if let shown { wire?.exitFullscreen(shown) }
+    }
+
+    /// Follows the page view's window (`windowEvents`, nil out of a window) and the app while a wire
+    /// is set: the window resigning key or the app resigning active ends the pointer lock
+    /// (``focusLost()``), as Chrome's `RenderWidgetHostViewMac::SetActive(false)` does, and the window
+    /// leaving macOS fullscreen ends the page's HTML fullscreen (``windowLeftFullscreen()``). Called when
+    /// the view changes window and when ``CEFHostLocks`` serves it.
+    func follow(_ windowEvents: WindowEvents?) {
+        for subscription in focusWatch { subscription.cancel() }
+        focusWatch = []
+        guard wire != nil, let windowEvents else { return }
+        let owner = "ChromiumHostExclusiveAccess.focus"
+        let lost: @MainActor () -> Void = { [weak self] in self?.focusLost() }
+        focusWatch = [
+            windowEvents.subscribe(NSWindow.didResignKeyNotification, owner: owner, lost),
+            windowEvents.subscribe(NSWindow.didExitFullScreenNotification, owner: owner) { [weak self] in self?.windowLeftFullscreen() },
+        ]
+        if let appEvents { focusWatch.append(appEvents.subscribe(NSApplication.didResignActiveNotification, owner: owner, lost)) }
+    }
+
+    /// The page view's window left macOS fullscreen: the page's HTML fullscreen ends with it, as Chrome's
+    /// tab fullscreen ends with its window's (`NativeWidgetNSWindowHost::OnWindowFullscreenTransitionComplete`,
+    /// `FullscreenController::WindowFullscreenStateChanged`).
+    func windowLeftFullscreen() {
+        guard let fullscreen else { return }
+        wire?.exitFullscreen(fullscreen)
     }
 
     /// An Escape down or up of the page view (`phase` as its key frame: 0 down, 1 up, 2 flags); true
@@ -214,7 +252,7 @@ final class ChromiumHostExclusiveAccess {
     func takesEscape(_ event: NSEvent, phase: Int32) -> Bool {
         guard event.keyCode == Self.escapeKeyCode, phase != 2,
               event.modifierFlags.isDisjoint(with: [.command, .control, .option, .shift]) else { return false }
-        return escape(down: phase == 0, isRepeat: event.isARepeat, at: event.timestamp)
+        return escape(down: phase == 0)
     }
 
     /// A mouse event of the page view (`phase` 0 a move or drag): while the pointer is locked a move
@@ -235,12 +273,14 @@ final class ChromiumHostExclusiveAccess {
     /// nothing sent, and the cursor is free again.
     func hostEnded() {
         releasePointer()
-        (keyboardLock, fullscreen, escapeHeldSince) = (nil, nil, nil)
+        stopHoldingEscape()
+        (keyboardLock, fullscreen) = (nil, nil)
     }
 
     private func releasePointer() {
         guard pointerLock != nil else { return }
         pointerLock = nil
+        holdsCursor = false
         cursor.unlock()
     }
 
@@ -253,5 +293,13 @@ final class ChromiumHostExclusiveAccess {
             return (cgEvent.getDoubleValueField(x), cgEvent.getDoubleValueField(y))
         }
         return (Double(event.deltaX), Double(event.deltaY))
+    }
+}
+
+extension ChromiumHostPageView {
+    /// The page view's window and the app, for its exclusive access (``ChromiumHostExclusiveAccess/follow(_:)``):
+    /// the window's shared ``WindowEvents`` from ``visibilitySource``.
+    func followWindowForExclusiveAccess() {
+        exclusiveAccess.follow(window.map { visibilitySource.events($0) })
     }
 }

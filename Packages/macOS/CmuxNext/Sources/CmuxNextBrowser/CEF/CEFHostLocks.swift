@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextCompat
+import CmuxNextWakeups
 
 /// C entry for the fork's lock delegate (`cmux_shim_set_lock_handler`, task p01-process-229), its seam
 /// adapter: the in-process shim calls it on the CEF UI thread and the remote shim from its event batch, both
@@ -31,6 +32,8 @@ final class CEFHostLocks: ChromiumHostExclusiveAccessWire {
     static let forkAPI: Int32 = 31
 
     private weak var runtime: CEFRuntime?
+    /// The app's notices (`AppServices.appEvents`): a page view's pointer lock ends when the app resigns active.
+    private let appEvents: AppEvents?
     /// The page that holds the pointer lock: its unlock reaches it when its tab is gone (the host ended).
     private weak var pointerHolder: ChromiumHostExclusiveAccess?
     /// The lock fn is in the shim (the source asked for it and the fork took it).
@@ -39,8 +42,9 @@ final class CEFHostLocks: ChromiumHostExclusiveAccessWire {
     private(set) var asked = 0
     private(set) var granted = 0
 
-    init(runtime: CEFRuntime) {
+    init(runtime: CEFRuntime, appEvents: AppEvents?) {
         self.runtime = runtime
+        self.appEvents = appEvents
     }
 
     /// Host mode, at the start (before `cmux_shim_initialize`; the remote shim sends it to every later
@@ -52,9 +56,14 @@ final class CEFHostLocks: ChromiumHostExclusiveAccessWire {
         isInstalled = unsafe shim.locks.setHandler(CEFHostLockCallback.handler, context) == 1
     }
 
-    /// Host mode: `page` (a pane's page view) locks for its pages.
+    /// Host mode: `page` (a pane's page view) locks for its pages. Its held Escape runs on the runtime's
+    /// deadline queue, and its window's resign-key and the app's resign-active end its pointer lock.
     func serve(_ page: ChromiumHostPageView) {
-        page.exclusiveAccess.wire = self
+        let access = page.exclusiveAccess
+        access.wire = self
+        if let runtime { access.holdTimer = ChromiumHostWakeUpHoldTimer(deadlines: runtime.waitDeadlines) }
+        access.appEvents = appEvents
+        page.followWindowForExclusiveAccess()
     }
 
     /// One call of the fork's delegate. A request is answered at once: granted only for the page
@@ -119,6 +128,8 @@ public struct CEFHostLocksReport: Equatable, Sendable {
     /// whether it asked for unadjusted movement.
     public let pointer: Int32?
     public let unadjustedMovement: Bool
+    /// The pointer lock holds the system cursor: hidden and dissociated from the mouse, so it stays in the page.
+    public let cursorHeld: Bool
     public let keyboard: Int32?
     /// The keyboard lock holds cmux's keys now (its page is in fullscreen).
     public let holdsKeys: Bool
@@ -133,7 +144,7 @@ extension CEFEngine {
         let access = page?.exclusiveAccess
         return CEFHostLocksReport(installed: locks.isInstalled, asked: locks.asked, granted: locks.granted,
                                   pointer: access?.pointerLock?.browser, unadjustedMovement: access?.pointerLock?.unadjustedMovement ?? false,
-                                  keyboard: access?.keyboardLock?.browser, holdsKeys: access?.holdsKeys ?? false,
+                                  cursorHeld: access?.holdsCursor ?? false, keyboard: access?.keyboardLock?.browser, holdsKeys: access?.holdsKeys ?? false,
                                   fullscreen: access?.fullscreen)
     }
 }

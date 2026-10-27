@@ -248,10 +248,11 @@ final class CEFRuntime {
     func adopt(stores: BrowserSharedStores, signInCallbacks: CEFSignInCallbacks, waitDeadlines: MainWakeUpQueue? = nil,
                hostSupervisor: (any ChromiumHostSupervising)? = nil, hostWidgets: Bool = false, hostDrags: Bool = false,
                hostResizeFence: Bool = false, hostPopupMenus: Bool = false, hostSuggestions: Bool = false,
-               hostFileDialogs: (any ChromiumFileDialogAnswering)? = nil, hostLocks: Bool = false) {
+               hostFileDialogs: (any ChromiumFileDialogAnswering)? = nil, hostLocks: Bool = false, hostAppEvents: AppEvents? = nil) {
         if let hostSupervisor, hostStart == nil, state == .idle {
             adoptHost(hostSupervisor, showsWidgets: hostWidgets, takesDrags: hostDrags, fencesResizes: hostResizeFence,
-                      drawsPopupMenus: hostPopupMenus, drawsSuggestions: hostSuggestions, fileDialogs: hostFileDialogs, handlesLocks: hostLocks)
+                      drawsPopupMenus: hostPopupMenus, drawsSuggestions: hostSuggestions, fileDialogs: hostFileDialogs, handlesLocks: hostLocks,
+                      appEvents: hostAppEvents)
         }
         self.signInCallbacks = signInCallbacks
         if let waitDeadlines { wakeUps = waitDeadlines }

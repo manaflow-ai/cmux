@@ -20,7 +20,7 @@ import Testing
         let (runtime, root) = try Self.runtime()
         defer { try? FileManager.default.removeItem(at: root) }
         let shim = try #require(runtime.shim)
-        let locks = CEFHostLocks(runtime: runtime)
+        let locks = CEFHostLocks(runtime: runtime, appEvents: nil)
         locks.install(shim, forkAPIVersion: 30, context: nil)
         #expect(LockSpy.calls.isEmpty && !locks.isInstalled)
         locks.install(shim, forkAPIVersion: 31, context: nil)
@@ -40,7 +40,7 @@ import Testing
         let page = ChromiumHostPageView(frame: host.hostView.bounds, inputTarget: .view)
         host.hostView.addSubview(page)
         host.hostedPageView = page
-        let locks = CEFHostLocks(runtime: runtime)
+        let locks = CEFHostLocks(runtime: runtime, appEvents: nil)
         locks.serve(page)
         #expect(page.exclusiveAccess.wire === locks)
 
@@ -56,6 +56,54 @@ import Testing
         locks.exitKeyboardLock(7)
         locks.sendLockedMove(7, dx: 1.5, dy: -2, modifiers: 16)
         #expect(LockSpy.calls == ["exit pointer 7 1", "exit keyboard 7", "move 7 1.5,-2.0 16"])
+    }
+
+    /// HTML fullscreen in host mode with cmux's locks: the page's tab asks its host to zoom its pane on
+    /// enter and to give the zoom back on exit, on the host's end and when the tab goes away, and the page
+    /// view holds the fullscreen for Escape. A served page view gets the held-Escape deadline.
+    @Test func fullscreenAsksThePaneZoomAndEveryEndGivesItBack() throws {
+        let (runtime, root) = try Self.runtime()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let host = CEFPaneHost(key: CEFPaneKey(pane: BrowserPaneID(rawValue: UUID().uuidString), profile: .default), runtime: runtime)
+        host.endOfTurn = { $0() }
+        let tab = CEFTab(id: .random(), profile: .default, host: host, runtime: runtime)
+        let intents = IntentRecorder()
+        tab.delegate = intents
+        host.add(tab)
+        host.popupWindow = 3
+        runtime.register(tab, browser: 7)
+        host.present(tab, in: NSView(frame: NSRect(x: 0, y: 0, width: 400, height: 300)))
+        let page = ChromiumHostPageView(frame: host.hostView.bounds, inputTarget: .view)
+        host.hostView.addSubview(page)
+        host.hostedPageView = page
+        // Host mode with cmux's locks from here on (the supervisor never attaches).
+        runtime.adoptHost(SilentLockHost(), handlesLocks: true)
+        runtime.hostStart?.locks?.serve(page)
+        #expect(page.exclusiveAccess.holdTimer != nil)
+
+        tab.handle(.fullscreen(browser: 7, entering: true))
+        #expect(intents.fullscreen == [true] && tab.state.isContentFullscreen)
+        #expect(page.exclusiveAccess.fullscreen == 7)
+        tab.handle(.fullscreen(browser: 7, entering: false))
+        #expect(intents.fullscreen == [true, false] && !tab.state.isContentFullscreen)
+
+        tab.handle(.fullscreen(browser: 7, entering: true))
+        tab.hostEnded(BrowserProcessExit(reason: .killed, code: Int(SIGKILL), engine: .cef))
+        #expect(intents.fullscreen == [true, false, true, false], "the host's end gives the zoom back")
+        #expect(!tab.state.isContentFullscreen)
+    }
+
+    /// In process (no locks), a page's fullscreen stays in its pane as before: no zoom is asked.
+    @Test func withoutCmuxLocksFullscreenAsksNoZoom() throws {
+        let (runtime, root) = try Self.runtime()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let host = CEFPaneHost(key: CEFPaneKey(pane: BrowserPaneID(rawValue: UUID().uuidString), profile: .default), runtime: runtime)
+        let tab = CEFTab(id: .random(), profile: .default, host: host, runtime: runtime)
+        let intents = IntentRecorder()
+        tab.delegate = intents
+        tab.handle(.fullscreen(browser: 7, entering: true))
+        #expect(tab.state.isContentFullscreen)
+        #expect(intents.fullscreen.isEmpty)
     }
 
     /// CMUX_SHIM_LOCK (61) is the remote shim's for cmux's lock fn: as an event it is nothing cmux handles.
@@ -111,4 +159,22 @@ private nonisolated enum LockSpy {
         default: unsafeBitCast(nothing, to: UnsafeMutableRawPointer.self)
         }
     }
+}
+
+/// The fullscreen intents a tab sends its host, in order.
+@MainActor private final class IntentRecorder: BrowserTabDelegate {
+    var fullscreen: [Bool] = []
+
+    func browserTab(_ tab: any BrowserTab, didRequest intent: BrowserTabIntent) {
+        if case .contentFullscreen(let entering) = intent { fullscreen.append(entering) }
+    }
+}
+
+/// A host supervisor that never attaches: the runtime is in host mode and never starts.
+@MainActor private final class SilentLockHost: ChromiumHostSupervising {
+    func attachment() async throws(ChromiumHostAttachError) -> ChromiumHostAttachment {
+        throw .cannotStart("not started in this test")
+    }
+
+    func observeHostEnds(_ ended: @escaping @MainActor () -> Void) {}
 }

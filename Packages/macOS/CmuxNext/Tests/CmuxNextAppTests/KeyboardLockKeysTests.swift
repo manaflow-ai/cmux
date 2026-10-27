@@ -57,6 +57,24 @@ import Testing
         #expect(try Self.decision(key, locked: true) == .deliver, "\(key) did not reach the locked page")
     }
 
+    /// The key the dispatcher gave the locked page runs no menu item after it: Cmd-W does not close the tab
+    /// and Cmd-Shift-P does not open the palette through the main menu (their system tier passes the
+    /// decided-key check), while the kept keys still may.
+    @Test(arguments: pageKeys) func theMenuRunsNoChordALockedPageGot(_ key: Key) throws {
+        guard case .run(let candidate) = try Self.decision(key, locked: false) else {
+            Issue.record("\(key) is no cmux shortcut on a page")
+            return
+        }
+        let router = KeyRouter(registry: Self.registry)
+        router.keyWindowPageLocksKeys = { false }
+        #expect(router.allowsMenuKeyEquivalent(candidate.id), "unlocked, the menu may run \(candidate.id.rawValue)")
+        router.keyWindowPageLocksKeys = { true }
+        #expect(!router.allowsMenuKeyEquivalent(candidate.id), "the menu still runs \(candidate.id.rawValue) for \(key) under a lock")
+        for kept in KeyRouter.keyboardLockKeeps {
+            #expect(router.allowsMenuKeyEquivalent(kept), "a lock took \(kept.rawValue) from the menu")
+        }
+    }
+
     @Test(arguments: keptKeys) func ghosttysSplitKeysAndQuitStayCmuxs(_ key: Key) throws {
         guard case .run(let candidate) = try Self.decision(key, locked: true) else {
             Issue.record("\(key) went to the locked page")

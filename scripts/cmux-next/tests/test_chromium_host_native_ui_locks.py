@@ -2,7 +2,9 @@
 """chromium_host_native_ui_locks.py, the fullscreen and lock rows of chromium-host-bench.py --native-ui
 (p01-process-229), against a fake app: a correct app passes each row; an app without cmux's locks, one whose Escape
 leaves a lock held, one that still opens a tab for Cmd-T under a keyboard lock, one whose locked moves never reach
-the page and a host that shows a window each fail the row they break. Runs anywhere (no app).
+the page, one that never holds the cursor, one whose fullscreen is not the video, one whose page click misses the
+hosted page view (the old in-process-only click) and a host that shows a window each fail the row they break. Runs
+anywhere (no app).
 Run: python3 -I scripts/cmux-next/tests/test_chromium_host_native_ui_locks.py"""
 import os, sys, tempfile, unittest
 from urllib.parse import urlparse, parse_qs
@@ -19,13 +21,18 @@ BROWSER = 7
 class FakeApp:
     """The app as the rows see it. `locks` False: no cmux locks (host_locks null); `sticky_escape`: Escape ends
     nothing; `cmd_t_opens_tab`: cmux runs New Tab under a keyboard lock; `moves_lost`: locked moves never reach the
-    page; `host_window`: the host shows a window."""
+    page; `host_window`: the host shows a window; `cursor_free`: the pointer lock never hides and holds the cursor;
+    `document_fullscreen`: the page's document goes fullscreen instead of its video; `click_misses`: the page click
+    answers as the in-process click does in host mode (no page window: an error, and no user activation)."""
 
-    def __init__(self, locks=True, sticky_escape=False, cmd_t_opens_tab=False, moves_lost=False, host_window=False):
+    def __init__(self, locks=True, sticky_escape=False, cmd_t_opens_tab=False, moves_lost=False, host_window=False,
+                 cursor_free=False, document_fullscreen=False, click_misses=False):
         self.locks, self.sticky_escape, self.cmd_t_opens_tab = locks, sticky_escape, cmd_t_opens_tab
-        self.moves_lost, self.host_window = moves_lost, host_window
+        self.moves_lost, self.host_window, self.cursor_free = moves_lost, host_window, cursor_free
+        self.document_fullscreen, self.click_misses = document_fullscreen, click_misses
         self.ask, self.title = None, ""
         self.fullscreen = self.pointer = self.keyboard = None
+        self.fullscreen_element = None
         self.asked = self.granted = 0
         self.moves, self.keys, self.tabs = 0, [], 1
 
@@ -36,6 +43,9 @@ class FakeApp:
         return {"document.title": self.title,
                 "document.fullscreenElement !== null": self.fullscreen is not None,
                 "document.fullscreenElement === null": self.fullscreen is None,
+                locks.VIDEO_IS_FULLSCREEN: self.fullscreen is not None and self.fullscreen_element == "video",
+                locks.VIDEO_PLAYS: True,
+                "innerWidth + 'x' + innerHeight": "800x600" if self.fullscreen is not None else "400x600",
                 "document.pointerLockElement !== null": self.pointer is not None,
                 "document.pointerLockElement === null": self.pointer is None,
                 "window.moves": self.moves, "window.keys": list(self.keys)}.get(script)
@@ -44,6 +54,7 @@ class FakeApp:
         if not self.locks:
             return None
         return {"installed": True, "asked": self.asked, "granted": self.granted, "pointer": self.pointer,
+                "cursor_held": self.pointer is not None and not self.cursor_free,
                 "keyboard": self.keyboard, "fullscreen": self.fullscreen,
                 "holds_keys": self.keyboard is not None and self.fullscreen == self.keyboard}
 
@@ -60,15 +71,18 @@ class FakeApp:
                 self.moves += 1
             return {"delivered": 1}
         if method == "debug.mouse":
+            if self.click_misses:
+                return {"error": "no Chromium page window for pane"}
             if self.ask in ("fullscreen", "keyboard"):
                 self.fullscreen = BROWSER
+                self.fullscreen_element = "video" if self.ask == "fullscreen" and not self.document_fullscreen else "html"
             if self.ask in ("pointer", "keyboard") and self.locks:
                 self.asked, self.granted = self.asked + 1, self.granted + 1
                 if self.ask == "pointer":
                     self.pointer = BROWSER
                 else:
                     self.keyboard = BROWSER
-            return {"delivered": 2}
+            return {"view": "ChromiumHostPageView", "delivered": 2}
         if method == "debug.key" and params.get("key") == "t":
             if self.keyboard is not None and self.fullscreen == self.keyboard and not self.cmd_t_opens_tab:
                 self.keys.append("Meta+t")
@@ -134,6 +148,26 @@ class LockRowsTests(unittest.TestCase):
         rows, ok = run(FakeApp(moves_lost=True), rows=("pointer_lock",))
         self.assertFalse(ok)
         self.assertEqual(rows["pointer_lock"]["moves"], 0)
+
+    def test_a_cursor_the_lock_never_holds_fails_the_pointer_row(self):
+        rows, ok = run(FakeApp(cursor_free=True), rows=("pointer_lock",))
+        self.assertFalse(ok)
+        self.assertFalse(rows["pointer_lock"]["cursor_held"])
+
+    def test_a_document_fullscreen_is_no_video_fullscreen(self):
+        rows, ok = run(FakeApp(document_fullscreen=True), rows=("fullscreen",))
+        self.assertFalse(ok)
+        self.assertIsNone(rows["fullscreen"]["show_ms"])
+
+    def test_a_page_click_that_misses_the_hosted_page_view_fails_every_row(self):
+        rows, ok = run(FakeApp(click_misses=True))
+        self.assertFalse(ok)
+        for name in locks.ROWS:
+            self.assertIn("PageClickFailed", rows[name].get("error", ""), name)
+
+    def test_the_probe_page_fullscreens_its_video(self):
+        self.assertIn("video.requestFullscreen()", locks.PAGE)
+        self.assertIn("<video id=video", locks.PAGE)
 
     def test_a_host_window_fails_every_row(self):
         rows, ok = run(FakeApp(host_window=True))

@@ -558,7 +558,7 @@
     {"mojom": "native_widget_ns_window_host.mojom", "interface": "NativeWidgetNSWindowHost", "method": "OnWindowFullscreenTransitionStart",
      "not_needed": "Chrome lays out its toolbar for the transition; cmux zooms the page view in its own window (229) and sends the new size (kGeometry)."},
     {"mojom": "native_widget_ns_window_host.mojom", "interface": "NativeWidgetNSWindowHost", "method": "OnWindowFullscreenTransitionComplete",
-     "not_needed": "229: a page's HTML fullscreen stays in its pane (the toolbar hides and the page view fills the pane, as for WebKit tabs), not in a window, so no window's fullscreen transition ends it; Escape does (ChromiumHostExclusiveAccess, CEFTab.exitContentFullscreen)."},
+     "not_needed": "229: the window is cmux's, so its transition never reaches the host: a page's HTML fullscreen zooms its pane to fill cmux's window (BrowserTabIntent.contentFullscreen, BrowserFullscreenPaneZoom), and when cmux's window leaves macOS fullscreen, or on Escape, the page view ends the page's fullscreen (ChromiumHostExclusiveAccess.windowLeftFullscreen, CEFTab.exitContentFullscreen)."},
     {"mojom": "native_widget_ns_window_host.mojom", "interface": "NativeWidgetNSWindowHost", "method": "OnWindowMiniaturizedChanged",
      "pending": "p01-process-220",
      "note": "A minimized cmux window sends HIDDEN for its pages (cmux_shim_browser_set_page_visibility)."},

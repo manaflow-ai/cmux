@@ -110,6 +110,7 @@ extension CEFTab {
         case .fullscreen(let browser, let entering):
             machine.apply(.contentFullscreenChanged(entering))
             host.hostedPageView?.exclusiveAccess.fullscreenChanged(entering, browser: browser) // Escape ends it (task 229)
+            if runtime.hostStart?.locks != nil { emit(.contentFullscreen(entering)) } // its pane fills the window
         case .findResult(_, let findID, let count, let active, let isFinal):
             findRequests.result(findID: findID, count: count, active: active, isFinal: isFinal)?.run()
         case .closeRequested: emit(.close)

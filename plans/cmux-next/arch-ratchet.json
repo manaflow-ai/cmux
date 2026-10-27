@@ -723,6 +723,12 @@
       "row": "observer_sites",
       "allow": 4,
       "why": "p14-energy-120: SuspendWatch (CmuxNextEnergy) is the app's one sleep, wake and display sleep adapter the task asks for: it subscribes once per app to NSWorkspace willSleep, didWake, screensDidSleep and screensDidWake through the app's workspace AppEvents fan-out (recipe R-notif; the display notices share AppVisibilitySource's NotificationCenter observer there), the four sites counted, and publishes them to every keepalive owner through EnergyPolicy instead of each owner observing them. Chrome's PowerMonitor is the same single suspend and resume source (base/power_monitor/power_monitor.h). Made only with the sleepWakeKeepalives feature on; FeedService's own sleep notices move onto it once that feature ships."
+    },
+    {
+      "date": "2026-10-27",
+      "row": "observer_sites",
+      "allow": 3,
+      "why": "p01-process-229 (fixer): ChromiumHostExclusiveAccess.follow ends a hosted page's pointer lock when its window resigns key or the app resigns active, and its HTML fullscreen when the window leaves macOS fullscreen, as Chrome's RenderWidgetHostViewMac::SetActive(false) unlocks the pointer and FullscreenController follows its window's fullscreen. The three sites subscribe through the window's shared WindowEvents fan-out (the one the page view's visibility already uses) and the app's injected AppEvents, so they add no NotificationCenter observer: AppKit's resign-key and fullscreen notices are already observed once per window and didResignActive once per app (KeyRouter, FocusEffectApplier). Only page views that CEFHostLocks serves (feature chromiumHostLocks, default off) subscribe, and the tokens go when the view leaves its window. Without them a lock outlives a Cmd-Tab and the cursor stays hidden and stuck in another app."
     }
   ],
   "observer_wrappers": [

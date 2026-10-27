@@ -88,7 +88,8 @@ enum DebugCEF {
         let browser: (Int32?) -> JSONValue = { $0.map { .number(Double($0)) } ?? .null }
         return .object(["installed": .bool(report.installed), "asked": .number(Double(report.asked)),
                         "granted": .number(Double(report.granted)), "pointer": browser(report.pointer),
-                        "unadjusted_movement": .bool(report.unadjustedMovement), "keyboard": browser(report.keyboard),
+                        "unadjusted_movement": .bool(report.unadjustedMovement), "cursor_held": .bool(report.cursorHeld),
+                        "keyboard": browser(report.keyboard),
                         "holds_keys": .bool(report.holdsKeys), "fullscreen": browser(report.fullscreen)])
     }
 

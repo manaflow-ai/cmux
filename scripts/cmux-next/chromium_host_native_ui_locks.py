@@ -2,11 +2,16 @@
 pointer lock and keyboard lock in host mode, each held by cmux while the Chromium host is never the frontmost app and
 owns no visible window (CGWindowList: a window of the host's pid with alpha > 0), and each ended by Escape.
 
-  fullscreen     a click calls requestFullscreen(): the page is in fullscreen in its pane (`debug.cef` `host_locks`
-                 `fullscreen`, document.fullscreenElement) with no host window; Escape ends it.
+  fullscreen     a click calls requestFullscreen() on the probe's playing <video>: the video is the fullscreen
+                 element (`debug.cef` `host_locks` `fullscreen`, document.fullscreenElement) with no host window,
+                 and its pane zooms to fill the window; Escape ends it.
   pointer_lock   a click calls requestPointerLock(): cmux grants it (`host_locks` `pointer`, `granted` grows),
-                 document.pointerLockElement is set, and a pointer move over the page reaches the page as a locked
-                 move (its mousemove count grows while the cursor stays in the page); Escape ends the lock.
+                 document.pointerLockElement is set, cmux holds the cursor (`host_locks` `cursor_held`: hidden and
+                 dissociated from the mouse, so it stays in the page), and a pointer move over the page reaches the
+                 page as a locked move (its mousemove count grows); Escape ends the lock and frees the cursor.
+
+The click is `debug.mouse {"target": "page"}`, which in host mode goes through the page view's own mouse path; a
+reply with an error or from another view fails the row, since the page never got the user activation.
   keyboard_lock  a click calls requestFullscreen() and navigator.keyboard.lock(['KeyT']) (Escape not locked, so one
                  press ends it): cmux grants it and, in the page's
                  fullscreen, the page gets Cmd-T (no new tab opens) while the lock holds keys (`holds_keys`); Escape
@@ -27,13 +32,21 @@ SHOW_DEADLINE_S = 10.0
 
 PAGE = """<!doctype html><meta charset=utf-8><title>lock probe</title>
 <body style="margin:0;height:100vh;background:#123">
+<video id=video muted autoplay playsinline style="width:320px;height:180px"></video>
+<canvas id=frames width=320 height=180 hidden></canvas>
 <script>
 window.moves = 0; window.keys = [];
 const ask = new URLSearchParams(location.search).get('ask');
+// A playing video with no file: the canvas's frames as its stream.
+const frames = document.getElementById('frames'), paint = frames.getContext('2d'), video = document.getElementById('video');
+let tick = 0;
+(function draw() { paint.fillStyle = `hsl(${tick++ % 360} 60% 50%)`; paint.fillRect(0, 0, 320, 180); requestAnimationFrame(draw); })();
+video.srcObject = frames.captureStream(30);
 document.addEventListener('mousemove', () => { if (document.pointerLockElement) window.moves += 1; });
 document.addEventListener('keydown', e => { window.keys.push((e.metaKey ? 'Meta+' : '') + e.key); });
 document.addEventListener('mousedown', async () => {
-  if (ask === 'fullscreen' || ask === 'keyboard') await document.documentElement.requestFullscreen();
+  if (ask === 'fullscreen') await video.requestFullscreen();
+  if (ask === 'keyboard') await document.documentElement.requestFullscreen();
   if (ask === 'keyboard') await navigator.keyboard.lock(['KeyT']);
   if (ask === 'pointer') document.body.requestPointerLock();
 });
@@ -55,10 +68,22 @@ def open_probe(rpc, wait, page_eval, out, ask):
     return bool(wait(lambda: page_eval("document.title") == "lock probe", 60))
 
 
+class PageClickFailed(RuntimeError):
+    """`debug.mouse {"target": "page"}` did not click the hosted page view."""
+
+
+# The fullscreen element is the probe's video.
+VIDEO_IS_FULLSCREEN = "document.fullscreenElement !== null && document.fullscreenElement.id === 'video'"
+VIDEO_PLAYS = "!document.getElementById('video').paused"
+
+
 def ask_by_click(rpc, wait, done):
-    """Clicks the page (the user activation a lock needs) and waits for `done`; the time it took in ms, or None."""
+    """Clicks the page (the user activation a lock needs) and waits for `done`; the time it took in ms, or None.
+    Raises PageClickFailed when the click never went through the hosted page view (the row's error)."""
     started = time.time()
-    rpc("debug.mouse", {"target": "page"})
+    reply = rpc("debug.mouse", {"target": "page"}) or {}
+    if reply.get("error") or reply.get("view") != "ChromiumHostPageView":
+        raise PageClickFailed(f"the page click missed the hosted page view: {reply}")
     return round((time.time() - started) * 1000, 1) if wait(done, SHOW_DEADLINE_S) else None
 
 
@@ -70,12 +95,15 @@ def escape_ends(rpc, wait, ended):
 def fullscreen_row(rpc, wait, page_eval, out, clear):
     if not open_probe(rpc, wait, page_eval, out, "fullscreen"):
         return {"ok": False, "error": "the lock probe never loaded"}
-    row = {"show_ms": ask_by_click(rpc, wait, lambda: (host_locks(rpc) or {}).get("fullscreen") is not None
-                                   and page_eval("document.fullscreenElement !== null"))}
+    row = {"viewport_before": page_eval("innerWidth + 'x' + innerHeight")}
+    row["show_ms"] = ask_by_click(rpc, wait, lambda: (host_locks(rpc) or {}).get("fullscreen") is not None
+                                  and page_eval(VIDEO_IS_FULLSCREEN))
+    row["video_plays"] = bool(page_eval(VIDEO_PLAYS))
+    row["viewport_fullscreen"] = page_eval("innerWidth + 'x' + innerHeight")
     row["host"] = clear()
     row["escaped"] = escape_ends(rpc, wait, lambda: page_eval("document.fullscreenElement === null")
                                  and (host_locks(rpc) or {}).get("fullscreen") is None)
-    row["ok"] = row["show_ms"] is not None and row["host"]["clear"] and row["escaped"]
+    row["ok"] = row["show_ms"] is not None and row["video_plays"] and row["host"]["clear"] and row["escaped"]
     return row
 
 
@@ -86,14 +114,17 @@ def pointer_lock_row(rpc, wait, page_eval, out, clear):
     row = {"show_ms": ask_by_click(rpc, wait, lambda: (host_locks(rpc) or {}).get("pointer") is not None
                                    and page_eval("document.pointerLockElement !== null"))}
     row["granted"] = ((host_locks(rpc) or {}).get("granted") or 0) > granted
+    row["cursor_held"] = (host_locks(rpc) or {}).get("cursor_held") is True
     row["host"] = clear()
     for _ in range(5):
         rpc("debug.mouse", {"action": "move", "target": "page"})
     row["moves"] = page_eval("window.moves") or 0
+    row["cursor_held_after_moves"] = (host_locks(rpc) or {}).get("cursor_held") is True
     row["escaped"] = escape_ends(rpc, wait, lambda: page_eval("document.pointerLockElement === null")
                                  and (host_locks(rpc) or {}).get("pointer") is None)
-    row["ok"] = row["show_ms"] is not None and row["granted"] and row["host"]["clear"] and row["moves"] > 0 and \
-        row["escaped"]
+    row["cursor_freed"] = (host_locks(rpc) or {}).get("cursor_held") is False
+    row["ok"] = row["show_ms"] is not None and row["granted"] and row["cursor_held"] and row["host"]["clear"] and \
+        row["moves"] > 0 and row["cursor_held_after_moves"] and row["escaped"] and row["cursor_freed"]
     return row
 
 

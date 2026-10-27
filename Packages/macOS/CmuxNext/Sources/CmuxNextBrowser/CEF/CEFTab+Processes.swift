@@ -42,6 +42,7 @@ extension CEFTab: BrowserProcessReporting {
     /// pane shows the sad tab; a hidden tab reloads when it is shown. Chromium
     /// reported it, so the crash log records a renderer.
     func rendererTerminated(_ exit: BrowserProcessExit) {
+        contentFullscreenEnded()
         guard showProcessExit(exit) else { return }
         runtime.recordRendererExit(exit, tab: self)
     }
@@ -56,7 +57,18 @@ extension CEFTab: BrowserProcessReporting {
         (browserID, isCreationPending) = (nil, false)
         agentRelay.browserEnded()
         dismissPrompts()
+        contentFullscreenEnded()
         showProcessExit(exit)
+    }
+
+    /// The page left HTML fullscreen without a FULLSCREEN a = 0 (its renderer, browser or host ended):
+    /// the toolbar shows again and, in host mode with cmux's locks, its pane's fullscreen zoom ends
+    /// (``BrowserTabIntent/contentFullscreen(_:)``), as Chrome exits tab fullscreen when the tab's
+    /// renderer dies or the tab closes (`WebContentsImpl::RenderViewTerminated`, `ExitFullscreen`).
+    func contentFullscreenEnded() {
+        guard state.isContentFullscreen else { return }
+        machine.apply(.contentFullscreenChanged(false))
+        if runtime.hostStart?.locks != nil { emit(.contentFullscreen(false)) }
     }
 
     /// True from the Chromium Host's end with this tab's browser, or the one it was making
