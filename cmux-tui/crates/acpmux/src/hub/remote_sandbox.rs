@@ -967,8 +967,8 @@ pub(super) async fn canary(exec: &Path, bound: &Bound, linux: bool) -> Result<()
             Err(error) if error.kind() == std::io::ErrorKind::NotFound
         )
     };
-    let probe_paths_absent = git_canary.as_ref().map_or(true, |path| absent(path))
-        && claude_canary.as_ref().map_or(true, |path| absent(path));
+    let probe_paths_absent = git_canary.as_ref().is_none_or(|path| absent(path))
+        && claude_canary.as_ref().is_none_or(|path| absent(path));
     if let Some(path) = &persistence_probe {
         let _ = std::fs::remove_dir_all(path);
     }
