@@ -34,6 +34,7 @@ extension BackgroundWork {
 
         fileprivate init(work: BackgroundWork, cap: Duration, clock: any Clock<Duration>) {
             self.work = work
+            // timer-class-allow: the scheduler's own launch-fence cap, off main; p06 section A: its timers never wait behind the classes they release
             capTimer = DemandTimer(owner: "launch.best-effort-fence.cap", clock: clock)
             work.beginBestEffortFence()
             capTimer.schedule(after: cap) { [weak self] in self?.lower() }

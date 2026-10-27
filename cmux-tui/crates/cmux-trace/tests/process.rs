@@ -85,8 +85,12 @@ fn read(path: &Path) -> cmux_trace::Decoded {
 
 #[cfg(unix)]
 fn ring_files(dir: &Path) -> (PathBuf, PathBuf) {
-    let files: Vec<PathBuf> =
-        std::fs::read_dir(dir).expect("lists").map(|entry| entry.expect("entry").path()).collect();
+    // The crash-key page (`.crashkeys`) lives beside the rings; tests/crash_keys.rs reads it.
+    let files: Vec<PathBuf> = std::fs::read_dir(dir)
+        .expect("lists")
+        .map(|entry| entry.expect("entry").path())
+        .filter(|path| path.extension().is_some_and(|extension| extension == "cmxtrace"))
+        .collect();
     assert_eq!(files.len(), 2, "expected a black box and a recording, got {files:?}");
     let find = |suffix: &str| {
         files.iter().find(|path| path.to_string_lossy().ends_with(suffix)).cloned().expect(suffix)

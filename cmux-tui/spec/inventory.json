@@ -890,6 +890,12 @@
       ]
     },
     {
+      "name": "server-diagnostic-site",
+      "streams": [
+        "subscribe"
+      ]
+    },
+    {
       "name": "notification",
       "streams": [
         "subscribe",
