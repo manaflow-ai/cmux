@@ -26,7 +26,7 @@ enum DebugDialog {
     /// the person approves, cx-t2rz), a browser pairing (it admits a client to the whole daemon, cx-hnmbt.2), an iPhone pairing,
     /// an ssh:// link from another app (it connects to a host a web page chose), and a cmux://session
     /// link's new tab (any page or app can open the link).
-    static let userOnly: Set<String> = [ClipboardReadStrings.identifier, AgentPaneView.harnessEnableIdentifier, CloudPresenter.createConfirmIdentifier, CloudPresenter.credentialRecoveryIdentifier,
+    static let userOnly: Set<String> = [ClipboardReadStrings.identifier, AgentPaneView.harnessEnableIdentifier, CloudPresenter.createConfirmIdentifier, CloudPresenter.credentialRecoveryIdentifier, CloudPresenter.codexDeviceCodeIdentifier,
                                         CloudWorkspaceSetupWizard.credentialDialogIdentifier, DaemonPairingStrings.identifier, IPhoneHostService.pairDialogIdentifier, ExternalLinkGate.sshDialogIdentifier,
                                         SessionLinkGate.dialogIdentifier]
 
@@ -122,8 +122,19 @@ enum DebugDialog {
     }
 
     /// Debug-only fixtures (English only: they never ship).
+    private static func codexRecoveryFixture(body: String) -> CmuxDialogSpec {
+        CmuxDialogSpec(title: "Set up Codex on paint?",
+            lines: [body, "This replaces Codex's login on this VM and restarts this chat before retrying its failed prompt."],
+            buttons: [.cancel("Cancel"), CmuxDialogButton(id: "transfer", title: "Transfer and restart", role: .default)],
+            identifier: CloudPresenter.credentialRecoveryIdentifier)
+    }
+
     private static func fixtures(origin: String?) -> [String: CmuxDialogSpec] {
         [
+            // Inert native auth fixtures: no account, VM, browser, or credentials are accessed.
+            "cloudCodexDevice": CloudPresenter.codexDeviceDialogSpec(code: "DEMO-CODE"),
+            "cloudCodexRecovery": codexRecoveryFixture(body: CloudPresenter.codexBrokerDisclosure),
+            "cloudCodexRecoveryBefore": codexRecoveryFixture(body: "cmux will start a fresh Codex device login in a visible local terminal for this VM. Codex refresh credentials are never copied between VMs; Codex requires a separate sign-in for each VM."),
             "confirm": CmuxDialogSpec(title: "Close Workspace “api”?", lines: ["vim and npm are still running."],
                                       buttons: [.cancel(), CmuxDialogButton(id: "close", title: "Close", role: .destructive)],
                                       identifier: "cmux.dialog.fixture.confirm"),

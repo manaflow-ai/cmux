@@ -7,6 +7,8 @@ public final class MockComputerUsePermissionSource: ComputerUsePermissionSource 
     public private(set) var opened: [ComputerUsePermissionPane] = []
     /// How many times Allow turned Computer Use on.
     public private(set) var enabledCount = 0
+    /// How many times the step restarted the helper.
+    public private(set) var restartCount = 0
     public var current: ComputerUsePermissions {
         didSet { continuations.values.forEach { $0.yield(current) } }
     }
@@ -25,6 +27,11 @@ public final class MockComputerUsePermissionSource: ComputerUsePermissionSource 
         continuations[id] = continuation
         continuation.onTermination = { [weak self] _ in Task { @MainActor in self?.continuations[id] = nil } }
         return stream
+    }
+
+    public func restart() {
+        restartCount += 1
+        current = .none
     }
 
     public func openSettings(_ pane: ComputerUsePermissionPane) { opened.append(pane) }

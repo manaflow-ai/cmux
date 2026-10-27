@@ -44,6 +44,8 @@ public final class ComputerUseHelperV2 {
     private(set) var state: State = .off
     public let directory: String
     private let helperApp: @Sendable () -> URL?
+    /// The copy outside this app that runs (ComputerUseHelperStaging).
+    private let staging: ComputerUseHelperStaging
     /// This app's acpmux (executable and daemon socket), set by the agent
     /// pane source once it resolves acpmux.
     public var acpmux: @Sendable () -> (executable: URL, socketPath: String)?
@@ -55,6 +57,7 @@ public final class ComputerUseHelperV2 {
     /// Logs the helper's control lines after `ready` (``logControlLines(_:pid:)``).
     private var controlLog: Task<Void, Never>?
     private var generation = 0
+    private let restarts: ComputerUseHelperRestarts
     /// Only explicit setup clicks; never persisted across app launches.
     private var pendingPermissions: Set<String> = []
 
@@ -104,6 +107,7 @@ public final class ComputerUseHelperV2 {
     init(directory: String = ComputerUseHelperV2.defaultDirectory(),
          helperApp: @escaping @Sendable () -> URL? = { ComputerUseHelperV2.embeddedHelperApp() },
          acpmux: @escaping @Sendable () -> (executable: URL, socketPath: String)? = { nil },
+         staging: ComputerUseHelperStaging = .upstream(),
          spawner: any ComputerUseHelperV2Spawning = DisclaimedHelperSpawner(),
          clock: any Clock<Duration> = ContinuousClock(),
          readyTimeout: Duration = .seconds(10),
@@ -111,10 +115,12 @@ public final class ComputerUseHelperV2 {
         self.directory = directory
         self.helperApp = helperApp
         self.acpmux = acpmux
+        self.staging = staging
         self.spawner = spawner
         self.clock = clock
         self.readyTimeout = readyTimeout
         self.exitGrace = exitGrace
+        self.restarts = ComputerUseHelperRestarts(clock: clock)
     }
 
     var socketPath: String { directory + "/" + Self.socketFileName }
@@ -168,7 +174,14 @@ public final class ComputerUseHelperV2 {
         let current = generation
         guard enabled else { return await stop() }
         if case .running = state { return }
-        guard let app = helperApp() else { return unavailable("the cmux Computer Use (dev) helper is not in this build") }
+        guard let embedded = helperApp() else { return unavailable("the cmux Computer Use (dev) helper is not in this build") }
+        let runningCheck = await staging.runningCheck(for: embedded)
+        guard current == generation else { return }
+        guard let runningCheck else { return unavailable("the helper code requirement could not be read") }
+        // Nested in this app, macOS checks the helper's Screen Recording as this app: run a verified copy outside it.
+        let staged = await staging.stage(embedded)
+        guard current == generation else { return }
+        guard let app = staged else { return unavailable("the helper copy outside the app could not be made or verified") }
         guard ComputerUseHelperDaemon.makePrivateDirectory((directory as NSString).deletingLastPathComponent),
               ComputerUseHelperDaemon.makePrivateDirectory(directory) else {
             return unavailable("\(directory) is not a private directory of this user")
@@ -181,6 +194,17 @@ public final class ComputerUseHelperV2 {
                                         logPath: directory + "/helper.log")
         } catch {
             return unavailable("the helper did not start: \(error)")
+        }
+        let trusted = await staging.acceptsRunningProcess(spawned.pid, check: runningCheck)
+        guard current == generation else {
+            spawned.closeInput()
+            spawner.terminate(spawned.pid)
+            return
+        }
+        guard trusted else {
+            spawned.closeInput()
+            spawner.terminate(spawned.pid)
+            return unavailable("the running helper pid \(spawned.pid) failed its signature check")
         }
         let secret = Self.makeSecret()
         let acpmux = self.acpmux()
@@ -203,6 +227,7 @@ public final class ComputerUseHelperV2 {
         }
         child = spawned
         state = .running(spawned.pid)
+        restarts.watch(spawner.watchExit(of: spawned.pid) { [weak self, pid = spawned.pid] in self?.helperExited(pid) })
         helperV2Logger.notice("cmux Computer Use helper v2 ready pid=\(spawned.pid, privacy: .public) socket=\(readySocket ?? "", privacy: .public)")
         controlLog?.cancel()
         let lines = spawned.lines
@@ -253,6 +278,7 @@ public final class ComputerUseHelperV2 {
     /// Stops the helper: close its stdin (it exits on EOF), then SIGTERM this
     /// exact pid if it is still alive after `exitGrace`.
     func stop() async {
+        restarts.stopped()
         pendingPermissions.removeAll()
         unlink(endpointPath)
         guard let child else {
@@ -275,12 +301,36 @@ public final class ComputerUseHelperV2 {
     func terminateForQuit() {
         pendingPermissions.removeAll()
         generation &+= 1
+        restarts.stopped()
         unlink(endpointPath)
         controlLog?.cancel()
         controlLog = nil
         child?.closeInput()
         child = nil
         state = .off
+    }
+
+    /// The helper exited and this app did not stop it (macOS "Quit & Reopen"
+    /// after a privacy grant, a crash): it is reaped and its endpoint goes, so
+    /// acpmux finds no dead socket, then it starts again within the budget.
+    private func helperExited(_ pid: pid_t) {
+        guard case .running(let running) = state, running == pid, let child, child.pid == pid else { return }
+        self.child = nil
+        controlLog?.cancel()
+        controlLog = nil
+        unlink(endpointPath)
+        child.closeInput()
+        // The exited child stays a zombie until reaped; a SIGTERM to it does nothing.
+        spawner.terminate(pid)
+        guard restarts.takeRestart() else { return unavailable("the helper exited again within a minute") }
+        helperV2Logger.notice("cmux Computer Use helper v2 pid=\(pid, privacy: .public) exited; starting it again")
+        state = .off
+        let expected = generation
+        // task-owner: one start; a later apply or quit moves `generation`, and then it does nothing.
+        Task { [weak self] in
+            guard let self, generation == expected else { return }
+            await apply(enabled: true)
+        }
     }
 
     private func unavailable(_ reason: String) {

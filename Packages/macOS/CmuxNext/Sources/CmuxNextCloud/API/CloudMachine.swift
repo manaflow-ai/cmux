@@ -236,6 +236,10 @@ public struct CloudAttachEndpoint: Sendable, Hashable, Decodable {
     public var vmKind: String?
     public var expiresAtUnix: Double?
     public var invitation: Invitation?
+    /// Only the exact `"owner"`: the link then starts the machine's remote chains at the VM
+    /// boundary (acpmux `hub/vm_boundary.rs`). Missing, null or any other string keeps them
+    /// sandboxed; a value of another type fails the attach.
+    public var callerOwnsVM: Bool { vmKind == "owner" }
 }
 
 public struct CloudEnrollmentApproval: Sendable, Hashable, Decodable {
