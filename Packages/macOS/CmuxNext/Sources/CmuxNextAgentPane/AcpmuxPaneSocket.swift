@@ -291,7 +291,7 @@ nonisolated final class AcpmuxPaneSocket: NSObject, URLSessionWebSocketDelegate,
                 count += 1
             }
             let frames = Array(state.inbox.prefix(count))
-            state.inbox.removeFirst(count)
+            state.inbox.removeSubrange(..<frames.count)
             state.awaitedThrough = max(0, state.awaitedThrough - count)
             state.inboxBytes -= bytes
             var closed: AgentPaneTransportClose?

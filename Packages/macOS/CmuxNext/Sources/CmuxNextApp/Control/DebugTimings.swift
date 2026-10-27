@@ -53,6 +53,8 @@ enum DebugTimings {
     /// clock through it (``LaunchMarks/uptimeNanos(of:pairedWith:)``).
     private nonisolated static let processStart: LaunchClock.Instant = launchClock.processStart() ?? launchClock.now()
     private nonisolated static let processStartDate = Date(timeIntervalSince1970: Double(processStart.wallNanos) / 1e9)
+    /// ``processStart`` on the trace clock (`CLOCK_UPTIME_RAW` nanoseconds), the zero of `debug.startup`'s task times.
+    nonisolated static var processStartUptimeNanos: UInt64 { processStart.uptimeNanos }
 
     /// Records a launch mark (milliseconds since process start) once per
     /// name, from any thread. The first record of a name goes to
