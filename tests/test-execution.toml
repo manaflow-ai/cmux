@@ -1722,6 +1722,10 @@ path = "tests/test_nightly_build_state.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ensure_setup_node.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_download_run_artifact_retries.py"
 lane = "linux-guard"
 
@@ -1771,6 +1775,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_nightly_build_runner.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_git_fetch_retry.py"
 lane = "linux-guard"
 
 [[test]]
@@ -2096,4 +2104,12 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_cmux_next_dev_landing_workflow.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_runs_on_fallback.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_workflow_file_size.py"
 lane = "linux-guard"

@@ -364,6 +364,7 @@ import { configureLiveLineBelow, useLiveLineBelow } from "./liveLineBelow";
 import { configureToolRunLook } from "./toolRunLook";
 import { configureSentLook } from "./conversation/SentMessageLine";
 import { configureNativeSidebarPreviewVariant, configureSidebarPreviewVariant } from "./sidebarPreview";
+import { cloudCredentialRecovery } from "./cloudCredentialRecovery";
 import { configureTurnActionsPlacement } from "./turnActionsPlacement";
 import { archiveRow, markUnreadRow } from "./header/archiveRow";
 import { avatarRows } from "./header/avatarRow";
@@ -4454,6 +4455,8 @@ function AcpmuxPane() {
   const allShellRuns = useSyncExternalStore(shellRuns.subscribe, shellRuns.snapshot, shellRuns.snapshot);
   /// This Mac's name, from the handshake.
   const [machineName, setMachineName] = useState<string | undefined>();
+  const [cloudMachineID, setCloudMachineID] = useState<string | undefined>();
+  const [cloudCredentialRecoveryAvailable, setCloudCredentialRecoveryAvailable] = useState(false);
   const [scrollAnchor, setScrollAnchor] = useState<(ScrollAnchor & { sessionId: string }) | undefined>();
   const [githubRepository, setGithubRepository] = useState<string | undefined>();
   /// What the direct client (or the host) last reported; `snapshot` draws a pending harness or
@@ -5614,6 +5617,7 @@ function AcpmuxPane() {
       }),
       ...(connected &&
         loginCommand &&
+        !cloudMachineID &&
         snapshot.summary?.hostKind !== "cloud" && {
           reauthenticate: () =>
             void callNative("tab.open", {
@@ -5623,10 +5627,20 @@ function AcpmuxPane() {
               run: true,
             }).catch(() => undefined),
         }),
+      transferCloudCredentials: cloudCredentialRecovery(
+        connected && cloudCredentialRecoveryAvailable,
+        cloudMachineID,
+        snapshot.sessionId,
+        snapshot.summary?.harness,
+        callNative,
+        (owner) => restartReaches(owner, sessionIdRef.current, directClient.current?.selectedSession),
+        () => directClient.current ?? undefined,
+      ),
       review: hunkReview,
       route: {
         harness: snapshot.summary?.harness,
         name: catalog.find((entry) => entry.id === (snapshot.summary?.harness ?? ""))?.name,
+        hostKind: cloudMachineID ? "cloud" : snapshot.summary?.hostKind,
       },
       switchModel: () => void openPicker(translate(PICKER_LABELS.model)),
       // A failure's cmux CodeRouter action: only this Mac's acpmux lists and binds a chat's routes.
@@ -5645,6 +5659,8 @@ function AcpmuxPane() {
       connected,
       hunkReview,
       loginCommand,
+      cloudMachineID,
+      cloudCredentialRecoveryAvailable,
       snapshot.summary?.hostKind,
       snapshot.summary?.cwd,
       snapshot.summary?.harness,
@@ -7047,12 +7063,18 @@ function AcpmuxPane() {
           folderNeeded?: { reason?: unknown };
           pastTurns?: unknown;
           machineName?: unknown;
+          cloudMachineID?: unknown;
+          cloudCredentialRecoveryAvailable?: unknown;
           githubRepository?: unknown;
           harnesses?: unknown;
           sandboxState?: unknown;
         }>("ready", reconnect ? { reconnect } : {});
         if (cancelled) return;
         acpmuxPerf.markAgent("handshakeReady");
+        setCloudCredentialRecoveryAvailable(host.cloudCredentialRecoveryAvailable === true);
+        setCloudMachineID(
+          typeof host.cloudMachineID === "string" && host.cloudMachineID ? host.cloudMachineID : undefined,
+        );
         setNewSession(host.newSession === true && !host.sessionId);
         if (host.newSession && !host.sessionId && typeof host.cwd === "string" && host.cwd) setProjectDraft(host.cwd);
         setChooseFolder(host.chooseFolder === true);
