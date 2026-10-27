@@ -82,6 +82,8 @@ import Testing
 
     /// Every phase's counters, as the child measured them (or why it could not).
     nonisolated struct Report: Codable, Sendable {
+        /// The test process that started the child.
+        var parent: pid_t
         var realized = 0, realizedAtDrop = 0
         var idle = Counts(), selection = Counts(), click = Counts(), streaming = Counts(), typing = Counts()
         var moves = Counts(), drop = Counts()
@@ -94,18 +96,24 @@ import Testing
         FileManager.default.temporaryDirectory.appending(path: "cmux-render-counts-\(parent)-\(count).json")
     }
 
-    /// The child: measures every phase and writes the report next to its parent's pid.
+    /// The child: measures every phase and writes the report next to its parent's pid
+    /// (a report it cannot write ends the child with a failure).
     static func measureInChild(_ count: Int) async {
-        var report = Report()
+        var report = Report(parent: getppid())
         do { try await measure(count, into: &report) } catch { report.failure = "\(error)" }
-        let data = (try? JSONEncoder().encode(report)) ?? Data()
-        try? data.write(to: reportURL(count, parent: getppid()))
+        do {
+            try JSONEncoder().encode(report).write(to: reportURL(count, parent: report.parent))
+        } catch {
+            FileHandle.standardError.write(Data("render-counts: the report was not written: \(error)\n".utf8))
+            exit(EXIT_FAILURE)
+        }
     }
 
     @Test(arguments: [10, 100])
     func renderCounts(_ count: Int) async throws {
         let url = Self.reportURL(count, parent: getpid())
-        try? FileManager.default.removeItem(at: url)
+        // Only this run's child writes the report: an older one never stands in for it.
+        if FileManager.default.fileExists(atPath: url.path) { try FileManager.default.removeItem(at: url) }
         defer { try? FileManager.default.removeItem(at: url) }
         // An exit test's body captures nothing: one body per argument.
         switch count {
@@ -115,6 +123,7 @@ import Testing
         }
         let data = try #require(try? Data(contentsOf: url), "the child left no render-counts report")
         let r = try JSONDecoder().decode(Report.self, from: data)
+        try #require(r.parent == getpid(), "the report is another process's (parent \(r.parent))")
         if let failure = r.failure { Issue.record("the child could not measure: \(failure)") }
         let (realized, idle, selection, click, streaming, typing, moves, drop, realizedAtDrop) =
             (r.realized, r.idle, r.selection, r.click, r.streaming, r.typing, r.moves, r.drop, r.realizedAtDrop)
