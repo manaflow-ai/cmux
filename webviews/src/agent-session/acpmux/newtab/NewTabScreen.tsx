@@ -1295,7 +1295,7 @@ export function NewTabScreen(props: Props) {
       <div ref={setComposer} className="nt-composer" data-composer-look={look === "codex" ? "codex" : undefined}>
         {worktreeError && <WorktreeFailure error={worktreeError} onDismiss={() => setWorktreeError(undefined)} />}
         {/* Above the box: the project strip (Cards draws it under the field). */}
-        {!pill && <div className="nt-above">{folderStrip}</div>}
+        {!pill && !split && <div className="nt-above">{folderStrip}</div>}
         <div ref={setBox} className="ui-glass ui-glass-floats nt-box">
           {commandsOpen && (
             <SlashMenu
@@ -1382,11 +1382,12 @@ export function NewTabScreen(props: Props) {
           />
           {!pill && !split && pickers}
         </div>
-        {/* Claude Code's split, the chat composer's (ComposerFoot.tsx): the mode, model and effort in
-            a quiet row under the box; the box keeps the prompt, the mic and Send. */}
+        {/* Claude Code's one quiet row: folder and computer lead the mode, model and effort;
+            the box keeps the prompt, the mic and Send (Leo: "one single row"). */}
         {split && Chips && (
           <div className="nt-foot" onPointerDownCapture={touch}>
             <ComposerFoot ref={foot}>
+              {folderStrip}
               <Chips snapshot={chipSnapshot} {...(chatFolder ? { cwd: chatFolder } : {})} />
             </ComposerFoot>
           </div>

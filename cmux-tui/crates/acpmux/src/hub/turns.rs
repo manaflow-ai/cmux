@@ -585,8 +585,10 @@ impl Hub {
             // A pool launcher that dies on the prompt (its proxy is down)
             // moves the session too, not only a usage or auth limit.
             // A stopped session's agent closed because of the stop: no failover starts it again.
+            // Nor does one MDM's off ended (review 3 of #26034).
             if (is_limit_error(&e.message) || e.message.starts_with("agent process closed"))
                 && session.stops.load(Ordering::SeqCst) == stops
+                && !child.ended_on_purpose()
                 && let Some(to) = self.fallback_profile(session).await
             {
                 let from = session.meta().harness;
@@ -756,6 +758,15 @@ impl Hub {
         // A model switch (`detach_child`) ended this turn already: its failure is not the queue's.
         let detached = self.take_turn(session, turn_id).is_none_or(|t| t.turn_id != turn_id);
         session.queue_moved.notify_waiters();
+        // Debug builds only: `ACPMUX_TEST_FINISH_HOLD_MS` holds a turn's end once its turn is
+        // taken, as a slow end does (`tests/durable_agents.rs`). Bounded; release builds have no
+        // seam.
+        #[cfg(debug_assertions)]
+        if let Some(ms) =
+            std::env::var("ACPMUX_TEST_FINISH_HOLD_MS").ok().and_then(|v| v.parse::<u64>().ok())
+        {
+            tokio::time::sleep(std::time::Duration::from_millis(ms.min(10_000))).await;
+        }
         // A turn Claude answered is in its store: a respawn resumes it.
         if result.is_ok() {
             let was_unstored = std::mem::take(&mut session.meta.lock().unwrap().claude_unstored);
@@ -910,12 +921,16 @@ impl Hub {
             // waiting on nothing.
             let state = session.permissions.lock().unwrap_or_else(|e| e.into_inner());
             let asking = !state.pending.is_empty() || self.secrets.waiting_in(&session.id);
+            // An agent MDM's off ended leaves the chat idle; read under the lock its end marks it
+            // under (`end_managed_full_access`, reviews 2 and 3 of #26034).
+            let ended = child.ended_on_purpose();
             self.set_status(
                 session,
-                match (alive, asking) {
-                    (false, _) => SessionStatus::Disconnected,
-                    (true, true) => SessionStatus::Waiting,
-                    (true, false) => SessionStatus::Ready,
+                match (ended, alive, asking) {
+                    (true, _, _) => SessionStatus::Idle,
+                    (false, false, _) => SessionStatus::Disconnected,
+                    (false, true, true) => SessionStatus::Waiting,
+                    (false, true, false) => SessionStatus::Ready,
                 },
             );
             drop(state);
@@ -1150,11 +1165,11 @@ impl Hub {
         self.save_meta(session);
         // MDM forced full access off while this switch waited on the harness (after both checks
         // above). The mode is written before this reads the off, and the push writes the off
-        // before it returns, so a switch the push overtook ends here; one that finished first is
-        // an agent already in full access when MDM turned it off (#23322 b).
+        // before its teardown reads modes (`end_every_managed_full_access`): either way the
+        // agent ends.
         if self.managed_off_runs_full_access(session) {
             let _spawning = session.spawn_lock.lock().await;
-            self.stop_full_access_agent(session).await;
+            self.end_if_runs_full_access(session, true).await;
             return Err(super::start_mode::full_access_off());
         }
         Ok(res)
