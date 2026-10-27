@@ -1521,7 +1521,7 @@ jobs:
       contents: write
       attestations: write
       id-token: write
-    needs: [decide, resolve-nightly-cmux-tui-client, resolve-nightly-ghostty-cli-helper]
+    needs: [decide, resolve-nightly-cmux-tui-client, resolve-nightly-ghostty-cli-helper, pick-nightly-build-runner]
     if: needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *') && needs.decide.outputs.build_only != 'true' && needs.resolve-nightly-cmux-tui-client.outputs.already_published != 'true' && needs.resolve-nightly-cmux-tui-client.outputs.superseded != 'true' && needs.decide.outputs.continue_only != 'true'
     # The helper builds with the Zig the Ghostty submodule pins (0.16.0) and
     # links against the macOS 26 SDK: the universal build and its lipo check
@@ -1529,13 +1529,13 @@ jobs:
     # link failure that pinned this job to macOS 15 is gone. Zig on Linux has
     # no macOS SDK, so only a reused helper (resolve-nightly-ghostty-cli-helper)
     # leaves this job on Linux, for the source archive. A fresh helper takes an
-    # owned pool on attempt 1 of a push or schedule (main's trusted pool,
-    # nightly-next's side pool); a retry, dispatch or empty variable takes
+    # owned pool on attempt 1 of a push or schedule (main's trusted pool;
+    # nightly-next: pick-nightly-build-runner's owned pick, never the dedicated builder); a retry, dispatch or empty variable takes
     # Blacksmith macOS 26, so a rescue re-run leaves a busy mini. Not
     # CI_NIGHTLY_NEXT_BUILD_RUNNER: it holds every attempt on its label, and a
     # trusted NEXT runner admits only build-nightly-app. Never a hosted Mac past
     # the fork branch, never macOS 15. glaeda sizes it light at its measured cores.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || inputs.nightly_next_unsigned_run != '' && 'ubuntu-24.04' || needs.resolve-nightly-ghostty-cli-helper.outputs.hit == 'true' && (vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404') || github.repository == 'manaflow-ai/cmux' && github.run_attempt == 1 && (github.event_name == 'push' || github.event_name == 'schedule') && vars.CI_PR_POOL_OWNED == '1' && (github.ref == 'refs/heads/main' && vars.CI_SEED_TRUSTED_POOL || github.ref == 'refs/heads/nightly-next' && vars.CI_SIDE_LANE_RUNNER) || 'blacksmith-6vcpu-macos-26' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || inputs.nightly_next_unsigned_run != '' && 'ubuntu-24.04' || needs.resolve-nightly-ghostty-cli-helper.outputs.hit == 'true' && (vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404') || github.ref == 'refs/heads/nightly-next' && (github.run_attempt == 1 && needs.pick-nightly-build-runner.outputs.owned != needs.pick-nightly-build-runner.outputs.dedicated && needs.pick-nightly-build-runner.outputs.owned || needs.pick-nightly-build-runner.outputs.blacksmith || 'blacksmith-6vcpu-macos-26') || github.repository == 'manaflow-ai/cmux' && github.run_attempt == 1 && (github.event_name == 'push' || github.event_name == 'schedule') && vars.CI_PR_POOL_OWNED == '1' && github.ref == 'refs/heads/main' && vars.CI_SEED_TRUSTED_POOL || 'blacksmith-6vcpu-macos-26' }}
     timeout-minutes: 20
     env:
       NIGHTLY_FAST_BUILD: ${{ needs.decide.outputs.fast_build }}
