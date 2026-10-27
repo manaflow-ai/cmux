@@ -5,7 +5,7 @@ import Testing
 
 @MainActor
 struct TabMirrorPlacementTests {
-    @Observable private final class Mirror {
+    @Observable final class Mirror {
         var present = false
     }
 
