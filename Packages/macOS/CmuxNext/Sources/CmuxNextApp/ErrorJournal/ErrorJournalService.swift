@@ -8,8 +8,8 @@ import Foundation
 /// Owns this build's ``ErrorJournal`` and the places it harvests: the app's own unified log
 /// (page console errors included), the Chief's acpmux `daemon.log`, `host.log` and
 /// `client.log`, the app's own acpmux log, and cmux crash reports. Harvests once at ``start()``,
-/// then on the system's background activity scheduler when a watched log changed, and before
-/// every `errors.list`.
+/// then on the system's background activity scheduler (the logs and reports only when a watched
+/// folder changed), and before every `errors.list`.
 ///
 /// The journal lives in `~/Library/Application Support/<bundle id>/errors`, one per build.
 @MainActor
@@ -28,7 +28,7 @@ final class ErrorJournalService {
 
     let journal: ErrorJournal
     let sources: [any ErrorHarvestSource]
-    /// The folders whose changes make the next scheduled run harvest.
+    /// The folders whose changes make the next scheduled run read the sources that announce changes.
     let watched: [Watch]
     /// The app's Energy Saver policy: its poll stretch multiplies the cadence, and its pause holds it.
     private let energy: EnergyPolicySource
@@ -115,11 +115,11 @@ final class ErrorJournalService {
     /// Saver does not pause keepalives and polls.
     ///
     /// Nothing of it runs on the main thread: the scheduler runs each harvest on its own background
-    /// queue (``BackgroundActivity``), and a run reads the sources only when a watched folder changed
-    /// since the last harvest began (FSEvents, ``watchLatency``); otherwise it ends at once. One
-    /// harvest runs at a time. The main actor only follows the energy policy: a change of stretch or
-    /// pause invalidates the activity and schedules a new one. The unified log has no change signal:
-    /// its entries come in with the next harvest a log change starts, or with `errors.list`.
+    /// queue (``BackgroundActivity``). Every run reads the sources with no change signal (the unified
+    /// log, which logd filters to errors and faults); it reads the logs and crash reports only when a
+    /// watched folder changed since the last harvest began (FSEvents, ``watchLatency``) or one of them
+    /// stopped at its bound last time. One harvest runs at a time. The main actor only follows the
+    /// energy policy: a change of stretch or pause invalidates the activity and schedules a new one.
     func start() {
         guard harvester == nil else { return }
         let harvester = Harvester()
@@ -177,16 +177,22 @@ final class ErrorJournalService {
     }
 }
 
-/// Whether a watched folder changed since the last harvest began (true at first), and whether one runs.
+/// Whether the sources that announce changes have something to read (true at first: a watched
+/// folder changed since the last harvest began, or one of them stopped at its bound), and whether
+/// a harvest runs.
 private nonisolated final class Harvester: Sendable {
     let changed = Atomic<Bool>(true)
     private let running = Atomic<Bool>(false)
 
-    /// Reads `sources` into `journal` off the main thread when a watched folder changed and no harvest runs.
+    /// Reads into `journal`, off the main thread and unless a harvest runs, the `sources` with no
+    /// change signal, and the others when ``changed``.
     @concurrent func harvest(_ journal: ErrorJournal, _ sources: [any ErrorHarvestSource]) async {
-        guard changed.load(ordering: .acquiring), !running.exchange(true, ordering: .acquiring) else { return }
-        changed.store(false, ordering: .relaxed)
-        await journal.harvest(sources)
+        guard !running.exchange(true, ordering: .acquiring) else { return }
+        let due = changed.exchange(false, ordering: .acquiringAndReleasing) ? sources : sources.filter { !$0.announcesChanges }
+        if !due.isEmpty {
+            let report = await journal.harvestReport(due)
+            if !report.unfinished.isEmpty { changed.store(true, ordering: .releasing) }
+        }
         running.store(false, ordering: .releasing)
     }
 }

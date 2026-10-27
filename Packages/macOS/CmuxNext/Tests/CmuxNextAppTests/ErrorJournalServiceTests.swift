@@ -8,7 +8,8 @@ import Foundation
 import Testing
 
 /// p14-energy-066a: the error journal harvests once at start, then on the system's background activity
-/// scheduler (fired by hand here), and a run reads the sources only when a watched log folder changed.
+/// scheduler (fired by hand here). A run reads the logs and reports only when a watched folder changed or
+/// one of them stopped at its bound, and the unified log (no change signal) on every run.
 /// Folder changes are sent by hand; finishing the streams ends the watch tasks, so awaiting them proves
 /// that every change was seen before the next run.
 @MainActor @Suite(.serialized, .timeLimit(.minutes(1)))
@@ -48,6 +49,37 @@ struct ErrorJournalServiceTests {
         await rig.endWatches()
         #expect(await rig.activities.fire() == 1)
         #expect(rig.source.harvests == 1, "a change to an item that is not a watched log read the sources")
+        await rig.service.stop()
+    }
+
+    @Test func everyRunReadsTheUnifiedLogWithNoFolderChange() async throws {
+        let log = GatedSource(id: "oslog", announcesChanges: false)
+        let rig = Rig(others: [log])
+        defer { rig.removeJournal() }
+        rig.service.start()
+        await rig.service.launchHarvest?.value
+        #expect(log.harvests == 1 && rig.source.harvests == 1, "start did not read every source")
+
+        #expect(await rig.activities.fire() == 1)
+        #expect(log.harvests == 2, "a run with no folder change skipped the unified log")
+        #expect(rig.source.harvests == 1, "a run with no folder change read a log file")
+        #expect(await rig.activities.fire() == 1)
+        #expect(log.harvests == 3, "the second quiet run skipped the unified log")
+        #expect(rig.source.harvests == 1)
+        await rig.service.stop()
+    }
+
+    @Test func aSourceStoppedAtItsBoundIsReadAgainOnTheNextRun() async throws {
+        let rig = Rig(source: GatedSource(unfinishedHarvests: 1))
+        defer { rig.removeJournal() }
+        rig.service.start()
+        await rig.service.launchHarvest?.value
+        #expect(rig.source.harvests == 1)
+
+        #expect(await rig.activities.fire() == 1)
+        #expect(rig.source.harvests == 2, "the rest of a bounded read waited for a folder change")
+        #expect(await rig.activities.fire() == 1)
+        #expect(rig.source.harvests == 2, "a finished read was read again with no change")
         await rig.service.stop()
     }
 
@@ -164,19 +196,24 @@ private struct Rig {
     let directory: URL
     let service: ErrorJournalService
 
-    init(energy: EnergyPolicySource = EnergyPolicySource(), released: Bool = true) {
+    init(energy: EnergyPolicySource = EnergyPolicySource(), released: Bool = true, source: GatedSource = GatedSource(),
+         others: [GatedSource] = []) {
         let watched = ErrorJournalServiceTests.watched
         let folders = HandFolderWatcher(folders: watched.map(\.folder))
         let directory = FileManager.default.temporaryDirectory.appending(path: "error-journal-service-\(UUID().uuidString)")
-        let source = GatedSource(), activities = ManualBackgroundActivityScheduler()
+        let activities = ManualBackgroundActivityScheduler()
         self.folders = folders
         self.directory = directory
         self.source = source
         self.activities = activities
-        service = ErrorJournalService(journal: ErrorJournal(directory: directory), sources: [source], watched: watched,
+        let sources = (others + [source]).map { $0 as any ErrorHarvestSource }
+        service = ErrorJournalService(journal: ErrorJournal(directory: directory), sources: sources, watched: watched,
                                       energy: energy, activities: activities, folders: folders,
                                       activityID: "test.error-journal.harvest")
-        if released { source.release() }
+        if released {
+            source.release()
+            for other in others { other.release() }
+        }
     }
 
     /// Ends every folder's changes and returns once each watch has seen all it was sent.
@@ -211,45 +248,54 @@ private nonisolated final class HandFolderWatcher: FolderWatching, Sendable {
     }
 }
 
-/// A source that counts its harvests; each one waits until the test releases the source.
+/// A source that counts its harvests; each one waits until the test releases the source. Its first
+/// `unfinishedHarvests` harvests stop at their bound (``ErrorHarvest/more``).
 private nonisolated final class GatedSource: ErrorHarvestSource, Sendable {
-    let id = "gated"
+    let id: String
+    let announcesChanges: Bool
+    private let unfinishedHarvests: Int
     private struct State {
         var harvests = 0
         var released = false
-        var waiting: [CheckedContinuation<Void, Never>] = []
+        var waiting: [(count: Int, continuation: CheckedContinuation<Int, Never>)] = []
         var watchers: [(count: Int, continuation: CheckedContinuation<Void, Never>)] = []
     }
 
     private let state = Mutex(State())
 
+    init(id: String = "gated", announcesChanges: Bool = true, unfinishedHarvests: Int = 0) {
+        self.id = id
+        self.announcesChanges = announcesChanges
+        self.unfinishedHarvests = unfinishedHarvests
+    }
+
     var harvests: Int { state.withLock { $0.harvests } }
 
     func collect(after cursor: String?) async throws -> ErrorHarvest {
-        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
-            let (resume, ready) = state.withLock { state -> (Bool, [CheckedContinuation<Void, Never>]) in
+        let number = await withCheckedContinuation { (continuation: CheckedContinuation<Int, Never>) in
+            let (harvest, resume, ready) = state.withLock { state -> (Int, Bool, [CheckedContinuation<Void, Never>]) in
                 state.harvests += 1
-                let count = state.harvests
-                let ready = state.watchers.filter { $0.count <= count }.map(\.continuation)
-                state.watchers.removeAll { $0.count <= count }
-                if state.released { return (true, ready) }
-                state.waiting.append(continuation)
-                return (false, ready)
+                let harvest = state.harvests
+                let ready = state.watchers.filter { $0.count <= harvest }.map(\.continuation)
+                state.watchers.removeAll { $0.count <= harvest }
+                if state.released { return (harvest, true, ready) }
+                state.waiting.append((harvest, continuation))
+                return (harvest, false, ready)
             }
             for watcher in ready { watcher.resume() }
-            if resume { continuation.resume() }
+            if resume { continuation.resume(returning: harvest) }
         }
-        return ErrorHarvest(events: [], cursor: cursor)
+        return ErrorHarvest(events: [], cursor: cursor, more: number <= unfinishedHarvests)
     }
 
     /// Lets every waiting and later harvest finish.
     func release() {
-        let waiting = state.withLock { state -> [CheckedContinuation<Void, Never>] in
+        let waiting = state.withLock { state -> [(count: Int, continuation: CheckedContinuation<Int, Never>)] in
             state.released = true
             defer { state.waiting = [] }
             return state.waiting
         }
-        for continuation in waiting { continuation.resume() }
+        for entry in waiting { entry.continuation.resume(returning: entry.count) }
     }
 
     /// Returns once `count` harvests have begun.

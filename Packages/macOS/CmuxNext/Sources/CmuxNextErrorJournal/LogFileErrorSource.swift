@@ -12,7 +12,8 @@ public struct LogFileErrorSource: ErrorHarvestSource {
     public let source: String
     /// The first harvest of a file reads at most this many bytes from its end.
     public let firstReadBytes: Int
-    /// One harvest reads at most this many new bytes; the rest waits for the next one.
+    /// One harvest reads at most this many new bytes; the rest waits for the next one
+    /// (``ErrorHarvest/more``).
     public let maxReadBytes: Int
 
     /// Makes a log source.
@@ -65,7 +66,7 @@ public struct LogFileErrorSource: ErrorHarvestSource {
             text = String(text[text.index(after: firstBreak)...]) // the tail began mid-line
         }
         let events = LogLineParser(source: source, file: url.lastPathComponent).events(in: text)
-        return ErrorHarvest(events: events, cursor: "\(inode):\(start + complete.count)")
+        return ErrorHarvest(events: events, cursor: "\(inode):\(start + complete.count)", more: size - start > maxReadBytes)
     }
 
     private static func parse(_ cursor: String) -> (inode: UInt64, offset: Int)? {

@@ -9,6 +9,8 @@ public import Foundation
 /// `system:<subsystem>` for frameworks logging in-process (WebKit, AppKit).
 public struct OSLogErrorSource: ErrorHarvestSource {
     public let id: String
+    /// The unified log has no change signal on disk.
+    public var announcesChanges: Bool { false }
     private let processID: Int32
     private let launchDate: Date
     private let reader: any OSLogReading
@@ -44,16 +46,23 @@ public struct OSLogErrorSource: ErrorHarvestSource {
         let entries = try reader.entries(since: start, matching: Self.errorsAndFaults)
         var events: [ErrorEvent] = []
         var newest = start
+        var more = false
         for entry in entries where entry.date > start {
             guard entry.level == .error || entry.level == .fault else { continue }
             newest = max(newest, entry.date)
             events.append(Self.event(subsystem: entry.subsystem, category: entry.category,
                                      isFault: entry.level == .fault, message: entry.message, date: entry.date))
-            if events.count >= 5000 { break }
+            if events.count >= Self.maxEvents {
+                more = true
+                break
+            }
         }
         let ms = Int64((newest.timeIntervalSince1970 * 1000).rounded(.up))
-        return ErrorHarvest(events: events, cursor: "\(processID):\(ms)")
+        return ErrorHarvest(events: events, cursor: "\(processID):\(ms)", more: more)
     }
+
+    /// One harvest keeps at most this many entries; the rest waits for the next one (``ErrorHarvest/more``).
+    static let maxEvents = 5000
 
     /// The log store predicate for errors and faults (`messageType`, as `log show --predicate` takes it).
     static var errorsAndFaults: NSPredicate { NSPredicate(format: "messageType == 'error' OR messageType == 'fault'") }
