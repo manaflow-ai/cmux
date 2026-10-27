@@ -5,6 +5,7 @@ import CmuxNextCrashReporting
 import CmuxNextDesign
 import CmuxNextWakeups
 import CmuxNextTerminal
+import CmuxNextSettings
 import CmuxNextSignposts
 import CmuxNextFocusUI
 import CmuxNextInput
@@ -91,6 +92,10 @@ final class CmuxApplication: NSApplication, CEFAppProtocol {
     @objc(setHandlingSendEvent:)
     func setHandlingSendEvent(_ value: Bool) { handlingSendEvent = value }
 
+    /// Set once in `CmuxNextApp.main` while feature `mainJobGate` is on (p04-input-076): each event's
+    /// route is marked as a dispatch on its word, so the main-actor jobs the route enqueues pass it.
+    var jobGate: MainJobGateSwitch?
+
     /// The main-thread budget's run-loop turn meter (``meterTurns(_:)``).
     private var turnMeter: MainTurnMeter?
 
@@ -137,6 +142,8 @@ final class CmuxApplication: NSApplication, CEFAppProtocol {
     }
 
     private func route(_ event: NSEvent, dispatchedNanos: UInt64?) {
+        let outerDispatch = jobGate?.beginDispatch()
+        defer { if let outerDispatch { jobGate?.endDispatch(restoring: outerDispatch) } }
         // Every key-down: the probe opens a sample while it records and for its 1-in-16 key.echo_frame sample.
         let probesKey = event.type == .keyDown && TypingLatencyProbe.shared.keyDown(eventTimestamp: event.timestamp)
         defer { if probesKey { TypingLatencyProbe.shared.mark(.dispatchEnd) } }
@@ -297,6 +304,14 @@ final class CmuxApplication: NSApplication, CEFAppProtocol {
 }
 
 extension CmuxApplication {
+    /// The gate follows `debug.mainJobGate` once the settings load (nil before: nothing installs).
+    func followMainJobGate(_ settings: SettingsController, on mainWork: MainWorkScheduler) {
+        jobGate?.follow(on: mainWork) { [weak settings] in
+            guard let settings, settings.loadCount >= 1 else { return nil }
+            return settings.snapshot.mainJobGate.enabled
+        }
+    }
+
     /// The tap's stages around AppKit's dispatch of `event`: its intercepts, then `superSend`
     /// (`-[NSApplication sendEvent:]`, where AppKit's local monitors run) unless an intercept
     /// consumed the event, then its after-dispatch observers. Intercepts and local monitors run in

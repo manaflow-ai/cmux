@@ -60,6 +60,9 @@ final class CEFHostStart {
     /// (``CEFHostReplies/wireEnded()``). The runtime that owns this start sets its `hostWireEnded`,
     /// which detaches the wire before anything resolves; with none, ``ended()`` does both itself.
     var onHostGone: (@MainActor () -> Void)?
+    /// Which host is attached: one more after each ``hostEnded()``. Work begun for one host compares it
+    /// to know that host is still the one attached, as a mojo reply callback dies with its pipe.
+    private(set) var generation = 0
 
     /// `helloDeadline`: how long, on `clock`, the host may take from the attach to its hello
     /// before the start fails (a host that hangs while it starts Chromium). Reply deadlines run on
@@ -113,6 +116,7 @@ final class CEFHostStart {
     func hostEnded() {
         remote?.detach()
         (task, remote, mapsClientIDs, acksWheels, hostGone, pageResizes) = (nil, nil, false, false, true, nil)
+        generation += 1
     }
 
     /// The host's wire ended, whatever ended it (`CEFRuntime.hostWireEnded`, task 091), and ``hostEnded()``
