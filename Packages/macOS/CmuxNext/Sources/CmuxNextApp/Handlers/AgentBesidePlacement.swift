@@ -33,8 +33,9 @@ enum AgentBesidePlacement {
     /// Same for `pane` whether a window shows it or not: a chat in a
     /// workspace no window shows still gets its new column (daemon commands);
     /// only the selection in an existing column needs the shown pane.
+    /// `limit`: how long the move waits for the tab's open and for each store echo (``openLimit``; tests pass a short one).
     @MainActor static func placed(_ invocation: ActionInvocation, pane anchor: PaneModel, controller: PaneController?,
-                                  services: AppServices,
+                                  services: AppServices, limit: Duration = openLimit,
                                   then: (@MainActor (SurfaceID) -> Void)?) -> @MainActor (SurfaceID) -> Void {
         // A person's click: the pane they clicked in, which the tab's close focuses again.
         let clicked = invocation.besideTakesFocus ? (controller?.workspace ?? services.paneController(for: anchor)?.workspace) : nil
@@ -71,7 +72,7 @@ enum AgentBesidePlacement {
         let end = services.registry.completion(on: services.mainWork)
         // A bounded wait, so a tab that never opens cannot hold the run: the bound ends the stream.
         let bound = MainDeadline(owner: "AgentBesidePlacement.tabOpen", workClass: end.workClass, scheduler: services.mainDeadlines)
-        bound.schedule(after: openLimit) { sink.finish() }
+        bound.schedule(after: limit) { sink.finish() }
         let store = services.daemon(for: anchor).store, chatID = chat?.id
         // The run's last step: the strip lists the tab again, and the run answers.
         let done: @MainActor @Sendable (Bool, ActionWorkFailure?) -> ActionWorkFailure? = { moved, failure in
@@ -84,7 +85,7 @@ enum AgentBesidePlacement {
             var opened = surfaces.makeAsyncIterator()
             let surface = await opened.next()
             var listed: TabModel?
-            if let surface { listed = await store.waitForTab(surface: surface, timeout: openLimit) }
+            if let surface { listed = await store.waitForTab(surface: surface, timeout: limit) }
             guard let surface, let tab = listed else {
                 return await end.apply(owner: "AgentBesidePlacement.notOpened", answering: true) {
                     done(false, "beside-caller: the new tab did not open")
@@ -118,8 +119,12 @@ enum AgentBesidePlacement {
                 case .docked(let follows):
                     // The store lists the chat in its new dock pane (the window's controller may come later;
                     // focus goes by the pane's id, which the window applies when it shows the pane).
-                    var dock: PaneModel?
-                    if follows { dock = await movedPane(of: chatID, from: anchor, workClass: end.workClass, services: services) }
+                    let dock: PaneModel?
+                    if follows {
+                        dock = await movedPane(of: chatID, from: anchor, limit: limit, workClass: end.workClass, services: services)
+                    } else {
+                        dock = nil
+                    }
                     return await end.apply(owner: "AgentBesidePlacement.docked", answering: true) {
                         if let dock, let clicked {
                             focus(surface, returningTo: LayoutPaneID(dock.id), in: clicked, generation: intent, services: services)
@@ -165,7 +170,7 @@ enum AgentBesidePlacement {
                 }
             }
             // The strip follows focus only: the new column scrolls into view once the store lists the tab there.
-            let pane = await movedPane(of: id, from: anchor, workClass: end.workClass, services: services)
+            let pane = await movedPane(of: id, from: anchor, limit: limit, workClass: end.workClass, services: services)
             return await end.apply(owner: "AgentBesidePlacement.reveal", answering: true) {
                 if let pane, let content = services.paneController(for: anchor)?.workspace {
                     content.layoutModel.revealColumn(containing: LayoutPaneID(pane.id))
@@ -232,14 +237,14 @@ extension AgentBesidePlacement {
         }
     }
 
-    /// The pane tab `id` is in once the store lists it outside `anchor`, else nil after ``openLimit``: one
+    /// The pane tab `id` is in once the store lists it outside `anchor`, else nil after `limit`: one
     /// `ObservedCondition` (a `ServiceObservation` in `workClass`) reads the tab index again only when it moves.
-    @MainActor static func movedPane(of id: String, from anchor: PaneModel, workClass: BudgetedWorkClass,
-                                     services: AppServices) async -> PaneModel? {
+    @MainActor static func movedPane(of id: String, from anchor: PaneModel, limit: Duration = openLimit,
+                                     workClass: BudgetedWorkClass, services: AppServices) async -> PaneModel? {
         // view-observation-allow: one MachineTabIndex lookup (p06-scheduler-051) per read
         let moved: @MainActor () -> PaneModel? = { services.locateTab(id).flatMap { $0.1 !== anchor ? $0.1 : nil } }
         await ObservedCondition(owner: "AgentBesidePlacement.moved", workClass, on: services.mainWork)
-            .until(timeout: openLimit, deadlines: services.mainDeadlines) { moved() != nil }
+            .until(timeout: limit, deadlines: services.mainDeadlines) { moved() != nil }
         return moved()
     }
 }

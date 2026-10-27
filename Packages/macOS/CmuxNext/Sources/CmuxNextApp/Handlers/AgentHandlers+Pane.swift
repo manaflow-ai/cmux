@@ -3,6 +3,7 @@ import CmuxNextAgentPane
 import CmuxNextCompat
 import CmuxNextControl
 import CmuxNextDaemon
+import CmuxNextWakeups
 import Observation
 
 extension AgentHandlers {
@@ -23,9 +24,11 @@ extension AgentHandlers {
         }
         guard let workspace = context.scope(invocation).workspace else { return context.refuse(MiscHandlerStrings.noPane) }
         _ = context.registry.perform("newTab.default", invocation: invocation)
-        // The mount is awaited off the action's turn; the chat opens in one task of the run's completion.
+        // The mount is awaited off the action's turn; the chat opens in one task of the run's completion. The
+        // wait's re-reads run in that run's class too: userBlocking for the person, automation for the CLI or an agent.
+        let workClass = context.registry.completion(on: context.services.mainWork).workClass
         context.registry.trackWork(owner: "AgentHandlers.withAgentPane", on: context.services.mainWork) {
-            await Self.waitForPaneController(in: workspace, context: context)
+            await Self.waitForPaneController(in: workspace, workClass: workClass, context: context)
         } then: { result in
             guard case .success(let pane?) = result else {
                 context.refuse(MiscHandlerStrings.noPane)
@@ -62,9 +65,11 @@ extension AgentHandlers {
     /// How long a new chat waits for the active workspace's first pane to mount.
     static let paneMountLimit: Duration = .seconds(10)
 
-    /// The first mounted pane of `workspace`, at once when one is mounted now, else nil after ``paneMountLimit``.
+    /// The first mounted pane of `workspace`, at once when one is mounted now, else nil after ``paneMountLimit``;
+    /// its re-reads and its timeout run in `workClass`, the class of the run that waits.
     @MainActor
-    private static func waitForPaneController(in workspace: WorkspaceModel, context: AppActionContext) async -> PaneController? {
+    private static func waitForPaneController(in workspace: WorkspaceModel, workClass: BudgetedWorkClass,
+                                              context: AppActionContext) async -> PaneController? {
         // The store's panes are observable; mounted controllers are not, so
         // the mount generation stands in for them (`PaneMounts`).
         let services = context.services
@@ -72,7 +77,7 @@ extension AgentHandlers {
             workspace.screens.flatMap(\.panes).lazy.compactMap(services.paneController(for:)).first
         }
         // One ServiceObservation reads again only when the panes or the mount generation change.
-        await ObservedCondition(owner: "AgentHandlers.paneMount", .visible, on: services.mainWork)
+        await ObservedCondition(owner: "AgentHandlers.paneMount", workClass, on: services.mainWork)
             .until(timeout: paneMountLimit, deadlines: services.mainDeadlines) {
                 _ = services.paneMounts.generation
                 return mounted() != nil
