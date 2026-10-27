@@ -2,16 +2,25 @@ import { expect, test } from "bun:test";
 import { restoreForkSource } from "./restoreForkSource";
 
 function fixture() {
-  const state = { selected: "target", handoffId: "fork", persisted: [] as string[], selections: [] as string[] };
+  const state = {
+    selected: "target",
+    handoffId: "fork",
+    token: 0,
+    persisted: [] as string[],
+    selections: [] as string[],
+  };
   const recovery = {
     source: "source",
     target: "target",
     handoffId: "fork",
+    selectionToken: state.token,
+    currentSelectionToken: () => state.token,
     currentHandoffId: () => state.handoffId,
     selectedSession: () => state.selected,
     select: async (id: string): Promise<string | undefined> => {
       state.selections.push(id);
       state.selected = id;
+      state.token += 1;
       return id;
     },
     persist: async (id: string) => {
@@ -69,5 +78,36 @@ test("failed source attachment does not persist a session", async () => {
     throw new Error("offline");
   };
   await expect(restoreForkSource(recovery)).rejects.toThrow("offline");
+  expect(state.persisted).toEqual([]);
+});
+
+
+test("a late failure does not undo leaving and returning to the target", async () => {
+  const { state, recovery } = fixture();
+  await recovery.select("another-chat");
+  await recovery.select("target");
+  state.selections = [];
+  await restoreForkSource(recovery);
+  expect(state.selected).toBe("target");
+  expect(state.selections).toEqual([]);
+  expect(state.persisted).toEqual([]);
+});
+
+test("leaving and returning during source attachment does not persist the old selection", async () => {
+  const { state, recovery } = fixture();
+  const select = recovery.select;
+  let finish!: (id: string) => void;
+  recovery.select = (id) => {
+    void select(id);
+    return new Promise((resolve) => {
+      finish = resolve;
+    });
+  };
+  const restoring = restoreForkSource(recovery);
+  await select("another-chat");
+  await select("source");
+  finish("source");
+  await restoring;
+  expect(state.selected).toBe("source");
   expect(state.persisted).toEqual([]);
 });
