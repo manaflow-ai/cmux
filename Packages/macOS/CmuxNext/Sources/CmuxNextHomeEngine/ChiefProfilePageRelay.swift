@@ -164,8 +164,8 @@ public final class ChiefProfilePageRelay {
     private func dropStream() {
         guard let stream else { return }
         self.stream = nil
-        // task-owner: one close of a stream no call uses any more
-        closing = Task { await stream.close() }
+        // task-owner: one close of a stream no call uses any more (off main: the stream is its own)
+        closing = Task { @concurrent in await stream.close() }
     }
 
     /// The last stream close (``dropStream()``); tests await it.
@@ -180,8 +180,9 @@ public final class ChiefProfilePageRelay {
         // An open to the same owner in flight is shared; one to another owner is not.
         if let opening, opening.owner == attached { return try await opening.task.value }
         let relay = owner.pageRelay(socket: attached.socket)
-        // task-owner: one stream open; ends with its handshake (each line has the request deadline)
-        let task = Task { () async throws -> any PageRelayStream in
+        // task-owner: one stream open; ends with its handshake (each line has the request deadline). Off main: it
+        // touches only the relay and its stream; the caller checks the owner again in its resume.
+        let task = Task { @concurrent () async throws -> any PageRelayStream in
             let opened = try await relay.openStream(page: Self.page)
             // The socket may already serve another owner process than the one the app's main
             // connection is attached to (it restarted in between): that is not this owner.

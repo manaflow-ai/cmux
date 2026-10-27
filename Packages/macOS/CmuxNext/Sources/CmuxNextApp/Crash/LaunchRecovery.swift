@@ -23,9 +23,13 @@ nonisolated struct PreviousRun: Codable, Equatable, Sendable {
     /// (`UncaughtExceptionRecorder`). Read from `run.exception`, never
     /// encoded into `run.json`.
     var exception: RecordedException?
+    /// The run's kernel process start in Unix microseconds, as its black box and crash-key page headers say it
+    /// (p09-observability-079): the next launch takes only that process's files. Nil when unknown or in markers
+    /// written before this field existed.
+    var processStart: UInt64?
 
     private enum CodingKeys: String, CodingKey {
-        case pid, launched, recovery, survived, signal, quitting, bootSession
+        case pid, launched, recovery, survived, signal, quitting, bootSession, processStart
     }
 
     /// The run ended because someone asked it to: a requested-quit signal

@@ -69,6 +69,9 @@ final class BlockingViolationTable: Sendable {
     private let mainCounters = BlockingSiteCounters(capacity: BlockingViolationTable.siteLimit)
     private let ring: BlockingPendingRing
     private let mainOverflow = UnsafeAtomic<Int>.create(0)
+    /// How many ``resetCounts()`` finished: stored after the zeroing, so a reader that loads it first sees the
+    /// zeroed counters whenever it sees the new value.
+    private let resets = UnsafeAtomic<Int>.create(0)
     private let pool = BlockingOffMainSites(siteLimit: BlockingViolationTable.siteLimit,
                                             pendingLimit: BlockingViolationTable.pendingLimit)
     /// The ``BlockingKind/wrongLane`` sites: seams in items of BackgroundWork's `.cpu` lane.
@@ -77,6 +80,8 @@ final class BlockingViolationTable: Sendable {
     /// The ``BlockingContext/laneSync`` sites: sync primitives in items of the lanes that may block.
     private let laneSync = BlockingOffMainSites(siteLimit: BlockingViolationTable.siteLimit,
                                                 pendingLimit: BlockingViolationTable.pendingLimit)
+    /// The QoS inversions of the waiting seams (``BlockingViolationTable/qosWait(onto:fileID:line:)``).
+    let qosInversions = BlockingQoSInversions()
 
     private let drainQueue = DispatchQueue(label: "com.cmuxterm.app.next.blocking-drain", qos: .utility)
     nonisolated(unsafe) private let wake: any DispatchSourceUserDataAdd // crash-allow: dispatch sources are thread-safe; recording threads only add data
@@ -137,6 +142,7 @@ final class BlockingViolationTable: Sendable {
         wake.cancel()
         wake.activate()  // a source that never ran must be activated to be released
         mainOverflow.destroy()
+        resets.destroy()
     }
 
     /// Lets a table made with `startsDrain: false` drain.
@@ -364,6 +370,12 @@ final class BlockingViolationTable: Sendable {
         drain(pool.ring, context: .pool, &resolver)
         drain(cpuLane.ring, context: .cpuLane, &resolver)
         drain(laneSync.ring, context: .laneSync, &resolver)
+        qosInversions.drain()
+    }
+
+    /// Wakes the drain for a new site recorded outside the violation contexts (a QoS inversion).
+    func wakeDrain() {
+        wake.add(data: 1)
     }
 
     private func drain(_ ring: BlockingPendingRing, context: BlockingContext, _ resolver: inout BlockingFrameResolver) {
@@ -463,11 +475,16 @@ final class BlockingViolationTable: Sendable {
         }
     }
 
+    /// How many ``resetCounts()`` finished (load it before the sites it is read with).
+    var resetCount: Int { resets.load(ordering: .acquiring) }
+
     func resetCounts() {
         mainCounters.reset()
         pool.counters.reset()
         cpuLane.counters.reset()
         laneSync.counters.reset()
+        qosInversions.resetCounts()
+        resets.wrappingIncrement(ordering: .releasing)
     }
 }
 #endif

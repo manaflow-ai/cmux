@@ -1,6 +1,6 @@
 import AppKit
 public import CmuxNextActions
-import CmuxNextCompat
+public import CmuxNextCompat
 import class CmuxSafeConcurrency.OnceContinuation
 import enum CmuxSafeConcurrency.OnceContinuationError
 public import CmuxNextControl
@@ -52,8 +52,14 @@ public final class DaemonService {
     /// The running push of `terminalDefaultColors`, and whether a newer value waits for it.
     @ObservationIgnored var terminalColorsPush: Task<Void, Never>?
     @ObservationIgnored var terminalColorsPending = false
+    /// What a person sees, which each connection's heartbeat follows (``ConnectionPresence``); nil
+    /// counts the app as shown.
+    @ObservationIgnored public var connectionPresence: ConnectionPresence? {
+        didSet { if let connectionPresence, let connection { connection.heartbeat.follow(connectionPresence) } }
+    }
     /// The app's Energy Saver the local daemon follows (DaemonService+Energy); nil until `follow(_:on:)`.
     @ObservationIgnored var energyFollow: DaemonEnergyFollow?
+    @ObservationIgnored var featureHello: DaemonFeatureHello?  // the local hellos' features (`start`); settled at the first connection
     @ObservationIgnored private var runTask: Task<Void, Never>?
     /// The running relaunch of kept tabs (`relaunchKeptLayoutIfNeeded`).
     @ObservationIgnored var keptLayoutRelaunch: Task<Void, Never>?
@@ -82,6 +88,10 @@ public final class DaemonService {
     /// Watches each line the service's connections and its terminal attachments read (their reader threads'
     /// `daemon.line` scopes); nil watches nothing.
     @ObservationIgnored public let hangWatch: (any HangWatchScoping)?
+    /// The local daemon's diagnostic sites (`server-diagnostic-site`), each once per daemon life across this
+    /// service's connections; the app's hang reports install their sink here (`WatchdogReporting`), whose
+    /// ledger keeps them once across app launches.
+    @ObservationIgnored public let diagnosticSites = DaemonDiagnosticSiteRelay<DaemonDiagnosticSite.Sighting>()
 
     /// - Parameters:
     ///   - machineID: `local`, or the remote machine's id.
@@ -121,13 +131,25 @@ public final class DaemonService {
     }
     private nonisolated static let launchMarkSink = Mutex<@Sendable (String) -> Void>({ _ in })
 
-    /// Fires `retryWake` when the app becomes active.
+    /// Fires `retryWake` when the app becomes active, and asks the heartbeat once (``becameActive()``).
     private func observeRetryEvents() {
         guard activationObserver == nil else { return }
         let wake = retryWake
+        let mainWork = mainWork
         activationObserver = NotificationCenter.default.addObserver(
             forName: NSApplication.didBecomeActiveNotification, object: nil, queue: nil
-        ) { _ in wake.fire() }
+        ) { [weak self] _ in
+            wake.fire()
+            let service = self
+            mainWork.postFromAnyThread(.background, owner: "DaemonService.activation") { service?.becameActive() }
+        }
+    }
+
+    /// The app became active: with the App's presence the connection's heartbeat asks once
+    /// (p14-energy-064).
+    private func becameActive() {
+        guard connectionPresence != nil else { return }
+        connection?.heartbeat.activated()
     }
 
     /// How the first connection is going (window connecting state, control
@@ -160,32 +182,35 @@ public final class DaemonService {
     /// for a remote or test service.
     @ObservationIgnored var updateHandOff: (@Sendable (DaemonConnection, DaemonIdentity) async -> Bool)?
 
-    /// `terminalEnvironment` (`AppEnvironment.terminalEnvironment`), with
-    /// `resolvedTerminalEnvironment` over it, goes to the daemon process and
-    /// to every terminal it creates for this app.
-    /// `prestart` is the first connect attempt `main` began
+    /// `terminalEnvironment` (`AppEnvironment.terminalEnvironment`), with `resolvedTerminalEnvironment` over it,
+    /// goes to the daemon process and to every terminal it creates for this app. `prestart` is the first connect attempt `main` began
     /// (`DaemonService.prestart`); without one the first attempt starts here, its launcher's disk steps on
-    /// `work` (the app's one ``BackgroundWork``). `launchSnapshot` is the snapshot's read `main` began; without one
+    /// `work` (the app's one ``BackgroundWork``). `team`: this process's Team ID, as the prestart got it.
+    /// `launchSnapshot` is the snapshot's read `main` began; without one
     /// the read is posted to `work` here (``DaemonLaunchSnapshot/take(_:session:stateDirectory:work:)``).
-    public func start(work: BackgroundWork, launch: LaunchIdentity, terminalEnvironment: [String: String],
+    /// `featureHello`: the app's daemon features for every hello.
+    public func start(work: BackgroundWork, launch: LaunchIdentity, team: String?, terminalEnvironment: [String: String],
                resolvedTerminalEnvironment: (@Sendable () async -> [String: String])? = nil,
                terminalEnvironmentProvider: @escaping @Sendable () async -> [String: String],
                resolvesShellIntegration: Bool = false,
-               prestart: DaemonPrestart? = nil, launchSnapshot: LaunchSnapshotPrefetch? = nil) {
+               prestart: DaemonPrestart? = nil, launchSnapshot: LaunchSnapshotPrefetch? = nil,
+               featureHello: DaemonFeatureHello? = nil) {
         guard runTask == nil else { return }
+        self.featureHello = prestart?.featureHello ?? featureHello
         let launcher: DaemonLauncher
         if let prestart {
             launcher = prestart.launcher
             retryWake = prestart.wake
         } else {
             do {
-                launcher = try DaemonLauncher.forApp(work: work, build: launch.build,
+                launcher = try DaemonLauncher.forApp(work: work, build: launch.build, team: team,
                                                 terminalEnvironment: terminalEnvironment,
                                                 resolvedTerminalEnvironment: resolvedTerminalEnvironment,
                                                 daemonEnvironment: Self.firstPartyAppsEnvironment, webSocketPageOrigins: Self.pageOrigins,
                                                 wireStats: wireStats)
             } catch {
                 noteStartupFailure((error as? DaemonError) ?? .launchFailed(String(describing: error)))
+                self.featureHello?.settle()  // no daemon will answer this launch's hello
                 return
             }
         }
@@ -204,7 +229,7 @@ public final class DaemonService {
                                                     resolvesShellIntegration: resolvesShellIntegration,
                                                     installKey: launcher.configuration.installKey,
                                                     echoesPlacementShift: echoesPlacementShift, retryWake: retryWake,
-                                                    hangWatch: hangWatch)
+                                                    hangWatch: hangWatch, featureHello: self.featureHello)
         // The launch's connect milestones: the prestart's, or this start's first attempt's when there is none.
         let marks = prestart?.marks ?? Self.launchConnectMarks()
         marks.mark(.connectStarted)
@@ -378,7 +403,9 @@ public final class DaemonService {
     private func didConnect(_ connection: DaemonConnection, identity: DaemonIdentity) {
         Self.launchMark("daemon_connected")
         connection.heartbeat.follow(KeepaliveGate(mainWork.energy))
+        if let connectionPresence { connection.heartbeat.follow(connectionPresence) }
         self.connection = connection
+        connection.diagnosticSites.forward(to: diagnosticSites)
         launchSnapshot.remember(identity)
         resumeConnectionWaiters()
         store.noteHandshake(identity)

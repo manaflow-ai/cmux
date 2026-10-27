@@ -1,4 +1,5 @@
 import Foundation
+public import CmuxNextWakeups
 import os
 
 /// The app's ``AgentApprovalAnswering``: each read or answer is one short person-proven
@@ -10,14 +11,19 @@ import os
 @MainActor
 public final class AcpmuxApprovalAnswerer: AgentApprovalAnswering {
     private let environment: AcpmuxEnvironment
+    private let deadlines: MainDeadlineScheduler
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "notifications.approval")
 
-    public init(environment: AcpmuxEnvironment) {
+    /// - Parameters:
+    ///   - environment: This app's acpmux.
+    ///   - deadlines: The app's one deadline placer (`AppServices.mainDeadlines`), for each connection's limit.
+    public init(environment: AcpmuxEnvironment, deadlines: MainDeadlineScheduler) {
         self.environment = environment
+        self.deadlines = deadlines
     }
 
     public func pendingApproval(session: String) async -> AgentApproval? {
-        guard let line = await AcpmuxPersonLine.open(environment) else { return nil }
+        guard let line = await AcpmuxPersonLine.open(environment, deadlines: deadlines) else { return nil }
         defer { line.close() }
         let pending = await line.pending(of: session)
         // One prompt only: with several, a banner could not say which one its buttons answer.
@@ -29,7 +35,7 @@ public final class AcpmuxApprovalAnswerer: AgentApprovalAnswering {
     }
 
     public func answer(_ approval: AgentApproval, allow: Bool) async -> Bool {
-        guard let line = await AcpmuxPersonLine.open(environment) else { return false }
+        guard let line = await AcpmuxPersonLine.open(environment, deadlines: deadlines) else { return false }
         defer { line.close() }
         // acpmux refuses an allow from a connection that is not the person.
         if allow, !line.isPerson {

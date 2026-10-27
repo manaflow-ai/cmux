@@ -20,6 +20,7 @@
 //! operation here reads a store. No agent verb deletes a profile: only a
 //! person does, in the app.
 
+use std::fmt::Write as _;
 use std::sync::Arc;
 
 use serde_json::{Map, Value, json};
@@ -178,8 +179,15 @@ fn profile_id_for_key(key: &str) -> String {
     }
     bytes[6] = (bytes[6] & 0x0f) | 0x40;
     bytes[8] = (bytes[8] & 0x3f) | 0x80;
-    let hex: String = bytes.iter().map(|byte| format!("{byte:02x}")).collect();
-    format!("{}-{}-{}-{}-{}", &hex[..8], &hex[8..12], &hex[12..16], &hex[16..20], &hex[20..])
+    let mut uuid = String::with_capacity(36);
+    for (index, byte) in bytes.iter().enumerate() {
+        if matches!(index, 4 | 6 | 8 | 10) {
+            uuid.push('-');
+        }
+        // Writing into a String cannot fail.
+        let _ = write!(uuid, "{byte:02x}");
+    }
+    uuid
 }
 
 /// `browser.profile.open`: a frontend browser tab whose record names the

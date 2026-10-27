@@ -24,8 +24,10 @@ public struct SettingsDeepLink: Equatable, Sendable {
     }
 
     /// Where the window scrolls: nil without a setting, or when nothing in
-    /// Settings has that name (the caller reports it).
-    public var anchor: SettingsAnchor? { setting.flatMap { SettingsAnchor(key: $0) } }
+    /// Settings has that name now (the caller reports it).
+    public func anchor(availability: SettingsAvailability) -> SettingsAnchor? {
+        setting.flatMap { SettingsAnchor(key: $0, availability: availability) }
+    }
 
     private static func text(_ value: ActionValue?) -> String? {
         guard let text = value?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines), !text.isEmpty else { return nil }
