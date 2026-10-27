@@ -746,7 +746,7 @@
       "date": "2026-10-27",
       "row": "blocking_allow_escapes",
       "allow": 1,
-      "why": "p10-stability-168: MessagesLabHome FieldTextView.log (vendored appkit-native Compose.swift), the opt-in `--caret-log` lab diagnostic. Its legacy seekToEndOfFile() and write(_:) raised NSFileHandleOperationException on a failed append; they become try seekToEnd() and try write(contentsOf:), which the raw-blocking-ext rule sees as new FileHandle I/O. The write stays on the main thread on purpose: the log places each caret and run-loop event between a key's own work and Core Animation's commits, in order, so a queue hop would reorder what it measures. Off unless the lab is launched with --caret-log; never in the cmux app. The vendored package has no CmuxThreading dependency for blockingCall."
+      "why": "p10-stability-168: MessagesLabHome FieldTextView.log (vendored appkit-native Compose.swift), the opt-in `--caret-log` lab diagnostic. Its legacy seekToEndOfFile() and write(_:) raised NSFileHandleOperationException on a failed append; they become try seekToEnd() and try write(contentsOf:), which the raw-blocking-ext rule sees as new FileHandle I/O. The write stays on the main thread on purpose: the log places each caret and run-loop event between a key's own work and Core Animation's commits, in order, so a queue hop would reorder what it measures. Off unless the process is launched with --caret-log (a developer argument no shipped launch passes). The vendored package has no CmuxThreading dependency for blockingCall."
     }
   ],
   "observer_wrappers": [
