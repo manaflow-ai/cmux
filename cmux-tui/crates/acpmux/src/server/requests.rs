@@ -684,6 +684,15 @@ async fn dispatch_request(
         method::MUX_APPROVERS_SET | method::MUX_APPROVERS => {
             Err(crate::hub::person::person_required("changing or reading trusted approvers"))
         }
+        method::MUX_MAC_APPROVER_SET if conn.is_person() => hub.person.macs.set_own(&params),
+        method::MUX_MAC_APPROVER_SET => {
+            Err(crate::hub::person::person_required("setting this Mac's approver key"))
+        }
+        // This machine's own: never a remote connection's (a peer's included).
+        method::MUX_MAC_APPROVERS if conn.origin.web_class() => Err(RpcError::invalid_params(
+            "the enrolled Macs are read only on this machine, over its unix socket or app",
+        )),
+        method::MUX_MAC_APPROVERS => Ok(hub.person.macs.view(&params)),
         method::MUX_WORKSPACE_ROOTS_SET if conn.is_person() => {
             hub.person.set_workspace_roots(&params)
         }
