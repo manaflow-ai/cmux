@@ -300,9 +300,9 @@ final class ActiveLookGlassEffectView: NSGlassEffectView {
 ///    fixes the material site: the lower of the two, the earlier in code. Any other outcome
 ///    resets the count. The glass's first layout, as its window comes on screen, is such an
 ///    update, so a new window is calibrated before it can lose focus.
-/// 2. After that, a read is forced only when its site is exactly that instruction, its stack has
-///    a SwiftUI frame, and its window is the updating one. Every other read, and every read off the
-///    main thread, keeps AppKit's answer. Until calibration ends the glass follows the key state.
+/// 2. After that, a read is forced only when its site is exactly that instruction and its window
+///    is the updating one. Every other read, and every read off the main thread, keeps AppKit's
+///    answer. Until calibration ends the glass follows the key state.
 @MainActor
 enum ActiveLookScope {
     /// One calibration read: where in AppKit it was, and the return address of its caller.
@@ -359,7 +359,9 @@ enum ActiveLookScope {
     @available(macOS 26.0, *)
     static func scopeUpdates(of hostClass: AnyClass) {
         guard scopedHostClasses.insert(ObjectIdentifier(hostClass)).inserted else { return }
-        for name in ["layout", "updateConstraints", "viewWillDraw"] { scope(hostClass, NSSelectorFromString(name)) }
+        for name in ["layout", "updateConstraints", "viewWillDraw", "viewDidChangeEffectiveAppearance"] {
+            scope(hostClass, NSSelectorFromString(name))
+        }
         scopeSize(hostClass, NSSelectorFromString("_layoutSubtreeWithOldSize:"))
         scopePointer(hostClass, NSSelectorFromString("_updateConstraintsForSubtreeIfNeededCollectingViewsWithInvalidBaselines:"))
     }
@@ -474,9 +476,11 @@ enum ActiveLookScope {
         let count = Int(frames.withUnsafeMutableBufferPointer { backtrace($0.baseAddress, Int32(depth)) })
         // The reader: the first AppKit frame (below it only this getter and its Swift thunks).
         guard let reader = (0..<count).first(where: { kind(of: frames[$0]) == .appKit }), reader + 1 < count,
-              frames[(reader + 1)..<count].contains(where: { kind(of: $0) == .swiftUI }),
               let site = frames[reader].map({ UInt(bitPattern: $0) }) else { return answer }
+        // Once calibrated, the exact instruction is the check: the graph's environment is also
+        // rebuilt straight from an appearance change, with no SwiftUI frame above it.
         if let materialSite { return site == materialSite }
+        guard frames[(reader + 1)..<count].contains(where: { kind(of: $0) == .swiftUI }) else { return answer }
         if let caller = frames[reader + 1].map({ UInt(bitPattern: $0) }) { pending.append(Read(site: site, caller: caller)) }
         return answer
     }
