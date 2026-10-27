@@ -729,6 +729,26 @@ async fn a_repeated_queued_send_deletes_only_its_own_new_uploads() {
     tokio::time::sleep(Duration::from_millis(200)).await;
     assert!(folder(&first.0).is_dir(), "the repeat deleted the delivered prompt's upload");
     assert!(folder(&theirs.0).is_dir(), "a forged token deleted another upload");
+
+    // A delivery that links to an upload by its path (a prompt resolved once) keeps it too.
+    let linked = upload(&mut c, &session, "d.png", &png(64 << 10)).await;
+    let path = folder(&linked.0).join("d.png");
+    let link = json!({"type": "resource_link", "name": "d.png", "uri": format!("file://{}", path.display()),
+        "_meta": {"acpmux": {"uploadPath": path}}});
+    let pid = v7();
+    let queue = |blocks: Vec<Value>| {
+        let mut prompt = vec![json!({"type": "text", "text": "see"})];
+        prompt.extend(blocks);
+        json!({"request": {"sessionId": session, "prompt": prompt,
+            "_meta": {"acpmux": {"promptId": pid}}}})
+    };
+    let queued = c.call("_acpmux/send_queue", queue(vec![link])).await;
+    let delivery = queued["result"]["deliveryId"].clone();
+    assert!(delivery.is_string(), "{queued}");
+    let again = c.call("_acpmux/send_queue", queue(vec![owned_ref(&linked, "d.png")])).await;
+    assert_eq!(again["result"]["deliveryId"], delivery, "{again}");
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    assert!(folder(&linked.0).is_dir(), "the repeat deleted the upload the delivery links to");
 }
 
 /// A cancel through a peer link deletes a finished upload on the peer only with its owner token.
