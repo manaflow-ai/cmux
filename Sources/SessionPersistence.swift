@@ -38,8 +38,10 @@ enum SessionPersistencePolicy {
     static let maxWindowsPerSnapshot: Int = 12
     static let maxWorkspacesPerWindow: Int = 128
     static let maxPanelsPerWorkspace: Int = 512
-    static let maxScrollbackLinesPerTerminal: Int = 4000
-    static let maxScrollbackCharactersPerTerminal: Int = 400_000
+    /// Lines kept for one terminal. ``SessionScrollbackPersistencePolicy`` owns the cap.
+    static let maxScrollbackLinesPerTerminal: Int = SessionScrollbackPersistencePolicy.sessionSnapshotMaxLines
+    /// Characters kept for one terminal. ``SessionScrollbackPersistencePolicy`` owns the cap.
+    static let maxScrollbackCharactersPerTerminal: Int = SessionScrollbackPersistencePolicy.sessionSnapshotMaxCharacters
 
     static func sanitizedSidebarWidth(_ candidate: Double?, defaults: UserDefaults = .standard) -> Double {
         let resolvedMinimum = resolvedMinimumSidebarWidth(defaults: defaults)
@@ -71,189 +73,36 @@ enum SessionPersistencePolicy {
         return nil
     }
 
+    /// Keeps the newest characters of `text`, moving the cut past a partial
+    /// ANSI sequence. ``SessionScrollbackPersistencePolicy`` owns the rule.
     static func truncatedScrollback(_ text: String?) -> String? {
-        guard let text, !text.isEmpty else { return nil }
-        if text.count <= maxScrollbackCharactersPerTerminal {
-            return text
-        }
-        let initialStart = text.index(text.endIndex, offsetBy: -maxScrollbackCharactersPerTerminal)
-        let safeStart = ansiSafeTruncationStart(in: text, initialStart: initialStart)
-        return String(text[safeStart...])
+        SessionScrollbackPersistencePolicy().truncatedScrollback(text)
     }
 
-    /// Bounds one terminal's scrollback for a session snapshot and reports
-    /// whether older output was dropped.
+    /// Bounds one terminal's scrollback and reports whether older output was dropped.
     ///
-    /// Line clipping uses the same tail as terminal capture. The character
-    /// tail stays in `truncatedScrollback`, so ANSI-safe clipping (#15649)
-    /// is unchanged.
+    /// ``SessionScrollbackPersistencePolicy`` owns the line tail, the character
+    /// cap, and ANSI-safe clipping.
     static func persistedScrollback(_ text: String?) -> SessionPersistedScrollback {
-        guard let text, !text.isEmpty else {
-            return SessionPersistedScrollback(text: nil, wasTruncated: false)
-        }
-        let tailed = TerminalController.tailTerminalLines(
-            text,
-            maxLines: maxScrollbackLinesPerTerminal
-        )
-        let lineTruncated = tailed.count != text.count
-        guard let bounded = truncatedScrollback(tailed) else {
-            return SessionPersistedScrollback(text: nil, wasTruncated: lineTruncated)
-        }
-        return SessionPersistedScrollback(
-            text: bounded,
-            wasTruncated: lineTruncated || bounded.count != tailed.count
-        )
+        SessionScrollbackPersistencePolicy().persistedScrollback(text)
     }
 
-    /// Prefers a fresh capture over fallback scrollback, and keeps a fallback
-    /// truncation marker when the stored tail is already inside the caps.
+    /// Prefers a fresh capture over fallback scrollback.
+    ///
+    /// A capture that fits the caps clears a fallback truncation marker.
+    /// ``SessionScrollbackPersistencePolicy`` owns the selection.
     static func persistedSnapshotScrollback(
         capturedScrollback: String?,
         fallbackScrollback: String?,
         fallbackWasTruncated: Bool = false,
         allowFallbackScrollback: Bool = true
     ) -> SessionPersistedScrollback {
-        let captured = persistedScrollback(capturedScrollback)
-        if captured.text != nil {
-            return captured
-        }
-        guard allowFallbackScrollback else {
-            return SessionPersistedScrollback(text: nil, wasTruncated: false)
-        }
-        let fallback = persistedScrollback(fallbackScrollback)
-        guard let text = fallback.text else {
-            return SessionPersistedScrollback(text: nil, wasTruncated: false)
-        }
-        return SessionPersistedScrollback(
-            text: text,
-            wasTruncated: fallback.wasTruncated || fallbackWasTruncated
+        SessionScrollbackPersistencePolicy().persistedSnapshotScrollback(
+            capturedScrollback: capturedScrollback,
+            fallbackScrollback: fallbackScrollback,
+            fallbackWasTruncated: fallbackWasTruncated,
+            allowFallbackScrollback: allowFallbackScrollback
         )
-    }
-
-    /// If truncation starts in the middle of an ANSI control sequence, advance
-    /// past its terminator so replay never begins with a partial escape payload.
-    private static let maxAnsiStringSequenceScanCharacters = 1_024
-
-    private static func ansiSafeTruncationStart(in text: String, initialStart: String.Index) -> String.Index {
-        guard initialStart > text.startIndex else { return initialStart }
-        let escape = "\u{001B}"
-
-        guard let lastEscape = text[..<initialStart].lastIndex(of: Character(escape)) else {
-            return initialStart
-        }
-        let marker = text.index(after: lastEscape)
-        guard marker < text.endIndex else { return initialStart }
-
-        switch text[marker] {
-        case "[":
-            // If a final CSI byte exists before the truncation boundary, we are
-            // not inside a partial sequence.
-            if csiFinalByteIndex(in: text, from: marker, upperBound: initialStart) != nil {
-                return initialStart
-            }
-            guard let final = csiFinalByteIndex(
-                in: text,
-                from: marker,
-                upperBound: text.endIndex
-            ) else {
-                return initialStart
-            }
-            let next = text.index(after: final)
-            return next < text.endIndex ? next : text.endIndex
-
-        case "]", "P", "X", "_", "^":
-            let allowsBEL = text[marker] == "]"
-            if allowsBEL,
-               hasRecentBELTerminator(
-                   in: text,
-                   after: marker,
-                   before: initialStart
-               ) {
-                return initialStart
-            }
-            if allowsBEL,
-               ansiStringSequenceEnd(
-                   in: text,
-                   from: text.index(after: marker),
-                   upperBound: initialStart,
-                   allowsBEL: true
-               ) != nil {
-                return initialStart
-            }
-            return ansiStringSequenceEnd(
-                in: text,
-                from: initialStart,
-                upperBound: text.endIndex,
-                allowsBEL: allowsBEL
-            ) ?? initialStart
-
-        case "\\":
-            // The cut itself can land on the second byte of an ST terminator.
-            guard marker == initialStart else { return initialStart }
-            let next = text.index(after: marker)
-            return next < text.endIndex ? next : text.endIndex
-
-        default:
-            return initialStart
-        }
-    }
-
-    private static func csiFinalByteIndex(
-        in text: String,
-        from csiMarker: String.Index,
-        upperBound: String.Index
-    ) -> String.Index? {
-        var index = text.index(after: csiMarker)
-        while index < upperBound {
-            guard let scalar = text[index].unicodeScalars.first?.value else {
-                index = text.index(after: index)
-                continue
-            }
-            if scalar >= 0x40, scalar <= 0x7E {
-                return index
-            }
-            index = text.index(after: index)
-        }
-        return nil
-    }
-
-    private static func hasRecentBELTerminator(
-        in text: String,
-        after marker: String.Index,
-        before boundary: String.Index
-    ) -> Bool {
-        var index = marker
-        while index < boundary {
-            if text[index] == "\u{0007}" {
-                return true
-            }
-            index = text.index(after: index)
-        }
-        return false
-    }
-
-    private static func ansiStringSequenceEnd(
-        in text: String,
-        from start: String.Index,
-        upperBound: String.Index,
-        allowsBEL: Bool
-    ) -> String.Index? {
-        var index = start
-        var scanned = 0
-        while index < upperBound, scanned < maxAnsiStringSequenceScanCharacters {
-            if allowsBEL, text[index] == "\u{0007}" {
-                return text.index(after: index)
-            }
-            if text[index] == "\u{001B}" {
-                let next = text.index(after: index)
-                if next < upperBound, text[next] == "\\" {
-                    return text.index(after: next)
-                }
-            }
-            index = text.index(after: index)
-            scanned += 1
-        }
-        return nil
     }
 }
 
@@ -2085,6 +1934,10 @@ enum SessionScrollbackReplayStore {
     ) -> [String: String] {
         replayEnvironment(forFileURL: replayFileURL(for: scrollback, tempDirectory: tempDirectory))
     }
+    /// Writes restored scrollback to a temporary replay file.
+    ///
+    /// When `scrollbackWasTruncated` is true, the notice line is prepended
+    /// after the character cap so it is not clipped off a full tail.
     nonisolated static func replayFileURL(
         for scrollback: String?,
         scrollbackWasTruncated: Bool = false,
@@ -2100,15 +1953,17 @@ enum SessionScrollbackReplayStore {
     }
     /// One plain line shown above a restored scrollback tail.
     ///
-    /// The numbers match `SessionPersistencePolicy.maxScrollbackLinesPerTerminal`
-    /// and `maxScrollbackCharactersPerTerminal`.
+    /// The numbers match ``SessionScrollbackPersistencePolicy/sessionSnapshotMaxLines``
+    /// and ``SessionScrollbackPersistencePolicy/sessionSnapshotMaxCharacters``.
+    /// The wording stays in product language and does not name how history is stored.
     nonisolated static func truncationNoticeLine() -> String {
         String(
             localized: "session.scrollback.truncatedRestoreNotice",
-            defaultValue: "[cmux] Older terminal output was omitted from this restore. Snapshots keep the latest 4,000 lines or 400,000 characters."
+            defaultValue: "[cmux] Older terminal output was left out of this restore. This restore includes only the latest 4,000 lines or 400,000 characters."
         )
     }
 
+    /// Environment that points a restored shell at `replayFileURL`.
     nonisolated static func replayEnvironment(forFileURL replayFileURL: URL?) -> [String: String] {
         guard let replayFileURL else { return [:] }
         return [environmentKey: replayFileURL.path]

@@ -1,4 +1,5 @@
 import CmuxFoundation
+import CmuxWorkspaces
 import Bonsplit
 import CmuxSettings
 import CmuxCore
@@ -579,7 +580,6 @@ extension Workspace {
         plainSSHDetectionMissesByPanelId.removeValue(forKey: panelId)
         surfaceListeningPorts.removeValue(forKey: panelId)
         restoredTerminalScrollbackByPanelId.removeValue(forKey: panelId)
-        restoredTerminalScrollbackWasTruncatedByPanelId.removeValue(forKey: panelId)
 #if DEBUG
         debugSessionSnapshotScrollbackFallbackPanelIds.remove(panelId)
         debugSessionSnapshotSyntheticScrollbackByPanelId.removeValue(forKey: panelId)

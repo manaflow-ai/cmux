@@ -87,30 +87,8 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
     /// Live agent runtime owned by Dock panels. The matching transfer snapshot
     /// is kept in sync so the state survives Dock-to-workspace moves.
     @ObservationIgnored var agentRuntimeByPanelId: [UUID: Workspace.DetachedAgentRuntimeState] = [:]
-    @ObservationIgnored var restoredTerminalScrollbackByPanelId: [UUID: String] = [:]
-    /// Mirrors `restoredTerminalScrollbackByPanelId` when that tail dropped older output.
-    @ObservationIgnored var restoredTerminalScrollbackWasTruncatedByPanelId: [UUID: Bool] = [:]
-
-    /// Stores the restored scrollback tail for `panelId`, and whether it is
-    /// truncated, so the next snapshot can fall back to it. A nil `text` clears
-    /// both.
-    func rememberRestoredTerminalScrollback(
-        _ text: String?,
-        panelId: UUID,
-        wasTruncated: Bool
-    ) {
-        if let text {
-            restoredTerminalScrollbackByPanelId[panelId] = text
-            if wasTruncated {
-                restoredTerminalScrollbackWasTruncatedByPanelId[panelId] = true
-            } else {
-                restoredTerminalScrollbackWasTruncatedByPanelId.removeValue(forKey: panelId)
-            }
-        } else {
-            restoredTerminalScrollbackByPanelId.removeValue(forKey: panelId)
-            restoredTerminalScrollbackWasTruncatedByPanelId.removeValue(forKey: panelId)
-        }
-    }
+    /// Restored scrollback tails, each carrying its text and truncation state.
+    @ObservationIgnored var restoredTerminalScrollbackByPanelId: [UUID: SessionPersistedScrollback] = [:]
     @ObservationIgnored let terminalStartupRestoreCoordinator: TerminalStartupRestoreCoordinator
     var restoredAgentLifecycle: RestoredAgentLifecycleCoordinator {
         terminalStartupRestoreCoordinator.lifecycle
