@@ -207,6 +207,27 @@ def remove_recorded(path, owner_pid, owner_start, directory=None):
         return True
 
 
+def _number(value):
+    return isinstance(value, (int, float)) and not isinstance(value, bool) and value == value
+
+
+def invalid(record, path):
+    """Why RECORD is not a well-formed cleanup-registry/v1 job record of this tool for PATH, or ''."""
+    if not isinstance(record, dict):
+        return "not an object"
+    if record.get("schema") != SCHEMA or record.get("tool") != TOOL or record.get("kind") != "job":
+        return f"not a {SCHEMA} job record of {TOOL}"
+    if record.get("path") != path:
+        return f"names {record.get('path')!r}, not {path}"
+    pid = record.get("owner_pid")
+    if not (isinstance(pid, int) and not isinstance(pid, bool) and pid > 0 and _number(record.get("owner_start"))):
+        return "no owner_pid and owner_start"
+    pgid = record.get("owner_pgid", 0)
+    if not (isinstance(pgid, int) and not isinstance(pgid, bool) and pgid >= 0):
+        return "a bad owner_pgid"
+    return ""
+
+
 class Unreadable(Exception):
     """A record file is there but cannot be read: never taken over, never acted on."""
 
@@ -217,8 +238,9 @@ def read_record(path, directory=None, strict=False):
     try:
         with open(record_file(canonical(path), directory)) as f:
             record = json.load(f)
-        if not isinstance(record, dict):
-            raise ValueError("not an object")
+        why = invalid(record, canonical(path))
+        if why:
+            raise ValueError(why)
         return record
     except FileNotFoundError:
         return None
