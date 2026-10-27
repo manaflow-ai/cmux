@@ -50,14 +50,13 @@ use tree_edit::{
     workspace_mutation_result,
 };
 mod kitty_budget_state;
+mod kitty_share;
 use kitty_budget_state::KITTY_IMAGE_BUDGET_OWNER_LIMIT;
 use kitty_budget_state::KITTY_IMAGE_BUDGET_RETRY_INITIAL;
 use kitty_budget_state::KITTY_IMAGE_BUDGET_RETRY_MAX;
 use kitty_budget_state::KITTY_IMAGE_BUDGET_RETRY_MAX_ATTEMPTS;
 #[cfg(test)]
 use kitty_budget_state::KITTY_IMAGE_PERSISTENT_COPIES_PER_SURFACE;
-#[cfg(test)]
-use kitty_budget_state::KITTY_IMAGE_PROCESS_BUDGET_BYTES;
 #[cfg(test)]
 use kitty_budget_state::KITTY_IMAGE_PROCESS_BUDGET_COUNT;
 #[cfg(test)]
@@ -69,9 +68,15 @@ use kitty_budget_state::PendingKittyImageBudgetOperation;
 pub(crate) use kitty_budget_state::RENDER_ATTACHMENT_LIMIT;
 pub(crate) use kitty_budget_state::RenderAttachmentPermit;
 use kitty_budget_state::kitty_image_budget_capacity;
+#[cfg(test)]
 use kitty_budget_state::kitty_image_limits_for_capacity;
+use kitty_budget_state::kitty_image_limits_for_capacity_in;
 #[cfg(test)]
 use kitty_budget_state::kitty_surface_byte_reservation;
+pub(crate) use kitty_share::FEATURE as KITTY_SHARE_FEATURE;
+pub(crate) use kitty_share::KittyShare;
+#[cfg(test)]
+use kitty_share::{KittyShareOwner, kitty_recency_shares};
 mod cell_pixel_state;
 use cell_pixel_state::CELL_PIXEL_RETRY_MAX_ATTEMPTS;
 #[cfg(test)]
@@ -102,6 +107,7 @@ pub(crate) use client_sizing_state::ClientSizingIdentity;
 use client_sizing_state::ClientSizingRollbackToken;
 use client_sizing_state::ClientSizingState;
 pub(crate) use client_sizing_state::ControlClientResize;
+pub(crate) use client_sizing_state::ParticipantScheme;
 use client_sizing_state::PreparedControlClientResize;
 use client_sizing_state::SizingMember;
 use client_sizing_state::SurfaceResizeCompletion;
@@ -109,7 +115,6 @@ use client_sizing_state::SurfaceResizeRestore;
 use client_sizing_state::TerminalSizingEntry;
 use client_sizing_state::entry_owns;
 pub(crate) use client_sizing_state::sub_view_participant_id;
-pub(crate) use client_sizing_state::view_participant_id;
 mod terminal_exit_waiters;
 use terminal_exit_waiters::TerminalExitDetachTracker;
 #[cfg(test)]
@@ -620,6 +625,8 @@ pub struct Mux {
     deadline_fanout_pool: DeadlineFanoutPool,
     kitty_image_budget: Mutex<KittyImageBudgetState>,
     kitty_image_budget_changed: Condvar,
+    /// Both Kitty pixel maps in [`Self::memory`], with `memoryKittyShare` on.
+    kitty_pixel_consumer: OnceLock<cmux_memory::Registration>,
     /// App byte-backend terminals (`app_terminals.rs`), by catalog surface.
     app_terminals: Mutex<HashSet<SurfaceId>>,
     #[cfg(debug_assertions)]

@@ -242,6 +242,8 @@ fn lane_writer_chunks_carry_more_offsets_and_snapshot_more() {
     let output = Frame::new(FrameKind::Output, 4, Aux::Offset(1000), payload(1, 2048)).unwrap();
     writer.push_stream(output).unwrap();
     writer.push_stream(stream_frame(4, 2, 1500, 2)).unwrap();
+    let replay = Frame::new(FrameKind::Replay, 4, Aux::Offset(7000), payload(4, 1500)).unwrap();
+    writer.push_stream(replay).unwrap();
     writer.push_stream(stream_frame(4, 3, 5000, 3)).unwrap();
     let frames: Vec<Frame> = std::iter::from_fn(|| writer.pop()).collect();
     let shape: Vec<(FrameKind, Aux, usize)> =
@@ -256,6 +258,9 @@ fn lane_writer_chunks_carry_more_offsets_and_snapshot_more() {
             (FrameKind::Output, Aux::Offset(2024), 1024),
             (FrameKind::Snapshot, Aux::Offset(2), 1024),
             (FrameKind::SnapshotMore, Aux::Offset(2), 476),
+            // A REPLAY is an envelope, not PTY bytes: every chunk keeps the cut.
+            (FrameKind::Replay, Aux::Offset(7000), 1024),
+            (FrameKind::Replay, Aux::Offset(7000), 476),
             (FrameKind::Grid, Aux::Offset(3), 5000),
         ]
     );

@@ -31,6 +31,7 @@ use super::encode_browser_attach_update;
 use super::get_surface;
 use super::handle_attach_send_error;
 use super::kick_client;
+use super::kick_terminal_views;
 use super::mark_client_attached;
 use super::own_view_detach_target;
 use super::render_state_message;
@@ -41,6 +42,7 @@ use super::send_encoded_browser_attach_update;
 use super::spawn_attach_notification_stream;
 use super::terminal_colors_json;
 use super::terminal_snapshot;
+use super::terminal_views_kick_target;
 use super::wait_for_initial_browser_resize;
 use crate::Mux;
 use crate::RenderAttachFrame;
@@ -92,6 +94,14 @@ pub(super) fn detach_client(
             &detached_event_json(placement, &notice, Some(&view)),
         );
         return Ok(json!({}));
+    }
+    if let Some((owner, views)) = terminal_views_kick_target(mux, &target, surface)
+        && owner != client
+    {
+        // One terminal's views of an app leave; the app's connection and its
+        // other terminals stay.
+        kick_terminal_views(mux, owner, &views, by);
+        return Ok(json!({"scope": "terminal"}));
     }
     let target_client = match &target {
         DetachClientTarget::Client(target) => Some(*target),
@@ -253,6 +263,16 @@ pub(super) fn attach_surface(
         require_pty(&surface)?;
         let MarkedClientAttach { lease, size_rollback, client_changed, .. } =
             mark_client_attached(mux, client, surface_id, outbound_stream.clone(), initial_size)?;
+        // A sized attach shows the terminal: its first frame carries the
+        // Kitty share's limits (memoryKittyShare; a no-op with it off).
+        if initial_size.is_some()
+            && let Some(runtime) = surface.terminal_runtime_id()
+        {
+            mux.settle_kitty_share(
+                runtime,
+                std::time::Instant::now() + INITIAL_HOSTED_RESIZE_TIMEOUT,
+            );
+        }
         let attach = match surface.attach_render_stream() {
             Ok(attach) => attach,
             Err(error) => {
@@ -471,9 +491,14 @@ pub(super) fn attach_surface(
         // the replay after that, so this view gets one replay at the grid it
         // will show, not one at the old grid followed by a `resized` replay
         // (cnx-ios termqa D4). A host that keeps another size times out here
-        // and the replay is built at the current grid.
-        surface
-            .settle_hosted_viewer_size(std::time::Instant::now() + INITIAL_HOSTED_RESIZE_TIMEOUT);
+        // and the replay is built at the current grid. The size also shows the
+        // terminal, so the Kitty share applies its limits first, for the
+        // same reason (memoryKittyShare; a no-op with it off).
+        let deadline = std::time::Instant::now() + INITIAL_HOSTED_RESIZE_TIMEOUT;
+        surface.settle_hosted_viewer_size(deadline);
+        if let Some(runtime) = surface.terminal_runtime_id() {
+            mux.settle_kitty_share(runtime, deadline);
+        }
     }
     lifecycle.set_resumes_pending_sequence(
         mux.control_clients.supports_capability(client, TERMINAL_PENDING_SEQUENCE_CAPABILITY),

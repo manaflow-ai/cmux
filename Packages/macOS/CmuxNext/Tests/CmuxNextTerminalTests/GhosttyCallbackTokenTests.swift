@@ -41,7 +41,9 @@ struct GhosttyCallbackTokenTests {
         #expect(unsafe RuntimeCallbackContext.from(token.context) == nil, "a stale generation finds nothing, though the context lives")
         unsafe ghosttyWakeup(token.context)
         #expect(RuntimeCallbackContext.callbacks.ignoredCount == before + 2)
-        #expect(!context.pending.load(ordering: .relaxed), "the stale wakeup reached no context")
+        // Read first: #expect would take the noncopyable Atomic itself as its operand.
+        let pending = context.pending.load(ordering: .relaxed)
+        #expect(!pending, "the stale wakeup reached no context")
     }
 
     @Test func aContextThatIsGoneResolvesToNothingAndItsWakeupIsIgnored() throws {
