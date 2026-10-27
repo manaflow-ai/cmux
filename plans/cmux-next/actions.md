@@ -36,7 +36,7 @@ Declare its placements (menu, group, rank) and whether the CLI offers it, or nam
 ## Catalog counts
 
 - `window`: 109
-- `workspace`: 171
+- `workspace`: 172
 - `pane`: 86
 - `screen`: 65
 - `tab`: 105
@@ -49,9 +49,9 @@ Declare its placements (menu, group, rank) and whether the CLI offers it, or nam
 - `remote`: 18
 - `settings`: 123
 
-## Counts (1219 actions)
+## Counts (1220 actions)
 
-Palette 1169, CLI verbs 700, right-click 572, MCP tools 618.
+Palette 1170, CLI verbs 700, right-click 572, MCP tools 618.
 
 ## Menus
 
