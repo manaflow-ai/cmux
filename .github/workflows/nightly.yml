@@ -2475,6 +2475,12 @@ jobs:
         with:
           node-version: "24.22.1"
 
+      # setup-node can succeed with no node on PATH (scripts/ci/ensure-setup-node.sh).
+      - name: Check node is on PATH (cmux-next web bundles)
+        if: (inputs.nightly_next_unsigned_run == '' && (needs.decide.outputs.track == 'nightly-next')) && steps.nightly-product.outputs.hit != 'true'
+        timeout-minutes: 12
+        run: scripts/ci/ensure-setup-node.sh 24.22.1
+
       # A pattern, not a name: an artifact that is not there yet downloads
       # nothing instead of failing.
       - name: Download the web bundles built beside the app (cmux-next)
