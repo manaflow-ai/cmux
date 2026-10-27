@@ -127,9 +127,9 @@
 .acpmux-quick .acpmux-pr-dock{padding:6px 8px 0}
 .acpmux-pr-dock[data-mode="compact"]{padding-bottom:4px}
 .acpmux-pr-dock__compact{display:flex;align-items:center}
-.acpmux-pr-dock__list{display:contents}
+.acpmux-pr-dock__list{display:flex;flex-direction:column;align-items:flex-start;gap:4px;min-width:0;max-width:100%}
 /* Inline expansion grows the measured composer stack, reserving transcript room for every chip. */
-.acpmux-pr-dock[data-mode="compact"] .acpmux-pr-dock__list{display:flex;flex-wrap:wrap;gap:4px;max-width:100%;order:-1;outline:none}
+.acpmux-pr-dock[data-mode="compact"] .acpmux-pr-dock__list{flex-direction:row;flex-wrap:wrap;gap:4px;max-width:100%;order:-1;outline:none}
 /* Gallery alternatives: all three arrangements keep chips in the dock's flow. */
 html[data-pr-dock-layout="below"] .acpmux-pr-dock[data-mode="compact"] .acpmux-pr-dock__list{order:0}
 html[data-pr-dock-layout="beside"] .acpmux-pr-dock[data-mode="compact"]{flex-direction:row;flex-wrap:wrap;align-items:center}
@@ -142,6 +142,7 @@ html[data-pr-dock-layout="beside"] .acpmux-pr-dock[data-mode="compact"] .acpmux-
 .acpmux-pr-dock__count:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:1px}
 .acpmux-pr-dock[data-mode="collapsed"]{flex-direction:row;flex-wrap:nowrap;align-items:center;overflow-x:auto;scrollbar-width:none}
 .acpmux-pr-dock[data-mode="collapsed"]::-webkit-scrollbar{display:none}
+.acpmux-pr-dock[data-mode="collapsed"] .acpmux-pr-dock__list{flex-direction:row;flex-wrap:nowrap;min-width:max-content;max-width:none}
 .acpmux-pr-dock[data-mode="collapsed"] .acpmux-pr-dock__chip{flex:0 0 auto}
 .acpmux-pr-dock__chip{display:flex;align-items:center;max-width:100%;height:26px;padding-right:2px;box-sizing:border-box;border-radius:8px;background:var(--acpmux-composer-tray)}
 .acpmux-pr-dock__bar{flex:0 1 auto;min-width:0;display:flex;align-items:center;gap:6px;height:100%;padding:0 6px 0 9px;box-sizing:border-box;border-radius:8px;color:var(--agent-text);text-decoration:none}
