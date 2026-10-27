@@ -128,6 +128,16 @@ def test_the_shared_group_check_tells_keyed_groups_from_fixed_ones() -> None:
     assert can_be_shared("${{ format('nightly-{0}', inputs.build || 'feed') }}")
     assert can_be_shared("${{ github.event_name == 'pull_request' && github.sha }}")
     assert not can_be_shared("${{ github.event_name == 'push' && github.sha || github.run_id }}")
+    # Results, not references: a comparison, a literal and an unused format argument are constants.
+    assert can_be_shared("d-${{ github.sha != '' }}")
+    assert can_be_shared("d-${{ 'github.run_id' }}")
+    assert can_be_shared("${{ format('nightly-{0}', inputs.channel, github.run_id) }}")
+    assert can_be_shared("${{ format('feed', github.sha) }}")
+    assert not can_be_shared("${{ (github.event_name == 'push' && github.sha) || github.run_id }}")
+    assert not can_be_shared("${{ true && github.sha }}")
+    # An optional input may be empty; a required one is set.
+    assert can_be_shared("r-${{ inputs.source_run_id }}")
+    assert not can_be_shared("r-${{ inputs.source_run_id }}", frozenset({"source_run_id"}))
     assert can_be_shared("c-${{ github.event.pull_request.number }}")
     assert not can_be_shared("x-${{ github.run_id }}")
     assert not can_be_shared("x-${{ github.sha }}")
@@ -176,6 +186,13 @@ jobs:
         commented.write_text("jobs:\n  publish: # upload\n    runs-on: x\n    concurrency:\n      group: fixed\n",
                              encoding="utf-8")
         assert any("job publish: group 'fixed'" in p for p in findings(commented, {}))
+        quoted = Path(folder) / "nightly-quoted.yml"
+        quoted.write_text("on:\n  workflow_dispatch:\n    inputs:\n      build:\n        required: true\n"
+                          "jobs:\n  'publish':\n    runs-on: x\n    concurrency:\n      group: fixed\n"
+                          "  keyed:\n    runs-on: x\n    concurrency:\n      group: k-${{ inputs.build }}\n",
+                          encoding="utf-8")
+        found = findings(quoted, {})
+        assert any("job publish: group 'fixed'" in p for p in found) and len(found) == 1, found
 
 
 def test_newest_wins_jobs_take_no_concurrency_group() -> None:

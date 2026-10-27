@@ -25,93 +25,176 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-# A reference that differs between two runs carrying different work: the run, the commit, or the
-# build or source run a job computed or was handed. A matrix leg, a PR number or a branch name is not
-# one: two commits share them (and a PR number is empty outside pull_request events).
-VARYING = re.compile(
-    r"github\.run_id|github\.sha\b|head_sha|github\.event\.workflow_run\.id|"
-    r"(?:needs\.[\w-]+\.outputs|inputs)\.[\w-]*(?:sha|build|run_id|run)\b")
+# A per-run or per-payload identity: a reference whose value differs between two runs carrying different
+# work (the run, the commit, or the build or source run a job computed or was handed). A matrix leg, a PR
+# number or a branch name is not one: two commits share them, and a PR number is empty outside
+# pull_request events. A job output named for a sha, build or run is taken to be set; an input so named
+# is set only when the workflow declares it `required: true`, and may be empty otherwise.
+IDENTITY = re.compile(
+    r"github\.(?:run_id|run_number|sha)|github\.event\.workflow_run\.(?:id|head_sha)|[\w.-]*\.head_sha|"
+    r"(?:needs\.[\w-]+\.outputs|inputs|github\.event\.inputs)\.[\w-]*(?:sha|build|run_id|run)")
+INPUT = re.compile(r"(?:inputs|github\.event\.inputs)\.([\w-]+)")
 PR_ONLY_CANCEL = "${{ github.event_name == 'pull_request' }}"
 
+# What an expression can evaluate to: an identity (always truthy), a constant truthy value, or a falsy one.
+VARY, CONST, FALSY = "vary", "const", "falsy"
+_TOKEN = re.compile(r"\s*(?:('(?:[^']|'')*')|(\d+(?:\.\d+)?)|(==|!=|<=|>=|&&|\|\||[()<>!,])|([A-Za-z_][\w.\-\[\]'*]*))")
 
-def _split_top(expr: str, sep: str) -> list[str]:
-    """Split an Actions expression at top-level `sep` (`||` or `&&`), outside quotes and parentheses."""
-    parts, depth, quote, start, i = [], 0, False, 0, 0
+
+class _Unreadable(ValueError):
+    pass
+
+
+def _tokens(expr: str) -> list[tuple[str, str]]:
+    out, i = [], 0
     while i < len(expr):
-        ch = expr[i]
-        if quote:
-            if ch == "'":
-                if expr[i + 1:i + 2] == "'":
-                    i += 2
-                    continue
-                quote = False
-        elif ch == "'":
-            quote = True
-        elif ch == "(":
-            depth += 1
-        elif ch == ")":
-            depth -= 1
-        elif depth == 0 and expr.startswith(sep, i):
-            parts.append(expr[start:i])
-            start = i + len(sep)
-            i += len(sep)
-            continue
-        i += 1
-    parts.append(expr[start:])
-    return [p.strip() for p in parts]
-
-
-def _strip_parens(expr: str) -> str:
-    """Drop parentheses that wrap the whole expression."""
-    expr = expr.strip()
-    while expr.startswith("("):
-        depth, quote, close = 0, False, -1
-        for i, ch in enumerate(expr):
-            if ch == "'":
-                quote = not quote
-            elif not quote and ch == "(":
-                depth += 1
-            elif not quote and ch == ")":
-                depth -= 1
-                if depth == 0:
-                    close = i
-                    break
-        if close != len(expr) - 1:
+        if not expr[i:].strip():
             break
-        expr = expr[1:-1].strip()
-    return expr
+        match = _TOKEN.match(expr, i)
+        if not match:
+            raise _Unreadable(expr)
+        string, number, op, name = match.groups()
+        out.append(("str", string[1:-1].replace("''", "'")) if string is not None else ("num", number)
+                   if number is not None else ("op", op) if op is not None else ("name", name))
+        i = match.end()
+    return out
 
 
-def _constant_possible(expr: str) -> bool:
-    """Whether some evaluation of an Actions expression yields a value with no per-run or per-payload
-    reference. `a && b || c`: a true guard yields b, a false one goes on to c, and a false guard in the
-    last alternative yields the guard's own (constant) false value."""
-    alternatives = _split_top(_strip_parens(expr), "||")
-    for index, alternative in enumerate(alternatives):
-        conjuncts = _split_top(alternative, "&&")
-        if _value_constant_possible(conjuncts[-1]):
-            return True
-        if len(conjuncts) > 1 and index == len(alternatives) - 1:
-            return True
-    return False
+class _Parser:
+    def __init__(self, expr: str, required: frozenset[str] = frozenset()):
+        self.tokens, self.at, self.required = _tokens(expr), 0, required
+
+    def peek(self) -> tuple[str, str] | None:
+        return self.tokens[self.at] if self.at < len(self.tokens) else None
+
+    def take(self, op: str | None = None) -> tuple[str, str]:
+        token = self.peek()
+        if token is None or (op is not None and token != ("op", op)):
+            raise _Unreadable(f"expected {op or 'a value'}")
+        self.at += 1
+        return token
+
+    def parse(self) -> set[str]:
+        kinds = self.or_()
+        if self.peek() is not None:
+            raise _Unreadable("trailing tokens")
+        return kinds
+
+    def or_(self) -> set[str]:
+        kinds = self.and_()
+        while self.peek() == ("op", "||"):
+            self.take()
+            right = self.and_()
+            kinds = (kinds - {FALSY}) | (right if FALSY in kinds else set())
+        return kinds
+
+    def and_(self) -> set[str]:
+        kinds = self.compare()
+        while self.peek() == ("op", "&&"):
+            self.take()
+            right = self.compare()
+            kinds = ({FALSY} & kinds) | (right if kinds - {FALSY} else set())
+        return kinds
+
+    def compare(self) -> set[str]:
+        kinds = self.unary()
+        while self.peek() in {("op", o) for o in ("==", "!=", "<", "<=", ">", ">=")}:
+            self.take()
+            self.unary()
+            kinds = {CONST, FALSY}
+        return kinds
+
+    def unary(self) -> set[str]:
+        if self.peek() == ("op", "!"):
+            self.take()
+            self.unary()
+            return {CONST, FALSY}
+        return self.primary()
+
+    def primary(self) -> set[str]:
+        kind, value = self.take()
+        if kind == "op" and value == "(":
+            kinds = self.or_()
+            self.take(")")
+            return kinds
+        if kind == "str":
+            return {CONST} if value else {FALSY}
+        if kind == "num":
+            return {FALSY} if float(value) == 0 else {CONST}
+        if kind != "name":
+            raise _Unreadable(value)
+        if self.peek() == ("op", "("):
+            return self.call(value)
+        if value in ("true",):
+            return {CONST}
+        if value in ("false", "null"):
+            return {FALSY}
+        if not IDENTITY.fullmatch(value):
+            return {CONST, FALSY}
+        name = INPUT.fullmatch(value)
+        return {VARY} if name is None or name.group(1) in self.required else {VARY, FALSY}
+
+    def call(self, name: str) -> set[str]:
+        self.take("(")
+        args: list[tuple[set[str], tuple[str, str] | None]] = []
+        if self.peek() != ("op", ")"):
+            while True:
+                first = self.peek()
+                start = self.at
+                kinds = self.or_()
+                args.append((kinds, first if self.at == start + 1 else None))
+                if self.peek() == ("op", ","):
+                    self.take()
+                    continue
+                break
+        self.take(")")
+        if name.lower() != "format" or not args or args[0][1] is None or args[0][1][0] != "str":
+            return {CONST, FALSY}  # another function, or a computed format string: no identity assumed
+        used = {int(n) for n in re.findall(r"(?<!\{)\{(\d+)\}", args[0][1][1])}
+        referenced = [args[n + 1][0] for n in used if n + 1 < len(args)]
+        kinds = set()
+        if any(VARY in k for k in referenced):
+            kinds.add(VARY)
+        if all(k - {VARY} for k in referenced):
+            kinds.add(CONST)
+        return kinds
 
 
-def _value_constant_possible(value: str) -> bool:
-    value = _strip_parens(value)
-    if len(_split_top(value, "||")) > 1 or len(_split_top(value, "&&")) > 1:
-        return _constant_possible(value)
-    call = re.fullmatch(r"format\((.*)\)", value, flags=re.S)
-    if call:
-        # format('x-{0}', a, b) is constant on a path where every argument is.
-        return all(_value_constant_possible(arg) for arg in _split_top(call.group(1), ",")[1:])
-    return not VARYING.search(value)
+def required_inputs(text: str) -> frozenset[str]:
+    """Names of the workflow's inputs declared `required: true` (workflow_dispatch and workflow_call)."""
+    names, lines = set(), text.splitlines()
+    for index, line in enumerate(lines):
+        block = re.match(r"(\s+)inputs:\s*(?:#.*)?$", line)
+        if not block:
+            continue
+        base, child, current = len(block.group(1)), None, None
+        for follow in lines[index + 1:]:
+            if not follow.strip() or follow.lstrip().startswith("#"):
+                continue
+            indent = len(follow) - len(follow.lstrip(" "))
+            if indent <= base:
+                break
+            if child is None:
+                child = indent
+            if indent == child:
+                current = follow.strip().split(":", 1)[0].strip("'\"")
+            elif current and re.fullmatch(r"\s*required:\s*true\s*(?:#.*)?", follow):
+                names.add(current)
+    return frozenset(names)
 
 
-def can_be_shared(group: str) -> bool:
-    """Whether two runs carrying different work can get the same group string: some path through every
-    `${{ }}` part of it yields a value with no per-run or per-payload reference."""
-    parts = re.findall(r"\$\{\{(.*?)\}\}", group, flags=re.S)
-    return all(_constant_possible(part) for part in parts)
+def can_be_shared(group: str, required: frozenset[str] = frozenset()) -> bool:
+    """Whether two runs carrying different work can get the same group string: every `${{ }}` part of it
+    can evaluate to something other than a per-run or per-payload identity. `required` names the inputs
+    the workflow requires. An expression this reader cannot parse counts as shared."""
+    for part in re.findall(r"\$\{\{(.*?)\}\}", group, flags=re.S):
+        try:
+            kinds = _Parser(part, required).parse()
+        except _Unreadable:
+            continue
+        if not kinds - {VARY}:
+            return False
+    return True
 
 
 def _scalar(value: str) -> str:
@@ -138,9 +221,9 @@ def concurrency_blocks(text: str) -> list[tuple[str, dict[str, str]]]:
         if indent == 0:
             in_jobs = line.startswith("jobs:")
             job, job_indent, prop_indent = "", None, None
-        elif in_jobs and (job_indent is None or indent == job_indent) and re.match(r"\s+[\w-]+:\s*(?:#.*)?$", line):
+        elif in_jobs and (job_indent is None or indent == job_indent) and re.match(r"\s+(?:[\w-]+|'[\w-]+'|\"[\w-]+\"):\s*(?:#.*)?$", line):
             job_indent, prop_indent = indent, None
-            job = line.strip().split(":", 1)[0]
+            job = line.strip().split(":", 1)[0].strip("'\"")
             continue
         elif in_jobs and job and prop_indent is None and job_indent is not None and indent > job_indent:
             prop_indent = indent
@@ -179,7 +262,9 @@ def concurrency_blocks(text: str) -> list[tuple[str, dict[str, str]]]:
 def findings(path: Path, allowed_shared: dict[tuple[str, str], str]) -> list[str]:
     """What is wrong with one delivery workflow; allowed_shared maps (file name, owner) to its reason."""
     problems = []
-    for owner, block in concurrency_blocks(path.read_text(encoding="utf-8")):
+    text = path.read_text(encoding="utf-8")
+    required = required_inputs(text)
+    for owner, block in concurrency_blocks(text):
         where = f"{path.name} {'job ' + owner if owner else 'top-level'}"
         if "unreadable" in block or "group" not in block:
             problems.append(f"{where}: concurrency this check cannot read ({block}); write group and "
@@ -189,7 +274,7 @@ def findings(path: Path, allowed_shared: dict[tuple[str, str], str]) -> list[str
         if cancel not in ("false", PR_ONLY_CANCEL):
             problems.append(f"{where}: cancel-in-progress is {cancel!r}; a delivery run is never cancelled "
                             "(only a pull_request test run may be)")
-        if can_be_shared(block["group"]) and (path.name, owner) not in allowed_shared:
+        if can_be_shared(block["group"], required) and (path.name, owner) not in allowed_shared:
             problems.append(
                 f"{where}: group {block['group']!r} can be the same for two runs carrying different work, so "
                 "GitHub would replace a waiting one; key it per run or per SHA/build (or drop it), or declare "
@@ -213,8 +298,8 @@ def stale_allowances(workflows: list[Path], allowed_shared: dict[tuple[str, str]
     stale = []
     for name, owner in allowed_shared:
         path = by_name.get(name)
-        blocks = dict(concurrency_blocks(path.read_text(encoding="utf-8"))) if path else {}
-        block = blocks.get(owner)
-        if not block or "group" not in block or not can_be_shared(block["group"]):
+        text = path.read_text(encoding="utf-8") if path else ""
+        block = dict(concurrency_blocks(text)).get(owner)
+        if not block or "group" not in block or not can_be_shared(block["group"], required_inputs(text)):
             stale.append(f"ALLOWED_SHARED names {name} {owner or 'top-level'}, which has no shared group: drop it")
     return stale
