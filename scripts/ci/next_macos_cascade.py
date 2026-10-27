@@ -96,7 +96,10 @@ hosted the same way, with a 90 min timeout: a feed's freshness outranks a
 cold build (2026-10-26: the DEV feed unpublished from 21:01Z, its compile
 queued 70 min on blacksmith-6vcpu-macos-26 behind about 75 jobs while hosted
 macos-26 was free). Without the snapshot's waits nothing is stalled and nothing goes to
-hosted, which is the previous route.
+hosted, which is the previous route. A feed's compile counts a label whose
+oldest queued job has waited FRESH_STALL_MINUTES as full, sooner than the
+stall above, and so does its last resort when the runner groups are unread:
+the DEV compile takes hosted, a push's Release compile the owned label.
 
 The rescue's full re-run (attempt 2, triggered by RESCUE_ACTOR: bot_rerun()) is
 placed afresh, from what is free when it starts, instead of reading nothing:
@@ -148,6 +151,11 @@ HOSTED_JOBS = ("fast-tier", "swift-canary")
 HOSTED_FRESH_JOBS = ("cmux-scheme-compile",)
 STALL_MINUTES = 25
 IDLE_STALL_MINUTES = 5
+# A feed's compile (FRESH_JOBS) counts a Blacksmith label as full once its oldest queued job has waited this
+# long, before STALL_MINUTES: 2026-10-26 22:25Z to 01:30Z, 92 jobs queued on 6 vCPU (oldest 148 min) and 27 on
+# 12 vCPU (oldest 165 min, no runner online) while a DEV Release compile queued there; the compile takes
+# hosted (HOSTED_FRESH_JOBS) or the owned label instead.
+FRESH_STALL_MINUTES = 15
 # simple_pool_picker.CAPACITY's figures for these labels. 12 vCPU: at most six
 # at once, five whenever it had a queue (2026-10-19); 6 vCPU: ten online at 21:40Z.
 CAPACITY = {LARGE: 5, SMALL: 10}
@@ -306,12 +314,19 @@ def stalled(live: Mapping[str, int], waiting: Mapping[str, int], waits: Mapping[
                       or live.get(label, 0) == 0 and waits.get(label, 0.0) - age >= IDLE_STALL_MINUTES))
 
 
+def fresh_stalled(waits: Mapping[str, float]) -> tuple[str, ...]:
+    """The labels a feed's compile counts as full: an oldest queued wait of FRESH_STALL_MINUTES by now (seen()
+    gives a wait only to a label with a queue)."""
+    return tuple(label for label in LABELS if waits.get(label, 0.0) >= FRESH_STALL_MINUTES)
+
+
 def cascade(jobs: Sequence[str], live: Mapping[str, int], waiting: Mapping[str, int], *,
             stall: Sequence[str] = (), hosted_free: int = 0,
-            fresh: Sequence[str] = ()) -> dict[str, tuple[str, ...]]:
+            fresh: Sequence[str] = (), fresh_stall: Sequence[str] = ()) -> dict[str, tuple[str, ...]]:
     """Give `jobs`, in order, the free slots of LARGE, then SMALL (unless stalled), then HOSTED for HOSTED_JOBS.
 
     A Blacksmith slot is free while its label is under CAPACITY and the shared pool fits the job (fits()).
+    A `fresh` job never takes a `fresh_stall` label (fresh_stalled()).
     """
     free = {label: 0 if label in stall else CAPACITY[label] - live.get(label, 0) - waiting.get(label, 0)
             for label in LABELS}
@@ -321,7 +336,8 @@ def cascade(jobs: Sequence[str], live: Mapping[str, int], waiting: Mapping[str, 
     for job in jobs:
         targets = (*LABELS, HOSTED) if job in HOSTED_JOBS or job in fresh and job in HOSTED_FRESH_JOBS else LABELS
         label = next((label for label in targets
-                      if free[label] > 0 and (label == HOSTED or fits(label, room, queue))), None)
+                      if free[label] > 0 and (label == HOSTED or fits(label, room, queue))
+                      and not (job in fresh and label in fresh_stall)), None)
         if label is None:
             continue
         placed[label].append(job)
@@ -391,11 +407,17 @@ def place(env: Mapping[str, str], owned: Sequence[str], live: Mapping[str, int] 
             # never the Blacksmith backlog nobody counted. The others take the last resort.
             hosted = tuple(job for job in fresh if job in HOSTED_FRESH_JOBS)
             small = tuple(job for job in fresh if job not in hosted)
+            # The snapshot, read even when the runner groups were refused, still shows a stalled queue: a feed's
+            # compile does not join it (2026-10-27 01:11Z: 6 vCPU's oldest job had waited 148 min).
+            if seen is not None and SMALL in fresh_stalled(seen.waits):
+                why += f"; `{SMALL}`'s oldest queued job has waited {seen.waits[SMALL]:.0f} min"
+                small = ()
             moved = "; ".join(f"{', '.join(jobs)} take `{label}`" for label, jobs in ((HOSTED, hosted), (SMALL, small))
                               if jobs)
-            return Placement({**empty, HOSTED: hosted, SMALL: small}, "",
-                             f"{why}; a feed's freshness waits on them, so {moved}; the rest stay on the minis' "
-                             "queue")
+            if moved:
+                return Placement({**empty, HOSTED: hosted, SMALL: small}, "",
+                                 f"{why}; a feed's freshness waits on them, so {moved}; the rest stay on the "
+                                 "minis' queue")
         return Placement(empty, "", f"{why}; no job leaves the minis' queue")
     stall = stalled(live, waiting, seen.waits, seen.age) if seen is not None else ()
     runs = set((env.get("CASCADE_RUNS") or "").split())
@@ -417,7 +439,8 @@ def place(env: Mapping[str, str], owned: Sequence[str], live: Mapping[str, int] 
                   + rest[len(owned):])
     hosted_free = HOSTED_CAPACITY - seen.hosted if seen is not None else 0
     placed = cascade(candidates, live, waiting, stall=stall, hosted_free=hosted_free,
-                     fresh=tuple((env.get("FRESH_JOBS") or "").split()))
+                     fresh=tuple((env.get("FRESH_JOBS") or "").split()),
+                     fresh_stall=fresh_stalled(seen.waits) if seen is not None else ())
     # The overflow label counts the slots this run's own jobs just took: they fit, so they start, and hold
     # the pool's vCPUs as jobs in flight do.
     retry = retry_label({**live, **{label: live.get(label, 0) + len(placed.get(label, ())) for label in LABELS}},
@@ -510,12 +533,15 @@ def read(env: Mapping[str, str], pool: Any, *, now: dt.datetime, log: Callable[[
         log("::warning title=macOS cascade::the runner groups took too long; the pool snapshot is not read")
         return live, None, None
     # The snapshot never stands in for the runner groups: it counts this repository's jobs, while the pool is
-    # the organization's, so a refused runner read leaves `live` None and only FRESH_JOBS move (place()).
-    if live is not None and snapshot_token and repository:
+    # the organization's, so a refused runner read leaves `live` and `waiting` None and only FRESH_JOBS move
+    # (place()). Its waits are still read then, so a feed's compile skips a stalled queue (fresh_stalled()).
+    if snapshot_token and repository:
         try:
             snapshot = pool.GitHub(snapshot_token, repository).snapshot(now=now)
-            waiting, found = queued(snapshot, now), seen(snapshot, now)
-            live = with_running(live, snapshot, now)
+            found = seen(snapshot, now)
+            if live is not None:
+                waiting = queued(snapshot, now)
+                live = with_running(live, snapshot, now)
         except Exception as error:  # noqa: BLE001 - fail closed, as above
             log(f"::warning title=macOS cascade::could not read the pool snapshot ({error})")
     return live, waiting, found

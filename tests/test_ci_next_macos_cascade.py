@@ -358,6 +358,37 @@ class Place(unittest.TestCase):
                                            CASCADE_RUNS=" cmux-scheme-compile "), (), None, None).jobs,
                          none_placed())
 
+    def test_a_feeds_compile_counts_a_label_stalled_fifteen_minutes_as_full(self):
+        """2026-10-27 01:11Z: 92 jobs queued on 6 vCPU (oldest 148 min) and 27 on 12 vCPU (oldest 165 min, no
+        runner online). A feed's compile treats a label whose oldest job waited FRESH_STALL_MINUTES as full."""
+        minutes = float(cascade.FRESH_STALL_MINUTES)
+        stuck = cascade.Seen(waits={LARGE: 0.0, SMALL: minutes}, hosted=0)
+        moving = cascade.Seen(waits={LARGE: 0.0, SMALL: minutes - 1}, hosted=0)
+        self.assertEqual(cascade.fresh_stalled(stuck.waits), (SMALL,))
+        self.assertEqual(cascade.fresh_stalled(moving.waits), ())
+        # Below STALL_MINUTES, with a runner online: every other job still takes the slot.
+        live, waiting = {LARGE: 0, SMALL: 4}, {LARGE: 0, SMALL: 1}
+        self.assertEqual(cascade.stalled(live, waiting, stuck.waits), ())
+        self.assertEqual(cascade.place(env(CASCADE_RUNS=" fast-tier "), (), live, waiting, stuck).jobs,
+                         none_placed(**{SMALL: ("fast-tier",)}))
+        # A DEV daily's compile takes hosted, a push's Release compile stays on the owned label.
+        dev = env(CASCADE_RUNS=" cmux-scheme-compile ", FRESH_JOBS="cmux-scheme-compile")
+        self.assertEqual(cascade.place(dev, (), live, waiting, stuck).jobs,
+                         none_placed(**{HOSTED: ("cmux-scheme-compile",)}))
+        self.assertEqual(cascade.place(dev, (), live, waiting, moving).jobs,
+                         none_placed(**{SMALL: ("cmux-scheme-compile",)}))
+        push = env(CASCADE_RUNS=" release-compile ", FRESH_JOBS="release-compile")
+        self.assertEqual(cascade.place(push, (), live, waiting, stuck).jobs, none_placed())
+        self.assertEqual(cascade.place(push, (), live, waiting, moving).jobs,
+                         none_placed(**{SMALL: ("release-compile",)}))
+        # Runner groups unread: the last resort skips a stalled 6 vCPU queue the snapshot saw.
+        result = cascade.place(push, (), None, None, stuck)
+        self.assertEqual(result.jobs, none_placed())
+        self.assertIn("no job leaves the minis' queue", result.why)
+        self.assertEqual(cascade.place(push, (), None, None, moving).jobs, none_placed(**{SMALL: ("release-compile",)}))
+        self.assertEqual(cascade.place(dev, (), None, None, stuck).jobs,
+                         none_placed(**{HOSTED: ("cmux-scheme-compile",)}))
+
     def test_the_placement_names_the_fresh_jobs_on_attempt_1_of_a_feed_run_only(self):
         jobs = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
         place = next(step for step in jobs["macos-placement"]["steps"] if step.get("id") == "place")
@@ -399,8 +430,10 @@ class Place(unittest.TestCase):
                               cascade.Seen(waits={LARGE: 5.0, SMALL: 0.0}, hosted=0, age=2.0)))
         # A refused runner read (the route token's 403s, 2026-10-26 22:47Z) is not replaced by the snapshot,
         # which counts only this repository's share of the organization's pool.
+        # Its waits are still read, so a feed's compile can skip a stalled queue (fresh_stalled()).
         with mock.patch.object(cascade.Api, "in_flight", side_effect=OSError("HTTP Error 403: Forbidden")):
-            self.assertEqual(cascade.read(live_env, pool, now=NOW, log=lambda _: None), (None, None, None))
+            self.assertEqual(cascade.read(live_env, pool, now=NOW, log=lambda _: None),
+                             (None, None, cascade.Seen(waits={LARGE: 5.0, SMALL: 0.0}, hosted=0, age=2.0)))
         # cmux-bot's token (ROUTE_TOKEN_FALLBACK) reads again when the routing App's read is refused.
         tokens = []
 
