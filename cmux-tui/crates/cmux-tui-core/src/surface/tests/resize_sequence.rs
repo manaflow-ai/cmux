@@ -102,6 +102,38 @@ fn assert_geometry(surface: &Surface, expected: (u16, u16), step: &str) {
     assert_eq!(surface.size(), expected, "{step}: the surface size");
 }
 
+/// What a person sees after a resize: the viewport is still at the bottom
+/// (the scrollbar's offset plus its visible rows is its total), the cursor
+/// row is on screen, and, when a row holds it whole, no older line is the
+/// last text on screen. A grow that scrolled the viewport into the history
+/// (the prompt out of view, Lawrence's 2026-10-27 dogfood) fails here.
+fn assert_viewport_at_bottom(surface: &Surface, (cols, rows): (u16, u16), last: &str, step: &str) {
+    let (bar, cursor, text) = surface
+        .try_with_terminal(|term| {
+            (term.scrollbar(), term.cursor_position(), term.viewport_text().unwrap())
+        })
+        .unwrap();
+    if let Some(bar) = bar {
+        assert_eq!(
+            bar.offset + bar.len,
+            bar.total,
+            "{step}: the viewport is {} rows above the bottom of the scrollback",
+            bar.total.saturating_sub(bar.offset + bar.len)
+        );
+    }
+    let (_, cursor_row) = cursor.expect("the terminal has a cursor");
+    assert!(cursor_row < rows, "{step}: the cursor row {cursor_row} is off a {rows}-row screen");
+    // A grow after a one-row screen adds blank rows under the cursor and
+    // pulls no history back (xterm and Ghostty alike), so the screen may show
+    // no text; any text it shows ends with the newest line.
+    if rows >= 2 && usize::from(cols) >= last.len() {
+        let shown = text.lines().rev().map(str::trim_end).find(|line| !line.is_empty());
+        if let Some(shown) = shown {
+            assert_eq!(shown, last, "{step}: the last line on screen");
+        }
+    }
+}
+
 fn wait_for_viewport(surface: &Surface, what: &str, mut ready: impl FnMut(&str) -> bool) -> String {
     let deadline = Instant::now() + WAIT;
     loop {
@@ -170,9 +202,16 @@ fn resize_sequence_grid_pty_and_child_agree_after_every_step() {
         mux.resize_surface_for_client(surface.id, 0, requested.0, requested.1).unwrap();
         assert_geometry(&surface, expected, &step);
         wait_for_child_size(&dir, expected, &step);
+        assert_viewport_at_bottom(&surface, expected, "hist 2999", &step);
     }
     let text = surface.try_with_terminal(|term| term.plain_text()).unwrap().unwrap();
-    assert_consecutive(&numbered(&text, "hist "), 2999, "scrollback after the sequence");
+    // 3000 lines fit the scrollback limit: no resize, not even to 2x1 or
+    // 10000x400, may drop one of them.
+    assert_eq!(
+        numbered(&text, "hist "),
+        (0..3000).collect::<Vec<u64>>(),
+        "the scrollback after the sequence is not every line, in order"
+    );
     drop(surface);
     let _ = std::fs::remove_dir_all(&dir);
 }
@@ -195,9 +234,11 @@ fn resize_drag_burst_settles_the_child_on_the_last_size() {
         let size = (40 + delta * 2, 12 + delta / 3);
         mux.resize_surface_for_client(surface.id, 0, size.0, size.1).unwrap();
         assert_geometry(&surface, size, &format!("drag frame {frame}"));
+        assert_viewport_at_bottom(&surface, size, "drag line", &format!("drag frame {frame}"));
     }
     mux.resize_surface_for_client(surface.id, 0, 97, 31).unwrap();
     assert_geometry(&surface, (97, 31), "drag end");
+    assert_viewport_at_bottom(&surface, (97, 31), "drag line", "drag end");
     wait_for_child_size(&dir, (97, 31), "drag end");
     drop(surface);
     let _ = std::fs::remove_dir_all(&dir);
