@@ -31,6 +31,8 @@ WORKFLOWS = ROOT / ".github" / "workflows"
 
 HOSTED_MAC = re.compile(r"(?<![\w.-])macos-(?:latest|\d+)(?:-[a-z0-9]+)*(?![\w.-])")
 FORK_BRANCH = re.compile(r"github\.repository_owner != 'manaflow-ai' && 'macos-(?:latest|\d+)'")
+# A comparison against a label (matrix.pool == 'macos-15') reads a route, it does not pick one.
+COMPARISON = re.compile(r"== 'macos-(?:latest|\d+)'")
 NEEDS_OUTPUT = re.compile(r"needs\.([\w-]+)\.outputs\.\w+")
 SCRIPT = re.compile(r"scripts/[\w/.-]+\.(?:py|sh)")
 
@@ -46,7 +48,7 @@ def hosted_mentions(path: Path, *, comment: str) -> list[str]:
     for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
         if line.lstrip().startswith(comment):
             continue
-        code = FORK_BRANCH.sub("", line.split(f" {comment} ", 1)[0])
+        code = COMPARISON.sub("", FORK_BRANCH.sub("", line.split(f" {comment} ", 1)[0]))
         if HOSTED_MAC.search(code):
             hits.append(f"{path.relative_to(ROOT)}:{number}: {line.strip()}")
     return hits
@@ -85,6 +87,25 @@ class NoHostedMacInNightlies(unittest.TestCase):
             if re.search(r"\bHOSTED\b", text):
                 hits.append(f"{script.relative_to(ROOT)}: reads a HOSTED label")
         self.assertEqual(hits, [])
+
+    def test_every_runner_variable_the_path_reads_refuses_a_hosted_mac(self) -> None:
+        # A variable holding macos-26 would route around the literal check above, so the
+        # repository-variable report (runner_label_policy) flags it as drift.
+        sys.path.insert(0, str(ROOT / "scripts/ci"))
+        import runner_label_policy as policy
+
+        read = set()
+        for path in scoped_workflows():
+            for line in path.read_text(encoding="utf-8").splitlines():
+                if re.search(r"runs-on:|_runner:|^\s+- \$\{\{", line):
+                    read |= set(re.findall(r"vars\.([A-Z0-9_]*RUNNER[A-Z0-9_]*)", line))
+        self.assertIn("NIGHTLY_NEXT_TRAIN_RUNNER", read)
+        self.assertEqual(read - policy.NO_HOSTED_MAC_VARIABLES, set(), "add to NO_HOSTED_MAC_VARIABLES")
+        for name in sorted(read):
+            for label in ("macos-26", "macos-15", "macos-latest", "macos-15-xlarge"):
+                with self.subTest(variable=name, label=label):
+                    self.assertTrue(policy.drifted_runner_variables({name: label}))
+            self.assertEqual(policy.drifted_runner_variables({name: ""}), [])
 
     def test_the_sign_picker_answers_blacksmith_even_when_every_label_is_stalled(self) -> None:
         path = ROOT / "scripts/ci/nightly_sign_runner.py"
