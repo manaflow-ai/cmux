@@ -140,6 +140,9 @@ pub(super) struct ClientSizingState {
     pub(super) host_policy: Option<host_policy::HostSizePolicy>,
     /// The settings revision `host_policy` was read at.
     pub(super) host_policy_revision: Option<u64>,
+    /// Counts [`Self::visible_terminals`] publications, so an older one never
+    /// replaces a newer one (the Kitty share, `mux/kitty_share.rs`).
+    pub(super) visibility_publications: u64,
 }
 
 /// Host participant id of one client's view of one terminal placement. The
@@ -242,6 +245,21 @@ impl ClientSizingState {
         if changed {
             self.pending_size_states.insert(runtime);
         }
+    }
+
+    /// The terminal runtimes a client's size lease shows now (a live size
+    /// report of one of their placements), with this publication's order.
+    /// O(reported placements): the panes on screen, not the session.
+    pub(super) fn visible_terminals(&mut self) -> (u64, HashSet<SurfaceId>) {
+        self.visibility_publications += 1;
+        let visible = self
+            .surfaces
+            .iter()
+            .filter(|(_, reporters)| !reporters.is_empty())
+            .filter_map(|(placement, _)| self.terminal_runtime_by_placement.get(placement))
+            .copied()
+            .collect();
+        (self.visibility_publications, visible)
     }
 
     pub(super) fn take_size_state_publications(&mut self) -> Vec<SizeStatePublication> {

@@ -31,8 +31,7 @@ impl Mux {
             }
             // A new terminal is about to be shown: it ranks as the most
             // recently shown one.
-            let shown_at = budget.stamp_shown();
-            budget.entries.insert(surface, KittyImageBudgetEntry::reserved(owns_quota, shown_at));
+            budget.reserve_entry(surface, owns_quota);
         }
         self.start_kitty_image_budget_worker();
         let deadline = Instant::now() + KITTY_RESERVATION_WAIT;
@@ -48,15 +47,19 @@ impl Mux {
                     Self::rebalance_kitty_image_budget_owners(&mut budget);
                     break KittyGraphicsLimits::disabled();
                 }
-                let entry = budget
+                let owns_quota = budget
                     .entries
                     .get(&surface)
-                    .ok_or_else(|| anyhow::anyhow!("Kitty image budget reservation disappeared"))?;
-                if !entry.owns_quota {
+                    .ok_or_else(|| anyhow::anyhow!("Kitty image budget reservation disappeared"))?
+                    .owns_quota;
+                if !owns_quota {
                     break KittyGraphicsLimits::disabled();
                 }
                 let plan = budget.plan();
-                let target = plan.desired(surface, entry);
+                let target = budget
+                    .entries
+                    .get(&surface)
+                    .map_or(KittyGraphicsLimits::disabled(), |entry| plan.desired(surface, entry));
                 if !budget.expansion_in_flight
                     && kitty_image_limits_enabled(target)
                     && budget.entries.iter().all(|(&id, entry)| {

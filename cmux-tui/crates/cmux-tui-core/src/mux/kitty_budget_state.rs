@@ -102,23 +102,29 @@ pub(super) struct KittyImageBudgetEntry {
     pub(super) applied: KittyGraphicsLimits,
     pub(super) owns_quota: bool,
     pub(super) removing: bool,
-    /// [`KittyImageBudgetState::shown_clock`] when a client last showed the
-    /// terminal (or it was reserved, or a viewer was last seen on it).
+    /// [`KittyImageBudgetState::shown_clock`] when the terminal was
+    /// reserved, or last became visible or hidden.
     pub(super) shown_at: u64,
-    /// A client viewed the terminal when the budget last looked.
+    /// A client's size lease shows the terminal (`visible_terminals`).
     pub(super) viewed: bool,
+    /// The reserved bytes this terminal holds while viewed; 0 until the
+    /// share first grants them after it became viewed. A viewed terminal
+    /// keeps them, so its limits (and its mirrors) do not change when
+    /// another terminal shows.
+    pub(super) viewed_grant: u64,
 }
 
 impl KittyImageBudgetEntry {
     /// A reservation that no surface has committed yet.
-    pub(super) fn reserved(owns_quota: bool, shown_at: u64) -> Self {
+    pub(super) fn reserved(owns_quota: bool, shown_at: u64, viewed: bool) -> Self {
         Self {
             surface: None,
             applied: KittyGraphicsLimits::disabled(),
             owns_quota,
             removing: false,
             shown_at,
-            viewed: false,
+            viewed,
+            viewed_grant: 0,
         }
     }
 }
@@ -137,6 +143,11 @@ pub(super) struct KittyImageBudgetState {
     /// Critical memory pressure asked the worker to clear every terminal's
     /// decoded pixel copies.
     pub(super) pixel_release_due: bool,
+    /// Terminal runtimes a client's size lease shows, as the client sizing
+    /// state last published them (`Mux::set_kitty_visible_terminals`).
+    pub(super) visible_terminals: HashSet<SurfaceId>,
+    /// The sizing order of that publication: an older one never replaces it.
+    pub(super) visibility_order: u64,
 }
 
 impl KittyImageBudgetState {
@@ -150,9 +161,20 @@ impl KittyImageBudgetState {
         self.shown_clock
     }
 
-    /// The limits every entry should have now.
-    pub(super) fn plan(&self) -> KittyBudgetPlan {
-        KittyBudgetPlan::new(self.share, self.capacity, &self.entries)
+    /// A new reservation of `surface`: ranked as the most recently shown,
+    /// and viewed when a client already shows it.
+    pub(super) fn reserve_entry(&mut self, surface: SurfaceId, owns_quota: bool) {
+        let shown_at = self.stamp_shown();
+        let viewed = self.visible_terminals.contains(&surface);
+        self.entries.insert(surface, KittyImageBudgetEntry::reserved(owns_quota, shown_at, viewed));
+    }
+
+    /// The limits every entry should have now. Records each viewed
+    /// terminal's grant, so the next plan keeps it.
+    pub(super) fn plan(&mut self) -> KittyBudgetPlan {
+        let plan = KittyBudgetPlan::new(self.share, self.capacity, &self.entries);
+        plan.record_viewed_grants(&mut self.entries);
+        plan
     }
 }
 

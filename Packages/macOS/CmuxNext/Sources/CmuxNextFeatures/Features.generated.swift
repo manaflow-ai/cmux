@@ -749,12 +749,12 @@ nonisolated extension Feature {
         runtimeMutable: false
     )
 
-    /// Daemon Kitty image total sized from installed RAM (64 MiB at 8 GB, 512 MiB at 64 GB) and shared by recency: shown terminals first, then the most recently shown, so the least recently shown lose images first; critical memory pressure clears the decoded pixel copies of every terminal.
+    /// Daemon Kitty image total sized from installed RAM (64 MiB at 8 GB, 512 MiB at 64 GB) and shared by visibility: a terminal on screen keeps its grant, hidden ones get the rest, least recently shown lose images first; critical pressure clears decoded pixel copies.
     public static let memoryKittyShare = Feature(
         index: 43,
         name: "memoryKittyShare",
         owner: "PL-memory",
-        description: "Daemon Kitty image total sized from installed RAM (64 MiB at 8 GB, 512 MiB at 64 GB) and shared by recency: shown terminals first, then the most recently shown, so the least recently shown lose images first; critical memory pressure clears the decoded pixel copies of every terminal.",
+        description: "Daemon Kitty image total sized from installed RAM (64 MiB at 8 GB, 512 MiB at 64 GB) and shared by visibility: a terminal on screen keeps its grant, hidden ones get the rest, least recently shown lose images first; critical pressure clears decoded pixel copies.",
         kind: .perfPath,
         process: .daemon,
         chromiumFeature: nil,

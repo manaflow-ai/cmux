@@ -46,7 +46,7 @@ pub mod feature {
         DAEMON_REQUEST_QOS = "daemonRequestQos",
         /// acpmux and its TUI follow system memory pressure: at warning they empty caches rebuilt on demand (parsed login files, idle chats' error tails, the TUI's transcript layout); at critical they also drop live model lists and each chat's prompt outcomes past its newest 8.
         MEMORY_ACPMUX_PRESSURE = "memoryAcpmuxPressure",
-        /// Daemon Kitty image total sized from installed RAM (64 MiB at 8 GB, 512 MiB at 64 GB) and shared by recency: shown terminals first, then the most recently shown, so the least recently shown lose images first; critical memory pressure clears the decoded pixel copies of every terminal.
+        /// Daemon Kitty image total sized from installed RAM (64 MiB at 8 GB, 512 MiB at 64 GB) and shared by visibility: a terminal on screen keeps its grant, hidden ones get the rest, least recently shown lose images first; critical pressure clears decoded pixel copies.
         MEMORY_KITTY_SHARE = "memoryKittyShare",
         /// Daemon scrollback RAM total sized from installed RAM (128 MiB at 8 GB, 1 GiB at 64 GB) and lowered by memory pressure: half at warning, 16 MiB at critical, least recently active terminals first; limits return at normal below 80 %.
         MEMORY_SCROLLBACK_PRESSURE = "memoryScrollbackPressure",

@@ -1,33 +1,12 @@
 //! What the process Kitty share (p07-memory-073, `mux/kitty_share.rs`) asks
-//! of one terminal: whether a client views it, that a client showed it, and
-//! releasing its decoded pixel copies under critical memory pressure.
+//! of one terminal: releasing its decoded pixel copies under critical memory
+//! pressure.
 
 use std::sync::PoisonError;
 
 use super::*;
 
 impl Surface {
-    /// Whether a client views this terminal: a live byte attach or a render
-    /// attach.
-    pub(crate) fn has_terminal_viewers(&self) -> bool {
-        let Some(pty) = self.as_pty() else { return false };
-        let byte_viewer = pty
-            .taps
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .iter()
-            .any(|tap| !tap.lifecycle.is_canceled());
-        byte_viewer || !pty.render.lock().unwrap_or_else(PoisonError::into_inner).taps.is_empty()
-    }
-
-    /// Tell the mux's Kitty share that a client is showing this terminal.
-    pub(super) fn note_kitty_shown(&self) {
-        let Some(pty) = self.as_pty() else { return };
-        if let Some(mux) = pty.mux.upgrade() {
-            mux.note_kitty_terminal_shown(self.terminal_runtime_id().unwrap_or(self.id));
-        }
-    }
-
     /// Free the decoded Kitty pixel copies this terminal rebuilds on demand:
     /// the replay encoder's always, and the renderer's (with the frames
     /// holding its pixels) while no render viewer needs them. Nothing

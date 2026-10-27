@@ -13,12 +13,23 @@
 //! Chromium's GPU memory manager shared its budget
 //! (content/common/gpu/gpu_memory_manager.cc, `AssignSurfacesAllocations` and
 //! `clients_nonvisible_mru_`): visible clients first, then hidden ones in most
-//! recently used order until the budget runs out. Here every owner keeps a
-//! floor; terminals a client views split what is left equally, up to the
-//! per-terminal maximum; the rest goes to hidden terminals, the most recently
-//! shown first. Over the total, the least recently shown lose their storage
-//! first, and a viewed terminal never drops below the equal share it had
-//! before this feature, so its visible placements still render.
+//! recently used order until the budget runs out.
+//!
+//! Visible means what the person sees: a client's size lease on the
+//! terminal (`resize-surface`, a sized attach; `release-surface-size`, the
+//! lease's expiry or a detach end it), as Chromium's `SetClientVisible`
+//! follows the tab's visibility. An attach alone (an inactive tab the TUI
+//! keeps attached, a script's `wait-for`) is not a show.
+//!
+//! Every owner keeps a floor. A terminal that becomes visible takes half of
+//! what hidden terminals hold above their floors, up to the per-terminal
+//! maximum (the other half leaves room for the next show), and keeps that
+//! grant while it stays visible: another terminal's show
+//! never changes its limits, so its mirrors get no replay and its images
+//! stay. The rest goes to hidden terminals, the most recently shown first,
+//! so over the total the least recently shown lose their storage first. A
+//! visible terminal is lowered only when the floors of new terminals leave no
+//! other room, and never below the equal share it had before this feature.
 
 use std::cmp::Reverse;
 
@@ -79,6 +90,8 @@ pub(super) struct KittyShareOwner {
     pub(super) id: SurfaceId,
     pub(super) viewed: bool,
     pub(super) shown_at: u64,
+    /// The reserved bytes a viewed owner was granted (0: none yet).
+    pub(super) grant: u64,
 }
 
 /// Reserved bytes per owner, out of `total_bytes` over `capacity` slots
@@ -113,13 +126,24 @@ pub(super) fn kitty_recency_shares(
         .saturating_add(hidden_floor.saturating_mul(slots - owner_count));
     let mut pool = total_bytes.saturating_sub(committed);
 
-    if viewed > 0 {
-        let viewed_count = u64::try_from(viewed).unwrap_or(u64::MAX);
-        let each = (pool / viewed_count).min(full - equal);
-        for (_, share) in &mut shares[..viewed] {
-            *share += each;
+    // Viewed terminals keep their grants, the most recently shown first: when
+    // new floors leave too little, the least recently shown is lowered.
+    for (owner, (_, share)) in ranked[..viewed].iter().zip(&mut shares[..viewed]) {
+        if owner.grant > 0 {
+            let extra = (owner.grant.clamp(equal, full) - equal).min(pool);
+            *share += extra;
+            pool -= extra;
         }
-        pool -= each * viewed_count;
+    }
+    // A newly viewed terminal takes half of what hidden terminals hold above
+    // their floors, so the next show still finds room without lowering a
+    // terminal already on screen.
+    for (owner, (_, share)) in ranked[..viewed].iter().zip(&mut shares[..viewed]) {
+        if owner.grant == 0 {
+            let extra = (pool / 2).min(full - equal);
+            *share += extra;
+            pool -= extra;
+        }
     }
     for (_, share) in &mut shares[viewed..] {
         if pool == 0 {
@@ -154,6 +178,8 @@ pub(super) struct KittyBudgetPlan {
     uniform: KittyGraphicsLimits,
     /// Each owner's limits with recency.
     by_owner: HashMap<SurfaceId, KittyGraphicsLimits>,
+    /// Each viewed owner's reserved bytes with recency.
+    viewed_grants: HashMap<SurfaceId, u64>,
 }
 
 impl KittyBudgetPlan {
@@ -164,7 +190,7 @@ impl KittyBudgetPlan {
     ) -> Self {
         let uniform = kitty_image_limits_for_capacity_in(share.total_bytes, capacity);
         if !share.by_recency || capacity == 0 {
-            return Self { uniform, by_owner: HashMap::new() };
+            return Self { uniform, by_owner: HashMap::new(), viewed_grants: HashMap::new() };
         }
         let owners = entries
             .iter()
@@ -173,13 +199,32 @@ impl KittyBudgetPlan {
                 id,
                 viewed: entry.viewed,
                 shown_at: entry.shown_at,
+                grant: if entry.viewed { entry.viewed_grant } else { 0 },
             })
             .collect::<Vec<_>>();
-        let by_owner = kitty_recency_shares(share.total_bytes, capacity, &owners)
+        let shares = kitty_recency_shares(share.total_bytes, capacity, &owners);
+        let viewed_grants = shares
+            .iter()
+            .filter(|(id, _)| entries.get(id).is_some_and(|entry| entry.viewed))
+            .copied()
+            .collect();
+        let by_owner = shares
             .into_iter()
             .map(|(id, bytes)| (id, kitty_image_limits_for_share(bytes, uniform)))
             .collect();
-        Self { uniform, by_owner }
+        Self { uniform, by_owner, viewed_grants }
+    }
+
+    /// Keep each viewed owner's share for the next plan.
+    pub(super) fn record_viewed_grants(
+        &self,
+        entries: &mut HashMap<SurfaceId, KittyImageBudgetEntry>,
+    ) {
+        for (id, &grant) in &self.viewed_grants {
+            if let Some(entry) = entries.get_mut(id) {
+                entry.viewed_grant = grant;
+            }
+        }
     }
 
     /// What `entry` (keyed `id`) should have applied.
@@ -210,55 +255,69 @@ impl KittyBudgetPlan {
 }
 
 impl Mux {
-    /// A client showed terminal `id` (a byte or render attach): it becomes
-    /// the most recently shown and counts as viewed until the budget worker
-    /// next looks at its viewers.
-    pub(crate) fn note_kitty_terminal_shown(self: &Arc<Self>, id: SurfaceId) {
-        {
-            let mut budget = self.kitty_image_budget.lock().unwrap();
-            if !budget.share.by_recency || !budget.entries.contains_key(&id) {
-                return;
-            }
-            let shown_at = budget.stamp_shown();
-            if let Some(entry) = budget.entries.get_mut(&id) {
-                entry.shown_at = shown_at;
-                entry.viewed = true;
-            }
-        }
-        self.start_kitty_image_budget_worker();
+    /// Whether the share follows terminal visibility ([`FEATURE`] on).
+    pub(super) fn kitty_share_follows_visibility(&self) -> bool {
+        self.kitty_image_budget.lock().unwrap().share.by_recency
     }
 
-    /// Record which owners a client views now (budget worker thread). A
-    /// terminal whose last viewer left is stamped as shown now: it was on
-    /// screen until then.
-    pub(super) fn refresh_kitty_viewers(&self) {
-        let owners = {
-            let budget = self.kitty_image_budget.lock().unwrap();
-            if !budget.share.by_recency {
+    /// The client sizing state published that size leases show the terminal
+    /// runtimes `visible`, at sizing order `order`. A terminal that becomes
+    /// visible or hidden is stamped as the most recently shown and gets a
+    /// new grant; the budget worker applies the limits.
+    pub(super) fn set_kitty_visible_terminals(&self, order: u64, visible: HashSet<SurfaceId>) {
+        {
+            let mut budget = self.kitty_image_budget.lock().unwrap();
+            if !budget.share.by_recency || order <= budget.visibility_order {
                 return;
             }
-            budget
-                .entries
-                .iter()
-                .filter(|(_, entry)| entry.owns_quota)
-                .filter_map(|(&id, entry)| Some((id, entry.surface.clone()?)))
-                .collect::<Vec<_>>()
-        };
-        // Surface locks only, with the budget lock released.
-        let viewers = owners
-            .into_iter()
-            .filter_map(|(id, surface)| Some((id, surface.upgrade()?.has_terminal_viewers())))
-            .collect::<Vec<_>>();
-        let mut budget = self.kitty_image_budget.lock().unwrap();
-        for (id, viewed) in viewers {
-            let left = budget.entries.get(&id).is_some_and(|entry| entry.viewed && !viewed);
-            let shown_at = left.then(|| budget.stamp_shown());
-            if let Some(entry) = budget.entries.get_mut(&id) {
-                entry.viewed = viewed;
-                if let Some(shown_at) = shown_at {
+            budget.visibility_order = order;
+            if budget.visible_terminals == visible {
+                return;
+            }
+            let changed = budget
+                .visible_terminals
+                .symmetric_difference(&visible)
+                .copied()
+                .collect::<Vec<_>>();
+            for id in changed {
+                let shown_at = budget.stamp_shown();
+                if let Some(entry) = budget.entries.get_mut(&id) {
+                    entry.viewed = visible.contains(&id);
                     entry.shown_at = shown_at;
+                    entry.viewed_grant = 0;
                 }
             }
+            budget.visible_terminals = visible;
+        }
+        if let Some(mux) = self.mux_work.owner() {
+            mux.start_kitty_image_budget_worker();
+        }
+    }
+
+    /// Wait until the budget worker applied terminal `runtime`'s share, or
+    /// `deadline`. A sized attach builds its replay after this, so the limits
+    /// its show set reach the view in that one replay, not in a second one
+    /// (cnx-ios termqa D4, as `settle_hosted_viewer_size`).
+    pub(crate) fn settle_kitty_share(&self, runtime: SurfaceId, deadline: Instant) {
+        let mut budget = self.kitty_image_budget.lock().unwrap();
+        while budget.share.by_recency && budget.worker_running {
+            let plan = budget.plan();
+            let settled = budget
+                .entries
+                .get(&runtime)
+                .is_none_or(|entry| entry.applied == plan.desired(runtime, entry));
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            if settled || remaining.is_zero() {
+                return;
+            }
+            // wakeup-allow: deadline one attach's bounded wait for the budget worker's notify
+            budget = cmux_threads::checked::sync::wait_timeout(
+                &self.kitty_image_budget_changed,
+                budget,
+                remaining,
+            )
+            .unwrap()
+            .0;
         }
     }
 
@@ -328,7 +387,32 @@ impl Mux {
     }
 
     #[cfg(test)]
-    pub(super) fn set_kitty_share_for_test(&self, share: KittyShare) {
+    pub(crate) fn set_kitty_share_for_test(&self, share: KittyShare) {
         self.kitty_image_budget.lock().unwrap().share = share;
+    }
+
+    /// Whether terminal `runtime` counts as viewed, and its show stamp.
+    #[cfg(test)]
+    pub(crate) fn kitty_share_view_for_test(&self, runtime: SurfaceId) -> Option<(bool, u64)> {
+        let budget = self.kitty_image_budget.lock().unwrap();
+        budget.entries.get(&runtime).map(|entry| (entry.viewed, entry.shown_at))
+    }
+
+    /// The bytes the applied limits of every terminal reserve together.
+    #[cfg(test)]
+    pub(crate) fn kitty_applied_reservation_for_test(&self) -> u64 {
+        let budget = self.kitty_image_budget.lock().unwrap();
+        budget
+            .entries
+            .values()
+            .map(|entry| kitty_surface_byte_reservation(entry.applied.image_bytes))
+            .sum()
+    }
+
+    /// An equal share's limits for the current owner count.
+    #[cfg(test)]
+    pub(crate) fn kitty_equal_share_for_test(&self) -> KittyGraphicsLimits {
+        let budget = self.kitty_image_budget.lock().unwrap();
+        kitty_image_limits_for_capacity_in(budget.share.total_bytes, budget.capacity)
     }
 }
