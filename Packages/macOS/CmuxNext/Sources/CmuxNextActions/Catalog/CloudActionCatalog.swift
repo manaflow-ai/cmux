@@ -245,6 +245,16 @@ nonisolated enum CloudActionCatalog: ActionCatalogGroup {
                 symbol: "arrow.up.left.and.arrow.down.right", surfaces: [.contextMenu],
                 arguments: [CatalogArgument.sizeChoice], targets: [.machine], cliName: "cloud resize-machine"
             ),
+            // `cmux cloud enroll-machine --target machine:<id> --name lane-vm-1`: ssh from this Mac
+            // through the app's tunnel, and an acpmux peer (CloudMachineEnrollment).
+            ActionDescriptor(
+                id: "cloudEnrollMachine",
+                title: String(localized: "action.cloudEnrollMachine", defaultValue: "Enroll Machine as Agent Host", bundle: .module),
+                keywords: ["vm", "cloud", "ssh", "acpmux", "agent", "host", "peer", "lane", "enroll"], category: .cloud,
+                symbol: "key.horizontal", surfaces: [.palette, .contextMenu], requires: [.cloudWorkspace],
+                arguments: [CatalogArgument.nameString.optional, CatalogArgument.sshKeyString], targets: [.machine],
+                cliName: "cloud enroll-machine"
+            ),
             ActionDescriptor(
                 id: "cloudSetIdlePause",
                 title: String(localized: "action.cloudSetIdlePause", defaultValue: "Pause When Idle…", bundle: .module),
@@ -303,7 +313,7 @@ nonisolated enum CloudActionCatalog: ActionCatalogGroup {
             "palette.cloud.snapshot", "palette.cloud.promoteTemplate", "cloudExec", "newCloudMachine", "cloudNewTerminal",
             // The new terminal tab's ids (`surface_id`), so a script can type into it next.
             "cloudSSH",
-            "cloudSetupGitHub",
+            "cloudSetupGitHub", "cloudEnrollMachine",
             // Each answers its machine's id (and the workspace's) once the server is done, so a CLI
             // caller hears a failure instead of OK, and can name the result in the next command.
             "palette.cloud.fork", "palette.cloud.restore", "newCloudWorkspace", "cloudRenameMachine", "cloudKillMachine",

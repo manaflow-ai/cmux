@@ -35,6 +35,9 @@ final class ReleasePushListener {
     static let feeds: [String: String] = [
         "https://files-next.cmux.com/nightly-next/next/appcast-arm64.xml": "nightly-next",
         "https://files.cmux.com/nightly-next/tip/appcast-arm64.xml": "tip",
+        // cmux NIGHTLY (com.cmuxterm.app.nightly) reads the old feed, where
+        // publish-nightly-identity-legacy republishes each NEXT build under the NIGHTLY identity.
+        "https://files-next.cmux.com/nightly-next/appcast-arm64.xml": "nightly-next-legacy",
     ]
     nonisolated static let pingInterval: Duration = .seconds(60)
     nonisolated static let minimumBackoff: TimeInterval = 1

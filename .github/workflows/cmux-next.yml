@@ -2947,10 +2947,9 @@ jobs:
 
       # With vars.CI_NEXT_JOB_REUSE, a pass on the same inputs stands for this run: the
       # steps below skip and the summary names the run that passed. The key
-      # (scripts/ci/job_input_fingerprint.py swift-test) hashes the git object ids of this
-      # job's input paths (derived from cmux_next_route.py and ci-target-graph.json), this
+      # (scripts/ci/job_input_fingerprint.py swift-test) is the commit's full tree hash, this
       # workflow file, the toolchain and the env flags below; a missing value gives no key.
-      # A base move that touches none of the inputs keeps the key. Not on a fork pull
+      # Any change to the tree, a base move included, changes the key. Not on a fork pull
       # request, which could record a pass of its own under any key.
       - name: Fingerprint this job's inputs
         id: reuse-key
@@ -3699,10 +3698,9 @@ jobs:
 
       # With vars.CI_NEXT_JOB_REUSE, a pass on the same inputs stands for this run: the
       # steps below skip and the summary names the run that passed. The key
-      # (scripts/ci/job_input_fingerprint.py generated-files) hashes the git object ids of this
-      # job's input paths (derived from cmux_next_route.py and ci-target-graph.json), this
+      # (scripts/ci/job_input_fingerprint.py generated-files) is the commit's full tree hash, this
       # workflow file, the toolchain and the env flags below; a missing value gives no key.
-      # A base move that touches none of the inputs keeps the key. Not on a fork pull
+      # Any change to the tree, a base move included, changes the key. Not on a fork pull
       # request, which could record a pass of its own under any key.
       - name: Fingerprint this job's inputs
         id: reuse-key
@@ -4140,10 +4138,9 @@ jobs:
 
       # With vars.CI_NEXT_JOB_REUSE, a pass on the same inputs stands for this run: the
       # steps below skip and the summary names the run that passed. The key
-      # (scripts/ci/job_input_fingerprint.py release-compile) hashes the git object ids of this
-      # job's input paths (derived from cmux_next_route.py and ci-target-graph.json), this
+      # (scripts/ci/job_input_fingerprint.py release-compile) is the commit's full tree hash, this
       # workflow file, the toolchain and the env flags below; a missing value gives no key.
-      # A base move that touches none of the inputs keeps the key. Not on a fork pull
+      # Any change to the tree, a base move included, changes the key. Not on a fork pull
       # request, which could record a pass of its own under any key.
       - name: Fingerprint this job's inputs
         id: reuse-key
