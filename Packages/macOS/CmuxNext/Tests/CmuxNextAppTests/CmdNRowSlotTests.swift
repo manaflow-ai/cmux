@@ -72,7 +72,7 @@ struct CmdNRowSlotTests {
             let sent = doc.lastIntentKey != intentBefore ? " +sent" : ""
             // The rows the shown projection places (+s: an item in `shown`, +r: a confirmed record), with the version.
             let shownItems = doc.shown?.items ?? [:]
-            func placedTag(_ id: String) -> String {
+            @MainActor func placedTag(_ id: String) -> String {
                 guard let workspace = services.machines.workspace(id: id)?.0, let ref = shownItems.keys.first(where: { $0.workspaceID == workspace.resourceID?.rawValue })
                 else { return "" }
                 return doc.records.items[shownItems[ref] ?? ""] != nil ? "+s+r" : "+s"
