@@ -7,8 +7,19 @@
 # lost the re-run to a rate limit, and the tick then logged "already on
 # nightly-next" every half hour. A nightly is never cancelled on purpose once
 # started (a newer tip builds alongside it), so a cancelled tip run is one to
-# finish: its failed and cancelled jobs are re-run (attempt 2 and later take
-# Blacksmith), at most MAX_ATTEMPTS attempts in all.
+# finish: its failed and cancelled jobs are re-run, at most MAX_ATTEMPTS attempts
+# in all.
+#
+# A re-run of failed jobs keeps pick-nightly-build-runner's outputs from the
+# earlier attempt, so its jobs take that pick's Blacksmith label (nightly.yml takes
+# the owned pick only when it was made for the run's own attempt). That is right
+# after a refusal, and wrong when the earlier attempt's label was in outage: a job
+# of the cancelled attempt that ended cancelled or failed with no runner ever
+# assigned, on a picked macOS label (glaeda-* or blacksmith-*-macos-*), never got a
+# machine there. Then the whole run is re-run instead, so the picker runs again and
+# chooses fresh (an idle owned Mac, else a moving Blacksmith label) rather than
+# queueing on the same dead label. If the attempt's jobs cannot be read, the
+# failed jobs are re-run as before.
 #
 #   nightly_next_cancelled_tip.sh REPO
 # Needs gh (GH_TOKEN with actions: write) and git with an `origin` for REPO.
@@ -39,6 +50,21 @@ if [[ "$conclusion" != cancelled ]]; then
 fi
 if (( attempt >= max_attempts )); then
   echo "::warning title=nightly-next tick::the tip ${tip:0:12}'s run $id was cancelled on attempt $attempt of $max_attempts; not re-run again"
+  exit 0
+fi
+
+# Jobs of that attempt that ended with no runner on a picked macOS label: name<TAB>labels.
+if unserved="$(gh api --paginate "repos/$repo/actions/runs/$id/attempts/$attempt/jobs?per_page=100" \
+  --jq '.jobs[] | select((.conclusion == "cancelled" or .conclusion == "failure") and ((.runner_name // "") == "")) | select(any(.labels[]; test("^(glaeda-|blacksmith-[0-9]+vcpu-macos-)"))) | "\(.name)\t\(.labels | join(","))"')"; then
+  :
+else
+  echo "nightly-next tip ${tip:0:12}: could not read attempt $attempt's jobs; re-running its failed jobs"
+  unserved=""
+fi
+if [[ -n "$unserved" ]]; then
+  first="$(head -n1 <<<"$unserved")"
+  gh run rerun "$id" -R "$repo"
+  echo "::notice title=nightly-next tick::the tip ${tip:0:12}'s run $id ended cancelled (attempt $attempt) with ${first%%$'\t'*} never served on ${first#*$'\t'}; re-ran the whole run so the runner picker chooses fresh"
   exit 0
 fi
 gh run rerun "$id" --failed -R "$repo"

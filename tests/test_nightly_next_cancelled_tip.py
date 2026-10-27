@@ -15,14 +15,18 @@ SCRIPT = ROOT / "scripts" / "ci" / "nightly_next_cancelled_tip.sh"
 TICK = ROOT / ".github" / "workflows" / "nightly-next-tick.yml"
 TIP = "e22f93846f54d679fb95dea965" + "0" * 14
 
-# git ls-remote prints the tip; gh api prints $RUNS (already --jq'd); gh run rerun is logged.
+# git ls-remote prints the tip; gh api prints $RUNS, or $JOBS for an attempt's jobs (already --jq'd);
+# JOBS_FAIL makes the jobs read fail; gh run rerun is logged.
 FAKE_GIT = f"""#!/bin/bash
 [ "$1" = ls-remote ] && printf '%s\\trefs/heads/nightly-next\\n' "{TIP}"
 """
 FAKE_GH = """#!/bin/bash
 echo "$*" >> "$LOG"
 case "$1" in
-  api) printf '%s' "$RUNS" ;;
+  api) case "$*" in
+         */jobs*) [ -n "${JOBS_FAIL:-}" ] && exit 1; printf '%s' "${JOBS:-}" ;;
+         *) printf '%s' "$RUNS" ;;
+       esac ;;
   run) exit 0 ;;
 esac
 """
@@ -48,8 +52,44 @@ class CancelledTip(unittest.TestCase):
         result, calls = self.run_script("40340830337 completed cancelled 1\n")
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn(f"head_sha={TIP}", calls[0])
-        self.assertEqual(calls[1], "run rerun 40340830337 --failed -R o/r")
+        self.assertIn("runs/40340830337/attempts/1/jobs", calls[1])
+        self.assertEqual(calls[2], "run rerun 40340830337 --failed -R o/r")
         self.assertIn("re-ran its failed and cancelled jobs", result.stdout)
+
+    def test_a_tip_cancelled_on_a_dead_picked_label_is_re_run_whole(self):
+        # The failed-jobs re-run keeps the earlier pick; a label that never served the job gets a fresh pick.
+        for labels in ("blacksmith-6vcpu-macos-26", "glaeda-side-std-xcode-26.6"):
+            with self.subTest(labels=labels):
+                result, calls = self.run_script("40340830337 completed cancelled 2\n",
+                                                JOBS=f"build-nightly-app\t{labels}\n")
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertIn("runs/40340830337/attempts/2/jobs", calls[1])
+                self.assertEqual(calls[2], "run rerun 40340830337 -R o/r")
+                self.assertIn(f"build-nightly-app never served on {labels}", result.stdout)
+                self.assertIn("chooses fresh", result.stdout)
+
+    def test_an_unreadable_attempt_re_runs_its_failed_jobs(self):
+        result, calls = self.run_script("40340830337 completed cancelled 1\n", JOBS_FAIL="1")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(calls[-1], "run rerun 40340830337 --failed -R o/r")
+        self.assertIn("could not read", result.stdout)
+
+    def test_the_jobs_filter_keeps_only_unserved_picked_macos_jobs(self):
+        # The real jq filter, on a jobs page: a served job, a Linux one, and a successful one are skipped.
+        script = SCRIPT.read_text()
+        start = script.index("--jq '.jobs[]") + len("--jq '")
+        jq_filter = script[start:script.index("'", start)]
+        page = ('{"jobs": ['
+                '{"name": "build-nightly-app", "conclusion": "cancelled", "runner_name": null,'
+                ' "labels": ["blacksmith-6vcpu-macos-26"]},'
+                '{"name": "helper", "conclusion": "cancelled", "runner_name": "bs-1",'
+                ' "labels": ["blacksmith-6vcpu-macos-26"]},'
+                '{"name": "linux", "conclusion": "cancelled", "runner_name": "", "labels": ["blacksmith-4vcpu-ubuntu-2404"]},'
+                '{"name": "sign", "conclusion": "success", "runner_name": "", "labels": ["glaeda-side-std-xcode-26.6"]},'
+                '{"name": "verify", "conclusion": "failure", "runner_name": "", "labels": ["glaeda-side-std-xcode-26.6"]}]}')
+        out = subprocess.run(["jq", "-r", jq_filter], input=page, capture_output=True, text=True, check=True).stdout
+        self.assertEqual(out.splitlines(), ["build-nightly-app\tblacksmith-6vcpu-macos-26",
+                                            "verify\tglaeda-side-std-xcode-26.6"])
 
     def test_a_building_tip_is_left_alone(self):
         result, calls = self.run_script("41 in_progress - 2\n40340830337 completed cancelled 1\n")
