@@ -659,7 +659,8 @@ function InspectorPresence({
   );
   // Every pull request's title, state, lines and checks from the App's cache, the folder's live
   // read over it (changesStatus.ts); asked for only while Changes is unfolded.
-  const prUrls = useStableUrls(made?.pullRequests);
+  const changes = useMemo(() => visibleChanges(made?.pullRequests ?? [], {}), [made?.pullRequests]);
+  const prUrls = useStableUrls(changes);
   const { statuses: cached } = useChangesStatuses(prUrls, drawn, drawn && sections.changes);
   const statuses = useMemo(() => withHeader(cached, headerStatus(pullRequest)), [cached, pullRequest]);
   // An output's diff opens beside the chat. Pushing (Settings Push always), when that split leaves too
