@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 import { OrderedRows } from "../src/agent-session/acpmux/direct";
 import type { AcpmuxActivity, AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { ArtifactLiveSource } from "../src/agent-session/acpmux/conversation/artifactLive";
+import { RowUpdates } from "../src/agent-session/acpmux/rowUpdates";
 
 const path = "/project/preview.html";
 const write = (code: string, status = "completed", file = path, id = "write"): AcpmuxActivity => ({
@@ -23,6 +24,26 @@ const put = (rows: OrderedRows, next: AcpmuxRow, seq: number) => {
 };
 const open = (rows: OrderedRows) =>
   new ArtifactLiveSource({ kind: "html", lang: "html", path, code: "<p>First</p>" }, rows.sorted());
+
+test("a thought-token update only reads its changed item in a large tool row", () => {
+  const producer = new RowUpdates(() => undefined);
+  const tools = Array.from({ length: 1000 }, (_, index) =>
+    write(`<p>${index}</p>`, "in_progress", path, `tool-${index}`),
+  );
+  const thought = { kind: "thought", text: "old" } satisfies AcpmuxActivity;
+  const nextThought = { ...thought, text: "new" } satisfies AcpmuxActivity;
+  let indexedReads = 0;
+  const previousItems = new Proxy([...tools, thought], {
+    get(target, key, receiver) {
+      if (typeof key === "string" && /^\d+$/.test(key)) indexedReads += 1;
+      return Reflect.get(target, key, receiver);
+    },
+  });
+  const previous = row("thoughts", 1, previousItems);
+  const next = row("thoughts", 2, [...tools, nextThought]);
+  producer.note(next, 2, previous, tools.length);
+  expect(indexedReads).toBeLessThan(10);
+});
 
 test("written previews consume an older concurrent tool completion even when React skips a snapshot", () => {
   const rows = new OrderedRows();
