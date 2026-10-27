@@ -339,7 +339,12 @@ struct SidebarCloudButton: View {
     private let title = String(localized: "sidebar.cloud.button", defaultValue: "Cloud")
 
     var body: some View {
-        if showsCloudDeviceIcons, CloudMachinesFeature.isAvailable {
+        let billing = AppDelegate.shared?.auth?.accountFlow.billingPlanState
+        if SidebarCloudButtonVisibility.shows(
+            showsSetting: showsCloudDeviceIcons,
+            isAvailable: CloudMachinesFeature.isAvailable,
+            billing: billing
+        ) {
             Button {
                 AppDelegate.shared?.performSidebarCloudButtonAction(preferredWindow: anchorView?.window)
             } label: {
