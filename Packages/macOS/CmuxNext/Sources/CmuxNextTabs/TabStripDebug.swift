@@ -1,4 +1,5 @@
 public import AppKit
+public import CmuxNextDesign
 
 /// Benchmarks (`debug.hover_sweep`, R131): drive a strip's hover path
 /// without a real pointer.
@@ -15,6 +16,9 @@ public struct TabStripDebug {
 
     /// The pointer moves to `point`, as a mouse move does.
     public static func pointerMoved(in strip: TabStripView, to point: CGPoint) { strip.updateHover(at: point, moved: true) }
+
+    /// The hover card target of tab `id`: a scene waits until the coordinator shows it (`high-energy-tab`).
+    public static func cardTarget(of id: TabID) -> HoverTargetID { TabHoverCardController.targetID(id) }
 
     /// The image the strip's hover card shows now (nil: placeholder).
     public static func cardThumbnail(in strip: TabStripView) -> CGImage? { strip.hoverCard.shownThumbnail }

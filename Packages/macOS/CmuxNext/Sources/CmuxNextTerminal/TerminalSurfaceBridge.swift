@@ -2,15 +2,16 @@ import Foundation
 import CmuxNextWakeups
 import GhosttyNextKit
 
-/// Per-surface userdata handed to Ghostty as both `userdata` and
-/// `io_write_userdata` (ghostty.h:607, :629).
+/// Per-surface userdata handed to Ghostty as `userdata`, `io_write_userdata`
+/// and, with renderer-owned frames, `presented_userdata` (ghostty.h).
 ///
 /// Retained for the surface's lifetime and released only after
 /// `ghostty_surface_free` returns, because free joins the IO thread that may
-/// still be inside `io_write_cb`.
+/// still be inside `io_write_cb` and waits for a running `presented_cb`.
 ///
-/// Checked Sendable: Ghostty's IO thread reads only the immutable `input` and
-/// `linkFilter`; everything mutable is main-actor isolated.
+/// Checked Sendable: Ghostty's IO and Core Animation threads read only the
+/// immutable `input`, `linkFilter`, `frames` and `frameMarks`; everything
+/// mutable is main-actor isolated.
 nonisolated final class SurfaceBridge: Sendable {
     let input: TerminalInputSink
     /// What the surface's callbacks reach: its view in the app, a test's recorder. Main-actor only.
@@ -32,9 +33,12 @@ nonisolated final class SurfaceBridge: Sendable {
     let linkFilter = TerminalLinkFilter()
     /// What the Ghostty trace hook marks for this surface's frames (``GhosttyTraceHook``).
     let frames: GhosttyTraceHook.Surface
+    /// Where this surface's presented frames are marked (``ghosttySurfacePresented(_:_:_:_:)``); nil: nowhere.
+    let frameMarks: GhosttyTraceHook.Recorder?
 
-    init(input: TerminalInputSink, echoStage: TerminalEchoStage? = nil) {
+    init(input: TerminalInputSink, echoStage: TerminalEchoStage? = nil, frameMarks: GhosttyTraceHook.Recorder? = nil) {
         self.input = input
+        self.frameMarks = frameMarks
         frames = GhosttyTraceHook.Surface(key: input.typingSurface, echoStage: echoStage)
         // An answer that changed shows at once: the pointer goes to Ghostty again.
         linkFilter.onChange { [weak self] in
@@ -104,6 +108,23 @@ nonisolated final class SurfaceBridge: Sendable {
     @MainActor func requestClose() {
         flushActions()
         target?.surfaceRequestedClose()
+    }
+
+    /// Sets the surface's callbacks in `config`: its writes (``ghosttyIOWrite(_:_:_:)``) and, with renderer-owned
+    /// frames (`GHOSTTY_RENDERER_FRAMES`), the renderer's presentations off main, each the surface's frame mark
+    /// (``ghosttySurfacePresented(_:_:_:_:)``). `userdata` is the surface's bridge, released only after
+    /// `ghostty_surface_free` returns, after which Ghostty starts no call.
+    static func setCallbacks(in config: inout ghostty_surface_config_s, userdata: UnsafeMutableRawPointer) {
+        // SAFETY: the callback has ghostty_io_write_cb's signature; `userdata` as above.
+        unsafe config.io_write_cb = ghosttyIOWrite
+        // SAFETY: as above.
+        unsafe config.io_write_userdata = userdata
+        #if GHOSTTY_RENDERER_FRAMES
+        // SAFETY: the callback has ghostty_surface_presented_cb's signature; `userdata` as above.
+        unsafe config.presented_cb = ghosttySurfacePresented
+        // SAFETY: as above.
+        unsafe config.presented_userdata = userdata
+        #endif
     }
 
     /// `raw` must be a surface's userdata (TerminalSurfaceView.bridge) or nil.

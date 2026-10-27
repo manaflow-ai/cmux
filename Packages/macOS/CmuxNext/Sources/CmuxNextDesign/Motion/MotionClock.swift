@@ -143,6 +143,7 @@ public final class MotionClock {
             }) ?? false
         } onCancel: {
             // task-owner: one hop to the clock's actor to resume this cancelled wait's continuation
+            // main-hop-allow: the cancel handler runs on the canceller's thread; the hop only resumes the oracle's cancelled wait, no frame work
             Task { @MainActor in self.idleWaiters.removeValue(forKey: id)?.resume(returning: false) }
         }
     }

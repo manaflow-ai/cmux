@@ -379,10 +379,11 @@ final class WindowController: NSWindowController, NSWindowDelegate {
 /// (`FocusResponderClassifier`), and keeps app overlays above Chromium page
 /// windows (`WindowOverlayLayer`).
 final class ShellWindow: NSWindow, OverlayPlaneHosting, BrowserWindowOcclusionProviding, TitlebarAccessoryHosting, WindowChromeHosting,
-    CursorRectHoldHosting, TrafficLightsResting, ContentAreaMotionHosting, WindowZoomFinishing {
-    /// The traffic lights' last windowed place: their left edge, their top's
-    /// distance from the window's top, and their size (the window may come
-    /// back from full screen at another height).
+    CursorRectHoldHosting, TrafficLightsResting, ContentAreaMotionHosting, WindowZoomFinishing, WindowLayoutPassHosting {
+    /// Views that follow an ancestor's move read their place after each outermost layout pass (`layoutIfNeeded`).
+    let layoutPasses = WindowLayoutPasses()
+    /// The traffic lights' last windowed place: their left edge, their top's distance from the window's top,
+    /// and their size (the window may come back from full screen at another height).
     private var windowedLights: (x: CGFloat, fromTop: CGFloat, size: CGSize)?
     /// Between `willExitFullScreen` and its end (WindowController+FullScreen).
     var isLeavingFullScreen = false
@@ -433,11 +434,9 @@ final class ShellWindow: NSWindow, OverlayPlaneHosting, BrowserWindowOcclusionPr
         return button
     }
 
-    /// The Chromium fork adds each page window as a child ordered above
-    /// everything, the overlay panel included. Lift the overlay (and the app
-    /// panels above it) in the same call, before the window server shows a
-    /// frame with the page over the focus ring; the notifications that
-    /// follow the page would come a frame late.
+    /// The Chromium fork adds each page window as a child ordered above everything, the overlay panel included.
+    /// Lift the overlay (and the app panels above it) in the same call, before the window server shows a frame
+    /// with the page over the focus ring; the notifications that follow the page would come a frame late.
     override func addChildWindow(_ childWin: NSWindow, ordered place: NSWindow.OrderingMode) {
         // Only the overlay host panel and page windows belong here (debug and test builds record the rest).
         ChildWindowPolicy.check(childWin, parent: self)
@@ -451,9 +450,8 @@ final class ShellWindow: NSWindow, OverlayPlaneHosting, BrowserWindowOcclusionPr
     /// windows, divider catcher panels) runs after the pass, never inside a
     /// view's `layout()`: changing another window or the child window order
     /// from inside layout re-marks this window and can loop until AppKit
-    /// throws (2026-10-09 nightly crash). The overlay planes also re-read
-    /// their home's place here, so a pane ring follows a pane that moved
-    /// because an ancestor moved (sidebar width), not only its own layout.
+    /// throws (2026-10-09 nightly crash). The overlay planes also re-read their home's place here, so a
+    /// pane ring follows a pane that moved because an ancestor moved (sidebar width), not only its own layout.
     override func layoutIfNeeded() {
         #if DEBUG || CMUX_BENCH_HOOKS
         let traced = DebugWindowTransition.shared.isActive && overlayLayer.layoutDepth == 0
@@ -462,10 +460,11 @@ final class ShellWindow: NSWindow, OverlayPlaneHosting, BrowserWindowOcclusionPr
         #endif
         overlayLayer.windowWillLayout()
         super.layoutIfNeeded()
-        // The outermost pass only, and before the overlay layer's own
-        // after-pass work, so an occluder change it causes joins that work.
+        // The outermost pass only, before the overlay layer's after-pass work (an occluder change it causes
+        // joins that work); views that follow an ancestor's move hear didLayout before the queued blocks run.
         if overlayLayer.layoutDepth == 1 {
             (contentView as? WindowRootView)?.windowDidLayout()
+            layoutPasses.didLayout()
             let blocks = pendingAfterLayout
             pendingAfterLayout.removeAll()
             for block in blocks { block() }
@@ -473,9 +472,8 @@ final class ShellWindow: NSWindow, OverlayPlaneHosting, BrowserWindowOcclusionPr
         overlayLayer.windowDidLayout()
     }
 
-    /// Inside `layoutIfNeeded` (views defer cross-window work to its end).
-    /// The overlay layer counts a depth only in the turn that began the pass:
-    /// after an exception AppKit caught skipped the end of a pass, the next
+    /// Inside `layoutIfNeeded` (views defer cross-window work to its end). The overlay layer counts a depth only
+    /// in the turn that began the pass: after an exception AppKit caught skipped the end of a pass, the next
     /// turn's first pass is the outermost one again.
     var isInLayoutPass: Bool { overlayLayer.layoutDepth > 0 }
 
