@@ -1451,6 +1451,37 @@ class StrandedCancel(unittest.TestCase):
         self.assertEqual(mutations(api), ["cancel", "rerun-failed"])
         self.assertTrue(any("stopped before the re-run" in line for line in lines), lines)
 
+    def test_a_rescue_killed_after_cancelling_a_job_held_in_setup_is_resumed(self):
+        # The cancelled job had a runner and its setup step (glaeda's hook held it): not unacquired, still the
+        # rescue's own cancel, so its re-run follows.
+        held = {**job("Verify signed cmux NEXT DEV", labels=[LIGHT], runner="mini-1"), "id": 1, "status": "completed",
+                "conclusion": "cancelled", "steps": [{"name": "Set up runner", "conclusion": "cancelled"}]}
+        clock = Clock()
+        api = CancelledAPI(clock, cancelled=True, rescue_log=[f"{rescue.CANCEL_SENT} run {RUN_ID} attempt 1"])
+        api.jobs_at = lambda seconds: [e2e_runner()(seconds)]
+        jobs = api.jobs
+
+        def with_held(run_id, attempt):
+            return jobs(run_id, attempt) + ([held] if attempt == 1 else [])
+        api.jobs = with_held
+        clock.sleep(60)
+        self.assertEqual(self.follow(api, clock), "done")
+        self.assertEqual(mutations(api), ["rerun-failed"])
+
+    def test_a_resumed_rescue_re_runs_what_the_stopped_one_meant(self):
+        for tail, want in (("", ["rerun-failed"]), (rescue.EVERY_JOB, ["rerun"])):
+            clock = Clock()
+            api = CancelledAPI(clock, cancelled=True,
+                               rescue_log=[f"{rescue.CANCEL_SENT} run {RUN_ID} attempt 1{tail}"])
+            clock.sleep(60)
+            lines = []
+            self.assertEqual(self.follow(api, clock, lines.append), "done", tail)
+            self.assertEqual(mutations(api), want, tail)
+            self.assertIn(f"{rescue.CANCEL_SETTLED} run {RUN_ID} attempt 1", lines)
+        self.assertEqual(rescue.cancel_marks([f"{rescue.CANCEL_SENT} run 5 attempt 1{rescue.EVERY_JOB}",
+                                              f"{rescue.CANCEL_SENT} run 6 attempt 10"]),
+                         {(5, 1): "sent all", (6, 10): "sent"})
+
     def test_a_janitor_cancel_by_the_same_bot_stays_cancelled(self):
         # The queue janitor cancels as cmux-bot too (a superseded DEV run that never started, an orphan): no rescue
         # sent a cancel of this run's attempt, or it settled that cancel (re-ran it, or left it for a moved head).
@@ -1606,11 +1637,24 @@ class StrandedCancel(unittest.TestCase):
         api.request = request
         self.assertEqual(api.rescue_jobs(end - dt.timedelta(seconds=rescue.CANCEL_WAIT_SECONDS), end), [11])
 
-    def test_the_rescue_run_listing_pages_while_full(self):
+    def test_the_rescue_run_listing_reads_past_a_short_page(self):
         api = rescue.GitHub("t", "manaflow-ai/cmux")
         pages = []
 
         def request(method, path, **_):
+            if path.startswith("/actions/workflows/"):
+                page = int(path.split("&page=")[1].split("&")[0])
+                pages.append(page)
+                found = {1: [{"id": index, "conclusion": "skipped"} for index in range(99)],
+                         2: [{"id": 500, "conclusion": "cancelled", "run_started_at": stamp(-60),
+                              "updated_at": stamp(0)}]}
+                return {"workflow_runs": found.get(page, [])}
+            return {"jobs": [{"id": 77, "conclusion": "cancelled"}]}
+        api.request = request
+        self.assertEqual(api.rescue_jobs(START, START), [77])
+        self.assertEqual(pages, [1, 2, 3])
+
+    def request(method, path, **_):
             if path.startswith("/actions/workflows/"):
                 page = int(path.split("&page=")[1].split("&")[0])
                 pages.append(page)

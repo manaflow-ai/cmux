@@ -964,7 +964,10 @@ class AnnotationsCapped(Exception):
 # The queue janitor cancels as cmux-bot too, so the actor alone cannot say whose cancel it was.
 CANCEL_SENT = "owned-pool rescue: cancel sent, re-run to follow:"
 CANCEL_SETTLED = "owned-pool rescue: cancel settled:"
-CANCEL_MARK = re.compile(r"owned-pool rescue: (cancel sent, re-run to follow|cancel settled): run (\d+) attempt (\d+)\b")
+CANCEL_MARK = re.compile(r"owned-pool rescue: (cancel sent, re-run to follow|cancel settled): run (\d+) attempt (\d+)"
+                         r"(?= |$)( of every job)?")
+# CANCEL_SENT's tail when the re-run to follow is of every job (rescue()'s failed_only off), not its failed ones.
+EVERY_JOB = " of every job"
 # A rescue job's life: a sweeper's SWEEP_SECONDS and its rescue grace, within ci-owned-pool-rescue.yml's
 # timeout-minutes (345); a single watch's JOB_TIMEOUT_SECONDS is shorter.
 RESCUE_JOB_LIFETIME_SECONDS = 345 * 60
@@ -976,14 +979,15 @@ JOB_LOG_LINE_BYTES = 64 * 1024
 
 
 def cancel_marks(lines: Any) -> dict[tuple[int, int], str]:
-    """The last CANCEL_SENT or CANCEL_SETTLED mark of each (run id, attempt) in a log's lines."""
+    """The last CANCEL_SENT or CANCEL_SETTLED mark of each (run id, attempt) in a log's lines: "sent" (its failed jobs
+    to be re-run), "sent all" (every job) or "settled"."""
     found: dict[tuple[int, int], str] = {}
     for line in lines:
         if "owned-pool rescue: cancel" not in line:
             continue
         for mark in CANCEL_MARK.finditer(line):
-            found[(int(mark.group(2)), int(mark.group(3)))] = "sent" if mark.group(1).startswith("cancel sent") \
-                else "settled"
+            found[(int(mark.group(2)), int(mark.group(3)))] = (
+                ("sent all" if mark.group(4) else "sent") if mark.group(1).startswith("cancel sent") else "settled")
     return found
 
 
@@ -1010,16 +1014,17 @@ def canceller(api: GitHub, jobs: Sequence[Mapping[str, Any]], sleep: Callable[[f
 
 
 def rerun_intended(api: GitHub, run: Mapping[str, Any], attempt: int, sleep: Callable[[float], None],
-                   log: Callable[[str], None]) -> bool:
-    """Whether a rescue job that has ended logged CANCEL_SENT for this run's attempt and no CANCEL_SETTLED after it:
-    it cancelled the run to re-run it and stopped before it was done (cancelled, killed, out of time).
+                   log: Callable[[str], None]) -> str:
+    """"failed" or "all" (the re-run it meant) when a rescue job that has ended logged CANCEL_SENT for this run's
+    attempt and no CANCEL_SETTLED: it cancelled the run to re-run it and stopped before it was done (cancelled,
+    killed, out of time); "" otherwise.
 
     Only the rescue jobs that ran when the run was cancelled are read: started before the run finished, and
     ended no earlier than CANCEL_WAIT_SECONDS before it (the longest a cancel takes to settle). Fails closed:
     a mark read nowhere, or a log that cannot be read, leaves the run cancelled."""
     finished = parse_time(run.get("updated_at"))
     if finished is None:
-        return False
+        return ""
     wanted = (int(run.get("id") or 0), attempt)
     state = ""
     try:
@@ -1027,15 +1032,15 @@ def rerun_intended(api: GitHub, run: Mapping[str, Any], attempt: int, sleep: Cal
                            sleep, log):
             marks = read(lambda: api.job_marks(job_id), sleep, log)
             if marks is None:
-                log(f"rescue job {job_id}'s log is too long to judge; the run is left cancelled")
-                return False
+                log(f"rescue job {job_id}'s log could not be read whole; the run is left cancelled")
+                return ""
             state = marks.get(wanted) or state
             if state == "settled":
-                return False
+                return ""
     except READ_ERRORS as error:
         log(f"could not read the rescue jobs' logs ({error})")
-        return False
-    return state == "sent"
+        return ""
+    return {"sent": "failed", "sent all": "all"}.get(state, "")
 
 
 def accepted(job: Mapping[str, Any], now: dt.datetime) -> bool:
@@ -1750,7 +1755,8 @@ class GitHub:
                                        f"&page={page}&created=%3E%3D{since.strftime('%Y-%m-%dT%H:%M:%SZ')}")
             batch = [run for run in (data or {}).get("workflow_runs") or [] if isinstance(run, Mapping)]
             runs += batch
-            if len(batch) < 100:
+            # A status-filtered page can come back short before the last one (failed_runs()): only an empty one ends.
+            if not batch:
                 break
         found: list[int] = []
         for run in runs:
@@ -2227,13 +2233,14 @@ def watch(api: GitHub, target: Target, *, budget_seconds: int,
                 by = canceller(api, jobs, sleep, log)
                 if by is None:
                     return "stop", "the run was cancelled, and who cancelled it could not be read; left cancelled"
-                if by and not (by in RESCUE_ACTORS and any(unacquired(job) for job in jobs)
-                               and rerun_intended(api, run, target.attempt, sleep, log)):
+                meant = rerun_intended(api, run, target.attempt, sleep, log) if by in RESCUE_ACTORS else ""
+                if by and not meant:
                     return "stop", f"the run was cancelled by @{by}; left cancelled"
-                if by:
-                    log(f"look {looks}: the rescue cancelled attempt {target.attempt} to re-run it and stopped "
-                        "before the re-run")
-                    stranded = True
+                if meant:
+                    # Whatever its jobs show (queued ones no runner took, or one held in a runner's setup).
+                    log(f"look {looks}: the rescue cancelled attempt {target.attempt} to re-run "
+                        f"{'every job' if meant == 'all' else 'its failed jobs'} and stopped before the re-run")
+                    return "resume", meant
             if finished and not any(refused(job) or stranded and unacquired(job) for job in jobs):
                 late = feed_timeouts(api, target, jobs, sleep, log)
                 if not late:
@@ -2750,7 +2757,7 @@ def rescue(api: GitHub, target: Target, *, now: Callable[[], dt.datetime], sleep
         nightly_cancel(api, target, sleep, log, before_cancel)
     except NightlyBusy as busy_now:
         return f"{NIGHTLY_BUSY} ({busy_now}); it started just before the cancel, and a started nightly is never cancelled"
-    log(f"{CANCEL_SENT} run {target.run_id} attempt {target.attempt}")
+    log(f"{CANCEL_SENT} run {target.run_id} attempt {target.attempt}{'' if failed_only else EVERY_JOB}")
     try:
         result = settle_and_rerun(api, target, now=now, sleep=sleep, log=log, failed_only=failed_only,
                                   keep_main=keep_main)
@@ -2760,6 +2767,19 @@ def rescue(api: GitHub, target: Target, *, now: Callable[[], dt.datetime], sleep
         raise
     # Not on a KeyboardInterrupt or SystemExit (GitHub cancelling the rescue job, its timeout): that job stopped here,
     # and CANCEL_SENT alone tells its successor so.
+    log(f"{CANCEL_SETTLED} run {target.run_id} attempt {target.attempt}")
+    return result
+
+
+def resume_rerun(api: GitHub, target: Target, *, now: Callable[[], dt.datetime], sleep: Callable[[float], None],
+                 log: Callable[[str], None], every_job: bool) -> str:
+    """The re-run a stopped rescue meant after its cancel (rerun_intended()), with its own CANCEL_SETTLED mark."""
+    try:
+        result = settle_and_rerun(api, target, now=now, sleep=sleep, log=log, failed_only=not every_job,
+                                  keep_main=False)
+    except Exception:
+        log(f"{CANCEL_SETTLED} run {target.run_id} attempt {target.attempt}")
+        raise
     log(f"{CANCEL_SETTLED} run {target.run_id} attempt {target.attempt}")
     return result
 
@@ -3013,6 +3033,10 @@ def follow(client: GitHub, target: Target, *, seconds: int, queue_rounds: str | 
                     client, target, outcome, reason, budget_seconds=first_budget, floor_seconds=effective_seconds,
                     deadline=deadline, now=clock, sleep=sleep, log=log, seen=seen, sign_seen=sign_seen,
                     sign_text=sign_text)
+            if outcome == "resume":
+                result = resume_rerun(client, target, now=clock, sleep=rescue_sleep, log=log, every_job=reason == "all")
+                log(result)
+                return outcome, reason, held, "done"
             if outcome != "stalled":
                 return outcome, reason, held, ""
             log(f"stalled: {reason}")
