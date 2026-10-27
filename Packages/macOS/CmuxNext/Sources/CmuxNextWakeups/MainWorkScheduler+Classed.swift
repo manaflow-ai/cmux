@@ -25,7 +25,7 @@ import CoreFoundation
 /// tasks while input is pending (`third_party/blink/renderer/platform/scheduler/main_thread/main_thread_scheduler_impl.cc`).
 ///
 /// ```swift
-/// mainWork.follow(jobGate)                                    // the composition root
+/// let jobGate = MainJobGateSwitch(pending: pending, holding: mainWork)  // the composition root
 /// mainWork.post(class: .visible, owner: "sidebar.refresh") { sidebar.refresh() }
 /// mainWork.postFromAnyThread(class: .input, owner: inputOwner) { editor.applyKey() }
 /// observer = MainNotificationObserver(NSApplication.didChangeScreenParametersNotification, class: .visible,
@@ -191,13 +191,19 @@ extension MainWorkScheduler {
 }
 
 extension MainJobGateSwitch {
+    /// ``init(pending:)`` whose gate also holds `mainWork`'s classed work (``MainWorkScheduler/follow(_:)``).
+    public convenience init(pending: SessionInputPending, holding mainWork: MainWorkScheduler) {
+        self.init(pending: pending)
+        mainWork.follow(self)
+    }
+
     /// Whether classed main work that is not input or frame waits now: the gate is on and a
     /// person's input is pending or in dispatch, outside a nested run loop.
-    public var holdsMainWork: Bool { isEnabled && Self.holdsMainWork(state.bits) }
+    public var holdsMainWork: Bool { isEnabled && Self.holds(state.bits) }
 
     /// Whether the word `bits` holds classed main work (input pending or in dispatch, no nested
     /// loop, not bypassed).
-    nonisolated static func holdsMainWork(_ bits: InputPendingState.Bits) -> Bool {
+    nonisolated static func holds(_ bits: InputPendingState.Bits) -> Bool {
         !bits.isDisjoint(with: .input) && bits.isDisjoint(with: [.nestedLoop, .bypass])
     }
 }

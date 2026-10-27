@@ -161,9 +161,7 @@ public struct CmuxNextApp {
         // Main-actor jobs wait behind pending input (p04-input-076); installed as `debug.mainJobGate` says (AppServices.settings).
         // Classed main work (post(class:), MainNotificationObserver) waits behind the same input (p04-input-080).
         if features.isEnabled(.mainJobGate), let pending = order.mainWork.budget.pendingInput as? SessionInputPending {
-            let jobGate = MainJobGateSwitch(pending: pending)
-            (app as? CmuxApplication)?.jobGate = jobGate
-            order.mainWork.follow(jobGate)
+            (app as? CmuxApplication)?.jobGate = MainJobGateSwitch(pending: pending, holding: order.mainWork)
         }
         DaemonLauncher.captureLoginEnvironment(after: order.startup) // at once only with nothing remembered (p08-startup-034)
         LaunchThreadCensus.post(on: order.startup) { LaunchMarkSink.shared.writeValue(name: $0, value: $1) } // Debug/bench: threads at the first frame (p08-startup-068)

@@ -115,12 +115,12 @@ import Testing
     /// The gate's rule: input pending or in dispatch holds; a nested run loop or a stopped gate does
     /// not, and neither do held Swift jobs alone.
     @Test func holdingFollowsTheGateWord() {
-        #expect(MainJobGateSwitch.holdsMainWork([.key]))
-        #expect(MainJobGateSwitch.holdsMainWork([.dispatching]))
-        #expect(!MainJobGateSwitch.holdsMainWork([]))
-        #expect(!MainJobGateSwitch.holdsMainWork([.held]))
-        #expect(!MainJobGateSwitch.holdsMainWork([.key, .nestedLoop]))
-        #expect(!MainJobGateSwitch.holdsMainWork([.dispatching, .bypass]))
+        #expect(MainJobGateSwitch.holds([.key]))
+        #expect(MainJobGateSwitch.holds([.dispatching]))
+        #expect(!MainJobGateSwitch.holds([]))
+        #expect(!MainJobGateSwitch.holds([.held]))
+        #expect(!MainJobGateSwitch.holds([.key, .nestedLoop]))
+        #expect(!MainJobGateSwitch.holds([.dispatching, .bypass]))
     }
 
     /// On the real main run loop: a classed run-loop block and a post from any thread wait while the
@@ -167,7 +167,7 @@ private final class ClassedRig {
         work = MainWorkScheduler.testing(budget: MainFrameBudget(uptimeNanos: clock.read), performTurn: { turns.queue($0) }) { _ in
             ClassedFakeLink()
         }
-        work.holdsClassedWork = { MainJobGateSwitch.holdsMainWork(state.bits) }
+        work.holdsClassedWork = { MainJobGateSwitch.holds(state.bits) }
     }
 }
 

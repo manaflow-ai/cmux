@@ -1,4 +1,4 @@
-public import CmuxNextCompat
+import CmuxNextCompat
 public import Foundation
 
 /// A NotificationCenter observer whose handler runs in a declared ``MainWorkClass`` on the app's
