@@ -204,7 +204,10 @@ def from_traces(traces, start_ms):
         "turns": len(turns),
         "turn_status": statuses,
         "turn_error_rate": statuses.get("error", 0) / len(turns) if turns else None,
+        # Before the host traced `stopped` (Oct 27), a turn the Chief ended itself with
+        # stop/sleep after its reply was traced `cancelled` too: older traces count both.
         "turn_cancelled_rate": statuses.get("cancelled", 0) / len(turns) if turns else None,
+        "turn_stopped_by_chief_rate": statuses.get("stopped", 0) / len(turns) if turns else None,
         "turn_s_p50": _s(pct([t.get("ms") for t in ok], 0.5)),
         "turn_s_p95": _s(pct([t.get("ms") for t in ok], 0.95)),
         "first_token_s_p50": _s(pct([t.get("ttft_ms") for t in ok], 0.5)),
@@ -275,7 +278,8 @@ ROWS = [
     ("turns", "turns (traces)", "n"),
     ("failed_turns_seen", "turn failures the person saw", "n"),
     ("turn_error_rate", "turns that ended in an error", "%"),
-    ("turn_cancelled_rate", "turns cancelled", "%"),
+    ("turn_cancelled_rate", "turns cancelled (before Oct 27: and self-stopped)", "%"),
+    ("turn_stopped_by_chief_rate", "turns the Chief ended itself (stop/sleep)", "%"),
     ("turn_s_p50", "turn time p50 (s)", "f"),
     ("turn_s_p95", "turn time p95 (s)", "f"),
     ("first_token_s_p50", "first token p50 (s)", "f"),

@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import http.client
 import json
 import re
 import sys
@@ -46,6 +47,10 @@ MAX_ARTIFACT_BYTES = 512 << 20
 # A wrong binary read is fetched again this many times, from a fresh URL, before it fails.
 BINARY_READ_ATTEMPTS = 3
 RETRY_PAUSE_SECONDS = 5
+# A fetch that times out, drops its connection or gets a 5xx is read again, up
+# to FETCH_ATTEMPTS times with a doubling pause. Run 40466861832 lost a whole
+# tree's publish to one read timeout here. A 4xx or a wrong body fails at once.
+FETCH_ATTEMPTS = 3
 DIAGNOSTIC_HEADERS = ("Content-Length", "ETag", "Last-Modified", "CF-Cache-Status", "CF-Ray", "Age")
 
 
@@ -340,8 +345,27 @@ def _validate_manifest(
             raise ManifestError(f"{source} has invalid cmux-tui SHA-256 for {artifact}")
 
 
+class _TransientFetchError(ManifestError):
+    """A fetch that may succeed if read again: a timeout, a dropped connection or a 5xx."""
+
+
 def _read_url(
     url: str, *, max_bytes: int = MAX_MANIFEST_BYTES, headers_out: dict[str, str] | None = None
+) -> bytes:
+    for attempt in range(FETCH_ATTEMPTS):
+        try:
+            return _read_url_once(url, max_bytes=max_bytes, headers_out=headers_out)
+        except _TransientFetchError as error:
+            if attempt + 1 >= FETCH_ATTEMPTS:
+                raise ManifestError(f"{error} (after {FETCH_ATTEMPTS} reads)") from error
+            pause = RETRY_PAUSE_SECONDS * (2 ** attempt)
+            print(f"warning: {error}; reading again in {pause}s", file=sys.stderr)
+            time.sleep(pause)
+    raise AssertionError("unreachable")
+
+
+def _read_url_once(
+    url: str, *, max_bytes: int, headers_out: dict[str, str] | None
 ) -> bytes:
     request = urllib.request.Request(
         url,
@@ -382,8 +406,14 @@ def _read_url(
                     )
                 chunks.append(chunk)
             return b"".join(chunks)
-    except (OSError, urllib.error.URLError) as error:
+    except urllib.error.HTTPError as error:
+        if error.code >= 500:
+            raise _TransientFetchError(f"could not fetch {url}: {error}") from error
         raise ManifestError(f"could not fetch {url}: {error}") from error
+    except (OSError, urllib.error.URLError, http.client.HTTPException) as error:
+        # Timeouts, resets, DNS or connection failures, and a body cut off
+        # mid-read (http.client.IncompleteRead): no complete answer came.
+        raise _TransientFetchError(f"could not fetch {url}: {error}") from error
 
 
 def _verify_remote_binary(

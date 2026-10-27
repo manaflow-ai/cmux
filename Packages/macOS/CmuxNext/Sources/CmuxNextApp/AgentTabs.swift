@@ -215,6 +215,7 @@ final class AgentTabStore {
     var localPaths: (@MainActor (_ tab: String) -> Bool)?
     /// A background task's terminal beside chat tab `chat` (``AgentProcessTerminal``); false when none opened.
     var openProcess: (@MainActor (_ chat: String, _ viewer: AgentPaneProcessViewer) -> Bool)?
+    var cloudCredentialTransfer: (@MainActor (_ chat: String, _ request: AgentPaneCloudCredentialTransferRequest) async -> Bool)?
     var gitLink: (@MainActor (String) -> AgentPaneGitLink?)?, openFiles: (@MainActor (_ chat: String, _ folder: String, _ target: String?) -> Void)?, moveToFloatingChat: (@MainActor (String) -> Bool)?
 
     /// `settings`, when given, is followed for the page settings (``AgentPanePageSettings``); else from `AppServices.settings`.
@@ -428,6 +429,13 @@ final class AgentTabStore {
             if bindsHere(key) { sendSession(session, for: key) }
         }
         model.onSessionHarness = { [weak self] session in self.map { $0.sendSession(session, for: $0.resolve(provisional)) } }
+        model.onCloudCredentialTransfer = { [weak self, weak model] request in
+            guard let self, let model, model.sessionId == request.sessionID,
+                  let record = self.lookup(self.resolve(provisional))?.record,
+                  AgentPaneCloudCredentialTransferRequest.Provider(harnessID: record.harness) == request.provider,
+                  let transfer = self.cloudCredentialTransfer else { return false }
+            return await transfer(self.resolve(provisional), request)
+        }
         unsentDrafts.wire(model) { [weak self] in self?.resolve(provisional) ?? provisional }
         model.onOpenTab = { [weak self] request in
             BenchSpans.mark("bridge.tab.open")

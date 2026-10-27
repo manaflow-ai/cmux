@@ -3,7 +3,7 @@
 
     fast-tier-seed-due.py --minutes 30 --endpoint-url URL --bucket cmux-ci-cache-next
     fast-tier-seed-due.py --minutes 30 --listing objects.json   # tests
-    fast-tier-seed-due.py --minutes 30 ... --pools '[{"pool": "hosted", "workspace": "/Users/runner/work/cmux/cmux", ...}]'
+    fast-tier-seed-due.py --minutes 30 ... --pools '[{"pool": "blacksmith", "workspace": "/Users/runner/_work/cmux/cmux", ...}]'
 
 Prints `due=true` when no fast-tier Swift archive in the bucket is younger than
 --minutes. A seed is a full Blacksmith macOS build (about 7 minutes), and
@@ -15,8 +15,8 @@ due: a seed costs a build, a skipped one costs every pull request one.
 With --pools it prints `pools=<JSON>`: the pools whose own newest seed is that old,
 each entry as given (the seed job's matrix). A pool's seeds are the swift archives
 whose key holds the workspace-path hash fast-tier-cache-key.sh puts in the prefix
-(sha256 of the path, 12 hex digits): a hosted macos-26 fast tier never restores a
-Blacksmith seed, so a fresh Blacksmith seed leaves the hosted pool due.
+(sha256 of the path, 12 hex digits): a fast tier that checks out to another path
+never restores the pool's seed, so each pool is due on its own seeds.
 
 The listing (bucket credentials: AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY) is
 r2_cache_census.py's, objects as {"key", "last_modified"}.

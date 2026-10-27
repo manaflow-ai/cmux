@@ -15,17 +15,20 @@ Gold from history: a message becomes a case only when Chief started a subagent f
 message is not a correction ("??", "i said", "still broken", ...). The case expects what
 was accepted then: a spawn, in the same repo directory.
 
-- dispatch (eval 1, "dispatch fidelity"): a spawn, in the accepted repo directory, whose
-  task carries the person's first words verbatim and starts with a Title line; no
-  question back.
+- dispatch (eval 1, "dispatch fidelity"): a spawn, in the accepted repo directory, with a
+  Title line, whose task carries at least one of the person's key words (up to 3 words
+  of 5+ letters that the accepted task kept too, so a paraphrase still passes); no
+  question back. A spawn with no cwd fails: the host then runs it in the Chief's own
+  folder, not the repo.
 - feedback (eval 2, "feedback to action"): a bug report or product note becomes a spawn
-  whose task carries the person's words; no question back.
+  whose task carries the person's key words; no question back.
 - rule (eval 3, "rules stick"): the person taught a rule at RULE_ID; the history holds it
   and Chief's answer, and the turn is the person's next accepted dispatch after it. The
   profile has no such rule, so only the memory teaches it. KIND is the check:
   links (no raw ids), short (at most 80 words), group (the task names a Group), branch
   (the task names feat-cmux-next).
-Messages with an image are left out: the runner sends no images.
+Messages with an image are left out (the runner sends no images), and so are messages
+whose accepted repo is named only in older memory than the history the case holds.
 """
 import argparse
 import json
@@ -109,7 +112,9 @@ def gold(msgs, n):
 
 
 def history(msgs, n, count):
-    """The `count` items before message n, as the runner seeds them."""
+    """The `count` items before message n, as the runner seeds them. Chief's spawns and
+    tells show as its own lines ("Started a12: Title"), so a message it already acted on
+    does not read as unanswered."""
     items = []
     for m in reversed(msgs[:n]):
         if len(items) >= count:
@@ -123,6 +128,15 @@ def history(msgs, n, count):
             sent = tool_input(text, text.split(" ", 1)[0] + " ")
             if sent and sent.get("text"):
                 items.append({"kind": "talk", "text": sent["text"][:1500]})
+        elif m["kind"] == "echo" and text.startswith("Started a"):
+            started = re.findall(r"- (a\d+): (?:workspace )?\"?([^\"\n]*)", text)
+            if started:
+                items.append({"kind": "talk", "text": "Started " + "; ".join(
+                    f"{a}: {t}" for a, t in started)[:1500]})
+        elif m["kind"] == "tool" and text.startswith("mcp__optchat__tell "):
+            told = tool_input(text, "mcp__optchat__tell ")
+            if told and told.get("id"):
+                items.append({"kind": "talk", "text": f"Told {told['id']}: {str(told.get('message', ''))[:300]}"})
     return list(reversed(items))
 
 
@@ -140,10 +154,26 @@ def first_reply(msgs, n):
     return None
 
 
-def words_re(text, count=5):
-    """A regex for the first `count` words of `text` in order, as JSON may escape them."""
-    words = re.findall(r"[A-Za-z0-9]+", text)[:count]
-    return "(?i)" + r"\W+".join(re.escape(w) for w in words) if len(words) >= 3 else None
+STOP = set("""about above after again against also because been before being below between both
+could doesn does doing down during each every from have having here into itself just make more
+most need needs only other over same should some such than that their them then there these they
+this those through under until very want what when where which while with would your yours""".split())
+
+
+def kept_words(text, spawn, count=3):
+    """Up to `count` of the person's words (5+ letters, not common) that the accepted task
+    kept too, longest first: what a task for this message must carry, whatever its wording."""
+    task = json.dumps(spawn).lower()
+    seen, out = set(), []
+    for w in sorted(re.findall(r"[A-Za-z][A-Za-z0-9]{4,}", text), key=len, reverse=True):
+        lw = w.lower()
+        if lw in STOP or lw in seen or lw not in task:
+            continue
+        seen.add(lw)
+        out.append(lw)
+        if len(out) == count:
+            break
+    return out
 
 
 def cwd_re(cwd):
@@ -154,15 +184,28 @@ def cwd_re(cwd):
     return r'"cwd":\s*"(~|/(Users|home)/[^/"]+)/' + re.escape(tail) + r'/?"'
 
 
-def base_checks(msg, spawn, cwd=True):
+def base_checks(msg, spawn):
     checks = [{"type": "called", "cmd": "spawn"}]
-    r = words_re(msg["text"])
-    if r:
-        checks.append({"type": "called", "cmd": "spawn", "re": r})
-    if cwd and cwd_re(spawn.get("cwd")):
+    words = kept_words(msg["text"], spawn)
+    if words:
+        # Any one of them: a task that keeps none lost what the message was about.
+        checks.append({"type": "called", "cmd": "spawn",
+                       "re": "(?i)" + "|".join(re.escape(w) for w in words)})
+    if cwd_re(spawn.get("cwd")):
         checks.append({"type": "called", "cmd": "spawn", "re": cwd_re(spawn.get("cwd"))})
     checks.append({"type": "no_question"})
     return checks
+
+
+def needs_older_memory(spawn, msg, hist):
+    """The accepted repo is neither the default (~/fun/cmux) nor named in the message or
+    the history: only older memory told Chief where the work lives."""
+    cwd = (spawn.get("cwd") or "").rstrip("/")
+    name = os.path.basename(cwd)
+    if not name or re.search(r"(^|/)fun/cmux$", cwd):
+        return False
+    seen = (msg["text"] + " " + " ".join(h["text"] for h in hist)).lower()
+    return name.lower() not in seen
 
 
 def case(cid, group, about, hist, msg, checks, person=None):
@@ -188,13 +231,17 @@ def build(msgs, idx, args):
             if spawn is None:
                 skipped.append((mid, "no accepted spawn"))
                 continue
+            hist = history(msgs, n, args.history)
+            if needs_older_memory(spawn, msgs[n], hist):
+                skipped.append((mid, "its repo is named only in older memory"))
+                continue
             checks = base_checks(msgs[n], spawn)
             if kind == "dispatch":
                 checks.insert(1, {"type": "called", "cmd": "spawn", "re": "Title:"})
                 about = "a real dispatch is spawned in the accepted repo with the person's words and a title"
             else:
                 about = "a real bug report or product note becomes a subagent with the person's words"
-            cases.append(case(f"{kind}-m{mid}", kind, about, history(msgs, n, args.history), msgs[n], checks))
+            cases.append(case(f"{kind}-m{mid}", kind, about, hist, msgs[n], checks))
     for spec in args.rule:
         kind, _, rid = spec.partition(":")
         rid = int(rid)

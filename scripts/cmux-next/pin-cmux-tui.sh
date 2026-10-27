@@ -113,6 +113,8 @@
 #          CMUX_TUI_TREE_TIP_WAIT_SECONDS (3000), for the tip's active publisher; CMUX_TUI_TREE_SAME_PATHS, space-separated
 #          paths, skips a commit whose copy of any of them differs from the tip's;
 #          no Mac Release compile is required: the nightly compiles the app itself)
+#        | verify-key <key> (commit=<publishing commit> when tree <key> is published and its
+#          manifest sha256 verifies; exit 1 not published (a 404), 3 a read failure or unverifiable)
 #        | wait (wait for the tree; superseded=true output for a superseded commit)
 #        | fallback-key (fleet suites: when HEAD has the tree of its base,
 #          CMUX_TUI_TREE_FALLBACK_BASE (default origin/feat-cmux-next), print the newest
@@ -394,8 +396,8 @@ github_api() {
 # commit has tree <key>, nothing when the runs list has none, or "unknown" when
 # the runs list cannot be read (rate limit, network, an unparsable body): a
 # caller that fails fast on "no publisher" must not read a failed read as none.
-# A commit missing locally is fetched once (depth 1, best effort); one it
-# cannot read does not count.
+# A commit missing locally is fetched once (best effort; depth 1 only in a
+# shallow clone, so a full clone stays full); one it cannot read does not count.
 active_publisher_for_key() {
   local key="$1" body candidate depth=()
   body="$(github_api GET "actions/workflows/cmux-tui-artifacts.yml/runs?per_page=50" 2>/dev/null)" || {
@@ -412,10 +414,12 @@ assert isinstance(runs, list) and all(isinstance(r, dict) and isinstance(r.get("
   while read -r candidate; do
     [[ "$candidate" =~ ^[0-9a-f]{40}$ ]] || continue
     # A fleet step's origin may be a local warm checkout or the controller's depot, which lack other
-    # commits: fall back to the public repository (2026-10-25: a same-tree run went unseen).
+    # commits: fall back to the public repository (2026-10-25: a same-tree run went unseen). The
+    # fallback takes the same depth rule: --depth=1 there made a full clone shallow, and a shallow
+    # clone skips the unpushed-commit refusal (refuse_unpushed_source).
     git -C "$repo_root" cat-file -e "$candidate^{commit}" 2>/dev/null \
       || git -C "$repo_root" fetch -q --no-tags ${depth[@]+"${depth[@]}"} origin "$candidate" 2>/dev/null \
-      || git -C "$repo_root" fetch -q --no-tags --depth=1 "${CMUX_TUI_PUBLIC_GIT_URL:-https://github.com/${GITHUB_REPOSITORY:-manaflow-ai/cmux}.git}" "$candidate" 2>/dev/null \
+      || git -C "$repo_root" fetch -q --no-tags ${depth[@]+"${depth[@]}"} "${CMUX_TUI_PUBLIC_GIT_URL:-https://github.com/${GITHUB_REPOSITORY:-manaflow-ai/cmux}.git}" "$candidate" 2>/dev/null \
       || { echo "note: cannot read active run commit ${candidate:0:12} to compare its tree" >&2; continue; }
     if [[ "$(tree_key "$candidate" 2>/dev/null)" == "$key" ]]; then echo "$candidate"; return 0; fi
   done < <(python3 -c '
@@ -1186,6 +1190,55 @@ resolve_exact_tree() {
   fi
 }
 
+# verify_published_key <key> <temp dir>: whether tree <key> is published for
+# $TARGET and verified: its sha256, the commit its source.json names, and that
+# commit's attested manifest carrying the same sha256. Sets verified_commit,
+# verified_sha and verified_manifest_sha. Returns 0 verified, 1 not published
+# (no sha256; a failed read counts as not published), 2 published but
+# unverifiable. resolve-newest-published and verify-key (the tree-commit
+# marker writer, scripts/cmux-next/tree-commit-marker.sh) share it.
+verify_published_key() {
+  local key="$1" dir="$2"
+  verified_commit="" verified_sha="" verified_manifest_sha=""
+  # The query string bypasses a cached 404 at the CDN edge: the nightly's
+  # second search follows a wait that saw this tree publish.
+  download "$BASE/tree/$key/cmux-tui-$TARGET.sha256?t=$(date +%s)" "$dir/sha256" 2>/dev/null || return 1
+  verified_sha="$(awk 'NR==1{print $1}' "$dir/sha256")"
+  if [[ "$verified_sha" =~ ^[0-9a-f]{64}$ ]] \
+    && download "$BASE/tree/$key/source.json" "$dir/source.json" 2>/dev/null; then
+    verified_commit="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("commit") or "")' "$dir/source.json" 2>/dev/null || true)"
+  fi
+  if [[ "$verified_commit" =~ ^[0-9a-f]{40}$ ]] && download "$BASE/$verified_commit/manifest.json" "$dir/manifest.json" 2>/dev/null; then
+    verified_manifest_sha="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["binaries"].get(sys.argv[2], ""))' "$dir/manifest.json" "cmux-tui-$TARGET" 2>/dev/null || true)"
+  fi
+  [[ -n "$verified_manifest_sha" && "$verified_manifest_sha" == "$verified_sha" ]] || return 2
+}
+
+# Prints commit=<publishing commit> for a verified published tree <key>
+# (verify_published_key). Exit 1 only when the CDN answers 404 for its sha256
+# (not published); 3 for anything else that is not a verified tree: a read
+# that is neither 200 nor 404 (a read failure, never "not published") or a
+# published tree whose manifest does not carry its sha256.
+verify_key_command() {
+  local key="${1:-}" dir rc=0
+  [[ "$key" =~ ^[0-9a-f]{40}$ ]] || { echo "error: verify-key takes a 40-hex tree key" >&2; exit 2; }
+  dir="$(mktemp -d "${TMPDIR:-/tmp}/cmux-tui-verify.XXXXXX")"
+  verify_published_key "$key" "$dir" || rc=$?
+  rm -rf "$dir"
+  case "$rc" in
+    0) echo "commit=$verified_commit" ;;
+    1)
+      # A 404 from a complete transfer only; a failed curl is a read failure.
+      local code
+      code="$(curl -sS --proto '=https' --connect-timeout 20 --max-time 60 -o /dev/null -w '%{http_code}' \
+        "$BASE/tree/$key/cmux-tui-$TARGET.sha256?t=$(date +%s)" 2>/dev/null)" || code=000
+      if [[ "$code" == 404 ]]; then echo "tree $key: not published" >&2; exit 1; fi
+      echo "error: tree $key: could not read $BASE/tree/$key/cmux-tui-$TARGET.sha256 (HTTP ${code:-000}); a read failure, not \"not published\"" >&2
+      exit 3 ;;
+    *) echo "tree $key: published, but the manifest of ${verified_commit:-its commit} does not carry its sha256" >&2; exit 3 ;;
+  esac
+}
+
 # The nightly's resolver: the newest commit within the last
 # CMUX_TUI_TREE_SEARCH_COMMITS (default 50) commits of HEAD whose v2 tree is
 # published and whose publishing commit's attested manifest carries the same
@@ -1208,7 +1261,7 @@ resolve_exact_tree() {
 # fb384d011b85's, had no such job. Every skipped commit and its reason is
 # listed on a miss.
 resolve_newest_published_tree() {
-  local limit max_age temp_dir rev rev_time tip_time behind_hours key commit manifest_sha published_sha tip tip_key behind=0 checked=0 distinct=0
+  local limit max_age temp_dir rev rev_time tip_time behind_hours key commit vrc tip tip_key behind=0 checked=0 distinct=0
   local bad_keys=" " good_keys=" " skips=""
   local i same_path skewed skipped_skew=0 same_paths=() tip_blobs=()
   if [[ -n "${CMUX_TUI_TREE_REQUIRE_RELEASE_GREEN:-}" ]]; then
@@ -1276,28 +1329,19 @@ resolve_newest_published_tree() {
     commit="$(tr ' ' '\n' <<<"$good_keys" | awk -F= -v k="$key" '$1 == k { print $2; exit }')"
     if [[ -z "$commit" ]]; then
       distinct=$((distinct + 1))
-      # The query string bypasses a cached 404 at the CDN edge: the nightly's
-      # second search follows a wait that saw this tree publish.
-      if ! download "$BASE/tree/$key/cmux-tui-$TARGET.sha256?t=$(date +%s)" "$temp_dir/sha256" 2>/dev/null; then
+      vrc=0
+      verify_published_key "$key" "$temp_dir" || vrc=$?
+      if (( vrc == 1 )); then
         echo "tree $key (${rev:0:12}): not published" >&2
         skips+="  ${rev:0:12}: tree ${key:0:12} not published"$'\n'
         bad_keys+="$key "; behind=$((behind + 1)); continue
       fi
-      published_sha="$(awk 'NR==1{print $1}' "$temp_dir/sha256")"
-      commit=""
-      if [[ "$published_sha" =~ ^[0-9a-f]{64}$ ]] \
-        && download "$BASE/tree/$key/source.json" "$temp_dir/source.json" 2>/dev/null; then
-        commit="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("commit") or "")' "$temp_dir/source.json" 2>/dev/null || true)"
-      fi
-      manifest_sha=""
-      if [[ "$commit" =~ ^[0-9a-f]{40}$ ]] && download "$BASE/$commit/manifest.json" "$temp_dir/manifest.json" 2>/dev/null; then
-        manifest_sha="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["binaries"].get(sys.argv[2], ""))' "$temp_dir/manifest.json" "cmux-tui-$TARGET" 2>/dev/null || true)"
-      fi
-      if [[ -z "$manifest_sha" || "$manifest_sha" != "$published_sha" ]]; then
-        echo "warning: tree $key (${rev:0:12}) is published, but the manifest of its commit ${commit:0:12} does not carry its sha256 ${published_sha:0:12} (manifest: ${manifest_sha:-none}); skipping" >&2
+      if (( vrc != 0 )); then
+        echo "warning: tree $key (${rev:0:12}) is published, but the manifest of its commit ${verified_commit:0:12} does not carry its sha256 ${verified_sha:0:12} (manifest: ${verified_manifest_sha:-none}); skipping" >&2
         skips+="  ${rev:0:12}: tree ${key:0:12} unverifiable (manifest sha256 mismatch)"$'\n'
         bad_keys+="$key "; behind=$((behind + 1)); continue
       fi
+      commit="$verified_commit"
       good_keys+="$key=$commit "
     fi
     echo "resolved cmux-tui tree $key from ${rev:0:12} ($behind commits and $behind_hours h behind the tip ${tip:0:12}, tip tree ${tip_key:-unknown}); published by $commit" >&2
@@ -1573,6 +1617,9 @@ PY
     ;;
   resolve-newest-published)
     resolve_newest_published_or_await_tip
+    ;;
+  verify-key)
+    verify_key_command "${1:-}"
     ;;
   resolve-exact)
     resolve_exact_tree

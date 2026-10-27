@@ -210,8 +210,9 @@ export class SettingsStore {
       // A machine's update failing while Updates shows (its toast's Details opens it) shows in
       // the Channels card's row at once, in every channel's read.
       this.listen("cmux.settings.channels.machines.changed", (machines) =>
-        this.queryClient.setQueriesData<ChannelsState | null>({ queryKey: [...settingsKeys.all, "channels"] }, (state) =>
-          state ? { ...state, machines } : state,
+        this.queryClient.setQueriesData<ChannelsState | null>(
+          { queryKey: [...settingsKeys.all, "channels"] },
+          (state) => (state ? { ...state, machines } : state),
         ),
       ),
       this.listen("cmux.page.command", (event) => {
@@ -505,6 +506,12 @@ export class SettingsStore {
   /** Settings > Devices: a paired client machine's Full access on or off, then re-read the host lists. */
   async setDeviceFullAccess(id: string, on: boolean): Promise<void> {
     await this.request("cmux.settings.devices.full_access", { id, on });
+    await this.refreshHost();
+  }
+
+  /** Settings > Machines: a Cloud machine's "Dedicated agent machine" on or off, then re-read the host lists. */
+  async setMachineVmHost(id: string, on: boolean): Promise<void> {
+    await this.request("cmux.settings.machines.vm_host", { id, on });
     await this.refreshHost();
   }
 
