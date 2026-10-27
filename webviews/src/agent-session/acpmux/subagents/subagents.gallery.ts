@@ -267,7 +267,7 @@ export default agentPaneEntry({
     "codex-child": {
       note: "A Codex subagent's own view: its read, as Codex streams it under the child's session.",
       snapshot: CODEX,
-      native: { "chat.subagentPane": { nativeError: { code: "unsupported" } } },
+      native: { "chat.subagentPane": { opened: false } },
       play: async (ctx) => {
         await openGroup(2)(ctx);
         await ctx.click({ role: "button", name: "Open Read a" });
@@ -371,14 +371,14 @@ export default agentPaneEntry({
       note: "A list line opened: the subagent's own view, under a Subagent of pill naming the chat.",
       height: 640,
       snapshot: NESTED_MIXED,
-      native: { "chat.subagentPane": { nativeError: { code: "unsupported" } } },
+      native: { "chat.subagentPane": { opened: false } },
       play: openChild("Test coverage"),
     },
     "child-nested": {
       note: "A nested group in the child view opened, then its finished subagent: the pill names its parent.",
       height: 760,
       snapshot: NESTED_MIXED,
-      native: { "chat.subagentPane": { nativeError: { code: "unsupported" } } },
+      native: { "chat.subagentPane": { opened: false } },
       play: async (ctx) => {
         await openChild("Test coverage")(ctx);
         // The nested group of a running agent starts open in the working turn.
@@ -392,7 +392,7 @@ export default agentPaneEntry({
       note: "The pill goes back to the parent: the chat's transcript, its group still open.",
       height: 680,
       snapshot: NESTED_MIXED,
-      native: { "chat.subagentPane": { nativeError: { code: "unsupported" } } },
+      native: { "chat.subagentPane": { opened: false } },
       play: async (ctx) => {
         await openChild("Test coverage")(ctx);
         await ctx.click({ selector: ".cv-subagent-of__pill" });

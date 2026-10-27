@@ -21,4 +21,16 @@ struct AgentPageHostQuickActionsTests {
             #expect(error.code == PageError.closed.code)
         }
     }
+
+    @Test func viewAllIsRegisteredOnTheRealAgentPageHost() async throws {
+        let provider = AgentPageProvider { _ in nil }
+        do {
+            _ = try await provider.call(AgentPageOps.namespace + "chat.subagentList",
+                                        params: .object([:]),
+                                        context: PageCallContext(page: PageDescriptor.agent.id))
+            Issue.record("expected the closed answer with no chat behind the provider")
+        } catch let error as PageError {
+            #expect(error.code == PageError.closed.code)
+        }
+    }
 }

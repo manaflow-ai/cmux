@@ -204,3 +204,11 @@ test("View all requests the full list in the companion pane", async () => {
   );
   expect(calls.at(-1)).toEqual(["chat.subagentPane", { subagent: "0", focus: false }]);
 });
+
+test("native subagent placement distinguishes refusal from transport failure", async () => {
+  await expect(openSubagentPane(async () => ({ opened: false }), "child-1", true)).resolves.toBe("refused");
+  await expect(openSubagentPane(async () => ({ opened: true }), "child-1", true)).resolves.toBe("opened");
+  await expect(openSubagentPane(async () => {
+    throw new Error("disconnected");
+  }, "child-1", true)).resolves.toBe("error");
+});

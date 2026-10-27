@@ -5851,10 +5851,13 @@ function AcpmuxPane() {
   /// Native placement owns subagent identity and tab reuse, including nested row clicks.
   const showSubagent = useCallback((id: string, intent: boolean | SubagentClick = true) => {
     const focus = typeof intent === "boolean" ? intent : !intent.metaKey;
-    void openSubagentPane(callNative, id, focus).then((opened) => {
-      if (!opened && focus) setSubagentView(id);
+    void openSubagentPane(callNative, id, focus).then((result) => {
+      if (result === "refused" && focus) {
+        allSubagents.hide();
+        setSubagentView(id);
+      }
     });
-  }, []);
+  }, [allSubagents]);
   const [autoOpenSubagents, setAutoOpenSubagents] = useAutoOpenSubagents();
   useOpenNewSubagents(
     quick || subagentPane.current ? undefined : shownSessionId,

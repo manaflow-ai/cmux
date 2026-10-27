@@ -1,4 +1,4 @@
-import { useState, type ComponentProps } from "react";
+import { useCallback, useState, type ComponentProps } from "react";
 import { useT } from "../i18n";
 import { SubagentStatusList } from "../summary/SubagentStatusList";
 
@@ -7,14 +7,18 @@ export const SUBAGENT_LIST_REVEAL = "subagents:list";
 /** Only a native reveal turns a destination tab into the full subagent list. */
 export function useSubagentList(call: (method: string, params: Record<string, unknown>) => Promise<unknown>) {
   const [shown, setShown] = useState(false);
+  const show = useCallback(() => void call("chat.subagentList", {}).catch(() => undefined), [call]);
+  const hide = useCallback(() => setShown(false), []);
+  const reveal = useCallback((value: string) => {
+    const list = value === SUBAGENT_LIST_REVEAL;
+    setShown(list);
+    return list;
+  }, []);
   return {
     shown,
-    show: () => void call("chat.subagentList", {}).catch(() => undefined),
-    reveal: (value: string) => {
-      const list = value === SUBAGENT_LIST_REVEAL;
-      setShown(list);
-      return list;
-    },
+    show,
+    hide,
+    reveal,
   };
 }
 

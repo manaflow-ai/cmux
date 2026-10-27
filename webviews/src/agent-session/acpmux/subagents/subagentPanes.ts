@@ -57,14 +57,16 @@ export function useAutoOpenSubagents(): [boolean, (on: boolean) => void] {
 }
 
 type Call = (method: string, params: Record<string, unknown>) => Promise<unknown>;
+export type SubagentPaneResult = "opened" | "refused" | "error";
 
-/// Asks the app for subagent `id`'s pane; false when it opened none.
-export async function openSubagentPane(call: Call, id: string, focus: boolean): Promise<boolean> {
+/// Asks the app for subagent `id`'s pane. A native refusal is distinct from a lost transport reply:
+/// only the former permits the in-place fallback.
+export async function openSubagentPane(call: Call, id: string, focus: boolean): Promise<SubagentPaneResult> {
   try {
     const reply = await call("chat.subagentPane", { subagent: id, focus });
-    return (reply as { opened?: unknown } | null)?.opened === true;
+    return (reply as { opened?: unknown } | null)?.opened === true ? "opened" : "refused";
   } catch {
-    return false;
+    return "error";
   }
 }
 

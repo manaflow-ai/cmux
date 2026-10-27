@@ -11,6 +11,7 @@ import { useT } from "../i18n";
 import { Icon } from "../icons/Icon";
 import { tooltipProps } from "../shortcuts";
 import type { SubagentScope } from "./subagentScope";
+import { subagentName } from "../subagents/subagentNavigation";
 
 export type SubagentHeaderVariant = "title" | "crumb" | "card";
 /// The one the panel draws.
@@ -44,7 +45,7 @@ function Name({ scope }: Props) {
       <span className="acpmux-chat-inspector-scope__dot" aria-hidden="true">
         ·
       </span>
-      <span className="acpmux-chat-inspector-scope__agent">{scope.agent.name}</span>
+      <span className="acpmux-chat-inspector-scope__agent">{subagentName(scope.agent)}</span>
     </span>
   );
 }
@@ -82,7 +83,7 @@ export function SubagentBanner({ scope, variant }: Props & { variant: Exclude<Su
       <Icon name="agent.session" size={14} className="acpmux-chat-inspector-scope__glyph" />
       <span className="acpmux-chat-inspector-scope__text">
         <Name scope={scope} />
-        {scope.agent.task && scope.agent.task !== scope.agent.name && (
+        {scope.agent.task && scope.agent.task !== subagentName(scope.agent) && (
           <span className="acpmux-chat-inspector-scope__task">{scope.agent.task}</span>
         )}
       </span>

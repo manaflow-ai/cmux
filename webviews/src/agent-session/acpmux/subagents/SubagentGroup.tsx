@@ -228,7 +228,7 @@ export function SubagentListRow({ row }: { row: AcpmuxRow }) {
 export function StopButton({ agent, stop }: { agent: Subagent; stop: (id: string) => Promise<unknown> }) {
   const t = useT();
   const [state, setState] = useState<"idle" | "stopping" | "failed">("idle");
-  const label = t(state === "failed" ? "subagents.stopFailed" : "subagents.stop", { name: agent.name });
+  const label = t(state === "failed" ? "subagents.stopFailed" : "subagents.stop", { name: subagentName(agent) });
   return (
     <button
       type="button"

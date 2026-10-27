@@ -49,7 +49,11 @@ extension AgentTabStore {
             else { toggles.open(id, cwd: nil, url: url, chat: chat, store: store, actions: actions) }
         }, saveQuickActions: { [weak self] list in
             await self?.customization.saveQuickActions(list) ?? false
-        }, moveToFloatingChat: { [weak self] session in actions.moveToFloatingChat(session, via: self?.moveToFloatingChat) }, refreshPullRequest: pullRequest.askAgain, showSession: { [weak self] session in self?.showSessionBeside(session, chat: provisional) ?? false }, isFamily: { [weak self] session, chat in self?.turns.isFamily(session, of: chat) ?? false }) // a chat streams in one tab: an opened session's tab (on the chat's acpmux host, a Chief chat's `chief:<id>`) is shown; a chat opens only its family (startedBy)
+        }, moveToFloatingChat: { [weak self] session in actions.moveToFloatingChat(session, via: self?.moveToFloatingChat) }, refreshPullRequest: pullRequest.askAgain, showSession: { [weak self] session in
+            guard let self, let shown = tab(showing: session, host: lookup(resolve(provisional))?.record.host) else { return false }
+            _ = actionRegistry?.perform("tab.focus", invocation: ActionInvocation(target: ActionTargetRef(kind: .tab, id: shown), origin: .user))
+            return true
+        }, isFamily: { [weak self] session, chat in self?.turns.isFamily(session, of: chat) ?? false }) // a chat streams in one tab: an opened session's tab (on the chat's acpmux host, a Chief chat's `chief:<id>`) is shown; a chat opens only its family (startedBy)
         // Changes with the chat's turn (D1, D2): the diff beside the chat offers it as Last turn.
         model.header?.diffTurn = { [weak self] cwd, turn, toggle in
             let chat = self?.resolve(provisional) ?? provisional
@@ -105,7 +109,7 @@ extension AgentTabStore {
 
     func subagentSource(_ tab: String) -> String {
         let tab = resolve(tab)
-        guard let source = subagentSources[tab].map(resolve), locate(source) != nil else { return tab }
+        guard let source = subagentSources[tab].map(resolve), locate(source) != nil, isBeside(source, tab) else { return tab }
         return source
     }
     /// A tab in chat tab `provisional`'s pane, then moved to a new split on its right when `split`; else a tab there, focused when `created` is set.
