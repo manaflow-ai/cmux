@@ -1,7 +1,7 @@
 //! The daemon's echo path threads run at UserInteractive with blocking
 //! disallowed (p02-threads task 210): a served connection's writer, its
-//! attach writers, a local PTY surface's reader and the frame producer are
-//! registered at that class. Connection readers stay at their own class until
+//! attach writers, the read loop a local PTY surface reads on and the frame
+//! producer are registered at that class. Connection readers stay at their own class until
 //! the client class is known (task 224).
 
 use std::time::{Duration, Instant};
@@ -53,8 +53,10 @@ fn connection_writers_and_surface_reader_are_echo_path_threads() {
         client.request(json!({"cmd": "attach-surface", "surface": attached.id, "mode": "render"}));
     assert_eq!(render["ok"], true, "{render}");
 
-    let reader = format!("surface-{}-reader", local.id);
-    for name in ["mux-line-out", "mux-attach-out", "mux-render-attach-out", &reader] {
+    // A local PTY reads on its owner's read loop, not a thread of its own
+    // (p07-memory-095).
+    let reader = crate::mux::terminal_work::read_loop::READ_LOOP_THREAD;
+    for name in ["mux-line-out", "mux-attach-out", "mux-render-attach-out", reader] {
         assert_rows(name, ECHO_PATH_QOS);
     }
     assert_rows("surface-frames", ECHO_PATH_QOS);

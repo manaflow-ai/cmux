@@ -1536,6 +1536,12 @@ All IDs below are `p07-memory-NNN`.
   thread joins the pool. Check the threading and PL-daemon queues first.
 - Acceptance: 50 terminals add <= 2 threads; idle_wakeups green; output order unchanged.
 - Test: fleet cargo test -p cmux-tui-core surface; perf-10x-idle.sh counts=100 thread column.
+- Status: reader in. Daemon-local PTYs read on the owner's one read loop (`mux/terminal_work/read_loop.rs`:
+  `mux-terminal-io` on kqueue/epoll, `mux-terminal-read` workers, one run per terminal at once), so 50 terminals
+  add 2 threads at idle and no `surface-<id>-reader`. The `-wait` thread is p02-threads-237's `mux-reaper`
+  (EVFILT_PROC; it started first and owns that part). Left: `surface-<id>-host` and `-host-frames` of hosted
+  terminals (the reconnect path still blocks; it needs a work-item reconnect first); holder terminals'
+  readers are p01-process-120.
 
 ### 096 Sliced release of parked workspaces and warm set
 - Files: Windows/WindowController+Parking.swift, AppServices+Hibernation.swift, TabContentCache.swift, tests.

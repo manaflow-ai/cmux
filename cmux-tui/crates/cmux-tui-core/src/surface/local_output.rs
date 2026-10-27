@@ -6,17 +6,15 @@
 use super::*;
 use std::io;
 #[cfg(unix)]
-use std::io::Write;
-#[cfg(unix)]
 use std::os::fd::{AsRawFd, OwnedFd};
-#[cfg(unix)]
-use std::os::unix::net::UnixStream;
 
 pub(super) struct LocalOutput {
     #[cfg(unix)]
     pub(super) descriptor: Option<OwnedFd>,
     #[cfg(unix)]
-    pub(super) wake: Option<UnixStream>,
+    /// Queues a run of this terminal's reader on the read loop
+    /// (`ReadKick`), set once the reader is registered there.
+    pub(super) wake: Option<crate::mux::terminal_work::read_loop::ReadKick>,
     pub(super) title_changed: Arc<AtomicBool>,
     pub(super) pending_responses: Arc<Mutex<Vec<u8>>>,
     pub(super) pending_bells: PendingBells,
@@ -47,7 +45,6 @@ impl LocalOutput {
         pending_responses: Arc<Mutex<Vec<u8>>>,
         pending_bells: PendingBells,
         #[cfg(unix)] descriptor: Option<OwnedFd>,
-        #[cfg(unix)] wake: Option<UnixStream>,
         #[cfg(unix)] parsed_sink: Option<Arc<crate::holder_runtime::HolderSink>>,
     ) -> Self {
         Self {
@@ -57,7 +54,7 @@ impl LocalOutput {
             #[cfg(unix)]
             descriptor,
             #[cfg(unix)]
-            wake,
+            wake: None,
             #[cfg(unix)]
             parsed_sink,
             shell_marks: Default::default(),
@@ -219,10 +216,11 @@ impl LocalOutput {
             Ok(())
         })();
         if !self.pending.is_empty()
-            && let Some(wake) = self.wake.as_mut()
+            && let Some(wake) = self.wake.as_ref()
         {
-            // Nonblocking: an already queued wake also guarantees publication.
-            let _ = wake.write(&[1]);
+            // Queues the reader's next run, which publishes them; a run in
+            // progress is followed by one more.
+            wake.kick();
         }
         result
     }

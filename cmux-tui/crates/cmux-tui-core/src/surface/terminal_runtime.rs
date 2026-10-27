@@ -48,6 +48,18 @@ impl ReaderCompletion {
     }
 }
 
+/// Where a terminal's output is read. Either way `reader_completion` marks
+/// its end.
+pub(super) enum TerminalReader {
+    /// A thread of its own: a hosted terminal's host reader, a holder or
+    /// byte-backend terminal's reader. Shutdown joins it.
+    Thread(std::thread::JoinHandle<()>),
+    /// A source on the owner's read loop (`mux::TerminalReads`): a
+    /// daemon-local PTY. Nothing to join.
+    #[cfg(unix)]
+    Looped,
+}
+
 pub(super) struct ReaderCompletionGuard(pub(super) Arc<ReaderCompletion>);
 
 impl Drop for ReaderCompletionGuard {
@@ -210,7 +222,7 @@ pub struct PtyTerminalRuntime {
     /// Owned reader join fence. Shutdown gives this reader a bounded drain
     /// interval, then closes journal capture before it inserts the final
     /// journal barrier.
-    pub(super) reader_thread: Mutex<Option<std::thread::JoinHandle<()>>>,
+    pub(super) reader_thread: Mutex<Option<TerminalReader>>,
     pub(super) reader_completion: Arc<ReaderCompletion>,
     /// Owned child-reaper join fence. Shutdown uses the same bounded deadline
     /// as the reader so the child wait cannot outlive terminal teardown.
