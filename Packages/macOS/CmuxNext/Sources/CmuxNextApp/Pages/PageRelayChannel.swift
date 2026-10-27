@@ -15,7 +15,8 @@ import os
 /// One relay connection per page (`page-router-v1`): its `client-hello` names the page
 /// (`cmux.history` -> `history`), so the daemon applies that page's allow list
 /// (cmux-tui/spec/page-router.json). A call the list marks `gesture` goes out with a confirmation
-/// token when a real key or pointer event backs it (``PageCallContext/userGesture``).
+/// token when a real key or pointer event backs it (``PageCallContext/userGesture``); such an
+/// event also makes the echo of the call's mutation the person's (`MutationCauseLedger.recordPageCall`).
 ///
 /// Events (`page-events-v1`, cx-hnmbt.9): the relay connection also subscribes when its page hears
 /// events (page-router.json `events`); the daemon narrows that stream to them. ``listen(event:onEvent:)``
@@ -96,6 +97,8 @@ final class PageRelayChannel {
         idle.begin()
         defer { idle.end() }
         guard let service, let main = service.connection else { throw DaemonError.notConnected }
+        // Before the send: the main connection hears the echo, which can come before the reply.
+        main.mutationCauses.recordPageCall(idempotencyKey, gestureBacked: context.userGesture)
         guard service.supports(DaemonClientRole.originClaimCapability) else {
             if !warned {
                 warned = true

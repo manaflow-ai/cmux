@@ -71,6 +71,17 @@ public final class MutationCauseLedger: Sendable {
         record(.transaction(transaction), cause: cause)
     }
 
+    /// Records a page relay call's `idempotencyKey` as the person's when a real key or pointer event
+    /// in the page backs the call (`PageCallContext.userGesture`: the host's record, within 1 s of the
+    /// event, like Chrome's transient user activation,
+    /// third_party/blink/common/frame/user_activation_state.cc). The daemon echoes a v2 mutation's key
+    /// as its `mutation_id`; without a gesture the echo keeps the daemon's cause for a page,
+    /// `automation` (p06-scheduler.md, "Page relay"). The daemon still takes the call as origin `page`.
+    public func recordPageCall(_ idempotencyKey: String?, gestureBacked: Bool) {
+        guard gestureBacked, let idempotencyKey else { return }
+        record(idempotencyKey, cause: .person)
+    }
+
     /// The cause `mutationID` was recorded with, or nil when it was not recorded or expired.
     public func cause(of mutationID: String) -> ObservationCause? {
         cause(of: .mutation(mutationID))
