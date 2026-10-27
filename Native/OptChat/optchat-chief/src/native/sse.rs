@@ -26,18 +26,32 @@ impl Assembler {
                 }
             }
             "content_block_start" => {
-                let i = index(data);
-                while self.blocks.len() <= i {
+                // Blocks arrive in order: a start opens the next block (or
+                // restarts an open one), never one past it.
+                let Some(i) = index(data).filter(|i| *i <= self.blocks.len()) else {
+                    self.fail("a content block starts out of order");
+                    return;
+                };
+                let Some(Value::Object(block)) = data.get("content_block") else {
+                    self.fail("a content block is not an object");
+                    return;
+                };
+                if i == self.blocks.len() {
                     self.blocks.push(Value::Null);
                     self.partial.push(String::new());
                 }
-                if let Some(block) = self.blocks.get_mut(i) {
-                    *block = data.get("content_block").cloned().unwrap_or(Value::Null);
+                if let Some(slot) = self.blocks.get_mut(i) {
+                    *slot = Value::Object(block.clone());
                 }
             }
             "content_block_delta" => {
-                let i = index(data);
-                let (Some(block), Some(delta)) = (self.blocks.get_mut(i), data.get("delta")) else {
+                let Some(i) = index(data) else {
+                    self.fail("a content block delta has no valid index");
+                    return;
+                };
+                let (Some(Value::Object(block)), Some(delta)) =
+                    (self.blocks.get_mut(i), data.get("delta"))
+                else {
                     return;
                 };
                 let text = |k: &str| delta.get(k).and_then(Value::as_str).unwrap_or("");
@@ -45,7 +59,7 @@ impl Assembler {
                     "text_delta" => append(block, "text", text("text")),
                     "thinking_delta" => append(block, "thinking", text("thinking")),
                     "signature_delta" => {
-                        block["signature"] = Value::String(text("signature").into())
+                        block.insert("signature".into(), Value::String(text("signature").into()));
                     }
                     "input_json_delta" => {
                         if let Some(partial) = self.partial.get_mut(i) {
@@ -56,7 +70,12 @@ impl Assembler {
                         if let Some(citation) = delta.get("citation") {
                             match block.get_mut("citations") {
                                 Some(Value::Array(list)) => list.push(citation.clone()),
-                                _ => block["citations"] = Value::Array(vec![citation.clone()]),
+                                _ => {
+                                    block.insert(
+                                        "citations".into(),
+                                        Value::Array(vec![citation.clone()]),
+                                    );
+                                }
                             }
                         }
                     }
@@ -64,12 +83,18 @@ impl Assembler {
                 }
             }
             "content_block_stop" => {
-                let i = index(data);
-                if let (Some(block), Some(json)) = (self.blocks.get_mut(i), self.partial.get(i))
+                let Some(i) = index(data) else {
+                    self.fail("a content block stop has no valid index");
+                    return;
+                };
+                if let (Some(Value::Object(block)), Some(json)) =
+                    (self.blocks.get_mut(i), self.partial.get(i))
                     && !json.is_empty()
                 {
                     match serde_json::from_str::<Value>(json) {
-                        Ok(input) => block["input"] = input,
+                        Ok(input) => {
+                            block.insert("input".into(), input);
+                        }
                         Err(e) => {
                             self.error = Some(format!("a tool call's input is not JSON: {e}"))
                         }
@@ -110,6 +135,13 @@ impl Assembler {
         }
     }
 
+    /// Keeps the first error: a malformed frame or the stream's own error.
+    fn fail(&mut self, why: &str) {
+        if self.error.is_none() {
+            self.error = Some(why.to_owned());
+        }
+    }
+
     /// The whole message, or why the stream failed.
     pub fn finish(mut self) -> Result<Value, String> {
         if let Some(e) = self.error {
@@ -124,18 +156,22 @@ impl Assembler {
     }
 }
 
-fn index(data: &Value) -> usize {
-    data.get("index").and_then(Value::as_u64).unwrap_or(0) as usize
+/// The event's block index: 0 when absent, None when it is not a usize.
+fn index(data: &Value) -> Option<usize> {
+    match data.get("index") {
+        None => Some(0),
+        Some(index) => index.as_u64().and_then(|i| usize::try_from(i).ok()),
+    }
 }
 
-fn append(block: &mut Value, key: &str, text: &str) {
+fn append(block: &mut Map<String, Value>, key: &str, text: &str) {
     let mut joined = block
         .get(key)
         .and_then(Value::as_str)
         .unwrap_or("")
         .to_owned();
     joined.push_str(text);
-    block[key] = Value::String(joined);
+    block.insert(key.to_owned(), Value::String(joined));
 }
 
 /// `read`, checking `stop` after every event: Ok(None) when it said so (the

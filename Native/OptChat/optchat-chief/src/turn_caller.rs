@@ -218,12 +218,12 @@ fn environment_value(pid: i32, key: &str) -> Option<String> {
         return None;
     }
     // argc (i32), the exec path, NUL padding, argc arguments, the environment.
-    let data = &buffer[..filled];
-    let argc = usize::try_from(i32::from_le_bytes(data.get(..4)?.try_into().ok()?)).ok()?;
-    let rest = &data[4..];
+    let (argc, rest) = buffer.get(..filled)?.split_first_chunk::<4>()?;
+    let argc = usize::try_from(i32::from_le_bytes(*argc)).ok()?;
     let path_end = rest.iter().position(|b| *b == 0)?;
-    let start = path_end + rest[path_end..].iter().position(|b| *b != 0)?;
-    let mut strings = rest[start..].split(|b| *b == 0);
+    let after_path = rest.get(path_end..)?;
+    let start = after_path.iter().position(|b| *b != 0)?;
+    let mut strings = after_path.get(start..)?.split(|b| *b == 0);
     if strings.by_ref().take(argc).count() != argc {
         return None;
     }

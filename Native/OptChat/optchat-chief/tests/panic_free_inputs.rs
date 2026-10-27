@@ -120,3 +120,77 @@ fn a_hash_prefix_cuts_on_a_character_boundary() {
     assert_eq!(short("aéééééé"), "aééééé");
     assert_eq!(short("é"), "é");
 }
+
+fn stream(events: &[serde_json::Value]) -> Result<Option<serde_json::Value>, String> {
+    let body: String = events.iter().map(|e| format!("data: {e}\n\n")).collect();
+    optchat_chief::native::read_until(body.as_bytes(), &|| false)
+}
+
+#[test]
+fn a_content_block_that_is_not_an_object_fails_the_stream() {
+    use serde_json::json;
+    for (delta, stop) in [
+        (json!({"type": "text_delta", "text": "a"}), false),
+        (json!({"type": "signature_delta", "signature": "s"}), false),
+        (json!({"type": "citations_delta", "citation": {}}), false),
+        (
+            json!({"type": "input_json_delta", "partial_json": "{}"}),
+            true,
+        ),
+    ] {
+        let mut events = vec![
+            json!({"type": "message_start", "message": {"role": "assistant"}}),
+            json!({"type": "content_block_start", "index": 0, "content_block": "x"}),
+            json!({"type": "content_block_delta", "index": 0, "delta": delta}),
+        ];
+        if stop {
+            events.push(json!({"type": "content_block_stop", "index": 0}));
+        }
+        events.push(json!({"type": "message_stop"}));
+        assert_eq!(
+            stream(&events),
+            Err("a content block is not an object".to_owned())
+        );
+    }
+}
+
+/// The first index is a small gap, so the base (which padded up to any
+/// index) fails on it before it meets u64::MAX.
+#[test]
+fn a_content_block_index_past_the_next_block_fails_the_stream() {
+    use serde_json::json;
+    for index in [json!(1), json!(u64::MAX), json!(-1), json!("0")] {
+        let events = [
+            json!({"type": "message_start", "message": {"role": "assistant"}}),
+            json!({"type": "content_block_start", "index": index,
+                   "content_block": {"type": "text", "text": ""}}),
+            json!({"type": "message_stop"}),
+        ];
+        assert_eq!(
+            stream(&events),
+            Err("a content block starts out of order".to_owned()),
+            "index {index}"
+        );
+    }
+    let events = [
+        json!({"type": "message_start", "message": {"role": "assistant"}}),
+        json!({"type": "content_block_start", "index": 0,
+               "content_block": {"type": "tool_use", "name": "t"}}),
+        json!({"type": "content_block_delta", "index": 0,
+               "delta": {"type": "input_json_delta", "partial_json": "{\"a\":1}"}}),
+        json!({"type": "content_block_stop", "index": 0}),
+        json!({"type": "content_block_start", "index": 1,
+               "content_block": {"type": "text", "text": ""}}),
+        json!({"type": "content_block_delta", "index": 1,
+               "delta": {"type": "text_delta", "text": "hé"}}),
+        json!({"type": "message_stop"}),
+    ];
+    let message = stream(&events).unwrap().unwrap();
+    assert_eq!(
+        message.get("content"),
+        Some(
+            &json!([{"type": "tool_use", "name": "t", "input": {"a": 1}},
+                     {"type": "text", "text": "hé"}])
+        )
+    );
+}

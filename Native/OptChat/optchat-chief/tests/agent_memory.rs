@@ -236,6 +236,48 @@ fn the_server_answers_startup_locally_and_relays_only_tool_calls() {
     assert!(!home.path().join(".cmux/agent-memory-notes.jsonl").exists());
 }
 
+/// An owner that keeps what it was sent, for the test to read after.
+struct Recording(std::sync::Arc<std::sync::Mutex<Vec<Value>>>);
+
+impl Owner for Recording {
+    fn call(&mut self, message: &Value) -> Result<Value, String> {
+        self.0.lock().unwrap().push(message.clone());
+        Ok(
+            json!({"jsonrpc": "2.0", "id": message["id"], "result": {"content": [], "isError": false}}),
+        )
+    }
+    fn name(&self) -> String {
+        "ssh://owner".into()
+    }
+}
+
+#[test]
+fn a_relayed_note_with_a_non_object_meta_still_carries_this_hosts_provenance() {
+    let home = short_home();
+    seed(home.path());
+    let sent = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let mut server = Server {
+        index: index(home.path()),
+        remember: true,
+        owner: Some(Box::new(Recording(sent.clone()))),
+    };
+    for meta in [json!("x"), json!(7), json!(null), json!({"other": 1})] {
+        let answer = server
+            .handle(
+                &json!({"jsonrpc": "2.0", "id": 9, "method": "tools/call", "params": {
+                "name": "memory_remember", "arguments": {"text": "a lesson"}, "_meta": meta}}),
+            )
+            .unwrap();
+        assert_eq!(answer["result"]["isError"], false, "{meta}: {answer}");
+        let relayed = sent.lock().unwrap().pop().unwrap();
+        assert_eq!(
+            relayed["params"]["_meta"][mcp::PROVENANCE_META],
+            Provenance::here().to_json(),
+            "{meta}: {relayed}"
+        );
+    }
+}
+
 #[test]
 fn an_unreachable_owner_falls_back_for_reads_and_refuses_notes() {
     let home = short_home();

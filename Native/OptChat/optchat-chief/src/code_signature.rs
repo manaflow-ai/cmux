@@ -321,8 +321,10 @@ mod macos {
         if unsafe { CFStringGetCString(s, buf.as_mut_ptr(), buf.len() as isize, UTF8) } == 0 {
             return None;
         }
-        let end = buf.iter().position(|&b| b == 0)?;
-        String::from_utf8(buf[..end].to_vec()).ok()
+        // CFStringGetCString succeeded, so the text ends at a NUL in `buf`.
+        let mut pieces = buf.split(|&b| b == 0);
+        let text = pieces.next().filter(|_| pieces.next().is_some())?;
+        String::from_utf8(text.to_vec()).ok()
     }
 
     fn check(status: OSStatus, what: &str) -> Result<(), String> {

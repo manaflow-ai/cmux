@@ -145,10 +145,18 @@ impl Server {
         };
         let mut relayed = message.clone();
         if name == "memory_remember" {
-            relayed.insert_path(
-                &["params", "_meta", PROVENANCE_META],
-                Provenance::here().to_json(),
-            );
+            // The owner takes a note without this stamp as its own host's,
+            // so a `_meta` that is not an object is replaced, never skipped.
+            let Some(meta) = relayed
+                .field_mut("params")
+                .and_then(|params| params.field_mut("_meta"))
+            else {
+                return reply("a memory_remember call needs object params".into(), true);
+            };
+            if !meta.is_object() {
+                *meta = json!({});
+            }
+            meta.insert(PROVENANCE_META, Provenance::here().to_json());
         }
         match owner.call(&relayed) {
             Ok(answer) => answer,

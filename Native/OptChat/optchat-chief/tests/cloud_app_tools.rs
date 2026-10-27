@@ -198,6 +198,46 @@ fn the_last_known_list_stays_when_the_list_fails_or_loses_the_app() {
     );
 }
 
+/// cx-68uof with a malformed settings file: the late denials of the app's
+/// action tools still reach it, since the pending marker is gone after.
+#[test]
+fn late_denials_replace_a_permissions_value_that_is_not_an_object() {
+    let cli = FakeCli::new();
+    let session = tempfile::tempdir().unwrap();
+    let dir = session.path().join(".claude");
+    std::fs::create_dir_all(&dir).unwrap();
+    cli.answer(&["workspace_list"], false, Some("no cmux app found"));
+    let _ = cmux_tool_denials(session.path(), &cli.env());
+    assert!(dir.join("cmux-tools-pending.json").exists());
+
+    std::fs::write(dir.join("settings.json"), r#"{"permissions": true}"#).unwrap();
+    std::fs::write(
+        dir.join("settings.local.json"),
+        r#"{"permissions": {"deny": "x"}}"#,
+    )
+    .unwrap();
+    cli.answer(&FULL, true, None);
+    optchat_chief::session_dir::set_session_cache(
+        session.path(),
+        optchat_chief::prompt::CacheTtl::OneHour,
+        false,
+    )
+    .unwrap();
+    assert!(!dir.join("cmux-tools-pending.json").exists());
+    for name in ["settings.json", "settings.local.json"] {
+        let text = std::fs::read_to_string(dir.join(name)).unwrap();
+        let value: serde_json::Value = serde_json::from_str(&text).unwrap();
+        let deny = value
+            .pointer("/permissions/deny")
+            .and_then(serde_json::Value::as_array)
+            .unwrap_or_else(|| panic!("{name} has no deny list: {text}"));
+        assert!(
+            deny.contains(&serde_json::json!("mcp__cmux__app_workspace_rename")),
+            "{name}: {text}"
+        );
+    }
+}
+
 /// A turn's app requests name the Home chat as their caller
 /// (`CMUX_CALLER_HOME_CHAT`), so its tabs open beside the Chief's chat when
 /// no target is given; a subagent (the pinned subset) does not.

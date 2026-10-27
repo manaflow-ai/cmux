@@ -803,17 +803,26 @@ pub fn set_session_cache(
             .filter(Value::is_object)
             .unwrap_or_else(|| json!({}));
         if let Some(late) = &late {
+            // The pending marker is gone, so a malformed `permissions` or
+            // `deny` is replaced rather than left to skip the denials.
+            if !value.field("permissions").is_object() {
+                value.insert("permissions", json!({}));
+            }
             if !value.field("permissions").field("deny").is_array() {
                 value.insert_path(&["permissions", "deny"], json!([]));
             }
-            if let Some(deny) = value
+            let Some(deny) = value
                 .pointer_mut("/permissions/deny")
                 .and_then(Value::as_array_mut)
-            {
-                for rule in late {
-                    if !deny.iter().any(|d| d == rule) {
-                        deny.push(json!(rule));
-                    }
+            else {
+                return Err(io::Error::other(format!(
+                    "{}: permissions.deny cannot be written",
+                    path.display()
+                )));
+            };
+            for rule in late {
+                if !deny.iter().any(|d| d == rule) {
+                    deny.push(json!(rule));
                 }
             }
         }

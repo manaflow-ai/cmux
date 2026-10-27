@@ -795,4 +795,42 @@ mod tests {
         assert!(!safe_rel("a b"));
         assert!(!safe_rel(""));
     }
+
+    /// `read_request` over a loopback pair, a body limit of 16 bytes.
+    fn read_raw(request: String) -> std::io::Result<Request> {
+        let listener = TcpListener::bind("127.0.0.1:0")?;
+        let address = listener.local_addr()?;
+        let client = thread::spawn(move || -> std::io::Result<TcpStream> {
+            let mut stream = TcpStream::connect(address)?;
+            stream.write_all(request.as_bytes())?;
+            Ok(stream)
+        });
+        let (mut conn, _) = listener.accept()?;
+        let read = read_request(&mut conn, |_| 16);
+        drop(client.join());
+        read
+    }
+
+    const CHUNKED: &str = "POST /x HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n";
+
+    #[test]
+    fn a_chunk_size_that_overflows_is_a_refused_body() {
+        let request = read_raw(format!(
+            "{CHUNKED}3\r\nabc\r\nffffffffffffffff\r\nabc\r\n0\r\n\r\n"
+        ))
+        .unwrap();
+        assert_eq!(
+            (request.method.as_str(), request.path.as_str()),
+            ("POST", "/x")
+        );
+        assert_eq!(request.body, None);
+    }
+
+    #[test]
+    fn a_chunk_past_the_limit_is_a_refused_body() {
+        let request = read_raw(format!("{CHUNKED}11\r\n{}\r\n0\r\n\r\n", "a".repeat(17))).unwrap();
+        assert_eq!(request.body, None);
+        let request = read_raw(format!("{CHUNKED}3\r\nabc\r\n2\r\nde\r\n0\r\n\r\n")).unwrap();
+        assert_eq!(request.body.as_deref(), Some(&b"abcde"[..]));
+    }
 }
