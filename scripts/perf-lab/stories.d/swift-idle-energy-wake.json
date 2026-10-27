@@ -1,0 +1,18 @@
+{
+  "id": "swift-idle-energy-wake",
+  "tier": "builder",
+  "description": "IdleEnergyMonitorBench: ns per IdleEnergyMonitor.noteWake at a main run-loop wake, the uptime read, and one interrupt-wakeups rusage read.",
+  "command": ["scripts/perf-lab/stories/swift_benches.py", "run", "--story", "swift-idle-energy-wake", "--filter", "IdleEnergyMonitorBench", "--env", "CMUX_IDLE_ENERGY_BENCH=1"],
+  "session": "light",
+  "engine": "none",
+  "config": "release",
+  "metrics": [
+    {"name": "swift\\.idle_energy_wake\\.(wake|clock_read|rusage_read)_ns", "unit": "ns", "better": "lower"}
+  ],
+  "repeats": 1,
+  "seconds": 900,
+  "needs": ["file:Packages/macOS/CmuxNext/Tests/CmuxNextWakeupsTests/IdleEnergyMonitorBench.swift", "file:Packages/macOS/CmuxNext/Tests/CmuxNextTestSupport/PerfResultWriter.swift"],
+  "owner": "Performance Lead",
+  "component": "Energy>Idle",
+  "hot_paths": ["idle-energy-wake"]
+}

@@ -5,16 +5,19 @@
 import "../shared/desktop";
 import { createRoot } from "react-dom/client";
 import { createPageClient, type PageClient } from "../shared/pageClient";
+import { openPageState, restoredPageInputs } from "../shared/pageState";
 import { createStrings } from "../shared/i18n";
 import table from "./generated/strings.json";
 import { ChiefUsagePage } from "./ChiefUsagePage";
 import { MockChiefUsageProvider } from "./mockProvider";
-import { ChiefUsageStore } from "./store";
+import { CHIEF_USAGE_PAGE, ChiefUsageStore, restoredChiefUsageInputs } from "./store";
 import "../shared/pageBase.css";
 import "./styles.css";
 
 export function mountChiefUsagePage(root: HTMLElement, client: PageClient | null = defaultClient()): ChiefUsageStore {
-  const store = new ChiefUsageStore(client);
+  const state = openPageState(client, CHIEF_USAGE_PAGE);
+  const store = new ChiefUsageStore(client, restoredChiefUsageInputs(restoredPageInputs(client, CHIEF_USAGE_PAGE)));
+  state.keep(() => store.pageInputs());
   const strings = createStrings(table);
   document.documentElement.lang = strings.language;
   document.title = strings.t("chiefUsage.page.title");

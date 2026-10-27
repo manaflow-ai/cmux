@@ -1299,6 +1299,7 @@ Params:
 | `role` | `string` | required | `main` (the app's own connection) or `page_relay` (relays a page's requests) |
 | `install_id` | `string` | optional | 1-128 characters of `A-Z a-z 0-9 _ -`; with role `main` it asks for a nonce (step 2 proves it) |
 | `page` | `string` or null | optional | role `page_relay` only (`page-router-v1`): the page the relay serves |
+| `features` | `object{hash?:string, values:object<string,bool>}` or null | optional | role `main` only: the app's values of its `daemon` and `both` features (at most 512) |
 
 Step 2 sends `install_id` and `proof` (both required strings). Other members
 are ignored. spec/sdk-schema.json types both steps as one command whose
@@ -1321,12 +1322,29 @@ daemon refuses origin `user` (`origin.forbidden`, `apps.origin_forbidden`), the
 client shows the refusal and never sends the same request again with another
 origin. A daemon without this field allows no client to assume `user`.
 
+Features (p12-perf-process 3.9): the daemon outlives the app, so the app's
+`main` connection sends its daemon features in every hello. `hash` is FNV-1a
+64 over `name=1\n` (or `=0\n`) for each feature in registry order, as 16 hex
+digits; when it equals the daemon's, nothing is compared. Otherwise the reply's
+`features: object{hash, applied:[string], pending:[object{name, app:bool,
+daemon:bool}]}` says what the daemon did. For a verified app (the code
+signature at step 1, or the install-key proof, then reported again in step 2's
+result) an off for a `process=daemon` kill switch applies at once and is
+listed in `applied`; it stays off until the daemon restarts. Every other
+difference, a `both` feature's included, is `pending`: the daemon keeps its
+own value for its session, and the app runs each pending `both` feature with
+the daemon's value too (fixed by the hello of the connection it attaches), so
+no feature is read from two sources. Names the
+daemon does not declare are ignored. The daemon reads no file and fetches
+nothing for it. The member is left out before the daemon resolved its own
+features.
+
 Errors (`error_code`; none changes state, and each closes the hello window):
 
 | Code | When |
 | --- | --- |
 | `client_hello.local_only` | the connection is not a local Unix socket connection |
-| `client_hello.bad_request` | `error_details {field: "role"}`: role missing or unknown; `{field: "install_id"}`: install_id malformed |
+| `client_hello.bad_request` | `error_details {field: "role"}`: role missing or unknown; `{field: "install_id"}`: install_id malformed; `{field: "features"}`: features malformed or not on role `main` |
 | `client_hello.window_closed` | after any other line, after two `identify` lines, or a second `client-hello` |
 | `client_hello.refused` | step 2 with a wrong or missing proof or install id (the connection stays unverified) |
 

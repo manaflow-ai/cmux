@@ -5,6 +5,7 @@ import CmuxNextCompat
 import CmuxNextFocus
 import CmuxNextFocusUI
 @testable import CmuxNextTerminal
+import CmuxNextTestSupport
 import Darwin
 import Foundation
 import Testing
@@ -20,7 +21,8 @@ import Testing
 /// So this file asserts no time: the timing loop runs only with `CMUX_BENCH=1` (in Release:
 /// `CMUX_BENCH=1 swift test -c release --filter KeyRouterBench`), and the agent reads the numbers. The allocation count on the calling thread (libmalloc's `malloc_logger` hook, as
 /// KeyFrameSignpostAllocationTests) is the only check a plain unit run makes. It counts the router alone: the dispatch
-/// context around it (`InputDispatchContext`) is `CmuxApplication.sendEvent`'s and opens outside the count.
+/// context around it (`InputDispatchContext`) is `CmuxApplication.sendEvent`'s and opens outside the count. With
+/// CMUX_PERF_RESULT_DIR each key kind's timed samples and counts are result-v1 (lab story swift-key-router).
 @MainActor @Suite(.serialized)
 struct KeyRouterBench {
     /// A key-down the bench sends, before its event is made (each press needs a fresh event: the router
@@ -190,6 +192,18 @@ struct KeyRouterBench {
         report["keys"] = keys
         let json = String(decoding: try JSONSerialization.data(withJSONObject: report, options: [.sortedKeys]), as: UTF8.self)
         print("KEY-ROUTER-BENCH \(json)")
+        if let results = try PerfResultWriter() {
+            for (key, row) in [(Self.plain, plainRow)] + chordRows {
+                if !row.nanos.isEmpty {
+                    try results.record("swift.key_router.\(key.name).dispatch", unit: .us, samples: row.nanos.map { Double($0) / 1_000 })
+                }
+                try results.record("swift.key_router.\(key.name).allocs", unit: .count,
+                                   samples: [Double(row.allocations) / Double(Self.allocationKeys)])
+            }
+            try results.record("swift.key_router.tis_calls", unit: .count, samples: [Double(tisCalls) / Double(Self.allocationKeys)])
+            try results.record("swift.key_router.key_equiv_views", unit: .count,
+                               samples: [Double(keyEquivalentViews) / Double(Self.allocationKeys)])
+        }
 
         let fields = ["plain_p99_us", "chord_p99_us", "plain_allocs", "chord_allocs", "tis_calls", "key_equiv_views"]
         let decoded = try #require(try JSONSerialization.jsonObject(with: Data(json.utf8)) as? [String: Any])

@@ -85,6 +85,9 @@ public final class WebKitTab: NSObject, BrowserTab {
     /// Bounds how long the theme color stands in for a committed document
     /// (`pageDidCommit`).
     @ObservationIgnored let pageBaseHold: MainDeadline
+    /// WebKit draws a background behind the document (`setDrawsPageBackground`): false on a blank or
+    /// New Tab page and while a committed document has not painted.
+    @ObservationIgnored var drawsPageBackground = true
     /// The app's main-thread scheduler (the engine's): this tab's main-thread follow-ups are classed tasks on it.
     @ObservationIgnored let mainWork: MainWorkScheduler
     /// The tab's node (``adoptNode(_:)``); nil (a page no pane shows: tests, fixtures) counts as visible.

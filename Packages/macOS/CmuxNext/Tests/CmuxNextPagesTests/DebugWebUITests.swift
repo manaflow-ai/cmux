@@ -32,7 +32,7 @@ struct DebugWebUITests {
     private func makeHost(_ hosting: FakeChromiumHosting?) -> WebUIHost {
         WebUIHost(chromium: hosting, openPanel: nil,
                   memory: QuietMemoryRegistry(),
-                  clock: PageTestClock.never)
+                  deadlines: LifecycleDeadlineRig.never)
     }
 
     private func makeWindow() -> NSWindow {

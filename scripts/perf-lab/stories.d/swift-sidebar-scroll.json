@@ -1,0 +1,18 @@
+{
+  "id": "swift-sidebar-scroll",
+  "tier": "builder",
+  "description": "SidebarScrollCostTests over SidebarScrollBench: main-thread CPU and configured rows per scroll frame at 10, 100 and 500 workspaces, with the pointer still or over the list, ticking agents, and a workspace moving to the top.",
+  "command": ["scripts/perf-lab/stories/swift_benches.py", "run", "--story", "swift-sidebar-scroll", "--filter", "SidebarScrollCostTests"],
+  "session": "light",
+  "engine": "none",
+  "config": "release",
+  "metrics": [
+    {"name": "swift\\.sidebar_scroll\\.(still|pointer)(_ticks[0-9]+)?(_top[0-9]+)?\\.[0-9]+\\.cpu", "unit": "ms", "better": "lower"},
+    {"name": "swift\\.sidebar_scroll\\.(still|pointer)(_ticks[0-9]+)?(_top[0-9]+)?\\.[0-9]+\\.configures", "unit": "count", "better": "lower"}
+  ],
+  "repeats": 1,
+  "seconds": 1200,
+  "needs": ["file:Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/SidebarScrollBench.swift", "file:Packages/macOS/CmuxNext/Tests/CmuxNextTestSupport/PerfResultWriter.swift"],
+  "owner": "a590",
+  "component": "Sidebar>Scroll"
+}

@@ -10,13 +10,15 @@ import Testing
 /// (sidebar-scroll-perf-DESIGN.md).
 @MainActor @Suite(.serialized)
 struct SidebarScrollCostTests {
-    static func measure(_ count: Int, pointer: Bool = false, ticks: Int = 0, moveToTopEvery: Int = 0) -> [SidebarScrollBench.Frame] {
+    static func measure(_ count: Int, pointer: Bool = false, ticks: Int = 0, moveToTopEvery: Int = 0) throws -> [SidebarScrollBench.Frame] {
         let bench = SidebarScrollBench(count: count, pointerOverList: pointer)
         defer { bench.close() }
         bench.ticksPerFrame = ticks
         bench.moveToTopEvery = moveToTopEvery
         let frames = bench.run()
         print(SidebarScrollBench.summary(count, frames) + " | pointer=\(pointer) ticks=\(ticks) moveToTopEvery=\(moveToTopEvery)")
+        let variant = (pointer ? "pointer" : "still") + (ticks > 0 ? "_ticks\(ticks)" : "") + (moveToTopEvery > 0 ? "_top\(moveToTopEvery)" : "")
+        try SidebarScrollBench.record(count, variant: variant, frames)
         return frames
     }
 
@@ -72,24 +74,24 @@ struct SidebarScrollCostTests {
     /// The 8 ms budget is for the hosts it was set on; a slower runner gets it scaled by its own
     /// reference workload, timed before the scrolls and after each (FrameBudgetCalibration), or skips
     /// the timed checks with the reason printed.
-    @Test func scrollingFiveHundredWorkspacesStaysInsideTheFrameBudget() {
+    @Test func scrollingFiveHundredWorkspacesStaysInsideTheFrameBudget() throws {
         var calibration = FrameBudgetCalibration()
         calibration.checkpoint()
-        for count in [10, 100] { _ = Self.measure(count) }
+        for count in [10, 100] { _ = try Self.measure(count) }
         var timed: [(what: String, p95: Double)] = []
         for pointer in [false, true] {
-            let frames = Self.measure(500, pointer: pointer)
+            let frames = try Self.measure(500, pointer: pointer)
             calibration.checkpoint()
             timed.append(("p95 scroll frame at 500 workspaces (pointer over the list: \(pointer))",
                           SidebarScrollBench.percentile(frames.map(\.cpuMs), 0.95)))
             #expect(frames.map(\.reloads).reduce(0, +) == 0, "a scroll laid the list out again (pointer: \(pointer))")
         }
         // Agents streaming while the list scrolls: three status ticks a frame.
-        let ticking = Self.measure(500, pointer: true, ticks: 3)
+        let ticking = try Self.measure(500, pointer: true, ticks: 3)
         calibration.checkpoint()
         timed.append(("p95 scroll frame at 500 workspaces with ticking agents", SidebarScrollBench.percentile(ticking.map(\.cpuMs), 0.95)))
         // Not a check: a notification moving a workspace to the top every half second.
-        _ = Self.measure(500, pointer: true, ticks: 3, moveToTopEvery: 60)
+        _ = try Self.measure(500, pointer: true, ticks: 3, moveToTopEvery: 60)
         print(calibration.summary)
         if let reason = calibration.skipReason { return print("SIDEBAR-SCROLL-BUDGET skipped the 8 ms checks: \(reason)") }
         let budget = calibration.budget(8)
