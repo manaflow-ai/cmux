@@ -36,16 +36,33 @@ public struct FeedReadMarks: Sendable {
 
     /// Account deletion: the account's marks go.
     public func remove() {
-        try? FileManager.default.removeItem(at: url)
+        let url = url
+        Self.queue.sync { try? FileManager.default.removeItem(at: url) }
     }
 
+    /// Writes run here, in order, off the main thread: a read mark lands while the Feed
+    /// scrolls (the Mac's reads arrive several a second), and an atomic file write per mark
+    /// on the main thread cost a frame.
+    static let queue = DispatchQueue(label: "dev.cmux.mobile.feed.readmarks", qos: .utility)
+
+    /// Reads the marks after every queued write has landed.
     public func load() -> [String] {
-        (try? Data(contentsOf: url)).flatMap { try? JSONDecoder().decode([String].self, from: $0) } ?? []
+        Self.queue.sync {
+            (try? Data(contentsOf: url)).flatMap { try? JSONDecoder().decode([String].self, from: $0) } ?? []
+        }
     }
 
+    /// Queues a write of the newest `limit` marks; returns at once.
     public func save(_ ids: [String]) {
-        guard let data = try? JSONEncoder().encode(Array(ids.suffix(Self.limit))) else { return }
-        try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try? data.write(to: url, options: [.atomic])
+        let ids = Array(ids.suffix(Self.limit))
+        let url = url
+        Self.queue.async {
+            guard let data = try? JSONEncoder().encode(ids) else { return }
+            try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try? data.write(to: url, options: [.atomic])
+        }
     }
+
+    /// Waits until every queued write has landed (account switch, tests).
+    public static func flush() { queue.sync {} }
 }
