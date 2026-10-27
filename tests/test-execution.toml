@@ -306,6 +306,10 @@ path = "tests/test_ci_simple_pool_picker.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_cmux_next_compile_revert.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_next_macos_cascade.py"
 lane = "linux-guard"
 
@@ -698,7 +702,15 @@ path = "tests/test_ci_pr_size_advisory.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_pr_checks_base_only.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_gh_call_log.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_route_refusal_detail.py"
 lane = "linux-guard"
 
 [[test]]
@@ -1972,4 +1984,8 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_xcode_build_timeline.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_dev_landing_place.py"
 lane = "linux-guard"
