@@ -15,6 +15,29 @@ const call = (fields: Partial<Tool> = {}): Tool => ({
   ...fields,
 });
 
+type CodexChange = {
+  path: string;
+  type: "add" | "update" | "delete";
+  additions?: number;
+  deletions?: number;
+  from?: string;
+};
+
+const normalizedCodex = (changes: CodexChange[], content: unknown[], id = "codex-change"): Tool => {
+  const started = mergeToolItem(
+    undefined,
+    {
+      title: `Edit ${changes.length} files`,
+      kind: "edit",
+      status: "in_progress",
+      rawInput: { changes },
+    },
+    id,
+    "",
+  );
+  return mergeToolItem(started, { status: "completed", content }, id, "done").tool!;
+};
+
 test.each(["Edit", "MultiEdit", "edit", "replace", "replace_in_file", "edit_file"])(
   "%s legacy unmarked edit snippets are not whole documents",
   (title) => {
@@ -74,6 +97,80 @@ test("full input is considered alongside other recorded diffs, once per file ide
       diffs: [{ path: "weather.html", newText: page }],
     }),
   ).toHaveLength(1);
+});
+
+test("a normalized multi-file record previews only its complete added HTML file", () => {
+  const weather = "/repo/weather.html";
+  const partial = "/repo/partial.html";
+  const deleted = "/repo/deleted.html";
+  const recorded = normalizedCodex(
+    [
+      { path: weather, type: "add", additions: 1, deletions: 0 },
+      { path: partial, type: "update", additions: 1, deletions: 1 },
+      { path: deleted, type: "delete", additions: 0, deletions: 1 },
+    ],
+    [
+      { type: "diff", path: weather, newText: page },
+      { type: "diff", path: partial, oldText: "old", newText: "<p>fragment</p>" },
+      { type: "diff", path: deleted, oldText: page, newText: "" },
+    ],
+  );
+
+  expect(toolArtifacts(recorded)).toEqual([{ kind: "html", lang: "html", code: page, path: weather }]);
+});
+
+test("an added file may match a diff through its normalized canonical path", () => {
+  const recorded = normalizedCodex(
+    [{ path: "/repo/real/weather.html", type: "add", additions: 1, deletions: 0 }],
+    [
+      {
+        type: "diff",
+        path: "/repo/link/weather.html",
+        newText: page,
+        _meta: { acpmux: { canonicalPath: "/repo/real/weather.html" } },
+      },
+    ],
+    "codex-canonical",
+  );
+
+  expect(toolArtifacts(recorded)).toEqual([{ kind: "html", lang: "html", code: page, path: "/repo/real/weather.html" }]);
+});
+
+test("untrusted or partial add provenance never opens a document", () => {
+  const cases: Array<{ changes: unknown[]; content: unknown[] }> = [
+    {
+      changes: [{ path: "/repo/weather.html", type: "add" }],
+      content: [{ type: "diff", path: "/repo/weather.html", newText: page }],
+    },
+    {
+      changes: [{ path: "/repo/weather.html", type: "update", additions: 1, deletions: 1 }],
+      content: [{ type: "diff", path: "/repo/weather.html", newText: page }],
+    },
+    {
+      changes: [{ path: "/repo/other.html", type: "add", additions: 1, deletions: 0 }],
+      content: [{ type: "diff", path: "/repo/weather.html", newText: page }],
+    },
+    {
+      changes: [{ path: "/repo/weather.html", type: "add", additions: 1, deletions: 0 }],
+      content: [{ type: "diff", path: "/repo/weather.html", oldText: "old", newText: page }],
+    },
+    {
+      changes: [{ path: "/repo/weather.html", type: "add", additions: 1, deletions: 0 }],
+      content: [
+        {
+          type: "diff",
+          path: "/repo/weather.html",
+          newText: page,
+          _meta: { acpmux: { fragment: true } },
+        },
+      ],
+    },
+  ];
+
+  for (const [index, { changes, content }] of cases.entries()) {
+    const recorded = normalizedCodex(changes as CodexChange[], content, `codex-malformed-${index}`);
+    expect(toolArtifacts(recorded)).toEqual([]);
+  }
 });
 
 test("empty bodies, unrelated files, malformed inputs and shell commands are not documents", () => {
