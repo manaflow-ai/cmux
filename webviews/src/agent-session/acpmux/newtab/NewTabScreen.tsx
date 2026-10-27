@@ -90,6 +90,7 @@ import { usePasteAnywhere } from "../composer/pasteAnywhere";
 import { SlashMenu } from "../SlashMenu";
 import { applyCommand, matchCommands, slashQuery, type SlashCommand } from "../slashCommands";
 import { useHarnessesListed } from "../catalog";
+import { openHarnessesPage } from "../harnesses/harnessesPage";
 import { NewTabExtras } from "./NewTabExtras";
 import type { SuggestionOrder } from "./suggestionOrder";
 
@@ -787,9 +788,19 @@ export function NewTabScreen(props: Props) {
     if (row && keeps) return activate(row);
     const prompt = text.trim();
     // Pasted or dropped attachments alone are a prompt, as in a chat's composer.
-    if (attachments.length === 0 && (!prompt || isAddress(prompt, home))) return;
-    // No agent to ask: the composer's chip says Add harness (ComposerPickers), so Return adds no note.
-    if (!harness) return;
+    if (attachments.length === 0 && (!prompt || isAddress(prompt, home))) {
+      // A fresh install has no harness to ask yet. Return on the empty composer should take the
+      // person to the same setup surface as the visible Add harness chip instead of silently doing
+      // nothing; addresses still follow their normal New Tab path above.
+      if (!prompt && !harness) openHarnessesPage();
+      return;
+    }
+    // No agent to ask: the composer's chip says Add harness (ComposerPickers). Keep the draft in
+    // place while the Harnesses page opens, so a successful setup can continue from this intent.
+    if (!harness) {
+      openHarnessesPage();
+      return;
+    }
     askChat(harness, prompt, project, chipModel);
   };
   submitNow.current = submit;
@@ -805,7 +816,12 @@ export function NewTabScreen(props: Props) {
   // behind: the chat starts empty).
   const startChat = () => {
     touch();
-    if (!harness) return;
+    // The empty New chat action is another first-run entry point. It must open setup when no
+    // harness is installed, rather than leaving the person on an inert page.
+    if (!harness) {
+      openHarnessesPage();
+      return;
+    }
     if (created.current) return;
     created.current = true;
     const prompt = shell ? "" : text.trim();

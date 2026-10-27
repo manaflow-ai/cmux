@@ -4,6 +4,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import { noChat } from "../../../gallery/fixtures/acpmux";
 import { NewTabScreen } from "./NewTabScreen";
+import { registerHarnessesPage } from "../harnesses/harnessesPage";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -79,6 +80,68 @@ test("New Tab exposes the chat composer attachment menu", async () => {
   expect(add).toBeTruthy();
   await act(async () => add!.click());
   expect(container.querySelector('.acpmux-newtab-plus [data-value="attach"]')).toBeTruthy();
+});
+
+test("an empty New chat action opens harness setup when no harness is installed", async () => {
+  let opened = 0;
+  const unregister = registerHarnessesPage(() => {
+    opened += 1;
+  });
+  try {
+    await act(async () => {
+      root!.render(
+        <NewTabScreen
+          snapshot={noChat([], { catalog: [] })}
+          onAsk={() => {}}
+          onOpen={() => {}}
+          onSearch={() => {}}
+          onShell={() => {}}
+          onJump={() => {}}
+          onOpenSession={() => {}}
+          onShowAll={() => {}}
+        />,
+      );
+    });
+
+    const create = container.querySelector<HTMLButtonElement>('[data-create="chat"]');
+    expect(create).toBeTruthy();
+    await act(async () => create!.click());
+    expect(opened).toBe(1);
+  } finally {
+    unregister();
+  }
+});
+
+test("a fresh New Tab exposes the no-project path in its environment card", async () => {
+  let browsed = 0;
+  await act(async () => {
+    root!.render(
+      <NewTabScreen
+        snapshot={noChat()}
+        onAsk={() => {}}
+        onOpen={() => {}}
+        onSearch={() => {}}
+        onShell={() => {}}
+        onJump={() => {}}
+        onOpenSession={() => {}}
+        onShowAll={() => {}}
+        onBrowseProject={async () => {
+          browsed += 1;
+          return undefined;
+        }}
+      />,
+    );
+  });
+
+  const browse = container.querySelector<HTMLButtonElement>('[data-action="browse-project"]');
+  expect(browse).toBeTruthy();
+  await act(async () => browse!.click());
+  expect(browsed).toBe(1);
+
+  const noProject = container.querySelector<HTMLButtonElement>('.nt-env .nt-stage-row[aria-pressed="false"]');
+  expect(noProject).toBeTruthy();
+  await act(async () => noProject!.click());
+  expect(container.querySelector('.nt-env .nt-stage-row[aria-pressed="true"]')).toBeTruthy();
 });
 
 test("a chosen document uses the New Tab upload path and becomes sendable", async () => {
