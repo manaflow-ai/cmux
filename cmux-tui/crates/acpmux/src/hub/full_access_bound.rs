@@ -1368,9 +1368,8 @@ mod tests {
         let (hub, parent, child) = approve_all_parent().await;
         let dir = std::env::temp_dir().join(format!("hbf-pdf-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).unwrap();
-        // A file where the attachment folder goes.
-        std::fs::write(dir.join(".cmux"), "").unwrap();
+        // A file where the agent's folder goes, so its attachment folder cannot be made.
+        std::fs::write(&dir, "").unwrap();
         child.meta.lock().unwrap().cwd = dir.clone();
         let pdf = vec![json!({"type": "document", "name": "a.pdf", "data": "JVBERi0="})];
         let sent = hub.send_family_prompt(&parent, &child, pdf, None, false, false, None, None);
@@ -1380,7 +1379,7 @@ mod tests {
         let started = std::time::Instant::now();
         tokio::time::timeout(WAIT, push_off(&hub)).await.expect("the push returns").unwrap();
         let took = started.elapsed();
-        let _ = std::fs::remove_dir_all(&dir);
+        let _ = std::fs::remove_file(&dir);
         assert!(
             took < std::time::Duration::from_millis(500),
             "an off push waited {took:?} on a prompt that failed before its write"
