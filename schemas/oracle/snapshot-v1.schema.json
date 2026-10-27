@@ -148,7 +148,8 @@
               "invariants",
               "switches",
               "cli",
-              "mcp"
+              "mcp",
+              "tui"
             ]
           }
         }
@@ -3708,6 +3709,44 @@
               "x-oracle-source": {"method": "mcp", "path": "/mcp/error"},
               "type": "string",
               "pattern": "^[a-z][a-z_]*(\\.[a-z][a-z_]*)+$"
+            }
+          }
+        },
+        "tui": {
+          "description": "The cmux-tui frontend of a case that requires tui, attached on a PTY the driver owns, read after the settle barrier: the grid size, the sha256 of the text the screen shows (the case's session name and state root written as the fixture's; colors are not hashed, and private text is never recorded), the cursor, and the frontend's exit code once it has exited.",
+          "x-oracle-source": {
+            "method": "tui",
+            "path": "/tui",
+            "task": "p15-oracle-234",
+            "from": "the PTY output of `cmux-tui attach`, kept as a character grid by driver_tui.py (VM: the run SHA's cmux-tui)"
+          },
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["cols", "rows", "screenSha256", "cursor", "exit"],
+          "properties": {
+            "cols": {"x-oracle-source": {"method": "tui", "path": "/tui/cols"}, "type": "integer", "minimum": 1},
+            "rows": {"x-oracle-source": {"method": "tui", "path": "/tui/rows"}, "type": "integer", "minimum": 1},
+            "screenSha256": {
+              "description": "sha256 of the screen rows, trailing blanks dropped, joined by newlines",
+              "x-oracle-source": {"method": "tui", "path": "/tui/screenSha256"},
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            },
+            "cursor": {
+              "x-oracle-source": {"method": "tui", "path": "/tui/cursor"},
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["row", "col", "visible"],
+              "properties": {
+                "row": {"x-oracle-source": {"method": "tui", "path": "/tui/cursor/row"}, "type": "integer", "minimum": 0},
+                "col": {"x-oracle-source": {"method": "tui", "path": "/tui/cursor/col"}, "type": "integer", "minimum": 0},
+                "visible": {"x-oracle-source": {"method": "tui", "path": "/tui/cursor/visible"}, "type": "boolean"}
+              }
+            },
+            "exit": {
+              "description": "the frontend's exit code once it has exited (a detach), null while it runs",
+              "x-oracle-source": {"method": "tui", "path": "/tui/exit"},
+              "type": ["integer", "null"]
             }
           }
         }
