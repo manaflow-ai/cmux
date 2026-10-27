@@ -134,6 +134,12 @@ public final class HostBrowserSignInFlow {
         return makeSignInURL(state)
     }
 
+    /// Whether the live attempt waits on a default-browser tab, which
+    /// ``beginSignIn(selectAccount:)`` reuses instead of replacing.
+    public var hasHandedOffAttempt: Bool {
+        activeAttemptID != nil && handedOffAttemptID == activeAttemptID
+    }
+
     /// Sign-in URL for the active attempt's default-browser fallback.
     public var activeAttemptSignInURL: URL? {
         guard let activeCallbackState else { return nil }

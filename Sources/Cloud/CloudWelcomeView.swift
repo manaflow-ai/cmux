@@ -25,7 +25,7 @@ enum CloudWelcomeNextStep: Equatable {
         hasCloudTeamAccess: Bool = false
     ) -> CloudWelcomeNextStep {
         // Signed out reads like Free: Upgrade to Pro, which signs the app in
-        // before pricing opens (CloudWelcomeWindowController.upgrade).
+        // before pricing opens (ProUpgradePresenter.present).
         guard isAuthenticated else { return .upgrade }
         guard isPlanKnown else { return .openCloud }
         return isPro || hasCloudTeamAccess ? .enable : .upgrade

@@ -53,13 +53,52 @@ enum ProUpgradePresenter {
     ///   - analytics: The emitter. Tests pass their own.
     ///   - open: Opens pricing. Tests pass a no-op.
     @MainActor
+    static func present(source: ProUpgradeSource, analytics: ProductAnalytics = .app) {
+        present(source: source, analytics: analytics, account: appAccount) { presentAppPricingWeb(source: $0) }
+    }
+
+    /// ``present(source:analytics:)`` with the account and opener injected.
+    ///
+    /// - Parameters:
+    ///   - account: The app's account. Signed out, it signs in before `open` runs.
+    ///   - open: Opens pricing. Tests pass a no-op.
+    @MainActor
     static func present(
         source: ProUpgradeSource,
-        analytics: ProductAnalytics = .app,
-        open: @MainActor (ProUpgradeSource) -> Void = { presentAppPricingWeb(source: $0) }
+        analytics: ProductAnalytics,
+        account: (any UpgradeAccount)?,
+        open: @escaping @MainActor (ProUpgradeSource) -> Void
     ) {
         analytics.track(.upgradeOpened(source, destination: .pricingPage))
-        open(source)
+        afterSignIn(account) { open(source) }
+    }
+
+    /// The app's account, or nil before auth is composed.
+    @MainActor
+    static var appAccount: (any UpgradeAccount)? {
+        AppDelegate.shared?.auth?.accountFlow
+    }
+
+    /// Pricing and checkout are for the app's own account, so a signed-out app
+    /// signs in first. Checkout runs in the default browser and the pricing
+    /// page's own sign-in is web-only: either one let a person buy a plan while
+    /// the app stayed signed out. A cancelled or failed sign-in opens nothing.
+    @MainActor
+    private static func afterSignIn(_ account: (any UpgradeAccount)?, _ action: @escaping @MainActor () -> Void) {
+        guard let account, !account.isAuthenticated else {
+            action()
+            return
+        }
+        Task { @MainActor in await openAfterSignIn(account: account, open: action) }
+    }
+
+    /// The signed-out half of ``afterSignIn(_:_:)``, awaitable for tests.
+    @MainActor
+    static func openAfterSignIn(account: any UpgradeAccount, open: @MainActor () -> Void) async {
+        if !account.isAuthenticated {
+            guard await account.signInBeforeUpgrade() else { return }
+        }
+        open()
     }
 
     /// Hover hook for upgrade entrypoints: loads the pricing page into a
@@ -69,6 +108,9 @@ enum ProUpgradePresenter {
     @MainActor
     static func prefetch(source: ProUpgradeSource) {
         guard BrowserAvailabilitySettings.isEnabled() else { return }
+        // Signed out, Upgrade signs in before pricing opens, and the server
+        // sends a signed-out pricing page to sign-in. Nothing to warm.
+        guard appAccount?.isAuthenticated != false else { return }
         // When an upgrade workspace already exists, present() refocuses it and
         // navigates its existing panel, so a prewarmed webview would go unused.
         if let workspaceId = workspaceReuseState.workspaceId,
@@ -111,7 +153,8 @@ enum ProUpgradePresenter {
         analytics: ProductAnalytics = .app
     ) {
         analytics.track(.upgradeOpened(source, plan: plan, destination: .checkout))
-        NSWorkspace.shared.open(checkoutURL(source: source, plan: plan))
+        let url = checkoutURL(source: source, plan: plan)
+        afterSignIn(appAccount) { NSWorkspace.shared.open(url) }
     }
 
     /// The checkout URL a surface opens: the billing origin's checkout route,
@@ -183,6 +226,16 @@ enum ProUpgradePresenter {
         CheckoutAttribution.applying(to: decoratedAppWebURL(AuthEnvironment.appPricingURL), source: source)
     }
 }
+
+/// The account step every upgrade path takes before pricing or checkout.
+@MainActor
+protocol UpgradeAccount: AnyObject {
+    var isAuthenticated: Bool { get }
+    /// Signs the app in and returns whether it ended signed in.
+    func signInBeforeUpgrade() async -> Bool
+}
+
+extension HostAccountFlow: UpgradeAccount {}
 
 struct ProUpgradeWorkspaceReuseState {
     private(set) var workspaceId: UUID?

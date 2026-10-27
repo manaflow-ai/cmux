@@ -181,6 +181,19 @@ final class HostAccountFlow: AccountFlow, AccountSignInFlow {
         browserSignIn.beginSignIn()
     }
 
+    /// Upgrade's sign-in: the Settings button's attempt, awaited. An attempt
+    /// already handed to the default browser is reused, not replaced, so its
+    /// callback still signs the app in.
+    func signInBeforeUpgrade() async -> Bool {
+        if isAuthenticated { return true }
+        noteSignInStarted()
+        let resumesBrowserAttempt = browserSignIn.hasHandedOffAttempt
+        let attempt = browserSignIn.beginSignIn()
+        // Its browser tab may be closed by now; show the sign-in page again.
+        if resumesBrowserAttempt { openSignInInDefaultBrowser() }
+        return await attempt.value
+    }
+
     func startSignInForPane() -> URL? {
         noteSignInStarted()
         browserSignIn.beginSignIn()

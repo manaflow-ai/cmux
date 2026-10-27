@@ -9,6 +9,8 @@ struct ProBadgeActions {
 
     var analytics: ProductAnalytics = .app
     var openPricing: @MainActor (ProUpgradeSource) -> Void = { ProUpgradePresenter.presentAppPricingWeb(source: $0) }
+    /// The account that signs in before pricing opens. Tests pass nil.
+    var account: @MainActor () -> (any UpgradeAccount)? = { ProUpgradePresenter.appAccount }
 
     /// The badge is on screen.
     func appeared() {
@@ -17,7 +19,7 @@ struct ProBadgeActions {
 
     /// The badge was clicked: records the click with its source and opens pricing.
     func upgrade() {
-        ProUpgradePresenter.present(source: Self.source, analytics: analytics, open: openPricing)
+        ProUpgradePresenter.present(source: Self.source, analytics: analytics, account: account(), open: openPricing)
     }
 
     /// The badge's X hid it.

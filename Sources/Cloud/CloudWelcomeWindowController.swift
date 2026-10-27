@@ -371,17 +371,8 @@ final class CloudWelcomeWindowController: NSObject, NSWindowDelegate {
             _ = app?.focusRightSidebarInActiveMainWindow(mode: .machines)
             app?.auth?.accountFlow.startSignIn()
         case .upgrade:
-            guard let account = app?.auth?.accountFlow else {
-                ProUpgradePresenter.present(source: .cloudWelcome)
-                return
-            }
-            Task { @MainActor in
-                await Self.upgrade(
-                    isAuthenticated: account.isAuthenticated,
-                    signIn: { await account.signIn(timeout: Self.signInTimeout) },
-                    presentPricing: { ProUpgradePresenter.present(source: .cloudWelcome) }
-                )
-            }
+            // Signed out, this signs the app in before pricing opens.
+            ProUpgradePresenter.present(source: .cloudWelcome)
         case .enable:
             _ = app?.focusRightSidebarInActiveMainWindow(mode: .machines)
             guard let activation = app?.cloudActivationCoordinator else { return }
@@ -392,23 +383,6 @@ final class CloudWelcomeWindowController: NSObject, NSWindowDelegate {
         case .openCloud:
             _ = app?.focusRightSidebarInActiveMainWindow(mode: .machines)
         }
-    }
-
-    /// How long Upgrade waits for the sign-in it starts.
-    static let signInTimeout: TimeInterval = 10 * 60
-
-    /// Upgrade signs the app in first, then opens pricing for that account. The
-    /// pricing page's own sign-in is web-only: a plan bought through it left the
-    /// app signed out. A cancelled or failed sign-in opens nothing.
-    static func upgrade(
-        isAuthenticated: Bool,
-        signIn: @MainActor () async -> Bool,
-        presentPricing: @MainActor () -> Void
-    ) async {
-        if !isAuthenticated {
-            guard await signIn() else { return }
-        }
-        presentPricing()
     }
 
     /// Continues the Cloud action that opened the card once activation has
