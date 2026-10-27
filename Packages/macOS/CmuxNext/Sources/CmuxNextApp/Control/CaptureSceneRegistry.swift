@@ -338,6 +338,7 @@ extension CaptureSceneRegistry {
                 result["error"] = .string("auto-name agent web view was not composited")
                 return .object(result)
             }
+            await cleanup()
             return .object(result)
         } catch {
             return await failure("auto-name scene failed: \(error)")
