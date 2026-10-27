@@ -130,7 +130,9 @@ pub fn admit_within(
         if n == 0 {
             return Ok(Admission::Refused("left before hello".into()));
         }
-        deframer.extend(&buf[..n]);
+        deframer.extend(
+            buf.get(..n).ok_or_else(|| std::io::Error::other("read counted past its buffer"))?,
+        );
     };
     let hello = if kind == STREAM_CONTROL {
         serde_json::from_slice::<Control>(&payload).ok()

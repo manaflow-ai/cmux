@@ -27,13 +27,16 @@ impl Token {
     /// Parses 64 hex characters (surrounding whitespace allowed).
     pub fn from_hex(text: &str) -> Result<Self, String> {
         let text = text.trim();
-        if text.len() != TOKEN_LEN * 2 || !text.is_ascii() {
+        if text.len() != TOKEN_LEN * 2 || !text.bytes().all(|b| b.is_ascii_hexdigit()) {
             return Err("token must be 64 hex characters".into());
         }
         let mut out = [0u8; TOKEN_LEN];
-        for (i, byte) in out.iter_mut().enumerate() {
-            *byte = u8::from_str_radix(&text[2 * i..2 * i + 2], 16)
-                .map_err(|_| "token must be hex".to_string())?;
+        let (pairs, _) = text.as_bytes().as_chunks::<2>();
+        for (byte, pair) in out.iter_mut().zip(pairs) {
+            *byte = std::str::from_utf8(pair)
+                .ok()
+                .and_then(|pair| u8::from_str_radix(pair, 16).ok())
+                .ok_or_else(|| "token must be hex".to_string())?;
         }
         Ok(Self(out))
     }
@@ -80,5 +83,23 @@ impl Token {
             diff |= a ^ b;
         }
         std::hint::black_box(diff) == 0
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn from_hex_reads_64_hex_characters_and_refuses_the_rest() {
+        let hex = "00ff10".to_string() + &"a".repeat(58);
+        let token = Token::from_hex(&format!("  {hex}\n")).expect("valid token");
+        assert_eq!(token.0[..4], [0x00, 0xff, 0x10, 0xaa]);
+        assert!(Token::from_hex(&"a".repeat(63)).is_err());
+        assert!(Token::from_hex(&"g".repeat(64)).is_err());
+        // A sign is not a hex digit, though `u8::from_str_radix` takes a leading `+`.
+        assert!(Token::from_hex(&("+1".to_string() + &"0".repeat(62))).is_err());
+        // 64 bytes that are not 64 ASCII characters.
+        assert!(Token::from_hex(&("é".to_string() + &"0".repeat(62))).is_err());
     }
 }

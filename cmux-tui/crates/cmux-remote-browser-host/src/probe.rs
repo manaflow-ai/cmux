@@ -24,6 +24,7 @@ use cmux_rd_proto::{
     DatagramHeader, DatagramKind, InputEvent, InputPacket, SERVICE_REMOTE_BROWSER, STREAM_CONTROL,
     STREAM_DATAGRAM, encode_stream_frame, flags,
 };
+use serde_json::Value;
 
 /// Probe settings.
 #[derive(Debug, Clone, Copy)]
@@ -100,7 +101,7 @@ impl Default for Plan {
 /// What the probe measured.
 #[derive(Debug, Default, Clone)]
 pub struct Report {
-    pub controls: Vec<serde_json::Value>,
+    pub controls: Vec<Value>,
     pub frames: u64,
     pub keyframes: u64,
     pub bytes: u64,
@@ -216,10 +217,7 @@ fn after_pickers(plan: &Plan) -> Phase {
 }
 
 /// Every rb message `t` in `controls`.
-fn rb_messages<'a>(
-    controls: &'a [serde_json::Value],
-    t: &'a str,
-) -> impl Iterator<Item = &'a serde_json::Value> + 'a {
+fn rb_messages<'a>(controls: &'a [Value], t: &'a str) -> impl Iterator<Item = &'a Value> + 'a {
     controls.iter().map(|c| &c["body"]).filter(move |b| b["t"] == t)
 }
 
@@ -267,7 +265,7 @@ fn right_click(down: bool) -> Vec<u8> {
 }
 
 /// An rb message to the host (rd service control).
-fn service(body: serde_json::Value) -> Vec<u8> {
+fn service(body: Value) -> Vec<u8> {
     let control = Control::Service { service: SERVICE_REMOTE_BROWSER.into(), body };
     let mut out = Vec::new();
     let json = serde_json::to_vec(&control).unwrap_or_default();
@@ -276,7 +274,7 @@ fn service(body: serde_json::Value) -> Vec<u8> {
 }
 
 /// The body of the first rb message `t` in `controls`.
-fn rb_message<'a>(controls: &'a [serde_json::Value], t: &str) -> Option<&'a serde_json::Value> {
+fn rb_message<'a>(controls: &'a [Value], t: &str) -> Option<&'a Value> {
     controls.iter().map(|c| &c["body"]).find(|b| b["t"] == t)
 }
 
@@ -302,7 +300,7 @@ pub fn hello_control_with(token: Option<&str>) -> Control {
 
 /// True when the host's welcome in `controls` grants service input (the
 /// Mac client sends no input otherwise).
-pub fn input_granted(controls: &[serde_json::Value]) -> bool {
+pub fn input_granted(controls: &[Value]) -> bool {
     controls.iter().any(|c| {
         c["t"] == "welcome"
             && c["caps"].as_array().is_some_and(|caps| caps.iter().any(|cap| cap == INPUT_SERVICE))
@@ -346,7 +344,9 @@ fn probe(
     std::thread::spawn(move || {
         let mut buf = vec![0u8; 64 * 1024];
         while let Ok(n) = reader.read(&mut buf) {
-            if n == 0 || tx.send(buf[..n].to_vec()).is_err() {
+            // A count past the buffer ends the reader like EOF; the probe then sees the host closed.
+            let Some(read) = buf.get(..n).filter(|read| !read.is_empty()) else { return };
+            if tx.send(read.to_vec()).is_err() {
                 return;
             }
         }
@@ -368,11 +368,15 @@ fn probe(
         core.tick(now());
         while let Some(m) = core.pop_message() {
             if m.kind == STREAM_CONTROL {
-                if let Ok(v) = serde_json::from_slice::<serde_json::Value>(&m.bytes) {
+                if let Ok(v) = serde_json::from_slice::<Value>(&m.bytes) {
                     // A surface's frames follow its show on the same carrier.
-                    let body = &v["body"];
-                    let stream = body["stream"].as_u64().and_then(|s| u16::try_from(s).ok());
-                    if let (true, Some(stream)) = (body["t"] == "rb.surface.show", stream) {
+                    let stream = v
+                        .pointer("/body/stream")
+                        .and_then(Value::as_u64)
+                        .and_then(|s| u16::try_from(s).ok());
+                    let shows =
+                        v.pointer("/body/t").and_then(Value::as_str) == Some("rb.surface.show");
+                    if let (true, Some(stream)) = (shows, stream) {
                         let _ = core.open_stream(stream);
                     }
                     r.controls.push(v);
@@ -448,7 +452,8 @@ fn probe(
             }
             Phase::Menu { until } => match rb_message(&r.controls, "rb.menu.show") {
                 Some(show) => {
-                    r.menu_items = show["menu"]["items"].as_array().map(Vec::len);
+                    r.menu_items =
+                        show.pointer("/menu/items").and_then(Value::as_array).map(Vec::len);
                     let answer = serde_json::json!({"t": "rb.menu.result",
                         "token": show["token"], "choice": {"choice": "cancel"}});
                     sock.write_all(&service(answer)).map_err(|e| e.to_string())?;
@@ -467,7 +472,8 @@ fn probe(
             },
             Phase::Dialog { until } => match rb_message(&r.controls, "rb.dialog.show") {
                 Some(show) => {
-                    r.dialog_kind = show["dialog"]["kind"].as_str().map(str::to_string);
+                    r.dialog_kind =
+                        show.pointer("/dialog/kind").and_then(Value::as_str).map(str::to_string);
                     let answer = serde_json::json!({"t": "rb.dialog.result",
                         "token": show["token"], "accept": true, "text": null});
                     sock.write_all(&service(answer)).map_err(|e| e.to_string())?;
@@ -489,29 +495,35 @@ fn probe(
                 }
             },
             Phase::PickerOpen { index, shows, until } => {
-                let name = PICKERS[index].0;
+                // PickerStart opened only a listed picker.
+                let Some(&(name, _, (fx, fy))) = PICKERS.get(index) else {
+                    return Err(format!("picker {index} is not in the picker table"));
+                };
                 match rb_messages(&r.controls, "rb.surface.show").nth(shows).cloned() {
                     None if at >= until => {
                         return Err(format!("picker {name}: no rb.surface.show"));
                     }
                     None => Phase::PickerOpen { index, shows, until },
                     Some(show) => {
-                        let stream = show["stream"].as_u64().and_then(|s| u16::try_from(s).ok());
+                        let number = |key: &str| show.get(key).and_then(Value::as_u64);
+                        let stream = number("stream").and_then(|s| u16::try_from(s).ok());
                         let frames =
                             stream.and_then(|s| r.popup_frames.get(&s)).copied().unwrap_or(0);
-                        let surface = show["surface"].as_u64().unwrap_or(0);
+                        let surface = number("surface").unwrap_or(0);
                         if let Some(p) = r.pickers.get_mut(index) {
                             p.surface = Some(surface);
                             p.stream = stream;
-                            p.width = show["width"].as_u64();
-                            p.height = show["height"].as_u64();
+                            p.width = number("width");
+                            p.height = number("height");
                             p.frames = frames;
                         }
                         if frames > 0 {
                             // Answer it: a click inside the surface (its DIP).
-                            let (fx, fy) = PICKERS[index].2;
-                            let w = show["anchor"]["width"].as_f64().unwrap_or(100.0);
-                            let h = show["anchor"]["height"].as_f64().unwrap_or(100.0);
+                            let anchor = |key: &str| {
+                                show.get("anchor").and_then(|a| a.get(key)).and_then(Value::as_f64)
+                            };
+                            let w = anchor("width").unwrap_or(100.0);
+                            let h = anchor("height").unwrap_or(100.0);
                             for down in [true, false] {
                                 let bytes = click(surface, w * fx, h * fy, down);
                                 input.push(InputEvent::Service { must_deliver: true, bytes });

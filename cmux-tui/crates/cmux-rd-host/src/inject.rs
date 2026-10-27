@@ -25,7 +25,7 @@ pub struct Injector {
 impl Injector {
     pub fn new(display: &str) -> Res<Self> {
         let (conn, screen_num) = x11rb::connect(Some(display))?;
-        let root = conn.setup().roots[screen_num].root;
+        let root = conn.setup().roots.get(screen_num).ok_or(crate::capture::NO_SCREEN)?.root;
         conn.xtest_get_version(2, 2)?.reply()?;
         Ok(Self { conn, root, keys: BTreeSet::new(), buttons: BTreeSet::new(), unsupported: 0 })
     }

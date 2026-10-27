@@ -7,65 +7,59 @@
 use crate::args::Opts;
 use crate::clock::{now_ns, Rng};
 use crate::encoder::{self, EncCfg};
+use crate::marker;
 use crate::Res;
 use cmux_encode::I420;
 use serde_json::json;
 
 fn draw_text(pic: &mut I420, offset: usize, seed: u64) {
+    // `run` checked the width (at least 640), so every row is one whole chunk.
     let w = pic.width;
-    let h = pic.y.len() / w;
-    for row in 0..h {
+    for (row, pixels) in pic.y.chunks_exact_mut(w).enumerate() {
         let line = (row + offset) / 16;
         let in_glyph = (row + offset) % 16 < 12;
         let mut rng = Rng::new(seed ^ (line as u64).wrapping_mul(0x9e37_79b9));
-        let base = row * w;
-        let mut col = 0;
-        while col < w {
+        for glyph_cell in pixels.chunks_mut(8) {
             let glyph = in_glyph && rng.range(0, 10) < 7;
-            let v = if glyph { 30 } else { 230 };
-            let end = (col + 8).min(w);
-            pic.y[base + col..base + end].fill(v);
-            col = end;
+            glyph_cell.fill(if glyph { 30 } else { 230 });
         }
     }
     pic.u.fill(128);
     pic.v.fill(128);
 }
 
+/// The glass-to-glass marker (`marker::cells`) in luma: 20 cells of 32x32 at (0,0). `run`
+/// checked that the picture holds them (at least 640x64).
 fn draw_marker(pic: &mut I420, counter: u32) {
+    let cells = marker::cells(counter);
     let w = pic.width;
-    for cell in 0..20usize {
-        let bit = if cell < 16 { (counter >> cell) & 1 == 1 } else { cell % 2 == 0 };
-        let v = if bit { 235 } else { 16 };
-        for row in 0..32 {
-            let start = row * w + cell * 32;
-            pic.y[start..start + 32].fill(v);
+    for pixels in pic.y.chunks_exact_mut(w).take(marker::CELL as usize) {
+        for (span, &white) in pixels.chunks_mut(marker::CELL as usize).zip(&cells) {
+            span.fill(if white { 235 } else { 16 });
         }
     }
 }
 
 /// NAL unit types in an Annex-B access unit.
 fn nal_types(au: &[u8]) -> Vec<u8> {
-    let mut out = Vec::new();
-    let mut i = 0;
-    while i + 3 < au.len() {
-        if au[i] == 0 && au[i + 1] == 0 && au[i + 2] == 1 {
-            out.push(au[i + 3] & 0x1f);
-            i += 3;
-        } else {
-            i += 1;
-        }
-    }
-    out
+    // No start code begins inside another one's first three bytes (00 00 01), so every
+    // window can be tested.
+    au.windows(4)
+        .filter_map(|window| match *window {
+            [0, 0, 1, header] => Some(header & 0x1f),
+            _ => None,
+        })
+        .collect()
 }
 
 fn pct(xs: &mut [f64]) -> serde_json::Value {
-    if xs.is_empty() {
-        return json!(null);
-    }
     xs.sort_by(f64::total_cmp);
-    let q = |p: f64| xs[((p / 100.0) * (xs.len() - 1) as f64).round() as usize];
-    json!({"n": xs.len(), "p50": q(50.0), "p95": q(95.0), "p99": q(99.0), "max": xs[xs.len() - 1]})
+    let Some(&max) = xs.last() else {
+        return json!(null);
+    };
+    let last = xs.len() - 1;
+    let q = |p: f64| xs.get(((p / 100.0) * last as f64).round() as usize).copied();
+    json!({"n": xs.len(), "p50": q(50.0), "p95": q(95.0), "p99": q(99.0), "max": max})
 }
 
 pub fn run(opts: &Opts) -> Res<()> {
@@ -142,4 +136,36 @@ pub fn run(opts: &Opts) -> Res<()> {
         return Err("encoder output failed the Annex-B structure check".into());
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn nal_types_reads_every_start_code() {
+        let au = [0, 0, 0, 1, 0x67, 9, 0, 0, 1, 0x68, 0, 0, 1, 0x65, 1, 2, 0, 0, 1];
+        assert_eq!(nal_types(&au), vec![7, 8, 5]);
+        assert!(nal_types(&[0, 0, 1]).is_empty());
+        assert!(nal_types(&[]).is_empty());
+    }
+
+    #[test]
+    fn the_marker_workload_draws_the_marker_cells() {
+        let mut pic = I420::new(640, 64);
+        draw_marker(&mut pic, 0b10);
+        let luma = |pic: &I420, x: usize, y: usize| pic.y[y * 640 + x];
+        assert_eq!((luma(&pic, 16, 16), luma(&pic, 48, 16), luma(&pic, 48, 31)), (16, 235, 235));
+        // Guard cells 16..19 are 1,0,1,0; the row under the marker is untouched.
+        assert_eq!((luma(&pic, 16 * 32, 0), luma(&pic, 17 * 32, 0)), (235, 16));
+        assert_eq!(luma(&pic, 48, 32), 16);
+        draw_text(&mut pic, 13, 7);
+        assert!(pic.y.iter().all(|&v| v == 30 || v == 230));
+    }
+
+    #[test]
+    fn pct_of_nothing_is_null() {
+        assert_eq!(pct(&mut []), json!(null));
+        assert_eq!(pct(&mut [3.0, 1.0, 2.0])["max"], json!(3.0));
+    }
 }

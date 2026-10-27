@@ -579,15 +579,11 @@ unsafe extern "C" fn on_text_input(
         Vec::new()
     } else {
         // SAFETY: the shim passes `rect_count` rects of four ints, valid for the call.
-        unsafe { std::slice::from_raw_parts(rects, count * 4) }
-            .chunks_exact(4)
-            .map(|r| [r[0], r[1], r[2], r[3]])
-            .collect()
+        unsafe { std::slice::from_raw_parts(rects, count * 4) }.as_chunks::<4>().0.to_vec()
     };
     let caret = (!caret.is_null()).then(|| {
         // SAFETY: a non-NULL caret is four ints, valid for the call.
-        let c = unsafe { std::slice::from_raw_parts(caret, 4) };
-        [c[0], c[1], c[2], c[3]]
+        unsafe { caret.cast::<[c_int; 4]>().read() }
     });
     let body = crate::file_policy::text_input(input_type, &rects, caret);
     dispatch(move |h| {
@@ -882,7 +878,10 @@ fn session(viewer: crate::launch::Admitted) -> std::io::Result<String> {
         }
         match stream.read(&mut buf) {
             Ok(0) => break "viewer left".to_string(),
-            Ok(n) => deframer.extend(&buf[..n]),
+            Ok(n) => match buf.get(..n) {
+                Some(read) => deframer.extend(read),
+                None => break "read counted past its buffer".to_string(),
+            },
             Err(e) => break format!("read: {e}"),
         }
     };

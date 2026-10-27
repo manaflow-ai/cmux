@@ -237,6 +237,10 @@ impl<'c, C: Connection> Painter<'c, C> {
     fn motion_frame(&mut self, counter: u32) -> Res<()> {
         let (w, h) = (self.w as usize, self.h as usize);
         let Some(m) = self.motion.as_mut() else { return Ok(()) };
+        // A zero-width screen has no pixels to draw.
+        if w == 0 {
+            return Ok(());
+        }
         m.frame = m.frame.wrapping_add(1);
         let t = m.frame as usize;
         let (dx, dy) = (t * 7, t * 3);
@@ -244,18 +248,21 @@ impl<'c, C: Connection> Painter<'c, C> {
         let col: Vec<u8> = (0..w).map(|x| (x * 255 / w) as u8).collect();
         {
             let buf = m.shm.as_mut_slice();
-            for y in 0..h {
-                let ny = ((y + dy) & 1023) * 1024;
+            // The noise texture is 1024x1024 and wraps: row y reads noise row (y + dy) mod 1024,
+            // pixel x reads column (x + dx) mod 1024.
+            let rows = m.noise.chunks_exact(1024);
+            let noise_rows = rows.clone().skip(dy & 1023).chain(rows.cycle());
+            for ((y, row), noise_row) in
+                buf.chunks_exact_mut(stride).take(h).enumerate().zip(noise_rows)
+            {
                 let gy = ((y * 255 / h) + t * 3) as u8;
-                let row = &mut buf[y * stride..(y + 1) * stride];
-                for (x, px) in row.chunks_exact_mut(4).enumerate() {
-                    let n = m.noise[ny + ((x + dx) & 1023)] >> 2;
-                    let r = col[x].wrapping_add((t * 2) as u8);
-                    let b = col[x].wrapping_add(gy).wrapping_sub(t as u8);
-                    px[0] = b.wrapping_add(n);
-                    px[1] = gy.wrapping_add(n);
-                    px[2] = r.wrapping_add(n);
-                    px[3] = 0;
+                let noise = noise_row.iter().skip(dx & 1023).chain(noise_row.iter().cycle());
+                let (pixels, _) = row.as_chunks_mut::<4>();
+                for ((px, &c), &n) in pixels.iter_mut().zip(&col).zip(noise) {
+                    let n = n >> 2;
+                    let r = c.wrapping_add((t * 2) as u8);
+                    let b = c.wrapping_add(gy).wrapping_sub(t as u8);
+                    *px = [b.wrapping_add(n), gy.wrapping_add(n), r.wrapping_add(n), 0];
                 }
             }
             marker::paint_bgrx(buf, stride, counter);

@@ -250,12 +250,15 @@ pub unsafe extern "C" fn cmux_rd_bulk_sender_cancel(
         with(sender, |s| {
             s.inner.cancel(transfer);
             s.queued.retain(|e| e.0 != transfer);
-            if s.pending.as_ref().is_some_and(|pending| {
-                pending.len() >= cmux_rd_proto::STREAM_PREFIX_LEN
-                    && pending[0] == STREAM_BULK
-                    && BulkFrame::decode(&pending[cmux_rd_proto::STREAM_PREFIX_LEN..])
-                        .is_ok_and(|frame| frame.transfer == transfer)
-            }) {
+            let pending_is_transfer = s.pending.as_deref().is_some_and(|pending| {
+                pending.split_at_checked(cmux_rd_proto::STREAM_PREFIX_LEN).is_some_and(
+                    |(prefix, body)| {
+                        prefix.first() == Some(&STREAM_BULK)
+                            && BulkFrame::decode(body).is_ok_and(|frame| frame.transfer == transfer)
+                    },
+                )
+            });
+            if pending_is_transfer {
                 s.pending = None;
             }
             CMUX_RD_OK
@@ -395,14 +398,19 @@ pub unsafe extern "C" fn cmux_rd_bulk_receiver_accept(
         if !r.open.contains(&frame.transfer) && r.open.len() >= CMUX_RD_BULK_MAX_TRANSFERS {
             return CMUX_RD_ERR_FULL;
         }
+        // The chunk points into the caller's payload, not the decoded copy:
+        // the frame's bytes are the payload's tail.
+        let Some(tail) = bytes.len().checked_sub(frame.bytes.len()).and_then(|at| bytes.get(at..))
+        else {
+            return CMUX_RD_ERR_INVALID;
+        };
         let Ok(accepted) = r.inner.accept(&frame) else { return CMUX_RD_ERR_INVALID };
         r.open.insert(frame.transfer);
-        let prefix = bytes.len() - frame.bytes.len();
         let chunk = CmuxRdBulkChunk {
             transfer: frame.transfer,
             offset: frame.offset,
-            bytes: bytes[prefix..].as_ptr(),
-            len: frame.bytes.len(),
+            bytes: tail.as_ptr(),
+            len: tail.len(),
         };
         // SAFETY: `out` is non-NULL and writable (checked above, contract).
         unsafe { *out = chunk };

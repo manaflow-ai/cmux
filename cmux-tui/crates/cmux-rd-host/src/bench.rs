@@ -71,12 +71,13 @@ struct Viewer {
 }
 
 fn pct(xs: &mut [f64]) -> serde_json::Value {
-    if xs.is_empty() {
-        return json!(null);
-    }
     xs.sort_by(f64::total_cmp);
-    let q = |p: f64| xs[((p / 100.0) * (xs.len() - 1) as f64).round() as usize];
-    json!({"n": xs.len(), "min": xs[0], "p50": q(50.0), "p95": q(95.0), "p99": q(99.0), "max": xs[xs.len() - 1]})
+    let (Some(&min), Some(&max)) = (xs.first(), xs.last()) else {
+        return json!(null);
+    };
+    let last = xs.len() - 1;
+    let q = |p: f64| xs.get(((p / 100.0) * last as f64).round() as usize).copied();
+    json!({"n": xs.len(), "min": min, "p50": q(50.0), "p95": q(95.0), "p99": q(99.0), "max": max})
 }
 
 impl Viewer {
@@ -128,9 +129,10 @@ impl Viewer {
                     let _ = self.send_datagram(&datagram);
                 }
             }
-            DatagramKind::InputAck if payload.len() >= 4 => {
-                self.sender
-                    .ack(u32::from_le_bytes([payload[0], payload[1], payload[2], payload[3]]));
+            DatagramKind::InputAck => {
+                if let Some(&seq) = payload.first_chunk::<4>() {
+                    self.sender.ack(u32::from_le_bytes(seq));
+                }
             }
             _ => {}
         }
@@ -178,7 +180,7 @@ impl Viewer {
             loop {
                 match sock.recv_from(&mut buf) {
                     Ok((n, _)) => {
-                        let d = buf[..n].to_vec();
+                        let d = buf.get(..n).ok_or("recv_from counted past its buffer")?.to_vec();
                         self.on_datagram(&d);
                     }
                     Err(e) if e.kind() == io::ErrorKind::WouldBlock => break,
@@ -481,7 +483,7 @@ pub fn run(opts: &Opts) -> Res<()> {
         Some(which) => {
             let report = run_upstream(&mut v, which, opts.num_or("upstream-frames", 100)?)?;
             println!("{}", json!({ "upstream": report }));
-            if report["all_acked"] != json!(true) {
+            if report.get("all_acked") != Some(&json!(true)) {
                 return Err(format!(
                     "upstream {which}: the host did not acknowledge every sent frame"
                 )

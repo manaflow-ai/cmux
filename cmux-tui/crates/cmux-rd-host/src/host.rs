@@ -111,7 +111,10 @@ pub fn run(opts: &Opts) -> Res<()> {
 /// Starts the cloud browser at the display's full size (read from the X server).
 fn start_browser(opts: &Opts, display: &str, url: &str) -> Res<crate::browser::BrowserSupervisor> {
     let (conn, screen_num) = x11rb::connect(Some(display))?;
-    let screen = &x11rb::connection::Connection::setup(&conn).roots[screen_num];
+    let screen = x11rb::connection::Connection::setup(&conn)
+        .roots
+        .get(screen_num)
+        .ok_or(crate::capture::NO_SCREEN)?;
     let (w, h) = (u32::from(screen.width_in_pixels), u32::from(screen.height_in_pixels));
     drop(conn);
     let program = opts.str_or("browser-bin", "google-chrome");

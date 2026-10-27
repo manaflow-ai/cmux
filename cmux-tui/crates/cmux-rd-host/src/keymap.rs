@@ -11,7 +11,7 @@ pub fn hid_to_evdev(usage: u32) -> Option<u16> {
         45, 21, 44,
     ];
     Some(match id {
-        0x04..=0x1d => LETTERS[(id - 0x04) as usize],
+        0x04..=0x1d => *LETTERS.get((id - 0x04) as usize)?,
         0x1e..=0x26 => (id - 0x1e + 2) as u16,
         0x27 => 11,
         0x28 => 28,

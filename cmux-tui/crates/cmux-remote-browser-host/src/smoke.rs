@@ -117,8 +117,8 @@ fn write_png(
     for y in 0..h {
         // SAFETY: the surface is locked and holds h rows of `stride` bytes.
         let row = unsafe { std::slice::from_raw_parts(base.add(y * stride), w * 4) };
-        for px in row.chunks_exact(4) {
-            rgba.extend_from_slice(&[px[2], px[1], px[0], 255]);
+        for &[b, g, r, _] in row.as_chunks::<4>().0 {
+            rgba.extend_from_slice(&[r, g, b, 255]);
         }
     }
     let file = std::fs::File::create(path).map_err(|e| e.to_string())?;

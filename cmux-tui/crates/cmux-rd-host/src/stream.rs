@@ -254,7 +254,10 @@ impl MediaSession {
                 }
                 match udp.recv_from(&mut buf) {
                     Ok((n, from)) if Some(from) == self.peer_udp => {
-                        let datagram = buf[..n].to_vec();
+                        let Some(datagram) = buf.get(..n) else {
+                            return "udp recv_from counted past its buffer".into();
+                        };
+                        let datagram = datagram.to_vec();
                         self.on_datagram(stream, &datagram, table, session, viewer);
                     }
                     Ok(_) => {}

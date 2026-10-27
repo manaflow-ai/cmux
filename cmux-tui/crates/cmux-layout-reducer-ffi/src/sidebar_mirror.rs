@@ -32,7 +32,7 @@ use cmux_layout_reducer::sidebar_doc::{
     view::{self, Row, ViewRequest},
 };
 use serde::Deserialize;
-use serde_json::{Value, json};
+use serde_json::{Map, Value, json};
 use std::collections::BTreeMap;
 
 struct Intent {
@@ -66,6 +66,12 @@ fn refusal(reason: &str) -> Value {
 
 fn error(message: impl std::fmt::Display) -> Value {
     json!({"error": message.to_string()})
+}
+
+/// A reply object built field by field, so adding `dropped` to it is a map
+/// insert and never an index into a value that might not be an object.
+fn reply<const N: usize>(fields: [(&str, Value); N]) -> Map<String, Value> {
+    fields.into_iter().map(|(name, value)| (name.to_owned(), value)).collect()
 }
 
 impl Mirror {
@@ -128,7 +134,8 @@ impl Mirror {
             Ok(batch) => batch,
             Err(e) => return error(e),
         };
-        let changes = batch["changes"].as_array().cloned().unwrap_or_default();
+        let changes: &[Value] =
+            batch.get("changes").and_then(Value::as_array).map_or(&[], Vec::as_slice);
         // The document revisions come from the `sidebar_doc` markers (a
         // session.events delta's own revisions are the session's): the
         // first marker's previous revision and the last marker's revision
@@ -158,25 +165,25 @@ impl Mirror {
         };
         // What the batch is: refused, not a sidebar batch, early, stale,
         // gapped, or rows to apply.
-        let verdict = if batch["rejected"] == true {
-            Some(json!({"ok": true}))
+        let verdict = if batch.get("rejected").and_then(Value::as_bool) == Some(true) {
+            Some(reply([("ok", Value::Bool(true))]))
         } else if let Some(revision) = revision {
             if !self.loaded {
-                Some(json!({"refetch": true}))
+                Some(reply([("refetch", Value::Bool(true))]))
             } else if revision <= self.confirmed.revision {
-                Some(json!({"ok": true, "stale": true}))
+                Some(reply([("ok", Value::Bool(true)), ("stale", Value::Bool(true))]))
             } else if previous.unwrap_or(revision - 1) != self.confirmed.revision {
-                Some(json!({"refetch": true}))
+                Some(reply([("refetch", Value::Bool(true))]))
             } else {
                 None
             }
         } else {
-            Some(json!({"ok": true, "ignored": true}))
+            Some(reply([("ok", Value::Bool(true)), ("ignored", Value::Bool(true))]))
         };
         let mut rows = Vec::new();
         let mut bad_row = None;
         if verdict.is_none() {
-            for change in &changes {
+            for change in changes {
                 let resource = change["resource"].as_str().unwrap_or_default();
                 let id = change["id"].as_str().unwrap_or_default().to_string();
                 let op = match (change["kind"].as_str().unwrap_or_default(), resource) {
@@ -184,7 +191,7 @@ impl Mirror {
                         match serde_json::from_value::<Item>(change["value"].clone()) {
                             Ok(item) => Op::ItemPut { item },
                             Err(e) => {
-                                bad_row = Some(error(e));
+                                bad_row = Some(reply([("error", Value::String(e.to_string()))]));
                                 break;
                             }
                         }
@@ -193,7 +200,7 @@ impl Mirror {
                         match serde_json::from_value::<Section>(change["value"].clone()) {
                             Ok(section) => Op::SectionPut { section },
                             Err(e) => {
-                                bad_row = Some(error(e));
+                                bad_row = Some(reply([("error", Value::String(e.to_string()))]));
                                 break;
                             }
                         }
@@ -212,16 +219,17 @@ impl Mirror {
             key.as_ref().is_some_and(|key| self.pending.iter().any(|intent| intent.key == *key));
         let applies = verdict.is_none() && bad_row.is_none();
         if !confirms && !applies {
-            let mut result = verdict.or(bad_row).unwrap_or_else(|| json!({"ok": true}));
-            result["dropped"] = json!(Vec::<String>::new());
-            return result;
+            let mut result =
+                verdict.or(bad_row).unwrap_or_else(|| reply([("ok", Value::Bool(true))]));
+            result.insert("dropped".to_owned(), json!(Vec::<String>::new()));
+            return Value::Object(result);
         }
         if !self.loaded {
             // Nothing is shown yet: drop the intent; `load` replays the rest.
             self.pending.retain(|intent| Some(&intent.key) != key.as_ref());
-            let mut result = verdict.unwrap_or_else(|| json!({"refetch": true}));
-            result["dropped"] = json!(key.into_iter().collect::<Vec<_>>());
-            return result;
+            let mut result = verdict.unwrap_or_else(|| reply([("refetch", Value::Bool(true))]));
+            result.insert("dropped".to_owned(), json!(key.into_iter().collect::<Vec<_>>()));
+            return Value::Object(result);
         }
         self.unwind();
         let mut dropped = Vec::new();
@@ -238,12 +246,15 @@ impl Mirror {
                 reduce::apply_rows(&mut self.shown, &rows);
                 self.confirmed.revision = revision;
                 self.shown.revision = revision;
-                json!({"ok": true, "revision": revision.to_string()})
+                reply([
+                    ("ok", Value::Bool(true)),
+                    ("revision", Value::String(revision.to_string())),
+                ])
             }
         };
         dropped.extend(self.replay());
-        result["dropped"] = json!(dropped);
-        result
+        result.insert("dropped".to_owned(), json!(dropped));
+        Value::Object(result)
     }
 
     pub fn apply_intent(&mut self, input: &[u8]) -> Value {
@@ -349,5 +360,57 @@ impl Mirror {
     pub fn apply_intent_typed(&mut self, input: &[u8]) -> *const CReply {
         let reply = self.apply_intent(input);
         self.out.reply(&reply)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn batch(mirror: &mut Mirror, batch: Value) -> Value {
+        mirror.apply_batch(batch.to_string().as_bytes())
+    }
+
+    #[test]
+    fn every_batch_reply_is_an_object_with_its_dropped_intents() {
+        let mut mirror = Mirror::new();
+        // Before the first load, a sidebar batch asks for a refetch.
+        assert_eq!(
+            batch(&mut mirror, json!({"revision": "2", "changes": []})),
+            json!({"refetch": true, "dropped": []})
+        );
+        assert_eq!(
+            batch(&mut mirror, json!({"idempotency_key": "k", "rejected": true})),
+            json!({"ok": true, "dropped": []})
+        );
+        assert_eq!(
+            batch(&mut mirror, json!({"changes": []})),
+            json!({"ok": true, "ignored": true, "dropped": []})
+        );
+        assert_eq!(
+            mirror.load(br#"{"revision": "1"}"#),
+            json!({"ok": true, "revision": "1", "dropped": []})
+        );
+        assert_eq!(
+            batch(&mut mirror, json!({"revision": 1, "changes": []})),
+            json!({"ok": true, "stale": true, "dropped": []})
+        );
+        assert_eq!(
+            batch(&mut mirror, json!({"revision": 5, "previous_revision": 3})),
+            json!({"refetch": true, "dropped": []})
+        );
+        // `changes` that is not an array is a batch with no rows.
+        assert_eq!(
+            batch(&mut mirror, json!({"revision": 2, "previous_revision": 1, "changes": 7})),
+            json!({"ok": true, "revision": "2", "dropped": []})
+        );
+        let bad = batch(
+            &mut mirror,
+            json!({"revision": 3, "previous_revision": 2, "changes": [
+                {"kind": "state_upsert", "resource": "sidebar_item", "id": "x", "value": {"bogus": 1}}
+            ]}),
+        );
+        assert!(bad.get("error").and_then(Value::as_str).is_some(), "{bad}");
+        assert_eq!(bad.get("dropped"), Some(&json!([])));
     }
 }

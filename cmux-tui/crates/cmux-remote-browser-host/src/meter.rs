@@ -55,7 +55,7 @@ impl Summary {
         v.sort_unstable();
         let at = |q: f64| {
             let last = v.len().checked_sub(1)?;
-            Some(ms(v[((q * last as f64).round() as usize).min(last)]))
+            v.get(((q * last as f64).round() as usize).min(last)).map(|&us| ms(us))
         };
         Self { n: v.len(), p50: at(0.5), p95: at(0.95), max: v.last().map(|&us| ms(us)) }
     }

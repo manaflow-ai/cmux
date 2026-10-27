@@ -24,7 +24,7 @@ pub fn run(opts: &Opts) -> Res<()> {
     }
 
     let (conn, screen_num) = x11rb::connect(Some(&display))?;
-    let screen = conn.setup().roots[screen_num].clone();
+    let screen = conn.setup().roots.get(screen_num).ok_or(crate::capture::NO_SCREEN)?.clone();
     let (w, h) = (screen.width_in_pixels, screen.height_in_pixels);
     let win = conn.generate_id()?;
     let aux = CreateWindowAux::new()

@@ -34,6 +34,9 @@ pub struct DamageEvent {
     pub rect: Rect,
 }
 
+/// `x11rb::connect` named a default screen its own setup does not list.
+pub const NO_SCREEN: &str = "the X server has no screen at the default screen number";
+
 pub struct Capturer {
     conn: RustConnection,
     root: Window,
@@ -46,7 +49,7 @@ impl Capturer {
     /// Opens a capture connection. With `damage`, subscribes to raw damage rectangles on the root.
     pub fn new(display: &str, damage: bool) -> Res<Self> {
         let (conn, screen_num) = x11rb::connect(Some(display))?;
-        let screen = conn.setup().roots[screen_num].clone();
+        let screen = conn.setup().roots.get(screen_num).ok_or(NO_SCREEN)?.clone();
         if screen.root_depth != 24 {
             return Err(
                 format!("root depth {} unsupported (need 24, 32 bpp)", screen.root_depth).into()
@@ -100,6 +103,10 @@ impl Capturer {
                 0,
             )?
             .reply()?;
-        Ok(&self.shm.as_slice()[..(r.w * r.h * 4) as usize])
+        let len = (r.w * r.h * 4) as usize;
+        self.shm
+            .as_slice()
+            .get(..len)
+            .ok_or_else(|| "capture rectangle larger than the shared memory segment".into())
     }
 }

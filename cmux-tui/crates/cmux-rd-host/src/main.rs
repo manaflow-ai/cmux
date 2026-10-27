@@ -49,13 +49,13 @@ pub type Res<T> = Result<T, Box<dyn std::error::Error + Send + Sync>>;
 
 fn main() {
     let argv: Vec<String> = std::env::args().collect();
-    let Some(cmd) = argv.get(1) else {
+    let Some((cmd, rest)) = argv.get(1..).and_then(<[String]>::split_first) else {
         eprintln!(
             "usage: cmux-rd host|bench|testapp|encode-selftest|openh264-install [--key value ...]"
         );
         std::process::exit(2);
     };
-    let opts = match args::Opts::parse(&argv[2..]) {
+    let opts = match args::Opts::parse(rest) {
         Ok(o) => o,
         Err(e) => {
             eprintln!("{e}");

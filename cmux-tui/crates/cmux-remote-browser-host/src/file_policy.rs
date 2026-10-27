@@ -66,13 +66,15 @@ impl FilePolicy {
 /// relative path, a NUL or a bad escape.
 pub fn file_path(url: &str) -> Option<PathBuf> {
     let url = url.trim();
-    if !url.get(..5).is_some_and(|s| s.eq_ignore_ascii_case("file:")) {
+    let (scheme, rest) = url.split_at_checked(5)?;
+    if !scheme.eq_ignore_ascii_case("file:") {
         return None;
     }
-    let rest = url[5..].split(['?', '#']).next().unwrap_or_default();
+    let rest = rest.split(['?', '#']).next().unwrap_or_default();
     let path = match rest.strip_prefix("//") {
         Some(after) => {
-            let (host, path) = after.find('/').map_or((after, ""), |i| (&after[..i], &after[i..]));
+            // An authority with no path names no file.
+            let (host, path) = after.split_at_checked(after.find('/')?)?;
             if !(host.is_empty() || host.eq_ignore_ascii_case("localhost")) {
                 return None;
             }
@@ -84,16 +86,13 @@ pub fn file_path(url: &str) -> Option<PathBuf> {
         return None;
     }
     let mut bytes = Vec::with_capacity(path.len());
-    let raw = path.as_bytes();
-    let mut i = 0;
-    while i < raw.len() {
-        if raw[i] == b'%' {
-            let hex = path.get(i + 1..i + 3)?;
-            bytes.push(u8::from_str_radix(hex, 16).ok()?);
-            i += 3;
+    let mut raw = path.bytes();
+    while let Some(byte) = raw.next() {
+        if byte == b'%' {
+            let hex = [raw.next()?, raw.next()?];
+            bytes.push(u8::from_str_radix(std::str::from_utf8(&hex).ok()?, 16).ok()?);
         } else {
-            bytes.push(raw[i]);
-            i += 1;
+            bytes.push(byte);
         }
     }
     if bytes.contains(&0) {
@@ -210,6 +209,29 @@ mod tests {
         let none = FilePolicy::parse(&serde_json::json!({"t": MESSAGE})).unwrap();
         assert!(!none.allows(&url(&shared.path().join("sub/page one.html"))));
         assert!(FilePolicy::parse(&serde_json::json!({"t": "rb.navigate"})).is_none());
+    }
+
+    #[test]
+    fn file_path_decodes_only_whole_local_file_urls() {
+        let path = |p: &str| Some(PathBuf::from(p));
+        assert_eq!(file_path("FILE:///a%20b?q#f"), path("/a b"));
+        assert_eq!(file_path("file://localhost/x"), path("/x"));
+        assert_eq!(file_path("file:/x"), path("/x"));
+        // Too short, an authority with no path, a relative path, cut or bad escapes.
+        for url in [
+            "file",
+            "file:",
+            "file://",
+            "file://localhost",
+            "file:x",
+            "file:/a%2",
+            "file:/a%zz",
+            "file:/é%",
+        ] {
+            assert_eq!(file_path(url), None, "{url}");
+        }
+        // A multibyte character where the scheme would end.
+        assert_eq!(file_path("filé:/x"), None);
     }
 
     #[test]

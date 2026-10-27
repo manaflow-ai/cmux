@@ -25,7 +25,7 @@ impl FrameReader {
         while self.buf.len() <= MAX_FRAME + 5 {
             match s.read(&mut chunk) {
                 Ok(0) => return Err(io::Error::new(io::ErrorKind::UnexpectedEof, "peer closed")),
-                Ok(n) => self.buf.extend_from_slice(&chunk[..n]),
+                Ok(n) => self.buf.extend_from_slice(chunk.get(..n).ok_or_else(past_buffer)?),
                 Err(e) if e.kind() == io::ErrorKind::WouldBlock => return Ok(()),
                 Err(e) if e.kind() == io::ErrorKind::Interrupted => continue,
                 Err(e) => return Err(e),
@@ -42,21 +42,25 @@ impl FrameReader {
     }
 
     pub fn next(&mut self) -> io::Result<Option<(u8, Vec<u8>)>> {
-        if self.buf.len() < 5 {
+        let Some((&[ty, l0, l1, l2, l3], rest)) = self.buf.split_first_chunk::<5>() else {
             return Ok(None);
-        }
-        let len = u32::from_le_bytes([self.buf[1], self.buf[2], self.buf[3], self.buf[4]]) as usize;
+        };
+        let len = u32::from_le_bytes([l0, l1, l2, l3]) as usize;
         if len > MAX_FRAME {
             return Err(io::Error::new(io::ErrorKind::InvalidData, "frame too large"));
         }
-        if self.buf.len() < 5 + len {
+        let Some(payload) = rest.get(..len) else {
             return Ok(None);
-        }
-        let ty = self.buf[0];
-        let payload = self.buf[5..5 + len].to_vec();
+        };
+        let payload = payload.to_vec();
         self.buf.drain(..5 + len);
         Ok(Some((ty, payload)))
     }
+}
+
+/// A `read` or `write` that reports more bytes than the buffer it was given.
+fn past_buffer() -> io::Error {
+    io::Error::other("I/O count past the end of its buffer")
 }
 
 pub fn write_frame(s: &mut TcpStream, ty: u8, payload: &[u8]) -> io::Result<()> {
@@ -84,7 +88,7 @@ fn write_all_nb(s: &mut TcpStream, mut bytes: &[u8]) -> io::Result<()> {
         }
         match s.write(bytes) {
             Ok(0) => return Err(io::Error::new(io::ErrorKind::WriteZero, "closed")),
-            Ok(n) => bytes = &bytes[n..],
+            Ok(n) => bytes = bytes.get(n..).ok_or_else(past_buffer)?,
             Err(e) if e.kind() == io::ErrorKind::WouldBlock => {
                 let mut pfd = libc::pollfd {
                     fd: std::os::fd::AsRawFd::as_raw_fd(s),
@@ -188,6 +192,21 @@ mod tests {
         let client = TcpStream::connect(listener.local_addr().expect("addr")).expect("connect");
         let (server, _) = listener.accept().expect("accept");
         (client, server)
+    }
+
+    #[test]
+    fn next_waits_for_a_whole_frame_and_refuses_a_huge_one() {
+        let mut reader = FrameReader { buf: GOLDEN[..3].to_vec() };
+        assert_eq!(reader.next().expect("short header"), None);
+        reader.buf = GOLDEN[..10].to_vec();
+        assert_eq!(reader.next().expect("short payload"), None);
+        reader.buf = GOLDEN.to_vec();
+        assert_eq!(reader.next().expect("control").map(|f| f.0), Some(FRAME_CONTROL));
+        assert_eq!(reader.next().expect("datagram"), Some((FRAME_DATAGRAM, vec![7, 7, 7])));
+        assert!(reader.buf.is_empty());
+        let huge = u32::try_from(MAX_FRAME + 1).expect("frame cap fits u32").to_le_bytes();
+        reader.buf = [&[FRAME_DATAGRAM][..], &huge].concat();
+        assert!(reader.next().is_err());
     }
 
     #[test]
