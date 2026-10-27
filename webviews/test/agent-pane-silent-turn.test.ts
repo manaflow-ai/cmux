@@ -224,10 +224,13 @@ test("a newer summary start replaces a previous live turn before its start event
     expect(daemon.calls.filter((method) => method === "_acpmux/handoff_prepare")).toHaveLength(0);
     daemon.push(record([["mux", "turn_started", { turnId: "t2" }]], 31));
     expect(snapshot.turnStartedAtMs).toBe(START + 31_000);
+    await client.cancel();
+    expect((client as any).stopAfterSeq).toBe(31);
     // Replaying a terminal event for the old turn must not stop the newer live turn.
     daemon.push(record([["mux", "turn_result", { turnId: "t1", status: "completed" }]], 32));
     expect(snapshot.turnStartedAtMs).toBe(START + 31_000);
     expect(client.turnRunning()).toBe(true);
+    expect((client as any).stopAfterSeq).toBe(31);
     daemon.push(record([["mux", "turn_result", { turnId: "t2", status: "completed" }]], 33));
     await until(() => snapshot.isWorking === false, "the turn result");
     expect(snapshot.turnStartedAtMs).toBeUndefined();

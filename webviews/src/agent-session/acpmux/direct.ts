@@ -4203,38 +4203,42 @@ export class AcpmuxDirectClient {
           this.waitingSteers = this.waitingSteers.filter((waiting) => waiting.rowId !== rowId);
         }
       } else if (event.kind === "turn_end" || event.kind === "turn_result") {
-        if (this.endsObservedTurn(event, msg)) {
+        const endsCurrentTurn = this.endsObservedTurn(event, msg);
+        if (endsCurrentTurn) {
           this.turnOpen = false;
           this.turnStartedAtMs = undefined;
           this.observedTurnStartedAtMs = undefined;
           this.observedTurnId = undefined;
           this.turnEndedAtMs = event.at;
         }
-        this.silentTurn = false;
-        this.turnTokens = undefined;
-        this.settleCompactions(event.seq, event.kind === "turn_result" && msg.cancelForced === true);
-        this.landSteer();
-        // Stop was answered: its grace must not judge the next turn.
-        this.stopAnswered(event);
-        this.pendingPermission = undefined;
-        this.waitingPermissions.clear();
-        this.groupedPermissions.clear();
-        this.openQuestions.clear();
-        this.heldEdits.clear();
-        // A new row, never an in-place change: emitted snapshots share row objects, and the
-        // transcript's memo compares the drawn row's version with the next one.
-        this.endAssistantSegment();
-        this.rows.delete("typing");
+        if (endsCurrentTurn) {
+          this.silentTurn = false;
+          this.turnTokens = undefined;
+          this.settleCompactions(event.seq, event.kind === "turn_result" && msg.cancelForced === true);
+          this.landSteer();
+          // Stop was answered: its grace must not judge the next turn.
+          this.stopAnswered(event);
+          this.pendingPermission = undefined;
+          this.waitingPermissions.clear();
+          this.groupedPermissions.clear();
+          this.openQuestions.clear();
+          this.heldEdits.clear();
+          // A new row, never an in-place change: emitted snapshots share row objects, and the
+          // transcript's memo compares the drawn row's version with the next one.
+          this.endAssistantSegment();
+          this.rows.delete("typing");
+        }
         const checkpoint = event.kind === "turn_result" ? readSummaryCheckpoint(msg) : undefined;
         const status = String(msg.status ?? "completed");
         // A turn a prompt sent now cancelled goes on under that prompt; one that ended first did not.
         // Whatever ended it (acpmux's cancel, or the agent's end_turn), but not a failure, which shows.
-        const continued = event.kind === "turn_result" && status !== "failed" && this.interrupting !== undefined;
+        const continued =
+          endsCurrentTurn && event.kind === "turn_result" && status !== "failed" && this.interrupting !== undefined;
         if (continued) {
           this.continuations.set(this.interrupting!, `summary-${event.seq}`);
           this.awaiting = this.interrupting;
         }
-        if (event.kind === "turn_result") this.interrupting = undefined;
+        if (endsCurrentTurn && event.kind === "turn_result") this.interrupting = undefined;
         if ((event.kind === "turn_end" || event.kind === "turn_result") && typeof msg.turnId === "string")
           this.endedTurns.add(msg.turnId);
         if (event.kind === "turn_result")
@@ -4262,9 +4266,11 @@ export class AcpmuxDirectClient {
             kind: "notice",
             text: translate("stop.forced"),
           });
-        this.streamingAssistant = undefined;
-        this.streamingAssistantMessageId = undefined;
-        this.streamingActivity = undefined;
+        if (endsCurrentTurn) {
+          this.streamingAssistant = undefined;
+          this.streamingAssistantMessageId = undefined;
+          this.streamingActivity = undefined;
+        }
       } else if (!reduceAgentPair(this.rows, event)) this.reduceLiveState(event);
       return;
     }
