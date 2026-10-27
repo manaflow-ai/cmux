@@ -37,6 +37,10 @@ struct LinkSlot {
     /// when its link is published, as the CLOSEs do. Changed only under
     /// [`HolderService::trace_control`].
     trace: Option<TraceStart>,
+    /// The mux's child reaper, which reaps a holder this daemon starts
+    /// ([`HolderService::use_reaper`]); weak, so a dropped mux's reaper
+    /// stops.
+    reaper: Option<Weak<cmux_threads::reaper::Reaper>>,
 }
 
 /// The holder link's hang tier: a frame its reader thread routes (a
@@ -144,6 +148,12 @@ impl HolderService {
         });
         services.insert(host_root.to_path_buf(), service.clone());
         Ok(service)
+    }
+
+    /// Reap every holder this service starts from now on with `reaper` (the
+    /// mux's, `Mux::reaper`), not with a wait thread of its own.
+    pub(crate) fn use_reaper(&self, reaper: &Arc<cmux_threads::reaper::Reaper>) {
+        self.link.lock().recover_poison().reaper = Some(Arc::downgrade(reaper));
     }
 
     /// Whether a holder of `host_root` may run: its socket exists. Asking
@@ -602,7 +612,8 @@ impl HolderService {
     /// Hand a just-started holder its token and wait for its `ready`. A
     /// holder that answers anything else, or nothing in time, is killed and
     /// reaped; one that is ready is reaped whenever it exits while this
-    /// daemon runs.
+    /// daemon runs: by the mux's reaper ([`Self::use_reaper`]), else by a
+    /// `holder-reaper` thread.
     fn handshake(&self, mut child: cmux_process::Child) -> io::Result<()> {
         match first_line(&mut child, &self.token) {
             Ok(line) if line.trim() == "ready" => {}
@@ -617,9 +628,22 @@ impl HolderService {
                 });
             }
         }
-        let _ = std::thread::Builder::new().name("holder-reaper".into()).spawn(move || {
-            let _ = child.wait();
-        });
+        let reaper = self.link.lock().recover_poison().reaper.as_ref().and_then(Weak::upgrade);
+        let unwatched = match reaper {
+            // The holder is a child of this process: the reaper reaps it.
+            Some(reaper) => reaper.watch(child.id(), Box::new(drop)).err().map(|u| u.into_error()),
+            None => Some(io::Error::other("no child reaper")),
+        };
+        if let Some(error) = unwatched {
+            eprintln!("cmux-tui: the terminal holder's exit has its own wait thread ({error})");
+            let _ = cmux_threads::spawn(
+                "holder-reaper",
+                cmux_threads::qos::ThreadQos::Utility,
+                move || {
+                    let _ = child.wait();
+                },
+            );
+        }
         Ok(())
     }
 }
@@ -868,5 +892,53 @@ pub(crate) mod tests {
         drop(service);
         drop(second);
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// p02-threads-237: a holder the daemon starts is reaped by the mux's
+    /// one child reaper once it exits, with no `holder-reaper` thread.
+    #[test]
+    fn a_ready_holder_is_reaped_by_the_mux_reaper_with_no_thread_of_its_own() {
+        let work = cmux_threads::work::Work::new(cmux_threads::work::WorkConfig {
+            label: "hrpw".to_owned(),
+            ..cmux_threads::work::WorkConfig::default()
+        })
+        .unwrap();
+        let reaper = Arc::new(cmux_threads::reaper::Reaper::new("hrp", Arc::new(work)).unwrap());
+        let service = stand_in_service(PathBuf::from("/nonexistent/holder-reaper.sock"));
+        service.use_reaper(&reaper);
+        // A stand-in holder: reads its token, says `ready`, then runs on.
+        let child = cmux_process::Command::new("/bin/sh")
+            .args(["-c", "read _; echo ready; exec sleep 30"])
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .spawn()
+            .unwrap();
+        let pid = libc::pid_t::try_from(child.id()).unwrap();
+        service.handshake(child).expect("the holder is ready");
+        let holder_reapers =
+            cmux_threads::snapshot().iter().filter(|thread| thread.name == "holder-reaper").count();
+        assert_eq!(holder_reapers, 0, "the holder got a wait thread of its own");
+        assert_eq!(reaper.stats().watching, 1, "the mux reaper does not watch the holder");
+
+        // SAFETY: kill(2) takes no pointers; `pid` is an unreaped child.
+        assert_eq!(unsafe { libc::kill(pid, libc::SIGKILL) }, 0);
+        // The reaper's work item reaps it: then no wait sees the pid (ECHILD).
+        // The test only looks (WNOWAIT), so it never reaps the holder itself.
+        let deadline = std::time::Instant::now() + Duration::from_secs(20);
+        let (_never, tick) = std::sync::mpsc::channel::<()>();
+        loop {
+            // SAFETY: a zeroed siginfo_t is valid output storage.
+            let mut info: libc::siginfo_t = unsafe { std::mem::zeroed() };
+            let flags = libc::WEXITED | libc::WNOHANG | libc::WNOWAIT;
+            // SAFETY: waitid writes one siginfo_t, returns at once, reaps nothing.
+            if unsafe { libc::waitid(libc::P_PID, pid as libc::id_t, &mut info, flags) } < 0 {
+                assert_eq!(io::Error::last_os_error().raw_os_error(), Some(libc::ECHILD));
+                break;
+            }
+            assert!(std::time::Instant::now() < deadline, "the holder was never reaped");
+            let _ = tick.recv_timeout(Duration::from_millis(10));
+        }
+        assert_eq!(reaper.stats().exits, 1);
     }
 }

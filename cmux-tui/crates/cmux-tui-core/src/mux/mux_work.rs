@@ -37,6 +37,16 @@ impl MuxWork {
 }
 
 impl Mux {
+    /// What reaps the terminal hosts this mux launches: its one child reaper
+    /// (`Mux::reaper`). Windows has none: a committed host is detached.
+    #[cfg(any(unix, windows))]
+    pub(crate) fn host_reaper(&self) -> Option<&crate::terminal_host_runtime::HostReaper> {
+        #[cfg(unix)]
+        return Some(&*self.reaper);
+        #[cfg(windows)]
+        return None;
+    }
+
     /// Queues `body` on `Mux::work` with the mux's weak reference. The body
     /// upgrades it only for the moment it touches the mux, never across a
     /// wait, so an item that waits never keeps a dropped mux alive and never
