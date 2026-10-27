@@ -170,9 +170,15 @@ async fn a_request_task_that_ends_normally_skips_its_end() {
 #[tokio::test]
 async fn a_call_that_panics_is_fatal_and_its_caller_returns() {
     let (supervisor, sink) = Recorded::supervisor();
-    let called = call(&supervisor, "test.call", Fatal, ShutdownBehavior::Skip, async {
-        panic!("injected");
-    });
+    let called = call(
+        &supervisor,
+        "test.call",
+        Fatal,
+        ShutdownBehavior::Skip,
+        Box::pin(async {
+            panic!("injected");
+        }),
+    );
     let returned = tokio::time::timeout(Duration::from_secs(5), called).await;
     assert!(matches!(returned, Ok(Ok(()))), "the caller's wait ends");
     let report = sink.first().await;
@@ -184,9 +190,15 @@ async fn a_call_that_panics_is_fatal_and_its_caller_returns() {
 async fn a_call_returns_once_its_work_ends() {
     let (supervisor, sink) = Recorded::supervisor();
     let (done_tx, mut done) = tokio::sync::oneshot::channel();
-    let called = call(&supervisor, "test.call-ok", Fatal, ShutdownBehavior::Skip, async move {
-        let _ = done_tx.send(());
-    });
+    let called = call(
+        &supervisor,
+        "test.call-ok",
+        Fatal,
+        ShutdownBehavior::Skip,
+        Box::pin(async move {
+            let _ = done_tx.send(());
+        }),
+    );
     assert!(matches!(tokio::time::timeout(Duration::from_secs(5), called).await, Ok(Ok(()))));
     assert!(done.try_recv().is_ok(), "the work ran before the call returned");
     assert!(sink.reports().is_empty());
@@ -197,12 +209,17 @@ async fn a_dropped_call_stops_its_work() {
     let (supervisor, sink) = Recorded::supervisor();
     let (held_tx, mut held) = tokio::sync::mpsc::channel::<()>(1);
     let (started_tx, started) = tokio::sync::oneshot::channel();
-    let called =
-        call(&supervisor, "test.call-dropped", Fatal, ShutdownBehavior::Skip, async move {
+    let called = call(
+        &supervisor,
+        "test.call-dropped",
+        Fatal,
+        ShutdownBehavior::Skip,
+        Box::pin(async move {
             let _held = held_tx;
             let _ = started_tx.send(());
             std::future::pending::<()>().await;
-        });
+        }),
+    );
     // The caller gives up once the work runs (a deadline would do the same).
     let raced = tokio::select! {
         _ = called => false,
@@ -219,7 +236,9 @@ async fn a_dropped_call_stops_its_work() {
 async fn a_call_after_shutdown_is_refused() {
     let (supervisor, sink) = Recorded::supervisor();
     assert!(supervisor.shutdown().late.is_empty());
-    let called = call(&supervisor, "test.call-late", Fatal, ShutdownBehavior::Skip, async {}).await;
+    let called =
+        call(&supervisor, "test.call-late", Fatal, ShutdownBehavior::Skip, Box::pin(async {}))
+            .await;
     assert!(matches!(called, Err(SuperviseError::ShuttingDown)), "{called:?}");
     assert!(sink.reports().is_empty());
 }

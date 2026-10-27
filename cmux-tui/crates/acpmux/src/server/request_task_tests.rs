@@ -22,10 +22,17 @@ async fn a_request_that_panics_holding_the_hubs_sessions_is_fatal() {
     let hub = Hub::in_memory(supervisor);
     let (conn, mut answers) = conn();
     let handler = hub.clone();
-    start(hub.supervisor(), &conn, json!(1), "test/panic", None, async move {
-        handler.panic_holding_sessions();
-        Ok::<_, RpcError>(Value::Null)
-    });
+    start(
+        hub.supervisor(),
+        &conn,
+        json!(1),
+        "test/panic",
+        None,
+        Box::pin(async move {
+            handler.panic_holding_sessions();
+            Ok::<_, RpcError>(Value::Null)
+        }),
+    );
     let report = sink.first().await;
     assert_eq!(report.worker, REQUEST_WORKER);
     assert!(report.to_string().contains("injected"), "{report}");
@@ -39,9 +46,14 @@ async fn a_request_answers_on_its_connection() {
     let (supervisor, sink) = Recorded::supervisor();
     let hub = Hub::in_memory(supervisor);
     let (conn, mut answers) = conn();
-    start(hub.supervisor(), &conn, json!(7), "test/ok", None, async {
-        Ok::<_, RpcError>(json!({"done": true}))
-    });
+    start(
+        hub.supervisor(),
+        &conn,
+        json!(7),
+        "test/ok",
+        None,
+        Box::pin(async { Ok::<_, RpcError>(json!({"done": true})) }),
+    );
     let line = tokio::time::timeout(Duration::from_secs(5), answers.recv())
         .await
         .expect("answered within 5 s")
@@ -59,9 +71,14 @@ async fn a_request_after_shutdown_is_refused_at_once() {
     let report = hub.supervisor().shutdown();
     assert!(report.late.is_empty(), "{report:?}");
     let (conn, mut answers) = conn();
-    start(hub.supervisor(), &conn, json!(3), "test/late", None, async {
-        Ok::<_, RpcError>(Value::Null)
-    });
+    start(
+        hub.supervisor(),
+        &conn,
+        json!(3),
+        "test/late",
+        None,
+        Box::pin(async { Ok::<_, RpcError>(Value::Null) }),
+    );
     let line = answers.try_recv().expect("refused at once");
     let answer: Value = serde_json::from_str(&line).expect("json");
     assert_eq!(answer["id"], 3);

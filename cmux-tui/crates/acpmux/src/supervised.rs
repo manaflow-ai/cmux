@@ -87,18 +87,16 @@ pub fn task_boxed(
 /// it has ended (returned, unwound, or stopped): its caller waits as for an
 /// inline call, while a panic in `work` reaches the supervisor under `name`.
 /// Dropping the returned future first stops `work`, as dropping it inline
-/// would have (with [`ShutdownBehavior::Skip`], at its next await).
-pub async fn call<F>(
+/// would have (with [`ShutdownBehavior::Skip`], at its next await). `work` comes
+/// boxed, as to [`task_boxed`]: the daemon's connection and request futures are
+/// large, and the caller's stack then holds only a pointer to each.
+pub async fn call(
     supervisor: &Supervisor,
     name: &str,
     policy: Fatal,
     shutdown: ShutdownBehavior,
-    work: F,
-) -> Result<(), SuperviseError>
-where
-    F: Future<Output = ()> + Send + 'static,
-{
-    let work: BoxFuture<'static, ()> = Box::pin(work);
+    work: BoxFuture<'static, ()>,
+) -> Result<(), SuperviseError> {
     let (ended_tx, ended) = tokio::sync::oneshot::channel::<()>();
     let handle = supervisor.supervise_task(name, policy, shutdown, move |_stop| async move {
         // Dropped when `work` returns or unwinds, which ends the caller's wait.

@@ -8,7 +8,6 @@
 //! before the request starts, and a malformed line gets its parse error there.
 //! Shutdown: Skip, as the hub's other tasks.
 
-use std::future::Future;
 use std::sync::Arc;
 
 use cmux_panic_log::crash_keys::{self, Key};
@@ -36,23 +35,25 @@ pub(super) fn spawn(
 ) {
     let route = {
         let (hub, conn, method) = (hub.clone(), conn.clone(), method.clone());
-        async move { chats::route(&hub, &conn, &method, params.unwrap_or(Value::Null)).await }
+        Box::pin(
+            async move { chats::route(&hub, &conn, &method, params.unwrap_or(Value::Null)).await },
+        )
     };
     start(hub.supervisor(), conn, id, &method, slot, route);
 }
 
 /// Runs `route`, request `id`'s handler, under `supervisor` and sends its answer on
 /// `conn`. A start the supervisor refuses (its shutdown began) answers at once.
-fn start<R>(
+/// `route` comes boxed: the handlers' futures are large, and each wrapper below
+/// then moves only a pointer.
+fn start(
     supervisor: &Supervisor,
     conn: &Arc<Conn>,
     id: Id,
     method: &str,
     slot: Option<tokio::sync::OwnedSemaphorePermit>,
-    route: R,
-) where
-    R: Future<Output = Result<Value, RpcError>> + Send + 'static,
-{
+    route: BoxFuture<'static, Result<Value, RpcError>>,
+) {
     // From the dispatch to the reply queued, on every path out of the task.
     let slice = RequestSlice::begin(&conn.id, &id, method);
     // A panic in the request names its method (cmux-panic-log crash keys): set on

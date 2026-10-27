@@ -36,7 +36,7 @@ pub(super) async fn serve_connection_from(
     device: Option<String>,
 ) {
     let supervisor = hub.supervisor().clone();
-    let serve = serve_connection_body(hub, inbound, out, origin, auth, peer, device);
+    let serve = Box::pin(serve_connection_body(hub, inbound, out, origin, auth, peer, device));
     let served = crate::supervised::call(
         &supervisor,
         CONNECTION_WORKER,
@@ -61,7 +61,8 @@ pub(super) fn notification_handler(
         let supervisor = hub.supervisor().clone();
         let (hub, conn) = (hub.clone(), conn.clone());
         Box::pin(async move {
-            let handle = async move { handle_notification(&hub, &conn, &method, params).await };
+            let handle =
+                Box::pin(async move { handle_notification(&hub, &conn, &method, params).await });
             let handled = crate::supervised::call(
                 &supervisor,
                 NOTIFICATION_WORKER,
