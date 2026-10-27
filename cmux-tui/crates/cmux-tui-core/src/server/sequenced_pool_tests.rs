@@ -1,9 +1,10 @@
 //! The sequenced pool (p05-ipc-073): per-sequence FIFO with no overlap,
-//! independent sequences, blocking compensation, fences, caps, no idle
-//! wakeups and a thread count independent of the number of sequences;
-//! delayed tasks (p05-ipc-079).
+//! independent sequences, blocking compensation from the blocking sites,
+//! fences, caps, worker start failures, no idle wakeups and a thread count
+//! independent of the number of sequences; delayed tasks (p05-ipc-079).
 
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::io::Write;
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -11,6 +12,7 @@ use std::time::{Duration, Instant};
 use proptest::prelude::*;
 
 use super::*;
+use crate::request_path::{note, will_block};
 
 const WAIT: Duration = Duration::from_secs(5);
 
@@ -139,8 +141,9 @@ fn a_task_that_waits_unannounced_holds_its_worker() {
     ran_rx.recv_timeout(WAIT).expect("it runs once the worker is free");
 }
 
-/// A task inside `will_block` starts one temporary worker for the ready
-/// sequence; once it leaves, the pool goes back to its fixed workers.
+/// A task inside `request_path::will_block` starts one temporary worker for
+/// the ready sequence; once it leaves, the pool goes back to its fixed
+/// workers.
 #[test]
 fn will_block_starts_a_temporary_worker() {
     let pool = pool(PoolConfig::for_cores(8).with_workers(SequencePriority::Input, 1));
@@ -171,6 +174,180 @@ fn will_block_starts_a_temporary_worker() {
 #[test]
 fn will_block_off_a_worker_runs_the_closure() {
     assert_eq!(will_block(|| 7), 7);
+}
+
+/// A task that notes a request-path blocking kind (here `network`, a
+/// loopback connect) is blocked until it ends: a temporary worker runs the
+/// ready sequence meanwhile, and exits after.
+#[test]
+fn a_noted_blocking_kind_starts_a_temporary_worker() {
+    let pool = pool(PoolConfig::for_cores(8).with_workers(SequencePriority::Input, 1));
+    let first = pool.sequence(SequencePriority::Input);
+    let second = pool.sequence(SequencePriority::Input);
+    let (release_tx, release_rx) = mpsc::channel::<()>();
+    let (blocked_tx, blocked_rx) = mpsc::channel();
+    first
+        .post(move || {
+            note(BlockingKind::Network);
+            blocked_tx.send(()).unwrap();
+            let _ = release_rx.recv();
+        })
+        .unwrap();
+    blocked_rx.recv_timeout(WAIT).unwrap();
+    let (ran_tx, ran_rx) = mpsc::channel();
+    second.post(move || ran_tx.send(()).unwrap()).unwrap();
+    ran_rx.recv_timeout(WAIT).expect("a temporary worker runs it while the first waits");
+    release_tx.send(()).unwrap();
+    eventually("the temporary worker exits", || {
+        pool.worker_count(SequencePriority::Input) == 1 && first.is_idle()
+    });
+    // The block ended with its task: the next unannounced wait holds the
+    // one worker again.
+    let (release_tx, release_rx) = mpsc::channel::<()>();
+    let (blocked_tx, blocked_rx) = mpsc::channel();
+    first
+        .post(move || {
+            blocked_tx.send(()).unwrap();
+            let _ = release_rx.recv();
+        })
+        .unwrap();
+    blocked_rx.recv_timeout(WAIT).unwrap();
+    let (ran_tx, ran_rx) = mpsc::channel();
+    second.post(move || ran_tx.send(()).unwrap()).unwrap();
+    assert!(ran_rx.recv_timeout(Duration::from_millis(100)).is_err(), "no block is left over");
+    release_tx.send(()).unwrap();
+    ran_rx.recv_timeout(WAIT).unwrap();
+}
+
+/// A PTY input writer that waits, as a write to a child that does not read
+/// its input waits for POLLOUT: it says it entered, then waits for release.
+struct StalledInput {
+    entered: mpsc::Sender<()>,
+    release: Arc<(Mutex<bool>, Condvar)>,
+}
+
+impl Write for StalledInput {
+    fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+        let _ = self.entered.send(());
+        let (released, changed) = &*self.release;
+        let mut released = released.lock().unwrap();
+        while !*released {
+            released = changed.wait(released).unwrap();
+        }
+        Ok(bytes.len())
+    }
+    fn flush(&mut self) -> io::Result<()> {
+        Ok(())
+    }
+}
+
+/// With a priority at its fewest workers, `send`-class tasks blocked in a
+/// real PTY input write on more sequences than there are workers neither
+/// stop each other nor delay a ping on another sequence (2 ms): the write
+/// site itself tells the pool it blocks. Control and input alike (stream
+/// items post at input).
+#[test]
+fn blocked_pty_writes_at_the_fewest_workers_delay_no_other_sequence() {
+    cmux_threads::blocking::set_mode(cmux_threads::BlockingMode::Record);
+    let mux =
+        crate::Mux::new_for_test("sequenced-pool-pty-writes", crate::SurfaceOptions::default());
+    for priority in [SequencePriority::Control, SequencePriority::Input] {
+        let pool = pool(PoolConfig::for_cores(2));
+        let fewest = pool.config().workers(priority);
+        assert_eq!(fewest, 2, "{priority:?} is at its fewest workers");
+        let release = Arc::new((Mutex::new(false), Condvar::new()));
+        let (entered_tx, entered_rx) = mpsc::channel();
+        let senders: Vec<Sequence> = (0..fewest + 2).map(|_| pool.sequence(priority)).collect();
+        for sender in &senders {
+            let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
+            surface.replace_input_writer_for_test(Box::new(StalledInput {
+                entered: entered_tx.clone(),
+                release: release.clone(),
+            }));
+            sender.post(move || surface.write_bytes(b"x").unwrap()).unwrap();
+        }
+        for _ in &senders {
+            entered_rx.recv_timeout(WAIT).expect("every send reaches its PTY write");
+        }
+        let ping = pool.sequence(priority);
+        let (ran_tx, ran_rx) = mpsc::channel();
+        let mut waits = Vec::new();
+        for _ in 0..21 {
+            let ran = ran_tx.clone();
+            let posted = Instant::now();
+            ping.post(move || ran.send(Instant::now()).unwrap()).unwrap();
+            let started = ran_rx.recv_timeout(WAIT).expect("the ping runs while the sends wait");
+            waits.push(started.saturating_duration_since(posted));
+        }
+        assert!(senders.iter().all(|sender| !sender.is_idle()), "the sends still wait");
+        let (released, changed) = &*release;
+        *released.lock().unwrap() = true;
+        changed.notify_all();
+        let waited = median(waits);
+        assert!(waited < Duration::from_millis(2), "{priority:?} ping waited {waited:?}");
+        eventually("the sends end", || senders.iter().all(Sequence::is_idle));
+    }
+}
+
+/// A spawner whose first `allowed` starts succeed and every later one fails.
+fn spawner_allowing(allowed: usize) -> WorkerSpawner {
+    let started = AtomicUsize::new(0);
+    let default = WorkerSpawner::default();
+    WorkerSpawner::new(move |name, qos, body| {
+        if started.fetch_add(1, Ordering::AcqRel) >= allowed {
+            return Err(io::Error::other("thread limit reached"));
+        }
+        (default.0)(name, qos, body)
+    })
+}
+
+/// A priority whose first worker cannot start refuses the post: the task is
+/// taken back (dropped unrun) and the sequence is idle, so its owner answers
+/// with an error instead of waiting for a task nothing runs.
+#[test]
+fn a_post_no_worker_can_run_is_refused() {
+    let pool = SequencedPool::with_spawner(PoolConfig::for_cores(4), spawner_allowing(0));
+    let sequence = pool.sequence(SequencePriority::Control);
+    let ran = Arc::new(AtomicBool::new(false));
+    let task_ran = ran.clone();
+    assert_eq!(
+        sequence.post(move || task_ran.store(true, Ordering::Release)),
+        Err(PostError::NoWorker)
+    );
+    assert!(sequence.is_idle(), "the refused task is not queued");
+    assert_eq!(pool.worker_count(SequencePriority::Control), 0);
+    // A later post tries again, and is refused the same way.
+    assert_eq!(sequence.post(|| {}), Err(PostError::NoWorker));
+    assert!(!ran.load(Ordering::Acquire));
+}
+
+/// A temporary or later worker that cannot start leaves the work to the
+/// live one: the post is accepted and runs once that worker is free.
+#[test]
+fn a_later_worker_that_cannot_start_leaves_the_work_to_the_live_one() {
+    let pool = SequencedPool::with_spawner(
+        PoolConfig::for_cores(4).with_workers(SequencePriority::Input, 2),
+        spawner_allowing(1),
+    );
+    let first = pool.sequence(SequencePriority::Input);
+    let second = pool.sequence(SequencePriority::Input);
+    let (release_tx, release_rx) = mpsc::channel::<()>();
+    let (blocked_tx, blocked_rx) = mpsc::channel();
+    first
+        .post(move || {
+            will_block(|| {
+                blocked_tx.send(()).unwrap();
+                let _ = release_rx.recv();
+            });
+        })
+        .unwrap();
+    blocked_rx.recv_timeout(WAIT).unwrap();
+    let (ran_tx, ran_rx) = mpsc::channel();
+    assert_eq!(second.post(move || ran_tx.send(()).unwrap()), Ok(()));
+    assert!(ran_rx.recv_timeout(Duration::from_millis(50)).is_err(), "no second worker");
+    assert_eq!(pool.worker_count(SequencePriority::Input), 1);
+    release_tx.send(()).unwrap();
+    ran_rx.recv_timeout(WAIT).expect("the live worker runs it");
 }
 
 /// Idle workers wait with no timeout: nothing wakes them until a post.
@@ -461,5 +638,21 @@ fn a_delayed_task_of_a_dropped_sequence_is_dropped_unrun() {
     sequence.post_delayed(Duration::from_millis(20), move || tx.send(()).unwrap()).unwrap();
     drop(sequence);
     // The sender drops with the task: the channel disconnects, nothing ran.
+    assert_eq!(rx.recv_timeout(WAIT), Err(mpsc::RecvTimeoutError::Disconnected));
+}
+
+/// A delayed post that no worker of its priority could ever promote is
+/// refused like a plain post: the task is dropped unrun, not kept forever.
+#[test]
+fn a_delayed_post_no_worker_can_run_is_refused() {
+    let pool = SequencedPool::with_spawner(PoolConfig::for_cores(4), spawner_allowing(0));
+    let sequence = pool.sequence(SequencePriority::Input);
+    let (tx, rx) = mpsc::channel::<()>();
+    assert_eq!(
+        sequence.post_delayed(Duration::from_millis(1), move || tx.send(()).unwrap()),
+        Err(PostError::NoWorker)
+    );
+    assert_eq!(pool.worker_count(SequencePriority::Input), 0);
+    // The sender dropped with the refused task: nothing will run it.
     assert_eq!(rx.recv_timeout(WAIT), Err(mpsc::RecvTimeoutError::Disconnected));
 }

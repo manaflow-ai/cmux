@@ -7,17 +7,18 @@
 //! A connection holds no thread of its own: its control sequence runs one
 //! request per task on the pool's control workers, as Chrome dispatches each
 //! IPC message as a task on its bound sequence (docs/threading_and_tasks.md).
-//! A request whose class may wait runs inside [`will_block`], so a waiting
-//! `wait-for` starts a temporary worker instead of holding one of the fixed
-//! ones. The streams a connection opens are sequences of their own
+//! A request that blocks tells the pool at the blocking site itself (a
+//! request-path note, or `request_path::will_block` around a PTY or host
+//! input write and the wait of `wait-for`), so it starts a temporary worker
+//! instead of holding one of the fixed ones. The streams a connection opens are sequences of their own
 //! (stream_lanes.rs); a control command on a surface with an open stream
 //! waits for the items that stream held when the command arrived.
 //!
 //! Request threads (its clear-history workers, the WebSocket connection
 //! thread) start through [`spawn_request_thread`]: UserInitiated, blocking
 //! disallowed (p02-threads task 211); the pool's control workers run the
-//! same way. Each control task and clear-history worker rests at its
-//! connection's class while it runs (connection_qos.rs, task 224).
+//! same way. A request task and a clear-history worker then rest at their
+//! connection's class (connection_qos.rs, task 224).
 //!
 //! Lock order: the scheduler's `state`, then the pool's. A pool task or
 //! fence callback takes `state` with no pool lock held.
@@ -38,7 +39,7 @@ use super::frame_dispatch::FrameCall;
 use super::handle_request_with_cancellation;
 use super::send_request_error;
 use super::send_request_error_with_delivery;
-use super::sequenced_pool::{Fenced, PostError, Sequence, SequencePriority, will_block};
+use super::sequenced_pool::{Fenced, PostError, Sequence, SequencePriority};
 use super::stream_lanes::{StreamLanes, StreamOpenError, StreamPostError, crosses_stream_ok};
 use super::terminal_create;
 use crate::Mux;
@@ -92,7 +93,7 @@ pub(super) struct PendingSurfaceRequest {
     /// When its line arrived and parsed: its request span starts there.
     pub(super) arrival: RequestArrival,
     /// The cause of the frame that queued it: its events keep that cause on
-    /// whichever thread runs it (the dispatcher, a clear-history worker or
+    /// whichever thread runs it (a control task, a clear-history worker or
     /// a creation commit on the terminal work pool).
     pub(super) cause: EventCause,
     /// The REQUEST frame it came in, if any: its reply is that frame's
@@ -192,8 +193,8 @@ pub(super) struct ConnectionSurfaceScheduler {
     pub(super) cancelled: ConnectionCancellation,
     pub(super) connection_permit: Mutex<Option<ConnectionPermit>>,
     pub(super) creations: terminal_create::ConnectionCreations,
-    /// The connection's client class, set by its registry record; the
-    /// dispatcher and clear workers rest at it (connection_qos.rs).
+    /// The connection's client class, set by its registry record; its
+    /// request tasks and clear workers rest at it (connection_qos.rs).
     pub(super) class: Arc<ConnectionClassCell>,
 }
 
@@ -431,28 +432,27 @@ impl ConnectionSurfaceScheduler {
             state.requests.clear();
             state.queued_bytes = 0;
         }
-        let drained = Self::settle_locked(&mut state);
+        let drained = self.settle_locked(&mut state);
         self.changed.notify_all();
         drop(state);
-        if let Some(drained) = drained {
-            self.release(drained);
-        }
+        // The control sequence and its context drop outside the lock.
+        drop(drained);
     }
 
     /// Marks the scheduler drained once it is closed, holds no request and
-    /// runs no pump: the control sequence and its context leave with the
-    /// returned value, which [`Self::release`] drops outside the lock.
-    fn settle_locked(state: &mut ConnectionSurfaceState) -> Option<Drained> {
+    /// runs no pump. The connection permit is released here, under the
+    /// state lock and before `drained` is set, so no waiter sees a drained
+    /// connection that still counts against the connection limit. The
+    /// control sequence and its context leave with the returned value, for
+    /// the caller to drop outside the lock.
+    fn settle_locked(&self, state: &mut ConnectionSurfaceState) -> Option<Drained> {
         if state.drained || !state.closed || !state.requests.is_empty() || state.pump_scheduled {
             return None;
         }
+        // Lock order: `state`, then the permit's (a leaf).
+        drop(self.connection_permit.lock().recover_poison().take());
         state.drained = true;
         Some(Drained { _control: state.control.take(), _context: state.context.take() })
-    }
-
-    fn release(&self, drained: Drained) {
-        self.connection_permit.lock().recover_poison().take();
-        drop(drained);
     }
 
     /// One task of the control sequence: runs the next runnable request.
@@ -464,8 +464,10 @@ impl ConnectionSurfaceScheduler {
             self.close();
             return;
         }
-        let mut resting = self.resting_class(&mux);
-        resting.follow();
+        // The task runs at its connection's class on the shared worker, and
+        // the class ends with the task (connection_qos.rs, task 224). Not a
+        // `RestingClass`: that asks the worker's registry row to stay there.
+        let _class = mux.request_qos().enter_class(self.class.get().qos(ConnectionThread::Request));
         if !run_dispatched_request(&self, &mux, client, pending, &writer) {
             self.close();
         }
@@ -686,9 +688,8 @@ pub(super) fn run_pending_request(
 }
 
 /// Runs one request the control sequence took: a clear-history on its own
-/// worker, a create on the terminal work pool, anything else here (inside
-/// [`will_block`] when its class may wait). False when the connection must
-/// close.
+/// worker, a create on the terminal work pool, anything else here. False
+/// when the connection must close.
 fn run_dispatched_request(
     scheduler: &Arc<ConnectionSurfaceScheduler>,
     mux: &Arc<Mux>,
@@ -704,12 +705,7 @@ fn run_dispatched_request(
     if pending.request.cmd.creates_terminal() {
         return scheduler.submit_creation(mux, client, pending, writer);
     }
-    let cmd = &pending.request.cmd;
-    if cmd.waits_by_design() || cmd.method_class().may_wait() {
-        will_block(|| run_pending_request(scheduler, mux, client, pending, writer))
-    } else {
-        run_pending_request(scheduler, mux, client, pending, writer)
-    }
+    run_pending_request(scheduler, mux, client, pending, writer)
 }
 
 fn run_clear_history(

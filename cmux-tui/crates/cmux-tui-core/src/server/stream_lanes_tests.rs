@@ -230,6 +230,29 @@ fn closing_a_stream_runs_its_items_and_releases_the_barrier() {
     assert_eq!(*log.lock().unwrap(), ["last"]);
 }
 
+/// "exit\n" queued on a stream, the stream closed, then close-surface on
+/// control: the closed stream still runs what it held, and the close waits
+/// for it.
+#[test]
+fn a_command_after_its_stream_closed_still_waits_for_the_held_items() {
+    let connection = Connection::new("stream-lanes-closed-then-close");
+    let surface = connection.mux.new_workspace(None, Some((80, 24))).unwrap();
+    connection
+        .scheduler
+        .open_stream(&connection.mux, 5, surface.id, SequencePriority::Input)
+        .unwrap();
+    let log = Arc::new(Mutex::new(Vec::new()));
+    let release = connection.block_stream(5, &log, "exit");
+    assert!(connection.scheduler.close_stream(5));
+    connection.send(json!({"id": 1, "cmd": "close-surface", "surface": surface.id}));
+    assert_eq!(connection.reply_within(Duration::from_millis(100)), None, "close passed exit");
+    assert!(connection.mux.surface(surface.id).is_some(), "the surface closed before exit ran");
+    release.send(()).unwrap();
+    let reply = connection.reply_within(WAIT).expect("close-surface answers");
+    assert_eq!(reply["id"], 1, "{reply}");
+    assert_eq!(*log.lock().unwrap(), ["exit"], "the stream item ran before the close");
+}
+
 #[test]
 fn stream_ids_open_once_and_never_zero() {
     let pool = SequencedPool::new(PoolConfig::for_cores(4));
@@ -244,7 +267,41 @@ fn stream_ids_open_once_and_never_zero() {
     assert_eq!(lanes.post(8, || {}), Err(StreamPostError::UnknownStream));
     assert!(lanes.close(9));
     assert!(!lanes.close(9));
-    assert_eq!(lanes.open(&pool, 9, 2, SequencePriority::Input), Ok(()), "an id is reusable");
+    assert_eq!(lanes.open(&pool, 9, 2, SequencePriority::Input), Ok(()), "an idle id is reusable");
+}
+
+/// A closed stream's id opens again only once the items it held ran, so a
+/// reopened stream never runs before, or beside, the old one.
+#[test]
+fn a_closed_stream_id_reopens_only_after_its_items_ran() {
+    let pool = SequencedPool::new(PoolConfig::for_cores(4));
+    let mut lanes = StreamLanes::default();
+    lanes.open(&pool, 6, 1, SequencePriority::Input).unwrap();
+    let (release_tx, release_rx) = mpsc::channel::<()>();
+    let (started_tx, started_rx) = mpsc::channel();
+    lanes
+        .post(6, move || {
+            started_tx.send(()).unwrap();
+            let _ = release_rx.recv();
+        })
+        .unwrap();
+    started_rx.recv_timeout(WAIT).unwrap();
+    assert!(lanes.close(6));
+    assert_eq!(lanes.surface(6), None, "a closed stream routes nothing");
+    assert_eq!(lanes.post(6, || {}), Err(StreamPostError::UnknownStream));
+    assert_eq!(
+        lanes.open(&pool, 6, 1, SequencePriority::Input),
+        Err(StreamOpenError::InUse),
+        "the old stream still runs"
+    );
+    assert!(!lanes.close(6), "a closing stream is not open");
+    release_tx.send(()).unwrap();
+    let deadline = Instant::now() + WAIT;
+    while lanes.open(&pool, 6, 1, SequencePriority::Input).is_err() {
+        assert!(Instant::now() < deadline, "the id reopens once the old stream drained");
+        std::thread::sleep(Duration::from_millis(1));
+    }
+    assert_eq!(lanes.surface(6), Some(1));
 }
 
 /// A stream's sequence queues at most the connection queue's capacity.

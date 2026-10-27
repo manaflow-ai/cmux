@@ -85,13 +85,16 @@ impl Surface {
             match &mut *runtime {
                 PtyRuntime::Local { writer, master, .. } => {
                     let master = master.as_deref().map(|master| master as &dyn MasterPty);
-                    crate::pty_input_room::write_input(master, writer.as_mut(), bytes)
+                    // Waits while the child does not read its input.
+                    crate::request_path::will_block(|| {
+                        crate::pty_input_room::write_input(master, writer.as_mut(), bytes)
+                    })
                 }
                 // The host stamps its own read of the echo.
                 #[cfg(any(unix, windows))]
-                PtyRuntime::Hosted(host) => {
+                PtyRuntime::Hosted(host) => crate::request_path::will_block(|| {
                     host.send_flow(MessageKind::Input, bytes, flow).map(|()| false)
-                }
+                }),
                 // A keep-on-exit terminal outlives its child, so typing into the
                 // dead PTY is an expected interaction: drop the bytes silently
                 // instead of failing every keystroke on the final screen.
@@ -130,7 +133,10 @@ impl Surface {
             // the wait below, so no reconnect is missed.
             let observed = pty.stream_progress.revision();
             let sent = match &*pty.runtime.lock().unwrap_or_else(PoisonError::into_inner) {
-                PtyRuntime::Hosted(host) => host.send_flow(kind, bytes, flow),
+                // Waits while the host does not read its socket.
+                PtyRuntime::Hosted(host) => {
+                    crate::request_path::will_block(|| host.send_flow(kind, bytes, flow))
+                }
                 // Keep-on-exit: the final screen drops input (see
                 // write_bytes). Input that already failed to reach the host
                 // did not arrive: it keeps its error.
@@ -154,7 +160,10 @@ impl Surface {
             ) || pty.reader_completion.is_complete()
                 || pty.owner_detaching.load(Ordering::Acquire)
                 || Instant::now() >= deadline
-                || pty.stream_progress.wait_for_change(observed, deadline).is_none()
+                || crate::request_path::will_block(|| {
+                    pty.stream_progress.wait_for_change(observed, deadline)
+                })
+                .is_none()
             {
                 return Some(Err(error));
             }
@@ -177,15 +186,16 @@ impl Surface {
         };
         let mut runtime = pty.runtime.lock().unwrap_or_else(PoisonError::into_inner);
         match &mut *runtime {
-            PtyRuntime::Local { writer, .. } => writer
-                .write_all(bytes)
-                .and_then(|()| writer.flush())
-                .map_err(ConfirmedInputFailure::Indeterminate),
+            PtyRuntime::Local { writer, .. } => crate::request_path::will_block(|| {
+                writer.write_all(bytes).and_then(|()| writer.flush())
+            })
+            .map_err(ConfirmedInputFailure::Indeterminate),
             #[cfg(any(unix, windows))]
             PtyRuntime::Hosted(host) => {
                 let receipt = host.begin_input_confirmed(bytes)?;
                 drop(runtime);
-                receipt.wait().map_err(ConfirmedInputFailure::Indeterminate)
+                crate::request_path::will_block(|| receipt.wait())
+                    .map_err(ConfirmedInputFailure::Indeterminate)
             }
             // Receipted input confirms delivery to the PTY owner, and a kept
             // terminal's child is gone, so the write fails before any effect
@@ -254,20 +264,23 @@ impl Surface {
         if bracketed {
             payload.extend_from_slice(b"\x1b[201~");
         }
-        #[cfg(unix)]
-        if let Some(timeout) = timeout
-            && let Some(fd) = master.as_ref().and_then(|master| master.as_raw_fd())
-        {
-            return crate::pty_write::write_bounded(
-                fd,
-                &payload,
-                timeout,
-                "PTY paste write timed out",
-            )
-            .map_err(|failure| failure.error);
-        }
-        writer.write_all(&payload)?;
-        writer.flush()
+        // Waits while the child does not read its input.
+        crate::request_path::will_block(|| {
+            #[cfg(unix)]
+            if let Some(timeout) = timeout
+                && let Some(fd) = master.as_ref().and_then(|master| master.as_raw_fd())
+            {
+                return crate::pty_write::write_bounded(
+                    fd,
+                    &payload,
+                    timeout,
+                    "PTY paste write timed out",
+                )
+                .map_err(|failure| failure.error);
+            }
+            writer.write_all(&payload)?;
+            writer.flush()
+        })
     }
 
     #[cfg(test)]

@@ -293,8 +293,10 @@ fn a_signed_app_hello_reclasses_its_processs_connections() {
     mux.shutdown();
 }
 
-/// A connection's dispatcher and its clear-history worker rest at
-/// Utility once the connection is automation.
+/// A connection's clear-history worker rests at Utility once the connection
+/// is automation. The control task that started it ran on a shared pool
+/// worker inside a scope of the same class, which leaves the worker's row
+/// at its declared class (p05-ipc-073).
 #[test]
 fn an_automation_connection_runs_its_requests_at_utility() {
     let mux = crate::Mux::new_for_test("connection-qos-dispatch", crate::SurfaceOptions::default());
@@ -316,7 +318,6 @@ fn an_automation_connection_runs_its_requests_at_utility() {
     // are alive while their rows are read.
     let held = surface.with_terminal(|_| {
         assert_eq!(scheduler.dispatch(mux.clone(), client, &mut clear, 0, writer), Some(true));
-        assert_some_thread_desires("mux-control-dispatch", ThreadQos::Utility);
         assert_some_thread_desires("mux-surface-control", ThreadQos::Utility);
     });
     assert!(held.is_some(), "a PTY surface");

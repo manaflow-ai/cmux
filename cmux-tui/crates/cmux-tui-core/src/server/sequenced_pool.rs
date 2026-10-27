@@ -19,14 +19,25 @@
 //!   sequence at the back of its priority's ready queue: a long sequence
 //!   never starves the others (base/task/thread_pool/thread_group_impl.cc
 //!   reenqueues a sequence after each task).
-//! - **Blocking compensation.** A task inside [`will_block`] (Chrome's
-//!   `ScopedBlockingCall` with `WILL_BLOCK`) stops counting against its
-//!   priority's workers until it leaves, so a waiting request starts one
+//! - **Blocking compensation.** Each worker is its thread's
+//!   `request_path::BlockingObserver`, as Chrome's worker is its thread's
+//!   `BlockingObserver` (base/task/thread_pool/thread_group_impl.cc
+//!   `BlockingStarted`). The blocking sites themselves tell it: a
+//!   request-path note of a blocking kind (sqlite, journal_wait,
+//!   process_spawn, host_wait, network, ...) marks the task blocked until it
+//!   ends, and a `request_path::will_block` scope (a PTY or host input write,
+//!   the wait of `wait-for`) marks it blocked until the scope ends. A blocked
+//!   task stops counting against its priority's workers, so it starts one
 //!   temporary worker when other work is ready, up to
 //!   [`MAX_COMPENSATING_WORKERS`] (Chrome's `kMaxNumberOfWorkers`,
-//!   base/task/thread_pool/thread_group_impl.h). When the task leaves, a
-//!   worker over the count exits as soon as it has nothing to run: no
-//!   reclaim timer.
+//!   base/task/thread_pool/thread_group_impl.h). When it is no longer
+//!   blocked, a worker over the count exits as soon as it has nothing to
+//!   run: no reclaim timer. Stream items are tasks like requests.
+//! - **A worker exists.** A worker a post needs starts under the pool lock
+//!   with that post; when it cannot start and no other worker of the
+//!   priority is live, the post is taken back and refused
+//!   ([`PostError::NoWorker`]), so a queued task always has a live worker to
+//!   run it. Fixed workers never exit before shutdown.
 //! - **Fences.** [`SequencedPool::fence`] runs a callback once other
 //!   sequences ran every task posted to them before the fence: the stream
 //!   barrier (stream_lanes.rs) is built on it.
@@ -48,6 +59,7 @@ use cmux_threads::sync::{Condvar, Mutex};
 use std::cell::{Cell, RefCell};
 use std::cmp::Ordering as CmpOrdering;
 use std::collections::{BinaryHeap, HashMap, VecDeque};
+use std::io;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, MutexGuard};
@@ -56,13 +68,14 @@ use std::time::{Duration, Instant};
 use cmux_threads::ThreadQos;
 
 use crate::panic_free::RecoverPoison;
+use crate::request_path::{BlockingKind, BlockingObserver, set_blocking_observer};
 use crate::thread_qos::ThreadType;
 
 use super::CONNECTION_SURFACE_QUEUE_CAPACITY;
 use super::connection_scheduler::REQUEST_THREAD_QOS;
 
-/// The most temporary workers one priority starts for tasks inside
-/// [`will_block`] (Chrome's `kMaxNumberOfWorkers`, 256).
+/// The most temporary workers one priority starts for blocked tasks
+/// (Chrome's `kMaxNumberOfWorkers`, 256).
 pub(super) const MAX_COMPENSATING_WORKERS: usize = 256;
 
 /// A sequence's priority (the schema `priority`: input, control, bulk,
@@ -161,6 +174,8 @@ pub(crate) enum PostError {
     Full,
     /// The pool shut down.
     ShutDown,
+    /// No worker of the sequence's priority runs and none could start.
+    NoWorker,
 }
 
 impl std::fmt::Display for PostError {
@@ -168,6 +183,7 @@ impl std::fmt::Display for PostError {
         f.write_str(match self {
             Self::Full => "sequence queue is full",
             Self::ShutDown => "sequenced pool shut down",
+            Self::NoWorker => "could not start a sequenced pool worker",
         })
     }
 }
@@ -183,6 +199,29 @@ pub(crate) enum Fenced<F> {
 }
 
 type Task = Box<dyn FnOnce() + Send + 'static>;
+
+type SpawnFn = dyn Fn(&'static str, ThreadQos, Task) -> io::Result<()> + Send + Sync;
+
+/// Starts a detached worker thread: `cmux_threads::spawn` by default, a
+/// stand-in that fails in tests.
+#[derive(Clone)]
+pub(crate) struct WorkerSpawner(Arc<SpawnFn>);
+
+impl WorkerSpawner {
+    #[cfg(test)]
+    pub(crate) fn new(
+        spawn: impl Fn(&'static str, ThreadQos, Task) -> io::Result<()> + Send + Sync + 'static,
+    ) -> Self {
+        Self(Arc::new(spawn))
+    }
+}
+
+impl Default for WorkerSpawner {
+    fn default() -> Self {
+        // The handle is dropped: the worker is detached.
+        Self(Arc::new(|name, qos, body| cmux_threads::spawn(name, qos, body).map(drop)))
+    }
+}
 
 enum Item {
     Task(Task),
@@ -254,7 +293,7 @@ struct Workers {
     idle: usize,
     /// Notified idle workers that have not woken yet.
     waking: usize,
-    /// Tasks of this priority inside [`will_block`].
+    /// Tasks of this priority that are blocked (see the module docs).
     blocked: usize,
 }
 
@@ -271,6 +310,7 @@ struct PoolState {
 
 pub(super) struct Shared {
     config: PoolConfig,
+    spawner: WorkerSpawner,
     state: Mutex<PoolState>,
     work: [Condvar; 4],
     /// Times an idle worker woke (posts and spurious returns).
@@ -299,9 +339,14 @@ impl std::fmt::Debug for SequencedPool {
 
 impl SequencedPool {
     pub(crate) fn new(config: PoolConfig) -> Self {
+        Self::with_spawner(config, WorkerSpawner::default())
+    }
+
+    pub(crate) fn with_spawner(config: PoolConfig, spawner: WorkerSpawner) -> Self {
         Self {
             shared: Arc::new(Shared {
                 config,
+                spawner,
                 state: Mutex::new(PoolState {
                     sequences: HashMap::new(),
                     fences: HashMap::new(),
@@ -450,62 +495,99 @@ impl Sequence {
     where
         F: FnOnce() + Send + 'static,
     {
-        let spawn = {
-            let mut state = self.shared.lock();
-            if state.shut_down {
-                return Err(PostError::ShutDown);
-            }
-            let Some(sequence) = state.sequences.get_mut(&self.id) else {
-                return Err(PostError::ShutDown);
-            };
-            if sequence.tasks >= sequence.cap {
-                return Err(PostError::Full);
-            }
-            sequence.tasks += 1;
-            sequence.items.push_back(Item::Task(Box::new(task)));
-            let became_ready = !sequence.running && sequence.tasks == 1;
-            if became_ready {
-                state.ready[self.priority.index()].push_back(self.id);
-            }
-            became_ready && self.shared.wake_or_reserve(&mut state, self.priority)
-        };
-        if spawn {
-            self.shared.spawn_worker(self.priority);
+        let index = self.priority.index();
+        let mut state = self.shared.lock();
+        if state.shut_down {
+            return Err(PostError::ShutDown);
         }
-        Ok(())
+        let Some(sequence) = state.sequences.get_mut(&self.id) else {
+            return Err(PostError::ShutDown);
+        };
+        if sequence.tasks >= sequence.cap {
+            return Err(PostError::Full);
+        }
+        sequence.tasks += 1;
+        sequence.items.push_back(Item::Task(Box::new(task)));
+        let became_ready = !sequence.running && sequence.tasks == 1;
+        if !became_ready {
+            return Ok(());
+        }
+        state.ready[index].push_back(self.id);
+        if !self.shared.wake_or_reserve(&mut state, self.priority) {
+            return Ok(());
+        }
+        // The worker starts under the lock (only while the priority grows
+        // to its count), so whether one is live is known before the post
+        // returns: a task that nothing could run is refused, not queued.
+        if self.shared.spawn_worker_locked(&mut state, self.priority)
+            || state.workers[index].live > 0
+        {
+            return Ok(());
+        }
+        let task = self.take_back(&mut state);
+        drop(state);
+        // The task drops outside the lock: its captures may take other locks.
+        drop(task);
+        Err(PostError::NoWorker)
+    }
+
+    /// Takes back the task this post just queued on an idle sequence, when
+    /// no worker could start. Under the same lock hold as the post: nothing
+    /// ran it, and nothing was queued behind it.
+    fn take_back(&self, state: &mut PoolState) -> Option<Item> {
+        let ready = &mut state.ready[self.priority.index()];
+        if let Some(position) = ready.iter().rposition(|id| *id == self.id) {
+            ready.remove(position);
+        }
+        let sequence = state.sequences.get_mut(&self.id)?;
+        let item = sequence.items.pop_back()?;
+        sequence.tasks -= 1;
+        Some(item)
     }
 
     /// Queues `task` to join this sequence once `delay` passed: it then
     /// runs behind every task posted before that instant. It counts against
     /// no cap while it waits, and is dropped unrun when the sequence is gone
-    /// by then.
+    /// by then. Like [`Self::post`], it is refused ([`PostError::NoWorker`])
+    /// when no worker of the priority is live and none could start.
     pub(crate) fn post_delayed<F>(&self, delay: Duration, task: F) -> Result<(), PostError>
     where
         F: FnOnce() + Send + 'static,
     {
-        let spawn = {
-            let mut state = self.shared.lock();
-            if state.shut_down || !state.sequences.contains_key(&self.id) {
-                return Err(PostError::ShutDown);
-            }
-            let order = state.next_id;
-            state.next_id += 1;
-            let delayed = DelayedTask {
-                due: Instant::now() + delay,
-                order,
-                sequence: self.id,
-                task: Box::new(task),
-            };
-            let heap = &mut state.delayed[self.priority.index()];
-            let earliest = heap.peek().is_none_or(|head| delayed.key() < head.key());
-            heap.push(delayed);
-            // A new earliest due time: one worker (re)computes its wait.
-            earliest && self.shared.wake_or_reserve(&mut state, self.priority)
-        };
-        if spawn {
-            self.shared.spawn_worker(self.priority);
+        let index = self.priority.index();
+        let mut state = self.shared.lock();
+        if state.shut_down || !state.sequences.contains_key(&self.id) {
+            return Err(PostError::ShutDown);
         }
-        Ok(())
+        let order = state.next_id;
+        state.next_id += 1;
+        let delayed = DelayedTask {
+            due: Instant::now() + delay,
+            order,
+            sequence: self.id,
+            task: Box::new(task),
+        };
+        let heap = &mut state.delayed[index];
+        let earliest = heap.peek().is_none_or(|head| delayed.key() < head.key());
+        heap.push(delayed);
+        // A new earliest due time: one worker (re)computes its wait.
+        if !earliest || !self.shared.wake_or_reserve(&mut state, self.priority) {
+            return Ok(());
+        }
+        // As in `post`: the worker starts under the lock, so a delayed task
+        // that no worker could ever promote is refused, not kept.
+        if self.shared.spawn_worker_locked(&mut state, self.priority)
+            || state.workers[index].live > 0
+        {
+            return Ok(());
+        }
+        // It is the earliest, so the heap's top: nothing else moved.
+        let taken = state.delayed[index].pop();
+        debug_assert!(taken.as_ref().is_some_and(|delayed| delayed.order == order));
+        drop(state);
+        // The task drops outside the lock: its captures may take other locks.
+        drop(taken);
+        Err(PostError::NoWorker)
     }
 
     /// Queued tasks plus the running one.
@@ -518,10 +600,10 @@ impl Sequence {
             .map_or(0, |sequence| sequence.tasks + usize::from(sequence.running))
     }
 
-    /// No task queued or running.
-    #[cfg(test)]
+    /// No task queued or running (a fence alone is passed at once).
     pub(crate) fn is_idle(&self) -> bool {
-        self.depth() == 0
+        let state = self.shared.lock();
+        !state.sequences.get(&self.id).is_some_and(SequenceState::busy)
     }
 }
 
@@ -542,47 +624,65 @@ impl Drop for Sequence {
 }
 
 thread_local! {
-    /// The pool and priority of the worker this thread is, for
-    /// [`will_block`].
+    /// The pool and priority of the worker this thread is.
     static WORKER: RefCell<Option<(Arc<Shared>, SequencePriority)>> = const { RefCell::new(None) };
-    /// Inside a [`will_block`] already: a nested scope counts nothing.
-    static BLOCKED: Cell<bool> = const { Cell::new(false) };
+    /// `request_path::will_block` scopes open on this worker's task.
+    static SCOPES: Cell<usize> = const { Cell::new(0) };
+    /// This worker's task noted a blocking kind: blocked until it ends.
+    static TASK_BLOCKED: Cell<bool> = const { Cell::new(false) };
 }
 
-/// Runs `f`, which waits (a request that waits by design, spawns a process,
-/// or reaches the network), outside its priority's worker count: when other
-/// work of the priority is ready, a temporary worker starts for it.
-/// Off a pool worker, or nested, it only runs `f`.
-pub(crate) fn will_block<R>(f: impl FnOnce() -> R) -> R {
-    let Some((shared, priority)) = WORKER.with(|worker| worker.borrow().clone()) else {
-        return f();
-    };
-    if BLOCKED.with(|blocked| blocked.replace(true)) {
-        return f();
+/// Every worker's `request_path::BlockingObserver`: it reads the worker it
+/// runs on from [`WORKER`].
+struct WorkerObserver;
+
+static WORKER_OBSERVER: WorkerObserver = WorkerObserver;
+
+impl WorkerObserver {
+    fn blocked() -> bool {
+        SCOPES.with(Cell::get) > 0 || TASK_BLOCKED.with(Cell::get)
     }
-    shared.enter_blocked(priority);
-    let _leave = LeaveBlocked { shared, priority };
-    f()
+
+    fn worker() -> Option<(Arc<Shared>, SequencePriority)> {
+        WORKER.try_with(|worker| worker.borrow().clone()).ok().flatten()
+    }
 }
 
-struct LeaveBlocked {
-    shared: Arc<Shared>,
-    priority: SequencePriority,
-}
-
-impl Drop for LeaveBlocked {
-    fn drop(&mut self) {
-        BLOCKED.with(|blocked| blocked.set(false));
-        let index = self.priority.index();
-        let mut state = self.shared.lock();
-        state.workers[index].blocked = state.workers[index].blocked.saturating_sub(1);
-        // One worker too many now: an idle one wakes to exit.
-        let limit = self.shared.limit(&state, self.priority);
-        let workers = &mut state.workers[index];
-        if workers.live > limit && workers.idle > workers.waking {
-            workers.waking += 1;
-            self.shared.work[index].notify_one();
+impl BlockingObserver for WorkerObserver {
+    fn noted(&self, _kind: BlockingKind) {
+        if TASK_BLOCKED.with(Cell::get) {
+            return;
         }
+        let was_blocked = Self::blocked();
+        TASK_BLOCKED.with(|blocked| blocked.set(true));
+        if !was_blocked && let Some((shared, priority)) = Self::worker() {
+            shared.enter_blocked(priority);
+        }
+    }
+
+    fn scope_started(&self) {
+        let was_blocked = Self::blocked();
+        SCOPES.with(|scopes| scopes.set(scopes.get() + 1));
+        if !was_blocked && let Some((shared, priority)) = Self::worker() {
+            shared.enter_blocked(priority);
+        }
+    }
+
+    fn scope_ended(&self) {
+        SCOPES.with(|scopes| scopes.set(scopes.get().saturating_sub(1)));
+        if !Self::blocked()
+            && let Some((shared, priority)) = Self::worker()
+        {
+            shared.leave_blocked(priority);
+        }
+    }
+}
+
+/// Ends the blocked state a finished task's note left (its scopes ended
+/// with it).
+fn end_task_block(shared: &Shared, priority: SequencePriority) {
+    if TASK_BLOCKED.with(|blocked| blocked.replace(false)) && SCOPES.with(Cell::get) == 0 {
+        shared.leave_blocked(priority);
     }
 }
 
@@ -614,6 +714,8 @@ impl Shared {
         false
     }
 
+    /// A task of `priority` blocked: it stops counting, and a temporary
+    /// worker starts when other work of the priority is ready.
     fn enter_blocked(self: &Arc<Self>, priority: SequencePriority) {
         let spawn = {
             let mut state = self.lock();
@@ -628,28 +730,66 @@ impl Shared {
         }
     }
 
-    /// Starts a worker whose slot [`Self::wake_or_reserve`] reserved.
+    /// The blocked task of `priority` is no longer blocked: it counts
+    /// again, and a worker over the count wakes to exit.
+    fn leave_blocked(&self, priority: SequencePriority) {
+        let index = priority.index();
+        let mut state = self.lock();
+        state.workers[index].blocked = state.workers[index].blocked.saturating_sub(1);
+        let limit = self.limit(&state, priority);
+        let workers = &mut state.workers[index];
+        if workers.live > limit && workers.idle > workers.waking {
+            workers.waking += 1;
+            self.work[index].notify_one();
+        }
+    }
+
+    /// Starts a worker whose slot [`Self::wake_or_reserve`] reserved from a
+    /// live worker (for a blocked task, or for sequences a due delayed task
+    /// made ready); one that does not start gives its slot back and leaves
+    /// the ready work to the live workers (the caller's own among them).
     fn spawn_worker(self: &Arc<Self>, priority: SequencePriority) {
+        if let Err(error) = self.start_worker(priority) {
+            eprintln!("cmux: could not start {} worker: {error}", priority.thread_name());
+            let mut state = self.lock();
+            state.workers[priority.index()].live -= 1;
+        }
+    }
+
+    /// Starts the worker a post reserved, under the pool lock. False when
+    /// it did not start (its slot is given back). The new worker takes the
+    /// lock only after the caller releases it.
+    fn spawn_worker_locked(
+        self: &Arc<Self>,
+        state: &mut PoolState,
+        priority: SequencePriority,
+    ) -> bool {
+        match self.start_worker(priority) {
+            Ok(()) => true,
+            Err(error) => {
+                eprintln!("cmux: could not start {} worker: {error}", priority.thread_name());
+                state.workers[priority.index()].live -= 1;
+                false
+            }
+        }
+    }
+
+    fn start_worker(self: &Arc<Self>, priority: SequencePriority) -> io::Result<()> {
         let shared = self.clone();
-        let started = cmux_threads::spawn(priority.thread_name(), priority.qos(), move || {
+        let body: Task = Box::new(move || {
             if priority.is_request_class() {
                 cmux_threads::disallow_blocking();
             }
             shared.run_worker(priority);
         });
-        match started {
-            Ok(_detached) => {
-                self.started.fetch_add(1, Ordering::Relaxed);
-            }
-            Err(error) => {
-                eprintln!("cmux: could not start {} worker: {error}", priority.thread_name());
-                self.lock().workers[priority.index()].live -= 1;
-            }
-        }
+        (self.spawner.0)(priority.thread_name(), priority.qos(), body)?;
+        self.started.fetch_add(1, Ordering::Relaxed);
+        Ok(())
     }
 
     fn run_worker(self: &Arc<Self>, priority: SequencePriority) {
         WORKER.with(|worker| *worker.borrow_mut() = Some((self.clone(), priority)));
+        set_blocking_observer(Some(&WORKER_OBSERVER));
         let _clear = ClearWorker;
         let index = priority.index();
         let mut state = self.lock();
@@ -697,6 +837,7 @@ impl Shared {
             if catch_unwind(AssertUnwindSafe(task)).is_err() {
                 eprintln!("cmux: a {} task panicked", priority.thread_name());
             }
+            end_task_block(self, priority);
             state = self.lock();
             let callbacks = finish_task(&mut state, id);
             if !callbacks.is_empty() {
@@ -705,6 +846,7 @@ impl Shared {
                     if catch_unwind(AssertUnwindSafe(then)).is_err() {
                         eprintln!("cmux: a {} fence callback panicked", priority.thread_name());
                     }
+                    end_task_block(self, priority);
                 }
                 state = self.lock();
             }
@@ -746,6 +888,7 @@ struct ClearWorker;
 
 impl Drop for ClearWorker {
     fn drop(&mut self) {
+        set_blocking_observer(None);
         let _ = WORKER.try_with(|worker| worker.borrow_mut().take());
     }
 }
