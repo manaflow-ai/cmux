@@ -126,8 +126,9 @@ await requireBrowserLane("composer-top-strip-variants.test.ts", async () => {
           const drawn = await page.evaluate(measure, surface.card);
           await page.close();
           expect(drawn.kind).toBe(surface.kind);
-          if (style === "default" && surface.card === ".nt-box") {
-            // The New Tab: plain text a few px over the card, nothing drawn, the card's rim whole.
+          if (style === "default" && surface.kind === "strip") {
+            // A new chat's strip, the chat's as the New Tab's (#21133; Leo 2026-10-25): plain text a
+            // few px over the card, nothing drawn, the card's rim whole.
             expect(drawn.gap).toBeGreaterThanOrEqual(2);
             expect(drawn.gap).toBeLessThanOrEqual(8);
             expect(drawn.filled).toBe(false);
@@ -136,12 +137,12 @@ await requireBrowserLane("composer-top-strip-variants.test.ts", async () => {
             return;
           }
           if (style === "default") {
-            // The card's head (#20391): flush, filled, the card's top corners square under it, and
-            // the card's rim layer drawn. The strip leaves its rim to that layer; a queue draws its
-            // own hairline on its top and sides.
+            // A started chat's queue is the card's head (#20391): flush, filled, the card's top
+            // corners square under it, and the card's rim layer drawn. The queue draws its own
+            // hairline on its top and sides.
             expect(Math.abs(drawn.gap)).toBeLessThanOrEqual(0.5);
             expect(drawn.filled).toBe(true);
-            expect(drawn.shadows.length).toBe(surface.kind === "strip" ? 0 : 3);
+            expect(drawn.shadows.length).toBe(3);
             expect(drawn.cardMasked).toBe(true);
             expect(drawn.cardTopRadius).toBe(0);
             return;

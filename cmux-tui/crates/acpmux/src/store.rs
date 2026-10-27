@@ -320,6 +320,11 @@ pub struct SessionMeta {
     /// Never copied to a fork or a moved-in session.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub lineage: Option<Lineage>,
+    /// The log holds a subagent entry with a retry waiting or in flight that no later entry
+    /// cleared yet (`hub/subagent_retry.rs`): the next load clears it, as the restart dropped
+    /// that retry. Never copied to a fork.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub subagent_retry_open: bool,
 }
 
 /// Where a session sits in the tree of sessions that started each other
@@ -613,6 +618,11 @@ pub trait Store: Send + Sync {
     fn close_log(&self, _id: &str) {}
     /// Retention (`store/compact.rs`): the log's last `seq` when it was last compacted.
     fn compacted_seq(&self, _id: &str) -> Option<u64> {
+        None
+    }
+    /// Retention: when the log was last written, in ms, from its newest segment. None: the store
+    /// keeps no log on disk, or the chat has none.
+    fn log_written_at(&self, _id: &str) -> Option<u64> {
         None
     }
     /// Reads the log and, unless a dry run, writes its compacted segments beside it. None: the
@@ -1293,6 +1303,10 @@ impl Store for LocalStore {
 
     fn compacted_seq(&self, id: &str) -> Option<u64> {
         LocalStore::compacted_seq(self, id)
+    }
+
+    fn log_written_at(&self, id: &str) -> Option<u64> {
+        LocalStore::log_written_at(self, id)
     }
 
     fn stage_compaction(&self, id: &str, mode: CompactMode) -> Result<Option<Staged>> {

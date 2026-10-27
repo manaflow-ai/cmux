@@ -39,12 +39,18 @@ XCODE_VERSION_PATTERN = r"[0-9]+(?:\.[0-9]+)*"
 # the owned Mac minis.
 OWNED = re.compile(rf"^glaeda-(?:(?P<namespace>aws)-)?(?:std|light|xl)-xcode-{XCODE_VERSION_PATTERN}$")
 RESERVED = re.compile(r"(?:release|nightly)", re.IGNORECASE)
+# blacksmith_stalled(): a Blacksmith label whose oldest queued job has waited this long has had no
+# job start on it since (its queue is first in, first out), so it has no free slot whatever its
+# running count says. 2026-10-27: blacksmith-12vcpu-macos-26 had 44 jobs queued (oldest 396 min)
+# and 0 running, so it read as 5 free slots, and nightly 40452273751's verify jobs went there.
+BLACKSMITH_STALL_MINUTES = 10
 # Owned classes in preference order, as pr_runner_pool.RUN_CLASSES.
 RUN_CLASSES = ("std", "light", "xl")
 # glaeda-[root-|side-|gui-]<class>-xcode-<version>: one family of labels on the same machines.
 XCODE_VERSION = re.compile(r"(?:^|/)Xcode_(?P<version>[0-9]+(?:\.[0-9]+)*)\.app(?:/|$)")
-# Ten pages of 100 is twice the organization's runners today.
-MAX_RUNNER_PAGES = 10
+# The org-wide fallback read (LiveState.runners(), only when the glaeda-minis group is unreadable):
+# 2,862 org runners on 2026-10-27 held the minis past page 10, so read up to 5,000.
+MAX_RUNNER_PAGES = 50
 OWNED_FAMILY = re.compile(
     rf"^glaeda-(?:(?P<namespace>aws)-)?(?:root-|side-|gui-|session-)?"
     rf"(?P<class>std|light|xl)-xcode-(?P<version>{XCODE_VERSION_PATTERN})$"
@@ -116,9 +122,13 @@ class Pool:
     free: int | None = None
     reserved: int = 0
     xcode_app: str = ""
+    # A Blacksmith label whose queue is not moving (blacksmith_stalled()): it has no free slot.
+    stalled: bool = False
 
     @property
     def available(self) -> int:
+        if self.stalled:
+            return 0
         return max(0, self.capacity - self.running if self.free is None else self.free)
 
     @property
@@ -237,6 +247,8 @@ def _pick_blacksmith(state: State) -> Choice:
     for pool in eligible:
         if pool.unreserved_available >= state.jobs:
             return Choice(pool.label, "first Blacksmith label with enough free slots", pool.xcode_app)
+    # A stalled label is the last resort: least loaded among the moving ones first.
+    eligible = [pool for pool in eligible if not pool.stalled] or eligible
     if eligible:
         winner = min(eligible, key=lambda pool: ((pool.queued + pool.running) / max(1, pool.capacity),
                                                   BLACKSMITH.index(pool.label)))
@@ -250,7 +262,7 @@ def _pool(item: Pool | Mapping[str, Any]) -> Pool:
         return item
     return Pool(str(item["label"]), int(item.get("capacity", 0)), int(item.get("running", 0)),
                 int(item.get("queued", 0)), None if item.get("free") is None else int(item["free"]),
-                int(item.get("reserved", 0)), str(item.get("xcode_app", "")))
+                int(item.get("reserved", 0)), str(item.get("xcode_app", "")), bool(item.get("stalled", False)))
 
 
 class LiveState:
@@ -268,6 +280,16 @@ class LiveState:
             return json.load(response)
 
     def runners(self) -> list[Mapping[str, Any]]:
+        """The repository's runners and the org's glaeda-minis group, as pr_runner_pool reads them.
+
+        The org-wide listing below is only the fallback: with 2,862 org runners on 2026-10-27 its
+        MAX_RUNNER_PAGES pages held none of the minis, so every owned pool read as offline and an
+        owned-first pick (nightly 40452273751's verify jobs) went to a stalled Blacksmith queue.
+        """
+        try:
+            return self._group_runners()
+        except Exception as error:  # noqa: BLE001 - the org-wide pages below may still hold them
+            print(f"::warning title=live runner state::{error}; reading the org-wide runner list", file=sys.stderr)
         owner = self.repository.split("/", 1)[0]
         # The routing runners can sit behind several pages, so read all pages
         # that can contain the current fleet while keeping the API usage bounded.
@@ -278,6 +300,12 @@ class LiveState:
             if len(batch) < 100:
                 break
         return runners
+
+    def _group_runners(self) -> list[Mapping[str, Any]]:
+        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+        import pr_runner_pool
+
+        return pr_runner_pool.GitHub(self.token, self.repository).runners()
 
     def snapshot(self) -> Mapping[str, Any] | None:
         """The queue janitor's newest trusted pool snapshot, or None when missing or stale (two API calls)."""
@@ -376,14 +404,39 @@ def state_from(*, jobs: int, env: Mapping[str, str], fork: bool, runners: Sequen
             free = max(0, idle - queued)
             owned.append(Pool(label, len(online), len(online) - idle, queued, free=free,
                                xcode_app=owned_xcode_app(label, env.get("CMUX_CI_XCODE_APP_PR", ""))))
+    age = snapshot_age(snapshot)
     counts = {label: {"running": count(label, "running"), "queued": count(label, "queued"),
-                      "reserved": count(label, "reserved_queued")} for label in BLACKSMITH}
+                      "reserved": count(label, "reserved_queued"),
+                      "stalled": blacksmith_stalled(count(label, "queued"), count(label, "oldest_queued_minutes"), age)}
+              for label in BLACKSMITH}
     blacksmith = tuple(Pool(label, CAPACITY[label], **counts[label],
                             xcode_app=env.get("CMUX_CI_XCODE_APP_MACOS_15", "") if label == BLACKSMITH[2] else "")
                        for label in BLACKSMITH)
     return State(jobs, tuple(owned), blacksmith, fork, owned_enabled,
                  (env.get("CI_PR_POOL_OVERFLOW") or "1") != "0", fallback,
                  gui_required=(env.get("RUN_FULL_SUITE") == "true" or env.get("RUN_UNIT_SUITE") == "true"))
+
+
+def snapshot_age(snapshot: Mapping[str, Any] | None) -> float:
+    """The janitor snapshot's age in minutes (0 when unknown)."""
+    import datetime as dt
+
+    try:
+        generated = dt.datetime.fromisoformat(str((snapshot or {}).get("generated_at") or "").replace("Z", "+00:00"))
+    except ValueError:
+        return 0.0
+    if generated.tzinfo is None:
+        return 0.0
+    return max(0.0, (dt.datetime.now(dt.timezone.utc) - generated).total_seconds() / 60)
+
+
+def blacksmith_stalled(queued: int, oldest_queued_minutes: float, age: float = 0.0) -> bool:
+    """The one stall rule for a Blacksmith label: its oldest queued job has waited
+    BLACKSMITH_STALL_MINUTES by now (the snapshot's figure plus the snapshot's age).
+
+    The janitor snapshot carries no start times; on a first-in, first-out label queue a job that
+    started since would have been that oldest one, so the wait alone says nothing has started."""
+    return queued > 0 and oldest_queued_minutes + max(0.0, age) >= BLACKSMITH_STALL_MINUTES
 
 
 def planned_jobs(env: Mapping[str, str]) -> int:

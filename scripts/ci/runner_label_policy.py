@@ -162,6 +162,24 @@ def side_lane_reason(label: str) -> str | None:
     return forbidden_reason(label)
 
 
+NIGHTLY_NEXT_BUILD_VARIABLE = "CI_NIGHTLY_NEXT_BUILD_RUNNER"
+
+
+def nightly_next_build_reason(label: str) -> str | None:
+    """Why CI_NIGHTLY_NEXT_BUILD_RUNNER is not allowed, or None when it is fine.
+
+    nightly.yml's nightly-next app build reads it first, for every event and
+    attempt. It may name an owned side or dev label (glaeda-side-<class>-... or
+    glaeda-dev-<class>-...), the same trust as CI_SIDE_LANE_RUNNER, which that
+    build already takes. Anything else is held to the workflow policy. Empty is
+    fine (off).
+    """
+    for prefix in (SIDE_LANE_PREFIX, "glaeda-dev-"):
+        if label.startswith(prefix) and _owned_pattern().fullmatch("glaeda-" + label[len(prefix):]):
+            return None
+    return forbidden_reason(label)
+
+
 FAST_LANE_VARIABLE = "CI_FAST_LANE_RUNNER"
 FAST_LANE_PREFIX = "glaeda-fast-"
 
@@ -287,6 +305,18 @@ def forbidden_reason(label: str) -> str | None:
     return None
 
 
+# Runner variables the nightly, promote and DEV paths read
+# (tests/test_ci_nightly_no_hosted_mac.py keeps this complete). They never hold
+# a GitHub-hosted Mac. Leo, 2026-10-27: "THE GITHUB HOSTED MACS / ARE THE
+# SLOWEST THINGS / THEY PREVIOUSLY WREN'T EVEN UNDER CONSIDERATINO".
+NO_HOSTED_MAC_VARIABLES = frozenset({
+    "CI_IOS_INTERNAL_RUNNER", "CI_NIGHTLY_NEXT_BUILD_RUNNER", "CI_SIDE_LANE_RUNNER",
+    "LINUX_RUNNER",
+    "MACOS_RUNNER_15", "MACOS_RUNNER_26", "NIGHTLY_NEXT_TRAIN_RUNNER",
+})
+HOSTED_MAC_LABEL = re.compile(r"macos-(?:latest|\d+)(?:-[a-z0-9]+)*")
+
+
 def drifted_runner_variables(
     variables: dict[str, str],
 ) -> list[tuple[str, str, str]]:
@@ -299,10 +329,15 @@ def drifted_runner_variables(
     for name, value in variables.items():
         if not isinstance(value, str):
             continue
+        if name in NO_HOSTED_MAC_VARIABLES and HOSTED_MAC_LABEL.fullmatch(value.strip().lower()):
+            drifted.append((name, value.strip(), "names a GitHub-hosted Mac; the nightly path takes the fleet, then Blacksmith"))
+            continue
         if name == POOL_ORDER_VARIABLE:
             reason = pool_order_reason(value.strip())
         elif name in SIDE_LANE_VARIABLES:
             reason = side_lane_reason(value.strip())
+        elif name == NIGHTLY_NEXT_BUILD_VARIABLE:
+            reason = nightly_next_build_reason(value.strip())
         elif name == FAST_LANE_VARIABLE:
             reason = fast_lane_reason(value.strip())
         elif name == SESSION_LANE_VARIABLE:

@@ -3,7 +3,7 @@
 .acpmux-replay-button{flex:none;display:grid;place-items:center;width:28px;height:28px;padding:0;border:0;border-radius:7px;background:none;color:var(--agent-soft)}
 .acpmux-replay-button:hover{background:var(--agent-control-hover);color:var(--agent-text)}
 .acpmux-replay-button:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:2px}
-.acpmux-replay-badge{flex:none;padding:2px 7px;border-radius:4px;background:color-mix(in srgb,var(--agent-accent) 18%,transparent);color:var(--agent-accent);font-size:var(--text-caption);line-height:var(--text-caption--line-height);font-weight:600}
+.acpmux-replay-badge{flex:none;padding:2px 7px;border-radius:4px;background:color-mix(in srgb,var(--agent-accent) 18%,transparent);color:var(--agent-accent);font-size:var(--text-caption);line-height:var(--text-caption--line-height);font-weight:600;letter-spacing:var(--text-caption--letter-spacing)}
 .acpmux-replay-title{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;font-weight:500}
 .acpmux-replay-clock{flex:none;color:var(--agent-muted);font-family:var(--font-mono);font-size:var(--text-detail);font-variant-numeric:tabular-nums}
 .acpmux-replay-note{margin:24px var(--cv-inset,max(18px,calc((100% - 760px)/2)));color:var(--agent-muted)}
