@@ -99,9 +99,25 @@ writes):
   schema-3 payload, so that upgrade stops at schema 2
   (`DEVBOX_SOURCE_PROVABLE_SCHEMA`).
 
-A source change that landed before its bake is listed in `DEVBOX_AWAITING_REBAKE` (`devbox-image-common.ts`), which
-excuses exactly that drift for `devbox:manifest:check` and the manifest test, never for `promote`;
-the promotion that bakes those sources deletes the entry.
+A source change that landed before its bake is listed in `services/vms/images/awaiting-rebake.json`
+(`DEVBOX_AWAITING_REBAKE`), which excuses exactly that drift for `devbox:manifest:check` and the
+manifest test, never for `promote`; the promotion that bakes those sources deletes the entry
+(`bun scripts/devbox-rebake.ts settle`).
+
+### Rebake workflow
+
+`.github/workflows/cloud-devbox-image-rebake.yml` runs when a commit that touches the image
+sources lands on `feat-cmux-next`, and on manual dispatch (`force`, `keep`). It bakes only when a
+Freestyle default was baked from other sources than that commit's (`devbox-rebake.ts plan`),
+then promotes (bake, verify, derive every size, manifest rows), settles `awaiting-rebake.json`,
+smoke-tests the new md desktop default (its `/etc/cmux/image-stamp` and a cmux-tui round trip,
+`check-devbox-image-reachable.ts --expect-stamp`), and opens a PR from
+`devbox-rebake/<digest 12>` with the manifest diff. The version is
+`<UTC yyyymmddHHMM>-<commit 10>-<desktop source digest 12>`; every snapshot is slugged
+`cmux-devbox-ci-<version>[-<size>]` and its manifest rows carry it. Merging the PR is the
+promotion. The run then keeps the newest `keep` (default 5) rebake versions plus every manifest
+default and deletes older `cmux-devbox-ci-*` snapshots; nothing else on the account is touched.
+A digest whose `devbox-rebake/<digest 12>` branch exists is not baked again without `force`.
 
 Rollback is therefore a revert of the promotion commit as a whole, never the
 manifest flags alone.
