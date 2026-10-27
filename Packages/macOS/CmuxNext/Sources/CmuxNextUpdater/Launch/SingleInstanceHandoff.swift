@@ -18,14 +18,14 @@ import os
 /// ``hardDeadline`` from a timer off the main thread, so a blocked send cannot hold it.
 @MainActor final class SingleInstanceHandoff: NSObject, NSApplicationDelegate {
     private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "launch")
-    static let settle: Duration = .milliseconds(300)
-    static let retry: Duration = .milliseconds(250)
+    nonisolated static let settle: Duration = .milliseconds(300)
+    nonisolated static let retry: Duration = .milliseconds(250)
     /// From the start of the hand-off (before AppKit starts): when unanswered work is given up (or reopened).
-    static let deadline: TimeInterval = 4
+    nonisolated static let deadline: TimeInterval = 4
     /// From the same start: the process ends, whatever happens. Leaves the recovery after ``deadline`` its time.
-    static let hardDeadline: TimeInterval = 6
+    nonisolated static let hardDeadline: TimeInterval = 6
     /// The longest one event waits for its reply.
-    static let replyWait: TimeInterval = 1
+    nonisolated static let replyWait: TimeInterval = 1
 
     private let lock: URL
     /// ``deadline`` after the hand-off started (`run`, before AppKit): an absolute instant, so neither AppKit's
