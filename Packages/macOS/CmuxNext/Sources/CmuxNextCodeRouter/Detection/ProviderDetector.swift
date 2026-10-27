@@ -43,8 +43,8 @@ public struct ProviderDetector: Sendable {
     /// a key saved in cmux's Keychain item.
     func detectAPIKey(_ provider: AIProvider) -> ProviderDetection {
         let environmentKeys = provider.apiKeyEnvironmentKeys.compactMap { key -> (String, String)? in
-            guard let value = environment.value(key) else { return nil }
-            return (key, value)
+            guard let raw = environment.environment[key] else { return nil }
+            return (key, raw.trimmingCharacters(in: .whitespacesAndNewlines))
         }
         var sources = environmentKeys.map { DetectionSource.environment($0.0) }
         if environment.savedKeys.contains(provider) { sources.append(.cmuxKeychain) }
