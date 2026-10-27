@@ -76,7 +76,8 @@ public struct DaemonConnectionConfiguration: Sendable {
     /// thread), only with ``terminalStreams``.
     public var sizingDevice: TerminalStreamsDevice?
     /// The framed IPC upgrades the handshake asks for (``DaemonWireUpgrades``); none by default, so the
-    /// connection speaks JSON lines whatever the daemon offers.
+    /// connection speaks JSON lines whatever the daemon offers. The App's composition root sets it on the local
+    /// daemon's connection while the `ipcFrames` feature is on.
     public var wireUpgrades = DaemonWireUpgrades.none
 
     public init(

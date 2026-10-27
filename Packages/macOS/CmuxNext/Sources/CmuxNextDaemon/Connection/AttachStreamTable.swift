@@ -97,9 +97,11 @@ struct AttachStreamTable {
         announced[handle.id] = handle.epoch
     }
 
-    /// Whether the daemon knows the handle's stream from its opener's header, while this side holds the id.
+    /// Whether the daemon knows the handle's stream from its opener's header, while the stream is open on this
+    /// side (a cancelled stream is ending on the daemon, which drops INPUT on it).
     func isAnnounced(_ handle: AttachStreamHandle) -> Bool {
-        entries[handle.id]?.epoch == handle.epoch && announced[handle.id] == handle.epoch
+        guard case .open(let epoch, _)? = entries[handle.id], epoch == handle.epoch else { return false }
+        return announced[handle.id] == handle.epoch
     }
 
     /// Stops delivery to the handle's stream; the id stays taken until its `stream-end` or the reply of the

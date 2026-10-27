@@ -64,7 +64,8 @@ extension AppServices {
         daemon.start(work: work, launch: environment.launch, terminalEnvironment: environment.terminalEnvironment,
                      resolvedTerminalEnvironment: environment.resolvedTerminalEnvironment(),
                      terminalEnvironmentProvider: environment.terminalEnvironmentProvider(),
-                     resolvesShellIntegration: environment.resolvesShellIntegration, terminalStreams: CmuxNextApp.terminalStreams(features), prestart: prestart)
+                     resolvesShellIntegration: environment.resolvesShellIntegration, terminalStreams: CmuxNextApp.terminalStreams(features),
+                     wireUpgrades: CmuxNextApp.wireUpgrades(features), prestart: prestart)
     }
 }
 

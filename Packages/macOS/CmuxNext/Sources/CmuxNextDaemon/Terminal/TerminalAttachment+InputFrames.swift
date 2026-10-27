@@ -17,14 +17,31 @@ extension TerminalAttachment {
     /// INPUT (cmux-ipc frame.rs `FrameKind::Input`).
     static let inputFrameKind: UInt8 = 9
 
-    /// The stream this view's keys go to as INPUT frames: its own stream, once its `attach-surface` went as a
-    /// REQUEST frame whose header names it. The daemon takes INPUT only on a stream an opener announced that way
-    /// and closes the connection on any other (pending_streams.rs `ClientStreams::input`, p05-ipc-087). Nil sends
-    /// the keys as `send` lines: a view on a connection of its own, or a stream whose opener went as a line (no
-    /// frames granted, or the daemon does not answer `attach-surface` on frames).
-    nonisolated var inputFrameStream: UInt16? {
-        guard let stream, transport.announcedAttachStream(stream) else { return nil }
-        return stream.id
+    /// How this view's keys reach the PTY. Fixed once, when the attach reply is adopted, and never switched while
+    /// the view lives: an INPUT frame the daemon dropped on a stream that just ended (pending_streams.rs
+    /// `refuse_ended`) is never followed by a `send` line that reaches the PTY. Once the view's channel ends (it
+    /// detached; its stream ended, overflowed or was lost; its connection closed), every later key is dropped and
+    /// the view reattaches. Chrome sends an interface's messages only on the endpoint it was bound to and drops
+    /// them once that endpoint saw an error, never rerouting them through another pipe
+    /// (mojo/public/cpp/bindings/lib/interface_endpoint_client.cc, `encountered_error_`).
+    enum InputPath: Sendable, Equatable {
+        /// A stream view before its attach reply: no caller has the view yet.
+        case opening
+        /// `send {surface, bytes}` lines: a view on a connection of its own, or a stream whose opener went as a
+        /// line (no frames granted, or the daemon does not answer `attach-surface` on frames).
+        case lines
+        /// INPUT frames on the view's own stream, whose `attach-surface` went as a REQUEST frame naming it: the
+        /// daemon takes INPUT only on a stream an opener announced that way and closes the connection on any
+        /// other (pending_streams.rs `ClientStreams::input`, p05-ipc-087).
+        case frames(stream: UInt16)
+        /// The view's channel ended: keys are dropped.
+        case closed
+    }
+
+    /// The path the attach reply fixes for this view.
+    nonisolated var adoptedInputPath: InputPath {
+        guard let stream else { return .lines }
+        return transport.announcedAttachStream(stream) ? .frames(stream: stream.id) : .lines
     }
 
     /// Writes `data` as INPUT frames on `stream`, in call order with every earlier key of this view, then marks

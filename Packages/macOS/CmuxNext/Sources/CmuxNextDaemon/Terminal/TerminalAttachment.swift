@@ -66,6 +66,8 @@ public actor TerminalAttachment: TerminalByteChannel {
         var lease: String?
         var lastReported: CellSize?
         var detached = false
+        /// How keys go out (``InputPath``): set once by the attach reply, then only to `closed`.
+        var input: InputPath
         /// The daemon takes `set-size-counts` for this lease (`shared-sizing-v1`).
         var hidesInPlace = false
         /// This view's sizing participant (the attach reply's `participant`); nil until then.
@@ -78,7 +80,8 @@ public actor TerminalAttachment: TerminalByteChannel {
 
     /// A class box, so the reader thread's closure can share the mutex (a `Mutex` cannot be copied).
     final class ControlBox: Sendable {
-        let value = Mutex(Control())
+        let value: Mutex<Control>
+        init(input: InputPath) { value = Mutex(Control(input: input)) }
     }
 
     private nonisolated var control: ControlBox { delivery.control }
@@ -135,7 +138,8 @@ public actor TerminalAttachment: TerminalByteChannel {
         self.transport = transport
         self.stream = stream
         let queue = TerminalEventQueue(recorder: transport.recorder)
-        delivery = Delivery(queue: queue, control: ControlBox(), resolvedSurface: SurfaceBox(surface), decoder: transport.decoder)
+        delivery = Delivery(queue: queue, control: ControlBox(input: stream == nil ? .lines : .opening),
+                            resolvedSurface: SurfaceBox(surface), decoder: transport.decoder)
         events = AsyncStream(unfolding: { await queue.next() }, onCancel: { queue.cancel() })
     }
 
@@ -174,7 +178,10 @@ public actor TerminalAttachment: TerminalByteChannel {
                target: SurfaceID, createIntent: UInt64) async throws {
         NewTerminalTrace.shared.attachEvent(.attachReplied, surface: target.rawValue, intent: createIntent)
         let queue = queue
+        let input = adoptedInputPath
         control.value.withLock { control in
+            // A channel that ended before its reply was adopted stays closed.
+            if control.input == .opening { control.input = input }
             control.lease = response.lease
             control.lastReported = size
             control.hidesInPlace = sharedSizing
@@ -205,14 +212,20 @@ public actor TerminalAttachment: TerminalByteChannel {
     }
 
     /// Synchronous, ordered input path for Ghostty's `io_write_cb` thread. Writes from one thread reach the PTY
-    /// in call order: as INPUT frames on a framed stream (TerminalAttachment+InputFrames.swift), else `send` lines.
-    /// A key after ``detachNow()`` is dropped, as a closed connection drops it: it never follows the view's
-    /// `cancel-stream`.
+    /// in call order, on the one path the attach reply fixed (``InputPath``): INPUT frames on a framed stream
+    /// (TerminalAttachment+InputFrames.swift), else `send` lines. A key after the view's channel ended
+    /// (``detachNow()``; its stream's end, overflow or loss) is dropped: it never follows the view's
+    /// `cancel-stream`, and never goes as a line behind an INPUT frame the daemon dropped.
     public nonisolated func enqueueInput(_ data: Data) {
-        guard !data.isEmpty, !control.value.withLock({ $0.detached }) else { return }
-        let flow = TypingLatencyProbe.shared.openFlow
-        guard let stream = inputFrameStream else { return sendInputLine(data, flow: flow) }
-        sendInputFrames(data, stream: stream, flow: flow)
+        guard !data.isEmpty else { return }
+        switch control.value.withLock({ $0.input }) {
+        case .lines:
+            sendInputLine(data, flow: TypingLatencyProbe.shared.openFlow)
+        case .frames(let stream):
+            sendInputFrames(data, stream: stream, flow: TypingLatencyProbe.shared.openFlow)
+        case .opening, .closed:
+            return
+        }
     }
 
     public func resize(cols: Int, rows: Int, pixelWidth: Int, pixelHeight: Int) async {
@@ -319,6 +332,7 @@ public actor TerminalAttachment: TerminalByteChannel {
         let lease = control.value.withLock { control -> String?? in
             guard !control.detached else { return .none }
             control.detached = true
+            control.input = .closed
             return .some(control.lease)
         }
         guard case .some(let lease) = lease else { return }

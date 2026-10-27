@@ -140,7 +140,8 @@ public struct CmuxNextApp {
                                               terminalEnvironmentProvider: environment.terminalEnvironmentProvider(),
                                               resolvesShellIntegration: environment.resolvesShellIntegration,
                                               echoesPlacementShift: SidebarMirror.isLinked, wireStats: wireStats,
-                                              hangWatch: hangWatch, terminalStreams: Self.terminalStreams(features))
+                                              hangWatch: hangWatch, terminalStreams: Self.terminalStreams(features),
+                                              wireUpgrades: Self.wireUpgrades(features))
         DebugTimings.markLaunch("main.prestart")
         // The front window's picture for the first frame, read and decoded on the files lane (p08-startup-058);
         // which window is front comes from the launch snapshot, read there only when a picture was saved.
@@ -197,5 +198,15 @@ public struct CmuxNextApp {
     nonisolated static func terminalStreams(_ features: FeatureList) -> TerminalStreamsDevice? {
         guard features.isEnabled(.terminalStreams) else { return nil }
         return { await DaemonTerminalIO.sizingDevice.value }
+    }
+
+    /// The framed IPC the local daemon connection asks for while feature `ipcFrames` is on (p05-ipc-092,
+    /// p05-ipc-096): REQUEST frames from this build's method table and schema identity, and, with
+    /// `terminalStreams`, the stream grant, so a terminal view's keys go as INPUT frames on its stream. Off
+    /// asks for nothing and the connection keeps JSON lines.
+    nonisolated static func wireUpgrades(_ features: FeatureList) -> DaemonWireUpgrades {
+        guard features.isEnabled(.ipcFrames) else { return .none }
+        return DaemonWireUpgrades(frames: DaemonFrameSchema(table: .schema, identity: .built),
+                                  streams: features.isEnabled(.terminalStreams))
     }
 }

@@ -189,7 +189,7 @@ extension TerminalAttachment {
                 return
             }
             if case .closed = event {
-                queue.finish(event)
+                finish(event)
             } else {
                 if case .output = event { TypingLatencyProbe.shared.outputDecoded(flow: decoded.flow) }
                 queue.push(event)
@@ -207,11 +207,12 @@ extension TerminalAttachment {
             case .event(let name, let line):
                 deliver(name: name, line: line)
                 if queue.bufferedLiveOutputBytes > queue.highWater {
+                    // Input closes before the cancel goes out, so no key follows it.
+                    finish(.closed(.overflow))
                     owner.cancel()
-                    queue.finish(.closed(.overflow))
                 }
             case .end(let line):
-                queue.finish(.closed(Self.endReason(line, decoder: decoder)))
+                finish(.closed(Self.endReason(line, decoder: decoder)))
             case .lost(.closedByClient):
                 // The app closed the control connection, not this view: it reattaches on the next one.
                 close(.lost("control connection closed"))
@@ -223,10 +224,17 @@ extension TerminalAttachment {
         /// The view's connection or stream ended.
         func close(_ reason: TransportCloseReason) {
             switch reason {
-            case .closedByClient: queue.finish(.closed(.detachedByClient))
-            case .daemonShutdown: queue.finish(.closed(.connectionLost("daemon shut down")))
-            case .lost(let detail): queue.finish(.closed(.connectionLost(detail)))
+            case .closedByClient: finish(.closed(.detachedByClient))
+            case .daemonShutdown: finish(.closed(.connectionLost("daemon shut down")))
+            case .lost(let detail): finish(.closed(.connectionLost(detail)))
             }
+        }
+
+        /// Ends the view's channel after `last`, and its input with it (``InputPath/closed``): a key typed from
+        /// now on is dropped, never sent on another path.
+        private func finish(_ last: TerminalChannelEvent) {
+            control.value.withLock { $0.input = .closed }
+            queue.finish(last)
         }
 
         /// Passes `state` on with this view's participant, newest generation only. The participant is

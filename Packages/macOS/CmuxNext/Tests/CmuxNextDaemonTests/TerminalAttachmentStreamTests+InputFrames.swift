@@ -7,7 +7,8 @@ import Testing
 /// A stream view's keys as INPUT frames (p05-ipc-096): raw bytes behind a 16-byte header, no JSON and no
 /// base64, in call order, on a stream whose `attach-surface` went as a REQUEST frame naming it, as the daemon
 /// takes INPUT only on such a stream (pending_streams.rs, p05-ipc-087). A view on a connection of its own, or a
-/// stream whose opener went as a line, keeps `send` lines. A refused INPUT frame ends the connection.
+/// stream whose opener went as a line, keeps `send` lines. The path is fixed at the attach reply; once the view's
+/// channel ends, its keys are dropped, never sent as lines. A refused INPUT frame ends the connection.
 extension TerminalAttachmentStreamTests {
     /// The peer end of one transport: a Unix socket in `/tmp` that cuts what the app writes with the same
     /// reader the daemon uses (cmux-ipc reader.rs, ported in CmuxNextIPC's ``FrameReader``) and keeps the
@@ -130,7 +131,41 @@ extension TerminalAttachmentStreamTests {
             return messages
         }
 
-        private func send(line object: [String: Any]) throws {
+        /// Writes `bytes` of live output on `stream` in 64 KiB chunks, tagged as the daemon tags a stream's items.
+        func sendOutput(stream: UInt16, surface: SurfaceID, bytes: Int) throws {
+            let chunk = 64 << 10
+            var sent = 0
+            while sent < bytes {
+                let size = min(chunk, bytes - sent)
+                try send(line: ["stream": Int(stream), "event": "output", "surface": Int(surface.rawValue),
+                                "data": Data(repeating: UInt8(ascii: "o"), count: size).base64EncodedString()])
+                sent += size
+            }
+        }
+
+        /// Answers the request line `message` with `ok` and `data`.
+        func reply(to message: FrameReader.Message, data: [String: Any]) throws {
+            guard case .json(let bytes) = message else { throw POSIXError(.EBADMSG) }
+            let body = try #require(try JSONSerialization.jsonObject(with: Data(bytes)) as? [String: Any])
+            try send(line: ["id": try #require(body["id"] as? Int), "ok": true, "data": data])
+        }
+
+        /// Reads up to the request line `cmd`, answers it with `ok` and `data`, and returns what came before it.
+        func answer(_ cmd: String, data: [String: Any]) throws -> [FrameReader.Message] {
+            var before: [FrameReader.Message] = []
+            while true {
+                let message = try #require(try messages(1).first)
+                if case .json(let bytes) = message,
+                   let body = try JSONSerialization.jsonObject(with: Data(bytes)) as? [String: Any],
+                   body["cmd"] as? String == cmd {
+                    try reply(to: message, data: data)
+                    return before
+                }
+                before.append(message)
+            }
+        }
+
+        func send(line object: [String: Any]) throws {
             var line = try JSONSerialization.data(withJSONObject: object)
             line.append(0x0A)
             try write(line)
@@ -302,6 +337,82 @@ extension TerminalAttachmentStreamTests {
         #expect(cancel["cmd"] as? String == CancelStreamRequest.command)
         #expect(cancel["stream"] as? Int == Int(stream))
         #expect(try Self.json(messages[1])["marker"] as? Bool == true)
+    }
+
+    /// Red while the path was chosen per key: a cancelled stream still counted as announced (its keys went as
+    /// INPUT, which the daemon drops on an ended stream) and a released one fell back to `send` lines, which
+    /// reach the PTY. A view that overflows closes its input with its channel: the key typed before the overflow
+    /// went as INPUT, and keys typed between the `cancel-stream` and its reply, or after the id is free, reach
+    /// the peer in no form. So no `send` line follows an INPUT the daemon may have dropped.
+    @Test func keysAfterAnOverflowAreDroppedNeverSentAsLines() async throws {
+        let peer = try InputPeer()
+        let transport = try peer.transport(grants: DaemonWireGrants(frames: true, streams: true), framing: Self.framing)
+        defer { transport.close() }
+        let (view, opener) = try await Self.streamView(on: transport, peer: peer)
+        #expect(opener.framed)
+        let stream = opener.headerStream
+        view.enqueueInput(Data("a".utf8))
+        // Past the view queue's 8 MiB high water, with nobody reading the view.
+        try peer.sendOutput(stream: stream, surface: Self.viewSurface, bytes: 9 << 20)
+        let early = try peer.messages(2)
+        #expect(Self.inputPayload(early[0]) == Data("a".utf8))
+        let cancel = try Self.json(early[1])
+        #expect(cancel["cmd"] as? String == CancelStreamRequest.command)
+        #expect(cancel["stream"] as? Int == Int(stream))
+
+        view.enqueueInput(Data("b".utf8))
+        try peer.reply(to: early[1], data: ["stream": Int(stream), "outcome": "applied"])
+        // One round trip behind that reply: once it returns, the reader has released the id.
+        async let probe = DaemonConnection.perform(CancelStreamRequest(stream: 999), on: transport)
+        let strays = try peer.answer(CancelStreamRequest.command, data: ["stream": 999, "outcome": "ended"])
+        _ = try await probe
+        #expect(strays.isEmpty, "a key typed after the overflow reached the peer: \(strays)")
+        #expect(transport.attachStreamCount == 0)
+
+        view.enqueueInput(Data("c".utf8))
+        #expect(transport.sendLine(Data(#"{"marker":true}"#.utf8)))
+        #expect(try Self.json(try #require(try peer.messages(1).first))["marker"] as? Bool == true)
+        #expect(await Self.endReason(of: view) == .overflow)
+    }
+
+    /// Red while the daemon's `stream-end` cleared the announcement (the next key went as a `send` line, behind
+    /// INPUT frames the daemon dropped on the ended stream): the key before the end went as INPUT, and a key
+    /// after the view saw its end reaches the peer in no form.
+    @Test func keysAfterTheDaemonEndsTheStreamAreDroppedNeverSentAsLines() async throws {
+        let peer = try InputPeer()
+        let transport = try peer.transport(grants: DaemonWireGrants(frames: true, streams: true), framing: Self.framing)
+        defer { transport.close() }
+        let (view, opener) = try await Self.streamView(on: transport, peer: peer)
+        #expect(opener.framed)
+        let stream = opener.headerStream
+        view.enqueueInput(Data("a".utf8))
+        #expect(Self.inputPayload(try #require(try peer.messages(1).first)) == Data("a".utf8))
+        try peer.send(line: ["stream": Int(stream), "event": "stream-end", "reason": "detached"])
+        #expect(await Self.endReason(of: view) == .surfaceGone)
+        #expect(transport.attachStreamCount == 0)
+
+        view.enqueueInput(Data("b".utf8))
+        #expect(transport.sendLine(Data(#"{"marker":true}"#.utf8)))
+        #expect(try Self.json(try #require(try peer.messages(1).first))["marker"] as? Bool == true)
+    }
+
+    /// A cancelled stream is ending on the daemon, so it no longer counts as announced.
+    @Test func aCancelledStreamIsNotAnnounced() throws {
+        var table = AttachStreamTable()
+        let handle = try #require(table.reserve())
+        let bound = table.bind(handle, { _ in })
+        #expect(bound)
+        table.announce(handle)
+        #expect(table.isAnnounced(handle))
+        let cancelled = table.cancel(handle)
+        #expect(cancelled)
+        #expect(!table.isAnnounced(handle))
+    }
+
+    /// The payload of an INPUT frame; nil for any other message.
+    private static func inputPayload(_ message: FrameReader.Message) -> Data? {
+        guard case .frame(let frame) = message, frame.header.kind == TerminalAttachment.inputFrameKind else { return nil }
+        return Data(frame.payload)
     }
 
     /// Red while a refusal was only logged (the next key went out behind the missing one): an INPUT frame the
