@@ -14,10 +14,11 @@ struct CloudCredentialRecoveryTests {
             (#"{"restarted":0,"after_turn":0,"failed":1,"errors":[{"error":"private diagnostic"}]}"#, false),
             (#"{"restarted":1}"#, false), ("invalid", false),
         ] {
-            #expect(try await CloudPresenter.restartCredentialSession("chat-1", exec: { command in
+            let recovered = try await CloudPresenter.restartCredentialSession("chat-1", exec: { command in
                 #expect(command.contains("acp --json session restart 'chat-1'"))
                 return CloudExecResult(exitCode: 0, stdout: reply, stderr: "private diagnostic")
-            }) == accepted)
+            })
+            #expect(recovered == accepted)
         }
         #expect(try await !CloudPresenter.restartCredentialSession("chat-1", exec: { _ in
             CloudExecResult(exitCode: 1, stdout: #"{"restarted":1,"after_turn":0,"failed":0}"#, stderr: "")
