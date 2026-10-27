@@ -1,4 +1,3 @@
-public import CmuxNextDaemon
 public import CmuxNextMetrics
 public import CmuxNextWakeups
 
@@ -7,95 +6,136 @@ public import CmuxNextWakeups
 /// hang report is built. No timer and no observer of its own: the app's one resign and become-active subscription
 /// (`AppServices.startIdleWakeups`) and the hang reports' triggers call it.
 ///
-/// The pids come from known sources only, never a scan of process names:
-/// - this process and its Chromium helpers by type (`localProcesses`, the app's own child list, off the main thread);
-/// - the local daemon (`daemonPID`, its `identify` reply);
-/// - the daemon's children, terminal hosts and acpmux, from the daemon's own status (`trace-status`,
-///   ``TraceStatusRequest``). One trace control call runs at a time in the daemon, so that list is asked for only at a
-///   report, and the transitions between two reports reuse the last one (a pid that ended reads as unreadable).
+/// The pids come from known sources only, never a scan of processes (``Sources``): what the main thread knows (the
+/// local daemon's `identify` pid, the connected browser host's, the Chromium host's), what only an answer names (the
+/// daemon's terminal hosts, acpmux and its agent hosts), and the app's own children listed on the lane (this process's
+/// Chromium helpers by type, the Chromium host's helpers).
 ///
-/// The reads and the recording (``ProcessResourceSampler``) run on a background lane; the main thread only numbers
-/// the transition and hands over the pid list.
+/// Order: every sample, transitions and reports alike, goes through one queue that one task takes in post order (a
+/// `SequencedTaskRunner`, base/task/sequenced_task_runner.h), and each sample's reads are awaited, so the startup fence
+/// never holds one behind a later one. A report so never overtakes a queued become-active, and an idle period is never
+/// open while the app is active.
+///
+/// Asking: a resign and a report ask the sources that need an answer; a become-active asks nothing and reuses the
+/// last answers, so the daemon gets no request at the moment the person comes back to type (an idle period counts only
+/// the processes known at both of its ends anyway). A source that does not answer keeps its last answer.
+///
+/// The asks are awaited and the reads and the recording (``ProcessResourceSampler``) run on the `system` lane; the
+/// main thread only numbers the transition, reads ``Sources/current`` and queues it.
 @MainActor public final class ProcessResources {
     public typealias KnownProcess = ProcessResourceSampler.KnownProcess
 
+    /// Where the pids come from (the tests' seam).
+    public struct Sources: Sendable {
+        /// What the main thread knows now: the local daemon's pid (its `identify` reply), the connected browser host's,
+        /// the Chromium host's.
+        public var current: @MainActor @Sendable () -> [KnownProcess]
+        /// The processes only an answer names, one source each: the daemon's terminal hosts, acpmux and its agent
+        /// hosts. Nil: the source did not answer, and its last answer stays.
+        public var asked: [@Sendable () async -> [KnownProcess]?]
+        /// This process and the app's children among and under `known` (its Chromium helpers by type, the Chromium
+        /// host's). Blocking system calls: it runs on the lane.
+        public var listed: @Sendable (_ known: [KnownProcess]) -> [KnownProcess]
+
+        public init(current: @escaping @MainActor @Sendable () -> [KnownProcess], asked: [@Sendable () async -> [KnownProcess]?],
+                    listed: @escaping @Sendable (_ known: [KnownProcess]) -> [KnownProcess]) {
+            self.current = current
+            self.asked = asked
+            self.listed = listed
+        }
+    }
+
+    /// One queued sample.
+    private struct Request: Sendable {
+        var transition: ProcessResourceSampler.Transition
+        /// Whether it asks ``Sources/asked`` first.
+        var asks: Bool
+        var priority: WorkPriority
+        var current: [KnownProcess]
+        /// Called once it is recorded (or dropped), with what it recorded.
+        var recorded: (@Sendable (ProcessResourceSampler.Sample?) -> Void)?
+    }
+
     /// Reads and records the samples.
     public let sampler: ProcessResourceSampler
-    private let work: BackgroundWork
-    private let localProcesses: @Sendable () -> [KnownProcess]
-    private let daemonPID: @MainActor () -> Int32?
-    private let daemonStatus: @MainActor () async -> TraceStatusRequest.Response?
-    /// The daemon's children from its last status answer.
-    private var daemonChildren: [KnownProcess] = []
-    /// The last transition's number: the sampler drops one that runs after a later one.
+    private let sources: Sources
+    private let requests: AsyncStream<Request>.Continuation
+    /// The last transition's number: the sampler drops one older than one it applied.
     private var sequence: UInt64 = 0
+    /// The most samples that wait at once; a sample past it is not taken (a report's then returns nil). Transitions
+    /// come at the person's pace, so a full queue means its task is not running (quit).
+    private static let queueLimit = 64
 
     /// - Parameters:
     ///   - sampler: Reads and records the samples.
-    ///   - work: Runs the reads (lane `system`).
-    ///   - localProcesses: This process and its Chromium helpers, off the main thread.
-    ///   - daemonPID: The local daemon's pid now; nil without one.
-    ///   - daemonStatus: The local daemon's `trace-status`; nil without a local daemon or when it did not answer.
-    public init(sampler: ProcessResourceSampler = ProcessResourceSampler(), work: BackgroundWork,
-                localProcesses: @escaping @Sendable () -> [KnownProcess], daemonPID: @escaping @MainActor () -> Int32?,
-                daemonStatus: @escaping @MainActor () async -> TraceStatusRequest.Response?) {
+    ///   - work: Runs the queue's task and the reads (lane `system`).
+    ///   - sources: Where the pids come from.
+    public init(sampler: ProcessResourceSampler = ProcessResourceSampler(), work: BackgroundWork, sources: Sources) {
         self.sampler = sampler
-        self.work = work
-        self.localProcesses = localProcesses
-        self.daemonPID = daemonPID
-        self.daemonStatus = daemonStatus
+        self.sources = sources
+        let (stream, requests) = AsyncStream<Request>.makeStream(bufferingPolicy: .bufferingOldest(Self.queueLimit))
+        self.requests = requests
+        // task-owner: the samples' one queue, for this object's life: deinit finishes the stream and quit cancels it.
+        work.task(.bestEffort) { [sampler, sources] in
+            await ProcessResources.take(stream, sampler: sampler, sources: sources, work: work)
+        }
+    }
+
+    deinit {
+        requests.finish()
     }
 
     /// The app stopped being the active app: an idle period opens.
     public func appDidResignActive() {
-        post(.resignActive)
+        enqueue(.resignActive, asks: true, priority: .bestEffort)
     }
 
     /// The app became the active app: the idle period records.
     public func appDidBecomeActive() {
-        post(.becomeActive)
+        enqueue(.becomeActive, asks: false, priority: .bestEffort)
     }
 
-    /// A sample before a report is built, with the daemon's children asked for again: returns once it is recorded,
-    /// so the report carries it.
-    public func sampleNow() async {
-        if let status = await daemonStatus() { daemonChildren = Self.children(of: status) }
-        let transition = next(.report), known = knownNow(), local = localProcesses, sampler = sampler
-        _ = try? await work.run(.userVisible, mayBlock: .system) {
-            sampler.sample(local() + known, at: transition)
+    /// A sample before a report is built, after every sample queued before it: returns once it is recorded, so the
+    /// report carries it, with what it recorded (nil when it could not run).
+    @discardableResult
+    public func sampleNow() async -> ProcessResourceSampler.Sample? {
+        let (recorded, done) = AsyncStream<ProcessResourceSampler.Sample?>.makeStream(bufferingPolicy: .bufferingNewest(1))
+        enqueue(.report, asks: true, priority: .userVisible) { sample in
+            done.yield(sample)
+            done.finish()
         }
+        for await sample in recorded { return sample }
+        return nil
     }
 
-    /// One transition's sample on the background lane, at best effort.
-    private func post(_ trigger: ProcessResourceSampler.Trigger) {
-        let transition = next(trigger), known = knownNow(), local = localProcesses, sampler = sampler
-        work.post(.bestEffort, mayBlock: .system) {
-            _ = sampler.sample(local() + known, at: transition)
-        }
-    }
-
-    private func next(_ trigger: ProcessResourceSampler.Trigger) -> ProcessResourceSampler.Transition {
+    private func enqueue(_ trigger: ProcessResourceSampler.Trigger, asks: Bool, priority: WorkPriority,
+                         recorded: (@Sendable (ProcessResourceSampler.Sample?) -> Void)? = nil) {
         sequence &+= 1
-        return ProcessResourceSampler.Transition(trigger: trigger, sequence: sequence)
+        let request = Request(transition: .init(trigger: trigger, sequence: sequence), asks: asks, priority: priority,
+                              current: sources.current(), recorded: recorded)
+        switch requests.yield(request) {
+        case .enqueued: break
+        case .dropped, .terminated: recorded?(nil)
+        @unknown default: recorded?(nil)
+        }
     }
 
-    /// The daemon and its children as known now.
-    private func knownNow() -> [KnownProcess] {
-        guard let pid = daemonPID(), pid > 0 else { return daemonChildren }
-        return [KnownProcess(kind: .daemon, pid: pid)] + daemonChildren
-    }
-
-    /// The terminal hosts, the holder and acpmux of a `trace-status` answer, each with a pid (the daemon's own entry
-    /// is left out: its pid comes from `identify`).
-    public nonisolated static func children(of status: TraceStatusRequest.Response) -> [KnownProcess] {
-        status.processes.compactMap { process in
-            guard let pid = process.pid, pid > 0 else { return nil }
-            switch process.role {
-            case "terminal-host": return KnownProcess(kind: .host, pid: pid)
-            case "holder": return KnownProcess(kind: .holder, pid: pid)
-            case "acpmux": return KnownProcess(kind: .acpmux, pid: pid)
-            default: return nil
+    /// Takes the queue in order, one sample at a time, until it finishes.
+    private nonisolated static func take(_ stream: AsyncStream<Request>, sampler: ProcessResourceSampler, sources: Sources,
+                                         work: BackgroundWork) async {
+        var answers: [[KnownProcess]] = sources.asked.map { _ in [] }
+        for await request in stream {
+            if request.asks {
+                var fresh: [[KnownProcess]] = []
+                for (ask, last) in zip(sources.asked, answers) { fresh.append(await ask() ?? last) }
+                answers = fresh
             }
+            let known = request.current + answers.joined()
+            let listed = sources.listed, transition = request.transition
+            let sample = try? await work.run(request.priority, mayBlock: .system) {
+                sampler.sample(listed(known) + known, at: transition)
+            }
+            request.recorded?(sample)
         }
     }
 }

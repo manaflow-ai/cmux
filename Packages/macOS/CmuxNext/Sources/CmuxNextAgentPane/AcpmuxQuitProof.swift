@@ -41,23 +41,16 @@ public nonisolated struct AcpmuxQuitProof {
     public static func read(home: URL) -> Facts {
         // concurrency-allow: nonisolated; the app calls it only from @concurrent AcpmuxQuit paths, off the main actor
         let pidText = try? String(contentsOf: home.appendingPathComponent("daemon.pid"), encoding: .utf8)
-        let hostsDir = home.appendingPathComponent("hosts", isDirectory: true)
-        let files = (try? FileManager.default.contentsOfDirectory(at: hostsDir, includingPropertiesForKeys: nil)) ?? []
         var live: [String] = []
         var unknown: [String] = []
-        for file in files where file.pathExtension == "json" {
-            let fallback = file.deletingPathExtension().lastPathComponent
-            // concurrency-allow: nonisolated; the app calls it only from @concurrent AcpmuxQuit paths, off the main actor
-            guard let data = try? Data(contentsOf: file),
-                  let record = try? JSONSerialization.blockingJSONObject(with: data) as? [String: Any],
-                  let session = record["session_id"] as? String,
-                  let nonce = record["start_nonce"] as? String, isPathComponent(session), isPathComponent(nonce) else {
-                unknown.append(fallback)
+        for (file, record) in hostRecords(home: home) {
+            guard let record else {
+                unknown.append(file.deletingPathExtension().lastPathComponent)
                 continue
             }
-            switch lockState(hostsDir.appendingPathComponent("\(session).\(nonce).live")) {
-            case .held: live.append(session)
-            case .unknown: unknown.append(session)
+            switch lockState(record.lock) {
+            case .held: live.append(record.session)
+            case .unknown: unknown.append(record.session)
             case .free: break
             }
         }
@@ -78,6 +71,40 @@ public nonisolated struct AcpmuxQuitProof {
         let running = Set(facts.liveHostSessions + facts.unknownHostSessions).subtracting(chief).sorted()
         if !running.isEmpty { return .agentsStillRunning(running) }
         return daemonExited || socketWasSeenAtCensus ? .ended : .noDaemon
+    }
+
+    /// The pids of `home`'s agent hosts whose liveness lock is held: each record's `host_pid`, which the held lock
+    /// proves is that host and not a reused pid. The resource samples read them (p09-observability-121). Blocking
+    /// file reads and lock probes: call it on a lane. A probe of a held lock fails at once and changes nothing.
+    public static func liveHostPIDs(home: URL) -> [Int32] {
+        hostRecords(home: home).compactMap { _, record in
+            guard let record, let pid = record.pid, pid > 0, lockState(record.lock) == .held else { return nil }
+            return pid
+        }
+    }
+
+    /// One agent host's record: its session, its liveness lock and its `host_pid`.
+    private nonisolated struct HostRecord {
+        var session: String
+        var lock: URL
+        var pid: Int32?
+    }
+
+    /// Each `hosts/*.json` record of `home`; nil for one that could not be read.
+    private static func hostRecords(home: URL) -> [(file: URL, record: HostRecord?)] {
+        let hostsDir = home.appendingPathComponent("hosts", isDirectory: true)
+        let files = (try? FileManager.default.contentsOfDirectory(at: hostsDir, includingPropertiesForKeys: nil)) ?? []
+        return files.filter { $0.pathExtension == "json" }.map { file in
+            // concurrency-allow: nonisolated; called only off the main actor (the @concurrent AcpmuxQuit paths, the resource samples' files lane)
+            guard let data = try? Data(contentsOf: file),
+                  let record = try? JSONSerialization.blockingJSONObject(with: data) as? [String: Any],
+                  let session = record["session_id"] as? String,
+                  let nonce = record["start_nonce"] as? String, isPathComponent(session), isPathComponent(nonce) else {
+                return (file, nil)
+            }
+            let pid = (record["host_pid"] as? NSNumber).map { Int32(truncating: $0) }
+            return (file, HostRecord(session: session, lock: hostsDir.appendingPathComponent("\(session).\(nonce).live"), pid: pid))
+        }
     }
 
     /// Waits (bounded, no polling) until daemon.lock is free: the kernel exit

@@ -1,4 +1,5 @@
 import CmuxNextAgentPane
+import CmuxNextCompat
 import CmuxNextDaemon
 import Foundation
 import os
@@ -12,10 +13,15 @@ enum QuitAgents {
     /// a mock agent host or has no acpmux binary. A DEV build with
     /// `CMUX_NEXT_ACPMUX_ATTACH` gets that home's daemon instead, attached (never its own).
     static func environment(_ services: AppServices) -> AcpmuxEnvironment? {
+        environment(build: services.environment.build, showcase: services.environment.showcase)
+    }
+
+    /// ``environment(_:)`` from the app's build and showcase flag, callable off the main thread (the resolve checks
+    /// the executable's signature: the resource samples run it on a lane).
+    nonisolated static func environment(build: BuildIdentity?, showcase: Bool) -> AcpmuxEnvironment? {
         let variables = ProcessInfo.processInfo.environment
-        if services.environment.showcase || variables["CMUX_NEXT_AGENT_PANE_MOCK"] == "1" { return nil }
+        if showcase || variables["CMUX_NEXT_AGENT_PANE_MOCK"] == "1" { return nil }
         let bin = Bundle.main.resourceURL?.appendingPathComponent("bin", isDirectory: true)
-        let build = services.environment.build
         let own = AcpmuxEnvironment.resolve(build: build, bundledBinDirectory: bin, environment: variables)
         guard let home = AcpmuxEnvironment.attachHome(build: build, environment: variables) else { return own }
         return own?.attached(to: home)

@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextAgentPane
 import CmuxNextBrowser
 import CmuxNextCompat
 import CmuxNextControl
@@ -26,13 +27,15 @@ enum WatchdogReporting {
             capture: { [weak services] in services.map(WatchdogReporting.hiddenWorkspaceCapture) ?? .init() },
             rendererPIDs: { Dictionary(AppProcesses.tabRendererClients().map { pid, client in (client, pid) }, uniquingKeysWith: { first, _ in first }) })
         // Per-process memory, CPU and idle disk writes (p09-observability-121), over known pids only.
-        let resources = ProcessResources(
-            work: services.work, localProcesses: { [ProcessResources.KnownProcess(kind: .app, pid: getpid())] + ChromiumHelperProcess.resourceProcesses() },
-            daemonPID: { [weak services] in services?.daemon.identity?.pid },
-            daemonStatus: { [weak services] in
-                guard let daemon = services?.daemon, daemon.isLocal, let connection = daemon.connection else { return nil }
-                return try? await connection.request(TraceStatusRequest(), timeout: .seconds(2))
-            })
+        let build = services.environment.build, showcase = services.environment.showcase
+        let acpmux = AcpmuxResourceProcesses(work: services.work) { QuitAgents.environment(build: build, showcase: showcase) }
+        let resources = ProcessResources(work: services.work, sources: ProcessResources.Sources(
+            current: { [weak services] in services.map(WatchdogReporting.knownProcesses) ?? [] },
+            asked: [{ @MainActor [weak services] in
+                guard let services else { return [] }
+                return await services.daemon.terminalHostPIDs().map { pids in pids.map { ProcessResources.KnownProcess(kind: .host, pid: $0) } }
+            }, { await acpmux.processes() }],
+            listed: { ChromiumHelperProcess.appResourceProcesses(known: $0) }))
         let hangReports = HangReportsController.forThisLaunch(
             policy: reporter.policy, folder: SidebarSnapshotFile.buildDirectory(launch: services.environment.launch)
                 .appending(path: "HangReports", directoryHint: .isDirectory),
@@ -140,6 +143,20 @@ enum WatchdogReporting {
         case is HibernatedBrowserTab, is DeferredBrowserTab: []
         default: nil
         }
+    }
+
+    /// The resource samples' processes the main thread knows (task 121): the local daemon's `identify` pid, the
+    /// connected browser host's and, in host mode, the Chromium host's.
+    static func knownProcesses(_ services: AppServices) -> [ProcessResources.KnownProcess] {
+        var known: [ProcessResources.KnownProcess] = []
+        if services.daemon.isLocal, let pid = services.daemon.identity?.pid, pid > 0 { known.append(.init(kind: .daemon, pid: pid)) }
+        if let pid = services.browserHost?.provider.connectedHostPID { known.append(.init(kind: .browserHost, pid: pid)) }
+        #if DEBUG || CMUX_BENCH_HOOKS
+        if let pid = (services.chromiumRuntime.source.hostSupervisor as? ChromiumHostSupervisor)?.hostPID {
+            known.append(.init(kind: .chromiumHost, pid: pid))
+        }
+        #endif
+        return known
     }
 
     nonisolated static func nanos(_ duration: Duration) -> UInt64 {

@@ -10,6 +10,12 @@ extension AcpmuxEnvironment {
         return try? JSONSerialization.data(withJSONObject: verdict)
     }
 
+    /// This daemon's pid from its own `_acpmux/status`, or nil when no daemon answers. It never starts a daemon. The
+    /// resource samples read it (p09-observability-121).
+    public nonisolated func daemonPID(deadline: Duration = .seconds(2)) async -> Int32? {
+        try? await AcpmuxStatusClient.status(socketPath: socketPath, deadline: deadline).pid
+    }
+
     /// Stops a session's agent process and keeps the session to resume
     /// (`_acpmux/kill` without purge, `acpmux session stop`).
     public nonisolated func stopSession(id: String, deadline: Duration = .seconds(5)) async throws {

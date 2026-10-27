@@ -63,6 +63,26 @@ struct AcpmuxQuitProofTests {
         }
     }
 
+    /// Task 121's agent hosts: a record's `host_pid` counts only while its liveness lock is held, so a record a dead
+    /// host left (its pid maybe reused) names nothing.
+    @Test func liveHostPIDsAreTheRecordsWithAHeldLock() throws {
+        let home = try Home()
+        defer { home.remove() }
+        let hosts = home.url.appendingPathComponent("hosts")
+        for (session, nonce, pid) in [("live", "aa11", 111), ("dead", "bb22", 222)] {
+            let record = #"{"session_id":"\#(session)","start_nonce":"\#(nonce)","host_pid":\#(pid)}"#
+            try Data(record.utf8).write(to: hosts.appendingPathComponent("\(session).json"))
+        }
+        try Data("{".utf8).write(to: hosts.appendingPathComponent("broken.json"))
+        let lock = open(hosts.appendingPathComponent("live.aa11.live").path, O_RDWR | O_CREAT | O_CLOEXEC, 0o600)
+        #expect(lock >= 0)
+        defer { close(lock) }
+        #expect(flock(lock, LOCK_EX | LOCK_NB) == 0)
+
+        #expect(AcpmuxQuitProof.liveHostPIDs(home: home.url) == [111])
+        #expect(AcpmuxQuitProof.read(home: home.url).liveHostSessions == ["live"], "the quit proof reads the same records")
+    }
+
     @Test func aStaleSocketWithAFreeLockIsNoDaemonOnEveryAttempt() async throws {
         let home = try Home()
         defer { home.remove() }
