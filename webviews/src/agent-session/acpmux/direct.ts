@@ -78,6 +78,8 @@ import { chatTools, toolApplied, type ToolApplied } from "./summary/chatTools";
 import { taskGoal } from "./goal";
 import { recordedConversationEvents } from "./conversation/exportEvents";
 import { onPageLifecycleChange, pageIsActive } from "../../pages/shared/pageLifecycle";
+import type { PagePollSeams } from "../../pages/shared/pagePoll";
+import { RetryBackoff } from "../../pages/shared/retryBackoff";
 
 export type AcpmuxHostConfig = {
   protocolVersion: number;
@@ -1227,8 +1229,9 @@ export class AcpmuxDirectClient {
   private peerConnected: Record<string, boolean> = {};
   /// Each peer's link state, last-seen time and failed attempts, for why a chat is not listed.
   private peerStatus: Record<string, PeerStatus> = {};
-  private reconnectTimer?: number;
-  private reconnectDelay = 250;
+  /// The reconnect's backoff, which rests while the page is hidden and tries once on show
+  /// (retryBackoff.ts, p13-webui-069).
+  private readonly reconnect: RetryBackoff;
   /// Called once when an established connection drops. The host then asks Swift
   /// for a fresh handshake, because a restarted daemon has a new port and token.
   private readonly onLost?: () => void;
@@ -1272,7 +1275,10 @@ export class AcpmuxDirectClient {
     private readonly gitRoute: GitRoute = "native",
     /// Every message on the socket and its lifecycle, for the ACP inspector (wire.ts).
     private readonly wire: AcpWireLog = acpWire,
+    /// The page's lifecycle and timers for the reconnect backoff, or a test's fakes.
+    pollSeams: PagePollSeams = {},
   ) {
+    this.reconnect = new RetryBackoff({ ...pollSeams, firstMs: 250, maxMs: 30_000 });
     this.host = host;
     this.listener = listener;
     this.onLost = onLost;
@@ -1382,8 +1388,9 @@ export class AcpmuxDirectClient {
     openSocket?: OpenSocket,
     gitRoute?: GitRoute,
     wire?: AcpWireLog,
+    pollSeams?: PagePollSeams,
   ): Promise<AcpmuxDirectClient> {
-    const client = new AcpmuxDirectClient(host, listener, onLost, openSocket, gitRoute, wire);
+    const client = new AcpmuxDirectClient(host, listener, onLost, openSocket, gitRoute, wire, pollSeams);
     await client.open();
     return client;
   }
@@ -1579,7 +1586,7 @@ export class AcpmuxDirectClient {
         await this.adoptChat(this.host.adopt);
       }
       this.hasConnected = true;
-      this.reconnectDelay = 250;
+      this.reconnect.reset();
       this.wire.lifecycle("connected", {
         sessionId: this.selectedSessionId,
         sessions: this.sessions.length,
@@ -1737,14 +1744,9 @@ export class AcpmuxDirectClient {
   }
 
   private scheduleReconnect(): void {
-    if (this.reconnectTimer !== undefined || this.closed) return;
-    const delay = this.reconnectDelay;
-    this.reconnectDelay = Math.min(delay * 2, 30_000);
-    this.wire.lifecycle("reconnect scheduled", { delayMs: delay });
-    this.reconnectTimer = window.setTimeout(() => {
-      this.reconnectTimer = undefined;
-      void this.open().catch(() => this.scheduleReconnect());
-    }, delay);
+    if (this.reconnect.waiting || this.closed) return;
+    this.wire.lifecycle("reconnect scheduled", { delayMs: this.reconnect.nextMs });
+    this.reconnect.schedule(() => void this.open().catch(() => this.scheduleReconnect()));
   }
 
   private receive(raw: string): void {
@@ -5634,8 +5636,7 @@ export class AcpmuxDirectClient {
     this.stopTimer = undefined;
     this.unobserveLifecycle();
     if (typeof window !== "undefined") window.removeEventListener("pagehide", this.pageWentAway);
-    if (this.reconnectTimer !== undefined) window.clearTimeout(this.reconnectTimer);
-    this.reconnectTimer = undefined;
+    this.reconnect.cancel();
     this.permissions.disconnected();
     this.socket?.close();
     this.socket = undefined;
