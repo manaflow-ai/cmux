@@ -91,6 +91,7 @@ pub(super) fn wait(
 }
 
 fn seen(receiver: &MuxEventReceiver, remaining: Duration) -> Seen {
+    // wakeup-allow: deadline the one startup budget, never extended; the gate thread ends at it
     match receiver.recv_timeout(remaining) {
         Ok(MuxEvent::ClientAttached { .. }) => Seen::ClientAttached,
         Ok(_) => Seen::Other,
