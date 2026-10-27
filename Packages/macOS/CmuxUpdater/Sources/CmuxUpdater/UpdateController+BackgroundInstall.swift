@@ -153,14 +153,4 @@ extension UpdateController {
         get { driver.skipsBuildsThrough }
         set { driver.skipsBuildsThrough = newValue }
     }
-
-    /// How long after its `pubDate` an update that lists no Sparkle deltas is held back from a
-    /// scheduled check, so the delta its feed lists minutes later is downloaded instead of the
-    /// full archive. A held update is taken by the next scheduled check either way, and a check
-    /// the person starts never waits. Nil (the default) offers every update at once; set it only
-    /// for a feed that lists deltas after the full archive (the cmux-next nightly).
-    public var pendingDeltaWindow: TimeInterval? {
-        get { driver.pendingDeltaWait?.window }
-        set { driver.pendingDeltaWait = newValue.map(PendingDeltaWait.init(window:)) }
-    }
 }

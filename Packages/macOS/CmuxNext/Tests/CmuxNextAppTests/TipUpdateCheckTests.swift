@@ -63,7 +63,7 @@ import CmuxNextWakeupsTestSupport
 
     /// A started updater on build 100 with nothing found yet; the person's interval is an hour.
     static func make(_ identity: UpdateBuildIdentity = tip, checkAutomatically: Bool = true, held: Bool = false,
-                     xml: String = feed, deltaWindow: TimeInterval? = nil) -> Harness {
+                     xml: String = feed) -> Harness {
         let defaults = UserDefaults(suiteName: "TipUpdateCheckTests.\(UUID().uuidString)")!
         let clock = ManualClock()
         let feed = Base.CountingFeed(xml: xml, held: held)
@@ -82,7 +82,6 @@ import CmuxNextWakeupsTestSupport
         updater.stagedRefresh.startCheck = { sparkle.backgroundChecks += 1 }
         updater.tipCheck.startCheck = { checks.count += 1 }
         updater.tipCheck.downloadsInBackground = { checks.downloads }
-        updater.tipCheck.deltaWindow = deltaWindow
         updater.configure(checkAutomatically: checkAutomatically, checkInterval: 3600, downloadAutomatically: true, ring: "nightly")
         updater.start()
         return Harness(updater: updater, clock: clock, feed: feed, sparkle: sparkle, policy: policy, checks: checks)
@@ -128,7 +127,7 @@ import CmuxNextWakeupsTestSupport
     /// A NIGHTLY reads its feed every 15 minutes (not the tip app's 5) and asks for a newer build
     /// that lists its deltas.
     @Test func aNightlyChecksItsFeedEveryFifteenMinutes() async throws {
-        let h = Self.make(Self.nightly, xml: Self.nightlyFeed(minutesAgo: 2, deltas: true), deltaWindow: 45 * 60)
+        let h = Self.make(Self.nightly, xml: Self.nightlyFeed(minutesAgo: 2, deltas: true))
         #expect(h.updater.tipCheck.timer.isScheduled, "a NIGHTLY armed no fast check")
         try await h.clock.waitForSleeper()
         h.clock.advance(by: .seconds(TipUpdateCheck.interval))
@@ -140,15 +139,14 @@ import CmuxNextWakeupsTestSupport
         #expect(h.checks.count == 1, "build 500 was checked for again")
     }
 
-    /// A fresh nightly build without its deltas yet is not asked for (the full archive would download);
-    /// one published longer ago than the delta window is.
-    @Test(arguments: [(2.0, 0), (60.0, 1)])
-    func aNightlyWaitsForAFreshBuildsDeltas(minutesAgo: Double, checks: Int) async throws {
-        let h = Self.make(Self.nightly, xml: Self.nightlyFeed(minutesAgo: minutesAgo, deltas: false), deltaWindow: 45 * 60)
+    /// A newer nightly build is asked for at once, whether or not its deltas are listed yet: the
+    /// full update is never held back for them.
+    @Test(arguments: [(2.0, false), (2.0, true), (60.0, false)])
+    func aNightlyAsksForANewerBuildAtOnce(minutesAgo: Double, deltas: Bool) async throws {
+        let h = Self.make(Self.nightly, xml: Self.nightlyFeed(minutesAgo: minutesAgo, deltas: deltas))
         try await tick(h, fetches: 1, interval: TipUpdateCheck.nightlyInterval)
-        #expect(h.checks.count == checks)
-        #expect(h.updater.tipCheck.timer.isScheduled, "the next read was not armed")
-        #expect((h.updater.tipCheck.asked != nil) == (checks == 1), "a build waiting for its deltas was marked asked")
+        #expect(h.checks.count == 1, "build 500 was held back")
+        #expect(h.updater.tipCheck.asked == "500")
     }
 
     @Test(arguments: [UpdateIndicatorPhase.checking, .downloading(.starting), .available(version: "5.0.0"),

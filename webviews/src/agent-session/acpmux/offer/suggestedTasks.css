@@ -109,7 +109,6 @@
   background: none;
   color: var(--agent-text);
   font: inherit;
-  cursor: default;
 }
 .acpmux-task-action {
   flex: none;

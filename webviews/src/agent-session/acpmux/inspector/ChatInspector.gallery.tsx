@@ -41,6 +41,8 @@ type Props = ComponentProps<typeof ChatInspector> & {
   header?: SubagentHeaderVariant;
   /// A gallery-only palette for the Context breakdown's categories (ContextSection.css tones).
   tones?: CSSProperties;
+  /// Gallery-only: a different height ceiling, for comparison with the shipped full-room one.
+  ceiling?: string;
 };
 
 const edit = (path: string, oldText: string | undefined, newText: string) =>
@@ -95,10 +97,12 @@ function GalleryInspector({
   scope,
   header = "title",
   tones,
+  ceiling,
   ...props
 }: Props) {
   return (
     <div className="acpmux-shell" style={{ display: "flex", justifyContent: "flex-end", height: "100%", ...tones }}>
+      {ceiling ? <style>{`.acpmux-chat-inspector[data-placement]{max-height:${ceiling}}`}</style> : null}
       {transcript ? <Transcript /> : null}
       <InspectorPanel
         width={320}
@@ -671,7 +675,7 @@ export default componentEntry<Props>({
       },
     },
     "fits-content": {
-      note: "A chat with little to show, over a 900px pane: Environment and Context only. The card ends right after Context, with the body's 10px under it and no fixed or minimum height: the 560px ceiling is only a maximum (Leo, 2026-10-22: \"the card should just end when there's no more content to show\").",
+      note: "A chat with little to show, over a 900px pane: Environment and Context only. The card ends right after Context, with the body's 10px under it and no fixed or minimum height: the ceiling (the room under the header) is only a maximum (Leo, 2026-10-22: \"the card should just end when there's no more content to show\").",
       props: {
         summary: { ...summary, mcpServers: [] },
         machineName: "Studio",
@@ -681,8 +685,21 @@ export default componentEntry<Props>({
       },
     },
     ceiling: {
-      note: "A busy coordinator over the same 900px pane: its sections run far past the ceiling, so the card stops at 560px (never more than 80% of the room under the header) and its body scrolls.",
+      note: "Chosen. A busy coordinator over the same 900px pane: the card uses the full room under the header, less its 8px inset at the foot, and only then does its body scroll; it still floats over the chat with its own edge (Leo, 2026-10-26: \"you still haven't done the full-length thing. It's still just this constrained height for, like, no reason at all\").",
       props: { ...busy, closable: true },
+    },
+    "ceiling-capped": {
+      note: 'Before, for comparison: the old ceiling, the smallest of 560px and 80% of the room under the header, so a busy card stopped with room left and scrolled (Leo: "this constrained height for, like, no reason at all").',
+      props: {
+        ...busy,
+        closable: true,
+        ceiling:
+          "min(560px, calc((100% - var(--acpmux-inspector-top, 0px)) * 0.8), calc(100% - var(--acpmux-inspector-top, 0px) - var(--acpmux-inspector-inset)))",
+      },
+    },
+    "ceiling-most": {
+      note: "Alternative: 90% of the room under the header, leaving a band of the chat under the card.",
+      props: { ...busy, closable: true, ceiling: "calc((100% - var(--acpmux-inspector-top, 0px)) * 0.9)" },
     },
     push: {
       note: "Settings > Agent Chat > Inspector set to Push: the panel sits beside the chat and narrows it, instead of lying over it with a shadow. It is glass there too, with its left hairline as its only edge.",

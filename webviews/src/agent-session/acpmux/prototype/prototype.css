@@ -36,7 +36,6 @@ body {
   font: inherit;
   letter-spacing: inherit;
   color: inherit;
-  cursor: default;
 }
 
 /* Rail and stack: one translucent sidebar surface. */

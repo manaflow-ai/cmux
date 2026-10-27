@@ -3,11 +3,12 @@ import Foundation
 import Testing
 @testable import CmuxUpdater
 
-/// The nightly-next feed lists a build's full DMG first and its Sparkle deltas minutes later.
-/// A scheduled check in between must not download the 221 MB DMG when a delta is on its way:
-/// it skips that one check, and the next scheduled check takes the update either way.
+/// The nightly-next feed lists a build's full DMG first and its Sparkle deltas minutes later. A
+/// scheduled check in between offers the update at once, full archive and all: no check holds a
+/// build back for its deltas (sr2, 2026-10-26: "The pending-delta skip must never hold back a build
+/// when a newer one exists: offer the full update and let the deltas follow.").
 @MainActor
-@Suite struct PendingDeltaWaitTests {
+@Suite struct ScheduledCheckOffersAtOnceTests {
     private static let published = Date(timeIntervalSince1970: 1_792_000_000)
     private static let pubDate: String = {
         let formatter = DateFormatter()
@@ -39,11 +40,9 @@ import Testing
         return SUAppcastItem(dictionary: dictionary)!
     }
 
-    private func harness(minutesAfterPublication minutes: Double) -> Harness {
+    private func harness() -> Harness {
         let harness = Harness()
         harness.controller.installsUpdatesInBackground = true
-        harness.controller.pendingDeltaWindow = 45 * 60
-        harness.controller.driver.now = { Self.published.addingTimeInterval(minutes * 60) }
         return harness
     }
 
@@ -57,38 +56,19 @@ import Testing
         return box.choice
     }
 
-    @Test func scheduledCheckSkipsAFreshUpdateWhoseDeltasAreNotListedYet() {
-        let harness = harness(minutesAfterPublication: 8)
-        #expect(find(item(deltas: false), harness) == .dismiss)
-        #expect(harness.model.state.isIdle)
-    }
-
-    @Test func theNextScheduledCheckTakesTheUpdateEvenWithoutDeltas() {
-        let harness = harness(minutesAfterPublication: 8)
-        #expect(find(item(deltas: false), harness) == .dismiss)
+    @Test func aScheduledCheckTakesAFreshUpdateWhoseDeltasAreNotListedYet() {
+        let harness = harness()
         #expect(find(item(deltas: false), harness) == .install)
     }
 
-    @Test func anUpdateThatListsDeltasDownloadsAtOnce() {
-        let harness = harness(minutesAfterPublication: 8)
+    @Test func aScheduledCheckTakesAnUpdateThatListsDeltas() {
+        let harness = harness()
         #expect(find(item(deltas: true), harness) == .install)
     }
 
-    @Test func anUpdateOlderThanTheWindowDownloadsAtOnce() {
-        let harness = harness(minutesAfterPublication: 50)
-        #expect(find(item(deltas: false), harness) == .install)
-    }
-
-    @Test func aCheckThePersonStartedNeverWaits() {
-        let harness = harness(minutesAfterPublication: 8)
+    @Test func aCheckThePersonStartedTakesAFreshUpdate() {
+        let harness = harness()
         harness.controller.driver.showUserInitiatedUpdateCheck(cancellation: {})
-        #expect(find(item(deltas: false), harness) == .install)
-    }
-
-    @Test func withoutAWindowEveryUpdateDownloadsAtOnce() {
-        let harness = Harness()
-        harness.controller.installsUpdatesInBackground = true
-        harness.controller.driver.now = { Self.published.addingTimeInterval(8 * 60) }
         #expect(find(item(deltas: false), harness) == .install)
     }
 }
