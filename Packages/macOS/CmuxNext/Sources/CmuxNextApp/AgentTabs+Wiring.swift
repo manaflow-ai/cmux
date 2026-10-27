@@ -1,3 +1,4 @@
+import CmuxNextActions
 import CmuxNextAgentPane
 import CmuxNextCompat
 import CmuxNextDaemon
@@ -109,6 +110,29 @@ extension AgentTabStore {
     static func wired(to services: AppServices) -> AgentTabStore {
         let tabs = AgentTabStore(build: services.environment.build, registry: services.registry, environment: services.agentPaneEnvironment ?? ProcessInfo.processInfo.environment, showcase: services.environment.showcase,
                                  linkScheme: services.linkScheme, settings: services.settings, openPanel: services.openPanel)
+        tabs.machineTargets = { [weak services] in
+            guard let services else { return [] }
+            // CloudMove can route only to a Cloud session. Paused machines remain eligible because
+            // the existing transfer path resumes them; failed and destroyed records are omitted.
+            return services.machines.cloud.compactMap { machine in
+                // The app-server link is a single app-owned socket. CloudMove's transfer path
+                // requires a second CLI daemon connection and explicitly rejects app-linked targets.
+                guard machine.appLink == nil else { return nil }
+                switch machine.machine.status {
+                case .running, .provisioning, .paused:
+                    return AgentPaneMoveTarget(id: machine.machineID, label: machine.machine.title,
+                                               status: machine.machine.status.rawValue)
+                case .failed, .destroyed, .unknown:
+                    return nil
+                }
+            }
+        }
+        tabs.moveAgentToMachine = { [weak tabs] tab, machine in
+            guard let tabs, let registry = tabs.actionRegistry else { return false }
+            let invocation = ActionInvocation(target: ActionTargetRef(kind: .tab, id: tab),
+                                               arguments: ["machine": .string(machine)], origin: .user)
+            return registry.perform("cloudMove", invocation: invocation)
+        }
         tabs.launchImages = services.launchImages
         tabs.agentAvatars = AgentAvatars(uploads: services.chiefAvatarUploads, openPanel: services.openPanel)
         let state = services.environment.sidebarSnapshotFile?.url.deletingLastPathComponent()

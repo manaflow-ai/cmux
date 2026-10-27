@@ -417,7 +417,7 @@ public final class AgentPaneModel {
         case .sandboxState(let wait):
             return await sandboxRuns.state(wait: wait)
         case .cloudMachine(let request): return await request.reply(.shared, gestures: transport.gestures)
-        case .paneAction, .diffTurn, .preview, .setQuickActions, .tabState, .tabRowTools, .sideChat, .subagentPane, .processTerminal, .chatTab, .offerOpen, .asksOpen, .asksAnswer, .newChatHere: return await respondToHeader(request)
+        case .paneAction, .moveToMachine, .diffTurn, .preview, .setQuickActions, .tabState, .tabRowTools, .sideChat, .subagentPane, .processTerminal, .chatTab, .offerOpen, .asksOpen, .asksAnswer, .newChatHere: return await respondToHeader(request)
         case .appAction(let id):
             guard newTab?.omnibar.actions.contains(where: { $0.id == id }) == true, let onAppAction else { return Self.unsupported("app.action") }
             onAppAction(id)

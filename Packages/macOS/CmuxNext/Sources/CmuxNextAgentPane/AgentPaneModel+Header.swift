@@ -2,6 +2,26 @@ import AppKit
 import CmuxNextActions
 import Foundation
 
+/// A destination the chat can move to. The page only receives targets the host can route through
+/// the existing CloudMove action; the id is validated again when the page asks to move.
+public struct AgentPaneMoveTarget: Equatable, Sendable {
+    public let id: String
+    public let label: String
+    public let status: String
+
+    public init(id: String, label: String, status: String = "") {
+        self.id = id
+        self.label = label
+        self.status = status
+    }
+
+    var reply: [String: Any] {
+        var value: [String: Any] = ["id": id, "label": label]
+        if !status.isEmpty { value["status"] = status }
+        return value
+    }
+}
+
 /// The app side of the chat header (`pane.action`, `pane.tabState`): runs a
 /// ``AgentPaneModel/headerActions`` id on the chat's tab, a split in `cwd` when given,
 /// toggles a quick action's split (`mode: "toggle"`: close the one it opened, else open),
@@ -51,6 +71,10 @@ public struct AgentPaneHeaderHooks {
     /// Changes with a chat turn (``AgentPaneDiffTurn``): the diff beside the chat with that turn
     /// as its Last turn, toggled (`true`) or opened. Nil: the header runs Changes without it.
     public var diffTurn: (@MainActor (_ cwd: String?, _ turn: AgentPaneDiffTurn, _ toggle: Bool) -> Void)?
+    /// Eligible Cloud machines for the title menu's Move to machine submenu.
+    public var moveTargets: @MainActor () -> [AgentPaneMoveTarget]
+    /// Dispatches an existing CloudMove operation to one validated target machine.
+    public var moveToMachine: @MainActor (String) -> Bool
 
     public init(run: @escaping @MainActor (String, String?) -> Void,
                 toggle: (@MainActor (String, String?) -> Void)? = nil,
@@ -66,7 +90,9 @@ public struct AgentPaneHeaderHooks {
                 moveToFloatingChat: (@MainActor (String) -> Bool)? = nil,
                 refreshPullRequest: (@MainActor () -> Void)? = nil,
                 showSession: @escaping @MainActor (String) -> Bool = { _ in false },
-                isFamily: @escaping @MainActor (_ session: String, _ chat: String) -> Bool = { _, _ in false }) {
+                isFamily: @escaping @MainActor (_ session: String, _ chat: String) -> Bool = { _, _ in false },
+                moveTargets: @escaping @MainActor () -> [AgentPaneMoveTarget] = { [] },
+                moveToMachine: @escaping @MainActor (String) -> Bool = { _ in false }) {
         self.run = run
         self.toggle = toggle ?? run
         self.tabState = tabState
@@ -82,6 +108,8 @@ public struct AgentPaneHeaderHooks {
         self.refreshPullRequest = refreshPullRequest
         self.showSession = showSession
         self.isFamily = isFamily
+        self.moveTargets = moveTargets
+        self.moveToMachine = moveToMachine
     }
 
     /// The header's state (`pane.tabState`); `refresh` first asks for the pull request again.
@@ -150,6 +178,14 @@ extension AgentPaneModel {
             // `ran`: the page knows the App took the action (a host without panes, such as the
             // gallery, answers null), so its diff link opens the diff beside the chat, not in place.
             return AgentPaneReply.success(["ran": true])
+        case .moveToMachine(let machineID):
+            guard newTab == nil, let header,
+                  header.moveTargets().contains(where: { $0.id == machineID }),
+                  transport.gestures.consume(),
+                  header.moveToMachine(machineID) else {
+                return AgentPaneReply.failure(code: "unavailable", message: "This chat cannot move to that machine.")
+            }
+            return AgentPaneReply.success(["ran": true])
         case .diffTurn(let turn, let cwd, let toggle):
             guard newTab == nil, let header else {
                 return AgentPaneReply.failure(code: "unsupported", message: "Unsupported agent pane request: pane.action")
@@ -167,6 +203,7 @@ extension AgentPaneModel {
             }
             var state = header.state(refresh: refresh).reply
             state["moves"] = offeredMoves()
+            state["moveTargets"] = header.moveTargets().map(\.reply)
             return AgentPaneReply.success(state)
         case .sideChat(let fork):
             return await AgentPaneSideChat.open(fork, in: self)

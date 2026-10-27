@@ -338,6 +338,12 @@ extension AgentPaneRequest {
             } else {
                 self = .unsupported(method)
             }
+        case "pane.moveToMachine":
+            if let machine = params?["machine"] as? String, !machine.isEmpty, machine.count <= 256 {
+                self = .moveToMachine(machine)
+            } else {
+                self = .unsupported(method)
+            }
         case "pane.tabState": self = .tabState(refresh: params?["refresh"] as? Bool == true)
         case "pane.tabRowTools":
             if let width = (params?["width"] as? NSNumber)?.doubleValue, width.isFinite, (0...2000).contains(width) {

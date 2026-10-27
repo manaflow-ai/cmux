@@ -1406,6 +1406,9 @@ export class AcpmuxDirectClient {
   private subagents = new SubagentFold(this.subagentStops);
   private readonly listener: Listener;
   private host: AcpmuxHostConfig;
+  /// A purge in flight owns the selected session's disappearance; do not replace it with another
+  /// chat before the page's caller closes the tab.
+  private purgingSessionId?: string;
   private peers: string[] = [];
   /// Each peer's transport, for the environment picker's SSH and Cloud sections (environments.ts).
   private peerKinds: Record<string, "ssh" | "cloud"> = {};
@@ -1703,7 +1706,8 @@ export class AcpmuxDirectClient {
           this.noteMissing(this.selectedSessionId);
           this.missingReason = "notListedAtOpen";
         }
-        this.selectedSessionId = this.host.sessionMustExist ? undefined : this.sessions[0]?.sessionId;
+        const purging = this.purgingSessionId === this.selectedSessionId;
+        this.selectedSessionId = this.host.sessionMustExist || purging ? undefined : this.sessions[0]?.sessionId;
         this.selectionGeneration += 1;
         this.resetSessionState();
         // The machine the chat was on, from what the app host kept of it (another tab read it).
@@ -2497,7 +2501,8 @@ export class AcpmuxDirectClient {
       this.noteMissing(this.selectedSessionId);
       this.missingReason = "leftListWhileShown";
     }
-    this.selectedSessionId = this.host.sessionMustExist ? undefined : this.sessions[0]?.sessionId;
+    const purging = this.purgingSessionId === this.selectedSessionId;
+    this.selectedSessionId = this.host.sessionMustExist || purging ? undefined : this.sessions[0]?.sessionId;
     if (this.selectedSessionId) this.markSeen(this.selectedSessionId);
     const generation = ++this.selectionGeneration;
     const hold = this.selectedSessionId ? this.holdSnapshots(SWITCH_HOLD_MS) : undefined;
@@ -4707,6 +4712,10 @@ export class AcpmuxDirectClient {
   get selectionToken(): number {
     return this.selectionGeneration;
   }
+  /** Whether a purge owns the selected session's disappearance. */
+  get purgeInFlight(): boolean {
+    return this.purgingSessionId !== undefined;
+  }
   /** A copy of the selected session's recorded events, oldest first, for the inspector. */
   sessionEvents(): EventRecord[] {
     return this.events.slice();
@@ -5394,6 +5403,18 @@ export class AcpmuxDirectClient {
     if (!sessionId) throw new Error(translate("error.notOpen"));
     await this.request("_acpmux/archive", { sessionId, archived });
   }
+  /// Permanently removes the shown session from acpmux history. The caller closes the tab only
+  /// after this authenticated, session-scoped purge succeeds.
+  async purge(): Promise<void> {
+    const sessionId = this.actingSessionId;
+    if (!sessionId) throw new Error(translate("error.notOpen"));
+    this.purgingSessionId = sessionId;
+    try {
+      await this.request("_acpmux/kill", { sessionId, purge: true });
+    } finally {
+      if (this.purgingSessionId === sessionId) this.purgingSessionId = undefined;
+    }
+  }
   /// Mark as Unread (cx-ncc.78): acpmux keeps the selected chat unread until it is hidden and
   /// shown again.
   async markUnread(): Promise<void> {
@@ -5978,6 +5999,7 @@ export class AcpmuxDirectClient {
   leave(): void {
     const previous = this.selectedSessionId;
     if (!previous) return;
+    if (this.purgingSessionId === previous) this.purgingSessionId = undefined;
     this.selectedSessionId = undefined;
     this.selectionGeneration += 1;
     this.resetSessionState();

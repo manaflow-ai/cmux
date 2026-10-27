@@ -39,6 +39,12 @@ export interface HeaderCheck {
   readonly onBase?: boolean;
 }
 
+export interface HeaderMoveTarget {
+  readonly id: string;
+  readonly label: string;
+  readonly status?: string;
+}
+
 export interface HeaderState {
   readonly pinned: boolean;
   readonly sideTabs: boolean;
@@ -59,6 +65,8 @@ export interface HeaderState {
   /// The Cloud moves the chat's right-click menu offers now (`cloudMove`, `cloudBringBack`): the
   /// composer's picker offers the same. Only a `pane.tabState` reply carries it; a push keeps it.
   readonly moves: readonly string[];
+  /// Eligible Cloud machine targets for the title menu. The host validates ids again on dispatch.
+  readonly moveTargets: readonly HeaderMoveTarget[];
   /// Rises with each change the App sees: a `pane.tabState` reply that arrives after a newer push is dropped.
   readonly version: number;
 }
@@ -79,6 +87,7 @@ let current: HeaderState = {
   inspector: false,
   browserOpensPreview: true,
   moves: [],
+  moveTargets: [],
   version: 0,
 };
 const listeners = new Set<() => void>();
@@ -95,6 +104,7 @@ export function setHeaderState(value: unknown): void {
     browserOpensPreview?: unknown;
     pullRequest?: unknown;
     moves?: unknown;
+    moveTargets?: unknown;
     version?: unknown;
   };
   const version = typeof raw.version === "number" ? raw.version : current.version;
@@ -110,6 +120,19 @@ export function setHeaderState(value: unknown): void {
       typeof raw.browserOpensPreview === "boolean" ? raw.browserOpensPreview : current.browserOpensPreview,
     pullRequest: "pullRequest" in raw ? pullRequestOf(raw.pullRequest) : current.pullRequest,
     moves: Array.isArray(raw.moves) ? raw.moves.filter((id): id is string => typeof id === "string") : current.moves,
+    moveTargets: Array.isArray(raw.moveTargets)
+      ? raw.moveTargets.flatMap((target: unknown): HeaderMoveTarget[] => {
+          const row = (target ?? {}) as Record<string, unknown>;
+          if (typeof row.id !== "string" || !row.id || typeof row.label !== "string" || !row.label) return [];
+          return [
+            {
+              id: row.id,
+              label: row.label,
+              ...(typeof row.status === "string" && row.status ? { status: row.status } : {}),
+            },
+          ];
+        })
+      : current.moveTargets,
     version,
   };
   if (JSON.stringify(next) === JSON.stringify(current)) return;

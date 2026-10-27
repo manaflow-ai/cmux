@@ -96,4 +96,24 @@ struct AgentPaneConnectActionTests {
         hidden = ["cloudMove", "cloudBringBack"]
         #expect(await moves() == [])
     }
+
+    @Test func titleMoveTargetsAreAdvertisedAndValidated() async {
+        let model = AgentPaneModel(host: NoHost())
+        var moved: String?
+        model.header = AgentPaneHeaderHooks(
+            run: { _, _ in },
+            tabState: { AgentPaneHeaderState() },
+            moveTargets: { [AgentPaneMoveTarget(id: "vm-build", label: "Build Mac", status: "running")] },
+            moveToMachine: { id in moved = id; return true },
+        )
+        let state = await model.respond(to: .tabState(refresh: false))["value"] as? [String: Any]
+        let targets = state?["moveTargets"] as? [[String: Any]]
+        #expect(targets?.first?["id"] as? String == "vm-build")
+        #expect(await model.respond(to: .moveToMachine("vm-build"))["ok"] as? Bool != true)
+        model.transport.gestures.record()
+        #expect(await model.respond(to: .moveToMachine("vm-build"))["ok"] as? Bool == true)
+        #expect(moved == "vm-build")
+        model.transport.gestures.record()
+        #expect(await model.respond(to: .moveToMachine("not-advertised"))["ok"] as? Bool != true)
+    }
 }
