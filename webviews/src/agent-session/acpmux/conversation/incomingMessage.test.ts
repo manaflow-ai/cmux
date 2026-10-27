@@ -376,25 +376,23 @@ test("`acpmux send` from a shell is the message of the agent named first in brac
     "[coord-deputy]",
   ])
     expect(incomingPrompt(text, { client: "acpmux-cli#a1b2c3" })).toBeUndefined();
-  // Provenance, when the record has it, gives the sending chat to open; the agent's own name first
-  // still names it.
+  // Provenance, when the record has it, gives the sending chat and its canonical name.
   const provenance = { kind: "session_message", from: "lane-7", fromName: "app-store-features", to: "coordinator-1" };
   expect(incomingPrompt(sent, { _meta: { provenance }, client: "acpmux-cli#a1b2c3" })).toEqual({
     kind: "message",
-    message: { name: "coord-deputy", sessionId: "lane-7", text: "Merged #1", raw: sent },
+    message: { name: "app-store-features", sessionId: "lane-7", text: "Merged #1", raw: sent },
   });
 });
 
-// Each way another agent's message reaches a chat, signed by the agent first in brackets or after
-// "From": the signature names the chip and leaves the message's text, on every path.
-test("an agent's signature names its message on every path, and leaves the text", () => {
+// Recorded sender identity is separate from the optional signature removed from message text.
+test("recorded identity wins over signatures, which still leave the message text", () => {
   // `acpmux send` run in the sending chat: session_message provenance keeps that chat to open.
   const session = { kind: "session_message", from: "acp:deputy-2", fromName: "deputy-2", to: "acp:parent" };
   const laned = "[land-and-ci-c9] Not idle. #22674 is in the merge queue.";
   expect(incomingPrompt(laned, { _meta: { provenance: session }, client: "acpmux-cli#a1b2c3" })).toEqual({
     kind: "message",
     message: {
-      name: "land-and-ci-c9",
+      name: "deputy-2",
       sessionId: "deputy-2",
       text: "Not idle. #22674 is in the merge queue.",
       raw: laned,
@@ -406,7 +404,7 @@ test("an agent's signature names its message on every path, and leaves the text"
   expect(incomingPrompt(fromCoord, { _meta: { provenance: family } })).toEqual({
     kind: "message",
     message: {
-      name: "claude-sr2",
+      name: "deputy-2",
       sessionId: "deputy-2",
       relation: "parent",
       text: "still live in the nightly.",
@@ -433,7 +431,7 @@ test("an agent's signature names its message on every path, and leaves the text"
   expect(incomingPrompt(delivered, { _meta: { provenance } })).toEqual({
     kind: "message",
     message: {
-      name: "coord-deputy",
+      name: "Grid fix",
       sessionId: "child-3",
       msgId: "m-1",
       threadId: "t-1",
@@ -710,7 +708,7 @@ test("a signature that names the sending chat is one in any case or spacing", ()
   const session = { kind: "session_message", from: "acp:c-3", fromName: "Grid fix", to: "acp:p" };
   expect(incomingPrompt("[Grid Fix] Tests pass.", { _meta: { provenance: session } })).toEqual({
     kind: "message",
-    message: { name: "Grid Fix", sessionId: "c-3", text: "Tests pass.", raw: "[Grid Fix] Tests pass." },
+    message: { name: "Grid fix", sessionId: "c-3", text: "Tests pass.", raw: "[Grid Fix] Tests pass." },
   });
   // A tag that is not the chat's name stays text.
   expect(incomingPrompt("[WIP] Tests pass.", { _meta: { provenance: session } })).toMatchObject({

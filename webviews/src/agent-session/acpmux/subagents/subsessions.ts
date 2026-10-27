@@ -6,10 +6,11 @@
 // section lists them under the chat's own subagents (summary/SubagentStatusList.tsx), and the
 // transcript's sub-session cards (conversation/SubsessionCallCard.tsx) read one's state live from
 // a small store fed from the session list, so a card never redraws its turn when a session changes.
-import { createContext, useContext, useSyncExternalStore } from "react";
+import { createContext, useContext, useMemo, useSyncExternalStore } from "react";
 import type { StringKey, Translate } from "../i18n";
 import type { RetryState } from "./retryState";
 import { cloudHost, type AcpmuxSessionEntry, type SessionWaiting } from "../sessionList";
+import { resolveSenderIdentity, type SenderIdentity, type SenderReference } from "../senderIdentity";
 
 /// What a sub-session is doing: its turn runs, it waits on the person (a permission or a question),
 /// its turn failed or its agent went away, or it is done until it is sent more.
@@ -140,6 +141,7 @@ export class SubsessionStore {
   private readonly listeners = new Set<() => void>();
 
   private entries = new Map<string, AcpmuxSessionEntry>();
+  private senders = new Map<string, AcpmuxSessionEntry>();
   /// Every listed chat's id by its names (its name, its short name; not its title, which can be
   /// "New chat"), and by id its harness and the other machine it runs on: another agent's message
   /// names its sender, which a card marks with its harness and opens, its tooltip naming that
@@ -193,6 +195,17 @@ export class SubsessionStore {
       [...named],
       [...harnesses],
       [...places],
+      sessions.map(({ sessionId, name, shortName, peer, harness, host, hostKind, startedBy, spawnedBy }) => [
+        sessionId,
+        name,
+        shortName,
+        peer,
+        harness,
+        host,
+        hostKind,
+        startedBy,
+        spawnedBy,
+      ]),
       sessions.map((entry) => entry.sessionId),
     ]);
     const renamed = namedKey !== this.namedKey;
@@ -200,6 +213,7 @@ export class SubsessionStore {
     this.ids = new Set(sessions.map((entry) => entry.sessionId));
     this.harnesses = harnesses;
     this.hosts = hosts;
+    if (renamed) this.senders = new Map(sessions.map((entry) => [entry.sessionId, entry]));
     if (renamed) this.places = places;
     this.namedKey = namedKey;
     if (renamed) for (const listener of this.nameListeners) listener();
@@ -245,6 +259,10 @@ export class SubsessionStore {
 
   harness(sessionId: string): string | undefined {
     return this.harnesses.get(sessionId);
+  }
+
+  sender(sessionId: string): AcpmuxSessionEntry | undefined {
+    return this.senders.get(sessionId);
   }
 
   /// The other machine listed chat `sessionId` runs on; undefined for this Mac's.
@@ -304,16 +322,24 @@ export function useSenderPlace(sessionId: string | undefined): SenderPlace | und
 /// with its name (a message `acpmux send` sent from a shell names its sender only, a chat on
 /// another machine its bare name), that chat's harness and the other machine it runs on. Undefined
 /// while the list has neither.
-export function useSenderChat(
-  name: string,
-  sessionId: string | undefined,
-): { sessionId?: string; harness?: string; host?: string } {
+export function useSenderChat(name: string, sessionId: string | undefined): SenderIdentity {
+  return useSenderIdentity({ name, sessionId });
+}
+
+/** One identity path for received rows, preview cards and session lists. No body-text inference. */
+export function useSenderIdentity(sender: SenderReference, viewerSessionId?: string): SenderIdentity {
   const store = useContext(SubsessionContext)?.store ?? EMPTY;
-  const readId = () => sessionId ?? store.find(name);
+  const readId = () => sender.sessionId ?? store.find(sender.name);
   const id = useSyncExternalStore(store.subscribeNames, readId, readId);
-  const readHarness = () => (id ? store.harness(id) : undefined);
-  const harness = useSyncExternalStore(store.subscribeNames, readHarness, readHarness);
-  const readHost = () => (id ? store.host(id) : undefined);
-  const host = useSyncExternalStore(store.subscribeNames, readHost, readHost);
-  return { ...(id && { sessionId: id }), ...(harness && { harness }), ...(host && { host }) };
+  const read = () => (id ? store.sender(id) : undefined);
+  const entry = useSyncExternalStore(store.subscribeNames, read, read);
+  return useMemo(
+    () =>
+      resolveSenderIdentity(
+        { name: sender.name, sessionId: sender.sessionId, relation: sender.relation },
+        entry,
+        viewerSessionId,
+      ),
+    [sender.name, sender.sessionId, sender.relation, entry, viewerSessionId],
+  );
 }

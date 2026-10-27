@@ -8,6 +8,25 @@ const row = (partial: Partial<AcpmuxRow> & Pick<AcpmuxRow, "id" | "kind" | "at">
   ...partial,
 });
 
+test("a received message's card retains its sender without changing prompt ticks", () => {
+  const rows = [
+    row({
+      id: "received",
+      kind: "user",
+      at: 1,
+      text: "Review complete.",
+      incoming: {
+        kind: "message",
+        message: { name: "peer/pr-row", sessionId: "review", text: "Review complete.", raw: "Review complete." },
+      },
+    }),
+  ];
+  const turns = minimapTurns(rows, "current");
+  expect(turns.turns[0]?.metadata?.sender).toEqual({ name: "peer/pr-row", sessionId: "review", relation: undefined });
+  expect(turns.turns[0]?.id).toBe("received");
+  expect(turns.ticks[0]?.id).toBe("received");
+});
+
 test("a minimap card keeps the turn metadata needed for a compact hover summary", () => {
   const rows: AcpmuxRow[] = [
     row({
