@@ -296,7 +296,7 @@
     },
     "swift-global-enqueue": {
       "what": "every Swift cooperative-pool job: the global-enqueue hook's category-flag load and tail call (ConcurrencyHook.enqueue)",
-      "bench": "scripts/cmux-next/bench-typing.py A/B with and without the hook (within 0.05 ms), then swift test -c release --filter TraceEventBench",
+      "bench": "scripts/cmux-next/bench-typing.py A/B, a build with the hook against one without it (within 0.05 ms), light and STRESS; then swift test --filter ConcurrencyHookTests",
       "owner": "Performance Lead",
       "trace": [
         "task.post"

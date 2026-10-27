@@ -344,6 +344,10 @@ the tables of "Release trace ring v1"; the Swift `TraceRuntime.Role` and `TraceR
   (below, "Blocking calls and lane jobs"); a control request's is written by `TaskTrace` on the main
   thread, with the lane 3 (main) in B arg0 bits 8-15 and its `MainWorkClass` `rawValue` in bits 0-7, and
   B arg1 the queue wait in us, or u64::MAX when unknown (the post was written before the recording started).
+  A Swift cooperative-pool job writes a `task.post` too (the global-enqueue hook, `ConcurrencyHook`,
+  p09-observability-123; plans/cmux-next/threading-model.md "Swift global-enqueue hook"): no post site (arg0
+  bits 0-47 zero), the job's `JobPriority` in arg0 bits 48-55, arg1 the job address with bits 62 and 63 set (a
+  posted item's flow id has bit 63 over a counter, so the two never meet). It has no `task.run` (phase 1).
 - `control.request` (category `control`, closed for its queue part by p09-observability-042; task 115
   owns the accept-to-reply part) is an async slice (AB/AE) per control request from its enqueue on
   `MainActorWorkQueue` to the end of its run or its failure, keyed by an async id

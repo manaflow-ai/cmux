@@ -273,7 +273,9 @@ public nonisolated enum SignpostName: UInt16, Sendable, Hashable, CaseIterable, 
     /// Task 042 (``TaskTrace``). A work item posted to a ``BackgroundWork`` lane or accepted by the control
     /// queue (Chrome's `TaskAnnotator::WillQueueTask` with `FROM_HERE`); a refused item writes none. Ring:
     /// flow-out; arg0 the post site (the interned `#fileID`'s id in bits 0-15, the line in bits 16-47), arg1 the
-    /// flow id (bit 63 set).
+    /// flow id (bit 63 set). A Swift cooperative-pool job (CmuxNextTrace `ConcurrencyHook`, p09-observability-123)
+    /// writes one too, with no post site (bits 0-47 zero), its `JobPriority` in arg0 bits 48-55, and arg1 the job
+    /// address with bits 62 and 63 set; it has no `task.run`.
     case taskPost = 50
     /// A posted item's run (Chrome's `ThreadPool_RunTask`): a BackgroundWork lane item's (emitter: CmuxNextWakeups
     /// `LaneScheduler`, p02-threads-124) or a control request's on the main thread (``TaskTrace``, task 042). Ring:

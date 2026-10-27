@@ -47,14 +47,31 @@ struct ConcurrencyHookTests {
         #expect(runtime.stubRecordCount.load(ordering: .relaxed) == 2)
     }
 
-    @Test("The hook's word is one thin function pointer, and the flow bit is above any address")
+    @Test("The hook's word is one thin function pointer; arg0 and the flow id keep clear of the post fields")
     func layout() {
         #expect(MemoryLayout<ConcurrencyHook.Hook?>.size == 8)
         #expect(MemoryLayout<UnownedJob>.size == 8)
         #expect(ConcurrencyHook.hookBits != 0)
-        #expect(ConcurrencyHook.hookBits == ConcurrencyHook.hookBits)
-        #expect(ConcurrencyHook.jobFlowBit == 1 << 63)
-        #expect(UInt64(UInt8.max) << ConcurrencyHook.priorityShift < 1 << 32)
+        let priorityBits = UInt64(UInt8.max) << ConcurrencyHook.priorityShift
+        #expect(priorityBits & (1 << 48 - 1) == 0) // a post site's file id and line (bits 0-47) stay 0
+        #expect(priorityBits >> 56 == 0)
+        let jobFlow = UInt64(0x0000_7FFF_FFFF_FFF0) | ConcurrencyHook.jobFlowTag
+        #expect(jobFlow & (1 << 63) != 0 && jobFlow & (1 << 62) != 0) // never a posted item's tag over a counter
+    }
+
+    @Test("A job's task.post: flow-out, priority in arg0 bits 48-55, tagged job address in arg1")
+    func postFields() {
+        let records = Mutex<[TraceRuntime.StubRecord]>([])
+        let runtime = TraceRuntime(role: .app, clock: TraceClock(), stubRecorder: { record in records.withLock { $0.append(record) } })
+        runtime.setCategoryMask(1 << UInt64(ConcurrencyHook.taskCategoryBit))
+        ConcurrencyHook.post(priority: TaskPriority.userInitiated.rawValue, job: 0x1_2345_6780, on: runtime)
+        let written = records.withLock { $0 }
+        #expect(written.count == 1)
+        #expect(written.first?.name == ConcurrencyHook.taskPostName)
+        #expect(written.first?.categoryBit == ConcurrencyHook.taskCategoryBit)
+        #expect(written.first?.phase == .flowOut)
+        #expect(written.first?.arg0 == UInt64(TaskPriority.userInitiated.rawValue) << 48)
+        #expect(written.first?.arg1 == 0x1_2345_6780 | 0b11 << 62)
     }
 
     /// End to end on this process's runtime: jobs still run through the original enqueue, and with the task
@@ -65,7 +82,7 @@ struct ConcurrencyHookTests {
         try hook.install()
         #expect(hook.isInstalled)
         let shared = TraceRuntime.shared
-        let mask = shared.categoryMask
+        let mask = shared.requestedCategoryMask
         defer { shared.setCategoryMask(mask) }
 
         shared.setCategoryMask(mask & ~(1 << UInt64(ConcurrencyHook.taskCategoryBit)))

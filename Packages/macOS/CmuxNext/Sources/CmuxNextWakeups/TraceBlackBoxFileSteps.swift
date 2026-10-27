@@ -49,7 +49,10 @@ public final class TraceBlackBoxFileSteps: Sendable {
     }
 
     /// Starts the app process's black box: the heap ring with the signpost catalog (`SignpostName.traceCatalog`),
-    /// attached to `runtime` with the black-box categories on, now; then ``start()``.
+    /// attached to `runtime` with the black-box categories on, now; then ``start()``. For the process's runtime
+    /// (``CmuxNextTrace/TraceRuntime/shared``, the only one the hook can write to), it also installs the Swift
+    /// global-enqueue hook (``CmuxNextTrace/ConcurrencyHook``, p09-observability-123): a `task.post` per
+    /// cooperative-pool job while the `task` category records.
     ///
     /// - Parameters:
     ///   - bundleID: The app's bundle id; it names the folder (``appDirectory(bundleID:home:)``).
@@ -66,6 +69,7 @@ public final class TraceBlackBoxFileSteps: Sendable {
                                      buildVersion: buildVersion(of: .main), catalog: SignpostName.traceCatalog)
         let steps = TraceBlackBoxFileSteps(blackBox: blackBox, work: work, clock: clock)
         steps.start()
+        if runtime === TraceRuntime.shared { ConcurrencyHook.installInProcess() }
         return steps
     }
 
