@@ -62,9 +62,8 @@ import Testing
     @Test func thePaneMenuEndsWithACommandPaletteEntry() throws {
         let registry = ActionRegistry.standard()
         let target = ActionTargetRef(kind: .pane, id: "sample-pane")
-        let menu = registry.makeContextMenu(for: .newTab, target: target)
-        let commands = try #require(registry.makeContextMenuItem(for: "commandPalette", in: .newTab, target: target))
-        menu.addItem(.separator()); menu.addItem(commands)
+        let menu = registry.makePaneCreationMenu(target: target)
+        let commands = try #require(menu.items.last)
         #expect(ActionRegistry.menuRun(of: commands)?.id == "commandPalette")
         #expect(ActionRegistry.menuRun(of: commands)?.target == target)
         #expect(commands.title == registry.title(for: "commandPalette"))

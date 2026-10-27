@@ -63,11 +63,7 @@ import Testing
         let registry = ActionRegistry.standard()
         pane.stripView.contextMenuProvider = { _ in
             let target = ActionTargetRef(kind: .pane, id: "gallery-pane")
-            let menu = registry.makeContextMenu(for: .newTab, target: target)
-            if let commands = registry.makeContextMenuItem(for: "commandPalette", in: .newTab, target: target) {
-                menu.addItem(.separator()); menu.addItem(commands)
-            }
-            return menu
+            return registry.makePaneCreationMenu(target: target)
         }
         if variant != .baseline {
             let target = variant.showsActions ? ActionTargetRef(kind: .pane, id: "gallery-pane") : nil
@@ -86,7 +82,7 @@ import Testing
         CATransaction.flush()
         let scale: CGFloat = 2
         let context = try #require(CGContext(data: nil, width: Int(size.width * scale), height: Int(size.height * scale), bitsPerComponent: 8, bytesPerRow: 0,
-                                              space: CGColorSpace(name: CGColorSpace.sRGB), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+                                              space: try #require(CGColorSpace(name: CGColorSpace.sRGB)), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
         context.scaleBy(x: scale, y: scale)
         try #require(root.layer).render(in: context)
         return try #require(context.makeImage())
@@ -103,7 +99,7 @@ import Testing
 
         let gap = 20, width = images[0].image.width, height = images[0].image.height
         let context = try #require(CGContext(data: nil, width: width, height: images.count * height + (images.count + 1) * gap,
-                                              bitsPerComponent: 8, bytesPerRow: 0, space: CGColorSpace(name: CGColorSpace.sRGB),
+                                              bitsPerComponent: 8, bytesPerRow: 0, space: try #require(CGColorSpace(name: CGColorSpace.sRGB)),
                                               bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
         context.setFillColor(CGColor(gray: 0.05, alpha: 1)); context.fill(CGRect(x: 0, y: 0, width: width, height: context.height))
         for (index, entry) in images.enumerated() { context.draw(entry.image, in: CGRect(x: 0, y: gap + (images.count - index - 1) * (height + gap), width: width, height: height)) }
