@@ -1,11 +1,15 @@
 //! Mountinfo alias checks, required before G2 enables Linux remote spawns.
 //! All loops consume finite mountinfo text, entries, paths, or option lists.
+//! Autofs is refused everywhere except /proc, /sys and /dev (replaced by bwrap);
+//! systemd's binfmt_misc automount under /proc/sys remains supported.
 //! A FUSE or network mount elsewhere exporting protected content at another
 //! path remains out of scope, matching Seatbelt's path-based limitation.
 use super::*;
 use std::collections::BTreeSet;
 
 struct MountEntry {
+    id: u64,
+    parent: u64,
     device: String,
     root: PathBuf,
     point: PathBuf,
@@ -47,7 +51,7 @@ fn parse_mountinfo(mountinfo: &str) -> Result<Vec<MountEntry>, String> {
             return Err("invalid mountinfo".into());
         };
         let fields: Vec<_> = left.split_whitespace().collect();
-        let [_, _, device, root, point, ..] = fields.as_slice() else {
+        let [id, parent, device, root, point, ..] = fields.as_slice() else {
             return Err("invalid mountinfo".into());
         };
         let right: Vec<_> = right.split_whitespace().collect();
@@ -60,12 +64,18 @@ fn parse_mountinfo(mountinfo: &str) -> Result<Vec<MountEntry>, String> {
             return Err("invalid mountinfo path".into());
         }
         mounts.push(MountEntry {
+            id: id.parse().map_err(|_| "invalid mount ID")?,
+            parent: parent.parse().map_err(|_| "invalid parent mount ID")?,
             device: (*device).into(),
             root,
             point,
             fs_type: (*fs_type).into(),
             super_options: (*super_options).into(),
         });
+    }
+    let ids: BTreeSet<_> = mounts.iter().map(|m| m.id).collect();
+    if ids.len() != mounts.len() {
+        return Err("duplicate mount ID".into());
     }
     Ok(mounts)
 }
@@ -124,216 +134,178 @@ fn layer_readable(path: &Path) -> bool {
     unsafe { libc::access(c_path.as_ptr(), libc::X_OK) == 0 }
 }
 
-/// Refuse alternate mount views of protected paths. Overlay layers are also
-/// checked because their lower/upper/work directories may be reachable under
-/// another filesystem device.
-pub(crate) fn mount_aliases(protected: &[PathBuf], mountinfo: &str) -> Vec<String> {
-    let mounts = match parse_mountinfo(mountinfo) {
-        Ok(mounts) => mounts,
-        Err(error) => return vec![error],
-    };
-    let mut aliases = BTreeSet::new();
-    for mount in mounts.iter().filter(|mount| mount.fs_type == "overlay") {
-        let layers = match overlay_layers(&mount.super_options) {
-            Ok(layers) => layers,
-            Err(error) => return vec![error],
-        };
-        for layer in layers {
-            for path in protected {
-                if layer.starts_with(path) || path.starts_with(&layer) {
-                    aliases.insert(format!(
-                        "{} is also visible through overlay layer {}",
-                        path.display(),
-                        layer.display()
-                    ));
-                }
-            }
-        }
-    }
-    for path in protected {
-        let Some((index, mount)) = mounts
-            .iter()
-            .enumerate()
-            .filter(|(_, mount)| path.starts_with(&mount.point))
-            .max_by_key(|(_, mount)| mount.point.components().count())
-        else {
-            aliases.insert(format!("no containing mount for {}", path.display()));
-            continue;
-        };
-        let Ok(rest) = path.strip_prefix(&mount.point) else {
-            aliases.insert(format!("invalid containing mount for {}", path.display()));
-            continue;
-        };
-        let relative = mount.root.join(rest);
-        if mount.fs_type == "overlay" {
-            let layers = match overlay_layers(&mount.super_options) {
-                Ok(layers) => layers,
-                Err(error) => return vec![error],
-            };
-            for layer in layers {
-                if layer_readable(&layer) {
-                    aliases.insert(format!(
-                        "{} lives on overlayfs whose layer {} is readable here",
-                        path.display(),
-                        layer.display()
-                    ));
-                }
-            }
-        }
-        for (other_index, other) in mounts.iter().enumerate() {
-            if other_index != index
-                && other.device == mount.device
-                && (other.root.starts_with(&relative) || relative.starts_with(&other.root))
-            {
-                aliases.insert(format!(
-                    "{} is also visible at {}",
-                    path.display(),
-                    other.point.display()
-                ));
-            }
-        }
-    }
-    aliases.into_iter().collect()
-}
-
 fn local_filesystem(fs_type: &str) -> bool {
     matches!(fs_type, "ext2" | "ext3" | "ext4" | "xfs" | "btrfs" | "tmpfs" | "f2fs" | "bcachefs")
 }
 
-fn join_mount_path(base: &Path, suffix: &Path) -> PathBuf {
+fn join_path(base: &Path, suffix: &Path) -> PathBuf {
     if suffix.as_os_str().is_empty() { base.to_path_buf() } else { base.join(suffix) }
 }
 
-fn same_writable_view(root: &Path, containing: &MountEntry, other: &MountEntry) -> bool {
-    if containing.device != other.device {
-        return false;
-    }
-    let Ok(rest) = root.strip_prefix(&containing.point) else {
-        return false;
+/// Runs in the keeper before spawning. Missing names use their nearest existing
+/// ancestor's mount ID while the caller retains the entire guarded suffix.
+/// The loop ends at an existing ancestor, an error, or the filesystem root.
+pub(super) fn resolved_mount_id(path: &Path) -> Result<u64, String> {
+    let mut ancestor = path;
+    let fd = loop {
+        let name = CString::new(path_arg(ancestor)?).map_err(|e| e.to_string())?;
+        // SAFETY: name is NUL terminated; O_PATH opens no device or FIFO for I/O.
+        let raw = unsafe { libc::open(name.as_ptr(), libc::O_PATH | libc::O_CLOEXEC) };
+        if raw >= 0 {
+            // SAFETY: open returned a new owned descriptor.
+            break unsafe { OwnedFd::from_raw_fd(raw) };
+        }
+        let error = io::Error::last_os_error();
+        if error.kind() != io::ErrorKind::NotFound {
+            return Err(format!("cannot resolve mount for {}: {error}", path.display()));
+        }
+        ancestor = ancestor.parent().ok_or("no existing mount ancestor")?;
     };
-    let underlying = containing.root.join(rest);
-    if let Ok(suffix) = other.root.strip_prefix(&underlying) {
-        return other.point == join_mount_path(root, suffix);
+    // SAFETY: zero is valid for statx; the descriptor is live and output writable.
+    let mut stat: libc::statx = unsafe { std::mem::zeroed() };
+    let result = unsafe {
+        libc::statx(
+            fd.as_raw_fd(),
+            c"".as_ptr(),
+            libc::AT_EMPTY_PATH,
+            libc::STATX_MNT_ID,
+            &mut stat,
+        )
+    };
+    if result != 0 {
+        return Err(format!(
+            "cannot obtain mount ID for {}: {}",
+            path.display(),
+            io::Error::last_os_error()
+        ));
     }
-    if let Ok(suffix) = underlying.strip_prefix(&other.root) {
-        return root == join_mount_path(&other.point, suffix).as_path();
+    if stat.stx_mask & libc::STATX_MNT_ID == 0 {
+        return Err(format!("kernel did not report STATX_MNT_ID for {}", path.display()));
     }
-    false
+    Ok(stat.stx_mnt_id)
 }
 
-/// Reject alternate views of writable roots and recursive bind aliases below them.
-/// Only a whole filesystem with no overlapping same-device mount is exempt.
-/// Loops end after the supplied roots and finite mount table.
-pub(super) fn writable_mount_aliases(roots: &[&PathBuf], mountinfo: &str) -> Vec<String> {
-    let mounts = match parse_mountinfo(mountinfo) {
-        Ok(mounts) => mounts,
-        Err(error) => return vec![error],
-    };
-    let mut aliases = BTreeSet::new();
-    for root in roots {
-        let Some((index, mount)) = mounts
-            .iter()
-            .enumerate()
-            .filter(|(_, mount)| root.starts_with(&mount.point))
-            .max_by_key(|(_, mount)| mount.point.components().count())
-        else {
-            aliases.insert(format!("no containing mount for writable folder {}", root.display()));
-            continue;
+/// Follow parent IDs, not path depth. A sibling mounted over an ancestor hides
+/// the old subtree. The walk stops at anchor, a missing parent, or table length.
+fn visible_below<'a>(
+    mut child: &'a MountEntry,
+    anchor: u64,
+    mounts: &'a [MountEntry],
+) -> Result<bool, String> {
+    for _ in 0..mounts.len() {
+        if child.id == anchor {
+            return Ok(true);
+        }
+        for sibling in mounts.iter().filter(|m| m.parent == child.parent && m.id != child.id) {
+            if sibling.point == child.point {
+                return Err(format!("ambiguous stacked mounts at {}", child.point.display()));
+            }
+            if child.point.starts_with(&sibling.point) {
+                return Ok(false);
+            }
+        }
+        let Some(parent) = mounts.iter().find(|m| m.id == child.parent) else {
+            return Ok(false);
         };
-        if !local_filesystem(&mount.fs_type) {
-            aliases.insert(format!(
-                "{} is on non-local filesystem {}",
-                root.display(),
-                mount.fs_type
+        child = parent;
+    }
+    Err("cyclic mount ancestry".into())
+}
+
+/// A tree is (canonical path, resolved containing mount ID, writable).
+/// Every visible descendant filesystem is a separate piece. All comparisons
+/// consume finite trees, pieces and mount entries. Unknown topology refuses.
+pub(super) fn guarded_aliases(trees: &[(&Path, u64, bool)], mountinfo: &str) -> Vec<String> {
+    match check_trees(trees, mountinfo) {
+        Ok(reasons) => reasons.into_iter().collect(),
+        Err(error) => vec![error],
+    }
+}
+
+fn check_trees(trees: &[(&Path, u64, bool)], mountinfo: &str) -> Result<BTreeSet<String>, String> {
+    let mounts = parse_mountinfo(mountinfo)?;
+    let mut reasons = BTreeSet::new();
+    let mut layers = Vec::new();
+    for mount in &mounts {
+        if mount.fs_type == "autofs"
+            && !["/proc", "/sys", "/dev"].iter().any(|p| mount.point.starts_with(p))
+        {
+            reasons.insert(format!(
+                "autofs mount at {} can propagate new aliases",
+                mount.point.display()
             ));
         }
-        let Ok(rest) = root.strip_prefix(&mount.point) else {
-            aliases.insert(format!("invalid containing mount for {}", root.display()));
-            continue;
-        };
-        let underlying = mount.root.join(rest);
-        for (other_index, other) in mounts.iter().enumerate() {
-            if other_index == index || other.device != mount.device {
-                continue;
+        if mount.fs_type == "overlay" {
+            layers.extend(overlay_layers(&mount.super_options)?);
+        }
+    }
+    for &(tree, id, writable) in trees {
+        let containing = mounts
+            .iter()
+            .find(|m| m.id == id)
+            .ok_or_else(|| format!("mount ID {id} for {} missing from snapshot", tree.display()))?;
+        let suffix = tree.strip_prefix(&containing.point).map_err(|_| "mount ID path mismatch")?;
+        let mut pieces =
+            vec![(containing, tree.to_path_buf(), join_path(&containing.root, suffix))];
+        for mount in &mounts {
+            if mount.id != id && mount.point.starts_with(tree) && visible_below(mount, id, &mounts)?
+            {
+                pieces.push((mount, mount.point.clone(), mount.root.clone()));
             }
-            if let Ok(suffix) = underlying.strip_prefix(&other.root) {
-                let alternate = join_mount_path(&other.point, suffix);
-                if alternate.as_path() != root.as_path() {
-                    aliases.insert(format!(
+        }
+        for (mount, view, underlying) in pieces {
+            if writable && !local_filesystem(&mount.fs_type) {
+                reasons.insert(format!(
+                    "{} is on non-local filesystem {}",
+                    view.display(),
+                    mount.fs_type
+                ));
+            }
+            if mount.fs_type == "overlay" {
+                for layer in overlay_layers(&mount.super_options)? {
+                    if layer_readable(&layer) {
+                        reasons.insert(format!(
+                            "{} lives on overlayfs whose layer {} is readable here",
+                            view.display(),
+                            layer.display()
+                        ));
+                    }
+                }
+            }
+            for layer in &layers {
+                if [tree, view.as_path(), underlying.as_path()]
+                    .iter()
+                    .any(|p| layer.starts_with(p) || p.starts_with(layer))
+                {
+                    reasons.insert(format!(
+                        "{} is also visible through overlay layer {}",
+                        view.display(),
+                        layer.display()
+                    ));
+                }
+            }
+            for other in &mounts {
+                if mount.id == other.id || mount.device != other.device {
+                    continue;
+                }
+                let (source, alternate) = if let Ok(suffix) = underlying.strip_prefix(&other.root) {
+                    (view.clone(), join_path(&other.point, suffix))
+                } else if let Ok(suffix) = other.root.strip_prefix(&underlying) {
+                    (join_path(&view, suffix), other.point.clone())
+                } else {
+                    continue;
+                };
+                if source != alternate {
+                    reasons.insert(format!(
                         "{} is also visible at {}",
-                        root.display(),
+                        source.display(),
                         alternate.display()
                     ));
                 }
-            } else if let Ok(suffix) = other.root.strip_prefix(&underlying) {
-                let exposed = join_mount_path(root.as_path(), suffix);
-                if other.point != exposed {
-                    aliases.insert(format!(
-                        "{} is also visible at {}",
-                        exposed.display(),
-                        other.point.display()
-                    ));
-                }
             }
         }
     }
-    for (index, mount) in mounts.iter().enumerate() {
-        let whole_filesystem = mount.root == Path::new("/")
-            && !mounts.iter().enumerate().any(|(other_index, other)| {
-                other_index != index
-                    && other.device == mount.device
-                    && (other.root.starts_with(&mount.root) || mount.root.starts_with(&other.root))
-            });
-        for root in roots {
-            if mount.point.starts_with(root) {
-                let containing = mounts
-                    .iter()
-                    .filter(|candidate| root.starts_with(&candidate.point))
-                    .max_by_key(|candidate| candidate.point.components().count());
-                if containing
-                    .is_some_and(|candidate| same_writable_view(root.as_path(), candidate, mount))
-                {
-                    continue;
-                }
-                if !local_filesystem(&mount.fs_type) {
-                    aliases.insert(format!(
-                        "{} is on non-local filesystem {} inside writable folder {}",
-                        mount.point.display(),
-                        mount.fs_type,
-                        root.display()
-                    ));
-                } else if whole_filesystem {
-                    continue;
-                }
-                aliases.insert(format!(
-                    "{} is a bind mount inside the writable folder {}",
-                    mount.point.display(),
-                    root.display()
-                ));
-            }
-        }
-    }
-    aliases.into_iter().collect()
-}
-
-// Red-first interface: the fix replaces the legacy checks with mount-ID pieces.
-#[cfg(test)]
-fn guarded_aliases(trees: &[(&Path, u64, bool)], mountinfo: &str) -> Vec<String> {
-    trees
-        .iter()
-        .flat_map(|(path, _, writable)| {
-            if *writable {
-                writable_mount_aliases(&[&path.to_path_buf()], mountinfo)
-            } else {
-                mount_aliases(&[path.to_path_buf()], mountinfo)
-            }
-        })
-        .collect()
-}
-
-#[cfg(test)]
-fn resolved_mount_id(_path: &Path) -> Result<u64, String> {
-    Err("mount-ID resolution not implemented".into())
+    Ok(reasons)
 }
 
 #[cfg(test)]
@@ -380,155 +352,93 @@ mod tests {
     fn real_statx_resolves_root_mount_id() {
         let id = resolved_mount_id(Path::new("/")).unwrap();
         let info = fs::read_to_string("/proc/self/mountinfo").unwrap();
-        assert!(
-            info.lines()
-                .any(|line| line.split_whitespace().next() == Some(id.to_string().as_str()))
-        );
+        let mounts = parse_mountinfo(&info).unwrap();
+        assert!(mounts.iter().any(|m| m.id == id && m.point == Path::new("/")));
+        eprintln!("passed: statx resolved / to mount ID {id}");
     }
 
     #[test]
-    fn writable_roots_inside_aliased_mounts_are_refused() {
-        for (root, info, alternate) in [
+    fn guarded_views_acceptance_matrix() {
+        for (tree, id, info) in [
+            ("/home/u/repo", 1, ROOT.to_owned()),
+            ("/home/u/repo", 1, "1 0 0:42 /@home /home rw - btrfs root rw\n".into()),
+            ("/home/u/repo", 1, "1 0 0:42 /@home /home rw - btrfs root rw\n2 0 0:42 /@other /other rw - btrfs root rw\n".into()),
+            ("/home/u/work", 1, format!("{ROOT}2 1 8:1 /home/u/other /mnt/o rw - ext4 root rw\n")),
             (
-                "/mnt/meta/hooks",
-                "1 0 8:1 / / rw - ext4 root rw\n2 1 8:1 /home/u/repo/.git /mnt/meta rw - ext4 root rw\n",
-                "/home/u/repo/.git/hooks",
+                "/home/u/work",
+                1,
+                format!("{ROOT}2 1 8:1 /home/u/work/sub /home/u/work/sub rw - ext4 root rw\n"),
             ),
+            ("/tmp", 2, format!("{ROOT}2 1 0:42 / /tmp rw - tmpfs tmpfs rw\n")),
+            ("/work", 1, format!("{ROOT}2 1 0:42 / /work/cache rw - tmpfs tmpfs rw\n")),
+            ("/work", 1, format!("{ROOT}2 1 0:42 / /proc/sys/fs/binfmt_misc rw - autofs map rw\n")),
             (
-                "/mnt/h",
-                "1 0 8:1 / / rw - ext4 root rw\n2 1 8:1 /home/u /mnt/h rw - ext4 root rw\n",
-                "/home/u",
-            ),
-            (
-                "/home/u/repo",
-                "1 0 0:42 /@home /home rw - btrfs root rw\n2 0 0:42 / /mnt/top rw - btrfs root rw\n",
-                "/mnt/top/@home/u/repo",
+                "/work",
+                1,
+                format!("{ROOT}2 1 0:42 / /elsewhere rw - overlay overlay lowerdir=/a::/b\n"),
             ),
         ] {
-            let reasons = writable_mount_aliases(&[&PathBuf::from(root)], info);
-            assert!(
-                reasons.contains(&format!("{root} is also visible at {alternate}")),
-                "{root}: {reasons:?}"
-            );
-        }
-    }
-
-    #[test]
-    fn writable_roots_without_alternate_views_are_allowed() {
-        let root = PathBuf::from("/home/u/repo");
-        for info in [
-            "1 0 8:1 / / rw - ext4 root rw\n2 1 8:1 /home/u/other /mnt/meta rw - ext4 root rw\n",
-            "1 0 0:42 /@home /home rw - btrfs root rw\n",
-        ] {
-            let reasons = writable_mount_aliases(&[&root], info);
+            let reasons = guarded_aliases(&[(Path::new(tree), id, true)], &info);
             assert!(reasons.is_empty(), "{info}: {reasons:?}");
         }
     }
 
     #[test]
-    fn writable_root_subtree_views_are_refused() {
-        let root = PathBuf::from("/home/u/work");
-        let cases = [
-            ("2 1 8:1 /home/u/work/cache /home/u/victim/.git/hooks rw - ext4 root rw\n", true),
-            ("2 1 8:1 /home/u/work /mnt/other rw - ext4 root rw\n", true),
-            ("2 1 8:1 /home/u/work/a/b /mnt/x rw - ext4 root rw\n", true),
-            ("2 1 8:1 /home/u /mnt/u rw - ext4 root rw\n", true),
-            ("2 1 8:1 /home/u/other /mnt/o rw - ext4 root rw\n", false),
-            ("2 1 8:1 /home/u/work/sub /home/u/work/sub rw - ext4 root rw\n", false),
-        ];
-        for (entry, refused) in cases {
-            let info = format!("1 0 8:1 / / rw - ext4 root rw\n{entry}");
-            let reasons = writable_mount_aliases(&[&root], &info);
-            assert_eq!(!reasons.is_empty(), refused, "{entry}: {reasons:?}");
-        }
-    }
-
-    #[test]
-    fn writable_mounts_require_an_unaliased_whole_filesystem() {
-        let root = PathBuf::from("/work");
-        let base = "1 0 8:1 / / rw - ext4 root rw\n";
-        for (entry, expected) in [
-            (
-                "2 1 8:1 /work/.git/hooks /work/cache rw - ext4 root rw\n",
-                &[
-                    "/work/.git/hooks is also visible at /work/cache",
-                    "/work/cache is a bind mount inside the writable folder /work",
-                ][..],
-            ),
-            (
-                "2 1 8:1 /elsewhere /work rw - ext4 root rw\n",
-                &["/work is also visible at /elsewhere"][..],
-            ),
-            (
-                "2 1 8:1 / /work/cache rw - ext4 root rw\n",
-                &[
-                    "/work is also visible at /work/cache/work",
-                    "/work/cache is a bind mount inside the writable folder /work",
-                ][..],
-            ),
-        ] {
-            let reasons = writable_mount_aliases(&[&root], &format!("{base}{entry}"));
-            let expected: Vec<String> =
-                expected.iter().map(|reason| (*reason).to_owned()).collect();
-            assert_eq!(reasons, expected, "{entry}");
-        }
-        for entry in [
-            "2 1 0:42 / /work/cache rw - tmpfs tmpfs rw\n",
-            "2 1 0:42 / /work rw - tmpfs tmpfs rw\n",
-            "2 1 8:1 /other/.git/hooks /work-other/cache rw - ext4 root rw\n",
-            "",
-        ] {
-            assert!(writable_mount_aliases(&[&root], &format!("{base}{entry}")).is_empty());
-        }
-    }
-
-    #[test]
-    fn overlay_layers_decode_multi_lower_and_escaped_paths() {
-        assert_eq!(
-            overlay_layers(r"rw,lowerdir=/first\072colon:/second\040space,upperdir=/upper\134slash,workdir=/work").unwrap(),
-            vec![PathBuf::from("/first:colon"), PathBuf::from("/second space"), PathBuf::from(r"/upper\slash"), PathBuf::from("/work")]
+    fn hidden_descendants_are_dropped_but_visible_children_remain() {
+        let info = format!(
+            "{ROOT}2 1 0:42 / /guard/a/keys rw - tmpfs tmpfs rw\n3 1 0:43 / /guard/a rw - tmpfs tmpfs rw\n4 1 0:42 / /mnt/leak rw - tmpfs tmpfs rw\n"
         );
+        let trees = [(Path::new("/guard"), 1, false)];
+        assert!(guarded_aliases(&trees, &info).is_empty());
+        // Reparenting keys into the overmount makes the previously hidden
+        // filesystem reachable, so its external alias must now refuse.
+        let visible = info.replace("2 1 0:42", "2 3 0:42");
+        let reasons = guarded_aliases(&trees, &visible);
+        assert!(reasons.iter().any(|r| r.contains("/mnt/leak")), "{reasons:?}");
     }
 
     #[test]
-    fn overlay_layers_skip_data_only_empty_parts() {
-        assert_eq!(
-            overlay_layers("lowerdir=/a::/b,upperdir=/upper,workdir=/work").unwrap(),
-            vec![
-                PathBuf::from("/a"),
-                PathBuf::from("/b"),
-                PathBuf::from("/upper"),
-                PathBuf::from("/work")
-            ]
-        );
+    fn missing_mount_ids_and_overlay_layer_access_fail_closed() {
+        assert!(!guarded_aliases(&[(Path::new("/work"), 999, true)], ROOT).is_empty());
+        for (layer, refused) in [("/tmp", true), ("/acpmux-absent-layer/a", false)] {
+            let info = format!("{ROOT}2 1 0:42 / /home rw - overlay overlay lowerdir={layer}\n");
+            let reasons = guarded_aliases(&[(Path::new("/home/u/.ssh"), 2, false)], &info);
+            assert_eq!(!reasons.is_empty(), refused, "{reasons:?}");
+        }
     }
 
     #[test]
-    fn overlay_layers_anywhere_cannot_export_protected_content() {
-        let protected = PathBuf::from("/home/u/.ssh");
-        let outside_overlay = "1 2 8:1 / / rw - ext4 root rw\n2 3 0:55 / /elsewhere rw - overlay overlay rw,lowerdir=/home\n";
-        assert!(!mount_aliases(std::slice::from_ref(&protected), outside_overlay).is_empty());
-        let writable_overlay = "1 2 8:1 / / rw - ext4 root rw\n2 3 0:55 / /work rw - overlay overlay rw,lowerdir=/home\n";
-        assert!(!writable_mount_aliases(&[&PathBuf::from("/work")], writable_overlay).is_empty());
-    }
-
-    #[test]
-    fn nonlocal_writable_mounts_are_refused_at_and_below_root() {
-        let root = PathBuf::from("/work");
-        for fs_type in ["fuse.sshfs", "nfs4", "9p", "virtiofs", "autofs"] {
-            for point in ["/work", "/work/mnt"] {
-                let info = format!(
-                    "1 2 8:1 / / rw - ext4 root rw\n2 3 0:55 / {point} rw - {fs_type} source rw\n"
-                );
-                assert!(!writable_mount_aliases(&[&root], &info).is_empty(), "{fs_type} {point}");
+    fn guarded_overlap_matrix() {
+        for (tree, id, info, expected) in [
+            ("/mnt/h", 2, format!("{ROOT}2 1 8:1 /home/u /mnt/h rw - ext4 root rw\n"), "/mnt/h is also visible at /home/u"),
+            ("/home/u/work", 1, format!("{ROOT}2 1 8:1 /home/u/work/cache /victim/.git/hooks rw - ext4 root rw\n"), "/home/u/work/cache is also visible at /victim/.git/hooks"),
+            ("/home/u/work", 1, format!("{ROOT}2 1 8:1 /home/u/work /mnt/other rw - ext4 root rw\n"), "/home/u/work is also visible at /mnt/other"),
+            ("/home/u/work", 1, format!("{ROOT}2 1 8:1 /home/u/work/a/b /mnt/x rw - ext4 root rw\n"), "/home/u/work/a/b is also visible at /mnt/x"),
+            ("/home/u/repo", 1, "1 0 0:42 /@home /home rw - btrfs root rw\n2 0 0:42 / /mnt/top rw - btrfs root rw\n".into(), "/home/u/repo is also visible at /mnt/top/@home/u/repo"),
+            ("/home/u/.ssh", 1, format!("{ROOT}2 1 8:1 /home /mnt/home rw - ext4 root rw\n"), "/home/u/.ssh is also visible at /mnt/home/u/.ssh"),
+        ] {
+            for writable in [false, true] {
+                let reasons = guarded_aliases(&[(Path::new(tree), id, writable)], &info);
+                assert!(reasons.contains(&expected.to_owned()), "{info}: {reasons:?}");
             }
         }
     }
 
     #[test]
-    fn writable_root_contained_by_nonlocal_mount_is_refused() {
-        let root = PathBuf::from("/work");
-        let info = "1 2 8:1 / / rw - ext4 root rw\n2 3 0:55 / / rw - nfs4 source rw\n";
-        assert!(!writable_mount_aliases(&[&root], info).is_empty());
+    fn writable_nonlocal_filesystems_are_refused() {
+        for fs_type in ["overlay", "fuse.sshfs", "nfs4", "9p", "virtiofs", "autofs"] {
+            for point in ["/", "/work", "/work/mnt"] {
+                let info = format!("{ROOT}2 1 0:42 / {point} rw - {fs_type} source rw\n");
+                let id = if point == "/work/mnt" { 1 } else { 2 };
+                let reasons = guarded_aliases(&[(Path::new("/work"), id, true)], &info);
+                assert!(reasons.iter().any(|r| r.contains("non-local")), "{info}: {reasons:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn overlay_layers_decode_data_only_and_escaped_paths() {
+        assert_eq!(overlay_layers(r"lowerdir=/first\072colon::/second\040space:,upperdir=/upper\134slash,workdir=/work").unwrap(),
+            ["/first:colon", "/second space", r"/upper\slash", "/work"].map(PathBuf::from));
     }
 }

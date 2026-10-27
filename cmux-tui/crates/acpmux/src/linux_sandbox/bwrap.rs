@@ -29,7 +29,6 @@ pub(crate) const LINUX_READ_DENIES: &[&str] = &[
 
 mod aliases;
 mod home;
-use aliases::mount_aliases;
 #[cfg(test)]
 use home::{denied_paths, home_view};
 use home::{denied_paths_pinned, home_view_pinned};
@@ -241,7 +240,7 @@ fn outside_view(paths: &[PathBuf], home: &Path) -> Result<Vec<String>, String> {
 
 /// Caller supplies explicit denied paths parsed by `rules::WritePolicy`.
 /// The returned descriptors must be inherited by bwrap with CLOEXEC cleared.
-/// Caller supplies fresh mountinfo; no spawn is wired yet.
+/// Caller supplies fresh mountinfo; mount IDs are resolved here in the keeper.
 /// Validation loops stop after the fixed roots and supplied deny list.
 pub(crate) fn plan(
     paths: &Paths,
@@ -249,6 +248,21 @@ pub(crate) fn plan(
     mountinfo: &str,
     cmd_prefix: &[String],
 ) -> Result<BwrapPlan, String> {
+    plan_with_mount_id(paths, read_denies, mountinfo, cmd_prefix, aliases::resolved_mount_id)
+}
+
+fn plan_with_mount_id(
+    paths: &Paths,
+    read_denies: &[PathBuf],
+    mountinfo: &str,
+    cmd_prefix: &[String],
+    mut mount_id: impl FnMut(&Path) -> Result<u64, String>,
+) -> Result<BwrapPlan, String> {
+    // Refuse automount triggers before resolving any guarded path.
+    let preflight = aliases::guarded_aliases(&[], mountinfo);
+    if !preflight.is_empty() {
+        return Err(preflight.join("; "));
+    }
     let memory = paths.claude_project.join("memory");
     let writable = [&paths.cwd, &paths.tmp, &paths.claude_tmp_project, &paths.claude_project];
     for path in [&paths.home, &memory].into_iter().chain(writable) {
@@ -272,12 +286,18 @@ pub(crate) fn plan(
                 protected.push(path.clone());
                 protected.push(target);
             }
-            Err(e) if e.kind() == io::ErrorKind::NotFound => (),
+            Err(e) if e.kind() == io::ErrorKind::NotFound => protected.push(path.clone()),
             Err(e) => return Err(format!("cannot inspect {}: {e}", path.display())),
         }
     }
-    let mut aliases = mount_aliases(&protected, mountinfo);
-    aliases.extend(aliases::writable_mount_aliases(&writable, mountinfo));
+    let mut trees = Vec::new();
+    for path in &protected {
+        trees.push((path.as_path(), mount_id(path)?, false));
+    }
+    for path in writable {
+        trees.push((path.as_path(), mount_id(path)?, true));
+    }
+    let aliases = aliases::guarded_aliases(&trees, mountinfo);
     if !aliases.is_empty() {
         return Err(aliases.join("; "));
     }
@@ -471,12 +491,13 @@ mod tests {
                 encode(&root.join(".git/hooks")),
                 encode(&point)
             );
-            let error = plan(&paths, &[], &info, &strings(&["true"])).unwrap_err();
+            let error =
+                plan_with_mount_id(&paths, &[], &info, &strings(&["true"]), |_| Ok(1)).unwrap_err();
             assert!(
                 error.contains(&format!(
-                    "{} is a bind mount inside the writable folder {}",
-                    point.display(),
-                    root.display()
+                    "{} is also visible at {}",
+                    root.join(".git/hooks").display(),
+                    point.display()
                 )),
                 "{error}"
             );
@@ -484,27 +505,7 @@ mod tests {
     }
 
     #[test]
-    fn mount_aliases_reject_same_device_and_overlay_views() {
-        let protected = PathBuf::from("/home/u/.ssh");
-        let info = "1 0 8:1 / / rw - ext4 root rw\n2 1 8:1 /home /mnt/home rw - ext4 root rw\n";
-        assert_eq!(
-            mount_aliases(std::slice::from_ref(&protected), info),
-            vec!["/home/u/.ssh is also visible at /mnt/home"]
-        );
-        let info = "1 0 0:32 /@home /home rw - btrfs root rw\n2 0 0:32 /@other /other rw - btrfs root rw\n";
-        assert!(mount_aliases(std::slice::from_ref(&protected), info).is_empty());
-        let info = "1 0 8:1 / / rw - ext4 root rw\n2 1 8:1 /home/u/.ssh/aws /alias\\040space rw - ext4 root rw\n";
-        assert_eq!(
-            mount_aliases(std::slice::from_ref(&protected), info),
-            vec!["/home/u/.ssh is also visible at /alias space"]
-        );
-        let info = "1 0 8:1 / / rw - ext4 root rw\n2 1 8:2 / /home rw - overlay overlay lowerdir=/tmp,upperdir=/missing/upper,workdir=/missing/work rw\n";
-        assert_eq!(
-            mount_aliases(std::slice::from_ref(&protected), info),
-            vec!["/home/u/.ssh lives on overlayfs whose layer /tmp is readable here"]
-        );
-        let info = "1 0 8:1 / / rw - ext4 root rw\n2 1 8:2 / /home rw - overlay overlay lowerdir=/missing/a\\072b:/missing/c\\040d,upperdir=/missing/upper,workdir=/missing/work rw\n";
-        assert!(mount_aliases(std::slice::from_ref(&protected), info).is_empty());
+    fn plan_refuses_memory_alias() {
         let fixture = Fixture::new();
         let paths = fixture.create_paths();
         let memory = paths.claude_project.join("memory");
@@ -512,7 +513,8 @@ mod tests {
             "1 0 8:1 / / rw - ext4 root rw\n2 1 8:1 {} /alias rw - ext4 root rw\n",
             memory.display()
         );
-        let error = plan(&paths, &[], &info, &strings(&["true"])).unwrap_err();
+        let error =
+            plan_with_mount_id(&paths, &[], &info, &strings(&["true"]), |_| Ok(1)).unwrap_err();
         assert!(error.contains("also visible at /alias"), "{error}");
     }
 
@@ -571,8 +573,14 @@ mod tests {
             mounts.iter().collect::<BTreeSet<_>>().len(),
             "view={view:?} denied={denied:?}"
         );
-        let (args, _fds) =
-            plan(&p, &[], "1 0 8:1 / / rw - ext4 root rw\n", &strings(&["true"])).unwrap();
+        let (args, _fds) = plan_with_mount_id(
+            &p,
+            &[],
+            "1 0 8:1 / / rw - ext4 root rw\n",
+            &strings(&["true"]),
+            |_| Ok(1),
+        )
+        .unwrap();
         let rebuilt = args.iter().position(|s| s == "--tmpfs").unwrap();
         let writable = args.iter().position(|s| s == "--bind-fd").unwrap();
         assert!(
