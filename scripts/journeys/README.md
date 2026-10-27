@@ -134,6 +134,29 @@ no fixture or earlier run can show the expected text) and `${prompt}` (`J> `).
 `since`, or it fails with the measured time. Frame checks are read after the other conditions
 hold (text recognition takes about a second) and do not count against `within`.
 
+### Step groups (`ext_*.py`)
+
+A group's own steps and conditions live in `ext_<group>.py` beside `driver.py`; the driver loads
+each one (`load_extensions`) and `run.py` sends them to the mini with it. A group file has
+`install(driver)`, `STEPS` and `CONDITIONS` (name to evidence kind and function), must not import
+`driver.py`, and may not redefine a step or condition. A journey may have `finally` steps (put the
+app back for the next journey: leave full screen, close a second window, restore the window
+frame); they run whatever happened and never change the status.
+
+`ext_window.py` (group window-pane-resize) adds pointer and window steps. Drags go through
+`debug.mouse`: a press, one drag event per 60 Hz frame with the button held, a release, so
+AppKit's live-resize tracking or the layout's divider drag reads them as it reads a person's drag.
+Steps: `name_pane`, `adopt_pane` (the pane a split or a new window just focused), `use_pane`
+(`click: true` clicks into it first), `remember`, `window_place` (set-up), `window_drag`
+(`press: false` / `release: false` keep the button held, so checks run inside the live resize),
+`divider_drag`, `action`, and the clean-ups `leave_full_screen`, `restore_window`, `close_window`.
+Conditions: `window_frame`, `full_screen`, `grid_fits` (the pane shows; the app's grid equals its
+fitted grid, Ghostty's drawn grid and the daemon screen's size, and fits the view's frame at
+Ghostty's cell size), `pane_frame`, `pane_state`, `at_bottom` (the app's viewport ends with the
+daemon screen's last lines: the scrollback did not jump), `output_advances`, and `pty_size`
+(daemon evidence: the shell's `echo TAG $(stty size)` equals the daemon screen's and the app's
+grid). The file's docstring has every field.
+
 ## Judge
 
 The driver decides, not the author:
@@ -186,13 +209,12 @@ that is the author refuses the build.
 
 - Generated journeys: one per action catalog row, settings schema entry and keyboard shortcut
   (planned as a generator writing `journeys/generated/`; P0 is hand-written now).
-- Pointer journeys (drag-resize a window, divider drags, clicks): `debug.mouse` works in a slot
-  (`cmux-ci capture` steps use it) but the driver has no step for it yet. The next P0 is live
-  resize, the second dogfood v1 bug (scrollback jumped: test 33cd577dcd8, fix 673587c97dc); it
-  needs a `mouse` step and a scrollback-position condition.
+- Pointer journeys beyond window and divider drags and pane clicks (`ext_window.py`): tab drags,
+  sidebar clicks, the green button, selection with the mouse.
+- Display and scale changes during a resize (`debug.simulate.display` exists; no step yet).
 - Quit and relaunch (session restore) inside a journey: `restore-journey.py` covers it today;
   a `relaunch` step (`capture-host relaunch`) is not written.
-- Browser-pane journeys, two windows, display and scale changes, sleep and wake.
+- Browser-pane journeys, sleep and wake.
 - macOS 14 and 15: capture minis run the fleet's macOS; use `scripts/cmux-next/os-matrix.sh`.
 
 ## Why
