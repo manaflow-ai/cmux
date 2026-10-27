@@ -1,4 +1,8 @@
+#if canImport(CryptoKit)
 import CryptoKit
+#else
+import Crypto
+#endif
 public import Foundation
 
 /// Per-installation Cloud state: the WireGuard key, device id, completed

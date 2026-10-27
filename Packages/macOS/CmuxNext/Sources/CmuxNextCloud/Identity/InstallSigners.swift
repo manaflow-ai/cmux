@@ -1,10 +1,16 @@
 public import CmuxInstallAuthCore
 import CmuxNextWakeups
+#if canImport(CryptoKit)
 import CryptoKit
+#else
+import Crypto
+#endif
 public import Foundation
+#if canImport(Security)
 import Security
+#endif
 
-/// A software P-256 install key in a 0600 file (development builds only).
+/// A software P-256 install key in a 0600 file (macOS development builds, and Linux).
 /// Every key read, write and unlink runs on `work`'s files lane, never on the
 /// caller's thread (a token mint awaits it from the main actor).
 struct FileInstallSigner: InstallSigner {
@@ -33,6 +39,7 @@ struct FileInstallSigner: InstallSigner {
     }
 }
 
+#if canImport(Security)
 /// The install key in the Secure Enclave (signed builds). Only the enclave's
 /// encrypted key blob is stored, in the Keychain for this device only; the
 /// private key never leaves the enclave. No user-presence prompt. Every
@@ -96,3 +103,4 @@ struct EnclaveInstallSigner: InstallSigner {
         guard status == errSecSuccess else { throw Failure.keychain(status) }
     }
 }
+#endif

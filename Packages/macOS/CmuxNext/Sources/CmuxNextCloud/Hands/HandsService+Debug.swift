@@ -1,4 +1,8 @@
+#if canImport(CryptoKit)
 import CryptoKit
+#else
+import Crypto
+#endif
 public import Foundation
 
 /// `debug.hands` (the App's control socket, debug builds and proofs): the service's state as JSON

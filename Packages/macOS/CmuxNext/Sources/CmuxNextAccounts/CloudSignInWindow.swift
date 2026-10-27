@@ -1,6 +1,7 @@
-public import AppKit
+import AppKit
+import CmuxNextCompat
 public import CmuxNextWakeups
-import Foundation
+public import Foundation
 
 /// Where the hosted cmux sign-in opens (Debug Settings `auth.signInWindow`).
 ///
@@ -10,6 +11,9 @@ import Foundation
 /// Sign In clicks in Settings, four cancels, no sign-in). The sign-in page
 /// in the default browser works with every browser and has the person's
 /// saved passwords, so ``automatic`` keeps the popup for Safari only.
+///
+/// Accounts decides it, from Launch Services and the Debug Settings choice (``SignInWindowChoice``):
+/// CmuxNextCloud's `CloudAuth` asks only `opensDefaultBrowser`, so it needs no AppKit (p15-oracle-141).
 public nonisolated enum CloudSignInWindow: String, Sendable, CaseIterable {
     /// The popup when the default browser is Safari, else the default browser.
     case automatic
@@ -38,5 +42,27 @@ public nonisolated enum CloudSignInWindow: String, Sendable, CaseIterable {
             guard let probe = URL(string: "https://cmux.com"), let app = system.defaultApplication(toOpen: probe) else { return nil }
             return Bundle(url: app)?.bundleIdentifier
         }
+    }
+
+    /// `CloudAuth.opensDefaultBrowser`: the window `choice` names, against the default browser as `queries` keep
+    /// it. It asks the default browser now at best effort, so a sign-in finds it kept; a miss asks again at
+    /// user-blocking priority and keeps the popup for that sign-in (an unknown browser).
+    @MainActor
+    public static func opensDefaultBrowser(choice: @escaping @MainActor () -> CloudSignInWindow,
+                                    queries: WorkspaceQueries) -> @MainActor () -> Bool {
+        let query = defaultBrowserQuery()
+        queries.prefetch([query], priority: .bestEffort)
+        return {
+            let kept = queries.cached(query)
+            if kept == nil { queries.prefetch([query], priority: .userBlocking) }
+            return choice().opensDefaultBrowser(defaultBrowser: kept ?? nil)
+        }
+    }
+
+    /// `CloudAuth`'s open of an https sign-in page: it always has a browser (Safari is on the sealed system
+    /// volume), so no Launch Services check waits on the main thread; the open runs off it (cx-050n).
+    @MainActor
+    public static func openExternalURL(_ url: URL) {
+        NSWorkspace.shared.openInBackground(url)
     }
 }

@@ -2,7 +2,12 @@ import CmuxNextCloud
 import CmuxNextCompat
 public import CmuxNextWakeups
 public import Foundation
+#if canImport(os)
 import os
+#endif
+#if canImport(FoundationNetworking)
+public import FoundationNetworking
+#endif
 
 /// Installs the app's own cmux-tui build on an SSH machine (after the user
 /// confirmed): the manifest from files.cmux.com, the machine's own resumable

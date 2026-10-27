@@ -92,7 +92,8 @@ final class DebugSettingsService: InternalPageProvider {
         let features = FeatureFlagsPage.report(services.features, tunables: store)
         services.lifetimeFollowers.append(services.crashReporting.reporter.followFeatures(on: services.mainWork) { CrashFeatureScope(features.fieldState) })
         // CmuxNextCloud does not see tunables; Release keeps CloudAuth's default (automatic).
-        services.cloud.auth.signInWindow = { .init(rawValue: AccountTunables.signInWindow.value.rawValue) ?? .automatic }
+        services.cloud.auth.opensDefaultBrowser = CloudSignInWindow.opensDefaultBrowser(
+            choice: { CloudSignInWindow(rawValue: AccountTunables.signInWindow.value.rawValue) ?? .automatic }, queries: services.workspaceQueries)
         // The store loads the file off the main actor, after the first icons draw: the family is read here.
         IconPack.useOverlay(Self.launchIconFamily(url).overlay)
     }

@@ -1,4 +1,8 @@
+#if canImport(CryptoKit)
 import CryptoKit
+#else
+import Crypto
+#endif
 public import Foundation
 
 /// `https://files.cmux.com/cmux-tui/<commit>/manifest.json`: the digest of

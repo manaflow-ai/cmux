@@ -1,4 +1,8 @@
+#if canImport(CryptoKit)
 public import CryptoKit
+#else
+public import Crypto
+#endif
 public import Foundation
 
 /// A relay's secret, as the configuring device enters it.

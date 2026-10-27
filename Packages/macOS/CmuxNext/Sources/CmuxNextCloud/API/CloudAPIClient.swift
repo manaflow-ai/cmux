@@ -1,4 +1,7 @@
 public import Foundation
+#if canImport(FoundationNetworking)
+public import FoundationNetworking
+#endif
 
 /// The `/api/vm` REST client (web/app/api/vm). Native auth is
 /// `Authorization: Bearer <access>` plus `X-Stack-Refresh-Token`; the team

@@ -1,4 +1,8 @@
+#if canImport(CryptoKit)
 import CryptoKit
+#else
+import Crypto
+#endif
 public import Foundation
 
 /// Makes ``AccountLabel``s. The handle is `acct_` + base32 (lowercase, no

@@ -75,7 +75,7 @@ import Testing
         let defaults = try #require(UserDefaults(suiteName: id))
         defaults.set(true, forKey: "cmux.auth.hasTokens")
         let configuration = CloudConfiguration.resolve(bundleID: id, bundled: [:], process: [:], isDebugBuild: false)
-        return (CloudAuth(configuration: configuration, environment: [:], defaults: defaults), defaults, id)
+        return (CloudAuth(configuration: configuration, environment: [:], defaults: defaults, openExternalURL: { _ in }), defaults, id)
     }
 }
 

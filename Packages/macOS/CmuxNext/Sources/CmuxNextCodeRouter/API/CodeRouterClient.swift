@@ -1,5 +1,8 @@
 import CmuxNextCloud
 public import Foundation
+#if canImport(FoundationNetworking)
+public import FoundationNetworking
+#endif
 
 /// A CodeRouter control-plane failure. Messages come from the server's
 /// `error` / `message` fields (which never echo a credential) or name the

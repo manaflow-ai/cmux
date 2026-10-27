@@ -1,7 +1,12 @@
 import CmuxNextCloud
 public import Foundation
+#if canImport(Security)
 import LocalAuthentication
 import Security
+#endif
+#if canImport(FoundationNetworking)
+public import FoundationNetworking
+#endif
 
 /// The real file system.
 public struct LiveFileReader: FileReading {
@@ -10,6 +15,7 @@ public struct LiveFileReader: FileReading {
     public func exists(_ url: URL) -> Bool { FileManager.default.fileExists(atPath: url.path) }
 }
 
+#if canImport(Security)
 /// Keychain presence by attributes only: `kSecReturnAttributes` without
 /// `kSecReturnData` never decrypts the item, so macOS shows no prompt and
 /// cmux never holds the other app's secret.
@@ -30,6 +36,7 @@ public struct SystemKeychainProbe: KeychainProbing {
         return status == errSecSuccess || status == errSecInteractionNotAllowed
     }
 }
+#endif
 
 /// A local model server answers an HTTP GET within the deadline. Loopback
 /// only; no credentials are sent.

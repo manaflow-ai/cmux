@@ -74,6 +74,7 @@ public final class DeviceHub {
         self.now = now
     }
 
+    #if canImport(Security)
     /// The app's hub: its Secure Enclave identity under `<bundleIdentifier>.device-hub`
     /// (loaded off the main thread, renewed when the hub refuses it), relay secrets
     /// in the same Keychain service, and `tokens` for the account (CloudAuth's access token).
@@ -84,6 +85,7 @@ public final class DeviceHub {
                          secrets: KeychainRelaySecretStore(bundleIdentifier: bundleIdentifier), deviceName: deviceName,
                          renewIdentity: { try DeviceIdentity.renew(bundleIdentifier: bundleIdentifier) }, energy: energy)
     }
+    #endif
 
     /// Runs `load` off the main thread: the file Keychain and Secure Enclave
     /// calls behind an identity took 8-20 s on some Macs (H7).

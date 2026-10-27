@@ -1,5 +1,8 @@
 public import Foundation
+#if canImport(os)
 import os
+#endif
+import CmuxNextCompat
 
 /// One Cloud machine's headless `cmux-tui remote connect` link. The link
 /// dials the machine's daemon (`ws://<vpc-ip>:1337/v1/link`, trusted

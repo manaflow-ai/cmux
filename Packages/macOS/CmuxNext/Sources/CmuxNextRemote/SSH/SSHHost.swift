@@ -1,4 +1,8 @@
+#if canImport(CryptoKit)
 import CryptoKit
+#else
+import Crypto
+#endif
 public import Foundation
 
 /// One saved SSH machine: where it is, which cmux-tui session to attach,

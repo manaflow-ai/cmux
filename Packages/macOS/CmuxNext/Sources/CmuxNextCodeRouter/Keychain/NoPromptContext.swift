@@ -1,3 +1,4 @@
+#if canImport(LocalAuthentication)
 import LocalAuthentication
 
 /// An `LAContext` that refuses user interaction, so a Keychain query never prompts.
@@ -8,3 +9,4 @@ enum NoPromptContext {
         return context
     }
 }
+#endif

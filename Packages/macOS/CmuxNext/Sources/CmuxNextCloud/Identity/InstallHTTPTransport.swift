@@ -1,6 +1,9 @@
 public import CmuxInstallAuthCore
 import CmuxNextCompat
 public import Foundation
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
 
 /// POSTs install-auth JSON to the API Worker at `baseURL`. Redirects are
 /// refused (a bearer or a signed challenge never follows one), and nothing

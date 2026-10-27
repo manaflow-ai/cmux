@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextAccounts
 import CmuxNextActions
 import CmuxNextApps
 import CmuxNextAgentPane
@@ -103,7 +104,12 @@ final class AppServices {
     let machineAsks = SidebarAsks()
     /// The account's sign-in, apart from ``cloud`` so its launch readers (the managed team, Home, a sign-in callback) build no
     /// CloudService. Its first token or restore reader starts the session restore (`CloudAuth.start`); a sign-in starts Cloud.
-    private(set) lazy var cloudAuth: CloudAuth = CloudAuth(configuration: CloudConfiguration.current(isDebugBuild: ControlService.isDebugBuild), workspaceQueries: workspaceQueries)
+    private(set) lazy var cloudAuth: CloudAuth = {
+        let auth = CloudAuth(configuration: CloudConfiguration.current(isDebugBuild: ControlService.isDebugBuild),
+                             openExternalURL: CloudSignInWindow.openExternalURL)
+        auth.opensDefaultBrowser = CloudSignInWindow.opensDefaultBrowser(choice: { .automatic }, queries: workspaceQueries)
+        return auth
+    }()
     /// ``cloud`` and ``feed`` (AppServices+Cloud.swift), built at their first read: nil until then (no IUO).
     var cloudIfBuilt: CloudService?, feedIfBuilt: FeedService?
     /// The Cloud policy and the `feed.github` setting, applied when ``cloud`` and ``feed`` are built.

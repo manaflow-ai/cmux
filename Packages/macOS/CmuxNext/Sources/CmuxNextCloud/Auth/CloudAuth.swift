@@ -1,11 +1,11 @@
-public import AppKit
 public import CMUXAuthCore
 public import CmuxAuthRuntime
-import Foundation
+public import Foundation
+#if canImport(os)
 import os
+#endif
 public import Observation
 import CmuxNextCompat
-public import CmuxNextWakeups
 
 /// Stack Auth for cmux-next, composed from the kept `CmuxAuthRuntime`
 /// library exactly as the old app did (MacAuthComposition): the Keychain
@@ -61,11 +61,11 @@ public final class CloudAuth {
     /// Captures the auth launch keys; call in main before LaunchIdentity.stripInheritedEnvironment().
     public nonisolated static func captureLaunchEnvironment() { _ = launchEnvironment }
 
-    /// `environment` nil reads this process's environment plus the captured auth launch keys.
+    /// `environment` nil reads this process's environment plus the captured auth launch keys. `openExternalURL`
+    /// opens a sign-in page in the default browser without waiting (the App's `CloudSignInWindow.openExternalURL`).
     public init(configuration: CloudConfiguration, environment explicitEnvironment: [String: String]? = nil,
-                defaults: UserDefaults = .standard, workspaceQueries: WorkspaceQueries? = nil) {
-        self.workspaceQueries = workspaceQueries
-        workspaceQueries?.prefetch([CloudSignInWindow.defaultBrowserQuery()], priority: .bestEffort)
+                defaults: UserDefaults = .standard, openExternalURL: @escaping @MainActor (URL) -> Void) {
+        self.openExternalURL = openExternalURL
         let environment = explicitEnvironment
             ?? Self.authEnvironment(process: ProcessInfo.processInfo.environment, launch: Self.launchEnvironment)
         self.configuration = configuration
@@ -122,9 +122,7 @@ public final class CloudAuth {
             makeSignInURL: { configuration.signInURL(callbackState: $0) },
             callbackScheme: { configuration.callbackScheme },
             openExternalURL: { url in
-                // An https page always has a browser (Safari is on the sealed system volume), so no Launch Services
-                // check waits on the main thread; the open runs off it (cx-050n).
-                NSWorkspace.shared.openInBackground(url)
+                openExternalURL(url)
                 return true
             }
         )
@@ -152,21 +150,12 @@ public final class CloudAuth {
         return (pair.accessToken, pair.refreshToken)
     }
 
-    /// Where a sign-in opens; the App reads its Debug Settings tunable here.
-    @ObservationIgnored public var signInWindow: @MainActor () -> CloudSignInWindow = { .automatic }
+    /// Whether a sign-in skips the popup and opens in the default browser. The App decides it
+    /// (`CloudSignInWindow`: its Debug Settings tunable and the default browser); false (tests) keeps the popup.
+    @ObservationIgnored public var opensDefaultBrowser: @MainActor () -> Bool = { false }
 
-    /// The app's Launch Services answers: the default browser a sign-in checks is read from what they keep, asked
-    /// on the system lane from init. Nil (tests) knows no default browser.
-    @ObservationIgnored private let workspaceQueries: WorkspaceQueries?
-
-    /// The default browser's bundle identifier as kept; nil when unknown (a miss asks for the next sign-in).
-    private func keptDefaultBrowser() -> String? {
-        guard let queries = workspaceQueries else { return nil }
-        let query = CloudSignInWindow.defaultBrowserQuery()
-        if let kept = queries.cached(query) { return kept }
-        queries.prefetch([query], priority: .userBlocking)
-        return nil
-    }
+    /// Opens a page in the default browser without waiting for it.
+    @ObservationIgnored private let openExternalURL: @MainActor (URL) -> Void
 
     /// Hosted browser sign-in; returns whether the app ended signed in.
     /// Every entry point (Settings, the palette, the sidebar, the Cloud page)
@@ -181,8 +170,7 @@ public final class CloudAuth {
     @discardableResult
     public func beginSignIn(selectAccount: Bool = false) -> Task<Bool, Never> {
         signInBegins()
-        let inBrowser = signInWindow().opensDefaultBrowser(defaultBrowser: keptDefaultBrowser())
-        return browserSignIn.beginSignIn(selectAccount: selectAccount, inDefaultBrowser: inBrowser)
+        return browserSignIn.beginSignIn(selectAccount: selectAccount, inDefaultBrowser: opensDefaultBrowser())
     }
 
     /// Opens the sign-in in progress in the default browser (the person's
@@ -190,7 +178,7 @@ public final class CloudAuth {
     @discardableResult
     public func continueSignInInBrowser() -> Bool {
         guard let url = browserSignIn.activeAttemptSignInURL else { return false }
-        NSWorkspace.shared.openInBackground(url)
+        openExternalURL(url)
         return true
     }
 

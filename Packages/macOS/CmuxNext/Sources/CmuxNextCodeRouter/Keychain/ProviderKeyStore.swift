@@ -1,5 +1,7 @@
 import Foundation
+#if canImport(Security)
 import Security
+#endif
 
 /// API keys the user pastes into the Accounts screen. They go to the
 /// Keychain (this store) or to CodeRouter, never to cmux.json or a log.
@@ -17,6 +19,7 @@ public struct ProviderKeyStoreError: Error, Sendable, Equatable, CustomStringCon
     public var description: String { "Keychain error \(status)" }
 }
 
+#if canImport(Security)
 /// One generic-password item per provider under `service` (default
 /// `<bundle id>.ai-provider-keys`), account = the provider id.
 /// Accessible after first unlock, this device only.
@@ -79,3 +82,4 @@ public struct KeychainProviderKeyStore: ProviderKeyStoring {
         guard status == errSecSuccess || status == errSecItemNotFound else { throw ProviderKeyStoreError(status: status) }
     }
 }
+#endif

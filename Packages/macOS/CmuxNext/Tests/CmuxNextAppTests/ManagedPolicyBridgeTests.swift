@@ -53,7 +53,7 @@ import Testing
                                      enableSparkle: false, recordsUpdates: false, work: BackgroundWork(label: "test.managed-bridge"))
             updater.announcementsFetch = false
             let configuration = CloudConfiguration.resolve(bundleID: id, bundled: [:], process: [:], isDebugBuild: false)
-            auth = CloudAuth(configuration: configuration, environment: [:], defaults: defaults)
+            auth = CloudAuth(configuration: configuration, environment: [:], defaults: defaults, openExternalURL: { _ in })
         }
 
         deinit { UserDefaults.standard.removePersistentDomain(forName: defaultsID) }

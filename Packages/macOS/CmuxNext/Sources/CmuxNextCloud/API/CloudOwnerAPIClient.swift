@@ -1,5 +1,8 @@
 public import Foundation
 import CmuxNextCompat
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
 
 /// The cmux-next API Worker's routes that a person's own session calls directly, outside the op
 /// path (`ownerAPIBaseURL`; cx-kvmz). Today only the keyed acpmux start and its person_holds check

@@ -1,3 +1,5 @@
+// The Keychain exists only on Apple platforms; elsewhere the composition root injects the stores (p15-oracle-141).
+#if canImport(Security)
 public import Foundation
 import Security
 
@@ -72,3 +74,4 @@ public struct DeviceKeychain: Sendable {
         return access
     }
 }
+#endif

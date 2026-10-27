@@ -1,4 +1,7 @@
 public import Foundation
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
 
 /// The owner's hand routes on the API Worker (backend hand-routes.ts, docs/chief-hands.md), called
 /// with the person's own session: the routes refuse an install token or a Chief token. Ids are

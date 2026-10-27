@@ -1,7 +1,14 @@
+#if canImport(CryptoKit)
 import CryptoKit
+#else
+import Crypto
+#endif
 public import Foundation
+#if canImport(Security)
 import Security
+#endif
 
+#if canImport(Security)
 /// The account-label salt in the Keychain: one generic-password item under
 /// `<bundle id>.account-label-salt`, created on first use with 32 random
 /// bytes, accessible after first unlock on this device only (it never
@@ -47,6 +54,7 @@ public struct KeychainAccountLabelSalt: AccountLabelSaltProviding {
         return data
     }
 }
+#endif
 
 struct AccountLabelSaltTooShort: Error, CustomStringConvertible {
     var description: String { "account label salt is shorter than 16 bytes" }

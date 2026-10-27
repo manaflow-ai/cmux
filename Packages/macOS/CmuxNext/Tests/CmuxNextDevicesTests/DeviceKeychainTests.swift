@@ -1,3 +1,4 @@
+#if canImport(Security)
 @testable import CmuxNextDevices
 import Foundation
 import Security
@@ -17,3 +18,4 @@ struct DeviceKeychainTests {
         #expect(DeviceKeychain(service: "s").query("a")[kSecUseDataProtectionKeychain as String] == nil)
     }
 }
+#endif

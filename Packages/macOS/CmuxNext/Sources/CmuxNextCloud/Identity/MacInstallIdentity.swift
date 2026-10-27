@@ -1,6 +1,9 @@
 public import CmuxInstallAuthCore
 public import Foundation
+#if canImport(os)
 import os
+#endif
+import CmuxNextCompat
 
 /// The Mac app's Cloud install principal (bead cx-wb5.64; identity spec D5):
 /// an install key and a record per Stack user, registered as kind `mac` with

@@ -1,4 +1,8 @@
+#if canImport(CryptoKit)
 import CryptoKit
+#else
+import Crypto
+#endif
 @testable import CmuxNextDevices
 import Foundation
 import Testing

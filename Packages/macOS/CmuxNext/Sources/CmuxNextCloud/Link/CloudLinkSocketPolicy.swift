@@ -1,4 +1,3 @@
-import Darwin
 import Foundation
 
 /// The check a link socket path passes before the app connects to it. The
@@ -11,7 +10,7 @@ import Foundation
 /// can then replace the socket between the check and the connect. The name
 /// rule keeps a wrong answer off the local daemon's and other sockets.
 enum CloudLinkSocketPolicy {
-    /// `sun_path` holds 104 bytes with the terminating NUL.
+    /// `sun_path` holds 104 bytes with the terminating NUL on macOS (108 on Linux: the macOS bound holds on both).
     static let maxPathBytes = 103
 
     /// Throws ``CloudLinkError/unsafeSocket(_:)`` unless `path` passes.

@@ -1,6 +1,13 @@
+#if canImport(CryptoKit)
 import CryptoKit
+#else
+import Crypto
+#endif
 @testable import CmuxNextDevices
 import Foundation
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
 
 /// Software keys: tests only. The app's keys are always in the Secure Enclave.
 struct SoftwareDeviceKeys: DeviceKeyMaterial {

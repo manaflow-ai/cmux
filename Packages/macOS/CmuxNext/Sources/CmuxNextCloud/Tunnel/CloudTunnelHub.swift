@@ -1,5 +1,8 @@
 public import Foundation
+#if canImport(os)
 import os
+#endif
+import CmuxNextCompat
 
 /// The app's one userspace WireGuard tunnel: `cmux-tui wg hub`, which serves
 /// SOCKS5 on a Unix socket to every machine link (a WireGuard key supports

@@ -243,7 +243,7 @@ public final class HandsService {
         note("presence prompt requested: \(reason)")
         defer { if self.prompt === prompt { self.prompt = nil } }
         let text = HandProofText.level(environment: context.environment, target: target, level: level, nonce: nonce)
-        let signature = try await HandPresenceKey.sign(text, blob: record.blob, reason: reason, prompt: prompt)
+        let signature = try await presence.sign(text, record: record, prompt: prompt)
         try await api.setLevel(target: target, level: level, proof: (context.install, nonce, signature))
     }
 

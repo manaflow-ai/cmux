@@ -1,5 +1,7 @@
 import Foundation
+#if canImport(os)
 import os
+#endif
 import CmuxNextCompat
 
 /// The identity behind a Codex (ChatGPT) account handle: the ChatGPT

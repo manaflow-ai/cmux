@@ -140,7 +140,8 @@ final class CloudService {
             invalidate: { [installIdentity] in await installIdentity.invalidate() })
         hands = HandsService(
             apiBaseURL: configuration.ownerAPIBaseURL(), accessToken: { [auth] in try await auth.tokens().access }, identity: installIdentity,
-            presence: HandPresenceKeyStore(directory: paths.root.appendingPathComponent("install", isDirectory: true)))
+            presence: HandPresenceKeyStore(directory: paths.root.appendingPathComponent("install", isDirectory: true),
+                                           presence: EnclaveUserPresence()))
         let identity = installIdentity
         let launcher = configuration.linkSource == .appServer ? CloudLinkLauncher.forApp(build: LaunchIdentity.current().build) : nil
         link = CloudLinkLifecycle(launcher: launcher, installID: { [identity] in await identity.installID() },

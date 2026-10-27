@@ -1,6 +1,6 @@
 public import CmuxNextDesign
 
-/// The Debug Settings choice behind CmuxNextCloud's `CloudSignInWindow`
+/// The Debug Settings choice behind ``CloudSignInWindow``
 /// (same raw values; CmuxNextCloud does not see tunables).
 public nonisolated enum SignInWindowChoice: String, Sendable, CaseIterable, TunableChoice {
     case automatic, popup, defaultBrowser

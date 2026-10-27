@@ -1,7 +1,14 @@
 import CmuxNextCloud
+#if canImport(CryptoKit)
 import CryptoKit
+#else
+import Crypto
+#endif
 public import Foundation
+#if canImport(os)
 import os
+#endif
+import CmuxNextCompat
 import CmuxNextWakeups
 
 /// Per-installation SSH link state: the cmux-tui client identity and

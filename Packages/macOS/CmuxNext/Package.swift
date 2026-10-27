@@ -546,7 +546,9 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         // supplies `AccountsServices`.
         .target(
             name: "CmuxNextAccounts",
-            dependencies: ["CmuxNextCloud", "CmuxNextCodeRouter", "CmuxNextDesign", "CmuxNextIcons", .product(name: "CmuxAgentBrands", package: "CmuxAgentBrands"),
+            // Compat and Wakeups: CloudSignInWindow's background open and Launch Services query (p15-oracle-141).
+            dependencies: ["CmuxNextCloud", "CmuxNextCodeRouter", "CmuxNextCompat", "CmuxNextDesign", "CmuxNextIcons", "CmuxNextWakeups",
+                           .product(name: "CmuxAgentBrands", package: "CmuxAgentBrands"),
                            .product(name: "CMUXAuthCore", package: "CMUXAuthCore")],
             resources: [
                 .process("Localizable.xcstrings"),

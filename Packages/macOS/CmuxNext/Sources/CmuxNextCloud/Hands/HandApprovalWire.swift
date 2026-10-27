@@ -1,5 +1,8 @@
 public import Foundation
 import CmuxNextWakeups
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
 
 /// The owner's user socket (`/v1/wire/user`, `cmux.wire/1`) read for the hand frames only
 /// (docs/chief-hands.md): `hand-approval-pending {hand, id, summary, at, sign}` and

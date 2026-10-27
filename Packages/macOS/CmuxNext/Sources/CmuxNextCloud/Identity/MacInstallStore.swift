@@ -1,6 +1,10 @@
 public import CmuxInstallAuthCore
 public import CmuxNextWakeups
+#if canImport(CryptoKit)
 import CryptoKit
+#else
+import Crypto
+#endif
 public import Foundation
 
 /// Where the Mac app keeps its install keys and records (cx-wb5.64), one
@@ -27,16 +31,23 @@ public struct MacInstallStore: Sendable {
                         records: directory.appendingPathComponent("install-records.json"), usesSecureEnclave: false)
     }
 
+    #if canImport(Security)
     public static func enclave(service: String, directory: URL, work: BackgroundWork) -> MacInstallStore {
         MacInstallStore(makeSigner: { account in EnclaveInstallSigner(service: service, account: account, work: work) },
                         records: directory.appendingPathComponent("install-records.json"), usesSecureEnclave: true)
     }
+    #endif
 
-    /// The store for this process. Only a debug build with no Team ID uses
-    /// files; a release build, or a build whose Team ID could not be read,
-    /// uses the Secure Enclave (fails closed).
+    /// The store for this process. On macOS only a debug build with no Team ID
+    /// uses files; a release build, or a build whose Team ID could not be read,
+    /// uses the Secure Enclave (fails closed). Linux has no Secure Enclave, and
+    /// an ELF binary no Team ID: every Linux build uses files.
     public static func forApp(directory: URL, service: String, team: String?, isDebugBuild: Bool, work: BackgroundWork) -> MacInstallStore {
-        isDebugBuild && team == nil ? .files(directory: directory, work: work) : .enclave(service: service, directory: directory, work: work)
+        #if canImport(Security)
+        return isDebugBuild && team == nil ? .files(directory: directory, work: work) : .enclave(service: service, directory: directory, work: work)
+        #else
+        return .files(directory: directory, work: work)
+        #endif
     }
 
     /// The key of `user`: `install-key-<first 16 hex of SHA-256(user)>`.
@@ -70,7 +81,7 @@ enum OwnerOnlyFile {
         let temporary = directory.appendingPathComponent(".\(url.lastPathComponent).\(UUID().uuidString).tmp")
         let fd = open(temporary.path, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0o600)
         guard fd >= 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
-        let written = data.withUnsafeBytes { buffer in buffer.baseAddress.map { Darwin.write(fd, $0, buffer.count) } ?? 0 }
+        let written = writeOnce(fd, data)
         let synced = fsync(fd) == 0
         close(fd)
         guard written == data.count, synced, rename(temporary.path, url.path) == 0 else {
@@ -78,4 +89,11 @@ enum OwnerOnlyFile {
             throw CocoaError(.fileWriteUnknown, userInfo: [NSFilePathErrorKey: url.path])
         }
     }
+}
+
+/// One `write(2)` of `data` to `fd`; the count it wrote, which ``OwnerOnlyFile`` checks. A free function, because
+/// `OwnerOnlyFile.write` hides the C library's `write` inside that type (Darwin on macOS, Glibc on Linux).
+private func writeOnce(_ fd: Int32, _ data: Data) -> Int {
+    // SAFETY: the view covers `data`'s bytes for the closure, and write(2) reads at most buffer.count of them.
+    unsafe data.withUnsafeBytes { buffer in unsafe buffer.baseAddress.map { unsafe write(fd, $0, buffer.count) } ?? 0 }
 }
