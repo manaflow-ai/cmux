@@ -445,7 +445,13 @@ export default componentEntry<GalleryProps>({
   ],
   load: async () => GalleryDiffPanel,
   styles: () =>
-    Promise.all([import("./styles.css"), import("./conversation/conversation.css"), import("./changes/changes.css")]),
+    Promise.all([
+      import("../shared/styles.css"),
+      import("./diffTokens.css"),
+      import("./styles.css"),
+      import("./conversation/conversation.css"),
+      import("./changes/changes.css"),
+    ]),
   widths: { narrow: 520, normal: 860, wide: 1180 },
   height: 620,
   variants: {

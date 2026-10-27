@@ -5,6 +5,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useStableCallback } from "@pierre/diffs/react";
 import type { DiffHunk, TurnFile } from "./diff";
+import { diffFileFingerprint, diffFileViewedState, observeDiffPanelSize, viewedSourceKey } from "./diffPanelState";
 import { registerAgentDiffTheme } from "./diffTheme";
 import { ChevronLeft, CollapseAll, Panels, SplitView, Wrap } from "./changeIcons";
 import { ChangedFilesTree } from "./changes/ChangedFilesTree";
@@ -37,16 +38,18 @@ import { useGitWrite } from "./changes/useGitWrite";
 import { useDiffWrites } from "../../diff-writes";
 import {
   loadViewedFiles,
-  patchFingerprint,
+  applyLoadedViewed,
+  beginViewedLoad,
   persistViewedChange,
+  recordViewedChange,
   type ViewedFileEntry,
+  type ViewedSession,
   type ViewedScope,
 } from "../../viewed-files";
 import { loadViewerPrefs, readLocalViewerPrefs, saveViewerPrefs } from "../../viewer-prefs";
 import { splitFits } from "../../diff-viewer/state";
 
 const LAYOUT_KEY = "cmux.acpmux.diffLayout";
-const WRAP_KEY = "cmux.acpmux.diffWrap";
 const TREE_KEY = "cmux.acpmux.diffTree";
 
 /// The reader's view choices last as long as this pane's storage allows.
@@ -66,23 +69,6 @@ function store(key: string, value: string) {
 }
 
 type Tool = "collapse" | "wrap" | "split" | "tree";
-
-function fileFingerprint(file: TurnFile): string {
-  const patch = file.edits
-    .flatMap((edit) => edit.hunks)
-    .map((hunk) => {
-      const oldLines = hunk.lines.filter((line) => line.type !== "add");
-      const newLines = hunk.lines.filter((line) => line.type !== "del");
-      const oldStart = oldLines.find((line) => line.oldLine)?.oldLine ?? 0;
-      const newStart = newLines.find((line) => line.newLine)?.newLine ?? 0;
-      return [
-        `@@ -${oldStart},${oldLines.length} +${newStart},${newLines.length} @@`,
-        ...hunk.lines.map((line) => `${line.type === "add" ? "+" : line.type === "del" ? "-" : " "}${line.text}`),
-      ].join("\n");
-    })
-    .join("\n");
-  return patchFingerprint(patch || `${file.created ? "new" : file.deleted ? "deleted" : "file"}:${file.displayPath}`);
-}
 
 function localViewedKey(scopeKey: string): string {
   return `cmux.acpmux.diffViewed:${scopeKey}`;
@@ -347,7 +333,8 @@ export function DiffPanel({
         ? "split"
         : "auto";
   });
-  const [wrap, setWrap] = useState(() => stored(WRAP_KEY) === "on");
+  const [wrap, setWrap] = useState(() => readLocalViewerPrefs().wordWrap === true);
+  const wrapTouched = useRef(false);
   const [showTree, setShowTree] = useState(() => initialShowTree ?? stored(TREE_KEY) !== "off");
   const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(() => new Set());
   // Generated files and lockfiles start folded, as the diff viewer defers them; the reader opens
@@ -397,8 +384,7 @@ export function DiffPanel({
   const viewedScope = useMemo<ViewedScope | null>(() => {
     const changeRoot = load.state === "loaded" ? load.changeSet.root : undefined;
     if (!changeRoot || scope === "lastTurn") return null;
-    const sourceKey =
-      scope === "branch" ? `branch:${load.state === "loaded" ? (load.changeSet.base ?? "HEAD") : "HEAD"}` : scope;
+    const sourceKey = viewedSourceKey(scope, load.state === "loaded" ? load.changeSet.base : undefined);
     return { repoRoot: changeRoot, source: sourceKey };
   }, [load, scope]);
   const viewedScopeKey = useMemo(
@@ -411,10 +397,11 @@ export function DiffPanel({
             .join("|")}`,
     [viewedScope, files],
   );
+  const viewedSession = useRef<ViewedSession | undefined>(undefined);
   const viewed = useMemo(() => {
     const next = new Set<string>();
     for (const file of files) {
-      if (viewedEntries.get(file.displayPath)?.fingerprint === fileFingerprint(file)) next.add(file.path);
+      if (diffFileViewedState(viewedEntries.get(file.displayPath), file) === "viewed") next.add(file.path);
     }
     return next;
   }, [files, viewedEntries]);
@@ -426,33 +413,29 @@ export function DiffPanel({
     });
   }, [viewed]);
   useEffect(() => {
-    let live = true;
     const local = new Map(readLocalViewed(viewedScopeKey).map((entry) => [entry.path, entry] as const));
-    setViewedEntries(local);
-    if (!viewedScope)
-      return () => {
-        live = false;
-      };
+    const initial = { ...beginViewedLoad(viewedScopeKey), viewedByPath: local };
+    const session = { ...initial };
+    viewedSession.current = session;
+    setViewedEntries(session.viewedByPath);
+    if (!viewedScope) return;
     void loadViewedFiles(viewedScope).then(
       (entries) => {
-        if (!live) return;
-        const merged = new Map(local);
-        for (const entry of entries) merged.set(entry.path, entry);
-        setViewedEntries(merged);
-        writeLocalViewed(viewedScopeKey, merged);
+        const merged = applyLoadedViewed(viewedSession.current ?? session, viewedScopeKey, entries);
+        if (!merged) return;
+        viewedSession.current = merged;
+        setViewedEntries(merged.viewedByPath);
+        writeLocalViewed(viewedScopeKey, merged.viewedByPath);
       },
       () => undefined,
     );
-    return () => {
-      live = false;
-    };
   }, [viewedScope, viewedScopeKey]);
   useEffect(() => {
-    if (initialLayout) return;
     let live = true;
     void loadViewerPrefs().then((prefs) => {
-      if (!live || layoutTouched.current || !prefs.layout) return;
-      setLayout(prefs.layout);
+      if (!live) return;
+      if (!initialLayout && !layoutTouched.current && prefs.layout) setLayout(prefs.layout);
+      if (!wrapTouched.current && typeof prefs.wordWrap === "boolean") setWrap(prefs.wordWrap);
     });
     return () => {
       live = false;
@@ -460,12 +443,7 @@ export function DiffPanel({
   }, [initialLayout]);
   useEffect(() => {
     const node = panel.current;
-    if (!node || typeof ResizeObserver === "undefined") return;
-    const measure = () => setPanelWidth(Math.round(node.getBoundingClientRect().width));
-    measure();
-    const observer = new ResizeObserver(measure);
-    observer.observe(node);
-    return () => observer.disconnect();
+    return node ? observeDiffPanelSize(node, setPanelWidth) : undefined;
   }, []);
   const renderedLayout: DiffLayout = layout === "auto" ? (splitFits(panelWidth) ? "split" : "unified") : layout;
   // Decisions are keyed by the turn's tool calls. Checkpoint hunks carry the matching keys when
@@ -664,7 +642,7 @@ export function DiffPanel({
         if (!file) return;
         const viewedPath = file.displayPath;
         const change = marking
-          ? { kind: "set" as const, entry: { path: viewedPath, fingerprint: fileFingerprint(file) } }
+          ? { kind: "set" as const, entry: { path: viewedPath, fingerprint: diffFileFingerprint(file) } }
           : { kind: "clear" as const, path: viewedPath };
         const flip = (current: ReadonlySet<string>) => {
           const next = new Set(current);
@@ -672,13 +650,14 @@ export function DiffPanel({
           else next.delete(path);
           return next;
         };
-        setViewedEntries((current) => {
-          const next = new Map(current);
-          if (change.kind === "set") next.set(viewedPath, change.entry);
-          else next.delete(viewedPath);
-          writeLocalViewed(viewedScopeKey, next);
-          return next;
-        });
+        const current = viewedSession.current ?? {
+          ...beginViewedLoad(viewedScopeKey),
+          viewedByPath: new Map(viewedEntries),
+        };
+        const next = recordViewedChange(current, change);
+        viewedSession.current = next;
+        setViewedEntries(next.viewedByPath);
+        writeLocalViewed(viewedScopeKey, next.viewedByPath);
         persistViewedChange(viewedScope, change, writes);
         setCollapsed(flip);
       },
@@ -699,6 +678,7 @@ export function DiffPanel({
       source,
       scope,
       wholeFile,
+      viewedEntries,
     ],
   );
   const allCollapsed = files.length > 0 && files.every((file) => collapsed.has(file.path));
@@ -706,8 +686,10 @@ export function DiffPanel({
     stopRevealing();
     if (tool === "collapse") setCollapsed(allCollapsed ? new Set() : new Set(files.map((file) => file.path)));
     else if (tool === "wrap") {
-      setWrap(!wrap);
-      store(WRAP_KEY, wrap ? "off" : "on");
+      const next = !wrap;
+      wrapTouched.current = true;
+      setWrap(next);
+      saveViewerPrefs({ wordWrap: next }, writes);
     } else if (tool === "split") {
       const next = layout === "auto" ? "split" : layout === "split" ? "unified" : "auto";
       layoutTouched.current = true;

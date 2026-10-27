@@ -204,5 +204,6 @@ export function changeSetFiles(changeSet: ChangeSet): TurnFile[] {
     deleted: file.status === "deleted",
     binary: file.binary,
     patchTruncated: file.patchTruncated,
+    patch: file.patch,
   }));
 }
