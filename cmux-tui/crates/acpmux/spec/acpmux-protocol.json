@@ -1264,6 +1264,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/vm_host",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/place",
       "params": true,
       "result": true

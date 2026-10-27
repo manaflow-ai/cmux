@@ -6,12 +6,18 @@ The key and the record namespace are tests/test_nightly_release_product_key.py.
 - The products round-trip with their symlinks; an archive that could write outside the products
   directory, or an app without its optional engine, is refused.
 - nightly.yml passes every decide output its skipped steps read into the key.
+- A record is written only by a fresh VM whose DerivedData and compilation cache start empty, and
+  never while vars.CI_NIGHTLY_NEXT_PRODUCT_REUSE is 0 (Recording).
 """
 
 from __future__ import annotations
 
 import io
+import json
+import os
 import re
+import shutil
+import subprocess
 import sys
 import tarfile
 import tempfile
@@ -230,6 +236,93 @@ class RunningWorkflow(unittest.TestCase):
                     self.assertFalse(products.exists())
 
 
+BLACKSMITH = "blacksmith-6vcpu-macos-26-7npprz7qqt554pxv"
+
+
+class Recording(unittest.TestCase):
+    """nightly-release-product.sh lookup prints record=true only with reuse on, a key, and a fresh VM
+    whose build starts from empty DerivedData; record never packs for any other builder."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        tmp = Path(self.tmp.name)
+        self.repo, self.temp, stubs = tmp / "repo", tmp / "runner-temp", tmp / "bin"
+        shutil.copytree(ROOT / "scripts/ci", self.repo / "scripts/ci",
+                        ignore=shutil.ignore_patterns("__pycache__", "tests"))
+        (self.repo / "scripts/cmux-next").mkdir(parents=True)
+        shutil.copy(ROOT / "scripts/cmux-next/web-bundle-key.py", self.repo / "scripts/cmux-next/")
+        (self.repo / ".github/workflows").mkdir(parents=True)
+        (self.repo / ".github/workflows/nightly.yml").write_text("name: nightly\n")
+        git(self.repo, "init", "-q")
+        git(self.repo, "add", "-A")
+        git(self.repo, "commit", "-q", "-m", "c")
+        stubs.mkdir()
+        for name, text in (("xcodebuild", "Xcode 26.6\nBuild version 17F45"), ("xcrun", "26.5"), ("sw_vers", "26.0.1")):
+            (stubs / name).write_text(f"#!/bin/sh\necho '{text}'\n")
+            (stubs / name).chmod(0o755)
+        self.env = {k: v for k, v in os.environ.items() if not k.startswith(("GITHUB_", "RUNNER_", "GH_"))}
+        self.env.update(PATH=f"{stubs}:{os.environ['PATH']}", RUNNER_TEMP=str(self.temp), CMUX_TUI_TREE_KEY="own",
+                        GITHUB_WORKFLOW_SHA=git(self.repo, "rev-parse", "HEAD").strip(),
+                        **{f"NIGHTLY_PRODUCT_{name.upper()}": "" for name in fingerprint.NIGHTLY_PRODUCT_FLAGS})
+        self.derived = self.repo / "build-universal"
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def run_script(self, command: str, **env) -> dict:
+        out = subprocess.run(["bash", str(self.repo / "scripts/ci/nightly-release-product.sh"), command],
+                             capture_output=True, text=True, env={**self.env, **env}, cwd=self.repo)
+        self.assertEqual(out.returncode, 0, out.stderr)
+        return dict(line.split("=", 1) for line in out.stdout.splitlines() if "=" in line)
+
+    def lookup(self, runner: str = BLACKSMITH, environment: str = "github-hosted", **env) -> dict:
+        self.derived.mkdir(exist_ok=True)
+        result = self.run_script("lookup", RUNNER_NAME=runner, RUNNER_ENVIRONMENT=environment, **env)
+        self.assertRegex(result["key"], r"^[0-9a-f]{64}$")
+        self.assertEqual(result["hit"], "false")
+        return result
+
+    def test_a_fresh_vm_that_starts_clean_records(self):
+        self.assertEqual(self.lookup()["record"], "true")
+        facts = json.loads((self.temp / "cmux-nightly-next-product/builder.json").read_text())
+        self.assertEqual((facts["kind"], facts["runner_name"], facts["start"]), ("blacksmith", BLACKSMITH, reuse.CLEAN_START))
+        self.assertEqual(self.lookup("GitHub Actions 1000276410")["record"], "true")
+
+    def test_switched_off_reuse_never_records(self):
+        self.assertEqual(self.lookup(SKIP_REASON="vars.CI_NIGHTLY_NEXT_PRODUCT_REUSE is 0")["record"], "false")
+
+    def test_an_owned_runner_or_a_kept_tree_never_records(self):
+        self.assertEqual(self.lookup("cmux14-glaeda-2", "self-hosted")["record"], "false")
+        # An owned runner links its kept compilation cache into DerivedData before the lookup.
+        self.derived.mkdir(exist_ok=True)
+        (self.derived / "CompilationCache.noindex").symlink_to(self.repo)
+        self.assertEqual(self.lookup()["record"], "false")
+        (self.derived / "CompilationCache.noindex").unlink()
+        (self.derived / "Build").mkdir()
+        self.assertEqual(self.lookup()["record"], "false")
+
+    def test_record_never_packs_for_a_builder_that_is_not_clean(self):
+        self.lookup("cmux14-glaeda-2", "self-hosted")
+        make_app(self.derived / "Build/Products/Release")
+        result = self.run_script("record", KEY="d" * 64, BUILD_SHA="a" * 40)
+        self.assertEqual((result["archive"], result["manifest"]), ("", ""))
+        self.assertEqual(list((self.temp / "cmux-nightly-next-product").glob("*.tar.gz")), [])
+
+    def test_builder_facts(self):
+        derived = Path(self.tmp.name) / "dd"
+        fresh = {"RUNNER_NAME": BLACKSMITH, "RUNNER_ENVIRONMENT": "github-hosted"}
+        self.assertEqual(reuse.clean_builder(nightly.builder(fresh, derived)), "")  # absent counts as empty
+        derived.mkdir()
+        self.assertEqual(reuse.clean_builder(nightly.builder(fresh, derived)), "")
+        (derived / "x").write_text("")
+        self.assertIn("did not start clean", reuse.clean_builder(nightly.builder(fresh, derived)))
+        link = Path(self.tmp.name) / "dd-link"
+        link.symlink_to(self.repo)
+        self.assertIn("did not start clean", reuse.clean_builder(nightly.builder(fresh, link)))
+        owned = nightly.builder({"RUNNER_NAME": "cmux14-glaeda-2", "RUNNER_ENVIRONMENT": "self-hosted"}, derived)
+        self.assertEqual((owned["kind"], owned["fresh_vm"]), ("owned", False))
+
+
 class Workflow(unittest.TestCase):
     def setUp(self):
         text = (ROOT / ".github/workflows/nightly.yml").read_text()
@@ -261,6 +354,12 @@ class Workflow(unittest.TestCase):
             # A repository variable in a skipped step would change the app without changing the key.
             with self.subTest(step=step.splitlines()[0].strip()):
                 self.assertEqual(re.findall(r"vars\.[A-Z0-9_]+", step), [])
+
+    def test_only_a_recordable_build_packs_and_uploads(self):
+        steps = {step.splitlines()[0].strip(): step for step in self.steps()}
+        self.assertIn("steps.nightly-product.outputs.record == 'true'", steps["- name: Pack the nightly app for reuse"])
+        self.assertIn("steps.nightly-product-pack.outputs.archive != ''", steps["- name: Upload the nightly app for reuse"])
+        self.assertIn("steps.nightly-product-upload.outcome == 'success'", steps["- name: Upload the nightly app record"])
 
     def test_the_xcodebuild_step_is_skipped_on_a_hit(self):
         build = next(step for step in self.steps() if step.startswith("      - name: Build nightly app (Release)"))
