@@ -8,6 +8,7 @@ import io
 import re
 import sys
 import unittest
+import urllib.error
 from contextlib import redirect_stdout
 from pathlib import Path
 from unittest import mock
@@ -18,6 +19,7 @@ sys.path.insert(0, str(ROOT / "scripts" / "ci"))
 import cla_quota_rerun as rerun  # noqa: E402
 import yaml  # noqa: E402
 
+API = "https://api.github.com"
 NOW = dt.datetime(2026, 10, 26, 4, 30, tzinfo=dt.timezone.utc)
 LIMITED_LOG = "##[error]Could not complete the CLA check: ... API rate limit exceeded for installation."
 # The guard hides every PolicyError, a failed API read included, behind this one line.
@@ -54,9 +56,20 @@ class FakeGitHub:
         self.finished = finished or {}
         self.calls, self.posts = [], []
         self.repo = "o/r"
+        self.errors = {}  # (method, path) -> HTTPErrors raised in turn, one per call
+
+    def fail(self, method, path, code, **headers):
+        headers = {key.replace("_", "-"): value for key, value in headers.items()}
+        self.errors.setdefault((method, path), []).append(urllib.error.HTTPError(API + path, code, "x", headers, None))
 
     def request(self, method, path, raw=False):
         self.calls.append((method, path))
+        pending = self.errors.get((method, path))
+        if pending:
+            # What GitHub.request raises for it.
+            error = pending.pop(0)
+            spent = rerun.spent_budget(error, path)
+            raise spent if spent is not None else error
         if path == "/rate_limit":
             left = self.remaining.pop(0) if len(self.remaining) > 1 else self.remaining[0]
             return {"resources": {"core": {"limit": 15000, "remaining": left, "reset": int(self.reset.timestamp())}}}
@@ -90,13 +103,13 @@ def rerun_path(run_id):
 
 
 class Tests(unittest.TestCase):
-    def sweep(self, fake, dry=False, now=NOW, slept=None):
+    def sweep(self, fake, dry=False, now=NOW, slept=None, code=0):
         env = {"GITHUB_REPOSITORY": "o/r", "GH_TOKEN": "app", "RATE_TOKEN": "workflow"}
         out = io.StringIO()
         slept = [] if slept is None else slept
         with mock.patch.object(rerun, "GitHub", lambda token, repo: fake), mock.patch.dict("os.environ", env), \
                 redirect_stdout(out):
-            self.assertEqual(rerun.main(["--dry-run"] if dry else [], now=now, sleep=slept.append), 0)
+            self.assertEqual(rerun.main(["--dry-run"] if dry else [], now=now, sleep=slept.append), code)
         return out.getvalue()
 
     def test_a_reset_within_the_window_gets_one_pass_just_after_it(self):
@@ -335,6 +348,63 @@ class Tests(unittest.TestCase):
         self.assertGreater(job["timeout-minutes"], step["timeout-minutes"])
         self.assertNotIn("pull_request_target", on)
         self.assertEqual(workflow["permissions"], {})
+
+    def test_a_403_waits_for_the_reset_and_reruns(self):
+        # 2026-10-26: a pass logged only "HTTP Error 403: Forbidden" and ended green, CLA red.
+        fake = FakeGitHub([run(1, "a" * 40)], [], {1: LIMITED_LOG})
+        reset = NOW + dt.timedelta(minutes=6)
+        fake.fail("POST", rerun_path(1), 403, X_RateLimit_Remaining="0", X_RateLimit_Reset=str(int(reset.timestamp())))
+        slept = []
+        out = self.sweep(fake, slept=slept)
+        self.assertIn("HTTP 403", out)
+        self.assertEqual(slept, [6 * 60 + 20])
+        self.assertEqual(fake.posts, [rerun_path(1)])
+
+    def test_a_429_waits_for_retry_after(self):
+        fake = FakeGitHub([run(1, "a" * 40)], [], {1: LIMITED_LOG})
+        fake.fail("GET", "/repos/o/r/actions/workflows/cla.yml/runs?event=pull_request_target&per_page=100", 429,
+                  Retry_After="30", X_RateLimit_Reset=str(int((NOW + dt.timedelta(minutes=30)).timestamp())))
+        slept = []
+        self.sweep(fake, slept=slept)
+        self.assertEqual(slept, [30.0])
+        self.assertEqual(fake.posts, [rerun_path(1)])
+
+    def test_remaining_zero_on_another_status_is_a_spent_budget(self):
+        error = urllib.error.HTTPError(API, 404, "x", {"X-RateLimit-Remaining": "0"}, None)
+        self.assertIsNotNone(rerun.spent_budget(error, "/x"))
+        self.assertIsNone(rerun.spent_budget(urllib.error.HTTPError(API, 500, "x", {}, None), "/x"))
+
+    def test_a_reset_past_the_deadline_exits_non_zero_with_its_time(self):
+        fake = FakeGitHub([run(1, "a" * 40)], [], {1: LIMITED_LOG})
+        reset = NOW + rerun.PASS_DEADLINE + dt.timedelta(minutes=1)
+        fake.fail("POST", rerun_path(1), 403, X_RateLimit_Reset=str(int(reset.timestamp())))
+        slept = []
+        out = self.sweep(fake, slept=slept, code=1)
+        self.assertEqual(slept, [])
+        self.assertIn(f"spent until {reset + rerun.RESET_GRACE:%H:%M:%SZ}", out)
+        self.assertEqual(fake.posts, [])
+
+    def test_a_budget_that_stays_spent_stops_after_the_retries(self):
+        fake = FakeGitHub([run(1, "a" * 40)], [], {1: LIMITED_LOG})
+        for _ in range(rerun.SPENT_RETRIES + 1):
+            fake.fail("POST", rerun_path(1), 403)
+        slept = []
+        self.sweep(fake, slept=slept, code=1)
+        self.assertEqual(slept, [rerun.SPENT_FALLBACK.total_seconds()] * rerun.SPENT_RETRIES)
+
+    def test_other_http_errors_stay_warnings(self):
+        fake = FakeGitHub([run(1, "a" * 40)], [], {1: LIMITED_LOG})
+        fake.fail("POST", rerun_path(1), 500)
+        self.assertIn("::warning", self.sweep(fake))
+
+    def test_the_pass_ends_inside_the_step_and_a_red_pass_shows_red(self):
+        workflow = yaml.safe_load((ROOT / ".github" / "workflows" / "ci-cla-quota-rerun.yml").read_text())
+        job = workflow["jobs"]["cla-quota-rerun"]
+        step = next(s for s in job["steps"] if "cla_quota_rerun.py" in str(s.get("run", "")))
+        self.assertGreater(step["timeout-minutes"], rerun.PASS_DEADLINE.total_seconds() / 60)
+        self.assertGreater(rerun.PASS_DEADLINE, rerun.WAIT_FOR_RESET)
+        self.assertNotIn("continue-on-error", job)
+        self.assertNotIn("continue-on-error", step)
 
     def test_dry_run_writes_nothing(self):
         fake = FakeGitHub([run(1, "a" * 40)], [], {1: LIMITED_LOG})
