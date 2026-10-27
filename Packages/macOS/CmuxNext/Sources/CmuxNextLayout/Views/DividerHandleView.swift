@@ -335,7 +335,7 @@ final class DividerHandleView: NSView {
         onDrag?(.began(event.locationInWindow))
     }
 
-    override func mouseDragged(with event: NSEvent) { // perf-hot: 2ms resize-drag (every drag event)
+    override func mouseDragged(with event: NSEvent) { // perf-hot: 2ms resize-drag (every drag event) // local-monitor-allow: the drag goes to the window's FrameInputCoalescer (frameDrag); only a root with no coalescer (tests) moves per event
         guard isDragging else { return }
         if let frameDrag {
             frameDrag.post(event)
@@ -377,7 +377,7 @@ final class DividerHandleView: NSView {
         resampler = nil
     }
 
-    override func viewDidChangeEffectiveAppearance() {
+    override func viewDidChangeEffectiveAppearance() { // visibility-walk-allow: one line layer's color and corner, no layout or text measure; cheaper than a deferral
         super.viewDidChangeEffectiveAppearance()
         applyColors()
     }

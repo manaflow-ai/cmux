@@ -180,7 +180,7 @@ final class ScreenContentView: NSView {
     /// Resized while hidden: reconcile when it shows.
     private(set) var needsReconcileOnShow = false
 
-    override func viewDidUnhide() {
+    override func viewDidUnhide() { // visibility-walk-allow: the screen's own hidden flag (another screen of its workspace shows) has no node; the resize it missed reconciles once on show, as deferUntilVisible would
         super.viewDidUnhide()
         reconcileIfDeferred()
     }

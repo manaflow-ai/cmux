@@ -35,10 +35,13 @@ extension LayoutRootView {
         keyWindowObservers = []
         guard isLive, let window else { return }
         let events = context.hoverWindowEvents(window)
-        keyWindowObservers = [NSWindow.didBecomeKeyNotification, NSWindow.didResignKeyNotification].map { name in
+        let refresh: @MainActor () -> Void = { [weak self] in self?.refreshDividerHover() }
+        keyWindowObservers = [
             // input-hop-allow: class input; the key change is the click's or Cmd-Tab's own effect, and a later turn would commit that input's frame with the divider hover of the old key state.
-            events.subscribe(name, owner: "LayoutRootView.dividerHover") { [weak self] in self?.refreshDividerHover() }
-        }
+            events.subscribe(NSWindow.didBecomeKeyNotification, owner: "LayoutRootView.dividerHover", refresh),
+            // input-hop-allow: as above, for the window resigning key.
+            events.subscribe(NSWindow.didResignKeyNotification, owner: "LayoutRootView.dividerHover", refresh),
+        ]
     }
 
     #if DEBUG || CMUX_BENCH_HOOKS

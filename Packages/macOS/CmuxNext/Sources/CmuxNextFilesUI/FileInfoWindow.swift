@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextDesign
 import CmuxNextFiles
+import CmuxNextWakeups
 
 /// A Get Info window (Cmd+I) for one item, as Finder opens one per item:
 /// icon and name, Kind, Size (folders add up in the background), Where,
@@ -10,6 +11,8 @@ final class FileInfoWindow: NSObject, NSWindowDelegate {
     let panel: NSPanel
     private let url: URL
     private let reader: FileInfoReader
+    /// The app's main-thread scheduler: the reads off main fill the window as posted tasks on it.
+    private let mainWork: MainWorkScheduler
     private let grid = NSGridView()
     private let locked = NSButton(checkboxWithTitle: FilesStrings.infoLocked, target: nil, action: nil)
     private let hideExtension = NSButton(checkboxWithTitle: FilesStrings.infoHideExtension, target: nil, action: nil)
@@ -22,11 +25,13 @@ final class FileInfoWindow: NSObject, NSWindowDelegate {
         return formatter
     }()
 
-    /// Makes the window for `url`; `icons` gives its icon (now when kept, else from the system lane); `onClose`
-    /// runs when it closes.
-    init(url: URL, icons: FileIconProvider, reader: FileInfoReader = FileInfoReader(), onClose: @escaping () -> Void) {
+    /// Makes the window for `url`; `icons` gives its icon (now when kept, else from the system lane); `mainWork`
+    /// runs its fills; `onClose` runs when it closes.
+    init(url: URL, icons: FileIconProvider, mainWork: MainWorkScheduler, reader: FileInfoReader = FileInfoReader(),
+         onClose: @escaping () -> Void) {
         self.url = url
         self.reader = reader
+        self.mainWork = mainWork
         self.onClose = onClose
         panel = NSPanel(contentRect: NSRect(x: 0, y: 0, width: 300, height: 380),
                         styleMask: [.titled, .closable, .utilityWindow], backing: .buffered, defer: true)
@@ -65,14 +70,21 @@ final class FileInfoWindow: NSObject, NSWindowDelegate {
         panel.makeKeyAndOrderFront(nil)
     }
 
+    /// Reads the item off main, then fills the window: the first fill is the rest of the person's Get Info
+    /// (userBlocking), a folder's size follows when it is added up (visible).
     private func load() {
-        loading = Task { [weak self, url, reader] in
+        let show: @MainActor @Sendable (FileInfo, FolderSize?) -> Void = { [weak self] info, size in
+            self?.fill(info, folderSize: size)
+        }
+        let url = url, reader = reader, mainWork = mainWork
+        // task-owner: the window's reads off main; cancelled when it closes
+        loading = Task { @concurrent in
             guard let info = try? await reader.info(for: url) else { return }
-            self?.fill(info, folderSize: nil)
+            mainWork.postFromAnyThread(.userBlocking, owner: "FileInfo.fill") { show(info, nil) }
             guard info.fileKind == .folder || info.fileKind == .package else { return }
             let size = await reader.folderSize(of: url)
             guard !Task.isCancelled else { return }
-            self?.fill(info, folderSize: size)
+            mainWork.postFromAnyThread(.visible, owner: "FileInfo.folderSize") { show(info, size) }
         }
     }
 
@@ -123,12 +135,14 @@ final class FileInfoWindow: NSObject, NSWindowDelegate {
 
     @objc private func lockedChanged() {
         let on = locked.state == .on
-        Task { [reader, url] in try? await reader.setLocked(on, for: url) }
+        // task-owner: one attribute write off main; the box already shows the person's choice
+        Task { @concurrent [reader, url] in try? await reader.setLocked(on, for: url) }
     }
 
     @objc private func hideExtensionChanged() {
         let on = hideExtension.state == .on
-        Task { [reader, url] in try? await reader.setExtensionHidden(on, for: url) }
+        // task-owner: one attribute write off main; the box already shows the person's choice
+        Task { @concurrent [reader, url] in try? await reader.setExtensionHidden(on, for: url) }
     }
 
     func windowWillClose(_ notification: Notification) {

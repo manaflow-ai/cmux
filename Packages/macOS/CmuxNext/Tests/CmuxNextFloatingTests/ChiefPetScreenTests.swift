@@ -1,5 +1,6 @@
 import AppKit
 @testable import CmuxNextFloating
+import CmuxNextWakeups
 import Foundation
 import Testing
 
@@ -20,7 +21,7 @@ import Testing
     static let notifications = NotificationCenter()
 
     static func panel() -> ChiefPetPanel {
-        let panel = ChiefPetPanel(defaults: defaults(), notifications: Self.notifications)
+        let panel = ChiefPetPanel(defaults: defaults(), appEvents: AppEvents(center: Self.notifications))
         panel.visibleFrame = { Self.visible }
         panel.setFrameOrigin(CGPoint(x: 200, y: 200))
         return panel

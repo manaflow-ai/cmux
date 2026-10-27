@@ -222,6 +222,7 @@ extension ScreenContentView {
         }
     }
 
+    // local-monitor-allow: a drag is delivered unbuffered until its mouse-up (p06-scheduler.md section E); each step writes the canvas frame or camera and asks for one frame, which coalesces the draw
     override func mouseDragged(with event: NSEvent) {
         guard let drag = canvasState.drag else { return super.mouseDragged(with: event) }
         switch drag {

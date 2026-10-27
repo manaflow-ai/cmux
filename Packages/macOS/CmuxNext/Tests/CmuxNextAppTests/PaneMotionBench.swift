@@ -46,9 +46,10 @@ struct PaneMotionBench {
 
         /// One display frame's work; returns its wall time and whether anything still moves.
         func frame() async -> (seconds: Double, moving: Bool) {
-            // The model's observation turn (the reconcile a change causes) counts toward the frame.
+            // The model's observation apply (the reconcile a change causes) counts toward the frame; it runs
+            // before the frame's commit, which syncWithModel does here in the bench's own turn.
             let start = CACurrentMediaTime()
-            for _ in 0..<4 { await Task.yield() }
+            root.syncWithModel()
             let moving = root.advanceFrame(PaneMotionBench.frameBudget)
             root.layoutSubtreeIfNeeded()
             root.displayIfNeeded()

@@ -1,7 +1,7 @@
 public import AppKit
 import CmuxNextCompat
 import CmuxNextDesign
-import CmuxNextWakeups
+public import CmuxNextWakeups
 
 /// Owns the Chief pet: its panel, shown while it is turned on (made on first
 /// show and kept, with its spot, while hidden), and the notice bubble over it
@@ -42,9 +42,10 @@ public final class ChiefPetController {
     private(set) var presenting = false
     /// Whether cmux is the active app: the card shows over cmux only.
     private let appIsActive: @MainActor () -> Bool
-    /// The app-activation observers' tokens, kept for the controller's life.
-    private var activationObservers: [MainActorObservation] = []
-    private var watch: Task<Void, Never>?
+    /// The app-activation subscriptions on the app's one ``AppEvents``, kept for the controller's life.
+    private var activationObservers: [EventSubscription] = []
+    /// Follows `home.chiefPetEnabled` and `home.chiefPetMascot` (``start(on:enabled:mascot:)``).
+    private var watch: ServiceObservation<PetSetting>?
     /// `home.chiefPetEnabled` as last followed: off, arrivals are dropped.
     public private(set) var isOn = false
     private(set) var mascot = ChiefPetMascot.initial
@@ -55,23 +56,26 @@ public final class ChiefPetController {
     var transient = false
 
     /// `appIsActive`: whether cmux is the active app (the App passes `NSApp.isActive`; tests pin one).
-    /// `notifications`: where AppKit posts the app's activation changes; tests give their own.
+    /// `appEvents`: the app's one fan-out of app notices (the App passes its own; tests give one on their
+    /// own center).
     public init(makePanel: @escaping () -> ChiefPetPanel,
          actions: ChiefPetActions,
          clock: any Clock<Duration> = ContinuousClock(),
          appIsActive: @escaping @MainActor () -> Bool = { true },
-         notifications: NotificationCenter = .default) {
+         appEvents: AppEvents = AppEvents(center: .default)) {
         self.makePanel = makePanel
         self.actions = actions
         self.clock = clock
         self.appIsActive = appIsActive
+        // timer-class-allow: the card's fold runs on the injected clock ChiefPetNoticeTests steps; one deadline per arrival
         toast = DemandTimer(owner: "chiefPet.toast", clock: clock)
         // Switching to another app takes the card down at once; coming back shows it if its time is not up.
-        activationObservers = [NSApplication.didBecomeActiveNotification, NSApplication.didResignActiveNotification].map {
-            MainActorObservation($0, center: notifications) { [weak self] in
-                self?.render(animated: false)
-            }
-        }
+        // No node: the pet floats over every app, so the decision is the whole app's.
+        let rerender: @MainActor () -> Void = { [weak self] in self?.render(animated: false) }
+        activationObservers = [
+            appEvents.subscribe(NSApplication.didBecomeActiveNotification, owner: "ChiefPet.activation", rerender),
+            appEvents.subscribe(NSApplication.didResignActiveNotification, owner: "ChiefPet.activation", rerender),
+        ]
     }
 
     var isShown: Bool { panel?.isVisible == true }
@@ -79,16 +83,26 @@ public final class ChiefPetController {
 
     /// Follows `enabled` (`home.chiefPetEnabled`) and `mascot` (`home.chiefPetMascot`, a
     /// `ChiefPetMascot` id), read under observation: shows the pet when it turns on, hides it when
-    /// it turns off, and draws the chosen character.
-    public func start(enabled: @escaping @MainActor @Sendable () -> Bool,
+    /// it turns off, and draws the chosen character. The current values apply before it returns.
+    ///
+    /// A ``ServiceObservation`` in the `visible` class on `mainWork`: the pet is its own panel over every
+    /// app, so the follow runs whatever cmux shows; a person's settings toggle applies before its
+    /// input's commit, and another change once per burst.
+    public func start(on mainWork: MainWorkScheduler, enabled: @escaping @MainActor @Sendable () -> Bool,
                       mascot: @escaping @MainActor @Sendable () -> String = { ChiefPetMascot.initial.rawValue }) {
-        // task-owner: lives as long as the app services; event-driven (Observation)
-        watch = Task { [weak self] in
-            for await (on, id) in ObservationStream({ (enabled(), mascot()) }) {
-                self?.setMascot(ChiefPetMascot(rawValue: id) ?? .initial)
-                self?.sync(on)
-            }
+        watch?.cancel()
+        watch = ServiceObservation(.visible, owner: "ChiefPet.setting", on: mainWork) {
+            PetSetting(on: enabled(), mascot: mascot())
+        } apply: { [weak self] setting in
+            self?.setMascot(ChiefPetMascot(rawValue: setting.mascot) ?? .initial)
+            self?.sync(setting.on)
         }
+    }
+
+    /// What ``start(on:enabled:mascot:)`` follows: an unchanged pair applies nothing.
+    private struct PetSetting: Equatable {
+        let on: Bool
+        let mascot: String
     }
 
     /// Draws `mascot` from now on (the panel keeps it while hidden).
@@ -169,6 +183,7 @@ public final class ChiefPetController {
     }
 
     private func scheduleExpiry(_ id: UInt64) {
+        // timer-class-allow: a finished notice's leave time runs on the injected clock ChiefPetNoticeTests steps; one deadline per notice
         let timer = DemandTimer(owner: "chiefPet.notice", clock: clock)
         expiries[id] = timer
         timer.scheduleOnMain(after: .seconds(Self.doneSeconds)) { [weak self] in

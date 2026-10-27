@@ -1,6 +1,7 @@
 public import AppKit
 import CmuxNextDesign
 import CmuxNextCompat
+public import CmuxNextWakeups
 
 /// The Chief pet: a small pixel character over a glass rail, floating over every app and every
 /// Space as the references draw it (`cmux-design-references` chief-water-reference: the pet,
@@ -34,11 +35,12 @@ public final class ChiefPetPanel: NSPanel, NSWindowDelegate {
     var visibleFrame: () -> CGRect? = { nil }
     /// The pet was pulled back on its screen after a screen change (the bubble and reply box take their side again).
     var onKeptOnScreen: (() -> Void)?
-    /// The didChangeScreenParameters observer's token, kept for the panel's life.
-    private var screenObserver: MainActorObservation?
+    /// The didChangeScreenParameters subscription on the app's ``AppEvents``, kept for the panel's life.
+    private var screenObserver: EventSubscription?
 
-    /// `notifications`: where screen-parameter changes are posted (AppKit posts to `.default`); tests give their own.
-    public init(mascot: ChiefPetMascot = .initial, defaults: UserDefaults = .standard, notifications: NotificationCenter = .default) {
+    /// `appEvents`: the app's one fan-out of app notices, where AppKit's screen-parameter changes come
+    /// (the App passes its own; tests give one on their own center).
+    public init(mascot: ChiefPetMascot = .initial, defaults: UserDefaults = .standard, appEvents: AppEvents = AppEvents(center: .default)) {
         placement = ChiefPetPlacement(defaults: defaults)
         pet = ChiefPetView(image: mascot.image)
         super.init(
@@ -76,7 +78,8 @@ public final class ChiefPetPanel: NSPanel, NSWindowDelegate {
         visibleFrame = { [weak self] in self?.screen?.visibleFrame }
         // A resolution change, or the Dock or menu bar resizing, keeps the screen, so AppKit sends no
         // didChangeScreen; the visible frame still changes under the pet.
-        screenObserver = MainActorObservation(NSApplication.didChangeScreenParametersNotification, center: notifications) { [weak self] in
+        // No node: the pet floats over every app and must stay on its screen whatever cmux shows.
+        screenObserver = appEvents.subscribe(NSApplication.didChangeScreenParametersNotification, owner: "ChiefPet.keepOnScreen") { [weak self] in
             self?.keepOnScreen()
         }
     }
@@ -246,6 +249,7 @@ final class ChiefPetView: NSView {
         dragging = false
     }
 
+    // local-monitor-allow: a drag is delivered unbuffered until its mouse-up (p06-scheduler.md section E); each step moves the pet's own panel under the pointer
     override func mouseDragged(with event: NSEvent) {
         guard let press, let window else { return }
         // The event's own screen point: the panel moves under the pointer on every step.

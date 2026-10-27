@@ -25,6 +25,7 @@ extension ScreenContentView {
     /// `[cx, cy, cwidth, cheight]`.
     static func motionSample(_ view: NSView) -> [String: [Any]]? {
         guard let screen = view as? ScreenContentView else { return nil }
+        // visibility-walk-allow: the DEBUG debug.motion sampler reports the geometry AppKit shows, its own view state
         guard let window = screen.window, !screen.isHiddenOrHasHiddenAncestor else { return [:] }
         let height = window.frame.height
         func topLeft(_ rect: CGRect, in view: NSView) -> [Double] {

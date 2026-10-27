@@ -121,7 +121,7 @@ final class PaneOverlayView: NSView {
         layoutLayers()
     }
 
-    override func viewDidChangeEffectiveAppearance() {
+    override func viewDidChangeEffectiveAppearance() { // visibility-walk-allow: the ring, glow, attention, border and dim layer colors, no layout or text measure; cheaper than a deferral
         super.viewDidChangeEffectiveAppearance()
         applyColors()
     }

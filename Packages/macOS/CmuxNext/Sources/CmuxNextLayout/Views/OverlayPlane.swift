@@ -68,6 +68,7 @@ public final class OverlayPlane: NSView {
             hidden = false
         } else if let rect = homeRectInWindow {
             target = superview.convert(rect, from: nil)
+            // visibility-walk-allow: the adopted plane copies its home's shown state into the overlay window once per frame sync; the plane leaves the overlay when the root stops being live
             hidden = home.isHiddenOrHasHiddenAncestor
         } else {
             target = .zero
