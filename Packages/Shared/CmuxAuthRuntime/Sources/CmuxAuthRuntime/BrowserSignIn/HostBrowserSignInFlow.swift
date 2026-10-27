@@ -1,6 +1,5 @@
 public import Foundation
 public import Observation
-import os
 import StackAuth
 import class CmuxSafeConcurrency.OnceContinuation
 import enum CmuxSafeConcurrency.OnceContinuationError

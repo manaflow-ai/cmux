@@ -1,5 +1,8 @@
 public import CMUXAuthCore
 import Foundation
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
 public import StackAuth
 
 /// The production ``AuthClient``, wrapping a Stack Auth `StackClientApp`.
@@ -167,7 +170,12 @@ public struct StackAuthClient: AuthClient {
     }
 
     public func signInWithOAuth(provider: String, anchor: any AuthPresentationAnchoring) async throws {
+        #if canImport(AuthenticationServices)
         try await stack.signInWithOAuth(provider: provider, presentationContextProvider: anchor)
+        #else
+        // No system web-auth session exists here; the hosted-browser flow is the way in.
+        throw AuthError.browserSignInFailed("no_system_auth_session")
+        #endif
     }
 
     /// The access token exactly as stored: a raw read, no freshness check,

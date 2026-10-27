@@ -1,6 +1,11 @@
 import CMUXMobileCore
 public import Foundation
-import OSLog
+#if canImport(FoundationNetworking)
+public import FoundationNetworking
+#endif
+#if canImport(os)
+import os
+#endif
 
 private let pushLog = Logger(subsystem: "ai.manaflow.cmux", category: "push")
 

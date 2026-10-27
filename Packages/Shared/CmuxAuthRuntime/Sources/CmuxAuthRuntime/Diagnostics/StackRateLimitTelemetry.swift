@@ -1,5 +1,9 @@
 public import Foundation
+#if canImport(os)
 import os
+#else
+import CMUXMobileCore
+#endif
 import StackAuth
 
 /// Which auth step the sign-in service answered with 429.

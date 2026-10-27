@@ -1,7 +1,4 @@
 import Foundation
-#if canImport(Security)
-import Security
-#endif
 
 /// Data-protection-keychain token store.
 ///
@@ -19,11 +16,12 @@ public actor KeychainStackTokenStore: StackAuthTokenStoreProtocol {
     private static let accessTokenAccount = "cmux-auth-access-token"
     private static let refreshTokenAccount = "cmux-auth-refresh-token"
     #if canImport(Security)
-    static let keychainAccessibility = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly as String
+    static let keychainAccessibility = SecItemKeychain.accessibility
     #endif
     private let service: String
     private let accessGroup: String?
     private let legacyProjectID: String?
+    private let keychain: any KeychainItemStoring
     private let log = AuthDebugLog()
 
     private var cachedAccessToken: String?
@@ -41,9 +39,25 @@ public actor KeychainStackTokenStore: StackAuthTokenStoreProtocol {
         accessGroup: String? = nil,
         legacyProjectID: String? = nil
     ) {
+        #if canImport(Security)
+        let keychain: any KeychainItemStoring = SecItemKeychain()
+        #else
+        let keychain: any KeychainItemStoring = UnavailableKeychain()
+        #endif
+        self.init(service: service, accessGroup: accessGroup, legacyProjectID: legacyProjectID, keychain: keychain)
+    }
+
+    /// Creates a store over the given Keychain (tests pass an in-memory one).
+    init(
+        service: String,
+        accessGroup: String?,
+        legacyProjectID: String?,
+        keychain: any KeychainItemStoring
+    ) {
         self.service = service
         self.accessGroup = accessGroup
         self.legacyProjectID = legacyProjectID
+        self.keychain = keychain
     }
 
     /// The keychain service name auth tokens are stored under, namespaced by
@@ -155,7 +169,6 @@ public actor KeychainStackTokenStore: StackAuthTokenStoreProtocol {
         await setTokens(accessToken: newAccessToken, refreshToken: newRefreshToken)
     }
 
-#if canImport(Security)
     private func readOrAdoptLegacyToken(
         account: String,
         legacyAccount: String?
@@ -203,51 +216,37 @@ public actor KeychainStackTokenStore: StackAuthTokenStoreProtocol {
         return allOK
     }
 
-    private func baseQuery(account: String) -> [String: Any] {
-        var query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: service,
-            kSecAttrAccount as String: account,
-            kSecUseDataProtectionKeychain as String: true,
-        ]
-        if let accessGroup {
-            query[kSecAttrAccessGroup as String] = accessGroup
-        }
-        return query
+    private func currentItem(account: String) -> KeychainItemAddress {
+        KeychainItemAddress(
+            service: service,
+            account: account,
+            accessGroup: accessGroup,
+            usesDataProtectionKeychain: true
+        )
     }
 
-    private func legacyBaseQuery(account: String) -> [String: Any] {
-        var query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            // The legacy Stack SDK omitted this attribute when adding items,
-            // which Keychain persists as the empty service. An omitted query
-            // attribute is a wildcard and could match another credential.
-            kSecAttrService as String: "",
-            kSecAttrAccount as String: account,
-        ]
-        if let accessGroup {
-            query[kSecAttrAccessGroup as String] = accessGroup
-        }
-        return query
+    /// The legacy Stack SDK omitted the service when adding items, which Keychain persists as the empty
+    /// service; the address spells it out because an omitted query attribute would match any service.
+    private func legacyItem(account: String) -> KeychainItemAddress {
+        KeychainItemAddress(
+            service: "",
+            account: account,
+            accessGroup: accessGroup,
+            usesDataProtectionKeychain: false
+        )
     }
 
     private func keychainRead(account: String) -> String? {
-        var query = baseQuery(account: account)
-        query[kSecReturnData as String] = true
-        query[kSecMatchLimit as String] = kSecMatchLimitOne
-        var result: CFTypeRef?
-        let status = SecItemCopyMatching(query as CFDictionary, &result)
-        guard status == errSecSuccess, let data = result as? Data else {
-            if status != errSecItemNotFound {
+        let item = currentItem(account: account)
+        let (status, data) = keychain.copyData(item)
+        guard status == .success, let data else {
+            if status != .itemNotFound {
                 log.log("keychain READ status=\(status) account=\(account)")
             }
             return nil
         }
-        let migrationStatus = SecItemUpdate(
-            baseQuery(account: account) as CFDictionary,
-            [kSecAttrAccessible as String: Self.keychainAccessibility] as CFDictionary
-        )
-        guard migrationStatus == errSecSuccess else {
+        let migrationStatus = keychain.update(item, data: nil)
+        guard migrationStatus == .success else {
             log.log("keychain ACCESSIBILITY UPDATE status=\(migrationStatus) account=\(account)")
             return nil
         }
@@ -256,23 +255,14 @@ public actor KeychainStackTokenStore: StackAuthTokenStoreProtocol {
 
     private func keychainWrite(_ value: String, account: String) -> Bool {
         guard let data = value.data(using: .utf8) else { return false }
-        let lookup = baseQuery(account: account)
-        let attributes: [String: Any] = [
-            kSecValueData as String: data,
-            kSecAttrAccessible as String: Self.keychainAccessibility,
-        ]
-        let updateStatus = SecItemUpdate(
-            lookup as CFDictionary,
-            attributes as CFDictionary
-        )
-        if updateStatus == errSecSuccess { return true }
-        if updateStatus != errSecItemNotFound {
+        let item = currentItem(account: account)
+        let updateStatus = keychain.update(item, data: data)
+        if updateStatus == .success { return true }
+        if updateStatus != .itemNotFound {
             log.log("keychain UPDATE status=\(updateStatus) account=\(account)")
         }
-        var insert = lookup
-        insert.merge(attributes) { _, new in new }
-        let addStatus = SecItemAdd(insert as CFDictionary, nil)
-        if addStatus != errSecSuccess {
+        let addStatus = keychain.add(item, data: data)
+        if addStatus != .success {
             log.log("keychain ADD status=\(addStatus) account=\(account)")
             return false
         }
@@ -280,17 +270,13 @@ public actor KeychainStackTokenStore: StackAuthTokenStoreProtocol {
     }
 
     private func keychainDelete(account: String) {
-        _ = SecItemDelete(baseQuery(account: account) as CFDictionary)
+        _ = keychain.delete(currentItem(account: account))
     }
 
     private func keychainReadLegacy(account: String) -> String? {
-        var query = legacyBaseQuery(account: account)
-        query[kSecReturnData as String] = true
-        query[kSecMatchLimit as String] = kSecMatchLimitOne
-        var result: CFTypeRef?
-        let status = SecItemCopyMatching(query as CFDictionary, &result)
-        guard status == errSecSuccess, let data = result as? Data else {
-            if status != errSecItemNotFound {
+        let (status, data) = keychain.copyData(legacyItem(account: account))
+        guard status == .success, let data else {
+            if status != .itemNotFound {
                 log.log("keychain legacy READ status=\(status) account=\(account)")
             }
             return nil
@@ -303,13 +289,9 @@ public actor KeychainStackTokenStore: StackAuthTokenStoreProtocol {
 
     private func hardenLegacyTokenIfPresent(account: String, deleteAfterHardening: Bool) -> Bool {
         guard accessGroup != nil else { return false }
-        let query = legacyBaseQuery(account: account)
-        let status = SecItemUpdate(
-            query as CFDictionary,
-            [kSecAttrAccessible as String: Self.keychainAccessibility] as CFDictionary
-        )
-        if status == errSecItemNotFound { return true }
-        guard status == errSecSuccess else {
+        let status = keychain.update(legacyItem(account: account), data: nil)
+        if status == .itemNotFound { return true }
+        guard status == .success else {
             log.log("keychain legacy ACCESSIBILITY UPDATE status=\(status) account=\(account)")
             return false
         }
@@ -318,12 +300,9 @@ public actor KeychainStackTokenStore: StackAuthTokenStoreProtocol {
     }
 
     private func hardenCurrentTokenIfPresent(account: String) -> Bool {
-        let status = SecItemUpdate(
-            baseQuery(account: account) as CFDictionary,
-            [kSecAttrAccessible as String: Self.keychainAccessibility] as CFDictionary
-        )
-        if status == errSecItemNotFound { return true }
-        guard status == errSecSuccess else {
+        let status = keychain.update(currentItem(account: account), data: nil)
+        if status == .itemNotFound { return true }
+        guard status == .success else {
             log.log("keychain ACCESSIBILITY PREFLIGHT status=\(status) account=\(account)")
             return false
         }
@@ -332,19 +311,11 @@ public actor KeychainStackTokenStore: StackAuthTokenStoreProtocol {
 
     @discardableResult
     private func keychainDeleteLegacy(account: String) -> Bool {
-        let status = SecItemDelete(legacyBaseQuery(account: account) as CFDictionary)
-        if status != errSecSuccess, status != errSecItemNotFound {
+        let status = keychain.delete(legacyItem(account: account))
+        if status != .success, status != .itemNotFound {
             log.log("keychain legacy DELETE status=\(status) account=\(account)")
             return false
         }
         return true
     }
-#else
-    private func hardenTokensBeforeClear() -> Bool { true }
-    private func readOrAdoptLegacyToken(account: String, legacyAccount: String?) -> String? { nil }
-    private func deleteLegacyTokens() {}
-    private func keychainRead(account: String) -> String? { nil }
-    private func keychainWrite(_ value: String, account: String) -> Bool { false }
-    private func keychainDelete(account: String) {}
-#endif
 }

@@ -1,5 +1,6 @@
 // swift-tools-version: 6.2
 
+import Foundation
 import PackageDescription
 
 let package = Package(
@@ -19,6 +20,8 @@ let package = Package(
         .package(path: "../CMUXMobileCore"),
         // The portable Mutex the push redirect delegate's state lives in (p10-stability-172).
         .package(path: "../CmuxSafeConcurrency"),
+        // The blockingCall seam the Keychain calls run in (SecItemKeychain).
+        .package(path: "../CmuxThreading"),
         .package(path: "../../../vendor/stack-auth-swift-sdk-prerelease"),
     ],
     targets: [
@@ -28,6 +31,7 @@ let package = Package(
                 "CMUXAuthCore",
                 "CMUXMobileCore",
                 .product(name: "CmuxSafeConcurrency", package: "CmuxSafeConcurrency"),
+                .product(name: "CmuxThreading", package: "CmuxThreading"),
                 .product(name: "StackAuth", package: "stack-auth-swift-sdk-prerelease"),
             ],
             swiftSettings: [
@@ -41,6 +45,7 @@ let package = Package(
             name: "CmuxAuthRuntimeTests",
             dependencies: [
                 "CmuxAuthRuntime",
+                .product(name: "CmuxSafeConcurrency", package: "CmuxSafeConcurrency"),
                 .product(name: "StackAuth", package: "stack-auth-swift-sdk-prerelease"),
             ],
             swiftSettings: [
@@ -50,6 +55,22 @@ let package = Package(
         ),
     ]
 )
+
+#if os(Linux)
+// Apple SDKs ship the SQLite3 module (PendingUnregisterStore); a build for Linux takes it from the system
+// library. Only the Linux package jobs set CMUX_SWIFTPM_TARGET_LINUX; a build for an Apple platform on a
+// Linux host (the fleet) keeps the SDK's module.
+if ProcessInfo.processInfo.environment["CMUX_SWIFTPM_TARGET_LINUX"] == "1" {
+    package.targets.append(
+        .systemLibrary(
+            name: "SQLite3",
+            pkgConfig: "sqlite3",
+            providers: [.apt(["libsqlite3-dev"])]
+        )
+    )
+    package.targets.first { $0.name == "CmuxAuthRuntime" }?.dependencies.append("SQLite3")
+}
+#endif
 
 // BEGIN apply-stability-settings.py: generated from scripts/cmux-next/stability-settings.json; do not edit.
 // p10 stability settings per target (plans/cmux-next/chrome-parity/p10-stability.md C.5): add a row to

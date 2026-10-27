@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
 import StackAuth
 import Testing
 @testable import CmuxAuthRuntime
@@ -20,6 +23,9 @@ import Testing
         }
     }
 
+    // swift-corelibs-foundation's URLSession.shared misses a URLProtocol registered after its first request,
+    // so the stub cannot be relied on there (Stack takes no injected session).
+    #if !canImport(FoundationNetworking)
     @Test func listTeamsThrowsWhenTokenRefreshFails() async {
         // Not a fresh JWT, so Stack refreshes it, and the stub answers 503.
         let client = Self.client(tokenStore: .explicit(accessToken: "access", refreshToken: "refresh"))
@@ -40,6 +46,7 @@ import Testing
         }
         #expect(StackUnavailableURLProtocol.requestedPaths.contains { $0.hasSuffix("/users/me") })
     }
+    #endif
 
     private static func client(tokenStore: TokenStoreInit) -> StackAuthClient {
         StackUnavailableURLProtocol.install()

@@ -1,6 +1,10 @@
 internal import CMUXAuthCore
 import Foundation
-import OSLog
+#if canImport(os)
+import os
+#else
+import CMUXMobileCore
+#endif
 import StackAuth
 import class CmuxSafeConcurrency.OnceContinuation
 import enum CmuxSafeConcurrency.OnceContinuationError

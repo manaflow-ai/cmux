@@ -1,3 +1,4 @@
+#if canImport(Network)
 import Foundation
 import os
 import Testing
@@ -133,3 +134,4 @@ struct StackTokenRefreshBoundaryTests {
         #expect(endpoint == "/api/v1/auth/oauth/token")
     }
 }
+#endif

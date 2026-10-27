@@ -1,5 +1,9 @@
 import Foundation
+#if canImport(os)
 import os
+#else
+import CMUXMobileCore
+#endif
 
 /// Redacted auth diagnostics, shared by the token stores and sign-in flows.
 ///

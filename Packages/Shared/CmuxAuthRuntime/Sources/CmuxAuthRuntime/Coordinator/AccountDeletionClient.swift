@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
 
 typealias AccountDeletionRequestLoader = @Sendable (URLRequest) async throws -> (Data, URLResponse)
 

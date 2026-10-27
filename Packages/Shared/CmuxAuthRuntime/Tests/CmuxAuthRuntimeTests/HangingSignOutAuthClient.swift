@@ -1,5 +1,8 @@
 import CMUXAuthCore
 import Foundation
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
 @testable import CmuxAuthRuntime
 
 /// An ``AuthClient`` whose server-side session revocation suspends forever,

@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
 import Testing
 @testable import CmuxAuthRuntime
 
@@ -1751,6 +1754,9 @@ actor RetryDelayRecorder {
         )
     }
 
+    // swift-corelibs-foundation traps when a URLProtocol reports a redirect, so the redirect probes run on
+    // Apple Foundation only.
+    #if !canImport(FoundationNetworking)
     private func makeRedirectService(
         scenario: PushRedirectURLProtocol.Scenario
     ) async -> PushRegistrationService {
@@ -1817,4 +1823,5 @@ actor RetryDelayRecorder {
 
         #expect(await PushRedirectURLProtocol.state.targetRequests.isEmpty)
     }
+    #endif
 }

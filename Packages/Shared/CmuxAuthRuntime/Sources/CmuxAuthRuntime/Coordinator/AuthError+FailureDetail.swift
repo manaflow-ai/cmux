@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
 import StackAuth
 
 /// The one-line failure detail a sign-in error screen shows and copies.

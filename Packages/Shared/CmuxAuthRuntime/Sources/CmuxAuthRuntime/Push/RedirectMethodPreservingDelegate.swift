@@ -1,6 +1,13 @@
 import CmuxSafeConcurrency
 public import Foundation
-import OSLog
+#if canImport(FoundationNetworking)
+public import FoundationNetworking
+#endif
+#if canImport(os)
+import os
+#else
+import CMUXMobileCore
+#endif
 
 nonisolated private let pushRedirectLog = Logger(
     subsystem: "ai.manaflow.cmux",
