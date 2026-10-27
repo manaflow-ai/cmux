@@ -1464,6 +1464,23 @@ nonisolated extension Feature {
         runtimeMutable: false
     )
 
+    /// After Settings, History or Cloud opens, the next page of that kind loads ahead through the app's one preload slot, in the page's own engine, hidden and frozen until an open claims it with its routes. Off: those pages load cold, and no spare page host is made.
+    public static let pagePreload = Feature(
+        index: 83,
+        name: "pagePreload",
+        owner: "PL-webui",
+        description: "After Settings, History or Cloud opens, the next page of that kind loads ahead through the app's one preload slot, in the page's own engine, hidden and frozen until an open claims it with its routes. Off: those pages load cold, and no spare page host is made.",
+        kind: .perfPath,
+        process: .app,
+        chromiumFeature: nil,
+        defaults: FeatureDefaults(dev: false, nightly: false, release: false),
+        expires: "2026-12-20",
+        params: [],
+        stories: ["home-idle"],
+        sticky: false,
+        runtimeMutable: false
+    )
+
     /// Chromium puts each cmux page in its capability group, so pages of one group share a renderer and pages of different groups never do.
     public static let pageProcessGroups = Feature(
         index: 84,
@@ -2332,6 +2349,7 @@ nonisolated extension Feature {
         .pageHangNotice,
         .pageHostChannel,
         .pageLifecycle,
+        .pagePreload,
         .pageProcessGroups,
         .pagePushChannel,
         .pageRendererAtFirstShow,
@@ -2465,6 +2483,7 @@ nonisolated extension Feature {
         .pageHangNotice,
         .pageHostChannel,
         .pageLifecycle,
+        .pagePreload,
         .pageProcessGroups,
         .pagePushChannel,
         .pageRendererAtFirstShow,
