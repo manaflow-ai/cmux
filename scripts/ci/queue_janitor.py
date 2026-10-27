@@ -2307,13 +2307,18 @@ SUPERSEDED_EXTRA_JOBS = 5
 SUPERSEDED_REPLACEMENT_READS = 5
 
 
+def complete_jobs(jobs: Sequence[Mapping[str, Any]] | None) -> Sequence[Mapping[str, Any]] | None:
+    """A job listing, or None (unread) when it filled every page GitHub.jobs() reads, so some jobs may be missing."""
+    return None if jobs is None or len(jobs) >= 100 * MAX_JOB_PAGES else jobs
+
+
 def superseded_candidates(runs: Sequence[Mapping[str, Any]],
                           jobs_by_run: Mapping[int, Sequence[Mapping[str, Any]]]) -> list[Mapping[str, Any]]:
     """In-flight nightly, DEV or promote runs whose build has not started (no I/O), oldest first."""
     found = [run for run in runs
              if run.get("status") in IN_FLIGHT_RUN_STATUSES and run.get("id") in jobs_by_run
              and is_delivery_run(run.get("path"), run.get("name"), run.get("display_title"))
-             and build_started(jobs_by_run[run["id"]]) is None]
+             and complete_jobs(jobs_by_run[run["id"]]) is not None and build_started(jobs_by_run[run["id"]]) is None]
     return sorted(found, key=lambda run: (str(run.get("created_at") or ""), run["id"]))
 
 
@@ -2344,12 +2349,12 @@ def skip_superseded_delivery(
         """A newer run's jobs: the sweep's listing, else one read (at most SUPERSEDED_REPLACEMENT_READS a sweep)."""
         other_id = other.get("id")
         if other_id in jobs_by_run:
-            return jobs_by_run[other_id]
+            return complete_jobs(jobs_by_run[other_id])
         if other_id not in read_jobs:
             if len(read_jobs) >= SUPERSEDED_REPLACEMENT_READS or not isinstance(other_id, int):
                 return None
             try:
-                read_jobs[other_id] = github.jobs(other_id)
+                read_jobs[other_id] = complete_jobs(github.jobs(other_id))
             except RateLimited:
                 raise
             except RuntimeError as error:
@@ -2360,7 +2365,7 @@ def skip_superseded_delivery(
     cancels = 0
     for run in candidates:
         run_id = run["id"]
-        ok, why = superseded_unstarted(run, jobs_by_run.get(run_id), runs, jobs_of)
+        ok, why = superseded_unstarted(run, complete_jobs(jobs_by_run.get(run_id)), runs, jobs_of)
         if not ok and (why.startswith("no newer head") or why.startswith("no newer run")):
             key = (run.get("workflow_id") or run.get("path"), str(run.get("head_branch") or ""))
             if key not in listed and len(listed) < SUPERSEDED_BRANCH_LISTINGS:
@@ -2371,7 +2376,8 @@ def skip_superseded_delivery(
                 except RuntimeError as error:
                     listed[key] = []
                     print(f"queue-janitor: runs of {key[1]} for run {run_id}: {error}", file=sys.stderr)
-            ok, why = superseded_unstarted(run, jobs_by_run.get(run_id), [*runs, *listed.get(key, [])], jobs_of)
+            ok, why = superseded_unstarted(run, complete_jobs(jobs_by_run.get(run_id)), [*runs, *listed.get(key, [])],
+                                           jobs_of)
         if not ok:
             decisions.append(SupersededDecision(run, "keep", why))
             continue
@@ -2390,15 +2396,20 @@ def skip_superseded_delivery(
         # Right before the cancel, the run, its jobs and the newer runs that may replace it (each run and its jobs)
         # are read again: a run whose build started since, or whose replacement failed or was cancelled, is kept.
         try:
-            current, jobs = github.run(run_id), github.jobs(run_id)
+            current, jobs = github.run(run_id), complete_jobs(github.jobs(run_id))
+            # The run once more after its jobs: a re-run that began between the two reads changes its attempt.
+            after = github.run(run_id)
             pool = [*runs, *[r for rs in listed.values() for r in rs]]
             fresh_runs = [github.run(other["id"]) for other in newer_head_runs(current, pool)[:REPLACEMENT_JOB_READS]]
-            fresh_jobs = {other["id"]: github.jobs(other["id"]) for other in fresh_runs}
+            fresh_jobs = {other["id"]: complete_jobs(github.jobs(other["id"])) for other in fresh_runs}
         except RateLimited:
             raise
         except RuntimeError as error:
             failures += 1
             decisions.append(SupersededDecision(run, "keep", f"failed to re-read: {error}"))
+            continue
+        if (after.get("run_attempt"), after.get("status")) != (current.get("run_attempt"), current.get("status")):
+            decisions.append(SupersededDecision(run, "keep", "on re-read: it changed while its jobs were read"))
             continue
         ok, why = superseded_unstarted(current, jobs, fresh_runs, lambda other: fresh_jobs.get(other.get("id")))
         if not ok:
@@ -3181,8 +3192,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         orphans = find_orphans(runs, jobs_by_run, min_age=orphan_age, now=now)
         # A delivery run queued past GHOST_QUEUED_RUN_AGE has no listing (needs_jobs()); read a few of them here.
         delivery_jobs = dict(jobs_by_run)
-        for run in [r for r in runs if r["id"] not in jobs_by_run and r.get("status") in IN_FLIGHT_RUN_STATUSES
-                    and is_delivery_run(r.get("path"), r.get("name"), r.get("display_title"))][:SUPERSEDED_EXTRA_JOBS]:
+        unlisted = sorted((r for r in runs if r["id"] not in jobs_by_run and r.get("status") in IN_FLIGHT_RUN_STATUSES
+                           and is_delivery_run(r.get("path"), r.get("name"), r.get("display_title"))),
+                          key=lambda r: (str(r.get("created_at") or ""), r["id"]))  # oldest first
+        for run in unlisted[:SUPERSEDED_EXTRA_JOBS]:
             try:
                 delivery_jobs[run["id"]] = github.jobs(run["id"])
             except RateLimited:

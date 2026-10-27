@@ -1402,6 +1402,12 @@ class SupersededDeliveryTests(unittest.TestCase):
                                       completed=[done], rejob={done["id"]: built}, extra_runs=[done])
         self.assertEqual(decided[old["id"]].action, "cancel", decided[old["id"]].note)
 
+    def test_a_full_jobs_listing_is_unread(self):
+        old = nightly_run("864dceb6", 60)
+        full = gate_jobs(60) + [dict(gate_jobs(60)[0]) for _ in range(100 * janitor.MAX_JOB_PAGES)]
+        self.assertEqual(janitor.superseded_candidates([old], {old["id"]: full}), [])
+        self.assertIsNone(janitor.complete_jobs(full))
+
     def test_matrix_legs_need_a_leg_each(self):
         old, new = nightly_run("864dceb6", 60), nightly_run("ccb74c4d", 20)
         two = gate_jobs(60) + [dict(gate_jobs(60)[-1])]  # two `build-nightly-app` legs
