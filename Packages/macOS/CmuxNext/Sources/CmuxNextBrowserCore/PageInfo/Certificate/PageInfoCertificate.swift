@@ -65,11 +65,11 @@ public nonisolated struct PageInfoCertificate: Hashable, Sendable {
         var tbs = try parts[0].children()
         version = 1
         if let first = tbs.first, first.tag == 0xA0 {
+            tbs.removeFirst()
             // X.509 versions are 0...2 (v1...v3); anything else is malformed.
             let raw = try first.children().first?.integer ?? 0
             guard (0...2).contains(raw) else { throw DERError.unexpected("version") }
             version = raw + 1
-            tbs.removeFirst()
         }
         guard tbs.count >= 6 else { throw DERError.unexpected("tbsCertificate") }
         serialNumber = tbs[0].content.map { String(format: "%02X", $0) }.joined(separator: ":")

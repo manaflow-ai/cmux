@@ -66,9 +66,9 @@ final class BrowserHibernation {
     var pendingWakes: [String: HibernatedBrowserTab.Wake] = [:]
     /// Pages a discard probe is asking now.
     private(set) var probing: Set<String> = []
-    /// Hidden pages whose `beforeunload` asked, once, right before a discard: they stay until shown, and their
-    /// handlers do not run again on every replan (each run is the page's own unload logic on a page that lives on).
-    var askedBeforeUnload: Set<String> = []
+    /// Pages whose discard was tried and did not finish (a refused freeze, a `beforeunload` that asked, no restore state,
+    /// nothing prepared at release): kept from every discard until shown (`DiscardRule.discardAttempted`).
+    var discardAttempts = ContentDiscardPlanner.AttemptMarkers()
     /// The next page to come due: one background deadline (nobody sees a discard happen).
     private let deadline: MainDeadline
     /// Hidden pages frozen now (`browser.freezeHiddenTabs`); they thaw when shown or driven.
@@ -376,7 +376,7 @@ final class BrowserHibernation {
         prepared[key] = nil
         exemptions[key] = nil
         probeKeptAt[key] = nil
-        askedBeforeUnload.remove(key)
+        discardAttempts.clear(key)
         activity.forget(key)
         focusHistory.note(key, at: now())
     }
@@ -415,7 +415,7 @@ final class BrowserHibernation {
         agentUsedAt[key] = nil
         prepared[key] = nil
         probing.remove(key)
-        askedBeforeUnload.remove(key)
+        discardAttempts.clear(key)
         exemptions[key] = nil
         frozen.remove(key)
         tabVisibility.forget(key)
@@ -689,6 +689,7 @@ final class BrowserHibernation {
         // after `freezeSeconds` (a hidden page's visibility reaches the engine within a frame).
         guard page.setFrozen(true) else {
             freezeKeptAt[key] = now()
+            discardAttempts.mark(key)
             cache?.trace(key, "freeze refused")
             replan()
             return
@@ -740,6 +741,8 @@ final class BrowserHibernation {
             // The person's Hibernate Tab asks the page nothing (only a disallowed rule keeps it).
             var exemption: HibernationPlanner.Exemption?
             var mayAsk = false
+            // Its beforeunload handlers asked (or could not be asked): the discard was tried and failed.
+            var askedOnUnload = false
             if user {
                 exemption = self.flatMap { HibernationPlanner.hibernateTabRefusal($0.candidate(key, entry: entry, hiddenFor: 0), setting: $0.setting) }
             } else {
@@ -759,9 +762,9 @@ final class BrowserHibernation {
                 ? (await self?.snapshot(tab, key: key), await (tab as? any BrowserAppPage)?.saveViewState()) : (nil, nil)
             guard let self else { return }
             // The page's beforeunload handlers run last, only when nothing else keeps it, still hidden
-            // and about to go, and at most once while it stays hidden (`askedBeforeUnload`).
+            // and about to go, and at most once while it stays hidden (`discardAttempts`).
             if exemption == nil, mayAsk, self.discardCheck(key, tab: tab, generation: generation, user: user) == .go {
-                exemption = await self.asksBeforeUnload(key, tab) ? .beforeUnload : nil
+                askedOnUnload = await self.asksBeforeUnload(key, tab)
             }
             guard let cache = self.cache else { return }
             self.probing.remove(key)
@@ -769,20 +772,21 @@ final class BrowserHibernation {
             case .stale:
                 cache.trace(key, "hibernate probe dropped (stale)")
                 return
-            case .keep(let reason) where exemption == nil:
+            case .keep(let reason) where exemption == nil && !askedOnUnload:
                 self.exemptions[key] = reason
                 return
             case .keep, .go:
                 break
             }
+            // A probe answer keeps the page and asks again after `keptBackoff`; it is no failed discard.
             if let exemption {
                 self.exemptions[key] = exemption
                 self.probeKeptAt[key] = self.now()
                 return
             }
+            if askedOnUnload { return self.discardFailed(key, .beforeUnload) }
             guard let state = viewState.map(BrowserRestoreState.appPage) ?? source.hibernationState() else {
-                self.exemptions[key] = .unsupported
-                return
+                return self.discardFailed(key, .unsupported)
             }
             self.prepared[key] = (state, snapshot)
             cache.applyLifecycle(cache.lifecycle.send(.hibernate(key)))
@@ -805,6 +809,7 @@ final class BrowserHibernation {
     func release(_ key: String, token: ContentLifecycle<String>.Token) {
         guard let cache, let entry = cache.browsers[key], let saved = prepared.removeValue(forKey: key) else {
             logger.error("hibernate \(key, privacy: .public): nothing prepared")
+            discardAttempts.mark(key)
             return
         }
         let page = entry.tab
