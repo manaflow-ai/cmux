@@ -274,13 +274,13 @@
       "verify-nightly-identity-legacy": {
         "Select Xcode": {"plumbing": true},
         "Check out the build's own source for the bundle checks": {"plumbing": true},
-        "Verify stapled cmux NIGHTLY DMG artifact": {"nightly_only": "statically verifies the notarized stapled legacy DMG and records its exact digest without launching app code"}},
+        "Verify stapled cmux NIGHTLY DMG artifact": {"nightly_only": "statically verifies the notarized stapled legacy DMG and records its exact digest without launching app code"},
+        "Hand the tested app's Info.plist to publish": {"nightly_only": "mounts the tested legacy DMG read-only and copies its app's Info.plist", "note": "tests/test_nightly_legacy_publish_linux.py checks it follows the verify step and the tested digest"}},
       "publish-nightly-identity-legacy": {
         "Wait through GitHub API rate limits in this job's gh calls": {"pr": "ci-guards.yml:workflow-guard-tests:Validate nightly publish-path gh calls wait through a rate limit"},
         "Skip a build the old feed already has": {"pr": "ci-guards.yml:workflow-guard-tests:Validate the nightly-next release-ring tags"},
-        "Select Xcode": {"plumbing": true},
         "Refuse a DMG that is not the tested one": {"pr": "ci-guards.yml:workflow-guard-tests:Dry-run the nightly's tested-DMG gate for the old feed", "note": "tests/test_nightly_next_legacy_tested_digest.sh runs nightly-next-legacy-tested-digest.sh on fixture DMGs"},
-        "Generate the old feed's appcast": {"nightly_only": "signs old feed appcast (Sparkle)"},
+        "Generate the old feed's appcast": {"nightly_only": "signs old feed appcast (Sparkle)", "note": "tests/test_nightly_legacy_publish_linux.py: the Linux writer's RFC 8032 vector and the published item's layout"},
         "Publish the cmux NIGHTLY DMG, release notes and the old feed": {"nightly_only": "publishes DMG and feed to R2"},
         "Resolve the attempt": {"pr": "ci-guards.yml:workflow-guard-tests:Validate universal nightly workflow"},
         "Decide whether the attempt failed": {"pr": "ci-guards.yml:workflow-guard-tests:Validate universal nightly workflow"},

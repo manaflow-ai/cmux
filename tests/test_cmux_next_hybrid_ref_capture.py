@@ -30,6 +30,7 @@ import json
 import os
 import re
 import shutil
+import signal
 import subprocess
 import sys
 import tarfile
@@ -243,6 +244,141 @@ class Snapshot(unittest.TestCase):
         self.assertIn('"${CMUX_NEXT_EMIT_FRONTEND_COMMAND_LINES:-}" == 1', text[snapshot - 400:snapshot + 400])
 
 
+class FakeResponse(io.BytesIO):
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc) -> None:
+        self.close()
+
+
+class Have(unittest.TestCase):
+    NOW = 1_800_000_000.0
+
+    def run_have(self, replies, budget=600.0):
+        """replies: a list of (status, headers, body); returns (result or exception, sleeps, calls)."""
+        import urllib.error
+        clock = [self.NOW]
+        sleeps, calls = [], []
+
+        def opener(request, timeout):
+            calls.append(request.full_url)
+            status, headers, body = replies.pop(0)
+            if status == 200:
+                return FakeResponse(json.dumps(body).encode())
+            raise urllib.error.HTTPError(request.full_url, status, "x", headers, io.BytesIO(body.encode()))
+
+        def sleep(s):
+            sleeps.append(s)
+            clock[0] += s
+
+        try:
+            result = cap.have("k" * 64, "o/r", "t", budget, opener=opener, sleep=sleep, clock=lambda: clock[0])
+        except cap.LookupFailed as e:
+            result = e
+        return result, sleeps, calls
+
+    def stamp(self, days_ago: float) -> str:
+        import datetime as dt
+        return (dt.datetime.fromtimestamp(self.NOW - days_ago * 86400, dt.timezone.utc)).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    def test_counts_only_readable_captures(self) -> None:
+        arts = [{"expired": False, "created_at": self.stamp(1)}, {"expired": True, "created_at": self.stamp(1)},
+                {"expired": False, "created_at": self.stamp(13.5)}]
+        recent = [{"expired": False, "created_at": self.stamp(0.5)}, {"expired": False, "created_at": self.stamp(1.5)}]
+        result, sleeps, calls = self.run_have([(200, {}, {"artifacts": arts}), (200, {}, {"artifacts": recent})])
+        self.assertEqual(result, (1, 1), "13 days for a complete capture, one day for an incomplete one")
+        self.assertEqual(sleeps, [])
+        self.assertIn("name=hybrid-ref-capture-" + "k" * 64 + "&", calls[0])
+        self.assertIn("name=" + cap.incomplete_name("k" * 64) + "&", calls[1])
+
+    def test_the_nightly_profile_looks_up_its_own_artifacts(self) -> None:
+        calls = []
+
+        def opener(request, timeout):
+            calls.append(request.full_url)
+            return io.BytesIO(json.dumps({"artifacts": []}).encode())
+
+        nightly = {"HYBRID_REF_PROFILE": "nightly-next"}
+        self.assertEqual(cap.have("k" * 64, "o/r", "t", opener=opener, environ=nightly), (0, 0))
+        self.assertEqual(calls, [f"https://api.github.com/repos/o/r/actions/artifacts?name={name}&per_page=100"
+                                 for name in ("hybrid-ref-capture-nightly-next-" + "k" * 64,
+                                              "hybrid-ref-capture-nightly-next-incomplete-" + "k" * 64)])
+        self.assertEqual((cap.complete_name("K", {}), cap.incomplete_name("K", {})),
+                         ("hybrid-ref-capture-K", "hybrid-ref-capture-incomplete-K"), "the DEV names do not move")
+
+    def test_rate_limit_waits_for_its_reset(self) -> None:
+        limited = (403, {"x-ratelimit-remaining": "0", "x-ratelimit-reset": str(int(self.NOW) + 120)},
+                   '{"message":"API rate limit exceeded for installation."}')
+        result, sleeps, _ = self.run_have([limited, (200, {}, {"artifacts": []}), (200, {}, {"artifacts": []})])
+        self.assertEqual(result, (0, 0))
+        self.assertEqual(sleeps, [121.0])
+
+    def test_retry_after_and_429(self) -> None:
+        result, sleeps, _ = self.run_have([(200, {}, {"artifacts": []}), (429, {"Retry-After": "30"}, ""), (200, {}, {"artifacts": []})])
+        self.assertEqual((result, sleeps), ((0, 0), [30.0]))
+
+    def test_a_reset_past_the_budget_fails_without_waiting(self) -> None:
+        limited = (403, {"x-ratelimit-remaining": "0", "x-ratelimit-reset": str(int(self.NOW) + 3000)}, "rate limit")
+        result, sleeps, _ = self.run_have([limited])
+        self.assertIsInstance(result, cap.LookupFailed)
+        self.assertIn("HTTP 403", str(result))
+        self.assertEqual(sleeps, [])
+
+    def test_a_truncated_error_body_is_still_retried(self) -> None:
+        import http.client
+        import urllib.error
+
+        class Truncated(io.BytesIO):
+            def read(self, *a):
+                raise http.client.IncompleteRead(b"par")
+
+        replies = iter([lambda req: urllib.error.HTTPError(req.full_url, 502, "x", {}, Truncated()),
+                        lambda req: FakeResponse(json.dumps({"artifacts": []}).encode()),
+                        lambda req: FakeResponse(json.dumps({"artifacts": []}).encode())])
+        sleeps = []
+
+        def opener(request, timeout):
+            reply = next(replies)(request)
+            if isinstance(reply, Exception):
+                raise reply
+            return reply
+
+        result = cap.have("k" * 64, "o/r", "t", 600, opener=opener, sleep=sleeps.append, clock=lambda: self.NOW)
+        self.assertEqual((result, sleeps), ((0, 0), [15.0]))
+
+    def test_a_forbidden_lookup_is_not_retried(self) -> None:
+        result, sleeps, _ = self.run_have([(403, {}, '{"message":"Resource not accessible by integration"}')])
+        self.assertIsInstance(result, cap.LookupFailed)
+        self.assertEqual(sleeps, [])
+
+    def test_the_budget_covers_both_lookups(self) -> None:
+        limited = (403, {"x-ratelimit-remaining": "0", "x-ratelimit-reset": str(int(self.NOW) + 400)}, "rate limit")
+        later = (403, {"x-ratelimit-remaining": "0", "x-ratelimit-reset": str(int(self.NOW) + 900)}, "rate limit")
+        result, sleeps, _ = self.run_have([limited, (200, {}, {"artifacts": []}), later])
+        self.assertIsInstance(result, cap.LookupFailed, "401 s, then 500 s more would pass 600")
+        self.assertEqual(sleeps, [401.0])
+
+    def test_server_errors_back_off_within_the_budget(self) -> None:
+        result, sleeps, _ = self.run_have([(502, {}, "bad gateway")] * 20, budget=100)
+        self.assertIsInstance(result, cap.LookupFailed)
+        self.assertEqual(sleeps, [15.0, 30.0], "15 + 30, then 60 would pass 100")
+        self.assertLessEqual(sum(sleeps), 100)
+def shortest_minutes(timeout: int | str) -> int:
+    """The shortest limit a job's timeout-minutes can resolve to.
+
+    A plain number is itself. An expression (`${{ cond && 90 || 60 }}`, the
+    hosted-runner branch of cmux-scheme-compile) is bounded by its smallest
+    numeric branch, so a check against it holds on every runner.
+    """
+    if isinstance(timeout, int):
+        return timeout
+    branches = [int(n) for n in re.findall(r"(?:&&|\|\|)\s*(\d+)\b", timeout)]
+    if not branches:
+        raise AssertionError(f"timeout-minutes {timeout!r} has no numeric branch")
+    return min(branches)
+
+
 class Workflow(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
@@ -264,18 +400,19 @@ class Workflow(unittest.TestCase):
         for step in (decide, capture):
             self.assertTrue(step["continue-on-error"])
         upload = next(s for s in self.job["steps"] if s.get("name") == "Upload the REF capture manifest")
-        self.assertLessEqual(decide["timeout-minutes"], 1)
+        self.assertLessEqual(decide["timeout-minutes"], 12, "the lookup waits out a rate limit for 10 minutes at most")
+        self.assertIn("--budget 600", decide["run"])
         self.assertTrue(upload["continue-on-error"])
-        # The job's limit may be an expression (60 on an owned Mac, 90 hosted): hold the capture to the smaller.
-        limit = self.job["timeout-minutes"]
-        limit = limit if isinstance(limit, int) else min(int(n) for n in re.findall(r"\b\d+\b", limit))
-        self.assertLessEqual(40 + capture["timeout-minutes"] + upload["timeout-minutes"], limit - 10,
+        self.assertLessEqual(40 + capture["timeout-minutes"] + upload["timeout-minutes"], shortest_minutes(self.job["timeout-minutes"]) - 10,
                              "a capture that starts by job minute 40 ends, upload included, well inside the job's limit")
         self.assertIn("(( $(date +%s) - started > 40 * 60 ))", capture["run"])
         self.assertIn("actions/runs/$GITHUB_RUN_ID/attempts/$GITHUB_RUN_ATTEMPT/jobs", capture["run"],
                       "timed from the job's own start, not from a later step")
         self.assertIn('if [[ -z "$started" ]]', capture["run"], "an unknown start skips the capture")
-        self.assertIn("select(.expired == false and .created_at >= ", decide["run"], "an expired capture does not count")
+        self.assertIn('[[ -n "$started" ]] || started="$DECIDE_STARTED"', capture["run"],
+                      "a failed jobs read (a rate limit that outlasted the lookup) falls back to the decide step's start")
+        self.assertEqual(capture["env"]["DECIDE_STARTED"], "${{ steps.hybrid-ref.outputs.started }}")
+        self.assertIn("hybrid_ref_capture.py have --key", decide["run"], "the lookup that retries a rate limit")
         self.assertEqual(upload["with"]["retention-days"], 14, "the manifest lives as long as the store keeps the packs")
         self.assertIn("steps.hybrid-ref.outputs.capture == 'true'", capture["if"])
         self.assertIn("outputs.build_mode == 'host'", capture["if"])
@@ -288,6 +425,49 @@ class Workflow(unittest.TestCase):
                         self.order.index("hybrid-ref-capture"), "the capture runs last")
         self.assertEqual(self.steps["compile-cmux-next-dev-release"]["env"]["CMUX_NEXT_EMIT_FRONTEND_COMMAND_LINES"],
                          "${{ steps.hybrid-ref.outputs.capture == 'true' && '1' || '' }}")
+
+    def test_a_needed_capture_compiles_instead_of_reusing(self) -> None:
+        # 40428066457: the product was a reuse hit, so a capture rerun would have compiled nothing.
+        decide, lookup = self.steps["hybrid-ref"], self.steps["dev-product"]
+        self.assertLess(self.order.index("hybrid-ref"), self.order.index("dev-product"))
+        self.assertNotIn("steps.dev-product", decide["if"])
+        self.assertIn("steps.hybrid-ref.outputs.compile == 'true' && ", lookup["env"]["SKIP_REASON"])
+
+    def decide(self, have_output: str | None) -> dict[str, str]:
+        """Runs the decide step's shell with a fake hybrid_ref_capture.py; returns its outputs."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            fake = root / "scripts/cmux-next/hybrid_ref_capture.py"
+            fake.parent.mkdir(parents=True)
+            fake.write_text("import sys\n"
+                            "if sys.argv[1] == 'key': print('k' * 64); sys.exit(0)\n"
+                            + ("sys.exit(1)\n" if have_output is None else f"print({have_output!r})\n"))
+            out = root / "out"
+            proc = subprocess.run(["bash", "-e", "-c", self.steps["hybrid-ref"]["run"]], cwd=root, capture_output=True,
+                                  text=True, env={**os.environ, "CMUX_NEXT_RUNNER": "glaeda-side-std-xcode-26.6",
+                                                  "GITHUB_OUTPUT": str(out), "GITHUB_REPOSITORY": "o/r"})
+            outputs = dict(line.split("=", 1) for line in out.read_text().splitlines())
+            outputs["rc"] = str(proc.returncode)
+            return outputs
+
+    def test_the_decision(self) -> None:
+        cases = {"complete=0\nrecent_incomplete=0": ("true", "true", "0"),
+                 "complete=1\nrecent_incomplete=0": ("false", "false", "0"),
+                 "complete=0\nrecent_incomplete=2": ("true", "false", "0"),
+                 # a failed lookup must compile: with reuse it would build nothing to capture (40428066457)
+                 None: ("true", "true", "1")}
+        for have_output, (capture, compile_, rc) in cases.items():
+            got = self.decide(have_output)
+            self.assertRegex(got["started"], r"^\d{10}$", "written before the lookup, even when it fails")
+            self.assertEqual((got["capture"], got["compile"], got["rc"]), (capture, compile_, rc), have_output)
+            self.assertEqual(got["key"], "k" * 64)
+
+    def test_an_incomplete_capture_has_its_own_name(self) -> None:
+        upload = next(s for s in self.job["steps"] if s.get("name") == "Upload the REF capture manifest")
+        self.assertEqual(upload["with"]["name"],
+                         "${{ steps.hybrid-ref-capture.outputs.complete != 'true' && 'hybrid-ref-capture-incomplete-' "
+                         "|| 'hybrid-ref-capture-' }}${{ steps.hybrid-ref.outputs.key }}")
+        self.assertEqual(cap.incomplete_name("K"), "hybrid-ref-capture-incomplete-K")
 
     def test_no_new_permission(self) -> None:
         self.assertEqual(self.job["permissions"], {"actions": "read", "contents": "read", "statuses": "write"})
@@ -418,22 +598,53 @@ class NightlyProfile(unittest.TestCase):
         client.chmod(0o755)
         return client
 
+    @classmethod
+    def setUpClass(cls) -> None:
+        # Linux: orphans of what these tests start (an upload's helper) become this process's
+        # children, so it reaps them itself and reads how they ended, with no outside reaper's delay.
+        cls.subreaper = False
+        if sys.platform.startswith("linux"):
+            import ctypes
+            libc = ctypes.CDLL(None, use_errno=True)
+            cls.subreaper = libc.prctl(36, 1, 0, 0, 0) == 0  # PR_SET_CHILD_SUBREAPER
+
+    @classmethod
+    def tearDownClass(cls) -> None:
+        if cls.subreaper:
+            import ctypes
+            ctypes.CDLL(None).prctl(36, 0, 0, 0, 0)
+
     @staticmethod
     def alive(pid: int) -> bool:
-        # Gone, or a zombie nothing has reaped yet (Linux: its /proc state is Z).
         try:
             os.kill(pid, 0)
-            stat = Path(f"/proc/{pid}/stat")
-            return not (stat.exists() and stat.read_text().rsplit(")", 1)[1].split()[0] == "Z")
-        except (ProcessLookupError, FileNotFoundError):
+        except ProcessLookupError:
             return False
+        return True
 
     def assert_all_gone(self, root: Path) -> None:
         pids = [int(x) for x in (root / "pids").read_text().split()]
-        gone = time.monotonic() + 5
-        while any(self.alive(pid) for pid in pids) and time.monotonic() < gone:
-            time.sleep(0.1)
-        self.assertEqual([pid for pid in pids if self.alive(pid)], [], "the upload or its helper outlived the capture")
+        ended = {}
+        gone = time.monotonic() + 10
+        while time.monotonic() < gone:
+            if self.subreaper:
+                for pid in pids:
+                    try:
+                        done, status = os.waitpid(pid, os.WNOHANG)
+                    except ChildProcessError:
+                        continue  # not ours (reaped elsewhere, or never reparented here)
+                    if done:
+                        ended[pid] = status
+            if not any(self.alive(pid) and pid not in ended for pid in pids):
+                break
+            time.sleep(0.05)
+        self.assertEqual([pid for pid in pids if self.alive(pid) and pid not in ended], [],
+                         "the upload or its helper outlived the capture")
+        # The helper (the second pid) is a sleep 60: it can only have ended by the group kill.
+        helper = pids[1]
+        if helper in ended:
+            self.assertTrue(os.WIFSIGNALED(ended[helper]) and os.WTERMSIG(ended[helper]) == signal.SIGKILL,
+                            f"the helper ended by the upload group's SIGKILL, not {ended[helper]}")
 
     def test_the_deadline_kills_what_the_upload_started(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -532,18 +743,24 @@ class NightlyWorkflow(unittest.TestCase):
         self.assertIn("runner.environment == 'self-hosted'", decide["if"])
         self.assertIn("*-glaeda | *-glaeda-[0-9]*) ;;", decide["run"], "an owned mini, never a Blacksmith Mac")
         self.assertIn('skip "no cmux-ci on $RUNNER_NAME"', decide["run"])
-        self.assertIn("name=hybrid-ref-capture-nightly-next-$key&", decide["run"])
-        self.assertIn("select(.expired == false and .created_at >= ", decide["run"])
-        self.assertIn('[ -n "$started" ] || skip', decide["run"], "an unknown job start skips the capture")
+        self.assertIn('hybrid_ref_capture.py have --key "$key" --repo "$GITHUB_REPOSITORY" --budget 30', decide["run"])
+        self.assertEqual(decide["env"]["HYBRID_REF_PROFILE"], "nightly-next", "have looks up the nightly's artifact names")
+        self.assertIn('[[ "$capture" == true && "$incomplete" == 0 ]] && compile=true', decide["run"])
+        failed = decide["run"][decide["run"].index("exit 0\nfi\n"):]
+        self.assertIn("capture=true\\ncompile=true", failed, "a failed lookup captures and compiles anyway")
+        self.assertIn("::error title=REF capture lookup failed::", failed)
+        self.assertTrue(failed.rstrip().endswith("exit 1"), "and shows red")
+        self.assertIn("started=$(( $(date +%s) - 30 * 60 ))", decide["run"], "an unknown job start only moves the deadline earlier")
+        self.assertNotIn("skip \"this job's start", decide["run"])
         for step in (decide, start, finish, upload):
             self.assertTrue(step["continue-on-error"], step.get("name"))
-        self.assertLessEqual(decide["timeout-minutes"], 1)
+        self.assertLessEqual(decide["timeout-minutes"], 2, "the compile waits at most 30 s on the lookup")
         self.assertEqual(start["if"], "steps.hybrid-ref.outputs.capture == 'true' && steps.nightly-product.outputs.hit != 'true'")
         # A capture run never takes a reused product: it decides before the lookup and makes it miss.
         lookup = self.steps["nightly-product"]
         self.assertLess(self.order.index("hybrid-ref"), self.order.index("nightly-product"))
         self.assertTrue(lookup["env"]["SKIP_REASON"].startswith(
-            "${{ steps.hybrid-ref.outputs.capture == 'true' && 'a REF capture needs a real compile' || "))
+            "${{ steps.hybrid-ref.outputs.compile == 'true' && 'a REF capture needs a real compile' || "))
         self.assertIn("steps.nightly-product.outputs.hit != 'true'", self.compile["if"])
         self.assertEqual(finish["if"], "steps.hybrid-ref-start.outputs.started == 'true'")
         self.assertIn("(( $(date +%s) - STARTED > 100 * 60 ))", start["run"])
@@ -559,7 +776,13 @@ class NightlyWorkflow(unittest.TestCase):
                              "the wait ends by job minute 130; the upload too, well inside the job's limit")
         self.assertLessEqual(240, finish["timeout-minutes"] * 60 - 30)
         self.assertEqual(upload["with"]["retention-days"], 14)
-        self.assertTrue(upload["with"]["name"].startswith("hybrid-ref-capture-nightly-next-${{ steps.hybrid-ref.outputs.key }}"))
+        self.assertEqual(upload["with"]["name"],
+                         "${{ steps.hybrid-ref-capture.outputs.complete != 'true' && 'hybrid-ref-capture-nightly-next-incomplete-' "
+                         "|| 'hybrid-ref-capture-nightly-next-' }}${{ steps.hybrid-ref.outputs.key }}")
+        nightly = {"HYBRID_REF_PROFILE": "nightly-next"}
+        self.assertEqual((cap.complete_name("K", nightly), cap.incomplete_name("K", nightly)),
+                         ("hybrid-ref-capture-nightly-next-K", "hybrid-ref-capture-nightly-next-incomplete-K"),
+                         "the names the upload step writes are the ones have reads")
         # Decide before the compile, start right after it (and the bundling, which changes only the
         # app: tests/test_nightly_helpers_beside_release_build.py pins the steps around the compile),
         # finish and upload last but the cleanup.

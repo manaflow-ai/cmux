@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Pick the macOS label (Blacksmith, hosted overflow) the nightly's sign, notarize and publish jobs take.
+"""Pick the Blacksmith macOS label the nightly's sign, notarize and publish jobs take.
 
 Signing stays on Blacksmith (keys stay in GitHub environment secrets, never on
 a mini). Those jobs used to take `vars.MACOS_RUNNER_26` alone, so when that
@@ -12,11 +12,8 @@ next_macos_cascade.QUEUE_SNAPSHOT_MINUTES old; two API requests) and prints the
 first candidate whose queue is moving: vars.MACOS_RUNNER_26 when it names a
 Blacksmith macOS label, then 6 vCPU, then 12 vCPU. A label is not moving when
 the snapshot saw a job wait on it for next_macos_cascade.STALL_MINUTES or more.
-When every Blacksmith label is stalled it prints GitHub-hosted `macos-26`
-(trusted like Blacksmith; keys stay in environment secrets): on 2026-10-26
-Blacksmith macOS had about 75 jobs queued, the oldest over an hour, while hosted
-macos-26 took classic and DEV at once. With no fresh snapshot (or an unreadable
-one) the variable keeps its say, as before. It never prints an empty label and never fails the job:
+With no fresh snapshot (or an unreadable one) the variable keeps its say, as
+before. It never prints an empty label and never fails the job:
 
     SNAPSHOT_TOKEN=<actions: read> CANDIDATE=<vars.MACOS_RUNNER_26> nightly_sign_runner.py
     -> `runner=<label>` in $GITHUB_OUTPUT, and why in the step summary
@@ -35,6 +32,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import next_macos_cascade as cascade  # noqa: E402
 
 BLACKSMITH_MACOS = re.compile(r"blacksmith-[0-9]+vcpu-macos-26")
+DEFAULT = cascade.SMALL
 
 
 def candidates(variable: str) -> list[str]:
@@ -66,7 +64,7 @@ def pick(variable: str, snapshot: Mapping[str, Any] | None, now: dt.datetime) ->
         return labels[0], f"no fresh pool snapshot, so `{labels[0]}` (vars.MACOS_RUNNER_26 or the default)"
     moving = [label for label in labels if label not in stuck]
     if not moving:
-        return cascade.HOSTED, f"every Blacksmith macOS label is stalled ({', '.join(sorted(stuck))}); hosted `{cascade.HOSTED}` takes the overflow"
+        return DEFAULT, f"every Blacksmith macOS label is stalled ({', '.join(sorted(stuck))}); `{DEFAULT}` has the most slots"
     skipped = [label for label in labels[: labels.index(moving[0])]]
     why = f"`{moving[0]}`" + (f", past stalled {', '.join(f'`{s}`' for s in skipped)}" if skipped else "")
     return moving[0], why
