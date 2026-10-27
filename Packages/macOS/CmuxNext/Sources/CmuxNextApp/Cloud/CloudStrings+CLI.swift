@@ -54,6 +54,33 @@ extension CloudStrings {
                               table: "Cloud", bundle: .module), machine, workspace)
     }
 
+    /// `cloud enroll-machine` with a name ssh can't use as a host alias.
+    static var enrollNameInvalid: String {
+        String(localized: "cloud.cli.enrollNameInvalid",
+               defaultValue: "The machine's ssh name must be letters, digits, dots, dashes or underscores: pass --name lane-vm-N.",
+               table: "Cloud", bundle: .module)
+    }
+
+    /// `cloud enroll-machine` on a machine the server gave no private address yet.
+    static var enrollNoAddress: String {
+        String(localized: "cloud.cli.enrollNoAddress",
+               defaultValue: "This Cloud machine has no private address yet, so ssh can't reach it. Try again once it is running.",
+               table: "Cloud", bundle: .module)
+    }
+
+    /// `cloud enroll-machine --ssh-key FILE` that is not one readable ssh-ed25519 public key.
+    static func enrollKeyUnreadable(_ path: String) -> String {
+        String(format: String(localized: "cloud.cli.enrollKeyUnreadable",
+                              defaultValue: "Can't use the ssh key %@: it must be one ssh-ed25519 public key. Pass --ssh-key with an absolute path.",
+                              table: "Cloud", bundle: .module), path)
+    }
+
+    /// `cloud enroll-machine`: the machine's side failed; `output` is its own error text.
+    static func enrollAuthorizeFailed(_ output: String) -> String {
+        String(format: String(localized: "cloud.cli.enrollAuthorizeFailed", defaultValue: "Couldn't set up ssh on the machine: %@",
+                              table: "Cloud", bundle: .module), output)
+    }
+
     /// `cloud new-machine --bootstrap lane` (or a bootstrap kind it does not know) with no script.
     static var bootstrapScriptRequired: String {
         String(localized: "cloud.cli.bootstrapScriptRequired",
@@ -75,6 +102,60 @@ extension CloudStrings {
                               table: "Cloud", bundle: .module), path)
     }
 
+    /// `cloud deliver-secrets`: the Keychain would not give this secret's value (locked, or the item is gone).
+    static func secretUnreadable(_ name: String) -> String {
+        String(format: String(localized: "cloud.cli.secretUnreadable",
+                              defaultValue: "Can't read the secret %@ from this Mac's Keychain. Unlock it, or store it again with cmux cloud secret set.",
+                              table: "Cloud", bundle: .module), name)
+    }
+
+    /// `cloud deliver-secrets` while another delivery to the same machine runs.
+    static var secretsDeliveryRunning: String {
+        String(localized: "cloud.cli.secretsDeliveryRunning",
+               defaultValue: "Secrets are already being delivered to this machine. Try again when that delivery finishes.",
+               table: "Cloud", bundle: .module)
+    }
+
+    /// `cloud deliver-secrets` before any machine-config apply finished on the machine.
+    static var machineConfigNotApplied: String {
+        String(localized: "cloud.cli.machineConfigNotApplied",
+               defaultValue: "This machine has no finished machine config yet. Run cmux cloud apply-machine-config first, then deliver the secrets.",
+               table: "Cloud", bundle: .module)
+    }
+
+    /// `cloud deliver-secrets` without `--repo` on a machine set up from a repo that has its own values here.
+    static func secretRepoNeeded(_ repo: String) -> String {
+        String(format: String(localized: "cloud.cli.secretRepoNeeded",
+                              defaultValue: "This machine was set up from %1$@, which has its own secret values on this Mac. Pass --repo %2$@ to deliver them.",
+                              table: "Cloud", bundle: .module), repo, repo)
+    }
+
+    /// `cloud deliver-secrets` with a secrets index that is there but cannot be read.
+    static func secretIndexUnreadable(_ path: String) -> String {
+        String(format: String(localized: "cloud.cli.secretIndexUnreadable",
+                              defaultValue: "Can't read %@, so nothing was delivered. Fix or remove it, then store the secrets again with cmux cloud secret set.",
+                              table: "Cloud", bundle: .module), path)
+    }
+
+    /// `cloud deliver-secrets --repo` that is not `OWNER/NAME`.
+    static func secretRepoInvalid(_ text: String) -> String {
+        String(format: String(localized: "cloud.cli.secretRepoInvalid", defaultValue: "--repo %@ is not OWNER/NAME.",
+                              table: "Cloud", bundle: .module), text)
+    }
+
+    /// `cloud deliver-secrets`: the machine's receiver did not take the values; `reason` is its answer.
+    static func secretsNotDelivered(_ reason: String) -> String {
+        String(format: String(localized: "cloud.cli.secretsNotDelivered", defaultValue: "The secrets were not delivered: %@",
+                              table: "Cloud", bundle: .module), reason)
+    }
+
+    /// `--machine-config FILE` that cannot be read, is empty or is over 64 KB.
+    static func machineConfigUnreadable(_ path: String) -> String {
+        String(format: String(localized: "cloud.cli.machineConfigUnreadable",
+                              defaultValue: "Can't use the machine config %@: it must be a readable file of at most 64 KB.",
+                              table: "Cloud", bundle: .module), path)
+    }
+
     /// `cloud new-machine --bootstrap lane` with no `--name`: the lane bootstrap names the host after it.
     static var laneNeedsName: String {
         String(localized: "cloud.cli.laneNeedsName", defaultValue: "The lane bootstrap needs the machine's name: pass --name lane-vm-N.",
@@ -85,6 +166,27 @@ extension CloudStrings {
     static var machineOptionsUnavailable: String {
         String(localized: "cloud.cli.machineOptionsUnavailable",
                defaultValue: "This Cloud backend can't create a machine with a size, idle pause, name or bootstrap yet. Create it without them, then use cloud resize-machine, cloud set-idle-pause and cloud rename-machine.",
+               table: "Cloud", bundle: .module)
+    }
+
+    /// `cloud new-machine --repo` that is not a GitHub repository in an accepted form.
+    static var repoUnrecognized: String {
+        String(localized: "cloud.cli.repoUnrecognized",
+               defaultValue: "--repo takes a GitHub repository: OWNER/NAME, https://github.com/OWNER/NAME or git@github.com:OWNER/NAME.git, with an optional @REF.",
+               table: "Cloud", bundle: .module)
+    }
+
+    /// `cloud new-machine --repo` with a token or password in the URL.
+    static var repoCredentialsInURL: String {
+        String(localized: "cloud.cli.repoCredentialsInURL",
+               defaultValue: "--repo carries credentials. Remove them: the machine uses the GitHub access it already has, and no token is written to it.",
+               table: "Cloud", bundle: .module)
+    }
+
+    /// `cloud new-machine --repo OWNER/NAME@REF` whose REF is not a plain branch, tag or commit.
+    static var repoInvalidRef: String {
+        String(localized: "cloud.cli.repoInvalidRef",
+               defaultValue: "The @REF of --repo must be a branch, tag or commit of letters, digits, dots, dashes, underscores and slashes.",
                table: "Cloud", bundle: .module)
     }
 
