@@ -67,33 +67,31 @@ struct SidebarHugeGroupTests {
     @Test func nested10k() { _ = Self.measure("nested-20", count: 10_000, shape: .nested(depth: 20), groupID: "sb-g1") }
     @Test func manyCollapsed10k() { _ = Self.measure("many-collapsed", count: 10_000, shape: .manyCollapsed(perGroup: 10), groupID: "sb-g1") }
 
-    /// Samples fold/unfold/reorder cycles on 10k in one group (`SSB` lines: the heaviest main-thread stacks).
-    @Test func profile10k() async throws {
+    /// Not a check: samples fold/unfold/reorder cycles on 10k in one group (`SSB` lines: the
+    /// heaviest main-thread stacks). Opt-in with `CMUX_SAMPLE_PROFILE=1` (`SelfSampler`).
+    @Test(.enabled(if: SelfSampler.enabled, "self-sampling profile; set CMUX_SAMPLE_PROFILE=1"))
+    func profile10k() async throws {
         let bench = SidebarScrollBench(count: 10_000, shape: .oneGroup)
         defer { bench.close() }
-        let output = FileManager.default.temporaryDirectory.appendingPathComponent("huge-\(getpid()).sample.txt")
-        let sampler = Process()
-        sampler.executableURL = URL(fileURLWithPath: "/usr/bin/sample")
-        sampler.arguments = [String(getpid()), "8", "1", "-mayDie", "-file", output.path]
-        try sampler.run()
-        try await Task.sleep(for: .milliseconds(500)) // bounded: lets sample attach
-        let end = Date().addingTimeInterval(8)
-        let id = GroupID("sb-g0")
-        while Date() < end {
-            _ = bench.model.setGroupCollapsed(id, true); bench.drain(); bench.drawFrame()
-            _ = bench.model.setGroupCollapsed(id, false); bench.drain(); bench.drawFrame()
-            var sections = bench.model.sections
-            if case var .group(group)? = sections.first?.nodes.first {
-                group.workspaces.insert(group.workspaces.removeLast(), at: 0)
-                sections[0].nodes[0] = .group(group)
-                bench.model.sections = sections
-                bench.sidebar.renderNow()
+        let (report, _) = try await SelfSampler.run(name: "huge", seconds: 8) { _ in
+            try await Task.sleep(for: .milliseconds(500)) // bounded: lets sample attach
+            let end = Date().addingTimeInterval(8)
+            let id = GroupID("sb-g0")
+            while Date() < end {
+                _ = bench.model.setGroupCollapsed(id, true); bench.drain(); bench.drawFrame()
+                _ = bench.model.setGroupCollapsed(id, false); bench.drain(); bench.drawFrame()
+                var sections = bench.model.sections
+                if case var .group(group)? = sections.first?.nodes.first {
+                    group.workspaces.insert(group.workspaces.removeLast(), at: 0)
+                    sections[0].nodes[0] = .group(group)
+                    bench.model.sections = sections
+                    bench.sidebar.renderNow()
+                }
+                bench.drain(); bench.drawFrame()
+                await Task.yield()
             }
-            bench.drain(); bench.drawFrame()
-            await Task.yield()
         }
-        sampler.waitUntilExit()
-        let text = (try? String(contentsOf: output, encoding: .utf8)) ?? ""
+        let text = report ?? ""
         var inMain = false, printed = 0
         for line in text.components(separatedBy: "\n") {
             if line.contains("Thread_") { inMain = line.contains("main-thread") || line.contains("DispatchQueue_1:") }

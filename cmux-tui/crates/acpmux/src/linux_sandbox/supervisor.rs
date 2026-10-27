@@ -1,4 +1,4 @@
-//! Filesystem supervision; no production caller until G2.
+//! Filesystem supervision for Linux remote-chain commands.
 //! Every mutation holds the same process-wide
 //! mutex and per-uid flock through resolve/check/perform, across all supervisors.
 //! Bwrap supplies read-only mounts and masks; this is not a standalone sandbox.
