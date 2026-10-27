@@ -27,6 +27,8 @@ export function newTabScreenActions(deps: {
   requestFolder?(cwd: string, start: (folder: string) => void, cancel?: () => void): void;
   /// false: the page's chats run on another machine, whose folders are never this Mac's default.
   startsHere?(): boolean;
+  /// Captures the page/client/selection owning this attempt, before any asynchronous work.
+  startScope?(): () => boolean;
 }): NewTabScreenActions {
   const { callNative, cwd } = deps;
   const ignore = (result: Promise<unknown>) => void result.catch(() => undefined);
@@ -34,6 +36,8 @@ export function newTabScreenActions(deps: {
   return {
     onAsk(harness, text, picked, model, noProject, attachments, saved) {
       const peer = saved?.peer;
+      const current = deps.startScope?.() ?? (() => true);
+      const cancelled = () => new Error(translate("switch.cancelled"));
       remember(harness);
       // The prompt goes in the same turn as the switch: the switch queues it, and a folder trust
       // refusal then holds it with the send's gesture (holdPrompt), so Trust sends it. Sending
@@ -41,6 +45,7 @@ export function newTabScreenActions(deps: {
       // queued ("Not sent").
       return new Promise<void>((resolve, reject) => {
         const start = (folder?: string) => {
+          if (!current()) return reject(cancelled());
           // The screen owns its draft and machine pick until the start succeeds. A rejected start
           // must not unmount it; its caller displays the refusal beside the unchanged field.
           const opened = callNative("chat.new", {
@@ -54,9 +59,14 @@ export function newTabScreenActions(deps: {
           if (peer) {
             opened
               .then(async (started) => {
+                if (!current()) throw cancelled();
                 if (!started) throw new Error(translate("switch.noSession"));
-                deps.leave();
-                if (asks) await callNative("chat.send", message);
+                // The send names this start's session; a later selected chat cannot take it.
+                if (asks) {
+                  const sent = callNative("chat.send", { ...message, expectedSessionId: started });
+                  deps.leave();
+                  await sent;
+                } else deps.leave();
               })
               .then(resolve, reject);
             return;
@@ -65,6 +75,7 @@ export function newTabScreenActions(deps: {
           // while Trust is pending. Awaiting the start before sending would lose that queue.
           const sent = asks ? callNative("chat.send", message) : Promise.resolve();
           const accepted = opened.then((started) => {
+            if (!current()) throw cancelled();
             if (started) {
               if (asks && deps.startsHere?.() !== false) rememberStartedProject(folder, callNative);
               deps.leave();
