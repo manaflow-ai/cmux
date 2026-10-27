@@ -77,13 +77,24 @@ export function commandArgs(text: string, command: SlashCommand): string | undef
 
 export type HarnessTarget = { id: string; name: string };
 
-/** Catalog entries that can receive a continuation from the currently shown harness. */
+/** Catalog entries that can receive a continuation from the currently shown harness. The daemon
+ *  refuses a target of the source's own family (`same_harness`, hub/handoff/ops.rs), so another
+ *  profile of that family (a router profile of Claude, say) is no target either. */
 export function continueTargets<T extends HarnessTarget>(
-  catalog: readonly (T & { pickable?: boolean; unavailable?: string })[],
+  catalog: readonly (T & { pickable?: boolean; unavailable?: string; family?: string })[],
   currentHarness: string | undefined,
 ): T[] {
   if (!currentHarness) return [];
-  return catalog.filter((target) => target.id !== currentHarness && target.pickable !== false && !target.unavailable);
+  const familyOf = (entry: { id: string; family?: string }) => entry.family ?? entry.id;
+  const current = catalog.find((entry) => entry.id === currentHarness);
+  const currentFamily = current ? familyOf(current) : currentHarness;
+  return catalog.filter(
+    (target) =>
+      target.id !== currentHarness &&
+      familyOf(target) !== currentFamily &&
+      target.pickable !== false &&
+      !target.unavailable,
+  );
 }
 
 /** Resolves the target typed after `/continue` by id or its visible catalog name. */

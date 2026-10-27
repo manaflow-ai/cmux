@@ -26,16 +26,22 @@ enum UpdateFeedPosting {
     }
 
     /// What one look at the highlights does: post this card, stop (this version's card was
-    /// posted already), or wait for the highlights to list changes.
+    /// posted already), skip this version (What's New is off), or wait for the highlights to
+    /// list changes.
     enum Step: Equatable {
         case post(UpdateFeedCard)
+        case skip(version: String)
         case done
         case wait
     }
 
-    static func step(_ highlights: UpdateHighlights?, posted: String?, at: Date) -> Step {
+    /// `enabled`: `updates.showWhatsNew` ("Show What's New After Updates"). Off, the update
+    /// posts no Feed card either, and the version counts as handled so turning it on later
+    /// does not post a stale card.
+    static func step(_ highlights: UpdateHighlights?, posted: String?, enabled: Bool = true, at: Date) -> Step {
         guard let highlights else { return .wait }
         guard posted != highlights.version else { return .done }
+        guard enabled else { return .skip(version: highlights.version) }
         return card(for: highlights, at: at).map(Step.post) ?? .wait
     }
 
@@ -65,9 +71,12 @@ enum UpdateFeedPosting {
             for await highlights in ObservationStream({ Self.highlights(updater, held: held.highlights) }) {
                 guard let services else { return }
                 held.highlights = highlights
-                switch step(highlights, posted: defaults.string(forKey: postedKey), at: Date()) {
+                switch step(highlights, posted: defaults.string(forKey: postedKey), enabled: updater.whatsNew.isItemEnabled, at: Date()) {
                 case .wait: continue
                 case .done: return
+                case let .skip(version):
+                    defaults.set(version, forKey: postedKey)
+                    return
                 case let .post(card):
                     services.feed.post(update: card)
                     defaults.set(card.to, forKey: postedKey)

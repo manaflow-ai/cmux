@@ -1284,16 +1284,11 @@ impl Config {
         Ok(cfg)
     }
 
-    /// Without a configured default, the first harness that runs an ACP
-    /// session (a terminal harness, an installed `muse` say, never does).
+    /// Without a configured default, prefer Claude, then Codex, then another ACP harness.
     fn pick_auto_default(&mut self) {
         if self.default_harness.is_none() {
             self.auto_default = true;
-            self.default_harness = self
-                .harnesses
-                .iter()
-                .find(|(_, profile)| profile.kind != HarnessKind::Terminal)
-                .map(|(name, _)| name.clone());
+            self.default_harness = crate::default_harness::auto_default_harness(&self.harnesses);
         }
     }
 
