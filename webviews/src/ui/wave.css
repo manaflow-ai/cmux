@@ -4,8 +4,9 @@
    to right (top to bottom for rows). The loop runs on one clock (ui/wave.ts: Unix time mod the
    period), so every item counts from one epoch and only its index offsets it. The delay is pulled
    back whole periods so it is never positive (no item waits at rest). Opacity only. It stops under
-   Reduce Motion, the motion gate (`data-cmux-motion` off or reduced), static status indicators and
-   a hidden page; a stopped item shows at full strength. */
+   Reduce Motion, the motion gate (`data-cmux-motion` off or reduced), Energy Saver
+   (`data-cmux-energy`), static status indicators and a hidden page; a stopped item shows at full
+   strength. */
 :root {
   --cmux-wave-period: 1.6s;
   --cmux-wave-step: 120ms;
@@ -21,7 +22,7 @@
   }
 }
 @media (prefers-reduced-motion: no-preference) {
-  :root:not([data-cmux-motion="off"]):not([data-cmux-motion="reduced"]):not([data-status-indicators="static"]):not(
+  :root:not([data-cmux-motion="off"]):not([data-cmux-motion="reduced"]):not([data-cmux-energy="saver"]):not([data-status-indicators="static"]):not(
       [data-cmux-page-hidden]
     )
     .acpmux-wave-item {

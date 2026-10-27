@@ -400,7 +400,7 @@ the tables of "Release trace ring v1"; the Swift `TraceRuntime.Role` and `TraceR
     trace event (base/threading/scoped_blocking_call.cc). Begin arg0: the kind's code in bits 0-7
     (`BlockingKind.traceCode`: 1 file-io, 2 socket-read, 3 socket-write, 4 sync-wait, 5 ipc-reply,
     6 process-wait, 7 process-spawn, 8 lock-wait, 9 system-call, 10 sleep, 11 wrong-lane, 12 cpu-intensive,
-    13 fs-metadata, 14 sqlite, 15 process-reap, 16 system-query, 17 priority-inversion, 18 ffi) and the call's `#line` above them. Begin
+    13 fs-metadata, 14 sqlite, 15 process-reap, 16 system-query, 17 priority-inversion, 18 ffi, 19 xpc-reply) and the call's `#line` above them. Begin
     arg1: FNV-1a 64 of the call's `#fileID` (`Module/File.swift`). The end has no arguments; a written begin
     always gets its end, also when the body throws or the category turns off meanwhile. Only the app's
     `TraceRuntime.shared` routes them, while its `task` bit is on.
