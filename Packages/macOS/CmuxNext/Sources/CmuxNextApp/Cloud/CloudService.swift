@@ -333,7 +333,8 @@ final class CloudService {
                                           localIdentity: { [weak local] in local?.identity }, mainWork: mainWork, work: work)
         case .legacy:
             guard let hub, let binary else { return nil }
-            let link = CloudMachineLink(machineID: machine.id, api: api, hub: hub, paths: paths, binary: binary, deviceName: Self.deviceName)
+            let link = CloudMachineLink(machineID: machine.id, api: api, hub: hub, paths: paths, binary: binary, deviceName: Self.deviceName,
+                                        mainWork: mainWork)
             session = CloudMachineSession(machine: machine, link: link, mainWork: mainWork, work: work)
         }
         session.daemon.workTracker = machines.local.workTracker

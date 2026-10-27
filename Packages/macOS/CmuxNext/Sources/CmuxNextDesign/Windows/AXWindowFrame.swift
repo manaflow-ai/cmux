@@ -18,14 +18,16 @@ public nonisolated struct AXWindowFrame: @unchecked Sendable { // crash-allow: i
     public init?(pid: pid_t, nearest frame: CGRect) {
         let app = AXUIElementCreateApplication(pid)
         var value: CFTypeRef?
-        guard blockingAXCopyAttributeValue(app, kAXWindowsAttribute as CFString, &value) == .success,
+        // SAFETY: the call writes one +1 CFTypeRef (or nil) into the local `value`, live for the call.
+        guard unsafe blockingAXCopyAttributeValue(app, kAXWindowsAttribute as CFString, &value) == .success,
               let windows = value as? [AXUIElement],
               let window = windows.min(by: { Self.distance(Self.frame(of: $0), frame) < Self.distance(Self.frame(of: $1), frame) })
         else { return nil }
         var focused: CFTypeRef?
         self.window = window
         self.windows = windows.map { "\(Self.string($0, kAXRoleAttribute)) \(Self.string($0, kAXSubroleAttribute)) \(Self.frame(of: $0))" }
-        focusedFrame = blockingAXCopyAttributeValue(app, kAXFocusedWindowAttribute as CFString, &focused) == .success
+        // SAFETY: as above, into the local `focused`.
+        focusedFrame = unsafe blockingAXCopyAttributeValue(app, kAXFocusedWindowAttribute as CFString, &focused) == .success
             ? focused.flatMap(Self.element).map { "\(Self.frame(of: $0))" } : nil
     }
 
@@ -33,40 +35,49 @@ public nonisolated struct AXWindowFrame: @unchecked Sendable { // crash-allow: i
     public func set(_ attribute: String, from frame: CGRect) -> AXError {
         if attribute == "position" {
             var point = frame.origin
-            guard let value = AXValueCreate(.cgPoint, &point) else { return .failure }
+            // SAFETY: AXValueCreate copies one CGPoint (the type .cgPoint names) from the local `point`.
+            guard let value = unsafe AXValueCreate(.cgPoint, &point) else { return .failure }
             return blockingAXSetAttributeValue(window, kAXPositionAttribute as CFString, value)
         }
         var size = frame.size
-        guard let value = AXValueCreate(.cgSize, &size) else { return .failure }
+        // SAFETY: AXValueCreate copies one CGSize (the type .cgSize names) from the local `size`.
+        guard let value = unsafe AXValueCreate(.cgSize, &size) else { return .failure }
         return blockingAXSetAttributeValue(window, kAXSizeAttribute as CFString, value)
     }
 
     private static func string(_ element: AXUIElement, _ attribute: String) -> String {
         var value: CFTypeRef?
-        guard blockingAXCopyAttributeValue(element, attribute as CFString, &value) == .success else { return "-" }
+        // SAFETY: the call writes one +1 CFTypeRef (or nil) into the local `value`, live for the call.
+        guard unsafe blockingAXCopyAttributeValue(element, attribute as CFString, &value) == .success else { return "-" }
         return (value as? String) ?? "-"
     }
 
     private static func frame(of element: AXUIElement) -> CGRect {
         var position = CGPoint.zero, size = CGSize.zero
         var value: CFTypeRef?
-        if blockingAXCopyAttributeValue(element, kAXPositionAttribute as CFString, &value) == .success, let value = value.flatMap(axValue) {
-            AXValueGetValue(value, .cgPoint, &position)
+        // SAFETY: each copy writes one CFTypeRef (or nil) into the local `value`; each AXValueGetValue writes the one
+        // CGPoint or CGSize its type names into the local of that type. All are live for the calls.
+        if unsafe blockingAXCopyAttributeValue(element, kAXPositionAttribute as CFString, &value) == .success,
+           let value = value.flatMap(axValue) {
+            unsafe AXValueGetValue(value, .cgPoint, &position)
         }
-        if blockingAXCopyAttributeValue(element, kAXSizeAttribute as CFString, &value) == .success, let value = value.flatMap(axValue) {
-            AXValueGetValue(value, .cgSize, &size)
+        if unsafe blockingAXCopyAttributeValue(element, kAXSizeAttribute as CFString, &value) == .success,
+           let value = value.flatMap(axValue) {
+            unsafe AXValueGetValue(value, .cgSize, &size)
         }
         return CGRect(origin: position, size: size)
     }
 
     /// The value as an AXUIElement when its CoreFoundation type is one (nil otherwise).
     private static func element(_ value: CFTypeRef) -> AXUIElement? {
-        CFGetTypeID(value) == AXUIElementGetTypeID() ? unsafeDowncast(value, to: AXUIElement.self) : nil
+        // SAFETY: the type ID check proves `value` is a AXUIElement.
+        CFGetTypeID(value) == AXUIElementGetTypeID() ? unsafe unsafeDowncast(value, to: AXUIElement.self) : nil
     }
 
     /// The value as an AXValue when its CoreFoundation type is one (nil otherwise).
     private static func axValue(_ value: CFTypeRef) -> AXValue? {
-        CFGetTypeID(value) == AXValueGetTypeID() ? unsafeDowncast(value, to: AXValue.self) : nil
+        // SAFETY: the type ID check proves `value` is a AXValue.
+        CFGetTypeID(value) == AXValueGetTypeID() ? unsafe unsafeDowncast(value, to: AXValue.self) : nil
     }
 
     private static func distance(_ a: CGRect, _ b: CGRect) -> CGFloat {

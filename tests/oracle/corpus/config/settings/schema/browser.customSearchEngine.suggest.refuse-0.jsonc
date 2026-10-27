@@ -1,0 +1,7 @@
+{
+  "browser": {
+    "customSearchEngine": {
+      "suggest": "https://search.example/"
+    }
+  }
+}

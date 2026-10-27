@@ -248,16 +248,26 @@ typedef enum {
   CMUX_SHIM_COLOR_CHOOSER = 61,
   CMUX_SHIM_DEVICE_CHOOSER = 62,
   CMUX_SHIM_DESKTOP_MEDIA = 63,
+  // A frame other than a browser's main frame gained or lost its renderer
+  // (CefFrameHandler::OnFrameAttached and OnFrameDetached): browser_id;
+  // request = the frame's renderer client id (its render process host id, the
+  // renderer's --renderer-client-id); a = 1 attached, 0 detached; s1 = the
+  // frame's identifier (CefFrame::GetIdentifier). A renderer's
+  // death detaches its frames too (WebContentsObserver::RenderFrameDeleted),
+  // before or after the app sees the process end. The app names the pages a
+  // renderer's crash leaves a sad frame in from it (Chrome's
+  // DiscardPageWithCrashedSubframePolicy reads the dead process's frame nodes).
+  CMUX_SHIM_SUBFRAME_RENDERER = 64,
   // An iCloud Keychain request of a page, only after
   // cmux_shim_set_webauthn_platform (fork API 31): browser_id = the page;
   // request = the operation (0 create, 1 get, 2 list; the fork's
   // CMUX_WEBAUTHN_PLATFORM_*); a = the token; s1 = the request JSON of
   // include/cef_cmux.h. Answer once with cmux_shim_webauthn_platform_reply.
   // s1 holds ceremony secrets: never log or trace it.
-  CMUX_SHIM_WEBAUTHN_PLATFORM_REQUEST = 64,
+  CMUX_SHIM_WEBAUTHN_PLATFORM_REQUEST = 65,
   // Chromium no longer wants the answer to token a (the page aborted, the
   // request dialog closed, another authenticator answered): end the ceremony.
-  CMUX_SHIM_WEBAUTHN_PLATFORM_CANCEL = 65,
+  CMUX_SHIM_WEBAUTHN_PLATFORM_CANCEL = 66,
 } cmux_shim_event_kind_t;
 
 typedef enum {

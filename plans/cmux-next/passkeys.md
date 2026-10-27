@@ -267,8 +267,8 @@ iCloud passkey, which opens the 1001 no-credentials sheet), with 0 visible host 
 
 Status of 067 (2026-10-27, written, not built or run): feature `chromiumHostPasskeys` (default off). The shim binds
 the fork's three calls (`cmux_shim_set_webauthn_platform`, a preinit op that sets the handler and later passes the
-permission; `cmux_shim_webauthn_platform_reply`, a post), and the host relays WEBAUTHN_PLATFORM_REQUEST (64) and
-_CANCEL (65). In cmux, `CEFPlatformPasskeys` applies 3.9.3 (`ChromiumPasskeyPolicy`, related origins fetched by cmux
+permission; `cmux_shim_webauthn_platform_reply`, a post), and the host relays WEBAUTHN_PLATFORM_REQUEST (65) and
+_CANCEL (66). In cmux, `CEFPlatformPasskeys` applies 3.9.3 (`ChromiumPasskeyPolicy`, related origins fetched by cmux
 with Chromium's 5-label rule) and runs `ASAuthorizationController` over the pane's window (`ChromiumSystemPasskeys`).
 Open points:
 
