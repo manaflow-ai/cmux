@@ -18,6 +18,7 @@ import CmuxNextTerminal
 import CmuxNextCompat
 import CmuxNextTrace
 import CmuxNextWakeups
+import CmuxNextWebUpdates
 
 /// Entry point called from the Xcode target's `App/main.swift`.
 public struct CmuxNextApp {
@@ -133,6 +134,8 @@ public struct CmuxNextApp {
         environment.browserLaunchPictures?.prefetch { DebugTimings.markLaunch($0) }
         environment.windowPictures = WindowPictureStore(state: state, work: work)  // the windows' (p08-startup-057)
         relaunchWake.begin(on: work)
+        // The kept web update's state and digest (NIGHTLY): pages wait for it, never main (p08-startup-077).
+        environment.webUpdates = WebUpdates.startLaunchRead(on: work)
         // The browser source registry (browser-sources.json) the import pickers and the Passwords page read:
         // in memory before them, never read on the thread that asks first (p02-threads-122).
         BrowserSourceRegistryInstall.shared.load(on: work)

@@ -58,22 +58,22 @@ public struct PasswordCSVReader: Sendable {
         var skipped = LoginSkipCounts()
         var seen: Set<String> = []
         for record in records where !(record.count == 1 && record[0].isEmpty) {
-            guard passwordColumn < record.count, !record[passwordColumn].isEmpty else {
+            guard let passwordField = record[checked: passwordColumn], !passwordField.isEmpty else {
                 skipped.empty += 1
                 continue
             }
-            let password = Self.secret(record[passwordColumn], in: bytes)
+            let password = Self.secret(passwordField, in: bytes)
             guard password.isValidUTF8 else {
                 skipped.undecryptable += 1
                 continue
             }
-            let rawURL = urlColumn < record.count ? Self.text(record[urlColumn], in: bytes).trimmingCharacters(in: .whitespaces) : ""
-            let httpRealm = httpRealmColumn.map { $0 < record.count && !record[$0].isEmpty } ?? false
+            let rawURL = record[checked: urlColumn].map { Self.text($0, in: bytes).trimmingCharacters(in: .whitespaces) } ?? ""
+            let httpRealm = httpRealmColumn.flatMap { record[checked: $0] }.map { !$0.isEmpty } ?? false
             guard !httpRealm, let (url, realm) = Self.webForm(rawURL) else {
                 skipped.notWebForm += 1
                 continue
             }
-            let username = usernameColumns.lazy.compactMap { $0 < record.count ? Self.text(record[$0], in: bytes) : nil }
+            let username = usernameColumns.lazy.compactMap { record[checked: $0].map { Self.text($0, in: bytes) } }
                 .first { !$0.trimmingCharacters(in: .whitespaces).isEmpty } ?? ""
             // The first row for a site and username wins, as the export lists it.
             guard seen.insert(realm + "\u{0}" + username).inserted else {
@@ -121,12 +121,12 @@ public struct PasswordCSVReader: Sendable {
         let quote = UInt8(ascii: "\""), comma = UInt8(ascii: ","), cr = UInt8(ascii: "\r"), lf = UInt8(ascii: "\n")
         while index < bytes.count {
             var field = Field(range: index..<index, escaped: false)
-            if bytes[index] == quote {
+            if bytes.byte(index) == quote {
                 // A quoted field runs to the next lone quote.
                 var end = index + 1
                 while end < bytes.count {
-                    if bytes[end] == quote {
-                        if end + 1 < bytes.count, bytes[end + 1] == quote { field.escaped = true; end += 2; continue }
+                    if bytes.byte(end) == quote {
+                        if end + 1 < bytes.count, bytes.byte(end + 1) == quote { field.escaped = true; end += 2; continue }
                         break
                     }
                     end += 1
@@ -134,26 +134,31 @@ public struct PasswordCSVReader: Sendable {
                 field.range = (index + 1)..<min(end, bytes.count)
                 index = end + 1
                 // Anything between the closing quote and the separator is dropped.
-                while index < bytes.count, bytes[index] != comma, bytes[index] != cr, bytes[index] != lf { index += 1 }
+                while index < bytes.count, !Self.endsField(bytes.byte(index)) { index += 1 }
             } else {
                 var end = index
-                while end < bytes.count, bytes[end] != comma, bytes[end] != cr, bytes[end] != lf { end += 1 }
+                while end < bytes.count, !Self.endsField(bytes.byte(end)) { end += 1 }
                 field.range = index..<end
                 index = end
             }
             fields.append(field)
-            if index < bytes.count, bytes[index] == comma {
+            if index < bytes.count, bytes.byte(index) == comma {
                 index += 1
                 if index == bytes.count { fields.append(Field(range: index..<index, escaped: false)) }
                 continue
             }
             records.append(fields)
             fields = []
-            if index < bytes.count, bytes[index] == cr { index += 1 }
-            if index < bytes.count, bytes[index] == lf { index += 1 }
+            if index < bytes.count, bytes.byte(index) == cr { index += 1 }
+            if index < bytes.count, bytes.byte(index) == lf { index += 1 }
         }
         if !fields.isEmpty { records.append(fields) }
         return records
+    }
+
+    /// A comma, CR or LF: the byte after an unquoted field.
+    private static func endsField(_ byte: UInt8) -> Bool {
+        byte == UInt8(ascii: ",") || byte == UInt8(ascii: "\r") || byte == UInt8(ascii: "\n")
     }
 
     /// A field that is not secret, as text.
@@ -171,9 +176,10 @@ public struct PasswordCSVReader: Sendable {
             while index < field.range.upperBound {
                 // SAFETY: each pass writes one byte and moves `index` on by at least one, so
                 // written < field.range.count <= out.count (the capacity asked for).
-                unsafe out[written] = bytes[index]
+                let byte = bytes.byte(index)
+                unsafe out[written] = byte
                 written += 1
-                index += field.escaped && bytes[index] == UInt8(ascii: "\"") ? 2 : 1
+                index += field.escaped && byte == UInt8(ascii: "\"") ? 2 : 1
             }
             return written
         }
