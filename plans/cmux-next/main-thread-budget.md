@@ -363,7 +363,7 @@ perf/chrome-parity at `4e0005673f2`; "spec'd" means the task has not landed and 
 | `MainDelivery(class:owner:)` (today `MainDelivery()` with no class) | MainDelivery.swift | 217 | spec'd |
 | `InputEventTap` (the input tap that task 220's node filter builds on) | CmuxNextInput/InputEventTap.swift | p04-input-011 | landed |
 | `InputObserverHub` (the node filter) | InputObserverHub.swift | 220 | spec'd |
-| `MainExecutorHook` (default off, decision-gated) | MainExecutorHook.swift | 202 | spec'd |
+| `MainExecutorHook` (`install()`, `isRequested(feature:environment:)`, `workClass(priority:inInputTurn:)`, `stats`); `MainWorkScheduler.installMainExecutorHook(requested:)` (default off, decision-gated, section 16) | MainExecutorHook.swift, MainWorkScheduler.swift | 202 | landed (off) |
 | The budget turn (a CFRunLoopSource that `AfterFrameCommit` signals) and the setting `debug.scheduler.inTickBudget` | AfterFrameCommit.swift, MainWorkScheduler.swift | 201 | spec'd |
 | `StoreWaiters` (the waits are `DaemonStore.waitForTab`, `waitForWorkspace`, `waitLoaded`, `waitConnection`, `waitTabGone`) | CmuxNextDaemon/Store/StoreWaiters.swift | 027 | landed |
 | `PageWaiters` | CmuxNextBrowser/Engine/PageWaiters.swift | 028 | spec'd |
@@ -464,3 +464,63 @@ and after), light and STRESS, on a GUI host with the input grant that passes `be
 (`--vdisplay=120`). The program's targets are the spec's section 5 done checks (key to frame p50 <= 8.3 ms and
 p99 <= 16.7 ms during the storm; every run-loop turn p99 <= 4 ms). Results: perf-lead.md section 5. The pilot's
 numbers (task 205) and the test phase (task 160) are recorded there with sha and host.
+
+## 16. Priority-ordered main executor (task 202, decision gate)
+
+**What it is.** `MainExecutorHook` (CmuxNextWakeups/MainExecutorHook.swift) takes
+`swift_task_enqueueMainExecutor_hook` and puts each main-actor job in one of five FIFO classes by its task's
+priority. A run-loop source on the main run loop runs them in the common modes (Chrome's
+`MessagePumpCFRunLoopBase::work_source_`, `base/message_loop/message_pump_apple.mm`), highest class first and oldest
+first within a class (`base/task/sequence_manager/task_queue_selector.h`).
+
+| Job | Class |
+|---|---|
+| enqueued by the main thread while a discrete input's dispatch is open (`MainWorkScheduler.noteDiscreteDispatch`) | `input` |
+| `.high` and above (a `Task {}` made on main inherits the main thread's user-interactive QoS) | `userBlocking` |
+| `.medium`, or no priority | `visible` |
+| `.low` (utility: CLI, agent and page work) | `automation` |
+| `.background` | `background` |
+
+A pass runs at most the jobs queued when it began, at least one. After the first job it stops before any job below
+`input` while the person's input is pending (the budget's `SessionInputPending` and the board's injected-input count,
+checked at most every 250 us), and signals itself again for what is left.
+
+**Switch.** Feature `mainExecutorHook` (perfPath, default off on every channel), installed once by the composition
+root (`CmuxNextApp.swift`). `CMUX_MAIN_EXECUTOR_HOOK=1` turns it on for one launch, and `0` keeps it off even when the
+feature is on. In a test process launched with `CMUX_MAIN_EXECUTOR_HOOK=1`, the first `MainWorkScheduler` installs it,
+so the whole run goes through it. The hook word is taken only when it is free. The p04-input MainJobGate (021/076) and
+the p08 main-job census (080) want the same word: the first install wins and the others report `busy`.
+
+**The gate.** Each step runs with the hook on, on macOS 26, 27, 14 and 15:
+
+1. `CMUX_MAIN_EXECUTOR_HOOK=1` fleet full `swift test`.
+2. `os-matrix.sh --os 14,15` for the two older versions.
+3. `automation-typing` STRESS, with the hook on and off.
+
+`MainExecutorHookTests.runtimeJobsRunInOrderThroughTheInstalledHook` checks real runtime jobs: `assumeIsolated` and
+`dispatchPrecondition(.onQueue(.main))` hold, and one task's jobs keep their order.
+
+- **If it passes:** queues Q1, Q1b and Q7 shrink to "give the task the right priority". The main-hop guardrail can then
+  accept a `Task(priority:)` with a stated priority.
+- **If it fails:** record the failing suite and why here. The R-hop rewrite plan stays.
+
+**Decision: open.** The gate has not run. Until it passes, the R-hop rewrite plan stays, and no code depends on the
+hook. These risks were found while building it. Each gate run checks them:
+
+- **Priority inversion on escalation.** A queued job keeps the class it was queued with. When a high-priority waiter
+  escalates a low task, the runtime may not enqueue it again on this executor. Its waiting job stays in
+  `automation` until the classes above it drain. Pending input never holds input or userBlocking jobs, so the wait is
+  bounded by those classes' work, not by input.
+- **Nested run loops.** The main dispatch queue does not drain inside a nested run loop that a main-queue block
+  started: a menu or a modal opened from a main-actor job. CFRunLoop can call this source again inside a nested
+  run loop, so other main-actor jobs can run there. Code that counted on them waiting until the menu closes changes
+  behavior.
+- **Hosts that never run the main CFRunLoop.** If the main thread runs `dispatchMain()` and never runs the main
+  CFRunLoop, the jobs wait forever. AppKit and XCTest run the run loop. A Swift Testing host that does not run it
+  fails the gate at once (a time-limit failure, not a wrong result).
+- **Order against non-Swift main work.** `MainRunLoopBlock`, `CFRunLoopPerformBlock` and GCD main blocks no longer
+  share one FIFO with main-actor jobs. A test or a caller that queued both and expected arrival order sees them in
+  pass order instead.
+- **Strict class order.** Background jobs can wait for as long as higher classes keep work queued. This is the
+  selector's rule, and the budget's progress rule does not cover these jobs.
+

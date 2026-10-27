@@ -71,6 +71,10 @@ public final class MainWorkScheduler {
     public nonisolated let wakeUps: MainWakeUpQueue
     /// The idle class's periods and queue (``postIdle(owner:maxDelay:node:file:line:_:)``).
     public let idle: IdleScheduler
+    /// The priority-ordered main executor this scheduler installed (task 202, default off), nil while none.
+    public private(set) var mainExecutorHook: MainExecutorHook?
+    /// What ``installMainExecutorHook(requested:)`` found (``MainExecutorHook/State/off`` until it is asked).
+    public private(set) var mainExecutorHookState: MainExecutorHook.State = .off
 
     /// Times the render pass after each frame's scheduled work while any link runs (nil in tests).
     private var renderPasses: RenderPassMeter?
@@ -162,6 +166,8 @@ public final class MainWorkScheduler {
         idle.admitted = { [startup] in startup.admits(.idle) }
         startup.whenReached(.settled) { [weak idle = self.idle] in idle?.reschedule() }
         updateRenderPassMeter()
+        // The gate's test runs (`CMUX_MAIN_EXECUTOR_HOOK=1 swift test`): the process's first scheduler installs it.
+        if MainExecutorHook.launchEnvironmentAsks { installMainExecutorHook(requested: true) }
     }
 
     /// A scheduler on a fake link of its own display clock (tests): frames fire only through
@@ -212,6 +218,31 @@ public final class MainWorkScheduler {
     /// the App's `InputDispatchContext` calls it around each one.
     public func noteDiscreteDispatch(began: Bool) {
         budget.noteDiscreteDispatch(began: began)
+        mainExecutorHook?.noteInputTurn(began: began)
+    }
+
+    /// Runs main-actor jobs by their task's priority (``MainExecutorHook``), yielding to the person's pending input
+    /// as this scheduler's budgeted classes do. The composition root calls it once with the feature's value
+    /// (``MainExecutorHook/isRequested(feature:environment:)``); a second call returns the first one's state.
+    ///
+    /// - Parameter requested: The launch asks for the hook; false installs nothing (``MainExecutorHook/State/off``).
+    /// - Returns: What the install found.
+    @discardableResult
+    public func installMainExecutorHook(requested: Bool) -> MainExecutorHook.State {
+        guard requested, mainExecutorHookState == .off else { return mainExecutorHookState }
+        let hook = MainExecutorHook(yieldsToInput: { [weak budget] in
+            guard let budget else { return false }
+            return Self.inputPendingNow(budget)
+        })
+        mainExecutorHookState = hook.install()
+        if mainExecutorHookState == .installed { mainExecutorHook = hook }
+        return mainExecutorHookState
+    }
+
+    /// Whether a person's input waits now: an injected key at the head of its connection, or input the window
+    /// server generated that AppKit has not dispatched (the budget's own check, without its per-frame counters).
+    private static func inputPendingNow(_ budget: MainFrameBudget) -> Bool {
+        budget.board.pendingInputCount > 0 || budget.pendingInput.hasPendingInput(uptime: Double(budget.nowNanos) / 1_000_000_000)
     }
 
     /// One display frame (tests call it directly; in the app the display's link ticks).

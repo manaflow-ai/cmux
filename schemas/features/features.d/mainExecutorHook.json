@@ -1,0 +1,14 @@
+{
+  "$schema": "../features.schema.json",
+  "name": "mainExecutorHook",
+  "owner": "Performance Lead",
+  "description": "Main-actor jobs run from queues ordered by their task priority, jobs started in an input turn first, and yield to pending input, instead of in the main dispatch queue's arrival order.",
+  "defaults": { "dev": false, "nightly": false, "release": false },
+  "kind": "perfPath",
+  "expires": "2026-12-20",
+  "process": "app",
+  "params": [],
+  "stories": ["automation-typing", "typing-stress"],
+  "sticky": false,
+  "runtimeMutable": false
+}

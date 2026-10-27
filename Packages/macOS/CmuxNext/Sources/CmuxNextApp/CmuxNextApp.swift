@@ -166,6 +166,9 @@ public struct CmuxNextApp {
         WindowOverlayHost.appInputTap = inputTap
         TooltipPresenter.shared.inputTap = inputTap
         let order = LaunchOrder(fence: fence, board: mainBoard, input: inputTap) { DebugTimings.markLaunch($0) }
+        // Main-actor jobs by task priority (p06-scheduler-202, decision-gated; feature mainExecutorHook, default off).
+        order.mainWork.installMainExecutorHook(requested: MainExecutorHook.isRequested(feature: features.isEnabled(.mainExecutorHook),
+                                                                                      environment: ProcessInfo.processInfo.environment))
         DaemonLauncher.captureLoginEnvironment(after: order.startup) // at once only with nothing remembered (p08-startup-034)
         #if DEBUG || CMUX_BENCH_HOOKS
         globalJobs?.freeze(after: order.startup)
