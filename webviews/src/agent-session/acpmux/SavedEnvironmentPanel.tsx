@@ -3,6 +3,7 @@ import { KeyboardScope } from "../../ui/KeyboardScope";
 import { Menu, MenuButton, MenuItem, MenuPopup, MenuRadioGroup, MenuRadioItem, MenuSeparator } from "../../ui/Menu";
 import { browseFailureMessage } from "./BrowseFailure";
 import { ChevronIcon } from "./ComposerPickers";
+import type { BrowseRequest } from "./AddProjectPanel";
 import {
   SAVED_ENVIRONMENT_NAME_LIMIT,
   savedEnvironmentReady,
@@ -24,7 +25,7 @@ export type SavedEnvironmentPanelProps = {
   initial?: Pick<SavedEnvironmentDraft, "kind" | "folder">;
   /// This computer's folders (the page's projects), and the host's folder panel (Choose folder…).
   folders: FolderChoice[];
-  onBrowse?(): Promise<string | undefined>;
+  onBrowse?(request?: BrowseRequest): Promise<string | undefined>;
   /// The SSH machines (acpmux's `ssh://` peers) and each one's folders, from its chats.
   machines: string[];
   machineFolders(machine: string): FolderChoice[];
@@ -98,26 +99,29 @@ export function SavedEnvironmentPanel({
       )
       .finally(() => setSaving(false));
   };
-  const browse = () => {
-    if (!onBrowse || browsing) return;
+  const browse = (request?: BrowseRequest) => {
+    if (!onBrowse || browsing) return Promise.resolve(undefined);
     const id = ++browseRequest.current;
     setBrowsing(true);
     setBrowseFailed(false);
     setError(undefined);
-    void Promise.resolve()
-      .then(() => onBrowse())
+    return Promise.resolve()
+      .then(() => onBrowse(request))
       .then((folder) => {
         if (browseRequest.current === id && folder) {
           setDraft((current) => ({ ...current, folder }));
           setBrowseFailed(false);
           setError(undefined);
         }
+        return folder;
       })
       .catch((failure: unknown) => {
         if (browseRequest.current === id) {
           setBrowseFailed(true);
           setError(browseFailureMessage(failure));
+          if (request?.deferPick) throw failure;
         }
+        return undefined;
       })
       .finally(() => {
         if (browseRequest.current === id) setBrowsing(false);

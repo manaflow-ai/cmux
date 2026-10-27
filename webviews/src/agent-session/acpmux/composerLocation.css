@@ -78,11 +78,23 @@
   padding: 0 var(--acpmux-strip-pad, 4px);
   box-sizing: border-box;
 }
-/* A started chat's chooser can fail after its menu closes. Keep that recovery line below the
-   fixed-height scope row instead of letting it squeeze the folder and computer controls. */
+/* A started chat's chooser can fail after its menu closes. Give the recovery line its own flex row
+   below the fixed-height controls instead of letting it overlay the composer box. */
+.acpmux-composer-strip:has(> .acpmux-composer-context > .acpmux-folder-choice),
+.acpmux-composer-context:has(> .acpmux-folder-choice) {
+  height: auto;
+  min-height: var(--acpmux-strip-height);
+}
+.acpmux-composer-context:has(> .acpmux-folder-choice) {
+  flex-wrap: wrap;
+}
+.acpmux-composer-context:has(> .acpmux-folder-choice) > .acpmux-location-picker:last-child {
+  order: 2;
+}
 .acpmux-composer-context > .acpmux-folder-choice {
-  position: absolute;
-  inset: 100% 0 auto;
+  order: 3;
+  flex: 0 0 100%;
+  min-width: 0;
 }
 /* Folder and computer share the same small inter-control gap, told apart by their icons; no "·"
    floats between them against the folder's chevron. */
