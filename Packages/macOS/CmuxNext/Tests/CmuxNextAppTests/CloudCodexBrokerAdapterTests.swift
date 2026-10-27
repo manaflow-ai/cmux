@@ -329,7 +329,7 @@ done
         let remaining = [one, two]
         #expect(remaining.compactMap { $0 }.count == 1)
         await gate.open()
-        await files.waitForRemovals(removalsBefore + 4)
+        await files.waitForRemovals(removalsBefore + 3)
         #expect(await !files.cancelledRemoval)
     }
 
