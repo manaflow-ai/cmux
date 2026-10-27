@@ -27,13 +27,13 @@ final class PageHostHiddenState {
 // (content/browser/web_contents/web_contents_impl.cc), `WasHidden` / `WasShown` per tab.
 // A miniaturized window, a hidden app and occlusion stay WebKit's own call: WebKit already hides the
 // page through its window there, and hiding the view would move the window's first responder.
-// A capture of the tab, sound or a media capture keep the page visible (Chrome's capturer count and
-// `freezing_policy.cc`). A page the page lifecycle holds as shown hides only after the lifecycle's hide
-// picture (``PageWebView/keepHideSnapshot(encoder:)``). A page shown in Chromium builds no WebKit view
-// for this (``PageWebView/webKitPieces`` is read, never ``PageWebView/webKit``).
+// A capture of the tab, sound or the page's media capture keep the page visible (Chrome's capturer
+// count and `freezing_policy.cc`). A page the page lifecycle holds as shown hides only after the
+// lifecycle's hide picture (``PageWebView/keepHideSnapshot(encoder:)``). A page shown in Chromium builds
+// no WebKit view for this (``PageWebView/webKitPieces`` is read, never ``PageWebView/webKit``).
 extension PageWebView {
-    /// The keep reasons that hold a hidden page visible to WebKit; ``PageWebKitMediaWatch`` reports both
-    /// from WebKit's own media state.
+    /// The keep reasons that hold a hidden page visible to WebKit: sound (``PageWebKitMediaWatch``) and
+    /// the page's capture.
     static let hostHiddenKeepsVisible: Set<PageKeepReasons.KeepReason> = [.audible, .capture]
 
     /// The page's WebKit view is hidden while its tab node is hidden below its window (feature

@@ -26,7 +26,7 @@ final class PageWebKitEngine {
     let bridge: WebKitPageHostBridge
     /// The file chooser and Web Inspector's open and close (the view holds its UI delegate weakly).
     let ui: PageUIDelegate
-    /// The view's sound and media capture as the page's keep reasons, from ``attach(to:shown:)`` on.
+    /// The view's sound as the page's `audible` keep reason, from ``attach(to:shown:)`` on.
     private(set) var media: PageWebKitMediaWatch?
 
     init(recipe: PageWebKitRecipe) {
@@ -49,8 +49,8 @@ final class PageWebKitEngine {
         view.uiDelegate = ui
     }
 
-    /// Wires the view to `page`: its delegate, keyboard and input hooks, keep reasons (its sound and
-    /// capture too, ``PageWebKitMediaWatch``), Web Inspector hold, the host's hooks and the page bridge.
+    /// Wires the view to `page`: its delegate, keyboard and input hooks, keep reasons (its sound too,
+    /// ``PageWebKitMediaWatch``), Web Inspector hold, the host's hooks and the page bridge.
     /// Shown when WebKit shows the page and its host shows (``PageWebView/revealWebKitView(_:)``), else
     /// hidden behind the Chromium page that does.
     func attach(to page: PageWebView, shown: Bool) {

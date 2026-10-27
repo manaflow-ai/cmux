@@ -215,21 +215,17 @@ struct PageHiddenTests {
         #expect(engine.view.isHidden, "the capture's end hides it in its turn")
     }
 
-    /// A page that plays sound or uses the camera or microphone stays visible to WebKit while its tab
-    /// is hidden: the engine's media watch holds what WebKit reports (``PageWebKitMediaWatch``), and
-    /// the page hides in the turn the sound and capture end.
+    /// A page that plays sound stays visible to WebKit while its tab is hidden: the engine's media
+    /// watch holds `audible` while the observer script reports sound (``PageWebKitMediaWatch``), and the
+    /// page hides in the turn the sound ends. A capture the page reports keeps it visible the same way.
     @Test func aPageThatPlaysSoundStaysVisibleToWebKitUntilTheSoundEnds() throws {
         defer { try? FileManager.default.removeItem(at: root) }
         let host = makeHost(Self.webKitHosting())
         let view = try #require(host.open(PageOpenRequest(descriptor: descriptor, root: root, routes: [])))
         defer { host.close(view) }
         let engine = try #require(view.webKitPieces)
-        let media = try #require(engine.media, "the engine watches its view's sound and capture")
-        #expect(media.held == [], "a page that plays nothing holds nothing")
-        // WebKit's capture state, through KVO of a view the test controls.
-        var capturing = false
-        let source = WKWebView(frame: .zero, configuration: WKWebViewConfiguration())
-        let capture = PageWebKitMediaWatch(view: source, keepReasons: view.keepReasons) { _ in capturing }
+        let media = try #require(engine.media, "the engine watches its view's sound")
+        #expect(!media.holdsSound, "a page that plays nothing holds nothing")
         let nodes = Self.follow(view)
         nodes.tab.set(.hidden)
         #expect(engine.view.isHidden)
@@ -237,17 +233,14 @@ struct PageHiddenTests {
         media.soundDidChange(true) // the observer script's report
         #expect(view.keepReasons.current.contains(.audible))
         #expect(!engine.view.isHidden, "a page with sound stays visible to WebKit")
-        capturing = true
-        Self.notify(source, "microphoneCaptureState") // WebKit's KVO notice
+        view.keepReasons.begin(.capture)
         media.soundDidChange(false)
         #expect(!view.keepReasons.current.contains(.audible))
-        #expect(view.keepReasons.current.contains(.capture))
-        #expect(!engine.view.isHidden, "a camera or microphone keeps it visible")
-        capturing = false
-        Self.notify(source, "microphoneCaptureState")
-        #expect(view.keepReasons.current.isDisjoint(with: [.audible, .capture]))
+        #expect(!engine.view.isHidden, "a capture keeps it visible after the sound")
+        view.keepReasons.end(.capture)
         #expect(engine.view.isHidden, "hidden in the turn the sound and capture end")
-        withExtendedLifetime(capture) {}
+        media.soundDidChange(false)
+        #expect(!view.keepReasons.current.contains(.audible), "a repeated report ends nothing more")
     }
 
     /// Live: the sound report reaches the watch from the host's content world only; page script has no
@@ -285,12 +278,6 @@ struct PageHiddenTests {
             view.keepReasons.onChange = previous
             done(true)
         }
-    }
-
-    /// Posts the KVO notice of `key` on `view`, as WebKit does when its media state changes.
-    private static func notify(_ view: WKWebView, _ key: String) {
-        view.willChangeValue(forKey: key)
-        view.didChangeValue(forKey: key)
     }
 
     /// With the feature off the host leaves the WebKit view alone; turning it on applies the node now,
