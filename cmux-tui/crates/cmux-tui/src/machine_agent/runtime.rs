@@ -33,13 +33,22 @@ const LOCAL_WRITE_QUEUE_CAPACITY: usize = 8;
 const RECONNECT_BASE: Duration = Duration::from_millis(250);
 const RECONNECT_MAX: Duration = Duration::from_secs(30);
 
+/// A box called once when a stop is requested.
+pub(super) type StopWake = Box<dyn FnOnce() + Send>;
+
 pub(super) trait StopSignal: Send + Sync {
     fn requested(&self) -> bool;
+    /// Calls `wake` once when a stop is requested, at once when one already
+    /// was. `wake` only posts a wake-up to its owner; it may run on any
+    /// thread. The coordinator blocks on its event queue and learns of a
+    /// stop from this, never by re-checking `requested` on a timer.
+    fn on_stop(&self, wake: StopWake) -> io::Result<()>;
 }
 
 pub(super) trait WaitStrategy: Send + Sync {
-    /// Returns false when shutdown interrupted the wait.
-    fn wait(&self, duration: Duration, stop: &dyn StopSignal) -> bool;
+    /// How long the coordinator waits before the reconnect it backs off by
+    /// `delay`. An event or a stop ends that wait first.
+    fn pause(&self, delay: Duration) -> Duration;
     fn jitter(&self, upper_bound: Duration) -> Duration;
 }
 
@@ -96,16 +105,8 @@ impl MachineAgentDiagnostic {
 pub(super) struct SystemWait;
 
 impl WaitStrategy for SystemWait {
-    fn wait(&self, duration: Duration, stop: &dyn StopSignal) -> bool {
-        let deadline = Instant::now() + duration;
-        while !stop.requested() {
-            let remaining = deadline.saturating_duration_since(Instant::now());
-            if remaining.is_zero() {
-                return true;
-            }
-            thread::sleep(remaining.min(Duration::from_millis(100)));
-        }
-        false
+    fn pause(&self, delay: Duration) -> Duration {
+        delay
     }
 
     fn jitter(&self, upper_bound: Duration) -> Duration {
@@ -158,15 +159,25 @@ impl MachineAgent {
         self.local.verify_protocol()?;
         let local_opens = spawn_local_connectors(Arc::clone(&self.local))?;
         let (events_tx, events_rx) = mpsc::sync_channel(EVENT_QUEUE_CAPACITY);
+        // A stop is an event on the coordinator's queue (Chrome's
+        // RunLoop::QuitClosure posts to the loop it ends): the queue wait
+        // below has no timeout but the reconnect backoff's.
+        let stop_events = events_tx.clone();
+        self.stop.on_stop(Box::new(move || {
+            let _ = stop_events.send(CoordinatorEvent::Stop);
+        }))?;
         let recent_opens = Arc::new(Mutex::new(RecentOpenIds::default()));
         let mut recent_migrations = VecDeque::new();
         let mut workers = HashMap::<u64, WorkerHandle>::new();
         let mut latest_worker = None;
         let mut highest_generation = 0u64;
         let mut reconnect_attempt = 0u32;
+        // When the next generation may start after a failed or closed one.
+        let mut reconnect_at: Option<Instant> = None;
 
         while !self.stop.requested() {
-            if latest_worker.is_none() {
+            if latest_worker.is_none() && reconnect_at.is_none_or(|at| Instant::now() >= at) {
+                reconnect_at = None;
                 match self.start_generation(
                     highest_generation,
                     None,
@@ -193,15 +204,19 @@ impl MachineAgent {
                             generation_failure_kind(&error),
                         ));
                         self.reporter.retrying(delay);
-                        if !self.wait.wait(delay, self.stop.as_ref()) {
-                            break;
-                        }
+                        reconnect_at = Some(Instant::now() + self.wait.pause(delay));
                         continue;
                     }
                 }
             }
 
-            match events_rx.recv_timeout(Duration::from_millis(100)) {
+            let event = match reconnect_at.filter(|_| latest_worker.is_none()) {
+                // wakeup-allow: backoff the reconnect backoff after a failed or closed generation;
+                // an event or a stop ends it first
+                Some(at) => events_rx.recv_timeout(at.saturating_duration_since(Instant::now())),
+                None => events_rx.recv().map_err(|_| RecvTimeoutError::Disconnected),
+            };
+            match event {
                 Ok(CoordinatorEvent::MigrationRequested { worker_id, generation, request }) => {
                     let replayed = recent_migrations.iter().any(|seen: &SeenMigration| {
                         seen.generation == request.generation || seen.token == request.token
@@ -319,11 +334,10 @@ impl MachineAgent {
                         let delay = reconnect_delay(reconnect_attempt, self.wait.as_ref());
                         reconnect_attempt = reconnect_attempt.saturating_add(1);
                         self.reporter.retrying(delay);
-                        if !self.wait.wait(delay, self.stop.as_ref()) {
-                            break;
-                        }
+                        reconnect_at = Some(Instant::now() + self.wait.pause(delay));
                     }
                 }
+                Ok(CoordinatorEvent::Stop) => {}
                 Err(RecvTimeoutError::Timeout) => {}
                 Err(RecvTimeoutError::Disconnected) => break,
             }
@@ -480,12 +494,13 @@ fn commit_migration_replacement(
     reporter: &dyn Reporter,
 ) -> Option<WorkerHandle> {
     let (acknowledgment, result) = mpsc::sync_channel(1);
-    if try_send_worker_command(
+    let sent = try_send_worker_command(
         workers,
         worker_id,
         WorkerCommand::CommitMigration { generation, acknowledgment },
-    ) && matches!(result.recv_timeout(HANDSHAKE_TIMEOUT), Ok(true))
-    {
+    );
+    // wakeup-allow: deadline one handshake bound on the commit; the worker's answer ends it first
+    if sent && matches!(result.recv_timeout(HANDSHAKE_TIMEOUT), Ok(true)) {
         return Some(replacement);
     }
     if let Some(worker) = workers.get(&worker_id) {
@@ -561,6 +576,7 @@ impl ReadDeadline {
         let (cancel, receiver) = mpsc::sync_channel(1);
         thread::Builder::new().name("machine-agent-handshake-deadline".into()).spawn(
             move || {
+                // wakeup-allow: deadline the one handshake deadline; cancel ends it first
                 if receiver.recv_timeout(timeout).is_err() {
                     control.close();
                 }
@@ -598,6 +614,8 @@ impl WriteDeadline {
         let (commands, receiver) = mpsc::sync_channel(1);
         thread::Builder::new().name("mx-write-watch".into()).spawn(move || {
             while let Ok(WriteDeadlineCommand::Arm) = receiver.recv() {
+                // wakeup-allow: deadline one write's deadline, armed only while a write runs;
+                // its disarm ends it first
                 match receiver.recv_timeout(timeout) {
                     Ok(WriteDeadlineCommand::Disarm) => {}
                     Ok(WriteDeadlineCommand::Arm) | Err(RecvTimeoutError::Timeout) => {
@@ -627,9 +645,11 @@ impl WriteDeadline {
     }
 }
 
+/// `Stop`: the stop signal fired (`StopSignal::on_stop`).
 enum CoordinatorEvent {
     MigrationRequested { worker_id: u64, generation: u64, request: ReconnectGeneration },
     Closed { worker_id: u64, stable: bool },
+    Stop,
 }
 
 enum WorkerCommand {
@@ -836,7 +856,9 @@ impl GenerationState {
         receiver: Receiver<WorkerInput>,
     ) -> anyhow::Result<()> {
         loop {
-            let timeout = self.heartbeat.min(Duration::from_millis(100));
+            let timeout = self.next_deadline().saturating_duration_since(Instant::now());
+            // wakeup-allow: deadline the next protocol deadline (the cloud-set heartbeat ping, the
+            // idle limit or a pending open's); an input ends it first
             match receiver.recv_timeout(timeout) {
                 Ok(WorkerInput::Cloud(frame)) => {
                     self.last_received = Instant::now();
@@ -881,6 +903,19 @@ impl GenerationState {
                 self.last_ping = Instant::now();
             }
         }
+    }
+
+    /// The earliest instant the worker has timed work: the heartbeat ping
+    /// the cloud asked for, the idle limit (three heartbeats with nothing
+    /// received) and each pending local open's deadline. Everything else it
+    /// does is an input: a closed local stream posts `LocalWake`.
+    fn next_deadline(&self) -> Instant {
+        let ping = self.last_ping + self.heartbeat;
+        let idle = self.last_received + self.heartbeat.saturating_mul(3);
+        self.pending_opens
+            .values()
+            .map(|pending| pending.deadline)
+            .fold(ping.min(idle), Instant::min)
     }
 
     fn handle_cloud(
@@ -1422,21 +1457,40 @@ mod tests {
     use super::super::transport::duplex_from_unix_stream;
     use super::*;
 
-    struct AtomicStop(AtomicBool);
+    #[derive(Default)]
+    struct AtomicStop {
+        stopped: AtomicBool,
+        wakes: Mutex<Vec<StopWake>>,
+    }
 
     impl AtomicStop {
         fn new() -> Arc<Self> {
-            Arc::new(Self(AtomicBool::new(false)))
+            Arc::new(Self::default())
         }
 
         fn stop(&self) {
-            self.0.store(true, Ordering::Release);
+            self.stopped.store(true, Ordering::Release);
+            let wakes = std::mem::take(&mut *self.wakes.lock().unwrap());
+            for wake in wakes {
+                wake();
+            }
         }
     }
 
     impl StopSignal for AtomicStop {
         fn requested(&self) -> bool {
-            self.0.load(Ordering::Acquire)
+            self.stopped.load(Ordering::Acquire)
+        }
+
+        fn on_stop(&self, wake: StopWake) -> io::Result<()> {
+            let mut wakes = self.wakes.lock().unwrap();
+            if self.requested() {
+                drop(wakes);
+                wake();
+            } else {
+                wakes.push(wake);
+            }
+            Ok(())
         }
     }
 
@@ -1772,8 +1826,8 @@ mod tests {
     struct TestWait;
 
     impl WaitStrategy for TestWait {
-        fn wait(&self, _: Duration, stop: &dyn StopSignal) -> bool {
-            !stop.requested()
+        fn pause(&self, _: Duration) -> Duration {
+            Duration::ZERO
         }
 
         fn jitter(&self, _: Duration) -> Duration {
@@ -2616,3 +2670,7 @@ mod tests {
         );
     }
 }
+
+#[cfg(test)]
+#[path = "runtime_wake_tests.rs"]
+mod wake_tests;

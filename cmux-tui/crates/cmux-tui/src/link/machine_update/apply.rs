@@ -180,7 +180,7 @@ fn apply(args: &Args) -> (&'static str, String) {
             ),
         };
     }
-    if !wait(STOP_TIMEOUT, || !alive(args.daemon_pid)) {
+    if !stopped_within(args.daemon_pid, STOP_TIMEOUT) {
         return (
             "pending",
             "the daemon did not stop; the new build runs after its next restart".into(),
@@ -302,11 +302,14 @@ fn serving(wanted: impl Fn(&str) -> bool, old_pid: i32) -> bool {
     let deadline = Instant::now() + SERVE_TIMEOUT;
     while Instant::now() < deadline {
         if let Some(pid) = answering(&socket, &wanted, old_pid) {
+            // wakeup-allow: deadline one settle period before the second identify
             std::thread::sleep(SETTLE);
             if answering(&socket, &wanted, old_pid) == Some(pid) {
                 return true;
             }
         }
+        // wakeup-allow: bounded the one-shot apply process asks the daemon socket, which has no
+        // listen event for a daemon that is not running yet, until SERVE_TIMEOUT
         std::thread::sleep(Duration::from_secs(1));
     }
     false
@@ -329,15 +332,11 @@ fn alive(pid: i32) -> bool {
     unsafe { libc::kill(pid, 0) == 0 }
 }
 
-fn wait(limit: Duration, mut done: impl FnMut() -> bool) -> bool {
-    let deadline = Instant::now() + limit;
-    while Instant::now() < deadline {
-        if done() {
-            return true;
-        }
-        std::thread::sleep(Duration::from_millis(100));
-    }
-    done()
+/// Whether `pid` (not a child of this process) exits within `limit`: an
+/// exit event (`process_exit`: a pidfd, kqueue `NOTE_EXIT`), not a poll.
+/// When the event cannot be set up, one signal-0 check answers.
+fn stopped_within(pid: i32, limit: Duration) -> bool {
+    super::super::process_exit::wait_exit(pid, limit).unwrap_or_else(|_| !alive(pid))
 }
 
 /// A file's SHA-256, lowercase hex.

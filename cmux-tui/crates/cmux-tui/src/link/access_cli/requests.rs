@@ -139,6 +139,8 @@ pub(super) fn request(
                 );
                 withdraws += 1;
                 if withdrawn.is_err() && withdraws < 3 {
+                    // wakeup-allow: cli-only `cmux link access` (link::run) retries the withdraw at
+                    // most twice
                     std::thread::sleep(POLL);
                     continue;
                 }
@@ -154,6 +156,8 @@ pub(super) fn request(
                 format!("no answer yet; request {request_id} is still waiting for the person"),
             ));
         }
+        // wakeup-allow: cli-only `cmux link access` (link::run) asks for the person's answer until
+        // its --timeout; the machine socket has no answer event for it
         std::thread::sleep(POLL);
     }
 }

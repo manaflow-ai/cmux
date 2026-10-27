@@ -15,7 +15,9 @@ use std::time::Duration;
 
 use cmux_tui_machine_agent_protocol::SessionName;
 
-use self::runtime::{MachineAgent, MachineAgentDiagnostic, Reporter, StopSignal, SystemWait};
+use self::runtime::{
+    MachineAgent, MachineAgentDiagnostic, Reporter, StopSignal, StopWake, SystemWait,
+};
 use self::transport::{SocketSessionConnector, SshCloudConnector, SshOptions};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -212,6 +214,16 @@ struct ProcessStop;
 impl StopSignal for ProcessStop {
     fn requested(&self) -> bool {
         crate::shutdown_requested()
+    }
+
+    /// One thread blocks on the termination signal's wake descriptor (a
+    /// peek: other shutdown waiters see the same byte) and wakes the agent.
+    fn on_stop(&self, wake: StopWake) -> io::Result<()> {
+        std::thread::Builder::new().name("machine-agent-stop".into()).spawn(move || {
+            crate::wait_for_shutdown_signal_peek();
+            wake();
+        })?;
+        Ok(())
     }
 }
 

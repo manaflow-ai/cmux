@@ -132,6 +132,7 @@ fn load_with_link_retry(path: &Path) -> anyhow::Result<MachineIdentity> {
         Err(error)
             if error.downcast_ref::<UnexpectedLinkCount>().is_some_and(|error| error.0 == 2) =>
         {
+            // wakeup-allow: backoff one retry after a concurrent create's short link window
             thread::sleep(CONCURRENT_CREATE_RETRY_DELAY);
             load(path)
         }

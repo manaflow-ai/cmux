@@ -119,6 +119,8 @@ pub(super) async fn serve_local<O: Overlay, S: ConnectInfoSource>(
             // retries instead of ending the link.
             Err(_) => {
                 failures = failures.saturating_add(1);
+                // wakeup-allow: backoff a linear accept backoff after a failed accept; a good
+                // accept resets it
                 tokio::time::sleep(ACCEPT_RETRY * failures.min(50)).await;
                 continue;
             }

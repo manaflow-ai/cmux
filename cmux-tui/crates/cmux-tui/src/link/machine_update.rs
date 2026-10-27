@@ -264,6 +264,9 @@ fn wait_for_outcome(socket: &Path, result: &str, daemon_pid: u64) -> Result<Stri
     let deadline = Instant::now() + OUTCOME_TIMEOUT;
     let mut new_seen: Option<Instant> = None;
     while Instant::now() < deadline {
+        // wakeup-allow: cli-only `cmux link machine update` (link::run) waits for the apply step's
+        // outcome file on the machine, which has no change event over the sync socket; it ends
+        // at OUTCOME_TIMEOUT
         std::thread::sleep(Duration::from_secs(1));
         if let Some(outcome) = read_outcome(socket, result) {
             return match outcome["state"].as_str() {

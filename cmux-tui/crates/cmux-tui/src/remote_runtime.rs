@@ -222,6 +222,8 @@ fn reap_failed_startup(runtime_thread: thread::JoinHandle<anyhow::Result<()>>, r
         let _ = finished_tx.send(runtime_thread.join());
     });
     if reaper.is_ok() {
+        // wakeup-allow: deadline one bound on a failed startup's join; the runtime thread's end
+        // ends it first
         let _ = finished_rx.recv_timeout(STARTUP_THREAD_REAP_TIMEOUT);
     }
 }
@@ -652,6 +654,7 @@ pub fn start_client_runtime(options: ClientRuntimeOptions) -> anyhow::Result<Cli
             result
         })
         .context("could not start remote client thread")?;
+    // wakeup-allow: deadline the one startup timeout; the runtime's ready or failure ends it first
     let ready = match ready_rx.recv_timeout(startup_timeout) {
         Ok(Ok(ready)) => ready,
         Ok(Err(error)) => {
@@ -889,6 +892,8 @@ async fn connect_first_available(
                         .is_none_or(|maximum| attempts < maximum) =>
             {
                 tokio::select! {
+                    // wakeup-allow: backoff the reconnect policy's doubling retry delay after a
+                    // failed route; shutdown ends it first and maximum_attempts bounds the retries
                     _ = tokio::time::sleep(options.reconnect.retry_delay(delay)) => {}
                     _ = wait_for_shutdown(&mut shutdown) => {
                         return Err(anyhow!("remote client startup was cancelled"));
@@ -1684,15 +1689,21 @@ async fn acquire_client_socket_lock(
             return Err(error)
                 .with_context(|| format!("could not lock client socket path {}", path.display()));
         }
+        // flock has no async or timed wait. Another client holds this lock
+        // only across its socket's probe and bind, so the retry runs only for
+        // that moment; startup's shutdown (its timeout) ends it.
         match shutdown.as_deref_mut() {
             Some(shutdown) => {
                 tokio::select! {
+                    // wakeup-allow: bounded only while another client binds this socket path;
+                    // startup's shutdown ends it first
                     _ = tokio::time::sleep(CLIENT_SOCKET_LOCK_RETRY) => {}
                     _ = wait_for_shutdown(shutdown) => {
                         return Err(anyhow!("remote client startup was cancelled"));
                     }
                 }
             }
+            // wakeup-allow: bounded only while another client binds this socket path (tests only)
             None => tokio::time::sleep(CLIENT_SOCKET_LOCK_RETRY).await,
         }
     }
@@ -2068,6 +2079,7 @@ fn start_daemon_runtime_with_timeout(
         })
         .context("could not start remote daemon thread")?;
 
+    // wakeup-allow: deadline the one startup timeout; the runtime's ready or failure ends it first
     let info = match ready_rx.recv_timeout(startup_timeout) {
         Ok(Ok(info)) => info,
         Ok(Err(error)) => {
@@ -2515,6 +2527,8 @@ async fn load_daemon_auth_during_handoff(
                     ));
                 }
                 tokio::select! {
+                    // wakeup-allow: bounded only while the daemon being handed off still holds the
+                    // auth lease, until `retry_timeout`; shutdown ends it first
                     _ = tokio::time::sleep(
                         DAEMON_AUTH_LEASE_RETRY_INTERVAL.min(remaining)
                     ) => {}

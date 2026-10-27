@@ -71,6 +71,7 @@ impl Daemon {
         let mut line = params.to_string();
         line.push('\n');
         let stream = self.reader.get_mut();
+        // wakeup-allow: deadline the call's one timeout per read; the answer ends it first
         stream.set_read_timeout(Some(timeout)).map_err(lost)?;
         stream.set_write_timeout(Some(timeout)).map_err(lost)?;
         stream.write_all(line.as_bytes()).map_err(lost)?;

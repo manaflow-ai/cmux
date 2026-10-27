@@ -102,10 +102,8 @@ impl<'a> RestoreProgress<'a> {
 /// client re-asks. An owner this process spawns is awaited on its pipe.
 const POLL_INTERVAL: Duration = Duration::from_millis(25);
 
-/// Windows has no readiness pipe or `waitid`: the spawned owner is probed
-/// like a foreign one and the reaper ticks.
-#[cfg(not(unix))]
-const REAP_INTERVAL: Duration = Duration::from_secs(1);
+/// Windows has no readiness pipe: the spawned owner is probed like a
+/// foreign one, and `SpawnedOwner::exited` asks its process handle.
 const RESPONSE_LIMIT: usize = 16 * 1024 * 1024;
 
 /// Private startup option: the detached owner writes one byte to this
@@ -312,6 +310,8 @@ pub(crate) fn ensure_owner(
             Attempt::Starting(pid) => {
                 progress.restoring(pid);
                 drop(lock);
+                // wakeup-allow: bounded one probe interval while another client's owner restores;
+                // only inside this ensure call, which `restore_deadline` ends
                 std::thread::sleep(POLL_INTERVAL);
                 continue;
             }
@@ -385,6 +385,8 @@ fn wait_while_starting(
         if Instant::now() >= restore_deadline {
             return Err(EnsureError::RestoreTimeout);
         }
+        // wakeup-allow: bounded the socket has no readiness event for an owner another client
+        // started; only inside this ensure call, which `restore_deadline` ends
         std::thread::sleep(POLL_INTERVAL);
     }
 }
@@ -427,6 +429,8 @@ fn wait_until_ready(
         if !seen_alive && now >= contact_deadline {
             return Ok(None);
         }
+        // wakeup-allow: bounded the socket has no readiness event for an owner this call cannot
+        // watch; only inside this ensure call, which the contact or restore deadline ends
         std::thread::sleep(POLL_INTERVAL);
     }
 }
@@ -483,6 +487,8 @@ fn wait_readable(pipe: &std::fs::File, deadline: Instant) -> bool {
         // Round up: a rounded-down wait ends before `deadline`.
         let timeout = i32::try_from(remaining.as_nanos().div_ceil(1_000_000)).unwrap_or(i32::MAX);
         let mut poll = libc::pollfd { fd: pipe.as_raw_fd(), events: libc::POLLIN, revents: 0 };
+        // wakeup-allow: deadline the caller's progress or restore deadline; the owner's ready
+        // byte or its exit (end of file) ends the wait first
         // SAFETY: one valid pollfd for the lifetime of the call.
         match unsafe { libc::poll(&mut poll, 1, timeout) } {
             0 => return false,
@@ -591,6 +597,7 @@ enum IdentifyError {
 fn identify(stream: Box<dyn transport::Stream>, deadline: Instant) -> Result<Value, IdentifyError> {
     let timeout =
         Some(deadline.saturating_duration_since(Instant::now()).min(Duration::from_secs(2)));
+    // wakeup-allow: deadline one identify exchange's bound; the reply ends the read first
     stream.set_read_timeout(timeout).map_err(|_| IdentifyError::Failed)?;
     stream.set_write_timeout(timeout).map_err(|_| IdentifyError::Failed)?;
     let mut connection = BufReader::new(stream);
@@ -603,6 +610,7 @@ fn identify(stream: Box<dyn transport::Stream>, deadline: Instant) -> Result<Val
         if remaining.is_zero() {
             return Err(IdentifyError::Timeout);
         }
+        // wakeup-allow: deadline what is left of the exchange's bound; each line ends a read first
         connection
             .get_mut()
             .set_read_timeout(Some(remaining.min(Duration::from_secs(2))))
@@ -636,10 +644,6 @@ fn identify(stream: Box<dyn transport::Stream>, deadline: Instant) -> Result<Val
 /// Spawn the headless owner detached from this process's terminal.
 struct OwnerProcessState {
     child: std::sync::Mutex<Option<cmux_process::Child>>,
-    #[cfg(not(unix))]
-    wake: std::sync::Condvar,
-    #[cfg(not(unix))]
-    terminate: std::sync::atomic::AtomicBool,
 }
 
 struct SpawnedOwner {
@@ -667,14 +671,26 @@ fn configure_detached_owner_environment(command: &mut Command) {
 }
 
 impl SpawnedOwner {
-    /// Whether the owner process has exited (and been reaped).
+    /// Whether the owner process has exited (and been reaped). On Unix the
+    /// reaper empties the slot at the exit event; Windows has no zombies, so
+    /// nothing reaps there and this asks the process handle itself.
+    #[cfg(unix)]
     fn exited(&self) -> bool {
         self.state.child.lock().map(|child| child.is_none()).unwrap_or(true)
     }
 
+    #[cfg(not(unix))]
+    fn exited(&self) -> bool {
+        let Ok(mut child) = self.state.child.lock() else { return true };
+        // wakeup-allow: bounded a non-blocking exit check; only the ensure probes, which their
+        // deadlines end, ask it
+        if child.as_mut().is_some_and(|process| !matches!(process.try_wait(), Ok(None))) {
+            child.take();
+        }
+        child.is_none()
+    }
+
     fn terminate(self) {
-        #[cfg(not(unix))]
-        self.state.terminate.store(true, std::sync::atomic::Ordering::Release);
         // Reap synchronously instead of waiting for the reaper thread: this
         // must terminate the owner even when that thread could not be
         // created. The owner is still unreaped here (the reaper takes the
@@ -684,8 +700,6 @@ impl SpawnedOwner {
             let _ = process.kill();
             let _ = process.wait();
         }
-        #[cfg(not(unix))]
-        self.state.wake.notify_all();
     }
 }
 
@@ -792,21 +806,17 @@ fn spawn_detached_owner(spec: &OwnerSpec) -> io::Result<SpawnedOwner> {
     #[cfg(windows)]
     install_key::send_over_stdin(&mut child, spec.install_key.as_ref());
     let pid = child.id();
+    let state =
+        std::sync::Arc::new(OwnerProcessState { child: std::sync::Mutex::new(Some(child)) });
     // The owner outlives this process. Reap it in the background so an
     // owner that exits early (for example after losing the bind race) never
-    // lingers as a zombie of a long-lived interactive client.
-    let state = std::sync::Arc::new(OwnerProcessState {
-        child: std::sync::Mutex::new(Some(child)),
-        #[cfg(not(unix))]
-        wake: std::sync::Condvar::new(),
-        #[cfg(not(unix))]
-        terminate: std::sync::atomic::AtomicBool::new(false),
-    });
+    // lingers as a zombie of a long-lived interactive client. Windows has no
+    // zombies: the handle closes when the last `SpawnedOwner` drops.
+    #[cfg(unix)]
     let reaper_state = std::sync::Arc::clone(&state);
     #[cfg(unix)]
     let reaper = move || reap_on_exit(&reaper_state, pid);
-    #[cfg(not(unix))]
-    let reaper = move || reap_on_tick(&reaper_state);
+    #[cfg(unix)]
     if let Err(_error) =
         std::thread::Builder::new().name("local-owner-reaper".to_string()).spawn(reaper)
     {
@@ -852,26 +862,6 @@ fn reap_on_exit(state: &OwnerProcessState, pid: u32) {
     }
     if let Some(mut process) = state.child.lock().expect("owner mutex poisoned").take() {
         let _ = process.wait();
-    }
-}
-
-#[cfg(not(unix))]
-fn reap_on_tick(state: &OwnerProcessState) {
-    let mut child = state.child.lock().expect("owner mutex poisoned");
-    while let Some(process) = child.as_mut() {
-        if state.terminate.load(std::sync::atomic::Ordering::Acquire) {
-            let _ = process.kill();
-        }
-        let exited = match process.try_wait() {
-            Ok(Some(_)) | Err(_) => true,
-            Ok(None) => false,
-        };
-        if exited {
-            child.take();
-            state.wake.notify_all();
-            break;
-        }
-        child = state.wake.wait_timeout(child, REAP_INTERVAL).expect("owner condvar poisoned").0;
     }
 }
 

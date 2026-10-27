@@ -176,6 +176,7 @@ impl LocalSessionConnector for SocketSessionConnector {
                 self.socket.display()
             )
         })?;
+        // wakeup-allow: deadline the one protocol probe's bound; the identify reply ends it first
         stream.set_read_timeout(Some(LOCAL_PROBE_TIMEOUT))?;
         stream.set_write_timeout(Some(LOCAL_PROBE_TIMEOUT))?;
         stream.write_all(b"{\"id\":1,\"cmd\":\"identify\"}\n")?;

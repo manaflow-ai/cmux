@@ -134,6 +134,7 @@ fn read_line(reader: &mut BufReader<UnixStream>, deadline: Instant) -> Option<Ve
     loop {
         let left =
             deadline.checked_duration_since(Instant::now()).filter(|left| !left.is_zero())?;
+        // wakeup-allow: deadline what is left of the call's one budget; each chunk ends a read first
         reader.get_ref().set_read_timeout(Some(left)).ok()?;
         let available = reader.fill_buf().ok()?;
         if available.is_empty() {

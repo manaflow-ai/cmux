@@ -126,6 +126,7 @@ impl ProviderIoGuard {
         let thread_timed_out = Arc::clone(&timed_out);
         let worker = thread::Builder::new().name("machine-provider-deadline".to_string()).spawn(
             move || {
+                // wakeup-allow: deadline one handshake deadline; the handshake's end cancels it first
                 if cancelled.recv_timeout(timeout).is_err() {
                     thread_timed_out.store(true, Ordering::Release);
                     cleanup.close();
@@ -592,10 +593,17 @@ impl ProcessCleanup {
             let mut child = self.child.lock().ok().and_then(|mut child| child.take());
             self.signal_group(libc::SIGTERM);
             let deadline = Instant::now() + COMMAND_TERMINATION_GRACE;
+            // The direct child's exit is an event (kqueue NOTE_EXIT, a pidfd):
+            // wait for it, and reap it, before looking at the rest of the group.
+            if let Some(child) = &mut child {
+                // wakeup-allow: deadline the one termination grace; the child's exit ends it first
+                let _ = child.wait_timeout(COMMAND_TERMINATION_GRACE);
+            }
+            // Another member of the group has no exit event this process can
+            // watch; it gets the rest of the grace, then SIGKILL.
             while self.group_is_alive() && Instant::now() < deadline {
-                if let Some(child) = &mut child {
-                    let _ = child.try_wait();
-                }
+                // wakeup-allow: bounded only while a closed provider's group outlives its child,
+                // and only until the termination grace ends
                 thread::sleep(Duration::from_millis(10));
             }
             if self.group_is_alive() {

@@ -77,6 +77,7 @@ impl Remote {
     pub(super) fn connect(socket: &Path) -> anyhow::Result<Self> {
         let stream = UnixStream::connect(socket)
             .with_context(|| format!("cannot connect to {}", socket.display()))?;
+        // wakeup-allow: deadline a 60 s bound on a stalled machine; each answer ends a read first
         stream.set_read_timeout(Some(Duration::from_secs(60)))?;
         // A machine that stops reading must not hold a write (and a
         // caller's lock) forever either.

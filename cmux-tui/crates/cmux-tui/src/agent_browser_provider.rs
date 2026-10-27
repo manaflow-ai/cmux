@@ -150,6 +150,8 @@ fn browser_launch_response(request: &Value) -> anyhow::Result<Value> {
         if remaining.is_zero() {
             return Err(last_error);
         }
+        // wakeup-allow: backoff the provider process's doubling retry (25 to 250 ms) until the one
+        // resolution deadline; a resolved target or the deadline ends it
         std::thread::sleep(delay.min(remaining));
         delay = (delay * 2).min(Duration::from_millis(250));
     }
@@ -500,6 +502,7 @@ impl MuxControl {
             .spawn(move || {
             let _ = sender.send(UnixStream::connect(socket));
         })?;
+        // wakeup-allow: deadline the resolution deadline; the connector's result ends the wait first
         let stream = match receiver.recv_timeout(remaining) {
             Ok(result) => {
                 let _ = connector.join();
@@ -518,6 +521,7 @@ impl MuxControl {
             }
         };
         let timeout = remaining_socket_timeout(deadline)?;
+        // wakeup-allow: deadline the resolution deadline bounds each read; the answer ends it first
         stream.set_read_timeout(Some(timeout))?;
         stream.set_write_timeout(Some(timeout))?;
         Ok(Self { writer: stream.try_clone()?, reader: BufReader::new(stream) })
@@ -588,6 +592,7 @@ fn read_control_line(
     // turn lost them. EINVAL here means the peer closed; reads then never
     // block (buffered bytes, then end of file), so keep reading.
     let timeout = remaining_socket_timeout(deadline)?;
+    // wakeup-allow: deadline the resolution deadline, set once; the answer line ends the read first
     if let Err(error) = reader.get_ref().set_read_timeout(Some(timeout)) {
         let peer_closed =
             error.raw_os_error().is_some() && error.kind() == std::io::ErrorKind::InvalidInput;

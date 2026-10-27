@@ -203,6 +203,7 @@ pub(super) fn ensure_lock(state: &LinkState) -> anyhow::Result<std::fs::File> {
         let answer = if locked { Ok(file) } else { Err(std::io::Error::last_os_error()) };
         let _ = sender.send(answer);
     })?;
+    // wakeup-allow: deadline the one lock budget; the helper's lock ends the wait first
     match receiver.recv_timeout(LOCK_BUDGET) {
         Ok(Ok(file)) => Ok(file),
         Ok(Err(error)) => Err(error).context("lock the link state directory"),
@@ -216,6 +217,7 @@ pub(super) fn ensure_lock(state: &LinkState) -> anyhow::Result<std::fs::File> {
 /// `link.status` of the link at `socket`, or None when it did not answer.
 pub(super) fn query_status(socket: &Path) -> Option<Value> {
     let mut stream = std::os::unix::net::UnixStream::connect(socket).ok()?;
+    // wakeup-allow: deadline one status budget; the status line ends the read first
     stream.set_read_timeout(Some(STATUS_BUDGET)).ok()?;
     stream.set_write_timeout(Some(STATUS_BUDGET)).ok()?;
     stream.write_all(b"{\"op\":\"link.status\"}\n").ok()?;
@@ -428,6 +430,7 @@ fn start(state: &LinkState, flags: &Flags) -> anyhow::Result<Option<Value>> {
         let read = BufReader::new(reader.take(64 * 1024)).read_line(&mut line);
         let _ = sender.send(read.ok().filter(|n| *n > 0).map(|_| line));
     })?;
+    // wakeup-allow: deadline the one start budget; the ready line or its end of file ends it first
     let line = receiver.recv_timeout(START_BUDGET).map_err(|_| {
         anyhow!(
             "the link was not ready within {START_BUDGET:?}; see {}",
@@ -454,6 +457,7 @@ fn stop_live(state: &LinkState) -> anyhow::Result<bool> {
     }
     // The link ends this connection when it stops serving, after it removed
     // its registration; end of file is the signal, with a deadline.
+    // wakeup-allow: deadline the one stop budget, set once; end of file ends the reads first
     stream.set_read_timeout(Some(STOP_BUDGET))?;
     let mut sink = [0u8; 256];
     loop {
