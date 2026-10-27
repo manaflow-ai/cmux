@@ -1,5 +1,6 @@
 import CMUXAuthCore
 import Foundation
+import StackAuth
 import Testing
 @testable import CmuxAuthRuntime
 
@@ -47,8 +48,8 @@ import Testing
         )
     }
 
-    /// Runs the whole bounded backoff while the team fetch keeps failing, and
-    /// returns once the loop is parked on the network-restoration signal.
+    /// Runs the whole fast backoff while the team fetch keeps failing, and
+    /// returns once the loop waits at the capped backoff.
     private func exhaustRecoveryBackoff(
         clock: ManualTestClock,
         networkRestorations: FakeAuthNetworkRestorations
@@ -156,10 +157,10 @@ import Testing
     }
 
     /// An offline Mac must not wake every 60 s for the whole session: the
-    /// backoff stops after its bound, and the network path coming back starts
-    /// it again at the initial delay.
-    @Test func recoveryStopsAfterItsBoundAndRestartsWhenTheNetworkReturns() async {
-        let watchdog = failAfterDeadline(.seconds(60)) { "team-scope recovery never parked or never restarted" }
+    /// fast backoff ends after its bound, and the network path coming back
+    /// starts it again at the initial delay.
+    @Test func recoverySlowsAfterItsBoundAndRestartsWhenTheNetworkReturns() async {
+        let watchdog = failAfterDeadline(.seconds(60)) { "team-scope recovery never slowed or never restarted" }
         defer { watchdog.cancel() }
         let clock = ManualTestClock()
         let networkRestorations = FakeAuthNetworkRestorations()
@@ -171,6 +172,7 @@ import Testing
         await coordinator.awaitBootstrapped()
 
         await exhaustRecoveryBackoff(clock: clock, networkRestorations: networkRestorations)
+        await clock.waitUntilSleeper(dueWithin: AuthCoordinator.teamScopeRecoveryMaximumDelay)
         #expect(clock.hasSleeper(dueWithin: Self.backoffWindow) == false)
         #expect(coordinator.hasPendingTeamScopeRecovery)
         #expect(coordinator.authenticatedTeamScope == nil)
@@ -186,8 +188,85 @@ import Testing
         #expect(scope?.teamID == Self.team.id)
     }
 
-    @Test func hostTriggerRestartsAParkedRecovery() async {
-        let watchdog = failAfterDeadline(.seconds(60)) { "a host trigger did not restart the parked recovery" }
+    /// A server that keeps failing on a working network: the path never
+    /// changes, so no restoration comes, and the capped backoff still retries.
+    @Test func serverErrorsOnAWorkingNetworkKeepRetryingAtTheCappedBackoff() async {
+        let watchdog = failAfterDeadline(.seconds(60)) { "team-scope recovery stopped retrying on a working network" }
+        defer { watchdog.cancel() }
+        let clock = ManualTestClock()
+        let networkRestorations = FakeAuthNetworkRestorations()
+        let client = FakeAuthClient(access: "access", refresh: "refresh", user: Self.user)
+        await client.setTeams([Self.team])
+        await client.setThrowOnListTeams(StackAuthError(code: "INTERNAL_SERVER_ERROR", message: "500"))
+        let coordinator = makeCoordinator(client: client, clock: clock, networkRestorations: networkRestorations)
+        coordinator.start()
+        await coordinator.awaitBootstrapped()
+        await exhaustRecoveryBackoff(clock: clock, networkRestorations: networkRestorations)
+        #expect(coordinator.authenticatedTeamScope == nil)
+
+        // Still failing at the first capped retry: the loop waits again.
+        await clock.waitUntilSleeper(dueWithin: AuthCoordinator.teamScopeRecoveryMaximumDelay)
+        let fetches = await client.listTeamsCount
+        clock.advance(by: AuthCoordinator.teamScopeRecoveryMaximumDelay)
+        await clock.waitUntilSleeper(dueWithin: AuthCoordinator.teamScopeRecoveryMaximumDelay)
+        #expect(await client.listTeamsCount == fetches + 1)
+        #expect(coordinator.authenticatedTeamScope == nil)
+
+        await client.setThrowOnListTeams(nil)
+        clock.advance(by: AuthCoordinator.teamScopeRecoveryMaximumDelay)
+        let scope = await awaitTeamScope(coordinator)
+        #expect(scope?.teamID == Self.team.id)
+    }
+
+    /// A 429 on the last check of the fast streak: neither a restored path
+    /// nor a host trigger may check before its Retry-After has passed.
+    @Test func rateLimitThatEndsTheStreakHoldsTheNextCheck() async {
+        let watchdog = failAfterDeadline(.seconds(60)) { "team-scope recovery never retried after the 429" }
+        defer { watchdog.cancel() }
+        let clock = ManualTestClock()
+        let networkRestorations = FakeAuthNetworkRestorations()
+        let client = FakeAuthClient(access: "access", refresh: "refresh", user: Self.user)
+        await client.setTeams([Self.team])
+        await client.setThrowOnListTeams(URLError(.notConnectedToInternet))
+        let coordinator = makeCoordinator(client: client, clock: clock, networkRestorations: networkRestorations)
+        coordinator.start()
+        await coordinator.awaitBootstrapped()
+        let lastAttempt = AuthCoordinator.teamScopeRecoveryAttemptLimit - 1
+        for attempt in 0..<lastAttempt {
+            await clock.waitUntilSleeper(dueWithin: Self.backoffWindow)
+            clock.advance(by: AuthCoordinator.teamScopeRecoveryDelay(afterAttempt: attempt))
+        }
+        await clock.waitUntilSleeper(dueWithin: Self.backoffWindow)
+        let retryAfter = Duration.seconds(600)
+        await client.setThrowOnListTeams(StackAuthError(
+            code: "RATE_LIMITED",
+            message: "429",
+            details: [StackAuthError.retryAfterSecondsKey: TimeInterval(600)]
+        ))
+        clock.advance(by: AuthCoordinator.teamScopeRecoveryDelay(afterAttempt: lastAttempt))
+        await networkRestorations.waitUntilWaiting()
+        #expect(coordinator.teamScopeRateLimit != nil)
+        let fetches = await client.listTeamsCount
+        await client.setThrowOnListTeams(nil)
+
+        await coordinator.recoverTeamScopeIfNeeded()
+        #expect(await client.listTeamsCount == fetches)
+
+        // The capped timer and the rest of the 429 delay both wait; neither
+        // ends before Retry-After.
+        networkRestorations.restore()
+        await clock.waitUntilSleepers(count: 2)
+        #expect(clock.hasSleeper(dueWithin: retryAfter - .seconds(1)) == false)
+        #expect(await client.listTeamsCount == fetches)
+        #expect(coordinator.authenticatedTeamScope == nil)
+
+        clock.advance(by: AuthCoordinator.teamScopeRecoveryMaximumDelay)
+        let scope = await awaitTeamScope(coordinator)
+        #expect(scope?.teamID == Self.team.id)
+    }
+
+    @Test func hostTriggerRestartsARecoveryAtTheCappedBackoff() async {
+        let watchdog = failAfterDeadline(.seconds(60)) { "a host trigger did not restart the capped recovery" }
         defer { watchdog.cancel() }
         let clock = ManualTestClock()
         let networkRestorations = FakeAuthNetworkRestorations()

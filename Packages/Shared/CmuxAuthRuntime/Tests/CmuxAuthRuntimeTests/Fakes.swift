@@ -38,6 +38,7 @@ actor FakeAuthClient: AuthClient {
     private var nextTeamCreateGate: (started: TestPhaseSignal, release: TestContinuationBlocker)?
     var throwOnCurrentUser: (any Error)?
     var throwOnListTeams: (any Error)?
+    private(set) var listTeamsCount = 0
     var nonce = "nonce-123"
     private(set) var signedInWithMagicLink = false
     private(set) var lastMagicLinkCode: String?
@@ -119,6 +120,7 @@ actor FakeAuthClient: AuthClient {
     }
 
     func listTeams() async throws -> [CMUXAuthTeam] {
+        listTeamsCount += 1
         if let throwOnListTeams { throw throwOnListTeams }
         return teams
     }

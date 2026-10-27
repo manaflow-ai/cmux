@@ -130,14 +130,20 @@ public final class AuthCoordinator {
     /// The retry loop that restores a missing team scope; see
     /// ``scheduleTeamScopeRecoveryIfNeeded()``.
     @ObservationIgnored var teamScopeRecovery: (id: UUID, task: Task<Void, Never>)?
-    /// Set while that loop has used up its backoff and waits, with no timer,
-    /// for the network path to come back or a host trigger.
-    @ObservationIgnored var teamScopeRecoveryIsParked = false
+    /// Set while that loop has used up its fast backoff and retries at
+    /// ``teamScopeRecoveryMaximumDelay``, or earlier when the network path
+    /// comes back or a host trigger arrives.
+    @ObservationIgnored var teamScopeRecoveryIsAtMaximumBackoff = false
     /// Set while the sign-in service answers the session check with 429:
-    /// the consecutive count and the backoff chosen for it. Recovery then
-    /// waits longer, and app activation, wake, and network changes do not
-    /// start an extra check. Cleared by a successful team load.
-    @ObservationIgnored var teamScopeRateLimit: (streak: Int, delay: Duration)?
+    /// the consecutive count, the backoff chosen for it, and when the 429
+    /// came. Until that backoff has passed, recovery does not check, and
+    /// app activation, wake, and network changes do not start an extra
+    /// check. Cleared by a successful team load.
+    @ObservationIgnored var teamScopeRateLimit: (
+        streak: Int,
+        delay: Duration,
+        since: any InstantProtocol<Duration>
+    )?
     /// Reports sign-in service 429s of the sign-in and session-check flows.
     /// Refresh-exchange and other SDK 429s always go to
     /// ``StackRateLimitTelemetry/shared``.

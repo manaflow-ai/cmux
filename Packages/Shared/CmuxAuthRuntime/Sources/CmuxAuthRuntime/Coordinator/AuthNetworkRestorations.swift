@@ -1,9 +1,9 @@
-/// The event that re-arms a retry loop that gave up: the network path came back.
+/// The event that ends a retry loop's capped backoff early: the network path came back.
 ///
-/// Chromium's sync scheduler does the same. After its backoff it waits for
-/// `NetworkChangeNotifier` to report a connection change
+/// Chromium's sync scheduler does the same. At its capped backoff it retries
+/// early when `NetworkChangeNotifier` reports a connection change
 /// (`SyncSchedulerImpl::OnConnectionStatusChange`,
-/// `components/sync/engine/sync_scheduler_impl.cc`) instead of polling.
+/// `components/sync/engine/sync_scheduler_impl.cc`).
 public protocol AuthNetworkRestorations: Sendable {
     /// Returns when the network path next becomes usable after it was
     /// unusable, or when the calling task is cancelled.
