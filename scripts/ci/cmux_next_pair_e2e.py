@@ -28,8 +28,8 @@ PAIRED = re.compile(r"phone (\w+) paired from this Mac's pairing code")
 
 
 def redact(text):
-    """A pairing link's token (`t=`) never reaches a log or the artifact."""
-    return re.sub(r"([?&]t=)[^&\s\"']+", r"\1<redacted>", text)
+    """A pairing code's token (a link's `t=`, a `pairToken`) never reaches a log or the artifact."""
+    return re.sub(r'((?<!\w)t=|pair_?token"?\s*[:=]\s*"?)[A-Za-z0-9_-]+', r"\1<redacted>", text, flags=re.I)
 
 
 def dev_credential():
