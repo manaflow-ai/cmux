@@ -7,6 +7,8 @@ import CmuxNextDesign
 final class HelperAppTile: NSView, NSDraggingSource {
     private let appURL: URL
     private(set) lazy var hover = ChromeHover(self)
+    /// Called when a drag of the app ended in another app (System Settings' list).
+    var onDrop: (() -> Void)?
 
     init(appURL: URL) {
         self.appURL = appURL
@@ -71,6 +73,10 @@ final class HelperAppTile: NSView, NSDraggingSource {
 
     func draggingSession(_ session: NSDraggingSession, sourceOperationMaskFor context: NSDraggingContext) -> NSDragOperation {
         context == .outsideApplication ? [.copy, .link, .generic] : []
+    }
+
+    func draggingSession(_ session: NSDraggingSession, endedAt screenPoint: NSPoint, operation: NSDragOperation) {
+        if !operation.isEmpty { onDrop?() }
     }
 
     override func viewDidChangeEffectiveAppearance() {
