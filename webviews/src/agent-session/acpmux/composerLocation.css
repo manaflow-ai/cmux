@@ -133,7 +133,6 @@
   border-radius: 6px;
   font: inherit;
 }
-.acpmux-location-button { cursor: default; }
 .acpmux-location-button[aria-expanded="true"],
 .acpmux-location-button[data-popup-open] {
   background: var(--acpmux-composer-hover);
@@ -1027,7 +1026,7 @@
 }
 .acpmux-folder-popover .acpmux-location-search::placeholder { color: var(--agent-muted); opacity: 1; }
 .acpmux-folder-popover .acpmux-location-folders { margin: 0; padding: 0; list-style: none; }
-.acpmux-folder-popover .acpmux-menu-item { display: flex; align-items: center; min-width: 0; border-radius: var(--ui-row-radius, 6px); cursor: default; }
+.acpmux-folder-popover .acpmux-menu-item { display: flex; align-items: center; min-width: 0; border-radius: var(--ui-row-radius, 6px); }
 .acpmux-location-row,
 .acpmux-location-action { display: flex; align-items: center; gap: 8px; width: 100%; min-width: 0; }
 /* The actions after the folders: a hairline above the first. */
@@ -1089,7 +1088,6 @@
   border-radius: 6px;
   background: none;
   color: var(--agent-muted);
-  cursor: default;
 }
 .acpmux-speed { display: inline-flex; flex: none; align-items: center; font-size: var(--text-detail); }
 .acpmux-speed-choices { min-width: 16px; width: 16px; height: 28px; border: 0; border-radius: 6px; padding: 0; background: none; color: var(--agent-muted); font: inherit; }
