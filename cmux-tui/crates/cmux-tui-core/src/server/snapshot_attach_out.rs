@@ -296,3 +296,7 @@ impl ViewSource for SnapshotSource {
         self.worker.unregister();
     }
 }
+
+#[cfg(all(test, unix))]
+#[path = "snapshot_attach_out_tests.rs"]
+mod tests;
