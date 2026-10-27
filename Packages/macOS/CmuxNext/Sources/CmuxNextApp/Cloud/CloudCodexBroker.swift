@@ -1,14 +1,14 @@
 import CmuxNextCloud
 import CmuxNextDaemon
-import Foundation
+public import Foundation
 
 /// The account scope that owns one local Codex refresh-token holder. The scope is
 /// captured when the broker is created and must not change while it serves VMs.
-public struct CloudCodexBrokerScope: Sendable, Equatable, Hashable {
+nonisolated public struct CloudCodexBrokerScope: Sendable, Equatable, Hashable {
     public let userID: String
     public let teamID: String?
 
-    public init(userID: String, teamID: String?) {
+    nonisolated public init(userID: String, teamID: String?) {
         self.userID = userID
         self.teamID = teamID
     }
@@ -16,11 +16,11 @@ public struct CloudCodexBrokerScope: Sendable, Equatable, Hashable {
 
 /// A device-code response for the one-time Codex sign-in. The code is safe to
 /// show in cmux; no credential or auth cache is included.
-public struct CloudCodexLoginPrompt: Sendable, Equatable {
+nonisolated public struct CloudCodexLoginPrompt: Sendable, Equatable {
     public let verificationURL: URL
     public let userCode: String
 
-    public init(verificationURL: URL, userCode: String) {
+    nonisolated public init(verificationURL: URL, userCode: String) {
         self.verificationURL = verificationURL
         self.userCode = userCode
     }
@@ -28,19 +28,19 @@ public struct CloudCodexLoginPrompt: Sendable, Equatable {
 
 /// The access-only credential delivered to a VM. The refresh token never enters
 /// this value, the VM, a log, or a process argument.
-public struct CloudCodexAccessGrant: Sendable, Equatable {
+nonisolated public struct CloudCodexAccessGrant: Sendable, Equatable {
     public let accessToken: String
     public let chatgptAccountID: String
     public let expiresAt: Date
 
-    public init(accessToken: String, chatgptAccountID: String, expiresAt: Date) {
+    nonisolated public init(accessToken: String, chatgptAccountID: String, expiresAt: Date) {
         self.accessToken = accessToken
         self.chatgptAccountID = chatgptAccountID
         self.expiresAt = expiresAt
     }
 }
 
-public enum CloudCodexBrokerError: Error, LocalizedError, Sendable, Equatable {
+nonisolated public enum CloudCodexBrokerError: Error, LocalizedError, Sendable, Equatable {
     case consentRequired
     case scopeChanged
     case sharedMachine
@@ -76,13 +76,13 @@ public enum CloudCodexBrokerError: Error, LocalizedError, Sendable, Equatable {
 /// A capability probe and the minimal file operations needed to deliver a
 /// short-lived access token. The app server remains the only transport; this
 /// abstraction keeps the broker testable and lets the VM bridge own its probe.
-public struct CloudCodexBrokerTarget: Sendable {
-    public struct Capability: Sendable, Equatable {
+nonisolated public struct CloudCodexBrokerTarget: Sendable {
+    nonisolated public struct Capability: Sendable, Equatable {
         public let ownerVM: Bool
         public let protocolVersion: Int
         public let codexExternalAccessToken: Bool
 
-        public init(ownerVM: Bool, protocolVersion: Int, codexExternalAccessToken: Bool) {
+        nonisolated public init(ownerVM: Bool, protocolVersion: Int, codexExternalAccessToken: Bool) {
             self.ownerVM = ownerVM
             self.protocolVersion = protocolVersion
             self.codexExternalAccessToken = codexExternalAccessToken
@@ -99,7 +99,7 @@ public struct CloudCodexBrokerTarget: Sendable {
     public let commitFiles: @Sendable (String, String, String, String) async throws -> Void
     public let removeFile: @Sendable (String) async throws -> Void
 
-    public init(machineID: String,
+    nonisolated public init(machineID: String,
                 capability: @escaping @Sendable () async throws -> Capability,
                 makeDirectory: @escaping @Sendable (String) async throws -> Void,
                 readFile: @escaping @Sendable (String) async throws -> Data?,
@@ -130,7 +130,7 @@ public struct CloudCodexBrokerTarget: Sendable {
 
     /// The default probe is deliberately read-only: the running bridge reports
     /// its capability and the guest marker proves that this is an owner VM.
-    public init(api: CloudAPIClient, machineID: String, scope: CloudCodexBrokerScope) {
+    nonisolated public init(api: CloudAPIClient, machineID: String, scope: CloudCodexBrokerScope) {
         let api = api.pinningTeam(scope.teamID)
         self.init(machineID: machineID, capability: {
             let marker = try await api.readFile(machineID, path: "/etc/cmux/vm-kind")
@@ -202,7 +202,7 @@ public actor CloudCodexBroker {
     private var refreshTask: Task<Void, Never>?
     private var refreshInFlight: Task<CloudCodexAccessGrant, Error>?
 
-    public init(scope: CloudCodexBrokerScope,
+    nonisolated public init(scope: CloudCodexBrokerScope,
                 currentScope: @escaping @Sendable () async -> CloudCodexBrokerScope?,
                 executable: URL,
                 executablePrefix: [String] = [],
@@ -461,7 +461,7 @@ public actor CloudCodexBroker {
 public actor CloudCodexBrokerRegistry {
     private var brokers: [CloudCodexBrokerScope: CloudCodexBroker] = [:]
 
-    public init() {}
+    nonisolated public init() {}
 
     public func broker(for scope: CloudCodexBrokerScope,
                        currentScope: @escaping @Sendable () async -> CloudCodexBrokerScope?,
@@ -481,14 +481,14 @@ public actor CloudCodexBrokerRegistry {
     }
 }
 
-private struct BrokerRequest: Encodable, Sendable {
+nonisolated private struct BrokerRequest: Encodable, Sendable {
     let id: Int
     let method: String
     let force: Bool?
     let previousAccountId: String?
 }
 
-private struct BrokerResult: Decodable, Sendable {
+nonisolated private struct BrokerResult: Decodable, Sendable {
     let accessToken: String?
     let chatgptAccountID: String?
     let expiresAt: Double?
@@ -504,7 +504,7 @@ private struct BrokerResult: Decodable, Sendable {
     }
 }
 
-private struct BrokerReply: Decodable, Sendable {
+nonisolated private struct BrokerReply: Decodable, Sendable {
     let id: Int
     let result: BrokerResult?
     let error: String?
