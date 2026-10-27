@@ -250,12 +250,13 @@ test("a late refusal repairs nothing, and a late write holds a web swap only for
 test("a write that never answers on a live connection holds no later write", async () => {
   draftWriteLimits.timeoutMs = 20;
   const landed: string[] = [];
+  let refuse: (() => void) | undefined;
   let calls = 0;
   scope.window = {
     cmuxAcpmuxActions: {
       "chat.writeDraft": (params: Record<string, unknown>) =>
         calls++ === 0
-          ? new Promise(() => undefined)
+          ? new Promise<void>((_, reject) => (refuse = () => reject(new Error("gone"))))
           : Promise.resolve().then(() => void landed.push(String(params.text))),
     },
   };
@@ -265,8 +266,25 @@ test("a write that never answers on a live connection holds no later write", asy
   await settlePendingDraftWrites();
   expect(landed).toEqual(["two"]);
   expect(hasPendingDraftWrite("hung-a")).toBe(false);
-  draftWriteLimits.lateHoldMs = 0; // "one" never answers: the swap waits only for a while
+  draftWriteLimits.lateHoldMs = 0; // "one" has not answered: the swap waits only for a while
   expect(composerHold()).toBeNull();
+  // End the request so no later test inherits the late-write hold.
+  refuse?.();
+  await tick();
+});
+
+test("a timed-out write that lands before its retry is not sent again", async () => {
+  draftWriteLimits.timeoutMs = 20;
+  const writer = installWriter();
+  writePersistedDraft("late-c", "one");
+  await settlePendingDraftWrites(); // times out: "one" stays queued for a retry
+  expect(hasPendingDraftWrite("late-c")).toBe(true);
+  writer.release(); // it lands after all
+  await tick();
+  // Its retry would only land over a draft another pane saved since.
+  expect(hasPendingDraftWrite("late-c")).toBe(false);
+  expect(composerHold()).toBeNull();
+  expect(writer.landed.map((write) => write.text)).toEqual(["one"]);
 });
 
 test("a saved draft stays the quit's comparison until its composer leaves the chat", async () => {

@@ -46,6 +46,8 @@ extension UpdaterService {
             // installs and relaunches it now, so the helper must not quit the app as well.
             guard self.controller?.waitsToQuitForInstall ?? true else { return false }
             guard self.staysBehindNow else { return false }
+            // In the same main-actor turn as the checks above: no click lands in between.
+            self.controller?.commitQuitInstall()
             self.updaterWillRelaunchApplication()
             return true
         }, { [weak self] in self?.quitForInstallDeclined() }, { [weak self] in

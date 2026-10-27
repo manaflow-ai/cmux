@@ -231,6 +231,31 @@ private final class PlainHost: UpdateActionDelegate {
         #expect(reply.choice == nil)
     }
 
+    @Test func aClickAfterTheQuitIsCommittedInstallsNothingMore() {
+        let host = QuittingHost()
+        let driver = makeDriver(host)
+        driver.holdsUserInstalls = false
+        driver.backgroundItem = Self.item
+        let reply = ChoiceBox()
+        stage(driver, into: reply)
+        guard case .installing(let staged) = model.state else {
+            Issue.record("expected the staged state, got \(model.state)")
+            return
+        }
+
+        // The wait ended and the helper quits the app: it reopens it, so Sparkle must not.
+        driver.commitQuitInstall()
+        #expect(driver.stagedItem == nil)
+        staged.retryTerminatingApplication()
+        #expect(!driver.installQuitInstallNow())
+        #expect(reply.choice == nil, "only the helper reopens the app")
+
+        // The quit was refused: staged again, and a click installs.
+        #expect(driver.restageAfterDeclinedQuit())
+        #expect(driver.installStaged())
+        #expect(reply.choice == .install)
+    }
+
     @Test func theUserComingInDuringTheQuitWaitIsNoLongerStaged() {
         let host = QuittingHost()
         let driver = makeDriver(host)

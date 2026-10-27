@@ -68,7 +68,7 @@ function lateWriteMayLand(now = Date.now()): boolean {
   return false;
 }
 
-function writeTimedOut(sessionId: string, text: string, sent: Promise<unknown>): void {
+function writeTimedOut(sessionId: string, text: string, sequence: number, sent: Promise<unknown>): void {
   const late = lateWrites.get(sessionId) ?? { outstanding: 0, since: 0 };
   late.outstanding += 1;
   late.since = Date.now();
@@ -79,6 +79,8 @@ function writeTimedOut(sessionId: string, text: string, sent: Promise<unknown>):
   };
   void Promise.resolve(sent).then(() => {
     answered();
+    // It landed: the same write still queued for a retry would only land over a later edit.
+    if (pendingDraftWrites.get(sessionId)?.sequence === sequence) pendingDraftWrites.delete(sessionId);
     const newer = late.newer;
     if (newer === undefined || newer === text || pendingDraftWrites.has(sessionId)) return;
     pendingDraftWrites.set(sessionId, { sessionId, text: newer, sequence: ++draftWriteSequence });
@@ -161,7 +163,7 @@ async function flushDraftWrites(): Promise<void> {
         // A write that never answers would keep this drain, and the web-swap hold, forever.
         await answeredInTime(sent);
       } catch (error) {
-        if (error === WRITE_TIMED_OUT && sent) writeTimedOut(sessionId, write.text, sent);
+        if (error === WRITE_TIMED_OUT && sent) writeTimedOut(sessionId, write.text, write.sequence, sent);
         // A disconnect can invalidate the action while it is in flight, or it never answers. Keep
         // the newest value for the next try, while preserving a later keystroke already in the queue.
         const current = pendingDraftWrites.get(sessionId);
