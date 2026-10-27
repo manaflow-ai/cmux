@@ -827,7 +827,10 @@ test("a chat's machine the daemon no longer lists is shown not connected, and is
   const { knownMachines, environmentReady } = await import("../src/agent-session/acpmux/environments");
   const machines = knownMachines(
     ["listed"],
-    [{ peer: "removed", host: "removed" }, { peer: "listed", host: "listed" }],
+    [
+      { peer: "removed", host: "removed" },
+      { peer: "listed", host: "listed" },
+    ],
     { listed: "ssh" },
     [],
     { listed: true },

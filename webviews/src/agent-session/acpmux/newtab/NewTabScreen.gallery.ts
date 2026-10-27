@@ -37,12 +37,20 @@ const FLEET = [
   "Cloud machine",
 ];
 const fleetState = (name: string) =>
-  name === "gpu-box" ? "offline" : /^agent-vm-[3-5]$/.test(name) ? "reconnecting" : name === "agent-vm-6" ? "degraded" : "connected";
+  name === "gpu-box"
+    ? "offline"
+    : /^agent-vm-[3-5]$/.test(name)
+      ? "reconnecting"
+      : name === "agent-vm-6"
+        ? "degraded"
+        : "connected";
 const fleetChat = () =>
   noChat([], {
     peers: FLEET,
     peerKinds: Object.fromEntries(FLEET.map((name) => [name, name === "Cloud machine" ? "cloud" : "ssh"])),
-    peerConnected: Object.fromEntries(FLEET.map((name) => [name, fleetState(name) !== "offline" && fleetState(name) !== "reconnecting"])),
+    peerConnected: Object.fromEntries(
+      FLEET.map((name) => [name, fleetState(name) !== "offline" && fleetState(name) !== "reconnecting"]),
+    ),
     peerStates: Object.fromEntries(FLEET.map((name) => [name, fleetState(name)])),
   });
 
