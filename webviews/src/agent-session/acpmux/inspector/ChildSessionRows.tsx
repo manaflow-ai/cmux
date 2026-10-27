@@ -67,8 +67,6 @@ export function ChildSessionRows({ sessions, onOpen }: { sessions: readonly Star
               type="button"
               className="acpmux-summary-row acpmux-summary-link acpmux-summary-agent acpmux-summary-session"
               data-status={status}
-              title={child.sessionId}
-              aria-label={`${child.title} · ${child.sessionId}`}
               disabled={!onOpen}
               onClick={(event) => onOpen?.(child.sessionId, event)}
             >

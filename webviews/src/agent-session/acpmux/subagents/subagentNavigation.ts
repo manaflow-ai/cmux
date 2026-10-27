@@ -10,8 +10,6 @@ export function subagentName(agent: Subagent): string {
   if (agent.name && !(/^[0-9a-f]{8}[-/]/i.test(agent.name) || agent.name.includes("/toolu_"))) return agent.name;
   return agent.task?.trim() || promptTitle(agent.prompt) || translate("tray.kind.subagent");
 }
-export const subagentTitle = (agent: Subagent) => [agent.task, agent.id].filter(Boolean).join("\n");
-
 /** Cmd-click opens a background tab beside the source; ordinary clicks select it. */
 export function openChildSession(
   call: (method: string, params: Record<string, unknown>) => Promise<unknown>,

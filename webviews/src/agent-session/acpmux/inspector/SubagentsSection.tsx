@@ -204,8 +204,6 @@ export function SubagentsSection({
     <li key={item.key}>
       <AgentLine
         name={item.name}
-        title={item.identity}
-        label={`${item.name} · ${item.identity}`}
         detail={item.detail}
         status={item.status}
         state={item.state}
@@ -218,7 +216,6 @@ export function SubagentsSection({
         card={
           <span className="acpmux-agent-card">
             <span className="acpmux-agent-card__name">{item.name}</span>
-            <span>{item.identity}</span>
             <span className="acpmux-agent-card__state" data-status={item.status}>
               {[item.state, item.time, item.status === "running" || item.status === "waiting" ? item.detail : undefined]
                 .filter(Boolean)

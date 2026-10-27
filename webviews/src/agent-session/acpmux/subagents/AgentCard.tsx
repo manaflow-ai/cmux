@@ -16,7 +16,6 @@ export type AgentCardProps = {
   harness?: string;
   /// Its acpmux session, whose own avatar (Set Avatar…, agentAvatar.ts) replaces the mark.
   sessionId?: string;
-  identity?: string;
   model?: string;
   /// Undefined while the session list does not have it (a gallery, an archived chat).
   state?: SubsessionState;
@@ -40,7 +39,6 @@ export function AgentCard({
   name,
   harness,
   sessionId,
-  identity = sessionId,
   model,
   state,
   doing,
@@ -82,8 +80,7 @@ export function AgentCard({
           <button
             type="button"
             className="cv-agent-card__open"
-            title={identity}
-            aria-label={`${t("subagents.open", { name })}${identity ? ` · ${identity}` : ""}`}
+            aria-label={t("subagents.open", { name })}
             onClick={onOpen}
           >
             {openLabel ?? t("subsession.openChat")}

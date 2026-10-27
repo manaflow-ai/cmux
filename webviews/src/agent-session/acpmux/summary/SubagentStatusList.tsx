@@ -1,4 +1,4 @@
-import { subagentName, subagentTitle, type OpenSubagent } from "../subagents/subagentNavigation";
+import { subagentName, type OpenSubagent } from "../subagents/subagentNavigation";
 // The summary card's Subagents section (SummaryCard.tsx): every subagent of the chat, nested ones
 // indented under the agent that spawned them, with its live state (running, waiting on the user,
 // done, failed) and its time. A row shows that subagent (`onOpen`): its pane when it has one. Its
@@ -204,8 +204,7 @@ export function SubagentStatusList({
                 iconSize={ROW_ICON}
                 depth={depth}
                 current={agent.id === current}
-                title={subagentTitle(agent)}
-                label={`${subagentName(agent)} · ${agent.id}`}
+                title={agent.task}
                 onOpen={onOpen ? (event) => onOpen(agent.id, event) : undefined}
               />
             </li>
@@ -250,8 +249,7 @@ function SubsessionStatusRow({ session, onOpen }: { session: SubsessionRow; onOp
       style={session.depth > 0 ? { paddingLeft: 8 + session.depth * 14 } : undefined}
       data-status={status}
       /* tooltip-allow: the row shows the name; what a working one does may be cut */
-      title={[line, session.sessionId].filter(Boolean).join("\n")}
-      aria-label={`${session.name} · ${session.sessionId}`}
+      title={line}
       disabled={!onOpen}
       onClick={(event) => onOpen?.(session.sessionId, event)}
     >

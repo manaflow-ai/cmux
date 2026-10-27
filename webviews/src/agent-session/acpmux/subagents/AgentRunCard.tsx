@@ -45,7 +45,6 @@ export function AgentRunCard({ agent }: { agent: Subagent }) {
       name={subagentName(agent)}
       harness={agent.harness}
       sessionId={chat}
-      identity={agent.id}
       // The model and the machine on the line under the name, which keeps the head's room for the
       // name at a narrow width.
       doing={[agent.kind, agent.host].filter(Boolean).join(" · ") || undefined}

@@ -1,4 +1,4 @@
-import { subagentName, subagentTitle } from "./subagentNavigation";
+import { subagentName } from "./subagentNavigation";
 // What a subagent leaves in the transcript once it ends (runningTray.ts `withSubagentLines`): one
 // quiet line where it ended, "Subagent finished: Explore the daemon · 1m 20s". It is drawn as a
 // tool row, in their font, height and rhythm, as a background shell's end is
@@ -44,8 +44,6 @@ export function SubagentDoneLine({ row }: { row: AcpmuxRow }) {
         className="cv-tool cv-bgtask cv-subagent-done"
         data-state={agent.state}
         {...(agent.stopReason && { "data-reason": agent.stopReason })}
-        title={subagentTitle(agent)}
-        aria-label={`${label} · ${agent.id}`}
         disabled={!open}
         onClick={(event) => open?.(agent.id, event)}
       >

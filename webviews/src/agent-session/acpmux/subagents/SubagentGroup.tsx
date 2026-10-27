@@ -1,4 +1,4 @@
-import { subagentName, subagentTitle, type OpenSubagent } from "./subagentNavigation";
+import { subagentName, type OpenSubagent } from "./subagentNavigation";
 // A batch of subagents inline in the transcript, after the ChatGPT and T3 Code apps: one line with
 // their avatars, "4 subagents", how many are working or done, the time since the first started,
 // and a chevron; opened, a bordered list with a row per subagent (SUBAGENT_ROW rows below it).
@@ -205,8 +205,7 @@ export function SubagentListRow({ row }: { row: AcpmuxRow }) {
       className="cv-subagent"
       data-edge={row.status}
       data-agent-tone={tones?.get(agent.id)}
-      title={subagentTitle(agent)}
-      aria-label={`${t("subagents.open", { name: subagentName(agent) })} · ${agent.id}`}
+      aria-label={t("subagents.open", { name: subagentName(agent) })}
       onClick={(event) => open(agent.id, event)}
     >
       {content}

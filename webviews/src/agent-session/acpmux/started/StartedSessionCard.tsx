@@ -30,8 +30,6 @@ export function StartedSessionCard({ child, onOpen }: { child: StartedSession; o
       type="button"
       className="acpmux-started-row"
       data-state={child.state}
-      title={child.sessionId}
-      aria-label={`${child.title} · ${child.sessionId}`}
       onClick={(event) => onOpen(child.sessionId, event)}
     >
       <span className="acpmux-started-text">
