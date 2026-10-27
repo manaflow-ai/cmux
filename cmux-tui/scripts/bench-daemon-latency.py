@@ -555,12 +555,20 @@ class ProcCounters:
 OPS = {}
 
 
-def op(name, wire="v12", kind="read", capability=None):
+def op(name, wire="v12", kind="read", capability=None, feature=None):
+    """`feature`: a default-off daemon feature the op needs; the bench daemon runs with it on
+    (CMUX_ENABLE_FEATURES) whenever the op is selected, so its capability is advertised."""
     def register(fn):
         OPS[name] = {"fn": fn, "wire": wire, "kind": kind, "capability": capability,
-                     "line": fn.__code__.co_firstlineno}
+                     "feature": feature, "line": fn.__code__.co_firstlineno}
         return fn
     return register
+
+
+def op_features(names):
+    """The daemon features the selected ops need, comma-separated, or None."""
+    features = sorted({OPS[name]["feature"] for name in names if OPS[name]["feature"]})
+    return ",".join(features) or None
 
 
 BASE_OPS = ["ping", "identify", "list-workspaces", "send", "new-tab"]
@@ -702,7 +710,8 @@ def _op_create_terminal(f, i):
     return ms
 
 
-@op("create-terminal-async", kind="create", capability="terminal-async-start-v1")
+@op("create-terminal-async", kind="create", capability="terminal-async-start-v1",
+    feature="terminalAsyncStart")
 def _op_create_terminal_async(f, i):
     """`terminal-async-start-v1`: the op's time is the reply, which comes at admission; it then
     waits for `terminal-started` (or fails on `terminal-start-failed`) and closes the new tab."""
@@ -717,7 +726,9 @@ def _op_create_terminal_async(f, i):
     previous, f.c.on_event = f.c.on_event, on_event
     try:
         ms, data = f.timed("create-terminal", workspace=f.ws_id, argv=["/bin/sh"], cols=80, rows=24,
-                           terminal_id=terminal_id, origin="bench", mutation_id=f.key(), async_start=True)
+                           terminal_id=terminal_id, origin="bench",
+                           # Durable in the daemon's registry: unique across scenarios, unlike f.key().
+                           mutation_id=f"bench-{terminal_id}", async_start=True)
         deadline = time.perf_counter() + 60
         while data.get("starting") and "event" not in outcome and time.perf_counter() < deadline:
             f.c.pump(0.05)
@@ -1054,6 +1065,9 @@ class Bench:
             CMUX_TUI_CONFIG=os.path.join(self.root, "config.json"),
             SHELL="/bin/sh",
         )
+        features = op_features(select_ops(self.args.ops))
+        if features:
+            env["CMUX_ENABLE_FEATURES"] = features
         env.update(self.env_extra)
         self.env = env
         argv = [self.args.bin, "--headless", "--session", self.session, "--socket", self.sock_path,

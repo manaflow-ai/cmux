@@ -121,6 +121,17 @@ pub(super) struct TerminalReservationRequest {
     /// argv and cwd it is kept with the creation receipt in the local state
     /// directory so a recovered creation spawns identically.
     pub(super) env: Vec<(String, String)>,
+    /// `terminal-async-start-v1`: the registry row was reserved when the
+    /// create was admitted, with these options; the spawn uses them and
+    /// does not reserve again (`Mux::admit_terminal_create`).
+    pub(super) reserved: Option<ReservedLaunch>,
+}
+
+/// The launch options a create was admitted with.
+#[derive(Debug, Clone)]
+pub(super) struct ReservedLaunch {
+    pub(super) opts: SurfaceOptions,
+    pub(super) cell_pixels: (u16, u16),
 }
 
 /// Longest accepted per-terminal environment: entries and total bytes.

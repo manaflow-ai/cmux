@@ -21,6 +21,7 @@ use crate::Actor;
 use crate::Mux;
 use crate::SurfaceId;
 use crate::WorkspaceId;
+use crate::mux::{TerminalCreateAdmission, TerminalCreateRequest, TerminalPlacementResult};
 use crate::platform;
 use crate::terminal_host::TerminalId;
 use crate::workspace_registry::TerminalLifecycle;
@@ -288,9 +289,17 @@ pub(super) fn create_terminal(
             (Err(_), Some(key)) => (None, key),
             (Err(error), None) => return Err(error),
         };
+        let admit = async_start
+            && workspace.is_some()
+            && terminal_async_start::eligible(
+                mux,
+                client,
+                terminal_id.as_deref(),
+                mutation.mutation_id.as_deref(),
+            )
+            && terminal_async_start::can_defer();
         let create = ReceiptedCreate {
             workspace,
-            key,
             argv,
             cwd,
             name,
@@ -298,12 +307,15 @@ pub(super) fn create_terminal(
             terminal_id,
             expected_generation: mutation.expected_generation,
             expected_revision: mutation.expected_revision,
-            mutation: workspace_mutation,
             env,
-            keep,
-            identity: (registry_id, generation),
+            reply: CreateReply {
+                key,
+                mutation: workspace_mutation,
+                keep,
+                identity: (registry_id, generation),
+            },
         };
-        if async_start && create.may_start_after_reply(mux, client) {
+        if admit {
             return create.admit(mux);
         }
         create.run(mux)
@@ -336,12 +348,11 @@ pub(super) fn create_terminal(
 }
 
 /// A `create-terminal` on the receipted path (a terminal id, a mutation id
-/// or an environment): everything its start needs, owned, so it can run
-/// after the reply (`terminal-async-start-v1`).
+/// or an environment), owned, so its launch can run after the reply
+/// (`terminal-async-start-v1`).
 struct ReceiptedCreate {
     /// `None` for a keyed retry whose workspace closed since.
     workspace: Option<WorkspaceId>,
-    key: String,
     argv: Option<Vec<String>>,
     cwd: Option<String>,
     name: Option<String>,
@@ -349,55 +360,85 @@ struct ReceiptedCreate {
     terminal_id: Option<String>,
     expected_generation: Option<String>,
     expected_revision: Option<u64>,
-    mutation: WorkspaceMutation,
     env: Vec<(String, String)>,
+    reply: CreateReply,
+}
+
+/// What the reply of a receipted create needs once its terminal runs.
+struct CreateReply {
+    key: String,
+    mutation: WorkspaceMutation,
     keep: bool,
     /// The registry id and generation the reply names.
     identity: (String, String),
 }
 
 impl ReceiptedCreate {
-    /// `terminal-async-start-v1`: whether this create may reply before its
-    /// start. It needs the feature, a local connection, a live workspace,
-    /// its own canonical `terminal_id` (the id the reply and the events
-    /// name, which input may already address) and a request that can leave
-    /// its start for after the reply.
-    fn may_start_after_reply(&self, mux: &Mux, client: u64) -> bool {
-        let canonical = self
-            .terminal_id
-            .as_deref()
-            .is_some_and(|id| TerminalId::from_hex(id).is_some_and(|parsed| parsed.to_hex() == id));
-        mux.terminal_async_start_enabled()
-            && !mux.is_remote_client(client)
-            && self.workspace.is_some()
-            && canonical
-            && terminal_async_start::can_defer()
-    }
-
-    /// Reply once admitted; the start runs after the reply.
+    /// `terminal-async-start-v1`: admit the create (replay, fingerprint,
+    /// CAS, reservation) and reply; only its launch runs after the reply.
+    /// Callers checked [`terminal_async_start::eligible`].
     fn admit(self, mux: &Arc<Mux>) -> anyhow::Result<Value> {
-        let (Some(workspace), Some(terminal_id)) = (self.workspace, self.terminal_id.clone())
-        else {
+        let terminal_id = self.terminal_id.as_deref().and_then(TerminalId::from_hex);
+        let (Some(workspace), Some(terminal_id)) = (self.workspace, terminal_id) else {
             return self.run(mux);
         };
-        let identity = self.identity.clone();
-        let (mutation_id, key) = (self.mutation.id.clone(), self.key.clone());
+        let Self {
+            argv, cwd, name, size, expected_generation, expected_revision, env, reply, ..
+        } = self;
+        let admission = mux.admit_terminal_create(TerminalCreateRequest {
+            workspace,
+            terminal_id,
+            argv,
+            cwd,
+            name,
+            size,
+            expected_generation: expected_generation.as_deref(),
+            expected_revision,
+            mutation: &reply.mutation,
+            env,
+        })?;
+        let terminal_hex = terminal_id.to_hex();
+        let admitted = |terminal_revision, replayed| {
+            terminal_async_start::AdmittedReply {
+                terminal_id: &terminal_hex,
+                key: &reply.key,
+                workspace,
+                terminal_revision,
+                replayed,
+                identity: &reply.identity,
+            }
+            .json()
+        };
+        let admitted = match admission {
+            TerminalCreateAdmission::Replayed(result) => return reply.reply(mux, result),
+            // The first request's start reports to its own connection.
+            TerminalCreateAdmission::Starting { terminal_revision } => {
+                return Ok(admitted(terminal_revision, true));
+            }
+            TerminalCreateAdmission::Reserved(admitted_create) => {
+                let json = admitted(admitted_create.terminal_revision, false);
+                (json, admitted_create)
+            }
+        };
+        let (json, admitted_create) = admitted;
+        let (mutation_id, key) = (reply.mutation.id.clone(), reply.key.clone());
         let start_mux = mux.clone();
-        let work = Box::new(move || self.run(&start_mux));
-        let start = TerminalStart::new(mux, terminal_id, mutation_id, key, work);
-        let reply = start.admitted_reply(workspace, identity)?;
+        let work = Box::new(move || {
+            let result = start_mux.launch_admitted_terminal(admitted_create)?;
+            reply.reply(&start_mux, result)
+        });
+        let start = TerminalStart::new(mux, terminal_hex, mutation_id, key, work);
         match terminal_async_start::defer(start) {
-            Ok(()) => Ok(reply),
+            Ok(()) => Ok(json),
             Err(start) => start.run_inline(),
         }
     }
 
     /// Create, project, activate and place the terminal: the synchronous
-    /// create, and an async start's work.
+    /// create.
     fn run(self, mux: &Arc<Mux>) -> anyhow::Result<Value> {
         let Self {
             workspace,
-            key,
             argv,
             cwd,
             name,
@@ -405,14 +446,12 @@ impl ReceiptedCreate {
             terminal_id,
             expected_generation,
             expected_revision,
-            mutation,
             env,
-            keep,
-            identity: (registry_id, generation),
+            reply,
         } = self;
         let result = mux.create_raw_terminal_in_workspace_with_mutation(
             workspace,
-            &key,
+            &reply.key,
             argv,
             cwd,
             name,
@@ -420,15 +459,23 @@ impl ReceiptedCreate {
             terminal_id.as_deref(),
             expected_generation.as_deref(),
             expected_revision,
-            &mutation,
+            &reply.mutation,
             env,
         )?;
+        reply.reply(mux, result)
+    }
+}
+
+impl CreateReply {
+    /// Project, activate and keep the placed terminal; its `TerminalPlacement`.
+    fn reply(&self, mux: &Arc<Mux>, result: TerminalPlacementResult) -> anyhow::Result<Value> {
+        let Self { key, mutation, keep, identity: (registry_id, generation) } = self;
         let projection_fingerprint = json!({
             "terminal_id":result.terminal_id,
             "workspace_key":key,
         });
         mux.commit_full_resource_projection_with_mutation(
-            &mutation,
+            mutation,
             "raw.terminal.create",
             &projection_fingerprint,
             json!({
@@ -439,7 +486,7 @@ impl ReceiptedCreate {
         mux.activate_created_terminal_surface(result.created_surface)?;
         mux.reap_created_terminal_surface(result.created_surface);
         let created = mux.created_terminal_run_result(&result.terminal_id)?;
-        if keep {
+        if *keep {
             keep_created_terminal(mux, Some(created.terminal.terminal_id.as_str()))?;
         }
         let placement = created.placement;

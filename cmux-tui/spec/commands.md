@@ -3098,20 +3098,31 @@ With `async_start:true` (capability `terminal-async-start-v1`, advertised while
 the daemon feature `terminalAsyncStart` is on) a create that names its own
 canonical `terminal_id`, with `origin` and `mutation_id`, in a live workspace,
 from a local connection, replies once the daemon admitted it, before its
-terminal starts: the result has `starting:true`, `lifecycle:"launching"`,
-null `surface`, `pane`, `screen` and `terminal_incarnation`, the workspace,
-and `replayed:false` even for a retry. The start then runs on the daemon's
-terminal work pool, the starts of one connection in request order, and the
-same connection gets [`terminal-started`](events.md#terminal-started) with the
-result a synchronous create returns, or
-[`terminal-start-failed`](events.md#terminal-start-failed) with the create's
-`mutation_id`, always after the reply. A failed start commits nothing the
-client must undo beyond its own intent for that `mutation_id`; a failure
-after the reservation leaves the terminal `exited`, as a synchronous create
-does. Input sent to the `terminal_id` meanwhile is queued
-(`terminal-input-while-creating-v1`). A client attaches with the `surface`
-that `terminal-started` names. Any other create ignores `async_start` and
-replies after its terminal started, without `starting`.
+terminal starts. Admission is everything the create can be refused for: the
+replay and fingerprint check of `mutation_id`, the `expected_generation` and
+`expected_revision` compare-and-swap, and the reservation of the terminal's
+registry row (`launching`); a refusal is the create's error reply. A retry of
+a create that already started replies with its placement, as a synchronous
+retry does. Otherwise the result has `starting:true`, `lifecycle:"launching"`,
+null `surface`, `pane`, `screen` and `terminal_incarnation`, the workspace, and
+`replayed:true` only for a retry whose first start has not reported. Only the
+launch (host start, tab placement, activation) then runs on the daemon's
+terminal work pool, the starts of one connection in request order; a later
+create of the same connection without `async_start` commits after them, so
+the tabs of a pane land in request order. The same connection gets
+[`terminal-started`](events.md#terminal-started) with the result a synchronous
+create returns, or [`terminal-start-failed`](events.md#terminal-start-failed)
+with the create's `mutation_id`, always after the reply. A failed launch places
+nothing and leaves the terminal `exited` (a retry of the `mutation_id` replays
+that). Input sent to the `terminal_id` meanwhile is queued
+(`terminal-input-while-creating-v1`). An `attach-surface` with
+`expected_generation` and, as `expected_terminal_id`, the `terminal_id` the
+create replied with attaches to that terminal; sent on the same connection
+while it starts, it waits for the start, so its first replay or READY comes
+once the host is up (and it fails as an unknown terminal when the start
+failed). Any other create ignores `async_start` and replies after its terminal
+started, without `starting`. `new-tab` and `split` do not take `async_start`
+yet.
 
 With `detached:true` (capability `detached-terminals-v1`; a client must not
 send it to a server that omits the capability, because an older server

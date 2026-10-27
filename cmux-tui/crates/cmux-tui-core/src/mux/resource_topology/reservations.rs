@@ -91,6 +91,7 @@ impl Mux {
             on_exit: on_exit.unwrap_or_default(),
             tab_id,
             env: terminal_env_field(&intent["fields"]),
+            reserved: None,
         })
     }
 }

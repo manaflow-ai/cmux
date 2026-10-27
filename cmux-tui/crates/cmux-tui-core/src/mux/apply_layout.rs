@@ -226,6 +226,7 @@ impl Mux {
                     on_exit: TerminalOnExit::Close,
                     tab_id: None,
                     env: Vec::new(),
+                    reserved: None,
                 };
                 let surface = self.spawn_surface_in_workspace_reserved(
                     workspace_key,

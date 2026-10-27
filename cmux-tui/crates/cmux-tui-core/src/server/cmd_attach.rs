@@ -213,6 +213,21 @@ pub(super) fn attach_surface(
         (None, None) => None,
         _ => anyhow::bail!("attach-surface cols and rows must be supplied together"),
     };
+    // `terminal-async-start-v1`: the host terminal id an admitted create
+    // replied with (an attach of a terminal still starting on this
+    // connection waited for its start, terminal_async_start.rs).
+    let by_host_id = surface_id
+        .is_none()
+        .then(|| {
+            super::terminal_async_start::attach_by_host_id(mux, expected_terminal_id.as_deref())
+        })
+        .flatten();
+    let (surface_id, expected_terminal_id) = match by_host_id {
+        Some(surface) => {
+            (Some(surface.id), surface.terminal_public_id().map(|id| id.as_str().to_string()))
+        }
+        None => (surface_id, expected_terminal_id),
+    };
     let surface_id = match surface_id {
         Some(surface) => surface,
         None => {

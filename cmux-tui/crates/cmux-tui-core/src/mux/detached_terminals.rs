@@ -116,6 +116,7 @@ impl Mux {
             on_exit: TerminalOnExit::default(),
             tab_id: None,
             env,
+            reserved: None,
         };
         let surface = self.spawn_surface_with(
             cwd,

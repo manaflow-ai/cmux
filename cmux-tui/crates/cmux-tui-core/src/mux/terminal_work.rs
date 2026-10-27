@@ -95,9 +95,17 @@ pub(crate) struct TerminalWorkPool {
     standby: Arc<standby_host::StandbyHostSlot>,
     /// [`ASYNC_START_FEATURE`].
     async_start: AsyncStartGate,
+    /// Test seam: runs as an admitted create's launch begins.
+    #[cfg(test)]
+    start_hook: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
 }
 
 impl TerminalWorkPool {
+    #[cfg(test)]
+    pub(super) fn start_hook(&self) -> Option<Arc<dyn Fn() + Send + Sync>> {
+        self.start_hook.lock().unwrap().clone()
+    }
+
     /// The owner's pool. Its standby slot is a consumer in `memory`, the
     /// owner's registry (`Mux::memory`).
     #[cfg_attr(not(any(unix, windows)), allow(unused_variables))]
@@ -109,6 +117,8 @@ impl TerminalWorkPool {
             #[cfg(any(unix, windows))]
             standby: standby_host::StandbyHostSlot::new(memory.clone()),
             async_start: AsyncStartGate::from_env(),
+            #[cfg(test)]
+            start_hook: Mutex::new(None),
         }
     }
 
@@ -244,6 +254,17 @@ impl Mux {
     #[cfg(test)]
     pub(crate) fn set_terminal_async_start_for_test(&self, enabled: bool) {
         self.terminal_work.async_start.0.store(enabled, Ordering::Relaxed);
+    }
+
+    /// Test seam: `hook` runs as the launch of every admitted create begins,
+    /// after its reply and before it takes the creation locks, where a slow
+    /// host start would wait.
+    #[cfg(test)]
+    pub(crate) fn set_terminal_start_hook_for_test(
+        &self,
+        hook: Option<Arc<dyn Fn() + Send + Sync>>,
+    ) {
+        *self.terminal_work.start_hook.lock().unwrap() = hook;
     }
 
     /// Queue `job` on the terminal work pool. Returns it when the pool is

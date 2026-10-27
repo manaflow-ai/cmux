@@ -871,6 +871,11 @@ fn run_dispatched_request(
     if pending.request.cmd.creates_terminal() {
         return scheduler.submit_creation(mux, client, pending, writer);
     }
+    // An attach of a terminal this connection is starting runs once its
+    // start reported (`terminal-async-start-v1`, terminal_async_start.rs).
+    let Some(pending) = scheduler.park_attach(pending) else {
+        return writer.is_open();
+    };
     run_pending_request(scheduler, mux, client, pending, writer)
 }
 

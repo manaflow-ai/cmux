@@ -55,15 +55,25 @@ impl Mux {
         command: Option<Vec<String>>,
         size: Option<(u16, u16)>,
         workspace_key: Option<&str>,
-        reservation: Option<TerminalReservationRequest>,
+        mut reservation: Option<TerminalReservationRequest>,
     ) -> anyhow::Result<Arc<Surface>> {
         let id = self.next_id();
         // `split-client-keys-v1`: the tab id fixed when the creation was prepared.
         let tab_id = reservation.as_ref().and_then(|reservation| reservation.tab_id.clone());
-        let reservation_env =
-            reservation.as_ref().map(|reservation| reservation.env.as_slice()).unwrap_or_default();
+        // A create admitted before its start reserved its row then.
+        let reserved = reservation.as_mut().and_then(|reservation| reservation.reserved.take());
+        let reserved_at_admit = reserved.is_some();
         crate::debug_spans::mark("spawn.start");
-        let (opts, cell_pixels) = self.terminal_spawn_options(cwd, command, size, reservation_env);
+        let (opts, cell_pixels) = match reserved {
+            Some(ReservedLaunch { opts, cell_pixels }) => (opts, cell_pixels),
+            None => {
+                let reservation_env = reservation
+                    .as_ref()
+                    .map(|reservation| reservation.env.as_slice())
+                    .unwrap_or_default();
+                self.terminal_spawn_options(cwd, command, size, reservation_env)
+            }
+        };
         crate::debug_spans::mark("spawn.options");
         #[cfg(test)]
         if let Some(hook) = self.terminal_spawn_after_cell_pixel_snapshot.lock().unwrap().clone() {
@@ -108,7 +118,7 @@ impl Mux {
                     .map(|reservation| reservation.on_exit)
                     .unwrap_or_default(),
             };
-            let reserve_replayed = {
+            let reserve_replayed = !reserved_at_admit && {
                 let mut registry = self.workspace_registry.lock().unwrap();
                 let (replayed, revision) = if let Some(reservation) = reservation.as_ref() {
                     let commit = registry.commit_terminal(
@@ -271,7 +281,7 @@ impl Mux {
                 exit: None,
                 on_exit: reservation.on_exit,
             };
-            {
+            if !reserved_at_admit {
                 let mut registry = self.workspace_registry.lock().unwrap();
                 let commit = registry.commit_terminal(
                     &reservation.mutation,

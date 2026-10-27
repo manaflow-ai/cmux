@@ -15,7 +15,8 @@
 //!
 //! A `create-terminal` admitted under `terminal-async-start-v1` replies
 //! here before its terminal starts; its start runs after the reply, in
-//! request order with the connection's other starts
+//! request order with the connection's other starts, and a later create of
+//! the connection that is not admitted that way commits only after them
 //! (server/terminal_async_start.rs).
 
 use super::*;
@@ -25,8 +26,6 @@ use crate::panic_free::RecoverPoison;
 #[derive(Default)]
 pub(super) struct ConnectionCreations {
     state: Mutex<CreationQueue>,
-    /// Starts of admitted `create-terminal`s (`terminal-async-start-v1`).
-    starts: Mutex<terminal_async_start::ConnectionStarts>,
 }
 
 #[derive(Default)]
@@ -34,6 +33,8 @@ struct CreationQueue {
     slots: VecDeque<Arc<CreationSlot>>,
     /// A thread is committing the head slot.
     committing: bool,
+    /// Starts of admitted `create-terminal`s (`terminal-async-start-v1`).
+    starts: terminal_async_start::ConnectionStarts,
 }
 
 struct CreationSlot {
@@ -46,6 +47,9 @@ struct CreationSlot {
     /// The caller-minted terminal id whose input queue this creation owns, with its generation:
     /// creating from submit to commit (`terminal-input-while-creating-v1`, `mux::creating_input`).
     creating_terminal: Option<(String, u64)>,
+    /// The terminal id of a `create-terminal` admitted before its start
+    /// (`terminal-async-start-v1`): it commits while earlier starts run.
+    async_start: Option<String>,
 }
 
 impl Command {
@@ -194,14 +198,22 @@ impl ConnectionSurfaceScheduler {
         let creating_terminal = pending.request.cmd.created_terminal_id().and_then(|terminal_id| {
             mux.begin_creating_input(&terminal_id).map(|generation| (terminal_id, generation))
         });
+        let async_start = pending.request.cmd.async_start_terminal(mux, client).map(str::to_string);
         let slot = Arc::new(CreationSlot {
             request: Mutex::new(Some(pending)),
             launched: Mutex::new(None),
             trace: Mutex::new(None),
             creating_terminal,
+            async_start,
         });
         self.begin_creation();
-        self.creations.state.lock().recover_poison().slots.push_back(slot.clone());
+        {
+            let mut queue = self.creations.state.lock().recover_poison();
+            if let Some(terminal_id) = &slot.async_start {
+                queue.starts.expect(terminal_id);
+            }
+            queue.slots.push_back(slot.clone());
+        }
         let scheduler = self.clone();
         let job_mux = mux.clone();
         let job_writer = writer.clone();
@@ -243,6 +255,11 @@ impl ConnectionSurfaceScheduler {
                 if head.launched.lock().recover_poison().is_none() {
                     return;
                 }
+                // Its tab lands after the tabs of the earlier starts; the
+                // last start's drain commits it.
+                if head.async_start.is_none() && queue.starts.pending() {
+                    return;
+                }
                 let Some(slot) = queue.slots.pop_front() else { return };
                 queue.committing = true;
                 slot
@@ -276,9 +293,9 @@ impl ConnectionSurfaceScheduler {
             crate::debug_spans::follow(terminal_id);
         }
         let cancelled = self.cancelled.is_cancelled();
-        let keep_open = match pending {
+        let (keep_open, starts) = match pending {
             // A closed connection drops its queued requests unexecuted.
-            Some(_) if cancelled => true,
+            Some(_) if cancelled => (true, Vec::new()),
             Some(mut pending) => {
                 if let Some(terminal_hex) = launched.as_ref() {
                     match &mut pending.request.cmd {
@@ -299,11 +316,12 @@ impl ConnectionSurfaceScheduler {
                 // request admitted runs only then.
                 let after_reply = terminal_async_start::StartsAfterReply::enter();
                 let keep_open = run_pending_request(self, mux, client, pending, writer);
-                self.start_terminals(mux, writer, after_reply.take());
-                keep_open
+                (keep_open, after_reply.take())
             }
-            None => true,
+            None => (true, Vec::new()),
         };
+        // A create that started nothing lets the attaches that waited for it run (and fail).
+        self.start_terminals(mux, client, writer, slot.async_start.as_deref(), starts);
         // Input queued for the new terminal goes to it now, before any later input, or back to
         // its senders when the create failed or was dropped.
         if let Some((terminal_id, generation)) = &slot.creating_terminal {
@@ -318,47 +336,101 @@ impl ConnectionSurfaceScheduler {
     }
 
     /// Run `starts` after their replies, in request order: each counts as a
-    /// creation of this connection until it reported.
+    /// creation of this connection until it reported. `expected` is the
+    /// terminal id the request was to admit: attaches that waited for it
+    /// run now when it got no start.
     fn start_terminals(
         self: &Arc<Self>,
         mux: &Arc<Mux>,
+        client: u64,
         writer: &MessageWriter,
+        expected: Option<&str>,
         starts: Vec<terminal_async_start::TerminalStart>,
     ) {
         for _ in &starts {
             self.begin_creation();
         }
-        if self.creations.starts.lock().recover_poison().push(starts) {
-            self.drain_starts(mux, writer);
+        let (drain, unstarted) =
+            self.creations.state.lock().recover_poison().starts.push(expected, starts);
+        self.run_attaches(mux, client, writer, unstarted);
+        if drain {
+            self.drain_starts(mux, client, writer);
         }
     }
 
     /// Run the connection's next start on the terminal work pool, one start
     /// per pool job so each runs under its own hang deadline; the job hands
     /// the drain on to the next. A saturated pool runs it here, after the
-    /// reply, as a create without the feature would have.
-    fn drain_starts(self: &Arc<Self>, mux: &Arc<Mux>, writer: &MessageWriter) {
+    /// reply, as a create without the feature would have. Once the last
+    /// start reported, the creates that waited for it commit.
+    fn drain_starts(self: &Arc<Self>, mux: &Arc<Mux>, client: u64, writer: &MessageWriter) {
         loop {
             let scheduler = self.clone();
             let (job_mux, job_writer) = (mux.clone(), writer.clone());
             let job: Box<dyn FnOnce() + Send> = Box::new(move || {
-                if scheduler.run_next_start(&job_writer) {
-                    scheduler.drain_starts(&job_mux, &job_writer);
+                if scheduler.run_next_start(&job_mux, client, &job_writer) {
+                    scheduler.drain_starts(&job_mux, client, &job_writer);
+                } else {
+                    scheduler.commit_ready_creations(&job_mux, client, &job_writer);
                 }
             });
-            if mux.submit_terminal_work(job).is_ok() || !self.run_next_start(writer) {
+            if mux.submit_terminal_work(job).is_ok() {
+                return;
+            }
+            if !self.run_next_start(mux, client, writer) {
+                self.commit_ready_creations(mux, client, writer);
                 return;
             }
         }
     }
 
-    /// Run the next start; false when none was left and the drain ended.
-    fn run_next_start(&self, writer: &MessageWriter) -> bool {
-        let next = self.creations.starts.lock().recover_poison().next();
+    /// Run the next start and the attaches that waited for it; false when
+    /// none was left and the drain ended.
+    fn run_next_start(
+        self: &Arc<Self>,
+        mux: &Arc<Mux>,
+        client: u64,
+        writer: &MessageWriter,
+    ) -> bool {
+        let next = self.creations.state.lock().recover_poison().starts.next();
         let Some(start) = next else { return false };
-        terminal_async_start::run_start(start, writer);
+        let terminal_id = start.terminal_id().to_string();
+        start.run(writer);
+        let waiting = self.creations.state.lock().recover_poison().starts.started(&terminal_id);
         self.finish_creation();
+        self.run_attaches(mux, client, writer, waiting);
         true
+    }
+
+    /// Hold `pending`, an `attach-surface` of a terminal this connection is
+    /// starting, until its start reported; otherwise give it back.
+    pub(super) fn park_attach(
+        &self,
+        pending: PendingSurfaceRequest,
+    ) -> Option<PendingSurfaceRequest> {
+        if pending.request.cmd.attach_terminal_id().is_none() {
+            return Some(pending);
+        }
+        self.creations.state.lock().recover_poison().starts.park_attach(pending)
+    }
+
+    /// Run attaches that waited for a start, in arrival order.
+    fn run_attaches(
+        self: &Arc<Self>,
+        mux: &Arc<Mux>,
+        client: u64,
+        writer: &MessageWriter,
+        attaches: Vec<PendingSurfaceRequest>,
+    ) {
+        for pending in attaches {
+            // A closed connection drops its queued requests unexecuted.
+            if self.cancelled.is_cancelled() {
+                continue;
+            }
+            if !run_pending_request(self, mux, client, pending, writer) {
+                self.close();
+            }
+        }
     }
 
     fn begin_creation(&self) {

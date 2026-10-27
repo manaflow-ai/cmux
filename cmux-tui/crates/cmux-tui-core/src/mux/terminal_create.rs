@@ -63,16 +63,6 @@ impl Mux {
         anyhow::bail!("created running terminal has no placement")
     }
 
-    /// Test seam: `hook` runs on every terminal create's launch path, before
-    /// its workspace is locked, where a slow host start would wait.
-    #[cfg(test)]
-    pub(crate) fn set_terminal_create_launch_hook_for_test(
-        &self,
-        hook: Option<Arc<dyn Fn() + Send + Sync>>,
-    ) {
-        *self.terminal_create_after_empty_check.lock().unwrap() = hook;
-    }
-
     #[track_caller]
     pub(crate) fn reap_created_terminal_surface(self: &Arc<Self>, surface: Option<SurfaceId>) {
         if let Some(surface) = surface.and_then(|surface| self.surface(surface)) {
@@ -178,6 +168,7 @@ impl Mux {
             on_exit: on_exit.unwrap_or_default(),
             tab_id: None,
             env,
+            reserved: None,
         };
         let (placement, surface, created_path) = self.create_terminal_in_workspace_impl(
             workspace,
@@ -188,8 +179,19 @@ impl Mux {
             Some(reservation),
         )?;
         crate::debug_spans::mark("create.placed");
+        self.created_terminal_placement(placement, &surface, created_path)
+    }
+
+    /// The result of a create that placed its new terminal.
+    #[track_caller]
+    pub(super) fn created_terminal_placement(
+        &self,
+        placement: RunPlacement,
+        surface: &Arc<Surface>,
+        created_path: Value,
+    ) -> anyhow::Result<TerminalPlacementResult> {
         let identity = self
-            .resource_terminal_host_identity(&surface)
+            .resource_terminal_host_identity(surface)
             .ok_or_else(|| anyhow::anyhow!("created terminal has no host identity"))?;
         let terminal_revision = self.workspace_registry.lock().unwrap().terminal_revision()?;
         crate::debug_spans::mark("create.terminal_revision");

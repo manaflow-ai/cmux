@@ -1400,8 +1400,7 @@ object{event:"terminal-started",terminal_id:string,mutation_id:string,result:Ter
 Meaning: The terminal of a `create-terminal` that replied `starting:true`
 ([commands.md](commands.md#create-terminal)) started. `result` is what the
 create replies without `async_start`: its placement, incarnation, lifecycle and
-revision, and `replayed:true` when the create replayed an earlier one with the
-same `mutation_id`. It is sent on the control queue of the connection that sent
+revision. It is sent on the control queue of the connection that sent
 the create, after the create's reply, also without a subscription.
 
 Example:
@@ -1424,8 +1423,9 @@ Payload:
 object{event:"terminal-start-failed",terminal_id:string,mutation_id:string,key:string,error:string,error_code:string|null}
 ```
 
-Meaning: The terminal of a `create-terminal` that replied `starting:true` did
-not start; `error` and `error_code` are what the create would have failed with
+Meaning: The launch of a `create-terminal` that replied `starting:true`
+failed after the reply; the create placed nothing and its terminal is
+`exited`. `error` and `error_code` are what the create would have failed with
 without `async_start`. The client rolls back the intent of `mutation_id`. Input
 queued for `terminal_id` comes back in `terminal-input-unclaimed` with reason
 `failed`. It is sent on the control queue of the connection that sent the
@@ -1434,7 +1434,7 @@ create, after the create's reply, also without a subscription.
 Example:
 
 ```json
-{"event":"terminal-start-failed","terminal_id":"00000000000040008000000000000001","mutation_id":"create-monitor","key":"9dc5432b-6e28-4b58-9f35-75b263f6e84f","error":"terminal generation conflict: expected 1, current 2","error_code":null}
+{"event":"terminal-start-failed","terminal_id":"00000000000040008000000000000001","mutation_id":"create-monitor","key":"9dc5432b-6e28-4b58-9f35-75b263f6e84f","error":"terminal host did not start","error_code":null}
 ```
 
 ### terminal-clipboard-read
