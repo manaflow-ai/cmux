@@ -57,7 +57,7 @@ while [[ \$# -gt 0 ]]; do
     *) url="\$1"; shift ;;
   esac
 done
-path="\${url#https://files.cmux.com/cmux-tui/}"
+path="\${url#https://files.cmux.com/cmux-tui/}"; path="\${path%%\?*}"
 [[ "\$path" != "\$url" && -f "$cdn/\$path" ]] || exit 22
 if [[ -n "\$out" ]]; then cp "$cdn/\$path" "\$out"; else cat "$cdn/\$path"; fi
 STUB

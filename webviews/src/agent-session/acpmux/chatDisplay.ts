@@ -121,13 +121,13 @@ export const DEFAULT_CHAT_DISPLAY: ChatDisplay = {
 
 /// The body font stacks, as the Markdown viewer's presets (pages/markdown/settings.ts).
 const FONT_STACKS: Record<ChatFontPreset, string> = {
-  system: "system-ui",
+  system: "var(--font-ui)",
   serif: '"New York", ui-serif, "Iowan Old Style", Georgia, serif',
   mono: "var(--cv-mono)",
 };
 /// What the estimator's canvas measures each preset as (a canvas can't read CSS variables).
 const MEASURE_STACKS: Record<ChatFontPreset, string> = {
-  system: "system-ui",
+  system: '"Inter", system-ui, sans-serif',
   serif: '"New York", Georgia, serif',
   mono: '"SF Mono", Menlo, monospace',
 };

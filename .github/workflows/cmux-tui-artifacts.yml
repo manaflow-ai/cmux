@@ -1177,7 +1177,7 @@ jobs:
       # path a newer push replaces only the waiting job). The complete-key
       # preflight skips duplicate work after the first complete run.
       cancel-in-progress: false
-    name: cmux_next_ daemon tests (Linux)
+    name: cmux_next_ daemon tests
     # The nightly-next promotion gate (chief 2026-10-13): a pass here writes
     # tree/<key>/daemon-tests.json (publish-tree-tested), which
     # request-nightly-next.sh requires. Leo, 2026-10-26: "I THOUGHT THESE
@@ -1188,11 +1188,12 @@ jobs:
     # promote mini the Release compile needs. The tests that need macOS
     # (Keychain, Seatbelt, wakeup counters) run in their own workflow,
     # cmux-next-daemon-macos-shadow.yml, which gates nothing and keeps a Mac
-    # wait out of this run (tests/test_cmux_tui_daemon_tests_linux.py). One job, not a matrix:
+    # wait out of this run (tests/test_cmux_tui_daemon_tests_gate.py). One job, not a matrix:
     # the compile of the test binaries is most of the wall time, and shards
     # would each repeat it. cmux_tui_publisher_testing.py finds this job by
-    # its name's "cmux_next_ daemon tests" prefix, so older runs' "(macOS)"
-    # job still counts.
+    # its name's "cmux_next_ daemon tests" prefix, so older runs' names with
+    # a runner suffix still count. Leo, 2026-10-27: "ok do NOT label stuff as
+    # os=linux...": the name, steps and marker name no runner OS.
     # The glaeda read token's key is an external credential: a dispatchable
     # job holding one runs in an environment (tests/test_supplychain_security.py).
     # ci-routing-agent is the one the other glaeda-route readers use.
@@ -1218,8 +1219,6 @@ jobs:
       key: ${{ steps.key.outputs.key }}
       legacy_key: ${{ steps.key.outputs.legacy_key }}
       superseded: ${{ steps.current.outputs.stale }}
-      # publish-tree-tested records it in the promotion's marker.
-      runner_os: ${{ runner.os }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -1312,7 +1311,7 @@ jobs:
         if: steps.current.outputs.stale != 'true'
         run: git submodule update --init --depth 1 ghostty-next
 
-      - name: Install Linux build dependencies
+      - name: Install the build dependencies
         if: steps.current.outputs.stale != 'true' && runner.os == 'Linux'
         run: |
           sudo apt-get update
@@ -1346,6 +1345,7 @@ jobs:
         if: steps.current.outputs.stale != 'true'
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
+          cache-bin: false
           workspaces: cmux-tui -> target
           shared-key: ${{ runner.os == 'macOS' && 'cmux-tui-macos' || 'cmux-tui-linux' }}
           cache-all-crates: true
@@ -2093,7 +2093,13 @@ jobs:
           }
           publish_legacy_prefix "mux/$GITHUB_SHA" "public, max-age=31536000, immutable"
 
+      # Only where latest is published (main's first pass): it keeps a bad
+      # commit manifest out of latest/. Elsewhere "Verify published Unix
+      # manifests" below checks the same immutable manifests (and acpmux), so
+      # running both took 75 s more of every feat-cmux-next publish, which
+      # publish-tree and so the nightly-next request wait for.
       - name: Verify immutable Unix manifests before latest publish
+        if: github.ref == 'refs/heads/main' && env.CMUX_TUI_PUBLISH_PASS != 'windows'
         run: |
           set -euo pipefail
           python3 cmux-tui/scripts/verify_published_manifest.py \
@@ -2891,7 +2897,6 @@ jobs:
           R2_ENDPOINT: "https://${{ secrets.CF_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com"
           KEY_V2: ${{ needs.tree-preflight.outputs.key }}
           LEGACY_KEY: ${{ needs.tree-preflight.outputs.legacy_key }}
-          TESTED_OS: ${{ needs.cmux-next-daemon-tests.outputs.runner_os }}
         run: scripts/ci/cmux-tui-mark-daemon-tested.sh "$KEY_V2" "$LEGACY_KEY"
 
   # Linux hosts keep their daemon on the newest feat-cmux-next build by
