@@ -453,7 +453,8 @@ final class AppServices {
                 },
                 keyRouter: keyRouter, work: work, dialogs: .shared,
                 hangWork: features.isEnabled(.pageHangNotice) ? mainWork : nil),
-            openPanel: openPanel, memory: memoryCoordinator, registry: .processWide, startsPagesAtFirstShow: features.isEnabled(.pageRendererAtFirstShow),
+            openPanel: openPanel, memory: memoryCoordinator, registry: .processWide, deadlines: mainDeadlines,
+            startsPagesAtFirstShow: features.isEnabled(.pageRendererAtFirstShow),
             hoverFrameInput: hoverFrameInput, retirer: PageRetirer(deadlines: mainDeadlines))
         host.scriptFrames = pageScriptFrame
         return host

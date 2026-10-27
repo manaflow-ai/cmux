@@ -39,8 +39,9 @@ public final class PageHostPool {
     /// nobody sees waits behind input and every visible task (Chrome's kBestEffort,
     /// content/browser/scheduler/browser_task_queues.h).
     let timer: MainDeadline
-    /// Where each step of a build runs, as one background task (``nextTurn()``).
-    let buildWork: MainWorkScheduler
+    /// The pool's deadline scheduler: each step of a build runs in the body of one background task of its
+    /// ``MainDeadlineScheduler/work`` (``step(_:_:)``), and the spare page it makes runs its own deadlines on it.
+    let deadlines: MainDeadlineScheduler
     let parking = PageHostParking()
     var spare: PageWebView?
     var spareReady = false
@@ -90,7 +91,7 @@ public final class PageHostPool {
         self.activity = activity
         self.isTrackingMenu = isTrackingMenu
         timer = MainDeadline(owner: "PageHostPool.build", workClass: .background, scheduler: deadlines)
-        buildWork = deadlines.work
+        self.deadlines = deadlines
         spareMemory = SpareMemoryConsumer(
             name: "page-host-spare", registry: memory, spares: { [weak self] in self?.spare == nil ? 0 : 1 },
             drop: { [weak self] in self?.dropSpare() }, refill: { [weak self] in self?.refillSpare() })

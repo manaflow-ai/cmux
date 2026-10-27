@@ -49,7 +49,7 @@ struct PageLazinessTests {
     private func makeHost(_ hosting: FakeChromiumHosting?, lazy: Bool = true) -> WebUIHost {
         WebUIHost(chromium: hosting, openPanel: nil,
                   memory: QuietMemoryRegistry(),
-                  clock: PageTestClock.never, startsPagesAtFirstShow: lazy)
+                  deadlines: LifecycleDeadlineRig.never, startsPagesAtFirstShow: lazy)
     }
 
     @Test func aWebKitPageStartsNoDocumentBeforeItsFirstShow() async throws {

@@ -23,7 +23,7 @@ struct PageWebViewDebugPressTests {
         defer { try? FileManager.default.removeItem(at: root) }
         let hosting = FakeChromiumHosting()
         let view = try #require(PageWebView(descriptor: descriptor, root: root, routes: [], route: "#/", chromium: hosting))
-        view.chromiumClock = PageTestClock.never
+        view.chromiumDeadlines = LifecycleDeadlineRig.never
         await view.chromiumStart?.value
         let page = try #require(hosting.made.first)
         #expect(await view.debugPress(x: 308, y: 18))
