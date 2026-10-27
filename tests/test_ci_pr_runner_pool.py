@@ -520,8 +520,17 @@ class JanitorSnapshot(unittest.TestCase):
 
 
 # The pull-request lane, wherever its event condition puts it: compile admission
-# also takes it for main's full-suite dispatch (#14158), where the inputs are empty.
-PR_ROUTE = re.compile(r"&& \((?P<lane>(?:[^()]|\((?:[^()]|\([^()]*\))*\))*vars\.MACOS_RUNNER_PR[^()]*)\)")
+# also takes it for main's full-suite dispatch (#14158), where the inputs are empty. Groups inside
+# the lane nest up to five deep: the rescue-actor test, contains(fromJSON(...), ...), sits inside the
+# attempt group, which may itself hold an `||` group.
+def _nested(depth: int) -> str:
+    group = r"\([^()]*\)"
+    for _ in range(depth - 1):
+        group = r"\((?:[^()]|" + group + r")*\)"
+    return group
+
+
+PR_ROUTE = re.compile(r"&& \((?P<lane>(?:[^()]|" + _nested(5) + r")*vars\.MACOS_RUNNER_PR[^()]*)\)")
 
 
 def retry_lane(key: str) -> str:

@@ -31,6 +31,8 @@ def load(name: str):
     spec = importlib.util.spec_from_file_location(f"rescue_actors_{name}", SCRIPTS / f"{name}.py")
     module = importlib.util.module_from_spec(spec)
     assert spec.loader is not None
+    # dataclasses look the module up by name while the class is built.
+    sys.modules[spec.name] = module
     spec.loader.exec_module(module)
     return module
 
