@@ -64,15 +64,20 @@ if "CHANNEL_FEED_BASE/appcast-arm64.xml" not in delta or "live_build != NIGHTLY_
     failures.append("republish-nightly-deltas must skip unless the live NEXT appcast still serves this build")
 if "if: steps.current.outputs.current == 'true'" not in notes_publish:
     failures.append("publish-release-notes must skip stale notes after a newer publication")
-for writer, group in (("publish-release-notes", "release-notes-"), ("republish-nightly-deltas", "release-deltas-")):
+for writer, group in (
+    ("publish-release-notes", "release-notes-${{ needs.decide.outputs.release_tag }}"),
+    # nightly-next: its own group (the feed write is a compare-and-swap); classic and RC keep the publish lock.
+    ("republish-nightly-deltas", "release-${{ needs.decide.outputs.track == 'nightly-next' && 'deltas' || 'publish' }}-"
+                                 "${{ needs.decide.outputs.release_tag }}"),
+):
     writer_text = job(writer)
     if "    concurrency:\n" not in writer_text:
         failures.append(f"{writer} must serialize its mutable publication writes")
-    # Its own channel group, never publish-nightly's: a queued writer would replace a waiting publish.
-    if f"group: {group}${{{{ needs.decide.outputs.release_tag }}}}" not in writer_text:
-        failures.append(f"{writer} must serialize in its own {group}<tag> group")
-    if "release-publish-" in writer_text:
-        failures.append(f"{writer} must not share publish-nightly's release-publish group")
+    # Never publish-nightly's group on nightly-next: a queued writer would replace a waiting publish.
+    if f"group: {group}" not in writer_text:
+        failures.append(f"{writer} must serialize in the group {group}")
+if "write-feed --feed \"$feed\" --same-build" not in job("republish-nightly-deltas"):
+    failures.append("republish-nightly-deltas must write the nightly-next feed only by compare-and-swap (--same-build)")
     if "cancel-in-progress: false" not in writer_text:
         failures.append(f"{writer} must let an in-flight publication finish")
 if "publish-nightly.result == 'success'" not in notes_publish:

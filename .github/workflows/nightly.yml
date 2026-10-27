@@ -7401,17 +7401,19 @@ jobs:
 
   republish-nightly-deltas:
     # This job is separate from publish-nightly so the feed can advance first.
-    # Its delta uploads are serialized per release channel in their own group,
-    # never publish-nightly's: GitHub replaces a group's pending job with a newly
+    # On nightly-next its delta uploads are serialized in their own group, never
+    # publish-nightly's: GitHub replaces a group's pending job with a newly
     # queued one, so a shared group let one run's deltas cancel another run's
-    # waiting publish. The feed write is a compare-and-swap on the bytes read
-    # (write-feed --same-build), and the job skips unless the live feed serves
-    # this build, so it needs no lock with publish-nightly.
+    # waiting publish. Its only feed write is a compare-and-swap on the bytes
+    # read (write-feed --same-build: only while the live feed serves this
+    # build), so a newer publish in between makes it a no-op. The classic and
+    # RC tracks replace release feeds with no compare-and-swap, so they keep
+    # publish-nightly's lock.
     needs: [decide, build-nightly-app, resolve-nightly-cmux-tui-client, publish-nightly, generate-nightly-deltas]
     if: always() && needs.decide.outputs.should_publish == 'true' && needs.decide.outputs.fast_build != 'true' && needs.publish-nightly.result == 'success' && needs.publish-nightly.outputs.already_published != 'true'
     environment: ${{ needs.decide.outputs.environment }}
     concurrency:
-      group: release-deltas-${{ needs.decide.outputs.release_tag }}
+      group: release-${{ needs.decide.outputs.track == 'nightly-next' && 'deltas' || 'publish' }}-${{ needs.decide.outputs.release_tag }}
       cancel-in-progress: false
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     permissions:
@@ -7764,9 +7766,10 @@ jobs:
 
   publish-release-notes:
     # Its own group, not publish-nightly's (a queued notes job would replace a
-    # waiting publish). Notes jobs stay serialized against each other, and each
-    # skips unless the live feed serves its build, so a newer build's notes
-    # always run after an older build's.
+    # waiting publish). Notes jobs stay serialized against each other and each
+    # skips unless the live feed serves its build. If an older build's notes
+    # pass that check and a newer publish lands before they write, the newer
+    # build's own notes job queues behind them in this group and writes last.
     needs: [decide, publish-nightly, sign-release-notes, resolve-nightly-cmux-tui-client]
     concurrency:
       group: release-notes-${{ needs.decide.outputs.release_tag }}

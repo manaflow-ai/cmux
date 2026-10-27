@@ -27,7 +27,7 @@ SHARED_NIGHTLY_GROUPS = {
     "promote-nightly-next": "nightly-next-promote",
     "await-release-surface-ack": "nightly-next-promote-ack",
     "publish-nightly": "release-publish-",
-    "republish-nightly-deltas": "release-deltas-",
+    "republish-nightly-deltas": "release-",
     "publish-release-notes": "release-notes-",
     "publish-nightly-identity-legacy": "nightly-next-legacy-identity-publish",
     # The release's mutable names only; the uploads (publish-nightly-next-github) have no group.
@@ -105,8 +105,13 @@ def test_a_publish_never_shares_a_group_with_a_non_publish_job() -> None:
         assert group_of(jobs[name]), f"{name} must keep its publication group"
         assert jobs[name]["concurrency"]["cancel-in-progress"] is False, name
     publish_families = {family(group_of(jobs[name])) for name in PUBLISH_JOBS}
+    # The nightly-next delta republish leaves the publish group (its feed write is a compare-and-swap);
+    # the classic and RC tracks keep the publish lock, since they replace feeds without one.
+    deltas = group_of(jobs["republish-nightly-deltas"])
+    assert deltas == ("release-${{ needs.decide.outputs.track == 'nightly-next' && 'deltas' || 'publish' }}-"
+                      "${{ needs.decide.outputs.release_tag }}"), deltas
     for name, job in jobs.items():
-        if name in PUBLISH_JOBS or not group_of(job):
+        if name in PUBLISH_JOBS or name == "republish-nightly-deltas" or not group_of(job):
             continue
         assert family(group_of(job)) not in publish_families, (
             f"nightly.yml {name} shares a publish job's concurrency group {group_of(job)!r}: "
