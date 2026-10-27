@@ -1,4 +1,5 @@
 public import AppKit
+public import CmuxHomeCore
 public import CmuxNextWakeups
 public import QuartzCore
 
@@ -166,18 +167,6 @@ public import QuartzCore
     }
 }
 
-/// Where a view's infinite loops live: each runs only while a person can see it, and its make
-/// returns nil while loops are off (Energy Saver, Reduce Motion, the category switch), leaving the
-/// layer still. ``LoopVisibility`` is the app's host; code that cannot see the window (a vendored
-/// Shared view) takes one injected (p14-energy-115). The requirements name only QuartzCore types,
-/// so a module below CmuxNextDesign can declare the same shape.
-@MainActor public protocol LoopHost: AnyObject {
-    /// Runs `make`'s loop on `layer` under `key` whenever the host is visible.
-    func attach(_ layer: CALayer, key: String, make: @escaping @MainActor () -> CAAnimation?)
-    /// Takes the loop under `key` off `layer` for good.
-    func detach(_ layer: CALayer, key: String)
-    /// Takes every attached loop off.
-    func detachAll()
-}
-
+/// The app's ``LoopHost`` (CmuxHomeCore): a Shared view that cannot see its window takes one
+/// injected (p14-energy-115) and its loops follow this host's window like the app's own.
 extension LoopVisibility: LoopHost {}

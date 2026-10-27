@@ -1,4 +1,5 @@
 import AppKit
+import CmuxHomeCore
 @testable import CmuxNextDesign
 import CmuxNextWakeups
 import QuartzCore

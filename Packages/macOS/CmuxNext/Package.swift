@@ -1791,6 +1791,8 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextSignposts",
                 // OnceContinuation (p10-stability-089).
                 .product(name: "CmuxSafeConcurrency", package: "CmuxSafeConcurrency"),
+                // LoopHost, the loop seam LoopVisibility conforms to and the Shared views take (p14-energy-056).
+                .product(name: "CmuxHomeCore", package: "CmuxHomeCore"),
             ],
             resources: [.process("Resources")],
             swiftSettings: uiSwiftSettings
@@ -1799,6 +1801,8 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         .testTarget(
             name: "CmuxNextDesignTests",
             dependencies: [
+                // LoopHost (LoopVisibilityTests).
+                .product(name: "CmuxHomeCore", package: "CmuxHomeCore"),
                 "CmuxNextCompat",
                 "CmuxNextDesign",
                 "CmuxNextDesignTokens",
