@@ -12,6 +12,14 @@
 //!   become credit for the app, so a slow client stops the far end;
 //! - client to app: bytes from the socket become data frames within the
 //!   app's credit.
+//!
+//! Both pumps carry the person's daemon connection for the far session:
+//! its keys go out on `cmux-link-in` and their echo comes back on
+//! `cmux-link-out`. They run at the echo path class, as `holder-link` does
+//! for a held terminal (Chromium runs the IO thread every input event
+//! crosses at `ThreadType::kDisplayCritical`,
+//! base/threading/platform_thread.h). Their waits are the link's condition
+//! variable and the socket, so they do not disallow blocking.
 
 use crate::panic_free::RecoverPoison;
 use std::collections::HashMap;
@@ -22,6 +30,8 @@ use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
+
+use cmux_threads::ThreadQos;
 
 use super::{Frame, LinkRegistry};
 
@@ -34,6 +44,12 @@ pub(crate) type ClientGone = Arc<dyn Fn(&str) + Send + Sync>;
 const CHUNK: usize = 64 * 1024;
 /// Longest socket path most platforms accept (`sun_path` is 104 on macOS).
 const MAX_SOCKET_PATH: usize = 100;
+/// The class of `cmux-link-in` and `cmux-link-out` (closed user-interactive
+/// list, plans/cmux-next/threading-model.md).
+const PUMP_QOS: ThreadQos = crate::echo_thread::ECHO_PATH_QOS;
+/// The class of `cmux-link-accept`: the person's connect waits for it, no
+/// key echo does (the daemon's own accept threads, `mux-server`).
+const ACCEPT_QOS: ThreadQos = crate::thread_qos::ThreadType::Interactive.qos();
 
 struct Relay {
     path: PathBuf,
@@ -93,7 +109,7 @@ impl RelaySet {
             emit,
             gone,
         };
-        std::thread::Builder::new().name("cmux-link-accept".into()).spawn(move || accept.run())?;
+        cmux_threads::spawn("cmux-link-accept", ACCEPT_QOS, move || accept.run())?;
         self.relays.lock().recover_poison().insert(channel.to_owned(), relay);
         Ok(path)
     }
@@ -170,44 +186,40 @@ impl Accept {
 
     fn serve(&self, mut reader: UnixStream, mut writer: UnixStream) {
         let (links, channel, emit) = (self.links.clone(), self.channel.clone(), self.emit.clone());
-        let _ = cmux_threads::spawn(
-            "cmux-link-out",
-            crate::thread_qos::ThreadType::Interactive.qos(),
-            move || {
-                while let Ok(bytes) = links.channels().wait_received(&channel, CHUNK) {
-                    if writer.write_all(&bytes).is_err() {
-                        break;
-                    }
-                    match links.channels().consumed(&channel, bytes.len() as u64) {
-                        Ok(Some(credit)) => emit(credit),
-                        Ok(None) => {}
-                        Err(_) => break,
-                    }
+        let _ = cmux_threads::spawn("cmux-link-out", PUMP_QOS, move || {
+            while let Ok(bytes) = links.channels().wait_received(&channel, CHUNK) {
+                if writer.write_all(&bytes).is_err() {
+                    break;
                 }
-                let _ = writer.shutdown(Shutdown::Both);
-            },
-        );
+                match links.channels().consumed(&channel, bytes.len() as u64) {
+                    Ok(Some(credit)) => emit(credit),
+                    Ok(None) => {}
+                    Err(_) => break,
+                }
+            }
+            let _ = writer.shutdown(Shutdown::Both);
+        });
         let (links, channel, emit) = (self.links.clone(), self.channel.clone(), self.emit.clone());
         let (stopped, gone) = (self.stopped.clone(), self.gone.clone());
-        let _ = cmux_threads::spawn(
-            "cmux-link-in",
-            crate::thread_qos::ThreadType::Interactive.qos(),
-            move || {
-                let mut buf = vec![0u8; CHUNK];
-                loop {
-                    let n = match reader.read(&mut buf) {
-                        Ok(0) | Err(_) => break,
-                        Ok(n) => n,
-                    };
-                    let read = buf.get(..n).unwrap_or(&buf);
-                    if links.channels().send_all(&channel, read, &*emit).is_err() {
-                        break;
-                    }
+        let _ = cmux_threads::spawn("cmux-link-in", PUMP_QOS, move || {
+            let mut buf = vec![0u8; CHUNK];
+            loop {
+                let n = match reader.read(&mut buf) {
+                    Ok(0) | Err(_) => break,
+                    Ok(n) => n,
+                };
+                let read = buf.get(..n).unwrap_or(&buf);
+                if links.channels().send_all(&channel, read, &*emit).is_err() {
+                    break;
                 }
-                if !stopped.load(Ordering::SeqCst) {
-                    gone(&channel);
-                }
-            },
-        );
+            }
+            if !stopped.load(Ordering::SeqCst) {
+                gone(&channel);
+            }
+        });
     }
 }
+
+#[cfg(test)]
+#[path = "relay_tests.rs"]
+mod tests;

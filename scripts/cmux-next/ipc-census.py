@@ -27,7 +27,10 @@ Refinements over the raw queries (each is stated on its queue):
   Q8  thread name sites in cmux-tui/crates (tests dropped) whose spawned body does not begin with
       `cmux_tui_platform::qos::set_current` (or `cmux_threads::set_current`, `thread_qos::set`, or
       the `registry::register_current` of `cmux_threads::spawn`, which sets the declared QoS before
-      the closure runs), plus journal writers spawned by name. The body is the
+      the closure runs), plus journal writers spawned by name, unless every definition of
+      `spawn_journal_writer` passes its `name` on to a registering spawn (`cmux_threads::spawn`,
+      `echo_thread::spawn`, the platform `qos::spawn_*`), directly or through the functions it
+      calls with that `name` (a `Type::f` call names that impl's `f` only). The body is the
       `.spawn(` of the name's own builder chain (or of the `let` that holds the builder). A
       `.name(var)` of a thread builder counts too: the variable resolves through its `let`, a
       `for` loop over literals, or the arguments callers pass for a parameter; a name the census
@@ -911,6 +914,14 @@ class Census:
     Q8_VARIABLE_SITE = re.compile(r"\.name\(\s*" + Q8_VARIABLE + r"\)")
     Q8_LITERAL_VALUE = re.compile(r'\s*&?\s*(?:format!\(\s*|String::from\(\s*)?"((?:[^"\\]|\\.)*)"')
     Q8_DEPTH = 4  # callers followed for a name passed in as a parameter
+    # A spawn that registers its thread at a declared class before the body runs, given the
+    # wrapper's own `name` parameter first.
+    Q8_REGISTERING_SPAWN = re.compile(
+        r"(?:\bcmux_threads::spawn(?:_with_stack)?|\becho_thread::spawn(?:_host_stream_reader)?"
+        r"|\bqos::spawn_(?:raisable|outside_request))\s*\(\s*name\s*[,)]"
+    )
+    # A call that hands the wrapper's `name` on: `Type::f(name`, `Self::f(name` or `.f(name`.
+    Q8_NAME_FORWARD = re.compile(r"(?:\b([A-Z]\w*)\s*::\s*|\.\s*)([a-z_]\w*)\s*\(\s*name\s*[,)]")
 
     @staticmethod
     def q8_spawn(blanked: str, site: int, after: int) -> int | None:
@@ -953,6 +964,38 @@ class Census:
                 if self.Q8_QOS.match(blanked[definition.end():]):
                     return True
         return False
+
+    def q8_wrapper_registers(self, function: str, owner: str | None = None, depth: int = 0) -> bool:
+        """Whether thread wrapper `function` (`owner`'s method when given) starts a registered
+        thread: it has a non-test definition, and each one takes a `name` parameter and passes it to
+        a registering spawn, or on to a function that does."""
+        if depth > self.Q8_DEPTH:
+            return False
+        definitions = []
+        for path in self.repo.files(self.Q8_PATHS):
+            if not path.endswith(".rs") or f"fn {function}" not in self.repo.text(path):
+                continue
+            blanked = self.repo.blanked(path)
+            for found in rust_functions(blanked):
+                if found[0] != function or self.repo.in_rust_test(path, line_of(blanked, found[1])):
+                    continue
+                impl = rust_impl_type(blanked, found[1])
+                if owner is not None and impl != owner:
+                    continue
+                if not re.search(r"\bname\s*:", blanked[found[1]:found[2]]):
+                    return False
+                definitions.append((blanked[found[2]:found[3]], impl))
+
+        def registers(body: str, impl: str | None) -> bool:
+            if self.Q8_REGISTERING_SPAWN.search(body):
+                return True
+            for call in self.Q8_NAME_FORWARD.finditer(body):
+                callee_owner = impl if call.group(1) == "Self" else call.group(1)
+                if self.q8_wrapper_registers(call.group(2), callee_owner, depth + 1):
+                    return True
+            return False
+
+        return bool(definitions) and all(registers(body, impl) for body, impl in definitions)
 
     def q8_values(self, path: str, start: int, end: int, depth: int) -> list[tuple[str | None, tuple[str, int] | None]]:
         """The names the expression `start:end` of `path` can hold, as (literal, (file, offset of
@@ -1059,6 +1102,9 @@ class Census:
                     self.drop("Q8", path, number, "test")
                     continue
                 if group == 2:  # spawn_journal_writer("name", body)
+                    if self.q8_wrapper_registers("spawn_journal_writer"):
+                        self.drop("Q8", path, number, "the journal writer's spawn registers its QoS")
+                        continue
                     comma = blanked.find(",", found.end())
                     body = comma + 1 if comma >= 0 else None
                 else:

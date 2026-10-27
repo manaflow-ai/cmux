@@ -18,6 +18,8 @@ use cmux_trace::crash_keys::{self, HolderLink as CrashKeyLink};
 
 use super::{HolderSink, HolderTerminal};
 
+#[cfg(test)]
+mod restart_qos_tests;
 mod trace;
 use crate::panic_free::RecoverPoison;
 pub(crate) use trace::HolderTrace;
@@ -49,6 +51,17 @@ struct LinkSlot {
 /// long is written to the hang log with the reader's stack (the request
 /// watchdog's `holder-link` scope). Every terminal's output waits behind it.
 pub(crate) const HOLDER_LINK_HANG: std::time::Duration = std::time::Duration::from_secs(1);
+
+/// The class of `holder-restart`: every held terminal's output waits for
+/// the new holder it starts and re-adopts into, but no key echo crosses the
+/// thread itself (it launches, connects and waits for answers). Chromium
+/// `kDefault`, the daemon's request class.
+const RESTART_QOS: cmux_threads::ThreadQos = crate::thread_qos::ThreadType::Interactive.qos();
+
+/// The class of `cmux-holder-exe`: the first terminal's spawn waits on its
+/// copy of the holder (the copy's lock), so it runs at that spawn's class.
+#[cfg(not(test))]
+const PREPARE_QOS: cmux_threads::ThreadQos = crate::thread_qos::ThreadType::Interactive.qos();
 
 /// The frame kinds the holder sends, by wire value.
 pub(crate) fn holder_frame_name(kind: u32) -> &'static str {
@@ -549,16 +562,15 @@ impl HolderService {
                 }
                 // The holder died: start a new one and hand it every master.
                 service.note_link_down(CrashKeyLink::Lost);
-                let _ =
-                    std::thread::Builder::new().name("holder-restart".into()).spawn(move || {
-                        if let Err(error) = service.link() {
-                            // No holder streams their output any more: their
-                            // terminals end as lost (the shells may still run).
-                            eprintln!("cmux-tui: restart the terminal holder: {error}");
-                            service.note_link_down(CrashKeyLink::Failed);
-                            service.lose_all();
-                        }
-                    });
+                let _ = cmux_threads::spawn("holder-restart", RESTART_QOS, move || {
+                    if let Err(error) = service.link() {
+                        // No holder streams their output any more: their
+                        // terminals end as lost (the shells may still run).
+                        eprintln!("cmux-tui: restart the terminal holder: {error}");
+                        service.note_link_down(CrashKeyLink::Failed);
+                        service.lose_all();
+                    }
+                });
             }),
             SPAWN_TIMEOUT,
             HOLDER_FRAME_WATCH,
@@ -719,7 +731,7 @@ pub(crate) fn prepare_in_background() {
     if !super::enabled() {
         return;
     }
-    let _ = std::thread::Builder::new().name("cmux-holder-exe".into()).spawn(|| {
+    let _ = cmux_threads::spawn("cmux-holder-exe", PREPARE_QOS, || {
         let _ = standalone_holder();
     });
 }

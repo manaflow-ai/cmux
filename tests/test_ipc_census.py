@@ -395,6 +395,41 @@ class ThreadQosTests(Fixture):
         """)
         self.assertEqual(self.sites("Q8"), [("journal.rs", 6, "mux-session-journal-writer")])
 
+    def test_a_journal_writer_whose_spawn_registers_its_qos_is_not_counted(self):
+        # p05-ipc-150: the writer starts through cmux_threads::spawn at its declared class, two
+        # wrappers below the site; a same-named `spawn` of another type does not count for it.
+        writer = """
+            impl JournalWriter {{
+                fn spawn(name: &str, task: impl FnOnce()) -> io::Result<Self> {{
+                    let thread = {spawn};
+                }}
+            }}
+            impl Other {{
+                fn spawn(name: &str) {{ cmux_threads::spawn(name, ThreadQos::Utility, run); }}
+            }}
+            impl JournalIngress {{
+                pub(crate) fn spawn_writer(&self, name: &str, task: impl FnOnce()) {{
+                    JournalWriter::spawn(name, task);
+                }}
+            }}
+        """
+        self.write(f"{CORE}/mux/journal.rs", """
+            impl Mux {
+                pub(crate) fn spawn_journal_writer(&self, name: &str, task: impl FnOnce()) {
+                    self.journal_ingress.spawn_writer(name, task)
+                }
+                fn start(&self) {
+                    self.spawn_journal_writer("mux-session-journal-writer", move || run());
+                }
+            }
+        """)
+        self.write(f"{CORE}/journal_ingress.rs", writer.format(
+            spawn="cmux_threads::spawn(name, writer_qos::WRITER_QOS, move || task())"))
+        self.assertEqual(self.sites("Q8"), [])
+        self.write(f"{CORE}/journal_ingress.rs", writer.format(
+            spawn="std::thread::Builder::new().name(name.into()).spawn(move || task())"))
+        self.assertEqual(self.sites("Q8"), [("journal.rs", 6, "mux-session-journal-writer")])
+
 
 class SchemaQueueTests(Fixture):
     def setUp(self):
