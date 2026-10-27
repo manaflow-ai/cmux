@@ -49,6 +49,7 @@
 .acpmux-thread-title-trigger:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:-1px}
 .acpmux-thread-title-text{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .acpmux-thread-title-chevron{--acpmux-title-chevron-size:6px;width:var(--acpmux-title-chevron-size);height:var(--acpmux-title-chevron-size);flex:none;border-block-end:1.5px solid currentColor;border-inline-end:1.5px solid currentColor;transform:rotate(45deg) translateY(-2px);opacity:.65}
+.acpmux-header[data-tab-row] .acpmux-thread-title-trigger{max-width:min(24vw,230px);font-size:var(--text-detail)}
 .acpmux-delete-dialog{max-width:360px;padding:var(--ui-popup-padding);color:var(--agent-text)}
 .acpmux-delete-dialog h2{margin:0;color:inherit;font-size:var(--text-control);font-weight:var(--weight-emphasis)}
 .acpmux-delete-dialog p{margin:8px 0 16px;color:var(--agent-muted);font-size:var(--text-detail)}

@@ -347,7 +347,13 @@ import { ImageViewer } from "./conversation/ImageViewer";
 import { ImageViewerContext } from "./conversation/imageViewerContext";
 import { sessionLink } from "./links";
 import { ChatHeaderInlineStatus, ChatHeaderStatus } from "./header/ChatHeaderStatus";
-import { ChatHeaderTools, HEADER_ACTIONS, menuGroups, type ChatMenuItem } from "./header/ChatHeaderTools";
+import {
+  ChatHeaderTools,
+  HEADER_ACTIONS,
+  guardedChatMenu,
+  menuGroups,
+  type ChatMenuItem,
+} from "./header/ChatHeaderTools";
 import { ThreadTitle } from "./header/ThreadTitle";
 import { Dialog } from "../../ui/Dialog";
 import { DialogButton } from "../../ui/DialogButton";
@@ -8017,9 +8023,13 @@ function AcpmuxPane() {
     return client;
   };
   const archiveChat = async (archived: boolean) => {
-    await (await openClient()).archive(archived);
+    const sessionId = snapshot.sessionId;
+    const client = await openClient();
+    if (client.selectedSession !== sessionId) return;
+    await client.archive(archived);
     // Quick Chat's panel has no tab to close.
-    if (archived && !quick) await callNative("pane.action", { id: "closeTab" });
+    if (archived && !quick && directClient.current === client && client.selectedSession === sessionId)
+      await callNative("pane.action", { id: "closeTab" });
   };
   const deleteChat = async () => {
     const target = deleteConfirmSession;
@@ -8410,6 +8420,8 @@ function AcpmuxPane() {
   // header menu. Cloud targets come from the host's live MachineRegistry list and dispatch through
   // the existing CloudMove action; there is no client-side machine inventory.
   const titleMenu = (): ChatMenuItem[] => {
+    const client = directClient.current;
+    const sessionId = snapshot.sessionId;
     const rows = chatMenu();
     const row = (key: string) =>
       rows.find((item): item is Exclude<ChatMenuItem, "separator"> => item !== "separator" && item.key === key);
@@ -8443,59 +8455,62 @@ function AcpmuxPane() {
           ]
         : []),
     ];
-    return menuGroups(
-      rename ? [{ ...rename, shortcutLabel: "R" }] : [],
-      [
-        fork
-          ? { ...fork, shortcutLabel: "F" }
-          : {
-              key: "fork",
-              label: t("chatMenu.fork"),
-              icon: "agent.fork",
-              disabled: true,
-              shortcutLabel: "F",
-            },
-      ],
-      [
-        {
-          key: "moveMachine",
-          label: moves.includes(CONNECT_ACTIONS.move)
-            ? t("chatMenu.moveToMachine")
-            : moveChildren.length === 1
-              ? moveChildren[0]!.label
-              : t("composer.environment"),
-          icon: "machine.remote",
-          disabled: moveChildren.length === 0,
-          children: moveChildren,
-        },
-      ],
-      [
-        {
-          key: "openIn",
-          label: t("preview.openIn"),
-          icon: "app.open.external",
-          children: [
-            { key: "browser", label: t("header.browser"), onSelect: newBrowser },
-            { key: "terminal", label: t("header.terminal"), onSelect: newTerminal },
-            {
-              key: "window",
-              label: t("chatMenu.newWindow"),
-              shortcutAction: HEADER_ACTIONS.newWindow,
-              onSelect: () => runHeaderAction(HEADER_ACTIONS.newWindow),
-            },
-          ],
-        },
-      ],
-      [archiveItem],
-      [
-        {
-          key: "delete",
-          label: t("permission.verb.delete"),
-          icon: "action.delete",
-          onSelect: requestDelete,
-          shortcutLabel: "D",
-        },
-      ],
+    return guardedChatMenu(
+      menuGroups(
+        rename ? [{ ...rename, shortcutLabel: "R" }] : [],
+        [
+          fork
+            ? { ...fork, shortcutLabel: "F" }
+            : {
+                key: "fork",
+                label: t("chatMenu.fork"),
+                icon: "agent.fork",
+                disabled: true,
+                shortcutLabel: "F",
+              },
+        ],
+        [
+          {
+            key: "moveMachine",
+            label: moves.includes(CONNECT_ACTIONS.move)
+              ? t("chatMenu.moveToMachine")
+              : moveChildren.length === 1
+                ? moveChildren[0]!.label
+                : t("composer.environment"),
+            icon: "machine.remote",
+            disabled: moveChildren.length === 0,
+            children: moveChildren,
+          },
+        ],
+        [
+          {
+            key: "openIn",
+            label: t("preview.openIn"),
+            icon: "app.open.external",
+            children: [
+              { key: "browser", label: t("header.browser"), onSelect: newBrowser },
+              { key: "terminal", label: t("header.terminal"), onSelect: newTerminal },
+              {
+                key: "window",
+                label: t("chatMenu.newWindow"),
+                shortcutAction: HEADER_ACTIONS.newWindow,
+                onSelect: () => runHeaderAction(HEADER_ACTIONS.newWindow),
+              },
+            ],
+          },
+        ],
+        [archiveItem],
+        [
+          {
+            key: "delete",
+            label: t("permission.verb.delete"),
+            icon: "action.delete",
+            onSelect: requestDelete,
+            shortcutLabel: "D",
+          },
+        ],
+      ),
+      () => client !== undefined && client === directClient.current && client.selectedSession === sessionId,
     );
   };
   // Before the handshake the New Tab frame shows (cx-0rpl.10) unless the host failed: then the
@@ -10049,7 +10064,12 @@ function AcpmuxPane() {
                 <header className="acpmux-header" data-tab-row={inTabRow ? "" : undefined}>
                   <ChatHeaderStatus status={header.status} detail={header.detail}>
                     {!inTabRow && !showNewTab && snapshot.sessionId && (
-                      <ThreadTitle title={chatName} menu={titleMenu} onMenuOpen={readTabState} />
+                      <ThreadTitle
+                        key={snapshot.sessionId}
+                        title={chatName}
+                        menu={titleMenu}
+                        onMenuOpen={readTabState}
+                      />
                     )}
                   </ChatHeaderStatus>
                   <div className="acpmux-handoff-header-tools" ref={tabRowTools}>
@@ -10057,7 +10077,18 @@ function AcpmuxPane() {
                       sessionId={snapshot.sessionId ?? snapshot.summary?.sessionId}
                       fallback={snapshot.presence}
                     />
-                    {inTabRow && <ChatHeaderInlineStatus status={header.status} detail={header.detail} />}
+                    {inTabRow && (
+                      <ChatHeaderInlineStatus status={header.status} detail={header.detail}>
+                        {!showNewTab && snapshot.sessionId && (
+                          <ThreadTitle
+                            key={snapshot.sessionId}
+                            title={chatName}
+                            menu={titleMenu}
+                            onMenuOpen={readTabState}
+                          />
+                        )}
+                      </ChatHeaderInlineStatus>
+                    )}
                     {preview && (
                       <span
                         className="acpmux-session-coverage"

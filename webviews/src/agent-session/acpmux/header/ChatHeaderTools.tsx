@@ -107,6 +107,25 @@ export function menuItemForShortcut(
   );
 }
 
+/** A popup may outlive the selected chat until React commits the new view. Its callbacks must
+ * remain bound to the chat that opened it, including submenu callbacks. */
+export function guardedChatMenu(items: ChatMenuItem[], current: () => boolean): ChatMenuItem[] {
+  const guard = (run: () => void) => () => {
+    if (current()) run();
+  };
+  return items.map((item) =>
+    item === "separator"
+      ? item
+      : {
+          ...item,
+          ...(item.onSelect && { onSelect: guard(item.onSelect) }),
+          ...(item.children && {
+            children: item.children.map((child) => ({ ...child, onSelect: guard(child.onSelect) })),
+          }),
+        },
+  );
+}
+
 export function ChatHeaderTools({
   onTerminal,
   onSplitDown,
