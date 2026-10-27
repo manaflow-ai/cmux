@@ -1,4 +1,7 @@
+import CmuxNextCompat
 public import Foundation
+import class CmuxSafeConcurrency.OnceContinuation
+import func CmuxSafeConcurrency.withOnceThrowingContinuation
 
 /// The Passwords page's saved sign-ins (plans/cmux-next/passwords.md 1.4): the fork's password
 /// core (API 18: `cmux_password_list`, `_remove`, `_exception_remove`, `_set_username`,
@@ -32,7 +35,7 @@ extension CEFEngine {
         let shim = try await coreShim()
         guard !ids.isEmpty else { return 0 }
         let reply = try await CEFRuntime.shared.profileWrite(profile, label: "password remove", timeout: Self.passwordCoreTimeout) { path, id in
-            Self.withCStrings(ids) { pointers in shim.passwordRemove(path, pointers, Int32(ids.count), id) }
+            shim.passwordRemove(path, ids, id)
         }
         return Int(reply.value)
     }
@@ -41,7 +44,7 @@ extension CEFEngine {
         let shim = try await coreShim()
         let reply = try await CEFRuntime.shared.profileWrite(profile, label: "password exception remove",
                                                              timeout: Self.passwordCoreTimeout) { path, id in
-            exceptionID.withCString { shim.passwordExceptionRemove(path, $0, id) }
+            shim.passwordExceptionRemove(path, exceptionID, id)
         }
         return Int(reply.value)
     }
@@ -49,7 +52,7 @@ extension CEFEngine {
     public func setPasswordUsername(_ username: String, id passwordID: String, in profile: BrowserProfileID) async throws -> Int {
         let shim = try await coreShim()
         let reply = try await CEFRuntime.shared.profileWrite(profile, label: "password username", timeout: Self.passwordCoreTimeout) { path, id in
-            passwordID.withCString { idText in username.withCString { shim.passwordSetUsername(path, idText, $0, id) } }
+            shim.passwordSetUsername(path, passwordID, username, id)
         }
         return Int(reply.value)
     }
@@ -60,14 +63,17 @@ extension CEFEngine {
                                copy: @escaping (UnsafeRawBufferPointer) -> Void) async throws -> Bool {
         let shim = try await coreShim()
         let path = CEFRuntime.shared.profileCachePath(profile)
-        return try await withCheckedThrowingContinuation { continuation in
-            let box = PasswordRevealBox(copy: copy, continuation: continuation)
-            let context = Unmanaged.passRetained(box).toOpaque()
-            let started = path.withCString { pathText in
-                passwordID.withCString { shim.passwordReveal(pathText, $0, cefPasswordRevealCallback, context) }
-            }
+        return try await withOnceThrowingContinuation { (continuation: OnceContinuation<Bool, any Error>) in
+            // SAFETY: the box keeps `copy` and calls it only with the reveal callback's live buffer (`finish`).
+            let box = unsafe PasswordRevealBox(copy: copy, continuation: continuation)
+            // SAFETY: the +1 retain is the reveal's context: the callback takes it back once
+            // (PasswordRevealBox.take), or the release below does when the shim did not start the reveal.
+            let context = unsafe Unmanaged.passRetained(box).toOpaque()
+            // SAFETY: the shim calls cefPasswordRevealCallback with `context` at most once, only after it returned 1.
+            let started = unsafe shim.passwordReveal(path, passwordID, cefPasswordRevealCallback, context)
             if started != 1 {
-                Unmanaged<PasswordRevealBox>.fromOpaque(context).release()
+                // SAFETY: no callback comes for a reveal that did not start; this drops the +1 once.
+                unsafe Unmanaged<PasswordRevealBox>.fromOpaque(context).release()
                 continuation.resume(throwing: BrowserTabError.closed)
             }
         }
@@ -76,7 +82,7 @@ extension CEFEngine {
     public func exportPasswords(in profile: BrowserProfileID, to url: URL) async throws -> Int {
         let shim = try await coreShim()
         let reply = try await CEFRuntime.shared.profileWrite(profile, label: "password export", timeout: Self.passwordCoreTimeout) { path, id in
-            url.path.withCString { shim.passwordExport(path, $0, id) }
+            shim.passwordExport(path, url.path, id)
         }
         return Int(reply.value)
     }
@@ -94,48 +100,43 @@ extension CEFEngine {
               shim.passwordCoreAvailable() == 1 else { return nil }
         return shim
     }
-
-    private static func withCStrings<R>(_ strings: [String], _ body: (UnsafePointer<UnsafePointer<CChar>?>) -> R) -> R {
-        let copies = strings.map { strdup($0) }
-        let array = UnsafeMutablePointer<UnsafePointer<CChar>?>.allocate(capacity: max(copies.count, 1))
-        defer {
-            array.deallocate()
-            copies.forEach { free($0) }
-        }
-        for (index, copy) in copies.enumerated() { array[index] = UnsafePointer(copy) }
-        return body(UnsafePointer(array))
-    }
 }
 
 /// C entry for a revealed password (cmux_shim_password_reveal). The bytes are valid only during
 /// this call, so they are copied here or not at all.
 let cefPasswordRevealCallback: CEFShimLibrary.PasswordRevealCallback = { context, bytes, length in
-    guard let context else { return }
-    let address = UInt(bitPattern: context)
+    // SAFETY: only the context's address is read here; PasswordRevealBox.take turns it back into the box.
+    let address = unsafe UInt(bitPattern: context)
+    guard address != 0 else { return }
     // The shim calls back on the CEF UI thread, which is the main thread. Off it, the password is
     // dropped (never copied to another thread) and the reveal ends as not found.
     guard Thread.isMainThread else {
-        // main-proof: a DispatchQueue.main block runs on the main thread
-        DispatchQueue.main.async { MainActor.assumeIsolated { PasswordRevealBox.take(address)?.finish(nil) } }
-        return
+        return MainRunLoopBlock.perform { PasswordRevealBox.take(address)?.finish(nil) }
     }
     // Integers cross into the main-actor closure (a raw buffer is not Sendable); the closure runs
     // synchronously, while the bytes are still valid.
-    let base = UInt(bitPattern: bytes)
+    // SAFETY: only the bytes' address is read here; the buffer below is made from it during this call.
+    let base = unsafe UInt(bitPattern: bytes)
     // main-proof: guarded by Thread.isMainThread above
     MainActor.assumeIsolated {
-        let buffer = UnsafeRawPointer(bitPattern: base).map { UnsafeRawBufferPointer(start: $0, count: length) }
-        PasswordRevealBox.take(address)?.finish(buffer)
+        // SAFETY: the shim's buffer holds `length` bytes until this callback returns, and the main-actor
+        // closure runs synchronously within it; `finish` copies the bytes or drops them before it returns.
+        let bytes = unsafe UnsafeRawPointer(bitPattern: base).map {
+            unsafe PasswordRevealBytes(buffer: UnsafeRawBufferPointer(start: $0, count: max(length, 0)))
+        }
+        PasswordRevealBox.take(address)?.finish(bytes)
     }
 }
 
 /// One reveal in flight: the caller's copy closure and its continuation, resumed once.
+@safe
 final class PasswordRevealBox {
     private let copy: (UnsafeRawBufferPointer) -> Void
-    private var continuation: CheckedContinuation<Bool, any Error>?
+    private var continuation: OnceContinuation<Bool, any Error>?
 
-    init(copy: @escaping (UnsafeRawBufferPointer) -> Void, continuation: CheckedContinuation<Bool, any Error>) {
-        self.copy = copy
+    init(copy: @escaping (UnsafeRawBufferPointer) -> Void, continuation: OnceContinuation<Bool, any Error>) {
+        // SAFETY: the box only keeps the closure; `finish` calls it with a buffer valid for that call.
+        unsafe self.copy = copy
         self.continuation = continuation
     }
 
@@ -143,13 +144,27 @@ final class PasswordRevealBox {
     /// The address is the box retained by revealPassword, passed back once by the shim; a null
     /// address (no box) is nil rather than a trap.
     static func take(_ address: UInt) -> PasswordRevealBox? {
-        guard let pointer = UnsafeRawPointer(bitPattern: address) else { return nil }
-        return Unmanaged<PasswordRevealBox>.fromOpaque(pointer).takeRetainedValue()
+        // SAFETY: a nonzero address is the box revealPassword retained, which the shim passes back once.
+        guard let pointer = unsafe UnsafeRawPointer(bitPattern: address) else { return nil }
+        // SAFETY: as above; this takes back the +1 exactly once.
+        return unsafe Unmanaged<PasswordRevealBox>.fromOpaque(pointer).takeRetainedValue()
     }
 
-    func finish(_ bytes: UnsafeRawBufferPointer?) {
-        if let bytes, bytes.count > 0 { copy(bytes) }
-        continuation?.resume(returning: (bytes?.count ?? 0) > 0)
+    /// `bytes` is valid only during this call (the reveal callback's buffer); nil: not found.
+    func finish(_ bytes: PasswordRevealBytes?) {
+        let count = bytes?.count ?? 0
+        // SAFETY: the bytes are valid for this call (PasswordRevealBytes); `copy` reads them before it returns.
+        if count > 0, let bytes { unsafe copy(bytes.buffer) }
+        continuation?.resume(returning: count > 0)
         continuation = nil
     }
+}
+
+/// A revealed password's bytes in the shim's buffer, valid only while the reveal callback runs
+/// (`cefPasswordRevealCallback`, which makes one and hands it to ``PasswordRevealBox/finish(_:)`` within the call).
+@safe
+struct PasswordRevealBytes {
+    let buffer: UnsafeRawBufferPointer
+
+    var count: Int { unsafe buffer.count }
 }

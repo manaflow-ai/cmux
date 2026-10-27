@@ -1,7 +1,9 @@
 //! G3 and G4 of the link-token go-live gates (cloud-client-contract.md 1.7)
 //! on a real headless daemon started with `CMUX_LINK_TOKEN_VERIFIER` set:
 //! the daemon logs its verifier mode once, and no child (the terminal host
-//! and the terminal's process) inherits the variable.
+//! and the terminal's process) inherits the variable. The same daemon is
+//! started with `CMUX_TUI_OWNER_APP_PID` too, which no terminal inherits
+//! either (p07-memory-063: an owner started from one would claim the app).
 #![cfg(unix)]
 
 use std::fs;
@@ -13,6 +15,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use cmux_tui_core::platform::transport;
 
 const VARIABLE: &str = "CMUX_LINK_TOKEN_VERIFIER";
+const OWNER_APP_PID: &str = "CMUX_TUI_OWNER_APP_PID";
 
 fn test_timeout(timeout: Duration) -> Duration {
     let scale = std::env::var("CMUX_TEST_TIMEOUT_SCALE")
@@ -44,6 +47,7 @@ impl Daemon {
             .arg(dir.join("state"))
             .env("CMUX_TUI_CONFIG", dir.join("config.json"))
             .env(VARIABLE, verifier)
+            .env(OWNER_APP_PID, std::process::id().to_string())
             .stdout(Stdio::null())
             .stderr(stderr)
             .spawn()
@@ -109,12 +113,8 @@ fn mode_lines(daemon: &Daemon) -> Vec<String> {
     read()
 }
 
-/// RED (G4): a terminal's process and its terminal host never see the
-/// variable the daemon was started with. The daemon removes it from its own
-/// environment before any thread starts, so every spawn path is covered.
-#[test]
-fn no_terminal_or_terminal_host_inherits_the_verifier_variable() {
-    let daemon = Daemon::start("child", "control_plane");
+/// A terminal's environment, and the run's reply.
+fn terminal_env(daemon: &Daemon) -> (String, serde_json::Value) {
     let out = daemon.dir.join("env.out");
     let script = format!("env > {0}.tmp; mv {0}.tmp {0}; sleep 30", out.display());
     let created = request(
@@ -137,6 +137,16 @@ fn no_terminal_or_terminal_host_inherits_the_verifier_variable() {
         std::thread::sleep(Duration::from_millis(25));
     };
     assert!(env.contains("PATH="), "the terminal env looks empty: {env}");
+    (env, created)
+}
+
+/// RED (G4): a terminal's process and its terminal host never see the
+/// variable the daemon was started with. The daemon removes it from its own
+/// environment before any thread starts, so every spawn path is covered.
+#[test]
+fn no_terminal_or_terminal_host_inherits_the_verifier_variable() {
+    let daemon = Daemon::start("child", "control_plane");
+    let (env, created) = terminal_env(&daemon);
     assert!(!env.contains(VARIABLE), "the terminal inherited {VARIABLE}:\n{env}");
     // The terminal host's own environment (Linux: its initial environ).
     #[cfg(target_os = "linux")]
@@ -153,6 +163,16 @@ fn no_terminal_or_terminal_host_inherits_the_verifier_variable() {
         assert!(environ.contains("PATH="), "the host environ looks empty");
         assert!(!environ.contains(VARIABLE), "the terminal host inherited {VARIABLE}");
     }
+}
+
+/// An owner the app started takes the app's pid out of its environment at
+/// start: a shell in one of its terminals, and any owner a CLI there starts,
+/// never names the app as its owner.
+#[test]
+fn no_terminal_inherits_the_owning_app_pid() {
+    let daemon = Daemon::start("owner", "control_plane");
+    let (env, _) = terminal_env(&daemon);
+    assert!(!env.contains(OWNER_APP_PID), "the terminal inherited {OWNER_APP_PID}:\n{env}");
 }
 
 /// RED (G3): the daemon logs its verifier mode exactly once at start, with

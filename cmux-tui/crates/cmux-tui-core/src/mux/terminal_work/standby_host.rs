@@ -17,7 +17,8 @@
 //!   daemon's memory registry (`cmux-memory`), Chrome's
 //!   `SpareRenderProcessHostManager`, which keeps no spare under pressure.
 
-use std::sync::{Arc, Mutex, MutexGuard, OnceLock, PoisonError, Weak};
+use cmux_threads::sync::Mutex;
+use std::sync::{Arc, MutexGuard, OnceLock, PoisonError, Weak};
 
 use cmux_memory::{MemoryConsumer, PressureLevel, Registration, Retention};
 

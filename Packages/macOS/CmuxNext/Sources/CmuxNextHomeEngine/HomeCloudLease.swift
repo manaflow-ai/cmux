@@ -89,6 +89,7 @@ public final class HomeCloudLease {
         let prior = leasing
         prior?.cancel()
         // task-owner: one token read and one cloud-session-set or -clear, after the previous lease work; ends with the reply
+        // main-hop-allow: one link of the serial lease chain: `tokens` is the app's main-actor CloudAuth (not Sendable) and `leasing` orders the chain on main; the session calls await the daemon's actor, and the caller awaits this outcome
         let task = Task { [weak self] () -> Outcome in
             _ = await prior?.value
             guard let self else { return .superseded }
@@ -113,6 +114,7 @@ public final class HomeCloudLease {
                expectedUserID: @escaping @MainActor () -> String?, finished: @escaping @MainActor (Outcome) -> Void) {
         let prior = leasing
         // task-owner: one token read and one cloud-session-set, after the previous lease work; ends with the reply
+        // main-hop-allow: one link of the serial lease chain: `tokens` is the app's main-actor CloudAuth (not Sendable), `expectedUserID` reads the main-actor source and `finished` answers the link on main once the daemon's actor replied
         leasing = Task { [weak self] () -> Outcome in
             _ = await prior?.value
             guard let self else { return .superseded }

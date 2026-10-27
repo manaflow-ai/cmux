@@ -53,6 +53,25 @@ public final class ChildPageFocus {
         setFocus(next, true)
     }
 
+    /// `next` takes the keys of `window`, then focus (``focus(_:)``): no other responder in
+    /// `window` keeps them.
+    ///
+    /// A terminal or a field editor that stayed first responder would keep the keys and the caret
+    /// while the page has focus. The same for a Chromium page in either backend: in process its
+    /// page window takes the keys; in host mode the page is embedder-active and, with a view input
+    /// target, its own view in `window` is the responder, which `isPageResponder` names.
+    ///
+    /// - Parameters:
+    ///   - next: The page that takes focus.
+    ///   - window: The cmux window that shows `next`.
+    ///   - isPageResponder: Whether `window`'s first responder is `next`'s own view, which keeps it.
+    public func focus(_ next: AnyObject, in window: NSWindow, isPageResponder: (NSResponder) -> Bool) {
+        if let responder = window.firstResponder, responder !== window, !isPageResponder(responder) {
+            window.makeFirstResponder(nil)
+        }
+        focus(next)
+    }
+
     /// The focused page loses focus. The key window does not change.
     public func blurPage() {
         guard let old = page else { return }

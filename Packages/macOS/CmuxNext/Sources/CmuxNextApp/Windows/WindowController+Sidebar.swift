@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextCompat
 import CmuxNextDesign
 import CmuxNextPages
+import CmuxNextWakeups
 
 extension WindowController {
     /// The sidebar's shown state reaches the top row: the incognito badge after the traffic lights
@@ -14,32 +15,59 @@ extension WindowController {
         }
         // The host pressure indicator joins the top row after the band and badge (cmuxterm-hq#2995).
         root.hostPressureIndicator = HostPressureIndicatorView(services: services) { [weak self] in
-            // Shown or hidden: the top row places it (layoutTitlebarAccessories), then strips avoid it.
+            // The top row places it (layoutTitlebarAccessories), then strips avoid it.
+            // invalidate: the indicator showed, hid or changed width (it calls this on a change only).
             self?.root.needsLayout = true
+            // sync-layout: relayoutTopRowStrips reads the indicator's frame the root's layout places.
             self?.root.layoutSubtreeIfNeeded()
             self?.relayoutTopRowStrips()
         }
         let model = sidebar.model
-        sidebarObservation = Task { [weak self] in
-            for await hidden in ObservationStream({ model.isHidden }) {
-                guard let self else { return }
-                if hidden { services.hoverCards.suppress(.sidebarHide) }
-                else { services.hoverCards.unsuppress(.sidebarHide) }
-                if hidden { services.hoverCards.dismiss(.action) }
-                root.showsTitlebarBadge = hidden && root.titlebarBadge != nil
-                root.sidebarHidden = hidden
-                root.layoutSubtreeIfNeeded()
-                relayoutTopRowStrips()
-                pagesDidChangeChrome()
-            }
+        // A service observation: the hover cards (another owner) and the pages hear it while the window is hidden.
+        // The person's toggle applies in the input-response pass, before the frame commits.
+        sidebarObservation = ServiceObservation(.visible, owner: "WindowController.sidebarHidden", on: services.mainWork) {
+            model.isHidden
+        } apply: { [weak self] hidden in
+            guard let self else { return }
+            if hidden { services.hoverCards.suppress(.sidebarHide) }
+            else { services.hoverCards.unsuppress(.sidebarHide) }
+            if hidden { services.hoverCards.dismiss(.action) }
+            root.showsTitlebarBadge = hidden && root.titlebarBadge != nil
+            root.sidebarHidden = hidden
+            // sync-layout: relayoutTopRowStrips reads the strips' window frames and the badge the root places.
+            root.layoutSubtreeIfNeeded()
+            relayoutTopRowStrips()
+            pagesDidChangeChrome()
         }
     }
 
-    /// Strips under the traffic lights recompute their inset.
+    /// The window recolors when it switches room: view work, on the window's node (a hidden window recolors
+    /// when it shows). The room's browser profile for tab badges is model state: it follows while hidden.
+    func observeRoom() {
+        let state = state
+        roomObservation = VisibleObservation(visibility, owner: "WindowController.roomTheme", on: services.mainWork) {
+            state.profileID
+        } apply: { [weak self] _ in
+            guard let self else { return }
+            services.themes.windowDidChange(self)
+        }
+        // Set in the switch's own turn (`WindowState.profileID`), and again when the room's record changes.
+        let home = services.machines.local.store
+        state.roomBrowserProfileOf = { [weak home] room in home?.profile(room)?.browserProfileID?.rawValue }
+        roomBrowserProfileObservation = ServiceObservation(.visible, owner: "WindowController.roomBrowserProfile",
+                                                           on: services.mainWork) {
+            home.profile(state.profileID)?.browserProfileID
+        } apply: { _ in
+            state.refreshRoomBrowserProfile()
+        }
+    }
+
+    /// Strips under the traffic lights recompute their inset. A strip whose
+    /// inset changed marks itself (`updateWindowControlsAvoidance`) and lays
+    /// out in the window's next pass; nothing in this turn reads its tabs.
     func relayoutTopRowStrips() {
         for pane in content?.panes.values.map({ $0 }) ?? [] {
             pane.view.stripView.updateWindowControlsAvoidance()
-            pane.view.stripView.layoutSubtreeIfNeeded()
         }
     }
 
@@ -49,8 +77,8 @@ extension WindowController {
     func showIncognitoBadge() {
         sidebar.container.sidebarView.titlebarAccessory = IncognitoBadgeView()
         root.titlebarBadge = IncognitoBadgeView()
+        // The root lays out for the new badge and for a change of its shown state (both setters).
         root.showsTitlebarBadge = sidebar.model.isHidden
-        root.needsLayout = true
     }
 
     /// Pages in this window read the sidebar state (`data-app-sidebar`).

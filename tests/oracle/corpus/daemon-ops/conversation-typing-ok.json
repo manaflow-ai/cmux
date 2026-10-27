@@ -14,7 +14,8 @@
   "fixture": {
     "seed": "daemon-ops.conversation-typing",
     "network": "offline",
-    "clock": "virtual"
+    "clock": "virtual",
+    "agent": "mock"
   },
   "preconditions": [
     "hermetic state root",
@@ -29,6 +30,22 @@
   ],
   "steps": [
     {
+      "id": "conversation",
+      "op": "resource.call",
+      "target": {
+        "machine": "current",
+        "session": "current"
+      },
+      "args": {
+        "method": "conversation.list",
+        "params": {}
+      },
+      "readOnly": true,
+      "expect": {
+        "outcome": "ok"
+      }
+    },
+    {
       "id": "call",
       "op": "resource.call",
       "target": {
@@ -38,8 +55,8 @@
       "args": {
         "method": "conversation.typing",
         "params": {
-          "conversation": "oracle",
-          "on": false
+          "conversation": "$step:conversation#/0/id",
+          "on": true
         },
         "idempotencyKey": "conversation-typing-ok.call"
       },
@@ -51,7 +68,32 @@
         "before",
         "settled"
       ],
-      "note": "every required field from its catalog type"
+      "note": "the person starts typing in the mock agent's conversation"
+    },
+    {
+      "id": "retry",
+      "op": "resource.call",
+      "target": {
+        "machine": "current",
+        "session": "current"
+      },
+      "args": {
+        "method": "conversation.typing",
+        "params": {
+          "conversation": "$step:conversation#/0/id",
+          "on": true
+        },
+        "idempotencyKey": "conversation-typing-ok.call"
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "mutation_result"
+      },
+      "checkpoint": [
+        "before",
+        "settled"
+      ],
+      "note": "I10: step call again with its idempotency key; the daemon replays its reply, adds no journal record and changes no facet"
     }
   ],
   "invariants": [
@@ -60,8 +102,5 @@
   "teardown": [
     "stop the case daemon",
     "verify the socket and state root are gone"
-  ],
-  "untested": [
-    "params.conversation is a fixed placeholder, not a fixture object; chief/_tuning.json tunes it"
   ]
 }

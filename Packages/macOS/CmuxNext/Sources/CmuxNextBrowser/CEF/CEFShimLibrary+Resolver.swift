@@ -2,27 +2,31 @@ import Foundation
 
 nonisolated extension CEFShimLibrary {
     /// Each function by symbol name: `dlsym` on the opened shim, or a test's stand-ins (`resolving`).
+    @safe
     struct Resolver {
         let symbol: (String) -> UnsafeMutableRawPointer?
         /// Host mode: the optional exports the Chromium Host's shim defines (its hello). Nil takes
         /// every optional export `symbol` finds.
         var hostExports: Set<String>?
 
+        // SAFETY (both lookups): `symbol` answers the export `name` of a shim that stays mapped (a handle
+        // never closed), or a test's stand-in; `T` is the export's C function type in cmux_cef_shim.h,
+        // and the shim's ABI identity is checked against that header before any call (`open`, `make`).
         func callAsFunction<T>(_ name: String) throws(LoadError) -> T {
-            guard let symbol = symbol(name) else { throw .missingSymbol(name) }
-            return unsafeBitCast(symbol, to: T.self)
+            guard let address = unsafe symbol(name) else { throw .missingSymbol(name) }
+            return unsafe unsafeBitCast(address, to: T.self)
         }
 
         /// A function only newer shims export: nil when this one has none.
         func optional<T>(_ name: String) -> T? {
             guard hostExports?.contains(name) ?? true else { return nil }
-            return symbol(name).map { unsafeBitCast($0, to: T.self) }
+            return unsafe symbol(name).map { unsafe unsafeBitCast($0, to: T.self) }
         }
     }
 
     /// The functions `symbol` gives by name, with no shim loaded (a test's spy shim).
     static func resolving(_ symbol: @escaping (String) -> UnsafeMutableRawPointer?) throws(LoadError) -> CEFShimLibrary {
-        try CEFShimLibrary(Resolver(symbol: symbol))
+        try unsafe CEFShimLibrary(Resolver(symbol: symbol))
     }
 
     /// Host mode's functions (``CEFRemoteShim``): every required export from `symbol`, an optional
@@ -31,12 +35,13 @@ nonisolated extension CEFShimLibrary {
     /// not the host's fork.
     static func resolving(_ symbol: @escaping (String) -> UnsafeMutableRawPointer?,
                           hostExports: Set<String>) throws(LoadError) -> CEFShimLibrary {
-        try CEFShimLibrary(Resolver(symbol: symbol, hostExports: hostExports))
+        try unsafe CEFShimLibrary(Resolver(symbol: symbol, hostExports: hostExports))
     }
 
     /// The same functions, `replacement`'s where it has one (``CEFMirrorCache``'s mirror reads).
     func overriding(_ replacement: @escaping (String) -> UnsafeMutableRawPointer?) throws(LoadError) -> CEFShimLibrary {
         let base = self.resolver
-        return try CEFShimLibrary(Resolver(symbol: { replacement($0) ?? base.symbol($0) }, hostExports: base.hostExports))
+        // SAFETY: each name resolves to `replacement`'s function of the export's C type, else to the base shim's.
+        return try unsafe CEFShimLibrary(Resolver(symbol: { unsafe replacement($0) ?? base.symbol($0) }, hostExports: base.hostExports))
     }
 }

@@ -22,7 +22,9 @@ public func blockingPosixSpawn(_ pid: UnsafeMutablePointer<pid_t>?, _ path: Unsa
                                _ argv: UnsafePointer<UnsafeMutablePointer<CChar>?>,
                                _ envp: UnsafePointer<UnsafeMutablePointer<CChar>?>?,
                                fileID: StaticString = #fileID, line: UInt = #line) -> Int32 {
-    return blockingCall(.processSpawn, fileID: fileID, line: line) { posix_spawn(pid, path, fileActions, attributes, argv, envp) }
+    // SAFETY: forwards the caller's pointers to posix_spawn unchanged, only for the call; the caller's own `unsafe`
+    // states why they are valid for it.
+    return blockingCall(.processSpawn, fileID: fileID, line: line) { unsafe posix_spawn(pid, path, fileActions, attributes, argv, envp) }
 }
 
 /// Spawns a process, like `posix_spawn`, as a checked blocking call (``blockingCall(_:fileID:line:_:)``),
@@ -56,18 +58,23 @@ public func blockingPosixSpawn(_ pid: UnsafeMutablePointer<pid_t>?, _ path: Unsa
                                _ envp: UnsafePointer<UnsafeMutablePointer<CChar>?>?,
                                priority: MayBlockPriority,
                                fileID: StaticString = #fileID, line: UInt = #line) -> Int32 {
-    guard let attributes else {
+    guard let attributes = unsafe attributes else {
         var own: posix_spawnattr_t?
-        let initialized = posix_spawnattr_init(&own)
+        // SAFETY: `own` is a local attributes object, initialized here and destroyed once by the defer, after the
+        // spawn below; the caller's pointers go on unchanged.
+        let initialized = unsafe posix_spawnattr_init(&own)
         guard initialized == 0 else { return initialized }
-        defer { posix_spawnattr_destroy(&own) }
-        return blockingPosixSpawn(pid, path, fileActions, &own, argv, envp, priority: priority, fileID: fileID, line: line)
+        defer { unsafe posix_spawnattr_destroy(&own) }
+        return unsafe blockingPosixSpawn(pid, path, fileActions, &own, argv, envp, priority: priority, fileID: fileID, line: line)
     }
     if let ceiling = priority.spawnClamp {
-        let clamped = posix_spawnattr_set_qos_class_np(attributes, ceiling)
+        // SAFETY: `attributes` is the caller's initialized attributes object, lent for this call.
+        let clamped = unsafe posix_spawnattr_set_qos_class_np(attributes, ceiling)
         guard clamped == 0 else { return clamped }
     }
-    return blockingCall(.processSpawn, fileID: fileID, line: line) { posix_spawn(pid, path, fileActions, attributes, argv, envp) }
+    // SAFETY: forwards the caller's pointers to posix_spawn unchanged, only for the call; the caller's own `unsafe`
+    // states why they are valid for it.
+    return blockingCall(.processSpawn, fileID: fileID, line: line) { unsafe posix_spawn(pid, path, fileActions, attributes, argv, envp) }
 }
 
 extension MayBlockPriority {

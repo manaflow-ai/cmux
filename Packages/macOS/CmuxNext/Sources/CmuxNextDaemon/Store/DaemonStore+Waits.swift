@@ -1,3 +1,7 @@
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
+import func CmuxSafeConcurrency.withOnceContinuation
+
 extension DaemonStore {
     /// Returns once the store applied every event up to `sequence` (``DaemonConnection/eventSequence()`` read
     /// after a command's reply or a sync round trip), the connection changed since `epoch`, or the task was
@@ -23,10 +27,14 @@ extension DaemonStore {
         if appliedSequence >= sequence { return .reached }
         let id = sequenceWaiters.makeID()
         return await withTaskCancellationHandler {
-            await withCheckedContinuation { (continuation: CheckedContinuation<AppliedWaitResult, Never>) in
-                if Task.isCancelled { return continuation.resume(returning: .cancelled) }
+            // A wait dropped unresumed ends as a cancelled one does.
+            (try? await withOnceContinuation { (continuation: OnceContinuation<AppliedWaitResult, OnceContinuationError>) in
+                if Task.isCancelled {
+                    continuation.resume(returning: .cancelled)
+                    return
+                }
                 sequenceWaiters.addApplied(id, SequenceWaiters.Applied(sequence: sequence, epoch: epoch, continuation: continuation))
-            }
+            }) ?? .cancelled
         } onCancel: {
             // task-owner: one hop to the store's actor to resume this cancelled wait's continuation
             Task { @MainActor in self.sequenceWaiters.cancel(id) }
@@ -39,11 +47,18 @@ extension DaemonStore {
         if intentLog.isEmpty { return true }
         let id = sequenceWaiters.makeID()
         return await withTaskCancellationHandler {
-            await withCheckedContinuation { (continuation: CheckedContinuation<Bool, Never>) in
-                if Task.isCancelled { return continuation.resume(returning: false) }
-                if intentLog.isEmpty { return continuation.resume(returning: true) }
+            // A wait dropped unresumed ends as a cancelled one does.
+            (try? await withOnceContinuation { (continuation: OnceContinuation<Bool, OnceContinuationError>) in
+                if Task.isCancelled {
+                    continuation.resume(returning: false)
+                    return
+                }
+                if intentLog.isEmpty {
+                    continuation.resume(returning: true)
+                    return
+                }
                 sequenceWaiters.addIdle(id, continuation)
-            }
+            }) ?? false
         } onCancel: {
             // task-owner: one hop to the store's actor to resume this cancelled wait's continuation
             Task { @MainActor in self.sequenceWaiters.cancel(id) }
@@ -59,11 +74,18 @@ extension DaemonStore {
         if connectionEpoch != epoch { return true }
         let id = sequenceWaiters.makeID()
         return await withTaskCancellationHandler {
-            await withCheckedContinuation { (continuation: CheckedContinuation<Bool, Never>) in
-                if Task.isCancelled { return continuation.resume(returning: false) }
-                if connectionEpoch != epoch { return continuation.resume(returning: true) }
+            // A wait dropped unresumed ends as a cancelled one does.
+            (try? await withOnceContinuation { (continuation: OnceContinuation<Bool, OnceContinuationError>) in
+                if Task.isCancelled {
+                    continuation.resume(returning: false)
+                    return
+                }
+                if connectionEpoch != epoch {
+                    continuation.resume(returning: true)
+                    return
+                }
                 sequenceWaiters.addConnection(id, epoch: epoch, continuation)
-            }
+            }) ?? false
         } onCancel: {
             // task-owner: one hop to the store's actor to resume this cancelled wait's continuation
             Task { @MainActor in self.sequenceWaiters.cancel(id) }

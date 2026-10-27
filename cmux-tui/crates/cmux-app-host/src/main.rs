@@ -2,6 +2,8 @@
 //! channel. `--profile script` runs a script session (the script limits);
 //! `--sandbox-self-test <path>` exists for the integration tests.
 
+#![cfg_attr(not(test), deny(clippy::disallowed_methods))]
+
 use cmux_app_host::host_loop::{self, exit};
 use cmux_app_host::{Limits, sandbox};
 
@@ -32,6 +34,7 @@ fn serve(limits: Limits) -> i32 {
 
     // SAFETY: fstat on a descriptor number only inspects it.
     let mut stat: libc::stat = unsafe { std::mem::zeroed() };
+    // SAFETY: fstat writes one stat into `stat`, a live local; a closed fd 3 fails with EBADF.
     if unsafe { libc::fstat(3, &mut stat) } != 0 || (stat.st_mode & libc::S_IFMT) != libc::S_IFSOCK
     {
         eprintln!("cmux-app-host: fd 3 must be the supervisor's socket");

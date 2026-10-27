@@ -270,6 +270,22 @@ grep -Eq 'cmux_shim_(initialize|free)\(' "$client" && fail "the generator emitte
 grep -Eq '\bwait\(|wait_for|cond_|semaphore|UnmigratedAsync' "$client" && fail "the remote shim waits or drops an op"
 has "$host" 'case kOpGoBack:' "the host has no case for go_back"
 has "$host" 'cmux_shim_go_back(ctx.Browser(arg_browser_id));' "the host does not map the browser id"
+# A post's pending keys are pushed again after the op runs and before its ACK (task 016b), so the
+# value cmux reads once the ACK clears its mark is the host's after the op.
+back="$(case_of "$host" kOpGoBack)"
+[[ "$(grep -A4 -F 'cmux_shim_go_back(ctx.Browser(arg_browser_id));' <<<"$back" | tail -n 4 | sed 's/^ *//')" == \
+   "TlvWriter refresh_tab_navigation_state;
+refresh_tab_navigation_state.I32(arg_browser_id);
+ctx.RefreshMirror(kOpTabNavigationState, refresh_tab_navigation_state, 0x0u);  // tab.navigation_state[browser_id]
+ctx.Ack(wire_token);" ]] ||
+  fail "go_back does not refresh tab.navigation_state[browser_id] between the call and its ACK"
+grep -qF 'ctx.RefreshMirror(kOpTabNavigationState, refresh_tab_navigation_state, 0x1u);' \
+  <<<"$(case_of "$host" kOpTabGoToEntry)" || fail "tab_go_to_entry does not refresh tab.navigation_state[*]"
+grep -qF 'RefreshMirror' <<<"$(case_of "$host" kOpBeforeUnloadReply)" && fail "an op without pending keys refreshes"
+has "$swift" 'Row(.post, [.int32], [],' "Swift go_back row"
+has "$swift" '[PendingKey(.tabNavigationState, [0])]),' "Swift go_back pending key (frame field 0)"
+has "$swift" '[PendingKey(.tabNavigationState, [nil])]),' "Swift tab_go_to_entry wildcard pending key"
+has "$swift" 'var pendingKeys: [PendingKey] { row.pending }' "Swift pendingKeys"
 has "$host" 'ctx.BindMintedOnEvent(kOpCreateWindow, minted_id, 4 /* CMUX_SHIM_ADDRESS */, arg_request, call_result);' \
   "the host does not bind a mint_returns sent id when its event comes"
 has "$host" 'ctx.BindMinted(kOpTabAdd, minted_id, call_result, arg_window_browser_id);' \
@@ -353,6 +369,7 @@ struct HostContext {
   void BindMinted(uint16_t op, int32_t minted, int64_t result, int32_t client_browser);
   void BindMintedOnEvent(uint16_t op, int32_t minted, int event_kind, int32_t request, int64_t started);
   void PushMirror(uint16_t op, const TlvWriter& key, const TlvWriter& value);
+  void RefreshMirror(uint16_t op, const TlvWriter& key, uint32_t wildcards);
 };
 void Wipe(std::vector<std::string>&);
 }  // namespace cmux_host
@@ -503,11 +520,24 @@ expect 1 "CEFReads.swift:7:" "only the head of a site names functions" -- --root
 edit_ops "$rewrite" 'd["host_mode_rewrites"][0]["site"] = "CmuxNextBrowser/CEF/CEFReads.swift: moves() and other()"'
 expect 0 "0 stand-in results read" "a site that names two functions" -- --root "$rewrite" --check-return-use
 
-# --swift-sites drops a site that is done (task p01-process-021): an async or mint call in the token
-# form (inside a closure handed to sendAsync, siteCall or profileWrite) and a site listed with needs
-# kept. A `reply` entry alone does not settle a site: its call must take the token form.
+# --swift-sites drops a site that is done (task p01-process-021): an async call, or a preinit whose
+# verdict is a wire:REPLY, in the token form
+# (inside a closure handed to sendAsync, siteCall or profileWrite), a mint_returns id call in the mint
+# form (its id keys a `.reply(for:` wait), and a site listed with needs after_attach, host_exit or
+# kept. A `reply` entry alone does not settle a site: its call must take the token form. A mint call
+# in sendAsync and a mint read stay listed.
 settled="$work/settled"
 fixture "$settled"
+python3 - "$settled/$library" <<'EOF'
+import sys
+path = sys.argv[1]
+text = open(path, encoding="utf-8").read()
+text = text.replace('        goBack = try r("cmux_shim_go_back")\n',
+                    '        goBack = try r("cmux_shim_go_back")\n        tabAdd = try r("cmux_shim_tab_add")\n'
+                    '        initialize = try r("cmux_shim_initialize")\n'
+                    '        pageSchemeAdd = try r("cmux_shim_page_scheme_add")\n')
+open(path, "w", encoding="utf-8").write(text)
+EOF
 cat >"$settled/Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/CEF/CEFAsync.swift" <<'EOF'
 extension CEFRuntime {
     func cookies() async throws -> CEFSiteReply {
@@ -534,24 +564,58 @@ extension CEFRuntime {
         let answer = sendAsync { _ in 0 }
         _ = shim.visitCookies(1, 4)
     }
+
+    func mintedInToken() {
+        let answer = sendAsync { shim in shim.tabAdd(1, nil) }
+    }
+
+    func minted(_ shim: CEFShimLibrary) async throws -> String {
+        let id = shim.tabAdd(1, nil)
+        let key = Key(browser: 1, id: id)
+        return try await waits.reply(for: key, timeout: .seconds(1)) { Failure() }
+    }
+
+    func mintedRead(_ shim: CEFShimLibrary) -> Bool {
+        shim.tabAdd(1, nil) != 0
+    }
+
+    func boot(_ library: Boot) {
+        if case .inProcess = library, shim.initialize(nil, nil, nil) != 1 { return }
+    }
+
+    func scheme() {
+        let verdict = sendAsync { shim in shim.pageSchemeAdd("x", "/tmp") }
+    }
+
+    func schemeRead(_ shim: CEFShimLibrary) -> Bool {
+        shim.pageSchemeAdd("y", "/tmp") == 1
+    }
 }
 EOF
+listed() { grep -q "CEFAsync.swift:$1"$'\t' <<<"$sites"; }
 sites="$(python3 "$gen" --root "$settled" --swift-sites)"
-for line in 3 9; do
-  grep -q "CEFAsync.swift:$line"$'\t' <<<"$sites" && fail "a call in the token form is listed (line $line): $sites"
+# A preinit whose verdict is a wire:REPLY is done in the token form too (task p01-process-070).
+for line in 3 9 32 46; do
+  listed "$line" && fail "a call in the token or mint form is listed (line $line): $sites"
 done
-for line in 15 19 24; do
-  grep -q "CEFAsync.swift:$line"$'\t' <<<"$sites" || fail "a site not in the token form is not listed (line $line): $sites"
+for line in 15 19 24 28 38 42 50; do
+  listed "$line" || fail "a site in neither form is not listed (line $line): $sites"
 done
 edit_ops "$settled" 'd["host_mode_rewrites"] = [
-  {"site": "CmuxNextBrowser/CEF/CEFAsync.swift: CEFRuntime.window(_:)", "exports": ["cmux_shim_create_window"],
-   "needs": "kept", "change": "returns the minted id", "task": "p01-process-021"},
+  {"site": "CmuxNextBrowser/CEF/CEFAsync.swift: CEFRuntime.boot(_:)", "exports": ["cmux_shim_initialize"],
+   "needs": "kept", "change": "Runs only for CEFRuntimeBoot.inProcess.", "task": "p01-process-021"},
   {"site": "CmuxNextBrowser/CEF/CEFAsync.swift: CEFRuntime.direct(_:)", "exports": ["cmux_shim_visit_cookies"],
-   "needs": "reply", "change": "awaits the reply", "task": "p01-process-021"}]'
-expect 0 "" "kept and reply entries are valid" -- --root "$settled" --check-ops
+   "needs": "reply", "change": "awaits the reply", "task": "p01-process-021"},
+  {"site": "CmuxNextBrowser/CEF/CEFAsync.swift: CEFRuntime.mintedRead(_:)", "exports": ["cmux_shim_tab_add"],
+   "needs": "host_exit", "change": "fails when the host exits", "task": "p01-process-091"}]'
+expect 0 "" "kept, reply and host_exit entries are valid" -- --root "$settled" --check-ops
 sites="$(python3 "$gen" --root "$settled" --swift-sites)"
-grep -q $'CEFAsync.swift:19\t' <<<"$sites" && fail "a kept site is listed: $sites"
-grep -q $'CEFAsync.swift:15\t' <<<"$sites" || fail "a reply entry settled a call not in the token form: $sites"
+listed 42 && fail "a kept site is listed: $sites"
+listed 15 || fail "a reply entry settled a call not in the token form: $sites"
+listed 38 && fail "a host_exit site is listed: $sites"
+edit_ops "$settled" 'd["host_mode_rewrites"][0] = {"site": "CmuxNextBrowser/CEF/CEFAsync.swift: CEFRuntime.window(_:)",
+  "exports": ["cmux_shim_create_window"], "needs": "kept", "change": "returns the minted id", "task": "p01-process-021"}'
+expect 0 "" "a kept mint site is valid" -- --root "$settled" --check-ops
 edit_ops "$settled" 'd["host_mode_rewrites"][0]["needs"] = "later"'
 expect 1 "needs 'later' is not one of" "an unknown needs" -- --root "$settled" --check-ops
 
@@ -727,7 +791,8 @@ EOF
 sha="$(python3 -c 'import hashlib,sys; print(hashlib.sha256(open(sys.argv[1],"rb").read()).hexdigest())' \
   "$parity/plans/cmux-next/remote_cocoa_mojom/render_widget_host_ns_view.mojom")"
 cat >"$parity/plans/cmux-next/chromium-host-view-parity.json" <<EOF
-{"mojoms": [{"file": "render_widget_host_ns_view.mojom", "sha256": "$sha"}],
+{"mojoms": [{"file": "render_widget_host_ns_view.mojom", "source": "content/common/render_widget_host_ns_view.mojom",
+             "chromium": "154.0.8037.98", "commit": "b859317bf11f6be47f9b7799ec690a0a42a1fb33", "sha256": "$sha"}],
  "methods": [
   {"mojom": "render_widget_host_ns_view.mojom", "interface": "RenderWidgetHostNSView", "method": "SyncIsKeyWindow",
    "not_needed": "cmux owns the window; the host reads key state from the pushed embedder-active policy"},
@@ -745,6 +810,130 @@ d["methods"].append({"mojom": "render_widget_host_ns_view.mojom", "interface": "
 json.dump(d, open(sys.argv[1], "w"))
 EOF
 expect 0 "" "all methods mapped" -- --root "$parity" --check-view-parity
+# Counts come from the vendored text, never constants (task p01-process-059).
+expect 0 "1 vendored mojoms at Chromium 154\.0\.8037\.98 \(b859317bf11f\): 3 methods, 1 \[Sync\]; 3 mapped \(op 1, event 1, not_needed 1\)" \
+  "counts parsed from the mojom" -- --root "$parity" --check-view-parity
+expect 0 "render_widget_host_ns_view.mojom RenderWidgetHostNSView: 3 methods, 1 \[Sync\]" "counts by interface" \
+  -- --root "$parity" --check-view-parity
+cat >"$parity/plans/cmux-next/remote_cocoa_mojom/alert.mojom" <<'EOF'
+interface AlertBridge {
+  Show(AlertBridgeInitParams params) => (AlertDisposition disposition);
+  [Sync, MinVersion=1] Dismiss();
+};
+EOF
+expect 1 "alert.mojom is not listed in" "an unlisted mojom" -- --root "$parity" --check-view-parity
+expect 1 "alert.mojom AlertBridge.Dismiss: unmapped" "an unlisted mojom's methods count" -- --root "$parity" --check-view-parity
+expect 1 "2 vendored mojoms at Chromium [^:]*: 5 methods, 2 \[Sync\]; 3 mapped" "counts with an unlisted mojom" \
+  -- --root "$parity" --check-view-parity
+rm "$parity/plans/cmux-next/remote_cocoa_mojom/alert.mojom"
+mojom_entry() { # <python statements on e, the first mojoms entry, and d>: rewrite the mojoms list
+  python3 - "$parity/plans/cmux-next/chromium-host-view-parity.json" "$1" <<'EOF'
+import json, sys
+d = json.load(open(sys.argv[1]))
+e = d["mojoms"][0]
+exec(sys.argv[2])
+json.dump(d, open(sys.argv[1], "w"))
+EOF
+}
+mojom_entry 'e["role"] = "the page view"'
+expect 0 "" "a mojom's role" -- --root "$parity" --check-view-parity
+mojom_entry 'e["rol"] = e.pop("role")'
+expect 1 "unknown mojoms field\(s\) rol" "a misspelled mojoms field" -- --root "$parity" --check-view-parity
+mojom_entry 'e.pop("rol"); e["commit"] = "b859317bf11f"'
+expect 1 "commit must be the 40-hex Chromium commit" "a short commit" -- --root "$parity" --check-view-parity
+mojom_entry 'e["commit"] = "b859317bf11f6be47f9b7799ec690a0a42a1fb33"; e["source"] = "content/common/other.mojom"'
+expect 1 "is not the Chromium path of this file" "a source of another file" -- --root "$parity" --check-view-parity
+mojom_entry 'e["source"] = "content/common/render_widget_host_ns_view.mojom"; e["sha256_"] = e.pop("sha256")'
+expect 1 "sha256 must be the file's 64-hex sha256" "a mojom without its sha" -- --root "$parity" --check-view-parity
+mojom_entry 'e["sha256"] = e.pop("sha256_"); d["mojoms"].append(dict(e, file="menu.mojom", source="x/menu.mojom", chromium="153.0.1.1"))'
+: >"$parity/plans/cmux-next/remote_cocoa_mojom/menu.mojom"
+expect 1 "more than one Chromium revision" "mojoms from two revisions" -- --root "$parity" --check-view-parity
+rm "$parity/plans/cmux-next/remote_cocoa_mojom/menu.mojom"
+mojom_entry 'd["mojoms"] = d["mojoms"][:1]'
+mkdir -p "$parity/scripts/cmux-next"
+echo '{"chromium": "155.0.1.2"}' >"$parity/scripts/cmux-next/cef-manifest.json"
+expect 1 "pins 155.0.1.2: vendor them again" "mojoms the fork pin moved past" -- --root "$parity" --check-view-parity
+echo '{"chromium": "154.0.8037.98"}' >"$parity/scripts/cmux-next/cef-manifest.json"
+expect 0 "" "mojoms at the fork pin" -- --root "$parity" --check-view-parity
+# Each target is checked against what can carry it (task p01-process-055).
+mkdir -p "$parity/Packages/macOS/CmuxNext/ChromiumHost/src" "$parity/plans/cmux-next/chrome-parity"
+cat >"$parity/Packages/macOS/CmuxNext/ChromiumHost/src/chromium_host_wire.h" <<'EOF'
+// Fixture wire. kNotAKind = 9 in a comment is not a Kind.
+enum Kind : uint32_t {
+  kGeometry = 2,  // v0 width
+  kFocus = 6,
+};
+inline constexpr int kElsewhere = 7;
+EOF
+echo '{"programs": {"p01-process": {"tasks": [{"id": "p01-process-054"}]}}}' \
+  >"$parity/plans/cmux-next/chrome-parity/design-result.json"
+show_row() { # <python dict literal for the Show row>: rewrite that row
+  python3 - "$parity/plans/cmux-next/chromium-host-view-parity.json" "$1" <<'EOF'
+import json, sys
+path, row = sys.argv[1], eval(sys.argv[2])
+d = json.load(open(path))
+d["methods"] = [m for m in d["methods"] if m["method"] != "Show"]
+d["methods"].append({"mojom": "render_widget_host_ns_view.mojom", "interface": "RenderWidgetHostNSView",
+                     "method": "Show", **row})
+json.dump(d, open(path, "w"))
+EOF
+}
+show_row '{"wire": "kFocus"}'
+expect 0 "" "a wire Kind" -- --root "$parity" --check-view-parity
+show_row '{"wire": "kElsewhere"}'
+expect 1 "wire 'kElsewhere' is not a Kind" "a constant outside enum Kind" -- --root "$parity" --check-view-parity
+show_row '{"wire": "kNotAKind"}'
+expect 1 "wire 'kNotAKind' is not a Kind" "a Kind named only in a comment" -- --root "$parity" --check-view-parity
+show_row '{"op": "cmux_shim_no_such_export"}'
+expect 1 "op 'cmux_shim_no_such_export' is neither" "an op that is not an export" -- --root "$parity" --check-view-parity
+edit_ops "$parity" 'd.setdefault("optional_exports", []).append(dict(by["cmux_shim_go_back"], name="cmux_shim_widget_dismiss"))'
+show_row '{"op": "cmux_shim_widget_dismiss"}'
+expect 0 "" "an optional export" -- --root "$parity" --check-view-parity
+edit_ops "$parity" 'd.setdefault("optional_events", []).append({"kind": "CMUX_SHIM_WIDGET_CONTEXT", "value": 52, "refreshes": []})'
+show_row '{"event": "CMUX_SHIM_WIDGET_CONTEXT"}'
+expect 0 "" "an optional event" -- --root "$parity" --check-view-parity
+# A pending row names who builds the carrier, not a carrier: the method stays unmapped.
+show_row '{"pending": "p01-process-054", "note": "TOOLTIP {text}"}'
+expect 1 "RenderWidgetHostNSView.Show: unmapped, pending on p01-process-054" "a pending row is unmapped" \
+  -- --root "$parity" --check-view-parity
+expect 0 "RenderWidgetHostNSView.Show" "list-unmapped lists a pending row" -- --root "$parity" --list-unmapped
+expect 0 $'RenderWidgetHostNSView.Show\tp01-process-054' "list-pending" -- --root "$parity" --list-pending
+python3 "$gen" --root "$parity" --list-pending 2>/dev/null | grep -q SyncIsKeyWindow &&
+  fail "--list-pending lists a mapped row"
+show_row '{"pending": "p01-process-054"}'
+expect 1 "a pending row needs a note" "a pending row without its carrier" -- --root "$parity" --check-view-parity
+show_row '{"pending": "p01-process-999", "note": "x"}'
+expect 1 "pending task p01-process-999 is not in" "a pending task the design lacks" -- --root "$parity" --check-view-parity
+show_row '{"pending": "later", "note": "x"}'
+expect 1 "pending 'later' is not a task id" "a pending value that is no task id" -- --root "$parity" --check-view-parity
+show_row '{"not_needed": " "}'
+expect 1 "not_needed must be a non-empty string" "a blank reason" -- --root "$parity" --check-view-parity
+show_row '{"wire": "kFocus", "evnt": "CMUX_SHIM_ADDRESS"}'
+expect 1 "unknown field\\(s\\) evnt" "a misspelled field" -- --root "$parity" --check-view-parity
+show_row '{"wire": "kFocus", "event": "CMUX_SHIM_ADDRESS"}'
+expect 1 "needs exactly one of" "two targets" -- --root "$parity" --check-view-parity
+# A row names a method of the vendored mojom (task p01-process-054: Chromium 154 has PinchEvent, not GestureBegin).
+show_row '{"wire": "kFocus"}'
+stale_row() { # add|drop: the RenderWidgetHostNSViewHost.GestureBegin row
+  python3 - "$parity/plans/cmux-next/chromium-host-view-parity.json" "$1" <<'EOF'
+import json, sys
+d = json.load(open(sys.argv[1]))
+d["methods"] = [m for m in d["methods"] if m["method"] != "GestureBegin"]
+if sys.argv[2] == "add":
+    d["methods"].append({"mojom": "render_widget_host_ns_view.mojom", "interface": "RenderWidgetHostNSViewHost",
+                         "method": "GestureBegin", "wire": "kFocus"})
+json.dump(d, open(sys.argv[1], "w"))
+EOF
+}
+stale_row add
+expect 1 "RenderWidgetHostNSViewHost.GestureBegin: mapped, but the mojom has no such method" "a row for a method the mojom lacks" \
+  -- --root "$parity" --check-view-parity
+stale_row drop
+expect 0 "" "the stale row gone" -- --root "$parity" --check-view-parity
+rm "$parity/Packages/macOS/CmuxNext/ChromiumHost/src/chromium_host_wire.h"
+show_row '{"wire": "kFocus"}'
+expect 1 "chromium_host_wire.h is missing" "a wire row without the wire header" -- --root "$parity" --check-view-parity
+show_row '{"event": "CMUX_SHIM_ADDRESS"}'
 echo "// drift" >>"$parity/plans/cmux-next/remote_cocoa_mojom/render_widget_host_ns_view.mojom"
 expect 1 "changed since it was mapped" "mojom drift" -- --root "$parity" --check-view-parity
 
@@ -773,6 +962,25 @@ if [[ -f "$repo/$ops" ]]; then
     compile_inc "$scratch" "the real header"
   fi
   expect 0 "0 mirror reads before attach" "the real startup path" -- --root "$repo" --check-pre-attach
+  # Every vendored remote_cocoa mojom method is mapped (tasks p01-process-055, 059), except pending rows,
+  # which the check counts unmapped until their task names the carrier: no other problem, and the
+  # unmapped list is exactly the pending list. The counts are parsed from the vendored files.
+  real_parity_code=0
+  real_parity="$(python3 "$gen" --root "$repo" --check-view-parity 2>&1 >/dev/null)" || real_parity_code=$?
+  other="$(grep -vE ': unmapped, pending on p[0-9]{2}-[a-z0-9-]+$' <<<"$real_parity" || true)"
+  [[ -z "$other" ]] || fail "the real view parity has problems besides pending rows:"$'\n'"$other"
+  real_unmapped="$(python3 "$gen" --root "$repo" --list-unmapped 2>/dev/null | sort)"
+  real_pending="$(python3 "$gen" --root "$repo" --list-pending 2>/dev/null | cut -f1 | sort)"
+  [[ "$real_unmapped" == "$real_pending" ]] ||
+    fail "the real view parity's unmapped methods are not its pending rows:"$'\n'"$real_unmapped"
+  want_code=0
+  [[ -n "$real_pending" ]] && want_code=1
+  [[ "$real_parity_code" == "$want_code" ]] ||
+    fail "the real view parity exits $real_parity_code, expected $want_code (pending: ${real_pending:-none})"
+  vendored="$(find "$repo/plans/cmux-next/remote_cocoa_mojom" -name '*.mojom' | grep -c .)"
+  real_counts="$(python3 "$gen" --root "$repo" --check-view-parity 2>/dev/null || true)"
+  grep -qE "^view parity: $vendored vendored mojoms at Chromium [^ ]+ \([0-9a-f]{12}\): [0-9]+ methods, [0-9]+ \[Sync\]" <<<"$real_counts" ||
+    fail "the real view parity does not print the counts of its $vendored vendored mojoms"
 else
   echo "note: $ops is not in this checkout (task p01-process-010); real-header ops check skipped" >&2
 fi

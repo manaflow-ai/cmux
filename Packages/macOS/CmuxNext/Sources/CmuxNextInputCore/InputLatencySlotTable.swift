@@ -172,6 +172,15 @@ public final class InputLatencySlotTable: Sendable {
         }
     }
 
+    /// Sets the view the input landed in once its dispatch knows it (the layout took a scroll the view under the
+    /// pointer would have had).
+    @discardableResult
+    public func setTarget(_ token: InputLatencyToken, _ target: InputTarget) -> Bool {
+        updateMeta(token) { meta in
+            meta & ~(0xFF << 8) | UInt64(target.rawValue) << 8
+        }
+    }
+
     /// Records that the input changed a layer or its contents (Chrome `caused_frame_update`).
     @discardableResult
     public func setCausedFrameUpdate(_ token: InputLatencyToken) -> Bool {

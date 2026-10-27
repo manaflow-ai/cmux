@@ -123,7 +123,8 @@ final class ChromiumHostInputRing {
     /// parked; nil until ``attach(_:)``.
     init(region fd: Int32, doorbell: (any ChromiumHostInputDoorbell)?) throws(ChromiumHostInputRingError) {
         let mapping = try Mapping(fd: fd)
-        guard Self.isRing(UnsafeRawPointer(mapping.base)) else { throw .notARing }
+        // SAFETY: the mapping holds `ringBytes` (Mapping checked the region's size), more than the header read.
+        guard unsafe Self.isRing(UnsafeRawPointer(mapping.base)) else { throw .notARing }
         self.mapping = mapping
         tailSlot = mapping.slot(Self.tailOffset)
         headSlot = mapping.slot(Self.headOffset)
@@ -209,7 +210,9 @@ final class ChromiumHostInputRing {
             }
             if used == Self.capacity { return .full }
         }
-        Self.encode(frame, into: mapping.base + Self.framesOffset + Int(tail & (Self.capacity - 1)) * Self.frameSize)
+        // SAFETY: slot `tail % capacity` of the frames area: framesOffset + capacity * frameSize == ringBytes, the
+        // mapping's size, and the reader does not read the slot until the tail store below publishes it.
+        unsafe Self.encode(frame, into: mapping.base + Self.framesOffset + Int(tail & (Self.capacity - 1)) * Self.frameSize)
         tail &+= 1
         tailSlot.store(tail, ordering: .sequentiallyConsistent)
         stats.written += 1
@@ -288,6 +291,9 @@ final class ChromiumHostInputRing {
             return true
         }
         if next.rawKind == ChromiumHostFrame.Kind.wheel.rawValue {
+            // One phase and momentum phase only (p04-input-063), as Blink's
+            // WebMouseWheelEvent::CanCoalesce: a gesture's edges reach Chromium.
+            guard waiting.v[4] == next.v[4], waiting.v[5] == next.v[5] else { return false }
             let dx = waiting.v[2], dy = waiting.v[3]
             waiting = next  // the newest position, time and seq; the summed deltas
             waiting.v[2] = saturatingAdd(dx, next.v[2])
@@ -303,38 +309,43 @@ final class ChromiumHostInputRing {
 
     // MARK: Layout
 
-    /// The ring's header (magic, version, capacity, frame size) at `base`.
+    /// The ring's header (magic, version, capacity, frame size) at `base`, which must hold 16 readable bytes.
     nonisolated static func isRing(_ base: UnsafeRawPointer) -> Bool {
-        UInt32(littleEndian: base.loadUnaligned(fromByteOffset: 0, as: UInt32.self)) == magic
+        // SAFETY: the four reads end at byte 16, which the caller's contract covers.
+        unsafe UInt32(littleEndian: base.loadUnaligned(fromByteOffset: 0, as: UInt32.self)) == magic
             && UInt32(littleEndian: base.loadUnaligned(fromByteOffset: 4, as: UInt32.self)) == version
             && UInt32(littleEndian: base.loadUnaligned(fromByteOffset: 8, as: UInt32.self)) == UInt32(capacity)
             && UInt32(littleEndian: base.loadUnaligned(fromByteOffset: 12, as: UInt32.self)) == UInt32(frameSize)
     }
 
-    /// Writes the ring's header into a zeroed region (``ChromiumHostInputRingRegion/make()``).
+    /// Writes the ring's header into a zeroed region (``ChromiumHostInputRingRegion/make()``), which must hold
+    /// `framesOffset` writable bytes.
     nonisolated static func format(_ base: UnsafeMutableRawPointer) {
-        base.initializeMemory(as: UInt8.self, repeating: 0, count: framesOffset)
-        base.storeBytes(of: magic.littleEndian, toByteOffset: 0, as: UInt32.self)
-        base.storeBytes(of: version.littleEndian, toByteOffset: 4, as: UInt32.self)
-        base.storeBytes(of: UInt32(capacity).littleEndian, toByteOffset: 8, as: UInt32.self)
-        base.storeBytes(of: UInt32(frameSize).littleEndian, toByteOffset: 12, as: UInt32.self)
+        // SAFETY: every write ends inside the first `framesOffset` bytes, which the caller's contract covers.
+        unsafe base.initializeMemory(as: UInt8.self, repeating: 0, count: framesOffset)
+        unsafe base.storeBytes(of: magic.littleEndian, toByteOffset: 0, as: UInt32.self)
+        unsafe base.storeBytes(of: version.littleEndian, toByteOffset: 4, as: UInt32.self)
+        unsafe base.storeBytes(of: UInt32(capacity).littleEndian, toByteOffset: 8, as: UInt32.self)
+        unsafe base.storeBytes(of: UInt32(frameSize).littleEndian, toByteOffset: 12, as: UInt32.self)
     }
 
     /// `frame`'s 64 header bytes as `chromium_host_wire.h`'s `Encode` writes
-    /// them, with no payload, straight into `slot` (64-byte aligned).
+    /// them, with no payload, straight into `slot` (64-byte aligned, `frameSize` == 64 writable bytes).
     nonisolated static func encode(_ frame: ChromiumHostFrame, into slot: UnsafeMutableRawPointer) {
-        slot.storeBytes(of: frame.rawKind.littleEndian, toByteOffset: 0, as: UInt32.self)
-        slot.storeBytes(of: UInt32(0), toByteOffset: 4, as: UInt32.self)
+        // SAFETY (this function): every write ends by byte 64, the slot's size in the caller's contract, at an
+        // offset aligned for its type (the slot is 64-byte aligned).
+        unsafe slot.storeBytes(of: frame.rawKind.littleEndian, toByteOffset: 0, as: UInt32.self)
+        unsafe slot.storeBytes(of: UInt32(0), toByteOffset: 4, as: UInt32.self)
         for index in 0..<6 {
             let value = index < frame.v.count ? frame.v[index] : 0
-            slot.storeBytes(of: UInt32(bitPattern: value).littleEndian, toByteOffset: 8 + 4 * index, as: UInt32.self)
+            unsafe slot.storeBytes(of: UInt32(bitPattern: value).littleEndian, toByteOffset: 8 + 4 * index, as: UInt32.self)
         }
-        slot.storeBytes(of: frame.flags.littleEndian, toByteOffset: 32, as: UInt64.self)
-        slot.storeBytes(of: frame.t0.littleEndian, toByteOffset: 40, as: UInt64.self)
-        slot.storeBytes(of: frame.t1.littleEndian, toByteOffset: 48, as: UInt64.self)
-        slot.storeBytes(of: frame.ch.littleEndian, toByteOffset: 56, as: UInt16.self)
-        slot.storeBytes(of: frame.unmod.littleEndian, toByteOffset: 58, as: UInt16.self)
-        slot.storeBytes(of: frame.seq.littleEndian, toByteOffset: 60, as: UInt32.self)
+        unsafe slot.storeBytes(of: frame.flags.littleEndian, toByteOffset: 32, as: UInt64.self)
+        unsafe slot.storeBytes(of: frame.t0.littleEndian, toByteOffset: 40, as: UInt64.self)
+        unsafe slot.storeBytes(of: frame.t1.littleEndian, toByteOffset: 48, as: UInt64.self)
+        unsafe slot.storeBytes(of: frame.ch.littleEndian, toByteOffset: 56, as: UInt16.self)
+        unsafe slot.storeBytes(of: frame.unmod.littleEndian, toByteOffset: 58, as: UInt16.self)
+        unsafe slot.storeBytes(of: frame.seq.littleEndian, toByteOffset: 60, as: UInt32.self)
     }
 
     /// The client browser id a ring frame is for (`BrowserOf`): the low 32 bits of `t1`.
@@ -342,23 +353,31 @@ final class ChromiumHostInputRing {
         Int32(bitPattern: UInt32(truncatingIfNeeded: frame.t1))
     }
 
-    /// The ring's mapping in this process; unmapped when the writer goes.
+    /// The ring's mapping in this process, `ringBytes` long (the region holds at least that many); unmapped
+    /// once when the writer goes.
+    @safe
     private nonisolated final class Mapping {
         let base: UnsafeMutableRawPointer
 
         init(fd: Int32) throws(ChromiumHostInputRingError) {
             var info = stat()
-            guard fstat(fd, &info) == 0, info.st_size >= off_t(ChromiumHostInputRing.ringBytes) else { throw .notARing }
-            guard let base = mmap(nil, ChromiumHostInputRing.ringBytes, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0),
-                  base != UnsafeMutableRawPointer(bitPattern: -1) else { throw .map(errno) }
-            self.base = base
+            // SAFETY: fstat writes one `stat` into `info` during the call.
+            guard unsafe fstat(fd, &info) == 0, info.st_size >= off_t(ChromiumHostInputRing.ringBytes) else { throw .notARing }
+            // SAFETY: maps `ringBytes` of a region at least that long (above); deinit unmaps it once.
+            guard let base = unsafe mmap(nil, ChromiumHostInputRing.ringBytes, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0),
+                  unsafe base != UnsafeMutableRawPointer(bitPattern: -1) else { throw .map(errno) }
+            unsafe self.base = base
         }
 
+        /// The atomic word at `offset`, one of the header's 8-byte aligned cursor offsets.
         func slot(_ offset: Int) -> AtomicPointerSlot {
-            AtomicPointerSlot((base + offset).assumingMemoryBound(to: UInt64.self))
+            // SAFETY: `offset` is a header cursor, 8-byte aligned inside the mapping; the ring keeps this mapping
+            // (and so the word) alive as long as it holds the slot.
+            unsafe AtomicPointerSlot((base + offset).assumingMemoryBound(to: UInt64.self))
         }
 
-        deinit { munmap(base, ChromiumHostInputRing.ringBytes) }
+        // SAFETY: the mapping made in init, unmapped once; no slot outlives the ring that holds this.
+        deinit { unsafe munmap(base, ChromiumHostInputRing.ringBytes) }
     }
 }
 #endif

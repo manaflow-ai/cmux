@@ -17,6 +17,10 @@ but `subscriptions`) are one cut. A release daemon, or a push-base daemon from b
 is the `settings.snapshot` result after the schema's capture rules, which check_snapshot_schema.py owns.
 Nothing here normalizes: volatile fields, path rewrites and id labels are normalize.py's (task 013).
 
+With `facets: v0` in the session context (facets_v0.py capture, p15-oracle-006) a case reads only push-base
+methods (no `oracle-state`), runs on the wall clock and refuses advance_clock, so the push base and any later SHA
+give comparable snapshots; the snapshot schema is then the v0 one (facets_v0.write_schema).
+
 Each case gets:
 - its own state root `/tmp/o/<run6>/<case6>` (oracle.py gives it out), holding the daemon's socket
   (`s.sock`, so every socket path stays <= 100 bytes, under Linux's 108-byte sun_path), state, HOME,
@@ -29,10 +33,14 @@ Each case gets:
   `oracle`, as paths show $ROOT.
 - one `cmux-tui --headless` child started in its own session, awaited on its readiness pipe
   (`--owner-ready-fd`, the daemon's own startup protocol), never by probing the socket.
-- the environment of `case_environment` only (an `env -i` base). Task p15-oracle-200 moves that function
-  into hermetic_env.py and adds `unshare -rn`, the repository fixture and the daemon's CMUX_TUI_OFFLINE
-  early return (the variable is set here already). Terminals use the default per-terminal
-  `cmux-tui __terminal-host` model (CMUX_TUI_TERMINAL_HOST_MODEL is unset).
+- the environment of hermetic_env.daemon_case only (an `env -i` base, CMUX_TUI_OFFLINE=1, version
+  control without the person's config), and on Linux its own network namespace (loopback only, the
+  caller's uid; hermetic_env.netns_prefix). The isolation is resolved once per run: oracle.py passes
+  its description as `isolation` in the session context (`oracle.py run --isolation`), and this
+  file's CLI takes `--isolation` (netns by default, which refuses a host without unprivileged user
+  namespaces; auto; none). Each case result carries the environment it ran with (`environment`).
+  Terminals use the default per-terminal `cmux-tui __terminal-host` model (CMUX_TUI_TERMINAL_HOST_MODEL
+  is unset).
 - every request through the SDK: resource operations on `cmux._protocol.ProtocolConnection` (the SDK's
   wire layer; the oracle compares wire replies, so it does not decode them into dataclasses), and the
   daemon-control commands (`identify`, `shutdown-daemon`, `oracle-state`, `oracle-advance-clock`) on
@@ -40,8 +48,11 @@ Each case gets:
 
 Steps: resource.call, snapshot, settle (one ping round trip: the daemon acknowledges a mutation after
 it committed it, so the next read on the connection sees it), kill and restart of the daemon process,
-advance_clock (`oracle-advance-clock {ms}` of task p15-oracle-185), and waitFor on session.events (each
-event re-reads the facet; no sleeps). cli, mcp, action.run, key and tui.key belong to the other drivers.
+kill of the terminal holder (below), advance_clock (`oracle-advance-clock {ms}` of task p15-oracle-185),
+and waitFor on session.events (each event re-reads the facet; no sleeps). cli, mcp, action.run, key and
+tui.key belong to the other drivers.
+A resource.call with expect outcome `any` (a walk move of gen_walks.py) passes with ok or a typed error, and what
+it gave is the `reply` facet of its settled checkpoint, so a differential run compares it like any facet.
 
 Invariant I6 (no orphan processes or sockets). Each case runs in its own worker process (`case-worker`),
 which on Linux is a child subreaper (prctl PR_SET_CHILD_SUBREAPER): a process the case starts stays in
@@ -58,6 +69,18 @@ on fails the case; one with no listener (connect is refused) is a file the daemo
 the result reports as daemon debt. When a worker did not finish (it hung or crashed), the session ends
 its tree by SIGTERM and falls back to one marker scan of the process table for that case.
 
+A kill of `process: holder` ends every process that runs the case's terminals (VT workers): each
+`__terminal-host` on the default arm, the install's one `__holder` on the holder arm
+(CMUX_TUI_TERMINAL_HOST_MODEL=holder). Before it ends a terminal host, it waits until the daemon holds
+that host's PTY master (custody), without which the daemon cannot replace a dead host on its shell. Its
+reply names the kinds it ended and the daemon's record of each ended terminal host: the `host_replaced`
+line or the host-loss line that the daemon appends to `terminal-losses.jsonl` in the case's state
+(cmux-tui/spec/terminal-host.md). A holder has no such record: the daemon starts a new holder and hands
+it every PTY master. A case with a holder kill by ABRT arms the terminal host's debug crash seam
+(CMUX_TUI_TEST_HOST_ABORT_ONCE, terminal_host_runtime/shared/host_crash.rs): the kill releases it, and
+the host panics and aborts itself, so its panic hook writes the crash record that the daemon's line names.
+A worker that does not wait on the seam (the holder, or a host started after the first one) gets SIGABRT.
+
 Chrome reference (chromium/src):
 - base/test/launcher/test_launcher.cc: each test child runs in its own process group and the launcher
   kills what remains of that group when the test ends (KillSpawnedTestProcesses), so a leaked process
@@ -65,11 +88,18 @@ Chrome reference (chromium/src):
   stands in for the group here.
 - chrome/test/base/in_process_browser_test.cc: a fresh temporary user data dir per test
   (temp_user_data_dir_), the per-case state root's model.
+- content/public/test/browser_test_utils.h CrashTab and RenderProcessHostWatcher: a test crashes a
+  child on purpose, inside ScopedAllowRendererCrashes, and waits for the browser to see the exit
+  before it checks what the browser shows; the holder kill waits for the daemon's record the same way.
 
 Usage:
   driver_daemon.py run-case --binary CMUX_TUI CASE.json [--state-base DIR] [--snapshot-schema S]
-                                                     one case, its result JSON
-  driver_daemon.py smoke --binary CMUX_TUI [--cases 300] [--jobs 300] [--case CASE.json]
+                            [--isolation netns|auto|none] [--trace TRACE.json]
+                                                     one case, its result JSON; --trace also takes a journal
+                                                     checkpoint at setup and writes the case's trace with an
+                                                     oracle-restore-preview at every capture (invariant I9:
+                                                     invariants.py check TRACE.json)
+  driver_daemon.py smoke --binary CMUX_TUI [--cases 300] [--jobs 300] [--case CASE.json] [--isolation ...]
                                                      parallel cases (no-op by default), then nothing left
   driver_daemon.py facet --socket PATH               the daemon facet of a running daemon (canonical JSON)
   driver_daemon.py live-check --cmux BIN [--write]   capture_wire_fixtures.py's op script on a hermetic
@@ -82,6 +112,7 @@ from __future__ import annotations
 
 import argparse
 import concurrent.futures
+import errno
 import glob
 import hashlib
 import json
@@ -117,6 +148,9 @@ for _path in (str(HERE), str(SDK)):
         sys.path.insert(0, _path)
 
 import check_snapshot_schema  # noqa: E402 - sibling of this file (capture rules of the daemon facet)
+import hermetic_env  # noqa: E402 - sibling of this file (p15-oracle-200), the only place env is built
+from invariants import TRACE_SCHEMA, first_difference  # noqa: E402 - JSON-typed equality, a bool never equals a number
+from case_values import MISSING, decode_pointer, predicate_holds, resolve_pointer, without_pointers  # noqa: E402,F401 - shared with driver_app_v0.py
 import normalize  # noqa: E402 - sibling of this file (p15-oracle-013)
 from cmux._protocol import ProtocolConnection  # noqa: E402
 from cmux.errors import (  # noqa: E402
@@ -133,8 +167,7 @@ MARKER_ENV = "CMUX_ORACLE_CASE"
 SESSION_NAME = "oracle"
 # prctl(2) option: orphaned descendants are re-parented to the caller, not to init.
 PR_SET_CHILD_SUBREAPER = 36
-# sun_path is 108 bytes on Linux and 104 on macOS; the spec keeps every path at 100 or less.
-SOCKET_LIMIT = 100
+SOCKET_LIMIT = hermetic_env.MAX_SOCKET_PATH_BYTES
 DEFAULT_STATE_BASE = Path("/tmp/o")
 SELECTORS = {"machine": "current", "session": "current"}
 FACETS = (
@@ -143,9 +176,20 @@ FACETS = (
     "invariants", "switches",
 )
 DEFAULT_FACETS = ("daemon",)
+# expect outcome `any` (case-v1, a walk move of gen_walks.py, p15-oracle-098): the step passes with ok or a typed error,
+# and what it gave is the `reply` facet of its settled checkpoint, compared like any facet.
+ANY_OUTCOME = "any"
+REPLY_FACET = "reply"
+# The build receipt linux_run.sh writes beside the binary it built (cmux-oracle-build-v1, with the full sha).
+BUILD_RECEIPT = "build.json"
 # The daemon product's only facet; the rest come from the app (driver_app.py) or later daemon tasks.
 FACET_TASKS = {"crashes": "p15-oracle-188", "liveObjects": "p15-oracle-188", "switches": "p15-oracle-049"}
 ORACLE_STATE = "oracle-state"
+# Invariant I9's journal restore preview (p15-oracle-205), asked for at each capture of a traced case.
+RESTORE_PREVIEW = "oracle-restore-preview"
+# The idempotency key of the journal checkpoint a traced case takes when its daemon first starts: the
+# restore preview reduces from it.
+FIXTURE_CHECKPOINT_KEY = "oracle.fixture-checkpoint"
 # `oracle-state` fields that make the facet's `oracle` object (schema: facets.daemon.oracle).
 EXTRAS = ("switches", "terminalAttach", "liveObjects", "panicLog")
 OTHER_DRIVERS = {
@@ -156,6 +200,17 @@ OTHER_DRIVERS = {
     "key": "driver_app.py (p15-oracle-047)",
 }
 SIGNALS = {"KILL": signal.SIGKILL, "TERM": signal.SIGTERM, "ABRT": signal.SIGABRT, "SEGV": signal.SIGSEGV}
+# The terminal host's crash seam of debug-assertion builds (terminal_host_runtime/shared/host_crash.rs): the
+# first host that starts with it waits on `<marker>.trigger` and panics and aborts once a writer opens it.
+ABORT_SEAM_ENV = "CMUX_TUI_TEST_HOST_ABORT_ONCE"
+# The daemon's local log of terminal-host losses and replacements, in the state directory (terminal_loss_log.rs).
+LOSS_LOG = "terminal-losses.jsonl"
+# The daemon takes PTY custody and appends a loss record with no event a client can wait on for either: the
+# holder kill reads its descriptors and the log anew at this interval until each holds.
+DAEMON_POLL_S = 0.02
+# The daemon's custody exchange runs on a thread of this name (cmux-tui-core surface/rehost.rs request_custody):
+# it receives the master first and stores it in the host's attachment last.
+CUSTODY_THREAD = "pty-custody"
 STEP_REF = re.compile(r"^\$step:([a-z0-9][a-z0-9-]{0,63})#((?:/(?:[^~/]|~[01])*)*)$")
 TYPED_ID = re.compile(r"^[a-z][a-z_]*_[0-9a-f]{32}$")
 ENV_WORD = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
@@ -167,7 +222,6 @@ STOP_S = 60.0
 SHUTDOWN_S = 120.0
 EXIT_S = 10.0
 LOG_TAIL_BYTES = 2048
-MISSING = object()
 
 
 # ------------------------------------------------------------------------------------- the daemon facet
@@ -201,13 +255,16 @@ def is_unknown_command(reply: Mapping[str, Any]) -> bool:
     return reply.get("ok") is False and isinstance(error, str) and UNKNOWN_COMMAND.format(ORACLE_STATE) in error
 
 
-def capture_daemon_facet(reads: DaemonReads, schema: Optional[Mapping[str, Any]] = None) -> Dict[str, Any]:
-    """The `facets.daemon` value of the daemon behind `reads`."""
+def capture_daemon_facet(reads: DaemonReads, schema: Optional[Mapping[str, Any]] = None, *,
+                         v0: bool = False) -> Dict[str, Any]:
+    """The `facets.daemon` value of the daemon behind `reads`; `v0` reads push-base methods only (no oracle-state)."""
     schema = load_schema() if schema is None else schema
     props = daemon_properties(schema)
-    reply = reads.command(ORACLE_STATE)
+    reply = {} if v0 else reads.command(ORACLE_STATE)
     facet: Dict[str, Any] = {}
-    if reply.get("ok") is True:
+    if v0:
+        session = reads.operation("session.snapshot", SELECTORS)
+    elif reply.get("ok") is True:
         data = reply.get("data")
         if not isinstance(data, dict) or not isinstance(data.get("session"), dict):
             raise DriverError(f"{ORACLE_STATE} replied without a session: {reply!r:.300}")
@@ -225,6 +282,51 @@ def capture_daemon_facet(reads: DaemonReads, schema: Optional[Mapping[str, Any]]
     facet["settings"] = check_snapshot_schema.capture(schema, props["settings"],
                                                       reads.operation("settings.snapshot", SELECTORS))
     return facet
+
+
+def restore_preview_at(facet: Any, command: Callable[..., Mapping[str, Any]],
+                       case_session: str) -> Optional[Dict[str, Any]]:
+    """Invariant I9's input at one capture: the `oracle-restore-preview` reply (its `data`) through the daemon
+    facet's `journalHead`, so the preview and the facet are one cut whatever the daemon wrote between the two
+    requests (spec/commands.md). None for a facet with no journalHead (v0, not comparable) or a daemon with no
+    such command. The preview's session resource shows the fixture's name, as the facet does."""
+    head = facet.get("journalHead") if isinstance(facet, Mapping) else None
+    if not isinstance(head, int) or isinstance(head, bool):
+        return None
+    try:
+        reply = dict(command(RESTORE_PREVIEW, through=head))
+    except KeyError:
+        return None
+    preview = reply.get("preview")
+    sections = preview.get("session") if isinstance(preview, dict) else None
+    info = sections.get("session") if isinstance(sections, dict) else None
+    if isinstance(info, dict) and info.get("name") == case_session:
+        info["name"] = SESSION_NAME
+    return reply
+
+
+def case_trace(case_id: str, steps: Sequence[Mapping[str, Any]],
+               captures: Sequence["Capture"]) -> Optional[Dict[str, Any]]:
+    """The `cmux.oracle.trace/v1` document (invariants.py) of the case's steps that captured: their raw
+    checkpoints and restore previews, for `invariants.py check`. Replies, layout counters and the teardown
+    are not in it yet. None when no step captured."""
+    by_step: Dict[str, Dict[str, Any]] = {}
+    for capture in captures:
+        record = by_step.setdefault(capture.step, {"checkpoints": {}, "restorePreviews": {}})
+        record["checkpoints"][capture.checkpoint] = capture.snapshot
+        if capture.restore_preview is not None:
+            record["restorePreviews"][capture.checkpoint] = capture.restore_preview
+    records = []
+    for step in steps:
+        record = by_step.get(step.get("id"))
+        if record is None:
+            continue
+        if not record["restorePreviews"]:
+            del record["restorePreviews"]
+        records.append({"id": step["id"], "op": step["op"], **record})
+    if not records:
+        return None
+    return {"schema": TRACE_SCHEMA, "case": case_id, "steps": records}
 
 
 class SdkReads:
@@ -271,27 +373,40 @@ class CasePaths:
 
     @property
     def socket(self) -> Path:
-        return self.root / "s.sock"
+        return self.root / hermetic_env.SOCKET_NAME
 
     @property
     def state(self) -> Path:
-        return self.root / "state"
+        return self.root / hermetic_env.STATE_DIR
 
     @property
     def home(self) -> Path:
-        return self.root / "home"
+        return self.root / hermetic_env.HOME_DIR
 
     @property
     def run(self) -> Path:
-        return self.root / "run"
+        return self.root / hermetic_env.RUN_DIR
 
     @property
     def tmp(self) -> Path:
-        return self.root / "tmp"
+        return self.root / hermetic_env.TMP_DIR
 
     @property
     def log(self) -> Path:
         return self.root / "daemon.log"
+
+    @property
+    def abort_seam(self) -> Path:
+        """The marker of the terminal host's crash seam (ABORT_SEAM_ENV); `<marker>.trigger` is its FIFO."""
+        return self.root / "host-abort-once"
+
+    @property
+    def abort_trigger(self) -> Path:
+        return self.root / "host-abort-once.trigger"
+
+    @property
+    def loss_log(self) -> Path:
+        return self.state / LOSS_LOG
 
     @property
     def session(self) -> str:
@@ -347,40 +462,24 @@ def stable_token(text: str) -> str:
     return f"{value:016x}"
 
 
-def case_environment(paths: CasePaths, seed: str) -> Dict[str, str]:
-    """The case daemon's whole environment (an `env -i` base: nothing is inherited).
+def host_platform() -> str:
+    return "linux" if sys.platform.startswith("linux") else "mac"
 
-    p15-oracle-200 moves this into hermetic_env.py, the one place both drivers build env.
-    """
-    home = paths.home
-    return {
-        "PATH": "/usr/local/bin:/usr/bin:/bin",
-        "HOME": str(home),
-        "XDG_CONFIG_HOME": str(home / ".config"),
-        "XDG_DATA_HOME": str(home / ".local" / "share"),
-        "XDG_STATE_HOME": str(home / ".local" / "state"),
-        "XDG_CACHE_HOME": str(home / ".cache"),
-        "XDG_RUNTIME_DIR": str(paths.run),
-        "TMPDIR": str(paths.tmp),
-        "CMUX_TUI_CONFIG": str(paths.root / "config.json"),
-        "CMUX_NEXT_CONFIG_FILE": str(paths.root / "cmux-next.json"),
-        "CMUX_TUI_STATE_DIR": str(paths.state),
-        "CMUX_TUI_SOCKET": str(paths.socket),
-        "CMUX_TUI_LOG_FILE": str(paths.root / "client.log"),
-        "CMUX_TUI_NO_LOGIN_SHELL": "1",
-        "CMUX_TUI_OFFLINE": "1",
-        "CMUX_TUI_ORACLE_SEED": seed,
-        "CMUX_TUI_TEST_HOST_INSTALL_ENDPOINT": "1",
-        "TZ": "UTC",
-        "LANG": "C.UTF-8",
-        "LC_ALL": "C.UTF-8",
-        "SHELL": "/bin/sh",
-        "PS1": "$ ",
-        "TERM": "xterm-256color",
-        "GIT_CONFIG_GLOBAL": "/dev/null",
-        "GIT_CONFIG_NOSYSTEM": "1",
-        MARKER_ENV: str(paths.root),
-    }
+
+def case_environment(paths: CasePaths, seed: str, isolation: hermetic_env.Isolation,
+                     abort_seam: bool = False) -> hermetic_env.CaseEnv:
+    """The case daemon's whole environment, from hermetic_env.py, with this driver's process marker, and the
+    terminal host's crash seam when the case aborts a terminal holder (`arms_abort_seam`)."""
+    extra = {MARKER_ENV: str(paths.root)}
+    if abort_seam:
+        extra[ABORT_SEAM_ENV] = str(paths.abort_seam)
+    return hermetic_env.daemon_case(paths.root, isolation, platform=host_platform(), seed=seed, extra=extra)
+
+
+def arms_abort_seam(case: Mapping[str, Any]) -> bool:
+    """Whether a step of the case kills the terminal holder by ABRT, the kill that the crash seam carries out."""
+    return any(step.get("op") == "kill" and (step.get("target") or {}).get("process") == "holder"
+               and (step.get("args") or {}).get("signal") == "ABRT" for step in case.get("steps") or ())
 
 
 # ---------------------------------------------------------------------------------------------------------
@@ -488,6 +587,98 @@ def descendants(root: int, marker: str) -> List[CaseProcess]:
     return found
 
 
+def vt_worker_kind(argv: Sequence[str]) -> Optional[str]:
+    """`holder` or `terminal-host` for a process that runs terminals, else None. The rule of cmux-flow-trace's
+    role_of: the standalone `cmux-holder` or `__holder` of a cmux binary is the holder, the slim `cmux-tui-host`
+    or `__terminal-host` a terminal host."""
+    stem = os.path.basename(argv[0]) if argv else ""
+    first = argv[1] if len(argv) > 1 else ""
+    if stem.startswith("cmux-holder") or first == "__holder":
+        return "holder"
+    if stem.startswith("cmux-tui-host") or first == "__terminal-host":
+        return "terminal-host"
+    return None
+
+
+@dataclass(frozen=True)
+class HostRecord:
+    """The part of a terminal-host record (cmux-tui/spec/terminal-host.md) that a holder kill reads."""
+
+    terminal_id: str
+    supports_pty_custody: bool
+
+
+def host_terminals(state: Path) -> Dict[int, HostRecord]:
+    """The terminal-host records (`terminal-hosts-<install>/<terminal id>.json`) by host pid."""
+    found: Dict[int, HostRecord] = {}
+    for path in sorted(state.glob("terminal-hosts-*/*.json")):
+        try:
+            record = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        if isinstance(record, dict) and isinstance(record.get("host_pid"), int) \
+                and isinstance(record.get("terminal_id"), str):
+            found[record["host_pid"]] = HostRecord(record["terminal_id"], record.get("supports_pty_custody") is True)
+    return found
+
+
+def daemon_custody(pid: int) -> Tuple[int, bool]:
+    """(PTY masters the daemon process holds, whether its custody exchange still runs). Linux reads /proc; macOS
+    lists the descriptors with lsof, which names no threads, so there an exchange never shows as running."""
+    if not sys.platform.startswith("linux"):
+        listing = subprocess.run(["lsof", "-a", "-p", str(pid), "-Fn"], capture_output=True, text=True, check=False)
+        return sum(1 for line in listing.stdout.splitlines() if line.startswith("n") and line.endswith("ptmx")), False
+    masters = 0
+    for fd in glob.glob(f"/proc/{pid}/fd/*"):
+        try:
+            masters += os.readlink(fd).endswith("ptmx")
+        except OSError:
+            continue
+    exchanging = False
+    for comm in glob.glob(f"/proc/{pid}/task/*/comm"):
+        try:
+            with open(comm, encoding="utf-8") as handle:
+                exchanging = exchanging or handle.read().strip() == CUSTODY_THREAD
+        except OSError:
+            continue
+    return masters, exchanging
+
+
+def log_lines(path: Path, offset: int) -> List[Dict[str, Any]]:
+    """The JSON object lines appended to `path` after byte `offset`; a last line without its newline is still
+    being written and waits for the next read."""
+    try:
+        with open(path, "rb") as handle:
+            handle.seek(offset)
+            data = handle.read()
+    except FileNotFoundError:
+        return []
+    lines = []
+    for raw in data.split(b"\n")[:-1]:
+        try:
+            value = json.loads(raw)
+        except ValueError:
+            continue
+        if isinstance(value, dict):
+            lines.append(value)
+    return lines
+
+
+def host_records(lines: Iterable[Mapping[str, Any]], ended: Mapping[int, str]) -> Dict[int, Mapping[str, Any]]:
+    """The daemon's record of each ended host (`ended`: terminal id by host pid): the `host_replaced` line that
+    names it as `old_host_pid`, or the host-loss line of its terminal (an `end` and no `event`)."""
+    found: Dict[int, Mapping[str, Any]] = {}
+    for line in lines:
+        for pid, terminal in ended.items():
+            if pid in found:
+                continue
+            replaced = line.get("event") == "host_replaced" and line.get("old_host_pid") == pid
+            lost = "event" not in line and "end" in line and line.get("terminal_id") == terminal
+            if replaced or lost:
+                found[pid] = line
+    return found
+
+
 def still_running(known: Iterable[CaseProcess]) -> List[CaseProcess]:
     """The processes of `known` that still run: same pid and same start time."""
     if not sys.platform.startswith("linux"):
@@ -551,7 +742,8 @@ def scan_markers() -> Dict[str, List[CaseProcess]]:
 
 
 def socket_paths(processes: Sequence[CaseProcess]) -> Set[str]:
-    """Unix socket paths the processes name (`--socket PATH`) or listen on (Linux /proc/net/unix)."""
+    """Unix socket paths the processes name (`--socket PATH`) or listen on (Linux: the unix socket table
+    of each process's own network namespace, so a case under the netns prefix is read in its own)."""
     paths: Set[str] = set()
     for proc in processes:
         for flag, value in zip(proc.argv, proc.argv[1:]):
@@ -560,7 +752,13 @@ def socket_paths(processes: Sequence[CaseProcess]) -> Set[str]:
     if not sys.platform.startswith("linux"):
         return paths
     inodes: Set[str] = set()
+    # One live process per network namespace: /proc/<pid>/net/unix lists that namespace's sockets.
+    tables: Dict[str, int] = {}
     for proc in processes:
+        try:
+            tables.setdefault(os.readlink(f"/proc/{proc.pid}/ns/net"), proc.pid)
+        except OSError:
+            continue  # gone
         for fd in glob.glob(f"/proc/{proc.pid}/fd/*"):
             try:
                 target = os.readlink(fd)
@@ -570,16 +768,17 @@ def socket_paths(processes: Sequence[CaseProcess]) -> Set[str]:
                 inodes.add(target[8:-1])
     if not inodes:
         return paths
-    try:
-        with open("/proc/net/unix", "r", encoding="utf-8", errors="replace") as handle:
-            rows = handle.read().splitlines()[1:]
-    except OSError:
-        return paths
-    for row in rows:
-        # Num RefCount Protocol Flags Type St Inode [Path]; an abstract name starts with '@'.
-        columns = row.split(None, 7)
-        if len(columns) == 8 and columns[6] in inodes and columns[7].startswith("/"):
-            paths.add(columns[7])
+    for pid in tables.values():
+        try:
+            with open(f"/proc/{pid}/net/unix", "r", encoding="utf-8", errors="replace") as handle:
+                rows = handle.read().splitlines()[1:]
+        except OSError:
+            continue  # the process exited; its sockets were named by the others or are gone with it
+        for row in rows:
+            # Num RefCount Protocol Flags Type St Inode [Path]; an abstract name starts with '@'.
+            columns = row.split(None, 7)
+            if len(columns) == 8 and columns[6] in inodes and columns[7].startswith("/"):
+                paths.add(columns[7])
     return paths
 
 
@@ -693,10 +892,10 @@ class DaemonExit:
 class Daemon:
     """One cmux-tui child on one state root, with its SDK clients."""
 
-    def __init__(self, binary: str, paths: CasePaths, env: Dict[str, str], scale: float):
+    def __init__(self, binary: str, paths: CasePaths, case_env: hermetic_env.CaseEnv, scale: float):
         self.binary = binary
         self.paths = paths
-        self.env = env
+        self.case_env = case_env
         self.scale = scale
         self.proc: Optional[subprocess.Popen] = None
         self.conn: Optional[ProtocolConnection] = None
@@ -716,7 +915,8 @@ class Daemon:
         try:
             with open(self.paths.log, "ab") as log:
                 self.proc = subprocess.Popen(
-                    argv, env=self.env, cwd=str(self.paths.root), pass_fds=(write_fd,), stdin=subprocess.DEVNULL,
+                    self.case_env.command(argv), env=dict(self.case_env.env), cwd=str(self.case_env.cwd),
+                    pass_fds=(write_fd,), stdin=subprocess.DEVNULL,
                     stdout=subprocess.DEVNULL, stderr=log, start_new_session=True,
                 )
         except OSError as error:
@@ -739,6 +939,9 @@ class Daemon:
                                      f"{log_tail(self.paths.log)}", step)
         try:
             self.conn = ProtocolConnection(str(self.paths.socket), REQUEST_S * self.scale)
+            # The daemon numbers clients as it registers them (public_client_id), so the resource connection
+            # answers once before the control client connects: every start gives each connection the same id.
+            self.conn.request("session.ping", SELECTORS, timeout=REQUEST_S * self.scale)
             self.raw = CmuxClient(str(self.paths.socket), timeout=REQUEST_S * self.scale)
             self.identity = self.command("identify", step)
         except CmuxError as error:
@@ -834,7 +1037,7 @@ class Daemon:
 
 
 # ---------------------------------------------------------------------------------------------------------
-# Pure helpers: pointers, predicates, selectors
+# Pure helpers: selectors and step references (pointers and predicates: case_values.py)
 
 
 class CaseReads:
@@ -853,6 +1056,7 @@ class CaseReads:
         data = reply.get("data")
         if isinstance(data, dict):
             self.rename(data.get("session"))
+            self.rename_panic_log(data.get("panicLog"))
         return reply
 
     def operation(self, operation: str, params: Mapping[str, Any]) -> Any:
@@ -866,57 +1070,13 @@ class CaseReads:
         if isinstance(info, dict) and info.get("name") == self.case_session:
             info["name"] = SESSION_NAME
 
-
-def decode_pointer(pointer: str) -> List[str]:
-    if pointer == "":
-        return []
-    if not pointer.startswith("/"):
-        raise ValueError(f"JSON pointer {pointer!r} does not start with /")
-    return [part.replace("~1", "/").replace("~0", "~") for part in pointer[1:].split("/")]
-
-
-def resolve_pointer(value: Any, pointer: str) -> Any:
-    """The value at `pointer` (RFC 6901), or MISSING."""
-    for part in decode_pointer(pointer):
-        if isinstance(value, dict) and part in value:
-            value = value[part]
-        elif isinstance(value, list) and part.isdigit() and (part == "0" or not part.startswith("0")) \
-                and int(part) < len(value):
-            value = value[int(part)]
-        else:
-            return MISSING
-    return value
-
-
-def predicate_holds(wait: Mapping[str, Any], value: Any, baseline: Any) -> bool:
-    """The waitFor condition of case-v1 (`equals` or `predicate`) on the value at its pointer."""
-    if "equals" in wait:
-        return value is not MISSING and value == wait["equals"]
-    predicate = wait["predicate"]
-    if isinstance(predicate, str):
-        sized = isinstance(value, (list, dict, str))
-        return {
-            "exists": value is not MISSING,
-            "absent": value is MISSING,
-            "empty": sized and len(value) == 0,
-            "nonEmpty": sized and len(value) > 0,
-            "changed": value != baseline,
-        }[predicate]
-    op, target = predicate["op"], predicate["value"]
-    if value is MISSING:
-        return False
-    if op == "lengthEquals":
-        return isinstance(value, (list, dict, str)) and len(value) == target
-    if op == "contains":
-        if isinstance(value, str) and isinstance(target, str):
-            return target in value
-        if isinstance(value, dict) and isinstance(target, str):
-            return target in value
-        return isinstance(value, list) and target in value
-    numbers = (int, float)
-    if not (isinstance(value, numbers) and isinstance(target, numbers)) or isinstance(value, bool):
-        return False
-    return {"gt": value > target, "gte": value >= target, "lt": value < target, "lte": value <= target}[op]
+    def rename_panic_log(self, panic_log: Any) -> None:
+        """The owner names its panic log by the session (owner_panic_log.rs: `owner-panics-<session>.jsonl`), so
+        the facet shows the fixture's name there too; two runs of one case then give the same path."""
+        name = f"owner-panics-{self.case_session}."
+        path = panic_log.get("path") if isinstance(panic_log, dict) else None
+        if isinstance(path, str) and name in path:
+            panic_log["path"] = path.replace(name, f"owner-panics-{SESSION_NAME}.")
 
 
 def encode_selector(kind: str, value: Any) -> str:
@@ -964,6 +1124,17 @@ def resolve_refs(value: Any, replies: Mapping[str, Any]) -> Any:
     if isinstance(value, dict):
         return {key: resolve_refs(item, replies) for key, item in value.items()}
     return value
+
+
+def reply_facet(kind: str, detail: Any) -> Dict[str, Any]:
+    """The reply facet of a step with an any outcome: ok with its mutation receipt's replayed flag, or the typed
+    error code. The reply's value is left out: the daemon facet beside it holds the objects it names."""
+    if kind == "error":
+        return {"outcome": "error", "error": detail}
+    out: Dict[str, Any] = {"outcome": "ok"}
+    if isinstance(detail, dict) and isinstance(detail.get("replayed"), bool):
+        out["replayed"] = detail["replayed"]
+    return out
 
 
 def not_comparable(reason: str, task: Optional[str] = None) -> Dict[str, str]:
@@ -1026,11 +1197,15 @@ class Capture:
     step: str
     checkpoint: str
     snapshot: Dict[str, Any]
+    # The oracle-restore-preview reply at the daemon facet's cut (a traced case only).
+    restore_preview: Optional[Dict[str, Any]] = None
 
 
 @dataclass
 class CaseState:
     replies: Dict[str, Any] = field(default_factory=dict)
+    # The reply facet of each step with an any outcome, by step id.
+    reply_facets: Dict[str, Dict[str, Any]] = field(default_factory=dict)
     captures: List[Capture] = field(default_factory=list)
     exits: List[DaemonExit] = field(default_factory=list)
     killed_by: Optional[str] = None
@@ -1040,7 +1215,7 @@ class CaseRun:
     """One case in a worker process: the steps, then an orderly shutdown of everything it started."""
 
     def __init__(self, binary: str, sha: str, schema: normalize.Schema, case: Mapping[str, Any],
-                 ctx: Mapping[str, Any], session_ctx: Mapping[str, Any]):
+                 ctx: Mapping[str, Any], session_ctx: Mapping[str, Any], isolation: hermetic_env.Isolation):
         self.case = case
         self.schema = schema
         self.known: Dict[int, CaseProcess] = {}
@@ -1050,9 +1225,19 @@ class CaseRun:
         self.paths = CasePaths.for_case(ctx.get("state_root"), str(session_ctx.get("run_id") or "run"),
                                         str(ctx.get("key") or self.case_id))
         fixture = case.get("fixture") or {}
-        self.env = case_environment(self.paths, str(fixture.get("seed") or case.get("id") or "oracle"))
-        self.daemon = Daemon(binary, self.paths, self.env, self.scale)
+        seed = str(fixture.get("seed") or case.get("id") or "oracle")
+        # A holder kill by ABRT is the terminal host's own abort (the crash seam), armed before the daemon starts.
+        self.abort_seam = arms_abort_seam(case)
+        self.case_env = case_environment(self.paths, seed, isolation, self.abort_seam)
+        self.daemon = Daemon(binary, self.paths, self.case_env, self.scale)
         self.sha = sha
+        # v0 facets (facets_v0.py, p15-oracle-006): only the push-base methods and a wall clock, so a capture
+        # of the push base and one of a later SHA compare.
+        self.v0 = session_ctx.get("facets") == "v0"
+        # `trace` in the session context (`run-case --trace`): the result carries the case's
+        # cmux.oracle.trace/v1 document, with a restore preview at every capture (I9). Off by default: it takes
+        # a journal checkpoint when the daemon first starts, one more journal record than the corpus expects.
+        self.trace = bool(session_ctx.get("trace")) and not self.v0
         self.state = CaseState()
         self.host = host_meta()
         self.dirty = False
@@ -1072,7 +1257,12 @@ class CaseRun:
         problems: List[str] = []
         try:
             try:
+                self.case_env.prepare()
+                if self.abort_seam:
+                    os.mkfifo(self.paths.abort_trigger, 0o600)
                 self.daemon.start("setup")
+                if self.trace:
+                    self.fixture_checkpoint()
                 for index, step in enumerate(self.case.get("steps") or ()):
                     self.run_step(index, step)
             except CaseError as error:
@@ -1087,7 +1277,7 @@ class CaseRun:
             if status == "Pass":
                 status = "Failure"
         result: Dict[str, Any] = {"status": status, "message": message, "checkpoints": [],
-                                  "sockets": sorted(self.sockets)}
+                                  "sockets": sorted(self.sockets), "environment": self.case_env.receipt()}
         if at:
             result["step"] = at
         if self.dirty:
@@ -1096,7 +1286,18 @@ class CaseRun:
             result["checkpoints"] = self.canonical_checkpoints()
         except normalize.OracleError as error:
             result.update(status="Crash", message="; ".join(filter(None, [message, f"snapshot refused: {error}"])))
+        if self.trace:
+            result["trace"] = case_trace(self.case_id, self.case.get("steps") or (), self.state.captures)
         return result
+
+    def fixture_checkpoint(self) -> None:
+        """The journal checkpoint a traced case's restore previews reduce from (`session.journal.checkpoint
+        .create`), taken once the daemon is ready, before the first step."""
+        try:
+            self.daemon.request("session.journal.checkpoint.create", SELECTORS, FIXTURE_CHECKPOINT_KEY,
+                                REQUEST_S * self.scale)
+        except CmuxError as error:
+            raise self.sdk_failure(error, "setup", "fixture journal checkpoint") from None
 
     def run_step(self, index: int, step: Mapping[str, Any]) -> None:
         step_id = step["id"]
@@ -1108,6 +1309,10 @@ class CaseRun:
         self.check_alive(step_id)
         checkpoints = step.get("checkpoint") or ["settled"]
         facets = tuple((step.get("args") or {}).get("facets") or FACETS) if op == "snapshot" else DEFAULT_FACETS
+        any_outcome = (step.get("expect") or {}).get("outcome") == ANY_OUTCOME
+        if any_outcome and "settled" not in checkpoints:
+            raise CaseError("Crash", "an any outcome is the reply facet of the step's settled checkpoint; its "
+                                     "checkpoint list needs settled", step_id)
         if "before" in checkpoints:
             self.capture(index, step_id, "before", facets)
         waiter = Waiter(self, step) if step.get("waitFor") else None
@@ -1120,7 +1325,7 @@ class CaseRun:
             if waiter is not None:
                 waiter.close()
         if "settled" in checkpoints:
-            self.capture(index, step_id, "settled", facets)
+            self.capture(index, step_id, "settled", facets + (REPLY_FACET,) if any_outcome else facets)
 
     def check_alive(self, step: str) -> None:
         """A daemon that exited while nobody killed it is a Crash at the step that finds it."""
@@ -1175,7 +1380,31 @@ class CaseRun:
         self.state.replies[step_id] = reply
         if before is not None:
             self.check_read_only(index, step_id, before)
+        if step.get("ends") and outcome[0] == "ok":
+            self.await_planned_exit(step_id, step["ends"])
         return outcome
+
+    def await_planned_exit(self, step_id: str, process: str) -> None:
+        """A call that ends the daemon on purpose (case-v1 step `ends`): its exit belongs to this step, so I17
+        checks it against allow_crashes here, and a later restart starts the daemon without stopping it. Only a
+        normal termination passes (base/process/kill.h TERMINATION_STATUS_NORMAL_TERMINATION)."""
+        if process != "daemon":
+            raise CaseError("Crash", f"the daemon driver ends only the daemon, not a {process} process", step_id)
+        self.remember()
+        self.daemon.close_clients()
+        if not self.daemon.reap(STOP_S * self.scale):
+            raise CaseError("Timeout", f"the daemon did not exit {STOP_S * self.scale:.0f} s after the step that "
+                                       f"ends it", step_id)
+        how = self.daemon.exit_text()
+        self.state.exits.append(DaemonExit(step_id, "daemon", f"ended by step {step_id} ({how})",
+                                           self.daemon.exit_code()))
+        self.state.killed_by = step_id
+        refusal = crash_allowed(self.case.get("allow_crashes") or (), self.state.exits)
+        if refusal:
+            raise CaseError("Crash", f"I17: {refusal}", step_id)
+        if self.daemon.exit_code() != 0:
+            raise CaseError("Failure", f"the step ends the daemon, which exited abnormally ({how}): "
+                                       f"{log_tail(self.paths.log)}", step_id)
 
     def check_read_only(self, index: int, step_id: str, before: Any) -> None:
         after = self.daemon_facet(step_id)
@@ -1201,12 +1430,16 @@ class CaseRun:
     def op_kill(self, index: int, step: Mapping[str, Any]) -> Tuple[str, Any]:
         step_id = step["id"]
         process = step["target"]["process"]
+        name = (step.get("args") or {}).get("signal", "KILL")
+        if process == "holder":
+            reply = self.kill_terminal_workers(step_id, name)
+            self.state.replies[step_id] = reply
+            return ("ok", reply)
         if process != "daemon":
-            raise CaseError("Crash", f"the daemon driver kills only the daemon, not a {process} process "
-                                     f"(holder kills are p15-oracle-224)", step_id)
+            raise CaseError("Crash", f"the daemon driver kills only the daemon and its terminal holder, not a "
+                                     f"{process} process", step_id)
         if not self.daemon.running:
             raise CaseError("Failure", "kill: the daemon is not running", step_id)
-        name = (step.get("args") or {}).get("signal", "KILL")
         self.remember()
         self.daemon.kill(SIGNALS[name])
         self.state.exits.append(DaemonExit(step_id, "daemon", f"SIG{name} by step {step_id}", self.daemon.exit_code()))
@@ -1217,6 +1450,98 @@ class CaseRun:
         reply = {"signal": name}
         self.state.replies[step_id] = reply
         return ("ok", reply)
+
+    def kill_terminal_workers(self, step_id: str, name: str) -> Dict[str, Any]:
+        """Ends every process that runs the case's terminals (crash kind `holder`), waits for their exits and then
+        for the daemon's record of each ended terminal host. The reply: the signal, the kinds ended, and those
+        records by host pid."""
+        if not self.daemon.running:
+            raise CaseError("Failure", "kill: the daemon is not running", step_id)
+        tree = descendants(os.getpid(), str(self.paths.root))
+        workers = sorted((proc for proc in tree if vt_worker_kind(proc.argv)), key=lambda proc: proc.pid)
+        if not workers:
+            raise CaseError("Failure", "kill: no terminal host or holder runs the case's terminals", step_id)
+        self.remember()
+        terminals = host_terminals(self.paths.state)
+        hosts = [proc.pid for proc in workers if vt_worker_kind(proc.argv) == "terminal-host"]
+        unknown = [pid for pid in hosts if pid not in terminals]
+        if unknown:
+            raise CaseError("Crash", f"kill: no terminal-host record names host pid {unknown[0]}", step_id)
+        ended = {pid: terminals[pid].terminal_id for pid in hosts}
+        self.await_custody(step_id, sum(terminals[pid].supports_pty_custody for pid in hosts))
+        offset = self.paths.loss_log.stat().st_size if self.paths.loss_log.exists() else 0
+        if not (name == "ABRT" and self.release_abort_seam(workers, step_id)):
+            for proc in workers:
+                try:
+                    os.kill(proc.pid, SIGNALS[name])
+                except ProcessLookupError:
+                    pass
+        bound = EXIT_S * self.scale
+        alive = wait_for_exits([proc.pid for proc in workers], bound)
+        if alive:
+            raise CaseError("Timeout", f"kill: {len(alive)} of the terminal holder's processes still run "
+                                       f"{bound:.0f} s after SIG{name}", step_id)
+        for proc in workers:
+            self.state.exits.append(DaemonExit(step_id, "holder", f"SIG{name} of a {vt_worker_kind(proc.argv)} by "
+                                                                  f"step {step_id}", None))
+        refusal = crash_allowed(self.case.get("allow_crashes") or (), self.state.exits)
+        if refusal:
+            raise CaseError("Crash", f"I17: {refusal}", step_id)
+        records = self.await_host_records(step_id, ended, offset)
+        return {"signal": name, "process": "holder", "ended": sorted({str(vt_worker_kind(p.argv)) for p in workers}),
+                "records": [records[pid] for pid in sorted(ended)]}
+
+    def await_custody(self, step_id: str, hosts: int) -> None:
+        """Waits until the daemon holds the PTY master of each of `hosts` terminal hosts whose record advertises
+        custody and its custody exchange has finished. The daemon takes custody after each launch, adoption and
+        reconnect, and only with it does a dead host get its documented replacement (cmux-tui/spec/terminal-host.md,
+        PTY custody and adoption). The holder model hands the daemon each master when it starts a terminal, so a
+        holder kill does not wait."""
+        if hosts == 0 or self.daemon.proc is None:
+            return
+        bound = REQUEST_S * self.scale
+        deadline = time.monotonic() + bound
+        while True:
+            masters, exchanging = daemon_custody(self.daemon.proc.pid)
+            if masters >= hosts and not exchanging:
+                return
+            if time.monotonic() >= deadline:
+                raise CaseError("Timeout", f"kill: the daemon held {masters} of {hosts} terminal hosts' PTY masters "
+                                           f"after {bound:.0f} s", step_id)
+            time.sleep(DAEMON_POLL_S)
+
+    def release_abort_seam(self, workers: Sequence[CaseProcess], step_id: str) -> bool:
+        """Opens the crash seam's FIFO for the terminal host that waits on it; False when none waits (a case without
+        the seam, a holder, a host after the first), and the caller sends SIGABRT. The seam ends one host only."""
+        if not self.abort_seam:
+            return False
+        if len(workers) != 1:
+            raise CaseError("Crash", f"kill: the crash seam aborts one terminal host, and {len(workers)} processes "
+                                     f"run the case's terminals", step_id)
+        try:
+            trigger = os.open(self.paths.abort_trigger, os.O_WRONLY | os.O_NONBLOCK)
+        except OSError as error:
+            if error.errno == errno.ENXIO:
+                return False
+            raise CaseError("Crash", f"kill: the crash seam's FIFO: {error}", step_id) from None
+        os.close(trigger)
+        return True
+
+    def await_host_records(self, step_id: str, ended: Mapping[int, str],
+                           offset: int) -> Dict[int, Mapping[str, Any]]:
+        """The `host_replaced` or host-loss line the daemon appends for each ended terminal host (one for each
+        dead host it owned: cmux-tui/spec/terminal-host.md), from the log bytes after `offset`."""
+        bound = REQUEST_S * self.scale
+        deadline = time.monotonic() + bound
+        while True:
+            found = host_records(log_lines(self.paths.loss_log, offset), ended)
+            if len(found) == len(ended):
+                return found
+            if time.monotonic() >= deadline:
+                missing = sorted(set(ended) - set(found))
+                raise CaseError("Timeout", f"kill: the daemon recorded no replacement or loss of host pid "
+                                           f"{missing[0]} in {LOSS_LOG} within {bound:.0f} s", step_id)
+            time.sleep(DAEMON_POLL_S)
 
     def op_restart(self, index: int, step: Mapping[str, Any]) -> Tuple[str, Any]:
         step_id = step["id"]
@@ -1234,6 +1559,9 @@ class CaseRun:
     def op_advance_clock(self, index: int, step: Mapping[str, Any]) -> Tuple[str, Any]:
         step_id = step["id"]
         ms = int(step["args"]["ms"])
+        if self.v0:
+            raise CaseError("Crash", "advance_clock: v0 facets run on the wall clock (the push base has no "
+                                     "oracle-advance-clock; the virtual clock is p15-oracle-185)", step_id)
         if not self.daemon.running:
             raise CaseError("Failure", "advance_clock: the daemon is not running", step_id)
         try:
@@ -1252,7 +1580,13 @@ class CaseRun:
             return
         step_id = step["id"]
         kind, detail = outcome
-        if expect["outcome"] != kind:
+        if expect["outcome"] == ANY_OUTCOME:
+            if step["op"] != "resource.call":
+                raise CaseError("Crash", f"an any outcome is a resource.call's, not a {step['op']} step's", step_id)
+            self.state.reply_facets[step_id] = reply_facet(kind, detail)
+            if kind == "error":
+                return
+        elif expect["outcome"] != kind:
             got = f"error {detail}" if kind == "error" else "ok"
             raise CaseError("Failure", f"expected {expect['outcome']}"
                                        f"{' ' + expect['error'] if 'error' in expect else ''}, got {got}", step_id)
@@ -1270,8 +1604,16 @@ class CaseRun:
                 raise CaseError("Failure", "expected an identify receipt", step_id)
         elif receipt is not None:
             raise CaseError("Crash", f"receipt kind {receipt} has no daemon reply", step_id)
-        if "result" in expect and detail != expect["result"]:
-            raise CaseError("Failure", f"result differs: {json.dumps(detail, sort_keys=True)[:300]}", step_id)
+        if "result" in expect:
+            want = resolve_refs(expect["result"], self.state.replies)
+            got = detail
+            if expect.get("resultExcept"):
+                want, got = (without_pointers(value, expect["resultExcept"]) for value in (want, got))
+            difference = first_difference(want, got)
+            if difference is not None:
+                at, wanted, found = difference
+                raise CaseError("Failure", f"result differs at {at or '/'}: {json.dumps(found, sort_keys=True)[:200]}, "
+                                           f"not {json.dumps(wanted, sort_keys=True)[:200]}", step_id)
 
     # -- snapshots
 
@@ -1281,7 +1623,7 @@ class CaseRun:
             return not_comparable(f"the daemon is not running (killed at step {self.state.killed_by})")
         reads = CaseReads(self.daemon, self.paths.session, REQUEST_S * self.scale)
         try:
-            return capture_daemon_facet(reads, self.schema.doc)
+            return capture_daemon_facet(reads, self.schema.doc, v0=self.v0)
         except CmuxError as error:
             raise self.sdk_failure(error, step, "daemon facet") from None
         except DriverError as error:
@@ -1292,6 +1634,8 @@ class CaseRun:
         for name in names:
             if name == "daemon":
                 out[name] = self.daemon_facet(step)
+            elif name == REPLY_FACET and step in self.state.reply_facets:
+                out[name] = self.state.reply_facets[step]
             else:
                 out[name] = not_comparable(f"the daemon product has no {name} facet", FACET_TASKS.get(name))
         return out
@@ -1306,7 +1650,7 @@ class CaseRun:
                 "product": "daemon",
                 "sha": self.sha,
                 "host": self.host,
-                "clock": "virtual" if self.daemon.virtual_clock else "wall",
+                "clock": "virtual" if self.daemon.virtual_clock and not self.v0 else "wall",
                 "capturedAtMs": int(time.time() * 1000),
                 "facets": list(facets),
             },
@@ -1315,7 +1659,15 @@ class CaseRun:
 
     def capture(self, index: int, step: str, checkpoint: str, names: Sequence[str]) -> None:
         self.check_alive(step)
-        self.state.captures.append(Capture(step, checkpoint, self.snapshot(index, checkpoint, self.facets(names, step))))
+        facets = self.facets(names, step)
+        preview = None
+        if self.trace and self.daemon.running:
+            try:
+                preview = restore_preview_at(facets.get("daemon"), partial(self.daemon.command, step=step),
+                                             self.paths.session)
+            except CmuxError as error:
+                raise self.sdk_failure(error, step, "restore preview") from None
+        self.state.captures.append(Capture(step, checkpoint, self.snapshot(index, checkpoint, facets), preview))
 
     def normalize_context(self) -> normalize.Context:
         roots = tuple(dict.fromkeys([str(self.paths.root), os.path.realpath(self.paths.root)]))
@@ -1512,7 +1864,10 @@ class DaemonSession:
     Chrome's test launcher runs each test in a child: hundreds of cases run in parallel without one
     interpreter lock or one descriptor table, and a hung or crashed worker fails only its case. The
     session itself gives out the state roots and checks each case's sockets after its worker; `scan` (the
-    whole-table marker scan) runs only for a worker that did not finish."""
+    whole-table marker scan) runs only for a worker that did not finish. A driver that extends the case
+    (driver_cli.py, driver_mcp.py) names its own file as `worker_script`, whose `case-worker` runs its case."""
+
+    worker_script = Path(__file__).resolve()
 
     def __init__(self, session_ctx: Mapping[str, Any],
                  scan: Callable[[], Dict[str, List[CaseProcess]]] = scan_markers):
@@ -1523,10 +1878,21 @@ class DaemonSession:
             raise ValueError(f"--binary {binary} is not an executable")
         if session_ctx.get("switches"):
             raise ValueError("switch arms reach the daemon in p15-oracle-049; this driver runs the default arms")
-        self.schema_path = str(session_ctx.get("snapshot_schema") or normalize.DEFAULT_SCHEMA)
+        if session_ctx.get("facets") not in (None, "v0", "v1"):
+            raise ValueError(f"facets {session_ctx.get('facets')!r} is v0 or v1")
+        default_schema = normalize.DEFAULT_SCHEMA
+        if session_ctx.get("facets") == "v0" and not session_ctx.get("snapshot_schema"):
+            import facets_v0  # sibling (p15-oracle-006): the v1 schema cut to the push-base methods
+
+            default_schema = facets_v0.write_schema(Path(str(session_ctx.get("out_dir") or "/tmp/oracle")))
+        self.schema_path = str(session_ctx.get("snapshot_schema") or default_schema)
         schema, refusal = load_snapshot_schema(self.schema_path)
         if schema is None:
             raise ValueError(f"normalize.py refuses the snapshot schema, so no snapshot can be canonical: {refusal}")
+        try:
+            self.isolation = session_isolation(session_ctx.get("isolation"))
+        except hermetic_env.HermeticError as error:
+            raise ValueError(f"no hermetic case environment on this host: {error}") from None
         self.scan = scan
         self.binary = os.path.realpath(str(binary))
         self.session_ctx = dict(session_ctx)
@@ -1560,9 +1926,9 @@ class DaemonSession:
                    scale: float) -> Tuple[Dict[str, Any], bool]:
         """The worker's result, and whether it finished (then it proved its own process tree empty)."""
         payload = {"binary": self.binary, "sha": self.sha, "schema": self.schema_path, "case": case,
-                   "ctx": case_ctx, "session": self.session_ctx}
+                   "ctx": case_ctx, "session": self.session_ctx, "isolation": self.isolation.describe()}
         bound = worker_bound(case, scale)
-        worker = subprocess.Popen([sys.executable, "-I", str(Path(__file__).resolve()), "case-worker"],
+        worker = subprocess.Popen([sys.executable, "-I", str(self.worker_script), "case-worker"],
                                   stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         try:
             out, err = worker.communicate(json.dumps(payload).encode(), timeout=bound)
@@ -1602,13 +1968,14 @@ def tail(data: bytes) -> str:
     return data[-LOG_TAIL_BYTES:].decode("utf-8", "replace").strip()
 
 
-def case_worker() -> int:
-    """`case-worker`: one case from the JSON payload on stdin; the result JSON on stdout."""
+def case_worker(case_class: Callable[..., "CaseRun"] = CaseRun) -> int:
+    """`case-worker`: one `case_class` case from the JSON payload on stdin; the result JSON on stdout."""
     payload = json.load(sys.stdin)
     schema, refusal = load_snapshot_schema(payload["schema"])
     if schema is None:
         raise SystemExit(f"driver_daemon.py case-worker: {refusal}")
-    run = CaseRun(payload["binary"], payload["sha"], schema, payload["case"], payload["ctx"], payload["session"])
+    run = case_class(payload["binary"], payload["sha"], schema, payload["case"], payload["ctx"], payload["session"],
+                  hermetic_env.Isolation.from_description(payload["isolation"]))
     # Every process the case starts stays in this worker's tree, whatever it does (I6).
     become_subreaper()
     signal.signal(signal.SIGTERM, partial(end_tree_on_term, str(run.paths.root)))
@@ -1622,23 +1989,33 @@ def end_tree_on_term(marker: str, signum: int, _frame: Any) -> None:
     os._exit(128 + signum)
 
 
+def session_isolation(value: Any) -> hermetic_env.Isolation:
+    """The session's isolation: a description oracle.py resolved once for the whole run (no probe
+    here), or a mode for this file's own CLI (probed once per command; netns when absent)."""
+    if isinstance(value, Mapping):
+        return hermetic_env.Isolation.from_description(value)
+    return hermetic_env.isolation_for(str(value or "netns"), host_platform())
+
+
 def open_session(session_ctx: Dict[str, Any]) -> DaemonSession:
     return DaemonSession(session_ctx)
+
+
+def build_receipt_sha(binary: str) -> Optional[str]:
+    """The full SHA of the build receipt beside the binary (linux_run.sh writes BUILD_RECEIPT), or None."""
+    try:
+        sha = json.loads((Path(binary).parent / BUILD_RECEIPT).read_text(encoding="utf-8")).get("sha")
+    except (OSError, ValueError, AttributeError):
+        return None
+    return sha if isinstance(sha, str) and re.fullmatch(r"[0-9a-f]{40}", sha) else None
 
 
 def resolve_sha(ref: Any, binary: str) -> str:
     """The SHA under test: a full-SHA ref, else the build receipt beside the binary (linux_run.sh)."""
     if isinstance(ref, str) and re.fullmatch(r"[0-9a-f]{40}", ref):
         return ref
-    receipt = Path(binary).parent / "oracle-build-receipt.json"
-    try:
-        sha = json.loads(receipt.read_text(encoding="utf-8")).get("sha")
-    except (OSError, ValueError):
-        sha = None
-    if isinstance(sha, str) and re.fullmatch(r"[0-9a-f]{40}", sha):
-        return sha
     # meta.sha is volatile (diff.py prints it); an unknown build says so with zeros.
-    return "0" * 40
+    return build_receipt_sha(binary) or "0" * 40
 
 
 # ---------------------------------------------------------------------------------------------------------
@@ -1673,6 +2050,12 @@ def cmd_run_case(args: argparse.Namespace) -> int:
     ctx = {"case_id": f"{case['suite']}/{case['id']}", "key": "0", "state_root": str(base / short_token(case["id"]))}
     result = session.run_case(case, ctx)
     remove_empty_dir(base)
+    trace = result.pop("trace", None)
+    if getattr(args, "trace", None):
+        if trace is None:
+            print("driver_daemon.py: no step captured a checkpoint: no trace", file=sys.stderr)
+            return 1
+        Path(args.trace).write_text(json.dumps(trace, indent=1, sort_keys=True) + "\n", encoding="utf-8")
     print(json.dumps(result, indent=1, sort_keys=True))
     return 0 if result["status"] == "Pass" else 1
 
@@ -1851,9 +2234,14 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         cmd.add_argument("--snapshot-schema", help="the snapshot schema (default: normalize.py's)")
         cmd.add_argument("--state-base", type=Path, default=DEFAULT_STATE_BASE)
         cmd.add_argument("--run-id")
+        cmd.add_argument("--isolation", choices=hermetic_env.ISOLATION_MODES, default="netns",
+                         help="netns: unshare -rn, refuse a host without it (default); auto: netns when the host "
+                              "allows it; none: no namespace (each result's environment says so)")
         if name == "run-case":
             cmd.add_argument("case", help="a case-v1 JSON file")
             cmd.add_argument("--ref", help="the SHA under test (meta.sha)")
+            cmd.add_argument("--trace", help="write the case's cmux.oracle.trace/v1 document here (raw checkpoints "
+                                             "and I9's restore previews, for invariants.py check)")
         else:
             cmd.add_argument("--cases", type=int, default=300)
             cmd.add_argument("--jobs", type=int, default=300)
@@ -1879,8 +2267,11 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     if args.command is None:
         parser.print_usage(sys.stderr)
         return 2
+    args.session_extra = {"isolation": args.isolation}
     if args.snapshot_schema:
-        args.session_extra = {"snapshot_schema": args.snapshot_schema}
+        args.session_extra["snapshot_schema"] = args.snapshot_schema
+    if getattr(args, "trace", None):
+        args.session_extra["trace"] = True
     try:
         return cmd_run_case(args) if args.command == "run-case" else cmd_smoke(args)
     except ValueError as error:

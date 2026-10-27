@@ -14,7 +14,8 @@
   "fixture": {
     "seed": "daemon-ops.chief-engine-set",
     "network": "offline",
-    "clock": "virtual"
+    "clock": "virtual",
+    "agent": "mock"
   },
   "preconditions": [
     "hermetic state root",
@@ -48,7 +49,29 @@
         "before",
         "settled"
       ],
-      "note": "every required field from its catalog type"
+      "note": "the mock brain's engine choice, cleared to its defaults (the mock answers the set it got as its choice)"
+    },
+    {
+      "id": "retry",
+      "op": "resource.call",
+      "target": {
+        "machine": "current",
+        "session": "current"
+      },
+      "args": {
+        "method": "chief.engine.set",
+        "params": {},
+        "idempotencyKey": "chief-engine-set-ok.call"
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "mutation_result"
+      },
+      "checkpoint": [
+        "before",
+        "settled"
+      ],
+      "note": "I10: step call again with its idempotency key; the daemon replays its reply, adds no journal record and changes no facet"
     }
   ],
   "invariants": [

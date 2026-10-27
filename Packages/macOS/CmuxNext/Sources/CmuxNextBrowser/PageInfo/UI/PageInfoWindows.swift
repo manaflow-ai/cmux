@@ -39,6 +39,7 @@ final class PageInfoWindows {
         let window = SiteDataWindow(site: site, send: send)
         siteData = window
         present(window)
+        // main-hop-allow: pageInfoSiteData is the engine's main-actor async read of the profile's data store; the task only starts it and fills the window it opened
         Task { [weak window] in
             let data = await provider.pageInfoSiteData(pageHost: site.host)
             window?.show(data)
@@ -69,6 +70,7 @@ class PageInfoWindow: NSWindow {
         super.init(contentRect: NSRect(origin: .zero, size: size), styleMask: [.titled, .closable, .resizable], backing: .buffered, defer: true)
         self.title = title
         isReleasedWhenClosed = false
+        isRestorable = false  // AppKit state restoration is off for every cmux window (p08-startup-087)
         minSize = NSSize(width: size.width * 0.8, height: size.height * 0.6)
         animationBehavior = Motion.overlays.animatesMovement ? .utilityWindow : .none
     }
