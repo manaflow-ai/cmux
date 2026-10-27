@@ -1069,6 +1069,15 @@ DevTools agent and is still shareable. Test: fork browser test.
 to tabEvaluate, copySurface or the native click; DevTools kept only for fork < 29. Acceptance: MQ3 only in the
 fallback branch; 0 devTools() calls for snapshot, menu copy, evaluate and debug click (fake). Test:
 PageWebViewChromiumTests, EngineNeutralTests; pages10 DevTools sessions 0 (train).
+As built: `PageChromiumPage` gains `copiesSurface`, `sendClick(at:)` and `copySelection()`; the three
+`Page.captureScreenshot` sites share `PageWebView.chromiumPictureData`, whose DevTools branch runs only when the page
+cannot copy its surface. The copy is `cmux_shim_tab_copy_surface` (optional export, fork API 38, answered by
+`CMUX_SHIM_REPLY`; webui-DESIGN.md "Binding"), so its fallback covers forks below 38, not only below 29. MQ3 went
+from 17 to 11 hits. Of 078's sites three stay: the picture fallback, the debug press fallback, and the debug hover's
+`mouseMoved`, which has no native path (077 kept no mouse-move export). The other eight are 013's bridge and setup
+sites (5), 014's `devToolsEvaluate` fallback and the `.devTools` event case (declared and matched). A surface copy keeps
+alpha, so `snapshotKeepsClearAreas` is true for a page that copies. Test: PageChromiumDevToolsFreeTests,
+CEFRendererPathsTests (aTabOnForkAPI38CopiesItsSurfaceWithNoDevToolsCall, aForkBeforeTheSurfaceCopyAnswersNoPictureAtOnce).
 
 **079 Push channel.** Files: fork include/cef_cmux.h, libcef/renderer/, ChromiumPageHostBridge.swift, pageClient.ts.
 Change: a fork export posts a string to the page's registered receiver; router batches and replies use it.

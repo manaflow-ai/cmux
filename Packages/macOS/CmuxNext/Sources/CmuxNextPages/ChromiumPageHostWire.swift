@@ -79,14 +79,6 @@ nonisolated struct ChromiumPageHostWire {
         }
     }
 
-    /// The string a `Runtime.evaluate` with `returnByValue` returned, nil for an exception or
-    /// another type.
-    static func evaluationString(_ json: String) -> String? {
-        guard let object = object(json), object["exceptionDetails"] == nil,
-              let result = object["result"] as? [String: Any] else { return nil }
-        return result["value"] as? String
-    }
-
     static func object(_ json: String) -> [String: Any]? {
         guard let data = json.data(using: .utf8) else { return nil }
         return (try? JSONSerialization.blockingJSONObject(with: data)) as? [String: Any]

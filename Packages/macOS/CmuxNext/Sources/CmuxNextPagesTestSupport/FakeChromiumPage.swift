@@ -77,6 +77,16 @@ public final class FakeChromiumPage: PageChromiumPage {
     public var surfaceCopy: PageEncodedSnapshot?
     /// The size of every surface copy asked for, in order.
     public private(set) var surfaceCopies: [CGSize] = []
+    /// What ``copiesSurface`` answers: false (the default) stands for a fork without the surface copy,
+    /// where a picture goes through DevTools (``answer`` gives its `Page.captureScreenshot` reply).
+    public var copiesSurface = false
+    /// Whether ``sendClick(at:)`` clicks: false (the default) stands for a fork without the native
+    /// click, where a click goes through DevTools input.
+    public var nativeClicks = false
+    /// Every native click the host sent (``sendClick(at:)``), in view points, in order.
+    public private(set) var clicks: [CGPoint] = []
+    /// How many times the host copied the selection (``copySelection()``).
+    public private(set) var selectionCopies = 0
     /// Every pane window the host moved the page to (``moveWindow(to:)``), in order.
     public private(set) var moves: [PageChromiumWindow] = []
 
@@ -99,6 +109,16 @@ public final class FakeChromiumPage: PageChromiumPage {
         surfaceCopies.append(maxPixelSize)
         done(surfaceCopy)
     }
+
+    /// Records `point` in ``clicks`` when ``nativeClicks`` is on, and answers it; makes no DevTools call.
+    public func sendClick(at point: CGPoint) -> Bool {
+        guard nativeClicks, !closed else { return false }
+        clicks.append(point)
+        return true
+    }
+
+    /// Counts in ``selectionCopies``; makes no DevTools call.
+    public func copySelection() { selectionCopies += 1 }
 
     /// Records `script` in ``evaluations`` and answers it through ``rendererEvaluate``, or through
     /// the DevTools path (``PageChromiumPage/devToolsEvaluate(_:)``) when that is nil.

@@ -2,6 +2,9 @@ public import AppKit
 public import CmuxNextDesign
 public import CmuxNextSettings
 public import CmuxNextWakeups
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
+import func CmuxSafeConcurrency.withOnceContinuation
 public import Foundation
 
 /// Makes Chromium pages for the page host (``PageWebView``). The app implements it with its CEF
@@ -70,8 +73,9 @@ public nonisolated struct PageChromiumWindow: Hashable, Sendable {
 }
 
 /// One Chromium page the page host shows. The page host drives it only through this protocol
-/// (scripts through ``evaluate(_:)``, the rest through the DevTools protocol,
-/// ``devTools(_:params:)``), so a CEF tab or a fake in tests both fit.
+/// (scripts through ``evaluate(_:)``, pictures through ``copySurface(maxPixelSize:done:)``, clicks
+/// through ``sendClick(at:)``; the DevTools protocol, ``devTools(_:params:)``, only where the engine
+/// has no such path), so a CEF tab or a fake in tests both fit.
 @MainActor
 public protocol PageChromiumPage: AnyObject {
     /// The view to place where the page shows (Chromium's view tracks it).
@@ -117,8 +121,23 @@ public protocol PageChromiumPage: AnyObject {
     /// - Throws: ``PageScriptError/exception(_:)`` when the script throws,
     ///   ``PageScriptError/noResult`` when the answer is not JSON, or the page's error when it is gone.
     func evaluate(_ script: String) async throws -> Any?
+    /// Whether ``copySurface(maxPixelSize:done:)`` can give a picture. False on a fork without the surface
+    /// copy: there a picture someone asks for (a window image, a debug snapshot, a cover) is a DevTools
+    /// `Page.captureScreenshot`, and the hide picture is none.
+    var copiesSurface: Bool { get }
+    /// A left click at `point` (view points from the top-left of ``contentView``) as the person's own,
+    /// with no DevTools agent: the fork's native click (`CefBrowserHost::SendMouseClickEvent`, fork API 29).
+    ///
+    /// - Parameter point: Where to click, in view points.
+    /// - Returns: False when the engine has no native click or the page is gone: the caller then uses
+    ///   DevTools input.
+    func sendClick(at point: CGPoint) -> Bool
+    /// Copies the page's selection to the pasteboard as the person's own Copy (a menu choice backs it):
+    /// `document.execCommand('copy')` with a user gesture, through the fork's `tabEvaluate` on renderer
+    /// paths (fork API 29), so it makes no DevTools call there.
+    func copySelection()
     /// Copies the page as it last drew, fitted inside `maxPixelSize` (never scaled up), with no DevTools
-    /// agent: the fork's surface copy (`cmux_tab_copy_surface`, p13-webui-077), as Chrome copies a tab
+    /// agent: the fork's surface copy (`cmux_browser_capture`, p13-webui-077), as Chrome copies a tab
     /// thumbnail (chrome/browser/ui/thumbnails/thumbnail_tab_helper.cc, `RenderWidgetHostView::CopyFromSurface`).
     /// Chromium encodes the picture on its thread pool. The page lifecycle takes it in the turn the page
     /// hides, before any freeze (``PageWebView/keepHideSnapshot(encoder:)``). Never `Page.captureScreenshot`: one
@@ -191,6 +210,16 @@ extension PageChromiumPage {
     public func devToolsEvaluate(_ script: String) async throws -> Any? {
         let reply = try await devTools("Runtime.evaluate", params: ["expression": script, "awaitPromise": true, "returnByValue": true])
         return try await ChromiumPageHostWire.value(devToolsReply: reply)
+    }
+
+    /// ``copySurface(maxPixelSize:done:)`` awaited: the request still leaves in the caller's turn.
+    ///
+    /// - Parameter maxPixelSize: The largest picture, in pixels.
+    /// - Returns: The picture; nil when there is none.
+    public func copiedSurface(maxPixelSize: CGSize) async -> PageEncodedSnapshot? {
+        try? await withOnceContinuation { (done: OnceContinuation<PageEncodedSnapshot?, OnceContinuationError>) in
+            copySurface(maxPixelSize: maxPixelSize) { done.resume(returning: $0) }
+        }
     }
 }
 

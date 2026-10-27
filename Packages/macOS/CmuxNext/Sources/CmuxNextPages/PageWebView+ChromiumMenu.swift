@@ -51,21 +51,19 @@ extension PageWebView {
         chromiumUserInput(at: ProcessInfo.processInfo.systemUptime)
     }
 
-    /// Copies the Chromium page's selection, as WebKit's Copy does.
+    /// Copies the Chromium page's selection, as WebKit's Copy does (``PageChromiumPage/copySelection()``).
     private func copyChromiumSelection() {
-        guard let page = chromiumSession?.page else { return }
-        // task-owner: one copy per menu choice; ends with the page's answer
-        Task { _ = try? await page.devTools("Runtime.evaluate", params: ["expression": "document.execCommand('copy')", "userGesture": true]) }
+        chromiumSession?.page.copySelection()
     }
 
-    /// The page's selected text, in whichever engine shows it (empty for none).
+    /// The page's selected text, in whichever engine shows it (empty for none). In Chromium it runs
+    /// through ``PageChromiumPage/evaluate(_:)``, which makes no DevTools call on renderer paths.
     public func selectedText() async -> String {
         let script = "String(getSelection())"
         guard let page = chromiumSession?.page else {
             return (try? await webKitPieces?.view.evaluateJavaScript(script)) as? String ?? "" // MQ12 allowed: the page the person acts on shows
         }
-        guard let json = try? await page.devTools("Runtime.evaluate", params: ["expression": script, "returnByValue": true]) else { return "" }
-        return ChromiumPageHostWire.evaluationString(json) ?? ""
+        return (try? await page.evaluate(script)) as? String ?? ""
     }
 
     /// Runs an editing action (`cut:`, `copy:`, `paste:`, `pasteAsPlainText:`) as the page's own

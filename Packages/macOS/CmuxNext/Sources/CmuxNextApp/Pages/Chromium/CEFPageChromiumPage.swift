@@ -7,7 +7,8 @@ import Foundation
 import os
 
 /// One cmux page in a CEF tab (``PageChromiumPage``). The page host runs its scripts through the
-/// tab's own evaluation (``evaluate(_:)``) and the rest through the DevTools protocol: the tab's raw relay (`CEFAgentRelay`) carries the protocol events (the bridge's
+/// tab's own evaluation (``evaluate(_:)``), takes pictures with its surface copy and clicks with its
+/// native click; the rest goes through the DevTools protocol: the tab's raw relay (`CEFAgentRelay`) carries the protocol events (the bridge's
 /// binding calls, `Page.frameNavigated`, `Page.loadEventFired`); a page tab is never an agent's tab,
 /// so nothing else listens on its relay. The tab's own state reports a crash and, with a hang scheduler
 /// (feature `pageHangNotice`), a hang.
@@ -153,11 +154,33 @@ final class CEFPageChromiumPage: PageChromiumPage, BrowserTabDelegate {
         }
     }
 
-    /// No picture until p13-webui-078 binds the fork's `cmux_tab_copy_surface` (p13-webui-077) on the tab,
-    /// and none on a fork without it: the DevTools `Page.captureScreenshot` the window image uses would
-    /// attach an agent and end renderer sharing. A discarded page with no picture shows its pane's
-    /// background until the page draws again.
-    func copySurface(maxPixelSize: CGSize, done: @escaping @MainActor (PageEncodedSnapshot?) -> Void) { done(nil) }
+    /// The tab's surface copy (`CEFTab.copySurface`, fork API 38): the fork's `cmux_browser_capture`.
+    var copiesSurface: Bool { !closed && tab.copiesSurface }
+
+    /// The tab's surface copy, sent in this turn. None on a fork without it: a DevTools
+    /// `Page.captureScreenshot` would attach an agent and end renderer sharing, so a discarded page
+    /// with no picture shows its pane's background until the page draws again.
+    func copySurface(maxPixelSize: CGSize, done: @escaping @MainActor (PageEncodedSnapshot?) -> Void) {
+        guard !closed else { return done(nil) }
+        tab.copySurface(maxPixelSize: maxPixelSize) { copy in
+            done(copy.map { PageEncodedSnapshot(data: $0.data, pixelSize: $0.pixelSize) })
+        }
+    }
+
+    /// The tab's native click (`CEFTab.sendClick`, fork API 29); false on an older fork or a closed page.
+    func sendClick(at point: CGPoint) -> Bool {
+        !closed && tab.sendClick(x: point.x, y: point.y)
+    }
+
+    /// `document.execCommand('copy')` in the page's world as the person's gesture (`BrowserScriptGesture.agent`:
+    /// the person's own command): the fork's `tabEvaluate` on renderer paths, a `Runtime.evaluate` with
+    /// `userGesture` on an older fork.
+    func copySelection() {
+        guard !closed else { return }
+        let tab = tab
+        // task-owner: one copy per menu choice; ends with the page's answer or the evaluation deadline
+        Task { _ = try? await tab.evaluate("document.execCommand('copy')", world: .page, gesture: .agent) }
+    }
 
     /// After an in-place discard, the discarded entry's own URL comes back by Chromium's restore on
     /// show and sends nothing (`CEFTab.loadRestoringDiscard(_:)`).

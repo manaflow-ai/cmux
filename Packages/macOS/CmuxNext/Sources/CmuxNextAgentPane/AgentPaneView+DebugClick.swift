@@ -53,7 +53,7 @@ extension AgentPaneView {
         }
     }
 
-    /// Whether the chat shows in Chromium (its clicks go through DevTools, ``debugPress(x:y:)``).
+    /// Whether the chat shows in Chromium (its clicks go through the page, ``debugPress(x:y:)``).
     public var debugShowsChromium: Bool { page.showsChromium }
 
     /// The zoom the chat shows at: view points per page CSS pixel, in either engine.
@@ -63,8 +63,8 @@ extension AgentPaneView {
     /// Chromium.
     public var debugPageWebView: WKWebView? { page.webKitEngine }
 
-    /// A trusted DevTools left click at `x`,`y` (CSS pixels) on a chat shown in Chromium; false
-    /// otherwise (``PageWebView/debugPress(x:y:)``).
+    /// A trusted left click at `x`,`y` (CSS pixels) on a chat shown in Chromium: the engine's native
+    /// click, DevTools input on an older fork; false otherwise (``PageWebView/debugPress(x:y:)``).
     public func debugPress(x: Double, y: Double) async -> Bool {
         await page.debugPress(x: x, y: y)
     }

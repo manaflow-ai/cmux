@@ -159,6 +159,8 @@ extension PageWebView {
               case .number(let x)? = point["x"], case .number(let y)? = point["y"] else { return ["hovered": false] }
         guard point["hit"] == true else { return ["hovered": false, "error": "another element is at its center"] }
         if let page {
+            // A move with no button has no native path (the native click is a click only,
+            // plans/cmux-next/webui-DESIGN.md), so a hover stays DevTools input, debug builds only.
             // DevTools input is in the viewport's CSS pixels, as `getBoundingClientRect` gives them:
             // Chromium scales it by the browser zoom, the embedding frame's CSS zoom and the pinch
             // scale itself (`InputHandler::ScaleFactor`). scripts/cmux-next/page-hover-zoom-live.py checks it at
@@ -257,11 +259,15 @@ extension PageWebView {
     public var debugPageZoom: Double { pageZoom }
 
     /// A left click at `x`,`y` (CSS pixels, as `getBoundingClientRect` gives them) on a Chromium
-    /// page: a trusted DevTools press and release, as a person's click, also in a window that never
-    /// activates (a capture slot), where no AppKit click reaches the page. False on a WebKit page,
-    /// which the caller clicks with AppKit events, or when DevTools refuses either half.
+    /// page, as a person's click, also in a window that never activates (a capture slot), where no
+    /// AppKit click reaches the page: the engine's native click (``PageChromiumPage/sendClick(at:)``),
+    /// which attaches no DevTools agent; a trusted DevTools press and release on a fork without it.
+    /// False on a WebKit page, which the caller clicks with AppKit events, or when DevTools refuses
+    /// either half.
     public func debugPress(x: Double, y: Double) async -> Bool {
         guard let page = chromiumSession?.page else { return false }
+        // The native click takes view points: the page's CSS pixels times its zoom (``debugPageZoom``).
+        if page.sendClick(at: CGPoint(x: x * pageZoom, y: y * pageZoom)) { return true }
         for type in ["mousePressed", "mouseReleased"] {
             guard (try? await page.devTools("Input.dispatchMouseEvent", params: [
                 "type": type, "x": x, "y": y, "button": "left", "buttons": type == "mousePressed" ? 1 : 0,
@@ -297,13 +303,12 @@ extension PageWebView {
         return inserted as? Bool == true
     }
 
-    /// Writes the page as WebKit rendered it to `url` as PNG.
+    /// Writes the page as its engine rendered it to `url` as PNG (Chromium: its surface copy,
+    /// ``chromiumPictureData(of:devToolsParams:)``).
     public func debugSnapshot(to url: URL) async -> Bool {
         if awaitsFirstShow { return false } // nothing drawn yet
-        if let page = chromiumSession?.page {
-            guard let json = try? await page.devTools("Page.captureScreenshot", params: ["format": "png"]),
-                  let object = ChromiumPageHostWire.object(json), let base64 = object["data"] as? String,
-                  let png = Data(base64Encoded: base64) else { return false }
+        if let session = chromiumSession {
+            guard let png = await chromiumPictureData(of: session, devToolsParams: ["format": "png"]) else { return false }
             return (try? png.write(to: url)) != nil
         }
         guard let webView = webKitPieces?.view else { return false } // a Chromium page on its way drew nothing
