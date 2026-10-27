@@ -1,0 +1,17 @@
+{
+  "id": "control-publish",
+  "tier": "T2",
+  "description": "Control snapshot publish at 50 workspaces of 10 terminal tabs (bench-control-publish.py, 120 workspace renames through the daemon): the main-actor time of every full-tree publish (debug.timings control_publishes) and each rename's time until snapshot.get shows it.",
+  "command": ["scripts/cmux-next/bench-control-publish.py", "--story", "control-publish", "--label", "lab"],
+  "session": "stress",
+  "engine": "none",
+  "config": "bench",
+  "metrics": [
+    {"name": "control_publish\\.(publish|rename_to_snapshot)", "unit": "ms", "better": "lower"}
+  ],
+  "repeats": 1,
+  "seconds": 300,
+  "needs": ["debug:debug.timings", "debug:debug.hangs", "debug:debug.quit"],
+  "owner": "Performance Lead",
+  "component": "Control>Snapshot"
+}

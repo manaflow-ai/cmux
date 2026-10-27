@@ -35,6 +35,8 @@ pub(super) fn search(
     directory: &Path,
     fields: &serde_json::Map<String, Value>,
 ) -> Result<Value, ResourceError> {
+    // git runs to completion here, on a work item (`answer`).
+    crate::request_path::note(crate::request_path::BlockingKind::ChildProcess);
     let query: Vec<char> = fields
         .get("query")
         .and_then(Value::as_str)

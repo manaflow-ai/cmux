@@ -3,6 +3,9 @@ import CmuxNextSettings
 import CmuxNextResources
 import CmuxNextWakeups
 import Foundation
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
+import func CmuxSafeConcurrency.withOnceContinuation
 
 /// `resources` on the app control socket (`cmux rpc resources '{…}'`): the
 /// numbers the hover cards show, as JSON. It takes two samples
@@ -18,10 +21,11 @@ enum ResourceControl {
 
     static func run(_ params: [String: JSONValue], services: AppServices?) async throws -> JSONValue {
         guard let services else { throw ControlError(code: "unavailable", message: RefusalStrings.noWindowShowsWorkspace) }
-        let target = try await MainActor.run { try Self.target(params, services: services) }
+        // The enum is main-actor (the target's default isolation): the target is read in this turn, with no hop.
+        let target = try Self.target(params, services: services)
         let milliseconds = min(max(params["interval_ms"]?.intValue ?? 1000, 100), 1500)
         let first = await services.resources.sample(target)
-        await waitOnce(.milliseconds(milliseconds))
+        await waitOnce(.milliseconds(milliseconds), deadlines: services.mainDeadlines)
         let second = await services.resources.sample(target)
         let report = ResourceAggregator.report(current: second, previous: first)
         return json(target: target, intervalMilliseconds: milliseconds, report: report, current: second, previous: first)
@@ -31,6 +35,7 @@ enum ResourceControl {
     private static func target(_ params: [String: JSONValue], services: AppServices) throws -> ResourceTarget {
         if let raw = params["tab"]?.stringValue {
             let tab = normalizedTabID(raw)
+            // view-observation-allow: locateTab is one MachineTabIndex lookup (p06-scheduler-051), read once per request; no walk, no observation
             guard services.locateTab(tab) != nil else { throw ControlError(code: "not_found", message: RefusalStrings.noTab(tab)) }
             return .tab(tab)
         }
@@ -55,13 +60,14 @@ enum ResourceControl {
         return "tab_" + hex
     }
 
-    /// One wait for the second sample: a one-shot deadline, not a sleep.
-    private static func waitOnce(_ delay: Duration) async {
-        let timer = DemandTimer(owner: "Resources.control")
-        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
-            timer.schedule(after: delay) { continuation.resume() }
+    /// One wait for the second sample: a one-shot deadline in the automation class (the CLI's request waits on it, so
+    /// it is flexible, never aligned while hidden), not a sleep.
+    private static func waitOnce(_ delay: Duration, deadlines: MainDeadlineScheduler) async {
+        let timer = MainDeadline(owner: "Resources.control", workClass: .automation, scheduler: deadlines)
+        _ = try? await withOnceContinuation { (continuation: OnceContinuation<Void, OnceContinuationError>) in
+            timer.schedule(after: delay) { continuation.resume(returning: ()) }
         }
-        _ = timer
+        withExtendedLifetime(timer) {}
     }
 
     private static func json(target: ResourceTarget, intervalMilliseconds: Int, report: ResourceReport,

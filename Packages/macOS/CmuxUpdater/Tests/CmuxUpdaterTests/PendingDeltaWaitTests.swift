@@ -1,5 +1,4 @@
 import Foundation
-@preconcurrency import Sparkle
 import Testing
 @testable import CmuxUpdater
 
@@ -17,7 +16,7 @@ import Testing
         return formatter.string(from: published)
     }()
 
-    private func item(deltas: Bool) -> SUAppcastItem {
+    private func item(deltas: Bool) -> UpdateAppcastItem {
         var dictionary: [String: Any] = [
             "title": "cmux NEXT 1.0.0-nightly.200",
             "pubDate": Self.pubDate,
@@ -36,7 +35,7 @@ import Testing
                 "sparkle:deltaFrom": "199",
             ]]
         }
-        return SUAppcastItem(dictionary: dictionary)!
+        return UpdateAppcastItem(dictionary: dictionary)!
     }
 
     private func harness(minutesAfterPublication minutes: Double) -> Harness {
@@ -47,11 +46,9 @@ import Testing
         return harness
     }
 
-    private func find(_ item: SUAppcastItem, _ harness: Harness) -> SPUUserUpdateChoice? {
+    private func find(_ item: UpdateAppcastItem, _ harness: Harness) -> UpdateChoice? {
         let box = ChoiceBox()
-        // Sparkle owns this state, but UpdateDriver only needs the appcast item and reply here.
-        let sparkleState = unsafeBitCast(NSNull(), to: SPUUserUpdateState.self)
-        harness.controller.driver.showUpdateFound(with: item, state: sparkleState, reply: { choice in
+        harness.controller.driver.showUpdateFound(with: item, reply: { choice in
             MainActor.assumeIsolated { box.choice = choice }
         })
         return box.choice

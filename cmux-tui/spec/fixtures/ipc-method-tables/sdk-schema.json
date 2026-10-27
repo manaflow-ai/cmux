@@ -1,0 +1,88 @@
+{
+  "$comment": "Method-table fixture (p05-ipc-023): only the keys the table emitters read. Rust (cmux-ipc methods_table tests) and Swift (CmuxNextWireGenTests TableEmitterTests) check their tables against it entry by entry. Ids leave gaps on purpose; a command or event without an id is not framed. tab-inventory and attach-cli have no macos client: the Rust tables hold them, the Swift table leaves them out (attach-cli is the last ordinal of terminal-io, so the Swift family ends one ordinal earlier).",
+  "families": {
+    "terminal-io": { "id": 1, "description": "Terminal input and attached views." },
+    "tabs": { "id": 3, "description": "Tabs." },
+    "terminal-events": { "id": 192, "description": "Terminal events." },
+    "tab-events": { "id": 194, "description": "Tab events." }
+  },
+  "commands": {
+    "send": {
+      "method_id": 256,
+      "priority": "input",
+      "ordering": "sequence",
+      "durability": "memory",
+      "stream_scoped": true,
+      "urgent": true,
+      "clients": ["macos", "cli"]
+    },
+    "resize-attached-view": {
+      "method_id": 258,
+      "priority": "input",
+      "durability": "memory",
+      "stream_scoped": true,
+      "coalesce": { "key": ["view"], "additive": [] }
+    },
+    "scroll-surface": {
+      "method_id": 259,
+      "priority": "input",
+      "durability": "memory",
+      "crosses_stream_ok": "Scrolling reads the viewport only.",
+      "coalesce": { "key": ["surface"], "additive": ["delta"] }
+    },
+    "send-binary": {
+      "method_id": 260,
+      "priority": "input",
+      "durability": "memory",
+      "payload": "binary",
+      "layout_version": 1,
+      "max_bytes": 65536,
+      "stream_scoped": true
+    },
+    "new-tab": {
+      "method_id": 768,
+      "priority": "control",
+      "durability": "reply_before_journal",
+      "spawns_terminal": true
+    },
+    "list-tabs": {
+      "method_id": 769,
+      "priority": "control",
+      "ordering": "independent",
+      "durability": "read_only"
+    },
+    "close-tab": {
+      "method_id": 771,
+      "priority": "control",
+      "durability": "reply_after_journal",
+      "clients": ["macos", "sdk"]
+    },
+    "tab-inventory": {
+      "method_id": 770,
+      "priority": "background",
+      "ordering": "independent",
+      "durability": "read_only",
+      "clients": ["sdk"]
+    },
+    "attach-cli": {
+      "method_id": 261,
+      "priority": "control",
+      "durability": "memory",
+      "clients": ["cli", "sdk"]
+    },
+    "unframed-legacy": {
+      "authority": "control"
+    }
+  },
+  "events": {
+    "output": { "event_id": 49152, "priority": "bulk" },
+    "size-state": {
+      "event_id": 49153,
+      "priority": "control",
+      "coalesce": { "key": ["surface"] }
+    },
+    "tab-created": { "event_id": 49664, "priority": "control" },
+    "tab-renamed": { "event_id": 49666, "priority": "background" },
+    "unframed-event": { "since": 1 }
+  }
+}

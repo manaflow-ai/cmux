@@ -46,11 +46,17 @@ members = [
     "crates/cmux-focus-core",
     "crates/cmux-unix-socket",
     "crates/cmux-panic-log",
+    "crates/cmux-blocking",
+    "crates/cmux-lock-rank",
+    "crates/cmux-memory",
     "crates/cmux-pty",
     "crates/cmux-holder",
+    "crates/cmux-ipc",
     "crates/cmux-flow-trace",
     "crates/cmux-threads",
     "crates/cmux-trace",
+    "crates/cmux-hang-watch",
+    "crates/cmux-wake",
     "crates/cmux-holder-v3",
     "crates/cmux-process",
     "crates/cmux-remote-protocol",
@@ -67,6 +73,7 @@ members = [
     "crates/cmux-wg",
     "crates/cmux-weft",
     "crates/cmux-transport",
+    "crates/cmux-ipc",
     "crates/cmux-tasks-core",
     "crates/cmux-feed-core",
     "crates/cmux-tasks",
@@ -120,8 +127,12 @@ default-members = [
     "crates/cmux-layout-reducer",
     "crates/cmux-focus-core",
     "crates/cmux-pty",
+    "crates/cmux-blocking",
+    "crates/cmux-lock-rank",
+    "crates/cmux-memory",
     "crates/cmux-process",
     "crates/cmux-threads",
+    "crates/cmux-wake",
     "crates/cmux-remote-protocol",
     "crates/cmux-build-identity",
     "crates/cmux-features",
@@ -134,6 +145,7 @@ default-members = [
     "crates/cmux-wg",
     "crates/cmux-weft",
     "crates/cmux-transport",
+    "crates/cmux-ipc",
     "crates/cmux-tasks-core",
     "crates/cmux-feed-core",
     "crates/cmux-tasks",
@@ -177,12 +189,19 @@ publish = false
 unsafe_op_in_unsafe_fn = "deny"
 unused_qualifications = "warn"
 # `cargo kani` sets cfg(kani) for the proof harnesses in cmux-layout-reducer.
-unexpected_cfgs = { level = "warn", check-cfg = ["cfg(kani)"] }
+# The stability lab builds with RUSTFLAGS="--cfg tokio_unstable" (cmux-tui/lab/stability.env).
+unexpected_cfgs = { level = "warn", check-cfg = ["cfg(kani)", "cfg(tokio_unstable)"] }
 
 [workspace.lints.clippy]
 uninlined_format_args = "warn"
 semicolon_if_nothing_returned = "warn"
 redundant_clone = "warn"
+# clippy.toml lists the std thread spawns and sleep; a crate denies them on its roots
+# once its sites use cmux_threads (plans/cmux-next/chrome-parity/p02-threads.md, 202).
+disallowed_methods = "allow"
+# clippy.toml lists std's Mutex, RwLock and Condvar; a module denies them once its
+# sites use cmux_threads::sync (p02-threads.md, 227).
+disallowed_types = "allow"
 # Evaluated and dropped: needless_pass_by_value causes signature churn across cmux-tui-core call sites.
 
 [workspace.dependencies]
@@ -196,16 +215,22 @@ cmux-feed-core = { path = "crates/cmux-feed-core" }
 cmux-layout-reducer = { path = "crates/cmux-layout-reducer" }
 cmux-unix-socket = { path = "crates/cmux-unix-socket" }
 cmux-panic-log = { path = "crates/cmux-panic-log" }
+cmux-blocking = { path = "crates/cmux-blocking" }
+cmux-lock-rank = { path = "crates/cmux-lock-rank" }
+cmux-memory = { path = "crates/cmux-memory" }
 cmux-agent-pane-policy = { path = "crates/cmux-agent-pane-policy" }
 cmux-chat-index = { path = "crates/cmux-chat-index" }
 cmux-tui-cdp = { path = "crates/cmux-tui-cdp" }
 cmux-pty = { path = "crates/cmux-pty" }
 cmux-holder = { path = "crates/cmux-holder" }
+cmux-ipc = { path = "crates/cmux-ipc" }
 cmux-process = { path = "crates/cmux-process" }
 cmux-flow-trace = { path = "crates/cmux-flow-trace" }
 cmux-features = { path = "crates/cmux-features" }
 cmux-threads = { path = "crates/cmux-threads" }
+cmux-wake = { path = "crates/cmux-wake" }
 cmux-trace = { path = "crates/cmux-trace" }
+cmux-hang-watch = { path = "crates/cmux-hang-watch" }
 cmux-remote-protocol = { path = "crates/cmux-remote-protocol" }
 cmux-conversation = { path = "crates/cmux-conversation" }
 cmux-history = { path = "crates/cmux-history" }
@@ -381,3 +406,20 @@ opt-level = 0
 # Rex parity bench (tests/rex_parity_bench.rs) measure it optimized.
 [profile.dev.package.cmux-api-compat]
 opt-level = 3
+
+# The correctness oracle's daemon build (plans/cmux-next/chrome-parity/p15-oracle.md,
+# task 201; scripts/cmux-next/oracle/linux_run.sh). Chrome's "release with DCHECKs"
+# configuration: is_debug = false with dcheck_always_on = true
+# (build/config/dcheck_always_on.gni) and symbol_level = 1 for file:line only
+# (build/config/compiler/compiler.gni). Release code generation, so the oracle
+# runs the timing the product ships, but debug assertions and overflow checks on,
+# so cfg(debug_assertions) checks and test knobs run too. No LTO and many codegen
+# units keep a cold build of both SHAs of a diff, and a rebuild after a leaf edit,
+# short. Use with `--features oracle`; the release profile is unchanged.
+[profile.oracle]
+inherits = "release"
+lto = "off"
+codegen-units = 256
+debug-assertions = true
+overflow-checks = true
+debug = "line-tables-only"

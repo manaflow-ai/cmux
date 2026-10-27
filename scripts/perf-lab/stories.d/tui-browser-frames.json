@@ -1,0 +1,20 @@
+{
+  "id": "tui-browser-frames",
+  "tier": "T2",
+  "description": "Browser frames over the mux socket (cmux-tui/scripts/measure-frames.py): the tagged app is launched through BenchApp, a browser surface on its own daemon shows an animating local page, and an attached client reads its frame stream for the window; frames per second, the size of every frame, every gap between frames and the wheel-to-next-frame latency.",
+  "command": ["cmux-tui/scripts/measure-frames.py", "--seconds", "10", "--url",
+              "data:text/html,<body><script>function f(t){document.body.style.background='hsl('+t/9%25360+',60%25,50%25)';requestAnimationFrame(f)}requestAnimationFrame(f)</script></body>"],
+  "session": "light",
+  "engine": "chromium",
+  "config": "bench",
+  "metrics": [
+    {"name": "tui_browser_frames\\.fps", "unit": "fps", "better": "higher"},
+    {"name": "tui_browser_frames\\.frame_bytes", "unit": "bytes", "better": "lower"},
+    {"name": "tui_browser_frames\\.(inter_frame_gap|wheel_to_next_frame)", "unit": "ms", "better": "lower"}
+  ],
+  "repeats": 3,
+  "seconds": 60,
+  "needs": [],
+  "owner": "PL-daemon",
+  "component": "Browser>Frames"
+}

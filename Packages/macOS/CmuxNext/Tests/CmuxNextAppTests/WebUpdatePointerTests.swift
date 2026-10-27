@@ -80,6 +80,6 @@ struct WebUpdatePointerTests {
     }
 
     @Test func theBundledKeysLoad() {
-        #expect(!WebUpdateKeys.bundled.keys.isEmpty)
+        #expect(!WebUpdateKeys.loadBundled().keys.isEmpty)
     }
 }

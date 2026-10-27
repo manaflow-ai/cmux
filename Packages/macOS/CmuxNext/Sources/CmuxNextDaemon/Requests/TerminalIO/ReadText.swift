@@ -3,7 +3,7 @@ import Foundation
 /// `read-screen`: plain-text viewport of a PTY surface.
 public struct ReadScreenRequest: DaemonRequest {
     public struct Response: Decodable, Sendable { public var text: String }
-    public static let command = "read-screen"
+    public static let commandName: DaemonCommandName = "read-screen"
     public var surface: SurfaceID
 
     public init(surface: SurfaceID) {
@@ -33,7 +33,7 @@ public struct ReadScrollbackRequest: DaemonRequest {
 
         public var text: String { lines.joined(separator: "\n") }
     }
-    public static let command = "read-scrollback"
+    public static let commandName: DaemonCommandName = "read-scrollback"
     public var surface: SurfaceID
     public var start: UInt32
     public var count: UInt32

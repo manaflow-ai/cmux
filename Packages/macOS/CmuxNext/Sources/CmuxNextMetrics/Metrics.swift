@@ -3,11 +3,10 @@ public import CmuxNextTrace
 /// Records field-histogram samples into the process's metrics file (Chrome's `UMA_HISTOGRAM_*` macros
 /// over `base::GlobalHistogramAllocator`, base/metrics/persistent_histogram_allocator.h).
 ///
-/// A record will be three relaxed atomic adds into a per-launch `MAP_SHARED` file (bucket, count,
-/// sum), with no lock, allocation or system call, so it is safe on the main thread and on any lane
-/// (p09-observability.md section 3D). An expired id records nothing.
-///
-/// Stub (task 000): the signature is frozen; it records nothing until task 052 adds the store.
+/// A record is three relaxed atomic adds (bucket, count, sum) into the runtime's ``MetricsStore``, whose
+/// counters live in a per-launch `MAP_SHARED` file after startup, with no lock, allocation or system call,
+/// so it is safe on the main thread and on any lane (p09-observability.md section 3D). An expired id, and
+/// any id while the runtime has no store, records nothing.
 ///
 /// ```swift
 /// Metrics().record(.keyFrame(.view), 3_200)
@@ -23,8 +22,10 @@ public struct Metrics: Sendable {
 
     /// Records one sample of `id`, in the id's ``HistogramID/unit`` (an enumeration's value, a count of 1,
     /// a duration in us or ms, a size in KiB, a percent).
+    // perf-hot: 200ns metrics-record
     public func record(_ id: HistogramID, _ sample: Int64) {
-        // Task 052: bucket index from `id.layout`, then three relaxed adds.
+        guard let store = runtime.attachedMetrics else { return }
+        store._withUnsafeGuaranteedRef { unsafeDowncast($0, to: MetricsStore.self).record(id, sample) }
     }
 
     /// Records a duration sample of `id`, converted to the id's unit (us or ms).
@@ -56,8 +57,8 @@ extension HistogramID {
 
     /// How samples map to buckets.
     public enum Layout: Sendable, Equatable {
-        /// Bucket 0 holds values below 1, then 4 buckets per power of two up to `maximum`; larger values go
-        /// to the last bucket (an overflow bucket).
+        /// Values 0 to 3 take buckets 0 to 3, then 4 buckets per power of two (buckets 4 to 7 stay empty) up
+        /// to `maximum`; larger values go to the last bucket (an overflow bucket). Histogram.swift has the math.
         case logLinear(maximum: Int64)
         /// One bucket per value from 0 to `maximum`, plus an overflow bucket.
         case linear(maximum: Int64)

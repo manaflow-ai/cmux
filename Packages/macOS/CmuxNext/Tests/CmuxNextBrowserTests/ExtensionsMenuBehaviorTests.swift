@@ -2,6 +2,7 @@ import AppKit
 @testable import CmuxNextBrowser
 import Foundation
 import Testing
+import CmuxNextWakeups
 
 /// The Extensions bubble behaves like Chrome's legacy `ExtensionsMenuView` and its
 /// `ExtensionContextMenuModel`: the context menu's order, pin keeping the bubble open, other
@@ -62,7 +63,7 @@ import Testing
         let (window, anchor) = ExtensionsMenuPerformanceTests.window()
         defer { window.close() }
         let recorder = Recorder()
-        let controller = ExtensionsMenuController()
+        let controller = ExtensionsMenuController(mainWork: MainWorkScheduler(budget: MainFrameBudget()))
         controller.show(host: tab, handler: recorder, anchor: anchor)
         try #require(controller.isShown, "\(ExtensionsMenuPerformanceTests.environment(window))")
         let unpinned = try #require(controller.content.rows.first { !$0.isPinned })
@@ -79,7 +80,7 @@ import Testing
         let tab = ExtensionsMenuPerformanceTests.tab(extensions: 2)
         let (window, anchor) = ExtensionsMenuPerformanceTests.window()
         defer { window.close() }
-        let controller = ExtensionsMenuController()
+        let controller = ExtensionsMenuController(mainWork: MainWorkScheduler(budget: MainFrameBudget()))
         controller.show(host: tab, handler: Recorder(), anchor: anchor)
         try #require(controller.isShown, "\(ExtensionsMenuPerformanceTests.environment(window))")
         let order = controller.content.focusOrder

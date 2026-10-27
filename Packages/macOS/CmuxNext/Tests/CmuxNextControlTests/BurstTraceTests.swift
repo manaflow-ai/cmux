@@ -1,19 +1,24 @@
 #if DEBUG
 @testable import CmuxNextControl
 import CmuxNextSettings
+import CmuxNextTrace
 import Testing
 
 /// `debug.burst` (``BurstTrace``): marks only while armed, a press's marks keyed by its key event, and
 /// a terminal's first output counted only after the daemon echoed a grid this view sent, so output
 /// already on its way before the resize is never taken for the TUI's redraw.
 @Suite struct BurstTraceTests {
+    /// A trace on its own runtime with every category off, so only `debug.burst` arms it, whatever other suites
+    /// in the process turn on.
+    private static func trace() -> BurstTrace { BurstTrace(trace: TraceRuntime(role: .app)) }
+
     private func kinds(_ reply: JSONValue) -> [String] {
         (reply["events"]?.arrayValue ?? []).compactMap { $0["kind"]?.stringValue }
     }
 
     @Test("A mark before start or after stop records nothing")
     func disarmedRecordsNothing() {
-        let trace = BurstTrace()
+        let trace = Self.trace()
         trace.mark(.refusal, input: 1)
         trace.closed(tabs: ["a"], emptiesPane: false, input: 1)
         trace.gridSent(surface: 1, cols: 80, rows: 24, expectsEcho: true)
@@ -30,7 +35,7 @@ import Testing
 
     @Test("The first output counts only after the stream echoed a grid this view sent")
     func firstOutputAfterEachEcho() {
-        let trace = BurstTrace()
+        let trace = Self.trace()
         _ = trace.control(["action": .string("start")])
         trace.output(surface: 7)  // no grid yet: not a first output
         trace.gridSent(surface: 7, cols: 100, rows: 30, expectsEcho: true)
@@ -49,7 +54,7 @@ import Testing
 
     @Test("An echo of a later grid also settles the earlier ones the stream skipped")
     func echoSettlesEarlierGrids() {
-        let trace = BurstTrace()
+        let trace = Self.trace()
         _ = trace.control(["action": .string("start")])
         trace.gridSent(surface: 7, cols: 100, rows: 30, expectsEcho: true)
         trace.gridSent(surface: 7, cols: 90, rows: 30, expectsEcho: true)
@@ -61,7 +66,7 @@ import Testing
 
     @Test("A grid the PTY already has is never echoed, so no echo or redraw is looked for")
     func unechoedGridIsNotAwaited() {
-        let trace = BurstTrace()
+        let trace = Self.trace()
         _ = trace.control(["action": .string("start")])
         trace.gridSent(surface: 7, cols: 100, rows: 30, expectsEcho: false)
         trace.gridAnnounced(surface: 7, cols: 100, rows: 30)  // an announce of it: not this view's echo
@@ -80,7 +85,7 @@ import Testing
 
     @Test("Each press's marks carry its key event's timestamp, and a close its tabs")
     func pressMarksAreKeyed() {
-        let trace = BurstTrace()
+        let trace = Self.trace()
         _ = trace.control(["action": .string("start")])
         trace.mark(.closeSwallowed, input: 10.5)
         trace.mark(.creationCancelled, input: 10.6)

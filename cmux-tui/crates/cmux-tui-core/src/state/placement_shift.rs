@@ -97,6 +97,7 @@ pub(crate) fn merge(shift: &mut Option<PlacementShift>, more: PlacementShift) {
 /// personal revision and the connection's write count (so a write that
 /// advances neither revision still reads fresh placements). Equal keys
 /// read equal placements.
+#[track_caller]
 pub(crate) fn state_key(connection: &Connection) -> anyhow::Result<(u64, u64, u64)> {
     let resource = connection.query_row(
         "SELECT value FROM meta WHERE key = 'resource_revision'",

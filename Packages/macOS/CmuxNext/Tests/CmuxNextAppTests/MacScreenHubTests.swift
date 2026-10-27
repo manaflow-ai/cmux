@@ -37,14 +37,14 @@ private final class CallLog {
 private let hostID = "0b6c1a2e-3d4f-4a5b-8c9d-aabbccddeeff"
 
 @MainActor
-private func testHub() -> DeviceHub {
+func testHub() -> DeviceHub {
     let identity = DeviceIdentity(deviceID: UUID(), keys: TestDeviceKeys())
     let client = DeviceHubClient(baseURL: URL(string: "https://hub.invalid")!, identity: identity,
                                  tokens: DeviceHubAccountToken { throw DeviceHubError.notSignedIn })
     return DeviceHub(client: client, secrets: MemoryRelaySecretStore(), deviceName: "Test Mac")
 }
 
-private func ticket(_ id: String = "s1", role: SessionTicket.Role = .viewer, scope: SessionScope = .full,
+func ticket(_ id: String = "s1", role: SessionTicket.Role = .viewer, scope: SessionScope = .full,
                     peer: String = hostID) -> SessionTicket {
     SessionTicket(sessionId: id, ticket: "a.b.c", signalURL: URL(string: "wss://hub.invalid/v1/sessions/\(id)/ws")!, ice: [],
                   peer: .init(id: peer, name: "Studio", signingKey: "key"), role: role, scope: scope)
@@ -169,7 +169,8 @@ struct MacScreenHubCardTests {
     /// A device tab shows the stream's controls only while a session streams.
     @Test func deviceTabsShowStreamControlsOnlyWhileStreaming() {
         let viewer = MacScreenHubViewer(deviceID: hostID) { nil }
-        let pane = MacScreenPane(hubDevice: viewer, name: "Studio", preferences: ScreenPreferences())
+        let pane = MacScreenPane(hubDevice: viewer, name: "Studio", preferences: ScreenPreferences(),
+                                 node: shownNode(), on: linklessMainWork())
         #expect(pane.model.card == .hubConnect)
         #expect(!pane.model.showsStreamControls)
         viewer.phase = .streaming(sessionID: "s1", scope: .full)
@@ -189,7 +190,8 @@ struct MacScreenViewOnlyTests {
 
     @Test func theSessionsScopeDecidesViewOnly() {
         let viewer = MacScreenHubViewer(deviceID: hostID) { nil }
-        let pane = MacScreenPane(hubDevice: viewer, name: "Studio", preferences: ScreenPreferences())
+        let pane = MacScreenPane(hubDevice: viewer, name: "Studio", preferences: ScreenPreferences(),
+                                 node: shownNode(), on: linklessMainWork())
         #expect(!pane.model.viewOnly)
         viewer.phase = .streaming(sessionID: "s1", scope: .view)
         #expect(pane.model.viewOnly)
@@ -507,7 +509,7 @@ struct MacScreenHubViewerTests {
 struct MacScreenHubPushTests {
     private func makePages() -> MacScreenPages {
         let file = FileManager.default.temporaryDirectory.appending(path: "mac-screen-\(UUID().uuidString)/mac-screen.json")
-        return MacScreenPages(store: MacScreenStore(file: file))
+        return MacScreenPages(store: MacScreenStore(file: file), mainWork: linklessMainWork())
     }
 
     @Test func pushesReachTheTabOfTheirSession() throws {
@@ -661,7 +663,7 @@ struct MacScreenDevicesSettingsTests {
     /// The state never carries a secret, even with relays this Mac can open.
     @Test func theStateHoldsNoSecrets() async throws {
         let file = FileManager.default.temporaryDirectory.appending(path: "mac-screen-\(UUID().uuidString)/mac-screen.json")
-        let pages = MacScreenPages(store: MacScreenStore(file: file))
+        let pages = MacScreenPages(store: MacScreenStore(file: file), mainWork: linklessMainWork())
         let settings = MacScreenDevicesSettings(pages: pages)
         pages.hubConfigured = true
         #expect(settings.state.available && settings.state.thisDevice == nil)
@@ -696,7 +698,7 @@ struct MacScreenHubHostOrderTests {
 
     private func serving() -> (MacScreenHubHost, DeviceHub) {
         let file = FileManager.default.temporaryDirectory.appending(path: "mac-screen-\(UUID().uuidString)/mac-screen.json")
-        let pages = MacScreenPages(store: MacScreenStore(file: file))
+        let pages = MacScreenPages(store: MacScreenStore(file: file), mainWork: linklessMainWork())
         let hub = testHub()
         let host = pages.hubHost
         host.hub = { hub }
@@ -734,7 +736,7 @@ struct MacScreenHubHostOrderTests {
 @MainActor
 struct MacScreenApprovalPanelTests {
     @Test func everyPromptHasAVisibleFrame() throws {
-        let prompt = MacScreenApprovalPrompt()
+        let prompt = MacScreenApprovalPrompt(mainWork: linklessMainWork())
         let first = SessionRequest(id: "s1", viewerId: "v1", viewerName: "Laptop", viewerKeyFingerprint: String(repeating: "ab", count: 32), scope: .view)
         let second = SessionRequest(id: "s2", viewerId: "v1", viewerName: "Laptop", scope: .full)
         prompt.update([first])

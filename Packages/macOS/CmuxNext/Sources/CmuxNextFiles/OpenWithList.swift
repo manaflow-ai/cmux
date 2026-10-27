@@ -19,7 +19,7 @@ public struct OpenWithList: Sendable, Equatable {
     ///
     /// - Parameters:
     ///   - defaultApp: the system's default app for the file, if any; it need not be in `apps`.
-    ///   - apps: every app the system reports (`NSWorkspace.urlsForApplications(toOpen:)`),
+    ///   - apps: every app the system reports for the type (Launch Services' app list),
     ///     duplicates allowed. Two copies of one app (same bundle id) make one row; the default's
     ///     copy, else the first, wins.
     public init(defaultApp: OpenWithApp?, apps: [OpenWithApp]) {

@@ -157,8 +157,8 @@ private actor FakeLaneOpener {
 }
 
 private func frame(_ text: String) -> Data {
-    var length = UInt32(text.utf8.count).bigEndian
-    var data = Data(bytes: &length, count: 4)
+    let length = UInt32(text.utf8.count)
+    var data = Data([24, 16, 8, 0].map { UInt8(truncatingIfNeeded: length >> $0) })
     data.append(Data(text.utf8))
     return data
 }

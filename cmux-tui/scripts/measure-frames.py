@@ -1,15 +1,41 @@
 #!/usr/bin/env python3
-"""Measure cmux browser-frame throughput over the mux control socket."""
+"""Measure cmux browser-frame throughput over the mux control socket.
+
+Percentiles (median, p95, p99) come from scripts/perf-lab/perf_stats.py.
+
+With --app (a tagged bundle), the bench launches it through
+scripts/cmux-next/bench_launch.py's BenchApp and measures --url on the app's
+own cmux-tui daemon. With --app and --out DIR, the raw samples are also written
+through BenchApp.record as cmux-perf-result/v1 in story tui-browser-frames
+(session light, engine chromium): tui_browser_frames.fps,
+tui_browser_frames.frame_bytes (bytes, every frame),
+tui_browser_frames.inter_frame_gap and
+tui_browser_frames.wheel_to_next_frame (ms).
+"""
 
 import argparse
 import base64
+import importlib.util
 import json
 import os
 import socket
-import statistics
 import sys
 import tempfile
 import time
+
+
+_spec = importlib.util.spec_from_file_location(
+    "perf_import",
+    os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "scripts", "perf-lab", "perf_import.py"),
+)
+perf_import = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(perf_import)
+perf_stats = perf_import.load("perf_stats")
+
+STORY = "tui-browser-frames"
+SESSION = "light"
+ENGINE = "chromium"  # the app's browser provider renders the frames
+REQUEST_TIMEOUT_S = 60
 
 
 def default_socket() -> str:
@@ -27,16 +53,21 @@ class Rpc:
         payload = dict(cmd)
         payload["id"] = req_id
         with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as sock:
+            # A daemon with no browser provider never answers new-browser-tab: fail instead of hanging a lab run.
+            sock.settimeout(REQUEST_TIMEOUT_S)
             sock.connect(self.path)
             sock.sendall((json.dumps(payload) + "\n").encode())
             reader = sock.makefile("r", encoding="utf-8")
-            for line in reader:
-                value = json.loads(line)
-                if value.get("id") != req_id:
-                    continue
-                if not value.get("ok"):
-                    raise RuntimeError(value.get("error", "request failed"))
-                return value.get("data") or {}
+            try:
+                for line in reader:
+                    value = json.loads(line)
+                    if value.get("id") != req_id:
+                        continue
+                    if not value.get("ok"):
+                        raise RuntimeError(value.get("error", "request failed"))
+                    return value.get("data") or {}
+            except TimeoutError:
+                raise RuntimeError(f"{cmd.get('cmd')}: no reply in {REQUEST_TIMEOUT_S} s") from None
         raise RuntimeError("socket closed before response")
 
 
@@ -55,14 +86,6 @@ def send_browser_attach_handshake(sock: socket.socket, surface: int) -> None:
         },
     )
     send_line(sock, {"id": 1, "cmd": "attach-surface", "surface": surface})
-
-
-def percentile(values: list[float], pct: float) -> float:
-    if not values:
-        return 0.0
-    ordered = sorted(values)
-    index = min(len(ordered) - 1, int(round((pct / 100.0) * (len(ordered) - 1))))
-    return ordered[index]
 
 
 def frame_size(data: str) -> int:
@@ -120,19 +143,95 @@ class LineReader:
             self._buf.extend(chunk)
 
 
-def main() -> int:
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--socket", default=default_socket(), help="mux unix socket path")
+def frame_report_lines(sizes: list[int], gaps: list[float]) -> list[str]:
+    """The frame_bytes and inter_frame_gap_ms report lines; `gaps` are in seconds. No line for an empty list."""
+    lines = []
+    if sizes:
+        lines.append(
+            "frame_bytes: "
+            f"median={perf_stats.pct(sizes, 0.5):.0f} "
+            f"p95={perf_stats.pct(sizes, 0.95):.0f} "
+            f"p99={perf_stats.pct(sizes, 0.99):.0f} "
+            f"max={max(sizes):.0f}"
+        )
+    if gaps:
+        lines.append(
+            "inter_frame_gap_ms: "
+            f"median={perf_stats.pct(gaps, 0.5) * 1000:.1f} "
+            f"p95={perf_stats.pct(gaps, 0.95) * 1000:.1f} "
+            f"p99={perf_stats.pct(gaps, 0.99) * 1000:.1f} "
+            f"max={max(gaps) * 1000:.1f}"
+        )
+    return lines
+
+
+def frame_series(fps: float, sizes: list[int], gaps: list[float], wheel_latency: float | None) -> list:
+    """The result-v1 series of one window (gaps and wheel latency in seconds); write_series skips empty ones."""
+    return [
+        perf_import.Series("tui_browser_frames.fps", "fps", "higher", [fps]),
+        perf_import.Series("tui_browser_frames.frame_bytes", "bytes", "lower", list(sizes)),
+        perf_import.Series("tui_browser_frames.inter_frame_gap", "ms", "lower", [g * 1000 for g in gaps]),
+        perf_import.Series(
+            "tui_browser_frames.wheel_to_next_frame", "ms", "lower",
+            [] if wheel_latency is None else [wheel_latency * 1000],
+        ),
+    ]
+
+
+def parse(argv: list[str] | None = None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument("--socket", help="mux unix socket path (default: the user's daemon, or with --app the "
+                                         "launched app's daemon)")
     parser.add_argument("--surface", type=int, help="existing browser surface id")
     parser.add_argument("--url", help="create and measure a temporary browser surface at this URL")
     parser.add_argument("--seconds", type=float, default=10.0, help="measurement window")
-    args = parser.parse_args()
+    parser.add_argument("--app", help="a tagged app bundle to launch (bench_launch.BenchApp) and measure on its "
+                                      "own daemon; it names the build of the results")
+    parser.add_argument("--tag", help="the lab story runner passes it; the bundle carries the tag")
+    parser.add_argument("--session", choices=[SESSION], help="the lab story runner passes it; only light")
+    parser.add_argument("--build-config", choices=["bench", "bench-checks", "release"],
+                        help="result-v1 build config of a bench-hooks bundle that does not stamp it")
+    parser.add_argument("--out", help="with --app: the folder for the app log and cmux-perf-result/v1")
+    args = parser.parse_args(argv)
 
     if (args.surface is None) == (args.url is None):
         parser.error("provide exactly one of --surface or --url")
     if args.seconds <= 0:
         parser.error("--seconds must be > 0")
+    if args.out and not args.app:
+        parser.error("--out needs --app: a result names the build it measured")
+    if args.app and (args.socket is not None or args.surface is not None):
+        parser.error("--app launches a new app: measure a new --url there, with no --socket or --surface")
+    return args
 
+
+def main(argv: list[str] | None = None) -> int:
+    args = parse(argv)
+    if not args.app:
+        args.socket = args.socket or default_socket()
+        return measure(args, [])
+    launch = perf_import.bench_launch()
+    tagged = perf_import.load_by_path("bench_tagged", os.path.join(perf_import.ROOT, "scripts", "cmux-next",
+                                                                   "bench_tagged.py"))
+    bench = launch.BenchApp(args.app, out=args.out, window=None, perf_session=SESSION,
+                            build_config=args.build_config)
+    series: list = []
+    try:
+        bench.launch()
+        args.socket = tagged.daemon_socket(bench.tag)
+        status = measure(args, series)
+        if args.out:
+            for item in series:
+                if item.samples:
+                    bench.record(STORY, item.metric, item.unit, item.samples, better=item.better, engine=ENGINE)
+            print(f"wrote result-v1 into {args.out} ({sum(1 for item in series if item.samples)} series)")
+        return status
+    finally:
+        bench.stop()
+
+
+def measure(args: argparse.Namespace, series: list) -> int:
+    """One measurement window on args.socket; prints the report and appends the result-v1 series."""
     rpc = Rpc(args.socket)
     created_surface = None
     surface = args.surface
@@ -241,27 +340,17 @@ def main() -> int:
             print(f"frame_dims: {dims[0]}x{dims[1]}")
         print(f"frames: {len(frame_times)}")
         print(f"fps: {fps:.2f}")
-        if sizes:
-            print(
-                "frame_bytes: "
-                f"median={statistics.median(sizes):.0f} "
-                f"p95={percentile(sizes, 95):.0f} "
-                f"max={max(sizes):.0f}"
-            )
-        if gaps:
-            print(
-                "inter_frame_gap_ms: "
-                f"median={statistics.median(gaps) * 1000:.1f} "
-                f"p95={percentile(gaps, 95) * 1000:.1f} "
-                f"max={max(gaps) * 1000:.1f}"
-            )
+        for line in frame_report_lines(sizes, gaps):
+            print(line)
         if wheel_sent_at is not None:
             if wheel_latency is None:
                 print("wheel_to_next_frame_ms: none")
             else:
                 print(f"wheel_to_next_frame_ms: {wheel_latency * 1000:.1f}")
 
-        if not frame_times:
+        if frame_times:
+            series.extend(frame_series(fps, sizes, gaps, wheel_latency))
+        else:
             print(
                 "error: zero frames received; if this uses external headful Chrome, "
                 "check whether the tab/window is hidden or occluded",

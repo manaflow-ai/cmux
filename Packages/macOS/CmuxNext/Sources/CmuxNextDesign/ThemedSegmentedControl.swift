@@ -20,6 +20,7 @@ public final class ThemedSegmentedControl: NSSegmentedControl {
         applyTheme()
     }
 
+    // visibility-walk-allow: two color stores and one invalidation when they change; cheaper than a deferral
     public override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         applyTheme()
@@ -30,9 +31,12 @@ public final class ThemedSegmentedControl: NSSegmentedControl {
             let tokens = ThemeContext.active ?? ThemeScope.app.tokens
             return tokens.chip(tokens.selectionFill.composited(over: tokens.windowBackground.withAlpha(1)))
         }
-        selectedLabelInk = chip.ink.nsColor
-        selectedSegmentBezelColor = chip.fill.nsColor
-        needsDisplay = true
+        let ink = chip.ink.nsColor, fill = chip.fill.nsColor
+        // A move into a window, or a theme change, that leaves the chip as it was repaints nothing.
+        guard ink != selectedLabelInk || fill != selectedSegmentBezelColor else { return }
+        selectedLabelInk = ink
+        selectedSegmentBezelColor = fill
+        needsDisplay = true // invalidate: another chip (the guard above); the selected label draws in its ink.
     }
 }
 

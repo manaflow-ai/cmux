@@ -1,4 +1,5 @@
 @testable import CmuxNextUpdater
+import CmuxNextWakeups
 import Foundation
 import Testing
 
@@ -27,7 +28,7 @@ import Testing
         let defaults = UserDefaults(suiteName: "UpdatedCardCurrentBuildNotesTests.\(UUID().uuidString)")!
         defaults.set("1.0.0-nightly.3938998689001", forKey: "cmux.next.whatsNew.lastSeenVersion")
         let updater = UpdaterService(identity: identity, policy: ManagedUpdatePolicy { false }, defaults: defaults,
-                                     enableSparkle: false, recordsUpdates: false)
+                                     enableSparkle: false, recordsUpdates: false, work: BackgroundWork(label: "test.updater"))
         updater.notesLoader = loads
         updater.whatsNew.load()
         return updater

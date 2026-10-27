@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import CryptoKit
 public import Foundation
 
@@ -47,7 +48,7 @@ nonisolated public struct WebUpdatePointer: Sendable, Equatable, Codable {
     /// The pointer `data` (an envelope) holds when a trusted key signed it and it is well formed
     /// for `channel`.
     public static func verified(_ data: Data, keys: WebUpdateKeys, channel: String) throws(WebUpdateRefusal) -> WebUpdatePointer {
-        guard let envelope = try? JSONDecoder().decode(Envelope.self, from: data), envelope.schema == 1,
+        guard let envelope = try? JSONDecoder().blockingDecode(Envelope.self, from: data), envelope.schema == 1,
               let payload = Data(base64Encoded: envelope.payload)
         else { throw .malformed("not a pointer envelope") }
         let signed = envelope.signatures.contains { signature in
@@ -55,7 +56,7 @@ nonisolated public struct WebUpdatePointer: Sendable, Equatable, Codable {
             return key.isValidSignature(bytes, for: payload)
         }
         guard signed else { throw .unsigned }
-        guard let body = try? JSONDecoder().decode(Payload.self, from: payload), body.schema == 1 else {
+        guard let body = try? JSONDecoder().blockingDecode(Payload.self, from: payload), body.schema == 1 else {
             throw .malformed("not a pointer payload")
         }
         let pointer = body.pointer
@@ -115,7 +116,7 @@ nonisolated public struct WebUpdateKeys: Sendable {
             var keys: [Key]
         }
         var keys: [String: Curve25519.Signing.PublicKey] = [:]
-        for entry in (try? JSONDecoder().decode(File.self, from: data))?.keys ?? [] {
+        for entry in (try? JSONDecoder().blockingDecode(File.self, from: data))?.keys ?? [] {
             guard let raw = Data(base64Encoded: entry.ed25519), raw.count == 32,
                   Self.id(of: raw) == entry.id,
                   let key = try? Curve25519.Signing.PublicKey(rawRepresentation: raw)
@@ -129,11 +130,12 @@ nonisolated public struct WebUpdateKeys: Sendable {
         SHA256.hash(data: raw).map { String(format: "%02x", $0) }.joined().prefix(16).description
     }
 
-    /// The keys this build trusts.
-    public static let bundled: WebUpdateKeys = {
+    /// The keys this build trusts, read from its bundle: a file read, so the updater runs it on the files
+    /// lane (``WebUpdater/KeySource/bundled(_:)``).
+    public static func loadBundled() -> WebUpdateKeys {
         let url = Bundle.module.url(forResource: "web-update-keys", withExtension: "json")
-        return WebUpdateKeys(json: url.flatMap { try? Data(contentsOf: $0) } ?? Data())
-    }()
+        return WebUpdateKeys(json: url.flatMap { try? Data(blockingContentsOf: $0) } ?? Data())
+    }
 }
 
 /// Why a web update was not taken.

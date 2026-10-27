@@ -1,0 +1,14 @@
+{
+  "$schema": "../features.schema.json",
+  "name": "sidebarRowsNearViewport",
+  "owner": "a590",
+  "description": "The sidebar keeps only the workspace rows on screen observed, and maps a row that changed off screen once when it scrolls back near (at once when it comes on screen).",
+  "defaults": { "dev": false, "nightly": false, "release": false },
+  "kind": "perfPath",
+  "expires": "2026-12-20",
+  "process": "app",
+  "params": [],
+  "stories": ["sidebar"],
+  "sticky": false,
+  "runtimeMutable": false
+}

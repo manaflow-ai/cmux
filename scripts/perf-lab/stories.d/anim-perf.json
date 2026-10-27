@@ -1,0 +1,24 @@
+{
+  "id": "anim-perf",
+  "tier": "T2",
+  "description": "Every app animation outside pane motion (tabs, a split and a column in a small layout, workspace switch, both sidebars, a sidebar group, Home and its chats, the palette) on its own launch (anim-perf-terminal.py): every frame interval of each animation, dropped frames, frames over a 120 Hz frame and the longest main-thread slice, light session.",
+  "command": ["scripts/cmux-next/anim-perf-terminal.py", "--story", "anim-perf"],
+  "session": "light",
+  "engine": "none",
+  "config": "bench",
+  "metrics": [
+    {"name": "anim\\.[^.]+\\.frame", "unit": "ms", "better": "lower",
+     "target_ref": {"path": "scripts/cmux-next/perf-budgets.json", "key": "/rows/anim\\..*\\.frame/p95"},
+     "floor_ref": {"path": "scripts/cmux-next/perf-budgets.json", "key": "/rows/anim\\..*\\.frame/floor"}},
+    {"name": "anim\\.[^.]+\\.dropped", "unit": "count", "better": "lower",
+     "target_ref": {"target": "motion-dropped"}},
+    {"name": "anim\\.[^.]+\\.over_8_33", "unit": "count", "better": "lower"},
+    {"name": "anim\\.[^.]+\\.main_ms_max", "unit": "ms", "better": "lower"}
+  ],
+  "repeats": 1,
+  "seconds": 480,
+  "needs": ["debug:debug.frames", "debug:debug.main_cpu", "debug:debug.home"],
+  "hot_paths": ["frame-tick"],
+  "owner": "Performance Lead",
+  "component": "Motion"
+}

@@ -49,7 +49,24 @@ CEF would make the page pay for Chromium start on every launch. The page code st
 
 ### 2.2 Pool
 
-- Exactly one spare per main window (`NewTabSparePool`, owned by the window controller; a pure
+Since chrome-parity p13-webui-044 and 047 (2026-10-26), `NewTabSparePool` is deleted: the page is
+the default preload of the app's one `PagePreloadSlot` (`NewTabPreload`, `services.newTabSpares`),
+as Chrome preloads its top-chrome WebUI (`chrome/browser/ui/webui/top_chrome/webui_contents_preload_manager.h`:
+at most one preloaded WebContents across all profiles). The rules below still hold, with these changes:
+
+- One preloaded page for the whole app, parked in the key main window (or the last key one), not
+  one per window; while the slot holds another page (Settings, History, Cloud) New Tab makes none.
+- Re-warm is a `MainDeadline` (`NewTabPreload.warm`, background class) after 750 ms of quiet input;
+  the parked page follows its pane's size through `NewTabPreload.fit` and the slot's one quiet
+  refit (`webui.preload.refit`).
+- Memory pressure reaches it through the app's one memory coordinator (`SpareMemoryConsumer`), not
+  a dispatch source of its own: warning or critical drops it, and none is made or recycled until normal.
+- Feature `newTabParksHidden` (off): the page parks hidden (its document reports hidden) and Cmd-T
+  shows the slot's cover until its first live frame. Off, it parks rendering as below.
+
+The original design follows.
+
+- Exactly one spare per main window (the deleted `NewTabSparePool`, owned by the window controller; a pure
   state machine `empty -> warming -> ready -> adopted -> empty`, so it is property-tested).
 - A spare is a full `AgentPaneView` loaded with a handshake that has `newTab.spare = true`: the
   page renders the new tab UI with an empty context, connects to acpmux (recent chats arrive by
@@ -164,8 +181,8 @@ must work with no page.
 
 ## 6. Ownership
 
-- Client view state (which page tab, spare pool, field text, mode memory): the Swift app, one window
-  each. Agent sessions: acpmux. Terminal and browser tabs: their existing owners through existing
+- Client view state (which page tab, the preloaded page, field text, mode memory): the Swift app,
+  one window each; the preloaded page is the app's one (`PagePreloadSlot`, section 2.2). Agent sessions: acpmux. Terminal and browser tabs: their existing owners through existing
   ops. No new daemon entity, so no cmux-tui window is needed for N1-N6.
 - The agent tab kind is still session-local in the app (`LocalAgentTab`), so a new tab page does not
   survive relaunch. Unchanged by this plan.
@@ -240,7 +257,8 @@ N1 and N2 start now (webviews only). N4 needs a fleet build for every measuremen
 - N4: one spare per window (`NewTabSparePool`), adopted by `newTabPage()`; spares exist while the
   page is likely (`tabs.newTabKind` page, or used this session), re-warm after 750 ms of quiet
   input, dropped on memory pressure and window close. `debug.new_tab` + `scripts/cmux-next/
-  new-tab-e2e.py` measure it on cmux-lawrence-2.
+  new-tab-e2e.py` measure it on cmux-lawrence-2. Replaced 2026-10-26 by the app's one preload slot
+  (p13-webui-044, section 2.2); `debug.new_tab` keeps its fields.
 - N5: `newTab.submit` (`cmux tab new-from-text TEXT [--arg mode=search|ask] [--arg agent=ID]`), MCP tool
   from the app registry, palette with an argument prompt.
 - N6: `tabs.newTabKind` defaults to `page`; a build without the agent page falls back to a terminal.

@@ -16,6 +16,7 @@ impl Mux {
         Ok(created)
     }
 
+    #[track_caller]
     pub(crate) fn register_browser_provider(
         self: &Arc<Self>,
         client: u64,
@@ -26,12 +27,19 @@ impl Mux {
         Ok(snapshot)
     }
 
+    #[track_caller]
     pub(crate) fn unregister_browser_provider(self: &Arc<Self>, client: u64) -> bool {
         let removed = self.browser_providers.unregister(client);
         if removed {
             self.reconcile_provider_browser_surfaces();
         }
         removed
+    }
+
+    /// The registry a browser surface wakes when it dies (see
+    /// [`BrowserProviderRegistry::wake_waiters`]).
+    pub(crate) fn browser_provider_registry(&self) -> Arc<BrowserProviderRegistry> {
+        self.browser_providers.clone()
     }
 
     pub(crate) fn browser_provider_snapshot(&self) -> Option<BrowserProviderSnapshot> {
@@ -57,6 +65,7 @@ impl Mux {
     /// A stand-in cmux-browser provider for `client` that publishes no
     /// target: daemon-rendered tabs wait for theirs, as with a live provider.
     #[cfg(test)]
+    #[track_caller]
     pub(crate) fn attach_test_browser_provider(self: &Arc<Self>, client: u64) {
         self.register_browser_provider(
             client,
@@ -71,6 +80,7 @@ impl Mux {
         .unwrap();
     }
 
+    #[track_caller]
     pub(super) fn reconcile_provider_browser_surfaces(self: &Arc<Self>) {
         let surfaces = {
             let state = self.state.lock().unwrap();
@@ -113,6 +123,7 @@ impl Mux {
         Ok(created)
     }
 
+    #[track_caller]
     pub(super) fn start_browser_bootstrap(
         self: &Arc<Self>,
         surface: Arc<Surface>,
@@ -277,6 +288,7 @@ impl Mux {
         }
     }
 
+    #[track_caller]
     pub(crate) fn restart_provider_browser_surface(self: &Arc<Self>, surface: Arc<Surface>) {
         let Some(identity) = surface.resource_identity() else { return };
         if !matches!(identity.content_id, ContentPublicId::Browser(_)) {

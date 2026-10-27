@@ -1,4 +1,5 @@
 import CMUXMobileCore
+import CmuxSafeConcurrency
 import Foundation
 
 /// Defers transport construction until the signed-in runtime finishes activation.
@@ -16,7 +17,7 @@ actor CmxIrohDeferredByteTransport:
     private var connectTask: Task<any CmxByteTransport, any Error>?
     private var transport: (any CmxByteTransport)?
     private var closed = false
-    private var closureObservationReadyWaiters: [CheckedContinuation<Void, Never>] = []
+    private var closureObservationReadyWaiters: [OnceContinuation<Void, OnceContinuationError>] = []
 
     init(
         request: CmxByteTransportRequest,
@@ -121,9 +122,9 @@ actor CmxIrohDeferredByteTransport:
             }
             return transport is any CmxByteTransportClosureObserving
         }
-        await withCheckedContinuation { continuation in
+        try? await withOnceContinuation { continuation in
             if transport != nil || closed {
-                continuation.resume()
+                continuation.resume(returning: ())
             } else {
                 closureObservationReadyWaiters.append(continuation)
             }
@@ -136,7 +137,7 @@ actor CmxIrohDeferredByteTransport:
         let waiters = closureObservationReadyWaiters
         closureObservationReadyWaiters.removeAll(keepingCapacity: false)
         for waiter in waiters {
-            waiter.resume()
+            waiter.resume(returning: ())
         }
     }
 

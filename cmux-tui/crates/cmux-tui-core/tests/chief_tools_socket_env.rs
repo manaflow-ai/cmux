@@ -13,7 +13,7 @@ fn a_spawned_child_never_sees_the_tools_socket() {
     // SAFETY: as above (the daemon calls it first thing in main).
     unsafe { cmux_tui_core::server::take_chief_tools_socket_from_env() };
     assert!(std::env::var_os(KEY).is_none(), "the variable left the process environment");
-    let child = std::process::Command::new("/usr/bin/env").output().expect("run env");
+    let child = cmux_process::Command::new("/usr/bin/env").output().expect("run env");
     let printed = String::from_utf8_lossy(&child.stdout);
     assert!(child.status.success());
     assert!(!printed.contains(KEY), "a spawned child inherited {KEY}");

@@ -20,6 +20,9 @@ pub(super) struct HostedReader {
     pub(super) sequence_boundary: u64,
     pub(super) protocol_version: u16,
     pub(super) smart_renderer: bool,
+    /// The host connection negotiated `FLAG_INPUT_FLOW`: its output
+    /// frames carry the key press they echo.
+    pub(super) input_flow: bool,
     pub(super) applied_color_overrides: TerminalColorOverrides,
     pub(super) applied_color_revision: u64,
     pub(super) applied_cursor_activity: Option<u64>,
@@ -118,7 +121,8 @@ impl HostedReader {
             self.sequence_boundary,
             self.protocol_version,
             self.smart_renderer,
-        );
+        )
+        .with_input_flow(self.input_flow);
         let mut received_exit = None;
         let mut resync_requested = false;
         let mut journal_target = None;
@@ -182,6 +186,7 @@ impl HostedReader {
             let Some(transition) = transition else { continue };
             let flow = match transition {
                 transition @ (HostedTransition::Output(_)
+                | HostedTransition::FlowOutput { .. }
                 | HostedTransition::OutputWithColors { .. }) => self.apply_output(
                     surface,
                     pty,
@@ -306,7 +311,7 @@ impl HostedReader {
             // A live host's resync never fails the terminal, but
             // back-to-back resyncs are spaced.
             let delay = self.resync_backoff.next_delay();
-            std::thread::sleep(delay.unwrap_or(TERMINAL_HOST_RECONNECT_MAX_DELAY));
+            crate::request_path::sleep(delay.unwrap_or(TERMINAL_HOST_RECONNECT_MAX_DELAY));
         } else if !self.flap_backoff.wait_or_fail(pty) {
             return None;
         }

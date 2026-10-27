@@ -1,0 +1,14 @@
+{
+  "$schema": "../features.schema.json",
+  "name": "pointerFrameHover",
+  "owner": "PL-motion-cef",
+  "description": "The sidebar, tab strips, saved groups bar, palette, address bar suggestions, page menus, agent cursor tags, hover cards, hover reveals and thin scrollers hover on a display frame's first pointer move and once more at the frame, to the latest point; entering, leaving, clicking and keys act at once.",
+  "defaults": { "dev": false, "nightly": false, "release": false },
+  "kind": "perfPath",
+  "expires": "2026-12-20",
+  "process": "app",
+  "params": [],
+  "stories": ["motion"],
+  "sticky": false,
+  "runtimeMutable": false
+}

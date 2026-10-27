@@ -1,5 +1,4 @@
 public import Foundation
-@preconcurrency import Sparkle
 
 private let sparkleResumeAppcastErrorCode = 1004
 private let sparkleTemporaryDirectoryErrorCode = 2000
@@ -82,7 +81,7 @@ public struct UpdateManualDownloadRecovery: Sendable {
            nsError.code == UpdateStateModel.installDidNotStartCode {
             return channelURL(feedURLString: feedURLString)
         }
-        guard nsError.domain == SUSparkleErrorDomain else { return nil }
+        guard nsError.domain == UpdateStateModel.sparkleErrorDomain else { return nil }
         switch nsError.code {
         case sparkleResumeAppcastErrorCode,
              sparkleTemporaryDirectoryErrorCode,

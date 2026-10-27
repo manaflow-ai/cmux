@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import CmuxNextDaemon
 import Foundation
 
@@ -25,7 +26,7 @@ extension HostedChiefCopy {
         let latest = now.addingTimeInterval(240)
         for message in local.sorted(by: { $0.seq < $1.seq }) where ids[message.author] != nil {
             guard let data = try? encoder.encode(message),
-                  let raw = (try? JSONSerialization.jsonObject(with: data)).map({ mapIDs($0, ids) }) as? [String: Any] else { continue }
+                  let raw = (try? JSONSerialization.blockingJSONObject(with: data)).map({ mapIDs($0, ids) }) as? [String: Any] else { continue }
             // The owner's id form (msg_ and 1 to 40 letters or digits); another local id keeps its letters and digits.
             let plain = String(String.UnicodeScalarView(message.id.unicodeScalars.filter { $0.isASCII && CharacterSet.alphanumerics.contains($0) }))
             let messageID = message.id.range(of: #"^msg_[A-Za-z0-9]{1,40}$"#, options: .regularExpression) != nil ? message.id : "msg_" + String(plain.prefix(40))

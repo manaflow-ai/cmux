@@ -22,7 +22,7 @@ import CmuxNextDesignTokens
     }
 
     private static func card(in scope: ThemeScope, reduceTransparency: Bool = false) -> CardSurfaceView {
-        let card = CardSurfaceView(reduceTransparency: ReduceTransparency(system: { reduceTransparency }, changes: NotificationCenter()))
+        let card = CardSurfaceView(reduceTransparency: ReduceTransparency(system: { reduceTransparency }))
         card.frame = NSRect(x: 0, y: 0, width: 216, height: 120)
         scope.root(card)
         card.updateLayer()

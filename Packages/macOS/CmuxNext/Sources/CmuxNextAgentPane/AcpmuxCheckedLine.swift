@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import Darwin
 public import Foundation
 
@@ -5,10 +6,13 @@ public import Foundation
 /// own descriptor before the first byte is written (cx-fcaq, cx-aocz review P1): the app's
 /// person proof goes only to the acpmux this app runs, never to a listener that took the socket
 /// path after an earlier probe. All state lives on one serial queue; callbacks run there and
-/// callers hop to their own actor.
-public nonisolated final class AcpmuxCheckedLine: @unchecked Sendable { // crash-allow: every mutable field is read and written only on `queue` (one serial queue)
-    private let queue = DispatchQueue(label: "cmux.acpmux.checked-line")
+/// callers hop to their own actor. Only whether the peer is checked is also kept under a lock, so
+/// ``personProof(nonce:connection:)`` answers without waiting for the queue.
+public nonisolated final class AcpmuxCheckedLine: @unchecked Sendable { // crash-allow: every mutable field except `peerChecked` (a Mutex) is read and written only on `queue` (one serial queue)
+    private let queue = DispatchQueue(label: "cmux.acpmux.checked-line", qos: .userInitiated)
     private let environment: AcpmuxEnvironment
+    /// The server peer passed its check and the connection has not closed: set on `queue`.
+    private let peerChecked = Mutex(false)
     private var descriptor: Int32 = -1
     private var source: (any DispatchSourceRead)?
     private var buffer = Data()
@@ -34,6 +38,7 @@ public nonisolated final class AcpmuxCheckedLine: @unchecked Sendable { // crash
             } catch {
                 return finish()
             }
+            peerChecked.withLock { $0 = true }
             let fd = descriptor
             let reader = DispatchSource.makeReadSource(fileDescriptor: fd, queue: queue)
             reader.setEventHandler { [weak self] in self?.readable() }
@@ -49,8 +54,7 @@ public nonisolated final class AcpmuxCheckedLine: @unchecked Sendable { // crash
     /// Nil before the check passed, or when this app holds no key for this daemon. The key itself
     /// never leaves this process.
     public func personProof(nonce: String, connection: String) -> String? {
-        let checked = queue.sync { descriptor >= 0 && !closed }
-        guard checked else { return nil }
+        guard peerChecked.withLock({ $0 }) else { return nil }
         return AcpmuxPersonKey.proof(socketPath: environment.socketPath, transport: .unix, nonce: nonce,
                                      connection: connection)
     }
@@ -72,9 +76,12 @@ public nonisolated final class AcpmuxCheckedLine: @unchecked Sendable { // crash
         guard !closed, descriptor >= 0 else { return }
         var offset = 0
         while offset < data.count {
-            let sent = data.withUnsafeBytes { bytes -> Int in
-                guard let base = bytes.baseAddress else { return -1 }
-                return Darwin.send(descriptor, base + offset, data.count - offset, 0)
+            // SAFETY: `bytes` is the data's contiguous storage, valid only inside this closure, which never lets a
+            // pointer out; 0 <= offset < data.count (the loop's condition), so the send covers the data.count - offset
+            // bytes from base + offset to the buffer's end.
+            let sent = unsafe data.withUnsafeBytes { bytes -> Int in
+                guard let base = unsafe bytes.baseAddress else { return -1 }
+                return unsafe Darwin.send(descriptor, base + offset, data.count - offset, 0)
             }
             if sent < 0, errno == EINTR { continue }
             guard sent > 0 else { return finish() }
@@ -84,7 +91,8 @@ public nonisolated final class AcpmuxCheckedLine: @unchecked Sendable { // crash
 
     private func readable() {
         var chunk = [UInt8](repeating: 0, count: 64 * 1024)
-        let count = Darwin.recv(descriptor, &chunk, chunk.count, 0)
+        // SAFETY: recv writes at most chunk.count bytes into the array's own storage, lent for the call.
+        let count = unsafe Darwin.recv(descriptor, &chunk, chunk.count, 0)
         guard count > 0 else { return finish() }
         buffer.append(contentsOf: chunk[0..<count])
         while let newline = buffer.firstIndex(of: 0x0A) {
@@ -98,6 +106,7 @@ public nonisolated final class AcpmuxCheckedLine: @unchecked Sendable { // crash
     private func finish() {
         guard !closed else { return }
         closed = true
+        peerChecked.withLock { $0 = false }
         // The read source closes the descriptor in its cancel handler, after
         // the source let go of it: closing here could close a descriptor
         // number that another connection already reused. Without a source

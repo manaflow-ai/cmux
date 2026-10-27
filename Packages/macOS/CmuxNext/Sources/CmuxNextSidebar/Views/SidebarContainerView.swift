@@ -1,8 +1,6 @@
 public import AppKit
 public import CmuxNextDesign
-import CmuxNextCompat
-import CmuxNextWakeups
-import Observation
+public import CmuxNextWakeups
 
 /// The sidebar: clear over the window's one backdrop (the solid surface
 /// token, or the root material and its tint), with no fill, panel, border
@@ -38,7 +36,11 @@ public final class SidebarContainerView: NSView {
     /// The thin rail (`sidebar.style` = rail) and its open state (`SidebarContainerView+Rail`).
     public let railView = SidebarRailView()
     let railCards = SidebarRailHoverCards()
-    private var observation: Task<Void, Never>?
+    /// The presentation, width and band tokens the container follows (`observe`): a service observation, since its
+    /// apply writes the model (`followDefaultWidth`, `syncRail`) and must run while the window is hidden (rule 3).
+    private var observation: ServiceObservation<PresentationInputs>?
+    /// The sidebar's one watch of its Debug Settings looks (``SidebarLookWatch``), made in `init`.
+    private var lookWatch: SidebarLookWatch?
     /// Width the constraint is at or animating to. The animator reports
     /// intermediate constants, so compare against this instead. Internal for
     /// the same reason as `panelWidth`.
@@ -80,7 +82,7 @@ public final class SidebarContainerView: NSView {
     /// sliding under a still pointer (cx-3wu5), which needs no 120 Hz: a
     /// refresh walks every hover target of the window, so one deadline is
     /// pending at a time and the landing runs the last refresh.
-    let hoverRefresh = DemandTimer(owner: "sidebar.hover-refresh")
+    let hoverRefresh: MainDeadline
     static let hoverRefreshDelay: Duration = .milliseconds(33)
     /// Ends the motion if the animation's completion never arrives. AppKit
     /// leaves an `animator()` change where it stands when the display sleeps
@@ -90,7 +92,7 @@ public final class SidebarContainerView: NSView {
     /// would also leave `isWidthAnimating` true, and with it every terminal in
     /// the window holding its grid report for good. The motion ends on its own
     /// shortly after it was due instead.
-    let widthMotionWatchdog = DemandTimer(owner: "sidebar.width-motion-watchdog")
+    let widthMotionWatchdog: MainDeadline
     /// How long past an animation's own duration the watchdog waits.
     static let widthMotionSlack: Duration = .milliseconds(500)
 
@@ -111,9 +113,21 @@ public final class SidebarContainerView: NSView {
     public static var hideThreshold: CGFloat { Metrics.sidebarMinWidth / 2 }
 
 
-    public init(model: SidebarModel) {
+    /// - Parameters:
+    ///   - model: What the sidebar shows.
+    ///   - deadlines: The app's one deadline placer. Its ``MainDeadlineScheduler/work`` is the app's main-thread
+    ///     scheduler: the presentation observation flushes and the rows' and headers' Debug Settings looks follow
+    ///     through it, once per frame. The hover pacing, the width motion's watchdog, the list's spring-load hover
+    ///     and the Priority view's minute tick are deadlines on it.
+    ///   - appEvents: The app's one fan-out of app-wide notices (`AppServices.appEvents`): the list ends a pointer
+    ///     gesture when the app resigns active.
+    ///   - newRows: Told which rows the list draws, so a new workspace's `create.workspace` interval ends there.
+    public init(model: SidebarModel, deadlines: MainDeadlineScheduler, appEvents: AppEvents, newRows: SidebarNewRowTimer? = nil) {
+        let mainWork = deadlines.work
         self.model = model
-        sidebarView = SidebarView(model: model)
+        hoverRefresh = MainDeadline(owner: "Sidebar.hoverRefresh", workClass: .visible, scheduler: deadlines)
+        widthMotionWatchdog = MainDeadline(owner: "Sidebar.widthMotionWatchdog", workClass: .visible, scheduler: deadlines)
+        sidebarView = SidebarView(model: model, newRows: newRows)
         handle = SidebarResizeHandle()
         targetWidth = model.displayWidth
         targetCollapseMotion = SidebarTunables.collapseMotion.value
@@ -149,7 +163,17 @@ public final class SidebarContainerView: NSView {
         handle.restingLineWidth = Metrics.sidebarBorderWidth
         handle.onDrag = { [weak self] phase in self?.handleDrag(phase) }
         mountRail()
-        observe()
+        sidebarView.list.appEvents = appEvents
+        sidebarView.list.deadlines = deadlines
+        sidebarView.priorityPanelView.follow(deadlines, visibility: sidebarView.list.visibility)
+        observe(on: mainWork)
+        lookWatch = SidebarLookWatch(root: self, on: mainWork)
+    }
+
+    /// A container with a deadline placer and an app-notice fan-out of its own on `mainWork`'s wake queue and the
+    /// default center (tests; the App passes its one of each).
+    public convenience init(model: SidebarModel, mainWork: MainWorkScheduler, newRows: SidebarNewRowTimer? = nil) {
+        self.init(model: model, deadlines: MainDeadlineScheduler(work: mainWork), appEvents: AppEvents(center: .default), newRows: newRows)
     }
 
     @available(*, unavailable)
@@ -204,6 +228,7 @@ public final class SidebarContainerView: NSView {
 
     /// The handle shows while the sidebar is shown and this view is not hidden.
     private func syncHandleVisibility() {
+        // visibility-walk-allow: the handle lives in the superview, so it copies this view's own AppKit hidden state (no node holds a view's isHidden)
         handle.isHidden = isPanelCollapsed || isHiddenOrHasHiddenAncestor
     }
 
@@ -251,6 +276,7 @@ public final class SidebarContainerView: NSView {
         guard model.isHidden else { return }
         model.presentation = .shown
         apply()
+        // sync-layout: a rename field attaches to a laid-out row in this turn.
         panel.layoutSubtreeIfNeeded()
     }
 
@@ -262,22 +288,36 @@ public final class SidebarContainerView: NSView {
 
     // MARK: Observation
 
-    private func observe() {
+    /// What `observe` follows. The default width token is tracked so a settings change resizes live. The collapse
+    /// prototype is tracked here too, so Debug Settings retargets an in-flight transition.
+    private struct PresentationInputs: Equatable {
+        let presentation: SidebarPresentation
+        let style: SidebarLayoutStyle
+        let isRailOpen: Bool
+        let width: CGFloat
+        let defaultWidth: CGFloat
+        let border: CGFloat
+        let collapseMotion: SidebarCollapseMotionVariant
+        let band: [CGFloat]
+    }
+
+    /// Follows the model's presentation and the width tokens: applied now, then once per change in the change's class
+    /// (a person's toggle in userBlocking, before the commit of its input; Chrome's posted UI-thread task with a
+    /// TaskPriority, base/task/task_traits.h).
+    private func observe(on mainWork: MainWorkScheduler) {
         let model = model
-        observation = Task { [weak self] in
-            for await (_, _, defaultWidth, border, _, _) in ObservationStream({
-                // The default width token is tracked so a settings change
-                // resizes live. The collapse prototype is tracked here too,
-                // so Debug Settings retargets an in-flight transition.
-                ((model.presentation, model.style, model.isRailOpen), model.width, Metrics.sidebarWidth, Metrics.sidebarBorderWidth,
-                 SidebarTunables.collapseMotion.value, [Metrics.dividerHitWidth, Metrics.mainPaneGutter])
-            }) {
-                self?.handle.restingLineWidth = border
-                if let self, self.resizeBand != self.mountedBand { self.mountHandle() }
-                self?.followDefaultWidth(defaultWidth)
-                self?.syncRail()
-                self?.apply()
-            }
+        observation = ServiceObservation(.visible, owner: "Sidebar.presentation", on: mainWork) {
+            PresentationInputs(presentation: model.presentation, style: model.style, isRailOpen: model.isRailOpen,
+                               width: model.width, defaultWidth: Metrics.sidebarWidth, border: Metrics.sidebarBorderWidth,
+                               collapseMotion: SidebarTunables.collapseMotion.value,
+                               band: [Metrics.dividerHitWidth, Metrics.mainPaneGutter])
+        } apply: { [weak self] inputs in
+            guard let self else { return }
+            handle.restingLineWidth = inputs.border
+            if resizeBand != mountedBand { mountHandle() }
+            followDefaultWidth(inputs.defaultWidth)
+            syncRail()
+            apply()
         }
     }
 
@@ -302,7 +342,7 @@ public final class SidebarContainerView: NSView {
             refreshHover()
             return
         }
-        hoverRefresh.scheduleIfIdle(after: Self.hoverRefreshDelay) { @MainActor [weak self] in self?.refreshHover() }
+        hoverRefresh.scheduleIfIdle(after: Self.hoverRefreshDelay) { [weak self] in self?.refreshHover() }
     }
 
     /// Sets every constraint and visibility for the model without animating.

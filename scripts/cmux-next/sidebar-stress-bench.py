@@ -19,12 +19,24 @@ Per size it measures:
                 (the selection is applied and drawn by then) and the frame intervals
   drag          a row dragged over the list (`debug.mouse` down, then one dragged event per RPC):
                 main-thread time per mouse-move (Time Profiler) and frame intervals
+  observations  observers per event: `debug.observations` before and after one CLI status change of an on-screen
+                row, tickers paused: `armed_rows` (SidebarRows armed now), `row_maps_per_change` (SidebarRows
+                re-maps the one change cost), armed observations app-wide and the evaluations, applies and
+                hosting bodies of the change; `budget` checks armed_rows <= on screen + one screen of overscan
+                (on screen: rows whose window_frame meets the list band, not `in_list`, which also holds the
+                realized overscan), exactly 1 row map and <= 2 evaluations app-wide; a changed row that is not
+                on screen skips the row map check with a `row_maps_skipped` reason (p06-scheduler.md "Observers per event"; run it
+                at 400 workspaces with `--sizes 400 --scenarios observations`, before and after p06-scheduler-040)
 Traces go to OUT/traces/*.trace; OUT/results.json holds every number and the top main-thread frames.
+Every percentile block is perf_stats (linear interpolation; sidebar_bench_report.percentiles). When
+every size finished, the raw samples behind the ms blocks and each hitch recording's hitch time ratio
+are written as result-v1 (story sidebar-stress, series `sidebar_stress.<size>.<scenario>.<metric>`)
+into OUT.
 
 Usage (nx-remote --needs gui --app-from-fleet cmux --tag T --ref SHA):
   sidebar-stress-bench.py --app "$NX_APP" --tag "$NX_APP_TAG" --out "$NX_ARTIFACTS/stress" [--sizes 100,500,1000]
 """
-import argparse, glob, json, os, shutil, socket, statistics, subprocess, sys, tempfile, time
+import argparse, glob, json, os, shutil, socket, subprocess, sys, tempfile, time
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--app", required=True)
@@ -34,7 +46,7 @@ parser.add_argument("--sizes", default="100,500,1000")
 parser.add_argument("--groups", type=int, default=10)
 parser.add_argument("--tick-share", type=float, default=0.05)
 parser.add_argument("--tickers", type=int, default=0, help="exact number of ticking workspaces (overrides --tick-share)")
-parser.add_argument("--scenarios", default="ticks,scroll,scroll_ticking,switch,drag,hitches",
+parser.add_argument("--scenarios", default="ticks,scroll,scroll_ticking,switch,drag,hitches,observations",
                     help="which scenarios to run per size; add switch_matrix for the workspace switch matrix")
 parser.add_argument("--switches", type=int, default=16, help="switch_matrix: switches per input and kind")
 parser.add_argument("--no-trace", action="store_true")
@@ -45,12 +57,12 @@ os.makedirs(os.path.join(OUT, "traces"), exist_ok=True)
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 from bench_idle import usage  # noqa: E402
-from bench_launch import launch_app  # noqa: E402
+from bench_launch import BenchApp  # noqa: E402
+import sidebar_bench_report as report  # noqa: E402
 
 SOCKET = f"/tmp/cmux-debug-{opts.tag}.sock"
 SCRATCH = tempfile.mkdtemp(prefix=f"sbstress-{opts.tag}-")
 CONFIG = os.path.join(SCRATCH, "cmux.json")
-GHOSTTY = os.path.join(SCRATCH, "ghostty")
 FLAG = os.path.join(SCRATCH, "ticking")
 DEBUG_CLI = os.path.join(HERE, "..", "cmux-debug-cli.sh")
 APP_CLI = os.path.join(opts.app, "Contents/Resources/bin/cmux")
@@ -130,18 +142,37 @@ def workspace_rows():
     return [r for r in sidebar().get("rows") or [] if str(r.get("key", "")).startswith("workspace(")]
 
 
+# The band of the window the sidebar list shows rows in (window coordinates, top-left origin): below the title bar,
+# above the bottom bar. `in_list` is no visibility test: the list also realizes `SidebarStyle.overscan` past each edge.
+LIST_TOP, LIST_BOTTOM = 60, WINDOW[3] - 80
+
+
+def fully_shown(row):
+    f = row["window_frame"]
+    return f["y"] > LIST_TOP and f["y"] + f["height"] < LIST_BOTTOM
+
+
+def partly_shown(row):
+    """Half-open, as the row feed's `visible` set (SidebarListView+RowWatch.swift `shownWorkspaces`)."""
+    f = row["window_frame"]
+    return f["y"] < LIST_BOTTOM and f["y"] + f["height"] > LIST_TOP
+
+
 def topology():
     snap = rpc("snapshot.get") or {}
     return snap.get("topology") or snap
 
 
-def percentiles(values):
-    if not values:
-        return {}
-    s = sorted(values)
-    pick = lambda p: s[min(len(s) - 1, int(round((len(s) - 1) * p)))]
-    return {"n": len(s), "p50": round(pick(0.5), 3), "p95": round(pick(0.95), 3), "p99": round(pick(0.99), 3),
-            "max": round(s[-1], 3), "mean": round(statistics.fmean(s), 3)}
+# {(size, metric): [raw ms samples]} of every percentile block below that has a size: result-v1's samples.
+SAMPLES = {}
+
+
+def sample_block(values, size=None, metric=None):
+    """The {n, p50, p95, p99, max, mean} block of `values` (perf_stats); with `size` and `metric`, the values are
+    also kept for result-v1 as `sidebar_stress.<size>.<metric>`."""
+    if size is not None and metric:
+        SAMPLES.setdefault((size, metric), []).extend(values)
+    return report.percentiles(values)
 
 
 def cpu_share(pid, seconds):
@@ -374,7 +405,7 @@ def frames(action_name):
 
 
 def noop_ms(count=30):
-    return percentiles([timed_rpc("debug.frames", {"action": "read"})[0] for _ in range(count)])
+    return sample_block([timed_rpc("debug.frames", {"action": "read"})[0] for _ in range(count)])
 
 
 def list_point():
@@ -422,7 +453,8 @@ def scenario_scroll(pid, size, label, trace=True):
     stats = frames("stop")
     if tr:
         tr.__exit__(None, None, None)
-    return {"frames": stats, "event_rpc_ms": percentiles(handle), "events": len(handle), "wall_s": round(wall, 2),
+    return {"frames": stats, "event_rpc_ms": sample_block(handle, size, f"{label.replace('-', '_')}.event_rpc"),
+            "events": len(handle), "wall_s": round(wall, 2),
             "trace": os.path.relpath(tr.path, OUT) if tr else None, "profile": main_thread_profile(tr.path) if tr else None}
 
 
@@ -445,16 +477,97 @@ def scenario_ticks(pid, size):
     per_tick = None
     if profile and profile.get("main_samples"):
         per_tick = round(profile["main_samples"] / ticks, 3) if ticks else None  # 1 ms per Time Profiler sample
+    if per_tick is not None:
+        SAMPLES.setdefault((size, "ticks.main_per_tick"), []).append(per_tick)
     return {"tickers": len(made["tickers"]), "tick_hz_each": 1 / TICK_S, "idle": idle, "ticking": busy,
             "trace_window_s": 12, "ticks_in_trace": round(ticks), "main_ms_per_tick": per_tick,
             "main_ms_per_s": round(profile["main_samples"] / 12, 1) if profile and profile.get("main_samples") else None,
             "frames_while_ticking": stats, "trace": os.path.relpath(tr.path, OUT), "profile": profile}
 
 
+def scenario_observations():
+    """Observers per event: one CLI status value change's observation cost (debug.observations, p06-scheduler-029
+    and -152). `row_maps_per_change` is the SidebarRows owner's evaluations since the reset (each is one row mapped
+    again, SidebarRowFeed); `armed_rows` is its armed count after the change.
+
+    The `bench` status entry is set and settled before the baseline, so the measured change only edits the text of a
+    pill the row already shows (the same kind of change at every size), and it is cleared after, so the later
+    scenarios and sizes start from the same row. The changed row reads that status, so a change that no observer
+    re-read is an error, not a 0 that meets the budget. Body counts are null until some owner records a hosting body
+    (the recorder is p06-scheduler-214's): a 0 from no recorder is not "0 hidden bodies"."""
+    if not made["workspaces"]:
+        return {"error": "no workspace to change"}
+    first = made["workspaces"][0]
+    target = first["ref"] or first["name"]
+
+    def status_set(text):
+        done = cli("workspace", target, "status", "set", "bench", text)
+        return None if done.returncode == 0 else f"status set: exit {done.returncode} {(done.stdout + done.stderr).strip()[-200:]}"
+
+    ticking(False)
+    scroll_to_top()  # the changed row (the first, pinned) is on screen, so its change maps it now
+    failed = status_set("observations settle")
+    if failed:
+        return {"error": failed}
+    time.sleep(1)
+    try:
+        before = rpc("debug.observations", {"reset": True})
+        if not isinstance(before, dict) or "error" in before:
+            return {"error": f"debug.observations: {before}"}  # an older build has no method
+        failed = status_set(f"observations {time.time():.0f}")
+        if failed:
+            return {"error": failed}
+        time.sleep(1)
+        after = rpc("debug.observations")
+        if not isinstance(after, dict) or "error" in after:
+            return {"error": f"debug.observations after the change: {after}"}
+        listed = workspace_rows()
+        on_screen = sum(1 for r in listed if partly_shown(r))
+        changed = next((r for r in listed if r.get("title") == first["name"]), None)
+        changed_on_screen = changed is not None and fully_shown(changed)
+    finally:
+        done = cli("workspace", target, "status", "clear", "bench")
+        if done.returncode != 0:
+            note(f"observations: status clear bench -> {done.returncode}")
+    totals = after.get("totals") or {}
+    if not totals.get("evaluations"):
+        return {"error": "the status change re-read no observation: its row's observer does not feed the ledger",
+                "owners": [o.get("owner") for o in after.get("owners") or []]}
+    bodies_recorded = any(o.get("body_evaluations") for snap in (before, after) for o in snap.get("owners") or [])
+    per_change = {key: totals.get(key) for key in ("evaluations", "applies")}
+    for key in ("body_evaluations", "hidden_body_evaluations"):
+        per_change[key] = totals.get(key) if bodies_recorded else None
+    rows = next((o for o in after.get("owners") or [] if o.get("owner") == "SidebarRows"), {})
+    armed_rows = rows.get("armed")
+    row_maps = rows.get("evaluations")
+    budget = {"on_screen_rows": on_screen, "armed_rows": armed_rows,
+              "armed_rows_ok": armed_rows <= on_screen + on_screen if armed_rows is not None and on_screen else None,
+              "row_maps_ok": row_maps == 1 if row_maps is not None and changed_on_screen else None,
+              "evaluations_ok": per_change["evaluations"] <= 2}
+    if not changed_on_screen:
+        where = "not in the list" if changed is None else f"window_frame {changed['window_frame']} outside y {LIST_TOP}..{LIST_BOTTOM}"
+        budget["row_maps_skipped"] = f"the changed row {first['name']!r} is not on screen after scroll_to_top ({where})"
+    elif row_maps is None:
+        budget["row_maps_skipped"] = "debug.observations reports no SidebarRows owner"
+    if "row_maps_skipped" in budget:
+        note(f"observations: row map check skipped: {budget['row_maps_skipped']}")
+    busy = [o for o in after.get("owners") or [] if o.get("evaluations") or o.get("applies") or o.get("body_evaluations")]
+    result = {"armed_rows": armed_rows, "row_maps_per_change": row_maps, "row_applies_per_change": rows.get("applies"),
+              "changed_row_on_screen": changed_on_screen,
+              "armed_before": (before.get("totals") or {}).get("armed"), "armed_after": totals.get("armed"),
+              "per_change": per_change, "budget": budget,
+              "owners": [o.get("owner") for o in after.get("owners") or []], "busy_owners": busy}
+    if not bodies_recorded:
+        result["body_note"] = "no hosting body recorder: no owner recorded a body evaluation"
+    if budget["armed_rows_ok"] is False or budget["row_maps_ok"] is False or not budget["evaluations_ok"]:
+        note(f"observations: over budget {budget}")
+    return result
+
+
 def scenario_switch(pid, size, count=24):
     scroll_to_top()
     time.sleep(1)
-    rows = [r for r in workspace_rows() if r["window_frame"]["y"] > 60 and r["window_frame"]["y"] + r["window_frame"]["height"] < WINDOW[3] - 80]
+    rows = [r for r in workspace_rows() if fully_shown(r)]
     if len(rows) < 2:
         return {"error": "fewer than two visible rows"}
     a, b = rows[2] if len(rows) > 2 else rows[0], rows[-2]
@@ -473,7 +586,8 @@ def scenario_switch(pid, size, count=24):
     stats = frames("stop")
     tr.__exit__(None, None, None)
     selected = [r.get("title") for r in workspace_rows() if r.get("selected")]
-    return {"clicks": count, "click_to_idle_ms": percentiles(lat), "noop_rpc_ms": noop_ms(), "frames": stats,
+    return {"clicks": count, "click_to_idle_ms": sample_block(lat, size, "switch.click_to_idle"), "noop_rpc_ms": noop_ms(),
+            "frames": stats,
             "selected_after": selected[:3], "trace": os.path.relpath(tr.path, OUT), "profile": main_thread_profile(tr.path)}
 
 def switch_targets():
@@ -560,17 +674,18 @@ def scenario_switch_matrix(pid, size):
                 if i % 4 == 3 and selected_title() != target:
                     wrong += 1
                 time.sleep(0.2)
-            entry = {"switches": len(lat), "input_to_idle_ms": percentiles(lat),
-                     "longest_frame_ms": percentiles(longest), "wrong_selection_checks": wrong}
+            entry = {"switches": len(lat), "input_to_idle_ms": sample_block(lat, size, f"switch_matrix.{kind}.{how}.input_to_idle"),
+                     "longest_frame_ms": sample_block(longest, size, f"switch_matrix.{kind}.{how}.longest_frame"),
+                     "wrong_selection_checks": wrong}
             if timed:
                 samples = (rpc("debug.workspace_switch", {"action": "stop"}) or {}).get("switches") or []
                 entry["app_samples"] = samples
                 commit = [x["commit_ms"] + x.get("input_ms", 0) for x in samples if isinstance(x.get("commit_ms"), (int, float))]
-                entry["input_to_commit_ms"] = percentiles(commit)
+                entry["input_to_commit_ms"] = sample_block(commit, size, f"switch_matrix.{kind}.{how}.input_to_commit")
                 for stage in ("input", "park", "content", "sidebar", "root", "theme", "did_show", "apply", "commit"):
                     vals = [x[stage + "_ms"] for x in samples if isinstance(x.get(stage + "_ms"), (int, float))]
                     if vals:
-                        entry.setdefault("stages_ms", {})[stage] = percentiles(vals)
+                        entry.setdefault("stages_ms", {})[stage] = sample_block(vals)
             out[f"{kind}.{how}"] = entry
             note(f"switch matrix {kind} {how}: {out[f'{kind}.{how}']['input_to_idle_ms']}")
     tr.__exit__(None, None, None)
@@ -616,7 +731,8 @@ def scenario_drag(pid, size, moves=180):
     per_move = round(profile["main_samples"] / moves, 3) if profile and profile.get("main_samples") else None
     time.sleep(1)
     action("undo")  # a drop may have moved the row; put it back
-    return {"moves": moves, "drag_engaged": dragging, "post_rpc_ms": percentiles(times), "main_ms_per_move_upper_bound": per_move,
+    return {"moves": moves, "drag_engaged": dragging, "post_rpc_ms": sample_block(times, size, "drag.post_rpc"),
+            "main_ms_per_move_upper_bound": per_move,
             "frames": stats, "trace": os.path.relpath(tr.path, OUT), "profile": profile}
 
 
@@ -626,7 +742,9 @@ def scenario_hitches(pid, size):
     tr = Trace(pid, f"{size}-scroll-hitches", 10, template="Animation Hitches")  # about 90 MB per second of trace
     tr.__enter__()
     frames("start")
+    started = time.perf_counter()
     scroll_gesture(300, -60.0)
+    gesture_s = time.perf_counter() - started  # the hitch ratio's denominator
     stats = frames("stop")
     tr.__exit__(None, None, None)
     toc = ""
@@ -652,7 +770,12 @@ def scenario_hitches(pid, size):
                     ours += 1
                     if duration is not None and (duration.text or "").isdigit():
                         durations.append(int(duration.text) / 1e6)
-            hitches = {"rows_for_app": ours, "duration_ms": percentiles(durations), "total_ms": round(sum(durations), 1)}
+            ratio = report.hitch_ratio(sum(durations), gesture_s)
+            if ratio is not None:  # one sample per recording, 0 when it has no hitch
+                SAMPLES.setdefault((size, "scroll_hitches.hitch_ratio"), []).append(ratio)
+            hitches = {"rows_for_app": ours, "duration_ms": sample_block(durations),
+                       "total_ms": round(sum(durations), 1), "gesture_s": round(gesture_s, 3),
+                       "hitch_ratio_pct": None if ratio is None else round(ratio, 3)}
         except ET.ParseError as error:
             hitches = {"error": str(error)}
     return {"frames": stats, "trace": os.path.relpath(tr.path, OUT), "hitches": hitches}
@@ -661,18 +784,18 @@ def scenario_hitches(pid, size):
 def main():
     global SOCKET
     sizes = [int(s) for s in opts.sizes.split(",")]
-    with open(CONFIG, "w") as f:
-        json.dump({"appearance": {"theme": "Catppuccin Mocha"}}, f)
-    open(GHOSTTY, "w").write("")
-    if os.path.exists(SOCKET):
-        os.unlink(SOCKET)
-    env = {"HOME": os.environ["HOME"], "USER": os.environ.get("USER", ""), "TMPDIR": os.environ.get("TMPDIR", "/tmp"),
-           "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "CMUX_NEXT_NO_ACTIVATE": "1", "CMUX_NEXT_SOCKET_MODE": "automation",
-           "CMUX_NEXT_CONFIG_FILE": CONFIG, "CMUX_NEXT_GHOSTTY_CONFIG": GHOSTTY, "CMUX_NEXT_CHIEF_ISOLATED": "1",
-           "CMUX_NEXT_CHIEF_HOME": os.path.join(SCRATCH, "chief"), "CMUX_NEXT_TEST_WINDOW_FRAME": ",".join(map(str, WINDOW))}
+    config = {"appearance": {"theme": "Catppuccin Mocha"}}
+    with open(CONFIG, "w") as f:  # the CLI's config (cli()); the app gets the same keys from BenchApp
+        json.dump(config, f)
     results["load_at_start"] = os.getloadavg()
-    # One launch path (bench_launch.py): socket in the state folder, bench env, the reason when it does not come up.
-    app, SOCKET = launch_app(opts.app, env, os.path.join(OUT, "app.log"), timeout=180)
+    # One launch path (bench_launch.py): the bench env (no activation, automation socket, isolated Chief), `config`
+    # as the app's cmux.json, the window frame, a leftover socket removed only when nothing listens, and the reason
+    # when it does not come up. With --stop it also quits the app and ends the tag's daemons; without it the job's
+    # own stop does.
+    bench = BenchApp(opts.app, out=OUT, config=config, window=WINDOW, screen=None, log_name="app.log",
+                     teardown=opts.stop, perf_session=report.SESSION)
+    bench.launch(timeout=180)
+    app, SOCKET = bench.process, bench.socket
     note(f"launched pid {app.pid}")
     try:
         # A fresh profile may open on Home with no workspace yet: make one, so the list has a row to measure.
@@ -715,6 +838,8 @@ def main():
                 entry["drag"] = scenario_drag(app.pid, size)
             if "hitches" in want:
                 entry["hitches"] = scenario_hitches(app.pid, size)
+            if "observations" in want:
+                entry["observations"] = scenario_observations()
             entry["hangs"] = rpc("debug.hangs", {})
             results["sizes"][str(size)] = entry
             with open(os.path.join(OUT, "results.json"), "w") as f:
@@ -734,18 +859,17 @@ def main():
                                             "cpu": cpu_share(app.pid, 10), "trace": os.path.relpath(tr.path, OUT), "profile": prof}
             ticking(False)
         results["cleanup_closed"] = close_scratch("after")
+        # result-v1 only from a run that finished every size; a failed or stopped run writes results.json only.
+        results["result_v1"] = report.record_all(bench, report.stress_series(SAMPLES))
     finally:
-        ticking(False)
-        results["made"] = {k: len(v) for k, v in made.items()}
-        with open(os.path.join(OUT, "results.json"), "w") as f:
-            json.dump(results, f, indent=1, default=str)
-        if opts.stop:
-            reply = rpc("action.run", {"action": "quitEndSessions", "origin": "script"})
-            note(f"quitEndSessions -> {json.dumps(reply)[:160]}")
-            try:
-                app.wait(timeout=30)
-            except subprocess.TimeoutExpired:
-                app.terminate()
+        try:
+            ticking(False)
+            results["made"] = {k: len(v) for k, v in made.items()}
+            with open(os.path.join(OUT, "results.json"), "w") as f:
+                json.dump(results, f, indent=1, default=str)
+        finally:
+            if opts.stop:
+                bench.stop()  # debug.quit with end-sessions, then TERM of its own PID, then the tag's daemons
 
 
 main()

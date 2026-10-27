@@ -1,4 +1,7 @@
 import CMUXMobileCore
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
+import func CmuxSafeConcurrency.withOnceContinuation
 import Foundation
 
 // MobileCoreRPCSession's cancelled writes: resolving a write cancelled mid-flight, and
@@ -137,10 +140,11 @@ extension MobileCoreRPCSession {
     private func awaitCancelledWriteResolution() async {
         let waiterID = UUID()
         await withTaskCancellationHandler {
-            await withCheckedContinuation { continuation in
+            // A dropped waiter returns as a resolved one does; the caller checks the write again.
+            _ = try? await withOnceContinuation { (continuation: OnceContinuation<Void, OnceContinuationError>) in
                 guard activeWrite?.cancelledRequestResolutionTask != nil,
                       !Task.isCancelled else {
-                    continuation.resume()
+                    continuation.resume(returning: ())
                     return
                 }
                 writeResolutionWaiters[waiterID] = continuation
@@ -151,7 +155,7 @@ extension MobileCoreRPCSession {
     }
 
     private func cancelWriteResolutionWaiter(_ waiterID: UUID) {
-        writeResolutionWaiters.removeValue(forKey: waiterID)?.resume()
+        writeResolutionWaiters.removeValue(forKey: waiterID)?.resume(returning: ())
     }
 
     func resumeWriteResolutionWaiters() {
@@ -159,7 +163,7 @@ extension MobileCoreRPCSession {
         let waiters = writeResolutionWaiters
         writeResolutionWaiters.removeAll()
         for continuation in waiters.values {
-            continuation.resume()
+            continuation.resume(returning: ())
         }
     }
 

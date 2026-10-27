@@ -45,12 +45,6 @@ struct ChromiumPageHostWireTests {
         #expect(ChromiumPageHostWire.documentEvent(#"{"id":1073741825,"result":{"method":"Page.loadEventFired"}}"#) == nil)
     }
 
-    @Test func onlyABooleanTrueEvaluationIsTrue() {
-        #expect(ChromiumPageHostWire.evaluationIsTrue(#"{"result":{"type":"boolean","value":true}}"#))
-        #expect(!ChromiumPageHostWire.evaluationIsTrue(#"{"result":{"type":"boolean","value":false}}"#))
-        #expect(!ChromiumPageHostWire.evaluationIsTrue(#"{"result":{"type":"string","value":"true"}}"#))
-    }
-
     @Test func webKitUserScriptsKeepTheirTimeAndFrameInChromium() {
         let scripts = PageChromiumDocumentScripts(scripts: [
             (source: "start()", atDocumentEnd: false, mainFrameOnly: true),

@@ -226,6 +226,7 @@ pub(crate) fn placement_snapshot(
 
 // MARK: Transaction-level writes (the raw command bodies)
 
+#[track_caller]
 pub(crate) fn create_group(
     tx: &Transaction<'_>,
     room: Option<&str>,
@@ -238,6 +239,7 @@ pub(crate) fn create_group(
         .map(|(group, _)| group)
 }
 
+#[track_caller]
 pub(crate) fn update_group(
     tx: &Transaction<'_>,
     id: &str,
@@ -250,6 +252,7 @@ pub(crate) fn update_group(
         .map(|(group, _)| group)
 }
 
+#[track_caller]
 pub(crate) fn delete_group(
     tx: &Transaction<'_>,
     id: &str,
@@ -257,6 +260,7 @@ pub(crate) fn delete_group(
     WorkspaceRegistry::delete_personal_group_in(tx, id)
 }
 
+#[track_caller]
 pub(crate) fn move_group(
     tx: &Transaction<'_>,
     id: &str,
@@ -265,6 +269,7 @@ pub(crate) fn move_group(
     WorkspaceRegistry::move_personal_group_in(tx, id, index).map(|(group, _)| group)
 }
 
+#[track_caller]
 pub(crate) fn set_group_top(
     tx: &Transaction<'_>,
     id: &str,
@@ -273,6 +278,7 @@ pub(crate) fn set_group_top(
     WorkspaceRegistry::set_personal_group_top_in(tx, id, top_index).map(|(group, _)| group)
 }
 
+#[track_caller]
 pub(crate) fn set_group_icon(
     tx: &Transaction<'_>,
     id: &str,
@@ -281,6 +287,7 @@ pub(crate) fn set_group_icon(
     WorkspaceRegistry::set_personal_group_icon_in(tx, id, icon).map(|(group, _)| group)
 }
 
+#[track_caller]
 pub(crate) fn set_group_pinned(
     tx: &Transaction<'_>,
     id: &str,
@@ -289,6 +296,7 @@ pub(crate) fn set_group_pinned(
     WorkspaceRegistry::set_personal_group_pinned_in(tx, id, pinned).map(|(group, _)| group)
 }
 
+#[track_caller]
 pub(crate) fn place_workspace(
     tx: &Transaction<'_>,
     session: &str,
@@ -298,6 +306,7 @@ pub(crate) fn place_workspace(
     WorkspaceRegistry::set_personal_workspace_in(tx, session, key, update).map(|(row, _)| row)
 }
 
+#[track_caller]
 pub(crate) fn create_room(
     tx: &Transaction<'_>,
     input: ProfileInput,
@@ -305,6 +314,7 @@ pub(crate) fn create_room(
     WorkspaceRegistry::create_profile_in(tx, input).map(|(room, _)| room)
 }
 
+#[track_caller]
 pub(crate) fn update_room(
     tx: &Transaction<'_>,
     id: &str,
@@ -313,6 +323,7 @@ pub(crate) fn update_room(
     WorkspaceRegistry::update_profile_in(tx, id, update).map(|(room, _)| room)
 }
 
+#[track_caller]
 pub(crate) fn move_room(
     tx: &Transaction<'_>,
     id: &str,
@@ -321,6 +332,7 @@ pub(crate) fn move_room(
     WorkspaceRegistry::move_profile_in(tx, id, index).map(|(room, _)| room)
 }
 
+#[track_caller]
 pub(crate) fn delete_room(
     tx: &Transaction<'_>,
     id: &str,
@@ -329,6 +341,7 @@ pub(crate) fn delete_room(
     WorkspaceRegistry::delete_profile_in(tx, id, move_to)
 }
 
+#[track_caller]
 pub(crate) fn follow_sessions(
     tx: &Transaction<'_>,
     id: &str,
@@ -337,6 +350,7 @@ pub(crate) fn follow_sessions(
     WorkspaceRegistry::set_profile_follows_in(tx, id, sessions).map(|(room, _)| room)
 }
 
+#[track_caller]
 pub(crate) fn pin_workspace(
     tx: &Transaction<'_>,
     session: &str,
@@ -346,6 +360,7 @@ pub(crate) fn pin_workspace(
     WorkspaceRegistry::pin_workspace_in(tx, session, key, room).map(|_| ())
 }
 
+#[track_caller]
 pub(crate) fn unpin_workspace(
     tx: &Transaction<'_>,
     session: &str,

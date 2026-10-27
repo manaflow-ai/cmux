@@ -32,6 +32,11 @@ public struct LogFileErrorSource: ErrorHarvestSource {
     }
 
     public func collect(after cursor: String?) async throws -> ErrorHarvest {
+        try harvest(after: cursor)
+    }
+
+    /// ``collect(after:)`` as a plain call, for the synchronous fuzz entry (p10-stability-029).
+    func harvest(after cursor: String?) throws -> ErrorHarvest {
         let files = FileManager()
         guard let attributes = try? files.attributesOfItem(atPath: url.path),
               let size = (attributes[.size] as? NSNumber)?.intValue else { return ErrorHarvest(events: [], cursor: cursor) }
@@ -65,7 +70,8 @@ public struct LogFileErrorSource: ErrorHarvestSource {
 
     private static func parse(_ cursor: String) -> (inode: UInt64, offset: Int)? {
         let parts = cursor.split(separator: ":")
-        guard parts.count == 2, let inode = UInt64(parts[0]), let offset = Int(parts[1]) else { return nil }
+        // A negative offset (a damaged cursors.json) would trap in `UInt64(_:)` at the seek.
+        guard parts.count == 2, let inode = UInt64(parts[0]), let offset = Int(parts[1]), offset >= 0 else { return nil }
         return (inode, offset)
     }
 }

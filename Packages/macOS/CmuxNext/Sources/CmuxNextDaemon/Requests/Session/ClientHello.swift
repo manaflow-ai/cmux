@@ -46,7 +46,7 @@ public struct ClientHelloRequest: DaemonRequest {
         public var confirm: [String]?
     }
 
-    public static let command = "client-hello"
+    public static let commandName: DaemonCommandName = "client-hello"
     public var role: DaemonClientRole
     public var installID: String?
     /// The page a `page_relay` connection serves (`history`, `apps`; `page-router-v1`). The host
@@ -69,7 +69,7 @@ public struct ClientHelloRequest: DaemonRequest {
 /// `client-hello` step 2 (P8): the install-key proof over the step 1 nonce. It must be the very
 /// next line after step 1.
 public struct ClientHelloProofRequest: DaemonRequest {
-    public static let command = "client-hello"
+    public static let commandName: DaemonCommandName = "client-hello"
     public var installID: String
     public var proof: String
 

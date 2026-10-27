@@ -1,6 +1,6 @@
 public import AppKit
 
-#if DEBUG
+#if DEBUG || CMUX_BENCH_HOOKS
 /// The AppKit cursor a page cursor (`rb.cursor`, a CSS cursor name) shows.
 /// The mapping is plain data so a headless test can check it; only
 /// ``cursor`` touches `NSCursor`, which needs a GUI session.

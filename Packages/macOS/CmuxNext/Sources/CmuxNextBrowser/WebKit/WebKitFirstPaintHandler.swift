@@ -25,3 +25,14 @@ final class WebKitFirstPaintHandler: NSObject, WKScriptMessageHandler {
         post: "window.webkit.messageHandlers.\(channel).postMessage(report)",
         ready: "!!(window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.\(channel))")
 }
+
+/// A new WebKit tab's first content frame (`create.tab`): the main frame's first contentful paint above, or its
+/// load end with nothing painted (`webView(_:didFinish:)`).
+extension WebKitTab: BrowserFirstContentFrameReporting {
+    /// A session-local tab made with no address loads nothing.
+    public var loadsDocument: Bool { webView.url != nil || webView.isLoading }
+
+    public func whenFirstContentFrame(_ body: @escaping @MainActor (_ shown: Bool) -> Void) {
+        firstContentFrame.add(body)
+    }
+}

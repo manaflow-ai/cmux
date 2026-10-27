@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import CmuxUpdater
 public import Foundation
 import Observation
@@ -20,7 +21,7 @@ nonisolated public struct PulledBuild: Equatable, Sendable, Decodable {
 
     /// The entries of a `pulled.json` body; an unreadable body or entry is skipped, never fatal.
     public static func decode(_ data: Data) -> [PulledBuild] {
-        guard let items = try? JSONSerialization.jsonObject(with: data) as? [Any] else { return [] }
+        guard let items = try? JSONSerialization.blockingJSONObject(with: data) as? [Any] else { return [] }
         return items.compactMap { item in
             guard let entry = item as? [String: Any], let build = entry["build"] as? String else { return nil }
             return PulledBuild(build: build, reason: entry["reason"] as? String ?? "",

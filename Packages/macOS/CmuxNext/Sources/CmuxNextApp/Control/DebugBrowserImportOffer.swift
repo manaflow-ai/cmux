@@ -35,6 +35,7 @@ enum DebugBrowserImportOffer {
 
     private static func target(_ key: String?, _ services: AppServices) -> BrowserEntry? {
         if let key { return services.cache.existingBrowser(key) }
+        // visibility-walk-allow: the probe drives the chrome AppKit shows, the one a person would click; read once per call
         return services.cache.browsers.values.first { $0.chrome.window != nil && !$0.chrome.isHiddenOrHasHiddenAncestor }
     }
 

@@ -346,6 +346,7 @@ pub(super) fn update_layout_undo_token_part(hasher: &mut Sha256, value: &[u8]) {
     hasher.update(value);
 }
 
+#[track_caller]
 pub(super) fn layout_undo_confirmation_details(
     state: &State,
     registry: &WorkspaceRegistry,

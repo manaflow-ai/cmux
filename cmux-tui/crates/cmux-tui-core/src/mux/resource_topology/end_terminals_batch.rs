@@ -25,6 +25,7 @@ impl Mux {
     /// End `terminal_ids` (host ids) in one commit. Emptied workspaces stay,
     /// as with a per-terminal close from `end_terminals`. Nothing changes
     /// unless the whole batch commits.
+    #[track_caller]
     pub(crate) fn end_terminals_in_one_commit(
         &self,
         terminal_ids: &[String],

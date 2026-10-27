@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import CmuxNextDaemon
 import Foundation
 
@@ -27,7 +28,7 @@ nonisolated struct HomeEngineTurn: Equatable, Sendable {
 
     init?(line: String) {
         guard let data = line.data(using: .utf8),
-              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let object = try? JSONSerialization.blockingJSONObject(with: data) as? [String: Any],
               object["ev"] as? String == "turn.end" else { return nil }
         harness = object["harness"] as? String ?? "?"
         model = object["model"] as? String

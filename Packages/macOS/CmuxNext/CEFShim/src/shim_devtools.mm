@@ -101,6 +101,7 @@ class DevToolsClient : public CefClient, public CefLifeSpanHandler, public CefKe
     if (map.count(inspected_) == 0) {
       map[inspected_] = browser;
     }
+    ApplyPopupMenus(browser->GetIdentifier());
     Emit(CMUX_SHIM_DEVTOOLS_OPENED, inspected_, 0, browser->GetIdentifier(), docked_ ? 1 : 0);
   }
 
@@ -143,6 +144,13 @@ class DevToolsClient : public CefClient, public CefLifeSpanHandler, public CefKe
 };
 
 }  // namespace
+
+std::vector<int> DevToolsBrowserIds() {
+  std::vector<int> ids;
+  ids.reserve(devtools_browsers().size());
+  for (const auto& [inspected, devtools] : devtools_browsers()) ids.push_back(devtools->GetIdentifier());
+  return ids;
+}
 
 void PrepareDevToolsPopup(int inspected, CefWindowInfo& window_info, CefRefPtr<CefClient>& client,
                           bool* use_default_window) {

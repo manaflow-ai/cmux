@@ -1,5 +1,4 @@
 import Foundation
-@preconcurrency import Sparkle
 
 /// Foreground update-check lifecycle. A single owner serializes manual checks and accepted
 /// installs across Sparkle sessions; replacement checks start only after Sparkle's authoritative
@@ -214,7 +213,7 @@ extension UpdateController {
 }
 
 extension UpdateController: UpdateDriverEventDelegate {
-    func updateDriverDidFinishCycle(_ updateCheck: SPUUpdateCheck, error: NSError?) {
+    func updateDriverDidFinishCycle(_ updateCheck: UpdateCheckKind, error: NSError?) {
         let finishedIntent = activeCheckIntent
         activeCheckIntent = nil
         onUpdateCycleFinished?()
@@ -255,7 +254,7 @@ extension UpdateController: UpdateDriverEventDelegate {
         }
     }
 
-    private func setForegroundCycleEndedError(updateCheck: SPUUpdateCheck, underlyingError: NSError?) {
+    private func setForegroundCycleEndedError(updateCheck: UpdateCheckKind, underlyingError: NSError?) {
         let diagnostic = underlyingError.map(driver.formatErrorForLog) ?? "none"
         log.append(
             "manual update cycle ended without a visible terminal (check=\(updateCheck.rawValue), state=\(describeLifecycleState(model.state)), error=\(diagnostic))"

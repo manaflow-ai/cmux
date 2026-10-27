@@ -22,7 +22,7 @@ struct FullWidthTabTests {
             model = TabStripModel(tabs: tabs, selectedID: tabs[1].id)
             window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: width, height: 40), styleMask: [.borderless],
                               backing: .buffered, defer: false)
-            strip = TabStripView(model: model)
+            strip = TabStripView.testing(model: model)
             strip.dragsWindowFromEmptySpace = false
             strip.frame = NSRect(x: 0, y: 0, width: width, height: TabStripView.preferredHeight)
             window.contentView = strip

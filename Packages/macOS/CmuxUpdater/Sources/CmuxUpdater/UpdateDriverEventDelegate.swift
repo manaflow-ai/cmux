@@ -1,5 +1,4 @@
 import Foundation
-@preconcurrency import Sparkle
 
 /// Causal lifecycle signals that Sparkle exposes outside of `SPUUserDriver`'s display states.
 ///
@@ -8,7 +7,7 @@ import Foundation
 @MainActor
 protocol UpdateDriverEventDelegate: AnyObject {
     /// Sparkle ended an update session, so a queued replacement check may safely start.
-    func updateDriverDidFinishCycle(_ updateCheck: SPUUpdateCheck, error: NSError?)
+    func updateDriverDidFinishCycle(_ updateCheck: UpdateCheckKind, error: NSError?)
 
     /// The user explicitly cancelled the foreground check.
     func updateDriverUserDidCancelCheck()

@@ -165,6 +165,21 @@ MIGRATIONS: tuple[Migration, ...] = (
             bytes INTEGER NOT NULL,
             created_at TEXT NOT NULL)""",
     )),
+    # A sheriff's claim on a group is not a state change, so it lives on the group, not in sheriff_history.
+    (2, "sheriff claims", (
+        "ALTER TABLE alert_groups ADD COLUMN holder TEXT",
+        "ALTER TABLE alert_groups ADD COLUMN held_at TEXT",
+    )),
+    # A run names its attachments by digest (runs.attachments_json). The bytes of the ones ingest finds next to the
+    # results are kept here by that digest, so a reader away from the host that wrote them (the MQ15 queue's
+    # `lab.py queue typecheck --latest`) gets them; a trace stays in R2 (traces).
+    (3, "attachment bytes", (
+        """CREATE TABLE attachments (
+            digest TEXT PRIMARY KEY,
+            kind TEXT NOT NULL,
+            bytes BLOB NOT NULL,
+            stored_at TEXT NOT NULL)""",
+    )),
 )
 
 
@@ -446,6 +461,26 @@ class Store:
 
         return self._write(write)
 
+    def keep_attachment(self, kind: str, data: bytes) -> str:
+        """Keeps DATA under its digest ("sha256:<hex>", perf_result.Attachment's form); a second copy is a no-op."""
+        digest = f"sha256:{hashlib.sha256(data).hexdigest()}"
+        self._write(lambda: self._db.execute(
+            "INSERT INTO attachments (digest, kind, bytes, stored_at) VALUES (?, ?, ?, ?) ON CONFLICT (digest) DO NOTHING",
+            (digest, kind, data, self._now())))
+        return digest
+
+    def attachment(self, digest: str) -> bytes | None:
+        row = self._db.execute("SELECT bytes FROM attachments WHERE digest = ?", (digest,)).fetchone()
+        return None if row is None else bytes(row["bytes"])
+
+    def latest_run(self, story: str, *, kind: str = "waterfall") -> sqlite3.Row | None:
+        """The newest stored run of `story` of `kind`, by mainline commit position, then start time: run_uuid,
+        started_at, attachments_json, sha and commit_pos. None when the store has none."""
+        return self._db.execute(
+            """SELECT u.run_uuid, u.started_at, u.attachments_json, b.sha, b.commit_pos
+               FROM runs u JOIN builds b ON b.id = u.build_id WHERE u.story = ? AND u.kind = ?
+               ORDER BY b.commit_pos DESC, u.started_at DESC, u.id DESC LIMIT 1""", (story, kind)).fetchone()
+
     def run_metrics(self, run_uuid: str) -> dict[str, list[float]]:
         rows = self._db.execute(
             """SELECT s.metric, r.samples_json FROM results r JOIN runs u ON u.id = r.run_id
@@ -489,3 +524,45 @@ class Store:
         return self._db.execute(
             """SELECT a.* FROM annotations a LEFT JOIN series s ON s.id = a.series_id
                WHERE a.series_id IS NULL OR s.series_key = ? ORDER BY a.start_pos, a.id""", (key,)).fetchall()
+
+    # ---------- labd (task 012): the controller's job callback, read endpoints and the nightly backup ----------
+
+    def finish_job(self, controller_job_id: str, *, state: str, result: object = None) -> bool:
+        """Records a controller job's end state on the lab job that submitted it; False when no lab job has that id."""
+        def write() -> bool:
+            return self._db.execute(
+                "UPDATE jobs SET state = ?, result_json = ?, updated_at = ? WHERE controller_job_id = ?",
+                (state, None if result is None else json.dumps(result, sort_keys=True), self._now(),
+                 controller_job_id)).rowcount > 0
+
+        return self._write(write)
+
+    def list_series(self, *, story: str | None = None) -> list[sqlite3.Row]:
+        """Every series (one story's with `story`), with its waterfall point count and newest commit position."""
+        return self._db.execute(
+            """SELECT s.*, COUNT(u.id) AS points, MAX(b.commit_pos) AS newest_pos
+               FROM series s LEFT JOIN results r ON r.series_id = s.id
+               LEFT JOIN runs u ON u.id = r.run_id AND u.kind = 'waterfall' LEFT JOIN builds b ON b.id = u.build_id
+               WHERE ? IS NULL OR s.story = ? GROUP BY s.id ORDER BY s.story, s.metric, s.id""",
+            (story, story)).fetchall()
+
+    def jobs(self, *, limit: int = 100) -> list[sqlite3.Row]:
+        """The newest `limit` lab jobs, newest first."""
+        return self._db.execute("SELECT * FROM jobs ORDER BY updated_at DESC, id DESC LIMIT ?", (limit,)).fetchall()
+
+    def coverage(self) -> list[sqlite3.Row]:
+        """Per story, host class and build config: waterfall run count and the newest measured commit."""
+        return self._db.execute(
+            """SELECT u.story, h.host_class, b.config AS build_config, COUNT(*) AS runs,
+                      MAX(b.commit_pos) AS newest_pos, MAX(u.started_at) AS newest_started_at
+               FROM runs u JOIN hosts h ON h.id = u.host_id JOIN builds b ON b.id = u.build_id
+               WHERE u.kind = 'waterfall' GROUP BY u.story, h.host_class, b.config
+               ORDER BY u.story, h.host_class, b.config""").fetchall()
+
+    def backup_to(self, path: Path | str) -> None:
+        """A consistent copy of the whole store (WAL included) at `path`, by SQLite's online backup."""
+        target = sqlite3.connect(str(path))
+        try:
+            self._db.backup(target)
+        finally:
+            target.close()

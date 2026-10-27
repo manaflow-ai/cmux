@@ -1,4 +1,5 @@
 import CCmuxLayoutReducerFFI
+import CmuxNextCompat
 import Foundation
 
 /// The pane's optimistic rows, computed by the Tasks owner's own reducer
@@ -49,7 +50,7 @@ nonisolated enum TasksPreview {
                 continue
             }
             guard code == CMUX_LAYOUT_REDUCER_OK, outputLength <= capacity else { return nil }
-            return try? JSONDecoder().decode(Response.self, from: Data(output.prefix(outputLength)))
+            return try? JSONDecoder().blockingDecode(Response.self, from: Data(output.prefix(outputLength)))
         }
         return nil
     }

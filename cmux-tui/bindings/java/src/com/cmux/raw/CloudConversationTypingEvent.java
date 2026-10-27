@@ -13,12 +13,15 @@ import java.util.Objects;
 /** Immutable cloud-conversation-typing event. Protocol v12; streams: subscribe. */
 public final class CloudConversationTypingEvent implements WireValue, DeltaStreamEvent, ProtocolEvent, SubscribeEvent {
     private final Field<String> account;
+    /** What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing. */
+    private final Field<EventCause> cause;
     private final String conversation;
     private final boolean on;
     private final String participant;
 
     private CloudConversationTypingEvent(Builder builder) {
         this.account = builder.account;
+        this.cause = builder.cause;
         if (!builder.conversationSet) throw new IllegalArgumentException("conversation is required");
         this.conversation = Wire.nonNull(builder.conversation, "conversation");
         if (!builder.onSet) throw new IllegalArgumentException("on is required");
@@ -30,6 +33,7 @@ public final class CloudConversationTypingEvent implements WireValue, DeltaStrea
     public static Builder builder() { return new Builder(); }
 
     public Field<String> account() { return account; }
+    public Field<EventCause> cause() { return cause; }
     public String conversation() { return conversation; }
     public boolean on() { return on; }
     public String participant() { return participant; }
@@ -42,6 +46,10 @@ public final class CloudConversationTypingEvent implements WireValue, DeltaStrea
         Object rawAccount = Wire.optional(object, "account");
         if (!Wire.isMissing(rawAccount)) {
             builder.account(Wire.string(rawAccount, "CloudConversationTypingEvent.account"));
+        }
+        Object rawCause = Wire.optional(object, "cause");
+        if (!Wire.isMissing(rawCause)) {
+            builder.cause(EventCause.fromWire(rawCause));
         }
         Object rawConversation = Wire.required(object, "conversation");
         builder.conversation(Wire.string(rawConversation, "CloudConversationTypingEvent.conversation"));
@@ -57,6 +65,7 @@ public final class CloudConversationTypingEvent implements WireValue, DeltaStrea
         LinkedHashMap<String, Object> object = new LinkedHashMap<>();
         object.put("event", "cloud-conversation-typing");
         Wire.put(object, "account", account);
+        Wire.put(object, "cause", cause);
         Wire.put(object, "conversation", conversation);
         Wire.put(object, "on", on);
         Wire.put(object, "participant", participant);
@@ -66,17 +75,18 @@ public final class CloudConversationTypingEvent implements WireValue, DeltaStrea
     @Override
     public boolean equals(Object other) {
         if (!(other instanceof CloudConversationTypingEvent that)) return false;
-        return Objects.equals(account, that.account) && Objects.equals(conversation, that.conversation) && Objects.equals(on, that.on) && Objects.equals(participant, that.participant);
+        return Objects.equals(account, that.account) && Objects.equals(cause, that.cause) && Objects.equals(conversation, that.conversation) && Objects.equals(on, that.on) && Objects.equals(participant, that.participant);
     }
 
     @Override
-    public int hashCode() { return Objects.hash(account, conversation, on, participant); }
+    public int hashCode() { return Objects.hash(account, cause, conversation, on, participant); }
 
     @Override
     public String toString() { return "CloudConversationTypingEvent" + toWire(); }
 
     public static final class Builder {
         private Field<String> account = Field.omitted();
+        private Field<EventCause> cause = Field.omitted();
         private String conversation;
         private boolean conversationSet;
         private Boolean on;
@@ -86,6 +96,10 @@ public final class CloudConversationTypingEvent implements WireValue, DeltaStrea
 
         public Builder account(String value) {
             this.account = Field.of(value);
+            return this;
+        }
+        public Builder cause(EventCause value) {
+            this.cause = Field.of(value);
             return this;
         }
         public Builder conversation(String value) {

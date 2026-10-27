@@ -168,7 +168,7 @@ struct FileOpenAsTextTests {
         let model = await FileExplorerTests.model(root)
         let effects = TextRecorder()
         FileExplorerHandlers.bind(into: services.registry, explorer: { _ in FileExplorerRunTarget(model: model) }, effects: effects)
-        let section = FileExplorerSectionView(model: model, rootFolder: { nil }, perform: { _ in },
+        let section = FileExplorerSectionView(model: model, mainWork: services.mainWork, rootFolder: { nil }, perform: { _ in },
                                               rowMenu: { services.fileExplorers.rowMenu(hasSelection: $0) })
         func ids(_ menu: NSMenu) -> [String] { menu.items.compactMap { ActionRegistry.menuRun(of: $0)?.id.rawValue } }
 

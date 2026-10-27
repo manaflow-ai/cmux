@@ -33,7 +33,7 @@ struct CmxIrohBrokerCredentialRepositoryTests {
         )
         let binding = try metadata(pathHints: [pathHint])
         let response = relayResponse()
-        let repository = makeRepository(defaults: defaults, secureStore: secureStore)
+        let repository = try makeRepository(suiteName: suiteName, secureStore: secureStore)
 
         try await repository.saveBinding(binding, accountID: "account-a")
         try await repository.saveRelayCredential(
@@ -44,7 +44,7 @@ struct CmxIrohBrokerCredentialRepositoryTests {
             now: now
         )
 
-        let recreated = makeRepository(defaults: defaults, secureStore: secureStore)
+        let recreated = try makeRepository(suiteName: suiteName, secureStore: secureStore)
         #expect(
             try await recreated.loadBinding(
                 accountID: "account-a",
@@ -92,7 +92,7 @@ struct CmxIrohBrokerCredentialRepositoryTests {
                 refreshAfter: iso8601(now.addingTimeInterval(90 * 60))
             ),
         ])
-        let repository = makeRepository(defaults: defaults, secureStore: secureStore)
+        let repository = try makeRepository(suiteName: suiteName, secureStore: secureStore)
 
         try await repository.saveBinding(binding, accountID: "account-a")
         try await repository.saveRelayCredential(
@@ -126,7 +126,7 @@ struct CmxIrohBrokerCredentialRepositoryTests {
         defer { defaults.removePersistentDomain(forName: suiteName) }
         let secureStore = TestSecureCredentialStore()
         let binding = try metadata()
-        let repository = makeRepository(defaults: defaults, secureStore: secureStore)
+        let repository = try makeRepository(suiteName: suiteName, secureStore: secureStore)
         let legacyResponse = relayResponse()
 
         try await repository.saveBinding(binding, accountID: "account-a")
@@ -169,7 +169,7 @@ struct CmxIrohBrokerCredentialRepositoryTests {
         let (defaults, suiteName) = try isolatedDefaults()
         defer { defaults.removePersistentDomain(forName: suiteName) }
         let secureStore = TestSecureCredentialStore()
-        let repository = makeRepository(defaults: defaults, secureStore: secureStore)
+        let repository = try makeRepository(suiteName: suiteName, secureStore: secureStore)
         let original = try metadata()
 
         try await repository.saveBinding(original, accountID: "account-a")
@@ -210,7 +210,7 @@ struct CmxIrohBrokerCredentialRepositoryTests {
         let (defaults, suiteName) = try isolatedDefaults()
         defer { defaults.removePersistentDomain(forName: suiteName) }
         let secureStore = TestSecureCredentialStore()
-        let repository = makeRepository(defaults: defaults, secureStore: secureStore)
+        let repository = try makeRepository(suiteName: suiteName, secureStore: secureStore)
         let original = try metadata()
         let rotated = try metadata(
             bindingID: "123e4567-e89b-42d3-a456-426614174020",
@@ -250,7 +250,7 @@ struct CmxIrohBrokerCredentialRepositoryTests {
         let (defaults, suiteName) = try isolatedDefaults()
         defer { defaults.removePersistentDomain(forName: suiteName) }
         let secureStore = TestSecureCredentialStore()
-        let repository = makeRepository(defaults: defaults, secureStore: secureStore)
+        let repository = try makeRepository(suiteName: suiteName, secureStore: secureStore)
         let binding = try metadata()
         try await repository.saveBinding(binding, accountID: "account-a")
 
@@ -273,7 +273,7 @@ struct CmxIrohBrokerCredentialRepositoryTests {
         let (defaults, suiteName) = try isolatedDefaults()
         defer { defaults.removePersistentDomain(forName: suiteName) }
         let secureStore = TestSecureCredentialStore()
-        let repository = makeRepository(defaults: defaults, secureStore: secureStore)
+        let repository = try makeRepository(suiteName: suiteName, secureStore: secureStore)
         let binding = try metadata()
         try await repository.saveBinding(binding, accountID: "account-a")
         try await repository.saveRelayCredential(
@@ -300,7 +300,7 @@ struct CmxIrohBrokerCredentialRepositoryTests {
         let (defaults, suiteName) = try isolatedDefaults()
         defer { defaults.removePersistentDomain(forName: suiteName) }
         let secureStore = TestSecureCredentialStore()
-        let repository = makeRepository(defaults: defaults, secureStore: secureStore)
+        let repository = try makeRepository(suiteName: suiteName, secureStore: secureStore)
         let binding = try metadata()
         let response = relayResponse()
         try await repository.saveBinding(binding, accountID: "account-a")
@@ -345,7 +345,7 @@ struct CmxIrohBrokerCredentialRepositoryTests {
         let (defaults, suiteName) = try isolatedDefaults()
         defer { defaults.removePersistentDomain(forName: suiteName) }
         let secureStore = TestSecureCredentialStore()
-        let repository = makeRepository(defaults: defaults, secureStore: secureStore)
+        let repository = try makeRepository(suiteName: suiteName, secureStore: secureStore)
         let binding = try metadata()
         try await repository.saveBinding(binding, accountID: "account-a")
         try await repository.saveRelayCredential(
@@ -392,7 +392,7 @@ struct CmxIrohBrokerCredentialRepositoryTests {
         let (defaults, suiteName) = try isolatedDefaults()
         defer { defaults.removePersistentDomain(forName: suiteName) }
         let secureStore = TestSecureCredentialStore()
-        let repository = makeRepository(defaults: defaults, secureStore: secureStore)
+        let repository = try makeRepository(suiteName: suiteName, secureStore: secureStore)
         let binding = try metadata()
         try await repository.saveBinding(binding, accountID: "account-a")
         try await repository.saveRelayCredential(
@@ -437,12 +437,12 @@ struct CmxIrohBrokerCredentialRepositoryTests {
     }
 
     private func makeRepository(
-        defaults: UserDefaults,
+        suiteName: String,
         secureStore: TestSecureCredentialStore
-    ) -> CmxIrohBrokerCredentialRepository {
+    ) throws -> CmxIrohBrokerCredentialRepository {
         CmxIrohBrokerCredentialRepository(
             secureStore: secureStore,
-            installState: CmxIrohUserDefaultsInstallStateStore(defaults: defaults)
+            installState: try #require(CmxIrohUserDefaultsInstallStateStore(suiteName: suiteName))
         )
     }
 

@@ -11,6 +11,6 @@ public struct AgentPaneHarnessesPage {
     /// Shows the Harnesses page in `pane`'s page, with the keyboard there (as Switch Model does).
     @MainActor public func show() {
         pane.focusChat()
-        pane.deliver([.command("showHarnesses")], scripts: ["window.cmuxAcpmuxBridge?.command?.(\"showHarnesses\");"])
+        pane.deliver([.command("showHarnesses")])
     }
 }

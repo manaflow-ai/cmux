@@ -22,7 +22,7 @@ final class RightSidebarView: NSView {
         didSet {
             guard innerEdge != oldValue else { return }
             resizeHandle.edge = innerEdge
-            needsLayout = true
+            needsLayout = true // invalidate: the sidebar changed sides (the guard above).
         }
     }
     /// A drag on the inner edge: the width it proposes, then nil when it ends.
@@ -39,7 +39,8 @@ final class RightSidebarView: NSView {
     /// - Parameters:
     ///   - modes: The sections with a provider, in bar order.
     ///   - title: A section's button tooltip (its action's title).
-    ///   - icon: A section's button image (``RightSidebarSections/icon(_:)``: made off the main thread at launch).
+    ///   - icon: A section's button image (``RightSidebarSections/icon(_:)``: made off the main thread; nil leaves
+    ///     the button empty until ``setIcons(_:)``).
     ///   - makeSection: Makes a section's view the first time it shows.
     ///   - run: Runs an action (a button's switch action).
     init(modes: [RightSidebarMode], title: (RightSidebarMode) -> String, icon: (RightSidebarMode) -> NSImage?,
@@ -76,6 +77,12 @@ final class RightSidebarView: NSView {
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
     nonisolated override var isFlipped: Bool { true }
+
+    /// Puts the section icons on their buttons when they land after the panel was built
+    /// (``RightSidebarSections/whenIconsReady(_:)``).
+    func setIcons(_ icons: [RightSidebarMode: NSImage]) {
+        for (mode, button) in buttons { if let image = icons[mode] { button.image = image } }
+    }
 
     @objc private func pick(_ sender: NSButton) {
         guard let raw = sender.identifier?.rawValue, let mode = RightSidebarMode(rawValue: raw) else { return }

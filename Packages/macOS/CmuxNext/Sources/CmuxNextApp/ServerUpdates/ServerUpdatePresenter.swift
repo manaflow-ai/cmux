@@ -6,6 +6,7 @@ import CmuxNextDaemonService
 import CmuxNextDesign
 import CmuxNextSettings
 import CmuxNextUpdater
+import CmuxNextWakeups
 
 /// Shows "Restart cmux-tui to use new features" as a toast on the active window, asks the confirm
 /// on its button, runs the restart and reports the result (plans/cmux-next/server-updates-DESIGN.md).
@@ -21,35 +22,54 @@ final class ServerUpdatePresenter {
     private var shown: [String: CmuxToastHandle] = [:]
     /// Notices whose confirm or restart is running: their toast does not show again meanwhile.
     private var busy: Set<String> = []
-    private var observers: [Task<Void, Never>] = []
+    /// The handshake and notice follows (``ServiceObservation``s), from ``start()`` on.
+    private var observers: [AnyObject] = []
+    /// The app's main-thread scheduler: the follows' flushes and the main part of each async step.
+    private let mainWork: MainWorkScheduler
+    /// Where the async steps (the facts' reads, a restart) are awaited, off main.
+    private let work: BackgroundWork
 
-    init(daemon: DaemonService, defaults: UserDefaults, tailnet: ServerTailnetSource = .app(),
-         activeWindow: @escaping @MainActor () -> NSWindow?) {
+    /// - Parameters:
+    ///   - mainWork: The app's main-thread scheduler.
+    ///   - work: The app's one ``BackgroundWork``.
+    init(daemon: DaemonService, defaults: UserDefaults, mainWork: MainWorkScheduler, work: BackgroundWork,
+         tailnet: ServerTailnetSource = .app(), activeWindow: @escaping @MainActor () -> NSWindow?) {
         self.daemon = daemon
+        self.mainWork = mainWork
+        self.work = work
         self.tailnet = tailnet
         self.activeWindow = activeWindow
         servers = ServerUpdateCoordinator(restarter: AppServerRestarter(daemon: daemon),
                                           snoozes: ServerUpdateSnoozeStore(defaults: defaults))
     }
 
-    /// Follows the daemon's handshakes and the notices until the app quits, and binds
-    /// Restart cmux-tui… (palette, `cmux settings restart-server`, MCP) to the same confirm.
-    func start(registry: ActionRegistry) {
-        guard observers.isEmpty else { return }
+    /// Binds Restart cmux-tui… (palette, `cmux settings restart-server`, MCP) to the toast's
+    /// confirm, in `AppServices.init`: the action works before the observers start.
+    func bind(registry: ActionRegistry) {
         registry.bind("palette.restartServer", run: { [weak self] _ in self?.confirmRestart() })
+    }
+
+    /// Follows the daemon's handshakes and the notices until the app quits (the
+    /// `ServerUpdates.start` launch post, p08-startup-031). Once.
+    func start() {
+        guard observers.isEmpty else { return }
         let daemon = daemon
         let servers = servers
-        observers.append(Task { [weak self] in
-            for await identity in ObservationStream({ daemon.identity }) {
-                guard let identity else { continue }
-                servers.report(ServerHandshake(daemon: identity, host: .local),
-                               appCapabilities: ServerHandshake.appCmuxTUICapabilities, bundledBuild: nil)
-                self?.sync()
-                await self?.refreshFacts()
-            }
+        // Each handshake reports the server and re-reads Settings > Server's facts: model writes nobody waits on.
+        observers.append(ServiceObservation(.background, owner: "ServerUpdates.handshake", on: mainWork) {
+            daemon.identity
+        } apply: { [weak self] identity in
+            guard let identity else { return }
+            servers.report(ServerHandshake(daemon: identity, host: .local),
+                           appCapabilities: ServerHandshake.appCmuxTUICapabilities, bundledBuild: nil)
+            self?.sync()
+            self?.refreshFacts()
         })
-        observers.append(Task { [weak self] in
-            for await _ in ObservationStream({ servers.notices }) { self?.sync() }
+        // A notice's toast shows on the active window: visible work no input of the person's caused.
+        observers.append(ServiceObservation(.visible, owner: "ServerUpdates.notices", on: mainWork) {
+            servers.notices
+        } apply: { [weak self] _ in
+            self?.sync()
         })
     }
 
@@ -61,10 +81,19 @@ final class ServerUpdatePresenter {
     /// The host lists' `server` (reading it registers the Observation dependencies the page watches).
     var settingsPageJSON: CmuxNextSettings.JSONValue { ServerSettingsPageJSON(report: settingsReport).json }
 
-    /// Re-reads the socket and the Tailscale address (after a handshake).
-    private func refreshFacts() async {
-        facts.socketPath = await daemon.connection?.endpoint?.socketPath
-        facts.tailnetAddress = await tailnet.address()
+    /// Re-reads the socket and the Tailscale address (after a handshake): read off main, stored in one
+    /// background task.
+    private func refreshFacts() {
+        let connection = daemon.connection, tailnet = tailnet, facts = facts, mainWork = mainWork
+        // task-owner: one facts read per handshake; a later handshake's read overwrites it
+        work.task(.bestEffort) {
+            let socket = await connection?.endpoint?.socketPath
+            let address = await tailnet.address()
+            mainWork.postFromAnyThread(.background, owner: "ServerUpdates.facts") {
+                facts.socketPath = socket
+                facts.tailnetAddress = address
+            }
+        }
     }
 
     /// Restart… on a Settings row: the same confirm as the toast. Only the local cmux-tui can
@@ -124,14 +153,24 @@ final class ServerUpdatePresenter {
                 self.sync()
                 return
             }
-            Task { @MainActor in
-                let outcome = await self.servers.restart(notice)
-                self.busy.remove(notice.id)
-                let result = CmuxToast(id: "server-update.result.\(notice.kind.rawValue)",
-                                       message: outcome.message(serverLabel: notice.serverLabel))
-                if let window = self.activeWindow() { CmuxToastCenter.shared.show(result, in: window) }
-                self.sync()
+            let servers = self.servers, mainWork = self.mainWork
+            // task-owner: one restart the person confirmed. R-hop: awaited off main at the priority of the
+            // person's click; its result is one userBlocking task (the rest of the person's action).
+            self.work.task(.userBlocking) { [weak self] in
+                let outcome = await servers.restart(notice)
+                mainWork.postFromAnyThread(.userBlocking, owner: "ServerUpdates.restarted") { [weak self] in
+                    self?.restarted(notice, outcome)
+                }
             }
         }
+    }
+
+    /// A confirmed restart ended: its toast says how, and the notices show again as they are now.
+    private func restarted(_ notice: ServerUpdateNotice, _ outcome: ServerRestartOutcome) {
+        busy.remove(notice.id)
+        let result = CmuxToast(id: "server-update.result.\(notice.kind.rawValue)",
+                               message: outcome.message(serverLabel: notice.serverLabel))
+        if let window = activeWindow() { CmuxToastCenter.shared.show(result, in: window) }
+        sync()
     }
 }

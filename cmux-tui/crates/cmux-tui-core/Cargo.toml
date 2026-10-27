@@ -10,16 +10,41 @@ description = "Terminal multiplexer core: workspaces, tabs, panes, PTY runtime, 
 [lints]
 workspace = true
 
+[features]
+default = []
+# Correctness-oracle items (oracle-state, the virtual clock, seeded ids): code
+# behind cfg(any(debug_assertions, feature = "oracle")), so debug and test builds
+# have it and release builds never do. Off by default; the oracle builds
+# `--profile oracle --features oracle` (p15-oracle task 201).
+oracle = []
+# Decoder entry points for the cmux-tui/fuzz targets (`fuzz_entry`): only the
+# fuzz workspace (cmux-tui/fuzz/Cargo.toml) turns it on.
+fuzz = []
+# The lab's tokio slow-poll detector (cmux-blocking; RUSTFLAGS="--cfg tokio_unstable").
+cmux-stability = ["cmux-blocking/cmux-stability"]
+
 [dependencies]
+cmux-blocking.workspace = true
+cmux-lock-rank.workspace = true
+# The daemon's memory registry and kernel pressure source (memory.rs).
+cmux-memory.workspace = true
 cmux-agent-pane-policy.workspace = true
 ghostty-vt.workspace = true
 cmux-tui-cdp.workspace = true
 cmux-layout-reducer.workspace = true
 cmux-unix-socket.workspace = true
 cmux-pty.workspace = true
+# The panic log and the process's hang watcher: request, journal writer and holder-link scopes.
+cmux-panic-log.workspace = true
 cmux-holder.workspace = true
+cmux-ipc.workspace = true
 cmux-process.workspace = true
+cmux-features.workspace = true
 cmux-flow-trace.workspace = true
+cmux-threads.workspace = true
+# wake::deadline, EnergyMode and the MaintenanceClock (re-exported as `wake`).
+cmux-wake.workspace = true
+cmux-trace.workspace = true
 cmux-remote-protocol.workspace = true
 cmux-conversation.workspace = true
 cmux-git.workspace = true
@@ -36,9 +61,18 @@ cmux-api-compat.workspace = true
 cmux-terminal-iface.workspace = true
 cmux-terminal-sizing.workspace = true
 serde.workspace = true
-serde_json.workspace = true
+# float_roundtrip: correctly rounded float parsing, so a journal payload
+# number reads the same after a segment seal writes it out again (Chromium's
+# base/json/json_parser.cc parses numbers with the correctly rounded
+# double-conversion). Without it the default parser is off by an ulp on some
+# inputs (cmux-tui/fuzz `journal_record`). raw_value: the request head borrows
+# a line's `params` and `stream` unread (server/request_head.rs).
+serde_json = { workspace = true, features = ["float_roundtrip", "raw_value"] }
 anyhow.workspace = true
 base64.workspace = true
+# Attach output: one shared buffer per PTY read for every viewer (surface/attach_tap.rs);
+# attach frame payloads share it (server/attach_frames.rs).
+bytes.workspace = true
 libc.workspace = true
 regex.workspace = true
 jsonschema.workspace = true
@@ -61,12 +95,16 @@ cmux-app-manifest.workspace = true
 cmux-app-host.workspace = true
 
 [dev-dependencies]
+# The generated SDK types decode server-stats sections (server_stats_tests.rs).
+cmux-sdk = { path = "../../bindings/rust", default-features = false }
 cmux-tui-cloud-conversations = { workspace = true, features = ["test-support"] }
 cmux-tui-platform = { workspace = true, features = ["test-support"] }
 cmux-tui-remote-access = { workspace = true, features = ["test-support"] }
 cmux-tui-util = { workspace = true, features = ["test-support"] }
 cmux-unix-socket = { workspace = true, features = ["test-support"] }
 proptest = { version = "1", default-features = false, features = ["std"] }
+# The request-stack test names the function a captured address is in.
+backtrace = "0.3"
 
 # The app supervisor's net.fetch egress (same versions the cmux-tui binary
 # already links).
@@ -74,6 +112,11 @@ proptest = { version = "1", default-features = false, features = ["std"] }
 reqwest.workspace = true
 rustls.workspace = true
 tokio.workspace = true
+
+# Low Power Mode and the thermal state for the daemon's own Energy Saver
+# reading (mux/power_source.rs); the version cmux-motion's AppKit links.
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSProcessInfo"] }
 
 [target.'cfg(windows)'.dependencies]
 # The local socket transport and its same-user checks (cmux::local_socket),

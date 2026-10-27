@@ -4,16 +4,16 @@ import Testing
 
 struct MainThreadWatchdogPolicyTests {
     @Test func noActivateDiagnosticLaunchKeepsWatchdogEvidenceAlive() {
-        #expect(MainThreadWatchdog.Configuration.hangAssertThreshold(debugBuild: true, noActivate: true) == nil)
+        #expect(MainThreadWatchdog.Configuration.hangAssertThreshold(debugBuild: true, isolatedLaunch: true) == nil)
     }
 
     @Test func interactiveDebugLaunchKeepsHangAssertion() {
-        #expect(MainThreadWatchdog.Configuration.hangAssertThreshold(debugBuild: true, noActivate: false) == .seconds(10))
+        #expect(MainThreadWatchdog.Configuration.hangAssertThreshold(debugBuild: true, isolatedLaunch: false) == .seconds(10))
     }
 
     @Test func releaseLaunchNeverAsserts() {
-        #expect(MainThreadWatchdog.Configuration.hangAssertThreshold(debugBuild: false, noActivate: false) == nil)
-        #expect(MainThreadWatchdog.Configuration.hangAssertThreshold(debugBuild: false, noActivate: true) == nil)
+        #expect(MainThreadWatchdog.Configuration.hangAssertThreshold(debugBuild: false, isolatedLaunch: false) == nil)
+        #expect(MainThreadWatchdog.Configuration.hangAssertThreshold(debugBuild: false, isolatedLaunch: true) == nil)
     }
 
     /// A backgrounded (App Nap, throttled) app can leave the heartbeat stale

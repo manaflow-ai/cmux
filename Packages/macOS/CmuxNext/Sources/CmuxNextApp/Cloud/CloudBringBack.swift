@@ -3,6 +3,7 @@ import CmuxNextActions
 import CmuxNextAgentPane
 import CmuxNextCloud
 import CmuxNextDaemon
+import CmuxNextWakeups
 import Foundation
 
 /// Bring Back Local (cmuxterm-hq#1874 slice 4): the one action behind the palette's "Bring Back
@@ -70,19 +71,27 @@ struct CloudBringBack {
     private func perform(tab: TabModel, _ body: @escaping @MainActor () async throws -> String) {
         let toastID = "cloud-bring-back-" + tab.id
         let tabID = tab.id
-        let retries = services.cloud.bringBackRetries
         CloudMove.toast(services, toastID, CloudBringBackStrings.bringing, duration: .seconds(600))
-        let work: ActionWork = Task { @MainActor in
-            do {
-                _ = try await body()
-                retries[tabID] = nil
-                CloudMove.toast(services, toastID, CloudBringBackStrings.broughtBack, duration: .seconds(6))
-                return nil
-            } catch {
-                return stopped(error, tab: tabID, toast: toastID)
+        let services = self.services, mainWork = self.services.mainWork
+        // R-hop: the run is awaited off main; its end (the retry ledger and the toast) is one visible task, in the
+        // run's action scopes.
+        let work: ActionWork = Task { @concurrent in
+            let scopes = ActionScopes.current
+            let failure: (any Error)?
+            do { _ = try await body(); failure = nil } catch { failure = error }
+            return await mainWork.apply(.visible, owner: "CloudBringBack.end") {
+                scopes.applying { CloudBringBack(services: services).ended(failure, tab: tabID, toast: toastID) }
             }
         }
         services.registry.track(work)
+    }
+
+    /// The bring back ended: success clears its retry and says so; a stop records what Retry does and offers it.
+    private func ended(_ failure: (any Error)?, tab tabID: String, toast toastID: String) -> ActionWorkFailure? {
+        if let failure { return stopped(failure, tab: tabID, toast: toastID) }
+        services.cloud.bringBackRetries[tabID] = nil
+        CloudMove.toast(services, toastID, CloudBringBackStrings.broughtBack, duration: .seconds(6))
+        return nil
     }
 
     /// A stop: records what Retry does for machine tab `tabID` and offers it on the toast. Any

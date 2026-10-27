@@ -6,7 +6,7 @@ public nonisolated struct MachineAgentInventoryUnwatchRequest: DaemonRequest {
     /// An empty acknowledgement; no owner data is read while disabling.
     public typealias Response = EmptyResponse
     /// The same internal subscription command with enabling disabled.
-    public static let command = "agent-inventory-watch"
+    public static let commandName: DaemonCommandName = "agent-inventory-watch"
     /// Older owners must never receive an unfenced cleanup fallback.
     public static let requiredCapability: String? = "agent-inventory-watch-fence-v1"
     /// The exact owner of the lease being retired.
@@ -24,5 +24,9 @@ public nonisolated struct MachineAgentInventoryUnwatchRequest: DaemonRequest {
         self.expectedMachineID = expectedMachineID
         self.expectedWatchID = expectedWatchID
         enabled = false
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case expectedMachineID = "expected_machine_id", expectedWatchID = "expected_watch_id", enabled
     }
 }

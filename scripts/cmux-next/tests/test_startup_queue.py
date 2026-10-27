@@ -30,7 +30,7 @@ FLEET = {"CMUX_CI_STEP_KEY": "step-1"}
 
 def blocking_run(complete, sites, overflow=0, **marks):
     return {"marks": {"startup_complete": complete, **marks},
-            "result": {"mode": "record", "overflow": overflow, "sites": sites}}
+            "result": {"compiled_in": True, "mode": "record", "overflow": overflow, "sites": sites}}
 
 
 def census_run(first_frame=200.0, complete=900.0, **result):
@@ -128,7 +128,8 @@ class BlockingTests(unittest.TestCase):
         self.assertTrue(any("not proved" in w for w in read_doc(out)["warnings"]))
 
     def test_a_run_without_the_until_mark_is_left_out(self):
-        late = {"result": {"sites": [{"kind": "fileRead", "location": "Late.swift:1", "count": 1, "first_ms": 9999}]}}
+        late = {"result": {"compiled_in": True,
+                           "sites": [{"kind": "fileRead", "location": "Late.swift:1", "count": 1, "first_ms": 9999}]}}
         hits, warnings, used = sq.blocking_hits(sq.capture_runs([late]), "startup_complete")
         self.assertEqual((hits, used), ([], 0))
         self.assertIn("no startup_complete mark", warnings[0])
@@ -138,6 +139,26 @@ class BlockingTests(unittest.TestCase):
     def test_overflow_is_a_warning(self):
         _, warnings, _ = sq.blocking_hits([blocking_run(900, [], overflow=4)], "startup_complete")
         self.assertIn("4 sites past", warnings[0])
+
+    def test_only_main_thread_sites_are_hits(self):
+        # One line reached on the main thread and on the pool is two debug.blocking sites; only the main one is
+        # a main-thread blocking hit, with its own count.
+        run = blocking_run(900, [{"context": "main", "kind": "fileIO", "location": "A.swift:1", "count": 2},
+                                 {"context": "pool", "kind": "fileIO", "location": "A.swift:1", "count": 7},
+                                 {"context": "pool", "kind": "syncWait", "location": "P.swift:9", "count": 1}])
+        hits, _, used = sq.blocking_hits([run], "startup_complete")
+        self.assertEqual(used, 1)
+        self.assertEqual([(h["location"], h["count"]) for h in hits], [("A.swift:1", 2)])
+
+    def test_pool_overflow_is_not_a_main_thread_warning(self):
+        run = blocking_run(900, [], overflow=3)
+        run["result"]["contexts"] = {"main": {"sites": 0, "count": 0, "overflow": 0},
+                                     "pool": {"sites": 0, "count": 0, "overflow": 3}}
+        _, warnings, _ = sq.blocking_hits([run], "startup_complete")
+        self.assertFalse(any("past the detector" in w for w in warnings))
+        run["result"]["contexts"]["main"]["overflow"] = 2
+        _, warnings, _ = sq.blocking_hits([run], "startup_complete")
+        self.assertIn("2 sites past", warnings[0])
 
     def test_cli_reads_a_raw_capture_and_writes_json(self):
         files = Files()
@@ -153,8 +174,22 @@ class BlockingTests(unittest.TestCase):
 
     def test_a_clean_launch_passes_check(self):
         files = Files()
-        raw = files.json("raw.json", [{"marks": {"startup_complete": 1}, "result": {"sites": []}}])
+        raw = files.json("raw.json", [{"marks": {"startup_complete": 1}, "result": {"compiled_in": True, "sites": []}}])
         self.assertEqual(run_cli(["blocking", raw, "--check"])[0], 0)
+
+    def test_a_report_from_a_build_without_the_detector_is_refused_not_clean(self):
+        # p12-perf-process-147: a `--config bench` app answers debug.blocking with no detector, so its empty
+        # sites are no evidence; only `compiled_in: true` (Debug, `--config bench-checks`) counts.
+        files = Files()
+        for result in ({"compiled_in": False, "mode": "record", "overflow": 0, "sites": []},
+                       {"mode": "record", "overflow": 0, "sites": []}):
+            run = {"marks": {"startup_complete": 1}, "result": result}
+            hits, warnings, used = sq.blocking_hits([run], "startup_complete")
+            self.assertEqual((hits, used), ([], 0), result)
+            self.assertIn("--config bench-checks", warnings[0])
+            code, _, err = run_cli(["blocking", files.json("nodetector.json", [run]), "--check"])
+            self.assertEqual(code, 2, "no usable run: refused, never a pass")
+            self.assertIn("no blocking detector", err)
 
 
 class GapsTests(unittest.TestCase):
@@ -191,7 +226,7 @@ class GapsTests(unittest.TestCase):
 
     def test_value_marks_are_not_times(self):
         runs = [{"main_start": 10, "first_window_frame_committed": 200, "launch.pageins_first_frame": 4100,
-                 "launch.main_cpu_ms": 56.5, "launch.temperature": "warm", "launch.interrupted": None}] * 3
+                 "launch.pageins_run_loop_start": 3800, "launch.main_cpu_ms": 56.5, "launch.temperature": "warm", "launch.interrupted": None}] * 3
         hits = sq.mark_gaps(runs, 5.0, "t warm")
         self.assertEqual([(h["from"], h["to"], h["p50_ms"]) for h in hits],
                          [("main_start", "first_window_frame_committed", 190.0)])
@@ -479,7 +514,8 @@ class CollectTests(unittest.TestCase):
         self.addCleanup(quiet.__exit__, None, None, None)
 
     def test_each_run_is_read_at_the_mark_and_a_daemon_from_before_is_left_running(self):
-        bench = FakeBench(lambda method: {"ok": True, "result": {"method": method, "sites": []}})
+        bench = FakeBench(lambda method: {"ok": True, "result": {"method": method, "compiled_in": True,
+                                                                 "sites": []}})
         runs = sq.collect(bench, "/x/cmux DEV t1.app", 3, "warm", "startup_complete", 5, "debug.blocking")
         self.assertEqual([r["result"]["method"] for r in runs], ["debug.blocking"] * 3)
         self.assertEqual(runs[0]["marks"]["startup_complete"], 800.0)
@@ -488,6 +524,15 @@ class CollectTests(unittest.TestCase):
         self.assertEqual(bench.pids, [11])
         hits, _, used = sq.blocking_hits(runs, "startup_complete")
         self.assertEqual((hits, used), ([], 3))
+
+    def test_a_live_report_without_the_detector_stops_at_the_first_launch(self):
+        bench = FakeBench(lambda method: {"ok": True, "result": {"compiled_in": False, "mode": "record", "sites": []}})
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err), self.assertRaises(sq.QueueError) as caught:
+            sq.collect(bench, "/x/cmux DEV t1.app", 3, "warm", "startup_complete", 5, "debug.blocking")
+        self.assertEqual(caught.exception.code, 2)
+        self.assertIn("--config bench-checks", err.getvalue())
+        self.assertEqual(len(bench.launched), 1, "refused at the first launch, not after every run")
 
     def test_launches_are_activated_and_scratch_folders_removed(self):
         bench = FakeBench(lambda method: {"result": {}}, daemon=False)

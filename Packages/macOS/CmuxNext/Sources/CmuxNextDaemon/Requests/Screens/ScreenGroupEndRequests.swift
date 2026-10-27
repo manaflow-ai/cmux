@@ -7,7 +7,7 @@ import Foundation
 
 public struct UngroupScreenGroupRequest: DaemonRequest {
     public typealias Response = ScreenGroupResult
-    public static let command = "ungroup-screen-group"
+    public static let commandName: DaemonCommandName = "ungroup-screen-group"
     public static let requiredCapability: String? = DaemonCapability.screenGroups.rawValue
     public var group: ScreenGroupID
     public init(group: ScreenGroupID) { self.group = group }
@@ -16,7 +16,7 @@ public struct UngroupScreenGroupRequest: DaemonRequest {
 /// Closes every member screen. A saved group keeps its saved record.
 public struct CloseScreenGroupRequest: DaemonRequest {
     public typealias Response = ScreenGroupResult
-    public static let command = "close-screen-group"
+    public static let commandName: DaemonCommandName = "close-screen-group"
     public static let requiredCapability: String? = DaemonCapability.screenGroups.rawValue
     public var group: ScreenGroupID
     public var endTerminals: Bool?

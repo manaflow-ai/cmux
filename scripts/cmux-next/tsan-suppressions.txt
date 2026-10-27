@@ -1,0 +1,19 @@
+# ThreadSanitizer suppressions for scripts/cmux-next/sanitizer-sweep.sh (TSAN_OPTIONS=suppressions=...).
+#
+# Rules (the sweep refuses a file that breaks them):
+# - At most 10 suppressions, each for third-party code only. A race in cmux code is a finding to
+#   fix, never a suppression.
+# - Each suppression is `type:pattern` (race, race_top, thread, mutex, signal, deadlock,
+#   called_from_lib). TSan matches the pattern anywhere in a function, file or module name, so a
+#   pattern may not start with `*`, needs a literal run of at least 4 characters, may not contain
+#   "cmux", may not name a type declared under Packages/, and may not be part of a Packages/ path or
+#   of a type or function name declared there. Name the library: `Sparkle.framework`, not `Sparkle`.
+# - TSan reads the rest of a suppression line as the pattern, so the reason is the comment line
+#   right above it: `# third-party <component>: <why the report is not a cmux bug>`.
+# - Remove a suppression when its component is updated or no longer linked.
+#
+# Chromium keeps the same list in build/sanitizers/tsan_suppressions.cc, each entry with a bug.
+#
+# Example:
+#   # third-party Sparkle 2.6: SPUUpdater reads its cached state off main; upstream issue NNNN
+#   race:Sparkle.framework

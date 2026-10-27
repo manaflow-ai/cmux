@@ -1,3 +1,4 @@
+import CmuxSafeConcurrency
 import CryptoKit
 public import Foundation
 
@@ -13,7 +14,7 @@ public actor CmxIrohIdentityRepository {
     private let randomBytes: @Sendable () throws -> Data
     private let marker: @Sendable () -> String
     private var operationIsActive = false
-    private var operationWaiters: [UUID: CheckedContinuation<Void, any Error>] = [:]
+    private var operationWaiters: [UUID: OnceContinuation<Void, any Error>] = [:]
     private var operationWaiterOrder: [UUID] = []
 
     /// Creates an identity repository with injectable persistence and entropy.
@@ -82,8 +83,8 @@ public actor CmxIrohIdentityRepository {
         }
         let id = UUID()
         try await withTaskCancellationHandler {
-            try await withCheckedThrowingContinuation {
-                (continuation: CheckedContinuation<Void, any Error>) in
+            try await withOnceThrowingContinuation {
+                (continuation: OnceContinuation<Void, any Error>) in
                 if Task.isCancelled {
                     continuation.resume(throwing: CancellationError())
                     return
@@ -102,7 +103,7 @@ public actor CmxIrohIdentityRepository {
             return
         }
         operationWaiterOrder.removeFirst()
-        operationWaiters.removeValue(forKey: id)?.resume()
+        operationWaiters.removeValue(forKey: id)?.resume(returning: ())
     }
 
     private func cancelOperationWaiter(_ id: UUID) {
@@ -156,7 +157,7 @@ public actor CmxIrohIdentityRepository {
             throw CmxIrohIdentityRepositoryError.invalidGeneration
         }
         var bytes = Data([recordVersion])
-        withUnsafeBytes(of: generation.bigEndian) { bytes.append(contentsOf: $0) }
+        bytes.appendBigEndian(generation)
         bytes.append(contentsOf: material.secretKey.bytes)
         return bytes
     }

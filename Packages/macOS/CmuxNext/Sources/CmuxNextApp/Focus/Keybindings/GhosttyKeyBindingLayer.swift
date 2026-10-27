@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextActions
 import CmuxNextTerminal
 import CmuxNextFocusUI
+import CmuxNextLaunch
 
 /// The Ghostty config's keybinds as binding table entries (GHOSTTY-CONFIG,
 /// plans/cmux-next/ghostty-config.md "Keybinds"; PANE-FOCUS-RESIZE-KEYS-AND-
@@ -72,11 +73,11 @@ struct GhosttyKeyBindingLayer {
 
     /// Whether `event`'s chord is the user's own Ghostty keybind: a key their
     /// config claims from a cmux default (`ghosttyClaims`) or a `.ghostty`
-    /// entry, never a `.ghosttyFallback` default.
+    /// entry, never a `.ghosttyFallback` default. One set lookup per key the
+    /// event may mean (`KeyBindingLayers.usersGhosttyKeys`, built at load).
     static func isUsersKeybind(_ event: NSEvent, layers: KeyBindingLayers) -> Bool {
-        ActionRegistry.shortcuts(for: event).contains { key in
-            layers.ghosttyClaims.contains(key) || layers.ghostty.contains { $0.source == .ghostty && $0.keys == [key] }
-        }
+        let keys = layers.usersGhosttyKeys
+        return ActionRegistry.shortcuts(for: event).contains { keys.contains($0) }
     }
 
     /// The table key of a trigger: its codepoint, or the physical key's name.
@@ -106,11 +107,14 @@ extension KeyRouter {
 /// triggers name keys by what they type).
 final class GhosttyKeybindSync {
     private weak var router: KeyRouter?
+    /// The agent panes' launch images: at launch the claim probes wait for them.
+    private let launchImages: LaunchImageHold
     private var layoutObserver: KeyboardLayoutObserver?
     private var claimsTask: Task<Void, Never>?
 
-    init(router: KeyRouter) {
+    init(router: KeyRouter, launchImages: LaunchImageHold) {
         self.router = router
+        self.launchImages = launchImages
     }
 
     func start() {
@@ -136,11 +140,11 @@ final class GhosttyKeybindSync {
         router.loadGhosttyKeybinds(binds, defaults: defaults, claims: router.registry.keyBindingLayers.ghosttyClaims, keyNames: keyNames)
         let files = runtime.loadedConfigFiles
         claimsTask?.cancel()
-        claimsTask = Task { [weak self] in
+        claimsTask = Task { [weak self, launchImages] in
             let texts = await GhosttyRuntime.configTexts(files)
             // At launch the probes wait for the first agent page to paint: about 20 ms of main
             // thread that held up its navigation (cx-z9kz0).
-            await LaunchImageHold.shared.clear()
+            await launchImages.clear()
             guard !Task.isCancelled, let router = self?.router else { return }
             // The keys cmux has defaults on, asked of the user's Ghostty config.
             let probes = GhosttyKeyBindingLayer.defaultKeys(RegistryKeyBindings(router.registry).table).compactMap { key in

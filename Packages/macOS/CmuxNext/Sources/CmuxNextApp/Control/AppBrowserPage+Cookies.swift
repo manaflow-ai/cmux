@@ -1,15 +1,16 @@
 import CmuxNextBrowser
 import CmuxNextControl
 import CmuxNextSettings
+import CmuxNextWakeups
 import Foundation
 
 /// `browser.page.cookies.*` on the tab's engine store.
 extension AppBrowserPage {
-    static func cookies(_ page: any BrowserTab, _ request: BrowserPageCookieRequest) async throws -> JSONValue {
+    static func cookies(_ page: any BrowserTab, _ request: BrowserPageCookieRequest, work: BackgroundWork) async throws -> JSONValue {
         do {
             switch request {
             case .list:
-                return ["cookies": .array(try await page.cookies().map { pageCookie($0).json })]
+                return ["cookies": .array(try await page.cookies(on: work).map { pageCookie($0).json })]
             case .set(let cookies):
                 for cookie in cookies {
                     do {

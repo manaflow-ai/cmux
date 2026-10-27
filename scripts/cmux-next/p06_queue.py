@@ -7,7 +7,8 @@ section 6, task p06-scheduler-216).
    else section 6's heuristic: a plain `Task {` in a file that names a main-actor isolation; `Task { @concurrent
    in` and `Task.detached` are off main). The queue regexes are section 6's `git grep -E` commands; a line with
    `///` is dropped, as `| grep -v '///'` does.
-2. Judges each hit in its state after the migration: a `MainDelivery(class:` is the R-delivery target, and an
+2. Judges each hit in its state after the migration: a `MainDelivery(class:` is the R-delivery target, a notice name
+   passed straight to a WindowEvents or AppEvents `subscribe(` is the R-notif target, and an
    override that the recipe keeps (R-hide `viewDidHide`/`viewDidUnhide`, R-input `mouseMoved`/`scrollWheel`/
    `mouseDragged`, R-appear `viewDidChangeEffectiveAppearance`) is settled when its body does only what the
    recipe allows. A settled hit is listed by --group and not counted by --check.
@@ -250,9 +251,17 @@ def _delivery_settled(lines: list[str], index: int) -> bool:
     return bool(calls) and all(re.match(r"class\s*:", rest) for rest in calls)
 
 
+def _notice_settled(lines: list[str], index: int) -> bool:
+    """R-notif's target: the line's only Q4 matches are notice names passed straight to a WindowEvents or AppEvents
+    `subscribe(` (the hook's raw-observer rule judges it the same way, guardrails.raw_observer_in)."""
+    return not _load("guardrails").raw_observer_in(_load("swift_scope").code_of(lines[index]))
+
+
 def _settled(recipe: str, lines: list[str], index: int, bodies: Callable[[], _Bodies]) -> bool:
     if recipe == "R-delivery":
         return _delivery_settled(lines, index)
+    if recipe == "R-notif":
+        return _notice_settled(lines, index)
     allowed = _KEPT_OVERRIDES.get(recipe)
     if allowed is None:
         return False

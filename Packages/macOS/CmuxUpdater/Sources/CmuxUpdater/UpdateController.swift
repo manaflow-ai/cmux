@@ -1,5 +1,4 @@
 public import Foundation
-@preconcurrency import Sparkle
 
 /// Coordinates cmux's custom Sparkle update flow: owns the `SPUUpdater` and its
 /// ``UpdateDriver``, exposes the observable ``UpdateStateModel``, and sequences the
@@ -106,12 +105,7 @@ public final class UpdateController {
                   isDevLikeBundle: isDevLikeBundle,
                   isDisabledByPolicy: isDisabledByPolicy,
                   updaterFactory: { driver, hostBundle in
-                      SPUUpdater(
-                          hostBundle: hostBundle,
-                          applicationBundle: hostBundle,
-                          userDriver: driver,
-                          delegate: driver
-                      )
+                      driver.makeSparkleUpdater(hostBundle: hostBundle)
                   })
     }
 

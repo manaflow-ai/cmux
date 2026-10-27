@@ -158,10 +158,10 @@ fn counts_the_forks_of_its_process_and_not_of_others() {
     use std::io::{BufRead, BufReader, Write};
     // On each line, the child forks once (a `( : )` subshell) and then says
     // so; it forks nothing before the first line, so the watch is in place.
-    let mut child = std::process::Command::new("/bin/sh")
+    let mut child = cmux_process::Command::new("/bin/sh")
         .args(["-c", "while read -r line; do ( : ); echo forked; done"])
-        .stdin(std::process::Stdio::piped())
-        .stdout(std::process::Stdio::piped())
+        .stdin(cmux_process::Stdio::piped())
+        .stdout(cmux_process::Stdio::piped())
         .spawn()
         .unwrap();
     let watch = ForkWatch::new(child.id());
@@ -171,7 +171,7 @@ fn counts_the_forks_of_its_process_and_not_of_others() {
     for expected in 1..=3 {
         // Forks of this process are not the child's.
         for _ in 0..3 {
-            std::process::Command::new("true").status().unwrap();
+            cmux_process::Command::new("true").status().unwrap();
         }
         stdin.write_all(b"go\n").unwrap();
         let mut said = String::new();
@@ -188,28 +188,11 @@ const SPAWN_HELPER_ENV: &str = "CMUX_FORK_WATCH_SPAWN_HELPER";
 /// What the helper prints after each spawn.
 const SPAWNED: &str = "fork-watch-spawned";
 
-/// `posix_spawn`s /usr/bin/true and reaps it.
+/// `posix_spawn`s /usr/bin/true and reaps it (`cmux_process` starts every
+/// child with `posix_spawn` on macOS).
 fn posix_spawn_true() {
-    let path = c"/usr/bin/true";
-    let argv = [path.as_ptr().cast_mut(), std::ptr::null_mut()];
-    let envp = [std::ptr::null_mut::<libc::c_char>()];
-    let mut pid: libc::pid_t = 0;
-    // SAFETY: `path`, `argv` and `envp` are NUL-terminated and outlive the
-    // call; no file actions or attributes.
-    let result = unsafe {
-        libc::posix_spawn(
-            &mut pid,
-            path.as_ptr(),
-            std::ptr::null(),
-            std::ptr::null(),
-            argv.as_ptr(),
-            envp.as_ptr(),
-        )
-    };
-    assert_eq!(result, 0, "posix_spawn: {}", std::io::Error::from_raw_os_error(result));
-    let mut status = 0;
-    // SAFETY: `pid` is the child just spawned, reaped once here.
-    assert_eq!(unsafe { libc::waitpid(pid, &mut status, 0) }, pid);
+    let status = cmux_process::Command::new("/usr/bin/true").status().unwrap();
+    assert!(status.success(), "/usr/bin/true: {status:?}");
 }
 
 /// The child side of `counts_posix_spawn_of_its_process`, which runs it
@@ -238,7 +221,7 @@ fn posix_spawn_helper() {
 #[test]
 fn counts_posix_spawn_of_its_process() {
     use std::io::{BufRead, BufReader, Write};
-    let mut child = std::process::Command::new(std::env::current_exe().unwrap())
+    let mut child = cmux_process::Command::new(std::env::current_exe().unwrap())
         .args([
             "--exact",
             "shell_integration::fork_watch::posix_spawn_helper",
@@ -247,8 +230,8 @@ fn counts_posix_spawn_of_its_process() {
             "--test-threads=1",
         ])
         .env(SPAWN_HELPER_ENV, "1")
-        .stdin(std::process::Stdio::piped())
-        .stdout(std::process::Stdio::piped())
+        .stdin(cmux_process::Stdio::piped())
+        .stdout(cmux_process::Stdio::piped())
         .spawn()
         .unwrap();
     let watch = ForkWatch::new(child.id());

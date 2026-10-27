@@ -18,6 +18,7 @@ final class SidebarSectionHeaderView: NSView {
     override init(frame: NSRect) {
         super.init(frame: frame)
         wantsLayer = true
+        layerContentsRedrawPolicy = .onSetNeedsDisplay // updateLayer sets colors only
         name.lineBreakMode = .byTruncatingTail
         name.maximumNumberOfLines = 1
         chevron.alphaValue = 0
@@ -84,6 +85,7 @@ final class SidebarSectionHeaderView: NSView {
         name.frame = NSRect(x: nameX, y: (b.height - th) / 2, width: max(0, chevron.frame.minX - Metrics.space2 - nameX), height: th)
     }
 
+    // visibility-walk-allow: only invalidates; AppKit draws a hidden view when it shows, so the repaint already waits for it
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         needsDisplay = true
@@ -95,6 +97,7 @@ final class SidebarSectionHeaderView: NSView {
         didDrag = false
     }
 
+    // local-monitor-allow: a drag is delivered unbuffered until its mouse-up (p06-scheduler.md section E, FrameInputCoalescer); past the threshold the section moves
     override func mouseDragged(with event: NSEvent) {
         guard let pressLocation, onDragged?(pressLocation, event) == true else { return }
         didDrag = true

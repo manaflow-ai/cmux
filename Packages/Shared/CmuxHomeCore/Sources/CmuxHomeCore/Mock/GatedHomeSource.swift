@@ -1,17 +1,22 @@
+import CmuxSafeConcurrency
 public import Foundation
 
 /// A `HomeSource` over another one that can hold transcript reads until a
 /// test lets them go, and records each read and close. Tests use it to
 /// check that every `HomeStore.open` pairs with one `close`, also while a
 /// first page loads.
-public final class GatedHomeSource: HomeSource, @unchecked Sendable {
+public final class GatedHomeSource: HomeSource, Sendable {
     private let inner: any HomeSource
-    private let lock = NSLock()
-    private var holding = false
-    private var held: [CheckedContinuation<Void, Never>] = []
-    private var reads: [ConversationID] = []
-    private var closed: [ConversationID] = []
-    private var steps: [Step] = []
+    private let state = Mutex(State())
+
+    /// Everything the reads and closes change, reached only under the mutex.
+    private struct State {
+        var holding = false
+        var held: [OnceContinuation<Void, OnceContinuationError>] = []
+        var reads: [ConversationID] = []
+        var closed: [ConversationID] = []
+        var steps: [Step] = []
+    }
 
     /// One read starting or returning, or one close, in the order they ran.
     public enum Step: Hashable, Sendable {
@@ -25,43 +30,43 @@ public final class GatedHomeSource: HomeSource, @unchecked Sendable {
     }
 
     /// Every transcript read so far (`snapshot(of:tail:)`), in order.
-    public var snapshots: [ConversationID] { lock.withLock { reads } }
+    public var snapshots: [ConversationID] { state.withLock { $0.reads } }
     /// Every `close` so far, in order.
-    public var closes: [ConversationID] { lock.withLock { closed } }
+    public var closes: [ConversationID] { state.withLock { $0.closed } }
     /// Every read start, read return and close so far, in order.
-    public var journal: [Step] { lock.withLock { steps } }
+    public var journal: [Step] { state.withLock { $0.steps } }
     /// Reads waiting for `release()` now.
-    public var waiting: Int { lock.withLock { held.count } }
+    public var waiting: Int { state.withLock { $0.held.count } }
 
     /// Holds every later transcript read until `release()`.
     public func hold() {
-        lock.withLock { holding = true }
+        state.withLock { $0.holding = true }
     }
 
     /// Lets every held read go, and stops holding.
     public func release() {
-        let waiters = lock.withLock { () -> [CheckedContinuation<Void, Never>] in
-            holding = false
-            defer { held = [] }
-            return held
+        let waiters = state.withLock { state -> [OnceContinuation<Void, OnceContinuationError>] in
+            state.holding = false
+            defer { state.held = [] }
+            return state.held
         }
-        for waiter in waiters { waiter.resume() }
+        for waiter in waiters { waiter.resume(returning: ()) }
     }
 
     public func events() async -> AsyncStream<HomeEvent> { await inner.events() }
     public func inbox() async throws -> InboxSnapshot { try await inner.inbox() }
 
     public func snapshot(of conversation: ConversationID, tail: Int) async throws -> ConversationPage {
-        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
-            let wait = lock.withLock { () -> Bool in
-                reads.append(conversation)
-                steps.append(.read(conversation))
-                if holding { held.append(continuation) }
-                return holding
+        try? await withOnceContinuation { (continuation: OnceContinuation<Void, OnceContinuationError>) in
+            let wait = state.withLock { state -> Bool in
+                state.reads.append(conversation)
+                state.steps.append(.read(conversation))
+                if state.holding { state.held.append(continuation) }
+                return state.holding
             }
-            if !wait { continuation.resume() }
+            if !wait { continuation.resume(returning: ()) }
         }
-        defer { lock.withLock { steps.append(.readReturned(conversation)) } }
+        defer { state.withLock { $0.steps.append(.readReturned(conversation)) } }
         return try await inner.snapshot(of: conversation, tail: tail)
     }
 
@@ -79,9 +84,9 @@ public final class GatedHomeSource: HomeSource, @unchecked Sendable {
     }
 
     public func close(_ conversation: ConversationID) {
-        lock.withLock {
-            closed.append(conversation)
-            steps.append(.close(conversation))
+        state.withLock { state in
+            state.closed.append(conversation)
+            state.steps.append(.close(conversation))
         }
         inner.close(conversation)
     }

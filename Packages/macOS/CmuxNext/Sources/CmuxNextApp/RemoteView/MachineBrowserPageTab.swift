@@ -29,11 +29,19 @@ final class MachineBrowserPageTab: BrowserTab {
     @ObservationIgnored var onStart: (@MainActor () -> Void)?
     /// A start in progress or its failure, over the machine's state.
     @ObservationIgnored var phase: MachineBrowserState? {
-        didSet { view.show(phase ?? currentState(), queued: queuedURL) }
+        didSet {
+            view.show(phase ?? currentState(), queued: queuedURL)
+            // The person reads why the browser is not there, not an old frame.
+            if !isStarting { wakeCover.remove() }
+        }
     }
     /// The address the person typed (or the record's first page): it opens
     /// when the machine's browser is ready, or here with Open Locally Instead.
     private(set) var queuedURL: URL?
+    /// A woken machine tab's last frame while the machine's browser starts again; the streamed
+    /// page it starts takes it over (`handOverWakeCover`) until its first frame. This page itself is
+    /// never discarded: only the streamed page is (`BrowserStreamedPage`).
+    @ObservationIgnored private let wakeCover = BrowserWakeCover()
 
     var contentView: NSView { view }
     /// The message shown (debug socket).
@@ -108,7 +116,30 @@ final class MachineBrowserPageTab: BrowserTab {
     func setZoom(_ zoom: Double) {}
     func exitContentFullscreen() {}
     func showDevTools() {}
-    func close() {}
+    func close() { wakeCover.remove() }
+
+    /// The streamed page that replaces this one keeps the woken tab's last frame until its first.
+    func handOverWakeCover(to page: any BrowserTab) {
+        guard let standIn = page as? any BrowserWakeStandIn else { return wakeCover.remove() }
+        wakeCover.handOver(to: standIn)
+    }
+
+    /// The last frame covers the page now (tests, debug).
+    var showsWakeCover: Bool { wakeCover.isShown }
+}
+
+extension MachineBrowserPageTab: BrowserWakeStandIn {
+    /// Covers the page with the tab's last frame while the machine's browser starts again; a page
+    /// that shows why it is not ready shows that instead.
+    @discardableResult
+    func showStandIn(_ picture: CGImage, decoded: Bool, cap: Duration, clock: any Clock<Duration>) -> Bool {
+        guard isStarting else { return false }
+        wakeCover.show(picture, decoded: decoded, in: view, cap: cap, clock: clock)
+        return true
+    }
+
+    /// A start, then the stream's connect: as long as a stream's reconnect.
+    var wakeCoverCap: Duration? { BrowserWakeCover.reconnectCap }
 }
 
 /// The not-ready message, the waiting address and the two buttons.

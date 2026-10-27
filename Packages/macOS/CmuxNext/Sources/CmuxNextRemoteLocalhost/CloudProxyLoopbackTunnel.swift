@@ -14,7 +14,7 @@ struct CloudProxyLoopbackTunnel: LoopbackTunnel {
             let task = Task {
                 if !initialData.isEmpty,
                    !Self.yield(.data(initialData), to: continuation, connection: source) { return }
-                // wakeup-allow: every iteration awaits Network.framework for the next bytes or EOF.
+                // wakeup-allow: bounded: every iteration awaits Network.framework for the next bytes or EOF.
                 while !Task.isCancelled {
                     do {
                         let (data, complete) = try await source.receiveChunk(max: 16 * 1024)

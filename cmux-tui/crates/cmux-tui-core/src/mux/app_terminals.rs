@@ -4,7 +4,8 @@
 //! writes its durable record (`resource_content.rs`); until then it has no
 //! registry record, and the supervisor closes it after 60 s.
 
-use std::sync::{Arc, Mutex};
+use cmux_threads::sync::Mutex;
+use std::sync::Arc;
 
 use anyhow::Context;
 
@@ -141,6 +142,7 @@ impl Mux {
 
     /// After a committed first view: the terminal keeps its identity and its
     /// record becomes running with that incarnation.
+    #[track_caller]
     pub(crate) fn finish_app_terminal_first_view(&self, first: &FirstView) -> anyhow::Result<()> {
         let Some((surface, identity)) = first.0.lock().unwrap().take() else { return Ok(()) };
         let (terminal_id, incarnation) =

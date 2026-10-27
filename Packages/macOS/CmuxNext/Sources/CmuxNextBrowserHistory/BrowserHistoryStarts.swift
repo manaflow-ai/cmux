@@ -3,6 +3,7 @@ import CmuxNextCompat
 public import CmuxNextDaemon
 public import Foundation
 import WebKit
+import CmuxNextWakeups
 
 /// Restored WebKit pages that start from their saved history (cx-p0im9). The page is made
 /// blank; once this Mac's daemon answers with the tab's saved history (`BrowserTabService`),
@@ -65,8 +66,9 @@ public final class BrowserHistoryStarts {
         // A mark left by a Chromium page that could not be made is not this page's.
         engineRestored.remove(tabID)
         let timer = Task { [weak self] in
-            // wakeup-allow: one-shot fallback for a slow history read, cancelled when it answers
-            do { try await Task.sleep(for: Self.budget) } catch { return }
+            // wakeup-allow: deadline of a slow history read, cancelled when it answers;
+            // not a DemandTimer: main actor (timer-class asks MainDeadline, and this type has no MainDeadlineScheduler seam)
+            do { try await Task.sleep(for: Self.budget, tolerance: WakeLeeway.window(delay: Self.budget).tolerance) } catch { return }
             self?.start(tabID, saved: nil)
         }
         waiting[tabID] = Waiting(page: page, url: url, timer: timer)

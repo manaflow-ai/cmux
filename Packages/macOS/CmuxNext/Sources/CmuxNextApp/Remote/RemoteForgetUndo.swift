@@ -20,8 +20,7 @@ enum RemoteForgetUndo {
         handle.onAction = { [weak ssh] in ssh?.unhide(pending) }
         handle.onDismiss = { [weak ssh] reason in
             guard reason != .action, let ssh else { return }
-            // task-owner: one home-daemon write, bounded by the request timeout
-            Task { await ssh.commitForget(pending) }
+            ssh.commitForget(pending)
         }
     }
 }

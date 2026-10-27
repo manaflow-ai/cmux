@@ -9,9 +9,9 @@
 //! running brain off until it reconnects). Nothing starts for an explicit
 //! `--socket` or `--session`: the CLI then only connects.
 
+use cmux_process::{Command, Stdio};
 use std::fs::OpenOptions;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
 use std::time::Instant;
 
 use serde_json::{Value, json};
@@ -247,18 +247,9 @@ fn spawn_brain(brain: &Path, home: &ChiefHome, socket: &Path, user: &str) -> std
     if let Some(acpmux) = sibling_or_path("acpmux") {
         command.env("ACPMUX_BIN", acpmux);
     }
+    // The brain outlives this CLI and its terminal.
     #[cfg(unix)]
-    {
-        use std::os::unix::process::CommandExt;
-        // SAFETY: setsid(2) is async-signal-safe and touches no Rust state in
-        // the post-fork child: the brain outlives this CLI and its terminal.
-        unsafe {
-            command.pre_exec(|| {
-                libc::setsid();
-                Ok(())
-            });
-        }
-    }
+    command.new_session();
     let mut child = command.spawn()?;
     let pid = child.id();
     // Reap it if it exits while this CLI still runs (a second brain exits 0).

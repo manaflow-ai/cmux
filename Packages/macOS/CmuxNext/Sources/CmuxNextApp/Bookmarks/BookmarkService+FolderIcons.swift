@@ -5,6 +5,7 @@ import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextIcons
 import CmuxNextTabs
+import CmuxNextWakeups
 
 /// Bookmark folder icons (`bookmark-icon-v1`, cx-qno.11.3): a folder's own
 /// icon, the shared icon string (an emoji, an SF Symbol name, or a stored image
@@ -61,22 +62,21 @@ extension BookmarkService {
         return true
     }
 
-    /// Redraws the bars that drew the folder symbol for a stored icon when it lands.
+    /// Forgets each stored icon that landed (model work, while nothing shows too) and redraws the bars
+    /// that drew the folder symbol for it through their tabs' nodes (``reloadBar(_:)``). `visible`: the
+    /// icons show on the bars.
     func followFolderIcons() {
-        // task-owner: lives as long as the service; event-driven (Observation)
-        folderIconObservation = Task { [weak self] in
-            for await landed in ObservationStream({ [weak self] in self?.landedAwaitedFolderIcons() ?? [] }) {
-                guard let self else { return }
-                guard !landed.isEmpty else { continue }
-                awaitedFolderIcons.subtract(landed)
-                guard showsBar else { continue }
-                for chrome in chromes.values where chrome.entry != nil && chrome.source.awaitsFavicons { chrome.bar.reload() }
-            }
+        folderIconObservation = ServiceObservation(.visible, owner: "BookmarkService.folderIcons", on: services.mainWork) { [weak self] in
+            self?.landedAwaitedFolderIcons() ?? []
+        } apply: { [weak self] landed in
+            guard let self, !landed.isEmpty else { return }
+            awaitedFolderIcons.subtract(landed)
+            reloadBarsAwaitingIcons()
         }
     }
 
-    /// Reads the awaited icons and each one's image, so the stream above runs
-    /// again when one is added or lands.
+    /// Reads the awaited icons and each one's image, so the observation above
+    /// runs again when one is added or lands.
     private func landedAwaitedFolderIcons() -> Set<String> {
         awaitedFolderIcons.filter { IconAssetImages.shared.image($0, owner: iconOwner) != nil }
     }

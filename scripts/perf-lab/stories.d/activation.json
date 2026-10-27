@@ -1,0 +1,19 @@
+{
+  "id": "activation",
+  "tier": "T1",
+  "description": "App activation (Cmd-Tab back) in a light session: become notices on the main thread, the next main-actor round trip, and the status indicators each activation re-checks (debug.app_activation). The heavy session is the activation-stress story.",
+  "command": ["scripts/cmux-next/activation-perf.py", "--phases", "light"],
+  "session": "light",
+  "engine": "none",
+  "config": "bench",
+  "metrics": [
+    {"name": "activation\\.light\\.(observers|round_trip|drain|total)", "unit": "ms", "better": "lower"},
+    {"name": "activation\\.light\\.resyncs", "unit": "count", "better": "lower"}
+  ],
+  "repeats": 1,
+  "seconds": 120,
+  "needs": ["debug:debug.app_activation", "debug:debug.layout_counters"],
+  "hot_paths": ["cmd-tab"],
+  "owner": "PL-switch",
+  "component": "App>Activation"
+}

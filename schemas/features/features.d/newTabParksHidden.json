@@ -1,0 +1,14 @@
+{
+  "$schema": "../features.schema.json",
+  "name": "newTabParksHidden",
+  "owner": "PL-webui",
+  "description": "The preloaded New Tab page waits hidden in the app's preload slot (its document reports hidden), and Cmd-T shows the picture it parked with until its first live frame in the pane. Off: it waits rendering, as before, and its move into the pane is covered by its own last frame.",
+  "defaults": { "dev": false, "nightly": false, "release": false },
+  "kind": "perfPath",
+  "expires": "2026-12-20",
+  "process": "app",
+  "params": [],
+  "stories": ["home-idle", "new-tab-page"],
+  "sticky": false,
+  "runtimeMutable": false
+}

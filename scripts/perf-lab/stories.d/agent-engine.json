@@ -1,0 +1,22 @@
+{
+  "id": "agent-engine",
+  "tier": "T1",
+  "description": "The agent chat with the mock agent host, Chromium arm (agent-engine-bench.py; agent.chromium on, browser.defaultEngine Chromium; the WebKit arm is agent-engine-webkit): open action to the first text and to a visible composer for the first chat and each next one, a mock session's composer, each composer key's time to the next frame and to its paint, every frame of flings over 5,000 seeded rows, and the footprint at launch, with one chat and with all chats.",
+  "command": ["scripts/cmux-next/agent-engine-bench.py", "--modes", "chromium", "--story", "agent-engine"],
+  "session": "light",
+  "engine": "chromium",
+  "config": "bench",
+  "metrics": [
+    {"name": "agent_engine\\.(first|next)_(content|interactive)", "unit": "ms", "better": "lower"},
+    {"name": "agent_engine\\.session_composer", "unit": "ms", "better": "lower"},
+    {"name": "agent_engine\\.fling\\.frame_interval", "unit": "ms", "better": "lower"},
+    {"name": "agent_engine\\.typing\\.(to_frame|to_paint)", "unit": "ms", "better": "lower"},
+    {"name": "agent_engine\\.memory\\.(baseline|one_chat|chats_[0-9]+)\\.footprint", "unit": "bytes", "better": "lower"},
+    {"name": "agent_engine\\.(((first|next)_(content|interactive)|session_composer|fling\\.dropped_frames)\\.missed_runs|fling\\.dropped_frames|engine_fallback)", "unit": "count", "better": "lower"}
+  ],
+  "repeats": 1,
+  "seconds": 180,
+  "needs": ["debug:debug.agent_pane", "env:CMUX_NEXT_DEBUG_TUNABLES_FILE"],
+  "owner": "Performance Lead",
+  "component": "Agents>Chat"
+}

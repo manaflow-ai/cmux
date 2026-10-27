@@ -449,9 +449,36 @@ fn failed_first_attach_restores_pre_attach_surface_geometry() {
 
     rollback_failed_attach(&mux, client, surface.id, stream.id, marked.size_rollback);
 
-    assert_eq!(surface.size(), (120, 40));
+    // The browser takes the restored size on its own worker; the rollback
+    // does not wait for it (p02-threads-221).
+    settle_browser_size(&surface, (120, 40));
     assert_eq!(mux.client_surface_size(surface.id, client), None);
     assert!(!mux.control_clients.attached_client_ids().contains(&client));
+}
+
+/// p02-threads-221: a failed attach's size rollback runs on the request
+/// thread, and the wait for the browser to take the restored size never does.
+#[test]
+fn attach_rollback_on_a_request_thread_never_waits_for_the_browser() {
+    let mux = test_mux();
+    let surface = sizing_browser(&mux, (120, 40));
+    let writer = test_writer();
+    let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+    let stream = writer.start_stream(&json!({"event": "test"})).unwrap();
+    mux.control_clients.attach_surface(client, surface.id, stream).unwrap();
+    let resize =
+        mux.resize_surface_for_control_client_with_reservation(surface.id, client, 80, 24).unwrap();
+    settle_browser_size(&surface, (80, 24));
+
+    let request_mux = mux.clone();
+    let surface_id = surface.id;
+    let rolled_back = crate::mux::mux_work::on_request_thread_in_panic_mode(move || {
+        request_mux.rollback_surface_size_client(surface_id, client, resize.rollback);
+    });
+
+    assert!(rolled_back.is_ok(), "the rollback blocked its request thread");
+    assert_eq!(mux.client_surface_size(surface.id, client), None);
+    settle_browser_size(&surface, (120, 40));
 }
 
 #[test]

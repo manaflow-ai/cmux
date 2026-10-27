@@ -69,7 +69,11 @@ public final class SocksProxyServer: Sendable {
 /// Runs the SOCKS5 greeting and request on an accepted connection (which has
 /// `autoRead` off), asks the backend for the tunnel, replies, and hands the
 /// connection to a relay.
-final class SocksHandshakeHandler: ChannelInboundHandler, RemovableChannelHandler, @unchecked Sendable {
+///
+/// Not `Sendable`: like every channel handler it lives on its channel's event
+/// loop. The connect task reaches it only through a `NIOLoopBound`, which
+/// checks the loop on every access.
+final class SocksHandshakeHandler: ChannelInboundHandler, RemovableChannelHandler {
     typealias InboundIn = ByteBuffer
     typealias OutboundOut = ByteBuffer
 
@@ -156,7 +160,7 @@ final class SocksHandshakeHandler: ChannelInboundHandler, RemovableChannelHandle
         let channel = context.channel
         let backend = backend
         let relays = relays
-        let handler = UncheckedSendableBox(self)
+        let handler = NIOLoopBound(self, eventLoop: context.eventLoop)
         let body: @Sendable () async -> Void = { [pendingAtOpen = pending] in
             let exit: any TunnelByteStream
             do {
@@ -175,7 +179,7 @@ final class SocksHandshakeHandler: ChannelInboundHandler, RemovableChannelHandle
                     let reply = SocksReply.succeeded.message(allocator: channel.allocator)
                     channel.writeAndFlush(reply, promise: nil)
                     let stream = try NIOChannelByteStream.installSync(on: channel, leftover: pendingAtOpen)
-                    channel.pipeline.removeHandler(handler.value, promise: nil)
+                    channel.pipeline.syncOperations.removeHandler(handler.value, promise: nil)
                     return stream
                 }.get()
             } catch {
@@ -202,9 +206,4 @@ final class SocksHandshakeHandler: ChannelInboundHandler, RemovableChannelHandle
     func errorCaught(context: ChannelHandlerContext, error: any Error) {
         context.close(promise: nil)
     }
-}
-
-struct UncheckedSendableBox<Value>: @unchecked Sendable {
-    let value: Value
-    init(_ value: Value) { self.value = value }
 }

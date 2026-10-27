@@ -69,7 +69,7 @@ extension ChatController {
         // MessagesLab 7518134: the palette glyphs are drawn again in the new colour space now, not
         // inside the next menu's open on main.
         MenuGlyphs.removeAll()
-        RunLoop.main.perform(inModes: [.default]) { MenuGlyphs.warm() }
+        MainRunLoopPass.perform(inModes: [.default]) { MenuGlyphs.warm() }
         MessagesWindowView.displayColorSpaceChanged()
     }
 }
@@ -80,6 +80,7 @@ extension ChatController {
 /// is left alone: whoever rasterized it set its scale (and the resolution
 /// audit checks it). NSView-managed layers belong to AppKit. Runs when the
 /// main run loop goes idle; a walk is a few dozen pointer reads.
+@MainActor
 final class ScaleKeeper {
     static let shared = ScaleKeeper()
     /// cmux: every hosted Home tab (weak: a closed tab drops out), each walked at its own window view's
@@ -97,8 +98,9 @@ final class ScaleKeeper {
     func start() {
         guard observer == nil else { return }
         let o = CFRunLoopObserverCreateWithHandler(nil, CFRunLoopActivity.beforeWaiting.rawValue, true, 0) { [weak self] _, _ in
-            guard let self, self.dirty else { return }
-            self.apply()
+            guard let self else { return }
+            // main-proof: the observer is added only to CFRunLoopGetMain() below, whose observers run on the main thread.
+            MainActor.assumeIsolated { if self.dirty { self.apply() } }
         }
         CFRunLoopAddObserver(CFRunLoopGetMain(), o, .commonModes)
         observer = o

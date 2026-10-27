@@ -84,7 +84,7 @@ extension PageWebView {
         let generation = state.generation
         state.pending = true
         state.start = .now
-        if let script = Self.attributesScript(documentAttributes) { webView.evaluateJavaScript(script, completionHandler: nil) }
+        if let script = Self.attributesScript(documentAttributes) { webView.evaluateJavaScript(script, completionHandler: nil) } // MQ12 allowed: a parked spare never freezes
         applyTheme(force: true)
         applyLiveDocumentAttributes()
         let params: JSONValue = route.map { ["route": .string($0)] } ?? .object([:])
@@ -99,7 +99,7 @@ extension PageWebView {
             }
             self?.finishClaim(generation, path)
         }
-        state.deadline.schedule(after: state.budget) { @MainActor [weak self] in
+        state.deadline.scheduleOnMain(after: state.budget) { [weak self] in
             self?.finishClaim(generation, .timedOut)
         }
     }
@@ -132,8 +132,9 @@ extension PageWebView {
     /// Loads the current page URL again (a plain load of the same URL with another fragment is only
     /// a fragment navigation in WebKit, so this reloads from script).
     func reloadDocument() {
+        traceOpenLoadStarted(.reload)
         let fragment = route ?? "/"
-        webView.evaluateJavaScript("history.replaceState(null, \"\", \(JSONValue.string(fragment).compactText)); location.reload();",
+        webView.evaluateJavaScript("history.replaceState(null, \"\", \(JSONValue.string(fragment).compactText)); location.reload();", // MQ12 allowed: a parked spare never freezes
                                    completionHandler: nil)
     }
 }

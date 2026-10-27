@@ -3,6 +3,7 @@ import CmuxNextBridge
 @testable import CmuxNextApp
 @testable import CmuxNextDaemon
 import CmuxNextDesign
+import CmuxNextInput
 @testable import CmuxNextSidebar
 import Foundation
 import Testing
@@ -111,6 +112,18 @@ struct SidebarMultiViewWindowTests {
             try #require(NSEvent.mouseEvent(with: type, location: windowPoint, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
                                             windowNumber: controller.window?.windowNumber ?? 0, context: nil, eventNumber: 0, clickCount: 1,
                                             pressure: type == .leftMouseUp ? 0 : 1))
+        }
+
+        /// `event` through the app's dispatch order (`CmuxApplication.dispatch`): the services' input tap observes
+        /// it, its intercepts (the layout's routing among them) may consume it, AppKit dispatches it only when none
+        /// did, and the after-dispatch observers get it last.
+        func dispatch(_ event: NSEvent) {
+            let tap = services.inputTap
+            tap.dispatching {
+                tap.deliverObserve(event)
+                if tap.deliverIntercepts(event) == .pass { NSApp.sendEvent(event) }
+                tap.deliverAfterDispatch(event)
+            }
         }
 
         /// The middle of `id`'s sidebar row, in window coordinates.
@@ -293,8 +306,9 @@ struct SidebarMultiViewWindowTests {
         }
     }
 
-    /// A press on a pane of a workspace beside the focused one, through the app's event dispatch (the layout's own
-    /// event monitor sees it first): that workspace is focused, and so is the pane pressed, not the one it last had.
+    /// A press on a pane of a workspace beside the focused one, through the app's event dispatch (the layout's
+    /// intercept on the input tap sees it first): that workspace is focused, and so is the pane pressed, not the one
+    /// it last had.
     @Test func aPressOnAPaneOfAWorkspaceBesideFocusesThatWorkspaceAndPane() async throws {
         try await Self.withMultiView {
             let f = try await Fixture()
@@ -307,8 +321,8 @@ struct SidebarMultiViewWindowTests {
             let pressed = try #require(k1.panes[order[1]])
             let frame = pressed.view.convert(pressed.view.bounds, to: nil)
             let point = NSPoint(x: frame.midX, y: frame.midY)
-            NSApp.sendEvent(try f.event(.leftMouseDown, at: point))
-            NSApp.sendEvent(try f.event(.leftMouseUp, at: point))
+            f.dispatch(try f.event(.leftMouseDown, at: point))
+            f.dispatch(try f.event(.leftMouseUp, at: point))
             f.frame()
             #expect(f.state.workspaceID == "k1", "the press did not focus k1")
             #expect(f.shown == ["k0", "k1"])

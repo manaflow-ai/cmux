@@ -1,32 +1,42 @@
-#if DEBUG || CMUX_BENCH_HOOKS
 public import Foundation
 import CmuxNextCompat
+import CmuxNextSignposts
+import CmuxNextTrace
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
+import func CmuxSafeConcurrency.withOnceContinuation
 
-/// DEBUG builds: one "new terminal action -> first visible prompt" timeline,
-/// stage by stage (`debug.new_terminal_trace`, cx-6so.58).
+/// A new terminal's stages, from the New Terminal Tab action to its first visible prompt (cx-6so.58).
 ///
-/// Disarmed (every run but a trace run) a mark site costs one relaxed atomic
-/// load of ``isArmed`` and does nothing else. ``begin()`` arms one trace;
-/// the first terminal id minted after the action binds it, and every later
-/// mark is keyed by that id, or by what the id leads to: the tab's surface
-/// (`tab_added` names it), and the session, output lane and layer of the
-/// view whose IO attaches to that surface. Each mark records its first time
-/// only. ``finish(timedOut:)`` disarms and keeps the record in a bounded ring.
+/// Every build (p09-observability task 043): a terminal that a new tab's open ``CreateTabInterval`` waits for
+/// writes its once-per-create stages as ``SignpostName/createTab`` instants keyed by that interval's intent id,
+/// the async id of its `create.tab` slice (task 030): the request and its reply, the pane listing the daemon's
+/// tab, the view's session, the view's first attach (start, reply, end) and a layout spring's final grid while
+/// the tab still waits. `arg0` holds the stage in bits 0-7 (``Mark/traceCode``) and its value above
+/// (``stageArg(_:value:)``: the daemon surface, or the grid of ``gridValue(columns:rows:)``); `arg1` is the
+/// intent id, flagged ``TraceRuntime/RecordFlags/asyncID``. Chrome keys every step of a navigation to its
+/// `NavigationRequest`'s id the same way (content/browser/renderer_host/navigation_request.cc, nestable async
+/// instants on `TRACE_ID_LOCAL(this)`). A restore, a reattach, a close's or a split's resize and a refused
+/// action carry no intent, so they write nothing; the action itself is the slice's begin. Off, a stage costs
+/// one relaxed load of the `create` category flag; on, one 32-byte ring record with no lock, allocation or text.
 ///
-/// Mark sites live in the daemon client, the terminal and the app, which
-/// share no injection seam, so they reach this one recorder (as
-/// ``TypingLatencyProbe``). Times are `CLOCK_UPTIME_RAW` nanoseconds, so
-/// marks from any thread compare.
+/// DEBUG and bench builds also keep one stage timeline per `debug.new_terminal_trace` run (the `#if`
+/// extension below). Disarmed (every run but a trace run) that costs a mark site one relaxed atomic load
+/// of ``isArmed`` and nothing else. ``begin()`` arms one trace; the first terminal id minted after
+/// the action binds it, and every later mark is keyed by that id, or by what the id leads to: the tab's
+/// surface (`tab_added` names it), and the session, output lane and layer of the view whose IO attaches
+/// to that surface. Each mark records its first time only. ``finish(timedOut:)`` disarms and keeps the
+/// record in a bounded ring.
+///
+/// Mark sites live in the daemon client, the terminal and the app, which share no injection seam, so
+/// they reach this one recorder (as ``TypingLatencyProbe``). Times are `CLOCK_UPTIME_RAW` nanoseconds,
+/// so marks from any thread compare.
 public final class NewTerminalTrace: Sendable {
     public static let shared = NewTerminalTrace()
-    /// Finished traces kept for `get`.
-    public static let capacity = 32
-    /// OSC 133;A, the prompt start shell integration writes.
-    private static let promptMarker = Data([0x1B, 0x5D, 0x31, 0x33, 0x33, 0x3B, 0x41])
 
     public enum Mark: Int, CaseIterable, Sendable {
         case action, requestSent, reply, tabAdded, surfaceCreated, attachStart, attachReplied, attachEnd,
-             firstOutputMain, firstParsed, firstContents, promptParsed, promptContents
+             firstOutputMain, firstParsed, firstContents, promptParsed, promptContents, finalGrid
 
         /// The mark's name in `debug.new_terminal_trace` results.
         public var name: String {
@@ -44,9 +54,43 @@ public final class NewTerminalTrace: Sendable {
             case .firstContents: "first_contents"
             case .promptParsed: "prompt_parsed"
             case .promptContents: "prompt_contents"
+            case .finalGrid: "final_grid"
             }
         }
+
+        /// The stage's number in bits 0-7 of a stage instant's `arg0`: 16 + its position, above the kinds (1...5)
+        /// a stand-in instant holds in its `arg0` (``CreateTabInterval/Kind/traceCode``). Fixed: rings written by
+        /// an older build decode with the same numbers, so a new stage goes at the end.
+        public var traceCode: UInt64 { 16 + UInt64(rawValue) }
     }
+
+    private let trace: TraceRuntime
+    #if DEBUG || CMUX_BENCH_HOOKS
+    private let armed = Atomic<Bool>(false)
+    private let state = Mutex(State())
+    #endif
+
+    /// - Parameter trace: The runtime whose ring takes the stage instants (tests pass their own).
+    init(trace: TraceRuntime = .shared) {
+        self.trace = trace
+    }
+
+    /// Writes stage `mark` of the create whose intent id is `intent` (0: no create waits, nothing), with `value`
+    /// in `arg0` as the type's doc says. Main-actor sites hold the interval instead (NewTerminalTrace+CreateStages.swift).
+    public func event(_ mark: Mark, intent: UInt64, value: UInt64 = 0) {
+        guard intent != 0 else { return }
+        trace.write(name: SignpostName.createTab.rawValue, categoryBit: SignpostName.createTab.traceCategory.traceBit,
+                    phase: .instant, flags: .asyncID, arg0: Self.stageArg(mark, value: value), arg1: intent)
+    }
+}
+
+#if DEBUG || CMUX_BENCH_HOOKS
+// DEBUG and bench builds: the `debug.new_terminal_trace` timeline.
+extension NewTerminalTrace {
+    /// Finished traces kept for `get`.
+    public static let capacity = 32
+    /// OSC 133;A, the prompt start shell integration writes.
+    private static let promptMarker = Data([0x1B, 0x5D, 0x31, 0x33, 0x33, 0x3B, 0x41])
 
     /// One trace: its keys and the first time of each mark.
     public struct Record: Sendable {
@@ -67,23 +111,20 @@ public final class NewTerminalTrace: Sendable {
     }
 
     /// What the bound terminal's view is made of, matched by identity.
-    private struct Watch {
+    fileprivate struct Watch {
         var io: ObjectIdentifier?
         var session: ObjectIdentifier?
         var lane: ObjectIdentifier?
         var layer: ObjectIdentifier?
     }
 
-    private struct State {
+    fileprivate struct State {
         var current: Record?
         var watch = Watch()
         var finished: [Record] = []
-        var waiter: CheckedContinuation<Void, Never>?
+        var waiter: OnceContinuation<Void, OnceContinuationError>?
         var expired = false
     }
-
-    private let armed = Atomic<Bool>(false)
-    private let state = Mutex(State())
 
     /// Whether a trace runs. Mark sites check it before anything else.
     public var isArmed: Bool { armed.load(ordering: .relaxed) }
@@ -105,7 +146,7 @@ public final class NewTerminalTrace: Sendable {
     /// Disarms the trace and keeps its record; nil when none ran.
     public func finish(timedOut: Bool) -> Record? {
         armed.store(false, ordering: .relaxed)
-        let (record, waiter) = state.withLock { state -> (Record?, CheckedContinuation<Void, Never>?) in
+        let (record, waiter) = state.withLock { state -> (Record?, OnceContinuation<Void, OnceContinuationError>?) in
             guard var record = state.current else { return (nil, nil) }
             record.timedOut = timedOut
             state.current = nil
@@ -115,7 +156,7 @@ public final class NewTerminalTrace: Sendable {
             defer { state.waiter = nil }
             return (record, state.waiter)
         }
-        waiter?.resume()
+        waiter?.resume(returning: ())
         return record
     }
 
@@ -127,7 +168,22 @@ public final class NewTerminalTrace: Sendable {
     /// The new terminal action ran (its handler's entry).
     public func markAction() {
         guard isArmed else { return }
-        update { record, _ in record.set(.action, Self.now()) }
+        let now = Self.now()
+        update { record, _ in record.set(.action, now) }
+    }
+
+    /// Marks `mark` for the bound terminal's surface `surface` (the attach).
+    public func mark(_ mark: Mark, surface: UInt64) {
+        guard isArmed else { return }
+        let now = Self.now()
+        update { record, _ in if record.surface == surface { record.set(mark, now) } }
+    }
+
+    /// Marks `mark` for the bound terminal's session `session` (its final grid).
+    public func mark(_ mark: Mark, session: ObjectIdentifier) {
+        guard isArmed else { return }
+        let now = Self.now()
+        update { record, watch in if watch.session == session { record.set(mark, now) } }
     }
 
     /// A terminal id was minted: the first one after the action binds the trace.
@@ -168,13 +224,6 @@ public final class NewTerminalTrace: Sendable {
             record.surface = surface
             record.set(.tabAdded, now)
         }
-    }
-
-    /// Marks `mark` for the bound terminal's surface `surface` (the attach).
-    public func mark(_ mark: Mark, surface: UInt64) {
-        guard isArmed else { return }
-        let now = Self.now()
-        update { record, _ in if record.surface == surface { record.set(mark, now) } }
     }
 
     /// The IO `io` was made for surface `surface`: a session over it is the bound terminal's view.
@@ -228,7 +277,7 @@ public final class NewTerminalTrace: Sendable {
     /// first after the prompt's parse `prompt_contents`, which ends ``waitForPrompt(timeout:)``.
     public func contents(layer: ObjectIdentifier) {
         let now = Self.now()
-        let waiter = state.withLock { state -> CheckedContinuation<Void, Never>? in
+        let waiter = state.withLock { state -> OnceContinuation<Void, OnceContinuationError>? in
             guard var record = state.current, state.watch.layer == layer else { return nil }
             if record.marks[Mark.firstParsed.rawValue] != nil { record.set(.firstContents, now) }
             var prompted = false
@@ -241,7 +290,7 @@ public final class NewTerminalTrace: Sendable {
             defer { state.waiter = nil }
             return state.waiter
         }
-        waiter?.resume()
+        waiter?.resume(returning: ())
     }
 
     /// Returns once the trace marked `prompt_contents` (true), or after `timeout` (false).
@@ -252,7 +301,7 @@ public final class NewTerminalTrace: Sendable {
             expire()
         }
         defer { deadline.cancel() }
-        await withCheckedContinuation { (waiter: CheckedContinuation<Void, Never>) in
+        try? await withOnceContinuation { (waiter: OnceContinuation<Void, OnceContinuationError>) in
             let resumeNow = state.withLock { state -> Bool in
                 guard !state.expired, let record = state.current, record.marks[Mark.promptContents.rawValue] == nil else {
                     return true
@@ -260,18 +309,18 @@ public final class NewTerminalTrace: Sendable {
                 state.waiter = waiter
                 return false
             }
-            if resumeNow { waiter.resume() }
+            if resumeNow { waiter.resume(returning: ()) }
         }
         return state.withLock { $0.current?.marks[Mark.promptContents.rawValue] != nil }
     }
 
     private func expire() {
-        let waiter = state.withLock { state -> CheckedContinuation<Void, Never>? in
+        let waiter = state.withLock { state -> OnceContinuation<Void, OnceContinuationError>? in
             state.expired = true
             defer { state.waiter = nil }
             return state.waiter
         }
-        waiter?.resume()
+        waiter?.resume(returning: ())
     }
 
     /// Runs `body` on the running trace's record and watch (nothing when none runs).

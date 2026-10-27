@@ -76,7 +76,7 @@ public final class SimulatorKitHID: SimulatorHIDSending {
         for touch in touches {
             if touch.offset > previous {
                 // concurrency-allow: a bounded, intended delay that paces a gesture's events at their planned offsets (injected clock).
-                // wakeup-allow: runs only during a gesture an agent or person asked for, never while idle.
+                // wakeup-allow: bounded: runs only during a gesture an agent or person asked for, never while idle.
                 try await clock.sleep(for: touch.offset - previous, tolerance: nil)
                 previous = touch.offset
             }
@@ -94,7 +94,7 @@ public final class SimulatorKitHID: SimulatorHIDSending {
             if stroke.shift { try transport.key(0xE1, down: false) }
             if stroke.command { try transport.key(0xE3, down: false) }
             // concurrency-allow: a bounded, intended 8 ms gap so the guest's key repeat logic sees separate presses (injected clock).
-            // wakeup-allow: runs only while typing text that was asked for, never while idle.
+            // wakeup-allow: bounded: runs only while typing text that was asked for, never while idle.
             try await clock.sleep(for: .milliseconds(8), tolerance: nil)
         }
     }
@@ -103,7 +103,7 @@ public final class SimulatorKitHID: SimulatorHIDSending {
         let transport = try transport(udid)
         try transport.button(page: page, usage: usage, down: true)
         // concurrency-allow: a bounded, intended hold; Siri needs a long press, other buttons a short one (injected clock).
-        // wakeup-allow: runs only during a button press that was asked for, never while idle.
+        // wakeup-allow: bounded: runs only during a button press that was asked for, never while idle.
         try await clock.sleep(for: usage == 0xCF ? .milliseconds(300) : .milliseconds(60), tolerance: nil)
         try transport.button(page: page, usage: usage, down: false)
     }

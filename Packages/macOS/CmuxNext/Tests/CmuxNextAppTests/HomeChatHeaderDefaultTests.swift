@@ -17,7 +17,7 @@ import UniformTypeIdentifiers
         TunableStore.shared.register(HomeTunables.all)
         TunableStore.shared.set(HomeTunables.chatHeader.key, nil)
         let home = HomeStore(source: MockHomeSource(options: .immediate))
-        let view = HomeNativeTranscriptView(store: home, conversation: ConversationID("conv_header"), me: ParticipantID("user_me"))
+        let view = HomeNativeTranscriptView(store: home, conversation: ConversationID("conv_header"), me: ParticipantID("user_me"), mainWork: linklessMainWork())
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 700, height: 700), styleMask: [.titled], backing: .buffered, defer: true)
         window.isReleasedWhenClosed = false
         defer { window.close() }

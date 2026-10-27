@@ -2,6 +2,7 @@ import CmuxNextActions
 import CmuxNextDaemon
 import Foundation
 import CmuxNextRemote
+import CmuxNextWakeups
 
 /// The confirmation of Install cmux-tui on an SSH machine (Forget has an
 /// undo toast instead, `RemoteForgetUndo`).
@@ -10,7 +11,7 @@ enum RemoteConfirmation {
         guard id == "remote.install", let session = try? RemoteHandlers.machine(invocation, context) else { return nil }
         let host = session.host
         var commit = "?"
-        if let binary = try? DaemonLauncherBinary.resolve() { commit = await BundledCmuxTUI.commit(binary: binary).map { String($0.prefix(12)) } ?? "?" }
+        if let binary = try? DaemonLauncherBinary.resolve() { commit = await BundledCmuxTUI.commit(binary: binary, on: context.services.work).map { String($0.prefix(12)) } ?? "?" }
         if session.updateOffered {
             return DestructiveConfirmation.Prompt(
                 title: RemoteStrings.updateTitle(host.label),

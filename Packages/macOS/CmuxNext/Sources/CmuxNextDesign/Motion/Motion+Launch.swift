@@ -31,7 +31,7 @@ extension MotionGate {
                 animation.beginTime = now + delay
                 animation.fillMode = .backwards
             }
-            layer.add(animation, forKey: "launch.\(keyPath)")
+            layer.add(MotionActivity.began(animation, after: delay), forKey: "launch.\(keyPath)")
         }
         guard !policy.reduceMotion else {
             fade(mark, "opacity", from: 0, to: 1, length: total)

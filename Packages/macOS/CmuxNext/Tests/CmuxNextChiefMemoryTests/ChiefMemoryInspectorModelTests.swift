@@ -63,6 +63,19 @@ private final class Person {
         #expect(model.isStale("4+4"))
     }
 
+    /// The page's appear read (`readFirst`) runs once: a gated page tab appears again on each show
+    /// (p06-scheduler-214), and a show must not read the memory again.
+    @Test func theFirstReadRunsOnceAcrossShows() async {
+        let source = FakeMemory()
+        let model = ChiefMemoryInspectorModel(source: source, confirmDelete: { _, _ in true })
+        await model.readFirst()
+        await model.readFirst()
+        await model.readFirst()
+        let statusReads = await source.calls.filter { $0.path == "/api/status" }.count
+        #expect(statusReads == 1, "one read for three appears: \(statusReads)")
+        #expect(model.status?.messages == 64)
+    }
+
     @Test func openingALineZoomsAndBackReturns() async {
         let source = FakeMemory()
         let model = ChiefMemoryInspectorModel(source: source, confirmDelete: { _, _ in true })

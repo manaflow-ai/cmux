@@ -14,18 +14,22 @@ import java.util.Objects;
 public final class BookmarksChangedEvent implements WireValue, DeltaStreamEvent, ProtocolEvent, SubscribeEvent {
     private final UInt64 bookmarksRevision;
     private final String browserProfileId;
+    /** What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing. */
+    private final Field<EventCause> cause;
 
     private BookmarksChangedEvent(Builder builder) {
         if (!builder.bookmarksRevisionSet) throw new IllegalArgumentException("bookmarks_revision is required");
         this.bookmarksRevision = Wire.nonNull(builder.bookmarksRevision, "bookmarks_revision");
         if (!builder.browserProfileIdSet) throw new IllegalArgumentException("browser_profile_id is required");
         this.browserProfileId = Wire.nonNull(builder.browserProfileId, "browser_profile_id");
+        this.cause = builder.cause;
     }
 
     public static Builder builder() { return new Builder(); }
 
     public UInt64 bookmarksRevision() { return bookmarksRevision; }
     public String browserProfileId() { return browserProfileId; }
+    public Field<EventCause> cause() { return cause; }
     @Override public String event() { return "bookmarks-changed"; }
 
     public static BookmarksChangedEvent fromWire(Object value) {
@@ -36,6 +40,10 @@ public final class BookmarksChangedEvent implements WireValue, DeltaStreamEvent,
         builder.bookmarksRevision(Wire.uint64(rawBookmarksRevision, "BookmarksChangedEvent.bookmarks_revision"));
         Object rawBrowserProfileId = Wire.required(object, "browser_profile_id");
         builder.browserProfileId(Wire.string(rawBrowserProfileId, "BookmarksChangedEvent.browser_profile_id"));
+        Object rawCause = Wire.optional(object, "cause");
+        if (!Wire.isMissing(rawCause)) {
+            builder.cause(EventCause.fromWire(rawCause));
+        }
         return builder.build();
     }
 
@@ -45,17 +53,18 @@ public final class BookmarksChangedEvent implements WireValue, DeltaStreamEvent,
         object.put("event", "bookmarks-changed");
         Wire.put(object, "bookmarks_revision", bookmarksRevision);
         Wire.put(object, "browser_profile_id", browserProfileId);
+        Wire.put(object, "cause", cause);
         return Collections.unmodifiableMap(object);
     }
 
     @Override
     public boolean equals(Object other) {
         if (!(other instanceof BookmarksChangedEvent that)) return false;
-        return Objects.equals(bookmarksRevision, that.bookmarksRevision) && Objects.equals(browserProfileId, that.browserProfileId);
+        return Objects.equals(bookmarksRevision, that.bookmarksRevision) && Objects.equals(browserProfileId, that.browserProfileId) && Objects.equals(cause, that.cause);
     }
 
     @Override
-    public int hashCode() { return Objects.hash(bookmarksRevision, browserProfileId); }
+    public int hashCode() { return Objects.hash(bookmarksRevision, browserProfileId, cause); }
 
     @Override
     public String toString() { return "BookmarksChangedEvent" + toWire(); }
@@ -65,6 +74,7 @@ public final class BookmarksChangedEvent implements WireValue, DeltaStreamEvent,
         private boolean bookmarksRevisionSet;
         private String browserProfileId;
         private boolean browserProfileIdSet;
+        private Field<EventCause> cause = Field.omitted();
 
         public Builder bookmarksRevision(UInt64 value) {
             this.bookmarksRevision = value;
@@ -74,6 +84,10 @@ public final class BookmarksChangedEvent implements WireValue, DeltaStreamEvent,
         public Builder browserProfileId(String value) {
             this.browserProfileId = value;
             this.browserProfileIdSet = true;
+            return this;
+        }
+        public Builder cause(EventCause value) {
+            this.cause = Field.of(value);
             return this;
         }
         public BookmarksChangedEvent build() { return new BookmarksChangedEvent(this); }

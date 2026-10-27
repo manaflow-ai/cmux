@@ -1,3 +1,4 @@
+import CmuxNextWakeups
 import Foundation
 
 /// The exact inverse of one intent's last overlay apply, so the overlay
@@ -77,6 +78,9 @@ struct PendingIntent {
     /// A script batch's intent held back by its ``StoreStage``: in the log (ordered with the rest)
     /// but not shown, and never due, until the stage commits.
     var held = false
+    /// Who made it (the cause current at ``DaemonStore/intend(_:transaction:)``): each show, lift
+    /// and settlement of it runs with this cause, whatever batch it runs in.
+    var cause: ObservationCause = .program
 }
 
 /// The ordered log of pending intents. Pure bookkeeping: the store applies
@@ -106,10 +110,11 @@ struct IntentLog {
 
     /// Appends a new intent. False when the transaction is already pending
     /// or already settled (an id is never reused).
-    mutating func append(_ intent: Intent, transaction: ClientTransactionID, held: Bool = false) -> Bool {
+    mutating func append(_ intent: Intent, transaction: ClientTransactionID, held: Bool = false, cause: ObservationCause = .program) -> Bool {
         guard !contains(transaction), !wasSettled(transaction) else { return false }
         var entry = PendingIntent(transaction: transaction, kind: intent)
         entry.held = held
+        entry.cause = cause
         entries.append(entry)
         return true
     }

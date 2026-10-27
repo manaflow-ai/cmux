@@ -124,8 +124,31 @@ the new daemon adopts the running (older) holder by the lower wire version
 (test: `holder_terminals.rs`
 `a_new_daemon_adopts_an_older_holder_by_its_wire_version` against the
 frozen version 3 fixture `cmux-holder-v3`). The terminal wire is
-`magic "CMHX"` (terminal-host-model-DESIGN.md section 4), versions 1-4; the
+`magic "CMHX"` (terminal-host-model-DESIGN.md section 4), versions 1-5; the
 `CMHL` v1 below is the earlier draft and is superseded for terminals.
+
+#### CMHX capability bits (wire version stays 5)
+
+New features are optional capability bits, not new versions
+(`cmux_holder::wire::capability`). HELLO may end with `wanted u32`; WELCOME
+may carry `granted u32` after its count (a subset of `wanted`). Each field is
+optional: an older daemon sends no `wanted` and is granted nothing, an older
+holder (the v3 fixture, every shipped v5 holder) sends no `granted`, and the
+daemon treats that as 0. The daemon sends a capability's frames only when
+that capability was granted. A holder answers a frame of an ungranted
+capability with ERROR UNKNOWN_KIND, as a holder older than the bit would.
+Bits are never reused.
+
+| Bit | Name | Adds |
+| --- | --- | --- |
+| 1 | TRACE_CONTROL | d->h on channel 0: TRACE_START (kind 22, `categories u64, budget_bytes u64`, no path) and TRACE_STOP (kind 23, empty). The holder starts or stops its own `cmux-trace` recording in its own directory. `budget_bytes` is in the unit of `trace.status`'s `recording_bytes` (the ring's bytes; 0: no limit). A holder grants the bit only while its tracer runs. Its first start maps the recording ring on a one-shot thread and starts when that thread wakes the loop, so the loop does no disk I/O. When it refuses (its ring is bigger than `budget_bytes`, one already runs, none runs to stop, its tracer failed), it sends ERROR with code TRACE_FAILED (11), and `trace.status` says `holder_trace_failed` with the message. A holder that did not grant the bit is `holder_untraced` (no guess from its version or timing). A recording ends with the link that started it, as a Perfetto session ends with its consumer: a new daemon never inherits one. The daemon keeps a running recording and sends it again to a holder whose link it publishes later (a holder restart or reconnect); one lock orders every TRACE_START and TRACE_STOP with that publish. |
+| 2 | WRITE_FLOW | WRITE flag `FLAG_FLOW` (4): the last 8 bytes of the payload are the `flow u64` of the key press, not input. The holder arms the flow once every input byte up to the end of that WRITE reached the master, and marks the next PTY read (`holder.pty.read`) with it within 1 s; an echo that does not come in that time marks nothing. The input before the trailer may be empty: a flow mark for input the daemon writes on its custody master, sent before that write and armed at once (best effort: the holder may read that echo before the mark). An ungranted holder gets the plain WRITE, and no frame at all for an empty one. |
+| 4 | HANG_REPORT | h->d on channel 0: HANG (kind 24, `deadline_ms u64, busy_ms u64`, then the site name in UTF-8; no answer). Each pass of the holder loop's work after `poll` (never the wait) is a 100 ms scope of its `mux-hang-watch` thread (cmux-threads `HangWatcher`); a pass seen past it is one HANG, queued by the loop when it runs again. The daemon writes it to its hang log as scope `holder-loop` and counts it in `slow_requests.hangs`. A holder of this build always grants the bit; one whose watcher did not start sends nothing. |
+
+The corpus of these exchanges is `cmux-holder/tests/capabilities.rs`
+(byte-exact HELLO, WELCOME, TRACE_START, TRACE_STOP and flow WRITEs). The
+v3 fixture's `tests/no_capabilities.rs` checks that a holder older than the
+bits gets none of the new frames.
 
 ### 2.1 Holder wire protocol v1 (frozen)
 

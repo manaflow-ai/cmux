@@ -1,0 +1,13 @@
+{
+  "$schema": "../features.schema.json",
+  "name": "occludedWindowDiscard",
+  "owner": "PL-memory",
+  "description": "A minimized, other-Space or covered window counts as hidden: the tabs beside each shown page lose their neighbor keep-awake and Memory Saver may discard them; the shown page stays as the window's active tab.",
+  "defaults": { "dev": false, "nightly": false, "release": false },
+  "kind": "labs",
+  "process": "app",
+  "params": [],
+  "stories": [],
+  "sticky": false,
+  "runtimeMutable": false
+}

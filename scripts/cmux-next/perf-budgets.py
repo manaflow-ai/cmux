@@ -55,6 +55,26 @@ def pct(values, q):
     return vals[lo] + (vals[hi] - vals[lo]) * (k - lo)
 
 
+def count250_sum(report):
+    """The main-thread stalls of 250 ms and up in a bench report (pure): the sum of every whole-number `count250` a
+    bench window copied from `debug.hangs` after clearing it, or None when no window reported one. Read only: no row,
+    no target, no gate (perf-cron prints it per part)."""
+    found = []
+
+    def walk(v):
+        if isinstance(v, dict):
+            for k, x in v.items():
+                if k == "count250" and isinstance(x, int) and not isinstance(x, bool) and x >= 0:
+                    found.append(x)
+                elif k != "display":
+                    walk(x)
+        elif isinstance(v, list):
+            for x in v:
+                walk(x)
+    walk(report)
+    return sum(found) if found else None
+
+
 def p50_p95(obj):
     """p50/p95 from a bench's stat dict (p50/p95, p50_ms/p95_ms, or p90 when the bench keeps no p95) or a list."""
     if obj is None:
@@ -412,8 +432,12 @@ def main():
             found = sorted(f for f in os.listdir(o("idle")) if f.endswith("-idle-budgets.json")) if os.path.isdir(o("idle")) else []
             report = os.path.join("idle", found[-1]) if found else "idle/missing.json"
         runs[name]["report"] = o(report)
+        bench_report = load(o(report))
+        stalls = count250_sum(bench_report)
+        if stalls is not None:
+            runs[name]["count250"] = stalls
         try:
-            values.update(mapper(load(o(report))))
+            values.update(mapper(bench_report))
         except Exception as exc:  # a report from an older build with another shape: its rows stay n/a
             runs[name]["map_error"] = repr(exc)
 

@@ -1,5 +1,6 @@
 import CmuxNextCompat
 import CmuxNextDaemon
+import CmuxNextWakeups
 import Foundation
 import Observation
 
@@ -77,12 +78,13 @@ extension WindowManager {
 extension DaemonStore {
     /// Returns once this store holds room `id`, or the connection changed.
     /// A command's reply comes before the mirror: rooms arrive through
-    /// `personal-changed` and a resync. Event-driven: it observes the store.
-    func mirrored(profile id: ProfileID) async {
-        guard profile(id) == nil else { return }
+    /// `personal-changed` and a resync. Event-driven: it observes the store
+    /// on `work` (`visible`: the person waits to enter the new room).
+    func mirrored(profile id: ProfileID, on work: MainWorkScheduler) async {
         let state = connectionState
-        for await done in ObservationStream({ self.profile(id) != nil || self.connectionState != state }) where done {
-            return
+        await ObservedCondition(owner: "DaemonStore.mirroredProfile", .visible, on: work).until { [weak self] in
+            guard let self else { return true }
+            return profile(id) != nil || connectionState != state
         }
     }
 }

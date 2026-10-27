@@ -23,6 +23,8 @@ final class OutlineRenderer: DropOverlayRenderer {
     var ringFrame: CGRect { ring.layer.frame }
     var ringWidth: CGFloat { ring.layer.borderWidth }
     var ringOpacity: Float { ring.layer.opacity }
+    /// The ring's layer, for the springs on it (tests).
+    var ringLayer: CALayer { ring.layer }
     var showsChip: Bool { !chip.isHidden }
 
     init() {
@@ -40,7 +42,7 @@ final class OutlineRenderer: DropOverlayRenderer {
         let colorsChanged = ring.isRefused != frame.refused || ring.fillOpacity != fill || ring.rect == nil
         ring.show(frame.finalTarget, cornerRadius: frame.cornerRadius, refused: frame.refused, animated: frame.animated,
                   spring: DropOverlayTunables.spring.value, appearInset: CGFloat(DropOverlayTunables.appearInset.value),
-                  fillOpacity: fill)
+                  fillOpacity: fill, springs: frame.springsOnRenderServer ? .additive(shownIn: view) : .replacing)
         // The ring resolved its colors outside the theme scope; resolve them again inside it.
         if colorsChanged { applyTheme() }
         placeCompanions(frame.refused ? [] : frame.companions, cornerRadius: frame.cornerRadius)

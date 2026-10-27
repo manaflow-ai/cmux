@@ -1,12 +1,14 @@
 import CmuxNextServer
+import CmuxNextWakeups
 import Foundation
-import ServiceManagement
 
 /// Keeps the Mac's server running when the app quits (plans/cmux-next/server.md 4.3):
 /// a launchd agent registered with `SMAppService.agent` from the plist the app
 /// bundle carries in `Contents/Library/LaunchAgents` (written by
 /// scripts/cmux-next/bundle-server-helper.sh, label `<bundle id>.server`). The
-/// agent runs the bundled `cmux host run`. Builds without the bundled CLI do
+/// agent runs the bundled `cmux host run` with launchd `ProcessType` `Interactive`:
+/// every terminal key and frame passes through it, so it is never `Background`
+/// (process roles in plans/cmux-next/threading-model.md). Builds without the bundled CLI do
 /// not carry the plist. Registration also needs the Debug Settings switch
 /// `server.agent.allowRegister` (off by default) until the bundled CLI ships
 /// `cmux host run`. `ServerStopServing` unregisters it, switch or not.
@@ -24,51 +26,23 @@ struct ServerLaunchAgent {
         case failed(String)
     }
 
-    /// The `SMAppService` calls, as a seam.
-    struct Service {
-        var status: @MainActor () -> SMAppService.Status
-        var register: @MainActor () throws -> Void
-        var openLoginItems: @MainActor () -> Void
-    }
-
     var isBundled: @MainActor () -> Bool
     var allowRegister: @MainActor () -> Bool
-    var service: Service
+    var service: ServerServiceRegistration
 
     static var isBundled: Bool {
         FileManager.default.fileExists(atPath: Bundle.main.bundleURL.appending(path: "Contents/Library/LaunchAgents/\(plistName)").path)
     }
 
-    static func app() -> ServerLaunchAgent {
-        ServerLaunchAgent(
-            isBundled: { Self.isBundled },
-            allowRegister: { ServerTunables.agentAllowRegister.value },
-            service: Service(status: { SMAppService.agent(plistName: plistName).status },
-                             register: { try SMAppService.agent(plistName: plistName).register() },
-                             openLoginItems: { SMAppService.openSystemSettingsLoginItems() }))
+    static func app(work: BackgroundWork) -> ServerLaunchAgent {
+        ServerLaunchAgent(isBundled: { Self.isBundled }, allowRegister: { ServerTunables.agentAllowRegister.value },
+                          service: .agent(work: work))
     }
 
-    /// Registers the agent. Idempotent: an enabled agent stays enabled.
-    @MainActor
-    func register() throws(Failure) {
+    /// Registers the agent; its launchd calls run on the system lane. Idempotent: an enabled agent stays enabled.
+    func register() async throws(Failure) {
         guard isBundled() else { throw .notInBuild }
         guard allowRegister() else { throw .notReady }
-        switch service.status() {
-        case .enabled:
-            return
-        case .requiresApproval:
-            service.openLoginItems()
-            throw .requiresApproval
-        default:
-            do {
-                try service.register()
-            } catch {
-                throw .failed(String(describing: error))
-            }
-            if service.status() == .requiresApproval {
-                service.openLoginItems()
-                throw .requiresApproval
-            }
-        }
+        try await service.enable(requiresApproval: Failure.requiresApproval, failed: Failure.failed)
     }
 }

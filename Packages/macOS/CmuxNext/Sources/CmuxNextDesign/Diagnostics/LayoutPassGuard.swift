@@ -17,7 +17,7 @@ import os
 /// the same way: `-[NSView layout]` calls per view inside one
 /// `layoutIfNeeded` of its window (an override that calls `super.layout()`
 /// counts; one that does not is invisible). A view laid out outside a
-/// window layout (an explicit `layoutSubtreeIfNeeded`) does not count, as
+/// window layout (a subtree forced on its own) does not count, as
 /// it does not count for AppKit. A normal window layout lays a view out
 /// once, twice when a layout converges in a second pass. When one view
 /// passes its window's limit (``limit(viewCount:)``: ``bound``, lower in a

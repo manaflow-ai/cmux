@@ -1,0 +1,14 @@
+{
+  "$schema": "../features.schema.json",
+  "name": "pageRendererAtFirstShow",
+  "owner": "PL-memory",
+  "description": "No cmux page starts a renderer before it first shows: a page opened hidden (a background tab, a hidden workspace) loads at its first show, and the spare Settings and New Tab pages are made only after a page of their kind showed this session, so the first open of each kind loads cold.",
+  "defaults": { "dev": false, "nightly": false, "release": false },
+  "kind": "perfPath",
+  "expires": "2026-12-20",
+  "process": "app",
+  "params": [],
+  "stories": ["home-idle"],
+  "sticky": false,
+  "runtimeMutable": false
+}

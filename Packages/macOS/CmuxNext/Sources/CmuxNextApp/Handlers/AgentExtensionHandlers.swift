@@ -1,5 +1,6 @@
 import CmuxNextActions
 import CmuxNextBrowser
+import CmuxNextCompat
 import Foundation
 
 /// "Allow Agents in This Tab…" (`browser.allowAgentWithExtensions`): the
@@ -19,10 +20,11 @@ enum AgentExtensionHandlers {
         })
     }
 
-    /// The warning for the focused page: which enabled extensions can read it.
-    static func prompt(_ invocation: ActionInvocation, _ context: AppActionContext,
-                       access: AgentExtensionAccess = .fromDisk) -> DestructiveConfirmation.Prompt? {
+    /// The warning for the focused page: which enabled extensions can read it. The built-in uBlock Origin's
+    /// folder is the one the app read on the files lane at launch (``AppServices/builtInAdBlockerFolder``).
+    static func prompt(_ invocation: ActionInvocation, _ context: AppActionContext) -> DestructiveConfirmation.Prompt? {
         guard let entry = try? context.page(invocation) else { return nil }
+        let access = AgentExtensionAccess.fromDisk(trustedBuiltInFolder: context.services.builtInAdBlockerFolder.value)
         return prompt(blockers: blockerNames(entry.tab, access: access))
     }
 

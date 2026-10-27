@@ -1,3 +1,4 @@
+import CmuxNextCompat
 public import Foundation
 import CryptoKit
 
@@ -138,7 +139,7 @@ nonisolated public struct ReleaseMediaStore: Sendable {
         let folder = reelBase.appending(path: build, directoryHint: .isDirectory)
         var url: URL?
         if let data = try? await fetcher.fetch(folder.appending(path: "reel.json")), data.count <= 1 << 20,
-           (try? JSONDecoder().decode(Report.self, from: data))?.reel == "reel.mp4" {
+           (try? JSONDecoder().blockingDecode(Report.self, from: data))?.reel == "reel.mp4" {
             url = folder.appending(path: "reel.mp4")
         }
         await memo.set(key, url)

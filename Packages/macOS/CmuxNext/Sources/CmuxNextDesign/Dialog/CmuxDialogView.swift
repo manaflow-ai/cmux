@@ -1,4 +1,5 @@
 public import AppKit
+import CmuxNextCompat
 public import CmuxNextDesignTokens
 
 /// The one cmux dialog view: an overlay panel (Liquid Glass, opaque under
@@ -170,7 +171,7 @@ public final class CmuxDialogView: NSView {
         stack.translatesAutoresizingMaskIntoConstraints = false
         let contentWidth = CmuxDialogMetrics.width - padding * 2
 
-        if let data = spec.icon, let image = NSImage(data: data) {
+        if let data = spec.icon, let image = blockingNSImage(data) {
             let icon = NSImageView(image: image)
             icon.translatesAutoresizingMaskIntoConstraints = false
             icon.widthAnchor.constraint(equalToConstant: CmuxDialogMetrics.iconSize).isActive = true

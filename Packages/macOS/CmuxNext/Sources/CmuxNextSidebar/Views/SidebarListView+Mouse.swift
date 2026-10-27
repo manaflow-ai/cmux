@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextDesign
+import CmuxNextInput
 import QuartzCore
 // Mouse selection, click-to-collapse, and keyboard navigation.
 extension SidebarListViewComponents {
@@ -7,6 +8,8 @@ extension SidebarListViewComponents {
     typealias Press = SidebarPress
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
     override func mouseDown(with event: NSEvent) {
+        // The frame's pending hover lands first, so the press hit-tests from the row under its own point.
+        frameInputHover.flush()
         // A drag or press whose release never came here (the app or window lost focus mid-drag, a menu took the
         // mouse-up) ends now: its rows come back where they were, and this press starts clean.
         endPointerGesture()
@@ -81,7 +84,9 @@ extension SidebarListViewComponents {
             break
         }
         self.press = press
+        onPressRow?((press.clickOnRelease ?? press.deferredClick).map(SidebarRowKey.workspace))
     }
+    // local-monitor-allow: a drag is delivered unbuffered until its mouse-up (p06-scheduler.md section E, FrameInputCoalescer); each move moves the lifted row on its spring
     override func mouseDragged(with event: NSEvent) {
         guard let press, !press.cancelled else { return }
         if case let .tab(workspace, tab) = press.key {

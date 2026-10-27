@@ -1,0 +1,20 @@
+{
+  "id": "acpmux-overhead",
+  "tier": "T2",
+  "description": "acpmux overhead against each harness run raw (acpmux-overhead-bench.py): Claude Code, Codex and OpenCode against a local stand-in model that answers at once, raw and through the bundle's acpmux daemon back to back per run; session ready, first token, turn end and a warm second turn, the model requests and request bytes, and acpmux minus raw of the same run.",
+  "command": ["scripts/cmux-next/acpmux-overhead-bench.py", "--harness", "claude,codex,opencode", "-n", "20"],
+  "session": "light",
+  "engine": "none",
+  "config": "bench",
+  "metrics": [
+    {"name": "acpmux_overhead\\.(claude|codex|opencode)\\.(raw|acpmux|overhead)\\.(ready|first|end|warm_first|warm_end)", "unit": "ms", "better": "lower"},
+    {"name": "acpmux_overhead\\.(claude|codex|opencode)\\.(raw|acpmux)\\.requests", "unit": "count", "better": "lower"},
+    {"name": "acpmux_overhead\\.(claude|codex|opencode)\\.(raw|acpmux)\\.request_bytes", "unit": "bytes", "better": "lower"},
+    {"name": "acpmux_overhead\\.(claude|codex|opencode)\\.(raw|acpmux)\\.((ready|first|end|warm_first|warm_end)\\.missed_runs|errors)", "unit": "count", "better": "lower"}
+  ],
+  "repeats": 1,
+  "seconds": 600,
+  "needs": ["file:scripts/cmux-next/bundle-acpmux.sh"],
+  "owner": "PL-acpmux",
+  "component": "Agents>Acpmux"
+}

@@ -1,4 +1,5 @@
 import CmuxNextControl
+import CmuxNextLaunch
 import CmuxNextProcessEnvironment
 import CmuxNextSettings
 import CmuxNextTerminal
@@ -10,7 +11,8 @@ import Foundation
 /// so a later setenv or unsetenv crashes it (cx-9dh7). Each write site goes
 /// through `ProcessEnvironmentGuard.write`, so a write moved after the freeze
 /// stops a debug build (check: crash_ratchet.py env_write,
-/// env-write-allowlist.json).
+/// env-write-allowlist.json). No write here looks at the disk: Ghostty's
+/// resources folder is this app bundle's by path.
 extension CmuxNextApp {
     static func prepareLaunchEnvironment(environmentGuard: ProcessEnvironmentGuard = .process) {
         // Cmux variables inherited from a shell inside another cmux, so they
@@ -24,7 +26,7 @@ extension CmuxNextApp {
 #if DEBUG
         applyConfigFileArgument(environmentGuard: environmentGuard)
 #endif
-        GhosttyRuntime.prepareProcessEnvironment(environmentGuard: environmentGuard)
+        GhosttyRuntime.prepareProcessEnvironment(resources: GhosttyRuntime.bundledResourcesDirectory(), environmentGuard: environmentGuard)
         LaunchMarkSink.dropInheritedDescriptor(environmentGuard: environmentGuard)
         environmentGuard.freeze()
     }
@@ -41,7 +43,8 @@ extension CmuxNextApp {
         let path = arguments[flag + 1]
         guard !path.isEmpty, !path.hasPrefix("--") else { return }
         environmentGuard.write("CmuxNextApp.applyConfigFileArgument") {
-            setenv(CmuxConfigFile.overrideKey, path, 1)
+            // SAFETY: setenv copies the NUL-terminated copies of the name and value Swift makes for the call.
+            unsafe setenv(CmuxConfigFile.overrideKey, path, 1)
         }
     }
 #endif

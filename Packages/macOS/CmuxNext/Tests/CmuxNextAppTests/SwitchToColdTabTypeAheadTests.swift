@@ -3,6 +3,7 @@ import CmuxNextActions
 @testable import CmuxNextApp
 import CmuxNextDaemon
 @testable import CmuxNextTerminal
+import CmuxNextWakeups
 import Foundation
 import Testing
 
@@ -68,6 +69,7 @@ struct SwitchToColdTabTypeAheadTests {
         // The journal's attach observer is chosen when a terminal attaches: on before launch.
         InputJournal.shared.configure(InputJournalPolicy(enabled: true, recordsCharacters: false))
         let launcher = DaemonLauncher(
+            work: BackgroundWork(label: "test.daemon-launcher"),
             configuration: .init(binary: binary, session: session, stateDirectory: root.appendingPathComponent("state")),
             environment: { ["HOME": NSHomeDirectory(), "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "SHELL": "/bin/sh", "TERM": "xterm-256color"] })
         _ = NSApplication.shared

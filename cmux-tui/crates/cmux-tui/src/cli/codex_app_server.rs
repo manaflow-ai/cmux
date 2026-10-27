@@ -11,8 +11,9 @@
 //! [`Session::send`] hands it over, so the caller can claim the messages in
 //! between and the hook that the new turn fires finds none left to repeat.
 
+use cmux_process::{Child, Command, Stdio};
 use std::io::{BufRead, BufReader, Write};
-use std::process::{Child, ChildStdin, Command, Stdio};
+use std::process::ChildStdin;
 use std::sync::mpsc::{Receiver, RecvTimeoutError, channel};
 use std::time::{Duration, Instant};
 

@@ -1,3 +1,4 @@
+import CmuxNextWakeups
 import Foundation
 import Testing
 @testable import CmuxNextDaemon
@@ -63,6 +64,7 @@ struct QuitSessionsTests {
         let binary = try #require(RealBinary.url)
         let base = ProcessInfo.processInfo.environment
         let launcher = DaemonLauncher(
+            work: BackgroundWork(label: "test.daemon-launcher"),
             configuration: .init(binary: binary, session: h.session, stateDirectory: h.root.appendingPathComponent("state")),
             environment: { LoginEnvironment.shared.daemonEnvironment(login: nil, base: base, overrides: [:]) })
         _ = try await launcher.ensure()
@@ -108,6 +110,7 @@ struct QuitSessionsTests {
         let binary = try #require(RealBinary.url)
         let base = ProcessInfo.processInfo.environment
         let launcher = DaemonLauncher(
+            work: BackgroundWork(label: "test.daemon-launcher"),
             configuration: .init(binary: binary, session: h.session, stateDirectory: h.root.appendingPathComponent("state")),
             environment: { LoginEnvironment.shared.daemonEnvironment(login: nil, base: base, overrides: [:]) })
         _ = try await launcher.ensure()
@@ -151,6 +154,7 @@ struct QuitSessionsTests {
         let binary = try #require(RealBinary.url)
         let base = ProcessInfo.processInfo.environment
         let launcher = DaemonLauncher(
+            work: BackgroundWork(label: "test.daemon-launcher"),
             configuration: .init(binary: binary, session: h.session, stateDirectory: h.root.appendingPathComponent("state")),
             environment: { LoginEnvironment.shared.daemonEnvironment(login: nil, base: base, overrides: [:]) })
         _ = try await launcher.ensure()

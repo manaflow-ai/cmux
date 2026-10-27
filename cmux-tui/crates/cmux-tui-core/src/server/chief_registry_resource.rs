@@ -512,8 +512,12 @@ fn mutate(
                 Some(engine) => *engine != record.engine,
                 None => created && record.engine != chief_registry::Engine::default(),
             };
-            if !replayed && operation != Op::ChiefProfileDelete && engine_changed {
-                super::chief_engine_mirror::mirror(&record);
+            if !replayed
+                && operation != Op::ChiefProfileDelete
+                && engine_changed
+                && !mux.chiefs().brains.engine_changed(&record.id, &record.engine)
+            {
+                mux.control_clients.engine_mirror.mirror(&mux.work, &record);
             }
             if !replayed
                 && let Some(pending) = mux.chiefs().brains.chief_written(
@@ -875,12 +879,13 @@ pub(super) fn chief_names(mux: &Mux) -> std::collections::BTreeMap<String, Strin
     .unwrap_or_default()
 }
 
+#[track_caller]
 fn with_store<T>(
     mux: &Mux,
     operation: Op,
     run: impl FnOnce(&mut ChiefStore) -> Result<T, ResourceError>,
 ) -> Result<T, ResourceError> {
-    let mut store = mux.chiefs().store.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    let mut store = mux.chiefs().lock_store().unwrap_or_else(std::sync::PoisonError::into_inner);
     if store.is_none() {
         let directory = mux.session_state_directory();
         *store = Some(ChiefStore::open(directory.as_deref()).map_err(|e| internal(operation, &e))?);

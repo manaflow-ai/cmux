@@ -12,11 +12,14 @@ import CmuxNextWakeups
 /// armed fire later (a request posted before the drop but run after it) cannot strand it.
 ///
 /// - An immediate request (0 ms) always goes through.
-/// - With no armed deadline published (none armed, an immediate pass pending, a pass running, a
-///   re-arm in progress, or an old fork whose pump has a safety net), it goes through.
+/// - With no armed deadline published (none armed, an immediate pass pending, a pass running, or a
+///   re-arm in progress), it goes through.
 /// - With an armed deadline already due, it goes through (the timer may be firing now).
 /// - A delayed request is kept, with no wake, only while the armed deadline is in the future and
-///   not later than the request's own.
+///   not later than the request's own. Both are uptime nanoseconds: a fork that reports absolute run
+///   times (p14-energy-046) is compared as sent, a whole-millisecond delay from the caller's now.
+/// - A fork's "no delayed work" keeps nothing and wakes nothing: an armed fire then runs one pass that
+///   finds nothing due.
 ///
 /// The decision and the main thread's ``take()`` hold one lock, so a request is either merged by
 /// the next take or decided against the deadline that take publishes; none falls between them.
@@ -61,18 +64,29 @@ nonisolated final class CEFPumpCrossThreadGate: Sendable {
     /// Any thread: whether a request for work `delayMilliseconds` from `nowNanos` must wake the
     /// main thread. A request that does not is kept for the next ``take()``.
     func admit(delayMilliseconds: Int64, nowNanos: UInt64) -> Bool {
-        if delayMilliseconds > 0 {
-            let requested = nowNanos &+ UInt64(delayMilliseconds) &* 1_000_000
-            let kept = state.withLock { state -> Bool in
-                guard let armed = state.armed, armed > nowNanos, armed <= requested else { return false }
-                state.earliestKept = min(state.earliestKept ?? .max, requested)
-                return true
-            }
-            if kept {
-                keptRequests.add(1, ordering: .relaxed)
-                return false
-            }
+        guard delayMilliseconds > 0 else { return wake() }
+        return admit(runTimeNanos: nowNanos &+ UInt64(delayMilliseconds) &* 1_000_000, nowNanos: nowNanos)
+    }
+
+    /// Any thread: whether a delayed request due at `runTimeNanos` (uptime ns; nil for the fork's "no
+    /// delayed work") must wake the main thread. A request that does not is kept for the next
+    /// ``take()``; "no delayed work" is never a wake.
+    func admit(runTimeNanos: UInt64?, nowNanos: UInt64) -> Bool {
+        guard let requested = runTimeNanos else { return false }
+        let kept = state.withLock { state -> Bool in
+            guard let armed = state.armed, armed > nowNanos, armed <= requested else { return false }
+            state.earliestKept = min(state.earliestKept ?? .max, requested)
+            return true
         }
+        guard !kept else {
+            keptRequests.add(1, ordering: .relaxed)
+            return false
+        }
+        return wake()
+    }
+
+    /// A request that goes through: one main wake in the ledger.
+    private func wake() -> Bool {
         ledger.record("CEFMessagePump", reason: "cross-thread request")
         return true
     }

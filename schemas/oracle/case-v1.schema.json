@@ -100,6 +100,10 @@
         "web": {
           "type": "boolean",
           "description": "Start the loopback web fixture server; case URLs then write its origin as $WEB."
+        },
+        "repo": {
+          "$ref": "#/$defs/slug",
+          "description": "Build the git repository tests/oracle/fixtures/git/<repo>.json under $CASE_ROOT/repos/ before the first step (make_repo.py build_for_case, which needs HOME under the case root): fixed author and committer dates, a bare origin under the case root as its only remote. The case requires git_repo."
         }
       }
     },
@@ -109,7 +113,7 @@
       "minItems": 1,
       "uniqueItems": true,
       "items": {"$ref": "#/$defs/capability"},
-      "description": "Capabilities the product must offer. Steps imply some of them (see allOf): resource.call needs resource_api, action.run actions, key keys, mcp mcp, tui.key tui, kill and restart restart, a kill of a Chromium process chromium. cli needs none: every product ships the cmux CLI."
+      "description": "Capabilities the product must offer. Steps imply some of them (see allOf): resource.call needs resource_api, action.run actions, key keys, mcp mcp, tui.key tui, kill and restart restart, a kill of a Chromium process chromium; fixture.repo needs git_repo (the driver builds the repository). cli needs none: every product ships the cmux CLI."
     },
     "switches": {
       "type": "array",
@@ -127,7 +131,7 @@
     "allow_crashes": {
       "type": "array",
       "items": {"$ref": "#/$defs/allowCrash"},
-      "description": "Child exits invariant I17 accepts (content/public/test/browser_test_base.h ScopedAllowRendererCrashes). Any other exit fails the case. The exit a step causes on purpose (a kill, or a Chromium debug URL such as chrome://crash) must be listed too, inside the entry's steps, as CrashTab needs ScopedAllowRendererCrashes.",
+      "description": "Child exits invariant I17 accepts (content/public/test/browser_test_base.h ScopedAllowRendererCrashes). Any other exit fails the case. The exit a step causes on purpose (a kill, a resource.call with ends, or a Chromium debug URL such as chrome://crash) must be listed too, inside the entry's steps, as CrashTab needs ScopedAllowRendererCrashes. I17 counts an exit in the step whose turn or settled checkpoint first shows the rise of crashes.counts (one first shown at a step's before checkpoint belongs to the step before it); when the checkpoints before that one are missing or not comparable, the exit belongs to every step it could have happened in, and an entry for any of them covers it. An exit during the teardown needs an entry without steps. Each exit takes one of the first matching entry's max.",
       "x-oracle-crash-scope": {
         "error": "{pointer}: step \"{step}\" ends a {kind} process, but no allow_crashes entry of kind {kind} lists it in its steps",
         "countError": "{pointer}: {count} steps end a {kind} process, but the allow_crashes entries of kind {kind} allow at most {max}"
@@ -159,6 +163,11 @@
     {"$ref": "#/$defs/opNeedsCapabilityRestart"},
     {"$ref": "#/$defs/opNeedsCapabilityChromiumKill"},
     {
+      "$comment": "fixture.repo is built by the driver before the first step; a product whose driver does not build it lacks git_repo and never runs the case.",
+      "if": {"required": ["fixture"], "properties": {"fixture": {"required": ["repo"]}}},
+      "then": {"properties": {"requires": {"contains": {"const": "git_repo"}}}}
+    },
+    {
       "$comment": "advance_clock moves the daemon's virtual clock; a fixed or real clock cannot be advanced.",
       "if": {
         "required": ["steps"],
@@ -175,7 +184,7 @@
   ],
   "$defs": {
     "slug": {"type": "string", "pattern": "^[a-z0-9][a-z0-9-]{0,63}$"},
-    "capability": {"enum": ["resource_api", "actions", "keys", "gui", "chromium", "restart", "mcp", "tui"]},
+    "capability": {"enum": ["resource_api", "actions", "keys", "gui", "chromium", "restart", "mcp", "tui", "git_repo"]},
     "crashKind": {
       "enum": ["renderer", "gpu", "browser", "utility", "daemon", "holder"],
       "description": "The kinds of the crashes facet (snapshot-v1): the child processes whose exits I17 observes. The app is the observer, so a kill step cannot target it; restart the app instead."
@@ -201,12 +210,14 @@
         "crashes",
         "liveObjects",
         "invariants",
-        "switches"
+        "switches",
+        "cli",
+        "mcp"
       ]
     },
     "facetPointer": {
       "type": "string",
-      "pattern": "^/(topology|daemon|focus|layout|sidebar|tabs|overlays|settings|intents|windows|history|notifications|agents|terminals|webviews|ax|crashes|liveObjects|invariants|switches)(/([^~/]|~[01])*)*$",
+      "pattern": "^/(topology|daemon|focus|layout|sidebar|tabs|overlays|settings|intents|windows|history|notifications|agents|terminals|webviews|ax|crashes|liveObjects|invariants|switches|cli|mcp)(/([^~/]|~[01])*)*$",
       "description": "JSON pointer into a snapshot, starting with a facet name."
     },
     "stepRef": {
@@ -297,17 +308,30 @@
           "pattern": "^[a-z][a-z_]*(\\.[a-z][a-z_]*)+$",
           "description": "Typed error code, for example validation.invalid."
         },
-        "result": {"$ref": "#/$defs/value", "description": "The reply after canonicalization, compared exactly."},
+        "result": {"$ref": "#/$defs/value", "description": "The reply after canonicalization, compared exactly. $step: references resolve first, so \"$step:<id>#\" holds the reply equal to an earlier step's whole reply."},
+        "resultExcept": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"type": "string", "pattern": "^(/([^~/]|~[01])*)+$"},
+          "description": "JSON pointers removed from both the reply and result before the comparison: what a step may change and the case does not assert (a generation, a cursor, a connection's age). A segment * stands for every array item or object member at that place. A pointer that names nothing in either value removes nothing."
+        },
         "receipt": {
           "type": "string",
           "pattern": "^[a-z][A-Za-z0-9]*([._][a-z][A-Za-z0-9]*)*$",
           "description": "Typed receipt kind the step must produce (I1): for action.run and key the ActionEffect kind the registry reports (action.done, action.applied, action.waiting), for resource.call the reply kind of resource-operations-v2 (mutation_result)."
         },
-        "noReceiptReason": {"type": "string", "minLength": 10, "description": "Why the step has no receipt."}
+        "noReceiptReason": {"type": "string", "minLength": 10, "description": "Why the step has no receipt."},
+        "errorDetails": {
+          "type": "object",
+          "minProperties": 1,
+          "description": "A subset of the typed error's details the step must give: each key is present with an equal value, an object compared the same way key by key, any other value exactly. $step: references resolve first. A driver that cannot read the error's details fails the step as a Crash; it never skips the check."
+        }
       },
+      "dependentRequired": {"resultExcept": ["result"]},
       "if": {"properties": {"outcome": {"const": "error"}}},
       "then": {"required": ["error"]},
-      "else": {"not": {"required": ["error"]}}
+      "else": {"not": {"anyOf": [{"required": ["error"]}, {"required": ["errorDetails"]}]}}
     },
     "expectMutation": {
       "description": "I1: a mutation gives exactly one receipt or one typed error. An ok outcome names its receipt or says why none exists; an error outcome has its typed error and no receipt.",
@@ -397,6 +421,10 @@
           "description": "resource.call, cli and mcp only: the step reads and needs no target. The runner fails the step when its settled snapshot differs from its before snapshot."
         },
         "expect": {"$ref": "#/$defs/expect"},
+        "ends": {
+          "const": "daemon",
+          "description": "resource.call mutations only: an ok reply ends this process on purpose (session.shutdown stops the daemon after its receipt). The runner waits for the exit in the step, fails it unless the exit is a normal termination (exit 0; base/process/kill.h TERMINATION_STATUS_NORMAL_TERMINATION), records it as the step's exit for I17, and a later restart starts the process without stopping it. allow_crashes must list the step."
+        },
         "waitFor": {"$ref": "#/$defs/waitFor"},
         "checkpoint": {
           "type": "array",
@@ -434,6 +462,11 @@
             "properties": {"op": {"enum": ["resource.call", "cli", "mcp"]}, "readOnly": {"const": false}}
           },
           "then": {"required": ["target", "expect"], "properties": {"expect": {"$ref": "#/$defs/expectMutation"}}}
+        },
+        {
+          "$comment": "Only a mutating resource.call ends a process on purpose.",
+          "if": {"required": ["ends"]},
+          "then": {"required": ["op"], "properties": {"op": {"const": "resource.call"}, "readOnly": {"const": false}}}
         },
         {
           "$comment": "Runner steps act on the whole run: no target, no readOnly.",
@@ -535,8 +568,8 @@
       "properties": {
         "action": {
           "type": "string",
-          "pattern": "^[a-z][A-Za-z0-9]*(\\.[a-z][A-Za-z0-9]*)*$",
-          "description": "An action id of the app's ActionRegistry."
+          "pattern": "^[a-z][A-Za-z0-9]*(\\.[a-z0-9][A-Za-z0-9]*)*$",
+          "description": "An action id of the app's ActionRegistry. A later segment may be a number (browser.keepNeighborTabsAwake.0)."
         },
         "params": {"$ref": "#/$defs/valueObject"},
         "entrypoint": {

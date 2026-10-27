@@ -211,6 +211,14 @@ CefRefPtr<CefRequestContext> RequestContextFor(const std::string& cache_path) {
   // gone (cmux_shim_release_context). Nothing of it is written to disk.
   if (!IsOffTheRecordKey(cache_path)) {
     CefString(&settings.cache_path) = cache_path;
+    // CEF refuses a cache path that does not exist. In the Chromium Host cmux leaves it to this
+    // first open of the context (task 019), as Chrome makes a profile's directory when it creates
+    // the profile (chrome/browser/profiles/profile_impl.cc, Profile::CreateProfile); in process
+    // cmux made it already, so this finds it.
+    [[NSFileManager defaultManager] createDirectoryAtPath:@(cache_path.c_str())
+                              withIntermediateDirectories:YES
+                                               attributes:nil
+                                                    error:nil];
   }
   // Not persisted: in Chrome style this flag also sets the profile's
   // "restore on startup" to the last session, and with tabbed windows
@@ -294,6 +302,7 @@ static void BindForkApi(const char* framework_binary) {
   CMUX_BIND(ext_set_pinned, "cmux_ext_set_pinned");
   CMUX_BIND(ext_open_options, "cmux_ext_open_options");
   CMUX_BIND(ext_load_unpacked, "cmux_ext_load_unpacked");
+  CMUX_BIND(ext_load_command_line_async, "cmux_ext_load_command_line_async");
   CMUX_BIND(ext_commands, "cmux_ext_commands");
   CMUX_BIND(ext_command_run, "cmux_ext_command_run");
   CMUX_BIND(tab_move_to_window, "cmux_tab_move_to_window");
@@ -305,6 +314,10 @@ static void BindForkApi(const char* framework_binary) {
   CMUX_BIND(tab_set_transparent_background, "cmux_tab_set_transparent_background");
   CMUX_BIND(browser_set_layer_hosting, "cmux_browser_set_layer_hosting");
   CMUX_BIND(browser_set_resize_sync, "cmux_browser_set_resize_sync");
+  CMUX_BIND(browser_set_resize_fence, "cmux_browser_set_resize_fence");
+  CMUX_BIND(browser_set_embedder_visibility, "cmux_browser_set_embedder_visibility");
+  CMUX_BIND(browser_attach_view, "cmux_browser_attach_view");
+  CMUX_BIND(tab_set_visibility, "cmux_tab_set_visibility");
   CMUX_BIND(set_new_tab_page_url, "cmux_set_new_tab_page_url");
   CMUX_BIND(set_install_prompt_handler, "cmux_set_install_prompt_handler");
   CMUX_BIND(install_prompt_reply, "cmux_install_prompt_reply");
@@ -343,6 +356,34 @@ static void BindForkApi(const char* framework_binary) {
   CMUX_BIND(set_drag_source_handler, "cmux_set_drag_source_handler");
   CMUX_BIND(browser_drag_source_ended, "cmux_browser_drag_source_ended");
   CMUX_BIND(browser_drag_target_enter_source, "cmux_browser_drag_target_enter_source");
+  CMUX_BIND(set_color_chooser_handler, "cmux_set_color_chooser_handler");
+  CMUX_BIND(color_chooser_choose, "cmux_color_chooser_choose");
+  CMUX_BIND(color_chooser_end, "cmux_color_chooser_end");
+  CMUX_BIND(set_device_chooser_handler, "cmux_set_device_chooser_handler");
+  CMUX_BIND(device_chooser_answer, "cmux_device_chooser_answer");
+  CMUX_BIND(set_desktop_media_handler, "cmux_set_desktop_media_handler");
+  CMUX_BIND(desktop_media_answer, "cmux_desktop_media_answer");
+  CMUX_BIND(set_lock_handler, "cmux_set_lock_handler");
+  CMUX_BIND(browser_pointer_lock_answer, "cmux_browser_pointer_lock_answer");
+  CMUX_BIND(browser_keyboard_lock_answer, "cmux_browser_keyboard_lock_answer");
+  CMUX_BIND(browser_exit_pointer_lock, "cmux_browser_exit_pointer_lock");
+  CMUX_BIND(browser_exit_keyboard_lock, "cmux_browser_exit_keyboard_lock");
+  CMUX_BIND(browser_send_locked_mouse_move, "cmux_browser_send_locked_mouse_move");
+  CMUX_BIND(browser_set_page_display, "cmux_browser_set_page_display");
+  CMUX_BIND(browser_set_page_visibility, "cmux_browser_set_page_visibility");
+  CMUX_BIND(tab_entry_page_state, "cmux_tab_entry_page_state");
+  CMUX_BIND(tab_page_state_watch, "cmux_tab_page_state_watch");
+  CMUX_BIND(tab_restore_entries, "cmux_tab_restore_entries");
+  CMUX_BIND(browser_drag_target_watch, "cmux_browser_drag_target_watch");
+  CMUX_BIND(browser_set_popup_menu_handler, "cmux_browser_set_popup_menu_handler");
+  CMUX_BIND(browser_popup_menu_reply, "cmux_browser_popup_menu_reply");
+  CMUX_BIND(browser_set_suggestion_handler, "cmux_browser_set_suggestion_handler");
+  CMUX_BIND(browser_suggestion_action, "cmux_browser_suggestion_action");
+  CMUX_BIND(tab_renderer_state, "cmux_tab_renderer_state");
+  CMUX_BIND(set_on_schedule_delayed, "cmux_set_on_schedule_delayed");
+  CMUX_BIND(set_energy_saver, "cmux_cef_set_energy_saver");
+  CMUX_BIND(browser_renderer_pid, "cmux_cef_browser_renderer_pid");
+  CMUX_BIND(memory_pressure_vote, "cmux_memory_pressure_vote");
 #undef CMUX_BIND
 }
 
@@ -444,7 +485,9 @@ int cmux_shim_initialize(const char* framework_dir, const char* main_bundle_path
   h.key = key;
 
   CefSettings settings;
-  settings.external_message_pump = true;
+  // cmux in process pumps CEF from its own run loop (schedule -> do_work);
+  // the Chromium Host passes no schedule_fn and runs CefRunMessageLoop.
+  settings.external_message_pump = schedule != nullptr;
   settings.no_sandbox = false;  // helpers enter the sandbox themselves
   settings.persist_session_cookies = false;  // see RequestContextFor
   if (log_severity) {
@@ -515,12 +558,32 @@ int cmux_shim_window_count(void) {
   return fork_api().window_count ? fork_api().window_count() : -1;
 }
 
+int cmux_shim_set_energy_saver(int enabled, const char* exempt_scheme) {
+  if (!fork_api().set_energy_saver || stopping()) {
+    return 0;
+  }
+  fork_api().set_energy_saver(enabled != 0, exempt_scheme);
+  return 1;
+}
+
+// The fork checks the level and the UI thread; a vote during quit would reach
+// an aggregator that CefShutdown is about to destroy.
+int cmux_shim_memory_pressure_vote(int level) {
+  if (!fork_api().memory_pressure_vote || stopping()) {
+    return 0;
+  }
+  return fork_api().memory_pressure_vote(level);
+}
+
 void cmux_shim_shutdown(void) {
   if (fork_api().set_observer) {
     fork_api().set_observer(nullptr, nullptr);
   }
   if (fork_api().set_window_request_handler) {
     fork_api().set_window_request_handler(nullptr, nullptr);
+  }
+  if (fork_api().set_on_schedule_delayed) {
+    fork_api().set_on_schedule_delayed(nullptr, nullptr);
   }
   if (fork_api().set_install_prompt_handler) {
     fork_api().set_install_prompt_handler(nullptr, nullptr);

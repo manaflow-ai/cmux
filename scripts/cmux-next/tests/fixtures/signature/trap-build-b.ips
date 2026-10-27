@@ -1,0 +1,177 @@
+{"app_name": "cmux NEXT", "timestamp": "2026-10-24 10:11:12.00 -0700", "app_version": "0.9.2 (102)", "build_version": "0.9.2 (102)", "platform": 1, "bundleID": "com.cmuxterm.app.next", "share_with_app_devs": 0, "is_first_party": 0, "bug_type": "309", "os_version": "macOS 26.1 (25B78)", "roots_installed": 0, "name": "cmux NEXT", "incident_id": "B1"}
+{
+  "uptime": 1000,
+  "procRole": "Foreground",
+  "version": 2,
+  "userID": 501,
+  "modelCode": "Mac16,10",
+  "osVersion": {
+    "train": "macOS 26.1",
+    "build": "25B78",
+    "releaseType": "User"
+  },
+  "captureTime": "2026-10-24 10:11:12.0000 -0700",
+  "pid": 4242,
+  "cpuType": "ARM-64",
+  "procName": "cmux NEXT",
+  "procPath": "/Applications/cmux NEXT.app/Contents/MacOS/cmux NEXT",
+  "exception": {
+    "codes": "0x0000000000000001, 0x0000000000000000",
+    "type": "EXC_BAD_INSTRUCTION",
+    "signal": "SIGILL",
+    "subtype": "EXC_I386_INVOP"
+  },
+  "termination": {
+    "flags": 0,
+    "code": 5,
+    "namespace": "SIGNAL"
+  },
+  "faultingThread": 1,
+  "threads": [
+    {
+      "id": 2001,
+      "frames": [
+        {
+          "imageOffset": 4000,
+          "imageIndex": 2,
+          "symbol": "mach_msg2_trap",
+          "symbolLocation": 8
+        }
+      ]
+    },
+    {
+      "triggered": true,
+      "id": 2002,
+      "queue": "com.apple.main-thread",
+      "frames": [
+        {
+          "imageOffset": 20500,
+          "imageIndex": 1,
+          "symbol": "Swift._assertionFailure(_:_:file:line:flags:)",
+          "symbolLocation": 432
+        },
+        {
+          "imageOffset": 2000100,
+          "imageIndex": 0,
+          "symbol": "outlined copy of SessionModel.Pane?",
+          "symbolLocation": 12
+        },
+        {
+          "imageOffset": 2000200,
+          "imageIndex": 0,
+          "symbol": "SessionModel.pane(at:)",
+          "symbolLocation": 40,
+          "inline": true
+        },
+        {
+          "imageOffset": 2000200,
+          "imageIndex": 0,
+          "symbol": "SessionModel.focusedPane()",
+          "symbolLocation": 204
+        },
+        {
+          "imageOffset": 2100400,
+          "imageIndex": 0,
+          "symbol": "partial apply for closure #3 in WorkspaceStore.refresh(reason:)",
+          "symbolLocation": 20
+        },
+        {
+          "imageOffset": 2100000,
+          "imageIndex": 0,
+          "symbol": "closure #3 in WorkspaceStore.refresh(reason:)",
+          "symbolLocation": 96
+        },
+        {
+          "imageOffset": 14100,
+          "imageIndex": 3,
+          "symbol": "_dispatch_call_block_and_release",
+          "symbolLocation": 32
+        },
+        {
+          "imageOffset": 90100,
+          "imageIndex": 3,
+          "symbol": "_dispatch_main_queue_drain",
+          "symbolLocation": 1000
+        },
+        {
+          "imageOffset": 300100,
+          "imageIndex": 6,
+          "symbol": "NSApplicationMain",
+          "symbolLocation": 880
+        },
+        {
+          "imageOffset": 4100,
+          "imageIndex": 0,
+          "symbol": "main",
+          "symbolLocation": 64
+        }
+      ]
+    }
+  ],
+  "usedImages": [
+    {
+      "source": "P",
+      "arch": "arm64",
+      "base": 4294967296,
+      "size": 52428800,
+      "uuid": "bbbbbbbb-2222-4222-8222-bbbbbbbbbbbb",
+      "path": "/Applications/cmux NEXT.app/Contents/MacOS/cmux NEXT",
+      "name": "cmux NEXT",
+      "CFBundleIdentifier": "com.cmuxterm.app.next"
+    },
+    {
+      "source": "P",
+      "arch": "arm64e",
+      "base": 6000000000,
+      "size": 300000,
+      "uuid": "1d4a1d0a-0000-4000-8000-00000000c0de",
+      "path": "/usr/lib/swift/libswiftCore.dylib",
+      "name": "libswiftCore.dylib"
+    },
+    {
+      "source": "P",
+      "arch": "arm64e",
+      "base": 6100000000,
+      "size": 40000,
+      "uuid": "2d4a1d0a-0000-4000-8000-00000000c0de",
+      "path": "/usr/lib/system/libsystem_kernel.dylib",
+      "name": "libsystem_kernel.dylib"
+    },
+    {
+      "source": "P",
+      "arch": "arm64e",
+      "base": 6200000000,
+      "size": 40000,
+      "uuid": "3d4a1d0a-0000-4000-8000-00000000c0de",
+      "path": "/usr/lib/system/libdispatch.dylib",
+      "name": "libdispatch.dylib"
+    },
+    {
+      "source": "P",
+      "arch": "arm64e",
+      "base": 6300000000,
+      "size": 40000,
+      "uuid": "4d4a1d0a-0000-4000-8000-00000000c0de",
+      "path": "/usr/lib/libobjc.A.dylib",
+      "name": "libobjc.A.dylib"
+    },
+    {
+      "source": "P",
+      "arch": "arm64e",
+      "base": 6400000000,
+      "size": 40000,
+      "uuid": "5d4a1d0a-0000-4000-8000-00000000c0de",
+      "path": "/System/Library/Frameworks/CoreFoundation.framework/Versions/A/CoreFoundation",
+      "name": "CoreFoundation"
+    },
+    {
+      "source": "P",
+      "arch": "arm64e",
+      "base": 6500000000,
+      "size": 40000,
+      "uuid": "6d4a1d0a-0000-4000-8000-00000000c0de",
+      "path": "/System/Library/Frameworks/AppKit.framework/Versions/C/AppKit",
+      "name": "AppKit"
+    }
+  ]
+}

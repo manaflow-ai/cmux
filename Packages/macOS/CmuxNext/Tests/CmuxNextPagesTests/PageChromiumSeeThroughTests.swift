@@ -10,7 +10,7 @@ import Testing
 @MainActor
 struct PageChromiumSeeThroughTests {
     private let root: URL
-    private let descriptor = PageDescriptor(id: "test.see-through", resource: "see-through", namespaces: [])
+    private let descriptor = PageDescriptor(id: "test.see-through", resource: "see-through", processGroup: .solo, namespaces: [])
 
     init() throws {
         root = FileManager.default.temporaryDirectory.appendingPathComponent("page-see-through-\(UUID().uuidString)", isDirectory: true)

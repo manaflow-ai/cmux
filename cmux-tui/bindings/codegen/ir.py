@@ -102,6 +102,9 @@ class SdkIR:
     events: JsonObject
     profiles: JsonObject
     protocol: JsonObject
+    families: JsonObject
+    method_ids: Mapping[int, str]
+    event_ids: Mapping[int, str]
     document: JsonObject
     _canonical: bytes
 
@@ -113,6 +116,19 @@ class SdkIR:
 
     def event(self, wire_name: str) -> JsonObject:
         return self._lookup(self.events, "event", wire_name)
+
+    def family(self, name: str) -> JsonObject:
+        return self._lookup(self.families, "family", name)
+
+    def command_by_method_id(self, method_id: int) -> str | None:
+        """Return the wire name of the command with this framed-IPC method_id."""
+
+        return self.method_ids.get(method_id)
+
+    def event_by_event_id(self, event_id: int) -> str | None:
+        """Return the wire name of the event with this framed-IPC event_id."""
+
+        return self.event_ids.get(event_id)
 
     @staticmethod
     def _lookup(values: JsonObject, kind: str, name: str) -> JsonObject:
@@ -128,6 +144,16 @@ class SdkIR:
         """Return canonical semantic IR bytes used to compute ``ir_sha256``."""
 
         return self._canonical
+
+
+def _wire_id_index(values: JsonObject, key: str) -> Mapping[int, str]:
+    return MappingProxyType(
+        {
+            entry[key]: name
+            for name, entry in values.items()
+            if isinstance(entry, Mapping) and key in entry
+        }
+    )
 
 
 def load_ir(path: str | Path) -> SdkIR:
@@ -158,6 +184,9 @@ def load_ir_document(source: Mapping[str, Any]) -> SdkIR:
     normalized["events"] = _named_entries(source["events"], kind="event")
     profiles = source.get("profiles", {})
     normalized["profiles"] = {name: profiles[name] for name in sorted(profiles)}
+    if "families" in source:
+        families = source["families"]
+        normalized["families"] = {name: families[name] for name in sorted(families)}
 
     raw_protocol = source.get("protocol")
     mux_protocol = (
@@ -195,11 +224,13 @@ def load_ir_document(source: Mapping[str, Any]) -> SdkIR:
     frozen_events = frozen_document["events"]
     frozen_profiles = frozen_document["profiles"]
     frozen_protocol = frozen_document["protocol"]
+    frozen_families = frozen_document.get("families", _freeze({}))
     assert isinstance(frozen_types, Mapping)
     assert isinstance(frozen_commands, Mapping)
     assert isinstance(frozen_events, Mapping)
     assert isinstance(frozen_profiles, Mapping)
     assert isinstance(frozen_protocol, Mapping)
+    assert isinstance(frozen_families, Mapping)
 
     return SdkIR(
         schema_version=source["schema_version"],
@@ -210,6 +241,9 @@ def load_ir_document(source: Mapping[str, Any]) -> SdkIR:
         events=frozen_events,
         profiles=frozen_profiles,
         protocol=frozen_protocol,
+        families=frozen_families,
+        method_ids=_wire_id_index(frozen_commands, "method_id"),
+        event_ids=_wire_id_index(frozen_events, "event_id"),
         document=frozen_document,
         _canonical=canonical,
     )

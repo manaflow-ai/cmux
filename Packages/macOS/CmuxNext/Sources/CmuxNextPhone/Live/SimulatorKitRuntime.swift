@@ -1,6 +1,5 @@
 import Darwin
 import Foundation
-import ObjectiveC.runtime
 
 /// The active Xcode's private CoreSimulator and SimulatorKit, loaded with
 /// `dlopen` at first use so the cmux binary links nothing version-specific.
@@ -9,7 +8,8 @@ import ObjectiveC.runtime
 @MainActor
 final class SimulatorKitRuntime {
     let developerDirectory: String
-    private(set) var simulatorKit: UnsafeMutableRawPointer?
+    /// Both frameworks are loaded (`RTLD_GLOBAL`, never closed), so their symbols resolve.
+    private(set) var isLoaded = false
     private var deviceSet: NSObject?
 
     /// - Parameter developerDirectory: `xcode-select -p` (…/Xcode.app/Contents/Developer).
@@ -19,21 +19,30 @@ final class SimulatorKitRuntime {
 
     /// Loads both frameworks; throws when this Xcode lacks them.
     func load() throws {
-        guard simulatorKit == nil else { return }
+        guard !isLoaded else { return }
         let core = ["/Library/Developer/PrivateFrameworks/CoreSimulator.framework/CoreSimulator",
                     "\(developerDirectory)/Library/PrivateFrameworks/CoreSimulator.framework/CoreSimulator"]
-        guard Self.open(core) != nil else { throw PhoneError.missingTool(.xcode) }
+        guard Self.open(core) else { throw PhoneError.missingTool(.xcode) }
         // SimulatorKit moved to Contents/SharedFrameworks in Xcode 27.
         let kit = ["\(developerDirectory)/../SharedFrameworks/SimulatorKit.framework/SimulatorKit",
                    "\(developerDirectory)/Library/PrivateFrameworks/SimulatorKit.framework/SimulatorKit"]
-        guard let handle = Self.open(kit) else { throw PhoneError.unsupported(mode: .simulator, what: "live screens with this Xcode") }
-        simulatorKit = handle
+        guard Self.open(kit) else { throw PhoneError.unsupported(mode: .simulator, what: "live screens with this Xcode") }
+        isLoaded = true
     }
 
-    /// A symbol from SimulatorKit, else from anything already loaded.
-    func symbol(_ name: String) -> UnsafeMutableRawPointer? {
-        if let simulatorKit, let found = dlsym(simulatorKit, name) { return found }
-        return dlsym(UnsafeMutableRawPointer(bitPattern: -2), name)
+    /// The exported C function `name` as `F`, its prototype spelled as a
+    /// `@convention(c)` type: SimulatorKit's (opened `RTLD_GLOBAL`, so the
+    /// default search finds it) or one already loaded (libxpc's `_4sim` calls).
+    func function<F>(_ name: String, as _: F.Type) -> F? {
+        // SAFETY: RTLD_DEFAULT (-2; Swift does not import the macro) searches every loaded image;
+        // a non-nil result is the address of the exported function `name`, whose image is never
+        // closed. The pointer is only converted, never read or written.
+        guard let address = unsafe dlsym(UnsafeMutableRawPointer(bitPattern: -2), name) else { return nil }
+        // SAFETY: as above, the address of the C function `name`; each caller spells F from that
+        // function's prototype (SimulatorKit's IndigoHIDMessageFor* builders, as classic cmux and
+        // idb's FBSimulatorIndigoHID call them; libxpc's _4sim calls), so the cast changes no
+        // argument or return layout. F and the address are both one pointer.
+        return unsafe unsafeBitCast(address, to: F.self)
     }
 
     /// The `SimDevice` for `udid` in the default device set.
@@ -50,26 +59,24 @@ final class SimulatorKitRuntime {
 
     private func defaultDeviceSet() throws -> NSObject {
         if let deviceSet { return deviceSet }
-        let selector = privateSelector("sharedServiceContextForDeveloperDir:error:")
-        guard let contextClass = NSClassFromString("SimServiceContext"), let meta = object_getClass(contextClass),
-              class_respondsToSelector(meta, selector), let imp = class_getMethodImplementation(meta, selector) else {
-            throw PhoneError.unsupported(mode: .simulator, what: "live screens with this Xcode")
-        }
-        typealias Function = @convention(c) (AnyClass, Selector, NSString, AutoreleasingUnsafeMutablePointer<NSError?>) -> Unmanaged<AnyObject>?
-        var error: NSError?
-        guard let context = unsafeBitCast(imp, to: Function.self)(contextClass, selector, developerDirectory as NSString, &error)?
-            .takeUnretainedValue() as? NSObject,
-            let set = privateObjectWithError(context, "defaultDeviceSetWithError:") else {
+        guard let contextClass = NSClassFromString("SimServiceContext"),
+              let context = privateClassObjectWithError(contextClass, "sharedServiceContextForDeveloperDir:error:",
+                                                        developerDirectory as NSString),
+              let set = privateObjectWithError(context, "defaultDeviceSetWithError:") else {
             throw PhoneError.unsupported(mode: .simulator, what: "live screens with this Xcode")
         }
         deviceSet = set
         return set
     }
 
-    private static func open(_ paths: [String]) -> UnsafeMutableRawPointer? {
+    /// Opens the first of `paths` that exists and loads; the library stays loaded for the
+    /// life of the process (its classes and functions stay in use), so no handle is kept.
+    private static func open(_ paths: [String]) -> Bool {
         for path in paths where FileManager.default.fileExists(atPath: path) {
-            if let handle = dlopen(path, RTLD_NOW | RTLD_GLOBAL) { return handle }
+            // SAFETY: the path is a NUL-terminated copy Swift keeps alive for the call; the
+            // returned handle is only compared with nil, never used.
+            if unsafe dlopen(path, RTLD_NOW | RTLD_GLOBAL) != nil { return true }
         }
-        return nil
+        return false
     }
 }

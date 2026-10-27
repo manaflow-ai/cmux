@@ -1,5 +1,8 @@
 import Foundation
 import os
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
+import func CmuxSafeConcurrency.withOnceContinuation
 
 /// A ``HomeWireSocket`` over one `URLSessionWebSocketTask`.
 final class URLSessionHomeWireSocket: HomeWireSocket {
@@ -41,7 +44,8 @@ final class URLSessionHomeWireSocket: HomeWireSocket {
         // A synchronous one-shot resume guard: URLSession may call the pong
         // handler more than once while the socket tears down (lock carve-out).
         let claimed = OSAllocatedUnfairLock(initialState: false)
-        return await withCheckedContinuation { (continuation: CheckedContinuation<Bool, Never>) in
+        // A pong handler URLSession drops uncalled (abandoned) is a failed ping.
+        let answered = try? await withOnceContinuation { (continuation: OnceContinuation<Bool, OnceContinuationError>) in
             task.sendPing { error in
                 let first = claimed.withLock { done -> Bool in
                     defer { done = true }
@@ -50,5 +54,6 @@ final class URLSessionHomeWireSocket: HomeWireSocket {
                 if first { continuation.resume(returning: error == nil) }
             }
         }
+        return answered ?? false
     }
 }

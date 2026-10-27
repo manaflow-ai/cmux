@@ -26,14 +26,17 @@ extension ManagedPreferences {
 }
 
 extension SettingsController {
-    /// Applies `DisabledFeatures` from a synchronous read of the forced
-    /// managed values, before Cloud, SSH and apps start, so no feature runs
-    /// in the window before the first full settings load.
-    /// The forced managed values, read synchronously (launch only: later
-    /// changes arrive through ``managedPolicy``).
-    public func forcedManagedValuesNow() -> [String: JSONValue] { managedReader.read().forced }
+    /// The forced managed values, for the launch (later changes arrive through ``managedPolicy``):
+    /// the launch read's managed layer until the first load adopts it, so a launch step reads no
+    /// preferences on the main thread; a synchronous read only for a controller made without one.
+    public func forcedManagedValuesNow() -> [String: JSONValue] {
+        launchRead?.loaded.inputs.managed.forced ?? managedReader.read().forced
+    }
 
+    /// Applies `DisabledFeatures` from the forced managed values (``forcedManagedValuesNow()``),
+    /// before Cloud, SSH and apps start, so no feature runs in the window before the first full
+    /// settings load.
     public func applyManagedFeaturesNow() {
-        applier.registry.disabledFeatures = ManagedPreferences.disabledFeatures(in: managedReader.read().forced).features
+        applier.registry.disabledFeatures = ManagedPreferences.disabledFeatures(in: forcedManagedValuesNow()).features
     }
 }

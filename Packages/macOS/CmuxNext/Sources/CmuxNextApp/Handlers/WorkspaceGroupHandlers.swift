@@ -49,7 +49,7 @@ enum WorkspaceGroupHandlers {
             let group = try context.group(ActionInvocation(arguments: invocation.arguments))
             let workspace = try context.workspace(invocation).model
             // The right-clicked row, or the multi-selection it belongs to.
-            let sidebar = try WorkspaceVerbHandlers.sidebar(showing: workspace, context)
+            let sidebar = try WorkspaceVerbHandlers.sidebar(showing: workspace, context, builds: true)
             let ids = try WindowMembershipHandlers.workspaces(invocation, context).map(SidebarWorkspaceID.init)
             // The drag's rule (SidebarEdits.canMove): a group holds one machine row's workspaces.
             guard SidebarEdits.canMove(ids, toGroup: sidebar.model.groupID(personal: group.id.rawValue), in: sidebar.model.sections) else {
@@ -202,7 +202,7 @@ enum WorkspaceGroupHandlers {
         // The group's slot, the path a double-click in the group takes: the row shows in the group from the press
         // and is placed once the daemon lists it. Setting the group right after the create raced that listing:
         // without the workspace's public id the place went out as the raw command, and it stayed outside the group.
-        let slot = windows.controller(for: target).flatMap { controller in
+        let slot = windows.controllerBuildingIfWaiting(for: target).flatMap { controller in
             shownGroupID(id, in: controller.sidebar.model).map { groupSlot($0, in: controller.sidebar.model, context) }
         }
         spawn.slot = slot

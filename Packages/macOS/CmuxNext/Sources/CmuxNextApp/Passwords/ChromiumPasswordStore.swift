@@ -75,10 +75,12 @@ final class ChromiumPasswordStore: PasswordStore {
         let (core, store) = try await passwordTarget(profile)
         var secret: SecretBytes?
         let found = try await mapped {
-            try await core.revealPassword(id, in: store) { bytes in
-                secret = SecretBytes(capacity: bytes.count) { buffer in
-                    buffer.copyMemory(from: bytes)
-                    return bytes.count
+            // SAFETY: `bytes` is the shim's buffer, valid during the callback; SecretBytes lends `buffer`, sized
+            // to bytes.count, for its fill closure, so the copy fits, and neither view escapes either closure.
+            try await unsafe core.revealPassword(id, in: store) { bytes in
+                secret = unsafe SecretBytes(capacity: bytes.count) { buffer in
+                    unsafe buffer.copyMemory(from: bytes)
+                    return unsafe bytes.count
                 }
             }
         }

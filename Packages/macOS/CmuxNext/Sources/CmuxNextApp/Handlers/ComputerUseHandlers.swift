@@ -11,6 +11,7 @@ enum ComputerUseHandlers {
         func work(_ id: ActionID, _ body: @escaping @MainActor (ComputerUseLiveSession) async throws -> Void) {
             registry.bind(id, run: { _ in
                 // task-owner: the action run; a capturing caller (CLI, MCP) awaits it through the registry.
+                // main-hop-allow: the action's userBlocking rest (p06 rule 2), tracked for a capturing caller: it awaits the main-actor CUA session store and focus; post has no userBlocking class (task 208)
                 registry.track(Task { @MainActor in
                     do {
                         guard let newest = try await sessions.liveSessions().max(by: { $0.lastActionAt < $1.lastActionAt }) else {

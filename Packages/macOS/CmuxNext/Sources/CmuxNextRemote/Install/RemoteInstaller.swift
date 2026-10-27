@@ -1,4 +1,6 @@
 import CmuxNextCloud
+import CmuxNextCompat
+public import CmuxNextWakeups
 public import Foundation
 import os
 
@@ -19,9 +21,12 @@ public struct RemoteInstaller: Sendable {
     private let commandLine: SSHCommandLine
     private let paths: SSHPaths
     private let session: URLSession
+    /// The app's lanes: the download cache's checks and moves run on its files lane.
+    private let work: BackgroundWork
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "ssh.install")
 
-    public init(commandLine: SSHCommandLine = SSHCommandLine(), paths: SSHPaths, session: URLSession = .shared) {
+    public init(commandLine: SSHCommandLine = SSHCommandLine(), paths: SSHPaths, session: URLSession = .shared, work: BackgroundWork) {
+        self.work = work
         self.commandLine = commandLine
         self.paths = paths
         self.session = session
@@ -66,6 +71,7 @@ public struct RemoteInstaller: Sendable {
     /// 404 the CDN edge cached before the build was published.
     private func get(_ url: URL) async throws -> (status: Int, data: Data) {
         var components = URLComponents(url: url, resolvingAgainstBaseURL: false)
+        // wall-clock: a cache-busting query value, not a time.
         components?.queryItems = [URLQueryItem(name: "t", value: String(Int(Date().timeIntervalSince1970)))]
         var request = URLRequest(url: components?.url ?? url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 30)
         request.setValue("application/json", forHTTPHeaderField: "Accept")
@@ -74,9 +80,10 @@ public struct RemoteInstaller: Sendable {
     }
 
     /// Installs `plan` on `host`, then restarts its session's daemon
-    /// (`daemonPID` from its `identify`, nil when none runs).
+    /// (`daemonPID` from its `identify`, nil when none runs). The download cache's disk steps run at
+    /// `priority` (``WorkPriority/bestEffort`` for an automatic update nobody waits for).
     public func install(_ plan: RemoteInstallPlan, on host: SSHHost, daemonPID: Int32?, environment: [String: String],
-                        progress: @Sendable (Phase) -> Void) async throws {
+                        priority: WorkPriority = .userVisible, progress: @Sendable (Phase) -> Void) async throws {
         progress(.remoteDownload)
         let fetched = try await ssh(host, script: plan.fetchScript, environment: environment, label: "remote install")
         if fetched.status != 0 {
@@ -84,7 +91,7 @@ public struct RemoteInstaller: Sendable {
             guard error.fallsBackToUpload else { throw error }
             logger.info("\(host.destination.description, privacy: .public) cannot fetch (\(String(describing: error), privacy: .public)); uploading")
             progress(.localDownload)
-            let file = try await localCopy(plan, environment: environment)
+            let file = try await localCopy(plan, environment: environment, priority: priority)
             progress(.upload)
             let uploaded = try await SSHProcessRunner.run(commandLine.command(host, plan.uploadCommand), input: .file(file),
                                                        environment: environment, deadline: .seconds(1800),
@@ -118,25 +125,32 @@ public struct RemoteInstaller: Sendable {
     }
 
     /// The artifact in the download cache, fetched with resume when needed
-    /// and checked against the manifest digest.
-    func localCopy(_ plan: RemoteInstallPlan, environment: [String: String]) async throws -> URL {
-        try paths.prepare()
+    /// and checked against the manifest digest. The cache's disk steps (its
+    /// folders, the digest of a whole artifact, the move) run on `work`'s files lane at `priority`.
+    func localCopy(_ plan: RemoteInstallPlan, environment: [String: String], priority: WorkPriority = .userVisible) async throws -> URL {
+        let paths = paths
         let file = paths.downloads.appendingPathComponent("\(plan.artifact)-\(plan.commit.prefix(12))")
-        if (try? SHA256File.verify(file, expected: plan.sha256)) != nil { return file }
+        let cached = try await work.run(priority, mayBlock: .files) {
+            try paths.prepare()
+            return (try? SHA256File.verify(file, expected: plan.sha256)) != nil
+        }
+        if cached { return file }
         let partial = file.appendingPathExtension("partial")
         let result = try await SSHProcessRunner.run(["/usr/bin/curl"] + plan.localDownloadArguments(to: partial), environment: environment,
                                                  deadline: .seconds(1800), label: "download \(plan.artifact)")
         guard result.status == 0 else {
             throw RemoteInstallError.downloadFailed(result.stderr.trimmingCharacters(in: .whitespacesAndNewlines))
         }
-        do {
-            try SHA256File.verify(partial, expected: plan.sha256)
-        } catch {
-            try? FileManager.default.removeItem(at: partial)
-            throw error
+        try await work.run(priority, mayBlock: .files) {
+            do {
+                try SHA256File.verify(partial, expected: plan.sha256)
+            } catch {
+                try? FileManager.checked.removeItem(at: partial)
+                throw error
+            }
+            try? FileManager.checked.removeItem(at: file)
+            try FileManager.checked.moveItem(at: partial, to: file)
         }
-        try? FileManager.default.removeItem(at: file)
-        try FileManager.default.moveItem(at: partial, to: file)
         return file
     }
 }
@@ -145,10 +159,12 @@ public struct RemoteInstaller: Sendable {
 /// binary (`commit=`), else the commit in `cmux-tui --version`.
 public struct BundledCmuxTUI {
     public init() {}
-    public static func commit(binary: URL) async -> String? {
+    /// The commit of `binary`; its `cmux-tui.version` is read on `work`'s files lane at `priority`
+    /// (``WorkPriority/bestEffort`` for the automatic update check on connect).
+    public static func commit(binary: URL, on work: BackgroundWork, priority: WorkPriority = .userVisible) async -> String? {
         let versionFile = binary.deletingLastPathComponent().appendingPathComponent("cmux-tui.version")
-        if let text = try? String(contentsOf: versionFile, encoding: .utf8),
-           let line = text.split(whereSeparator: \.isNewline).first(where: { $0.hasPrefix("commit=") }) {
+        let text = try? await work.run(priority, mayBlock: .files) { try String(blockingContentsOf: versionFile, encoding: .utf8) }
+        if let text, let line = text.split(whereSeparator: \.isNewline).first(where: { $0.hasPrefix("commit=") }) {
             let commit = String(line.dropFirst("commit=".count))
             if RemoteInstallPlan.isHex(commit, count: 40) { return commit.lowercased() }
         }

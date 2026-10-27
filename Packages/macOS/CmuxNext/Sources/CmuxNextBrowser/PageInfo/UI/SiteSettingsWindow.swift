@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextDesign
+import CmuxNextWakeups
 
 /// Site settings for one origin (like `chrome://settings/content/
 /// siteDetails`): usage with Delete data, every permission this engine can
@@ -14,7 +15,7 @@ final class SiteSettingsWindow: PageInfoWindow {
     private let reset = ThemedBezelButton()
     private var observation: ObservationLoop?
 
-    init(origin: String, site: PageInfoSite, store: SitePermissionStore, provider: any PageInfoProviding,
+    init(origin: String, site: PageInfoSite, store: SitePermissionStore, provider: any PageInfoProviding, mainWork: MainWorkScheduler,
          send: @escaping (PageInfoCommand) -> Void) {
         self.origin = origin
         self.store = store
@@ -71,7 +72,8 @@ final class SiteSettingsWindow: PageInfoWindow {
         stack.edgeInsets = NSEdgeInsets(top: PageInfoStyle.inset * 1.5, left: PageInfoStyle.inset * 1.5,
                                         bottom: PageInfoStyle.inset * 1.5, right: PageInfoStyle.inset * 1.5)
         installContent(stack)
-        observation = ObservationLoop { [weak self] in self?.syncMenus() }
+        // node-free: its own window, outside any tab; the menus follow the store while it is open
+        observation = ObservationLoop(owner: "browser.siteSettings", delivery: .visible(nil), on: mainWork) { [weak self] in self?.syncMenus() }
         Task { [weak self, provider] in
             let data = await provider.pageInfoSiteData(pageHost: URL(string: origin)?.host())
             self?.show(data)

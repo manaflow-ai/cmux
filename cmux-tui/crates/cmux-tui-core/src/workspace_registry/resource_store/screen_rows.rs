@@ -430,6 +430,7 @@ fn with_column_docks(
     Ok(screens)
 }
 
+#[track_caller]
 pub(super) fn upsert_resource_screen(
     transaction: &Transaction<'_>,
     screen: &RegistryScreen,

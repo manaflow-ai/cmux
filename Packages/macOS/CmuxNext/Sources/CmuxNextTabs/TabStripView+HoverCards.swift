@@ -1,4 +1,5 @@
 import AppKit
+public import CmuxNextCompat
 public import CmuxNextDesign
 
 // The strip's side of the app's hover cards (HoverCardCoordinator); its targets
@@ -8,6 +9,23 @@ extension TabStripView {
     public var hoverCards: HoverCardCoordinator {
         get { hoverCard.coordinator }
         set { hoverCard.coordinator = newValue }
+    }
+
+    /// Makes the strip report to `coordinator` (the App's one), registers its hover card's thumbnails and samples, one
+    /// memory consumer, with `memory` (the App's memory coordinator), and has its tab cards ask `energy` (nil: none).
+    public func attachHoverCards(_ coordinator: HoverCardCoordinator, memory: any MemoryConsumerRegistry, energy: (any TabEnergySource)? = nil) {
+        hoverCards = coordinator
+        hoverCard.energy = energy
+        registerHoverCardMemory(with: memory)
+    }
+
+    /// Registers the hover card's thumbnails and samples, one memory consumer, with `registry`. The strip keeps the
+    /// registration, so the consumer leaves the registry with the strip; a second call replaces the first.
+    func registerHoverCardMemory(with registry: any MemoryConsumerRegistry) {
+        hoverCard.memoryRegistration?.cancel()
+        hoverCard.memoryRegistration = MemoryConsumerRegistration(
+            name: TabHoverCardController.memoryConsumerName, traits: TabHoverCardController.memoryTraits,
+            consumer: hoverCard, registry: registry)
     }
 
     /// Content moved under a possibly still pointer (layout, scroll,

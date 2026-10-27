@@ -3,6 +3,7 @@
 use super::*;
 
 impl Mux {
+    #[track_caller]
     pub fn report_agent(
         &self,
         surface: SurfaceId,
@@ -27,6 +28,7 @@ impl Mux {
     // internal transaction boundary. Grouping them into a bag would hide the
     // lock-order contract that protects journal replay.
     #[allow(clippy::too_many_arguments)]
+    #[track_caller]
     pub(super) fn report_agent_with_sequence_lock(
         &self,
         surface: SurfaceId,
@@ -74,6 +76,7 @@ impl Mux {
     }
 
     #[allow(clippy::too_many_arguments)]
+    #[track_caller]
     pub(crate) fn resource_report_agent_selected(
         &self,
         selectors: crate::ResourceSelectors,
@@ -116,6 +119,7 @@ impl Mux {
     /// publish its upsert or delete. Hook reports carry the agent's native
     /// session id into `extra.agent_session_id`.
     #[allow(clippy::too_many_arguments)]
+    #[track_caller]
     pub(super) fn commit_agent_report(
         &self,
         target: AgentReportTarget<'_>,

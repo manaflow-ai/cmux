@@ -26,13 +26,16 @@ extension CEFTab {
     /// the tab's first real page (the New Tab page, a blank page) the whole
     /// page is a hole: Chromium's windowed page cannot be transparent, so
     /// the window's backdrop shows there as in a WebKit tab (Lawrence
-    /// 2026-10-10, `PageBackground`).
+    /// 2026-10-10, `PageBackground`). While a view shows in the page's place
+    /// (`isPageCovered`), all of the page is a hole.
     func applyOcclusion() {
         let frames = devToolsController.frames(in: container.bounds)
         if host.visibleTab === self {
             let pageFrame = host.hostView.frame
             var rects = occlusionRects
-            if !pastFirstRealPage {
+            if isPageCovered {
+                rects.append(pageFrame)
+            } else if !pastFirstRealPage {
                 // An open side panel is part of the page window: only the web contents' part is a hole.
                 let panel = sidePanel.headerFrame != nil ? sidePanel.state : nil
                 rects.append(panel?.contentsFrame(inPage: pageFrame) ?? pageFrame)

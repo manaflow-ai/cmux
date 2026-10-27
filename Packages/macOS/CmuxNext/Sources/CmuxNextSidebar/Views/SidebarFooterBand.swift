@@ -85,14 +85,14 @@ final class SidebarFooterBand {
             // the sidebar's middle.
             let lead = max(row.itemsMaxX, searchMaxX ?? 0)
             bar.leadingInset = 0
-            bar.frame = NSRect(x: lead, y: row.frame.minY, width: max(0, bounds.width - lead), height: row.frame.height)
+            bar.frame = NSRect(x: lead, y: row.frame.minY, width: max(0, bounds.width - lead - energyRoom), height: row.frame.height)
             bar.centerX = bounds.midX - lead
         } else {
             if bar.superview !== footer { footer.addSubview(bar) }
             // The Search button holds the leading slot; the strip starts after it.
             let lead = searchMaxX.map { footer.convert(NSPoint(x: $0, y: 0), from: host).x } ?? 0
             bar.leadingInset = searchMaxX == nil ? nil : 0
-            bar.frame = NSRect(x: lead, y: 0, width: max(0, footer.bounds.width - lead), height: footer.bounds.height)
+            bar.frame = NSRect(x: lead, y: 0, width: max(0, footer.bounds.width - lead - energyRoom), height: footer.bounds.height)
             bar.centerX = footer.convert(NSPoint(x: bounds.midX, y: 0), from: host).x - lead
         }
         bar.refresh()
@@ -153,6 +153,31 @@ final class SidebarFooterBand {
         return button.frame.maxX
     }
 
+    // MARK: Energy Saver leaf
+
+    /// The room the Energy Saver leaf takes at the trailing end of the footer's first line while
+    /// the saver is on (p14-energy-026); the spaces strip ends before it. 0 while the saver is off.
+    var energyRoom: CGFloat {
+        host?.energyIndicator.isShown == true ? Self.searchButtonSide + Metrics.space2 : 0
+    }
+
+    /// Places the leaf at the trailing end of the footer's first line, on the line the Search
+    /// button centers on (the band's first row, or the footer when the band shows none).
+    func placeEnergy() {
+        guard let host else { return }
+        let side = Self.searchButtonSide
+        let midY: CGFloat
+        if let row = bandFirstRow {
+            midY = row.frame.midY
+        } else {
+            let footer = host.footer.frame
+            midY = footer.height > 0 ? footer.midY : host.bounds.maxY - SidebarStyle.bottomInset - side / 2
+        }
+        let scale = host.window?.backingScaleFactor ?? 2
+        host.energyIndicator.frame = NSRect(x: host.bounds.width - Metrics.space2 - side,
+                                            y: ((midY - side / 2) * scale).rounded() / scale, width: side, height: side)
+    }
+
     // MARK: Profile menu
 
     // SIDEBAR-FOOTER-AND-SPACE-MENU amendment 2: the sidebar's bottom-left is
@@ -194,6 +219,7 @@ final class SidebarFooterBand {
     /// modal tracking starts.
     static func popUpProfileMenu(_ menu: NSMenu, from anchor: NSView?) {
         // task-owner: none needed; one-shot hop to the next main-actor turn, holds no state
+        // main-hop-allow: menu tracking: popUp runs a modal tracking loop, so the caller (a socket action, a palette run) returns before it starts
         Task { @MainActor in
             guard let anchor, anchor.window != nil else {
                 menu.popUp(positioning: nil, at: NSEvent.mouseLocation, in: nil)

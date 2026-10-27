@@ -1,3 +1,4 @@
+import CmuxNextCompat
 public import CmuxNextDaemon
 import Foundation
 
@@ -21,6 +22,6 @@ extension AcpmuxEnvironment {
         } catch AcpmuxStatusClient.Failure.unreachable(let detail) {
             throw AcpmuxRPCError(name: AcpmuxRPCError.unreachable, message: detail)
         }
-        return try JSONDecoder().decode(AcpmuxHarnessInventory.self, from: JSONSerialization.data(withJSONObject: result))
+        return try JSONDecoder().blockingDecode(AcpmuxHarnessInventory.self, from: JSONSerialization.data(withJSONObject: result))
     }
 }

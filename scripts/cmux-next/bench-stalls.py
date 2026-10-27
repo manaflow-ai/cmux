@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Main-thread stall bench for the paths the user touches (cmux-next).
 
-Launches each tagged build with a clean environment (no activation, windows
-on the last screen, a scratch cmux.json), then measures over the control
-socket:
+Launches each tagged build through bench_launch.BenchApp (the lab's bench
+env: no activation, windows on the last screen, a scratch cmux.json), then
+measures over the control socket:
 
   launch       process start -> applicationDidFinishLaunching start/end,
                first window frame committed, first terminal surface created
@@ -22,11 +22,12 @@ lists the top stacks of every stall over one 120 Hz frame with its CPU time
 machine descheduled it). The *_stall_cpu_ms metrics (main-thread CPU time
 of the worst stall) are the less load-sensitive numbers on a busy machine.
 
-Several tags run interleaved (tag A run 1, tag B run 1, A run 2, ...), so
-machine load affects before and after alike:
+Several builds run interleaved (A run 1, B run 1, A run 2, ...), so machine
+load affects before and after alike:
 
-  scripts/cmux-next/bench-stalls.py --tag nxstlb --tag nxstl --runs 5 [--json out.json]
-      [--daemon cold|warm] [--startup-only]
+  scripts/cmux-next/bench-stalls.py --app "A.app" --app "B.app" --runs 5 [--json out.json]
+      [--daemon cold|warm] [--startup-only] [--out DIR] [--story stalls]
+  scripts/cmux-next/bench-stalls.py --tag nxstlb --tag nxstl ...   (each tag's Debug build in DerivedData)
 
 Startup: launch.key_echo_ms is the time to interactive (keys typed through
 the app's key path, debug.key, appear on the focused terminal's screen);
@@ -34,133 +35,96 @@ launch.to_first_content_ms is the first terminal replay or output; the
 daemon.* spans are the start path (login environment, server ensure,
 handshake). --daemon warm primes a launch and quits only the app first.
 
-Prints the load average, a per-run table, and the median, minimum and
-spread per metric and tag. Refuses a tag whose app is already running (it
-never touches an instance it did not start) and the default socket. Kills
-only the app it launched and the processes under that tag's DerivedData.
+Prints the load average, a per-run table, and the median (perf_stats.pct,
+the lab's one percentile), p99, minimum and maximum per metric and build.
+BenchApp refuses a build whose app is already running (it never touches an
+instance it did not start); each run ends with BenchApp.stop (the app, then
+the tag's daemons and terminals by bundle path, never a pattern kill).
+
+With --story (stalls) every build also writes cmux-perf-result/v1 through its
+BenchApp.record: `stalls.<metric>` (ms, the `_ms` suffix dropped) with every
+run's value, and for the tab steps every tab's value (raw samples, not the
+per-run median the table shows). launch.stole_focus is a check, not a
+series. A series --story cannot record exits 1.
 """
 import argparse
 import glob
 import json
 import os
-import signal
-import statistics
 import subprocess
 import sys
-import tempfile
 import time
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, HERE)  # bench_launch under `python3 -I` too
+import bench_launch  # noqa: E402
+from bench_launch import PERF_LAB, BenchApp, load_by_path  # noqa: E402
 from bench_cli_storm import Client  # noqa: E402
 
+perf_stats = load_by_path("perf_stats", os.path.join(PERF_LAB, "perf_stats.py"))
+perf_result = load_by_path("perf_result", os.path.join(PERF_LAB, "perf_result.py"))
+
 DERIVED = os.path.expanduser("~/Library/Developer/Xcode/DerivedData")
+STORY = "stalls"
+CHECKS = ("launch.stole_focus",)  # pass/fail values, never a series
 
 
-def app_binary(tag):
-    tagged = f"{DERIVED}/cmux-{tag}/Build/Products/Debug/cmux DEV {tag}.app/Contents/MacOS/cmux DEV"
-    if os.path.exists(tagged):
+def bundle_of(tag):
+    """A tag's Debug bundle in DerivedData (a by-hand run with --tag)."""
+    tagged = f"{DERIVED}/cmux-{tag}/Build/Products/Debug/cmux DEV {tag}.app"
+    if os.path.isdir(tagged):
         return tagged
-    matches = glob.glob(f"{DERIVED}/cmux-{tag}/Build/Products/Debug/cmux DEV*.app/Contents/MacOS/cmux DEV")
+    matches = glob.glob(f"{DERIVED}/cmux-{tag}/Build/Products/Debug/cmux DEV*.app")
     if not matches:
         raise SystemExit(f"no tagged app for {tag} under {DERIVED}/cmux-{tag}")
     return matches[0]
 
 
-def tag_pids(tag):
-    """The tag's app, daemon and terminal hosts: processes started from its bundle."""
-    out = subprocess.run(["pgrep", "-f", f"DerivedData/cmux-{tag}/Build/Products/Debug/cmux DEV"],
-                         capture_output=True, text=True).stdout
-    return [int(p) for p in out.split() if int(p) != os.getpid()]
-
-
-def app_pids(tag):
-    out = subprocess.run(["pgrep", "-f", f"DerivedData/cmux-{tag}/Build/Products/Debug/cmux DEV.*/Contents/MacOS/"],
-                         capture_output=True, text=True).stdout
-    return [int(p) for p in out.split() if int(p) != os.getpid()]
-
-
-def stop_tag(tag, app_pid):
-    """Quits the app this run started, then ends the tag's daemon and hosts."""
-    if app_pid:
-        try:
-            os.kill(app_pid, signal.SIGTERM)
-        except ProcessLookupError:
-            pass
-    deadline = time.monotonic() + 10
-    while time.monotonic() < deadline and tag_pids(tag):
-        for pid in tag_pids(tag):
-            try:
-                os.kill(pid, signal.SIGTERM)
-            except ProcessLookupError:
-                pass
-        time.sleep(0.5)
-    for pid in tag_pids(tag):
-        try:
-            os.kill(pid, signal.SIGKILL)
-        except ProcessLookupError:
-            pass
+def bench_app(bundle, threshold_ms, out):
+    """One BenchApp per build for all of its runs: one teardown and one perf_result.Run for every result."""
+    return BenchApp(bundle, out=out, env={"CMUX_NEXT_HANG_THRESHOLD_MS": str(threshold_ms)}, config={},
+                    window=None, screen="last")
 
 
 class Run:
-    def __init__(self, tag, threshold_ms, scratch):
-        self.tag = tag
-        self.socket = f"/tmp/cmux-debug-{tag}.sock"
-        if os.path.realpath(self.socket) in {"/tmp/cmux-debug.sock", "/private/tmp/cmux-debug.sock"}:
-            raise SystemExit("refusing the default socket")
-        self.threshold_ms = threshold_ms
-        self.scratch = scratch
-        self.pid = None
+    def __init__(self, app):
+        self.app = app
+        self.tag = app.tag
         self.client = None
+        self.started = None
 
     def launch(self, warm_daemon=False):
-        # A warm launch keeps the daemon this run primed; only the app must be gone.
-        running = (lambda: app_pids(self.tag)) if warm_daemon else (lambda: tag_pids(self.tag))
-        deadline = time.monotonic() + 15
-        while running() and time.monotonic() < deadline:
-            time.sleep(0.5)  # a previous run's daemon may still be exiting
-        if running():
-            listing = subprocess.run(["ps", "-o", "pid=,command=", "-p", ",".join(map(str, tag_pids(self.tag)))],
-                                     capture_output=True, text=True).stdout
-            raise SystemExit(f"tag {self.tag} already has processes running; quit them first "
-                             f"(this bench only kills what it starts):\n{listing}")
-        env = {
-            "HOME": os.environ["HOME"], "USER": os.environ.get("USER", ""), "TMPDIR": os.environ.get("TMPDIR", "/tmp"),
-            "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
-            "CMUX_NEXT_NO_ACTIVATE": "1", "CMUX_NEXT_SOCKET_MODE": "automation",
-            "CMUX_NEXT_TEST_WINDOW_SCREEN": "last",
-            "CMUX_NEXT_CONFIG_FILE": os.path.join(self.scratch, "cmux.json"),
-            "CMUX_NEXT_HANG_THRESHOLD_MS": str(self.threshold_ms),
-        }
-        self.started = time.monotonic()
-        process = subprocess.Popen([app_binary(self.tag)], env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                                   start_new_session=True)
-        self.process = process
-        self.pid = process.pid
-        deadline = time.monotonic() + 60
-        while time.monotonic() < deadline:
-            try:
-                self.client = Client(self.socket, timeout=10)
-                if self.call("debug.timings").get("ok"):
-                    return
-            except (OSError, ConnectionError, ValueError):
-                self.client = None
-            time.sleep(0.1)
-        raise SystemExit(f"{self.tag}: control socket did not answer within 60 s")
+        """Starts the app (BenchApp: refuses a running app of the bundle) and connects. A warm launch keeps the
+        tag's saved state, which the primed daemon still uses."""
+        def spawned(_process):
+            self.started = time.monotonic()  # launch.key_echo_ms counts from the spawn
+            if self.app.teardown:
+                # One teardown for every launch of this build, armed at this one's spawn: a launch that then fails
+                # readiness still ends its daemons and terminal hosts.
+                self.app.teardown.remember()
+
+        self.app.fresh_state = not warm_daemon
+        # The lab's host validation runs after the launch spans (one_run), never inside launch.key_echo.
+        self.app.launch(timeout=60, ready="debug.timings", on_start=spawned, validate_host=False)
+        self.client = Client(self.app.socket, timeout=10)
 
     def call(self, method, params=None):
         return self.client.call(method, params or {})
 
-    def quit_app(self):
-        """Quits only the app (the daemon keeps running: a warm next launch)."""
+    def close(self):
         if self.client:
             self.client.close()
             self.client = None
-        os.kill(self.pid, signal.SIGTERM)
+
+    def quit_app(self):
+        """Quits only the app (the daemon keeps running: a warm next launch): TERM, then KILL, of its own PID."""
+        self.close()
+        self.app.process.terminate()
         try:
-            self.process.wait(timeout=20)
+            self.app.process.wait(timeout=20)
         except subprocess.TimeoutExpired:
-            os.kill(self.pid, signal.SIGKILL)
-            self.process.wait()
+            self.app.process.kill()
+            self.app.process.wait()
 
     def key_echo_ms(self, timeout=20):
         """Launch to the moment a key typed into the focused terminal (debug.key
@@ -238,11 +202,11 @@ class Run:
         }
 
 
-def one_run(tag, threshold_ms, tabs, daemon="cold", startup_only=False):
-    scratch = tempfile.mkdtemp(prefix=f"bench-stalls-{tag}-")
-    with open(os.path.join(scratch, "cmux.json"), "w") as out:
-        out.write("{}\n")
-    run = Run(tag, threshold_ms, scratch)
+
+
+def one_run(app, tabs, daemon="cold", startup_only=False):
+    """One run of `app`: its metrics (the tab steps as lists, one value per tab) and the stall detail."""
+    run = Run(app)
     metrics = {}
     detail = []
     try:
@@ -283,8 +247,9 @@ def one_run(tag, threshold_ms, tabs, daemon="cold", startup_only=False):
         surfaces = timings.get("terminal_surfaces_ms", [])
         metrics["launch.first_surface_ms"] = surfaces[0] if surfaces else None
         detail.append({"label": "launch", "stalls": run.stalls(hangs), "surfaces_ms": surfaces, "marks": launch})
+        app.validate_lab_host()  # once per build, while its app runs, after every launch metric is read
         if startup_only:
-            return finish(metrics), detail
+            return metrics, detail
 
         for index in (1, 2):
             result = run.measure(f"palette open {index}", lambda: run.action("app command-palette"), settle=1.0)
@@ -307,22 +272,60 @@ def one_run(tag, threshold_ms, tabs, daemon="cold", startup_only=False):
             run.action("tab close")
             time.sleep(0.3)
     finally:
-        if run.client:
-            run.client.close()
-        stop_tag(tag, run.pid)
-    return finish(metrics), detail
+        run.close()
+        app.stop()
+    return metrics, detail
 
 
 def finish(metrics):
-    for key, value in list(metrics.items()):
+    """The run's table row: each list (one value per tab) as its median (perf_stats.pct), rounded to 0.1."""
+    out = {}
+    for key, value in metrics.items():
         if isinstance(value, list):
-            metrics[key] = round(statistics.median(value), 1) if value else None
-    return metrics
+            value = round(perf_stats.pct(value, 0.50), 1) if value else None
+        out[key] = value
+    return out
 
 
-def main():
+def metric_name(key):
+    """`launch.key_echo_ms` -> `stalls.launch.key_echo` (the unit is the result's)."""
+    return f"{STORY}." + (key[:-3] if key.endswith("_ms") else key)
+
+
+def series(raw_runs):
+    """{result-v1 metric: samples} over every run: each run's value, and each tab's for the tab steps."""
+    out = {}
+    for metrics in raw_runs:
+        for key, value in metrics.items():
+            if key in CHECKS:
+                continue
+            values = value if isinstance(value, list) else [value]
+            out.setdefault(metric_name(key), []).extend(v for v in values if isinstance(v, (int, float)))
+    return {name: samples for name, samples in out.items() if samples}
+
+
+def record_series(app, story, raw_runs):
+    """{metric: result-v1 path or "not recorded: <reason>"} through the build's BenchApp."""
+    written = {}
+    for metric, samples in series(raw_runs).items():
+        try:
+            written[metric] = str(app.record(story, metric, "ms", samples, better="lower", engine="none"))
+        except (bench_launch.RecordError, perf_result.ResultError) as error:
+            written[metric] = f"not recorded: {error}"
+    return written
+
+
+def summarize(values):
+    """{median, p99, min, max} of one metric's per-run values (perf_stats.pct)."""
+    return {"median": perf_stats.pct(values, 0.50), "p99": perf_stats.pct(values, 0.99),
+            "min": min(values), "max": max(values)}
+
+
+def parse_args(argv=None):
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("--tag", action="append", required=True, help="tagged build (repeat to compare, e.g. before and after)")
+    parser.add_argument("--app", action="append", help="a `cmux DEV <tag>.app` (repeat to compare, e.g. before and after)")
+    parser.add_argument("--tag", action="append", help="without --app: a tag's Debug build in DerivedData (repeat to "
+                                                       "compare); with --app, the story runner's (each bundle names its tag)")
     parser.add_argument("--runs", type=int, default=3)
     parser.add_argument("--tabs", type=int, default=3, help="new tabs per run (the first is 'first', the rest 'later')")
     parser.add_argument("--hang-threshold-ms", type=int, default=8)
@@ -330,16 +333,37 @@ def main():
                         help="cold: the daemon starts with the app; warm: a priming launch leaves it running")
     parser.add_argument("--startup-only", action="store_true", help="measure launch only (no palette or tab steps)")
     parser.add_argument("--json")
+    parser.add_argument("--out", default=os.environ.get("NX_ARTIFACTS"),
+                        help="BenchApp's folder (app logs, cmux-perf-result/v1); default a new temporary one")
+    parser.add_argument("--story", help=f"write cmux-perf-result/v1 under this story ({STORY})")
     parser.add_argument("--details", action="store_true", help="print the stall stacks of each run")
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
+    if not (args.app or args.tag):
+        parser.error("--app or --tag is required")
+    return args
+
+
+def main(argv=None):
+    args = parse_args(argv)
+    bundles = args.app or [bundle_of(tag) for tag in args.tag]
+    apps = {}
+    for bundle in bundles:
+        app = bench_app(bundle, args.hang_threshold_ms, args.out)
+        if app.tag in apps:
+            raise SystemExit(f"bench-stalls: two builds are tag {app.tag}; their sockets and saved state would collide")
+        apps[app.tag] = app
+    tags = list(apps)
 
     load_before = os.getloadavg()
     print(f"load average before: {load_before[0]:.1f} {load_before[1]:.1f} {load_before[2]:.1f}  (cpus: {os.cpu_count()})")
-    results = {tag: [] for tag in args.tag}
-    details = {tag: [] for tag in args.tag}
+    results = {tag: [] for tag in tags}
+    raw = {tag: [] for tag in tags}
+    details = {tag: [] for tag in tags}
     for run_index in range(args.runs):
-        for tag in args.tag:
-            metrics, detail = one_run(tag, args.hang_threshold_ms, args.tabs, args.daemon, args.startup_only)
+        for tag in tags:
+            measured, detail = one_run(apps[tag], args.tabs, args.daemon, args.startup_only)
+            raw[tag].append(measured)
+            metrics = finish(measured)
             metrics["load1"] = round(os.getloadavg()[0], 1)
             results[tag].append(metrics)
             details[tag].append(detail)
@@ -351,26 +375,35 @@ def main():
     load_after = os.getloadavg()
     print(f"load average after: {load_after[0]:.1f} {load_after[1]:.1f} {load_after[2]:.1f}")
 
-    keys = [k for k in results[args.tag[0]][0] if k != "load1"]
-    header = f"{'metric (ms)':38}" + "".join(f"{tag + ' median [min-max]':>30}" for tag in args.tag)
+    keys = [k for k in results[tags[0]][0] if k != "load1"]
+    header = f"{'metric (ms)':38}" + "".join(f"{tag + ' median [min-max]':>30}" for tag in tags)
     print(header)
     summary = {}
     for key in keys:
         row = f"{key:38}"
-        for tag in args.tag:
+        for tag in tags:
             values = [r.get(key) for r in results[tag] if r.get(key) is not None]
             if values:
-                med, low, high = statistics.median(values), min(values), max(values)
-                summary.setdefault(tag, {})[key] = {"median": med, "min": low, "max": high}
+                stats = summary.setdefault(tag, {})[key] = summarize(values)
+                med, low, high = stats["median"], stats["min"], stats["max"]
                 row += f"{f'{med:.1f} [{low:.1f}-{high:.1f}]':>30}"
             else:
                 row += f"{'-':>30}"
         print(row)
+    status = 0
+    recorded = {}
+    if args.story:
+        for tag in tags:
+            recorded[tag] = record_series(apps[tag], args.story, raw[tag])
+            for metric, where in recorded[tag].items():
+                print(f"bench-stalls: {tag} result-v1 {metric}: {where}")
+                if where.startswith("not recorded"):
+                    status = 1
     if args.json:
         with open(args.json, "w") as out:
             json.dump({"load_before": load_before, "load_after": load_after, "runs": results, "summary": summary,
-                       "details": details}, out, indent=2)
-    return 0
+                       "details": details, "results": recorded}, out, indent=2)
+    return status
 
 
 if __name__ == "__main__":

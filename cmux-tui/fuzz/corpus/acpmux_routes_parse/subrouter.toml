@@ -1,0 +1,4 @@
+kind = "subrouter"
+anthropic_base_url = "http://router.example:31415"
+health_url = "http://router.example:31415/health"
+notes = "lan"

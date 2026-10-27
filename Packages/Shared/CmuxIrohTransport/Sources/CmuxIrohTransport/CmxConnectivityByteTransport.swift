@@ -1,4 +1,5 @@
 import CMUXMobileCore
+import CmuxSafeConcurrency
 import Foundation
 
 /// Projects a connectivity-v2 peer's control lane through the mobile RPC byte seam.
@@ -18,7 +19,7 @@ actor CmxConnectivityByteTransport:
     private var lastSession: (any CmxConnectivitySession)?
     private var ownsControlSession = false
     private var closed = false
-    private var closureObservationReadyWaiters: [CheckedContinuation<Void, Never>] = []
+    private var closureObservationReadyWaiters: [OnceContinuation<Void, OnceContinuationError>] = []
 
     init(request: CmxByteTransportRequest, engine: CmxConnectivityEngine) {
         self.request = request
@@ -106,9 +107,9 @@ actor CmxConnectivityByteTransport:
         if let session {
             return !(await session.isClosed())
         }
-        await withCheckedContinuation { continuation in
+        try? await withOnceContinuation { continuation in
             if session != nil || closed {
-                continuation.resume()
+                continuation.resume(returning: ())
             } else {
                 closureObservationReadyWaiters.append(continuation)
             }
@@ -151,7 +152,7 @@ actor CmxConnectivityByteTransport:
         let waiters = closureObservationReadyWaiters
         closureObservationReadyWaiters.removeAll(keepingCapacity: false)
         for waiter in waiters {
-            waiter.resume()
+            waiter.resume(returning: ())
         }
     }
 }

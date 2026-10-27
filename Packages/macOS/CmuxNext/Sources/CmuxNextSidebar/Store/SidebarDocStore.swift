@@ -1,3 +1,4 @@
+import CmuxNextCompat
 public import Foundation
 public import Observation
 
@@ -40,17 +41,23 @@ public final class SidebarDocStore {
     @ObservationIgnored private let remote: (any SidebarDocRemote)?
     /// A refusal or failure to show (the refusal HUD).
     @ObservationIgnored public var onRefused: @MainActor (String) -> Void = { _ in }
-    /// Posted when a change was refused (by the mirror or the daemon), with its `key` in userInfo:
-    /// a list holding that drop's look lets it go.
-    nonisolated public static let refusedNotification = Notification.Name("cmux.sidebar.docRefused")
-    /// Posted when a change changed nothing (a no-op move echoes no batch), with its `key`: a list holding its look lets it go.
-    nonisolated public static let settledNotification = Notification.Name("cmux.sidebar.docSettled")
-    /// The idempotency key of the last change sent (a list matches a drop's notifications by it).
+    /// The idempotency key of the last change sent (a list matches a drop's events by it).
     public private(set) var lastIntentKey: String?
+    /// The lists told this store's events (`observe(_:)`): a direct subscriber registry, no app-wide broadcast.
+    @ObservationIgnored private let observers = SidebarDocObservers()
+
+    /// Tells `handler` each event of this store, synchronously, until the returned observation is cancelled or released.
+    public func observe(_ handler: @escaping @MainActor (SidebarDocEvent) -> Void) -> SidebarDocObservation {
+        observers.add(handler, of: self)
+    }
+
+    /// The favicons link rows draw changed (one arrived, or an item's icon address moved): every list configures its
+    /// realized link rows again.
+    public func faviconsChanged() { observers.tell(.faviconsChanged) }
 
     /// Tells the App and every list that the change `key` was refused.
     private func refuse(_ message: String, key: String? = nil) {
-        NotificationCenter.default.post(name: Self.refusedNotification, object: self, userInfo: ["key": key ?? lastIntentKey ?? ""])
+        observers.tell(.refused(key: key ?? lastIntentKey ?? ""))
         onRefused(message)
     }
     /// A user's move that can be undone: the title and the undo. The App
@@ -72,11 +79,16 @@ public final class SidebarDocStore {
     @ObservationIgnored private var earlyBatches: [Data] = []
     /// The live workspaces and the connected other machines at the last `show` (a remote close is a live ref that left).
     @ObservationIgnored var lastLive: Set<SidebarDocWorkspaceRef> = []
+    /// The live list the last `show` projected over, in its order: `showsPinned` projects over it, so it reads what
+    /// `shown` draws whether or not the memo (`projectionCache`) is still kept.
+    @ObservationIgnored var lastLiveOrder: [SidebarDocWorkspaceRef] = []
     @ObservationIgnored var lastConnectedRemotes: Set<String> = []
     /// The page icon address last sent for each url item (`storeIconURLs` sends each one once).
     @ObservationIgnored var requestedIconURLs: [String: String] = [:]
     /// The last projection (`projection(live:)`), with what it was built over.
     @ObservationIgnored var projectionCache: SidebarDocProjectionCache?
+    /// `projectionCache` as a memory consumer of the app's coordinator (`registerMemoryConsumer(with:)`).
+    @ObservationIgnored var projectionMemory: SidebarDocProjectionMemory?
     /// Changes whose outcome no reply told (all asks unanswered, or answered only after an ask went unanswered: the
     /// echo may have gone to a closed connection). They stay pending until the next document load, which says where
     /// the rows really are: the load drops them (cx-ml98q).
@@ -193,7 +205,7 @@ public final class SidebarDocStore {
     /// the projection over the live set `show` used, so the mirror's rows (a drag reads them) stay as shown.
     public func showsPinned(group item: String) -> Bool? {
         guard isActive, shown != nil else { return nil }
-        let projection = projection(live: projectionCache?.live ?? Array(lastLive))
+        let projection = projection(live: lastLiveOrder)
         return projection.map { $0.bandGroups.contains { $0.id == item && $0.pinned } } ?? records.isPinned(group: item)
     }
 
@@ -304,7 +316,7 @@ public final class SidebarDocStore {
                         _ body: @escaping @MainActor (any SidebarDocRemote, String, Data?) async throws -> SidebarDocReply) throws(SidebarDocSendRefusal) {
         lastIntentKey = intent.idempotencyKey
         func refused(_ message: String) -> SidebarDocSendRefusal {
-            NotificationCenter.default.post(name: Self.refusedNotification, object: self, userInfo: ["key": intent.idempotencyKey])
+            observers.tell(.refused(key: intent.idempotencyKey))
             return SidebarDocSendRefusal(message: message)
         }
         guard isActive, let mirror, let remote else { throw refused(SidebarDocStrings.unavailable) }
@@ -335,7 +347,7 @@ public final class SidebarDocStore {
                     // A no-op change echoes no batch: its intent must not stay pending.
                     if !reply.hasInverse {
                         self.drop(key, redraws: redraws)
-                        NotificationCenter.default.post(name: Self.settledNotification, object: self, userInfo: ["key": key])
+                        self.observers.tell(.settled(key: key))
                     }
                     if undoable, reply.hasInverse {
                         let inverse = reply.inverse
@@ -428,7 +440,7 @@ public nonisolated struct SidebarDocReply: Hashable, Sendable {
 
     /// The inverse holds at least one op.
     public var hasInverse: Bool {
-        guard let ops = try? JSONSerialization.jsonObject(with: inverse) as? [Any] else { return false }
+        guard let ops = try? JSONSerialization.blockingJSONObject(with: inverse) as? [Any] else { return false }
         return !ops.isEmpty
     }
 }

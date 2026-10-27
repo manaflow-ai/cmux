@@ -2,6 +2,7 @@ import AppKit
 @testable import CmuxNextLayout
 import CmuxNextDesign
 import CmuxNextTerminalGeometry
+import CmuxNextWakeups
 import Testing
 
 /// Cmd-Shift-Enter was laggy and buggy on terminals (Lawrence 2026-10-20): the zooming pane is laid
@@ -62,7 +63,7 @@ struct PaneZoomTerminalResizeTests {
             self.tree = tree
             model = LayoutModel(screens: [LayoutScreen(id: "s", name: "s", layout: .splits(tree))], activeScreenID: "s",
                                 focusedPane: "p1")
-            root = LayoutRootView(model: model, contentProvider: provider)
+            root = LayoutRootView(model: model, contentProvider: provider, mainWork: MainWorkScheduler(budget: MainFrameBudget()))
             root.context.reduceMotionOverride = reduceMotion
             let frame = NSRect(x: 0, y: 0, width: 1200, height: 800)
             window = sliding

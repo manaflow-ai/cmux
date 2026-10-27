@@ -1,0 +1,381 @@
+// Copyright 2018 The Chromium Authors
+// Use of this source code is governed by a BSD-style license that can be
+// found in the LICENSE file.
+
+module remote_cocoa.mojom;
+
+import "components/remote_cocoa/common/menu.mojom";
+import "components/remote_cocoa/common/select_file_dialog.mojom";
+import "mojo/public/mojom/base/file_path.mojom";
+import "mojo/public/mojom/base/string16.mojom";
+import "services/network/public/mojom/x509_certificate.mojom";
+import "ui/base/cursor/mojom/cursor.mojom";
+import "ui/base/mojom/color_mode.mojom";
+import "ui/base/mojom/ui_base_types.mojom";
+import "ui/events/mojom/event_constants.mojom";
+import "ui/gfx/geometry/mojom/geometry.mojom";
+import "ui/gfx/image/mojom/image.mojom";
+import "ui/gfx/mojom/ca_layer_params.mojom";
+
+// The window class (subclass of kNativeWidgetMacNSWindow) to use for a given
+// window.
+enum WindowClass {
+  // NativeWidgetMacNSWindow
+  kDefault,
+  // BrowserNativeWidgetWindow
+  kBrowser,
+  // NativeWidgetMacFramelessNSWindow
+  kFrameless,
+  // NativeWidgetMacOverlayNSWindow
+  kOverlay,
+};
+
+// Parameters used to described creation of an NSWindow.
+struct CreateWindowParams {
+  // The subclass of NativeWidgetMacNSWindow to use for this window.
+  WindowClass window_class;
+
+  // The NSWindowStyleMask for the window.
+  uint64 style_mask;
+
+  // Whether or not the titlebar should be forced to be transparent. If so, then
+  // the window is responsible for drawing its own titlebar. Note that the
+  // traffic lights will be drawn independent of this setting.
+  bool titlebar_appears_transparent;
+
+  // Whether or not to hide the default title drawn by the window. If so, then
+  // the window is responsible for drawing its own title.
+  bool window_title_hidden;
+
+  // Whether or not window animations should be initially enabled.
+  bool animation_enabled;
+};
+
+// Ways of changing the visibility of the bridged NSWindow.
+enum WindowVisibilityState {
+  // Hides with -[NSWindow orderOut:].
+  kHideWindow,
+  // Shows with -[NSWindow makeKeyAndOrderFront:].
+  kShowAndActivateWindow,
+  // Shows with -[NSWindow orderWindow:..]. Orders the window above its parent
+  // if it has one.
+  kShowInactive,
+  // Miniaturizes with -[NSWindow miniaturize:].
+  kMiniaturizeWindow,
+};
+
+// Window transitions to animate, mirrors views::Widget::VisibilityTransition.
+enum VisibilityTransition {
+  kShow = 1,
+  kHide = 2,
+  kBoth = 3,
+  kNone = 4,
+};
+
+struct StateRestorationData {
+  // An opaque blob of AppKit data which includes, among other things, a
+  // window's size and fullscreen state, and can be retrieved from or
+  // applied to a window.
+  array<uint8> appkit_restoration_data;
+
+  // If true, force the AppKit window restoration code to also restore the
+  // window to the space recorded within the `appkit_restoration_data`, above.
+  bool restore_space;
+};
+
+struct NativeWidgetNSWindowInitParams {
+  ui.mojom.ModalType modal_type;
+
+  // If true, the underlying window potentially be seen through.
+  bool is_translucent;
+
+  // If true, then the NSWindow is set to have a shadow using
+  // -[NSWindow setHasShadow:YES].
+  bool has_window_server_shadow;
+
+  // If true, the NSWindow's collection behavior is set to include
+  // NSWindowCollectionBehaviorParticipatesInCycle (this is not the
+  // default for NSWindows with NSWindowStyleMaskBorderless).
+  bool force_into_collection_cycle;
+
+  // Optional data to restore as the window's UI state.
+  StateRestorationData? state_restoration_data;
+
+  // If true, this window is functionally a tooltip, and shouldn't be presented
+  // as a new window to the accessibility system.
+  bool is_tooltip;
+};
+
+// The visibility style of the toolbar in immersive fullscreen.
+enum ToolbarVisibilityStyle {
+  // No toolbar. Used for content fullscreen.
+  kNone,
+
+  // The toolbar is always shown.
+  kAlways,
+
+  // The toolbar will autohide. It can be revealed by placing the mouse at the
+  // top of the screen.
+  kAutohide,
+};
+
+// Data for dragging a file from the window.
+struct FileDragData {
+  // The file path to drag.
+  mojo_base.mojom.FilePath file_path;
+
+  // Optional drag image.
+  gfx.mojom.ImageSkia? drag_image;
+
+  // Offset from the mouse cursor to the drag image origin.
+  gfx.mojom.Vector2d image_offset;
+};
+
+// The interface through which a NativeWidgetMac may interact with an NSWindow
+// (possibly in a process separate from the browser process).
+interface NativeWidgetNSWindow {
+  // Create and set the NSWindow for the bridge.
+  CreateWindow(CreateWindowParams params);
+
+  // Set the NativeWidgetNSWindow indicated by |parent_id| to be the parent of
+  // this NativeWidgetNSWindow.
+  SetParent(uint64 parent_id);
+
+  // Open a panel for file selection or creation.
+  CreateSelectFileDialog(pending_receiver<SelectFileDialog> dialog);
+
+  // Open a panel to display the specified certificate.
+  ShowCertificateViewer(network.mojom.X509Certificate certificate);
+
+  // Places this NativeWidgetNSWindow in front of the NativeWidgetNSWindow
+  // indicated by |sibling_id| in z-order.
+  StackAbove(uint64 sibling_id);
+
+  StackAtTop();
+
+  // Show the emoji panel for the NSWindow's process.
+  ShowEmojiPanel();
+
+  // Initialize the window's style.
+  InitWindow(NativeWidgetNSWindowInitParams params);
+
+  // Initialize the view to display compositor output. This will send the
+  // current visibility and dimensions (and any future updates) to the
+  // NativeWidgetNSWindowHost. Returns the CGWindowID to associate with
+  // the compositor's FrameSinkId.
+  InitCompositorView() => (uint32 cg_window_id);
+
+  // Create the NSView to be the content view for the window. Use |ns_view_id|
+  // to look up this NSView in other functions (e.g, to specify a parent view).
+  // If `corner_radius` is set, the content view clips sublayers to a rounded
+  // corner mask of the given radius.
+  CreateContentView(
+      uint64 ns_view_id, gfx.mojom.Rect bounds, int32? corner_radius);
+
+  // Destroy the content NSView for this window. Note that the window will
+  // become blank once this has been called.
+  DestroyContentView();
+
+  // Initiate the closing of the window (the closing may be animated or posted
+  // to be run later).
+  CloseWindow();
+
+  // Immediately close the window (which will have the consequence of deleting
+  // |this| and its host).
+  CloseWindowNow();
+
+  // Specify initial bounds for the window via |new_bounds| in screen
+  // coordinates. It is invalid for |new_bounds| to have an empty size and
+  // non-zero position. The size of the window will be expanded so that the
+  // content size will be at least |minimum_content_size|.
+  SetInitialBounds(
+      gfx.mojom.Rect new_bounds, gfx.mojom.Size minimum_content_size);
+
+  // Specify new bounds for the window via |new_bounds| in screen coordinates.
+  // The size of the window will be expanded so that the content size will be
+  // at least |minimum_content_size| and at most |maximum_content_size| (if
+  // provided).
+  SetBounds(gfx.mojom.Rect new_bounds,
+            gfx.mojom.Size minimum_content_size,
+            gfx.mojom.Size? maximum_content_size);
+
+  // Specify new size for the window via |new_size|. The top-left corner of the
+  // window will be kept in place. The size of the window will be expanded so
+  // that the content size will be at least |minimum_content_size|.
+  SetSize(gfx.mojom.Size new_size, gfx.mojom.Size minimum_content_size);
+
+  // Centers the window and sets its content size to |content_size|. The size of
+  // the window will be expanded so that the content size will be at least
+  // |minimum_content_size|.
+  SetSizeAndCenter(
+      gfx.mojom.Size content_size, gfx.mojom.Size minimum_content_size);
+
+  // Sets the desired visibility of the window and updates the visibility of
+  // descendant windows where necessary.
+  SetVisibilityState(WindowVisibilityState new_state);
+
+  // Enables or disables all window animations.
+  SetAnimationEnabled(bool animation_enabled);
+
+  // Sets which transitions will animate. Currently this only affects non-native
+  // animations.
+  SetTransitionsToAnimate(VisibilityTransition transitions);
+
+  // Sets the collection behavior so that the window will or will not be visible
+  // on all spaces.
+  SetVisibleOnAllSpaces(bool always_visible);
+
+  // Moves the window into an active fullscreen space. Used to ensure that
+  // picture-in-picture windows can display on top of fullscreen.
+  MoveToActiveFullscreenSpace();
+
+  // Initiate a transition to fullscreen on the specified display.  If
+  // `target_display_id` is invalid, then fullscreen should be entered on the
+  // current display.
+  EnterFullscreen(int64 target_display_id);
+
+  // Initiate a transition out of fullscreen.
+  ExitFullscreen();
+
+  // Called by NativeWidgetMac; sets whether the window can share fullscreen
+  // windows' spaces by changing the NSWindow's collectionBehavior.
+  SetCanAppearInExistingFullscreenSpaces(
+      bool can_appear_in_existing_fullscreen_spaces);
+
+  // Miniaturize or deminiaturize the window.
+  SetMiniaturized(bool miniaturized);
+
+  // Zoom or un-zoom the window.
+  SetZoomed(bool zoomed);
+
+  // Called by NativeWidgetMac when the window size constraints change.
+  SetSizeConstraints(gfx.mojom.Size min_size,
+                     gfx.mojom.Size max_size,
+                     bool is_resizable,
+                     bool is_maximizable);
+
+  // Set the opacity of the NSWindow.
+  SetOpacity(float opacity);
+
+  // Set the window level of the NSWindow.
+  SetWindowLevel(int32 level);
+
+  // Set or un-set the NSWindow as being "activation independent". This sets
+  // two properties:
+  //
+  // - If Chromium is hidden (from the Dock menu or programmatically), the
+  //   NSWindow is not forced to be hidden as well.
+  // - The NSWindow can be interacted with without causing Chromium to be
+  //   activated.
+  //
+  // To accomplish this, the activation independence state of all ancestor
+  // NSWindows is set as well.
+  SetActivationIndependence(bool independence);
+
+  // Set the aspect ratio of the NSWindow. `aspect_ratio` must not be empty.
+  // The aspect ratio refers to the client area only; system-drawn window
+  // decorations like a title bar are not considered in the aspect ratio.
+  //
+  // `excluded_margin` is the amount of client area to ignore when computing
+  // the aspect ratio.  This allows for client-drawn window decorations to be
+  // excluded from the aspect-ratio-constrained size, similar to how system-
+  // drawn decorations are excluded.  If no adjustment is needed, such as if
+  // there are no client-drawn window decorations, then set `excluded_margin`
+  // to (0, 0).
+  //
+  // For example, `aspect_ratio` == 1.f, and `excluded_margin` == (10, 15)
+  // would allow a client area size of (40, 45), since (40-10)/(45-15) == 1.
+  // Presumably, (10, 15) of this area would be used to draw client-drawn
+  // decorations, while the remaining (30, 30) would be used for whatever
+  // content is supposed to have a 1.f aspect-ratio.
+  SetAspectRatio(
+      gfx.mojom.SizeF aspect_ratio, gfx.mojom.Size excluded_margin);
+
+  // Specify the content to draw in the NSView.
+  SetCALayerParams(gfx.mojom.CALayerParams ca_layer_params);
+
+  // Set the NSWindow's title text.
+  SetWindowTitle(mojo_base.mojom.String16 title);
+
+  // Ignore or accept mouse events on the NSWindow.
+  SetIgnoresMouseEvents(bool ignores_mouse_events);
+
+  // Make the content view be the first responder for the NSWindow.
+  MakeFirstResponder();
+
+  // Sort the subviews of the content view of this window. The sorted ids of
+  // the NSViews attached by NativeViewHost::Attach are listed in
+  // |attached_subview_ids|.
+  SortSubviews(array<uint64> attached_subview_ids);
+
+  // Clear the touchbar.
+  ClearTouchBar();
+
+  // Update the tooltip text at the current mouse location.
+  UpdateTooltip();
+
+  // Acquiring mouse capture first steals capture from any existing
+  // CocoaMouseCaptureDelegate, then captures all mouse events until released.
+  AcquireCapture();
+
+  ReleaseCapture();
+
+  // Redispatch a keyboard event using the widget's window's CommandDispatcher.
+  RedispatchKeyEvent(array<uint8> native_event_data);
+
+  // Enable or disable this widget's local event monitor.
+  SetLocalEventMonitorEnabled(bool enabled);
+
+  // Set the cursor type to display.
+  SetCursor(ui.mojom.Cursor cursor);
+
+  // Enables immersive fullscreen. |fullscreen_overlay_widget_id| is the id of
+  // the overlay widget which is hosting top chrome.
+  // |tab_widget_id| holds the id of the tab hosting widget.
+  EnableImmersiveFullscreen(
+      uint64 fullscreen_overlay_widget_id, uint64 tab_widget_id);
+
+  // Rollback the immersive transition. The top chrome NSView is reparented into
+  // the overlay widget.
+  DisableImmersiveFullscreen();
+
+  // Update the visibility of the toolbar (top chrome) while in immersive
+  // fullscreen. Typically this is used in response to the
+  // View -> "Always Show Toolbar in Full Screen" menu changing or content
+  // going fullscreen.
+  UpdateToolbarVisibility(ToolbarVisibilityStyle style);
+
+  // Also used during immersive fullscreen. Update the bounds of the AppKit
+  // NSWindow hosting top chrome.
+  OnTopContainerViewBoundsChanged(gfx.mojom.Rect bounds);
+
+  // Reveal top chrome leaving it visible until all outstanding calls to
+  // ImmersiveFullscreenRevealLock() are balanced with
+  // ImmersiveFullscreenRevealUnlock(). Top chrome will hover over content.
+  ImmersiveFullscreenRevealLock();
+
+  // Balances calls to ImmersiveFullscreenRevealLock().
+  ImmersiveFullscreenRevealUnlock();
+
+  // Set whether can go back to the previous page.
+  SetCanGoBack(bool can_go_back);
+
+  // Set whether can go forward to the following page.
+  SetCanGoForward(bool can_go_forward);
+
+  // Displayed a context menu, anchored to this window.
+  DisplayContextMenu(ContextMenu menu,
+                     pending_remote<MenuHost> host,
+                     pending_receiver<Menu> receiver);
+
+  // Set whether the window should be included in screenshots or not.
+  SetAllowScreenshots(bool allow);
+
+  // Set the color mode of the window.
+  SetColorMode(ui.mojom.ColorMode color_mode);
+
+  // Begin a file drag operation. Used for download drag-and-drop from PWA
+  // running in a separate (app shim) process.
+  BeginFileDrag(
+      FileDragData file_drag_data, gfx.mojom.PointF mouse_location);
+};

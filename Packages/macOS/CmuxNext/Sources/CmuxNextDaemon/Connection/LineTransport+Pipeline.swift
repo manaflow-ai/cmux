@@ -1,41 +1,130 @@
-import CmuxNextWakeups
 import Foundation
 import CmuxNextCompat
+import class CmuxSafeConcurrency.OnceContinuation
+import func CmuxSafeConcurrency.withOnceThrowingContinuation
 
-/// One request for `LineTransport.pipeline`: its command name (for errors)
-/// and its encoder, which receives the allocated id.
+extension LineTransport {
+    /// What the reader does with a request's response.
+    enum Waiter {
+        case reply(cmd: String, ReplySlot)
+        case discard(cmd: String, onError: (@Sendable (DaemonError) -> Void)?)
+        /// Its deadline passed; the late reply is dropped. The id stays
+        /// pending so an id-less error still maps to the right request.
+        case expired(cmd: String)
+
+        var cmd: String {
+            switch self {
+            case .reply(let cmd, _), .discard(let cmd, _), .expired(let cmd): cmd
+            }
+        }
+
+        /// How its reply line counts: read when a request waits for it, or when it is the error of one
+        /// sent without waiting; otherwise dropped.
+        func replyKind(ok: Bool) -> DaemonWireStats.FrameKind {
+            switch self {
+            case .reply: .reply
+            case .discard: ok ? .droppedReply : .reply
+            case .expired: .droppedReply
+            }
+        }
+
+        /// Where an error reply goes: the waiting slot, or the discarded request's `onError`; nil when
+        /// nobody reads it, so the reader does not parse its error fields.
+        var failure: ((DaemonError) -> Void)? {
+            switch self {
+            case .reply(_, let slot): { slot.resolve(.failure($0)) }
+            case .discard(_, let onError): onError
+            case .expired: nil
+            }
+        }
+    }
+
+    /// An `ok:true` response line plus the number of events routed before it
+    /// on this transport. Every event with index <= `eventBarrier` was
+    /// emitted before the command's result, so a snapshot supersedes it.
+    struct Response: Sendable {
+        var line: Data
+        var eventBarrier: UInt64
+        /// The connection's recorder: decoding the line counts there
+        /// (`WireCoding.decodeResponse(_:from:)` given the response).
+        var recorder: DaemonWireStats.Recorder?
+    }
+
+    /// A request whose deadline passed: what its `timedOut` error and its timing need.
+    struct Expired {
+        var cmd: String
+        var slot: ReplySlot
+        var sent: DaemonWireStats.RequestStamp?
+        var timeout: Duration
+    }
+
+    static func closedError(_ reason: TransportCloseReason) -> DaemonError {
+        switch reason {
+        case .closedByClient: .connectionClosed(reason: "closed by client")
+        case .daemonShutdown: .daemonShutdown
+        case .lost(let detail): .connectionClosed(reason: detail)
+        }
+    }
+}
+
+/// One request for `LineTransport.pipeline`: its command name (for errors
+/// and its trace slice) and its encoder, which receives the allocated id.
 struct PipelinedLine {
-    var cmd: String
+    var cmd: DaemonCommandName
     var body: (UInt64) throws -> Data
 }
 
 /// A request's reply, resolved once by the reader thread (the response),
 /// the deadline (`timedOut`) or the transport closing. The awaiting side may
-/// come before or after the resolution.
+/// come before or after the resolution. The resolution ends the request's
+/// `daemon.request` slice, so the slice measures the request's own reply even
+/// while its awaiter is still behind an earlier request's.
 final class ReplySlot: Sendable {
-    private enum State {
-        case waiting(CheckedContinuation<LineTransport.Response, any Error>?)
+    private enum Phase {
+        case waiting(OnceContinuation<LineTransport.Response, any Error>?)
         case done(Result<LineTransport.Response, any Error>)
     }
 
-    private let state = Mutex(State.waiting(nil))
+    private struct State {
+        var phase = Phase.waiting(nil)
+        /// The request's open slice, ended by the resolution.
+        var span: LineTransport.RequestSpan?
+    }
+
+    private let state = Mutex(State())
+
+    /// Hands the slot its request's open slice; the resolution ends it (at once when the slot resolved already).
+    func arm(_ span: LineTransport.RequestSpan) {
+        let done: Result<LineTransport.Response, any Error>? = state.withLock { state in
+            guard case .done(let result) = state.phase else {
+                state.span = span
+                return nil
+            }
+            return result
+        }
+        if let done { span.end(LineTransport.RequestOutcome(done)) }
+    }
 
     /// First resolution wins; later ones are ignored.
     func resolve(_ result: Result<LineTransport.Response, any Error>) {
-        let waiter: CheckedContinuation<LineTransport.Response, any Error>?? = state.withLock { state in
-            guard case .waiting(let waiter) = state else { return nil }
-            state = .done(result)
-            return .some(waiter)
-        }
-        if case .some(let waiter?) = waiter { waiter.resume(with: result) }
+        let resolved: (waiter: OnceContinuation<LineTransport.Response, any Error>?, span: LineTransport.RequestSpan?)? =
+            state.withLock { state in
+                guard case .waiting(let waiter) = state.phase else { return nil }
+                state.phase = .done(result)
+                defer { state.span = nil }
+                return (waiter: waiter, span: state.span)
+            }
+        guard let resolved else { return }
+        resolved.span?.end(LineTransport.RequestOutcome(result))
+        resolved.waiter?.resume(with: result)
     }
 
     func value() async throws -> LineTransport.Response {
-        try await withCheckedThrowingContinuation { continuation in
+        try await withOnceThrowingContinuation { (continuation: OnceContinuation<LineTransport.Response, any Error>) in
             let done: Result<LineTransport.Response, any Error>? = state.withLock { state in
-                switch state {
+                switch state.phase {
                 case .done(let result): return result
-                case .waiting: state = .waiting(continuation); return nil
+                case .waiting: state.phase = .waiting(continuation); return nil
                 }
             }
             if let done { continuation.resume(with: done) }
@@ -52,18 +141,17 @@ extension LineTransport {
     /// or error, in request order.
     func pipeline(_ lines: [PipelinedLine], timeout: Duration?) async -> [Result<Response, any Error>] {
         var slots: [ReplySlot] = []
-        var ids: [UInt64] = []
+        // One deadline for the group: its requests expire in one fire of the connection's timer.
+        let groupDeadline = timeout.map { self.deadline(after: $0) }
         for line in lines {
             let slot = ReplySlot()
             slots.append(slot)
-            // A failed submit resolved the slot already.
-            if case .success(let id) = submit(.reply(cmd: line.cmd, slot), line.body) { ids.append(id) }
-        }
-        let timer = DemandTimer(owner: "LineTransport.deadline")
-        defer { timer.cancel() }
-        if let timeout, !ids.isEmpty {
-            timer.schedule(after: timeout) { [weak self, ids] in
-                for id in ids { self?.expire(id: id, after: timeout) }
+            // A failed submit resolves the slot itself.
+            submit(.reply(cmd: line.cmd.wire, slot), deadline: groupDeadline) { id in
+                let data = try line.body(id)
+                // Each slot ends its own `daemon.request` slice, as ``request(cmd:timeout:_:)``'s does.
+                beginRequestSpan(line.cmd, id: id, slot: slot)
+                return data
             }
         }
         var results: [Result<Response, any Error>] = []
@@ -80,6 +168,6 @@ extension LineTransport {
 
 extension PipelinedLine {
     init<R: DaemonRequest>(_ request: R) {
-        self.init(cmd: R.command) { id in try WireCoding.encodeRequest(request, id: id) }
+        self.init(cmd: R.commandName) { id in try WireCoding.encodeRequest(request, id: id) }
     }
 }

@@ -1,3 +1,4 @@
+import CmuxNextCompat
 public import Foundation
 
 /// Fetches, verifies and caches signed release notes (R114 changelog).
@@ -27,7 +28,7 @@ nonisolated public struct ReleaseNotesStore: Sendable {
     @concurrent
     public func notes(for build: String) async -> ReleaseNotes? {
         guard Self.isSafeName(build), let data = await verified("\(build).json", cacheFirst: true),
-              var notes = try? JSONDecoder().decode(ReleaseNotes.self, from: data), notes.build == build else { return nil }
+              var notes = try? JSONDecoder().blockingDecode(ReleaseNotes.self, from: data), notes.build == build else { return nil }
         // Older notes carry only commit subjects: readers (the changelog page) get titles with PRs.
         notes.items = notes.changeItems
         return notes
@@ -37,7 +38,7 @@ nonisolated public struct ReleaseNotesStore: Sendable {
     @concurrent
     public func index() async -> [ReleaseNotesIndexEntry] {
         struct Index: Decodable { var builds: [ReleaseNotesIndexEntry] }
-        guard let data = await verified("index.json"), let index = try? JSONDecoder().decode(Index.self, from: data) else { return [] }
+        guard let data = await verified("index.json"), let index = try? JSONDecoder().blockingDecode(Index.self, from: data) else { return [] }
         return index.builds
     }
 
@@ -45,7 +46,7 @@ nonisolated public struct ReleaseNotesStore: Sendable {
     @concurrent
     public func announcements() async -> [Announcement] {
         struct Feed: Decodable { var items: [Announcement] }
-        guard let data = await verified("announcements.json"), let feed = try? JSONDecoder().decode(Feed.self, from: data) else { return [] }
+        guard let data = await verified("announcements.json"), let feed = try? JSONDecoder().blockingDecode(Feed.self, from: data) else { return [] }
         return feed.items
     }
 

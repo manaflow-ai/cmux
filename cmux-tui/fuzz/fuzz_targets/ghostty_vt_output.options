@@ -1,0 +1,10 @@
+# Read by scripts/cmux-next/rust-fuzz.sh (Chromium's <target>.options format).
+#
+# ASan's default 256 MiB quarantine of freed large chunks raised this
+# target's RSS past the 2 GiB limit in a minute with 33 MiB live; the same
+# corpus stays at 39-42 MB without ASan and at 64 MB with a 1 MiB quarantine.
+# libghostty-vt's memory is Zig (coverage-instrumented and ReleaseSafe, but
+# not ASan-instrumented), so the quarantine guarded only the Rust wrapper's
+# buffers.
+[asan]
+quarantine_size_mb = 1

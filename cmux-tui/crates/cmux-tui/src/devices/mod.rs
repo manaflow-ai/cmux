@@ -13,9 +13,9 @@ mod tests;
 
 use std::io::{BufRead as _, IsTerminal as _, Write as _};
 use std::path::PathBuf;
-use std::process::{Command, Stdio};
 
 use anyhow::{Context as _, anyhow, bail};
+use cmux_process::{Command, Stdio};
 use serde_json::{Value, json};
 
 use crate::remote_host::{audit, config as host_config, self_exe};
@@ -148,8 +148,7 @@ impl Flags {
 /// surface, run too when this is `cmux-tui` (the app runs its bundled `cmux-tui device …`).
 fn cmux() -> anyhow::Result<Command> {
     let mut command = Command::new(self_exe()?);
-    #[cfg(unix)]
-    std::os::unix::process::CommandExt::arg0(&mut command, "cmux");
+    command.arg0("cmux");
     Ok(command)
 }
 

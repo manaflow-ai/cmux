@@ -160,8 +160,8 @@ public final class CmuxSidebarView: NSView {
     public private(set) var pinnedOrder: [String] = []
 
     public override init(frame: NSRect) {
-        // MessagesLab v1.1: the sidebar's strings come from its own catalog in this package's bundle.
-        SidebarLocalization.bundle = .module
+        // MessagesLab v1.1: the sidebar's strings come from its own catalog in this package's bundle
+        // (`MessagesLabLocalization.bundle`, a constant).
         super.init(frame: frame)
         link.owner = self
         controller.availableFilters = Self.filters(filterSources)
@@ -172,13 +172,7 @@ public final class CmuxSidebarView: NSView {
         controller.view.autoresizingMask = [.width, .height]
         addSubview(controller.view)
         setAccessibilityIdentifier("cmux.home.sidebar")
-        // Reduce Motion changes (the system setting or the host's pin) still or restart the typing
-        // bubbles already pulsing (CmuxSidebarView+Motion.swift).
-        motionObservers = observeReduceMotion()
     }
-
-    /// The Reduce Motion observers (weak: a closed view's turn is a no-op).
-    private var motionObservers: [any NSObjectProtocol] = []
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { nil }
@@ -264,6 +258,13 @@ public final class CmuxSidebarView: NSView {
         controller.setQuery("")
     }
 
+    /// Puts `query` in the search field and filters the list by it, as typing it would (a page
+    /// built again shows the search the person left).
+    public func setSearch(_ query: String) {
+        controller.searchField.stringValue = query
+        controller.setQuery(query)
+    }
+
     /// The neutral selection's fill (a translucent theme tint); nil keeps the unemphasized grey.
     public var neutralSelectionFill: NSColor? {
         get { controller.neutralFill }
@@ -328,10 +329,10 @@ public struct CmuxSidebarSearchSection: Hashable, Sendable {
     }
 }
 
-/// The controller's data source, delegate and search provider (it holds them weakly).
+/// The controller's data source, delegate and search provider (it holds them weakly). The
+/// protocols are main-actor, as the controller that calls them.
 @MainActor
-private final class SidebarLink: @preconcurrency SidebarDataSource, @preconcurrency SidebarDelegate, @preconcurrency SidebarSearchProvider,
-    @preconcurrency SidebarPinPlacing {
+private final class SidebarLink: SidebarDataSource, SidebarDelegate, SidebarSearchProvider, SidebarPinPlacing {
     weak var owner: CmuxSidebarView?
 
     func sidebarSnapshot(_ sidebar: SidebarController) -> ConversationListSnapshot {

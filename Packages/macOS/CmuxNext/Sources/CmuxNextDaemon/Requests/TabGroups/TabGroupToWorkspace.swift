@@ -5,7 +5,7 @@ import Foundation
 /// the returned workspace in a new window.
 public struct MoveTabGroupToNewWorkspaceRequest: DaemonRequest {
     public typealias Response = TabGroupResult
-    public static let command = "move-tab-group-to-new-workspace"
+    public static let commandName: DaemonCommandName = "move-tab-group-to-new-workspace"
     public static let requiredCapability: String? = DaemonCapability.tabGroups.rawValue
     public var group: TabGroupID
     /// Sidebar (workspace) group for the new workspace.
@@ -17,5 +17,9 @@ public struct MoveTabGroupToNewWorkspaceRequest: DaemonRequest {
         self.workspaceGroup = workspaceGroup
         self.index = index
         self.transaction = transaction
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case group, workspaceGroup = "workspace_group", index, transaction
     }
 }

@@ -28,6 +28,6 @@ final class VaultPageService {
 
     func makePage(key: String, engine: BrowserEngineKind, profile: BrowserProfileID) -> VaultPageTab {
         VaultPageTab(id: BrowserTabID(rawValue: key), engine: engine, profile: profile,
-                     host: VaultHostView(vault: vault, registry: registry))
+                     host: VaultHostView(vault: vault, registry: registry, readsOnAppear: false))
     }
 }

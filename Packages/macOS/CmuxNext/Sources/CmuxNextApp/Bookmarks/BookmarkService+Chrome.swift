@@ -6,6 +6,7 @@ import CmuxNextCompat
 import CmuxNextDesign
 import CmuxNextIcons
 import CmuxNextSettings
+import CmuxNextWakeups
 import Foundation
 
 /// The omnibar star and the bookmarks bar of every live browser chrome. The
@@ -18,7 +19,7 @@ extension BookmarkService {
         let adapter = BookmarkBarSourceAdapter(service: self, tabKey: key)
         let bar = BookmarksBarView()
         bar.source = adapter
-        chromes[key] = WeakChrome(entry: entry, bar: bar, source: adapter)
+        chromes[key] = WeakChrome(entry: entry, bar: bar, source: adapter, node: services.cache.node(for: key))
         entry.chrome.addressBar.onPageURLChange = { [weak self, weak entry] url in
             guard let self, let entry else { return }
             updateStar(entry, url: url)
@@ -37,9 +38,22 @@ extension BookmarkService {
             }
             guard profiles.contains(profile(of: entry.tab.profileID)) else { continue }
             updateStar(entry, url: entry.tab.state.url)
-            if showsBar { chrome.bar.reload() }
+            if showsBar { reloadBar(chrome) }
         }
     }
+
+    /// Reloads `chrome`'s bar now while its tab shows, else once when the tab's node next shows
+    /// (p06-scheduler.md rule 4: a hidden tab's bar does no view work).
+    func reloadBar(_ chrome: WeakChrome) {
+        guard chrome.entry != nil else { return }
+        chrome.node.deferUntilVisible(key: Self.barReloadKey) { [weak self, weak chrome] in
+            guard let self, let chrome, chrome.entry != nil, showsBar else { return }
+            chrome.bar.reload()
+        }
+    }
+
+    /// The key of a bar's reload held on its hidden tab's node: a hidden bar reloads once on show.
+    static let barReloadKey = "BookmarkService.barReload"
 
     /// `browser.showBookmarksBar` changed (cmux.json or the toggle action).
     func setBarShown(_ shown: Bool) {
@@ -47,7 +61,7 @@ extension BookmarkService {
         showsBar = shown
         for chrome in chromes.values {
             guard let entry = chrome.entry else { continue }
-            if shown { chrome.bar.reload() }
+            if shown { reloadBar(chrome) }
             entry.chrome.setAccessoryView(shown ? chrome.bar : nil, height: BookmarksBarView.height)
         }
     }
@@ -99,6 +113,7 @@ extension BookmarkService {
         let folders = BookmarkFolderChoice.all(in: tree(profile), barTitle: BookmarkStrings.barTitle, otherTitle: BookmarkStrings.otherBookmarks)
         let bubble = BookmarkEditBubble(
             isNew: isNew, title: node.title, folder: node.parent, folders: folders, pageTitle: { [weak self] in key.flatMap { self?.services.cache.existingBrowser($0)?.tab.state }.flatMap { $0.url?.host == node.url?.host ? $0.title : nil } },
+            mainWork: services.mainWork,
             onSave: { [weak self] result in
                 guard let self, let current = tree(profile).node(node.id) else { return }
                 if result.title != current.title { try? apply(.update(id: node.id, title: result.title), profile: profile) }
@@ -182,13 +197,13 @@ final class BookmarkBarSourceAdapter: BookmarksBarSource {
 }
 
 extension BookmarkService {
-    /// Follows `browser.showBookmarksBar` in cmux.json.
+    /// Follows `browser.showBookmarksBar` in cmux.json, the current value now. `visible`: the bars of every
+    /// browser chrome show or hide; a person's change flushes before its frame.
     func follow(_ settings: SettingsController) {
-        // task-owner: lives as long as the service; event-driven (Observation)
-        barObservation = Task { [weak self] in
-            for await shown in ObservationStream({ settings.snapshot.browserShowBookmarksBar }) {
-                self?.setBarShown(shown)
-            }
+        barObservation = ServiceObservation(.visible, owner: "BookmarkService.showsBar", on: services.mainWork) {
+            settings.snapshot.browserShowBookmarksBar
+        } apply: { [weak self] shown in
+            self?.setBarShown(shown)
         }
         followFavicons()
         followFolderIcons()

@@ -49,33 +49,49 @@ public nonisolated struct AgentCLIIntentLedger: Sendable {
 
     private struct Record: DaemonRequest {
         typealias Response = Rows
-        static let command = "agent-cli-intents-record"
+        static let commandName: DaemonCommandName = "agent-cli-intents-record"
         let expectedMachineID: ResourceID
         let expectedSessionID: ResourceID
         let intents: [AgentCLIUpdateIntent]
+
+        enum CodingKeys: String, CodingKey {
+            case expectedMachineID = "expected_machine_id", expectedSessionID = "expected_session_id", intents
+        }
     }
 
     private struct List: DaemonRequest {
         typealias Response = Rows
-        static let command = "agent-cli-intents-list"
+        static let commandName: DaemonCommandName = "agent-cli-intents-list"
         let expectedMachineID: ResourceID
         let expectedSessionID: ResourceID
+
+        enum CodingKeys: String, CodingKey {
+            case expectedMachineID = "expected_machine_id", expectedSessionID = "expected_session_id"
+        }
     }
 
     private struct Settle: DaemonRequest {
         typealias Response = Rows
-        static let command = "agent-cli-intents-settle"
+        static let commandName: DaemonCommandName = "agent-cli-intents-settle"
         let expectedMachineID: ResourceID
         let expectedSessionID: ResourceID
         let keys: [String]
+
+        enum CodingKeys: String, CodingKey {
+            case expectedMachineID = "expected_machine_id", expectedSessionID = "expected_session_id", keys
+        }
     }
 
     private struct Attach: DaemonRequest {
         typealias Response = Attached
-        static let command = "agent-cli-intents-attach"
+        static let commandName: DaemonCommandName = "agent-cli-intents-attach"
         let expectedMachineID: ResourceID
         let expectedSessionID: ResourceID
         let key: String
         let receipt: AgentCLIJobReceipt
+
+        enum CodingKeys: String, CodingKey {
+            case expectedMachineID = "expected_machine_id", expectedSessionID = "expected_session_id", key, receipt
+        }
     }
 }

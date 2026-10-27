@@ -266,7 +266,7 @@ extension SidebarDocStore {
         let now = Set(live)
         let stillConnected = connectedRemotes.intersection(lastConnectedRemotes)
         let closed = lastLive.subtracting(now).filter { stillConnected.contains($0.sessionID) && previous?.items[$0] != nil }
-        (lastLive, lastConnectedRemotes) = (now, connectedRemotes)
+        (lastLive, lastLiveOrder, lastConnectedRemotes) = (now, live, connectedRemotes)
         guard isActive, !closed.isEmpty else { return }
         let refs = closed.sorted { ($0.sessionID, $0.workspaceID) < ($1.sessionID, $1.workspaceID) }
             .map { ["session_id": $0.sessionID, "workspace_id": $0.workspaceID] }

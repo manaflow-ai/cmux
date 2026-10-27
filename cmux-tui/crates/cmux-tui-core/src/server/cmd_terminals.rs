@@ -12,6 +12,7 @@ use super::renderer_grant;
 use super::require_pty;
 use super::shell_argv;
 use super::terminal_history;
+use super::terminal_io_wire::{TerminalHistoryParams, TerminalReadRangeParams};
 use super::terminal_resources;
 use super::workspace_mutation;
 use crate::Actor;
@@ -420,14 +421,14 @@ pub(super) fn move_terminal(
 
 pub(super) fn terminal_history(
     mux: &Arc<Mux>,
-    params: terminal_history::TerminalHistoryParams,
+    params: TerminalHistoryParams,
 ) -> anyhow::Result<Value> {
     terminal_history::history(mux, params)
 }
 
 pub(super) fn terminal_read_range(
     mux: &Arc<Mux>,
-    params: terminal_history::TerminalReadRangeParams,
+    params: TerminalReadRangeParams,
 ) -> anyhow::Result<Value> {
     terminal_history::read_range(mux, params)
 }

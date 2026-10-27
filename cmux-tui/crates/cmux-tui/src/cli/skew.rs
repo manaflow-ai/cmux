@@ -361,8 +361,7 @@ fn reexec_with(
         }
     };
     eprintln!("{}", reexec_line(&daemon, own.build_id));
-    use std::os::unix::process::CommandExt;
-    let error = std::process::Command::new(&path)
+    let error = cmux_process::Command::new(&path)
         .args(std::env::args_os().skip(1))
         .env(GUARD_ENV, &daemon.build_id)
         .exec();

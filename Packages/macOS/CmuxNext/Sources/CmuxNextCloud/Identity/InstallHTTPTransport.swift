@@ -1,4 +1,5 @@
 public import CmuxInstallAuthCore
+import CmuxNextCompat
 public import Foundation
 
 /// POSTs install-auth JSON to the API Worker at `baseURL`. Redirects are
@@ -14,7 +15,8 @@ public struct InstallHTTPTransport: InstallAuthTransport {
         configuration.urlCache = nil
         configuration.httpShouldSetCookies = false
         configuration.timeoutIntervalForRequest = 15
-        session = URLSession(configuration: configuration, delegate: RefuseRedirects(), delegateQueue: nil)
+        session = URLSession(configuration: configuration, delegate: RefuseRedirects(),
+                             delegateQueue: .sessionDelegate("com.cmuxterm.next.cloud.install-auth", qos: .utility))
     }
 
     public func post(_ path: String, json: Data, bearer: String?, headers: [String: String]) async throws -> (status: Int, body: Data) {
