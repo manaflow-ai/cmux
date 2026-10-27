@@ -88,6 +88,7 @@ await requireBrowserLane("pr-dock-inline-layout.test.ts", () => {
     "math-tail",
     "rule-tail",
     "diagram-tail",
+    "notes-tail",
   ])
     for (const width of [760, 320])
       test(`${variant} at ${width}px keeps content and pills within the message`, async () => {
@@ -111,6 +112,9 @@ await requireBrowserLane("pr-dock-inline-layout.test.ts", () => {
             });
           });
           for (const box of boxes) expect(box).toEqual({ left: true, right: true });
+          if (variant === "notes-tail") {
+            expect(await page.locator(".cv-footnote").last().locator(".acpmux-pr-dock").count()).toBe(1);
+          }
           if (variant === "no-footer") {
             const widths = await page.locator(".acpmux-assistant").evaluate((node) => {
               const md = node.querySelector(".cv-md")!;

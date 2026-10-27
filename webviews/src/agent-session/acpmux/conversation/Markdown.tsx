@@ -1074,7 +1074,7 @@ export function Markdown({
         enter={streaming && live && !awayBlocks.current.has(entry.key)}
         code={open ? "open" : plainCode ? "plain" : live || streamedFences.current.has(entry.key) ? "handoff" : "final"}
         tail={index === blocks.length - 1 ? freshTail : undefined}
-        trailing={index === blocks.length - 1 ? trailing : undefined}
+        trailing={index === trailingIndex ? trailing : undefined}
       />
     );
   };
@@ -1084,6 +1084,8 @@ export function Markdown({
     .map((entry, index) => ({ entry, index }))
     .filter(({ entry }) => entry.block.type === "footnote")
     .sort((a, b) => noteRank(a.entry.block, opts) - noteRank(b.entry.block, opts));
+  // Notes are displayed in reference order, which may differ from their source order.
+  const trailingIndex = notes.at(-1)?.index ?? blocks.length - 1;
   return (
     <div className={`cv-md selectable ${className}`}>
       {blocks.map((entry, index) => (entry.block.type === "footnote" ? null : draw(entry, index)))}

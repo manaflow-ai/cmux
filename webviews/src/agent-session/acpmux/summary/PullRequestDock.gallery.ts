@@ -79,6 +79,15 @@ export default agentPaneEntry({
       note: "Footerless final diagram keeps PR links visible.",
       snapshot: chat([activity(four, 5), assistant("```mermaid\nflowchart LR\nA --> B\n```", 2, { streaming: true })]),
     },
+    "notes-tail": {
+      note: "Links share the final visible note even when definitions arrive in a different order.",
+      snapshot: chat([
+        activity(four, 5),
+        assistant("The checks passed[^first][^second].\n\n[^second]: Second note.\n\n[^first]: First note.", 2, {
+          streaming: true,
+        }),
+      ]),
+    },
     one: {
       note: "One PR is a single link with no disclosure or remove button.",
       snapshot: chat([
