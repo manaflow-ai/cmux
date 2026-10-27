@@ -110,6 +110,15 @@ how long it may take (it plans the leases). Copy `journeys/p0/type.json` (the sm
 | `rpc` | `method`, `params` | one control-socket request (set-up the person does through UI the driver cannot click yet) |
 | `wait` | `seconds` | only when nothing observable can be waited on |
 | `expect` | `all`, `since`, `within`, `timeout`, `title` | polls every condition in `all` (about every 50 ms plus the reads) until all hold or `timeout` seconds pass |
+| `focused_terminal` | `timeout` | after a key that makes a terminal (Ctrl-\` New Terminal Tab, Cmd-D split, Home's Open a terminal): waits for a focused terminal pane showing a terminal not seen before, makes it current and waits for its first prompt |
+| `use` | `name` | makes the terminal named `name` current again; its pane is read from the topology now (after a move or a relaunch) |
+| `relaunch` | `how` (`quit`, `crash`), `mark` | ends the app and opens it again as a person does: `quit` presses Cmd-Q (a quit sheet gets its default, as Return); `crash` is `debug.crash.app` (SIGSEGV in the app). Then `open -g -n -a` the same bundle with its launch variables (the slot's HOME, socket, settings file), waits for the new process and the loaded topology, and finds every named terminal again. `mark` is the moment the old process ended |
+| `settings_file` | `set`, `unset`, `mark` | edits the app's own settings file (`CMUX_NEXT_CONFIG_FILE`, the slot's) as an editor does: `set` merges nested keys, `unset` removes dotted keys |
+| `remember` | `source`, `name` | keeps `daemon_cols`, `daemon_rows` or `app_cell_height` of the current terminal as `${name}` |
+| `fresh_app` | | the app must be the one capture-host launched from empty state with no journey before it (`not run` otherwise); the journey file says `"first_in_app": true`, so `run.py` starts a lease with it |
+
+Any step may say `"as": "NAME"`: the current terminal after it is named NAME, for `use` and for
+conditions that take `name`. `key` also takes `repeat` and `gap` (seconds between presses).
 
 `mark` names the moment of a step (for `type` with `enter`, the moment Return is pressed);
 `expect`'s `since` measures from it. Strings may use `${nonce}` (six digits, new each run, so
@@ -129,6 +138,15 @@ no fixture or earlier run can show the expected text) and `${prompt}` (`J> `).
 | `{"process_present": {"match": "RE", "bind": "NAME", "foreground": true}}` | process | a process under the terminal matches RE (its full command line); `foreground`: it has a controlling tty and is in the tty's foreground group (`ps` stat `+`); `bind` keeps it as NAME |
 | `{"process_gone": "NAME"}` | process | the bound process is gone (or a zombie) |
 | `{"frame_text": "TEXT"}` | frame | a fresh snapshot of the window shows TEXT to text recognition (spaces dropped, look-alike letters folded) |
+| `{"daemon_cwd": "PATH"}` or `{"daemon_cwd": {"name": N, "cwd": PATH}}` | daemon | the daemon's terminal list gives the terminal (current, or named N) that working directory (`/private/tmp` is `/tmp`) |
+| `{"daemon_grid": {"cols_lt": V, "rows_equals": V}}` | daemon | the terminal's grid in the daemon (`cols`, `rows` with `equals`, `lt`, `gt`, `lte`, `gte`) |
+| `{"daemon_pane_ready": {"tabs": N}}` | daemon | the current terminal's pane has at least N terminal tabs and each one's daemon screen shows text (a prompt) |
+| `{"app_cwd": ...}` | app | the topology's tab of the terminal shows that working directory (same forms as `daemon_cwd`) |
+| `{"app_layout": {"workspace": W, "windows": N, "panes": N, "tabs": N, "pane_tabs": N, "selected": true}}` | app | the current terminal's workspace in the topology has these counts; `selected`: its tab is its pane's selected tab |
+| `{"app_tab_pane": {"same_as": N}}` / `{"not_same_as": N}` | app | the current terminal's tab is (is not) in the same pane as terminal N |
+| `{"app_tab_gone": "N"}` | app | terminal N is in no tab of the topology |
+| `{"app_rpc": {"method": M, "params": P, "path": "a.b.0", "equals"\|"contains"\|"len"\|"len_gte"\|"gt"\|...: V}}` | app | one control-socket read; the value at `path` meets every rule |
+| `{"app_grid": {"cell_height_gt": V}}` | app | the pane's drawn grid (`cell_height`, `cell_width` with `equals`, `lt`, `gt`, ...) |
 
 `within` (seconds) makes a timing claim: each condition must first hold within that long of
 `since`, or it fails with the measured time. Frame checks are read after the other conditions
@@ -190,8 +208,10 @@ that is the author refuses the build.
   (`cmux-ci capture` steps use it) but the driver has no step for it yet. The next P0 is live
   resize, the second dogfood v1 bug (scrollback jumped: test 33cd577dcd8, fix 673587c97dc); it
   needs a `mouse` step and a scrollback-position condition.
-- Quit and relaunch (session restore) inside a journey: `restore-journey.py` covers it today;
-  a `relaunch` step (`capture-host relaunch`) is not written.
+- Relaunch through `capture-host relaunch`: the driver runs on the mini, so its `relaunch` step opens
+  the bundle itself (as `restore-journey.py` does); `capture-host release` still ends every process
+  of the lease root. The full restore matrix (browser pages, agents, update and reboot variants)
+  stays in `restore-journey.py`.
 - Browser-pane journeys, two windows, display and scale changes, sleep and wake.
 - macOS 14 and 15: capture minis run the fleet's macOS; use `scripts/cmux-next/os-matrix.sh`.
 

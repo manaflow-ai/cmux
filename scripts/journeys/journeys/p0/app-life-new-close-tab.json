@@ -1,0 +1,51 @@
+{
+  "id": "app-life-new-close-tab",
+  "priority": "P0",
+  "title": "New Terminal Tab (Ctrl-`) opens a working shell beside the first; Cmd-W closes it and the first tab is back, focused and working",
+  "why": "Opening and closing tabs is constant. A new tab must get its own shell in the same pane; closing it must leave the other tab shown, focused and typing, not a blank pane or a focus that went nowhere.",
+  "source": "window life (holistic-quality.md 1): new tab and close tab; shortcuts newSurface (Ctrl-`) and closeTab (Cmd-W)",
+  "budget_seconds": 60,
+  "steps": [
+    {"do": "new_terminal", "name": "jr-tabs", "as": "first"},
+    {"do": "neutral_prompt"},
+    {"do": "type", "text": "echo one-${nonce}-$((6*7))", "enter": true, "mark": "one"},
+    {"do": "expect", "title": "the first tab answers", "since": "one", "timeout": 10,
+     "all": [{"daemon_line": "one-${nonce}-42"}]},
+
+    {"do": "key", "key": "`", "modifiers": ["control"], "mark": "new-tab"},
+    {"do": "focused_terminal", "as": "second"},
+    {"do": "expect", "title": "a second tab in the same pane, selected and focused", "since": "new-tab", "within": 2, "timeout": 10,
+     "all": [
+       {"app_layout": {"workspace": "jr-tabs", "panes": 1, "tabs": 2, "pane_tabs": 2, "selected": true}},
+       {"app_tab_pane": {"same_as": "first"}},
+       {"app_pane": {"focused": true}}
+     ]},
+    {"do": "neutral_prompt"},
+    {"do": "type", "text": "echo two-${nonce}-$((6*7))", "enter": true, "mark": "two"},
+    {"do": "expect", "title": "the new tab's shell answers in the daemon, the view and the frame", "since": "two", "within": 3, "timeout": 10,
+     "all": [
+       {"daemon_line": "two-${nonce}-42"},
+       {"app_text_line": "two-${nonce}-42"},
+       {"frame_text": "two-${nonce}-42"}
+     ]},
+
+    {"do": "key", "key": "w", "modifiers": ["cmd"], "mark": "close"},
+    {"do": "use", "name": "first"},
+    {"do": "expect", "title": "Cmd-W closed the second tab; the first is shown, focused and keeps its text", "since": "close", "within": 2, "timeout": 10,
+     "all": [
+       {"app_tab_gone": "second"},
+       {"app_layout": {"workspace": "jr-tabs", "panes": 1, "tabs": 1, "selected": true}},
+       {"app_pane": {"focused": true, "link": "connected"}},
+       {"app_text_line": "one-${nonce}-42"},
+       {"daemon_line": "one-${nonce}-42"},
+       {"frame_text": "one-${nonce}-42"}
+     ]},
+    {"do": "type", "text": "echo three-${nonce}-$((6*7))", "enter": true, "mark": "three"},
+    {"do": "expect", "title": "typing goes to the remaining tab", "since": "three", "within": 3, "timeout": 10,
+     "all": [
+       {"daemon_line": "three-${nonce}-42"},
+       {"app_text_line": "three-${nonce}-42"},
+       {"frame_text": "three-${nonce}-42"}
+     ]}
+  ]
+}

@@ -55,7 +55,16 @@ FRAME_GRACE = 10.0
 REQUIRED_KINDS = ("app", "daemon", "frame")
 KIND = {"daemon_line": "daemon", "daemon_contains": "daemon", "daemon_prompt": "daemon",
         "app_text_line": "app", "app_text_contains": "app", "app_prompt": "app", "app_pane": "app",
-        "process_present": "process", "process_gone": "process", "frame_text": "frame"}
+        "process_present": "process", "process_gone": "process", "frame_text": "frame",
+        # App life (journeys/p0/app-life-*.json): layout, working directories, restore and settings.
+        "daemon_cwd": "daemon", "daemon_grid": "daemon", "daemon_pane_ready": "daemon",
+        "app_cwd": "app", "app_layout": "app", "app_tab_pane": "app", "app_tab_gone": "app", "app_rpc": "app",
+        "app_grid": "app"}
+# Seconds a quit (Cmd-Q or a crash) may take to end the app's process, and a relaunch to answer.
+QUIT_SECONDS = 60
+RELAUNCH_SECONDS = 90
+# Launch variables a relaunch passes on (restore-journey.py's rule): what a capture slot sets.
+LAUNCH_ENV = re.compile(r"^(CMUX_[A-Z0-9_]*|HOME|TMPDIR)$")
 
 
 def now():
@@ -68,6 +77,14 @@ class StepError(Exception):
 
 class Deadline(Exception):
     pass
+
+
+class NotRun(Exception):
+    """The journey cannot be played in this app (for example: it needs a fresh app and another journey ran first)."""
+
+
+# Journeys already played in this app process (first launch needs none before it).
+PLAYED = []
 
 
 # ---- the app: control socket, daemon CLI, process table, frames -----------------------------
@@ -110,6 +127,38 @@ class App:
         if isinstance(result, dict) and result.get("error"):
             raise StepError(f"{method}: {result['error']}")
         return result
+
+    def reidentify(self, info):
+        """After a relaunch: the new process of the same bundle (refused if it is another app)."""
+        if not isinstance(info, dict) or not info.get("pid"):
+            raise StepError(f"system.identify after relaunch: {info!r}")
+        bundle = info.get("app_bundle_path") or self.bundle
+        if bundle != self.bundle:
+            raise StepError(f"the socket now answers for another app: {bundle}")
+        self.identity, self.pid = info, int(info["pid"])
+        self._daemon_sock = None
+
+    def launch_env(self):
+        """The app process's own launch variables (`ps eww`, same user): CMUX_*, HOME and TMPDIR."""
+        out = subprocess.run(["ps", "eww", "-o", "command=", "-p", str(self.pid)], capture_output=True, text=True).stdout
+        env = {}
+        for word in out.split():
+            key, sep, value = word.partition("=")
+            if sep and LAUNCH_ENV.match(key):
+                env[key] = value
+        return env
+
+    @staticmethod
+    def alive(pid):
+        """Whether `pid` runs (a zombie counts as gone)."""
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            return False
+        except PermissionError:
+            return True
+        stat = subprocess.run(["ps", "-o", "stat=", "-p", str(pid)], capture_output=True, text=True).stdout.strip()
+        return bool(stat) and not stat.startswith("Z")
 
     def daemon_socket(self):
         """The app daemon's socket, from its own `--socket` argument: the daemon the app says it is
@@ -261,6 +310,32 @@ def ocr_contains(lines, wanted):
     return any(target in fold(line) for line in lines) or target in fold("".join(lines))
 
 
+# The app-life conditions (Journey.evaluate_life).
+LIFE_CONDITIONS = {"daemon_cwd", "daemon_grid", "daemon_pane_ready", "app_cwd", "app_layout", "app_tab_pane",
+                   "app_tab_gone", "app_rpc", "app_grid"}
+
+
+def same_dir(got, wanted):
+    """Whether two directory paths are the same place: macOS shows /tmp and /var as /private/tmp and
+    /private/var, and a shell may print either."""
+    if not got or not wanted:
+        return False
+    norm = lambda p: re.sub(r"^/private(?=/)", "", str(p).rstrip("/") or "/")
+    return norm(got) == norm(wanted)
+
+
+def dig(value, path):
+    """`value` at a dotted path ("result.launch.recovery"; list items by index)."""
+    for part in [p for p in str(path).split(".") if p]:
+        if isinstance(value, list) and part.isdigit():
+            value = value[int(part)] if int(part) < len(value) else None
+        elif isinstance(value, dict):
+            value = value.get(part)
+        else:
+            return None
+    return value
+
+
 # ---- one journey ---------------------------------------------------------------------------
 
 class Journey:
@@ -278,6 +353,10 @@ class Journey:
         self.marks, self.binds = {}, {}
         self.term = self.pane = self.host_pid = None
         self.steps, self.evidence, self.checks = [], [], 0
+        # Named terminals ({"term", "pane", "host_pid"}): `as` on the steps that adopt one, `use` switches.
+        self.aliases = {}
+        # The app's own terminal ids already on screen: `focused_terminal` waits for one not in it.
+        self.known_views = set()
 
     def sub(self, value):
         if isinstance(value, str):
@@ -370,8 +449,18 @@ class Journey:
     def step_key(self, step):
         if step.get("mark"):
             self.marks[step["mark"]] = now()
-        reply = self.key(step["key"], step.get("modifiers", []))
-        return {"key": step["key"], "modifiers": step.get("modifiers", []), "reply": reply}
+        # `repeat`: the same key N times, `gap` seconds apart (a person pressing it again and again).
+        repeat, replies, took = int(step.get("repeat", 1)), [], []
+        for index in range(repeat):
+            if index:
+                time.sleep(float(step.get("gap", 0.1)))
+            t = now()
+            replies.append(self.key(step["key"], step.get("modifiers", [])))
+            took.append(round((now() - t) * 1000, 1))
+        if repeat == 1:
+            return {"key": step["key"], "modifiers": step.get("modifiers", []), "reply": replies[0]}
+        return {"key": step["key"], "modifiers": step.get("modifiers", []), "presses": repeat,
+                "reply_ms_max": max(took), "reply_ms": took, "handled_by": sorted({str(r.get("handled_by")) for r in replies if isinstance(r, dict)})}
 
     def step_wait(self, step):
         time.sleep(float(step.get("seconds", 1)))
@@ -387,6 +476,254 @@ class Journey:
         if not self.term:
             raise StepError("no terminal: the journey needs a new_terminal step first")
         return self.term
+
+    # -- app life steps (journeys/p0/app-life-*.json) --
+
+    def topology(self):
+        snap = self.app.rpc("snapshot.get") or {}
+        topo = snap.get("topology") if isinstance(snap, dict) else None
+        if not isinstance(topo, dict):
+            raise StepError(f"snapshot.get has no topology: {json.dumps(snap)[:200]}")
+        return topo
+
+    @staticmethod
+    def places(topo):
+        """(workspace, pane, tab, daemon terminal id) of every tab in the topology."""
+        for ws in topo.get("workspaces", []):
+            for screen in ws.get("screens", []):
+                for pane in screen.get("panes", []):
+                    for tab in pane.get("tabs", []):
+                        term = tab.get("terminal")
+                        term = term.get("id") if isinstance(term, dict) else term
+                        yield ws, pane, tab, (str(term) if term else None)
+
+    def place_of(self, term, topo=None):
+        """(workspace, pane, tab) that holds daemon terminal `term`, or None."""
+        for ws, pane, tab, t in self.places(topo or self.topology()):
+            if t == term:
+                return ws, pane, tab
+        return None
+
+    def view_of_pane(self, pane_id):
+        return next((p for p in self.app.panes() if p.get("pane") == pane_id), None)
+
+    def adopt(self, term, pane_id, host_pid=None):
+        """Makes daemon terminal `term` in pane `pane_id` the journey's current terminal."""
+        self.term, self.pane = term, pane_id
+        view = self.view_of_pane(pane_id) if host_pid is None else None
+        if view and view.get("host_pid"):
+            host_pid = int(view["host_pid"])
+        if host_pid:
+            self.host_pid = host_pid
+        return {"terminal": self.term, "pane": self.pane, "host_pid": self.host_pid}
+
+    def wait_screen(self, end):
+        """Until the daemon's screen of the current terminal shows any text (the shell's first prompt)."""
+        last = "empty screen"
+        while now() < end:
+            try:
+                if self.app.screen(self.term)["text"].strip():
+                    return
+            except StepError as error:
+                last = str(error)
+            time.sleep(0.2)
+        raise StepError(f"terminal {self.term}: the daemon's screen never showed a prompt: {last[-300:]}")
+
+    def step_focused_terminal(self, step):
+        """After a key that makes a terminal (Ctrl-` New Terminal Tab, Cmd-D split, Home's Open a terminal):
+        waits for a focused terminal pane showing a terminal the journey has not seen, adopts it (`as` names
+        it) and waits for its shell's first prompt in the daemon's screen."""
+        end = now() + float(step.get("timeout", 20))
+        last = None
+        while now() < end:
+            for view in self.app.panes():
+                if not (view.get("focused") and view.get("kind", "terminal") == "terminal" and view.get("terminal_id")):
+                    continue
+                if view["terminal_id"] in self.known_views:
+                    last = f"the focused pane {view.get('pane')} still shows a terminal seen before"
+                    continue
+                place = None
+                topo = self.topology()
+                for ws, pane, tab, term in self.places(topo):
+                    if pane.get("id") == view.get("pane") and tab.get("id") == pane.get("selected_tab") and term:
+                        place = (ws, pane, term)
+                if not place:
+                    last = f"pane {view.get('pane')} has no selected terminal tab in the topology yet"
+                    continue
+                self.known_views.add(view["terminal_id"])
+                adopted = self.adopt(place[2], view.get("pane"), int(view["host_pid"]) if view.get("host_pid") else None)
+                self.wait_screen(end)
+                return dict(adopted, workspace=place[0].get("name"))
+            time.sleep(0.2)
+        raise StepError(f"no new focused terminal pane within {step.get('timeout', 20)} s ({last or 'no focused terminal pane'})")
+
+    def step_fresh_app(self, step):
+        """First launch: the app must be the one capture-host launched from empty state, with no journey
+        played in it before (run.py puts a `first_in_app` journey first in its lease)."""
+        if PLAYED:
+            raise NotRun(f"first launch needs a fresh app; this app already played {', '.join(PLAYED)}")
+        return {"pid": self.app.pid, "played_before": []}
+
+    def step_use(self, step):
+        """Makes the terminal named `name` current again; its pane is read from the topology now (a moved
+        tab or a relaunch can change it)."""
+        name = step["name"]
+        if name not in self.aliases:
+            raise StepError(f"use: no terminal named {name!r} (name one with `as`)")
+        term = self.aliases[name]["term"]
+        place = self.place_of(term)
+        if not place:
+            raise StepError(f"use {name}: terminal {term} is in no tab of the topology")
+        self.host_pid = self.aliases[name].get("host_pid")
+        return self.adopt(term, place[1].get("id"))
+
+    def step_remember(self, step):
+        """Keeps a measured value as ${name} for later conditions: `daemon_cols`, `daemon_rows` (the
+        current terminal's grid in the daemon) or `app_cell_height` (the pane's cell height in points)."""
+        source = step["source"]
+        if source in ("daemon_cols", "daemon_rows"):
+            row = self.daemon_terminal_row(self.need_term())
+            value = row.get("cols" if source == "daemon_cols" else "rows")
+        elif source == "app_cell_height":
+            view = self.view_of_pane(self.pane) or {}
+            value = (view.get("grid") or {}).get("cell_height")
+        else:
+            raise StepError(f"remember: unknown source {source!r}")
+        if value is None:
+            raise StepError(f"remember {source}: no value")
+        self.vars[step["name"]] = value
+        return {step["name"]: value}
+
+    def config_file(self):
+        env = self.app.launch_env()
+        return env.get("CMUX_NEXT_CONFIG_FILE") or os.path.join(self.app.home, ".config", "cmux", "cmux-next.json")
+
+    def step_settings_file(self, step):
+        """Edits the app's settings file (cmux-next.json, the slot's own) as a person does in an editor:
+        `set` merges nested keys, `unset` removes dotted keys. Nothing else touches the app."""
+        path = Path(self.config_file())
+        try:
+            data = json.loads(path.read_text()) if path.is_file() and path.read_text().strip() else {}
+        except ValueError as error:
+            raise StepError(f"settings file {path} is not JSON: {error}")
+
+        def merge(into, more):
+            for k, v in more.items():
+                if isinstance(v, dict) and isinstance(into.get(k), dict):
+                    merge(into[k], v)
+                else:
+                    into[k] = v
+        merge(data, self.sub(step.get("set") or {}))
+        for dotted in step.get("unset") or []:
+            node, parts = data, dotted.split(".")
+            for part in parts[:-1]:
+                node = node.get(part) if isinstance(node, dict) else None
+            if isinstance(node, dict):
+                node.pop(parts[-1], None)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_name(path.name + ".journey")
+        tmp.write_text(json.dumps(data, indent=2) + "\n")
+        os.replace(tmp, path)
+        if step.get("mark"):
+            self.marks[step["mark"]] = now()
+        return {"file": str(path), "now": data}
+
+    def step_relaunch(self, step):
+        """Ends the app and opens it again, as a person does: `how` "quit" presses Cmd-Q (answering a quit
+        sheet with its default, as Return does) and "crash" crashes it (`debug.crash.app`, SIGSEGV in the
+        app's own process, so none of its quit path runs). The same bundle opens again through LaunchServices
+        with its launch variables (the slot's HOME, socket and settings file). Then every named terminal is
+        found again in the restored topology; the journey's checks say what came back."""
+        how = step.get("how", "quit")
+        app, old = self.app, self.app.pid
+        env = app.launch_env()
+        record = {"how": how, "old_pid": old}
+        started = now()
+        if how == "quit":
+            try:
+                record["key"] = self.key("q", ["cmd"])
+            except (StepError, OSError, ValueError) as error:
+                record["key_error"] = str(error)[-200:]
+            end = now() + QUIT_SECONDS
+            while now() < end and app.alive(old):
+                try:
+                    report = app.rpc("debug.quit", timeout=5) or {}
+                except (StepError, OSError, ValueError):
+                    report = {}
+                if isinstance(report, dict) and report.get("asking"):
+                    default = str((report.get("prompt") or {}).get("default"))
+                    record["sheet"] = {"default": default, "lines": report.get("lines"),
+                                       "buttons": [b.get("id") for b in report.get("buttons") or []]}
+                    app.rpc("debug.quit", {"press": default}, timeout=10)
+                time.sleep(0.25)
+        elif how == "crash":
+            try:
+                record["reply"] = app.rpc("debug.crash.app", {"signal": "segv"}, timeout=5)
+            except (StepError, OSError, ValueError) as error:
+                record["reply"] = f"no answer (expected): {str(error)[-120:]}"
+            end = now() + QUIT_SECONDS
+        else:
+            raise StepError(f"relaunch: how is quit or crash, not {how!r}")
+        while now() < end and app.alive(old):
+            time.sleep(0.25)
+        if app.alive(old):
+            raise StepError(f"relaunch ({how}): app pid {old} still runs {QUIT_SECONDS} s later: {json.dumps(record)[:300]}")
+        record["ended_after_s"] = round(now() - started, 2)
+        if step.get("mark"):
+            self.marks[step["mark"]] = now()
+        argv = ["/usr/bin/open", "-g", "-n", "-a", app.bundle]
+        for key, value in env.items():
+            argv += ["--env", f"{key}={value}"]
+        opened = subprocess.run(argv, capture_output=True, text=True, timeout=60)
+        if opened.returncode != 0:
+            raise StepError(f"relaunch: open exited {opened.returncode}: {(opened.stderr or opened.stdout)[-300:]}")
+        t, end = now(), now() + RELAUNCH_SECONDS
+        while now() < end:
+            try:
+                info = app.rpc("system.identify", timeout=3)
+                if isinstance(info, dict) and info.get("pid") and int(info["pid"]) != old:
+                    break
+            except (StepError, OSError, ValueError):
+                pass
+            time.sleep(0.25)
+        else:
+            raise StepError(f"relaunch: the app never answered on {app.sock} within {RELAUNCH_SECONDS} s")
+        app.reidentify(info)
+        record.update(new_pid=app.pid, answered_after_s=round(now() - t, 2))
+        # Restore has loaded once the topology says so; then each named terminal is looked up again.
+        loaded = False
+        while now() < end and not loaded:
+            try:
+                loaded = bool(self.topology().get("loaded"))
+            except (StepError, OSError, ValueError):
+                pass
+            if not loaded:
+                time.sleep(0.25)
+        record["topology_loaded"] = loaded
+        topo = self.topology() if loaded else None
+        found = {}
+        for name, alias in self.aliases.items():
+            place = self.place_of(alias["term"], topo) if topo else None
+            found[name] = place[1].get("id") if place else None
+            if place:
+                alias["pane"] = place[1].get("id")
+        record["named_terminals"] = found
+        if self.term:
+            place = self.place_of(self.term, topo) if topo else None
+            if place:
+                self.pane = place[1].get("id")
+        self.known_views = {p.get("terminal_id") for p in app.panes() if p.get("terminal_id")}
+        return record
+
+    def daemon_terminal_row(self, term):
+        """The daemon's record of terminal `term` (`cmux terminal list`: cols, rows, cwd, lifecycle)."""
+        rows = self.app.cmux("terminal", "list")
+        if isinstance(rows, dict):
+            rows = next((rows[k] for k in ("terminals", "value", "result") if isinstance(rows.get(k), list)), [])
+        row = next((r for r in rows or [] if isinstance(r, dict) and r.get("id") == term), None)
+        if row is None:
+            raise StepError(f"terminal {term} is not in the daemon's terminal list ({len(rows or [])} terminals)")
+        return row
 
     # -- conditions --
 
@@ -449,6 +786,8 @@ class Journey:
     def evaluate(self, name, want, cache):
         """(holds, detail) of one condition; `cache` keeps one read of each source per poll."""
         try:
+            if name in LIFE_CONDITIONS:
+                return self.evaluate_life(name, want, cache)
             if name.startswith("daemon_"):
                 if "screen" not in cache:
                     cache["screen"] = self.app.screen(self.need_term())
@@ -508,6 +847,110 @@ class Journey:
             return False, {"error": str(error)[-300:]}
         return False, {"error": f"unknown condition {name}"}
 
+    def evaluate_life(self, name, want, cache):
+        """The app-life conditions: layout and working directories from the app's topology and the
+        daemon's terminal list, app reports over the control socket, grids in both."""
+        def topo():
+            if "topology" not in cache:
+                cache["topology"] = self.topology()
+            return cache["topology"]
+
+        def term_of(spec, key):
+            """The terminal a condition names (`name`: an alias), else the current one; and its wanted value."""
+            if isinstance(spec, dict):
+                alias = spec.get("name")
+                if alias and alias not in self.aliases:
+                    raise StepError(f"no terminal named {alias!r}")
+                return (self.aliases[alias]["term"] if alias else self.need_term()), spec.get(key)
+            return self.need_term(), spec
+
+        def compare(got, rules):
+            """`rules`: {"equals"|"contains"|"gte"|"lte"|"gt"|"lt"|"len"|"len_gte": value}; all must hold."""
+            for rule, value in rules.items():
+                if rule == "equals" and got != value:
+                    # A remembered ${number} arrives as text: numbers compare as numbers.
+                    try:
+                        if isinstance(got, bool) or float(got) != float(value):
+                            return False
+                    except (TypeError, ValueError):
+                        return False
+                if rule == "contains" and (got is None or str(value) not in (got if isinstance(got, (list, str)) else json.dumps(got))):
+                    return False
+                if rule in ("gte", "lte", "gt", "lt"):
+                    try:
+                        g, v = float(got), float(value)
+                    except (TypeError, ValueError):
+                        return False
+                    if not {"gte": g >= v, "lte": g <= v, "gt": g > v, "lt": g < v}[rule]:
+                        return False
+                if rule in ("len", "len_gte"):
+                    if not isinstance(got, (list, dict, str)):
+                        return False
+                    if (rule == "len" and len(got) != int(value)) or (rule == "len_gte" and len(got) < int(value)):
+                        return False
+            return True
+
+        if name == "daemon_cwd":
+            term, path = term_of(want, "cwd")
+            row = self.daemon_terminal_row(term)
+            return same_dir(row.get("cwd"), path), {"cwd": row.get("cwd"), "terminal": term}
+        if name == "daemon_grid":
+            row = self.daemon_terminal_row(self.need_term())
+            got = {"cols": row.get("cols"), "rows": row.get("rows")}
+            ok = all(compare(got.get(rule.split("_")[0]), {rule.split("_", 1)[1] if "_" in rule else "equals": value})
+                     for rule, value in want.items())
+            return ok, got
+        if name == "daemon_pane_ready":
+            place = self.place_of(self.need_term(), topo())
+            if not place:
+                return False, {"error": f"terminal {self.term} is in no tab"}
+            terms = [t for _, pane, _, t in self.places(topo()) if pane.get("id") == place[1].get("id") and t]
+            empty = [t for t in terms if not self.app.screen(t)["text"].strip()]
+            return len(terms) >= int(want.get("tabs", 1)) and not empty, {"terminals": len(terms), "empty": empty[:5]}
+        if name == "app_cwd":
+            term, path = term_of(want, "cwd")
+            place = self.place_of(term, topo())
+            got = place[2].get("cwd") if place else None
+            return place is not None and same_dir(got, path), {"cwd": got, "terminal": term}
+        if name == "app_layout":
+            t = topo()
+            place = self.place_of(self.need_term(), t)
+            if not place:
+                return False, {"error": f"terminal {self.term} is in no tab of the topology"}
+            ws, pane, _ = place
+            panes = [p for s in ws.get("screens", []) for p in s.get("panes", [])]
+            got = {"windows": len(t.get("windows", [])), "workspace": ws.get("name"), "panes": len(panes),
+                   "tabs": sum(len(p.get("tabs", [])) for p in panes), "pane_tabs": len(pane.get("tabs", [])),
+                   "selected": pane.get("selected_tab") == place[2].get("id")}
+            return all(got.get(k) == v for k, v in want.items()), got
+        if name == "app_tab_pane":
+            place = self.place_of(self.need_term(), topo())
+            other_name = want.get("same_as") or want.get("not_same_as")
+            if other_name not in self.aliases:
+                return False, {"error": f"no terminal named {other_name!r}"}
+            other = self.place_of(self.aliases[other_name]["term"], topo())
+            if not place or not other:
+                return False, {"error": "a terminal is in no tab", "here": bool(place), "other": bool(other)}
+            same = place[1].get("id") == other[1].get("id")
+            return (same if want.get("same_as") else not same), {"pane": place[1].get("id"), "other_pane": other[1].get("id")}
+        if name == "app_tab_gone":
+            if want not in self.aliases:
+                return False, {"error": f"no terminal named {want!r}"}
+            place = self.place_of(self.aliases[want]["term"], topo())
+            return place is None, {"tab": place[2].get("id") if place else None}
+        if name == "app_rpc":
+            reply = self.app.rpc(want["method"], want.get("params") or {})
+            got = dig(reply, want.get("path", ""))
+            rules = {k: v for k, v in want.items() if k not in ("method", "params", "path")}
+            return compare(got, rules), {"got": got if len(json.dumps(got, default=str)) < 600 else json.dumps(got, default=str)[:600]}
+        if name == "app_grid":
+            view = self.view_of_pane(self.pane) or {}
+            grid = view.get("grid") or {}
+            got = {"cell_height": grid.get("cell_height"), "cell_width": grid.get("cell_width"), "grid": (view.get("surface") or {}).get("grid")}
+            ok = all(compare(got.get(rule.rsplit("_", 1)[0]), {rule.rsplit("_", 1)[1]: value}) for rule, value in want.items())
+            return ok, got
+        return False, {"error": f"unknown condition {name}"}
+
     # -- the run --
 
     def run(self):
@@ -523,17 +966,26 @@ class Journey:
                 handler = getattr(self, "step_" + step["do"], None)
                 if handler is None:
                     raise StepError(f"unknown step {step['do']!r}")
+                if step["do"] in ("key", "type", "rpc", "new_terminal"):
+                    # The terminals on screen before an input: `focused_terminal` waits for one not among them.
+                    self.known_views |= {p.get("terminal_id") for p in self.app.panes() if p.get("terminal_id")}
                 t = now()
                 try:
                     record["result"] = handler(step)
                     record["ok"] = True
+                    if step.get("as"):
+                        # Names the current terminal for later `use` steps and conditions.
+                        self.aliases[step["as"]] = {"term": self.need_term(), "pane": self.pane, "host_pid": self.host_pid}
+                        view = self.view_of_pane(self.pane)
+                        if view and view.get("terminal_id"):
+                            self.known_views.add(view["terminal_id"])
                 except StepError as error:
                     record["ok"], record["error"] = False, str(error)[-600:]
                     raise
                 finally:
                     record["seconds"] = round(now() - t, 3)
                     self.steps.append(record)
-        except Deadline as error:
+        except (Deadline, NotRun) as error:
             status, reason = "not run", str(error)
         except (StepError, OSError, ValueError, subprocess.TimeoutExpired) as error:
             status, reason = "fail", f"step {len(self.steps)} ({self.steps[-1]['do'] if self.steps else '?'}): {error}"
@@ -604,6 +1056,7 @@ def main(argv=None):
             results.append({"id": spec["id"], "status": "not run", "reason": "the lease deadline came first"})
             continue
         result = Journey(spec, app, out, deadline, a.frame_interval).run()
+        PLAYED.append(result["id"])
         results.append(result)
         print(f"journey {result['id']}: {result['status']} {result['reason']}", flush=True)
     (out / "summary.json").write_text(json.dumps([{k: r.get(k) for k in ("id", "status", "reason")} for r in results],
