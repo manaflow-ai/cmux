@@ -14,6 +14,7 @@
 use serde_json::{Value, json};
 
 use super::{Outcome, Refusal};
+use crate::cli::json_fields::JsonFields;
 use crate::remote_host;
 use acpmux::tailnet;
 
@@ -43,60 +44,60 @@ pub(super) fn run(args: &[String]) -> Result<Outcome, Refusal> {
     let status = match tailscale() {
         Ok(status) => status,
         Err(action) => {
-            report["state"] = json!("needs_user");
-            report["user_action"] = action;
+            report.insert("state", json!("needs_user"));
+            report.insert("user_action", action);
             return Ok(Outcome { report, failed: false });
         }
     };
     if let Some(action) = person_step(&status.backend_state) {
-        report["state"] = json!("needs_user");
-        report["before"] = json!({"tailnet": status.backend_state});
-        report["user_action"] = action;
+        report.insert("state", json!("needs_user"));
+        report.insert("before", json!({"tailnet": status.backend_state}));
+        report.insert("user_action", action);
         return Ok(Outcome { report, failed: false });
     }
     let before = remote_host::setup_status();
-    report["before"] = before.clone();
-    report["verify"] = json!(format!("cmux host dial {}", status.this.short_name()));
+    report.insert("before", before.clone());
+    report.insert("verify", json!(format!("cmux host dial {}", status.this.short_name())));
     let owner = request
         .owner
         .clone()
         .or_else(|| status.this.login.clone())
-        .or_else(|| before["owner"].as_str().map(str::to_owned));
+        .or_else(|| before.field("owner").as_str().map(str::to_owned));
     let Some(owner) = owner else {
-        report["state"] = json!("needs_user");
-        report["user_action"] = json!({
+        report.insert("state", json!("needs_user"));
+        report.insert("user_action", json!({
             "kind": "owner",
             "text": format!(
                 "This machine is a tagged tailnet node ({}), so it has no owner. Ask the person for their Tailscale login (the email they sign in to Tailscale with), then run the command with it.",
                 status.this.tags.join(", ")
             ),
             "command": "cmux setup tailnet --owner LOGIN",
-        });
+        }));
         return Ok(Outcome { report, failed: false });
     };
-    report["owner"] = json!(owner);
-    let serving = before["enabled"] == true
-        && (before["serving"] == true || before["starting"] == true)
-        && before["owner"].as_str() == Some(owner.as_str());
+    report.insert("owner", json!(owner));
+    let serving = before.field("enabled") == true
+        && (before.field("serving") == true || before.field("starting") == true)
+        && before.field("owner").as_str() == Some(owner.as_str());
     if serving {
-        report["state"] = json!("ok");
-        report["after"] = before;
+        report.insert("state", json!("ok"));
+        report.insert("after", before);
         return Ok(Outcome { report, failed: false });
     }
-    let was_enabled = before["enabled"] == true;
+    let was_enabled = before.field("enabled") == true;
     if !was_enabled {
-        report["undo"] = json!(UNDO);
+        report.insert("undo", json!(UNDO));
     }
     if request.dry_run {
-        report["state"] = json!("planned");
+        report.insert("state", json!("planned"));
         return Ok(Outcome { report, failed: false });
     }
     // Pass --owner only when it differs from what `enable` would pick itself.
     let explicit = (status.this.login.as_deref() != Some(owner.as_str())).then_some(owner.as_str());
     let after = remote_host::setup_enable(explicit)
         .map_err(|e| Refusal::Failed(format!("cmux host enable: {e:#}")))?;
-    report["state"] = json!("changed");
-    report["after"] = after;
+    report.insert("state", json!("changed"));
+    report.insert("after", after);
     Ok(Outcome { report, failed: false })
 }
 
@@ -106,15 +107,15 @@ pub(super) fn status() -> Value {
     let host = remote_host::setup_status();
     let tailnet = match tailscale() {
         Ok(status) => json!(status.backend_state),
-        Err(action) => json!(action["kind"]),
+        Err(action) => json!(action.field("kind")),
     };
-    let fix = if host["serving"] == true { Value::Null } else { json!("cmux setup tailnet") };
+    let fix = if host.field("serving") == true { Value::Null } else { json!("cmux setup tailnet") };
     json!({
         "task": TASK,
         "tailnet": tailnet,
-        "enabled": host["enabled"],
-        "serving": host["serving"],
-        "name": host["name"],
+        "enabled": host.field("enabled"),
+        "serving": host.field("serving"),
+        "name": host.field("name"),
         "fix": fix,
     })
 }

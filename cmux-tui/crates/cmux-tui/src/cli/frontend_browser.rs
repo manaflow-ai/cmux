@@ -376,7 +376,7 @@ pub(super) fn named_parents(
 pub(super) fn with_current_below(mut selector: Map<String, Value>) -> Map<String, Value> {
     let deepest =
         PARENTS.iter().rposition(|key| selector.contains_key(*key)).map_or(0, |at| at + 1);
-    for key in PARENTS[deepest..].iter().chain(["tab"].iter()) {
+    for key in PARENTS.iter().skip(deepest).chain(["tab"].iter()) {
         selector.insert((*key).into(), json!("current"));
     }
     selector

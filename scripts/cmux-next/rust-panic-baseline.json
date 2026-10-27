@@ -702,16 +702,16 @@
    "cast_possible_truncation": 0
   },
   "cmux-tui": {
-   "unwrap_used": 354,
-   "expect_used": 70,
+   "unwrap_used": 212,
+   "expect_used": 39,
    "panic": 1,
-   "unreachable": 30,
+   "unreachable": 9,
    "todo": 0,
    "unimplemented": 0,
-   "indexing_slicing": 1060,
-   "string_slice": 82,
+   "indexing_slicing": 419,
+   "string_slice": 32,
    "panic_in_result_fn": 0,
-   "arithmetic_side_effects": 1115,
+   "arithmetic_side_effects": 1091,
    "cast_possible_truncation": 133
   },
   "cmux-tui-cdp": {

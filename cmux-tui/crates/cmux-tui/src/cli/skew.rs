@@ -38,6 +38,7 @@ use serde_json::{Value, json};
 
 use super::GlobalArgs;
 use super::fix_command::run_with_daemon_cli;
+use crate::cli::json_fields::JsonFields;
 
 /// Set on the re-exec'd process to the build id it was started for.
 pub(super) const GUARD_ENV: &str = "CMUX_CLI_REEXEC";
@@ -252,10 +253,10 @@ fn probe_socket(socket: PathBuf) -> Option<(PathBuf, DaemonBuild, Route)> {
         return None;
     }
     let response: Value = serde_json::from_str(&line).ok()?;
-    if response["id"] != "cli-skew" || response["ok"] != true {
+    if response.field("id") != "cli-skew" || response.field("ok") != true {
         return None;
     }
-    let daemon = DaemonBuild::from_identity(&response["data"])?;
+    let daemon = DaemonBuild::from_identity(response.field("data"))?;
     Some((socket, daemon, Route::Local { peer_uid, peer_pid }))
 }
 

@@ -26,6 +26,15 @@ impl TextInput {
         &self.buffer
     }
 
+    /// `buffer[range]` for an offset range this editor computed.
+    #[allow(
+        clippy::string_slice,
+        reason = "INVARIANT: cursor, scroll and every offset computed here come from grapheme_indices or buffer.len() of the current buffer, so they are char boundaries"
+    )]
+    fn text(&self, range: impl std::slice::SliceIndex<str, Output = str>) -> &str {
+        &self.buffer[range]
+    }
+
     pub fn clear(&mut self) -> bool {
         if self.buffer.is_empty() && self.cursor == 0 {
             return false;
@@ -111,7 +120,7 @@ impl TextInput {
         let (scroll, _, cursor_col) = self.viewport_for_width(width);
         let mut used = 0;
         let mut end = scroll;
-        for (offset, grapheme) in self.buffer[scroll..].grapheme_indices(true) {
+        for (offset, grapheme) in self.text(scroll..).grapheme_indices(true) {
             let grapheme_width = grapheme.cell_width() as usize;
             if used + grapheme_width > width {
                 break;
@@ -119,7 +128,7 @@ impl TextInput {
             used += grapheme_width;
             end = scroll + offset + grapheme.len();
         }
-        (self.buffer[scroll..end].to_string(), cursor_col.min(width - 1))
+        (self.text(scroll..end).to_string(), cursor_col.min(width - 1))
     }
 
     /// Reconcile the persistent horizontal viewport at a layout or input boundary.
@@ -140,7 +149,7 @@ impl TextInput {
         let target = column.min(width - 1);
         let mut used = 0;
         let mut cursor = self.scroll;
-        for (offset, grapheme) in self.buffer[self.scroll..].grapheme_indices(true) {
+        for (offset, grapheme) in self.text(self.scroll..).grapheme_indices(true) {
             let start = self.scroll + offset;
             let end = start + grapheme.len();
             let grapheme_width = grapheme.cell_width() as usize;
@@ -319,11 +328,11 @@ impl TextInput {
     }
 
     fn prev_grapheme(&self, from: usize) -> Option<(usize, &str)> {
-        self.buffer[..from].grapheme_indices(true).next_back()
+        self.text(..from).grapheme_indices(true).next_back()
     }
 
     fn grapheme_at(&self, from: usize) -> Option<(usize, &str)> {
-        let grapheme = self.buffer[from..].graphemes(true).next()?;
+        let grapheme = self.text(from..).graphemes(true).next()?;
         Some((from + grapheme.len(), grapheme))
     }
 
@@ -353,12 +362,12 @@ impl TextInput {
         // Measure the cursor suffix once, then discard leading graphemes until it fits.
         // Recomputing widths from `scroll` on every iteration makes long inputs quadratic.
         let mut cursor_col = 0;
-        for grapheme in self.buffer[scroll..cursor].graphemes(true) {
+        for grapheme in self.text(scroll..cursor).graphemes(true) {
             cursor_col += grapheme.cell_width() as usize;
         }
         if cursor_col >= width {
             let viewport_start = scroll;
-            for (offset, grapheme) in self.buffer[viewport_start..cursor].grapheme_indices(true) {
+            for (offset, grapheme) in self.text(viewport_start..cursor).grapheme_indices(true) {
                 let next = viewport_start + offset + grapheme.len();
                 if next > cursor {
                     break;

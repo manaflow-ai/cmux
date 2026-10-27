@@ -205,7 +205,7 @@ impl Chat {
             for (piece_index, piece) in pieces.iter().enumerate() {
                 if index == cursor_line {
                     let start: usize =
-                        pieces[..piece_index].iter().map(|p| p.chars().count()).sum();
+                        pieces.iter().take(piece_index).map(|p| p.chars().count()).sum();
                     let len = piece.chars().count();
                     let last = piece_index + 1 == pieces.len();
                     if cursor_column >= start && (cursor_column < start + len || last) {

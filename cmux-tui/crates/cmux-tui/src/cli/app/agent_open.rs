@@ -20,7 +20,8 @@ pub(super) fn parse(args: &[String]) -> Result<Option<AppCommand>, UsageError> {
         Some("open-tab") => ("agent open-tab", messages.agent_open_tab_usage),
         _ => return Ok(None),
     };
-    let Some((session, tail)) = args[2..].split_first().filter(|(id, _)| !id.starts_with('-'))
+    let Some((session, tail)) =
+        args.get(2..).and_then(<[String]>::split_first).filter(|(id, _)| !id.starts_with('-'))
     else {
         return Err(UsageError::new(usage));
     };

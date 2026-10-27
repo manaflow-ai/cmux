@@ -84,18 +84,18 @@ impl DeferredInputQueue {
         self.inputs.insert(index, input);
     }
 
+    /// Replaces the newest input, or appends `input` when the queue is empty.
     pub(in crate::app) fn replace_back(&mut self, input: DeferredInput) {
-        let previous_bytes = self
-            .inputs
-            .back()
-            .expect("replace_back requires an existing input")
-            .event
-            .retained_bytes();
+        let incoming_bytes = input.event.retained_bytes();
+        let Some(previous) = self.inputs.back_mut() else {
+            self.push_back(input);
+            return;
+        };
         self.retained_bytes = self
             .retained_bytes
-            .saturating_sub(previous_bytes)
-            .saturating_add(input.event.retained_bytes());
-        *self.inputs.back_mut().unwrap() = input;
+            .saturating_sub(previous.event.retained_bytes())
+            .saturating_add(incoming_bytes);
+        *previous = input;
     }
 
     pub(in crate::app) fn clear(&mut self) {

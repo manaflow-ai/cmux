@@ -11,6 +11,8 @@
 //! starts a new one when a cell ends its session (timeout, limit, cancel).
 //! `types` prints the generated `cmux` declarations plus the script additions.
 
+use crate::cli::json_fields::JsonFields;
+
 mod messages;
 
 #[cfg(test)]
@@ -201,14 +203,14 @@ async fn answer_to<R: AsyncBufRead + Unpin>(
 ) -> Option<Value> {
     while let Ok(Some(line)) = lines.next_line().await {
         let Ok(value) = serde_json::from_str::<Value>(&line) else { continue };
-        if value["event"] == "script-log" {
+        if value.field("event") == "script-log" {
             on_log(
-                value["level"].as_str().unwrap_or("info"),
-                value["message"].as_str().unwrap_or(""),
+                value.field("level").as_str().unwrap_or("info"),
+                value.field("message").as_str().unwrap_or(""),
             );
             continue;
         }
-        if value["id"] == *id {
+        if value.field("id") == id {
             return Some(value);
         }
     }
@@ -244,7 +246,7 @@ where
     }
     tokio::select! {
         answer = tokio::time::timeout(cancel_wait, answer_to(lines, &id, on_log)) => match answer {
-            Ok(Some(answer)) if answer["error_code"] == "script.cancelled" => Outcome::Cancelled { confirmed: true },
+            Ok(Some(answer)) if answer.field("error_code") == "script.cancelled" => Outcome::Cancelled { confirmed: true },
             Ok(Some(answer)) => Outcome::Answer(answer),
             Ok(None) | Err(_) => Outcome::Cancelled { confirmed: false },
         },
@@ -289,7 +291,7 @@ pub(super) fn error_text(answer: &Value) -> String {
 
 /// The note for console lines the daemon dropped, if it dropped any.
 pub(super) fn dropped_note(answer: &Value) -> Option<String> {
-    let dropped = answer["data"]["dropped_log_lines"].as_u64().filter(|n| *n > 0)?;
+    let dropped = answer.field("data").field("dropped_log_lines").as_u64().filter(|n| *n > 0)?;
     Some(format!("cmux: {}", messages().dropped_lines.replace("{count}", &dropped.to_string())))
 }
 
@@ -300,7 +302,7 @@ pub(super) fn report(
 ) -> (Option<String>, Option<String>, i32) {
     match outcome {
         Outcome::Answer(answer) if answer["ok"] == true => {
-            (render(&answer["data"]["value"], output), dropped_note(answer), 0)
+            (render(answer.field("data").field("value"), output), dropped_note(answer), 0)
         }
         Outcome::Answer(answer) => (None, Some(error_text(answer)), 1),
         Outcome::Cancelled { confirmed: true } | Outcome::Interrupted => {
@@ -318,7 +320,7 @@ pub(super) fn run_request(code: &str, args: &Value, timeout_ms: Option<u64>) -> 
     let mut request =
         json!({ "id": "script-run-1", "cmd": "script-run", "code": code, "args": args });
     if let Some(ms) = timeout_ms {
-        request["timeout_ms"] = json!(ms);
+        request.insert("timeout_ms", json!(ms));
     }
     request
 }
@@ -386,14 +388,14 @@ where
         }
         let mut request = json!({ "id": next_id("eval"), "cmd": "script-repl-eval", "session": session, "code": code });
         if let Some(ms) = timeout_ms {
-            request["timeout_ms"] = json!(ms);
+            request.insert("timeout_ms", json!(ms));
         }
         let outcome =
             exchange(lines, writer, &request, interrupts, &mut |l, m| out.log(l, m), cancel_wait)
                 .await;
         let ended = match &outcome {
             Outcome::Answer(answer) if answer["ok"] == true => {
-                let value = &answer["data"]["value"];
+                let value = &answer.field("data").field("value");
                 if !value.is_null() {
                     out.value(value);
                 }
@@ -456,8 +458,8 @@ where
     match exchange(lines, writer, &request, interrupts, &mut |l, m| out.log(l, m), cancel_wait)
         .await
     {
-        Outcome::Answer(answer) if answer["ok"] == true => {
-            answer["data"]["session"].as_str().map(str::to_string).ok_or(1)
+        Outcome::Answer(answer) if answer.field("ok") == true => {
+            answer.field("data").field("session").as_str().map(str::to_string).ok_or(1)
         }
         Outcome::Answer(answer) => {
             out.error(&error_text(&answer));

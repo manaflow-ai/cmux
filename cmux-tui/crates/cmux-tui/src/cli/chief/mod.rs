@@ -99,8 +99,7 @@ pub(super) fn parse_args(args: &[String]) -> Result<Args, String> {
     let mut parsed =
         Args { history: 20, timeout_secs: Some(DEFAULT_TIMEOUT_SECS), ..Args::default() };
     let mut index = 0;
-    while index < args.len() {
-        let arg = args[index].as_str();
+    while let Some(arg) = args.get(index).map(String::as_str) {
         let (flag, inline) = match arg.split_once('=') {
             Some((flag, value)) if flag.starts_with("--") => (flag, Some(value.to_owned())),
             _ => (arg, None),
@@ -189,10 +188,10 @@ fn run(global: GlobalArgs, args: &[String]) -> i32 {
         return registry::run(&global, args);
     }
     if args.first().is_some_and(|word| word == "move") {
-        return relocate::run(&global, &args[1..]);
+        return relocate::run(&global, args.get(1..).unwrap_or_default());
     }
     if args.first().is_some_and(|word| word == "usage") {
-        return usage::run(&global, &args[1..]);
+        return usage::run(&global, args.get(1..).unwrap_or_default());
     }
     if args.first().is_some_and(|word| script::WORDS.contains(&word.as_str())) {
         return script::run(&global, args);

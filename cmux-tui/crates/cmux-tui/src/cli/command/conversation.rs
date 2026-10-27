@@ -24,7 +24,8 @@ pub(super) fn parse_conversation(
             Op::ConversationSearch
         }
         [conversation, action] => {
-            params.insert("conversation".into(), Value::String(conversation_id(conversation)?));
+            let conversation = Value::String(conversation_id(conversation)?);
+            params.insert("conversation".into(), conversation.clone());
             match *action {
                 "get" | "show" => {
                     tail(flags, &mut params)?;
@@ -54,10 +55,9 @@ pub(super) fn parse_conversation(
                         if revision.is_empty() || !revision.bytes().all(|b| b.is_ascii_digit()) {
                             return Err(UsageError::new("--cursor-rev takes a conversation rev"));
                         }
-                        let generation = params["conversation"].clone();
                         params.insert(
                             "cursor".into(),
-                            json!({"generation": generation, "revision": revision}),
+                            json!({"generation": conversation, "revision": revision}),
                         );
                     }
                     add_stream_id(&mut params, flags)?;

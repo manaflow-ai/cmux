@@ -24,6 +24,7 @@ use serde_json::{Map, Value, json};
 use super::super::mcp::{self, Backend, CallFailure, FailureKind};
 use super::super::{UsageError, app};
 use super::{AgentFailure, compose_snapshot, snapshot_plan};
+use crate::cli::json_fields::JsonFields;
 
 pub(in crate::cli) const DEFAULT_TIMEOUT_SECONDS: u64 = 30;
 /// One request at a time per MCP connection: a long-poll holds the others.
@@ -135,10 +136,10 @@ pub(super) fn parse(args: &[&str]) -> Result<EventsRequest, UsageError> {
     let (mut after, mut timeout, mut limit) = (None, None, None);
     let mut kinds = BTreeSet::new();
     let mut index = 0;
-    while index < args.len() {
-        let (flag, inline) = match args[index].split_once('=') {
+    while let Some(&arg) = args.get(index) {
+        let (flag, inline) = match arg.split_once('=') {
             Some((flag, value)) if flag.starts_with("--") => (flag, Some(value)),
-            _ => (args[index], None),
+            _ => (arg, None),
         };
         if !matches!(flag, "--after" | "--kind" | "--timeout" | "--limit") {
             return Err(usage(format!("unexpected argument {flag:?}")));
@@ -339,7 +340,7 @@ impl<'a> Poll<'a> {
                 // A cursor ahead of the daemon (another daemon's journal):
                 // start again from its snapshot, and say so.
                 Err(failure)
-                    if failure.error["code"] == "cursor.invalid"
+                    if failure.error.field("code") == "cursor.invalid"
                         && self.cursor.daemon.is_some() =>
                 {
                     self.cursor.daemon = None;
@@ -500,8 +501,8 @@ impl<'a> Poll<'a> {
                     "terminal_id": value["terminal_id"],
                 });
                 if title_cut || subtitle_cut || body_cut {
-                    fields["truncated"] = json!(true);
-                    fields["hint"] = json!("notification_list has the full text");
+                    fields.insert("truncated", json!(true));
+                    fields.insert("hint", json!("notification_list has the full text"));
                 }
                 self.push("notification", millis(&value["created_at_ms"]), fields)
             }
@@ -615,15 +616,15 @@ impl<'a> Poll<'a> {
             }
             let mut fields = json!({"change": "opened", "id": id});
             for field in DIALOG_FIELDS {
-                if let Some(text) = item[field].as_str() {
-                    fields[field] = json!(short_str(text, TITLE_CHARS).0);
+                if let Some(text) = item.field(field).as_str() {
+                    fields.insert(field, json!(short_str(text, TITLE_CHARS).0));
                 }
             }
             if let Some(kind) = item["kind"].as_str() {
-                fields["dialog_kind"] = json!(short_str(kind, TITLE_CHARS).0);
+                fields.insert("dialog_kind", json!(short_str(kind, TITLE_CHARS).0));
             }
             if let Some(title) = item["title"].as_str() {
-                fields["title"] = json!(short_str(title, TITLE_CHARS).0);
+                fields.insert("title", json!(short_str(title, TITLE_CHARS).0));
             }
             if !self.push("dialog", None, fields) {
                 self.cursor.dialogs = Some(known);
@@ -697,7 +698,7 @@ fn agent_states(snapshot: &Value) -> BTreeMap<String, String> {
 /// terminal or tab outside this session (when the daemon answered).
 fn scoped_dialogs<'a>(feed: &'a Value, snapshot: &Value) -> Vec<(String, &'a Value)> {
     let items = feed.get("items").unwrap_or(feed).as_array().map(Vec::as_slice);
-    let daemon = snapshot["sources"]["daemon"]["available"] == true;
+    let daemon = snapshot.field("sources").field("daemon").field("available") == true;
     let known = |list: &str, id: &Value| {
         snapshot[list].as_array().into_iter().flatten().any(|object| object["id"] == *id)
     };
@@ -747,8 +748,8 @@ fn short(value: &Value, chars: usize) -> (Value, bool) {
 }
 
 fn short_str(text: &str, chars: usize) -> (String, bool) {
-    match text.char_indices().nth(chars) {
-        Some((end, _)) => (format!("{}…", &text[..end]), true),
+    match text.char_indices().nth(chars).and_then(|(end, _)| text.split_at_checked(end)) {
+        Some((head, _)) => (format!("{head}…"), true),
         None => (text.to_owned(), false),
     }
 }

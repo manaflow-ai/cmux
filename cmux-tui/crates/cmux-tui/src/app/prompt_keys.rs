@@ -95,11 +95,9 @@ impl App {
 
     /// Commit the open rename dialog (Enter or the OK button).
     pub(super) fn commit_prompt(&mut self) {
-        if let Some((route, input)) = self.prompt.as_ref().and_then(|prompt| {
-            matches!(prompt.target, PromptTarget::ConnectMachine(_)).then(|| {
-                let PromptTarget::ConnectMachine(route) = prompt.target else { unreachable!() };
-                (route, prompt.input.as_str().to_string())
-            })
+        if let Some((route, input)) = self.prompt.as_ref().and_then(|prompt| match prompt.target {
+            PromptTarget::ConnectMachine(route) => Some((route, prompt.input.as_str().to_string())),
+            _ => None,
         }) {
             self.begin_machine_connection(input, route);
             return;
@@ -238,6 +236,10 @@ impl App {
             // Empty screen/tab names clear back to the default.
             PromptTarget::Screen(id) => self.session.rename_screen(id, input),
             PromptTarget::Surface(id) => self.session.rename_surface(id, input),
+            #[allow(
+                clippy::unreachable,
+                reason = "INVARIANT: commit_prompt handles these targets and returns before the session rename"
+            )]
             PromptTarget::ConnectMachine(_)
             | PromptTarget::ClientMachine(_)
             | PromptTarget::ManagedMachine(_)

@@ -13,6 +13,8 @@
 //! at once. A run that answered normally before the cancel took effect is
 //! printed as usual. The CLI never sends an `origin`: it runs as `cli`.
 
+use crate::cli::json_fields::JsonFields;
+
 mod messages;
 
 #[cfg(test)]
@@ -94,7 +96,9 @@ where
         return Outcome::Closed;
     }
     let cancel_frame = match answer_to(&mut lines, IDENTIFY_ID).await {
-        Some(identity) => identity["data"]["capabilities"]
+        Some(identity) => identity
+            .field("data")
+            .field("capabilities")
             .as_array()
             .is_some_and(|names| names.iter().any(|name| name == CANCEL_REQUEST_CAPABILITY)),
         None => return Outcome::Closed,
@@ -104,7 +108,7 @@ where
         "args": request.args,
     });
     if let Some(key) = &request.idempotency_key {
-        run["idempotency_key"] = json!(key);
+        run.insert("idempotency_key", json!(key));
     }
     if send(&mut writer, &run).await.is_err() {
         return Outcome::Closed;
@@ -126,7 +130,7 @@ where
     }
     tokio::select! {
         answer = tokio::time::timeout(cancel_wait, answer_to(&mut lines, RUN_ID)) => match answer {
-            Ok(Some(answer)) if answer["error_code"] == CANCELLED_CODE => {
+            Ok(Some(answer)) if answer.field("error_code") == CANCELLED_CODE => {
                 Outcome::Cancelled { confirmed: true }
             }
             Ok(Some(answer)) => Outcome::Answer(answer),
@@ -144,7 +148,7 @@ async fn answer_to<R: tokio::io::AsyncBufRead + Unpin>(
 ) -> Option<Value> {
     while let Ok(Some(line)) = lines.next_line().await {
         let Ok(value) = serde_json::from_str::<Value>(&line) else { continue };
-        if value["id"] == id {
+        if value.field("id") == id {
             return Some(value);
         }
     }

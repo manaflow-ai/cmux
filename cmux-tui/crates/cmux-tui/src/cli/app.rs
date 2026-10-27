@@ -21,6 +21,7 @@ use serde_json::{Map, Value, json};
 
 use super::{GlobalArgs, OutputMode, UsageError};
 use crate::app_identity::AppIdentity;
+use crate::cli::json_fields::JsonFields;
 use events::stream_events;
 use open::{OpenRequest, parse_open};
 #[cfg(test)]
@@ -154,10 +155,10 @@ pub(super) fn parse(args: &[String]) -> Result<Option<AppCommand>, UsageError> {
         && let Some(target) = args.get(1)
         && (target == "page" || target.starts_with("tab_"))
     {
-        return parse_page(target, &args[2..]).map(Some);
+        return parse_page(target, args.get(2..).unwrap_or_default()).map(Some);
     }
     if scope == "browser" && args.get(1).is_some_and(|target| target == "right") {
-        return right::parse(&args[2..]).map(Some);
+        return right::parse(args.get(2..).unwrap_or_default()).map(Some);
     }
     if let Some(command) = agent_open::parse(args)? {
         return Ok(Some(command));
@@ -172,7 +173,9 @@ pub(super) fn parse(args: &[String]) -> Result<Option<AppCommand>, UsageError> {
     if !APP_SCOPES.contains(&scope.as_str()) {
         return Ok(None);
     }
-    let rest = &args[1..];
+    let rest = args.get(1..).unwrap_or_default();
+    // The words after the verb (`rest[0]`).
+    let after_verb = rest.get(1..).unwrap_or_default();
     // The session host owns history reads and edits (`history.*`), so they
     // work with the app quit; the other `history` words are app actions.
     if scope == "history"
@@ -203,7 +206,7 @@ pub(super) fn parse(args: &[String]) -> Result<Option<AppCommand>, UsageError> {
             pick: Some("windows"),
         },
         ("action", Some("list")) => {
-            let options = Options::parse(&rest[1..], &["category", "noun"], &["available"])?;
+            let options = Options::parse(after_verb, &["category", "noun"], &["available"])?;
             let mut params = Map::new();
             for key in ["category", "noun"] {
                 if let Some(value) = options.value(key) {
@@ -216,11 +219,11 @@ pub(super) fn parse(args: &[String]) -> Result<Option<AppCommand>, UsageError> {
             call("action.list", Value::Object(params))
         }
         ("action", Some("describe")) => {
-            let [id] = positional::<1>(&rest[1..], messages.action_describe_usage)?;
+            let [id] = positional::<1>(after_verb, messages.action_describe_usage)?;
             call("action.describe", json!({ "action": id }))
         }
         ("action", Some("run")) => {
-            let Some((id, tail)) = rest[1..].split_first() else {
+            let Some((id, tail)) = after_verb.split_first() else {
                 return Err(UsageError::new(messages.action_run_usage));
             };
             // `-`: the actions on stdin, as one `action.batch` transaction.
@@ -252,9 +255,8 @@ pub(super) fn parse(args: &[String]) -> Result<Option<AppCommand>, UsageError> {
         // The app's error journal: deduplicated warnings, errors, faults and
         // crashes from its log, page consoles, acpmux, the Chief and crash reports.
         ("errors", None | Some("list")) => {
-            let tail = if rest.len() > 1 { &rest[1..] } else { &[] };
             let options = Options::parse(
-                tail,
+                after_verb,
                 &["since", "source", "level", "text", "limit"],
                 &["top", "no-harvest"],
             )?;
@@ -285,7 +287,7 @@ pub(super) fn parse(args: &[String]) -> Result<Option<AppCommand>, UsageError> {
             }
         }
         ("errors", Some("clear")) => {
-            let options = Options::parse(&rest[1..], &["fingerprint"], &[])?;
+            let options = Options::parse(after_verb, &["fingerprint"], &[])?;
             let fingerprints = options.values("fingerprint");
             let params = if fingerprints.is_empty() {
                 json!({})
@@ -296,7 +298,7 @@ pub(super) fn parse(args: &[String]) -> Result<Option<AppCommand>, UsageError> {
         }
         // Bookmarks of a browser profile (plans/cmux-next/bookmarks.md).
         ("bookmark", Some(verb @ ("list" | "search"))) => {
-            let (text, tail) = read_text(verb, &rest[1..], scope)?;
+            let (text, tail) = read_text(verb, after_verb, scope)?;
             let options = Options::parse(tail, &["folder", "profile", "limit"], &[])?;
             let mut params = read_query(&options, text, &["folder", "profile"]);
             if let Some(limit) = options.value("limit") {
@@ -328,12 +330,12 @@ pub(super) fn parse(args: &[String]) -> Result<Option<AppCommand>, UsageError> {
         }
         // Any other words name an action by its CLI name (`app new-window`).
         _ => {
-            let words: Vec<&String> = args.iter().take_while(|arg| !arg.starts_with('-')).collect();
+            let word_count = args.iter().take_while(|arg| !arg.starts_with('-')).count();
+            let (words, options) = args.split_at(word_count);
             if words.len() < 2 {
                 return Err(UsageError::new(messages.scope_usage.replace("{scope}", scope)));
             }
-            let name = words.iter().map(|word| word.as_str()).collect::<Vec<_>>().join(" ");
-            run_action(&name, &args[words.len()..], ActionName::Cli)?
+            run_action(&words.join(" "), options, ActionName::Cli)?
         }
     };
     Ok(Some(command))
@@ -438,8 +440,7 @@ pub(super) fn run_action(
     let mut params = action_run_params(action, name, action_origin());
     let mut arguments = Map::new();
     let mut index = 0;
-    while index < args.len() {
-        let flag = args[index].as_str();
+    while let Some(flag) = args.get(index).map(String::as_str) {
         // `--` only separates the action's arguments from the CLI's options.
         if flag == "--" {
             index += 1;
@@ -759,7 +760,7 @@ fn call(global: &GlobalArgs, stream: &mut UnixStream, command: AppCommand) -> Ra
             Ran::Done(super::wire::print_local_success(&value, global.output))
         }
         Err(error) if cli_name && error_code(&error) == Some("not_found") => {
-            let name = params["action"].as_str().unwrap_or_default().to_owned();
+            let name = params.field("action").as_str().unwrap_or_default().to_owned();
             let scope = name.split(' ').next().unwrap_or_default().to_owned();
             Ran::NoSuchCliAction { scope, name }
         }
@@ -1142,8 +1143,7 @@ impl Options {
         let messages = &crate::localization::catalog().app_control;
         let mut options = Options { values: Vec::new(), flags: Vec::new() };
         let mut index = 0;
-        while index < args.len() {
-            let arg = args[index].as_str();
+        while let Some(arg) = args.get(index).map(String::as_str) {
             let Some(name) = arg.strip_prefix("--") else {
                 return Err(UsageError::new(messages.unexpected_argument.replace("{value}", arg)));
             };

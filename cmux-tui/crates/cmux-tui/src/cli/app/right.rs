@@ -32,7 +32,7 @@ pub(super) fn parse(args: &[String]) -> Result<AppCommand, UsageError> {
     if let Some(agent) = &agent {
         params.insert("agent".into(), json!(agent));
     }
-    if words.len() == 1 && words[0] == "release" {
+    if matches!(words.as_slice(), [word] if word == "release") {
         params.insert("release".into(), json!(true));
         return Ok(AppCommand::Call {
             method: "browser.page.right",

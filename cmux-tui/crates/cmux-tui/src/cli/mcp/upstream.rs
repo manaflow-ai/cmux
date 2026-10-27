@@ -18,6 +18,8 @@ use std::time::{Duration, Instant};
 
 use serde_json::{Map, Value, json};
 
+use crate::cli::json_fields::JsonFields;
+
 /// The env acpmux gives the `cmux` server: a JSON array of
 /// `{name, command, args, env}`.
 pub(super) const ENV: &str = "CMUX_MCP_UPSTREAMS";
@@ -163,7 +165,7 @@ impl Upstream {
                     return None;
                 }
                 let mut tool = tool.clone();
-                let description = tool["description"].as_str().unwrap_or_default();
+                let description = tool.field("description").as_str().unwrap_or_default();
                 // The server's own instructions (the computer use consent
                 // rules) no longer reach the model through its `initialize`:
                 // they go with each of its tools, which a harness with tool
@@ -174,8 +176,8 @@ impl Upstream {
                     .filter(|r| !r.trim().is_empty())
                     .map(|r| format!("\n\n{server} rules: {r}"))
                     .unwrap_or_default();
-                tool["description"] = json!(format!("[{server}] {description}{rules}"));
-                tool["name"] = json!(name);
+                tool.insert("description", json!(format!("[{server}] {description}{rules}")));
+                tool.insert("name", json!(name));
                 Some(tool)
             })
             .collect()
@@ -260,7 +262,7 @@ impl Upstream {
                 START_TIMEOUT,
             )
             .map_err(Failure::message)?;
-        self.instructions = init["instructions"].as_str().map(str::to_owned);
+        self.instructions = init.field("instructions").as_str().map(str::to_owned);
         self.notify("notifications/initialized")?;
         let mut tools = Vec::new();
         let mut cursor = None::<String>;
@@ -268,8 +270,8 @@ impl Upstream {
             let params = cursor.as_ref().map_or_else(|| json!({}), |c| json!({"cursor": c}));
             let page =
                 self.request("tools/list", params, START_TIMEOUT).map_err(Failure::message)?;
-            tools.extend(page["tools"].as_array().cloned().unwrap_or_default());
-            match page["nextCursor"].as_str() {
+            tools.extend(page.field("tools").as_array().cloned().unwrap_or_default());
+            match page.field("nextCursor").as_str() {
                 Some(next) if !next.is_empty() && tools.len() < 1000 => cursor = Some(next.into()),
                 _ => break,
             }
@@ -323,7 +325,7 @@ impl Upstream {
                 }
                 continue;
             }
-            if reply["id"] != id {
+            if reply.field("id") != id {
                 continue;
             }
             if let Some(error) = reply.get("error") {
@@ -331,7 +333,7 @@ impl Upstream {
                     error["message"].as_str().unwrap_or("error").to_owned(),
                 ));
             }
-            return Ok(reply["result"].clone());
+            return Ok(reply.field("result").clone());
         }
     }
 }

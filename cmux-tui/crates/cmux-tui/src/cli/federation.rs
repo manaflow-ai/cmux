@@ -109,9 +109,9 @@ pub(super) fn apply_qualifiers(
 ) -> Result<(), UsageError> {
     let mut found: Option<String> = None;
     let mut index = 0;
-    while index < args.len() {
-        let (before, rest) = args.split_at_mut(index);
-        let arg = &mut rest[0];
+    while let Some((before, rest)) = args.split_at_mut_checked(index)
+        && let Some(arg) = rest.first_mut()
+    {
         if arg == "--" {
             break;
         }
@@ -123,7 +123,7 @@ pub(super) fn apply_qualifiers(
             let mut value = value.to_owned();
             take(&mut value, &mut found)?;
             *arg = format!("{flag}={value}");
-        } else if index > 0 && ID_OPTIONS.contains(&before[index - 1].as_str()) {
+        } else if before.last().is_some_and(|previous| ID_OPTIONS.contains(&previous.as_str())) {
             take(arg, &mut found)?;
         }
         index += 1;

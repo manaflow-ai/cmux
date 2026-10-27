@@ -14,6 +14,8 @@
 //! comma-separated allowlist, the Chief's turns) lists exactly those tools
 //! and refuses every other call, from a script too.
 
+use crate::cli::json_fields::JsonFields;
+
 mod action_tools;
 mod agent_dispatch_tools;
 mod agent_events_tool;
@@ -628,7 +630,7 @@ impl<B: Backend> Server<B> {
                 self.actions_loaded = true;
             }
             Err(failure) => {
-                let message = failure.error["message"].as_str().unwrap_or("no answer");
+                let message = failure.error.field("message").as_str().unwrap_or("no answer");
                 eprintln!("cmux mcp: the cmux app's actions are unavailable: {message}");
             }
         }
@@ -687,7 +689,7 @@ impl<B: Backend> Server<B> {
             let mut result = answered.unwrap_or_else(|message| {
                 tool_error(envelope(v2_tools::invalid(message), "not_run", None))
             });
-            if let Some(content) = result["content"].as_array_mut() {
+            if let Some(content) = result.get_mut("content").and_then(Value::as_array_mut) {
                 content.extend(images);
             }
             return Ok(result);
@@ -917,7 +919,9 @@ impl<B: Backend> Server<B> {
             ));
         }
         match self.backend.app("snapshot.get", json!({}), super::app::READ_TIMEOUT, None, false) {
-            Ok(snapshot) => success(json!({ "items": snapshot["topology"]["windows"] }), false),
+            Ok(snapshot) => {
+                success(json!({ "items": snapshot.field("topology").field("windows") }), false)
+            }
             Err(failure) => failure_result(failure),
         }
     }
@@ -940,7 +944,7 @@ fn initialize(params: &Value, list_changed: bool, code_mode: bool) -> Value {
     let version = PROTOCOL_VERSIONS
         .iter()
         .find(|version| Some(**version) == requested)
-        .unwrap_or(&PROTOCOL_VERSIONS[0]);
+        .or_else(|| PROTOCOL_VERSIONS.first());
     json!({
         "protocolVersion": version,
         "capabilities": {"tools": {"listChanged": list_changed}},
@@ -1009,10 +1013,10 @@ fn fit(mut value: Value) -> Result<Value, Value> {
     {
         let keep = items.len() / 2;
         items.truncate(keep);
-        value["truncated"] = json!(true);
-        value["returned"] = json!(keep);
+        value.insert("truncated", json!(true));
+        value.insert("returned", json!(keep));
         if let Some(offset) = value.get("offset").and_then(Value::as_u64) {
-            value["next_offset"] = json!(offset + keep as u64);
+            value.insert("next_offset", json!(offset + keep as u64));
         }
         if size(&value) <= MAX_RESULT_BYTES {
             return Ok(value);
@@ -1036,7 +1040,7 @@ fn fit(mut value: Value) -> Result<Value, Value> {
 fn envelope(error: Value, state: &str, idempotency_key: Option<&str>) -> Value {
     let mut envelope = json!({ "error": error, "state": state });
     if let Some(key) = idempotency_key {
-        envelope["idempotency_key"] = json!(key);
+        envelope.insert("idempotency_key", json!(key));
     }
     envelope
 }
@@ -1055,7 +1059,8 @@ pub(super) fn failure_result(failure: CallFailure) -> Value {
     });
     // The app's queue deadline (`timeout`) says nothing about whether the
     // run started; a retry with the same key is safe either way.
-    let timed_out = failure.kind == FailureKind::Rejected && failure.error["code"] == "timeout";
+    let timed_out =
+        failure.kind == FailureKind::Rejected && failure.error.field("code") == "timeout";
     let state = owner_state
         .or(timed_out.then_some("in_progress"))
         .unwrap_or(failure.kind.state())

@@ -127,7 +127,7 @@ impl App {
         self.mark_graphics_clean((!full_scan).then_some(&dirty_surfaces));
         let mut updates = Vec::new();
         for index in 0..self.pane_areas.len() {
-            let area = self.pane_areas[index];
+            let Some(&area) = self.pane_areas.get(index) else { break };
             if !full_scan && !dirty_surfaces.contains(&area.surface) {
                 continue;
             }

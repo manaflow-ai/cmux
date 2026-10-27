@@ -20,6 +20,7 @@ use serde_json::{Value, json};
 
 use super::open::OpenRequest;
 use super::{GlobalArgs, failure, wait};
+use crate::cli::json_fields::JsonFields;
 
 pub(super) fn run(global: &GlobalArgs, stream: &mut UnixStream, request: OpenRequest) -> i32 {
     let timeout = Some(request.timeout());
@@ -34,8 +35,9 @@ pub(super) fn run(global: &GlobalArgs, stream: &mut UnixStream, request: OpenReq
     let Some(command) = result.get("command").and_then(Value::as_str) else {
         return failure("app.transport", "browser.open_link named no command", global.output, 3);
     };
-    let url = params["url"].as_str().unwrap_or_default().to_owned();
-    let callers = params["callers"]
+    let url = params.field("url").as_str().unwrap_or_default().to_owned();
+    let callers = params
+        .field("callers")
         .as_array()
         .map(|names| names.iter().filter_map(Value::as_str).collect::<Vec<_>>().join(","))
         .unwrap_or_default();
@@ -45,7 +47,7 @@ pub(super) fn run(global: &GlobalArgs, stream: &mut UnixStream, request: OpenReq
             global.output,
         ),
         Ok(Some(target)) => {
-            params["target"] = json!(target);
+            params.insert("target", json!(target));
             match send(global, stream, &params, timeout) {
                 Ok(result) => super::super::wire::print_local_success(&result, global.output),
                 Err(code) => code,

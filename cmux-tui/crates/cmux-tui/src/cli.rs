@@ -47,6 +47,7 @@ mod fix_command;
 mod frontend_browser;
 #[cfg(unix)]
 mod host_mount;
+mod json_fields;
 mod launch_credential;
 mod lifecycle;
 // Like the other scopes its dispatch is in (`run`, `#[cfg(unix)]`): Unix only.
