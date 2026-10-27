@@ -134,9 +134,8 @@ import os
     }
 
     /// The deadline with events still unanswered. The owner ended (the claim is free): the launch reopens through
-    /// LaunchServices. The claim is held but its recorded owner is gone (a leaked descriptor, not a copy of the
-    /// app): the launch reopens past the guard (`CMUX_NEXT_ALLOW_SECOND_INSTANCE=1`), so cmux never becomes
-    /// unlaunchable. The owner is alive but never answered: the rest is dropped, logged.
+    /// LaunchServices, and that launch takes the claim as any other. Otherwise the rest is dropped, logged; the
+    /// claim's descriptor is close-on-exec, so only a live copy of the app holds it, and it frees when that ends.
     private func giveUp() {
         guard !queue.isDone else { return }
         finishing?.cancel()
@@ -144,10 +143,7 @@ import os
         let owner = SingleInstanceGuard.owner(at: lock)
         if SingleInstanceGuard.isFree(at: lock) {
             Self.logger.notice("launch: the running copy exited during the hand-off; reopening this launch")
-            Self.reopenAfterExit(bundle: Bundle.main.bundleURL, urls: urls, pastGuard: false)
-        } else if let owner, kill(owner, 0) != 0, errno == ESRCH {
-            Self.logger.error("launch: the claim is held but its owner pid \(owner, privacy: .public) is gone; reopening past the guard")
-            Self.reopenAfterExit(bundle: Bundle.main.bundleURL, urls: urls, pastGuard: true)
+            Self.reopenAfterExit(bundle: Bundle.main.bundleURL, urls: urls)
         } else {
             Self.logger.error("launch: the running copy never answered; \(urls.count, privacy: .public) URL(s) not handed off")
         }
@@ -156,12 +152,11 @@ import os
 
     /// `open -a <bundle> <urls>` from a child that waits on this process's exit (`caffeinate -w`, the kernel's
     /// exit event, as `RollbackSwap.relaunchCommand`), so LaunchServices starts a new copy instead of this one.
-    private static func reopenAfterExit(bundle: URL, urls: [URL], pastGuard: Bool) {
-        let env = pastGuard ? ["--env", "\(SingleInstanceGuard.allowKey)=1"] : []
+    private static func reopenAfterExit(bundle: URL, urls: [URL]) {
         let process = Process()
         process.executableURL = URL(filePath: "/bin/sh")
         process.arguments = ["-c", "p=$0; shift; /usr/bin/caffeinate -w \"$p\"; exec /usr/bin/open \"$@\"",
-                             String(getpid()), "-a", bundle.path] + env + urls.map { $0.isFileURL ? $0.path : $0.absoluteString }
+                             String(getpid()), "-a", bundle.path] + urls.map { $0.isFileURL ? $0.path : $0.absoluteString }
         do { try process.run() } catch {
             logger.error("launch: reopen failed: \(String(describing: error), privacy: .public)")
         }

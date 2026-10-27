@@ -73,4 +73,23 @@ import Testing
         let again = try #require(cache.existingBrowser(tab.id)?.tab as? DeferredBrowserTab)
         #expect(again.state.url == typed)
     }
+
+    /// A stand-in tab's "Chromium unavailable" page that moved to its daemon tab retries under the daemon tab's id.
+    @Test func aMovedStandInRetriesUnderItsDaemonTab() throws {
+        let cache = cache(.startFailed("CefInitialize failed"))
+        let provisional = ProvisionalTab()
+        let standIn = TabModel(TabSnapshot(surface: provisional.surface, tabResourceID: ResourceID(rawValue: provisional.id), kind: .browser,
+                                           url: "https://example.com/", browserRenderer: "frontend", browserEngine: "cef"))
+        let daemonTab = TabModel(TabSnapshot(surface: SurfaceID(rawValue: 65), tabResourceID: ResourceID(rawValue: "tab_65"), kind: .browser,
+                                             url: "https://example.com/", browserRenderer: "frontend", browserEngine: "cef"))
+        defer { cache.release(daemonTab.id) }
+        cache.findTab = { $0 == daemonTab.id ? daemonTab : nil }
+        let first = try #require(cache.chromiumUnavailable(standIn, url: URL(string: "https://example.com/"), reason: .startFailed("x")) as BrowserEntry?)
+        #expect(cache.moveBrowser(standIn.id, to: daemonTab))
+        var ready: [String] = []
+        cache.onBrowserReady = { ready.append($0) }
+        first.tab.reload()
+        #expect(ready == [daemonTab.id])
+        #expect(cache.existingBrowser(daemonTab.id)?.tab is DeferredBrowserTab)
+    }
 }

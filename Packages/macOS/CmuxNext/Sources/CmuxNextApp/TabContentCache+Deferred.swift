@@ -45,8 +45,10 @@ extension TabContentCache {
         // The tab's own profile: an incognito tab's URL must not show in another profile's suggestions.
         let page = DeferredBrowserTab(id: BrowserTabID(rawValue: key), engine: .cef, profile: browserProfile?(key) ?? .default,
                                       url: url, title: tab.title.isEmpty ? nil : tab.title)
-        page.onStart = { [weak self] url in self?.retryChromium(key, url: url) }
         let entry = install(page, for: key)
+        // The tab the page shows when Reload is pressed: a stand-in's page moves to its daemon tab
+        // (`moveBrowser`), which rebinds the chrome's key but not this closure.
+        page.onStart = { [weak self, weak entry] url in self?.retryChromium(entry?.chrome.addressBar.tabKey ?? key, url: url) }
         entry.chrome.showNotice(BrowserEngineStrings.chromiumUnavailableRestoredTab)
         return entry
     }
