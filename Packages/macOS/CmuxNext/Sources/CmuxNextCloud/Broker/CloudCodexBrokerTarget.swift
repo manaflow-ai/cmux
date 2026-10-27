@@ -78,28 +78,16 @@ nonisolated public struct CloudCodexBrokerTarget: Sendable {
         return "if [ \"$(id -u)\" = 0 ]; then /bin/sh -c \(quote(script)); else sudo -n /bin/sh -c \(quote(script)); fi"
     }
 
-    /// The default probe is deliberately read-only: the running bridge reports
-    /// its capability and the guest marker proves that this is an owner VM.
+    /// The account API establishes ownership for this caller before the running
+    /// bridge is queried for its token-delivery capability.
     nonisolated public init(api: CloudAPIClient, machineID: String, scope: CloudCodexBrokerScope) {
         let api = api.pinningTeam(scope.teamID)
         self.init(machineID: machineID, capability: {
-            let marker = try await api.readFile(machineID, path: "/etc/cmux/vm-kind")
-            let owner = String(decoding: marker.data ?? Data(), as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines) == "owner"
-            let sharedTeamDirectory: Bool
-            do {
-                _ = try await api.statFile(machineID, path: "/srv/team")
-                sharedTeamDirectory = true
-            } catch let error as CloudAPIError {
-                switch error {
-                case .http(let status, let code, _, _, _)
-                    where status == 404 && code == "vm_file_not_found":
-                    break
-                default:
-                    throw error
-                }
-                sharedTeamDirectory = false
+            // Guest files are controlled by the VM and cannot authorize token delivery.
+            let endpoint = try await api.attachEndpoint(machineID)
+            guard endpoint.vmKind == "owner" else {
+                return Capability(ownerVM: false, protocolVersion: 0, codexExternalAccessToken: false)
             }
-            guard owner, !sharedTeamDirectory else { return Capability(ownerVM: false, protocolVersion: 0, codexExternalAccessToken: false) }
             let result = try await api.exec(machineID, command: Self.statusCommand, timeoutMs: 8_000)
             guard result.exitCode == 0, Self.supportsExternalAccess(result.stdout) else {
                 return Capability(ownerVM: true, protocolVersion: 0, codexExternalAccessToken: false)
