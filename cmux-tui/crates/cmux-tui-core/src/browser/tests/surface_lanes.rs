@@ -20,7 +20,7 @@ fn mux_surface(mux: &Arc<Mux>, id: u64) -> Arc<Surface> {
 
 /// Waits until `check` holds (test-only polling of the pool's counter).
 fn eventually(check: impl Fn() -> bool) -> bool {
-    let deadline = Instant::now() + Duration::from_secs(5);
+    let deadline = Instant::now() + Duration::from_secs(10);
     while Instant::now() < deadline {
         if check() {
             return true;

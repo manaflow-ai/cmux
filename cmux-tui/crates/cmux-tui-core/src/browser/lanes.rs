@@ -19,9 +19,10 @@
 //!   scope that adds a worker at once (base/threading/scoped_blocking_call.h,
 //!   thread_group_impl.cc `BlockingStarted`). So a lane that becomes ready
 //!   while no worker idles starts one more, up to [`MAX_WORKERS`] (Chrome's
-//!   `kMaxNumberOfWorkers`), and that worker exits as soon as nothing is
-//!   ready: one wedged page never delays another surface, and idle surfaces
-//!   cost no thread.
+//!   `kMaxNumberOfWorkers`), and that worker exits once it found nothing
+//!   ready for [`RECLAIM`] (Chrome reclaims idle workers the same way, with
+//!   a longer time): one wedged page never delays another surface, and idle
+//!   surfaces cost no thread past the base workers.
 //! - **Deadlines.** A turn may ask to run again at an instant. An idle worker
 //!   waits until the earliest one; there is no timer thread, as in
 //!   server/sequenced_pool.rs (Chrome's DelayedTaskManager).
@@ -36,7 +37,7 @@ use std::collections::{BinaryHeap, HashMap, VecDeque};
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::mpsc::{SyncSender, TrySendError};
 use std::sync::{Arc, MutexGuard};
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use cmux_threads::sync::{Condvar, Mutex};
 
@@ -47,6 +48,8 @@ use crate::thread_qos::ThreadType;
 pub(crate) const BASE_WORKERS: usize = 2;
 /// The most workers the pool runs, temporary ones included.
 pub(crate) const MAX_WORKERS: usize = 256;
+/// How long a temporary worker stays with nothing to run before it exits.
+pub(crate) const RECLAIM: Duration = Duration::from_secs(1);
 const WORKER_NAME: &str = "browser-lane";
 
 /// What a lane does with one turn.
@@ -325,6 +328,9 @@ impl Shared {
 
     fn run_worker(self: &Arc<Self>) {
         let mut state = self.lock();
+        // When this worker last found nothing ready (None while it runs
+        // lanes): a temporary worker idle for RECLAIM exits.
+        let mut idle_since: Option<Instant> = None;
         loop {
             if state.shut_down {
                 state.live -= 1;
@@ -340,17 +346,23 @@ impl Shared {
                 continue;
             }
             let Some(id) = state.ready.pop_front() else {
-                // A worker past the base count exits once nothing is ready.
-                if state.live > BASE_WORKERS {
+                let now = Instant::now();
+                let since = *idle_since.get_or_insert(now);
+                // A worker past the base count exits once it found nothing
+                // ready for RECLAIM, so a burst reuses it rather than
+                // starting and ending a thread per wake.
+                let reclaim_at = (state.live > BASE_WORKERS).then(|| since + RECLAIM);
+                if reclaim_at.is_some_and(|reclaim_at| reclaim_at <= now) {
                     state.live -= 1;
                     return;
                 }
                 state.idle += 1;
-                state = match self.next_due(&mut state) {
+                let due = [self.next_due(&mut state), reclaim_at].into_iter().flatten().min();
+                state = match due {
                     None => self.work.idle().wait(state).recover_poison(),
                     Some(due) => {
-                        let wait = due.saturating_duration_since(Instant::now());
-                        // wakeup-allow: deadline the earliest lane deadline, armed only while a lane asked for one
+                        let wait = due.saturating_duration_since(now);
+                        // wakeup-allow: deadline the earliest lane deadline or this temporary worker's reclaim, armed only while one exists
                         self.work.idle().wait_timeout(state, wait).recover_poison().0
                     }
                 };
@@ -359,6 +371,7 @@ impl Shared {
                 continue;
             };
             let Some(mut task) = take_task(&mut state, id) else { continue };
+            idle_since = None;
             drop(state);
             let turn = catch_unwind(AssertUnwindSafe(|| task.run())).unwrap_or_else(|_| {
                 eprintln!("cmux: a {WORKER_NAME} task panicked; its lane ends");

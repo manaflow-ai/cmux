@@ -5,7 +5,7 @@ use std::time::{Duration, Instant};
 
 use super::*;
 
-const WAIT: Duration = Duration::from_secs(5);
+const WAIT: Duration = Duration::from_secs(10);
 
 /// Records each turn's number on `turns`, then answers `next`.
 struct Recorder {
