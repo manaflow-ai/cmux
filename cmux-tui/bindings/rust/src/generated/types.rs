@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 859372e7d0b532e8ef2fb66624f2232b92a0b10643e6825512427e3342b26fd1.
+// cmux-tui mux protocol 12, IR 4d7b70e8f59c1edd691398b791a050b123e7235b3ee05a7652613d7f80150c85.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use crate::{Nullable, Optional};
@@ -1155,7 +1155,7 @@ pub struct DaemonStartupMarks {
     /// Microseconds after main_start_unix_us (monotonic clock) at which this step was first reached; absent until reached. The startup configuration was read.
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub config_loaded: Option<u64>,
-    /// Microseconds after main_start_unix_us (monotonic clock) at which this step was first reached; absent until reached. The first identify was answered.
+    /// Microseconds after main_start_unix_us (monotonic clock) at which this step was first reached; absent until reached. The first identify answered once the lifecycle is ready, so it is the last step.
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub first_identify_served: Option<u64>,
     /// Microseconds after main_start_unix_us (monotonic clock) at which this step was first reached; absent until reached. The launch snapshot writer step is done.

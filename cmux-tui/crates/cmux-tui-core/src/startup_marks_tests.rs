@@ -90,3 +90,18 @@ fn a_server_without_a_timeline_records_nothing_and_keeps_the_first_one_installed
     // Marked before the timeline was installed, so never recorded.
     assert!(first.reached(StartupMark::ConfigLoaded).is_none());
 }
+
+#[test]
+fn an_identify_before_readiness_is_not_the_first_identify_served() {
+    let startup = ServerStartup::default();
+    let (marks, _) = timeline();
+    let marks = Arc::new(marks);
+    startup.install(marks.clone());
+    startup.mark(StartupMark::FirstIdentifyServed);
+    assert!(marks.reached(StartupMark::FirstIdentifyServed).is_none());
+
+    startup.mark_ready();
+    startup.mark(StartupMark::FirstIdentifyServed);
+    let ready = marks.reached(StartupMark::LifecycleReady).unwrap();
+    assert!(marks.reached(StartupMark::FirstIdentifyServed).unwrap() >= ready);
+}

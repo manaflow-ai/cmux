@@ -149,7 +149,8 @@ pub(super) fn identify(
         identity.insert("machine_platform", crate::resource_api::machine_platform());
         identity.insert("machine_capabilities", crate::resource_api::machine_capabilities());
     }
-    // Before the timeline is read, so the first identify that asks reports itself.
+    // Before the timeline is read, so the first identify that asks reports
+    // itself; one served before lifecycle readiness is not counted.
     mux.mark_startup(StartupMark::FirstIdentifyServed);
     if startup_marks {
         identity

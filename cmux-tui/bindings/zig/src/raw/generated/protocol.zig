@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "859372e7d0b532e8ef2fb66624f2232b92a0b10643e6825512427e3342b26fd1";
+pub const ir_sha256 = "4d7b70e8f59c1edd691398b791a050b123e7235b3ee05a7652613d7f80150c85";
 
 pub const AccessRequestKind = enum {
     file,
@@ -1333,7 +1333,7 @@ pub const CursorStyle = enum {
 pub const DaemonStartupMarks = struct {
     /// Microseconds after main_start_unix_us (monotonic clock) at which this step was first reached; absent until reached. The startup configuration was read.
     config_loaded: ?u64 = null,
-    /// Microseconds after main_start_unix_us (monotonic clock) at which this step was first reached; absent until reached. The first identify was answered.
+    /// Microseconds after main_start_unix_us (monotonic clock) at which this step was first reached; absent until reached. The first identify answered once the lifecycle is ready, so it is the last step.
     first_identify_served: ?u64 = null,
     /// Microseconds after main_start_unix_us (monotonic clock) at which this step was first reached; absent until reached. The launch snapshot writer step is done.
     launch_snapshot_writer_started: ?u64 = null,

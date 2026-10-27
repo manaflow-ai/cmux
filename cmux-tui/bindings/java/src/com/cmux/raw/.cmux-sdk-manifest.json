@@ -1782,8 +1782,8 @@
     },
     {
       "path": "DaemonStartupMarks.java",
-      "sha256": "f5c03360fe4d2383423bb777cbba685bdd1f280ac4eb9a5891edebfc30af7365",
-      "size": 10758
+      "sha256": "55dbf01c999da149b09e437832c512e269e4d18ed93228ad49f8d61e4d2c40cf",
+      "size": 10806
     },
     {
       "path": "DeadPane.java",
@@ -2972,7 +2972,7 @@
     },
     {
       "path": "Protocol.java",
-      "sha256": "d68c127887ea57d12404326e0df15162584459f4eae44937b19ed7613842716a",
+      "sha256": "8a8a639655cbb7749672392a9c2fdacea4c93032009d96b173792f292f74623e",
       "size": 7841
     },
     {
@@ -4437,7 +4437,7 @@
     }
   ],
   "format": 1,
-  "ir_sha256": "859372e7d0b532e8ef2fb66624f2232b92a0b10643e6825512427e3342b26fd1",
+  "ir_sha256": "4d7b70e8f59c1edd691398b791a050b123e7235b3ee05a7652613d7f80150c85",
   "language": "java",
   "mux_protocol": 12,
   "schema_version": 2

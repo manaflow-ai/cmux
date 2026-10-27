@@ -2445,7 +2445,7 @@
      },
      "presence": "optional",
      "nullable": false,
-     "description": "Microseconds after main_start_unix_us (monotonic clock) at which this step was first reached; absent until reached. The first identify was answered."
+     "description": "Microseconds after main_start_unix_us (monotonic clock) at which this step was first reached; absent until reached. The first identify answered once the lifecycle is ready, so it is the last step."
     }
    },
    "additional_properties": false

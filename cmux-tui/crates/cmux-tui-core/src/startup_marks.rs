@@ -36,7 +36,9 @@ pub enum StartupMark {
     LaunchSnapshotWriterStarted,
     /// Every owner the lifecycle commands need is installed.
     LifecycleReady,
-    /// The first `identify` was answered.
+    /// The first `identify` answered once the lifecycle is ready; an
+    /// `identify` a parked or early client sends before that is not counted,
+    /// so this is always the last step.
     FirstIdentifyServed,
 }
 
@@ -153,9 +155,11 @@ pub(crate) struct ServerStartup {
 }
 
 impl ServerStartup {
+    /// Records `LifecycleReady` before publishing readiness, so an identify
+    /// that sees the server ready is timed after it.
     pub(crate) fn mark_ready(&self) {
-        self.ready.store(true, Ordering::Release);
         self.mark(StartupMark::LifecycleReady);
+        self.ready.store(true, Ordering::Release);
     }
 
     pub(crate) fn is_ready(&self) -> bool {
@@ -167,7 +171,12 @@ impl ServerStartup {
         let _first = self.marks.set(marks);
     }
 
+    /// Records `mark` once. `FirstIdentifyServed` counts only once the server
+    /// is ready, so it never comes before `LifecycleReady`.
     pub(crate) fn mark(&self, mark: StartupMark) {
+        if mark == StartupMark::FirstIdentifyServed && !self.is_ready() {
+            return;
+        }
         if let Some(marks) = self.marks.get() {
             marks.mark(mark);
         }

@@ -13,7 +13,7 @@ import java.util.Objects;
 public final class DaemonStartupMarks implements WireValue {
     /** Microseconds after main_start_unix_us (monotonic clock) at which this step was first reached; absent until reached. The startup configuration was read. */
     private final Field<UInt64> configLoaded;
-    /** Microseconds after main_start_unix_us (monotonic clock) at which this step was first reached; absent until reached. The first identify was answered. */
+    /** Microseconds after main_start_unix_us (monotonic clock) at which this step was first reached; absent until reached. The first identify answered once the lifecycle is ready, so it is the last step. */
     private final Field<UInt64> firstIdentifyServed;
     /** Microseconds after main_start_unix_us (monotonic clock) at which this step was first reached; absent until reached. The launch snapshot writer step is done. */
     private final Field<UInt64> launchSnapshotWriterStarted;

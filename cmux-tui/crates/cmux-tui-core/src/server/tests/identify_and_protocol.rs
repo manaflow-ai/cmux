@@ -965,3 +965,61 @@ fn identify_reports_the_startup_timeline_only_when_asked() {
     assert_eq!(timeline_fields.len(), StartupMark::ALL.len() + 1);
     mux.shutdown();
 }
+
+/// The daemon's start path (main.rs `run_server`): an `identify` parked during
+/// the restore is answered at attach, before the WebSocket and launch snapshot
+/// steps and lifecycle readiness. It is not the first identify served, so the
+/// reported timeline runs in `StartupMark::ALL` order and ends with it.
+#[cfg(unix)]
+#[test]
+fn an_identify_parked_during_the_restore_keeps_the_startup_timeline_in_order() {
+    use crate::startup_marks::{StartupMark, StartupMarks};
+    fn read_reply(stream: &mut Box<dyn transport::Stream>) -> Value {
+        let mut line = String::new();
+        BufReader::new(stream).read_line(&mut line).unwrap();
+        serde_json::from_str::<Value>(&line).unwrap()
+    }
+    let dir = TestSocketDir::create("startup-marks-parked");
+    let path = dir.path().join("mux.sock");
+    let marks = Arc::new(StartupMarks::starting_now());
+    marks.mark(StartupMark::ConfigLoaded);
+    marks.mark(StartupMark::OwnerPrepared);
+    let mux = test_mux();
+    let restoring =
+        bind_session_socket(&mux.session, Some(path.clone())).unwrap().serve_restoring().unwrap();
+    marks.mark(StartupMark::SocketBound);
+    let mut client = transport::connect(&path).unwrap();
+    client.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+    writeln!(client, r#"{{"id":1,"cmd":"identify"}}"#).unwrap();
+    client.flush().unwrap();
+    mux.install_startup_marks(marks.clone());
+    mux.mark_startup(StartupMark::MuxRestored);
+    mux.mark_startup(StartupMark::OwnerEventLoop);
+    let pending = restoring.attach(mux.clone());
+
+    let parked = read_reply(&mut client);
+    assert_eq!(parked["data"]["lifecycle_ready"], false, "{parked}");
+    assert_eq!(
+        marks.reached(StartupMark::FirstIdentifyServed),
+        None,
+        "an identify answered before lifecycle readiness was counted"
+    );
+    mux.mark_startup(StartupMark::WebsocketReady);
+    mux.mark_startup(StartupMark::LaunchSnapshotWriterStarted);
+    let served = pending.mark_ready().unwrap();
+
+    writeln!(client, r#"{{"id":2,"cmd":"identify","startup_marks":true}}"#).unwrap();
+    client.flush().unwrap();
+    let reply = read_reply(&mut client);
+    let timeline = &reply["data"]["startup_marks"];
+    let offsets = StartupMark::ALL.map(|mark| {
+        timeline[mark.wire_name()].as_u64().unwrap_or_else(|| panic!("{mark:?} in {timeline}"))
+    });
+    assert!(offsets.is_sorted(), "{timeline}");
+    assert!(
+        timeline["first_identify_served"].as_u64() >= timeline["lifecycle_ready"].as_u64(),
+        "{timeline}"
+    );
+    cleanup(&served);
+    mux.shutdown();
+}
