@@ -25,7 +25,7 @@ from __future__ import annotations
 
 import datetime as _dt
 import re
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from fnmatch import fnmatch
 from pathlib import PurePosixPath
 from typing import Any
@@ -81,8 +81,10 @@ def is_delivery_run(path: str | None, *names: str | None) -> bool:
 #   - a newer head of the same branch has its own run of the same workflow,
 #     which builds the tip in its place: a delivery run itself (not an
 #     ordinary run of a shared workflow), from the same event and the same
-#     head repository (never a fork's branch of the same name), and not
-#     finished other than in success.
+#     head repository (never a fork's branch of the same name), not finished
+#     other than in success, and whose own jobs show the same build: every job
+#     the old run waits on is listed there and not skipped or failed (a
+#     cache-only or throttled run skips them).
 # Anything unread (no jobs list, no branch, head or head repository) is not a
 # skip, and neither is a re-run (run_attempt > 1): only the latest attempt's
 # jobs are read, and an earlier attempt may have built.
@@ -133,13 +135,14 @@ def _head_repo(run: Mapping[str, Any]) -> str:
     return str(((run.get("head_repository") or {}).get("full_name")) or "").lower()
 
 
-def newer_head_run(run: Mapping[str, Any], runs: Iterable[Mapping[str, Any]]) -> Mapping[str, Any] | None:
-    """A delivery run of the same workflow, event, head repository and branch, created after `run` at another head,
-    and not finished other than in success."""
+def newer_head_runs(run: Mapping[str, Any], runs: Iterable[Mapping[str, Any]]) -> list[Mapping[str, Any]]:
+    """Delivery runs of the same workflow, event, head repository and branch, created after `run` at another head,
+    and not finished other than in success; newest first."""
     branch, sha, repo = run.get("head_branch"), run.get("head_sha"), _head_repo(run)
     created = _time(run.get("created_at"))
     if not branch or not sha or not repo or created is None:
-        return None
+        return []
+    found: dict[Any, tuple[_dt.datetime, Mapping[str, Any]]] = {}
     for other in runs:
         if _workflow_key(other) != _workflow_key(run) or other.get("head_branch") != branch:
             continue
@@ -153,16 +156,41 @@ def newer_head_run(run: Mapping[str, Any], runs: Iterable[Mapping[str, Any]]) ->
             continue
         when = _time(other.get("created_at"))
         if when is not None and when > created:
-            return other
+            found[other.get("id")] = (when, other)
+    return [other for _, other in sorted(found.values(), key=lambda pair: pair[0], reverse=True)]
+
+
+def builds_the_same(waiting: Sequence[str], other_jobs: Sequence[Mapping[str, Any]] | None) -> str | None:
+    """Why `other_jobs` (a newer run's) do not show that run doing the build `waiting` names, or None when they do:
+    each waiting job of the old run is listed in the newer one and has not been skipped or failed. A cache-only or
+    throttled run skips its build jobs, and one still deciding has not listed them yet."""
+    if other_jobs is None:
+        return "its jobs could not be read"
+    listed: dict[str, list[Mapping[str, Any]]] = {}
+    for job in other_jobs:
+        listed.setdefault(str(job.get("name") or ""), []).append(job)
+    for name in waiting:
+        legs = listed.get(name)
+        if not legs:
+            return f"it lists no job {name!r} (yet)"
+        if any(leg.get("status") == "completed" and leg.get("conclusion") != "success" for leg in legs):
+            return f"its job {name!r} was skipped or did not succeed"
     return None
 
 
+REPLACEMENT_JOB_READS = 3
+
+
 def superseded_unstarted(run: Mapping[str, Any], jobs: Sequence[Mapping[str, Any]] | None,
-                         runs: Iterable[Mapping[str, Any]]) -> tuple[bool, str]:
+                         runs: Iterable[Mapping[str, Any]],
+                         jobs_of: Callable[[Mapping[str, Any]], Sequence[Mapping[str, Any]] | None] | None = None,
+                         ) -> tuple[bool, str]:
     """(True, why) when a delivery run may be skipped for the tip; (False, why not) otherwise.
 
-    `jobs` is the run's complete latest-attempt job list (None when unread), and `runs` are runs to find the
-    newer head's run among (the same workflow's runs on the branch, or every in-flight run)."""
+    `jobs` is the run's complete latest-attempt job list (None when unread); `runs` are runs to find the newer
+    head's run among (the same workflow's runs on the branch, or every in-flight run); `jobs_of(newer)` reads a
+    newer run's jobs (None when unread), at most REPLACEMENT_JOB_READS of them. The newer run must show the same
+    build: each job the old run waits on is listed there and not skipped or failed."""
     if run.get("status") == "completed":
         return False, "it has completed"
     if jobs is None:
@@ -172,10 +200,20 @@ def superseded_unstarted(run: Mapping[str, Any], jobs: Sequence[Mapping[str, Any
     started = build_started(jobs)
     if started:
         return False, f"its build has started: {started}"
-    newer = newer_head_run(run, runs)
-    if newer is None:
+    waiting = sorted({str(job.get("name") or "") for job in jobs if job.get("status") in WAITING_JOB_STATUSES})
+    if not waiting:
+        return False, "no job of it is waiting, so what it would build cannot be matched"
+    newer = newer_head_runs(run, runs)
+    if not newer:
         return False, f"no newer head of {run.get('head_branch') or 'its branch'} has its own run of this workflow"
-    waiting = sum(1 for job in jobs if job.get("status") in WAITING_JOB_STATUSES)
-    return True, (f"its build has not started ({waiting} job(s) waiting, only gate jobs done) and run "
-                  f"{newer.get('id')} builds the newer head {str(newer.get('head_sha'))[:12]} of "
-                  f"{run.get('head_branch')}")
+    if jobs_of is None:
+        return False, "the newer runs' jobs were not read"
+    why_not = ""
+    for other in newer[:REPLACEMENT_JOB_READS]:
+        problem = builds_the_same(waiting, jobs_of(other))
+        if problem is None:
+            return True, (f"its build has not started ({len(waiting)} job(s) waiting, only gate jobs done) and run "
+                          f"{other.get('id')} builds the newer head {str(other.get('head_sha'))[:12]} of "
+                          f"{run.get('head_branch')} with the same job(s)")
+        why_not = why_not or f"run {other.get('id')}: {problem}"
+    return False, f"no newer run of {run.get('head_branch')} shows the same build ({why_not})"

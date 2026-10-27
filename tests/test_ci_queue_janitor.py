@@ -1229,9 +1229,14 @@ class SupersededDeliveryTests(unittest.TestCase):
     """Leo, 2026-10-26: "When nightly runs for older commits are stuck waiting (queued for a runner or a gate),
     skip them and build from the tip: cancel the stale runs and move the nightly branch to the tip"."""
 
+    def judge(self, old, old_jobs, runs, newer_jobs=None):
+        # Every newer run lists the same waiting build job unless told otherwise.
+        return janitor.superseded_unstarted(old, old_jobs, runs,
+                                            lambda other: (newer_jobs or {}).get(other["id"], gate_jobs(10)))
+
     def test_unstarted_on_a_superseded_head_is_skipped(self):
         old, new = nightly_run("864dceb6", 60), nightly_run("ccb74c4d", 20)
-        ok, why = janitor.superseded_unstarted(old, gate_jobs(60), [old, new])
+        ok, why = self.judge(old, gate_jobs(60), [old, new])
         self.assertTrue(ok, why)
         self.assertIn(str(new["id"]), why)
 
@@ -1242,7 +1247,7 @@ class SupersededDeliveryTests(unittest.TestCase):
                       {"status": "completed", "conclusion": "success", "runner_name": "mini-1",
                        "completed_at": iso(5)}):                                    # ran on a Mac
             with self.subTest(build=build):
-                ok, why = janitor.superseded_unstarted(old, gate_jobs(60, build=build), [old, new])
+                ok, why = self.judge(old, gate_jobs(60, build=build), [old, new])
                 self.assertFalse(ok)
                 self.assertIn("started", why)
         # A Linux job named for the build (sign, publish, ...) or one that ran past GATE_JOB_MAX is the build too.
@@ -1251,7 +1256,7 @@ class SupersededDeliveryTests(unittest.TestCase):
             with self.subTest(job=job):
                 jobs = gate_jobs(60)
                 jobs[1] = {**jobs[1], **job}
-                self.assertFalse(janitor.superseded_unstarted(old, jobs, [old, new])[0])
+                self.assertFalse(self.judge(old, jobs, [old, new])[0])
 
     def test_unstarted_with_no_newer_head_run_is_kept(self):
         old = nightly_run("864dceb6", 60)
@@ -1269,21 +1274,40 @@ class SupersededDeliveryTests(unittest.TestCase):
         for others in ([], [same_head], [cancelled], [failed], [fork], [dispatched], [other_branch], [other_workflow],
                        [older]):
             with self.subTest(others=others):
-                ok, why = janitor.superseded_unstarted(old, gate_jobs(60), [old, *others])
+                ok, why = self.judge(old, gate_jobs(60), [old, *others])
                 self.assertFalse(ok)
                 self.assertIn("no newer head", why)
-        self.assertFalse(janitor.superseded_unstarted(old, None, [old, nightly_run("ccb74c4d", 20)])[0])
+        self.assertFalse(self.judge(old, None, [old, nightly_run("ccb74c4d", 20)])[0])
+        # Without a way to read the newer run's jobs, nothing is skipped.
+        self.assertFalse(janitor.superseded_unstarted(old, gate_jobs(60), [old, nightly_run("ccb74c4d", 20)])[0])
         # A shared workflow's DEV delivery run is not superseded by an ordinary run of that workflow.
         dev = {**nightly_run("864dceb6", 60), "path": ".github/workflows/cmux-next.yml", "workflow_id": 9,
                "name": "cmux-next", "display_title": "cmux NEXT DEV daily · 864dceb6"}
-        self.assertFalse(janitor.superseded_unstarted(dev, gate_jobs(60), [dev, {**ordinary, "event": "push"}])[0])
-        self.assertTrue(janitor.superseded_unstarted(
+        self.assertFalse(self.judge(dev, gate_jobs(60), [dev, {**ordinary, "event": "push"}])[0])
+        self.assertTrue(self.judge(
             dev, gate_jobs(60), [dev, {**ordinary, "display_title": "cmux NEXT DEV daily · ccb74c4d"}])[0])
+
+    def test_a_newer_run_that_does_not_do_the_build_does_not_supersede(self):
+        # A cache-only warmup or a throttled push at a newer head skips the app build; one still deciding has not
+        # listed it; an unreadable one proves nothing.
+        old, new = nightly_run("864dceb6", 60), nightly_run("ccb74c4d", 20)
+        skipped = gate_jobs(20, build={"status": "completed", "conclusion": "skipped", "runner_name": None})
+        deciding = gate_jobs(20)[:1]
+        for newer_jobs in (skipped, deciding, None):
+            with self.subTest(newer_jobs=newer_jobs):
+                ok, why = janitor.superseded_unstarted(old, gate_jobs(60), [old, new], lambda other: newer_jobs)
+                self.assertFalse(ok)
+                self.assertIn("same build", why)
+        # Two newer runs: a cache-only one first, a building one behind it.
+        building = nightly_run("e3ca669f", 30)
+        ok, why = self.judge(old, gate_jobs(60), [old, building, new], {new["id"]: skipped})
+        self.assertTrue(ok, why)
+        self.assertIn(str(building["id"]), why)
 
     def test_a_rerun_is_kept(self):
         # Only the latest attempt's jobs are read; an earlier attempt may have built.
         old, new = {**nightly_run("864dceb6", 60), "run_attempt": 2}, nightly_run("ccb74c4d", 20)
-        ok, why = janitor.superseded_unstarted(old, gate_jobs(60), [old, new])
+        ok, why = self.judge(old, gate_jobs(60), [old, new])
         self.assertFalse(ok)
         self.assertIn("attempt 2", why)
 
@@ -1329,7 +1353,8 @@ class SupersededDeliveryTests(unittest.TestCase):
     def test_a_finished_newer_run_is_found_by_one_branch_listing(self):
         old = nightly_run("864dceb6", 70)
         done = {**nightly_run("ccb74c4d", 20, status="completed"), "conclusion": "success"}
-        fake, decided, _ = self.sweep([old], {old["id"]: gate_jobs(70)}, completed=[done])
+        built = gate_jobs(20, build={"status": "completed", "conclusion": "success", "runner_name": "mini-1"})
+        fake, decided, _ = self.sweep([old], {old["id"]: gate_jobs(70)}, completed=[done], rejob={done["id"]: built})
         self.assertEqual(decided[old["id"]].action, "cancel")
         self.assertEqual([p for m, p in fake.log if "/actions/workflows/" in p],
                          ["/repos/manaflow-ai/cmux/actions/workflows/nightly.yml/runs?branch=nightly-next&per_page=20"])

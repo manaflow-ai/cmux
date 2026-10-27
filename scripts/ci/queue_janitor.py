@@ -2302,6 +2302,8 @@ SUPERSEDED_MAX_CANCELS = 10
 SUPERSEDED_BRANCH_LISTINGS = 3
 # Delivery runs whose jobs the sweep did not list (queued past GHOST_QUEUED_RUN_AGE): at most this many read a sweep.
 SUPERSEDED_EXTRA_JOBS = 5
+# Jobs of newer runs the sweep did not list (a finished one found by a branch listing): at most this many a sweep.
+SUPERSEDED_REPLACEMENT_READS = 5
 
 
 def superseded_candidates(runs: Sequence[Mapping[str, Any]],
@@ -2335,10 +2337,29 @@ def skip_superseded_delivery(
     decisions: list[SupersededDecision] = []
     failures = 0
     listed: dict[tuple[Any, str], list[Mapping[str, Any]]] = {}
+    read_jobs: dict[int, list[dict[str, Any]] | None] = {}
+
+    def jobs_of(other: Mapping[str, Any]) -> Sequence[Mapping[str, Any]] | None:
+        """A newer run's jobs: the sweep's listing, else one read (at most SUPERSEDED_REPLACEMENT_READS a sweep)."""
+        other_id = other.get("id")
+        if other_id in jobs_by_run:
+            return jobs_by_run[other_id]
+        if other_id not in read_jobs:
+            if len(read_jobs) >= SUPERSEDED_REPLACEMENT_READS or not isinstance(other_id, int):
+                return None
+            try:
+                read_jobs[other_id] = github.jobs(other_id)
+            except RateLimited:
+                raise
+            except RuntimeError as error:
+                read_jobs[other_id] = None
+                print(f"queue-janitor: jobs of run {other_id}: {error}", file=sys.stderr)
+        return read_jobs[other_id]
+
     cancels = 0
     for run in candidates:
         run_id = run["id"]
-        ok, why = superseded_unstarted(run, jobs_by_run.get(run_id), runs)
+        ok, why = superseded_unstarted(run, jobs_by_run.get(run_id), runs, jobs_of)
         if not ok and why.startswith("no newer head"):
             key = (run.get("workflow_id") or run.get("path"), str(run.get("head_branch") or ""))
             if key not in listed and len(listed) < SUPERSEDED_BRANCH_LISTINGS:
@@ -2349,7 +2370,7 @@ def skip_superseded_delivery(
                 except RuntimeError as error:
                     listed[key] = []
                     print(f"queue-janitor: runs of {key[1]} for run {run_id}: {error}", file=sys.stderr)
-            ok, why = superseded_unstarted(run, jobs_by_run.get(run_id), [*runs, *listed.get(key, [])])
+            ok, why = superseded_unstarted(run, jobs_by_run.get(run_id), [*runs, *listed.get(key, [])], jobs_of)
         if not ok:
             decisions.append(SupersededDecision(run, "keep", why))
             continue
@@ -2374,7 +2395,7 @@ def skip_superseded_delivery(
             failures += 1
             decisions.append(SupersededDecision(run, "keep", f"failed to re-read: {error}"))
             continue
-        ok, why = superseded_unstarted(current, jobs, [*runs, *[r for rs in listed.values() for r in rs]])
+        ok, why = superseded_unstarted(current, jobs, [*runs, *[r for rs in listed.values() for r in rs]], jobs_of)
         if not ok:
             decisions.append(SupersededDecision(run, "keep", f"on re-read: {why}"))
             continue
@@ -2393,7 +2414,7 @@ def skip_superseded_delivery(
 def render_superseded_summary(decisions: Sequence[SupersededDecision]) -> str:
     lines = ["", "### Superseded nightly, DEV and promote runs", "",
              "A delivery run whose build never started, at a head a newer run of its workflow on the same branch "
-             "has superseded, is skipped so the tip builds (delivery_workflows.superseded_unstarted()).", ""]
+             "has superseded with the same build jobs, is skipped so the tip builds (delivery_workflows.superseded_unstarted()).", ""]
     if not decisions:
         lines.append("None waiting.")
         return "\n".join(lines) + "\n"
