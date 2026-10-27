@@ -810,8 +810,9 @@ fn retitle_own_conversation(mux: &Mux, chief: &str, name: &str, rev: u64) {
     }
 }
 
-/// A deleted Chief's conversations left the person's Home list (`home-inbox`
-/// drops a conversation with only deleted Chiefs): each one's
+/// A deleted Chief's direct conversation left the person's Home list
+/// (`home-inbox` drops it; its titled channels stay and just read again): each
+/// of its conversations with the person gets its
 /// `conversation-inbox-changed`, with the person's unchanged pin and mark, so
 /// every connected view reads its list again. `chief-changed` is not enough:
 /// only clients that asked for Chief events get it, and the phone's link
@@ -922,7 +923,7 @@ pub(super) fn chief_names(mux: &Mux) -> std::collections::BTreeMap<String, Strin
 }
 
 /// The deleted Chiefs' ids (their tombstones), for the Home rows
-/// (`home-inbox`): their conversations leave the list. Best effort, as
+/// (`home-inbox`): their direct conversations leave the list. Best effort, as
 /// [`chief_names`].
 pub(super) fn deleted_chiefs(mux: &Mux) -> std::collections::BTreeSet<String> {
     with_store(mux, Op::ChiefProfileList, |store| {

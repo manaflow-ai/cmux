@@ -187,7 +187,7 @@ def main():  # noqa: C901 - one live scenario
         result["timings"]["online_row_gone_s"] = round(time.time() - t0, 1) if ok else None
         ok = ok and gone(sim, names["Doomed Chief"])
         c["online_row_left_phone"] = ok
-        c["kept_chief_still_listed"] = shows(sim, names["Kept Chief"]) is True
+        c["kept_chief_still_listed"], _ = wait_for(lambda: shows(sim, names["Kept Chief"]) is True, 10)
         log(f"phone rows after online delete: {phone_titles(sim)}")
         result["shots"]["phone-after-online"] = sim.shot("02-phone-after-online-delete")
         result["shots"]["mac-after-online"] = mac_shot(mac, os.path.join(shots, "02-mac-after-online-delete.png"))

@@ -282,6 +282,15 @@ fn a_deleted_chief_leaves_every_devices_home_list_including_one_offline_then() {
         "release notes",
         json!([{"id": id, "kind": "agent", "display_name": "Codex Chief", "agent_class": "mux"}]),
     );
+    // The older one (by created_at, then id: both may be made in one millisecond) is the direct one.
+    let list = phone.request("conversation-list", json!({}));
+    let made = |c: &str| {
+        let summary =
+            list["conversations"].as_array().unwrap().iter().find(|s| s["id"] == c).unwrap();
+        (summary["created_at"].as_str().unwrap().to_owned(), c.to_owned())
+    };
+    let (chief, channel) =
+        if made(&chief) <= made(&channel) { (chief, channel) } else { (channel, chief) };
     phone.sent(&chief, "before-delete", None, None);
     let before = phone.request("home-inbox", json!({"owners": ["local"]}));
     assert_eq!(row(&before, &chief)["kind"], "chief", "{before}");
