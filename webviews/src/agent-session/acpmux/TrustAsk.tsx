@@ -34,8 +34,8 @@ export function trustedLabel(t: Translate, scope: Pick<FolderTrustAsk, "cwd" | "
 /// The folder trust question among the chat's permission asks, above the composer. It says what
 /// is trusted (the repository and every worktree of it, or the folder), what trusting allows, and
 /// offers Trust repo (the common case, first), Only this folder, and Not now; then the answer with
-/// Undo. An untrusted answer keeps the same scoped Trust action beside Undo, so Not now never
-/// hides the recovery path. Nothing waits on it (Leo, 2026-10-21: say what is trusted, what it
+/// Undo. An untrusted answer keeps a Trust action beside Undo where the pane can answer, so Not now
+/// never hides the recovery path. Nothing waits on it (Leo, 2026-10-21: say what is trusted, what it
 /// allows, scoped choices).
 export function TrustAsk({
   ask,
@@ -44,9 +44,12 @@ export function TrustAsk({
   onTrustRepo,
   onDistrust,
   onUndo,
+  answers = true,
 }: {
   ask: FolderTrustAsk;
   agent: string;
+  /// This pane can record an answer (not a remote chat whose host keeps it): Trust is offered.
+  answers?: boolean;
   /// Trust only this folder.
   onTrust(): void;
   /// Trust the repository holding the folder (every worktree of it).
@@ -62,6 +65,9 @@ export function TrustAsk({
   const asking = ask.state === "ask" || ask.state === "failed";
   // The repository is offered whole only when the pane can record it (`onTrustRepo`).
   const offersRepo = Boolean(repo && onTrustRepo && !owned);
+  // After Not now, Trust repo only where that answer lives (`trust.rs`: the folder's own answer,
+  // then its worktree's, then its repository's). Else Trust records the folder, which answers first.
+  const retrustsRepo = offersRepo && (subject.viaRepo || subject.atRoot);
   return (
     // An open question reads as one (full text, the accent's edge, the primary answer first), not
     // as the quiet receipt it becomes once answered: a dim line was easy to miss while the agent
@@ -77,7 +83,7 @@ export function TrustAsk({
                 : t("trust.notTrusted", { agent, folder: subject.viaFolder ?? folder })}
           </span>
           <span className="acpmux-trust-ask-actions">
-            {offersRepo ? (
+            {!answers ? null : retrustsRepo ? (
               <button type="button" className="acpmux-trust-ask-action acpmux-trust-ask-primary" onClick={onTrustRepo}>
                 {t("trust.trustRepo")}
               </button>

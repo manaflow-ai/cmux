@@ -8687,6 +8687,7 @@ function AcpmuxPane() {
           onTrustRepo={trustAsk.trustRepo}
           onDistrust={trustAsk.distrust}
           onUndo={trustAsk.undo}
+          answers={answersTrust}
         />
       )}
       {!trustPending && hasPermissionGroups && snapshot.permissionGroups && (

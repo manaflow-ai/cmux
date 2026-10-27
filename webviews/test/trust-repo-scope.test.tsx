@@ -140,16 +140,21 @@ test("Only this folder records the folder, and Not now the repository", async ()
 });
 
 const noop = () => undefined;
-const render = (ask: Parameters<typeof TrustAsk>[0]["ask"], onTrustRepo: () => void = noop) =>
+const render = (
+  ask: Parameters<typeof TrustAsk>[0]["ask"],
+  onTrustRepo: () => void = noop,
+  { onTrust = noop, answers = true }: { onTrust?: () => void; answers?: boolean } = {},
+) =>
   act(async () =>
     root.render(
       <TrustAsk
         ask={ask}
         agent="Claude Code"
-        onTrust={noop}
+        onTrust={onTrust}
         onTrustRepo={onTrustRepo}
         onDistrust={noop}
         onUndo={noop}
+        answers={answers}
       />,
     ),
   );
@@ -206,6 +211,36 @@ test("a worktree answered by its repository keeps Trust and Undo after Not now",
   expect(buttons()).toEqual(["Trust repo", "Undo"]);
   await act(async () => (host.querySelector(".acpmux-trust-ask-primary") as HTMLButtonElement).click());
   expect(trustRepo).toBe(1);
+});
+
+test("after Not now, Trust records where that answer lives: the repository only when it holds it", async () => {
+  // acpmux reads the folder's own answer, then its worktree's, then its repository's (trust.rs):
+  // Trust repo would leave a folder's or worktree's own Not now in force.
+  const counts = { repo: 0, folder: 0 };
+  const handlers = [() => (counts.repo += 1), { onTrust: () => (counts.folder += 1) }] as const;
+  const inWorktree = `${worktree}/packages/api`;
+  await render(
+    { cwd: inWorktree, repo: { root: repoRoot, worktree: true }, via: worktree, state: "decided", level: "untrusted" },
+    ...handlers,
+  );
+  expect(buttons()).toEqual(["Trust folder", "Undo"]);
+  await act(async () => (host.querySelector(".acpmux-trust-ask-primary") as HTMLButtonElement).click());
+  await render(
+    { cwd: worktree, repo: { root: repoRoot, worktree: true }, state: "decided", level: "untrusted" },
+    ...handlers,
+  );
+  expect(buttons()).toEqual(["Trust folder", "Undo"]);
+  await act(async () => (host.querySelector(".acpmux-trust-ask-primary") as HTMLButtonElement).click());
+  expect(counts).toEqual({ repo: 0, folder: 2 });
+});
+
+test("a chat whose host keeps its answer offers no Trust after Not now", async () => {
+  await render(
+    { cwd: worktree, repo: { root: repoRoot, worktree: true }, via: repoRoot, state: "decided", level: "untrusted" },
+    noop,
+    { answers: false },
+  );
+  expect(buttons()).toEqual(["Undo"]);
 });
 
 test("the Access grant names where the answer lives: the repository, not the chat's private folder", () => {
