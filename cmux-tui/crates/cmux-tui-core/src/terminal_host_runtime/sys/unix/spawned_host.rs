@@ -3,7 +3,6 @@
 //! started (`cmux_process`), exact-killed and waited if the launch is not
 //! committed.
 
-use std::thread;
 use std::time::Duration;
 
 pub(crate) struct SpawnedHostProcess {
@@ -27,14 +26,13 @@ impl SpawnedHostProcess {
     }
 
     /// The launch is committed: the host lives on its own. Reaping is
-    /// housekeeping after the ownership handoff. Failure to create this
-    /// helper cannot turn a committed live Surface into an error; dropping
-    /// Child leaves the independent host running.
+    /// housekeeping after the ownership handoff. A failed registration
+    /// cannot turn a committed live Surface into an error; dropping Child
+    /// leaves the independent host running.
     pub(crate) fn commit(mut self) {
-        let Some(mut child) = self.child.take() else { return };
-        let _ = thread::Builder::new().name("terminal-host-reaper".into()).spawn(move || {
-            let _ = child.wait();
-        });
+        let Some(child) = self.child.take() else { return };
+        // The process's child-exit thread reaps it; no thread per host.
+        let _ = child.reap_on_exit();
     }
 
     /// Unix hosts leave the daemon's session and scope, never its job.

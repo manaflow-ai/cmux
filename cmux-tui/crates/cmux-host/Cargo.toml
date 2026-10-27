@@ -21,6 +21,8 @@ cmux-stability = ["cmux-blocking/cmux-stability"]
 [dependencies]
 cmux-blocking.workspace = true
 cmux-panic-log.workspace = true
+# A role's exit comes from the process's one child-exit thread (ExitWatcher).
+cmux-process.workspace = true
 # Roles (the store update check and later app servers) come from
 # cmux-server; dependency direction is cmux-host -> cmux-server ->
 # cmux-server-core, never the reverse.

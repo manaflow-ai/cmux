@@ -617,9 +617,8 @@ impl HolderService {
                 });
             }
         }
-        let _ = std::thread::Builder::new().name("holder-reaper".into()).spawn(move || {
-            let _ = child.wait();
-        });
+        // The process's child-exit thread reaps it; no thread waits here.
+        let _ = child.reap_on_exit();
         Ok(())
     }
 }

@@ -439,35 +439,49 @@ mod daemon_spawn {
         assert_eq!(got, "at-777\n");
     }
 
-    /// A child that exited before `wait_timeout` registered its kqueue event
-    /// (a zombie: `EV_ADD` fails with ESRCH) is seen at once and reaped, not
-    /// waited on until the limit (finding 1 of PL-daemon's review).
+    /// A child that exited before its exit was registered with the
+    /// `child-exit` kqueue (a zombie: `EV_ADD` fails with ESRCH) is seen at
+    /// once and reaped, not waited on until the limit (finding 1 of
+    /// PL-daemon's review), by `wait_timeout` and by `reap_on_exit`.
     #[test]
     fn a_child_that_exited_before_the_registration_is_seen_at_once() {
         let mut child = Command::new("/usr/bin/true").spawn().unwrap();
-        let pid = child.id() as libc::pid_t;
-        // Block until it exited, without reaping it (WNOWAIT): a zombie.
-        // SAFETY: zeroed siginfo is valid output storage for waitid.
-        let mut info: libc::siginfo_t = unsafe { std::mem::zeroed() };
-        // SAFETY: waitid writes one siginfo for this child.
-        assert_eq!(
-            unsafe {
-                libc::waitid(
-                    libc::P_PID,
-                    pid as libc::id_t,
-                    &mut info,
-                    libc::WEXITED | libc::WNOWAIT,
-                )
-            },
-            0
-        );
+        wait_until_zombie(child.id());
         let started = std::time::Instant::now();
-        crate::child::exit_event_within(pid, std::time::Duration::from_secs(30)).unwrap();
+        let status = child.wait_timeout(std::time::Duration::from_secs(30)).unwrap();
         assert!(
             started.elapsed() < std::time::Duration::from_secs(5),
             "waited {:?} for a child that had exited",
             started.elapsed()
         );
-        assert!(child.try_wait().unwrap().expect("reaped after the event").success());
+        assert!(status.expect("reaped after the event").success());
+
+        let child = Command::new("/usr/bin/true").spawn().unwrap();
+        let pid = child.id();
+        wait_until_zombie(pid);
+        child.reap_on_exit().unwrap();
+        // Registered after the reap: runs once the zombie is gone (ESRCH).
+        let (sender, reaped) = std::sync::mpsc::channel();
+        crate::ExitWatcher::process()
+            .unwrap()
+            .register(pid, move || sender.send(()).unwrap())
+            .unwrap();
+        reaped.recv_timeout(std::time::Duration::from_secs(5)).unwrap();
+        let mut status = 0;
+        // SAFETY: probing a pid this test spawned; WNOHANG never blocks.
+        let waited = unsafe { libc::waitpid(pid as libc::pid_t, &mut status, libc::WNOHANG) };
+        assert_eq!(waited, -1, "the zombie was not reaped");
+        assert_eq!(std::io::Error::last_os_error().raw_os_error(), Some(libc::ECHILD));
+    }
+
+    /// Block until child `pid` has exited, without reaping it (WNOWAIT).
+    fn wait_until_zombie(pid: u32) {
+        // SAFETY: zeroed siginfo is valid output storage for waitid.
+        let mut info: libc::siginfo_t = unsafe { std::mem::zeroed() };
+        // SAFETY: waitid writes one siginfo for this child.
+        let result = unsafe {
+            libc::waitid(libc::P_PID, pid as libc::id_t, &mut info, libc::WEXITED | libc::WNOWAIT)
+        };
+        assert_eq!(result, 0);
     }
 }

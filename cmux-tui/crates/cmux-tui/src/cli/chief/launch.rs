@@ -250,12 +250,11 @@ fn spawn_brain(brain: &Path, home: &ChiefHome, socket: &Path, user: &str) -> std
     // The brain outlives this CLI and its terminal.
     #[cfg(unix)]
     command.new_session();
-    let mut child = command.spawn()?;
+    let child = command.spawn()?;
     let pid = child.id();
-    // Reap it if it exits while this CLI still runs (a second brain exits 0).
-    let _ = std::thread::Builder::new().name("chief-brain-reaper".into()).spawn(move || {
-        let _ = child.wait();
-    });
+    // Reap it if it exits while this CLI still runs (a second brain exits 0):
+    // the process's child-exit thread does, no thread of its own.
+    let _ = child.reap_on_exit();
     Ok(pid)
 }
 

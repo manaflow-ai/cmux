@@ -30,8 +30,8 @@ use std::mem::size_of;
 use std::os::fd::FromRawFd;
 use std::os::fd::{AsFd, AsRawFd, OwnedFd};
 use std::os::unix::fs::OpenOptionsExt;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Condvar, Mutex, OnceLock, mpsc};
-use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
 use cmux_process::Command;
@@ -101,13 +101,13 @@ struct ScopeRegistration {
 struct FinalScanTestGate {
     reached: mpsc::SyncSender<()>,
     resume: Arc<Mutex<mpsc::Receiver<()>>>,
-    used: Arc<std::sync::atomic::AtomicBool>,
+    used: Arc<AtomicBool>,
 }
 
 #[cfg(feature = "test-support")]
 impl FinalScanTestGate {
     fn pause_once(&self) {
-        if self.used.swap(true, std::sync::atomic::Ordering::AcqRel) {
+        if self.used.swap(true, Ordering::AcqRel) {
             return;
         }
         let _ = self.reached.send(());
@@ -171,139 +171,74 @@ pub struct UnixProcessScope {
     kernel_group_fence: bool,
 }
 
-/// A signal from the kernel that an owned child is waitable. The observer
-/// uses `waitid(WNOWAIT)`, so checking for exit does not release the child's
+/// A signal from the kernel that an owned child is waitable, from the
+/// process's one `child-exit` thread (`cmux_process::ExitWatcher`). The
+/// watcher never reaps, so checking for exit does not release the child's
 /// PID or process group before its process scope is terminated.
 pub struct UnixChildExitSignal {
-    result: mpsc::Receiver<io::Result<()>>,
-    action: Option<mpsc::SyncSender<UnixChildExitAction>>,
-    observer: Option<JoinHandle<()>>,
-}
-
-enum UnixChildExitAction {
-    Release,
-    Reap,
+    result: mpsc::Receiver<()>,
+    /// The exit was received: later checks answer from here, after the
+    /// callback (and its sender) is gone.
+    seen: AtomicBool,
 }
 
 impl UnixChildExitSignal {
-    /// Start one blocking kernel wait for an owned child without reaping it.
+    /// Register an owned child's exit with the `child-exit` thread, without
+    /// reaping it.
     pub fn observe(pid: u32) -> io::Result<Self> {
-        let pid = libc::pid_t::try_from(pid).map_err(|_| {
+        libc::pid_t::try_from(pid).map_err(|_| {
             io::Error::new(io::ErrorKind::InvalidInput, "child pid is out of range")
         })?;
         let (sender, result) = mpsc::sync_channel(1);
-        let (action_sender, action_receiver) = mpsc::sync_channel(1);
-        // A helper child's exit (hooks, helper commands): Utility, as the
-        // child itself runs (cmux_threads::HELPER_CHILD).
-        let observer = cmux_threads::spawn("cmux-child-exit", ThreadQos::Utility, move || {
-            let result = wait_for_child_exit_without_reaping(pid);
-            let observed = result.is_ok();
-            let _ = sender.send(result);
-            if matches!(action_receiver.recv(), Ok(UnixChildExitAction::Reap)) && observed {
-                reap_child(pid);
-            }
+        cmux_process::ExitWatcher::process()?.register(pid, move || {
+            let _ = sender.try_send(());
         })?;
-        Ok(Self { result, action: Some(action_sender), observer: Some(observer) })
+        Ok(Self { result, seen: AtomicBool::new(false) })
     }
 
     /// Return true when the child is waitable without releasing its PID.
     pub fn try_waitable(&self) -> io::Result<bool> {
+        if self.seen.load(Ordering::Acquire) {
+            return Ok(true);
+        }
         match self.result.try_recv() {
-            Ok(result) => result.map(|()| true),
+            Ok(()) => Ok(self.saw_exit()),
             Err(mpsc::TryRecvError::Empty) => Ok(false),
-            Err(mpsc::TryRecvError::Disconnected) => {
-                Err(io::Error::other("child exit observer stopped without a result"))
-            }
+            Err(mpsc::TryRecvError::Disconnected) => self.stopped(),
         }
     }
 
     /// Wait through an absolute deadline for the child to become waitable.
     pub fn wait_until(&self, deadline: Instant) -> io::Result<bool> {
+        if self.seen.load(Ordering::Acquire) {
+            return Ok(true);
+        }
         let remaining = deadline.saturating_duration_since(Instant::now());
         if remaining.is_zero() {
             return Ok(false);
         }
         match self.result.recv_timeout(remaining) {
-            Ok(result) => result.map(|()| true),
+            Ok(()) => Ok(self.saw_exit()),
             Err(mpsc::RecvTimeoutError::Timeout) => Ok(false),
-            Err(mpsc::RecvTimeoutError::Disconnected) => {
-                Err(io::Error::other("child exit observer stopped without a result"))
-            }
+            Err(mpsc::RecvTimeoutError::Disconnected) => self.stopped(),
         }
     }
 
-    fn send_action(&mut self, action: UnixChildExitAction) {
-        if let Some(sender) = self.action.take() {
-            let _ = sender.try_send(action);
-        }
+    /// The caller reaps the child itself (it is waitable or was killed).
+    pub fn finish(self) {}
+
+    fn saw_exit(&self) -> bool {
+        self.seen.store(true, Ordering::Release);
+        true
     }
 
-    /// Join the observer after the child is waitable or has been killed.
-    pub fn finish(mut self) {
-        self.send_action(UnixChildExitAction::Release);
-        if let Some(observer) = self.observer.take() {
-            let _ = observer.join();
+    /// The callback is gone: it ran (another check took the exit between
+    /// this one's load and receive) or the watcher dropped it.
+    fn stopped(&self) -> io::Result<bool> {
+        if self.seen.load(Ordering::Acquire) {
+            return Ok(true);
         }
-    }
-
-    /// Transfer Unix wait ownership to the already-running observer and
-    /// return without waiting for the child. The caller must drop its `Child`
-    /// handle after this handoff. The observer performs the blocking `waitpid`
-    /// so a timeout path cannot exceed its caller's deadline when a second
-    /// reaper thread cannot be created.
-    pub fn reap(mut self) {
-        self.send_action(UnixChildExitAction::Reap);
-        // Dropping the join handle intentionally detaches the observer. The
-        // process remains waitable until that observer consumes its status.
-        drop(self.observer.take());
-    }
-}
-
-impl Drop for UnixChildExitSignal {
-    fn drop(&mut self) {
-        self.send_action(UnixChildExitAction::Release);
-    }
-}
-
-fn wait_for_child_exit_without_reaping(pid: libc::pid_t) -> io::Result<()> {
-    loop {
-        let mut status = std::mem::MaybeUninit::<libc::siginfo_t>::zeroed();
-        // SAFETY: status points to writable siginfo storage. WNOWAIT observes
-        // this owned child becoming waitable without releasing its PID/PGID.
-        let result = unsafe {
-            libc::waitid(
-                libc::P_PID,
-                pid as libc::id_t,
-                status.as_mut_ptr(),
-                libc::WEXITED | libc::WNOWAIT,
-            )
-        };
-        if result == 0 {
-            return Ok(());
-        }
-        let error = io::Error::last_os_error();
-        if error.kind() != io::ErrorKind::Interrupted {
-            return Err(error);
-        }
-    }
-}
-
-fn reap_child(pid: libc::pid_t) {
-    let mut status = 0;
-    loop {
-        // SAFETY: `pid` was validated by `observe`, and this observer is the
-        // sole owner of the wait decision after the WNOWAIT observation.
-        let waited = unsafe { libc::waitpid(pid, &mut status, 0) };
-        if waited == pid {
-            return;
-        }
-        if waited < 0 {
-            let error = io::Error::last_os_error();
-            if error.kind() == io::ErrorKind::Interrupted {
-                continue;
-            }
-        }
-        return;
+        Err(io::Error::other("child exit observer stopped without a result"))
     }
 }
 

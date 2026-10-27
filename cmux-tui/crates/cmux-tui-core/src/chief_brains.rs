@@ -1059,23 +1059,36 @@ impl Supervisor {
         let pid = child.id();
         let reaped = Arc::new(Mutex::new(false));
         let (sender, chief, flag) = (self.sender.clone(), record.id.clone(), reaped.clone());
-        std::thread::Builder::new().name("chief-brain-wait".into()).spawn(move || {
-            let zombie = wait_exited(pid);
+        // The process's one child-exit thread runs this once the leader
+        // ended; it never reaps, so the leader is a zombie here (its id is
+        // still taken).
+        let on_exit = move || {
             {
-                // The leader is a zombie now (its id is still taken): end what
-                // is left of its own group (a crashed host's turn processes;
-                // its acpmux has a group of its own), then mark it reaped
-                // before the reap frees the id.
+                // End what is left of its own group (a crashed host's turn
+                // processes; its acpmux has a group of its own), then mark it
+                // reaped before the reap frees the id.
                 let mut reaped = flag.lock().unwrap_or_else(PoisonError::into_inner);
-                if zombie && let Ok(group) = i32::try_from(pid) {
+                if let Ok(group) = i32::try_from(pid) {
                     // SAFETY: as Process::signal; the leader is not reaped yet.
                     unsafe { libc::kill(-group, libc::SIGTERM) };
                 }
                 *reaped = true;
             }
+            // Ended: this wait returns at once.
             let success = child.wait().is_ok_and(|status| status.success());
             let _ = sender.send(Signal::Exited { chief, pid, success });
-        })?;
+        };
+        if let Err(error) =
+            cmux_process::ExitWatcher::process().and_then(|watcher| watcher.register(pid, on_exit))
+        {
+            // Nothing would report or reap this brain: it does not start.
+            // SAFETY: a child this process just spawned and has not reaped.
+            unsafe { libc::kill(-(pid as i32), libc::SIGKILL) };
+            let mut status = 0;
+            // SAFETY: as above; the kill makes this wait short.
+            unsafe { libc::waitpid(pid as libc::pid_t, &mut status, 0) };
+            return Err(error.into());
+        }
         Ok(Process { pid, reaped })
     }
 
@@ -1162,27 +1175,6 @@ impl Supervisor {
             if let Some(process) = &brain.process {
                 process.signal(SIGKILL);
             }
-        }
-    }
-}
-
-/// Blocks until child `pid` has exited, without reaping it (`WNOWAIT`);
-/// whether it waits as a zombie now.
-#[cfg(unix)]
-fn wait_exited(pid: u32) -> bool {
-    let id = libc::id_t::from(pid);
-    loop {
-        // SAFETY: a zeroed siginfo_t is a valid out buffer for waitid.
-        let mut info: libc::siginfo_t = unsafe { std::mem::zeroed() };
-        // SAFETY: waitid writes only into `info`; WNOWAIT leaves the child
-        // waitable for Child::wait.
-        let done =
-            unsafe { libc::waitid(libc::P_PID, id, &mut info, libc::WEXITED | libc::WNOWAIT) };
-        if done == 0 {
-            return true;
-        }
-        if std::io::Error::last_os_error().raw_os_error() != Some(libc::EINTR) {
-            return false;
         }
     }
 }

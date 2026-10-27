@@ -39,11 +39,18 @@
 //! descriptor other than 0-2 reaches the child only through
 //! [`Command::inherit_fd`]. [`Command::inherit_like_std`] (the CLI's
 //! transparent wrappers) and [`Command::exec`] keep std's inheritance instead.
+//!
+//! On Unix one `child-exit` thread ([`ExitWatcher`]) waits for every child's
+//! exit: [`Child::wait_timeout`] and [`Child::reap_on_exit`] use it, and a
+//! caller that must act on an exit registers a callback with
+//! [`ExitWatcher::register`] instead of parking a thread in `waitpid`.
 
 mod child;
 #[cfg(unix)]
 mod child_setup;
 mod command;
+#[cfg(unix)]
+mod exit_watcher;
 #[cfg(unix)]
 mod fd;
 #[cfg(target_vendor = "apple")]
@@ -54,5 +61,7 @@ mod tests;
 
 pub use child::Child;
 pub use command::Command;
+#[cfg(unix)]
+pub use exit_watcher::ExitWatcher;
 pub use std::process::{ExitStatus, Output};
 pub use stdio::Stdio;

@@ -468,38 +468,20 @@ impl Drop for JournalPluginRuntime {
     }
 }
 
-/// Blocks until the plugin process exits, without reaping it (WNOWAIT, so
-/// the supervisor's `try_wait` still gets the status), then wakes the
-/// supervisor. Replaces the supervisor's 500 ms `try_wait` poll.
-/// Returns false when the thread could not start.
+/// Wakes the supervisor when the plugin process exits, from the process's
+/// one `child-exit` thread (`cmux_process::ExitWatcher`), which does not reap
+/// it, so the supervisor's `try_wait` still gets the status. Replaces the
+/// supervisor's 500 ms `try_wait` poll. Returns false when the exit could
+/// not be registered.
 #[cfg(unix)]
 fn spawn_exit_waiter(shared: Arc<(Mutex<SupervisorState>, Condvar)>, pid: u32) -> bool {
-    let spawned = thread::Builder::new().name("cmux-journal-plugin-wait".into()).spawn(move || {
-        loop {
-            // SAFETY: `info` is a zeroed siginfo_t that waitid fills in.
-            let mut info: libc::siginfo_t = unsafe { std::mem::zeroed() };
-            // SAFETY: `info` is a valid, exclusively borrowed siginfo_t for the
-            // whole call; WNOWAIT leaves the child for the supervisor to reap.
-            let result = unsafe {
-                libc::waitid(
-                    libc::P_PID,
-                    pid as libc::id_t,
-                    &mut info,
-                    libc::WEXITED | libc::WNOWAIT,
-                )
-            };
-            if result == 0
-                || std::io::Error::last_os_error().kind() != std::io::ErrorKind::Interrupted
-            {
-                break;
-            }
-        }
+    let wake = move || {
         let (lock, changed) = &*shared;
         let _state = lock.lock().unwrap_or_else(|error| error.into_inner());
         changed.notify_all();
-    });
-    match spawned {
-        Ok(_) => true,
+    };
+    match cmux_process::ExitWatcher::process().and_then(|watcher| watcher.register(pid, wake)) {
+        Ok(()) => true,
         Err(error) => {
             eprintln!("cmux-tui: journal plugin exit waiter did not start: {error}");
             false

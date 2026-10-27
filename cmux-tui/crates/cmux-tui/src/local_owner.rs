@@ -802,15 +802,18 @@ fn spawn_detached_owner(spec: &OwnerSpec) -> io::Result<SpawnedOwner> {
         #[cfg(not(unix))]
         terminate: std::sync::atomic::AtomicBool::new(false),
     });
-    let reaper_state = std::sync::Arc::clone(&state);
     #[cfg(unix)]
-    let reaper = move || reap_on_exit(&reaper_state, pid);
+    let reaper = watch_owner_exit(std::sync::Arc::clone(&state), pid);
     #[cfg(not(unix))]
-    let reaper = move || reap_on_tick(&reaper_state);
-    if let Err(_error) =
-        std::thread::Builder::new().name("local-owner-reaper".to_string()).spawn(reaper)
-    {
-        // If the helper thread cannot be created, reap synchronously before
+    let reaper = {
+        let reaper_state = std::sync::Arc::clone(&state);
+        std::thread::Builder::new()
+            .name("local-owner-reaper".to_string())
+            .spawn(move || reap_on_tick(&reaper_state))
+            .map(drop)
+    };
+    if let Err(_error) = reaper {
+        // If the exit cannot be watched, reap synchronously before
         // returning. This preserves the no-zombie guarantee even under
         // thread exhaustion; the owner has already been detached from the
         // caller's terminal and cannot report through its stdio.
@@ -835,22 +838,20 @@ fn set_owner_stdio(command: &mut Command, spec: &OwnerSpec) {
     let _ = spec;
 }
 
-/// Blocks until the owner exits, without reaping it (`WNOWAIT`), so a
-/// concurrent `terminate` can still signal the pid safely; then reaps it
-/// unless `terminate` already did. No timer wakes this thread.
+/// Reaps the owner when it exits, from the process's one `child-exit`
+/// thread (`cmux_process::ExitWatcher`), unless `terminate` already did. The
+/// watcher does not reap, so a concurrent `terminate` can still signal the
+/// pid safely until the callback takes the child. No timer, no thread here.
 #[cfg(unix)]
-fn reap_on_exit(state: &OwnerProcessState, pid: u32) {
-    let pid = libc::id_t::from(pid);
-    loop {
-        // SAFETY: waitid writes only into the zeroed siginfo it is given.
-        let mut info = unsafe { std::mem::zeroed::<libc::siginfo_t>() };
-        let result =
-            unsafe { libc::waitid(libc::P_PID, pid, &mut info, libc::WEXITED | libc::WNOWAIT) };
-        if result == 0 || io::Error::last_os_error().kind() != io::ErrorKind::Interrupted {
-            break;
-        }
-    }
-    if let Some(mut process) = state.child.lock().expect("owner mutex poisoned").take() {
+fn watch_owner_exit(state: std::sync::Arc<OwnerProcessState>, pid: u32) -> io::Result<()> {
+    cmux_process::ExitWatcher::process()?.register(pid, move || reap_exited_owner(&state))
+}
+
+/// The owner ended: reap it unless `terminate` already did (returns at once).
+#[cfg(unix)]
+fn reap_exited_owner(state: &OwnerProcessState) {
+    let process = state.child.lock().unwrap_or_else(std::sync::PoisonError::into_inner).take();
+    if let Some(mut process) = process {
         let _ = process.wait();
     }
 }
@@ -914,29 +915,34 @@ mod tests {
             (Arc::new(OwnerProcessState { child: std::sync::Mutex::new(Some(child)) }), pid)
         }
 
+        /// Run after the owner's reap callback, at the same exit.
+        fn after_the_reap(pid: u32) -> std::sync::mpsc::Receiver<()> {
+            let (sender, reaped) = std::sync::mpsc::channel();
+            cmux_process::ExitWatcher::process()
+                .unwrap()
+                .register(pid, move || sender.send(()).unwrap())
+                .unwrap();
+            reaped
+        }
+
         #[test]
         fn the_reaper_wakes_on_exit_and_leaves_no_zombie() {
             let (state, pid) = owner_state(&mut Command::new("true"));
-            let reaper = {
-                let state = Arc::clone(&state);
-                std::thread::spawn(move || reap_on_exit(&state, pid))
-            };
-            reaper.join().unwrap();
+            watch_owner_exit(Arc::clone(&state), pid).unwrap();
+            after_the_reap(pid).recv_timeout(Duration::from_secs(5)).unwrap();
             assert!(state.child.lock().unwrap().is_none());
             // SAFETY: probing a pid this test spawned and the reaper reaped.
             assert_eq!(unsafe { libc::kill(pid as libc::pid_t, 0) }, -1);
         }
 
         #[test]
-        fn terminate_ends_a_blocked_reaper_and_the_owner() {
+        fn terminate_ends_a_watched_owner_and_the_late_callback_is_a_no_op() {
             let (state, pid) = owner_state(Command::new("sleep").arg("60"));
-            let reaper = {
-                let state = Arc::clone(&state);
-                std::thread::spawn(move || reap_on_exit(&state, pid))
-            };
+            watch_owner_exit(Arc::clone(&state), pid).unwrap();
+            let reaped = after_the_reap(pid);
             let started = Instant::now();
             SpawnedOwner { state: Arc::clone(&state), pid, ready: None }.terminate();
-            reaper.join().unwrap();
+            reaped.recv_timeout(Duration::from_secs(5)).unwrap();
             assert!(started.elapsed() < Duration::from_secs(5));
             assert!(state.child.lock().unwrap().is_none());
         }

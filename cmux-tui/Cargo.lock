@@ -1238,6 +1238,7 @@ version = "0.1.0"
 dependencies = [
  "cmux-blocking",
  "cmux-panic-log",
+ "cmux-process",
  "cmux-server",
  "cmux-server-core",
  "flate2",

@@ -203,22 +203,22 @@ pub fn start(spec: &RoleSpec, paths: &RolePaths, tx: &Sender<Msg>) -> Result<Chi
     Ok(child)
 }
 
-/// Starts the thread that reports `pid`'s exit (without reaping it).
+/// Reports `pid`'s exit (without reaping it) from the process's one
+/// `child-exit` thread (`cmux_process::ExitWatcher`), not a thread per role.
 #[cfg(unix)]
 pub fn watch_exit(name: &str, pid: u32, tx: &Sender<Msg>) {
-    let tx = tx.clone();
-    let name = name.to_owned();
-    let spawned = std::thread::Builder::new().name(format!("role-{name}-wait")).spawn({
+    let gone = {
         let tx = tx.clone();
-        let name = name.clone();
+        let name = name.to_owned();
         move || {
-            wait_exit(pid);
             let _ = tx.send(Msg::Gone { name, pid });
         }
-    });
-    if spawned.is_err() {
-        // No thread: report at once; the supervisor's `try_wait` decides.
-        let _ = tx.send(Msg::Gone { name, pid });
+    };
+    let registered =
+        cmux_process::ExitWatcher::process().and_then(|watcher| watcher.register(pid, gone));
+    if registered.is_err() {
+        // No watcher: report at once; the supervisor's `try_wait` decides.
+        let _ = tx.send(Msg::Gone { name: name.to_owned(), pid });
     }
 }
 
@@ -285,21 +285,5 @@ fn read_notify(pipe: std::io::PipeReader, name: &str, pid: u32, tx: &Sender<Msg>
             let _ = tx.send(msg);
         }
         line.clear();
-    }
-}
-
-/// Blocks until `pid` has exited, without reaping it.
-#[cfg(unix)]
-fn wait_exit(pid: u32) {
-    loop {
-        // SAFETY: a zeroed siginfo_t is a valid out parameter.
-        let mut info: libc::siginfo_t = unsafe { std::mem::zeroed() };
-        // SAFETY: P_PID with our own child's pid; WNOWAIT leaves it a zombie.
-        let rc = unsafe {
-            libc::waitid(libc::P_PID, pid as libc::id_t, &mut info, libc::WEXITED | libc::WNOWAIT)
-        };
-        if rc == 0 || std::io::Error::last_os_error().kind() != std::io::ErrorKind::Interrupted {
-            return;
-        }
     }
 }
