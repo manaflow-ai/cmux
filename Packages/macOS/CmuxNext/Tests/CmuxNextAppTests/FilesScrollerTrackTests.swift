@@ -3,6 +3,7 @@ import CmuxNextCompat
 import CmuxNextDesign
 import CmuxNextFiles
 @testable import CmuxNextFilesUI
+import CmuxNextWakeups
 import Foundation
 import Testing
 
@@ -47,7 +48,8 @@ struct FilesScrollerTrackTests {
     }
 
     @Test func theColumnViewsBarsHaveNoTrack() async throws {
-        let columns = FileColumnsView(actions: Self.actions, icons: FileIconProvider(queries: nil), lister: Listing())
+        let columns = FileColumnsView(actions: Self.actions, icons: FileIconProvider(queries: nil), lister: Listing(),
+                                      mainWork: MainWorkScheduler(budget: MainFrameBudget()))
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 420, height: 300), styleMask: [.titled],
                               backing: .buffered, defer: true)
         window.contentView = columns.view
@@ -60,7 +62,8 @@ struct FilesScrollerTrackTests {
         for depth in 1...3 {
             // The checked read: before the column loads, a raw item(atRow:inColumn:) raises
             // (column <= lastColumn), the #24776 crash class.
-            for _ in 0..<200 where browser.item(ifValidRow: 0, inColumn: depth - 1) == nil { await Task.yield() }
+            // A listing lands as a posted task on the scheduler: run the main turns until it did.
+            for _ in 0..<200 where browser.item(ifValidRow: 0, inColumn: depth - 1) == nil { await drainMainTurns(rounds: 1) }
             path += "/folder-\(depth)"
             browser.setPath(path)
         }

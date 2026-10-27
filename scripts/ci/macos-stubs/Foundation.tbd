@@ -1,0 +1,10 @@
+--- !tapi-tbd
+tbd-version:     4
+targets:         [ x86_64-macos, arm64-macos ]
+install-name:    '/System/Library/Frameworks/Foundation.framework/Versions/C/Foundation'
+current-version: 5026.5.4
+compatibility-version: 300.0.0
+exports:
+  - targets:         [ x86_64-macos, arm64-macos ]
+    symbols:         [ ]
+...

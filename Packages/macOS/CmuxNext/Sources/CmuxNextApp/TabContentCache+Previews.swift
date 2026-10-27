@@ -20,7 +20,7 @@ extension TabContentCache {
     func previewImage(for key: String, maxPixelSize: CGSize, captureIfMissing: Bool = false) async -> CGImage? {
         if let entry = terminals[key] {
             guard entry.session.showsOutput else { return nil } // a new shell's prompt: nothing to picture
-            if let image = await entry.session.snapshotInBackground(maxPixelSize: max(maxPixelSize.width, maxPixelSize.height)) { previews.insert(image, for: key); return image }
+            if let image = await entry.session.snapshotInBackground(maxPixelSize: max(maxPixelSize.width, maxPixelSize.height)) { previews.insert(await previews.picture(of: image), for: key); return image }
         } else if let image = await lastFrames[key]?.snapshot(maxPixelSize: max(maxPixelSize.width, maxPixelSize.height)) {
             return image // an evicted terminal: its last frame, pictured on demand
         }
@@ -78,8 +78,9 @@ extension TabContentCache {
             try await page.thumbnail()
         }) else { return nil }
         let fitted = await TabPreviewFitting.fit(image, TabPreviewFitting.cachedPixelSize)
+        let picture = await pageThumbnails.picture(of: fitted)
         guard accepts() else { return nil }
-        pageThumbnails.insert(fitted, for: key)
+        pageThumbnails.insert(picture, for: key)
         pageThumbnailVersions[key] = await ThumbnailStats.measure(fitted)?.isBlank == true ? nil : version
         return image
     }
