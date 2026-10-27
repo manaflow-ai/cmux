@@ -2278,6 +2278,58 @@ class Nightly(unittest.TestCase):
         self.assertIn("rerun-failed", api.calls)
         self.assertIn("Blacksmith", summary)
 
+    def next_helper_run(self, *, app_running_until, refused_at=None):
+        """A nightly-next dispatch or re-pick: the Ghostty helper on the picker's owned side label, the app
+        build on Blacksmith."""
+        side = "glaeda-side-std-xcode-26.6"
+
+        def jobs(seconds):
+            app = job("build-nightly-app", labels=[BLACKSMITH], runner="bs",
+                      status="in_progress" if seconds < app_running_until else "completed")
+            if seconds >= app_running_until:
+                app["conclusion"] = "success"
+            found = [job("decide", status="completed", labels=[BLACKSMITH]), app]
+            if seconds < 15:
+                return found
+            if refused_at is not None and seconds >= refused_at:
+                return found + [refused_job("build-nightly-ghostty-cli-helper", labels=(side,))]
+            return found + [job("build-nightly-ghostty-cli-helper", labels=[side], created=15)]
+        return jobs
+
+    def test_a_stuck_next_helper_never_cancels_a_running_app_build(self):
+        # pick-nightly-build-runner gives a dispatch, and a re-run that picks again, an owned side Mac for the
+        # Ghostty helper (cmux#26253, cmux#26237). A helper stuck there never cancels the run while the app
+        # build still runs on Blacksmith (cmux#26192); it moves once nothing else runs.
+        for event_name, attempt in (("workflow_dispatch", 1), ("workflow_dispatch", 2), ("push", 2)):
+            with self.subTest(event=event_name, attempt=attempt):
+                clock = Clock()
+                api = NightlyAPI(clock, self.next_helper_run(app_running_until=10 ** 6),
+                                 finished=lambda s: False)
+                target = rescue.sweep_target({**nightly_event(event=event_name, head_branch="nightly-next",
+                                                              run_attempt=attempt)["workflow_run"],
+                                              "status": "in_progress"}, "manaflow-ai/cmux", late=False)
+                self.assertIsInstance(target, rescue.Target)
+                with unittest.mock.patch("sys.stdout", io.StringIO()):
+                    rescue.follow(api, target, seconds=30, queue_rounds="0", now=clock.now, sleep=clock.sleep,
+                                  log=lambda text: None)
+                self.assertNotIn("cancel", api.calls)
+                self.assertNotIn("force-cancel", api.calls)
+        clock = Clock()
+        api = NightlyAPI(clock, self.next_helper_run(app_running_until=400), finished=lambda s: False)
+        _, summary = run_main(api, clock, payload=nightly_event(event="workflow_dispatch", head_branch="nightly-next"),
+                              env_extra={"RESCUE_SECONDS": "30"})
+        self.assertIn("build-nightly-ghostty-cli-helper", summary)
+        if "cancel" in api.calls:
+            self.assertGreaterEqual(clock.seconds, 400)
+
+    def test_a_refused_next_helper_reruns_its_failed_jobs_without_a_cancel(self):
+        clock = Clock()
+        api = NightlyAPI(clock, self.next_helper_run(app_running_until=100, refused_at=60), finished=lambda s: s >= 200)
+        code, _ = run_main(api, clock, payload=nightly_event(event="workflow_dispatch", head_branch="nightly-next"))
+        self.assertEqual(code, 0)
+        self.assertNotIn("cancel", api.calls)
+        self.assertEqual(api.calls[-1], "rerun-failed")
+
     def test_a_newer_next_push_never_cancels_this_one(self):
         # Each nightly-next run builds in its own groups, so a newer tip builds alongside this one.
         payload = nightly_event(head_branch="nightly-next")
