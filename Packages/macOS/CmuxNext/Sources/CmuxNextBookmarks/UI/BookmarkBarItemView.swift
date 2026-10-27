@@ -68,7 +68,7 @@ final class BookmarkBarItemView: NSView {
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
         if let tracking { removeTrackingArea(tracking) }
-        let area = NSTrackingArea(rect: bounds, options: [.mouseEnteredAndExited, WindowPlacement.hoverActivation, .inVisibleRect], owner: self)
+        let area = NSTrackingArea(rect: bounds, options: [.mouseEnteredAndExited, .activeForHover, .inVisibleRect], owner: self)
         addTrackingArea(area)
         tracking = area
     }

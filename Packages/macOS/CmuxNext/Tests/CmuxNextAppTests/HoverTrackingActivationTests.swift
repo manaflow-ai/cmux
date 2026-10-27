@@ -51,7 +51,7 @@ struct HoverTrackingActivationTests {
                 PaletteMenuRow(command: PaletteCommand(id: "open", title: "Open", symbol: "return", effect: .perform {}),
                                keycaps: nil, isSelected: false)
             }),
-            ("PaletteListView", { PaletteListView(frame: .zero) }),
+            ("PaletteTableView", { PaletteTableView(frame: .zero) }),
         ]
     }
 
@@ -70,7 +70,7 @@ struct HoverTrackingActivationTests {
         let saved = WindowPlacement.noActivate
         WindowPlacement.noActivate = noActivate
         defer { WindowPlacement.noActivate = saved }
-        #expect(WindowPlacement.hoverActivation == (noActivate ? .activeAlways : .activeInActiveApp))
+        #expect(NSTrackingArea.Options.activeForHover == (noActivate ? .activeAlways : .activeInActiveApp))
         return factories().map { name, make in (name, addedAreas(make())) }
     }
 

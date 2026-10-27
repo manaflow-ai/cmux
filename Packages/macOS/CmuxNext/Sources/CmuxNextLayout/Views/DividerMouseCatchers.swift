@@ -180,7 +180,7 @@ final class DividerMouseCatcherView: NSView {
         super.updateTrackingAreas()
         if let trackingArea { removeTrackingArea(trackingArea) }
         // This panel is never key: track in the active app, not the key window, or it never sees the pointer.
-        let area = NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .cursorUpdate, WindowPlacement.hoverActivation, .inVisibleRect], owner: self)
+        let area = NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .cursorUpdate, .activeForHover, .inVisibleRect], owner: self)
         addTrackingArea(area)
         trackingArea = area
     }

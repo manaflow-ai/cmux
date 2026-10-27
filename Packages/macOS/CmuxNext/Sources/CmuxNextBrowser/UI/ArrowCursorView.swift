@@ -45,7 +45,7 @@ public class ArrowCursorView: NSView {
         // past the end of the text in a window that was not key).
         guard cursorArea == nil else { return }
         cursorTracker.row = self
-        let area = NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .mouseMoved, WindowPlacement.hoverActivation, .inVisibleRect],
+        let area = NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .mouseMoved, .activeForHover, .inVisibleRect],
                                   owner: cursorTracker)
         addTrackingArea(area)
         cursorArea = area
