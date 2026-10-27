@@ -4203,6 +4203,34 @@ class NightlySigningStall(unittest.TestCase):
                           sleep=clock.sleep, log=lines.append)
             self.assertEqual(mutations(api), [], attempt)
 
+    def test_a_later_attempt_with_an_accepted_owned_job_still_watches_its_signing(self):
+        # A re-run the sweeper adopted (no marker, so not a full re-run) whose app build an owned Mac took: the watch
+        # must not stop at "the fleet accepted the retry" before its sign and verify jobs have stalled long enough.
+        stalled = "blacksmith-12vcpu-macos-26"
+
+        def attempt_n(seconds):
+            done = [dict(job("decide", status="completed", labels=["blacksmith-4vcpu-ubuntu-2404"]), id=1,
+                         conclusion="success"),
+                    dict(job("build-nightly-app", status="completed", labels=[LIGHT], runner="mini-2"), id=2,
+                         conclusion="success")]
+            return done + [dict(job("sign-nightly-identity-legacy", labels=[stalled], created=60), id=4),
+                           dict(job("Verify signed nightly app (arm64)", labels=[stalled], created=90), id=5)]
+
+        def after(seconds):
+            return [dict(job("sign-nightly-identity-legacy", status="in_progress", labels=[LIGHT], runner="mini-1"),
+                         id=12)]
+        for attempt in (2, 3):
+            clock, api, target = self.later_attempt(attempt, attempt_n, after=after)
+            self.assertFalse(target.full_rerun)
+            lines = []
+            result = rescue.follow(api, target, seconds=30, queue_rounds="0", now=clock.now, sleep=clock.sleep,
+                                   log=lines.append)
+            self.assertEqual(result, "done", lines)
+            self.assertFalse(any("the fleet accepted the retry" in line for line in lines), lines)
+            self.assertEqual(mutations(api), ["cancel", "rerun"], (attempt, lines))
+            self.assertEqual(api.attempt, attempt + 1)
+            self.assertGreaterEqual(api.first_cancel, 90 + rescue.SIGN_STALL_SECONDS)
+
     def test_the_sweeper_adopts_a_nightly_next_re_run_on_blacksmith(self):
         # Run 40500413442's attempt 2 left no marker (its build picker chose Blacksmith): the sweeper lists it.
         run = dict(nightly_event(head_branch="nightly-next")["workflow_run"], id=7, run_attempt=2,

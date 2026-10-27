@@ -2116,9 +2116,11 @@ def watch(api: GitHub, target: Target, *, budget_seconds: int,
                 # admission, so its watch goes on until the run finishes.
                 own_admission = any(job.get("name") == ADMISSION_JOB
                                     and not carried(job, target.attempt_started_at) for job in jobs)
-                if (target.attempt > 1 and not target.full_rerun and not own_admission and owned
-                        and all(accepted(job, seen_at) for job in owned)):
-                    # The fleet took the retry; later attempts never come back to it.
+                if (target.attempt > 1 and not target.full_rerun and not target.nightly and not own_admission
+                        and owned and all(accepted(job, seen_at) for job in owned)):
+                    # The fleet took the retry; later attempts never come back to it. Not a nightly's: its
+                    # sign and verify jobs can still stall on Blacksmith after its owned jobs are accepted,
+                    # and the signing rescue needs the watch to last until then.
                     return "stop", "the fleet accepted the retry"
                 if target.side and not target.nightly and owned \
                         and all(accepted(job, seen_at) for job in owned):
