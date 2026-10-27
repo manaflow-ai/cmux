@@ -319,7 +319,8 @@ extension ScreenContentView {
     }
 
     /// One render-server spring call of this screen landed. After the last, divider hover follows the rest
-    /// frames once and the layout motion ends, unless a pan holds it (``isGesturing``) or CPU springs still
+    /// frames once, the visibility pass narrows to the rest (a pan held or not), and the layout motion ends,
+    /// unless a pan holds it (``isGesturing``) or CPU springs still
     /// run (the root ends it when they land). A close still owning the camera (``RenderClose``) gives it back
     /// and sends the report it owed; a zoom gives its pane back its place in the stacking order and lets go
     /// of the panes it covered.
@@ -345,6 +346,7 @@ extension ScreenContentView {
         ScreenDividers(screen: self).place(strip: geometry.viewShift(offset: layoutOffset), scale: scale, uncovered: uncoveredRect,
                                            force: false)
         refreshDividerHover()
+        context.renderSpringsLanded()
         context.overlayNeedsSync()
         guard userMotionActive, !isGesturing else { return }
         userMotionActive = false
@@ -384,11 +386,5 @@ private extension AnimatedFrame {
 extension PaneHostView {
     /// A shown view in this pane draws in its own child window (`ChildWindowContent`). One walk of the
     /// pane's views, asked in a change's turn, never on a motion frame.
-    var showsChildWindowContent: Bool { Self.drawsInChildWindow(content) }
-
-    private static func drawsInChildWindow(_ view: NSView) -> Bool {
-        guard !view.isHidden else { return false }
-        if let page = view as? any ChildWindowContent, page.drawsInChildWindow { return true }
-        return view.subviews.contains { drawsInChildWindow($0) }
-    }
+    var showsChildWindowContent: Bool { content.subtreeDrawsInChildWindow }
 }
