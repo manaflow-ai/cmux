@@ -68,9 +68,14 @@ extension AgentTabStore {
     /// Starts the agent of every chat tab of this Mac at launch (cmux#22292): a chat's page, and
     /// with it its session, is made only when its tab shows, so the chats of a workspace not shown
     /// stayed stopped until it was. acpmux starts each one as the page would, with its own mode.
-    func resumeChatsAtLaunch() async {
+    /// Returns `false` when this Mac's install host is not available yet. The launch observer keeps
+    /// listening for another live-tree revision in that case; the Cloud install id can finish its
+    /// first read just after the daemon's first snapshot.
+    @discardableResult
+    func resumeChatsAtLaunch() async -> Bool {
+        guard localHost != nil else { return false }
         let targets = resumeTargetsAtLaunch()
-        guard !targets.isEmpty else { return }
+        guard !targets.isEmpty else { return true }
         await withTaskGroup(of: Void.self) { group in
             var pending = targets.makeIterator()
             let warm: @Sendable ((session: String, host: any AgentPaneHostProviding)) async -> Void = { target in
@@ -88,6 +93,7 @@ extension AgentTabStore {
                 if let target = pending.next() { group.addTask { await warm(target) } }
             }
         }
+        return true
     }
 
     /// Resumes every chat once `store` (this Mac's tree) first loads.
@@ -97,8 +103,7 @@ extension AgentTabStore {
         launchResumeTask = Task { [weak self] in
             for await live in ObservationStream({ store.liveTabListRevision }) where live != nil {
                 guard !Task.isCancelled else { return }
-                await self?.resumeChatsAtLaunch()
-                return
+                if await self?.resumeChatsAtLaunch() == true { return }
             }
         }
     }

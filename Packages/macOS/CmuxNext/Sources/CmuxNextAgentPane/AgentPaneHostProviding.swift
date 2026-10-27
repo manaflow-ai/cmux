@@ -39,6 +39,7 @@ extension AgentPaneHostProviding {
         try await handshake(sessionId: sessionId)
     }
 
+    /// Hosts without a daemon have nothing to prewarm.
     public func prewarm() async throws {}
 
     /// Hosts without a daemon know no session folders.
@@ -58,6 +59,8 @@ extension AgentPaneHostProviding {
         throw AgentPaneFilePutFailure.unsupported
     }
 
+    /// Hosts without a daemon cannot accept a file. Reading the URL remains off the main actor so
+    /// the default forwarding implementation preserves the same blocking-work contract.
     public func putFile(sessionId: String, name: String, file: URL) async throws -> String {
         let data = try await Task.detached(priority: .utility) {
             try Data(contentsOf: file)

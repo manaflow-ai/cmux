@@ -14,9 +14,19 @@ struct AgentChatsLaunchResumeTests {
 
     /// The sessions the store asked acpmux to warm, one call each.
     private actor RecordingHost: AgentPaneHostProviding {
+        nonisolated let resumed: AsyncStream<String>
+        private let continuation: AsyncStream<String>.Continuation
         var warmed: [[String]] = []
+
+        init() {
+            (resumed, continuation) = AsyncStream.makeStream()
+        }
+
         func handshake(sessionId: String?) async throws -> AgentPaneHandshake { .mock }
-        func warm(sessionIds: [String]) async throws { warmed.append(sessionIds) }
+        func warm(sessionIds: [String]) async throws {
+            warmed.append(sessionIds)
+            for session in sessionIds { continuation.yield(session) }
+        }
     }
 
     private static func tabs(_ listed: [(key: String, record: AgentSessionRef)], host: RecordingHost,
@@ -71,6 +81,37 @@ struct AgentChatsLaunchResumeTests {
         let host = RecordingHost()
         await Self.tabs([], host: host).resumeChatsAtLaunch()
         #expect(await host.warmed.isEmpty)
+    }
+
+    @Test func launchResumeRetriesWhenTheInstallHostArrivesAfterTheFirstTree() async throws {
+        let host = RecordingHost()
+        let tabs = Self.tabs([(key: "tab-a", record: AgentSessionRef(host: Self.thisMac, session: "s-late"))], host: host)
+        tabs.localHost = nil
+        var resolutions = 0
+        tabs.resolveLocalHost = {
+            resolutions += 1
+            return resolutions >= 2 ? Self.thisMac : nil
+        }
+        let store = DaemonStore()
+        tabs.resumeChatsWhenLoaded(store)
+        defer { tabs.launchResumeTask?.cancel() }
+        let tree = DaemonTree(workspaces: [])
+        store.applyProvisional(snapshot: tree)
+        store.apply(.connected(DaemonIdentity(generation: DaemonGeneration(rawValue: "late-host-test")), generationChanged: false))
+        store.apply(snapshot: tree)
+        // The first live revision sees no install host. A later tree revision is the real readiness
+        // signal for this Mac's daemon and must retry the launch census instead of ending the task.
+        store.apply(snapshot: DaemonTree(workspaces: [WorkspaceSnapshot(id: WorkspaceHandle(rawValue: 1), key: nil,
+                                                                          name: "Retry", screens: [])]))
+        let sessions = try await withAgentPaneDeadline(.seconds(5), label: "late install host launch retry") {
+            var sessions: [String] = []
+            for await session in host.resumed {
+                sessions.append(session)
+                if sessions.count == 1 { break }
+            }
+            return sessions
+        }
+        #expect(sessions == ["s-late"])
     }
 
     @Test func releasingTabsBeforeConnectCancelsTheLaunchWait() async throws {
