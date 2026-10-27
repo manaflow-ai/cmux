@@ -1,0 +1,663 @@
+name: rcodesign parity proof
+
+# One-off evidence for moving nightly signing to Linux (nightly.yml
+# build-sign-notarize-nightly): the same unsigned nightly-next app is signed
+# once by the Mac path the nightly uses today (scripts/sign-cmux-bundle.sh at
+# the build commit, Apple codesign) and once by Linux rcodesign
+# (scripts/ci/rcodesign-sign-bundle-dev.sh, which DEV ships since #25466).
+#
+#   compare      every payload byte outside the code signatures must be equal
+#                (scripts/ci/signer_parity_compare.py); the signature
+#                differences are listed, not failed
+#   notarize-*   Apple notarizes and rcodesign staples the Linux-signed app and
+#                its DMG, on Linux
+#   gatekeeper   a fresh Blacksmith Mac with no secrets: codesign, spctl,
+#                stapler, syspolicy_check, then the quarantined DMG's app is
+#                launched with `open`
+#   sparkle      Sparkle's own sign_update verifies the Linux EdDSA signature,
+#                and a BinaryDelta from the newest published nightly-next
+#                applies to the Linux-signed app
+#
+# The release-next environment releases its secrets to branch nightly-next
+# only, so this runs from main in `release`, as cmux-next-dev-daily.yml does.
+# It publishes nothing: every artifact is kept 1 day, and the app's feed URL
+# names a feed that does not exist, so it never updates.
+
+on:
+  workflow_dispatch:
+    inputs:
+      nightly_run_id:
+        description: A nightly.yml run on nightly-next whose prepared arm64 app (kept 3 days) to sign
+        required: true
+
+run-name: rcodesign parity proof · nightly run ${{ inputs.nightly_run_id }}
+
+permissions: {}
+
+env:
+  APP_NAME: cmux NEXT
+  BUNDLE_ID: com.cmuxterm.app.nightly.cmux-next
+  PROOF_FEED_URL: https://files-next.cmux.com/nightly-next/parity-proof/appcast-arm64.xml
+  NIGHTLY_NEXT_FEED_BASE: https://files-next.cmux.com/nightly-next/next
+
+jobs:
+  prep:
+    name: Prepare the unsigned app
+    if: github.ref == 'refs/heads/main'
+    # The Sparkle key's public half goes into the Info.plist before signing.
+    environment: release
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 15
+    permissions:
+      actions: read
+      contents: read
+    outputs:
+      build_sha: ${{ steps.source.outputs.build_sha }}
+      unsigned_sha256: ${{ steps.pack.outputs.sha256 }}
+    steps:
+      - name: Checkout trusted scripts
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Resolve the nightly run and download its prepared app
+        id: source
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RUN_ID: ${{ inputs.nightly_run_id }}
+        run: |
+          set -euo pipefail
+          [[ "$RUN_ID" =~ ^[0-9]+$ ]] || { echo "run id '$RUN_ID' is not a number" >&2; exit 1; }
+          sha="$(gh api "repos/$GH_REPO/actions/runs/$RUN_ID" --jq '
+            select(.path == ".github/workflows/nightly.yml" and .head_branch == "nightly-next"
+                   and .head_repository.full_name == env.GH_REPO) | .head_sha')"
+          [[ "$sha" =~ ^[0-9a-f]{40}$ ]] || { echo "run $RUN_ID is not a nightly.yml run on nightly-next" >&2; exit 1; }
+          name="$(gh api "repos/$GH_REPO/actions/runs/$RUN_ID/artifacts?per_page=100" --jq '
+            [.artifacts[] | select(.expired == false and (.name | test("^cmux-[a-z0-9-]+-prepared-app-arm64-[0-9a-f]{7,40}$")))] | if length == 1 then .[0].name else "" end')"
+          [[ -n "$name" ]] || { echo "run $RUN_ID has no single unexpired prepared arm64 app artifact" >&2; exit 1; }
+          # nightly.yml may build a commit behind the run's head
+          # (resolve-nightly-cmux-tui-client build_sha); the artifact name ends
+          # with that build commit's short sha, which is the one signed here.
+          short="${name##*-}"
+          build="$(gh api "repos/$GH_REPO/commits/$short" --jq '.sha')"
+          [[ "$build" =~ ^[0-9a-f]{40}$ && "$build" == "$short"* ]] || { echo "could not resolve build commit $short" >&2; exit 1; }
+          status="$(gh api "repos/$GH_REPO/compare/$build...$sha" --jq '.status')"
+          [[ "$status" == ahead || "$status" == identical ]] || { echo "build commit $build is not the run head $sha or behind it ($status)" >&2; exit 1; }
+          gh run download "$RUN_ID" --repo "$GH_REPO" --name "$name" --dir "$RUNNER_TEMP/prepared"
+          echo "build_sha=$build" >> "$GITHUB_OUTPUT"
+          echo "build_short_sha=$short" >> "$GITHUB_OUTPUT"
+          echo "Nightly run $RUN_ID (head $sha) built $build; prepared app artifact $name" | tee -a "$GITHUB_STEP_SUMMARY"
+
+      # The nightly-next identity build-sign-notarize-nightly stamps before
+      # signing (bundle id, name, version, feed, key), with this run as the
+      # build number and a feed that does not exist.
+      - name: Stamp the nightly-next identity
+        env:
+          NIGHTLY_SPARKLE_PRIVATE_KEY: ${{ secrets.NIGHTLY_SPARKLE_PRIVATE_KEY }}
+          BUILD_SHORT_SHA: ${{ steps.source.outputs.build_short_sha }}
+        run: |
+          set -euo pipefail
+          work="$RUNNER_TEMP/unsigned"
+          mkdir -p "$work/inputs"
+          tar -C "$work" -xzf "$RUNNER_TEMP/prepared/cmux-prepared-app.tar.gz"
+          test -d "$work/cmux.app"
+          # A macOS tar stores extended attributes as ._ entries; the Mac's
+          # tar folds them back, so they are no bundle files on either side.
+          dropped="$(find "$work/cmux.app" -name '._*' -type f -print -delete | wc -l)"
+          echo "AppleDouble entries dropped: $dropped"
+          python3 -I - "$work/cmux.app/Contents/Info.plist" "$BUNDLE_ID" "$APP_NAME" "$BUILD_SHORT_SHA" <<'PY'
+          import plistlib, sys
+          path, bundle_id, name, commit = sys.argv[1:]
+          with open(path, "rb") as handle:
+              raw = handle.read()
+          fmt = plistlib.FMT_BINARY if raw.startswith(b"bplist") else plistlib.FMT_XML
+          plist = plistlib.loads(raw)
+          plist.update(CFBundleIdentifier=bundle_id, CFBundleName=name, CFBundleDisplayName=name)
+          plist.pop("CMUXCommit", None)
+          plist["CMUXCommit"] = commit
+          with open(path, "wb") as handle:
+              plistlib.dump(plist, handle, fmt=fmt, sort_keys=False)
+          PY
+          key="$(python3 scripts/ci/dev_app_linux.py sparkle-public-key NIGHTLY_SPARKLE_PRIVATE_KEY)"
+          [[ "$key" =~ ^[A-Za-z0-9+/]{43}=$ ]] || { echo "could not derive the Sparkle public key" >&2; exit 1; }
+          python3 scripts/ci/dev_app_linux.py stamp "$work/cmux.app/Contents/Info.plist" "$GITHUB_RUN_ID" "$PROOF_FEED_URL" "$key"
+          mv "$work/cmux.app" "$work/$APP_NAME.app"
+          cp cmux.next-dev.entitlements cmux-helper.entitlements "$work/inputs/"
+
+      - name: Pack the unsigned app
+        id: pack
+        run: |
+          set -euo pipefail
+          mkdir -p handoff
+          tar -C "$RUNNER_TEMP/unsigned" -cf handoff/unsigned.tar "$APP_NAME.app" inputs
+          sha="$(sha256sum handoff/unsigned.tar | cut -d' ' -f1)"
+          echo "sha256=$sha" >> "$GITHUB_OUTPUT"
+          echo "Unsigned app tar sha256: $sha" | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: parity-unsigned
+          path: handoff/unsigned.tar
+          compression-level: 0
+          if-no-files-found: error
+          retention-days: 1
+
+  sign-codesign:
+    name: Sign with Apple codesign (today's nightly path)
+    needs: prep
+    environment: release
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-6vcpu-macos-26' }}
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout the build commit's signer
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ needs.prep.outputs.build_sha }}
+          fetch-depth: 1
+          persist-credentials: false
+          submodules: false
+
+      - name: Select Xcode
+        run: ./scripts/select-ci-xcode.sh
+
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: parity-unsigned
+          path: ${{ runner.temp }}/handoff
+
+      - name: Import signing cert
+        env:
+          APPLE_CERTIFICATE_BASE64: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+        run: ./scripts/ci/signing-keychain.sh create
+
+      # As build-sign-notarize-nightly's Codesign apps, in mode all (the
+      # nightly's mode when the Computer Use helper is not submitted first).
+      - name: Codesign the app
+        env:
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          UNSIGNED_SHA256: ${{ needs.prep.outputs.unsigned_sha256 }}
+        run: |
+          set -euo pipefail
+          echo "$UNSIGNED_SHA256  $RUNNER_TEMP/handoff/unsigned.tar" | shasum -a 256 -c -
+          work="$RUNNER_TEMP/work"
+          mkdir -p "$work"
+          tar -C "$work" -xf "$RUNNER_TEMP/handoff/unsigned.tar"
+          CMUX_SIGN_MODE=all CMUX_HELPER_ENTITLEMENTS="$work/inputs/cmux-helper.entitlements" \
+            ./scripts/sign-cmux-bundle.sh "$work/$APP_NAME.app" "$work/inputs/cmux.next-dev.entitlements" "$APPLE_SIGNING_IDENTITY"
+
+      - name: Delete signing keychain
+        if: always()
+        run: ./scripts/ci/signing-keychain.sh delete
+
+      - name: Pack the codesign app
+        run: |
+          set -euo pipefail
+          work="$RUNNER_TEMP/work"
+          /usr/bin/codesign --verify --deep --strict --verbose=2 "$work/$APP_NAME.app"
+          mkdir -p out
+          COPYFILE_DISABLE=1 tar -C "$work" -cf out/signed.tar "$APP_NAME.app"
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: parity-signed-codesign
+          path: out/signed.tar
+          compression-level: 0
+          if-no-files-found: error
+          retention-days: 1
+
+  sign-rcodesign:
+    name: Sign with rcodesign on Linux
+    needs: prep
+    environment: release
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout trusted signing scripts
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: parity-unsigned
+          path: ${{ runner.temp }}/handoff
+
+      - name: Install rcodesign
+        run: ./scripts/ci/install-rcodesign.sh "$RUNNER_TEMP/rcodesign" >> "$GITHUB_ENV"
+
+      - name: Sign with rcodesign
+        env:
+          APPLE_CERTIFICATE_BASE64: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          UNSIGNED_SHA256: ${{ needs.prep.outputs.unsigned_sha256 }}
+        run: |
+          set -euo pipefail
+          echo "$UNSIGNED_SHA256  $RUNNER_TEMP/handoff/unsigned.tar" | sha256sum -c -
+          work="$RUNNER_TEMP/work"
+          mkdir -p "$work"
+          tar -C "$work" -xf "$RUNNER_TEMP/handoff/unsigned.tar"
+          CMUX_HELPER_ENTITLEMENTS="$work/inputs/cmux-helper.entitlements" \
+            ./scripts/ci/rcodesign-sign-bundle-dev.sh "$work/$APP_NAME.app" "$work/inputs/cmux.next-dev.entitlements"
+          mkdir -p out
+          tar -C "$work" -cf out/signed.tar "$APP_NAME.app"
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: parity-signed-rcodesign
+          path: out/signed.tar
+          compression-level: 0
+          if-no-files-found: error
+          retention-days: 1
+
+  compare:
+    name: Compare the payloads
+    needs: [sign-codesign, sign-rcodesign]
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          fetch-depth: 1
+          persist-credentials: false
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          pattern: parity-signed-*
+          path: ${{ runner.temp }}/signed
+      - name: Compare every payload byte
+        run: |
+          set -euo pipefail
+          for side in codesign rcodesign; do
+            mkdir -p "$RUNNER_TEMP/$side"
+            tar -C "$RUNNER_TEMP/$side" -xf "$RUNNER_TEMP/signed/parity-signed-$side/signed.tar"
+          done
+          mkdir -p out
+          rc=0
+          python3 -I scripts/ci/signer_parity_compare.py "$RUNNER_TEMP/codesign/$APP_NAME.app" "$RUNNER_TEMP/rcodesign/$APP_NAME.app" \
+            out/compare.json --labels codesign,rcodesign --report out/compare.txt || rc=$?
+          { echo '### Payload compare (codesign vs rcodesign)'; echo '```'; cat out/compare.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          echo "rc=$rc" > out/rc
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: parity-compare
+          path: out/
+          if-no-files-found: error
+          retention-days: 7
+      - name: Fail on any payload difference
+        run: grep -qx 'rc=0' out/rc
+
+  notarize-app:
+    name: Notarize and staple the rcodesign app on Linux
+    needs: sign-rcodesign
+    environment: release
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    outputs:
+      submission: ${{ steps.notarize.outputs.submission }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          fetch-depth: 1
+          persist-credentials: false
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: parity-signed-rcodesign
+          path: ${{ runner.temp }}/signed
+      - name: Install rcodesign
+        run: ./scripts/ci/install-rcodesign.sh "$RUNNER_TEMP/rcodesign" >> "$GITHUB_ENV"
+      # As scripts/ci/rcodesign-notarize-dmg-dev.sh, for the app: the key is
+      # only in a mktemp -d directory, never on a command line.
+      - name: Notarize and staple
+        id: notarize
+        env:
+          ASC_API_KEY_ID: ${{ secrets.ASC_API_KEY_ID }}
+          ASC_API_ISSUER_ID: ${{ secrets.ASC_API_ISSUER_ID }}
+          ASC_API_KEY_P8_BASE64: ${{ secrets.ASC_API_KEY_P8_BASE64 }}
+        run: |
+          set -euo pipefail
+          # rcodesign reads RCODESIGN_* environment variables as its config.
+          while IFS= read -r name; do unset "$name"; done < <(compgen -e | grep '^RCODESIGN_' || true)
+          work="$RUNNER_TEMP/work"
+          mkdir -p "$work"
+          tar -C "$work" -xf "$RUNNER_TEMP/signed/signed.tar"
+          secrets="$(umask 077 && mktemp -d)"
+          trap 'rm -rf "$secrets"' EXIT
+          (umask 077 && printf '%s' "$ASC_API_KEY_P8_BASE64" | base64 -d > "$secrets/AuthKey_${ASC_API_KEY_ID}.p8")
+          (umask 077 && "$RCODESIGN" encode-app-store-connect-api-key --config-file /dev/null -o "$secrets/api-key.json" \
+            "$ASC_API_ISSUER_ID" "$ASC_API_KEY_ID" "$secrets/AuthKey_${ASC_API_KEY_ID}.p8" >/dev/null)
+          rm -f "$secrets/AuthKey_${ASC_API_KEY_ID}.p8"
+          "$RCODESIGN" notary-submit --config-file /dev/null --api-key-file "$secrets/api-key.json" \
+            --max-wait-seconds 2700 --staple "$work/$APP_NAME.app" 2>&1 | tee notary-app.log
+          id="$(grep -oiE 'submission id:? *[0-9a-f-]{36}' notary-app.log | grep -oE '[0-9a-f-]{36}' | head -n 1 || true)"
+          echo "submission=$id" >> "$GITHUB_OUTPUT"
+          echo "App notarization: Accepted, submission $id (rcodesign stapled)" | tee -a "$GITHUB_STEP_SUMMARY"
+          mkdir -p out
+          tar -C "$work" -cf out/stapled.tar "$APP_NAME.app"
+          python3 scripts/ci/dev_app_linux.py zip "$work/$APP_NAME.app" out/app.zip
+          cp notary-app.log out/
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: parity-stapled-app
+          path: out/*
+          compression-level: 0
+          if-no-files-found: error
+          retention-days: 1
+
+  dmg:
+    name: Build the DMG (hdiutil)
+    needs: notarize-app
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-6vcpu-macos-26' }}
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout trusted scripts
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Select Xcode
+        run: ./scripts/select-ci-xcode.sh
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: parity-stapled-app
+          path: ${{ runner.temp }}/stapled
+      - name: Build the unsigned DMG around the stapled app
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/dmg-root"
+          mkdir -p "$root" out
+          tar -C "$root" -xf "$RUNNER_TEMP/stapled/stapled.tar"
+          /usr/bin/codesign --verify --deep --strict --verbose=2 "$root/$APP_NAME.app"
+          ln -s /Applications "$root/Applications"
+          hdiutil create -quiet -volname "$APP_NAME" -srcfolder "$root" -format ULMO -ov "out/cmux-nightly-next-parity.dmg"
+          shasum -a 256 out/cmux-nightly-next-parity.dmg | tee out/dmg.sha256
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: parity-unsigned-dmg
+          path: out/*
+          compression-level: 0
+          if-no-files-found: error
+          retention-days: 1
+
+  notarize-dmg:
+    name: Sign, notarize and staple the DMG on Linux; Linux appcast
+    needs: [notarize-app, dmg]
+    environment: release
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    outputs:
+      submission: ${{ steps.notarize.outputs.submission }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          fetch-depth: 1
+          persist-credentials: false
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: parity-unsigned-dmg
+          path: dmg
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: parity-stapled-app
+          path: stapled
+      - name: Install rcodesign
+        run: ./scripts/ci/install-rcodesign.sh "$RUNNER_TEMP/rcodesign" >> "$GITHUB_ENV"
+      - name: Sign, notarize and staple the DMG
+        id: notarize
+        env:
+          APPLE_CERTIFICATE_BASE64: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          ASC_API_KEY_ID: ${{ secrets.ASC_API_KEY_ID }}
+          ASC_API_ISSUER_ID: ${{ secrets.ASC_API_ISSUER_ID }}
+          ASC_API_KEY_P8_BASE64: ${{ secrets.ASC_API_KEY_P8_BASE64 }}
+        run: |
+          set -euo pipefail
+          (cd dmg && sed 's#out/##' dmg.sha256 | sha256sum -c -)
+          NOTARY_MAX_WAIT_SECONDS=2700 ./scripts/ci/rcodesign-notarize-dmg-dev.sh dmg/cmux-nightly-next-parity.dmg 2>&1 | tee notary-dmg.log
+          id="$(grep -oiE 'submission id:? *[0-9a-f-]{36}' notary-dmg.log | grep -oE '[0-9a-f-]{36}' | head -n 1 || true)"
+          echo "submission=$id" >> "$GITHUB_OUTPUT"
+          echo "DMG notarization: Accepted, submission $id (rcodesign signed and stapled)" | tee -a "$GITHUB_STEP_SUMMARY"
+      # The appcast item the Linux writer makes (scripts/ci/tip_appcast_linux.py:
+      # one Ed25519 signature over the final DMG, checked with openssl).
+      - name: Write the Linux appcast item
+        env:
+          SPARKLE_PRIVATE_KEY: ${{ secrets.NIGHTLY_SPARKLE_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          mkdir -p out
+          cp dmg/cmux-nightly-next-parity.dmg notary-dmg.log out/
+          python3 scripts/ci/tip_appcast_linux.py SPARKLE_PRIVATE_KEY out/cmux-nightly-next-parity.dmg stapled/app.zip \
+            "$APP_NAME" https://files-next.cmux.com/nightly-next/parity-proof/ \
+            "https://github.com/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" "$GITHUB_RUN_ID" out/appcast-arm64.xml
+          cat out/appcast-arm64.xml
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: parity-dmg
+          path: out/*
+          compression-level: 0
+          if-no-files-found: error
+          retention-days: 1
+
+  gatekeeper:
+    name: Apple's tools and a quarantined launch on a fresh Mac
+    needs: [sign-codesign, notarize-app, notarize-dmg]
+    # No environment and no secrets: this job runs the app.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-6vcpu-macos-26' }}
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout trusted scripts
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Select Xcode
+        run: ./scripts/select-ci-xcode.sh
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: parity-stapled-app
+          path: ${{ runner.temp }}/stapled
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: parity-signed-codesign
+          path: ${{ runner.temp }}/codesign
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: parity-dmg
+          path: ${{ runner.temp }}/dmg
+      - name: codesign, spctl, stapler and syspolicy_check
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP"
+          mkdir -p r c out
+          tar -C r -xf stapled/stapled.tar
+          tar -C c -xf codesign/signed.tar
+          app="r/$APP_NAME.app" dmg="dmg/cmux-nightly-next-parity.dmg"
+          {
+            echo "== spctl --status"; spctl --status || true
+            echo "== codesign --verify --deep --strict (rcodesign app)"; /usr/bin/codesign --verify --deep --strict --verbose=2 "$app"
+            echo "== spctl -a -vv -t exec (rcodesign app)"; spctl -a -vv -t exec "$app"
+            echo "== stapler validate (app)"; xcrun stapler validate "$app"
+            echo "== syspolicy_check distribution (app)"; syspolicy_check distribution "$app"
+            echo "== codesign --verify (DMG)"; /usr/bin/codesign --verify --verbose=2 "$dmg"
+            echo "== stapler validate (DMG)"; xcrun stapler validate "$dmg"
+            echo "== spctl -a -vv -t open (DMG)"; spctl -a -vv -t open --context context:primary-signature "$dmg"
+          } 2>&1 | tee out/apple-tools.txt
+          # The signature fields of both signings, for the evidence block.
+          for side in r c; do
+            /usr/bin/codesign -dvvv "$side/$APP_NAME.app" > "out/codesign-d-$side.txt" 2>&1
+            /usr/bin/codesign -d -r- "$side/$APP_NAME.app" > "out/requirements-$side.txt" 2>&1
+            /usr/bin/codesign -d --entitlements - --xml "$side/$APP_NAME.app" > "out/entitlements-$side.xml" 2>/dev/null
+          done
+          diff out/codesign-d-c.txt out/codesign-d-r.txt > out/codesign-d.diff || true
+          diff out/requirements-c.txt out/requirements-r.txt > out/requirements.diff || true
+          cmp out/entitlements-c.xml out/entitlements-r.xml && echo "entitlements: identical" | tee -a out/apple-tools.txt
+          { echo '### Apple tools on the Linux-signed app and DMG'; echo '```'; cat out/apple-tools.txt; echo '```';
+            echo '### codesign -dvvv: codesign (<) vs rcodesign (>)'; echo '```'; cat out/codesign-d.diff; echo '```';
+            echo '### Designated requirement: codesign (<) vs rcodesign (>)'; echo '```'; cat out/requirements.diff; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+
+      # Quarantined as a browser download, mounted, copied, then launched with
+      # `open` (LaunchServices runs Gatekeeper's first-launch assessment).
+      - name: Launch the quarantined DMG's app
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP"
+          dl="$HOME/Downloads/cmux-nightly-next-parity.dmg"
+          mkdir -p "$HOME/Downloads" "$HOME/Applications"
+          cp dmg/cmux-nightly-next-parity.dmg "$dl"
+          xattr -w com.apple.quarantine "0083;$(printf '%x' "$(date +%s)");Safari;$(uuidgen)" "$dl"
+          xattr -p com.apple.quarantine "$dl"
+          hdiutil attach -nobrowse -readonly -mountpoint /Volumes/parity "$dl"
+          ditto "/Volumes/parity/$APP_NAME.app" "$HOME/Applications/$APP_NAME.app"
+          hdiutil detach /Volumes/parity
+          target="$HOME/Applications/$APP_NAME.app"
+          if ! xattr -p com.apple.quarantine "$target" >/dev/null 2>&1; then
+            echo "the copy carries no quarantine; setting the DMG's"
+            xattr -w com.apple.quarantine "$(xattr -p com.apple.quarantine "$dl")" "$target"
+          fi
+          echo "app quarantine: $(xattr -p com.apple.quarantine "$target")" | tee launch.txt
+          spctl -a -vv -t exec "$target" 2>&1 | tee -a launch.txt
+          open "$target"
+          started=false
+          for _ in $(seq 1 60); do
+            if pgrep -f "$target/Contents/MacOS/" >/dev/null; then started=true; break; fi
+            sleep 1
+          done
+          echo "started via open: $started" | tee -a launch.txt
+          pgrep -fl "$target/Contents/MacOS/" | tee -a launch.txt || true
+          log show --last 3m --style compact --predicate 'process == "syspolicyd" AND eventMessage CONTAINS[c] "cmux"' 2>/dev/null | tail -40 > syspolicyd.txt || true
+          { echo '### Quarantined launch'; echo '```'; cat launch.txt; echo '--- syspolicyd'; cat syspolicyd.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          pkill -f "$target/Contents/MacOS/" || true
+          [[ "$started" == true ]]
+
+  sparkle:
+    name: Sparkle's tools on the Linux EdDSA signature and a delta
+    needs: [notarize-app, notarize-dmg]
+    # sign_update reads the private key to verify; nothing here runs the app.
+    environment: release
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-6vcpu-macos-26' }}
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout trusted scripts
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Select Xcode
+        run: ./scripts/select-ci-xcode.sh
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: parity-stapled-app
+          path: ${{ runner.temp }}/stapled
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: parity-dmg
+          path: ${{ runner.temp }}/dmg
+      - name: Sparkle 2.8.1 tools (the tarball scripts/sparkle_generate_appcast.sh pins)
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP"
+          curl --fail --silent --show-error --location --retry 3 -o sparkle.tar.xz \
+            https://github.com/sparkle-project/Sparkle/releases/download/2.8.1/Sparkle-2.8.1.tar.xz
+          echo "5cddb7695674ef7704268f38eccaee80e3accbf19e61c1689efff5b6116d85be  sparkle.tar.xz" | shasum -a 256 -c -
+          mkdir -p sparkle && tar -xf sparkle.tar.xz -C sparkle ./bin
+      - name: Verify the appcast item with sign_update
+        env:
+          SPARKLE_PRIVATE_KEY: ${{ secrets.NIGHTLY_SPARKLE_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP"
+          dmg=dmg/cmux-nightly-next-parity.dmg
+          read -r sig length url version < <(python3 -I - dmg/appcast-arm64.xml <<'PY'
+          import sys, xml.etree.ElementTree as ET
+          ns = {"sparkle": "http://www.andymatuschak.org/xml-namespaces/sparkle"}
+          item = ET.parse(sys.argv[1]).getroot().find("channel/item")
+          enc = item.find("enclosure")
+          sig = enc.get("{%s}edSignature" % ns["sparkle"])
+          version = item.findtext("sparkle:version", namespaces=ns) or enc.get("{%s}version" % ns["sparkle"])
+          print(sig, enc.get("length"), enc.get("url"), version)
+          PY
+          )
+          [[ "$length" == "$(stat -f %z "$dmg")" ]] || { echo "appcast length $length is not the DMG's size" >&2; exit 1; }
+          [[ "$url" == */cmux-nightly-next-parity.dmg && "$version" == "$GITHUB_RUN_ID" ]] || { echo "appcast url/version: $url $version" >&2; exit 1; }
+          printf '%s' "$SPARKLE_PRIVATE_KEY" | sparkle/bin/sign_update --verify --ed-key-file - "$dmg" "$sig"
+          echo "sign_update --verify: the Linux edSignature of the DMG is valid (length $length, version $version)" | tee -a "$GITHUB_STEP_SUMMARY"
+      # The newest published nightly-next is the old app; the delta must
+      # apply and give back the Linux-signed app exactly.
+      - name: BinaryDelta from the newest published nightly-next
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP"
+          mkdir -p new old applied
+          tar -C new -xf stapled/stapled.tar
+          curl --fail --silent --show-error --location --retry 3 -o feed.xml "$NIGHTLY_NEXT_FEED_BASE/appcast-arm64.xml"
+          old_url="$(python3 -I - feed.xml <<'PY'
+          import sys, xml.etree.ElementTree as ET
+          ns = "{http://www.andymatuschak.org/xml-namespaces/sparkle}"
+          items = []
+          for item in ET.parse(sys.argv[1]).getroot().iter("item"):
+              enc = item.find("enclosure")
+              version = item.findtext(ns + "version") or (enc.get(ns + "version") if enc is not None else None)
+              if enc is not None and (version or "").isdigit():
+                  items.append((int(version), enc.get("url")))
+          print(max(items)[1])
+          PY
+          )"
+          echo "old: $old_url"
+          curl --fail --silent --show-error --location --retry 3 -o old.dmg "$old_url"
+          hdiutil attach -nobrowse -readonly -mountpoint /Volumes/old old.dmg
+          ditto "/Volumes/old/$APP_NAME.app" "old/$APP_NAME.app"
+          hdiutil detach /Volumes/old
+          sparkle/bin/BinaryDelta create "old/$APP_NAME.app" "new/$APP_NAME.app" parity.delta
+          ditto "old/$APP_NAME.app" "applied/$APP_NAME.app"
+          sparkle/bin/BinaryDelta apply "applied/$APP_NAME.app" "applied/out.app" parity.delta
+          # Every file's bytes and mode and every link's target, by path.
+          tree() { python3 -I - "$1" <<'PY'
+          import hashlib, os, stat, sys
+          root, total = sys.argv[1], hashlib.sha256()
+          for directory, dirs, files in os.walk(root):
+              dirs.sort()
+              for name in sorted(dirs + files):
+                  path = os.path.join(directory, name)
+                  st = os.lstat(path)
+                  if stat.S_ISLNK(st.st_mode):
+                      entry = "link " + os.readlink(path)
+                  elif stat.S_ISREG(st.st_mode):
+                      entry = "file %o %s" % (stat.S_IMODE(st.st_mode), hashlib.sha256(open(path, "rb").read()).hexdigest())
+                  else:
+                      entry = "dir"
+                  total.update(("%s %s\n" % (os.path.relpath(path, root), entry)).encode())
+          print(total.hexdigest())
+          PY
+          }
+          a="$(tree "applied/out.app")" b="$(tree "new/$APP_NAME.app")"
+          echo "delta $(stat -f %z parity.delta) bytes from $old_url; applied tree $a, Linux-signed tree $b" | tee -a "$GITHUB_STEP_SUMMARY"
+          [[ "$a" == "$b" ]]
+          /usr/bin/codesign --verify --deep --strict --verbose=2 "applied/out.app"

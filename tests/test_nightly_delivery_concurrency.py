@@ -2,6 +2,7 @@
 
 from pathlib import Path
 import re
+import sys
 
 import yaml
 
@@ -10,11 +11,11 @@ ROOT = Path(__file__).resolve().parents[1]
 WORKFLOWS = ROOT / ".github" / "workflows"
 
 # The delivery workflows (nightly, dev and promote builds): none may cancel a
-# run in progress. A glob picks up a new nightly-* workflow on its own; the
-# required names make a rename or deletion fail here instead of quietly
-# dropping out of the glob.
-DELIVERY_GLOBS = ("nightly*.yml", "cmux-next-dev-daily*.yml")
-REQUIRED_DELIVERY_WORKFLOWS = ("nightly.yml", "cmux-next-dev-daily.yml")
+# run in progress. scripts/ci/delivery_workflows.py declares them once; the
+# queue janitor reads the same list to never cancel one of their runs.
+sys.path.insert(0, str(ROOT / "scripts" / "ci"))
+from delivery_workflows import (  # noqa: E402
+    DELIVERY_GLOBS, DELIVERY_RUN_NAME_PREFIXES, REQUIRED_DELIVERY_WORKFLOWS, is_delivery_run, is_delivery_workflow)
 
 # Workflows whose listed jobs take no concurrency group at all, top-level or
 # job-level, not even a non-cancelling one: GitHub keeps one pending run per
@@ -24,7 +25,11 @@ NO_CONCURRENCY_GROUP: dict[str, tuple[str, ...]] = {
     # passed (runs 40370485774, 40371402817, 40373347803, 40378401600). The
     # newest write wins instead through an R2 lease plus commit record
     # (publish) and a feed compare-and-swap (tip).
-    "cmux-next-dev-daily.yml": ("publish", "tip"),
+    # sign, runner, verify and the rcodesign signer build too (#26001 renamed it from rcodesign-dmg):
+    # a pending handoff waiting for any of them would be evicted by a newer one (2026-10-26: nothing
+    # published from 00:13Z for over six hours).
+    "cmux-next-dev-daily.yml": ("sign", "runner", "verify", "publish", "tip-dmg-build", "rcodesign",
+                                "tip-dmg", "tip", "tip-deltas"),
 }
 
 
@@ -41,6 +46,25 @@ def test_required_delivery_workflows_exist() -> None:
     found = {path.name for path in delivery_workflows()}
     for name in (*REQUIRED_DELIVERY_WORKFLOWS, *NO_CONCURRENCY_GROUP):
         assert name in found, f"{name} is missing: a rename would silently drop its delivery guard"
+
+
+def test_the_declared_list_matches_every_delivery_workflow_path() -> None:
+    for path in delivery_workflows():
+        assert is_delivery_workflow(f".github/workflows/{path.name}"), path
+    for name in ("ci.yml", "ci-queue-janitor.yml", "cmux-next.yml"):
+        assert not is_delivery_workflow(f".github/workflows/{name}"), name
+
+
+def test_dev_source_runs_are_named_as_the_declared_list_expects() -> None:
+    # The dispatcher names the DEV source build of cmux-next.yml; a renamed title would drop its protection.
+    dispatch = (WORKFLOWS / "cmux-next-dev-daily-dispatch.yml").read_text(encoding="utf-8")
+    assert "const workflow = 'cmux-next.yml';" in dispatch
+    (prefix,) = DELIVERY_RUN_NAME_PREFIXES["cmux-next.yml"]
+    assert f"const devTitle = `{prefix}${{sha}}`;" in dispatch, prefix
+    assert is_delivery_run(".github/workflows/cmux-next.yml", f"{prefix}{'a' * 40}")
+    assert not is_delivery_run(".github/workflows/cmux-next.yml", "cmux-next · " + "a" * 40)
+    # The API's name can be the generic workflow name while display_title carries the DEV title.
+    assert is_delivery_run(".github/workflows/cmux-next.yml", "cmux-next", f"{prefix}{'a' * 40}")
 
 
 def test_delivery_workflows_never_cancel_in_progress_work() -> None:
@@ -77,6 +101,8 @@ def test_delivery_coalescers_have_fixed_backstops_and_non_cancelling_groups() ->
 
 if __name__ == "__main__":
     test_required_delivery_workflows_exist()
+    test_the_declared_list_matches_every_delivery_workflow_path()
+    test_dev_source_runs_are_named_as_the_declared_list_expects()
     test_delivery_workflows_never_cancel_in_progress_work()
     test_newest_wins_jobs_take_no_concurrency_group()
     test_delivery_coalescers_have_fixed_backstops_and_non_cancelling_groups()

@@ -30,6 +30,16 @@ label only after the picker has chosen, then for late-placement's. A job stuck
 or refused there has its failed and cancelled jobs re-run on attempt 3, which
 always takes Blacksmith.
 
+A run whose pull request is still open at the run's head is never
+cancelled, whatever the watch saw (rescue(), OPEN_HEAD_RULE): run
+40398277457 (cmux-next, PR #25446) attempt 1 was cancelled and re-run here,
+and its attempt 2 was then cancelled by the janitor and left cancelled. So
+the cancel-and-re-run in this docstring applies only to runs with no pull
+request (main, nightly, E2E and side-lane pushes and dispatches); a stuck
+pull request job waits, and the controller's fall-through moves its compile.
+A refused job's failed jobs are still re-run once its run has finished (no
+cancel), and a superseded or closed pull request's run is handled as before.
+
 An owned runner can also refuse a job it was handed: glaeda's job-started
 hook exits 1 when the host is busy (its lock is held), and the job fails
 within seconds, before any step of the workflow succeeds. GitHub does not
@@ -39,7 +49,9 @@ its runner setup step failed or no workflow step succeeded, counts as refused
 (compile admission's `always()` metrics steps still succeed after a refusal).
 A failed job that ran no step at all counts too, whatever its length: GitHub
 fails a job whose runner went away only after 10 minutes ("The self-hosted
-runner lost communication with the server"). A failed Select Xcode or Select
+runner lost communication with the server"), and so does one with a step
+GitHub cancelled while the job failed: its runner was stopped mid-job ("The
+runner has received a shutdown signal"). A failed Select Xcode or Select
 helper Xcode step also counts, without a time limit, because a missing pin is
 a machine fault even when a helper build succeeded first. The watcher lets the rest of the
 run finish, since GitHub re-runs no job of a run in progress and cancelling
@@ -327,7 +339,13 @@ NIGHTLY_EVENTS = frozenset({"push", "schedule"})
 TRUSTED_LABEL = re.compile(r"glaeda-(?:root-)?trusted-(?:xl|std|light)-xcode-[0-9]+(?:\.[0-9]+)*")
 # feat-cmux-next's session and fast roles (glaeda#1530, pr_runner_pool.OWNED_LABEL there), which main's
 # picker never hands out: cmux-next-base-autofix.yml's Mac exports take glaeda-session-std-xcode-26.6.
-LANE_LABEL = re.compile(r"glaeda-(?:aws-)?(?:session-|fast-)(?:xl|std|light)-xcode-[0-9]+(?:\.[0-9]+)*")
+# The freshness slot's dev role (glaeda#1628, vars.CI_DEV_COMPILE_RUNNER, glaeda-dev-std-xcode-26.6) too:
+# cmux-next.yml's macos-placement puts a feed compile there, and a job there that no runner acquired
+# needs the same re-run as one on any other owned label.
+LANE_LABEL = re.compile(r"glaeda-(?:aws-)?(?:session-|fast-|dev-)(?:xl|std|light)-xcode-[0-9]+(?:\.[0-9]+)*")
+# The freshness slot's own labels, a subset of LANE_LABEL: a job that started there is a DEV feed compile,
+# which nothing automatic cancels (started_dev_compile()).
+DEV_LABEL = re.compile(r"glaeda-(?:aws-)?dev-(?:xl|std|light)-xcode-[0-9]+(?:\.[0-9]+)*")
 # Every other workflow that can put a job on an owned pool, on main or on
 # feat-cmux-next (whose files are not in main's tree): owned_pool_sources.py
 # finds them from their jobs' runs-on, and tests/test_ci_owned_pool_sources.py
@@ -479,12 +497,22 @@ LAST_OWNED_ATTEMPT = 2
 # re-run as attempt 4, which cmux-next.yml sends to Blacksmith. Minis-first
 # still holds for attempts 1 to 3, and no attempt past 3 is watched.
 REFUSAL_RESCUE_ATTEMPT = LAST_OWNED_ATTEMPT + 1
-RESCUE_ACTOR = "github-actions[bot]"
+# The bot's re-runs: the workflow token's, and cmux-bot's since ci-owned-pool-rescue.yml mints that App's
+# token for its mutations. A re-run by anyone else is a person's (owned_rerun()). Run 40444295785, a DEV
+# daily, went through 10 cmux-bot attempts on the minis while only github-actions[bot] counted here.
+RESCUE_ACTORS = frozenset({"github-actions[bot]", "cmux-bot[bot]"})
+# ci.yml's placement (pr_runner_pool.RESCUE_ACTOR, ci-macos.yml's pr_retry_runner) still moves only
+# github-actions[bot]'s attempt 3 off the minis, so a cmux-bot re-run of CI stays a person's here: it
+# goes back to the minis and is watched.
+CI_RESCUE_ACTOR = "github-actions[bot]"
+# Why a pull request's run at its open head is left alone (queue_janitor.py shares it).
+OPEN_HEAD_RULE = ("never cancelled: an open pull request's run at its head is never cancelled by anything "
+                  "automatic; the controller's fall-through moves its compile instead")
 
 
 def owned_rerun(run: Mapping[str, Any]) -> bool:
     """A re-run of a CI run whose owned jobs go back to the minis, so it is watched like attempt 1: attempt 2,
-    or a later one of a pull request someone other than github-actions[bot] started."""
+    or a later one of a pull request someone other than the bot (CI_RESCUE_ACTOR; cmux-next: RESCUE_ACTORS) started."""
     attempt = int(run.get("run_attempt") or 0)
     if attempt <= 1:
         return False
@@ -493,9 +521,9 @@ def owned_rerun(run: Mapping[str, Any]) -> bool:
         # Manual side-lane reruns stay minis-first at any attempt. The bot's
         # second attempt is still watched so a second long queue can overflow
         # on attempt three; bot attempt three is watched for refusals only.
-        return actor != RESCUE_ACTOR or attempt <= REFUSAL_RESCUE_ATTEMPT
+        return actor not in RESCUE_ACTORS or attempt <= REFUSAL_RESCUE_ATTEMPT
     return run.get("path") == CI_WORKFLOW_PATH and (attempt <= LAST_OWNED_ATTEMPT or (
-        run.get("event") == "pull_request" and actor != RESCUE_ACTOR))
+        run.get("event") == "pull_request" and actor != CI_RESCUE_ACTOR))
 # The runner's own steps, which run before glaeda's hook decides.
 SETUP_STEPS = frozenset({"Set up job", "Set up runner"})
 XCODE_SELECTION_STEPS = frozenset({"Select Xcode", "Select helper Xcode"})
@@ -573,6 +601,23 @@ def reserved_runner(job: Mapping[str, Any]) -> str | None:
     return None
 
 
+def started_dev_compile(jobs: Sequence[Mapping[str, Any]]) -> str | None:
+    """The freshness-slot label of a job a runner has taken, if any: a started DEV feed compile.
+
+    The watch reads jobs before rescue() cancels, so a compile queued on the slot can start in between;
+    a started dev build is never cancelled, so rescue() reads the jobs again right before its cancel.
+    """
+    for job in jobs:
+        if job.get("status") == "queued" and not job.get("runner_name"):
+            continue
+        if job.get("status") == "completed":
+            continue
+        for label in job.get("labels") or []:
+            if DEV_LABEL.fullmatch(str(label)):
+                return str(label)
+    return None
+
+
 def waiting_for_runner(job: Mapping[str, Any]) -> bool:
     return job.get("status") == "queued" and not job.get("runner_name")
 
@@ -633,6 +678,17 @@ def refused(job: Mapping[str, Any]) -> bool:
         # runner went away ("The self-hosted runner lost communication with the
         # server"), which it reports only after 10 minutes, so no length applies
         # (run 36420353579).
+        return True
+    if any(step.get("conclusion") == "cancelled" for step in steps) and \
+            not any(step.get("conclusion") == "failure" for step in steps):
+        # The runner was stopped mid-job ("The runner has received a shutdown signal",
+        # then "The operation was canceled."): the step it was in is cancelled while the
+        # job fails, whatever its length. Job 121926149188 (run 40424205219, PR #25241) and
+        # four other open pull requests' cmux-next jobs failed so at 01:19Z on 2026-10-27,
+        # in glaeda's hook and in "Run the fast tier". A failing step concludes failure, a
+        # step's timeout-minutes too ("The action has timed out."), and a cancelled or
+        # timed-out job concludes cancelled, so only a stopped runner leaves this. A step
+        # that failed before the stop (tests, then a cleanup cut short) keeps the job the code's.
         return True
     # A helper build can precede Xcode selection, so neither elapsed time nor
     # earlier successful steps make a missing pin a source failure.
@@ -1005,7 +1061,8 @@ class GitHub:
         self.sleep(wait)
         return True
 
-    def request(self, method: str, path: str, *, own_token: bool = False, body: Mapping | None = None) -> Any:
+    def request(self, method: str, path: str, *, own_token: bool = False, body: Mapping | None = None,
+                before_retry: Callable[[], None] | None = None) -> Any:
         headers = self.read_headers if method == "GET" and not own_token else self.headers
         data = json.dumps(body).encode() if body is not None else None
         request = urllib.request.Request(f"{API}/repos/{self.repo}{path}", method=method, headers=headers, data=data)
@@ -1018,9 +1075,12 @@ class GitHub:
             self._limits.tries = 0
         except urllib.error.HTTPError as error:
             if headers is self.headers and error.code in (403, 429) and self._wait_for_rate_limit(method, path, error):
-                # The same request again, after the wait (a refused request did nothing on GitHub's side).
+                # The same request again, after the wait (a refused request did nothing on GitHub's side),
+                # unless what it acts on changed meanwhile (before_retry raises).
+                if before_retry is not None:
+                    before_retry()
                 return self.request(method, path, own_token=own_token,
-                                    body=json.loads(data) if data is not None else None)
+                                    body=json.loads(data) if data is not None else None, before_retry=before_retry)
             if error.code not in (401, 403, 429) or headers is self.headers:
                 raise
             if error.code in (403, 429):
@@ -1178,12 +1238,28 @@ class GitHub:
         self.request("POST", f"/actions/runs/{run_id}/force-cancel")
 
     def rerun(self, run_id: int, next_attempt: int) -> None:
-        self.request("POST", f"/actions/runs/{run_id}/rerun")
+        self.request("POST", f"/actions/runs/{run_id}/rerun", before_retry=self._still_finished(run_id, next_attempt))
         self.request_ui_tests(run_id, next_attempt)
 
     def rerun_failed(self, run_id: int, next_attempt: int) -> None:
-        self.request("POST", f"/actions/runs/{run_id}/rerun-failed-jobs")
+        self.request("POST", f"/actions/runs/{run_id}/rerun-failed-jobs",
+                     before_retry=self._still_finished(run_id, next_attempt))
         self.request_ui_tests(run_id, next_attempt)
+
+    def _still_finished(self, run_id: int, next_attempt: int) -> Callable[[], None]:
+        """A re-run sent again after a rate-limit wait only while the run is still the finished attempt it re-runs.
+
+        Two watches can own one failed attempt (a cmux-next `completed` event's and the sweeper's): the
+        other's re-run may have started, and even finished, during the wait, and sending this one then
+        would start one attempt more than either meant (rescue() checked the attempt only before the wait).
+        """
+        def check() -> None:
+            run = self.run(run_id) or {}
+            attempt = int(run.get("run_attempt") or 0)
+            if attempt != next_attempt - 1 or run.get("status") != "completed":
+                raise Aborted(f"run {run_id} is at attempt {attempt} ({run.get('status') or 'unknown'}) after a "
+                              f"rate-limit wait; someone else already re-ran it, so it is not re-run again")
+        return check
 
     def request_ui_tests(self, run_id: int, attempt: int) -> None:
         """Start ci-ui-tests.yml for the attempt a re-run of a pull request's CI began.
@@ -1294,6 +1370,21 @@ def target_from_event(event: Mapping[str, Any], repository: str) -> Target | str
         return "the run does not name exactly one pull request"
     return Target(int(run["id"]), attempt, str(run.get("head_sha") or ""), int(pulls[0]["number"]),
                   e2e=e2e, side=side, path=str(path), attempt_started_at=attempt_started)
+
+
+def completed_target(event: Mapping[str, Any], repository: str) -> Target | str:
+    """A cmux-next run that finished red (workflow_run `completed`): the attempt that failed, any attempt.
+
+    ci-owned-pool-rescue.yml wakes on a failed DEV daily dispatch or feat-cmux-next push of cmux-next.yml,
+    so a refused DEV compile gets its own watch instead of waiting for the sweeper, whose listings run
+    out of the hour's API budget. The attempt is resolved the sweeper's way (sweep_target()): a bot attempt
+    3 is refusals only, and a bot attempt past it is on Blacksmith and left alone.
+    """
+    run = event.get("workflow_run") or {}
+    if run.get("path") != CMUX_NEXT_WORKFLOW_PATH:
+        return (f"a finished run of {run.get('path') or 'an unknown workflow'}; only {CMUX_NEXT_WORKFLOW_PATH} "
+                "wakes a rescue when it finishes")
+    return sweep_target(run, repository, late=False)
 
 
 def nightly_target(run: Mapping[str, Any], repository: str) -> Target | str:
@@ -1639,6 +1730,10 @@ def rescue(api: GitHub, target: Target, *, now: Callable[[], dt.datetime], sleep
     run = read(lambda: api.run(target.run_id), sleep, log)
     if int(run.get("run_attempt") or 0) != target.attempt:
         return "not rescued: someone else already re-ran the run"
+    if run.get("status") != "completed" and target.pr_number:
+        # pull_moved() just read the pull request open at this head. Run 40398277457 (PR #25446)
+        # attempt 1 was cancelled here and re-run in-process; nothing automatic cancels such a run now.
+        return f"not rescued: PR #{target.pr_number} is open at the run's head; {OPEN_HEAD_RULE}"
     if run.get("status") != "completed" and deadline is not None and \
             (deadline - now()).total_seconds() < CANCEL_WAIT_SECONDS + RERUN_MARGIN_SECONDS + max(
                 0.0, RATE_LIMIT_WAIT_SECONDS - getattr(api, "rate_limit_waited", RATE_LIMIT_WAIT_SECONDS)):
@@ -1647,13 +1742,23 @@ def rescue(api: GitHub, target: Target, *, now: Callable[[], dt.datetime], sleep
         # pull request's run cancelled for good; leave it as GitHub has it.
         return "not rescued: too little of the job left to cancel and re-run"
     if run.get("status") == "completed":
-        if not (failed_only if refused is None else refused):
+        should_rerun = failed_only if refused is None else refused
+        if not should_rerun:
             return "not rescued: the run already finished"
+        if not failed_only:
+            api.rerun(target.run_id, target.attempt + 1)
+            return f"re-ran every job of run {target.run_id}; {next_attempt(target)}"
         if e2e_build_unfinished(api, target, sleep, log):
             api.rerun(target.run_id, target.attempt + 1)
             return f"re-ran every job of run {target.run_id}, so its sibling wait runs again; {next_attempt(target)}"
         api.rerun_failed(target.run_id, target.attempt + 1)
         return f"re-ran the failed jobs of run {target.run_id}; {next_attempt(target)}"
+    if target.path == CMUX_NEXT_WORKFLOW_PATH:
+        # Only cmux-next.yml places jobs on the freshness slot (macos-placement's fresh_runner).
+        jobs = read(lambda: api.jobs(target.run_id, target.attempt), sleep, log)
+        slot = started_dev_compile(jobs)
+        if slot:
+            return f"not rescued: a DEV feed compile started on {slot}; a started dev build is never cancelled"
     api.cancel(target.run_id)
     log(f"cancelled run {target.run_id}")
     started = now()
@@ -1764,7 +1869,8 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
     else:
         with open(env["GITHUB_EVENT_PATH"], encoding="utf-8") as handle:
             event = json.load(handle)
-    target = target_from_event(event, repository)
+    target = completed_target(event, repository) if event.get("action") == "completed" else \
+        target_from_event(event, repository)
     if isinstance(target, str):
         return finish(f"not watched: {target}")
     if ((env.get("LATE_PLACEMENT") or "").strip() == "1" and target.attempt == 1
@@ -1822,13 +1928,33 @@ def follow(client: GitHub, target: Target, *, seconds: int, queue_rounds: str | 
                             log=log, deadline=deadline, floor_seconds=effective_seconds)
     if outcome not in ("rescue", "refused"):
         return f"stopped: {reason}"
+    if target.refusals_only and outcome == "rescue":
+        # A refusals-only cmux-next attempt deliberately stays on its owned
+        # label while it waits for the hook to refuse the job. A queue alarm
+        # is not the refusal: keep the watch alive until the job fails or the
+        # run finishes, otherwise the later refusal has no rescue owner.
+        remaining = max(0, int((deadline - clock()).total_seconds()))
+        if remaining == 0:
+            return f"stopped: {reason}; attempt {target.attempt} stays on the minis (refusals only)"
+        log(f"queue alarm while refusals-only; continuing until refusal or run finish ({remaining}s left)")
+        outcome, reason = watch(client, target, budget_seconds=max(effective_seconds, remaining),
+                                now=clock, sleep=sleep, log=log, deadline=deadline,
+                                floor_seconds=effective_seconds)
     if target.refusals_only and outcome != "refused":
         return f"stopped: {reason}; attempt {target.attempt} stays on the minis (refusals only)"
+    refusal_jobs: list[Mapping[str, Any]] | None = None
+    dev_compile = False
+    if outcome == "refused" and target.path == CMUX_NEXT_WORKFLOW_PATH:
+        refusal_jobs = read(lambda: client.jobs(target.run_id, target.attempt), sleep, log)
+        dev_compile = any(str(job.get("name") or "") in {
+            "cmux NEXT DEV Release compile", "cmux-scheme-compile"
+        } for job in refusal_jobs)
     # A refusal re-runs the run's failed jobs. A side lane (found by the failed-run listing, sweep()) or a
     # refusals-only run that also failed on its own would re-run that failure on the minis too, so it is
     # left red; a nightly keeps its re-run (its build is the product).
     if outcome == "refused" and (target.refusals_only or target.side and not target.nightly):
-        jobs = read(lambda: client.jobs(target.run_id, target.attempt), sleep, log)
+        jobs = refusal_jobs if refusal_jobs is not None else read(
+            lambda: client.jobs(target.run_id, target.attempt), sleep, log)
         other = [str(job.get("name")) for job in jobs if job.get("conclusion") in ("failure", "timed_out")
                  and not carried(job, target.attempt_started_at) and not refused(job)]
         if other:
@@ -1858,7 +1984,7 @@ def follow(client: GitHub, target: Target, *, seconds: int, queue_rounds: str | 
     while True:
         # From attempt 2 on, keep what passed: only the owned jobs are moved.
         # An E2E run always keeps what passed (see the module docstring).
-        failed_only = outcome == "refused" or target.attempt > 1 or target.e2e or target.side
+        failed_only = (outcome == "refused" or target.attempt > 1 or target.e2e or target.side) and not dev_compile
         result = rescue(client, target, now=clock, sleep=rescue_sleep, log=log, failed_only=failed_only,
                         deadline=rescue_deadline,
                         refused=(outcome == "refused") if target.e2e or target.side else None,
@@ -1956,7 +2082,7 @@ def sweep_target(run: Mapping[str, Any], repository: str, *, late: bool, full_re
         actor = str((run.get("triggering_actor") or {}).get("login") or "")
         return dataclasses.replace(target, attempt=attempt, full_rerun=full_rerun,
                                    late=full_rerun and not (target.e2e or target.main or target.side),
-                                   refusals_only=(run.get("path") == CMUX_NEXT_WORKFLOW_PATH and actor == RESCUE_ACTOR
+                                   refusals_only=(run.get("path") == CMUX_NEXT_WORKFLOW_PATH and actor in RESCUE_ACTORS
                                                   and attempt == REFUSAL_RESCUE_ATTEMPT))
     if late and not (target.e2e or target.main or target.side):
         return dataclasses.replace(target, late=True)
@@ -1982,6 +2108,9 @@ def sweep(client: GitHub, repository: str, *, seconds: int, queue_rounds: str | 
     ticks = 0
     refusals_runs: set[int] = set()  # runs with REFUSALS_WATCH_MARKER, re-runs included
     threads: list[threading.Thread] = []
+    # The watch thread of each adopted run: a side lane's watch stops once the fleet accepted its jobs,
+    # and a runner stopped after that fails the run later, so the failed-run listing takes it up again.
+    watching: dict[int, threading.Thread] = {}
     started = now()
     latest = started + dt.timedelta(seconds=sweep_seconds + RESCUE_GRACE_SECONDS)
     since = started - dt.timedelta(seconds=SWEEP_FINISHED_SECONDS)
@@ -2052,6 +2181,7 @@ def sweep(client: GitHub, repository: str, *, seconds: int, queue_rounds: str | 
         thread = threading.Thread(target=one, args=(target,), name=f"run-{run_id}", daemon=True)
         thread.start()
         threads.append(thread)
+        watching[run_id] = thread
         return True
 
     while (now() - started).total_seconds() < sweep_seconds:
@@ -2092,8 +2222,12 @@ def sweep(client: GitHub, repository: str, *, seconds: int, queue_rounds: str | 
                 ticks -= 1  # try again on the next tick
         ticks += 1
         for run_id, attempt in failed:
-            # A marked run's own watch (or the re-run listing) already follows it.
-            if (run_id, attempt) in failed_seen or (run_id, attempt) in rerun_seen or attempt <= 1 and run_id in seen:
+            # A marked run's own watch (or the re-run listing) already follows it. One whose watch has
+            # ended (it stopped once the fleet accepted the jobs, before a runner was stopped mid-job)
+            # is taken up again, once per attempt.
+            ended = run_id in watching and not watching[run_id].is_alive()
+            followed = (run_id, attempt) in rerun_seen or attempt <= 1 and run_id in seen
+            if (run_id, attempt) in failed_seen or followed and not ended:
                 continue
             if adopt(run_id, False, refusals_known=refusals_listed):
                 failed_seen.add((run_id, attempt))  # not before: a read that failed is tried again

@@ -2013,6 +2013,56 @@ class RootRunners(unittest.TestCase):
         self.assertFalse(e2e_pool.auto_runner(SMALL, enabled=True, limits=limits, measure=lambda: load, now=NOW,
                                               owned_slots={MINI: 40, ROOT_MINI: 10}).startswith("glaeda-"))
 
+    def test_auto_pick_waits_on_the_fleet_only_with_wait_owned(self):
+        """The DEV publisher's verify placement (--wait-owned) waits on owned Macs, as ci.yml's pick does."""
+        def wait_flag(env, extra=("--wait-owned",)):
+            with unittest.mock.patch.object(e2e_pool.simple_pool_picker, "observe",
+                                            return_value=e2e_pool.simple_pool_picker.State(jobs=1)) as observe, \
+                 unittest.mock.patch("sys.stdout", io.StringIO()):
+                e2e_pool.main(["--requested", "auto", "--owned", "1", "--pr-xcode-app", PR_XCODE, *extra], env=env)
+            return observe.call_args.kwargs["wait_owned"], observe.call_args.kwargs["fork"]
+        self.assertEqual(wait_flag({"GITHUB_REPOSITORY": "manaflow-ai/cmux"}), (True, False))
+        # E2E callers (no flag) keep the old pick: their root jobs and re-runs are not watched the same way.
+        self.assertEqual(wait_flag({"GITHUB_REPOSITORY": "manaflow-ai/cmux"}, extra=()), (False, False))
+        # A fork never waits on the fleet; neither does the bot's own re-run.
+        self.assertEqual(wait_flag({"GITHUB_REPOSITORY": "manaflow-ai/cmux", "HEAD_REPO": "someone/cmux"}),
+                         (False, True))
+        dev = (ROOT / ".github/workflows/cmux-next-dev-daily.yml").read_text()
+        self.assertIn("--wait-owned", dev[dev.index("Pick the macOS pool"):dev.index("Mark a run on a persistent")])
+        self.assertEqual(wait_flag({"GITHUB_REPOSITORY": "manaflow-ai/cmux", "GITHUB_RUN_ATTEMPT": "2",
+                                    "GITHUB_TRIGGERING_ACTOR": "github-actions[bot]"}), (False, False))
+
+    def test_blacksmith_labels_limit_the_room_a_wait_owned_pick_counts(self):
+        """A free macOS 15 slot is no room for jobs that run only on a stalled macOS 26 label."""
+        picker = e2e_pool.simple_pool_picker
+        mac26, mac15 = picker.BLACKSMITH[1], picker.BLACKSMITH[2]
+        state = picker.State(
+            jobs=2, owned_enabled=True, wait_on_owned=True,
+            owned=(picker.Pool("glaeda-std-xcode-26.6", 8, 8, 1, free=0),),
+            blacksmith=(picker.Pool(picker.BLACKSMITH[0], 5, 5, 3),
+                        picker.Pool(mac26, 10, 0, 4, stalled=True),
+                        picker.Pool(mac15, 10, 2, 0)))
+
+        def label(*extra):
+            with unittest.mock.patch.object(picker, "observe", return_value=state):
+                output = io.StringIO()
+                with unittest.mock.patch("sys.stdout", output):
+                    e2e_pool.main(["--requested", "auto", "--owned", "1", "--pr-xcode-app", PR_XCODE,
+                                   "--jobs", "2", "--wait-owned", *extra],
+                                  env={"GITHUB_REPOSITORY": "manaflow-ai/cmux"})
+            return output.getvalue().strip()
+        # Unrestricted, the free macOS 15 room keeps the pick off the fleet (run 40449661622).
+        self.assertEqual(label(), mac15)
+        # Limited to the jobs' own label, the stalled macOS 26 queue is no room: wait on the fleet.
+        self.assertEqual(label("--blacksmith-labels", mac26), "glaeda-std-xcode-26.6")
+        # Free room on the jobs' own label still takes it.
+        free26 = dataclasses.replace(state, blacksmith=(picker.Pool(mac26, 10, 2, 0), state.blacksmith[2]))
+        with unittest.mock.patch.object(picker, "observe", return_value=free26), \
+             unittest.mock.patch("sys.stdout", io.StringIO()) as output:
+            e2e_pool.main(["--requested", "auto", "--owned", "1", "--pr-xcode-app", PR_XCODE, "--jobs", "2",
+                           "--wait-owned", "--blacksmith-labels", mac26], env={"GITHUB_REPOSITORY": "manaflow-ai/cmux"})
+        self.assertEqual(output.getvalue().strip(), mac26)
+
     def test_ui_auto_route_skips_simple_picker_and_uses_gui_label(self):
         """A media tour's auto pick must reach the UI-aware E2E picker."""
         with unittest.mock.patch.object(
@@ -2028,6 +2078,19 @@ class RootRunners(unittest.TestCase):
                 )
         self.assertEqual(output.getvalue().strip(), GUI_MINI)
         self.assertEqual(resolve.call_args.kwargs["test_filter"], "cmuxUITests/DogfoodScenarioUITests")
+
+    def test_auto_pick_asks_the_simple_picker_for_the_jobs_it_holds(self):
+        """cmux-next-dev-daily.yml asks --jobs 2 (verify and tip-dmg-build); the default stays 1."""
+        for argv, jobs in (([], 1), (["--jobs", "2"], 2)):
+            with unittest.mock.patch.object(e2e_pool.simple_pool_picker, "observe", return_value="state") as observe, \
+                 unittest.mock.patch.object(e2e_pool.simple_pool_picker, "pick",
+                                            return_value=e2e_pool.simple_pool_picker.Choice(MINI, "free")):
+                output = io.StringIO()
+                with unittest.mock.patch("sys.stdout", output):
+                    e2e_pool.main(["--requested", "auto", "--owned", "1", *argv],
+                                  env={"GITHUB_REPOSITORY": "manaflow-ai/cmux"})
+            self.assertEqual(observe.call_args.kwargs["jobs"], jobs)
+            self.assertEqual(output.getvalue().strip(), MINI)
 
     def test_ui_auto_resolve_selects_gui_label_from_measured_capacity(self):
         """The real resolver keeps a UI tour on the GUI label when minis are busy."""

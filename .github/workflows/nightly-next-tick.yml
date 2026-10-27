@@ -93,15 +93,17 @@ jobs:
         run: bash .tick-tooling/scripts/ci/gh_budget_wait.sh --install
 
       # The release train (nightly-next-train.yml, docs/ci/nightly-next-train.md).
-      # Unset or dry-run: the train plans from the last good build and its run
-      # summary is the plan; the promotion below still goes ahead. on: the
-      # train replaces it (a train commit is not on feat-cmux-next, so a plain
-      # promotion after one is refused). off: nothing.
+      # on: the train replaces the promotion below (a train commit is not on
+      # feat-cmux-next, so a plain promotion after one is refused). Anything
+      # else starts no train: a dry run only plans and runs every car's guards
+      # (an hour for 145 cars), publishes nothing, and its runs displaced each
+      # other in group nightly-next-train on every landing. Run mode=plan by
+      # hand for a plan.
       - name: Start the nightly-next train
-        if: vars.NIGHTLY_NEXT_TRAIN != 'off'
+        if: vars.NIGHTLY_NEXT_TRAIN == 'on'
         env:
           GH_TOKEN: ${{ github.token }}
-          MODE: ${{ vars.NIGHTLY_NEXT_TRAIN == 'on' && 'drive' || 'plan' }}
+          MODE: drive
         run: |
           set -euo pipefail
           gh workflow run nightly-next-train.yml -R "$GITHUB_REPOSITORY" --ref feat-cmux-next -f mode="$MODE" \

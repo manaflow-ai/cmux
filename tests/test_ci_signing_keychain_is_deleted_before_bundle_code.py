@@ -112,6 +112,10 @@ SCRIPT_MADE_KEYCHAINS = {
 # Jobs that sign on Linux (rule 8), each with the script that gets the certificate.
 LINUX_PEM_SIGNERS = {
     ("cmux-next-dev-daily.yml", "sign"): "scripts/ci/rcodesign-sign-bundle-dev.sh",
+    ("cmux-next-dev-daily.yml", "tip-dmg"): "scripts/ci/rcodesign-notarize-dmg-dev.sh",
+    # The one-off proof that the nightly's Mac signing and Linux rcodesign agree.
+    ("rcodesign-parity-proof.yml", "sign-rcodesign"): "scripts/ci/rcodesign-sign-bundle-dev.sh",
+    ("rcodesign-parity-proof.yml", "notarize-dmg"): "scripts/ci/rcodesign-notarize-dmg-dev.sh",
 }
 # Rule 6's one exception: a secret-free verify job that attempt 1 may run on the
 # owned Mac its placement job picked (Leo, 2026-10-24: owned Macs before

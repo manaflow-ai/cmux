@@ -481,9 +481,7 @@ jobs:
   # whose range changes a file in .github/release-surface.txt waits for an
   # approval (await-release-surface-ack, then promote-nightly-next-acked moves
   # it); the surface file's policy line says whether a lander of the range may
-  # give it. The newest request wins: guard.decideNewest() decides the newest
-  # commit among this request and the requests still waiting for that approval,
-  # and await-release-surface-ack cancels the older waiters.
+  # give it.
   #
   # One shared concurrency group keeps a single writer. GitHub keeps only one
   # waiting job in it and cancels that job when another request arrives, so
@@ -601,10 +599,9 @@ jobs:
   # moved nightly-next, which already made every waiter unapprovable
   # (ackDecision refuses a moved nightly-next), so it clears them. A request that
   # a live waiter supersedes ("superseded": the waiter's commit contains the
-  # request's, or the waiter is already approved) never enters. The name carries the
-  # decision; guard.pendingPromotions() reads it, so keep the two in step. When
-  # the guard could not read the other requests, the job waits in its own group
-  # and cancels nothing.
+  # request's, or the waiter is already approved) never enters. When the guard
+  # could not read the other requests, the job waited in its own group and
+  # cancelled nothing. The guard no longer reads this job.
   await-release-surface-ack:
     name: nightly-next promotion ${{ needs.promote-nightly-next.outputs.sha }} from ${{ needs.promote-nightly-next.outputs.current || 'none' }}
     needs: promote-nightly-next
@@ -676,6 +673,8 @@ jobs:
             const { owner, repo } = context.repo;
             const decision = await guard.decide({
               github, core, owner, repo,
+              // This job checks an approval, so it needs G3 and G4.
+              requireApproval: true,
               sha: (process.env.REQUESTED_SHA || '').trim(),
               surfaceText: fs.readFileSync(`${process.env.GITHUB_WORKSPACE}/.github/release-surface.txt`, 'utf8'),
               verifyTrain: guard.trainVerifier(`${process.env.GITHUB_WORKSPACE}/scripts/ci/nightly_next_train.py`, { cwd: process.env.GITHUB_WORKSPACE }),
@@ -2756,6 +2755,47 @@ jobs:
           persist-credentials: false
           ref: ${{ needs.decide.outputs.head_sha }}
 
+      # The wrapper comes from the workflow commit: the build checkout may predate it.
+      - name: Checkout the gh token wrapper at the workflow commit
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+          path: .gh-tooling
+          sparse-checkout: |
+            scripts/ci/gh_app_token.sh
+            scripts/ci/publish-release-assets.py
+            scripts/ci/finalize-release.py
+            scripts/prune_nightly_release_assets.py
+          sparse-checkout-cone-mode: false
+
+      # Release App first, github.token as the fallback (scripts/ci/gh_app_token.sh): the App is
+      # its own actor, so a limit that every workflow's github.token shares does not refuse it.
+      - name: Mint the release App token for this job's gh calls
+        id: gh-app-token
+        continue-on-error: true
+        timeout-minutes: 2
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ secrets.CMUX_RELEASE_APP_ID }}
+          private-key: ${{ secrets.CMUX_RELEASE_APP_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+          permission-contents: write
+
+      - name: Send this job's gh calls as the release App, github.token as the fallback
+        env:
+          GH_APP_TOKEN: ${{ steps.gh-app-token.outputs.token }}
+          GH_FALLBACK_TOKEN: ${{ github.token }}
+        # This job's timeout leaves room for 10 minutes of backoff (gh_app_token.sh reads the
+        # cap from GH_BUDGET_WAIT_MAX_SECONDS).
+        run: |
+          if [ -f .gh-tooling/scripts/ci/gh_app_token.sh ]; then
+            bash .gh-tooling/scripts/ci/gh_app_token.sh --install
+            echo "GH_BUDGET_WAIT_MAX_SECONDS=600" >> "$GITHUB_ENV"
+          fi
+
       - name: Download nightly variant artifacts
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
@@ -2865,9 +2905,10 @@ jobs:
         if: needs.decide.outputs.should_publish == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
+          GH_APP_TOKEN: ${{ steps.gh-app-token.outputs.token }} # App first, GH_TOKEN as fallback
         run: |
           set -euo pipefail
-          python3 ./scripts/prune_nightly_release_assets.py \
+          python3 .gh-tooling/scripts/prune_nightly_release_assets.py \
             --repo manaflow-ai/cmux \
             --release-tag "$CHANNEL_RELEASE_TAG" \
             --name-prefix "${CHANNEL_DMG_PREFIX}-" \
@@ -2881,8 +2922,9 @@ jobs:
         if: needs.decide.outputs.should_publish == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
+          GH_APP_TOKEN: ${{ steps.gh-app-token.outputs.token }} # the uploader: App first, GH_TOKEN as fallback
         run: |
-          python3 scripts/ci/publish-release-assets.py \
+          python3 .gh-tooling/scripts/ci/publish-release-assets.py \
             --repo "$GITHUB_REPOSITORY" --tag "$CHANNEL_RELEASE_TAG" \
             --immutable "nightly-out/${CHANNEL_DMG_PREFIX}-arm64-${NIGHTLY_BUILD}.dmg" \
             --immutable "nightly-out/${CHANNEL_DMG_PREFIX}-x86_64-${NIGHTLY_BUILD}.dmg" \
@@ -2908,6 +2950,7 @@ jobs:
         if: needs.decide.outputs.should_publish == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
+          GH_APP_TOKEN: ${{ steps.gh-app-token.outputs.token }} # App first, GH_TOKEN as fallback
           RELEASE_ID: ${{ steps.publish_assets.outputs.release_id }}
           UPLOADED_ASSETS: ${{ steps.publish_assets.outputs.asset_names }}
           RELEASE_TAG: ${{ needs.decide.outputs.release_tag }}
@@ -2918,7 +2961,7 @@ jobs:
           names=()
           read -ra names <<<"$UPLOADED_ASSETS"
           for name in "${names[@]}"; do expect+=(--expect-asset "$name"); done
-          python3 scripts/ci/finalize-release.py publish \
+          python3 .gh-tooling/scripts/ci/finalize-release.py publish \
             --repo "$GITHUB_REPOSITORY" --tag "$RELEASE_TAG" --release-id "$RELEASE_ID" \
             --name "$RELEASE_NAME" --body-file nightly-notes.md \
             --prerelease true --make-latest false "${expect[@]}"
@@ -2956,6 +2999,7 @@ jobs:
         if: needs.decide.outputs.should_publish == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
+          GH_APP_TOKEN: ${{ steps.gh-app-token.outputs.token }} # App first, GH_TOKEN as fallback
           RELEASE_ID: ${{ steps.publish_assets.outputs.release_id }}
           UPLOADED_ASSETS: ${{ steps.publish_assets.outputs.asset_names }}
           RELEASE_TAG: ${{ needs.decide.outputs.release_tag }}
@@ -2966,7 +3010,7 @@ jobs:
           names=()
           read -ra names <<<"$UPLOADED_ASSETS"
           for name in "${names[@]}"; do expect+=(--expect-asset "$name"); done
-          python3 scripts/ci/finalize-release.py publish \
+          python3 .gh-tooling/scripts/ci/finalize-release.py publish \
             --repo "$GITHUB_REPOSITORY" --tag "$RELEASE_TAG" --release-id "$RELEASE_ID" \
             --name "$RELEASE_NAME" --body-file nightly-notes.published.md \
             --prerelease true --make-latest false "${expect[@]}"
@@ -3071,6 +3115,43 @@ jobs:
           persist-credentials: false
           ref: ${{ needs.decide.outputs.head_sha }}
 
+      # The wrapper comes from the workflow commit: the build checkout may predate it.
+      - name: Checkout the gh token wrapper at the workflow commit
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+          path: .gh-tooling
+          sparse-checkout: scripts/ci/gh_app_token.sh
+          sparse-checkout-cone-mode: false
+
+      # Release App first, github.token as the fallback (scripts/ci/gh_app_token.sh): the App is
+      # its own actor, so a limit that every workflow's github.token shares does not refuse it.
+      - name: Mint the release App token for this job's gh calls
+        id: gh-app-token
+        continue-on-error: true
+        timeout-minutes: 2
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ secrets.CMUX_RELEASE_APP_ID }}
+          private-key: ${{ secrets.CMUX_RELEASE_APP_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+          permission-contents: read
+
+      - name: Send this job's gh calls as the release App, github.token as the fallback
+        env:
+          GH_APP_TOKEN: ${{ steps.gh-app-token.outputs.token }}
+          GH_FALLBACK_TOKEN: ${{ github.token }}
+        # This job's timeout leaves room for 10 minutes of backoff (gh_app_token.sh reads the
+        # cap from GH_BUDGET_WAIT_MAX_SECONDS).
+        run: |
+          if [ -f .gh-tooling/scripts/ci/gh_app_token.sh ]; then
+            bash .gh-tooling/scripts/ci/gh_app_token.sh --install
+            echo "GH_BUDGET_WAIT_MAX_SECONDS=600" >> "$GITHUB_ENV"
+          fi
+
       - name: Select Xcode
         run: ./scripts/select-ci-xcode.sh
 
@@ -3161,6 +3242,47 @@ jobs:
           persist-credentials: false
           ref: ${{ needs.decide.outputs.head_sha }}
 
+      # The wrapper comes from the workflow commit: the build checkout may predate it.
+      - name: Checkout the gh token wrapper at the workflow commit
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+          path: .gh-tooling
+          sparse-checkout: |
+            scripts/ci/gh_app_token.sh
+            scripts/ci/publish-release-assets.py
+            scripts/ci/finalize-release.py
+            scripts/prune_nightly_release_assets.py
+          sparse-checkout-cone-mode: false
+
+      # Release App first, github.token as the fallback (scripts/ci/gh_app_token.sh): the App is
+      # its own actor, so a limit that every workflow's github.token shares does not refuse it.
+      - name: Mint the release App token for this job's gh calls
+        id: gh-app-token
+        continue-on-error: true
+        timeout-minutes: 2
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ secrets.CMUX_RELEASE_APP_ID }}
+          private-key: ${{ secrets.CMUX_RELEASE_APP_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+          permission-contents: write
+
+      - name: Send this job's gh calls as the release App, github.token as the fallback
+        env:
+          GH_APP_TOKEN: ${{ steps.gh-app-token.outputs.token }}
+          GH_FALLBACK_TOKEN: ${{ github.token }}
+        # This job's timeout leaves room for 10 minutes of backoff (gh_app_token.sh reads the
+        # cap from GH_BUDGET_WAIT_MAX_SECONDS).
+        run: |
+          if [ -f .gh-tooling/scripts/ci/gh_app_token.sh ]; then
+            bash .gh-tooling/scripts/ci/gh_app_token.sh --install
+            echo "GH_BUDGET_WAIT_MAX_SECONDS=600" >> "$GITHUB_ENV"
+          fi
+
       - name: Download delta results
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
@@ -3172,6 +3294,7 @@ jobs:
         id: republish
         env:
           GH_TOKEN: ${{ github.token }}
+          GH_APP_TOKEN: ${{ steps.gh-app-token.outputs.token }} # the uploader: App first, GH_TOKEN as fallback
         run: |
           set -euo pipefail
           current_sha="$(gh api "repos/$GITHUB_REPOSITORY/commits/$CHANNEL_RELEASE_TAG" --jq .sha)"
@@ -3196,7 +3319,7 @@ jobs:
             feeds+=(--feed "$feed")
           done
           [ "${#feeds[@]}" -gt 0 ]
-          python3 scripts/ci/publish-release-assets.py \
+          python3 .gh-tooling/scripts/ci/publish-release-assets.py \
             --repo "$GITHUB_REPOSITORY" --tag "$CHANNEL_RELEASE_TAG" \
             "${deltas[@]}" --replace-feeds "${feeds[@]}"
           echo "publish=true" >> "$GITHUB_OUTPUT"
