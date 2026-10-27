@@ -68,11 +68,8 @@ public struct CmuxNextApp {
         GhosttyRuntime.initializeLibrary()
         // Pure launch work (action catalog, symbols, displays, icons) overlaps AppKit's start; the registry takes the catalog.
         let actionCatalog = ActionCatalogLaunch()
-        LaunchWarmup(
-            work: { if actionCatalog.build() { DebugTimings.markLaunch("action_catalog_built") } },
-            decodeIcons: { IconPack.decodeBundledInBackground(then: $0) },
-            markLaunch: { DebugTimings.markLaunch($0) }
-        ).start()
+        LaunchWarmup(work: { if actionCatalog.build() { DebugTimings.markLaunch("action_catalog_built") } },
+                     decodeIcons: { IconPack.decodeBundledInBackground(then: $0) }, markLaunch: { DebugTimings.markLaunch($0) }).start()
         DebugTimings.markLaunch("main.warmup_started")
         // One hang watch for the process: the lanes, the daemon readers and the terminal output lanes.
         let hangWatch = TraceRuntime.shared.hangWatch
