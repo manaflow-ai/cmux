@@ -703,6 +703,7 @@ impl Hub {
             model: req.model.clone(),
             effort: req.effort.clone(),
             remote: pm.remote_origin,
+            vm_boundary: pm.vm_boundary,
             workspace_id: pm.workspace_id.clone(),
             // Same family: the parent's mode, set below. Another family: the
             // person's default start mode only under a full-access parent.

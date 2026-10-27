@@ -685,6 +685,32 @@ pub fn open_request(session: &str, name: &str, key: &str, cwd: &Path) -> Value {
 
 /// One request on the app's control socket; Ok carries its result.
 pub fn control_call(socket: &Path, request: &Value, timeout: Duration) -> Result<Value, String> {
+    let (value, answer) = control_reply(socket, request, timeout)?;
+    reply_result(&value, &answer)
+}
+
+/// The app's reply `value` (its line `answer`): Ok with its result, else its error message.
+pub fn reply_result(value: &Value, answer: &str) -> Result<Value, String> {
+    match value.get("ok").and_then(Value::as_bool) {
+        Some(true) => Ok(value.get("result").cloned().unwrap_or(Value::Null)),
+        _ => Err(value
+            .get("error")
+            .map(|e| {
+                e.get("message")
+                    .and_then(Value::as_str)
+                    .map_or_else(|| e.to_string(), str::to_owned)
+            })
+            .unwrap_or_else(|| answer.to_owned())),
+    }
+}
+
+/// One request on the app's control socket and its reply line, parsed, whatever it says;
+/// Err only when the app did not answer (no socket, a closed one, a timeout, no JSON).
+pub fn control_reply(
+    socket: &Path,
+    request: &Value,
+    timeout: Duration,
+) -> Result<(Value, String), String> {
     let mut stream = UnixStream::connect(socket)
         .map_err(|e| format!("the app's control socket {}: {e}", socket.display()))?;
     stream
@@ -706,17 +732,7 @@ pub fn control_call(socket: &Path, request: &Value, timeout: Duration) -> Result
         });
     }
     let value: Value = serde_json::from_str(answer).map_err(|e| format!("bad answer: {e}"))?;
-    match value.get("ok").and_then(Value::as_bool) {
-        Some(true) => Ok(value.get("result").cloned().unwrap_or(Value::Null)),
-        _ => Err(value
-            .get("error")
-            .map(|e| {
-                e.get("message")
-                    .and_then(Value::as_str)
-                    .map_or_else(|| e.to_string(), str::to_owned)
-            })
-            .unwrap_or_else(|| answer.to_owned())),
-    }
+    Ok((value, answer.to_owned()))
 }
 
 impl Workspaces for AppWorkspaces {
