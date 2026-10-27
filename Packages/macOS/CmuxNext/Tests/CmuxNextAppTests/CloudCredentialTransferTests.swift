@@ -113,6 +113,7 @@ struct CloudCredentialTransferTests {
         #expect(ran.status == 0)
         #expect(!ran.stdout.isEmpty && !String(decoding: ran.stdout, as: UTF8.self).contains(String(decoding: Self.token, as: UTF8.self)))
         #expect(!String(decoding: ran.stdout, as: UTF8.self).contains("private diagnostic"))
+        #expect(ran.stderr.isEmpty)
         #expect(String(decoding: ran.stdout, as: UTF8.self).contains("https://claude.ai/oauth/authorize?code=abc"))
         #expect(String(decoding: ran.stdout, as: UTF8.self).contains("one-time code"))
         #expect(try CloudCredentialLogin.claudeToken(from: Data(contentsOf: directory.appendingPathComponent("output"))) == Self.token)

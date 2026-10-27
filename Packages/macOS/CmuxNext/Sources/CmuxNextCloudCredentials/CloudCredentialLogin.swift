@@ -124,7 +124,8 @@ import Security
         return """
             #!/bin/bash
             umask 077
-            trap 'rm -rf -- \(dir); exit 143' INT TERM HUP
+            export CMUX_CAPTURE_DIR=\(dir)
+            trap 'rm -rf -- "$CMUX_CAPTURE_DIR"; exit 143' INT TERM HUP
             cd \(dir) || exit 1
             unset ANTHROPIC_API_KEY ANTHROPIC_AUTH_TOKEN ANTHROPIC_BASE_URL CLAUDE_CODE_OAUTH_TOKEN
             unset OPENAI_API_KEY OPENAI_BASE_URL CODEX_API_KEY CODEX_ACCESS_TOKEN
@@ -134,7 +135,7 @@ import Security
             printf '%s\n' 'Opening the provider sign-in in your browser. Approve it there; cmux will continue automatically.'
             if [ "\(provider.rawValue)" = claude ]; then
               set -o pipefail
-              \(command) 2>&1 | CMUX_CAPTURE_DIR=\(dir) perl -ne '
+              \(command) 2>&1 | perl -ne '
                 BEGIN { $| = 1; open $f, ">>", ($ENV{CMUX_CAPTURE_DIR} . "/output") or exit 2; }
                 print $f $_;
                 my $safe = $_; $safe =~ s/\\e\\[[0-9;]*[A-Za-z]//g;
@@ -157,7 +158,7 @@ import Security
             mv \(dir)/status.tmp \(dir)/status
             # A cancelled parent cannot own this visible terminal process; bound its lifetime and
             # remove the private scratch after the parent has had time to consume the marker.
-            (sleep 300; rm -rf -- \(dir)) >/dev/null 2>&1 &
+            (sleep 300; rm -rf -- "$CMUX_CAPTURE_DIR") >/dev/null 2>&1 &
             """
     }
 }
