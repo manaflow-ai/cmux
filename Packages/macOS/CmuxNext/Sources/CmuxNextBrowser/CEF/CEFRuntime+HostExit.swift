@@ -1,3 +1,4 @@
+import CmuxNextWakeups
 import Foundation
 
 /// The Chromium Host's end while Chromium runs in it (``BrowserBackend/host``, p08-startup-046).
@@ -127,7 +128,7 @@ extension CEFRuntime {
         tab.host.recreateShown(tab)
     }
 
-    /// Puts a runtime that has not started in host mode (``adopt(stores:signInCallbacks:waitDeadlines:hostSupervisor:hostWidgets:hostInput:hostDrags:hostResizeFence:hostPopupMenus:hostSuggestions:hostChoosers:hostFileDialogs:)``):
+    /// Puts a runtime that has not started in host mode (``adopt(stores:signInCallbacks:waitDeadlines:hostSupervisor:hostWidgets:hostInput:hostDrags:hostResizeFence:hostPopupMenus:hostSuggestions:hostChoosers:hostFileDialogs:hostLocks:hostAppEvents:)``):
     /// its start attaches through `supervisor` (host widgets in cmux with `showsWidgets`, hosted pages' input through
     /// the host's input ring with `routesInput`, drops with `takesDrags`, page
     /// resizes fenced with `fencesResizes`, `<select>` popups as cmux menus with `drawsPopupMenus`, suggestions in cmux's
@@ -136,12 +137,14 @@ extension CEFRuntime {
     func adoptHost(_ supervisor: any ChromiumHostSupervising, showsWidgets: Bool = false, routesInput: Bool = false,
                    takesDrags: Bool = false, fencesResizes: Bool = false, drawsPopupMenus: Bool = false,
                    drawsSuggestions: Bool = false, drawsChoosers: Bool = false,
-                   fileDialogs: (any ChromiumFileDialogAnswering)? = nil) {
+                   fileDialogs: (any ChromiumFileDialogAnswering)? = nil, handlesLocks: Bool = false,
+                   appEvents: AppEvents? = nil) {
         hostStart = CEFHostStart(supervisor: supervisor, showsWidgets: showsWidgets, routesInput: routesInput,
                                  takesDrags: takesDrags, fencesResizes: fencesResizes, drawsPopupMenus: drawsPopupMenus,
                                  fileDialogs: fileDialogs)
         hostStart?.drawsSuggestions = drawsSuggestions
         hostStart?.drawsChoosers = drawsChoosers
+        hostStart?.locks = handlesLocks ? CEFHostLocks(runtime: self, appEvents: appEvents) : nil
         guard let reporting = supervisor as? any ChromiumHostExitReporting else { return }
         reporting.onHostEnded = { [weak self, weak reporting] exit in
             self?.hostEnded(exit, restoresPages: reporting?.lastEndRestoresPages == true, savedNavigation: reporting?.savedNavigation)

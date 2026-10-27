@@ -89,12 +89,14 @@ extension SettingsController {
     }
 
     /// Watches the managed preference files (and their nearest existing
-    /// ancestor directories while they do not exist) with kernel file events.
+    /// ancestor directories while they do not exist) with kernel file events; each event asks for a
+    /// reload in one `visible` task on ``mainWork``.
     func startManagedWatchers() {
         guard managedWatchers.isEmpty else { return }
+        let mainWork = mainWork
         managedWatchers = managedWatchFiles.map { url in
             ConfigFileWatcher(url: url) { [weak self] in
-                Task { @MainActor in self?.requestReload() }
+                mainWork.postFromAnyThread(.visible, owner: "Settings.managedFileChanged") { [weak self] in self?.requestReload() }
             }
         }
         managedWatchers.forEach { $0.startWithoutWaiting() }

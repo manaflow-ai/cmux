@@ -82,6 +82,7 @@ extension CEFPaneHost {
         hostView.showOcclusion(in: page)
         hostedPageView = page
         takeHostDrags(on: page)
+        runtime.hostStart?.locks?.serve(page)
         return page
     }
 
