@@ -1,3 +1,5 @@
+import CmuxNextCompat
+import CmuxNextIPC
 import Foundation
 
 extension LineTransport {
@@ -8,6 +10,63 @@ extension LineTransport {
     /// Starts the reader thread. Call once.
     func start(onEvent: @escaping EventHandler, onClose: @escaping CloseHandler) {
         start(onCausedEvent: { name, line, index, _ in onEvent(name, line, index) }, onClose: onClose)
+    }
+
+    /// The wire kind of an EVENT frame (cmux-ipc frame.rs `FrameKind::Event`).
+    static let eventFrameKind: UInt8 = 3
+
+    /// Counts `streamID`'s lines as stream-0 events until its `stream_end`; call before the request that
+    /// opens it, ``endControlSequence(streamID:)`` if that fails. With `mintingFrameStream`, it also takes
+    /// a client stream id for it (``mintFrameStream()``) and returns it, for the open's `stream`: the
+    /// stream's EVENT frames on that id are then its items, routed by header alone
+    /// (``routeFrame(_:onEvent:)``, p05-ipc-145). Nil when it took none.
+    @discardableResult
+    func routeOnControlSequence(streamID: String, mintingFrameStream: Bool = false) -> UInt16? {
+        state.withLock { state -> UInt16? in
+            state.controlStreams.insert(streamID)
+            guard mintingFrameStream, let id = state.frameStreams.mint() else { return nil }
+            state.controlFrameStreams[id] = streamID
+            return id
+        }
+    }
+
+    /// Stops routing `streamID` and frees its client stream id: its open failed, or its end was read.
+    func endControlSequence(streamID: String) {
+        state.withLock { $0.endControlSequence(streamID: streamID) }
+    }
+
+    /// Takes a client stream id (u16, never 0) no open stream of this connection holds, or nil when all
+    /// 65,535 are held. Every client stream id of the connection comes from here, so two kinds of
+    /// stream never collide; it is the connection's again after ``releaseFrameStream(_:)``, once the
+    /// stream's end was read (the daemon frees it when it queues that end, spec/events.md "Attach streams").
+    func mintFrameStream() -> UInt16? { state.withLock { $0.frameStreams.mint() } }
+
+    /// Gives back a client stream id from ``mintFrameStream()`` whose stream ended.
+    func releaseFrameStream(_ id: UInt16) { _ = state.withLock { $0.frameStreams.release(id) } }
+
+    /// Lets the reader accept frames (`ipc-frames-v2`). Call before the request that grants them: a JSON
+    /// line never starts with the frame magic 0xFF, so lines read the same either way.
+    func negotiateFrames() { framesNegotiated.store(true, ordering: .releasing) }
+
+    /// Routes one frame by its header alone, on the reader thread: an EVENT frame on the client stream
+    /// of a control stream is that stream's item, counted with the stream-0 events and handed to
+    /// `onEvent` as the stream line it carries, with no envelope scan or decode (Mojo routes a message
+    /// by its header's interface id, mojo/public/cpp/bindings/lib/multiplex_router.cc `Accept`). Every
+    /// other frame has no consumer on this connection yet and is dropped.
+    func routeFrame(_ frame: Frame, onEvent: CausedEventHandler) {
+        let index = state.withLock { state -> UInt64? in
+            guard frame.header.kind == Self.eventFrameKind, state.controlFrameStreams[frame.header.stream] != nil else {
+                return nil
+            }
+            state.eventCount += 1
+            return state.eventCount
+        }
+        guard let index else {
+            recorder?.lineRead(.ignored)
+            return
+        }
+        recorder?.lineRead(.streamItem)
+        onEvent(Self.streamEvent, Data(frame.payload), index, nil)
     }
 
     /// Where one `cmux.protocol/2` stream line goes (`route`).
@@ -89,4 +148,41 @@ extension LineTransport {
             }
         }
     }
+}
+
+extension LineTransport.State {
+    /// Stops routing control stream `streamID` and frees the client stream id it was opened on.
+    mutating func endControlSequence(streamID: String) {
+        controlStreams.remove(streamID)
+        guard let id = controlFrameStreams.first(where: { $0.value == streamID })?.key else { return }
+        controlFrameStreams[id] = nil
+        frameStreams.release(id)
+    }
+}
+
+/// The client stream ids (u16) a connection holds. Ids are taken round-robin from 1, so an id just freed
+/// is the last one taken again, as HTTP/2 never reuses a stream id on a connection (RFC 9113 section 5.1.1).
+struct FrameStreamIDs: Sendable {
+    /// Ids 1 through 65,535: 0 is the control stream.
+    static let capacity = 65_535
+
+    private var held: Set<UInt16> = []
+    private var next: UInt16 = 1
+
+    /// A free id, now held; nil when every id is held.
+    mutating func mint() -> UInt16? {
+        guard held.count < Self.capacity else { return nil }
+        // Ends: fewer than UInt16.max ids are held, so a free one is at most UInt16.max steps away.
+        while held.contains(next) { advance() }
+        let id = next
+        held.insert(id)
+        advance()
+        return id
+    }
+
+    /// Frees `id`; false when it was not held.
+    @discardableResult
+    mutating func release(_ id: UInt16) -> Bool { held.remove(id) != nil }
+
+    private mutating func advance() { next = next == UInt16.max ? 1 : next + 1 }
 }

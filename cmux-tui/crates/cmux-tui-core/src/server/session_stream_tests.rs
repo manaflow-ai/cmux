@@ -75,3 +75,6 @@ fn session_journal_stream_ends_when_its_outbound_closes_alone() {
         run_session_journal_stream(&mux, client, &writer, start);
     });
 }
+
+#[path = "session_stream_client_tests.rs"]
+mod client_streams;

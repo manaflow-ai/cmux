@@ -78,6 +78,8 @@ final class LineTransport: Sendable {
     private let elapsed: @Sendable () -> Duration
     /// ``elapsed`` in nanoseconds when the reader last read bytes: the heartbeat's silence (``inboundSilence``).
     private let lastInbound = Atomic<Int64>(0)
+    /// Set by ``negotiateFrames()``; the reader then accepts frames from its next read on.
+    let framesNegotiated = Atomic<Bool>(false)
     /// Where each request's `daemon.request` slice goes (LineTransport+RequestTrace.swift), the top bits of its
     /// async id (``traceConnectionBits(scope:)``) and its flow's seed (``requestFlowSeed(pid:)``).
     let trace: TraceRuntime, traceConnection: UInt64, traceFlowSeed: UInt64
@@ -181,11 +183,6 @@ final class LineTransport: Sendable {
     /// How long since the daemon last sent anything (a reply, an event, a stream line); from the open until its first.
     var inboundSilence: Duration { elapsed() - .nanoseconds(lastInbound.load(ordering: .relaxed)) }
     func setStreamHandler(_ handler: (@Sendable (_ streamID: String, _ line: Data) -> Void)?) { state.withLock { $0.streamHandler = handler } }
-
-    /// Counts `streamID`'s lines as stream-0 events until its `stream_end`;
-    /// call before the request that opens it, `endControlSequence` if that fails.
-    func routeOnControlSequence(streamID: String) { _ = state.withLock { $0.controlStreams.insert(streamID) } }
-    func endControlSequence(streamID: String) { _ = state.withLock { $0.controlStreams.remove(streamID) } }
 
     /// Sends one command and returns the raw `ok:true` response line.
     /// `body` receives the allocated id and returns the encoded JSON object
@@ -367,8 +364,9 @@ final class LineTransport: Sendable {
         // An attach connection carries the terminal's output: the reader's copies of its bytes
         // are copies of that output (``DaemonWireStats/Snapshot/outputBytesCopiedApp``).
         let outputStream = role == .terminalAttach ? recorder : nil
-        // Frames come only with their negotiation (p05-ipc-092); until then a 0xFF boundary is a bad message.
+        // Frames come only with their negotiation (``negotiateFrames()``); until then a 0xFF boundary is a bad message.
         var reader = FrameReader(limits: FrameReader.Limits(maxLine: Self.maxLineBytes, maxFramePayload: FrameHeader.maxPayloadCap))
+        var framesOn = false
         var chunk = [UInt8](repeating: 0, count: Self.socketBufferBytes)
         var closeDetail = "EOF"
         // wakeup-allow: bounded: blocking read on a dedicated thread; EOF, errors and bad messages end it, EINTR retries
@@ -389,13 +387,22 @@ final class LineTransport: Sendable {
             // SAFETY: push copies the first `count` bytes of the array's own storage, the ones read(2) just
             // wrote (count <= its size); the closure lends the storage for the call only.
             unsafe chunk.withUnsafeBytes { unsafe reader.push(UnsafeRawBufferPointer(rebasing: $0.prefix(count))) }
+            if !framesOn, framesNegotiated.load(ordering: .acquiring) {
+                reader.negotiateFrames()
+                framesOn = true
+            }
             var next = Self.nextMessage(&reader)
             while case .success(let message?) = next {
-                // An empty line carries nothing; a frame cannot come before frames are negotiated.
-                if case .json(let bytes) = message, !bytes.isEmpty {
+                switch message {
+                case .json(let bytes) where !bytes.isEmpty:
                     outputStream?.outputCopied(2 * bytes.count)  // out of the reader as the line, then into its Data
                     handle(bytes, decoder: decoder, onEvent: onEvent)
                     waitForConsumer?()
+                case .frame(let frame):
+                    handle(frame, onEvent: onEvent)
+                    waitForConsumer?()
+                case .json:
+                    break  // An empty line carries nothing.
                 }
                 next = Self.nextMessage(&reader)
             }
@@ -427,5 +434,11 @@ final class LineTransport: Sendable {
     where Line.Index == Int {
         guard let hangWatched else { return route(bytes, decoder: decoder, onEvent: onEvent) }
         hangWatched.run { route(bytes, decoder: decoder, onEvent: onEvent) }
+    }
+
+    /// Routes one frame in the same hang scope (``routeFrame(_:onEvent:)``).
+    private func handle(_ frame: Frame, onEvent: CausedEventHandler) {
+        guard let hangWatched else { return routeFrame(frame, onEvent: onEvent) }
+        hangWatched.run { routeFrame(frame, onEvent: onEvent) }
     }
 }

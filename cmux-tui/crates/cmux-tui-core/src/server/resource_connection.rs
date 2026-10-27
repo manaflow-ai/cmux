@@ -411,6 +411,11 @@ fn handle_resource_connection_control(
     }
 }
 
+/// Queues one `stream_item`, waiting while its stream is at its cap. On a
+/// stream whose client minted its frame id with frames granted
+/// (`session.events {stream}`), the item is one EVENT frame on that id, its
+/// aux the item's sequence: the client routes it by header alone, never by
+/// the line's `stream_id`.
 pub(super) fn send_resource_stream_item(
     writer: &MessageWriter,
     outbound: &OutboundStream,
@@ -419,19 +424,20 @@ pub(super) fn send_resource_stream_item(
     cursor: &Value,
     item: Value,
 ) -> bool {
-    writer
-        .send_stream_backpressured(
-            &json!({
-                "protocol":"cmux.protocol/2",
-                "type":"stream_item",
-                "stream_id":stream_id,
-                "sequence":sequence.to_string(),
-                "cursor":cursor,
-                "item":writer.project_conversation_tab_item(item),
-            }),
-            outbound,
-        )
-        .is_ok()
+    let item = json!({
+        "protocol":"cmux.protocol/2",
+        "type":"stream_item",
+        "stream_id":stream_id,
+        "sequence":sequence.to_string(),
+        "cursor":cursor,
+        "item":writer.project_conversation_tab_item(item),
+    });
+    let sent = if outbound.item_frames {
+        writer.send_event_frame_backpressured(&item, sequence, outbound)
+    } else {
+        writer.send_stream_backpressured(&item, outbound)
+    };
+    sent.is_ok()
 }
 
 fn cancel_resource_stream(
@@ -452,14 +458,28 @@ fn cancel_resource_stream(
         .as_deref()
         .ok_or_else(|| ResourceError::not_found("stream", "<missing>"))
         .and_then(|stream| StreamPublicId::parse(stream.to_string()))?;
-    if let Some(stream) = mux.control_clients.take_resource_stream(client, &stream_id) {
-        stream.canceled.store(true, Ordering::Release);
-        let end = resource_stream_end(&stream_id, "canceled", None, None, None);
-        writer
-            .send_terminal(&end, &stream.outbound)
-            .map_err(|_| ResourceError::transport_closed("could not end the canceled stream"))?;
-    }
+    cancel_resource_stream_id(mux, client, writer, &stream_id)?;
     Ok(json!({}))
+}
+
+/// Ends `client`'s resource stream `stream_id`, if it is open, with
+/// `stream_end{canceled}` as its last item: `stream.cancel`, and
+/// `cancel-stream` of the client stream id it was opened with. Queuing that
+/// end frees the client stream id, as for an attach stream.
+pub(super) fn cancel_resource_stream_id(
+    mux: &Arc<Mux>,
+    client: u64,
+    writer: &MessageWriter,
+    stream_id: &StreamPublicId,
+) -> Result<(), ResourceError> {
+    let Some(stream) = mux.control_clients.take_resource_stream(client, stream_id) else {
+        return Ok(());
+    };
+    stream.canceled.store(true, Ordering::Release);
+    let end = resource_stream_end(stream_id, "canceled", None, None, None);
+    writer
+        .send_terminal(&end, &stream.outbound)
+        .map_err(|_| ResourceError::transport_closed("could not end the canceled stream"))
 }
 
 fn cancel_resource_request(

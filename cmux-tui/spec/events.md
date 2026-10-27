@@ -1829,6 +1829,16 @@ message of the endpoint (chromium
   is no `stream-end` then.
 - Without `stream`, `attach-surface` behaves as before: no tag, the
   `overflow` event, no `stream-end`.
+- A v2 `session.events` stream may take an id too (p05-ipc-145):
+  `session.events {stream_id, stream}` maps its `stream_<hex>` id to the
+  `uint16` the client chose, under the same grant, caps and `stream_in_use`.
+  Its `stream_item`s and its `stream_end` carry `"stream": id`; it keeps its
+  place in the reply FIFO. With `ipc-frames-v2` granted too, each item is an
+  EVENT frame on that stream instead (aux: the item's `sequence`, payload:
+  the `stream_item` without `"stream"`), so a client routes it by header;
+  the `stream_end` stays a line. `stream.cancel` and `cancel-stream {stream}`
+  both end it with `stream_end{reason:"canceled"}`, and the id is free once
+  that `stream_end` is queued.
 
 ### size-state
 

@@ -330,6 +330,12 @@ pub(super) fn cancel_stream(
     let Some(outbound) = writer.client_stream(stream) else {
         return Ok(json!({"stream": stream.0, "outcome": "ended"}));
     };
+    // A v2 stream on this id ends as `stream.cancel` ends it: its own
+    // `stream_end{canceled}`, tagged with the id, which frees it.
+    if let Some(stream_id) = mux.control_clients.resource_stream_on(client, outbound.id) {
+        super::cancel_resource_stream_id(mux, client, writer, &stream_id)?;
+        return Ok(json!({"stream": stream.0, "outcome": "applied"}));
+    }
     writer.end_client_stream(&outbound, StreamEndReason::Canceled);
     if let Some(surface) = mux.control_clients.stream_surface(client, outbound.id) {
         super::detach_committed_attach(mux, client, surface, outbound.id);
@@ -362,6 +368,21 @@ impl MessageWriter {
         stream.client_stream = Some(id);
         self.sink.claim_client_stream(&stream, admission)?;
         Ok(stream)
+    }
+
+    /// Takes the client-minted id of `stream` (a control-sequence stream of
+    /// `start_control_stream_for`) until its terminal is queued, under the
+    /// same caps as [`Self::start_client_stream`]. A stream without one
+    /// claims nothing.
+    pub(super) fn claim_client_stream(
+        &self,
+        stream: &OutboundStream,
+        admission: &Arc<AttachStreamAdmission>,
+    ) -> Result<(), AttachStreamError> {
+        if stream.client_stream.is_none() {
+            return Ok(());
+        }
+        self.sink.claim_client_stream(stream, admission)
     }
 
     /// The open stream holding client-minted `id` on this connection.

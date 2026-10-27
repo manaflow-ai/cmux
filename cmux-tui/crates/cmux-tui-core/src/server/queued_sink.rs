@@ -273,6 +273,23 @@ impl MessageSink for QueuedSink {
         }
     }
 
+    fn send_stream_frame_backpressured(
+        &self,
+        header: FrameHeader,
+        text: Arc<BudgetedText>,
+        stream: &OutboundStream,
+    ) -> std::io::Result<()> {
+        match self.control {
+            Some(SinkControl::Unix(_)) => {
+                self.outbound.push_stream_frame_backpressured(header, text, stream)
+            }
+            Some(SinkControl::WebSocket(_)) | None => Err(std::io::Error::new(
+                std::io::ErrorKind::Unsupported,
+                "frames ride only a local Unix connection",
+            )),
+        }
+    }
+
     fn send_terminal(
         &self,
         text: Arc<BudgetedText>,

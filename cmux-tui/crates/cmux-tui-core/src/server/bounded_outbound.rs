@@ -240,6 +240,27 @@ impl BoundedOutbound {
         text: Arc<BudgetedText>,
         stream: &OutboundStream,
     ) -> std::io::Result<()> {
+        self.push_backpressured(RegularOutbound::line(text, stream))
+    }
+
+    /// [`Self::push_stream_frame`] that waits, as
+    /// [`Self::push_regular_backpressured`] does for a line.
+    pub(super) fn push_stream_frame_backpressured(
+        &self,
+        header: FrameHeader,
+        text: Arc<BudgetedText>,
+        stream: &OutboundStream,
+    ) -> std::io::Result<()> {
+        if header.len() as usize != text.len() {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "a frame header's length differs from its payload",
+            ));
+        }
+        self.push_backpressured(RegularOutbound::frame(header, text, stream))
+    }
+
+    fn push_backpressured(&self, message: RegularOutbound) -> std::io::Result<()> {
         let mut state = self.state.lock().recover_poison();
         loop {
             if state.closed {
@@ -248,13 +269,15 @@ impl BoundedOutbound {
                     "connection closed",
                 ));
             }
-            if !stream.is_open() {
+            if !message.stream.is_open() {
                 return Err(std::io::Error::new(std::io::ErrorKind::BrokenPipe, "stream closed"));
             }
-            let pending =
-                state.stream_usage.get(&stream.id).map(|usage| usage.messages).unwrap_or_default();
+            let pending = state
+                .stream_usage
+                .get(&message.stream.id)
+                .map(|usage| usage.messages)
+                .unwrap_or_default();
             if pending < OUTBOUND_BACKPRESSURED_STREAM_CAPACITY {
-                let message = RegularOutbound::line(text, stream);
                 let result = Self::push_regular_locked(&mut state, message, false);
                 drop(state);
                 self.changed.notify_all();

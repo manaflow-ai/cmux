@@ -2483,7 +2483,8 @@ use journal_stream::{
 
 mod resource_connection;
 use resource_connection::{
-    handle_resource_connection_message, resource_stream_end, send_resource_stream_item,
+    cancel_resource_stream_id, handle_resource_connection_message, resource_stream_end,
+    send_resource_stream_item,
 };
 
 mod connection_frame;

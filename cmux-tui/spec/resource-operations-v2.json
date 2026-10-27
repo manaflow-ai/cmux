@@ -25886,6 +25886,15 @@
               "kind": "ref",
               "name": "Cursor"
             }
+          },
+          "stream": {
+            "required": false,
+            "description": "The u16 frame stream the client mints for this stream id (attach-streams-v1 grant): every item and the stream_end carry it, and it is free again once the stream_end is queued.",
+            "type": {
+              "kind": "primitive",
+              "name": "uint16",
+              "minimum": 1
+            }
           }
         },
         "extra": false

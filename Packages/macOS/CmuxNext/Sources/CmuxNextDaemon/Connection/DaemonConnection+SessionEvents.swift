@@ -21,14 +21,24 @@ extension DaemonConnection {
               identity?.supports(DaemonCapability.stateResources.rawValue) == true else { return }
         let id = SessionEventsWire.newStreamID()
         sessionStream = id
-        var routed: LineTransport?
+        // With the stream grant, the stream takes a client stream id before the request names it
+        // (p05-ipc-145): its items then come as EVENT frames on that id, routed by header alone.
+        let minted = streamsGranted ? admittedConnection?.transport : nil
+        let frameStream = minted?.routeOnControlSequence(streamID: id, mintingFrameStream: true)
+        var routed = minted
         do {
             _ = try await resourceRequest({ requestID in
                 ResourceRequestEnvelope(id: requestID, operation: "session.events",
-                                        params: ["stream_id": .string(id)], idempotencyKey: nil)
+                                        params: SessionEventsWire.params(streamID: id, frameStream: frameStream),
+                                        idempotencyKey: nil)
             }, as: SessionEventsWire.Opened.self, onTransport: { transport in
                 // A reconnect during the handoff wait: the new connection opens its own stream.
                 guard self.serial == serial else { throw DaemonError.notConnected }
+                if let minted {
+                    // The id is the minting connection's: another one never heard of it.
+                    guard transport === minted else { throw DaemonError.notConnected }
+                    return
+                }
                 // Its items ride the daemon's reply FIFO: they count in the event barrier
                 // of the transport that carries the request.
                 transport.routeOnControlSequence(streamID: id)
@@ -59,11 +69,30 @@ extension DaemonConnection {
     }
 }
 
+extension DaemonConnection {
+    /// The daemon granted this connection client stream ids (`attach-streams-v1`): the daemon offers
+    /// it and this connection echoed it in `set-client-info`.
+    var streamsGranted: Bool {
+        configuration.handshakeCapabilities.contains(SessionEventsWire.streamsCapability)
+            && identity?.supports(SessionEventsWire.streamsCapability) == true
+    }
+}
+
 /// Wire shapes of the `session.events` stream request.
 enum SessionEventsWire {
+    /// The grant of client stream ids (cmux-tui spec/events.md "Attach streams").
+    static let streamsCapability = "attach-streams-v1"
+
     /// A fresh `stream_<32 hex>` id.
     static func newStreamID() -> String {
         "stream_" + UUID().uuidString.replacingOccurrences(of: "-", with: "").lowercased()
+    }
+
+    /// The open's params: the v2 id, and the client stream id it maps to when one was taken.
+    static func params(streamID: String, frameStream: UInt16?) -> [String: JSONValue] {
+        var params: [String: JSONValue] = ["stream_id": .string(streamID)]
+        if let frameStream { params["stream"] = .number(Double(frameStream)) }
+        return params
     }
 
     /// The `session.events` reply.

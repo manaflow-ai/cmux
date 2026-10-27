@@ -27,7 +27,7 @@ use crate::mux::ResourceWaitWake;
 use crate::panic_free::RecoverPoison;
 use crate::stream_interrupt::InterruptSet;
 use crate::stream_interrupt::StreamInterrupt;
-use cmux_ipc::{FrameHeader, StreamLane};
+use cmux_ipc::{Aux, FrameHeader, FrameKind, StreamLane};
 use cmux_threads::sync::Mutex;
 use serde::Serialize;
 use serde_json::Value;
@@ -54,6 +54,10 @@ pub(super) struct OutboundStream {
     /// The id the client minted for this stream (attach-streams-v1): every
     /// item carries it as `"stream"` and the terminal is `stream-end`.
     pub(super) client_stream: Option<ClientStreamId>,
+    /// The items of this client stream leave as EVENT frames on its id
+    /// (ipc-frames-v2), so the client routes them by header; its terminal
+    /// stays a line in the same FIFO. False for every unframed stream.
+    pub(super) item_frames: bool,
     /// Run when the writer takes an item of this stream while it held its
     /// backpressure cap: the producer's drain task (p05-ipc-079), which
     /// stopped at the cap instead of waiting for room.
@@ -81,6 +85,7 @@ impl OutboundStream {
             overflow_text: Arc::new(Mutex::new(overflow_text)),
             closed: InterruptSet::default(),
             client_stream: None,
+            item_frames: false,
             space_hook: Arc::default(),
         }
     }
@@ -162,6 +167,17 @@ pub(super) trait MessageSink: Send + Sync {
         _stream: &OutboundStream,
     ) -> std::io::Result<()> {
         Err(std::io::Error::new(std::io::ErrorKind::Unsupported, "this sink carries no frames"))
+    }
+    /// [`Self::send_stream_frame`] for an ordered state stream: waits while
+    /// `stream` holds its backpressure cap, as
+    /// [`Self::send_stream_backpressured`] does for a line.
+    fn send_stream_frame_backpressured(
+        &self,
+        header: FrameHeader,
+        text: Arc<BudgetedText>,
+        stream: &OutboundStream,
+    ) -> std::io::Result<()> {
+        self.send_stream_frame(header, text, stream)
     }
     fn send_terminal(
         &self,
@@ -373,12 +389,26 @@ impl MessageWriter {
     /// its own stream budget and backpressure; it never spends the control
     /// reserve.
     pub(super) fn start_control_stream(&self, overflow: &Value) -> std::io::Result<OutboundStream> {
-        Ok(OutboundStream::with_sequence(
+        self.start_control_stream_for(None, overflow)
+    }
+
+    /// [`Self::start_control_stream`] for the client stream `client_stream`
+    /// names, when one does: its items and its terminal (`overflow` too)
+    /// carry `"stream"`. The id is not claimed yet
+    /// (`MessageWriter::claim_client_stream`).
+    pub(super) fn start_control_stream_for(
+        &self,
+        client_stream: Option<ClientStreamId>,
+        overflow: &Value,
+    ) -> std::io::Result<OutboundStream> {
+        let mut stream = OutboundStream::with_sequence(
             self.next_stream_id.fetch_add(1, Ordering::Relaxed),
-            self.render_service.serialize_control(overflow)?,
+            self.render_service.serialize_control_for(overflow, client_stream)?,
             true,
             StreamLane::Bulk,
-        ))
+        );
+        stream.client_stream = client_stream;
+        Ok(stream)
     }
 
     /// The stream's overflow terminal (`overflow`, or `stream-end{overflow}`
@@ -397,7 +427,9 @@ impl MessageWriter {
         stream: &OutboundStream,
         overflow: &Value,
     ) -> std::io::Result<()> {
-        stream.update_overflow(self.render_service.serialize_control(overflow)?);
+        stream.update_overflow(
+            self.render_service.serialize_control_for(overflow, stream.client_stream)?,
+        );
         Ok(())
     }
 
@@ -436,6 +468,40 @@ impl MessageWriter {
             return Err(std::io::Error::new(std::io::ErrorKind::BrokenPipe, "connection closed"));
         }
         let result = self.sink.send_stream_frame(header, text, stream);
+        if result.as_ref().is_err_and(|error| error.kind() != std::io::ErrorKind::WouldBlock) {
+            stream.close();
+        }
+        result
+    }
+
+    /// [`Self::send_stream_backpressured`] of `value` as one EVENT frame on
+    /// `stream`'s client stream, `aux` its offset (an item sequence). The
+    /// header names the stream, so the payload carries no `"stream"` tag.
+    pub(super) fn send_event_frame_backpressured<T: Serialize + ?Sized>(
+        &self,
+        value: &T,
+        aux: u64,
+        stream: &OutboundStream,
+    ) -> std::io::Result<()> {
+        if !self.is_open() {
+            return Err(std::io::Error::new(std::io::ErrorKind::BrokenPipe, "connection closed"));
+        }
+        let Some(ClientStreamId(id)) = stream.client_stream else {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "an EVENT frame needs a client stream",
+            ));
+        };
+        let result = self.render_service.serialize_for(value, None).and_then(|text| {
+            let len = u32::try_from(text.len()).map_err(|_| {
+                std::io::Error::new(std::io::ErrorKind::InvalidData, "the item exceeds a frame")
+            })?;
+            let header =
+                FrameHeader::new(FrameKind::Event, id, len, Aux::Offset(aux)).map_err(|bad| {
+                    std::io::Error::new(std::io::ErrorKind::InvalidData, bad.to_string())
+                })?;
+            self.sink.send_stream_frame_backpressured(header, text, stream)
+        });
         if result.as_ref().is_err_and(|error| error.kind() != std::io::ErrorKind::WouldBlock) {
             stream.close();
         }

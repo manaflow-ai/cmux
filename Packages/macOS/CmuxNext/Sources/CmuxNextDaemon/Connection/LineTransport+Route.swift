@@ -32,7 +32,7 @@ extension LineTransport {
         if streamed, let streamID = envelope.streamID {
             let streamRoute = state.withLock { state -> StreamRoute in
                 if state.controlStreams.contains(streamID) {
-                    if envelope.type == "stream_end" { state.controlStreams.remove(streamID) }
+                    if envelope.type == "stream_end" { state.endControlSequence(streamID: streamID) }
                     return .control
                 }
                 if let handler = state.streamHandler { return .handler(handler) }

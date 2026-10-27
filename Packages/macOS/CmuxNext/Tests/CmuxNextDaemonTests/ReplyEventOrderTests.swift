@@ -63,6 +63,11 @@ import Testing
         func write(_ lines: [String]) {
             var bytes = Array(lines.joined(separator: "\n").utf8)
             bytes.append(0x0A)
+            write(bytes: bytes)
+        }
+
+        /// Writes `bytes` as they are (frames, or lines with their newlines).
+        func write(bytes: [UInt8]) {
             var offset = 0
             while offset < bytes.count {
                 let written = bytes[offset...].withUnsafeBytes { Darwin.write(peer, $0.baseAddress, $0.count) }

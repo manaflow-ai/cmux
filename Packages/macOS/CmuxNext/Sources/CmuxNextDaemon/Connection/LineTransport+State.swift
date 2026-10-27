@@ -18,6 +18,11 @@ extension LineTransport {
         var eventCount: UInt64 = 0
         /// Streams the daemon writes in its reply FIFO (`session.events`).
         var controlStreams: Set<String> = []
+        /// The client stream ids (u16) this connection holds, each until its stream's end is read
+        /// (``LineTransport/mintFrameStream()``).
+        var frameStreams = FrameStreamIDs()
+        /// The control streams opened on a client stream id: their EVENT frames are their items.
+        var controlFrameStreams: [UInt16: String] = [:]
         /// Gets resource API stream lines (`stream_item`, `stream_end`).
         var streamHandler: (@Sendable (_ streamID: String, _ line: Data) -> Void)?
 

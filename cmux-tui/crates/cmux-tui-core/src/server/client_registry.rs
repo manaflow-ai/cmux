@@ -543,6 +543,24 @@ impl ClientRegistry {
             .remove(stream_id.as_str())
     }
 
+    /// The public id of `client`'s resource stream written on outbound
+    /// stream `outbound_id`: a v2 stream opened with a client stream id
+    /// (`session.events {stream}`), which `cancel-stream` ends as a v2 stream.
+    pub(super) fn resource_stream_on(
+        &self,
+        client: u64,
+        outbound_id: u64,
+    ) -> Option<StreamPublicId> {
+        let state = self.state.lock().recover_poison();
+        let (stream_id, _) = state
+            .clients
+            .get(&client)?
+            .resource_streams
+            .iter()
+            .find(|(_, stream)| stream.outbound.id == outbound_id)?;
+        StreamPublicId::parse(stream_id.clone()).ok()
+    }
+
     pub(super) fn finish_resource_stream(
         &self,
         client: u64,

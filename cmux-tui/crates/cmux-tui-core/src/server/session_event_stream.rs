@@ -1,10 +1,27 @@
 //! Session event streams: preparing the initial session event items,
 //! starting the stream worker and running it until cancellation or
 //! disconnect.
+//!
+//! A client with the `attach-streams-v1` grant may name a u16 `stream` with
+//! the `stream_<hex>` id it opens: the open maps the v2 id to that client
+//! stream, which the connection holds as it holds an attach stream
+//! (server/attach_streams.rs, the same caps and `stream_in_use`). Every item
+//! and the `stream_end` then carry `"stream"`; with `ipc-frames-v2` granted
+//! too, each item is an EVENT frame on that stream, so the client's reader
+//! routes it by header and never reads its line. The items stay on the
+//! control sequence, behind the open's reply, so they still count in the
+//! client's event barrier. The `stream_end` is a line, queued as the stream's
+//! last item, and queuing it frees the id; `stream.cancel` and `cancel-stream`
+//! of the id end it the same way. Chrome binds an associated endpoint the
+//! same way: the opener names the endpoint id, every message carries it, and
+//! the peer-closed notice is its last
+//! (mojo/public/cpp/bindings/lib/multiplex_router.cc, `AssociateInterface`).
 
 use super::MessageWriter;
 use super::OutboundStream;
 use super::ResourceWorkerPermit;
+use super::attach_streams::ClientStreamId;
+use super::line_connection::IPC_FRAMES_CAPABILITY;
 use super::register_resource_outbound;
 use super::resource_session_snapshot;
 use super::resource_stream_end;
@@ -46,6 +63,7 @@ pub(super) fn prepare_session_event_stream(
 ) -> Result<(Value, SessionEventStreamStart), ResourceError> {
     mux.resolve_resource_path(crate::ResourceTarget::Session, &request.selectors)?;
     let stream_id = resource_stream_id(request)?;
+    let client_stream = requested_client_stream(mux, client, request)?;
     let epoch = mux.resource_event_epoch();
     let snapshot = resource_session_snapshot(mux, client, &request.selectors)?;
     let snapshot_cursor = snapshot.field("cursor").clone();
@@ -233,11 +251,21 @@ pub(super) fn prepare_session_event_stream(
         None,
     );
     // Its items share the reply FIFO (spec/transports.md "Reply and event order").
-    let outbound = writer
-        .start_control_stream(&overflow)
+    let mut outbound = writer
+        .start_control_stream_for(client_stream, &overflow)
         .map_err(|_| ResourceError::transport_closed("could not allocate an outbound stream"))?;
+    outbound.item_frames = client_stream.is_some()
+        && mux.control_clients.supports_capability(client, IPC_FRAMES_CAPABILITY);
     let (canceled, worker_permit) =
         register_resource_outbound(mux, client, &stream_id, &outbound, "session.events")?;
+    // The client stream id is claimed last, so a refused id undoes only the
+    // registration and nothing was queued on it.
+    if let Err(error) =
+        writer.claim_client_stream(&outbound, &mux.control_clients.attach_stream_admission)
+    {
+        let _ = mux.control_clients.take_resource_stream(client, &stream_id);
+        return Err(client_stream_refused(error));
+    }
     Ok((
         json!({"stream_id":stream_id,"cursor":opened_cursor}),
         SessionEventStreamStart {
@@ -251,6 +279,32 @@ pub(super) fn prepare_session_event_stream(
             epoch,
         },
     ))
+}
+
+/// The u16 client stream `request` names (`stream`), checked against the
+/// connection's `attach-streams-v1` grant; `None` when it names none.
+fn requested_client_stream(
+    mux: &Mux,
+    client: u64,
+    request: &crate::resource_router::ParsedResourceRequest,
+) -> Result<Option<ClientStreamId>, ResourceError> {
+    let Some(value) = request.fields.get("stream") else { return Ok(None) };
+    let stream = value
+        .as_u64()
+        .and_then(|stream| u16::try_from(stream).ok())
+        .filter(|stream| *stream != 0)
+        .ok_or_else(|| {
+            ResourceError::validation_invalid(Some("stream"), "stream must be a u16 above 0")
+        })?;
+    super::attach_streams::require_grant(mux, client).map_err(client_stream_refused)?;
+    Ok(Some(ClientStreamId(stream)))
+}
+
+/// A `stream` the connection cannot use: the reason starts with its
+/// attach-stream code (`stream_in_use`, `stream_capacity`,
+/// `streams_not_granted`, ...).
+fn client_stream_refused(error: super::attach_streams::AttachStreamError) -> ResourceError {
+    ResourceError::validation_invalid(Some("stream"), error.to_string())
 }
 
 pub(super) fn start_session_event_stream(
