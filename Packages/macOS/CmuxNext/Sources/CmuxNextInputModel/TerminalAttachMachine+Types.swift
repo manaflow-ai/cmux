@@ -35,6 +35,11 @@ extension TerminalAttachMachine {
         public var reason: DisconnectReason
         /// Re-attaches that failed since the view disconnected.
         public var failedReconnects: Int
+
+        public init(reason: DisconnectReason, failedReconnects: Int) {
+            self.reason = reason
+            self.failedReconnects = failedReconnects
+        }
     }
 
     public nonisolated enum Phase: Hashable, Sendable {
