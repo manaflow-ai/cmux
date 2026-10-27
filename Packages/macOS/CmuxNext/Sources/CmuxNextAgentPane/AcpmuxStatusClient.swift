@@ -146,8 +146,8 @@ nonisolated enum AcpmuxStatusClient {
             "params": ["protocolVersion": 1, "clientInfo": ["name": "cmux-next-agent-pane", "version": "1"], "clientCapabilities": [:]],
         ]
         let status: [String: Any] = ["jsonrpc": "2.0", "id": 2, "method": method, "params": params]
-        let request = try CheckedJSON.data(withJSONObject: status) + Data([0x0A])
-        var payload = try CheckedJSON.data(withJSONObject: initialize) + Data([0x0A])
+        let request = try CheckedJSON().data(status) + Data([0x0A])
+        var payload = try CheckedJSON().data(initialize) + Data([0x0A])
         if requiredFeature == nil { payload += request }
         try await transport.send(payload)
         var initialized = false

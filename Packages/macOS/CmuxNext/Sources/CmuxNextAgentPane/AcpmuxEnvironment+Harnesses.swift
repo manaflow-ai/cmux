@@ -28,7 +28,19 @@ public nonisolated struct AcpmuxRPCError: Error, Sendable, Equatable, LocalizedE
     /// No daemon answered on the socket.
     public var isUnreachable: Bool { name == Self.unreachable }
     static let unreachable = "acpmux.unreachable"
+    /// The daemon's result could not be written back as JSON bytes.
+    static let resultNotJSON = "acpmux.result_not_json"
     public var errorDescription: String? { message }
+
+    /// `result`, the daemon's answer to `method`, as JSON bytes, or a refusal named
+    /// ``resultNotJSON`` when JSON cannot hold it.
+    static func resultData(_ result: [String: Any], of method: String) throws(AcpmuxRPCError) -> Data {
+        do {
+            return try CheckedJSON().data(result)
+        } catch {
+            throw AcpmuxRPCError(name: resultNotJSON, message: "acpmux answered \(method) with a result that is not JSON (\(error))")
+        }
+    }
 }
 
 /// The harness operations of BRING-YOUR-OWN-HARNESS (H1, H2) on the local daemon's unix socket:
@@ -77,7 +89,7 @@ extension AcpmuxEnvironment {
         do {
             let result = try await AcpmuxStatusClient.call(socketPath: socketPath, method: method.rawValue, params: params,
                                                            deadline: method.deadline, detailed: true)
-            return try CheckedJSON.data(withJSONObject: result)
+            return try AcpmuxRPCError.resultData(result, of: method.rawValue)
         } catch AcpmuxStatusClient.Failure.unreachable(let detail) {
             throw AcpmuxRPCError(name: AcpmuxRPCError.unreachable, message: detail)
         }
@@ -116,7 +128,7 @@ extension AcpmuxEnvironment {
         let watch: [String: Any] = ["jsonrpc": "2.0", "id": 2, "method": "_acpmux/watch", "params": ["enabled": true]]
         var payload = Data()
         for request in [initialize, watch] {
-            payload += try CheckedJSON.data(withJSONObject: request)
+            payload += try CheckedJSON().data(request)
             payload.append(0x0A)
         }
         try await AcpmuxStatusClient.send(payload, on: connection)

@@ -30,7 +30,7 @@ public nonisolated struct AcpmuxChatOpenPlan: Sendable, Equatable {
                   let agentSessionID = adoptValue["agentSessionId"] as? String,
                   let sessionNew = result["sessionNew"],
                   JSONSerialization.isValidJSONObject(sessionNew) else { return nil }
-            guard let data = try? CheckedJSON.data(withJSONObject: sessionNew) else { return nil }
+            guard let data = try? CheckedJSON().data(sessionNew) else { return nil }
             action = .adopt(adopt: AgentPaneAdopt(harness: harness, agentSessionId: agentSessionID), cwd: cwd, sessionNew: data)
         case "terminal":
             guard let terminal = result["terminal"] as? [String: Any], let argv = terminal["argv"] as? [String], !argv.isEmpty else { return nil }

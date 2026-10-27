@@ -10,14 +10,14 @@ nonisolated enum AcpmuxPermissionPrompt {
     /// One JSON-RPC request line.
     static func frame(id: Int, method: String, params: [String: Any]) -> Data {
         let request: [String: Any] = ["jsonrpc": "2.0", "id": id, "method": method, "params": params]
-        var data = (try? CheckedJSON.data(withJSONObject: request)) ?? Data()
+        var data = (try? CheckedJSON().data(request)) ?? Data()
         data.append(0x0A)
         return data
     }
 
     /// sha256 of the request's canonical JSON (sorted keys).
     static func digest(_ request: [String: Any]) -> String {
-        let data = (try? CheckedJSON.data(withJSONObject: request, options: [.sortedKeys, .withoutEscapingSlashes])) ?? Data()
+        let data = (try? CheckedJSON(options: [.sortedKeys, .withoutEscapingSlashes]).data(request)) ?? Data()
         return SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
     }
 
@@ -39,7 +39,7 @@ nonisolated enum AcpmuxPermissionPrompt {
     }
 
     static func compactJSON(_ value: Any) -> String {
-        let data = (try? CheckedJSON.data(withJSONObject: value, options: [.sortedKeys, .withoutEscapingSlashes, .fragmentsAllowed])) ?? Data()
+        let data = (try? CheckedJSON(options: [.sortedKeys, .withoutEscapingSlashes, .fragmentsAllowed]).data(value)) ?? Data()
         return String(decoding: data, as: UTF8.self)
     }
 

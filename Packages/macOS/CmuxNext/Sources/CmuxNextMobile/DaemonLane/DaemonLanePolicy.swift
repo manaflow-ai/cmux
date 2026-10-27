@@ -213,7 +213,7 @@ public struct DaemonLanePolicy: Sendable {
             var marked = object
             marked["remote"] = true
             marked["device_id"] = deviceID
-            guard let data = try? CheckedJSON.data(withJSONObject: marked, options: [.sortedKeys]) else {
+            guard let data = try? CheckedJSON(options: [.sortedKeys]).data(marked) else {
                 return .refuse(Self.errorLine(id: id, code: "bad_request", message: "request is not a JSON object"))
             }
             return .rewrite(data)
@@ -227,7 +227,7 @@ public struct DaemonLanePolicy: Sendable {
                 fields["device_id"] = nil
                 anonymous["identity"] = fields
             }
-            guard let data = try? CheckedJSON.data(withJSONObject: anonymous, options: [.sortedKeys]) else {
+            guard let data = try? CheckedJSON(options: [.sortedKeys]).data(anonymous) else {
                 return .refuse(Self.errorLine(id: id, code: "bad_request", message: "request is not a JSON object"))
             }
             return .rewrite(data)
@@ -323,7 +323,7 @@ public struct DaemonLanePolicy: Sendable {
         if needsOwnershipCheck(object) {
             return .refuse(resourceErrorLine(id: id, message: "\(object["operation"] as? String ?? "this") needs the Mac app's phone link"))
         }
-        guard let line = try? CheckedJSON.data(withJSONObject: object, options: [.sortedKeys]) else {
+        guard let line = try? CheckedJSON(options: [.sortedKeys]).data(object) else {
             return .refuse(resourceErrorLine(id: id, message: "request is not a JSON object"))
         }
         return .rewrite(line)
@@ -421,13 +421,13 @@ public struct DaemonLanePolicy: Sendable {
             "protocol": "cmux.protocol/2", "type": "response", "id": id ?? NSNull(), "ok": false,
             "error": ["code": "origin.forbidden", "message": message, "details": ["reason": "phone_policy"], "retryable": false],
         ]
-        return (try? CheckedJSON.data(withJSONObject: response, options: [.sortedKeys])) ?? Data()
+        return (try? CheckedJSON(options: [.sortedKeys]).data(response)) ?? Data()
     }
 
     /// A v12 error response line (no trailing newline).
     static func errorLine(id: Any?, code: String, message: String) -> Data {
         var response: [String: Any] = ["ok": false, "error": message, "error_code": code]
         response["id"] = id ?? NSNull()
-        return (try? CheckedJSON.data(withJSONObject: response, options: [.sortedKeys])) ?? Data()
+        return (try? CheckedJSON(options: [.sortedKeys]).data(response)) ?? Data()
     }
 }

@@ -30,7 +30,7 @@ extension BrowserSearchEngine {
             "safe_for_autoreplace": false,
             "synced_guid": "cmux-search-\(id)",
         ]
-        guard let json = try? CheckedJSON.data(withJSONObject: data, options: [.sortedKeys, .withoutEscapingSlashes]) else { return nil }
+        guard let json = try? CheckedJSON(options: [.sortedKeys, .withoutEscapingSlashes]).data(data) else { return nil }
         return String(decoding: json, as: UTF8.self)
     }
 }

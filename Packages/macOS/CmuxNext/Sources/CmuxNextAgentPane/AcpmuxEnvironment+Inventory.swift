@@ -22,6 +22,6 @@ extension AcpmuxEnvironment {
         } catch AcpmuxStatusClient.Failure.unreachable(let detail) {
             throw AcpmuxRPCError(name: AcpmuxRPCError.unreachable, message: detail)
         }
-        return try JSONDecoder().blockingDecode(AcpmuxHarnessInventory.self, from: CheckedJSON.data(withJSONObject: result))
+        return try JSONDecoder().blockingDecode(AcpmuxHarnessInventory.self, from: AcpmuxRPCError.resultData(result, of: "_acpmux/harness/health"))
     }
 }

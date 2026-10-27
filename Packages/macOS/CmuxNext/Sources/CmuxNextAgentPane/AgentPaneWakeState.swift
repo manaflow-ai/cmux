@@ -65,7 +65,7 @@ public nonisolated struct AgentPaneWakeState: Codable, Sendable, Equatable {
     /// or the answer is malformed.
     init(page value: Any?) {
         guard let object = value as? [String: Any], JSONSerialization.isValidJSONObject(object),
-              let data = try? CheckedJSON.data(withJSONObject: object),
+              let data = try? CheckedJSON().data(object),
               let state = try? JSONDecoder().blockingDecode(Self.self, from: data) else {
             self.init()
             return

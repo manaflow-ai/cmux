@@ -56,7 +56,16 @@ public struct MobileAttachTicket {
                 "attach_url": attachURL,
             ]
             if let expiresAt = ticket.expiresAt { object["expires_at"] = ISO8601DateFormatter().string(from: expiresAt) }
-            return try CheckedJSON.data(withJSONObject: object, options: [.sortedKeys])
+            return try Self.write(object)
+        }
+
+        /// `object` as sorted-key JSON, or ``Failure/unencodable`` when JSON cannot hold it.
+        static func write(_ object: [String: Any]) throws(Failure) -> Data {
+            do {
+                return try CheckedJSON(options: [.sortedKeys]).data(object)
+            } catch {
+                throw .unencodable
+            }
         }
     }
 

@@ -1,4 +1,3 @@
-import CmuxNextCompat
 public import Foundation
 
 /// The `/api/vm` REST client (web/app/api/vm). Native auth is
@@ -354,7 +353,7 @@ public struct CloudAPIClient: Sendable {
         if let idempotencyKey { request.setValue(idempotencyKey, forHTTPHeaderField: "Idempotency-Key") }
         if let body {
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-            request.httpBody = try CheckedJSON.data(withJSONObject: body)
+            request.httpBody = try CloudAPIError.requestBody(body)
         } else if let bodyStream {
             request.setValue(bodyStream.contentType, forHTTPHeaderField: "Content-Type")
             request.setValue(String(bodyStream.length), forHTTPHeaderField: "Content-Length")

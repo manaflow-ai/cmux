@@ -53,7 +53,7 @@ nonisolated extension AgentPaneCustomization {
             layout = object
         }
         layout["quickActions"] = list.map(\.json)
-        let data = try CheckedJSON.data(withJSONObject: layout, options: [.sortedKeys, .prettyPrinted, .withoutEscapingSlashes])
+        let data = try CheckedJSON(options: [.sortedKeys, .prettyPrinted, .withoutEscapingSlashes]).data(layout)
         let folder = file.deletingLastPathComponent()
         try manager.createDirectory(at: folder, withIntermediateDirectories: true)
         let temporary = folder.appending(path: ".\(file.lastPathComponent).\(UUID().uuidString).tmp")

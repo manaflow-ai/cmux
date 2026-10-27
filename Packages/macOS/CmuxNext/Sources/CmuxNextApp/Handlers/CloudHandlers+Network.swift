@@ -47,8 +47,8 @@ extension CloudHandlers {
         bind("cloudFirewallCreate", registry, reason: reason) { invocation in
             guard let json = invocation["path"]?.stringValue, let data = json.data(using: .utf8),
                   let value = try? JSONSerialization.blockingJSONObject(with: data) as? [String: Any],
-                  let sourceData = try? CheckedJSON.data(withJSONObject: value["source"] ?? [:]),
-                  let destinationData = try? CheckedJSON.data(withJSONObject: value["destination"] ?? [:]),
+                  let sourceData = try? CheckedJSON().data(value["source"] ?? [:]),
+                  let destinationData = try? CheckedJSON().data(value["destination"] ?? [:]),
                   let source = try? JSONDecoder().blockingDecode(CloudFirewallEndpoint.self, from: sourceData),
                   let destination = try? JSONDecoder().blockingDecode(CloudFirewallEndpoint.self, from: destinationData) else {
                 throw ActionFailure(message: "Pass path as JSON with source and destination firewall endpoints.")

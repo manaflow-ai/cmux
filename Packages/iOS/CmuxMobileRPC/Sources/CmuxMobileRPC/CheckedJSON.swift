@@ -1,51 +1,38 @@
 internal import Foundation
 
-/// Why ``CheckedJSON`` did not write an object.
-enum CheckedJSONError: Error, Equatable, Sendable {
-    /// The object holds a value JSON cannot hold (a `Date`, NaN or infinity, a non-string dictionary
-    /// key, ...), or its top level is not an array or a dictionary and the options do not have
-    /// `.fragmentsAllowed`: `JSONSerialization.data(withJSONObject:options:)` raises an uncatchable
-    /// Objective-C exception for it.
-    case invalidJSONObject(topLevelType: String)
-    /// `JSONSerialization` threw for an object it accepted as valid.
-    case writeFailed(String)
-}
+/// JSON writing that throws instead of raising: this package's copy of CmuxNextCompat's `CheckedJSON`
+/// (CheckedFoundation.swift, p10-stability-166), with the same API, because an iOS package cannot depend on
+/// the macOS one. `JSONSerialization.data(withJSONObject:options:)` raises an Objective-C exception, which
+/// Swift cannot catch, for a value JSON cannot carry; Chromium's `base::JSONWriter::WriteWithOptions`
+/// (base/json/json_writer.cc) returns false for such a value instead.
+struct CheckedJSON: Sendable {
+    /// Why a value could not be written as JSON.
+    enum Failure: Error, Equatable, Sendable {
+        /// The value holds something JSON cannot carry: a type other than a string, number, bool, array,
+        /// dictionary or `NSNull`, a non-string dictionary key, NaN or an infinity, or a top-level scalar
+        /// without `.fragmentsAllowed`.
+        case notAJSONObject
+        /// `JSONSerialization` returned an error for a valid value; the text is the error's description.
+        case serialization(String)
+    }
 
-/// JSON writing that throws for an object JSON cannot hold instead of raising: this package's
-/// copy of CmuxNextCompat's `CheckedJSON` (an iOS package cannot depend on the macOS one), with the
-/// same contract as Chromium's `base::JSONWriter::WriteWithOptions` (base/json/json_writer.cc),
-/// which returns false for a value it cannot write.
-struct CheckedJSON {
+    /// The writing options every ``data(_:)`` call passes to `JSONSerialization`.
     let options: JSONSerialization.WritingOptions
 
     init(options: JSONSerialization.WritingOptions = []) {
         self.options = options
     }
 
-    /// Whether `object` can be written with these options without an Objective-C exception.
-    func isValid(_ object: Any) -> Bool {
-        options.contains(.fragmentsAllowed)
-            ? JSONSerialization.isValidJSONObject([object])
-            : JSONSerialization.isValidJSONObject(object)
-    }
-
-    /// The JSON for `object`, or ``CheckedJSONError`` when JSON cannot hold it.
-    func data(_ object: Any) throws(CheckedJSONError) -> Data {
-        guard isValid(object) else {
-            throw .invalidJSONObject(topLevelType: String(describing: type(of: object)))
-        }
+    /// `object` as JSON data, or ``Failure/notAJSONObject`` when `JSONSerialization` would raise on it.
+    func data(_ object: Any) throws(Failure) -> Data {
+        // isValidJSONObject wants a container at the top: a fragment is valid when it is valid inside an array.
+        let fragments = options.contains(.fragmentsAllowed)
+        guard !fragments || JSONSerialization.isValidJSONObject([object]) else { throw .notAJSONObject }
+        guard fragments || JSONSerialization.isValidJSONObject(object) else { throw .notAJSONObject }
         do {
             return try JSONSerialization.data(withJSONObject: object, options: options)
         } catch {
-            throw .writeFailed(String(describing: error))
+            throw .serialization(String(describing: error))
         }
-    }
-
-    /// The checked replacement for `JSONSerialization.data(withJSONObject:options:)`.
-    static func data(
-        withJSONObject object: Any,
-        options: JSONSerialization.WritingOptions = []
-    ) throws(CheckedJSONError) -> Data {
-        try CheckedJSON(options: options).data(object)
     }
 }

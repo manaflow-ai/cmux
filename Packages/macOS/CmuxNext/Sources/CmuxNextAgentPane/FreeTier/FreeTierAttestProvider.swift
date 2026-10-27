@@ -265,6 +265,6 @@ public actor FreeTierAttestProvider {
     }
 
     private static func encode(_ object: [String: Any]) -> Data {
-        ((try? CheckedJSON.data(withJSONObject: object)) ?? Data("{}".utf8)) + Data([0x0A])
+        ((try? CheckedJSON().data(object)) ?? Data("{}".utf8)) + Data([0x0A])
     }
 }

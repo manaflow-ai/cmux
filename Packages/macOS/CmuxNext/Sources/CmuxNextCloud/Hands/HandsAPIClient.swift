@@ -19,7 +19,11 @@ public struct HandsAPIClient: Sendable {
     /// `GET /v1/hands`.
     public func hands() async throws -> [HandSummary] {
         let value = try await request("GET", "/v1/hands")
-        return try JSONDecoder().decode([HandSummary].self, from: CheckedJSON.data(withJSONObject: value))
+        do {
+            return try JSONDecoder().decode([HandSummary].self, from: CheckedJSON().data(value))
+        } catch {
+            throw CloudAPIError.decoding("/v1/hands: \(error)")
+        }
     }
 
     /// `GET /v1/hands/<hand>/approvals`: the requests waiting for the owner.
@@ -93,7 +97,7 @@ public struct HandsAPIClient: Sendable {
         request.setValue("Bearer \(access)", forHTTPHeaderField: "Authorization")
         if let body {
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-            request.httpBody = try CheckedJSON.data(withJSONObject: body)
+            request.httpBody = try CloudAPIError.requestBody(body)
         }
         let data: Data
         let response: URLResponse

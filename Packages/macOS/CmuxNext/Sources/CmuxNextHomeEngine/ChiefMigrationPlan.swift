@@ -148,7 +148,7 @@ nonisolated struct ChiefMigrationPlan: Sendable, Equatable {
     /// An OptChat log line (optchat-host lines.rs `main_line`).
     static func logLine(i: Int, kind: String, text: String, date: String) -> String {
         let object: [String: Any] = ["i": i, "kind": kind, "text": text, "size": kind.utf8.count + 2 + text.utf8.count, "date": date]
-        let data = (try? CheckedJSON.data(withJSONObject: object, options: [.sortedKeys, .withoutEscapingSlashes])) ?? Data()
+        let data = (try? CheckedJSON(options: [.sortedKeys, .withoutEscapingSlashes]).data(object)) ?? Data()
         return String(decoding: data, as: UTF8.self) + "\n"
     }
 

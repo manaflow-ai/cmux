@@ -56,7 +56,7 @@ enum RoomDefaultsArguments {
     static func keepingEnv(of defaults: ProfileDefaults?, _ invocation: ActionInvocation) -> ActionInvocation {
         var invocation = invocation
         if let env = defaults?.env, !env.isEmpty,
-           let data = try? CheckedJSON.data(withJSONObject: env, options: [.sortedKeys]),
+           let data = try? CheckedJSON(options: [.sortedKeys]).data(env),
            let text = String(data: data, encoding: .utf8) {
             invocation.arguments["env"] = .string(text)
         }

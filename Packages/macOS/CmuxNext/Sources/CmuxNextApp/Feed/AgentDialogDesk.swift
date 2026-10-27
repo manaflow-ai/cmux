@@ -44,7 +44,7 @@ final class AgentDialogDesk {
 
         /// The prompt as a question this socket may answer; nil for a tool permission.
         var question: AgentQuestion? {
-            guard let data = try? CheckedJSON.data(withJSONObject: request),
+            guard let data = try? CheckedJSON().data(request),
                   let json = try? AgentQuestionJSON(data: data),
                   let question = AgentQuestion(permissionRequest: json, permissionId: permission, session: session),
                   question.source.harness != .acp else { return nil }

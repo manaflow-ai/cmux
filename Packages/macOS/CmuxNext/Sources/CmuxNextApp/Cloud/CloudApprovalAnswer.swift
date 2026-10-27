@@ -69,7 +69,7 @@ nonisolated struct CloudApprovalAnswer: Sendable {
     }
 
     private func post(_ path: String, _ body: [String: Any]) async throws -> [String: Any] {
-        let data = try await call(path, try CheckedJSON.data(withJSONObject: body))
+        let data = try await call(path, try CheckedJSON().data(body))
         guard let reply = try JSONSerialization.blockingJSONObject(with: data) as? [String: Any] else { throw Failure.refused(code: "bad_reply") }
         if let error = reply["error"] as? [String: Any], reply["ok"] as? Bool != true, reply["value"] == nil {
             throw Failure.refused(code: error["code"] as? String ?? "unknown")

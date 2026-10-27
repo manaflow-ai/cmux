@@ -128,7 +128,7 @@ public struct SessionJournalRead: Sendable {
             decoder.recorder?.decoded()  // the line is parsed again for its item
             guard let object = try? JSONSerialization.jsonObject(with: line) as? [String: Any], let item = object["item"],
                   JSONSerialization.isValidJSONObject(item) else { return nil }
-            return try? CheckedJSON.data(withJSONObject: item)
+            return try? CheckedJSON().data(item)
         }
     }
 }

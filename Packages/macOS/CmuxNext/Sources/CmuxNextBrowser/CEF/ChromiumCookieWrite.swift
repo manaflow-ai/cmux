@@ -55,7 +55,7 @@ public nonisolated struct ChromiumCookieWrite: Sendable, Equatable, CustomString
                 "creation": baseTime(cookie.created), "last_access": baseTime(cookie.lastAccess),
             ]
         }
-        return String(decoding: try CheckedJSON.data(withJSONObject: list), as: UTF8.self)
+        return String(decoding: try CheckedJSON().data(list), as: UTF8.self)
     }
 }
 

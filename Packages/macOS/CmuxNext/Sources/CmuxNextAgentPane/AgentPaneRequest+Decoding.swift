@@ -72,7 +72,7 @@ extension AgentPaneRequest {
         switch method {
         case "uiPointer.report":
             guard let params, JSONSerialization.isValidJSONObject(params),
-                  let data = try? CheckedJSON.data(withJSONObject: params),
+                  let data = try? CheckedJSON().data(params),
                   let text = String(data: data, encoding: .utf8) else { self = .unsupported(method); return }
             self = .uiPointerReport(text)
         case "ready":
@@ -211,7 +211,7 @@ extension AgentPaneRequest {
         case "newTab.context":
             self = .newTabContext
         case "newTab.warm":
-            if let warm = params?["warm"] as? [String: Any], let data = try? CheckedJSON.data(withJSONObject: warm),
+            if let warm = params?["warm"] as? [String: Any], let data = try? CheckedJSON().data(warm),
                data.count <= AgentPaneNewTab.maximumWarmBytes, let text = String(data: data, encoding: .utf8) {
                 self = .newTabWarm(text)
             } else {

@@ -135,7 +135,7 @@ public final class BrowserDebugWindow: NSObject, BrowserTabDelegate {
     }
 
     private static func writeReport(_ fields: [String: Any], to url: URL?) {
-        guard let url, let data = try? CheckedJSON.data(withJSONObject: fields, options: [.prettyPrinted, .sortedKeys]) else { return }
+        guard let url, let data = try? CheckedJSON(options: [.prettyPrinted, .sortedKeys]).data(fields) else { return }
         try? data.write(to: url, options: .atomic)
     }
 }

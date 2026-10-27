@@ -166,7 +166,7 @@ final class BookmarkChromiumSync {
             if let url = node.url { object["url"] = url.absoluteString }
             return object
         }
-        let data = (try? CheckedJSON.data(withJSONObject: ["nodes": nodes])) ?? Data("{\"nodes\":[]}".utf8)
+        let data = (try? CheckedJSON().data(["nodes": nodes])) ?? Data("{\"nodes\":[]}".utf8)
         return String(decoding: data, as: UTF8.self)
     }
 

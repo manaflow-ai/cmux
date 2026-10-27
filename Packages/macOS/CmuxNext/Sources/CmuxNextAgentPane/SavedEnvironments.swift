@@ -77,7 +77,7 @@ public actor SavedEnvironments: AgentPaneEnvironmentStoring {
         let document = data.flatMap { try? JSONSerialization.blockingJSONObject(with: $0) } as? [String: Any]
         var valid: [AgentPaneEnvironment] = []
         for entry in document?["environments"] as? [Any] ?? [] {
-            let decoded = (try? CheckedJSON.data(withJSONObject: entry))
+            let decoded = (try? CheckedJSON().data(entry))
                 .flatMap { try? JSONDecoder().blockingDecode(AgentPaneEnvironment.self, from: $0) }?
                 .validated()
             if let decoded, decoded.id != nil { valid.append(decoded) } else { foreign.append(entry) }
@@ -88,7 +88,7 @@ public actor SavedEnvironments: AgentPaneEnvironmentStoring {
 
     private func write(_ all: [AgentPaneEnvironment]) throws {
         let entries = try all.map { try JSONSerialization.blockingJSONObject(with: JSONEncoder().encode($0)) } + foreign
-        let data = try CheckedJSON.data(withJSONObject: ["environments": entries], options: [.prettyPrinted, .sortedKeys])
+        let data = try CheckedJSON(options: [.prettyPrinted, .sortedKeys]).data(["environments": entries])
         let directory = url.deletingLastPathComponent()
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         // Owner-only before any byte lands: the temporary file is made 0600, then renamed over.

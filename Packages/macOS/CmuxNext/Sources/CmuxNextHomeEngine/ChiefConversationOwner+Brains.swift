@@ -34,7 +34,7 @@ extension ChiefConversationOwner {
         }
         if let harness = process["MUX_HARNESS"], !harness.isEmpty { app["harness"] = harness }
         let value: [String: Any] = ["executable": host.executable.path, "home": home.muxHome.path, "app": app]
-        guard let data = try? CheckedJSON.data(withJSONObject: value, options: [.sortedKeys]) else { return nil }
+        guard let data = try? CheckedJSON(options: [.sortedKeys]).data(value) else { return nil }
         return String(decoding: data, as: UTF8.self)
     }
 }

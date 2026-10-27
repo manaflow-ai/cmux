@@ -187,13 +187,13 @@ public struct MobileHostLaunch: Sendable, Equatable {
     }
 
     static func anyLine(_ object: [String: Any]) -> Data {
-        var data = (try? CheckedJSON.data(withJSONObject: object, options: [.sortedKeys])) ?? Data()
+        var data = (try? CheckedJSON(options: [.sortedKeys]).data(object)) ?? Data()
         data.append(0x0A)
         return data
     }
 
     static func line(_ object: [String: String]) -> Data {
-        var data = (try? CheckedJSON.data(withJSONObject: object, options: [.sortedKeys])) ?? Data()
+        var data = (try? CheckedJSON(options: [.sortedKeys]).data(object)) ?? Data()
         data.append(0x0A)
         return data
     }

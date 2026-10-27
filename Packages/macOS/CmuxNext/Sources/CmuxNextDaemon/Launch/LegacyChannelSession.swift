@@ -73,7 +73,7 @@ struct LegacyChannelSession: Sendable {
               isUntouched(session: session, in: stateDirectory) else { return false }
         let record = ["session": Self.session, "state_root": legacyRoot.path,
                       "adopted_at": ISO8601DateFormatter().string(from: Date())]
-        guard let data = try? CheckedJSON.data(withJSONObject: record, options: [.sortedKeys]) else { return false }
+        guard let data = try? CheckedJSON(options: [.sortedKeys]).data(record) else { return false }
         do {
             try FileManager.default.createDirectory(at: marker.deletingLastPathComponent(), withIntermediateDirectories: true)
             try data.write(to: marker, options: .atomic)

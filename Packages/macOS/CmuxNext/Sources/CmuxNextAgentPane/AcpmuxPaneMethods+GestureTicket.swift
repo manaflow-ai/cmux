@@ -8,7 +8,7 @@ nonisolated extension AcpmuxPaneMethods {
     static func takeGestureTicket(_ text: String) -> (text: String, ticket: String?, otherMeta: Bool) {
         guard let object = (try? JSONSerialization.blockingJSONObject(with: Data(text.utf8))) as? [String: Any] else { return (text, nil, false) }
         let (stripped, ticket, otherMeta) = takeGestureTicket(object)
-        guard ticket != nil, let data = try? CheckedJSON.data(withJSONObject: stripped, options: [.withoutEscapingSlashes]) else {
+        guard ticket != nil, let data = try? CheckedJSON(options: [.withoutEscapingSlashes]).data(stripped) else {
             return (text, ticket, otherMeta)
         }
         return (String(decoding: data, as: UTF8.self), ticket, otherMeta)

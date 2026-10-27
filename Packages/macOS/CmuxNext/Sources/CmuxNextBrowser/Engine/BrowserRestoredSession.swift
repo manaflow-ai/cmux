@@ -291,7 +291,7 @@ class BrowserRestoredSession {
 
     /// `text` as a JavaScript string literal.
     static func javaScriptString(_ text: String) -> String {
-        guard let data = try? CheckedJSON.data(withJSONObject: [text]),
+        guard let data = try? CheckedJSON().data([text]),
               let array = String(data: data, encoding: .utf8) else { return "\"\"" }
         return String(array.dropFirst().dropLast())
     }

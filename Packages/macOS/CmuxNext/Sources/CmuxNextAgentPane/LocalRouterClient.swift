@@ -63,7 +63,7 @@ public nonisolated struct LocalRouterClient: Sendable {
     /// Returns the relay's process id (nil from a relay too old to name it).
     @discardableResult
     @concurrent public func setUpstream(origin: String, bearer: String, expiresAt: UInt64, deadline: Duration = .seconds(3)) async throws -> Int? {
-        let line = try CheckedJSON.data(withJSONObject: [
+        let line = try CheckedJSON().data([
             "op": "set_upstream", "origin": origin, "bearer": bearer, "expires_at": NSNumber(value: expiresAt),
         ] as [String: Any])
         let reply = try await Self.exchange(socketPath: socketPath, line: line, deadline: deadline)
@@ -107,7 +107,7 @@ public nonisolated struct LocalRouterClient: Sendable {
 
     /// Takes the bearer back (sign-out): the relay then answers 503 until a new one.
     @concurrent public func clearUpstream(deadline: Duration = .seconds(3)) async throws {
-        let line = try CheckedJSON.data(withJSONObject: ["op": "clear_upstream"])
+        let line = try CheckedJSON().data(["op": "clear_upstream"])
         _ = try await Self.exchange(socketPath: socketPath, line: line, deadline: deadline)
     }
 

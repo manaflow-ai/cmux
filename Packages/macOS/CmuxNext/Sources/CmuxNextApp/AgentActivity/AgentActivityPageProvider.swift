@@ -70,7 +70,7 @@ final class AgentActivityPageProvider: PageProvider {
     /// The request types' Foundation graph (with `nil` optionals) as JSON: through
     /// `JSONSerialization`, which writes a missing optional as null.
     static func json(_ value: Any) -> JSONValue {
-        guard let data = try? CheckedJSON.data(withJSONObject: ["v": value]),
+        guard let data = try? CheckedJSON().data(["v": value]),
               case .object(let members)? = try? JSONValue.parse(data) else { return .null }
         return members["v"] ?? .null
     }

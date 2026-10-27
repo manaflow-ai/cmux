@@ -75,7 +75,7 @@ public nonisolated struct CEFDevToolsRawMessage {
     public static func errorReply(id: Int, sessionID: String?, text: String) -> String? {
         var reply: [String: Any] = ["id": id, "error": ["code": -32000, "message": text]]
         if let sessionID { reply["sessionId"] = sessionID }
-        guard let data = try? CheckedJSON.data(withJSONObject: reply, options: [.sortedKeys]) else { return nil }
+        guard let data = try? CheckedJSON(options: [.sortedKeys]).data(reply) else { return nil }
         return String(decoding: data, as: UTF8.self)
     }
 

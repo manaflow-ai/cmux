@@ -376,7 +376,7 @@ extension PageWebView {
             return try? await webKitPieces?.view.callAsyncJavaScript(body, arguments: arguments, contentWorld: .page)
         }
         let names = arguments.keys.sorted()
-        guard let values = try? CheckedJSON.data(withJSONObject: names.map { arguments[$0] ?? NSNull() }, options: [.fragmentsAllowed]),
+        guard let values = try? CheckedJSON(options: [.fragmentsAllowed]).data(names.map { arguments[$0] ?? NSNull() }),
               let list = String(data: values, encoding: .utf8) else { return nil }
         let expression = "(async function(\(names.joined(separator: ", "))) {\n\(body)\n}).apply(null, \(list))"
         return try? await page.evaluate(expression)

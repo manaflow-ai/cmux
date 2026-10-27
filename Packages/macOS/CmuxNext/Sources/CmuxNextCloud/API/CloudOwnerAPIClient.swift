@@ -52,7 +52,7 @@ public struct CloudOwnerAPIClient: Sendable {
     /// answers to `_acpmux/person_holds`. The caller checks the proof against its own key.
     public func acpmuxPersonHolds(_ machine: String, nonce: String) async throws -> (instance: String, proof: String) {
         struct Holds: Decodable { var instance: String; var proof: String }
-        let data = try CheckedJSON.data(withJSONObject: ["nonce": nonce])
+        let data = try CloudAPIError.requestBody(["nonce": nonce])
         let holds = try await post(machine, "person-holds", body: .data(data, "application/json"), timeout: .seconds(40), as: Holds.self)
         return (holds.instance, holds.proof)
     }
@@ -110,7 +110,7 @@ public struct CloudOwnerAPIClient: Sendable {
             throw CloudAPIError.http(status: http.statusCode, code: error?["code"] as? String, message: error?["message"] as? String)
         }
         do {
-            return try JSONDecoder().decode(T.self, from: CheckedJSON.data(withJSONObject: value))
+            return try JSONDecoder().decode(T.self, from: CheckedJSON().data(value))
         } catch {
             throw CloudAPIError.decoding("\(path): \(error)")
         }

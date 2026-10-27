@@ -86,7 +86,7 @@ nonisolated struct ChromiumPageHostWire {
 
     /// A JavaScript string literal (JSON is a subset of JavaScript).
     static func jsonString(_ value: String) -> String {
-        guard let data = try? CheckedJSON.data(withJSONObject: [value]),
+        guard let data = try? CheckedJSON().data([value]),
               let array = String(data: data, encoding: .utf8) else { return "\"\"" }
         return String(array.dropFirst().dropLast())
     }
@@ -101,7 +101,7 @@ nonisolated struct ChromiumPageHostWire {
             // or number counts too.
             let invalid = #"{"ok":false,"error":{"code":"native.invalid_reply","userMessage":"Invalid reply"}}"#
             value = JSONSerialization.isValidJSONObject([reply])
-                ? (try? CheckedJSON.data(withJSONObject: reply, options: [.fragmentsAllowed]))
+                ? (try? CheckedJSON(options: [.fragmentsAllowed]).data(reply))
                     .flatMap { String(data: $0, encoding: .utf8) } ?? invalid
                 : invalid
         } else {

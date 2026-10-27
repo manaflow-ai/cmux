@@ -18,7 +18,7 @@ final class WebKitDesignModeHandler: NSObject, WKScriptMessageHandler {
 
     func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage) {
         guard message.frameInfo.isMainFrame, JSONSerialization.isValidJSONObject(message.body),
-              let data = try? CheckedJSON.data(withJSONObject: message.body) else { return }
+              let data = try? CheckedJSON().data(message.body) else { return }
         tab?.emit(.designMode(data))
     }
 }

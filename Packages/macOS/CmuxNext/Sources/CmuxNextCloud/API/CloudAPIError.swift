@@ -1,3 +1,4 @@
+import CmuxNextCompat
 public import Foundation
 
 /// A typed `/api/vm` failure. `message` is the server's display-safe text
@@ -29,5 +30,15 @@ public enum CloudAPIError: Error, Sendable, Equatable, CustomStringConvertible {
         let message = (ui?["message"] as? String) ?? (object?["message"] as? String)
         let code = headerCode ?? (object?["error"] as? String)
         return .http(status: status, code: code, message: message)
+    }
+
+    /// `body` as a request's JSON bytes, or ``transport(_:)`` when JSON cannot hold it: the error the
+    /// request path throws for every other failure before the send.
+    static func requestBody(_ body: Any) throws(CloudAPIError) -> Data {
+        do {
+            return try CheckedJSON().data(body)
+        } catch {
+            throw .transport("the request body is not JSON (\(error))")
+        }
     }
 }

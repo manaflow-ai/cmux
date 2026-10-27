@@ -8,7 +8,7 @@ extension AcpmuxEnvironment {
     public nonisolated func hostPressure(deadline: Duration = .seconds(2)) async -> Data? {
         guard let result = try? await AcpmuxStatusClient.call(socketPath: socketPath, method: "_acpmux/status", deadline: deadline),
               let verdict = result["host_pressure"], JSONSerialization.isValidJSONObject(verdict) else { return nil }
-        return try? CheckedJSON.data(withJSONObject: verdict)
+        return try? CheckedJSON().data(verdict)
     }
 
     /// Stops a session's agent process and keeps the session to resume

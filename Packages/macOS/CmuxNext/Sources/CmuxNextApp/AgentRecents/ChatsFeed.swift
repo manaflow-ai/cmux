@@ -133,7 +133,7 @@ final class ChatsFeed {
                                      "params": ["enabled": true, "limit": limit]]
         var payload = Data()
         for request in [initialize, watch] {
-            payload += (try? CheckedJSON.data(withJSONObject: request)) ?? Data()
+            payload += (try? CheckedJSON().data(request)) ?? Data()
             payload.append(0x0A)
         }
         return payload
@@ -206,7 +206,7 @@ final class ChatsFeed {
         requestID += 1
         let request: [String: Any] = ["jsonrpc": "2.0", "id": requestID, "method": "_acpmux/chats",
                                        "params": ["limit": 5000]]
-        guard let data = try? CheckedJSON.data(withJSONObject: request) else { return }
+        guard let data = try? CheckedJSON().data(request) else { return }
         var line = data
         line.append(0x0A)
         subscription.send(line)

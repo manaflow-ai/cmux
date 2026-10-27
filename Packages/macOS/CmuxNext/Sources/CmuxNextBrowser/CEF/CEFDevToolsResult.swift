@@ -54,7 +54,7 @@ nonisolated enum CEFDevToolsResult {
 
     /// JSON text for a parameters object.
     static func params(_ object: [String: Any]) -> String {
-        guard let data = try? CheckedJSON.data(withJSONObject: object),
+        guard let data = try? CheckedJSON().data(object),
               let text = String(data: data, encoding: .utf8) else { return "{}" }
         return text
     }

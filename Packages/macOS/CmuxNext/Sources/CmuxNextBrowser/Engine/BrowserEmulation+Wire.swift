@@ -8,7 +8,7 @@ extension BrowserEmulation {
     /// it belongs to (the fit bar's commands name it).
     public init?(record json: Data?, tabID: String? = nil) {
         guard let json, let fields = (try? JSONSerialization.blockingJSONObject(with: json)) as? [String: Any] else { return nil }
-        let calls = (fields["chromium_calls"]).flatMap { try? CheckedJSON.data(withJSONObject: $0) }
+        let calls = (fields["chromium_calls"]).flatMap { try? CheckedJSON().data($0) }
         let callsJSON = calls.flatMap { String(data: $0, encoding: .utf8) } ?? "[]"
         if fields["mode"] as? String == "fit" {
             guard let fit = fields["fit"] as? [String: Any],

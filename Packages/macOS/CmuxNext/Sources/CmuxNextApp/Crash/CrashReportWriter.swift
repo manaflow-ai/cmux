@@ -46,7 +46,7 @@ nonisolated struct CrashReportWriter: Sendable {
 
     /// A report object as JSON bytes (Sendable, for the write off main).
     static func encode(_ object: [String: Any]) -> Data {
-        (try? CheckedJSON.data(withJSONObject: object, options: [.prettyPrinted, .sortedKeys])) ?? Data("{}".utf8)
+        (try? CheckedJSON(options: [.prettyPrinted, .sortedKeys]).data(object)) ?? Data("{}".utf8)
     }
 
     /// Writes `data` as `<bundle>-<name>-<timestamp>.json` and returns the

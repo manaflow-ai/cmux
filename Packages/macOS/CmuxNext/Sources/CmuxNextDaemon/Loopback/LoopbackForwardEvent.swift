@@ -61,6 +61,6 @@ enum LoopbackForwardLine {
 
     private static func line(_ object: [String: any Sendable]) -> Data {
         // Only strings and integers: serialization cannot fail.
-        (try? CheckedJSON.data(withJSONObject: object, options: [.sortedKeys])) ?? Data()
+        (try? CheckedJSON(options: [.sortedKeys]).data(object)) ?? Data()
     }
 }

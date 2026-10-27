@@ -7,10 +7,10 @@ import Testing
 /// `JSONSerialization.data(withJSONObject:)` raises (uncatchable: the app ends).
 @Suite struct CheckedJSONTests {
     @Test func requestDataWithAParamJSONCannotHoldThrows() {
-        #expect(throws: CheckedJSONError.self) {
+        #expect(throws: CheckedJSON.Failure.notAJSONObject) {
             try MobileCoreRPCClient.requestData(method: "workspace.list", params: ["since": Date()], id: "r1")
         }
-        #expect(throws: CheckedJSONError.self) {
+        #expect(throws: CheckedJSON.Failure.notAJSONObject) {
             try MobileCoreRPCClient.requestData(method: "workspace.list", params: ["ratio": Double.nan], id: "r2")
         }
     }
@@ -24,11 +24,12 @@ import Testing
     }
 
     @Test func aFragmentThrowsUnlessFragmentsAreAllowed() throws {
-        // An event whose payload is a bare string: the old write raised "Invalid top-level type".
-        #expect(throws: CheckedJSONError.invalidJSONObject(topLevelType: "String")) {
-            try CheckedJSON.data(withJSONObject: "payload")
-        }
-        let fragment = try CheckedJSON.data(withJSONObject: "payload", options: [.fragmentsAllowed])
+        #expect(throws: CheckedJSON.Failure.notAJSONObject) { try CheckedJSON().data("payload") }
+        #expect(throws: CheckedJSON.Failure.notAJSONObject) { try CheckedJSON().data(NSNull()) }
+        let fragment = try CheckedJSON(options: [.fragmentsAllowed]).data("payload")
         #expect(String(decoding: fragment, as: UTF8.self) == #""payload""#)
+        #expect(throws: CheckedJSON.Failure.notAJSONObject) {
+            try CheckedJSON(options: [.fragmentsAllowed]).data(Double.nan)
+        }
     }
 }

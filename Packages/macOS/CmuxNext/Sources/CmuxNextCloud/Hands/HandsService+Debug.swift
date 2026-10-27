@@ -47,7 +47,7 @@ extension HandsService {
             "result": Self.orNull(result),
             "log": log,
         ]
-        let data = (try? CheckedJSON.data(withJSONObject: report, options: [.sortedKeys])) ?? Data("{}".utf8)
+        let data = (try? CheckedJSON(options: [.sortedKeys]).data(report)) ?? Data("{}".utf8)
         return String(decoding: data, as: UTF8.self)
     }
 
