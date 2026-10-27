@@ -84,6 +84,64 @@ import Testing
         }
     }
 
+    /// A typing row's cell that goes back to the pool (or shows another row) leaves the probe: the
+    /// next show of the window brings no dots or breath back onto the hidden or reused cell.
+    @Test func aReusedTypingCellGetsNoLoopBackOnAShow() throws {
+        try withMotionOn {
+            HomeReduceMotion.install()
+            guard Motion.home.animatesLoops, !MessagesLabHomeView.stillsLoops else { return } // this run turned Home's motion off
+            let fake = FakeWindow()
+            let probe = HomeLoopProbe("test.home.transcript.reuse")
+            try #require(fake.window.contentView).addSubview(probe)
+            let cell = RowCell(frame: CGRect(x: 0, y: 0, width: 400, height: 40))
+            cell.loops = LabLoops(probe)
+            cell.startTypingDots(begin: CACurrentMediaTime())
+            cell.startTypingBreath(insert: CACurrentMediaTime())
+            let typing = cell.dots + cell.typingDiscs + [cell.typingContainer, cell.typingClip]
+            func running() -> [String] { typing.flatMap { ReduceMotionLoopTests.loops(under: $0) } }
+            #expect(!running().isEmpty, "the typing row does not loop in a shown window")
+
+            cell.prepareForReuse()
+            #expect(!cell.typingDotsAttached && !cell.typingBreathAttached)
+            fake.set(.occluded)
+            fake.set(.visible)
+            #expect(running().isEmpty, "a reused cell's typing loops came back with the window: \(running())")
+            #expect(probe.runningCount == 0, "the probe still runs a reused cell's loops")
+        }
+    }
+
+    /// A typing row whose loops turned still while the window showed, then back on while it was
+    /// occluded, breathes again when the window shows: the cell reads its attached state, not its
+    /// layers, which an occluded window keeps empty.
+    @Test func loopsTurnedBackOnWhileOccludedBreatheOnTheShow() throws {
+        try withMotionOn {
+            HomeReduceMotion.install()
+            guard Motion.home.animatesLoops, !MessagesLabHomeView.stillsLoops else { return } // this run turned Home's motion off
+            let stills = MessagesLabHomeView.hostStillsLoops
+            defer { MessagesLabHomeView.hostStillsLoops = stills }
+            let fake = FakeWindow()
+            let probe = HomeLoopProbe("test.home.transcript.motion")
+            try #require(fake.window.contentView).addSubview(probe)
+            let cell = RowCell(frame: CGRect(x: 0, y: 0, width: 400, height: 40))
+            cell.loops = LabLoops(probe)
+            cell.startTypingDots(begin: CACurrentMediaTime())
+            cell.startTypingBreath(insert: CACurrentMediaTime())
+            func breath() -> [String] { ReduceMotionLoopTests.loops(under: cell.typingContainer) }
+            #expect(!breath().isEmpty, "the typing row does not breathe in a shown window")
+
+            MessagesLabHomeView.hostStillsLoops = true
+            cell.applyReduceMotion()
+            #expect(cell.typingContainer.animation(forKey: "breath.transform.scale") == nil, "a still typing row breathes")
+            fake.set(.occluded)
+            MessagesLabHomeView.hostStillsLoops = false
+            cell.applyReduceMotion()
+            #expect(breath().isEmpty, "an occluded window's typing row breathes")
+            fake.set(.visible)
+            #expect(cell.typingContainer.animation(forKey: "breath.transform.scale") != nil,
+                    "the typing row does not breathe after loops came back on while its window was occluded")
+        }
+    }
+
     /// The conversation list's typing bubble pulses through the list's probe, which Home installs.
     @Test func homesListPulseComesOffWhileItsWindowIsOccluded() throws {
         try withMotionOn {

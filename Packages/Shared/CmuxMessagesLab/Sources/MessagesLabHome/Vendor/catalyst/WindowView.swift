@@ -2079,8 +2079,8 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
         if case .typing = r.spec.kind {
             if r.ghost {
                 cell.stopTypingBreath()
-            } else if cell.typingInsertedAt != r.insertedAt || cell.dots.first?.sublayers?.first?.animation(forKey: "dots") == nil
-                        || cell.needsTypingBreath {
+            } else if cell.typingInsertedAt != r.insertedAt || !cell.typingDotsAttached || cell.needsTypingBreath {
+                // cmux: the cell's attached state, not its layers: an occluded window keeps its loops off them (p14-energy-115).
                 // The dots and the breathing run from the insert's begin (layer time). This used to read a begin
                 // that the commit stored after the cell's first decorate: the dots then ran from layer time 0, so
                 // their phase was arbitrary (motion-gate harness: begin 0). A new indicator under the same key, or

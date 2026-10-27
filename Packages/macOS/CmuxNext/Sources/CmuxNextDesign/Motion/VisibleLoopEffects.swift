@@ -68,8 +68,8 @@ private struct IndeterminateSymbolLoop: ViewModifier {
 }
 
 /// A zero-size view behind the effect that puts it in the visibility tree (``ViewVisibility``) and
-/// writes its node's flips to ``Shown``.
-private struct WindowShownProbe: NSViewRepresentable {
+/// writes its node's flips to ``Shown``. Internal so tests can host it.
+struct WindowShownProbe: NSViewRepresentable {
     /// Whether the view's window shows, as its probe last saw it.
     @MainActor @Observable final class Shown {
         var isShown = false

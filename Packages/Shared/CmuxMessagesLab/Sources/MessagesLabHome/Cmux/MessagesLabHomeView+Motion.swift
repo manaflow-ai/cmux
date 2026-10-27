@@ -75,9 +75,10 @@ extension FieldTextView {
 
 extension RowCell {
     /// A typing row's dots stand still and its breath stops under Reduce Motion; after it they
-    /// run again from now.
+    /// run again from now. It reads the attached dots, not the layers: an occluded window keeps its
+    /// loops off them, and the breath must still come back when it shows (p14-energy-115).
     func applyReduceMotion() {
-        guard dots.contains(where: { $0.sublayers?.first?.animation(forKey: "dots") != nil }) else { return }
+        guard typingDotsAttached else { return }
         let now = CACurrentMediaTime()
         startTypingDots(begin: now)
         startTypingBreath(insert: now)

@@ -623,6 +623,11 @@ final class RowCell: UICollectionViewCell {
     /// configure (decorate) as `renderScale`, so a hidden or occluded window keeps no loop. A cell no window view
     /// placed (tests) runs them as attached.
     var loops = LabLoops.standalone()
+    /// cmux: the typing dots and the breath are on `loops` (p14-energy-115). A hidden or occluded host keeps them off
+    /// the layers, so decorate, refreshSnap and applyReduceMotion read these, never `animation(forKey:)`.
+    private(set) var typingDotsAttached = false, typingBreathAttached = false
+    /// cmux: the begin the attached clip waves were made from (clipTypingBody); nil while none is attached.
+    private var clipBegin: CFTimeInterval?
     /// The state this cell's typing colours were set for (configure repaints the row when `inactive` differs).
     private var appliedInactive = false
     /// The scale this cell's layers were set for (configure sets them again when `renderScale` differs).
@@ -737,6 +742,9 @@ final class RowCell: UICollectionViewCell {
     }
 
     func clearAnimations() {
+        // cmux: the typing loops leave the LoopHost, so a pooled or reused cell gets none back on a show (p14-energy-115).
+        if typingDotsAttached { stopTypingDots() }
+        if typingBreathAttached || clipBegin != nil { stopTypingBreath() }
         layer.removeAllAnimations()
         contentView.layer.removeAllAnimations()
         // fillGradient is a sublayer of fillContainer (removeAllAnimations does not recurse): a reused cell kept
@@ -1507,8 +1515,8 @@ final class RowCell: UICollectionViewCell {
 
     /// A running typing clip starts again from the current place and scale (the same wave phase).
     private func restartTypingClip() {
-        guard let c = typingClip.animation(forKey: "breath.clip.position.x") else { return }
-        clipTypingBody(Springs.typingBreathBody, about: Springs.typingBreathAnchor, begin: c.beginTime - Springs.typingBreathBody.start)
+        guard let begin = clipBegin else { return }  // cmux: the attached clip, on its layer or not (p14-energy-115)
+        clipTypingBody(Springs.typingBreathBody, about: Springs.typingBreathAnchor, begin: begin)
     }
 
     /// cmux: the outgoing gradient's colours and their locations from one
@@ -1621,11 +1629,19 @@ final class RowCell: UICollectionViewCell {
     /// Springs.typingDotsPhase), the others 0.250 / 0.252 s apart, period
     /// 1.001 s, width 0.223 / 0.224 s (ANIMATIONS.md section 6, cx-3cb typing-breath).
     func startTypingDots(begin: CFTimeInterval) {
+        typingDotsAttached = true  // cmux (p14-energy-115)
         for (i, d) in dots.enumerated() {
             guard let hi = d.sublayers?.first else { continue }
             // cmux: through the window view's LoopHost (p14-energy-115); made again each time it shows.
             loops.attach(hi, key: "dots") { Self.typingDotLoop(i, begin: begin) }
         }
+    }
+
+    /// cmux: the dots leave the window view's LoopHost (p14-energy-115): clearAnimations, before the cell is pooled
+    /// or shows another row.
+    func stopTypingDots() {
+        typingDotsAttached = false
+        for d in dots { if let hi = d.sublayers?.first { loops.detach(hi, key: "dots") } }
     }
 
     /// cmux: dot `i`'s pulse from `begin` (layer time), the make of startTypingDots' attach (p14-energy-115).
@@ -1669,6 +1685,7 @@ final class RowCell: UICollectionViewCell {
         breathe(typingContainer, "position.y", body, gain: Double(a.y - b.y), begin: insert)
         for (l, w) in zip(typingDiscs, Springs.typingBreathDiscs) { breathe(l, "transform.scale", w, gain: 1, begin: insert) }
         clipTypingBody(body, about: b, begin: insert)
+        typingBreathAttached = true  // cmux (p14-energy-115)
 #endif
     }
 
@@ -1686,6 +1703,7 @@ final class RowCell: UICollectionViewCell {
     private func clipTypingBody(_ w: Springs.Breath, about b: CGPoint, begin: CFTimeInterval) {
         guard w.amplitude > 0, w.amplitude < 1, w.period > 0 else { return }
         let r = RowDraw.typingBubble
+        clipBegin = begin  // cmux (p14-energy-115)
         clipScale = max(1, renderScale)
         clipPosition = typingContainer.position
         let s = Double(clipScale)
@@ -1770,7 +1788,7 @@ final class RowCell: UICollectionViewCell {
     var needsTypingBreath: Bool {
 #if !os(iOS) || targetEnvironment(macCatalyst)
         // cmux: no breathing under Reduce Motion or the host's still loops (cx-sya4n).
-        Springs.typingStillPhase == nil && !MessagesLabHomeView.stillsLoops && typingContainer.animation(forKey: "breath.transform.scale") == nil
+        Springs.typingStillPhase == nil && !MessagesLabHomeView.stillsLoops && !typingBreathAttached  // cmux: p14-energy-115
 #else
         false
 #endif
@@ -1782,6 +1800,8 @@ final class RowCell: UICollectionViewCell {
     /// The reply replaces the indicator: Messages shows it at rest from the arrival's first frame on
     /// (typing-unfocused-take1 +10.15 s, link-ask-instinct-take1).
     func stopTypingBreath() {
+        typingBreathAttached = false  // cmux (p14-energy-115)
+        clipBegin = nil
         for l in [typingContainer, typingClip] + typingDiscs {
             // cmux: off the window view's LoopHost too, so a show does not bring the breath back (p14-energy-115).
             for k in Self.breathKeys { loops.detach(l, key: k) }
